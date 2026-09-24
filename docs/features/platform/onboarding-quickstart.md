@@ -26,8 +26,9 @@ There are three distinct gates, evaluated in this order across a user's lifecycl
 
 ### 3. Quickstart checklist (live progress signals)
 
-- `GET /api/quickstart` (`getQuickstartSteps(userId)`, `src/db/queries/quickstart.ts`) returns `{ steps: { provider, chat, extension, agent } }` — four booleans, each a `LIMIT 1` existence probe run concurrently via `Promise.all`:
+- `GET /api/quickstart` (`getQuickstartSteps(userId)`, `src/db/queries/quickstart.ts`) returns `{ steps: { provider, usableProvider, chat, extension, agent } }` — four checklist booleans and a separate chat-readiness signal:
   - **provider** — any `settings.key LIKE 'provider:apiKey:%' OR 'provider:oauth:%'`.
+  - **usableProvider** — a configured provider or a provider with a keyless free tier. The chat banner reads this value; it is true on a fresh keyless install while `provider` stays false until someone configures a credential.
   - **chat** — any root conversation owned by the user (`userId = ? AND parentConversationId IS NULL`, i.e. excludes sub-conversations).
   - **extension** — any `extensions` row whose `name != 'builtin-tools'` (the always-present built-in tools pack is ignored).
   - **agent** — any `agentConfigs` row owned by the user.
@@ -41,7 +42,7 @@ There are three distinct gates, evaluated in this order across a user's lifecycl
 | Method & path | Auth / public | Purpose |
 |---|---|---|
 | `POST /api/auth/setup` | **public** (first-run only) | Create the first admin. Body `{name,email,password}`. `403` once any human user exists; rate-limited 3/hr/IP. Returns `201` + session cookie. |
-| `GET /api/quickstart` | `read` scope + auth | Returns `{ steps: { provider, chat, extension, agent } }` for the calling user. |
+| `GET /api/quickstart` | `read` scope + auth | Returns `{ steps: { provider, usableProvider, chat, extension, agent } }` for the calling user. |
 | `POST /api/onboarding/complete` | auth | First-write-wins stamp of `users.onboarded_at`. Returns `204`. |
 
 ### Page entry points
@@ -67,7 +68,7 @@ There are three distinct gates, evaluated in this order across a user's lifecycl
 - `web/src/routes/(auth)/onboarding/+page.svelte` — three-step welcome wizard; POSTs `/api/onboarding/complete`, then full reload.
 - `web/src/routes/api/onboarding/complete/+server.ts` — `markUserOnboarded`; returns 204.
 - `web/src/routes/api/quickstart/+server.ts` — `read`-scoped; returns `{ steps }`.
-- `src/db/queries/quickstart.ts` — `getQuickstartSteps` (four `LIMIT 1` probes) + `hasAnyProvider`.
+- `src/db/queries/quickstart.ts` — `getQuickstartSteps` (four `LIMIT 1` probes), `getProviderReadiness`, and `hasAnyProvider`.
 - `src/db/queries/users.ts` — `getUserCount` (excludes `sys-*`), `getUserById`, `createUser`, `markUserOnboarded` (first-write-wins).
 - `web/src/lib/components/QuickStartChecklist.svelte` — checklist UI; mount-fetch, `localStorage` dismiss, store fallbacks.
 - `web/src/routes/(app)/+layout.svelte` — renders the checklist in the app shell.
@@ -78,7 +79,7 @@ There are three distinct gates, evaluated in this order across a user's lifecycl
 
 - [[authentication]] — setup creates the first admin + session; the onboarding gate runs after auth resolves in `hooks.server.ts`.
 - [[api-security]] — `/api/quickstart` is `requireScope("read")` + `requireAuth`; `/api/auth/setup` is rate-limited and count-gated; the onboarding gate is pages-only so API/Bearer clients bypass.
-- [[providers-and-models]] — step 1 of the wizard embeds provider-key setup; the `provider` quickstart step probes `provider:apiKey:*`/`provider:oauth:*`; step 2 writes `provider:defaultTier`.
+- [[providers-and-models]] — step 1 of the wizard embeds provider-key setup; the `provider` quickstart step probes `provider:apiKey:*`/`provider:oauth:*`, while `usableProvider` also accepts a keyless free tier; step 2 writes `provider:defaultTier`.
 - [[settings-system]] — `instance:initialized` and `provider:defaultTier` are settings KV writes; the checklist reads provider state via the API because creds are deny-listed from the client store.
 - [[conversations]] — the `chat` quickstart step probes for a user-owned root conversation (excludes sub-conversations).
 - [[marketplace]] — the `extension` step probes the `extensions` table (ignoring `builtin-tools`); the checklist deep-links to `/marketplace`.
@@ -95,7 +96,7 @@ There are three distinct gates, evaluated in this order across a user's lifecycl
 ## Notes & gotchas
 
 - **`getUserCount()` is `sys-*`-filtered, by design.** The first-run gate means "has a human admin registered?", not "is any user row present?". Without the `NOT LIKE 'sys-%'` filter, a fresh instance with `ai-kit` (which seeds synthetic system users on boot) would read as already-set-up and route to `/login` forever. Don't "simplify" this to a bare row count.
-- **The quickstart response is nested.** It's `{ steps: { provider, chat, extension, agent } }`, **not** a flat object. The checklist reads `data.steps`; a flat read silently shows zero progress.
+- **The quickstart response is nested.** It's `{ steps: { provider, usableProvider, chat, extension, agent } }`, **not** a flat object. The checklist reads `data.steps`; a flat read silently shows zero progress.
 - **The onboarding gate is pages-only.** API routes (cookie **or** Bearer) and `/_app/` assets skip the `/onboarding` redirect entirely, so a programmatic client (e.g. an issued API key) is never bounced through the wizard. Only real page navigations are gated.
 - **Wizard completion is fail-safe, not transactional.** A network failure on `POST /api/onboarding/complete` doesn't strand the user — `markUserOnboarded` just didn't stamp, so the hook gate redirects them back to `/onboarding` next load. The "Get started" button uses a **full reload** (`window.location.href`), not `goto`, specifically so the hook re-reads the fresh `onboarded_at`.
 - **First-write-wins stamp.** `markUserOnboarded` only writes when `onboarded_at IS NULL`, so two tabs finishing the wizard concurrently can't advance the original timestamp (it returns `false` for the loser). There is no way to "re-onboard" a user short of nulling the column directly.

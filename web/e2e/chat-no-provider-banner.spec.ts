@@ -5,9 +5,8 @@ import { makeProject } from "./fixtures/data.js";
 /**
  * Verifies the chat empty-state "Connect a provider" banner — the
  * safety net for users who skipped the provider step in the onboarding
- * wizard. The banner reads /api/quickstart's provider field and is
- * intentionally non-dismissable: nagging stops only when an actual
- * provider is configured.
+ * wizard. The banner reads /api/quickstart's usableProvider field and is
+ * intentionally non-dismissable while chat has no usable provider.
  *
  * The chat page itself is exercised here (rather than the banner in
  * isolation, which the component tests cover) to lock in the wiring
@@ -64,6 +63,22 @@ test.describe("Chat empty-state — no-provider banner", () => {
 
 		// Banner must NOT appear. Wait briefly to give the empty-state
 		// time to render with provider state, then assert absence.
+		await page.waitForLoadState("networkidle");
+		await expect(page.getByTestId("no-provider-banner")).toHaveCount(0);
+	});
+
+	test("hides banner when keyless chat is ready but provider setup is incomplete", async ({ page, mockApi }) => {
+		await mockApi({
+			projects: [proj],
+			conversations: [],
+			routes: {
+				"/api/quickstart": () => ({
+					steps: { provider: false, usableProvider: true, chat: false, extension: false, agent: false },
+				}),
+			},
+		});
+
+		await page.goto("/project/proj-1/chat");
 		await page.waitForLoadState("networkidle");
 		await expect(page.getByTestId("no-provider-banner")).toHaveCount(0);
 	});
