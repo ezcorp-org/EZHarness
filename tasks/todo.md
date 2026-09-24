@@ -3712,6 +3712,39 @@ The global floor (73.88 percent), the per-file thresholds, and the origin/main n
 files that only CI's repository-wide shards or the browser receipt measure. None of those files is one this
 package changed.
 
+## W18a-3 — hook context, initPglite/loadExisting, compute-admissions order, test-path imports, main-origin leaks
+
+Branches: `wp/w18a3-quality-r2` (items 1–4) and `wp/w18a3-leaks` (item 5, on the staged origin/main merge).
+Gates: `tasks/factory/w18a3-GATES.md`. Receipts: `/tmp/factory-platform-evidence/w18a3/` and its `continue/`.
+
+- [x] Re-author the three fixture-authored commits as archy, trees unchanged (new branch; see Review).
+- [x] The hook runs staged tests without GIT_* (48da9c886); scratch repositories in gate-scripts and git-hooks use
+  no caller git context and a scratch HOME, with a guard test (d2c025a29).
+- [x] initPglite: the gap was a staged-merge artifact (G1). loadExisting: shares one wrap opener with loadOrCreate (G2).
+- [x] compute-admissions order dependence fixed on one test clock (d6914c53b, G3).
+- [x] check-boundaries: a non-test file may not import a test path (48ad53775, G4).
+- [x] Leaks: workflow-branch then symlink, and four suites then h1 or cross-tenant (2c03e3625, 17e2e8a63, G7).
+- [x] umask 077: setup-podman, dev-image-provenance, local-sandbox-startup x2 (9e14d178c, 0ae26f4b0, G8).
+- [x] podman-compose-wrapper 10 of 63 "dirty" (0ae26f4b0, G9).
+- [ ] Final gates green over the fullest lcov (G6): open until W15c fixes the pool bundle.
+
+### Review
+
+The re-author kept every tree byte-identical, but it is on the new branch `wp/w18a3-quality-r2`: moving the old
+branch ref was refused by the session's permission rules. The old head stays reachable as
+`backup/w18a3-quality-fixture-authored`.
+
+Every leak was a fixture fault, not a product fault. Two mock-lifetime rules explain the ordered leaks: a
+`$server/*` alias registration cannot reach a route that another suite linked first, and a partial `$lib/*`
+factory freezes the module's export names for the rest of the process. The umask and wrapper faults were fixture
+files whose modes followed the runner's umask or the checkout's own modes; the resolver is right to count a
+permission change as a Docker build-context change. 61 more suites still register a partial api-keys module. No
+pair in the measured matrices fails because of them today, but any of them run before a `requireAdmin` route will
+fail the same way; converting them to `webLibModule()` and adding a guard is a follow-up.
+
+At the final head, every producer except pool-coverage exits 0. pool-coverage fails on the W15 bundle defect
+(F2, owner W15c), so the CRAP gate reads 7 pool functions as uncovered. No red gate names a file this package changed.
+
 ## Product rules (coordinator)
 
 - Every startup document declares the recovery sections; an installation without them stays degraded (factory-checkpoint-barrier-held) and never reports ready.
