@@ -84,6 +84,38 @@ export class HostIncusLiveReadback {
   constructor(private readonly connections: HostConnectionResolver,
     private readonly http: PinnedFetch = verifiedHttpsRequest) {}
 
+  /** A project-wide fence check. An unknown operation is unsafe even when the
+   * named instance is absent, so callers must require this list to be empty. */
+  async activeOperations(context: LiveReadbackContext): Promise<string[]> {
+    return withSession(this.connections, policy(context), this.http, command(context), async session => {
+      const project = encodeURIComponent(session.connection.project);
+      const found = object(metadata(await session.request("GET", `/1.0/operations?project=${project}`)));
+      const paths = Object.values(found).flatMap(value => {
+        assert(Array.isArray(value) && value.every(item => typeof item === "string"),
+          "backend operation list is invalid");
+        return value as string[];
+      });
+      return paths.sort();
+    });
+  }
+
+  /** Host pool capacity, independent of a guest filesystem quota. */
+  async poolResources(context: LiveReadbackContext): Promise<{ totalBytes: number; usedBytes: number; freeBytes: number }> {
+    return withSession(this.connections, policy(context), this.http, command(context), async session => {
+      const project = encodeURIComponent(session.connection.project);
+      const pool = encodeURIComponent(context.recipe.storage.name);
+      const found = object(metadata(await session.request("GET",
+        `/1.0/storage-pools/${pool}/resources?project=${project}`)));
+      const space = object(found.space);
+      const totalBytes = space.total;
+      const usedBytes = space.used;
+      assert(typeof totalBytes === "number" && Number.isSafeInteger(totalBytes) && totalBytes > 0
+        && typeof usedBytes === "number" && Number.isSafeInteger(usedBytes)
+        && usedBytes >= 0 && usedBytes <= totalBytes, "backend pool capacity is invalid");
+      return { totalBytes, usedBytes, freeBytes: totalBytes - usedBytes };
+    });
+  }
+
   async image(context: LiveReadbackContext): Promise<LiveBackendImage> {
     const image = context.recipe.guestImage;
     assert(image?.fingerprint === context.preset.imageDigest && typeof image.alias === "string"

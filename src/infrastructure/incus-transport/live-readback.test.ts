@@ -28,7 +28,8 @@ async function context(): Promise<LiveReadbackContext> {
 }
 
 function backend(instance?: Record<string, unknown>, imageFingerprint = recipe.guestImage!.fingerprint,
-  profileDevices: unknown = recipe.profile.devices) {
+  profileDevices: unknown = recipe.profile.devices, operations: unknown = { running: [] },
+  poolResources: unknown = { space: { total: 1000, used: 200 } }) {
   const paths: string[] = [];
   const fetcher = async (url: string, init: RequestInit) => {
     expect(init.method).toBe("GET");
@@ -38,16 +39,37 @@ function backend(instance?: Record<string, unknown>, imageFingerprint = recipe.g
       type: "container", aliases: [{ name: recipe.guestImage!.alias }] });
     if (path === "/1.0/") return envelope({ api_version: "1.0", environment: {
       kernel_architecture: "x86_64", server_version: "6.0.6" } });
+    if (path.endsWith("/resources")) return envelope(poolResources);
     if (path.startsWith("/1.0/storage-pools/")) return envelope({ name: recipe.storage.name,
       driver: recipe.storage.driver });
     if (path.startsWith("/1.0/profiles/")) return envelope({ name: recipe.profile.name, devices: profileDevices });
     if (path.startsWith("/1.0/projects/")) return envelope({ name: recipe.project.name,
       config: recipe.project.config });
     if (path.startsWith("/1.0/instances/")) return instance ? envelope(instance) : envelope({}, 404);
+    if (path === "/1.0/operations") return envelope(operations);
     throw new Error(`unexpected backend route ${path}`);
   };
   return { value: new HostIncusLiveReadback({ resolveForHost: async () => connection }, fetcher as never), paths };
 }
+
+test("pinned operation inventory rejects malformed project data", async () => {
+  const selected = await context();
+  const host = backend(undefined, undefined, undefined, { running: ["/1.0/operations/a"] });
+  expect(await host.value.activeOperations(selected)).toEqual(["/1.0/operations/a"]);
+  expect(host.paths).toContain("/1.0/operations");
+  await expect(backend(undefined, undefined, undefined, { running: [null] })
+    .value.activeOperations(selected)).rejects.toThrow("operation list is invalid");
+});
+
+test("pinned host pool resources are not guest quota figures", async () => {
+  const selected = await context();
+  const host = backend();
+  expect(await host.value.poolResources(selected)).toEqual({ totalBytes: 1000, usedBytes: 200, freeBytes: 800 });
+  expect(host.paths).toContain(`/1.0/storage-pools/${recipe.storage.name}/resources`);
+  await expect(backend(undefined, undefined, undefined, undefined,
+    { space: { total: 1000, used: 1001 } }).value.poolResources(selected))
+    .rejects.toThrow("pool capacity is invalid");
+});
 
 function instanceRecord(image = recipe.guestImage!.fingerprint) {
   const preset = INCUS_PRESETS[0]!;
