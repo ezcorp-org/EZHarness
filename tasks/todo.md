@@ -948,3 +948,15 @@ Integration plan: #309 landed on main at 3b5095303. Merge that exact base into t
 Plan review: Both failures stopped after about five seconds while waiting for a startup file. The PR does not change the launcher. Wait for an observable process state instead of measuring host scheduling time; keep the test's overall timeout as the deadlock guard.
 
 Review: The helper now reads nonempty readiness content until it appears or the producer exits. One new test proves that a producer exit fails immediately. The exact lifecycle suite passed 5/5 on pinned Bun 1.3.14; Biome and full typecheck passed. The failed hosted job cannot be rerun while its workflow is active (GitHub HTTP 403), so the change needs a new CI run after push.
+
+## PR #320 watchdog sleep reason review — 2026-09-24
+
+- [x] Read the PR, runtime contract, relevant lessons, and failed hosted job.
+- [x] Reproduce the first-tick sleep failure through the watchdog and persisted error path.
+- [x] Fix first-tick detection, progress-before-tick attribution, and the code quality complexity failure.
+- [x] Run focused watchdog tests, typecheck, lint, and browser SSE/reload proof.
+- [ ] Verify the CRAP quality gate on merged coverage, then push and review hosted CI.
+
+Plan review: The hosted Per-file coverage job passed line coverage but failed the touched-function CRAP limit: tick() scored 31 over its limit of 30. The PR also missed a sleep before the first tick and progress just before a delayed tick. Keep kill thresholds unchanged. Move sleep accounting and reason text into small helpers, and prove visible and persisted wording through browser SSE and reload.
+
+Review: A new frozen-clock test failed at the original head when the host slept before the first timer callback. The fix initializes observation time on start and resets it on real progress. A tool timeout that expired during sleep also lost the sleep note; the selected tool reason now keeps precedence and gains the note. The text says sleep *may* have happened, since timer delay alone cannot prove it. Six focused suspension tests, the watchdog file suite, typecheck, lint, and six Chromium browser cases passed. Browser cases show both sleep error forms after SSE and page reload. Exact quality gate and hosted CI remain for the integrating agent.
