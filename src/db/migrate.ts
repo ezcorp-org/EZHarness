@@ -3127,4 +3127,7 @@ export async function migrate(db: MigrateDb): Promise<void> {
   await addFactoryChildArtifactAliases(db);
   const { up: addFactoryLegacyWorkflowAdapters } = await import("./migrations/add-factory-legacy-workflow-adapters");
   await addFactoryLegacyWorkflowAdapters(db);
+  // Last on purpose: the checkpoint barrier gate attaches to every factory table that exists.
+  const { up: addFactoryRecovery } = await import("./migrations/add-factory-recovery");
+  await addFactoryRecovery(db);
 }

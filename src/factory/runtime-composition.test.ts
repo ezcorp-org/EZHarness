@@ -107,6 +107,7 @@ function dependencies(overrides: Partial<FactoryRuntimeDependencies> = {}): Fact
       compute: { dispatchNext: async () => ({ status: "idle" }), pollNext: async () => ({ status: "idle" }) },
       attempts: { dispatchOne: async () => ({ kind: "idle" }) },
       projections: { projectPending: async () => ({ runs: [] }) },
+      recovery: { checkpoint: async () => "idle" },
     },
     report: () => {},
     ...overrides,
@@ -233,7 +234,7 @@ describe("startFactoryRuntime opens admission only after the probes pass", () =>
     expect(getReadiness().detail).toEqual({
       factory: {
         tenantId: "tenant-01",
-        running: ["compute-admission-dispatch", "compute-admission-poll", "attempt-dispatch", "run-projection"],
+        running: ["compute-admission-dispatch", "compute-admission-poll", "attempt-dispatch", "run-projection", "checkpoint-barrier"],
         held: [
           { role: "notification-inbox-delivery", workPackage: "W07/W08", reason: expect.any(String) },
           { role: "child-settlement", workPackage: "W06", reason: expect.any(String) },
@@ -244,6 +245,7 @@ describe("startFactoryRuntime opens admission only after the probes pass", () =>
           // An installation with no declared validator cannot accept, and readiness says why.
           { role: "validator-material-registration", workPackage: "W09d", reason: expect.stringContaining("`validators.runtimes`") },
           { role: "validator-scheduling", workPackage: "W09d", reason: expect.stringContaining("no acceptance can pass") },
+          { role: "retention-gc", workPackage: "W15", reason: expect.any(String) },
         ],
       },
     });
@@ -252,11 +254,27 @@ describe("startFactoryRuntime opens admission only after the probes pass", () =>
     expect(report.admissionOpen).toBe(true);
     expect(report.probes.every((probe) => probe.available)).toBe(true);
     expect(report.workers.map((worker) => worker.name)).toEqual([
-      "compute-admission-dispatch", "compute-admission-poll", "attempt-dispatch", "run-projection",
+      "compute-admission-dispatch", "compute-admission-poll", "attempt-dispatch", "run-projection", "checkpoint-barrier",
     ]);
     expect(report.workers.every((worker) => worker.running)).toBe(true);
     expect(report.heldWorkers.map((held) => held.role)).toContain("stop-settlement");
     expect(report.seams.every((seam) => !seam.present)).toBe(true);
+  });
+
+  test("a held checkpoint barrier opens admission but never reports ready", async () => {
+    const root = await privateRoot();
+    await writeReadyRecords(root);
+    const runtime = await start(root, {
+      workers: {
+        compute: { dispatchNext: async () => ({ status: "idle" }), pollNext: async () => ({ status: "idle" }) },
+        attempts: { dispatchOne: async () => ({ kind: "idle" }) },
+        projections: { projectPending: async () => ({ runs: [] }) },
+      },
+    });
+    // Reads are served; effect claims stay closed in the database until a barrier seals.
+    expect(runtime.report().admissionOpen).toBe(true);
+    expect(getReadiness()).toMatchObject({ state: "degraded", reason: "factory-checkpoint-barrier-held" });
+    expect((getReadiness().detail as { factory: { held: { role: string }[] } }).factory.held.map((held) => held.role)).toContain("checkpoint-barrier");
   });
 
   test("drives its registered roles against the real durable primitives", async () => {

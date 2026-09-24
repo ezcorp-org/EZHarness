@@ -5,7 +5,7 @@ import { S3BlobStore, digestBytes, s3ObjectKey, type S3BlobStoreOptions } from "
 import { FactoryReleaseError, type FactoryArchiveObject, type FactoryProviderReceipt, type FactoryReleaseArchive, type FactoryReleaseClaim, type FactoryReleaseOperation, type FactoryReleaseProvider } from "./releases";
 
 interface S3ResponseBody { transformToByteArray(): Promise<Uint8Array> }
-type ArchiveS3ClientLike = Pick<S3Client, "send">;
+export type ArchiveS3ClientLike = Pick<S3Client, "send">;
 /** The one S3 send seam every factory S3 adapter takes, so a test double replaces the client without replacing the adapter. */
 export interface S3ClientLike { send(command: unknown, options?: { readonly abortSignal?: AbortSignal }): Promise<unknown> }
 
@@ -31,40 +31,63 @@ function makeClient(options: FactoryS3ArchiveOptions): ArchiveS3ClientLike {
   return options.client ?? new S3Client({ endpoint: options.endpoint, region: options.region ?? "us-east-1", forcePathStyle: true, credentials: options.credentials, maxAttempts: 1 });
 }
 
+/**
+ * Conditional-create immutable write under one prefix, verified by checksum and
+ * object version. The release archive and the recovery archive both use it, so
+ * the independent archive has one write path.
+ */
+export async function writeFactoryArchiveImmutable(options: FactoryS3ArchiveOptions, client: ArchiveS3ClientLike, prefix: string, bytes: Uint8Array): Promise<FactoryArchiveObject> {
+  const rawDigest = await new S3BlobStore({ ...options, prefix, client }).put(bytes);
+  const key = s3ObjectKey(prefix, rawDigest);
+  const head = await client.send(new HeadObjectCommand({ Bucket: options.bucket, Key: key, ChecksumMode: "ENABLED" })) as { VersionId?: string; ChecksumSHA256?: string };
+  const expectedChecksum = createHash("sha256").update(bytes).digest("base64");
+  if (head.ChecksumSHA256 && head.ChecksumSHA256 !== expectedChecksum) throw new FactoryReleaseError("factory_release_archive_corrupt");
+  if (!head.VersionId) throw new FactoryReleaseError("factory_release_archive_version_missing");
+  return { key, digest: `sha256:${rawDigest}`, versionId: head.VersionId };
+}
+
+/** Reads one exact archived version under `root` and verifies its digest. */
+export async function readFactoryArchiveImmutable(options: FactoryS3ArchiveOptions, client: ArchiveS3ClientLike, root: string, reference: FactoryArchiveObject): Promise<Uint8Array> {
+  if (!reference.key.startsWith(`${root}/`) || !/^sha256:[a-f0-9]{64}$/.test(reference.digest)) throw new FactoryReleaseError("factory_release_archive_foreign");
+  const suffix = `/${reference.digest.slice(7)}`;
+  if (!reference.key.endsWith(suffix)) throw new FactoryReleaseError("factory_release_archive_foreign");
+  const prefix = reference.key.slice(0, -suffix.length);
+  if (!reference.versionId) throw new FactoryReleaseError("factory_release_archive_version_missing");
+  const bytes = await new S3BlobStore({ ...options, prefix, client }).getVersion(reference.digest.slice(7), reference.versionId);
+  if (sha256(bytes) !== reference.digest) throw new FactoryReleaseError("factory_release_archive_corrupt");
+  return bytes;
+}
+
+/** One archive path segment. Base64url never contains `.`, so a `.`-led segment cannot collide with one. */
+export function factoryArchiveSegment(value: string): string { return archiveSegment(value); }
+
+/** The configured archive root, normalized and validated the same way for every archive adapter. */
+export function factoryArchiveRoot(prefix: string): string {
+  const root = prefix.replace(/^\/+|\/+$/g, "");
+  s3ObjectKey(root, "0".repeat(64));
+  return root;
+}
+
 /** Conditional immutable release archive built on the shared digest-verifying S3 blob store. */
 export class S3FactoryReleaseArchive implements FactoryReleaseArchive {
   private readonly client: ArchiveS3ClientLike;
   private readonly root: string;
   constructor(private readonly options: FactoryS3ArchiveOptions) {
-    this.root = options.prefix.replace(/^\/+|\/+$/g, "");
-    s3ObjectKey(this.root, "0".repeat(64));
+    this.root = factoryArchiveRoot(options.prefix);
     this.client = makeClient(options);
   }
 
-  private store(prefix: string): S3BlobStore { return new S3BlobStore({ ...this.options, prefix, client: this.client }); }
-
   async writeImmutable(tenantId: string, operationId: string, name: "intent" | "material" | "receipt" | "reconciliation", bytes: Uint8Array): Promise<FactoryArchiveObject> {
-    const prefix = `${this.root}/${archiveSegment(tenantId)}/${archiveSegment(operationId)}/${name}`;
-    const rawDigest = await this.store(prefix).put(bytes);
-    const key = s3ObjectKey(prefix, rawDigest);
-    const head = await this.client.send(new HeadObjectCommand({ Bucket: this.options.bucket, Key: key, ChecksumMode: "ENABLED" })) as { VersionId?: string; ChecksumSHA256?: string };
-    const expectedChecksum = createHash("sha256").update(bytes).digest("base64");
-    if (head.ChecksumSHA256 && head.ChecksumSHA256 !== expectedChecksum) throw new FactoryReleaseError("factory_release_archive_corrupt");
-    if (!head.VersionId) throw new FactoryReleaseError("factory_release_archive_version_missing");
-    return { key, digest: `sha256:${rawDigest}`, versionId: head.VersionId };
+    return writeFactoryArchiveImmutable(this.options, this.client, `${this.root}/${archiveSegment(tenantId)}/${archiveSegment(operationId)}/${name}`, bytes);
   }
 
   async read(reference: FactoryArchiveObject): Promise<Uint8Array> {
-    if (!reference.key.startsWith(`${this.root}/`) || !/^sha256:[a-f0-9]{64}$/.test(reference.digest)) throw new FactoryReleaseError("factory_release_archive_foreign");
-    const suffix = `/${reference.digest.slice(7)}`;
-    if (!reference.key.endsWith(suffix)) throw new FactoryReleaseError("factory_release_archive_foreign");
-    const prefix = reference.key.slice(0, -suffix.length);
-    if (!reference.versionId) throw new FactoryReleaseError("factory_release_archive_version_missing");
-    const bytes = await this.store(prefix).getVersion(reference.digest.slice(7), reference.versionId);
-    if (sha256(bytes) !== reference.digest) throw new FactoryReleaseError("factory_release_archive_corrupt");
-    return bytes;
+    return readFactoryArchiveImmutable(this.options, this.client, this.root, reference);
   }
 }
+
+/** The one S3 client construction every archive adapter uses. */
+export function factoryArchiveClient(options: FactoryS3ArchiveOptions): ArchiveS3ClientLike { return makeClient(options); }
 
 export interface FactoryS3PublicationOptions {
   readonly endpoint: string;

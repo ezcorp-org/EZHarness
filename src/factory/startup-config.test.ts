@@ -494,3 +494,32 @@ describe("the trusted validator runtimes this installation judges claims on", ()
     expect(scalar.invalid).toEqual(["validators"]);
   });
 });
+
+describe("the recovery sections: the Temporal HTTP API and the data-key wrapping service", () => {
+  const tls = { caPath: "/run/tls/temporal-ca.pem", certificatePath: "/run/tls/temporal.pem", privateKeyPath: "/run/tls/temporal.key" };
+
+  test("the Temporal endpoint is optional, and its client TLS is all three paths or none", () => {
+    expect(parseFactoryStartupConfig(valid()).temporalHttp).toBeUndefined();
+    expect(parseFactoryStartupConfig(valid({ temporalHttp: { endpoint: "https://temporal.internal:7243" } })).temporalHttp).toEqual({ endpoint: "https://temporal.internal:7243" });
+    expect(parseFactoryStartupConfig(valid({ temporalHttp: { endpoint: "https://temporal.internal:7243", tls } })).temporalHttp?.tls).toEqual(tls);
+    expect(reject(valid({ temporalHttp: { endpoint: "https://temporal.internal:7243", tls: { caPath: tls.caPath } } })).missing).toEqual(["temporalHttp.tls.certificatePath", "temporalHttp.tls.privateKeyPath"]);
+    // TLS material for no endpoint names the endpoint as missing.
+    expect(reject(valid({ temporalHttp: { tls } })).missing).toEqual(["temporalHttp.endpoint"]);
+    expect(reject(valid({ temporalHttp: { endpoint: "ftp://temporal" } })).invalid).toEqual(["temporalHttp.endpoint"]);
+  });
+
+  test("each key-management kind carries only its own fields, by reference", () => {
+    const cloud = { kind: "cloud-kms", keyId: "arn:aws:kms:eu-west-1:111122223333:key/abc", region: "eu-west-1", credentialsPath: "/run/secrets/kms.json" };
+    const transit = { kind: "transit", endpoint: "https://vault.internal:8200", keyName: "factory-tenant-01", tokenPath: "/run/secrets/transit.token" };
+    for (const accepted of [{ kind: "operator-master-key" }, cloud, { ...cloud, endpoint: "https://kms.internal" }, transit, { ...transit, mount: "transit-2", caPath: "/run/tls/vault-ca.pem" }]) {
+      expect(parseFactoryStartupConfig(valid({ keyManagement: accepted })).keyManagement).toEqual(accepted as never);
+    }
+    for (const refused of [
+      "cloud-kms", { kind: "hsm" }, { kind: "operator-master-key", keyId: "x" },
+      { ...cloud, secretAccessKey: "inline" }, { ...cloud, endpoint: "ftp://kms" }, { ...cloud, region: "bad region" },
+      { ...transit, token: "inline" }, { ...transit, endpoint: "not a url" }, { ...transit, mount: "bad mount" }, { ...transit, caPath: "" },
+    ]) {
+      expect(reject(valid({ keyManagement: refused })).invalid).toEqual(["keyManagement"]);
+    }
+  });
+});

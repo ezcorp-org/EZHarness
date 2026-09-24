@@ -17,6 +17,7 @@ import { FACTORY_RELEASE_RESOLVE_TIMEOUT_MS, sealFactoryReleaseProfileResult } f
 import { factoryRequestedReleaseProfile, FactoryReleases, type FactoryArchiveObject, type FactoryReleaseApprovalConsent, type FactoryDestinationReservationReader, type FactoryProviderReceipt, type FactoryReleaseArchive, type FactoryReleaseAuthority, type FactoryReleaseAuthorityReader, type FactoryReleaseClaim, type FactoryReleaseMaterialReader, type FactoryReleaseOperation, type FactoryReleaseProvider, type FactoryReleaseRequest, type FactorySenderFence } from "../../factory/releases";
 import { FACTORY_BRANCH_NAMESPACE, FACTORY_BRANCH_REF_PREFIX, factoryGitBranchBinding, factoryOperationIdFromRef } from "../../factory/release-git-refs";
 import { unboundFactoryValidatorBinders } from "./factory-validator-binders";
+import { openFactoryEffectClaimsForTest } from "./factory-effect-claims";
 
 export function factoryReleaseConformance(setup: () => Promise<{ db: TransactionalDb; close: () => Promise<void> }>): void {
 const now = Date.UTC(2031, 0, 1);
@@ -167,7 +168,7 @@ beforeAll(async () => {
   const fixture = await setup();
   database = fixture.db;
   close = fixture.close;
-  const records = new FactoryRecords(database, tenantId); await records.bindInstallation();
+  const records = new FactoryRecords(database, tenantId); await records.bindInstallation(); await openFactoryEffectClaimsForTest(database, tenantId);
   await database.execute(sql`INSERT INTO projects(id,name,path) VALUES (${projectId},'Release','/tmp/release')`); await records.bindProject(projectId);
   await database.execute(sql`INSERT INTO users(id,email,password_hash,name,role) VALUES (${admin.id},'release@example.test','x','release','admin')`);
   await database.execute(sql`INSERT INTO project_members(id,project_id,user_id,role) VALUES ('release-member',${projectId},${admin.id},'owner')`);

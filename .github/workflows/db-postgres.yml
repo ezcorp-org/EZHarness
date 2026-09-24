@@ -29,6 +29,11 @@
 # archives and the separately credentialed archive service for the immutable
 # recovery set, and that job already starts both.
 #
+# W15 adds six suites to the storage step: retention, the checkpoint barrier,
+# restore, key rotation, the pool checkpoint, and WAL archiving readiness. The first four write to both
+# the ordinary and the archive service; the pool and WAL suites need only
+# PostgreSQL but ride here so every C06 recovery proof has one producer and one lcov.
+#
 # W18 also split the assurance and release producers into their own job so the
 # C11 required check `Factory assurance and release` names a real producer set
 # rather than hiding inside a bundled job. GitHub Actions cannot share one
@@ -188,6 +193,12 @@ jobs:
           ./tests/postgres/factory-task-stops.test.ts
           ./tests/postgres/factory-migration-restart.test.ts
           ./tests/postgres/factory-schema.test.ts
+          ./tests/postgres/factory-retention.test.ts
+          ./tests/postgres/factory-checkpoint.test.ts
+          ./tests/postgres/factory-restore.test.ts
+          ./tests/postgres/factory-key-rotation.test.ts
+          ./tests/postgres/factory-pool-checkpoint.test.ts
+          ./tests/postgres/factory-wal-backup.test.ts
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
