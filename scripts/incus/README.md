@@ -1,5 +1,21 @@
 # Deterministic Incus setup artifacts
 
+## Reviewed SSH gate for a dedicated setup account
+
+The current operator SSH connection runs reviewed command arrays through the `dev` account. To replace that personal key, install a separate account on the Incus host with no password login, no other SSH keys, and only the Incus rights needed for the setup plan. Bind its one public key to a root-owned forced command in `authorized_keys`. Use OpenSSH `restrict` so that port forwarding, agent forwarding, X11 forwarding, PTY, and user rc are disabled. The forced command is the root-owned `ssh-gate.py` with one root-owned policy path. The account must not have unrestricted `sudo` or any other login path. Review the host account and key before activation; this repository does not install them.
+
+First generate the fixed read-only policy. It permits the inventory commands only, so the app can make a plan through the new key before any server write is allowed:
+
+```sh
+bun scripts/incus/ssh-gate-policy.ts --read-only-bootstrap new-readonly-policy.json
+```
+
+Install this policy with the dedicated key and set `EZCORP_INCUS_SETUP_SSH_MODE=reviewed-envelope-v1`. Make a new setup plan in the isolated app. Review its exact digest, release, connection revision, and commands. An administrator then records the exact digest through `approve-gate-plan`. Only after that approval can the admin-only `gate-policy` action return an audited full policy for that saved setup ID. It checks the current approved release, connection revision, SSH mode, and a fresh inventory. It fails if the host changed enough to require a new plan. Review the policy and setup plan together, then replace the read-only policy with the reviewed full policy. The full policy permits only the exact commands in that plan. Apply also requires the recorded gate-plan approval. A release change or connection change invalidates the export.
+
+Review the exported policy, its `planDigest`, and every command before copying it to the host. Install it as a regular root-owned file with mode `0644` in a root-owned directory. Install the gate script as root-owned, non-writable code. The gate reads at most 64 KiB of request input, accepts only `ezh-incus-operator-v1` as `SSH_ORIGINAL_COMMAND`, and executes only an exact argv plus optional certificate digest from that policy. It does not run a shell. It stops a command after 55 seconds or 1 MiB of combined output and treats that outcome as unknown. The client has a 60-second limit. A new recipe, plan, connection mode, or command set requires a new reviewed policy and plan. The offline policy command emits only the read-only bootstrap policy; write policy export requires the application's recorded approval.
+
+For the offline CLI, set `"sshMode": "reviewed-envelope-v1"` in the private connection JSON. Do not switch a saved legacy plan to this mode: Apply rejects it before a server effect. Keep the old key until a new reviewed plan and the dedicated account pass end-to-end setup qualification, then revoke the old key. The old transport remains the default during this migration.
+
 ## Operator restart receipt
 
 The restart supervisor keeps its example `receiptAuthorityCommand` set to

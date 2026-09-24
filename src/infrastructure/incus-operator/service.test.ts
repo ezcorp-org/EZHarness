@@ -10,7 +10,7 @@ import { incusManifest } from "../../../extensions/incus-sandbox/manifest";
 import checkedInRecipe from "../../../scripts/incus/recipe.json";
 import imageBuildTemplate from "../../../scripts/incus/recipe.template.json";
 import type { RemoteRunner } from "../../../scripts/incus/inspect";
-import { digest, type IncusInventory, type IncusSetupRecipe } from "../../../scripts/incus/model";
+import { digest, type IncusConnection, type IncusInventory, type IncusSetupRecipe } from "../../../scripts/incus/model";
 import { up as addExtensionReleases } from "../../db/migrations/add-extension-releases";
 import { up as addProviderConnections } from "../../db/migrations/add-provider-connections";
 import { up as addIncusOperatorSetups } from "../../db/migrations/add-incus-operator-setups";
@@ -50,6 +50,7 @@ async function fixture(identityOverride?: Awaited<ReturnType<typeof issueIncusCl
   await addExtensionReleases(db);
   await addProviderConnections(db);
   await addIncusOperatorSetups(db);
+  await client.query("CREATE TABLE audit_log (id TEXT PRIMARY KEY, user_id TEXT, action TEXT, target TEXT, metadata JSONB)");
   const { snapshot } = releaseRuntimeFixture("incus-installation", incusManifest);
   snapshot.installation.generation = 2;
   snapshot.installation.acknowledgedGeneration = 2;
@@ -64,8 +65,9 @@ async function fixture(identityOverride?: Awaited<ReturnType<typeof issueIncusCl
   const calls: string[][] = [];
   let run: RemoteRunner = async () => ({ exitCode: 1, stdout: "", stderr: "connection reset" });
   let probeFails = true;
+  const bootstrapConnection: { ssh: IncusConnection; endpoint: string } = structuredClone(bootstrap);
   const connections = new ProviderConnectionStore(db);
-  const service = new IncusOperatorSetupService({ database: db, connections, bootstrap, recipe,
+  const service = new IncusOperatorSetupService({ database: db, connections, bootstrap: bootstrapConnection, recipe,
     activeRelease: async () => snapshot, inspect: async () => structuredClone(observed),
     identity: async () => identityOverride ?? ({ certificatePem: clientPem, privateKeyPem: "secret-private-key-canary", fingerprint: "b".repeat(64) }),
     runner: () => async (argv, stdin) => { calls.push([...argv]); return run(argv, stdin); },
@@ -74,7 +76,7 @@ async function fixture(identityOverride?: Awaited<ReturnType<typeof issueIncusCl
       return { jsonrpc: "2.0", id: "probe", result: { ok: true } };
     } }),
   });
-  return { directory, client, db, service, connections, snapshot, calls,
+  return { directory, client, db, service, connections, snapshot, calls, bootstrapConnection,
     setRunner(next: RemoteRunner) { run = next; },
     allowProbe() { probeFails = false; },
     observe(value: IncusInventory) { observed = value; },
@@ -89,6 +91,18 @@ test("host setup requires only host-owned bootstrap fields", () => {
     EZCORP_INCUS_SETUP_SSH_HOST_KEY_SHA256: bootstrap.ssh.sshHostKeySha256,
     EZCORP_INCUS_SETUP_ENDPOINT: bootstrap.endpoint });
   expect(loaded).toEqual(bootstrap);
+  expect(bootstrapFromEnvironment({ EZCORP_INCUS_SETUP_SSH_TARGET: bootstrap.ssh.sshTarget,
+    EZCORP_INCUS_SETUP_SSH_IDENTITY_FILE: bootstrap.ssh.sshIdentityFile,
+    EZCORP_INCUS_SETUP_SSH_KNOWN_HOSTS_FILE: bootstrap.ssh.sshKnownHostsFile,
+    EZCORP_INCUS_SETUP_SSH_HOST_KEY_SHA256: bootstrap.ssh.sshHostKeySha256,
+    EZCORP_INCUS_SETUP_SSH_MODE: "reviewed-envelope-v1",
+    EZCORP_INCUS_SETUP_ENDPOINT: bootstrap.endpoint })?.ssh.sshMode).toBe("reviewed-envelope-v1");
+  expect(() => bootstrapFromEnvironment({ EZCORP_INCUS_SETUP_SSH_TARGET: bootstrap.ssh.sshTarget,
+    EZCORP_INCUS_SETUP_SSH_IDENTITY_FILE: bootstrap.ssh.sshIdentityFile,
+    EZCORP_INCUS_SETUP_SSH_KNOWN_HOSTS_FILE: bootstrap.ssh.sshKnownHostsFile,
+    EZCORP_INCUS_SETUP_SSH_HOST_KEY_SHA256: bootstrap.ssh.sshHostKeySha256,
+    EZCORP_INCUS_SETUP_SSH_MODE: "legacy-command-v1",
+    EZCORP_INCUS_SETUP_ENDPOINT: bootstrap.endpoint })).toThrow("SSH mode is unsupported");
   expect(() => bootstrapFromEnvironment({ EZCORP_INCUS_SETUP_SSH_TARGET: bootstrap.ssh.sshTarget,
     EZCORP_INCUS_SETUP_SSH_IDENTITY_FILE: bootstrap.ssh.sshIdentityFile,
     EZCORP_INCUS_SETUP_SSH_KNOWN_HOSTS_FILE: bootstrap.ssh.sshKnownHostsFile,
@@ -157,6 +171,45 @@ test("a newer saved plan replaces the old review before any SSH effect", async (
       .rejects.toThrow("replaced by a newer plan");
     expect(value.calls).toHaveLength(0);
     expect((await value.service.latest(value.snapshot.installation.id))?.id).toBe(newPlan.id);
+  } finally { await value.close(); }
+}, 30_000);
+
+test("changing to the reviewed SSH gate invalidates a saved legacy plan before any server command", async () => {
+  const value = await fixture();
+  try {
+    const setup = await value.service.plan(value.snapshot.installation.id, "admin");
+    value.bootstrapConnection.ssh.sshMode = "reviewed-envelope-v1";
+    await expect(value.service.apply(setup.id, setup.plan.planDigest, "admin"))
+      .rejects.toThrow("SSH mode changed");
+    expect(value.calls).toHaveLength(0);
+    expect((await value.service.latest(value.snapshot.installation.id))?.state).toBe("planned");
+  } finally { await value.close(); }
+}, 30_000);
+
+test("operator exports only the exact current reviewed gate policy", async () => {
+  const value = await fixture();
+  try {
+    value.bootstrapConnection.ssh.sshMode = "reviewed-envelope-v1";
+    const current = inventory();
+    value.observe({ ...current, connection: { ...current.connection, sshMode: "reviewed-envelope-v1" } });
+    const setup = await value.service.plan(value.snapshot.installation.id, "admin");
+    await expect(value.service.gatePolicy(setup.id)).rejects.toThrow("Approve the exact reviewed");
+    await expect(value.service.apply(setup.id, setup.plan.planDigest, "admin")).rejects.toThrow("Approve the exact reviewed");
+    expect(value.calls).toHaveLength(0);
+    await expect(value.service.approveGatePlan(setup.id, "f".repeat(64), "admin")).rejects.toThrow("exact current");
+    const approved = await value.service.approveGatePlan(setup.id, setup.plan.planDigest, "admin");
+    expect(approved.approvedPlanDigest).toBe(setup.plan.planDigest);
+    expect(approved.approvedBy).toBe("admin");
+    const audit = await value.client.query<{ action: string; target: string; metadata: { planDigest: string } }>(
+      "SELECT action, target, metadata FROM audit_log WHERE target = $1", [setup.id]);
+    expect(audit.rows).toMatchObject([{ action: "incus:gate-plan-approved", target: setup.id,
+      metadata: { planDigest: setup.plan.planDigest } }]);
+    const policy = await value.service.gatePolicy(setup.id);
+    expect(policy.planDigest).toBe(setup.plan.planDigest);
+    expect(policy.commands.some(command => command.argv.includes("add-certificate") && !!command.stdinSha256)).toBe(true);
+    expect(JSON.stringify(policy)).not.toContain("secret-private-key-canary");
+    value.snapshot.installation.generation++;
+    await expect(value.service.gatePolicy(setup.id)).rejects.toThrow("provider release changed");
   } finally { await value.close(); }
 }, 30_000);
 

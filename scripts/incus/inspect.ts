@@ -5,6 +5,14 @@ import type { CommandResult, IncusConnection, IncusInventory } from "./model";
 import { SETUP_SCHEMA_VERSION, assertRecord, stringMap } from "./model";
 
 export type RemoteRunner = (argv: readonly string[], stdin?: string) => Promise<CommandResult>;
+export const SSH_GATE_COMMAND = "ezh-incus-operator-v1";
+export const SSH_GATE_MAX_REQUEST_BYTES = 64 * 1024;
+
+export function sshGateRequest(argv: readonly string[], stdin?: string): string {
+  const request = `${JSON.stringify({ version: 1, argv, ...(stdin === undefined ? {} : { stdin }) })}\n`;
+  if (Buffer.byteLength(request) > SSH_GATE_MAX_REQUEST_BYTES) throw new Error("Incus SSH gate request exceeds 64 KiB");
+  return request;
+}
 
 function quote(value: string): string { return `'${value.replaceAll("'", `'\\''`)}'`; }
 
@@ -33,7 +41,10 @@ export async function verifyKnownHostPin(connection: IncusConnection): Promise<v
 
 export function sshRunner(connection: IncusConnection): RemoteRunner {
   return async (argv, stdin) => {
-    const command = argv.map(quote).join(" ");
+    if (connection.sshMode !== undefined && connection.sshMode !== "reviewed-envelope-v1") throw new Error("Unsupported Incus SSH mode");
+    const reviewed = connection.sshMode === "reviewed-envelope-v1";
+    const request = reviewed ? sshGateRequest(argv, stdin) : stdin;
+    const command = reviewed ? SSH_GATE_COMMAND : argv.map(quote).join(" ");
     const args = [
       "-F", "/dev/null", "-i", connection.sshIdentityFile, "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
       "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=2",
@@ -68,8 +79,8 @@ export function sshRunner(connection: IncusConnection): RemoteRunner {
         resolve({ exitCode: code ?? 127, stdout: Buffer.concat(stdout).toString("utf8"),
           stderr: failed ? "SSH could not start" : Buffer.concat(stderr).toString("utf8"), ...(timedOut ? { timedOut: true } : {}) });
       });
-      if (stdin === undefined) child.stdin.end();
-      else child.stdin.end(stdin);
+      if (request === undefined) child.stdin.end();
+      else child.stdin.end(request);
     });
   };
 }
@@ -124,10 +135,7 @@ function number(value: string, label: string): number {
   return Number(value);
 }
 
-export async function inspectIncus(connection: IncusConnection, options: { capturedAt?: string; runner?: RemoteRunner } = {}): Promise<IncusInventory> {
-  if (!options.runner) await verifyKnownHostPin(connection);
-  const runner = options.runner ?? sshRunner(connection);
-  const commands = [
+export const INCUS_INVENTORY_COMMANDS: readonly (readonly string[])[] = [
     ["hostnamectl", "--static"], ["cat", "/etc/os-release"], ["uname", "-r"], ["uname", "-m"],
     ["nproc"], ["getconf", "_PHYS_PAGES"], ["getconf", "PAGESIZE"], ["df", "-B1", "--output=avail", "/"],
     ["stat", "-f", "-c", "%T", "/sys/fs/cgroup"], ["timedatectl", "show", "--property=NTPSynchronized", "--value"],
@@ -136,8 +144,18 @@ export async function inspectIncus(connection: IncusConnection, options: { captu
     ["incus", "network", "list", "--all-projects", "--format=json"], ["incus", "profile", "list", "--all-projects", "--format=json"],
     ["incus", "list", "--all-projects", "--format=json"], ["incus", "config", "trust", "list", "--format=json"], ["ip", "-j", "route", "show", "table", "all"],
     ["ip", "-j", "address", "show"], ["incus", "image", "list", "--project=default", "--format=json"],
-  ];
-  const [hostname, osRelease, kernel, architecture, cpuThreads, pages, pageSize, rootFree, cgroup, ntp, service, versions, rawServer, rawProjects, rawPools, rawNetworks, rawProfiles, rawInstances, rawTrust, rawRoutes, rawAddresses, rawImages] = await collect(runner, commands) as [string, string, string, string, string, string, string, string, string, string, string, string, string, string, string, string, string, string, string, string, string, string];
+];
+
+export function incusCapacityCommands(poolName: string): string[][] {
+  if (!/^[a-z][a-z0-9-]{0,62}$/.test(poolName)) throw new Error("Invalid reviewed Incus pool name");
+  return [["cat", "/proc/meminfo"], ["cat", "/proc/loadavg"], ["cat", "/proc/sys/kernel/threads-max"],
+    ["cat", "/proc/sys/kernel/pid_max"], ["incus", "--force-local", "query", `/1.0/storage-pools/${poolName}/resources`]];
+}
+
+export async function inspectIncus(connection: IncusConnection, options: { capturedAt?: string; runner?: RemoteRunner } = {}): Promise<IncusInventory> {
+  if (!options.runner) await verifyKnownHostPin(connection);
+  const runner = options.runner ?? sshRunner(connection);
+  const [hostname, osRelease, kernel, architecture, cpuThreads, pages, pageSize, rootFree, cgroup, ntp, service, versions, rawServer, rawProjects, rawPools, rawNetworks, rawProfiles, rawInstances, rawTrust, rawRoutes, rawAddresses, rawImages] = await collect(runner, INCUS_INVENTORY_COMMANDS.map(argv => [...argv])) as [string, string, string, string, string, string, string, string, string, string, string, string, string, string, string, string, string, string, string, string, string, string];
   const server = json(rawServer, "Incus server"); assertRecord(server, "Incus server");
   const environment = server.environment; assertRecord(environment, "Incus environment");
   const certificatePem = environment.certificate === undefined ? undefined : text(environment.certificate, "server certificate");
@@ -169,7 +187,8 @@ export async function inspectIncus(connection: IncusConnection, options: { captu
   const inventory: IncusInventory = {
     schemaVersion: SETUP_SCHEMA_VERSION,
     capturedAt: options.capturedAt ?? new Date().toISOString(),
-    connection: { sshTarget: connection.sshTarget, sshHostKeySha256: connection.sshHostKeySha256 },
+    connection: { sshTarget: connection.sshTarget, sshHostKeySha256: connection.sshHostKeySha256,
+      ...(connection.sshMode ? { sshMode: connection.sshMode } : {}) },
     host: { hostname, os: osPrettyName(osRelease), kernel, architecture, cpuThreads: number(cpuThreads, "CPU threads"), memoryBytes, rootFreeBytes: number(rootLines.at(-1) ?? "", "root free bytes"), addresses, cgroupVersion: cgroup === "cgroup2fs" ? "v2" : "other", ntpSynchronized: ntp === "yes" },
     server: {
       clientVersion, serverVersion, certificateFingerprint: text(environment.certificate_fingerprint, "server certificate fingerprint"), ...(certificatePem ? { certificatePem } : {}), apiStatus: text(server.api_status, "API status"),

@@ -1,4 +1,5 @@
 import { json } from "@sveltejs/kit";
+import { randomUUID } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { requireAdminSession } from "$server/auth/middleware";
 import { getDb } from "$server/db/connection";
@@ -7,6 +8,7 @@ import { getReleaseRuntime, resolveActiveRelease } from "$server/extensions/rele
 import { IncusOperatorSetupService, bootstrapFromEnvironment, loadReviewedIncusRecipe } from "$server/infrastructure/incus-operator/service";
 import { ProviderConnectionStore } from "$server/infrastructure/provider-connections/store";
 import { releaseRows } from "$server/db/queries/extension-releases";
+import { insertTransactionalAuditEntry } from "$server/db/queries/audit-log";
 import type { RequestHandler } from "./$types";
 
 const identifier = /^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$/;
@@ -133,20 +135,29 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   if (!body || typeof body !== "object" || Array.isArray(body)) return json({ code: "invalid_input", message: "Provide a setup action." }, { status: 400 });
   const input = body as Record<string, unknown>;
   const action = input.action;
-  const allowed = action === "plan" ? ["action", "installationId"] : action === "apply" ? ["action", "setupId", "planDigest"] : action === "probe" ? ["action", "setupId"] : [];
+  const allowed = action === "plan" ? ["action", "installationId"] : action === "apply" || action === "approve-gate-plan" ? ["action", "setupId", "planDigest"] :
+    action === "probe" || action === "gate-policy" ? ["action", "setupId"] : [];
   if (!allowed.length || Object.keys(input).sort().join(",") !== [...allowed].sort().join(",")) {
     return json({ code: "invalid_input", message: "Use only the fields for the selected setup action." }, { status: 400 });
   }
   if (action === "plan" && (typeof input.installationId !== "string" || !identifier.test(input.installationId)) ||
     action !== "plan" && (typeof input.setupId !== "string" || !identifier.test(input.setupId)) ||
-    action === "apply" && (typeof input.planDigest !== "string" || !/^[a-f0-9]{64}$/.test(input.planDigest))) {
+    (action === "apply" || action === "approve-gate-plan") && (typeof input.planDigest !== "string" || !/^[a-f0-9]{64}$/.test(input.planDigest))) {
     return json({ code: "invalid_input", message: "The setup ID or plan digest is invalid." }, { status: 400 });
   }
   try {
     const configured = await service(action === "plan");
     if (configured instanceof Response) return configured;
     if (action === "plan") return json({ setup: await configured.plan(input.installationId as string, user.id) });
+    if (action === "approve-gate-plan") return json({ setup: await configured.approveGatePlan(input.setupId as string, input.planDigest as string, user.id) });
     if (action === "apply") return json({ setup: await configured.apply(input.setupId as string, input.planDigest as string, user.id) });
+    if (action === "gate-policy") {
+      const setupId = input.setupId as string;
+      const policy = await configured.gatePolicy(setupId);
+      await insertTransactionalAuditEntry(getDb(), randomUUID(), user.id, "incus:gate-policy-exported", setupId,
+        { planDigest: policy.planDigest, commandCount: policy.commands.length });
+      return json({ policy });
+    }
     return json(await configured.probe(input.setupId as string));
   } catch (error) { return safeError(error); }
 };

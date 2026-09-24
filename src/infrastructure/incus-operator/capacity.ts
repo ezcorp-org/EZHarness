@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 import { digest, type IncusConnection, type IncusInventory, type IncusSetupPlan, type IncusSetupRecipe } from "../../../scripts/incus/model";
-import { inspectIncus, sshRunner, verifyKnownHostPin, type RemoteRunner } from "../../../scripts/incus/inspect";
+import { incusCapacityCommands, inspectIncus, sshRunner, verifyKnownHostPin, type RemoteRunner } from "../../../scripts/incus/inspect";
 import { verifySetupPlan } from "../../../scripts/incus/plan";
 import type { Database, DbTransaction } from "../../db/connection";
 import { releaseRows } from "../../db/queries/extension-releases";
@@ -102,8 +102,7 @@ export async function readCapacityObservation(connection: IncusConnection, inven
   requireValue(pool, "reviewed pool is absent");
   requireValue(/^[a-z][a-z0-9-]{0,62}$/.test(pool.name), "pool name is invalid");
   await verifyPin(connection);
-  const commands = [["cat", "/proc/meminfo"], ["cat", "/proc/loadavg"], ["cat", "/proc/sys/kernel/threads-max"],
-    ["cat", "/proc/sys/kernel/pid_max"], ["incus", "--force-local", "query", `/1.0/storage-pools/${pool.name}/resources`]];
+  const commands = incusCapacityCommands(pool.name);
   const results = await Promise.all(commands.map(argv => runner(argv)));
   for (const result of results) requireValue(result.exitCode === 0 && !result.timedOut && result.stderr.trim() === "", "protected host read failed");
   const [memText, loadText, threadsText, pidText, poolText] = results.map((result, i) => boundedOutput(result.stdout, `host read ${i}`));

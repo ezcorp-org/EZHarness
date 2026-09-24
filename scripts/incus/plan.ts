@@ -276,7 +276,8 @@ export function createSetupPlan(recipe: IncusSetupRecipe, inventory: IncusInvent
     steps.push(step("provider-client", "trust", `Trust only the scoped ${recipe.providerClient.name} certificate`, ["incus", "query", `/1.0/certificates/${recipe.providerClient.certificateFingerprint}`], desiredTrust, ["incus", "config", "trust", "add-certificate", "-", "--name", recipe.providerClient.name, "--projects", recipe.project.name, "--restricted"], recipe.providerClient.certificatePem));
   }
   const recipeDigest = digest(recipe);
-  const payload = { schemaVersion: SETUP_SCHEMA_VERSION, setupId: `${recipe.id}:${recipe.version}:${inventory.server.certificateFingerprint.slice(0, 16)}`, recipeId: recipe.id, recipeVersion: recipe.version, recipeDigest, inventoryFingerprint: inventoryFingerprint(inventory), status: blocked.length ? "blocked" as const : "ready" as const, blockedReasons: [...new Set(blocked)].sort(), steps };
+  const payload = { schemaVersion: SETUP_SCHEMA_VERSION, setupId: `${recipe.id}:${recipe.version}:${inventory.server.certificateFingerprint.slice(0, 16)}`, recipeId: recipe.id, recipeVersion: recipe.version, recipeDigest, inventoryFingerprint: inventoryFingerprint(inventory),
+    ...(inventory.connection.sshMode ? { sshMode: inventory.connection.sshMode } : {}), status: blocked.length ? "blocked" as const : "ready" as const, blockedReasons: [...new Set(blocked)].sort(), steps };
   return { ...payload, planDigest: digest(payload) };
 }
 
@@ -313,7 +314,7 @@ export function verifyImageBootstrapPlan(plan: IncusImageBootstrapPlan, recipe: 
   assertSetupPlanDigest(plan);
   const current = createImageBootstrapPlan(recipe, inventory, presets);
   const failures = [
-    ...(plan.purpose !== "image_bootstrap" || plan.status !== "ready" || typeof plan.targetPresence?.storage !== "boolean" || typeof plan.targetPresence?.network !== "boolean" || plan.recipeDigest !== current.recipeDigest || plan.baselineFingerprint !== current.baselineFingerprint || digest(plan.steps) !== digest(current.steps) ? ["bootstrap_plan_drift"] : []),
+    ...(plan.purpose !== "image_bootstrap" || plan.status !== "ready" || typeof plan.targetPresence?.storage !== "boolean" || typeof plan.targetPresence?.network !== "boolean" || plan.recipeDigest !== current.recipeDigest || plan.sshMode !== current.sshMode || plan.baselineFingerprint !== current.baselineFingerprint || digest(plan.steps) !== digest(current.steps) ? ["bootstrap_plan_drift"] : []),
     ...current.blockedReasons,
     ...current.steps.filter(step => step.resource === "storage" ? !inventory.storagePools.some(pool => isSubset(step.inspect.expected, pool)) : !inventory.networks.some(network => isSubset(step.inspect.expected, network))).map(step => `unverified:${step.id}`),
   ];
@@ -329,6 +330,7 @@ export function createImageBootstrapPlan(recipe: IncusSetupRecipe, inventory: In
   const payload = {
     schemaVersion: SETUP_SCHEMA_VERSION, setupId: setup.setupId, recipeId: setup.recipeId, recipeVersion: setup.recipeVersion,
     recipeDigest: setup.recipeDigest, inventoryFingerprint: setup.inventoryFingerprint,
+    ...(setup.sshMode ? { sshMode: setup.sshMode } : {}),
     status: blockedReasons.length ? "blocked" as const : "ready" as const, blockedReasons, steps,
     purpose: "image_bootstrap" as const, baselineFingerprint: bootstrapBaselineFingerprint(recipe, inventory),
     targetPresence: {
@@ -343,6 +345,7 @@ export function verifySetupPlan(plan: IncusSetupPlan, recipe: IncusSetupRecipe, 
   assertSetupPlanDigest(plan);
   const regenerated = createSetupPlan(recipe, inventory, presets);
   const failures: string[] = [];
+  if (plan.sshMode !== inventory.connection.sshMode) failures.push("ssh_mode_changed");
   if (plan.recipeDigest !== digest(recipe)) failures.push("recipe_digest_changed");
   if (plan.status !== "ready") failures.push(...plan.blockedReasons.map(reason => `plan_blocked:${reason}`));
   if (regenerated.status !== "ready") failures.push(...regenerated.blockedReasons.map(reason => `current_state:${reason}`));

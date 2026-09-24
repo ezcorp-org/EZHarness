@@ -1757,3 +1757,17 @@ before an installation review.
 ### Review
 
 The pushed head `94a2fd43f` passed the repository pre-push lint, typecheck, and Svelte checks. The scoped SSH gate and AMD service module are still under independent review. No dedicated app UID, server setup gate, or EZHarness-owned guest is live yet.
+## Dedicated Incus SSH command gate — 2026-09-24
+
+- [x] Trace setup, inventory, and capacity command shapes.
+- [x] Add an opt-in fixed SSH command with a bounded JSON request envelope.
+- [x] Bind SSH mode and exact commands to a reviewed plan and server policy.
+- [x] Require a durable, audited exact-plan approval before exporting write authority or running Apply in gate mode.
+- [x] Add a root-owned forced-command gate with exact argv/input checks and bounded execution.
+- [x] Reject shell, scp, cross-project, privileged, and unreviewed settings in tests.
+- [ ] Install the dedicated account, key, gate, and reviewed policy on the server after operator review.
+- [ ] Qualify the new path with the isolated app, then revoke the old key.
+
+### Review
+
+The gate runs approved commands directly without a shell. It starts with a fixed read-only policy; an administrator must approve the exact saved plan digest before the route exports any write policy or Apply starts. Approval and export audit the digest. Release, connection, mode, and live inventory checks bind the export to current state. Six Python negative tests, 46 focused Bun tests, 11 route tests, repository typecheck, focused Biome check, and the production build passed. The old SSH transport stays active until a separate server change is reviewed and tested; no live host or app setting changed in this worktree.

@@ -10,12 +10,14 @@ export interface IncusConnection {
   sshIdentityFile: string;
   sshKnownHostsFile: string;
   sshHostKeySha256: string;
+  /** Opt in only after the dedicated account and reviewed server policy are installed. */
+  sshMode?: "reviewed-envelope-v1";
 }
 
 export interface IncusInventory {
   schemaVersion: typeof SETUP_SCHEMA_VERSION;
   capturedAt: string;
-  connection: Pick<IncusConnection, "sshTarget" | "sshHostKeySha256">;
+  connection: Pick<IncusConnection, "sshTarget" | "sshHostKeySha256" | "sshMode">;
   host: {
     hostname: string;
     os: string;
@@ -107,6 +109,7 @@ export interface IncusSetupPlan {
   recipeVersion: string;
   recipeDigest: string;
   inventoryFingerprint: string;
+  sshMode?: "reviewed-envelope-v1";
   status: "ready" | "blocked";
   blockedReasons: string[];
   steps: SetupStep[];

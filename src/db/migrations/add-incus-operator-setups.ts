@@ -12,6 +12,9 @@ export async function up(db: MigrationDb): Promise<void> {
     connection_id TEXT NOT NULL REFERENCES provider_connections(id),
     connection_revision INTEGER NOT NULL,
     planned_by TEXT NOT NULL,
+    approved_plan_digest TEXT,
+    approved_by TEXT,
+    approved_at TIMESTAMPTZ,
     applied_by TEXT,
     apply_token TEXT,
     recipe JSONB NOT NULL,
@@ -23,6 +26,9 @@ export async function up(db: MigrationDb): Promise<void> {
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`);
   await db.execute(sql`ALTER TABLE incus_operator_setups ADD COLUMN IF NOT EXISTS applied_by TEXT`);
+  await db.execute(sql`ALTER TABLE incus_operator_setups ADD COLUMN IF NOT EXISTS approved_plan_digest TEXT`);
+  await db.execute(sql`ALTER TABLE incus_operator_setups ADD COLUMN IF NOT EXISTS approved_by TEXT`);
+  await db.execute(sql`ALTER TABLE incus_operator_setups ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ`);
   await db.execute(sql`ALTER TABLE incus_operator_setups ADD COLUMN IF NOT EXISTS apply_token TEXT`);
   await db.execute(sql`ALTER TABLE incus_operator_setups ADD COLUMN IF NOT EXISTS capacity_receipt JSONB`);
   await db.execute(sql`ALTER TABLE incus_operator_setups ADD COLUMN IF NOT EXISTS capacity_applied_by TEXT`);

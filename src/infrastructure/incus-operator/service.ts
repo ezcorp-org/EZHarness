@@ -10,6 +10,8 @@ import { inspectIncus, sshRunner, type RemoteRunner } from "../../../scripts/inc
 import type { ApplyReceipt, IncusConnection, IncusInventory, IncusSetupPlan, IncusSetupRecipe } from "../../../scripts/incus/model";
 import { assertSetupPlanDigest, digest } from "../../../scripts/incus/model";
 import { createSetupPlan, validateRecipe, verifySetupPlan } from "../../../scripts/incus/plan";
+import { createSshGatePolicy, type SshGatePolicy } from "../../../scripts/incus/ssh-gate-policy";
+import { insertTransactionalAuditEntry } from "../../db/queries/audit-log";
 import { releaseRows, type ReleaseDatabase } from "../../db/queries/extension-releases";
 import { ReleaseProcess, type ActiveExtensionRelease } from "../../extensions/release-process";
 import type { ProviderConnectionStore } from "../provider-connections/store";
@@ -28,6 +30,9 @@ interface SetupRow {
   connectionId: string;
   connectionRevision: number;
   plannedBy: string;
+  approvedPlanDigest: string | null;
+  approvedBy: string | null;
+  approvedAt: Date | null;
   appliedBy: string | null;
   applyToken: string | null;
   recipe: IncusSetupRecipe;
@@ -39,7 +44,7 @@ interface SetupRow {
   updatedAt: Date;
 }
 
-export type PublicSetup = Pick<SetupRow, "id" | "providerInstallationId" | "providerReleaseId" | "providerReleaseDigest" | "providerGeneration" | "connectionId" | "connectionRevision" | "plannedBy" | "appliedBy" | "plan" | "state" | "receipt" | "failures" | "createdAt" | "updatedAt">;
+export type PublicSetup = Pick<SetupRow, "id" | "providerInstallationId" | "providerReleaseId" | "providerReleaseDigest" | "providerGeneration" | "connectionId" | "connectionRevision" | "plannedBy" | "approvedPlanDigest" | "approvedBy" | "approvedAt" | "appliedBy" | "plan" | "state" | "receipt" | "failures" | "createdAt" | "updatedAt">;
 
 export interface IncusOperatorBootstrap {
   ssh: IncusConnection;
@@ -60,7 +65,9 @@ interface SetupDependencies {
 
 const columns = sql`id, provider_installation_id AS "providerInstallationId", provider_release_id AS "providerReleaseId",
   provider_release_digest AS "providerReleaseDigest", provider_generation AS "providerGeneration",
-  connection_id AS "connectionId", connection_revision AS "connectionRevision", planned_by AS "plannedBy", applied_by AS "appliedBy", apply_token AS "applyToken",
+  connection_id AS "connectionId", connection_revision AS "connectionRevision", planned_by AS "plannedBy",
+  approved_plan_digest AS "approvedPlanDigest", approved_by AS "approvedBy", approved_at AS "approvedAt",
+  applied_by AS "appliedBy", apply_token AS "applyToken",
   recipe, plan, state, receipt, failures, created_at AS "createdAt", updated_at AS "updatedAt"`;
 
 function publicSetup(row: SetupRow): PublicSetup {
@@ -95,15 +102,18 @@ export function bootstrapFromEnvironment(env: NodeJS.ProcessEnv = process.env): 
   const identity = env.EZCORP_INCUS_SETUP_SSH_IDENTITY_FILE;
   const knownHosts = env.EZCORP_INCUS_SETUP_SSH_KNOWN_HOSTS_FILE;
   const hostKey = env.EZCORP_INCUS_SETUP_SSH_HOST_KEY_SHA256;
+  const sshMode = env.EZCORP_INCUS_SETUP_SSH_MODE;
   const endpoint = env.EZCORP_INCUS_SETUP_ENDPOINT;
   if (![target, identity, knownHosts, hostKey, endpoint].every(Boolean)) return null;
+  if (sshMode !== undefined && sshMode !== "reviewed-envelope-v1") throw new Error("Incus setup SSH mode is unsupported");
   let url: URL;
   try { url = new URL(endpoint!); }
   catch { throw new Error("Incus setup endpoint must be a bare HTTPS origin"); }
   if (url.protocol !== "https:" || url.username || url.password || url.pathname !== "/" || url.search || url.hash) {
     throw new Error("Incus setup endpoint must be a bare HTTPS origin");
   }
-  return { ssh: { sshTarget: target!, sshIdentityFile: identity!, sshKnownHostsFile: knownHosts!, sshHostKeySha256: hostKey! }, endpoint: url.origin };
+  return { ssh: { sshTarget: target!, sshIdentityFile: identity!, sshKnownHostsFile: knownHosts!, sshHostKeySha256: hostKey!,
+    ...(sshMode ? { sshMode } : {}) }, endpoint: url.origin };
 }
 
 /** The engine reads one operator-owned recipe; its saved plan pins the exact bytes used for Apply. */
@@ -239,6 +249,50 @@ export class IncusOperatorSetupService {
     return publicSetup(await this.row(id));
   }
 
+  /** Operator review artifact. Never includes the client private key. */
+  async gatePolicy(id: string): Promise<SshGatePolicy> {
+    const row = await this.row(id);
+    if (row.state !== "planned" || row.plan.sshMode !== "reviewed-envelope-v1" ||
+      row.approvedPlanDigest !== row.plan.planDigest || !row.approvedBy) {
+      throw new Error("Approve the exact reviewed SSH gate setup plan before exporting write authority");
+    }
+    const snapshot = await this.deps.activeRelease(row.providerInstallationId);
+    assertSnapshot(row, snapshot);
+    await this.deps.connections.resolveForHost({ connectionId: row.connectionId,
+      providerInstallationId: row.providerInstallationId, providerReleaseId: row.providerReleaseId,
+      revision: row.connectionRevision });
+    if (this.deps.bootstrap.ssh.sshMode !== row.plan.sshMode) throw new Error("SSH mode changed. Make a new reviewed setup plan.");
+    const current = await (this.deps.inspect ?? inspectIncus)(this.deps.bootstrap.ssh);
+    return createSshGatePolicy(row.recipe, current, row.plan, incusPresets(snapshot));
+  }
+
+  async approveGatePlan(id: string, planDigest: string, principalId: string): Promise<PublicSetup> {
+    const row = await this.row(id);
+    assertSetupPlanDigest(row.plan);
+    if (row.state !== "planned" || row.plan.status !== "ready" || row.plan.sshMode !== "reviewed-envelope-v1" ||
+      row.plan.planDigest !== planDigest || this.deps.bootstrap.ssh.sshMode !== row.plan.sshMode) {
+      throw new Error("Approve the exact current reviewed SSH gate setup plan");
+    }
+    const snapshot = await this.deps.activeRelease(row.providerInstallationId);
+    assertSnapshot(row, snapshot);
+    await this.deps.connections.resolveForHost({ connectionId: row.connectionId,
+      providerInstallationId: row.providerInstallationId, providerReleaseId: row.providerReleaseId,
+      revision: row.connectionRevision });
+    await this.deps.database.transaction(async transaction => {
+      const approved = releaseRows(await transaction.execute(sql`UPDATE incus_operator_setups
+        SET approved_plan_digest = ${planDigest}, approved_by = ${principalId}, approved_at = NOW(), updated_at = NOW()
+        WHERE id = ${id} AND state = 'planned' AND approved_plan_digest IS NULL
+          AND id = (SELECT id FROM incus_operator_setups WHERE provider_installation_id = ${row.providerInstallationId}
+            ORDER BY created_at DESC, id DESC LIMIT 1) RETURNING id`));
+      if (approved.length !== 1) throw new Error("The setup approval is stale or already recorded");
+      await insertTransactionalAuditEntry(transaction, `incus-gate-approval:${id}:${planDigest}`, principalId,
+        "incus:gate-plan-approved", id, { planDigest, releaseId: row.providerReleaseId,
+          releaseDigest: row.providerReleaseDigest, generation: row.providerGeneration,
+          connectionId: row.connectionId, connectionRevision: row.connectionRevision });
+    });
+    return publicSetup(await this.row(id));
+  }
+
   async apply(id: string, approvedPlanDigest: string, principalId: string): Promise<PublicSetup> {
     const initial = await this.row(id);
     await this.recoverInterrupted(initial.providerInstallationId);
@@ -246,6 +300,10 @@ export class IncusOperatorSetupService {
     assertSetupPlanDigest(row.plan);
     if (row.plan.planDigest !== approvedPlanDigest || row.state === "blocked") {
       throw new Error("The exact ready plan digest must be approved");
+    }
+    if (row.plan.sshMode !== this.deps.bootstrap.ssh.sshMode) throw new Error("SSH mode changed. Make a new reviewed setup plan.");
+    if (row.plan.sshMode === "reviewed-envelope-v1" && (row.approvedPlanDigest !== approvedPlanDigest || !row.approvedBy)) {
+      throw new Error("Approve the exact reviewed SSH gate setup plan before Apply");
     }
     const snapshot = await this.deps.activeRelease(row.providerInstallationId);
     assertSnapshot(row, snapshot);

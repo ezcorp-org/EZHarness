@@ -8,7 +8,8 @@ import checkedInRecipe from "./recipe.json";
 import imageBuildTemplate from "./recipe.template.json";
 import { digest, type IncusInventory, type IncusSetupPlan, type IncusSetupRecipe } from "./model";
 import { applyImageBootstrapPlan, applySetupPlan, classifyApplyResult, inspectStep } from "./apply";
-import { inspectIncus, verifyKnownHostPin } from "./inspect";
+import { inspectIncus, sshGateRequest, verifyKnownHostPin } from "./inspect";
+import { createReadOnlySshGatePolicy, createSshGatePolicy } from "./ssh-gate-policy";
 import { createImageBootstrapPlan, createSetupPlan, validateRecipe, verifyImageBootstrapPlan, verifySetupPlan } from "./plan";
 import { guestHelperSha256 } from "../../src/infrastructure/incus-guest/protocol";
 
@@ -71,6 +72,31 @@ function bootstrapInventory(overrides: Partial<IncusInventory> = {}): IncusInven
     ...overrides,
   });
 }
+
+describe("reviewed Incus SSH gate", () => {
+  test("the bootstrap policy has only fixed inventory reads", () => {
+    const policy = createReadOnlySshGatePolicy();
+    expect(policy.commands.length).toBeGreaterThan(15);
+    expect(policy.commands.every(command => command.stdinSha256 === undefined)).toBe(true);
+    expect(policy.commands.some(command => command.argv.includes("create") || command.argv.includes("set") || command.argv.includes("add-certificate"))).toBe(false);
+  });
+  test("binds the exact bootstrap plan to the transport and reviewed commands", async () => {
+    const reviewed = checkedInRecipe as IncusSetupRecipe;
+    const current = bootstrapInventory({ connection: { ...bootstrapInventory().connection, sshMode: "reviewed-envelope-v1" } });
+    const plan = createImageBootstrapPlan(reviewed, current);
+    const policy = createSshGatePolicy(reviewed, current, plan);
+    expect(policy.planDigest).toBe(plan.planDigest);
+    expect(policy.commands.some(command => command.argv.join(" ") === `incus storage create ${reviewed.storage.name} ${reviewed.storage.driver} size=${reviewed.storage.size} volume.size=${reviewed.storage.defaultVolumeSize}`)).toBe(true);
+    expect(policy.commands.some(command => command.argv.includes("delete"))).toBe(false);
+    expect(() => createSshGatePolicy(reviewed, { ...current, connection: { ...current.connection, sshMode: undefined } }, plan)).toThrow("ready reviewed SSH gate plan");
+    expect(() => createSshGatePolicy({ ...reviewed, storage: { ...reviewed.storage, name: "other" } }, current, plan)).toThrow();
+    const legacy = createImageBootstrapPlan(reviewed, bootstrapInventory());
+    await expect(applyImageBootstrapPlan(legacy, async () => result(1), { preflightPlan: plan })).rejects.toThrow("SSH mode changed");
+    expect(verifyImageBootstrapPlan(plan, reviewed, bootstrapInventory())).toContain("bootstrap_plan_drift");
+    expect(JSON.parse(sshGateRequest(["incus", "query", "/1.0"]))).toEqual({ version: 1, argv: ["incus", "query", "/1.0"] });
+    expect(() => sshGateRequest(["incus", "query", "/1.0"], "x".repeat(64 * 1024))).toThrow("64 KiB");
+  });
+});
 
 describe("Incus image bootstrap", () => {
   test("plans only the pinned pool and bridge while full setup stays blocked", async () => {

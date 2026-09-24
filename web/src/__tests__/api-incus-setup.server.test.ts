@@ -1,6 +1,7 @@
 import { beforeEach, expect, test, vi } from "vitest";
 
 const calls: string[] = [];
+const auditCalls: Array<{ action: string; target: string; metadata: Record<string, unknown> }> = [];
 const activeReleaseCalls: Promise<unknown>[] = [];
 let hasBootstrap = true;
 let recipeFailure: Error | null = null;
@@ -24,6 +25,8 @@ vi.mock("$server/infrastructure/incus-operator/service", () => ({
 		async latest(id: string) { calls.push(`latest:${id}`); if (failure) throw failure; return { id }; }
 		async plan(id: string, user: string) { calls.push(`plan:${id}:${user}`); if (failure) throw failure; return { id: "setup-a" }; }
 		async apply(id: string, digest: string, user: string) { calls.push(`apply:${id}:${digest}:${user}`); if (failure) throw failure; return { id }; }
+		async approveGatePlan(id: string, digest: string, user: string) { calls.push(`approve-gate-plan:${id}:${digest}:${user}`); if (failure) throw failure; return { id, approvedPlanDigest: digest }; }
+		async gatePolicy(id: string) { calls.push(`gate-policy:${id}`); if (failure) throw failure; return { version: 1, planDigest: "a".repeat(64), commands: [{ argv: ["incus", "query", "/1.0"] }] }; }
 		async probe(id: string) { calls.push(`probe:${id}`); if (failure) throw failure; return { ready: true }; }
 	},
 }));
@@ -35,6 +38,8 @@ vi.mock("$server/db/connection", () => ({ getDb: () => ({ execute: async () => {
 		: [{ id: "active-a", releaseId: "old", generation: 1 }, { id: "inactive", releaseId: "old", generation: 2 }];
 } }) }));
 vi.mock("$server/db/queries/extension-releases", () => ({ releaseRows: (rows: unknown) => rows }));
+vi.mock("$server/db/queries/audit-log", () => ({ insertTransactionalAuditEntry: async (_db: unknown, _id: string, _user: string,
+	action: string, target: string, metadata: Record<string, unknown>) => { auditCalls.push({ action, target, metadata }); } }));
 vi.mock("$server/extensions/release-process", () => ({
 	getReleaseRuntime: () => ({}),
 	resolveActiveRelease: async (id: string) => {
@@ -56,7 +61,7 @@ function postEvent(body: unknown, locals: Record<string, unknown> = admin): Para
 }
 
 beforeEach(() => {
-	calls.length = 0; activeReleaseCalls.length = 0; recipePaths.length = 0; serviceRecipes.length = 0;
+	calls.length = 0; auditCalls.length = 0; activeReleaseCalls.length = 0; recipePaths.length = 0; serviceRecipes.length = 0;
 	hasBootstrap = true; recipeFailure = null; failure = null; queryCount = 0;
 	process.env.EZCORP_INCUS_SETUP_RECIPE_FILE = "/host/reviewed-recipe.json";
 });
@@ -137,6 +142,21 @@ test("reads a saved plan and dispatches plan, apply, and probe with the admin ID
 	expect(calls).toContain("probe:setup-a");
 	expect((await Promise.all(activeReleaseCalls)).length).toBe(4);
 	expect(calls).toContain("release:provider");
+});
+
+test("exports an exact gate policy only to an admin and audits its digest", async () => {
+	const denied = await POST(postEvent({ action: "gate-policy", setupId: "setup-a" }, { user: { id: "member", role: "member" }, authMethod: "session" }));
+	expect(denied.status).toBe(403);
+	expect(calls).toEqual([]);
+	const approved = await POST(postEvent({ action: "approve-gate-plan", setupId: "setup-a", planDigest: "a".repeat(64) }));
+	expect(await approved.json()).toEqual({ setup: { id: "setup-a", approvedPlanDigest: "a".repeat(64) } });
+	expect(calls).toContain(`approve-gate-plan:setup-a:${"a".repeat(64)}:admin`);
+	const response = await POST(postEvent({ action: "gate-policy", setupId: "setup-a" }));
+	expect(response.status).toBe(200);
+	expect(await response.json()).toMatchObject({ policy: { planDigest: "a".repeat(64) } });
+	expect(calls).toContain("gate-policy:setup-a");
+	expect(auditCalls).toEqual([{ action: "incus:gate-policy-exported", target: "setup-a",
+		metadata: { planDigest: "a".repeat(64), commandCount: 1 } }]);
 });
 
 test("returns safe known and unknown errors from GET and POST", async () => {

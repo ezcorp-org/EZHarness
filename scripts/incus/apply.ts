@@ -50,6 +50,7 @@ export async function applyImageBootstrapPlan(plan: IncusImageBootstrapPlan, run
   if (plan.purpose !== "image_bootstrap" || options.preflightPlan.purpose !== "image_bootstrap") throw new Error("image bootstrap purpose is required");
   assertSetupPlanDigest(plan);
   assertSetupPlanDigest(options.preflightPlan);
+  if (plan.sshMode !== options.preflightPlan.sshMode) throw new Error("SSH mode changed; make a new reviewed plan");
   if (plan.baselineFingerprint !== options.preflightPlan.baselineFingerprint || digest(plan.steps) !== digest(options.preflightPlan.steps)) {
     return { schemaVersion: SETUP_SCHEMA_VERSION, planDigest: plan.planDigest, dryRun: !options.execute, state: "blocked", blockedReasons: ["bootstrap_preflight_drift"], steps: [] };
   }
@@ -67,6 +68,7 @@ async function applyPlan(plan: IncusSetupPlan, runner: RemoteRunner, options: { 
   if (options.preflightPlan) {
     assertSetupPlanDigest(options.preflightPlan);
     if (options.preflightPlan.recipeDigest !== plan.recipeDigest || options.preflightPlan.setupId !== plan.setupId) throw new Error("current preflight does not match the approved setup");
+    if (options.preflightPlan.sshMode !== plan.sshMode) throw new Error("SSH mode changed; make a new reviewed plan");
   }
   const blockedReasons = [...new Set([...plan.blockedReasons, ...(options.preflightPlan?.blockedReasons ?? [])])].sort();
   if (plan.status !== "ready" || options.preflightPlan?.status === "blocked") return { schemaVersion: SETUP_SCHEMA_VERSION, planDigest: plan.planDigest, dryRun: !options.execute, state: "blocked", blockedReasons, steps: [] };
