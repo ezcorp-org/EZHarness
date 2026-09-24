@@ -12,7 +12,7 @@ import { createFactoryWorker } from "../src/worker.ts";
 import { Context } from "@temporalio/activity";
 import { canonicalizeJson, compileFactory, createCompiledExecutionManifest, createCompiledPartitionArtifact, FACTORY_LAZY_INPUT_SCHEMA_VERSION } from "@ezcorp/factory-sdk";
 import { encodeFactoryPageBase64 } from "@ezcorp/factory-sdk/page-bytes";
-import { advanceKernel, createKernelState, factoryCommandFailedEvent } from "@ezcorp/factory-sdk/kernel";
+import { advanceKernel, createKernelState, factoryAdmissionRefusedEvent, factoryCommandFailedEvent } from "@ezcorp/factory-sdk/kernel";
 import type { KernelState } from "@ezcorp/factory-sdk/kernel-types";
 import { factoryWorkflowId, type FactoryWorkflowResult } from "../src/contracts.ts";
 import { deliverFactoryCommand, reconcileFactoryCommand } from "../src/dispatcher.ts";
@@ -443,6 +443,86 @@ describe("factory Temporal workflow", () => {
     });
   });
 
+  it("completes a Release node once from the product's release-outcome event, and ignores its replay", async () => {
+    const startedAtMs = Math.trunc(await environment.currentTimeMs());
+    // A protected validator may not share the generator's package once a definition publishes.
+    const validator = { package: "inert-validator", manifestName: "inert-validator", version: "1", digest: hash("inert-validator"), export: "validate" };
+    const record = { type: "object", additionalProperties: true };
+    const releaseFactory = compileDefinition({
+      schemaVersion: "factory.v1", id: "release-outcome", version: "1", interpreterCompatibility: "1",
+      inputPorts: {}, outputPorts: { receipt: record },
+      graph: {
+        nodes: [
+          { ...node, id: "candidate", outputPorts: { candidate: record }, effects: ["write"] },
+          { id: "accept", kind: "acceptance", dependsOn: ["candidate"], contract: "test-acceptance", candidate: { kind: "ref", root: "node", name: "candidate", path: ["candidate"] }, evidence: { kind: "literal", value: [] }, outputPorts: { acceptedCandidate: record } },
+          { id: "release", kind: "release", dependsOn: ["accept"], adapter: { ...runner, export: "publish" }, acceptedCandidate: { kind: "ref", root: "node", name: "accept", path: ["acceptedCandidate"] }, destination: { kind: "literal", value: { provider: "s3", account: "tenant", object: "releases/one" } }, effects: ["publish"], outputPorts: { receipt: record } },
+          // Holds the run open after the release, so a replayed outcome reaches a live workflow.
+          { id: "hold", kind: "approval", choices: ["approve"], context: { kind: "literal", value: null }, actorScope: "owner", expiresInMs: 60_000, onDenied: "fail", onExpired: "fail" },
+        ],
+        outputs: { receipt: { kind: "ref", root: "node", name: "release", path: ["receipt"] } },
+      },
+      acceptance: { id: "test-acceptance", version: "1", claims: [{ id: "test", validator, required: true, protected: true }], groups: [] },
+      packages: [{ name: runner.package, version: runner.version, digest: runner.digest }, { name: validator.package, version: validator.version, digest: validator.digest }],
+      capabilities: [], effects: ["none", "write", "publish"], bounds: { maxExpandedNodes: 100, maxScopeDepth: 16, runDeadlineMs: 600_000 },
+    });
+    const releaseCommands = [];
+    let approvalCommandId = "";
+    let prepared = () => undefined;
+    const releasePrepared = new Promise<void>(resolve => { prepared = resolve; });
+    const activities = {
+      ...definitionActivities(releaseFactory),
+      recordTransition: async () => undefined,
+      executeCommand: async ({ command }) => {
+        if (command.kind === "request-admission") return { kind: "admission-result", id: `${command.id}:admitted`, atMs: Date.now(), nodeId: command.nodeId, commandId: command.id, candidateGeneration: command.candidateGeneration, granted: true };
+        if (command.kind === "dispatch-node") return { kind: "node-result", id: `${command.id}:result`, atMs: Date.now(), nodeId: command.nodeId, commandId: command.id, candidateGeneration: command.candidateGeneration, attempt: command.attempt, output: { candidate: { manifest: "accepted" } } };
+        if (command.kind === "request-acceptance") return { kind: "node-result", id: `${command.id}:accepted`, atMs: Date.now(), nodeId: command.nodeId, commandId: command.id, candidateGeneration: command.candidateGeneration, attempt: 1, output: { acceptedCandidate: command.candidate } };
+        if (command.kind === "request-approval") { approvalCommandId = command.id; return null; }
+        // The product answers a prepared release with null: the operation exists and has not
+        // published, so the Release node waits for the settled outcome to arrive by the inbox.
+        if (command.kind === "request-release") { releaseCommands.push(command); setTimeout(prepared, 0); return null; }
+        throw new Error(`unexpected ${command.kind}`);
+      },
+    };
+    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, activities });
+    const workflowId = `tenant/release-outcome-${process.pid}`;
+    await worker.runUntil(async () => {
+      const handle = await environment.client.workflow.start("factoryWorkflow", { workflowId, taskQueue: queue, retry: { maximumAttempts: 1 }, args: [workflowInput(releaseFactory, { logicalRunId: "release-outcome", startedAtMs })] });
+      await releasePrepared;
+      const [command] = releaseCommands;
+      const waiting: KernelState = await waitForState(handle);
+      assert.equal(waiting.nodes.release?.status, "waiting");
+
+      // Exactly the event the product's release-outcome delivery writes for a settled operation.
+      const receipt = { provider: "s3", account: "tenant", object: "releases/one", operationId: "factory-release:one", version: "v1" };
+      const outcome = { kind: "node-result", id: "release-outcome:factory-release:one", atMs: startedAtMs + 1, nodeId: "release", commandId: command.id, candidateGeneration: command.candidateGeneration, attempt: 1, output: { receipt } };
+      const envelope = { sequence: 1, eventId: outcome.id, eventHash: eventHash(outcome), event: outcome };
+      await handle.signal("factoryInbox", envelope);
+      // The same delivery twice, and the same event at a later position: neither applies again.
+      await handle.signal("factoryInbox", envelope);
+      await handle.signal("factoryInbox", { ...envelope, sequence: 2 });
+      for (let attempt = 0; attempt < 500; attempt += 1) {
+        const state: KernelState = await handle.query("factoryState");
+        if (state.nodes.release?.status === "succeeded" && (await handle.query("factoryInboxReceipt") as { acknowledgedSequence: number }).acknowledgedSequence >= 2) break;
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      const released: KernelState = await handle.query("factoryState");
+      assert.equal(released.nodes.release?.status, "succeeded");
+      assert.deepEqual(released.nodes.release?.output, { receipt });
+      assert.equal(released.nodes.release?.attempts.length, 1);
+      assert.equal(released.appliedEventIds.filter((id) => id === outcome.id).length, 1);
+      assert.equal(releaseCommands.length, 1);
+
+      const decision = { kind: "approval-decided", id: "release-outcome:hold", atMs: startedAtMs + 2, nodeId: "hold", commandId: approvalCommandId, choice: "approve" };
+      await handle.signal("factoryInbox", { sequence: 3, eventId: decision.id, eventHash: eventHash(decision), event: decision });
+      const result = await handle.result();
+      assert.equal(result.status, "completed");
+      assert.deepEqual(result.output, { receipt });
+      await assertClosedReceipt(handle);
+      const history = await handle.fetchHistory();
+      await Worker.runReplayHistory({ workflowBundle: bundle }, JSON.parse(historyToJSON(history)), workflowId);
+    });
+  });
+
   // W09d: the protected acceptance effect answers null while its validator runs, and the decision
   // arrives later through the durable inbox, exactly as a task result does.
   function acceptanceFactory(name: string, maxRepairs: number) {
@@ -585,6 +665,41 @@ describe("factory Temporal workflow", () => {
     // The failure is a recorded transition, which is what the product projects.
     assert.ok(recorded.includes(`${commandId}:command-failed`));
     assert.equal(effects, 1);
+  });
+
+  // W09d-2: a dispatch the product refused by name with nothing queued is answered as node-failed
+  // admission_denied. The task node fails in place with the refusal's name and no cancel-node, the run
+  // ends failed through its own transitions, and the history replays.
+  it("ends a task node in place when the product refuses its dispatch before anything was queued", async () => {
+    const startedAtMs = Math.trunc(await environment.currentTimeMs());
+    const factory = compiled([{ ...node, outputPorts: {} }], "dispatch-refused");
+    const recorded: string[] = [];
+    const stops: string[] = [];
+    const activities = {
+      ...inboxAcceptanceActivities(factory, { acceptance: [], stops: [] }, () => undefined),
+      recordTransition: async (record) => { recorded.push(record.eventId); },
+    };
+    const base = activities.executeCommand;
+    activities.executeCommand = async (input) => {
+      if (input.command.kind === "dispatch-node") return factoryAdmissionRefusedEvent(input.command, "factory_package_quarantined", Date.now());
+      if (input.command.kind === "cancel-node") { stops.push(input.command.id); throw new Error("nothing to stop"); }
+      return base(input);
+    };
+    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, activities });
+    const workflowId = `tenant/dispatch-refused-${process.pid}`;
+    await worker.runUntil(async () => {
+      const handle = await environment.client.workflow.start("factoryWorkflow", { workflowId, taskQueue: queue, retry: { maximumAttempts: 1 }, args: [workflowInput(factory, { logicalRunId: "dispatch-refused", startedAtMs })] });
+      const result = await handle.result();
+      assert.equal(result.status, "failed");
+      assert.equal(result.error, "factory_package_quarantined");
+      const state: KernelState = await handle.query("factoryState");
+      assert.equal(state.nodes.work?.status, "failed");
+      assert.equal(state.nodes.work?.error, "factory_package_quarantined");
+      const history = await handle.fetchHistory();
+      await Worker.runReplayHistory({ workflowBundle: bundle }, JSON.parse(historyToJSON(history)), workflowId);
+    });
+    assert.deepEqual(stops, []);
+    assert.equal(recorded.filter(id => id.endsWith(":admission-refused")).length, 1);
   });
 
   // F4: the product answers a named refusal as the command-failed event itself, so the refusal's

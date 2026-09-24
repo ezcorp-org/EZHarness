@@ -25,8 +25,12 @@
  * from here would be answering a model call with no model, so this one refuses
  * by name: a guest that calls the broker gets
  * `factory_host_broker_unavailable`, which a reader can act on, instead of a
- * plausible reply it cannot distinguish from a real one. A deployment that
- * grows that route supplies its own broker through `FactoryHostServiceOptions`.
+ * plausible reply it cannot distinguish from a real one.
+ *
+ * Staging frames are the exception, because their route exists: a supervisor
+ * whose configuration names `services.guestBroker` passes the forwarding client
+ * from `guest-broker-client.ts` as `broker`, with this refusal as its delegate
+ * for everything that is not a staging frame.
  */
 import type { Runner } from "@ezcorp/extension-contract";
 import { startFactoryPrivateHttps, type FactoryPrivateRequest, type FactoryPrivateResponse } from "../private-https";
@@ -55,8 +59,8 @@ const MAX_HOST_SERVICE_BODY_BYTES = 4 * 1024 * 1024;
 
 export class FactoryHostBrokerUnavailableError extends Error {
   readonly code = "factory_host_broker_unavailable";
-  constructor() {
-    super("This host cannot serve a guest broker call: no contract defines the request or the stream it returns.");
+  constructor(message = "This host cannot serve a guest broker call: no contract defines the request or the stream it returns.") {
+    super(message);
     this.name = "FactoryHostBrokerUnavailableError";
   }
 }

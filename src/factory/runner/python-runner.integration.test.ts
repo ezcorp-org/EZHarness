@@ -2,7 +2,7 @@ import { afterAll, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { validateFactoryGuestModelRequest, validateFactoryGuestModelResponse, validateFactoryRunnerRequest, validateFactoryRunnerResult } from "@ezcorp/factory-sdk";
+import { validateFactoryGuestMaterialRequest, validateFactoryGuestMaterialResponse, validateFactoryGuestModelRequest, validateFactoryGuestModelResponse, validateFactoryRunnerRequest, validateFactoryRunnerResult } from "@ezcorp/factory-sdk";
 import { loadFactoryConformanceFixtures, type FactoryConformanceKind } from "../../__tests__/helpers/factory-c02-conformance-fixtures";
 
 /**
@@ -31,6 +31,8 @@ const SCHEMA_IDS: Record<FactoryConformanceKind, string> = {
   result: "urn:ezcorp:factory:runner-result:v1",
   "guest-model-request": "urn:ezcorp:factory:guest-model-request:v1",
   "guest-model-response": "urn:ezcorp:factory:guest-model-response:v1",
+  "guest-material-request": "urn:ezcorp:factory:guest-material-request:v1",
+  "guest-material-response": "urn:ezcorp:factory:guest-material-response:v1",
 };
 const coverageDirectory = await mkdtemp(join(tmpdir(), "factory-python-coverage-"));
 const coverageData = process.env.EZ_FACTORY_PYTHON_COVERAGE_DATA ?? join(coverageDirectory, ".coverage");
@@ -42,7 +44,9 @@ function sdk(kind: FactoryConformanceKind, value: unknown) {
   if (kind === "request") return validateFactoryRunnerRequest(value);
   if (kind === "result") return validateFactoryRunnerResult(value);
   if (kind === "guest-model-request") return validateFactoryGuestModelRequest(value);
-  return validateFactoryGuestModelResponse(value);
+  if (kind === "guest-model-response") return validateFactoryGuestModelResponse(value);
+  if (kind === "guest-material-request") return validateFactoryGuestMaterialRequest(value);
+  return validateFactoryGuestMaterialResponse(value);
 }
 function sdkCode(result: ReturnType<typeof sdk>): string | undefined {
   return (result as unknown as { issues?: Array<{ code: string }> }).issues?.[0]?.code;
@@ -59,6 +63,8 @@ async function python(kind: FactoryConformanceKind, value: unknown) {
       "--result-schema", join(root, "packages/@ezcorp/factory-sdk/src/factory-runner-result.schema.json"),
       "--guest-model-request-schema", join(root, "packages/@ezcorp/factory-sdk/src/factory-guest-model-request.schema.json"),
       "--guest-model-response-schema", join(root, "packages/@ezcorp/factory-sdk/src/factory-guest-model-response.schema.json"),
+      "--guest-material-request-schema", join(root, "packages/@ezcorp/factory-sdk/src/factory-guest-material-request.schema.json"),
+      "--guest-material-response-schema", join(root, "packages/@ezcorp/factory-sdk/src/factory-guest-material-response.schema.json"),
     ],
     stdin: "pipe", stdout: "pipe", stderr: "pipe",
   });

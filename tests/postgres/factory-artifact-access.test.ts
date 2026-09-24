@@ -59,3 +59,21 @@ test("PostgreSQL/S3 shared access binds source scope, versioned bytes, media and
   expect((await access.revoke(actor, { sourceProjectId, targetProjectId, artifact }, "artifact-access-revoke")).revoked).toBe(true);
   await expect(read()).rejects.toMatchObject({ code: "factory_artifact_unavailable" });
 });
+
+test("PostgreSQL: a revoked share is granted again as a new row, and racing re-grants leave one active row", async () => {
+  const { database, tenantId, sourceProjectId, targetProjectId, sourceRunId, actor, artifacts, access } = await fixture();
+  const content = new Uint8Array(4 * 1024).fill(21);
+  const reference = await artifacts.stage({ tenantId, projectId: sourceProjectId, logicalRunId: sourceRunId, interpreterId: "artifact-reader" }, "candidate_output", content, { interpreterScoped: false, candidateNodeInstanceId: "artifact-regrant-node", candidateGeneration: 1 });
+  const artifact = { artifactId: reference.objectId, digest: reference.digest, encodedBytes: reference.encodedBytes };
+  const input = { sourceProjectId, sourceRunId, targetProjectId, artifact, mediaType: "application/octet-stream" };
+  await access.grant(actor, input, "artifact-regrant-1");
+  await access.revoke(actor, { sourceProjectId, targetProjectId, artifact }, "artifact-regrant-revoke");
+  // Real concurrency: two sessions re-grant at once. The revoked row serializes them.
+  const results = await Promise.allSettled([access.grant(actor, input, "artifact-regrant-a"), access.grant(actor, input, "artifact-regrant-b")]);
+  expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
+  expect(results.find(result => result.status === "rejected")).toMatchObject({ reason: { code: "factory_artifact_grant_conflict" } });
+  const selected = await database.execute(sql`SELECT grant_revision, revoked_at IS NOT NULL AS revoked FROM factory_artifact_read_grants WHERE tenant_id=${tenantId} AND source_artifact_id=${artifact.artifactId} ORDER BY grant_revision`) as unknown as { rows?: Array<{ grant_revision: string | number; revoked: boolean }> } | Array<{ grant_revision: string | number; revoked: boolean }>;
+  const shares = (Array.isArray(selected) ? selected : selected.rows)!;
+  expect(shares.map(row => [Number(row.grant_revision), row.revoked])).toEqual([[1, true], [2, false]]);
+  expect((await database.transaction(transaction => access.loadSharedInTransaction(transaction, targetProjectId, artifact, "application/octet-stream"))).content).toEqual(content);
+});

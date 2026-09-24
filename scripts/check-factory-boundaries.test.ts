@@ -2,7 +2,10 @@ import { describe, expect, test } from "bun:test";
 import {
   checkFactoryBoundaries,
   inspectRepositoryBoundaries,
+  NODE_SERVICE_BOUNDARIES,
+  nodeServiceViolations,
   runBoundaryCheck,
+  runtimeImportClosure,
   type RequiredImport,
   type SourceInput,
 } from "./check-factory-boundaries.ts";
@@ -119,7 +122,7 @@ describe("factory static boundaries", () => {
     await expect(inspectRepositoryBoundaries()).resolves.toEqual([]);
     const output: string[] = [];
     expect(await runBoundaryCheck({ log: { log: (value) => output.push(String(value)), error: (value) => output.push(String(value)) } })).toBe(0);
-    expect(output).toEqual(["Factory boundary checks passed (F07 deterministic validator and F13 shared-module reuse)."]);
+    expect(output).toEqual(["Factory boundary checks passed (F07 deterministic validator, F13 shared-module reuse, and Node service links)."]);
   });
 
   test("the CLI seam returns failure and prints every violation", async () => {
@@ -130,5 +133,82 @@ describe("factory static boundaries", () => {
       log: { log: (value) => output.push(String(value)), error: (value) => output.push(String(value)) },
     })).toBe(1);
     expect(output).toEqual(["src/factory/duplicate.ts:7 [f13-duplicate] duplicate"]);
+  });
+});
+
+/** An in-memory repository: repo-relative path to source. */
+function reader(files: Record<string, string>): (path: string) => string | undefined {
+  return (path) => files[path];
+}
+
+const poolEntry = "src/factory/pool/service-server.ts";
+const connection = "src/db/connection.ts";
+
+describe("Node service links", () => {
+  test("the rule guards the pool service against the Bun database driver", () => {
+    expect(NODE_SERVICE_BOUNDARIES).toContainEqual(expect.objectContaining({ entry: poolEntry, forbidden: [connection], forbiddenPackages: ["bun", "bun:*", "drizzle-orm/bun-sql"] }));
+  });
+
+  test("rejects a deliberate violation and names the chain, through a dynamic import two hops away", () => {
+    const files = reader({
+      [poolEntry]: 'import { routes } from "./service-routes";\nexport const server = routes;',
+      "src/factory/pool/service-routes.ts": 'export { limits as routes } from "../checkpoint-barrier";',
+      "src/factory/checkpoint-barrier.ts": 'import { rows } from "../db/queries/extension-releases";\nexport const limits = rows;',
+      "src/db/queries/extension-releases.ts": 'export async function rows() { return (await import("../connection")).getDb(); }',
+      [connection]: 'import { SQL } from "bun";\nexport function getDb() { return SQL; }',
+    });
+    expect(nodeServiceViolations(undefined, files)).toEqual([{
+      path: poolEntry,
+      line: 1,
+      rule: "node-service-link",
+      message: `reaches ${connection}, which links the Bun SQL driver or a Bun builtin that a Node bundle cannot load: ${poolEntry} -> src/factory/pool/service-routes.ts -> src/factory/checkpoint-barrier.ts -> src/db/queries/extension-releases.ts -> ${connection}`,
+    }, {
+      path: poolEntry,
+      line: 1,
+      rule: "node-service-link",
+      message: `reaches "bun", which links the Bun SQL driver or a Bun builtin that a Node bundle cannot load: ${poolEntry} -> src/factory/pool/service-routes.ts -> src/factory/checkpoint-barrier.ts -> src/db/queries/extension-releases.ts -> ${connection} -> "bun"`,
+    }]);
+  });
+
+  test("rejects a direct bare import of the Bun driver or any Bun builtin, and names each", () => {
+    const helper = "src/factory/pool/helper.ts";
+    const files = reader({
+      [poolEntry]: 'import { drizzle } from "drizzle-orm/bun-sql/driver";\nimport { helper } from "./helper";\nexport const server = [drizzle, helper];',
+      [helper]: 'import { Database } from "bun:sqlite";\nimport { sql } from "drizzle-orm";\nimport { bundle } from "bundler";\nexport const helper = [Database, sql, bundle, await import("bun:ffi")];',
+    });
+    const reason = "which links the Bun SQL driver or a Bun builtin that a Node bundle cannot load";
+    expect(nodeServiceViolations(undefined, files).map((violation) => violation.message).sort()).toEqual([
+      `reaches "bun:ffi", ${reason}: ${poolEntry} -> ${helper} -> "bun:ffi"`,
+      `reaches "bun:sqlite", ${reason}: ${poolEntry} -> ${helper} -> "bun:sqlite"`,
+      `reaches "drizzle-orm/bun-sql/driver", ${reason}: ${poolEntry} -> "drizzle-orm/bun-sql/driver"`,
+    ]);
+  });
+
+  test("accepts a leaf module, and a type import links nothing", () => {
+    const files = reader({
+      [poolEntry]: 'import { LIMITS } from "../checkpoint-limits";\nimport type { Db } from "../../db/connection";\nimport { type Other } from "../../db/connection";\nexport type { Db, Other };\nexport const server = LIMITS;',
+      "src/factory/checkpoint-limits.ts": "export const LIMITS = 1;",
+      [connection]: 'import { SQL } from "bun";',
+    });
+    expect(nodeServiceViolations(undefined, files)).toEqual([]);
+    expect(runtimeImportClosure([poolEntry], files).files).toEqual(["src/factory/checkpoint-limits.ts", poolEntry]);
+  });
+
+  test("a type-only re-export links nothing; a value re-export, an index module, and a bare package do", () => {
+    const files = reader({
+      "src/a.ts": 'export type { T } from "./types";\nexport { v } from "./lib";\nimport "node:fs";\nimport { x } from "./lib/index.js";\nimport "./missing";',
+      "src/types.ts": "export type T = 1;",
+      "src/lib/index.ts": 'import { SQL } from "bun";\nexport const v = 1, x = SQL;',
+    });
+    const closure = runtimeImportClosure(["src/a.ts"], files);
+    expect(closure.files).toEqual(["src/a.ts", "src/lib/index.ts"]);
+    expect(Object.fromEntries(closure.bare)).toEqual({ "node:fs": ["src/a.ts"], bun: ["src/lib/index.ts"] });
+    expect(closure.importedBy.get("src/lib/index.ts")).toBe("src/a.ts");
+  });
+
+  test("a missing entry is a violation, not a silent pass", () => {
+    expect(nodeServiceViolations([{ entry: "src/gone.ts", forbidden: [connection], forbiddenPackages: [], reason: "r" }], reader({}))).toEqual([
+      { path: "src/gone.ts", line: 1, rule: "node-service-link", message: "Node service entry is missing" },
+    ]);
   });
 });

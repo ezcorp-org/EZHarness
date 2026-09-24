@@ -1,0 +1,34 @@
+$ bash scripts/test.sh
+--- FAIL: src/__tests__/dev-image-provenance.test.ts ---
+(fail) dev image provenance warns only when the image and bind-mounted checkout differ [68.15ms]
+
+--- FAIL: src/__tests__/local-sandbox-startup.test.ts ---
+(fail) loads only private operator configuration and available immutable artifacts [1.77ms]
+(fail) startup installs the controller and native dispatcher only after verification [2.55ms]
+
+--- FAIL: src/__tests__/podman-compose-wrapper.test.ts ---
+(fail) podman wrapper — the invocation it guarantees > provides checkout defaults without replacing explicit shell provenance [953.97ms]
+(fail) podman wrapper — the invocation it guarantees > the advertised Docker rebuild command renders complete clean provenance [953.23ms]
+(fail) podman wrapper — the invocation it guarantees > records tracked source changes in the Docker-context default [1852.54ms]
+(fail) podman wrapper — the invocation it guarantees > compares an assume-unchanged Docker input directly with HEAD [979.09ms]
+(fail) podman wrapper — the invocation it guarantees > compares present and sparse-absent skip-worktree inputs directly with HEAD [1042.43ms]
+(fail) podman wrapper — the invocation it guarantees > ignores tracked changes that Docker excludes from the build context [910.70ms]
+(fail) podman wrapper — the invocation it guarantees > ignores hidden-index changes and absence when Docker excludes the path [915.62ms]
+(fail) podman wrapper — the invocation it guarantees > records an untracked Docker input and retains its warning after cleanup [1865.34ms]
+(fail) podman wrapper — the invocation it guarantees > records an included empty directory and ignores a Docker-excluded one [1905.69ms]
+(fail) podman wrapper — the invocation it guarantees > ignores untracked generated and Docker-excluded files [1006.00ms]
+
+--- FAIL: src/__tests__/setup-podman.test.ts ---
+(fail) setup-podman.sh — the env file > refuses an existing env file with group or other access and changes nothing [375.21ms]
+
+
+================================
+  28801 pass | 14 fail | 1943 files
+================================
+
+Failed files:
+  - src/__tests__/dev-image-provenance.test.ts
+  - src/__tests__/local-sandbox-startup.test.ts
+  - src/__tests__/podman-compose-wrapper.test.ts
+  - src/__tests__/setup-podman.test.ts
+error: script "test" exited with code 1

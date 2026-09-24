@@ -1,8 +1,9 @@
-import type { KernelEvent } from "@ezcorp/factory-sdk";
+import { factoryAdmissionRefusedEvent, factoryCommandFailedEvent, type KernelEvent } from "@ezcorp/factory-sdk";
 import type { FactoryAssuranceCommands } from "./assurance-commands";
 import type { FactoryChildRuns } from "./child-runs";
 import type { FactoryCommandAuthority } from "./command-authority";
 import type { FactoryLazyCommands } from "./lazy-commands";
+import { factoryErrorCode } from "./plain-values";
 import type { FactoryPrivateServiceCommands } from "./private-service";
 import { assertFactoryIdentity } from "./records";
 import type { FactoryTaskAdmission } from "./task-admission";
@@ -14,12 +15,36 @@ const effectKinds = ["cancel-node", "request-acceptance", "request-release", "in
 type EffectKind = typeof effectKinds[number];
 export type FactoryPrivateCommandHandler = (service: TrustedFactoryServiceIdentity, reference: TrustedFactoryCommandReference) => Promise<KernelEvent | null>;
 
+/**
+ * The routes whose named refusals are answered as kernel events: the executions route and the effects.
+ *
+ * The private service answers a refusal it does not classify with an opaque `request_failed`, so
+ * the orchestrator could only record "Activity task failed" and nobody could see which rule stopped
+ * the run. A refusal that names itself (`factory_…`) is answered instead as `command-failed`,
+ * carrying the name; every command runs once and any failure of it already fails the run, so only
+ * the reason changes. A dispatch refused with no attempt queued, decided atomically by
+ * `FactoryTaskExecutionAdmission.dispatch`, started nothing and says so with `admission_denied`, so
+ * the kernel ends the node without a stop nobody could answer. Any other error still throws.
+ */
+const NAMED_REFUSAL_KINDS: ReadonlySet<string> = new Set(["dispatch-node", ...effectKinds]);
+
+/** The `factory_` code a refusal names itself with, or `undefined` for any other error. */
+function namedRefusalCode(error: unknown): string | undefined {
+  const code = factoryErrorCode(error);
+  return code?.startsWith("factory_") ? code : undefined;
+}
+
 export interface FactoryPrivateCommandStores {
   readonly service: TrustedFactoryServiceIdentity;
   readonly authority: Pick<FactoryCommandAuthority, "tenantId" | "assertService">;
   readonly transitions: Pick<FactoryTransitionArtifacts, "loadStoredCommand">;
   readonly tasks: Pick<FactoryTaskAdmission, "request">;
-  readonly execution: Pick<FactoryTaskExecutionAdmission, "admit">;
+  /**
+   * `dispatch` answers a named refusal with whether an attempt is queued, decided atomically with
+   * the refusal. Without it a refused dispatch keeps the cautious answer, `command-failed`, and the
+   * kernel's ordinary stop.
+   */
+  readonly execution: Pick<FactoryTaskExecutionAdmission, "admit"> & Partial<Pick<FactoryTaskExecutionAdmission, "dispatch">>;
   readonly inputs: Pick<FactoryLazyCommands, "execute">;
   readonly children: Pick<FactoryChildRuns, "resolve">;
   readonly approvals: Pick<FactoryAssuranceCommands, "tenantId" | "execute">;
@@ -38,6 +63,7 @@ export class FactoryPrivateCommands implements FactoryPrivateServiceCommands {
   private readonly authorize: (service: TrustedFactoryServiceIdentity) => void;
   private readonly load: FactoryTransitionArtifacts["loadStoredCommand"];
   private readonly resolve: FactoryChildRuns["resolve"];
+  private readonly dispatch: FactoryTaskExecutionAdmission["dispatch"] | undefined;
 
   constructor(stores: FactoryPrivateCommandStores) {
     if (!stores?.service || stores.authority?.tenantId !== stores.service.tenantId || stores.approvals?.tenantId !== stores.service.tenantId
@@ -51,6 +77,7 @@ export class FactoryPrivateCommands implements FactoryPrivateServiceCommands {
     this.authorize(this.service);
     this.load = stores.transitions.loadStoredCommand.bind(stores.transitions);
     this.resolve = stores.children.resolve.bind(stores.children);
+    this.dispatch = stores.execution.dispatch?.bind(stores.execution);
     const request = stores.tasks.request.bind(stores.tasks);
     const admit = stores.execution.admit.bind(stores.execution);
     const input = stores.inputs.execute.bind(stores.inputs);
@@ -69,7 +96,19 @@ export class FactoryPrivateCommands implements FactoryPrivateServiceCommands {
     const command = await this.load(reference);
     const handler = this.handlers.get(command.kind);
     if (!handler || command.id !== reference.commandId) throw new FactoryPrivateCommandError("factory_private_command_forbidden");
-    return handler(this.service, reference);
+    if (!NAMED_REFUSAL_KINDS.has(command.kind)) return handler(this.service, reference);
+    try {
+      if (command.kind !== "dispatch-node" || this.dispatch === undefined) return await handler(this.service, reference);
+      const decision = await this.dispatch(this.service, reference);
+      if ("admitted" in decision) return null;
+      return decision.queued
+        ? factoryCommandFailedEvent(command, decision.refused, Date.now())
+        : factoryAdmissionRefusedEvent(command, decision.refused, Date.now());
+    } catch (error) {
+      const code = namedRefusalCode(error);
+      if (code === undefined) throw error;
+      return factoryCommandFailedEvent(command, code, Date.now());
+    }
   }
 
   async resolveFactory(service: TrustedFactoryServiceIdentity, value: Parameters<FactoryPrivateServiceCommands["resolveFactory"]>[1]): ReturnType<FactoryPrivateServiceCommands["resolveFactory"]> {

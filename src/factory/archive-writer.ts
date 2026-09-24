@@ -63,8 +63,38 @@ export interface FactoryArchiveMemberPlan {
   readonly role: FactoryArchiveMemberRole;
   /** Stable within the operation. Two plans for the same bytes share one name. */
   readonly memberName: string;
+  /** The scope the member was sealed under: the candidate's, or the attempt that produced it. */
   readonly scope: FactoryMaterialScope;
   readonly artifact: FactoryArtifactReference;
+  /**
+   * W09c, additive: `attempt-output` when the member is an attempt's terminal
+   * output rather than a sealed material, as a validator's report is. Absent
+   * means a sealed material, which is every member W04a planned before.
+   */
+  readonly source?: "attempt-output";
+}
+
+/**
+ * W09c, additive: where one evidence member was sealed, and how to read it.
+ *
+ * The resolver derives it from the record that binds the sealing attempt to
+ * this candidate, never from the member's own metadata. An `attempt-output`
+ * location names the attempt; its `operationId` is
+ * {@link FACTORY_ARCHIVE_ATTEMPT_OUTPUT_OPERATION}, because a terminal output
+ * belongs to no material operation.
+ */
+export interface FactoryArchiveEvidenceLocation {
+  readonly artifactId: string;
+  readonly source: "material" | "attempt-output";
+  readonly scope: FactoryMaterialScope;
+}
+
+/** The operation name an attempt-output location carries in place of a material operation. */
+export const FACTORY_ARCHIVE_ATTEMPT_OUTPUT_OPERATION = "attempt-terminal-output";
+
+/** W09c, additive: reads one attempt's own terminal output, proved against that attempt's record. */
+export interface FactoryArchiveAttemptOutputReader {
+  read(scope: FactoryMaterialScope, artifact: FactoryArtifactReference, signal?: AbortSignal): Promise<Uint8Array>;
 }
 
 export interface FactoryArchivedMember extends FactoryArchiveMemberPlan {
@@ -93,6 +123,14 @@ export interface FactoryArchiveMemberSources {
   readonly scope: FactoryMaterialScope;
   readonly candidate?: FactoryArtifactReference;
   readonly request?: FactoryArtifactReference;
+  /**
+   * W09c, additive: the sealing location of every evidence member. When
+   * present, an evidence member it does not name is refused with
+   * `factory_archive_member_scope_missing` and never read under the
+   * candidate's scope. When absent, the resolver predates W09c and every
+   * member is read under `scope`, exactly as W04a planned.
+   */
+  readonly evidence?: readonly FactoryArchiveEvidenceLocation[];
 }
 
 /** Resolves the exact member set the archive must hold before a dispatch claim. */
@@ -238,7 +276,7 @@ function artifactKey(role: FactoryArchiveMemberRole, artifact: FactoryArtifactRe
 }
 
 /** Collects every artifact reference a pinned evidence set names, in a stable order. */
-function evidenceArtifacts(evidence: readonly unknown[]): readonly FactoryArtifactReference[] {
+export function factoryArchiveEvidenceArtifacts(evidence: readonly unknown[]): readonly FactoryArtifactReference[] {
   const found = new Map<string, FactoryArtifactReference>();
   const visit = (value: unknown, depth: number): void => {
     if (depth > 8 || !value || typeof value !== "object") return;
@@ -266,16 +304,22 @@ export function factoryArchiveMemberPlan(sources: FactoryArchiveMemberSources, m
   if (!material || typeof material !== "object" || !Array.isArray(material.evidence)) invalid();
   const plans: FactoryArchiveMemberPlan[] = [];
   const seen = new Set<string>();
-  const add = (role: FactoryArchiveMemberRole, memberName: string, value: FactoryArtifactReference): void => {
+  const add = (role: FactoryArchiveMemberRole, memberName: string, value: FactoryArtifactReference, memberScope = scope, source?: "attempt-output"): void => {
     const artifact = assertFactoryArtifactReference(value, FACTORY_ARCHIVE_MEMBER_LIMITS.maxMemberBytes);
     const key = artifactKey(role, artifact);
     if (seen.has(key)) return;
     seen.add(key);
-    plans.push(Object.freeze({ role, memberName, scope, artifact }));
+    plans.push(Object.freeze({ role, memberName, scope: memberScope, artifact, ...(source === undefined ? {} : { source }) }));
   };
   if (sources.candidate) add("candidate", "candidate", sources.candidate);
   if (sources.request) add("request", "request", sources.request);
-  for (const artifact of evidenceArtifacts(material.evidence)) add("evidence", `evidence/${artifact.artifactId}`, artifact);
+  const locations = sources.evidence === undefined ? undefined : new Map(sources.evidence.map((location) => [location.artifactId, location]));
+  for (const artifact of factoryArchiveEvidenceArtifacts(material.evidence)) {
+    if (locations === undefined) { add("evidence", `evidence/${artifact.artifactId}`, artifact); continue; }
+    const location = locations.get(artifact.artifactId);
+    if (location === undefined) throw new FactoryArchiveWriterError("factory_archive_member_scope_missing");
+    add("evidence", `evidence/${artifact.artifactId}`, artifact, snapshotFactoryMaterialScope(location.scope), location.source === "attempt-output" ? "attempt-output" : undefined);
+  }
   if (plans.length > FACTORY_ARCHIVE_MEMBER_LIMITS.maxMembers) throw new FactoryArchiveWriterError("factory_archive_member_limit");
   return Object.freeze(plans);
 }
@@ -292,8 +336,13 @@ export function factoryArchivePublicationSet(resolve: (tenantId: string, operati
 export interface FactoryArchiveWriterOptions {
   /** The credential-separated archive adapter. It holds archive credentials only. */
   readonly archive: FactoryReleaseArchive;
-  /** W04's one scoped reader. Every member is read through it and nothing else. */
+  /** W04's one scoped reader. Every sealed-material member is read through it. */
   readonly reader: FactoryScopedArtifactReader;
+  /**
+   * W09c, additive: the reader for members that are an attempt's terminal
+   * output. Absent, such a member is refused rather than read another way.
+   */
+  readonly outputs?: FactoryArchiveAttemptOutputReader;
   readonly publicationSet: FactoryArchivePublicationSet;
   readonly failureDomain: FactoryArchiveFailureDomainRecord;
   readonly inventory?: FactoryArchiveInventory;
@@ -336,6 +385,7 @@ export class FactoryArchiveWriter implements FactoryReleaseArchive {
   readonly failureDomain: FactoryArchiveFailureDomainRecord;
   private readonly archive: FactoryReleaseArchive;
   private readonly reader: FactoryScopedArtifactReader;
+  private readonly outputs?: FactoryArchiveAttemptOutputReader;
   private readonly publicationSet: FactoryArchivePublicationSet;
   private readonly inventory?: FactoryArchiveInventory;
   private readonly denialProbe?: FactoryArchiveDenialProbe;
@@ -344,6 +394,7 @@ export class FactoryArchiveWriter implements FactoryReleaseArchive {
   constructor(options: FactoryArchiveWriterOptions) {
     this.archive = options.archive;
     this.reader = options.reader;
+    this.outputs = options.outputs;
     this.publicationSet = options.publicationSet;
     this.failureDomain = options.failureDomain;
     this.inventory = options.inventory;
@@ -361,6 +412,13 @@ export class FactoryArchiveWriter implements FactoryReleaseArchive {
     return this.archive.read(reference);
   }
 
+  /** One member's bytes: a sealed material through the scoped reader, an attempt output through the output reader. */
+  private async readMember(plan: FactoryArchiveMemberPlan, signal?: AbortSignal): Promise<Uint8Array> {
+    if (plan.source !== "attempt-output") return this.reader.read(plan.scope, plan.artifact, signal);
+    if (!this.outputs) throw new FactoryArchiveWriterError("factory_archive_member_unavailable");
+    return this.outputs.read(plan.scope, plan.artifact, signal);
+  }
+
   /**
    * Archives every member and then the manifest that names them. Each member is
    * read through the scoped reader, written immutably, and read back byte for
@@ -373,8 +431,10 @@ export class FactoryArchiveWriter implements FactoryReleaseArchive {
     let total = 0;
     for (const plan of plans) {
       let content: Uint8Array;
-      try { content = await this.reader.read(plan.scope, plan.artifact, signal); }
-      catch { throw new FactoryArchiveWriterError("factory_archive_member_unavailable"); }
+      try { content = await this.readMember(plan, signal); }
+      // A typed archive refusal keeps its name, so an unbound member is not reported as merely
+      // unavailable; every other failure stays opaque, as W04a's reader requires.
+      catch (error) { throw error instanceof FactoryArchiveWriterError ? error : new FactoryArchiveWriterError("factory_archive_member_unavailable"); }
       total += content.byteLength;
       assertFactoryArchiveMemberBytes(content.byteLength, total);
       const object = await this.archive.writeImmutable(tenantId, operationId, "material", content);

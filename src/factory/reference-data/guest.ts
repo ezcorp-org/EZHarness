@@ -82,7 +82,7 @@ export interface FactoryReferenceDataImageLock {
 }
 
 /** The one C02 guest this pack reuses rather than reimplementing its frame loop. */
-const SHARED_GUEST_MODULES = Object.freeze(["guest.py", "factory_ijson.py", "factory_schema.py", "factory_validation.py"]);
+const SHARED_GUEST_MODULES = Object.freeze(["guest.py", "factory_ijson.py", "factory_materials.py", "factory_schema.py", "factory_validation.py"]);
 /** This pack's own modules, named explicitly so the sealed guest is exactly these bytes. */
 const PACK_MODULES = Object.freeze(["refdata/__init__.py", "refdata/rows.py", "refdata/parquet.py", "refdata/guest.py", "tests/__init__.py", "tests/test_refdata_sealed.py"]);
 /** The generated schemas both runtimes read, so one contract serves both. */

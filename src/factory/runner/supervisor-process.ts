@@ -46,11 +46,14 @@
  * record degrades.
  */
 import { createPrivateKey } from "node:crypto";
-import { basename, dirname, resolve } from "node:path";
+import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Runner } from "@ezcorp/extension-contract";
-import { privateDirectory, readPrivateBounded } from "../private-files";
-import { startFactoryHostServices } from "./supervisor-services";
+import { isFactoryGuestMaterialFrame, type FactoryRunnerRequest } from "@ezcorp/factory-sdk";
+import { readPrivatePath } from "../private-files";
+import { createFactoryGuestBrokerClient } from "./guest-broker-client";
+import type { FactoryGuestBroker } from "./guest-model-broker";
+import { FactoryHostBrokerUnavailableError, factoryHostBrokerUnavailable, startFactoryHostServices } from "./supervisor-services";
 import { createFactorySupervisorPoolClient } from "./supervisor-pool-client";
 import {
   createFactoryServiceReadinessWriter,
@@ -67,6 +70,19 @@ export const FACTORY_SUPERVISOR_PROBE_TIMEOUT_HEARTBEATS = 4;
 export const FACTORY_SUPERVISOR_FACT_STALENESS_HEARTBEATS = 5;
 const MAX_CONFIG_BYTES = 32 * 1024;
 const MAX_KEY_BYTES = 64 * 1024;
+
+/**
+ * A product endpoint this host calls: a base URL, a token file, and mutual TLS.
+ *
+ * Paths only, never a credential value, so nothing here reaches a process's
+ * arguments or a log. The transport reloads every path before each request, so
+ * a rotated certificate needs no restart.
+ */
+export interface FactorySupervisorEndpoint {
+  readonly baseUrl: string;
+  readonly serviceTokenPath: string;
+  readonly tls: { readonly caPath: string; readonly certificatePath: string; readonly privateKeyPath: string };
+}
 
 export interface FactorySupervisorProcessConfig {
   readonly schemaVersion: typeof CONFIG_SCHEMA;
@@ -107,11 +123,19 @@ export interface FactorySupervisorProcessConfig {
      * all; when it is absent the stop route still signs, and the product still
      * reports its own refusal by name rather than looping in silence.
      */
-    readonly pool?: {
-      readonly baseUrl: string;
-      readonly serviceTokenPath: string;
-      readonly tls: { readonly caPath: string; readonly certificatePath: string; readonly privateKeyPath: string };
-    };
+    readonly pool?: FactorySupervisorEndpoint;
+    /**
+     * The product route that answers a guest's staging frames.
+     *
+     * A sandboxed guest runs on `--network=none`, so its reverse frame is its
+     * only byte path, and this host holds no database and no material service.
+     * It carries each staging frame to this endpoint under the guest's own
+     * attempt token. The host's certificate and token name the HOST, never a
+     * tenant. Optional: without it a guest's broker call refuses by name with
+     * `factory_host_broker_unavailable`, and a guest that stages nothing is
+     * unaffected.
+     */
+    readonly guestBroker?: FactorySupervisorEndpoint;
   };
 }
 
@@ -165,12 +189,12 @@ function integer(value: unknown, minimum: number, maximum: number): boolean {
 function serviceSection(value: unknown): boolean {
   if (!record(value)) return false;
   const required = ["hostname", "port", "allowedPeers", "hostKeyIdPath", "tls"];
-  const allowed = [...required, "pool"];
+  const allowed = [...required, "pool", "guestBroker"];
   if (required.some((key) => !Object.hasOwn(value, key)) || Object.keys(value).some((key) => !allowed.includes(key))) return false;
   if (!text(value.hostname) || !integer(value.port, 1, 65_535) || !text(value.hostKeyIdPath)) return false;
   if (!Array.isArray(value.allowedPeers) || value.allowedPeers.length < 1 || value.allowedPeers.length > 64
     || value.allowedPeers.some((peer) => !text(peer))) return false;
-  if (value.pool !== undefined && !poolSection(value.pool)) return false;
+  if ((value.pool !== undefined && !endpointSection(value.pool)) || (value.guestBroker !== undefined && !endpointSection(value.guestBroker))) return false;
   return tlsSection(value.tls);
 }
 
@@ -180,8 +204,8 @@ function tlsSection(value: unknown): boolean {
   return record(value) && TLS_KEYS.every((key) => text(value[key])) && Object.keys(value).every((key) => TLS_KEYS.includes(key));
 }
 
-/** The supervisor's own pool credential: a base URL, a token file, and mutual TLS. */
-function poolSection(value: unknown): boolean {
+/** A {@link FactorySupervisorEndpoint}, exactly complete. */
+function endpointSection(value: unknown): boolean {
   if (!record(value)) return false;
   const required = ["baseUrl", "serviceTokenPath", "tls"];
   if (required.some((key) => !Object.hasOwn(value, key)) || Object.keys(value).some((key) => !required.includes(key))) return false;
@@ -201,16 +225,6 @@ export function parseFactorySupervisorProcessConfig(value: unknown): FactorySupe
     throw new Error("factory supervisor config is invalid");
   }
   return value as unknown as FactorySupervisorProcessConfig;
-}
-
-async function readPrivatePath(path: string, maximum: number): Promise<Uint8Array> {
-  const absolute = resolve(path);
-  const directory = await privateDirectory(dirname(absolute));
-  try {
-    return await readPrivateBounded(directory, basename(absolute), maximum);
-  } finally {
-    await directory.close();
-  }
 }
 
 /** Loads and discards the host key: the fact published is that it loads. */
@@ -321,16 +335,10 @@ export async function startFactoryConfiguredHostServices(
   // Built before the listener binds, so an unreachable pool is a bind failure
   // that degrades this host by name rather than a listener that accepts stops
   // it cannot get honoured.
-  const pool = services.pool === undefined ? undefined : await createFactorySupervisorPoolClient({
-    hostId: config.hostId,
-    baseUrl: services.pool.baseUrl,
-    tls: {
-      caPath: services.pool.tls.caPath,
-      certificatePath: services.pool.tls.certificatePath,
-      privateKeyPath: services.pool.tls.privateKeyPath,
-      serviceTokenPath: services.pool.serviceTokenPath,
-    },
-  });
+  const pool = services.pool === undefined ? undefined
+    : await createFactorySupervisorPoolClient({ hostId: config.hostId, ...endpointTransport(services.pool) });
+  // Built before the listener binds for the same reason.
+  const broker = await createFactoryConfiguredGuestBroker(services.guestBroker);
   return startFactoryHostServices({
     hostId: config.hostId,
     allowedPeers: services.allowedPeers,
@@ -340,7 +348,33 @@ export async function startFactoryConfiguredHostServices(
     hostname: services.hostname,
     port: services.port,
     ...(pool === undefined ? {} : { pool }),
+    broker,
   });
+}
+
+/** What a host with no `services.guestBroker` answers a guest's staging frame. */
+const factoryHostGuestBrokerUnconfigured: FactoryGuestBroker = Object.freeze({
+  async invoke(request: FactoryRunnerRequest, payload: unknown): Promise<unknown> {
+    if (!isFactoryGuestMaterialFrame(payload)) return factoryHostBrokerUnavailable.invoke(request, payload);
+    throw new FactoryHostBrokerUnavailableError("This host's supervisor document names no services.guestBroker, so it cannot carry a staging frame.");
+  },
+});
+
+/**
+ * The broker a host hands its guests.
+ *
+ * Staging frames go to the declared product route. With no route declared they
+ * are refused by name, and the message names the missing section. A model
+ * request is not a staging frame and no route serves it yet, so it keeps the
+ * default refusal either way.
+ */
+export async function createFactoryConfiguredGuestBroker(endpoint: FactorySupervisorEndpoint | undefined): Promise<FactoryGuestBroker> {
+  if (endpoint === undefined) return factoryHostGuestBrokerUnconfigured;
+  return createFactoryGuestBrokerClient({ ...endpointTransport(endpoint), delegate: factoryHostBrokerUnavailable });
+}
+
+function endpointTransport(endpoint: FactorySupervisorEndpoint) {
+  return { baseUrl: endpoint.baseUrl, tls: { ...endpoint.tls, serviceTokenPath: endpoint.serviceTokenPath } };
 }
 
 export const factorySupervisorProductionDependencies: FactorySupervisorProcessDependencies = {

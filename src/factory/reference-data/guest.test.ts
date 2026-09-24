@@ -37,6 +37,7 @@ test("the guest is exactly the committed modules, the reused C02 guest, and the 
     "factory-runner-request.schema.json",
     "factory-runner-result.schema.json",
     "factory_ijson.py",
+    "factory_materials.py",
     "factory_schema.py",
     "factory_validation.py",
     "guest.py",
@@ -53,6 +54,17 @@ test("the guest is exactly the committed modules, the reused C02 guest, and the 
   expect(files["tests/test_refdata_sealed.py"]).toBe(await readFile(join(REPOSITORY, "src/factory/runner/python/tests/test_refdata_sealed.py"), "utf8"));
   expect(files["factory-runner-request.schema.json"]).toBe(await readFile(join(REPOSITORY, "packages/@ezcorp/factory-sdk/src/factory-runner-request.schema.json"), "utf8"));
   expect(await factoryReferenceDataGuestDigest()).toBe(filesDigest(files));
+});
+
+test("every factory_* module a sealed Python file imports is sealed too", async () => {
+  // The shared list is explicit, so a new runner import must be added to it by
+  // hand; this names the omission here instead of in a Podman suite.
+  const files = await factoryReferenceDataGuestFiles();
+  const modules = Object.keys(files).filter((name) => name.endsWith(".py"));
+  const imported = new Set(modules.flatMap((name) =>
+    [...String(files[name]).matchAll(/^\s*(?:from|import)\s+(factory_\w+)/gmu)].map((match) => `${match[1]}.py`)));
+  expect(imported.size).toBeGreaterThan(0);
+  expect([...imported].filter((module) => !(module in files))).toEqual([]);
 });
 
 test("at least one sealed test is staged, because a build with none is refused", async () => {

@@ -16,32 +16,27 @@
  * report line — a failure names the destination and the field, never the
  * bytes.
  *
- * **The declaration composes PROVIDERS, and deliberately composes no profile.**
- * A provider publishes an operation somebody else prepared, and building one
- * needs only a destination and its credentials — which is exactly what the
- * declaration carries. A PROFILE is the other half: it turns a definition's
- * release node into the request the provider will publish, and for an S3
- * manifest destination W08 already publishes the real one,
- * `S3FactoryManifestReleaseProfile`, which reads the verified attempt and the
- * sealed materials so the bytes that reach S3 are the bytes the acceptance
- * decision froze.
+ * **Each declared profile is the owner's profile, built once.** A provider
+ * publishes an operation somebody else prepared; a PROFILE is the other half,
+ * turning a definition's release node into the request the provider will
+ * publish. Neither is invented here:
  *
- * This file does NOT invent a substitute for it. An identity profile — pass
- * the accepted candidate through as the request — composes and then fails at
- * the wrong moment: `requestRelease` would create the operation, the running
- * role would CLAIM it, and `S3FactoryManifestReleaseProvider.publish` would
- * refuse the request as invalid, leaving a claimed operation that can never
- * succeed. Refusing at prepare time is the smaller failure and the honest one,
- * so `requestRelease` keeps answering `factory_protected_effect_untrusted`
- * until the owner's profile can be built.
+ * - An `s3` destination gets W08's `S3FactoryManifestReleaseProfile`, over
+ *   W08b's `FactoryVerifiedAttemptMaterials`. That reader is attempt-agnostic
+ *   at construction and re-derives the NAMED attempt's own authority on every
+ *   call, so one instance built at startup serves whichever attempt an
+ *   acceptance decision names. The bytes that reach S3 are the sealed records
+ *   the acceptance decision froze.
+ * - A `github` destination gets a synchronous profile lifted through W05's
+ *   `factorySynchronousReleaseProfile`. The accepted candidate IS W07's
+ *   publication request, so the profile validates it with W07's own
+ *   `assertFactoryGitHubPublicationRequest` and names the one destination
+ *   object `FactoryGitHubReleaseProvider` accepts for it. Nothing is rebuilt:
+ *   the approved bytes are the published bytes.
  *
- * What blocks building it here is named rather than guessed:
- * `S3FactoryManifestReleaseProfile` takes `Pick<FactoryMaterialService,
- * "list">`, and the only implementation of that surface is
- * `FactoryAttemptMaterials`, which is bound to ONE attempt's authority
- * (`assertOwnScopeOnly` plus `authorizeMaterialReadInTransaction`). A release
- * profile resolves for whichever attempt the decision names, so one instance
- * cannot serve it. **Interface question for W04 and W08** in the gate file.
+ * The declared cost is the budgeted cost of one release, so both profiles carry
+ * it as the estimated spend. A destination kind with no buildable profile is a
+ * named refusal at composition, never an empty set that refuses later.
  *
  * **A GitHub provider is built per operation, not per installation.**
  * `FactoryGitHubReleaseProvider` binds a project for the shared transport's
@@ -56,20 +51,22 @@ import type { FileHandle } from "node:fs/promises";
 import { privateDirectory, readPrivateBounded } from "./private-files";
 import { loadFactoryStorageCredentials, type FactoryStorageCredentials } from "./release-composition";
 import { S3FactoryManifestReleaseProvider } from "./release-s3-publication";
-import { FactoryGitHubReleaseProvider } from "./release-github";
+import { assertFactoryGitHubPublicationRequest, FactoryGitHubError, FactoryGitHubReleaseProvider } from "./release-github";
 import { FactoryReleaseError, type FactoryReleaseOperation, type FactoryReleaseProvider, type FactoryReleases } from "./releases";
-import type { FactoryReleaseCommandProfile } from "./protected-command-effects";
+import { factorySynchronousReleaseProfile, type FactoryReleaseCommandProfile, type FactoryReleaseCommandProfileInput } from "./protected-command-effects";
 import type { FactoryReleaseProviderResolver } from "./release-application";
-import type { FactoryStartupConfig, FactoryStartupReleaseDestination } from "./startup-config";
+import type { FactoryStartupConfig, FactoryStartupReleaseDestination, FactoryStartupReleaseProfile } from "./startup-config";
 import type { FactoryS3PublicationAttempts } from "./release-s3-publication";
-import type { FactoryScopedArtifactReader } from "./artifact-materials";
+import { S3FactoryManifestReleaseProfile, type FactoryS3PublicationProvenance } from "./release-s3-scope";
+import { sealFactoryReleaseProfileResult } from "./release-profile";
+import type { FactoryMaterialService, FactoryScopedArtifactReader } from "./artifact-materials";
 
 /** A token file is a credential, so it is bounded like every other one. */
 const MAX_RELEASE_TOKEN_BYTES = 16 * 1024;
 
 export class FactoryReleaseDestinationError extends Error {
   readonly code: string;
-  constructor(code: "factory_release_destination_unreadable" | "factory_release_destination_unknown" | "factory_release_destination_foreign",
+  constructor(code: "factory_release_destination_unreadable" | "factory_release_destination_unknown" | "factory_release_destination_foreign" | "factory_release_profile_unbuildable" | "factory_release_profile_asynchronous",
     readonly destination: string, message: string) {
     super(`${code}: ${destination}: ${message}`);
     this.code = code;
@@ -141,8 +138,14 @@ export interface FactoryReleaseDestinationCollaborators {
   readonly tenantId: string;
   /** W04's one scoped reader. Every published member's bytes come from it. */
   readonly reader: FactoryScopedArtifactReader;
-  /** The pinned attempt scope a publication reads its members under. */
-  readonly attempts: FactoryS3PublicationAttempts;
+  /**
+   * The verified protected provenance, in both of its roles: the attempt a
+   * publication reads its members under, and the attempt an S3 profile lists
+   * the sealed materials of. One object, so the attempt has one derivation.
+   */
+  readonly attempts: FactoryS3PublicationAttempts & Pick<FactoryS3PublicationProvenance, "attemptForDecision">;
+  /** W08b's attempt-agnostic reader of one named attempt's sealed materials. */
+  readonly materials: Pick<FactoryMaterialService, "list">;
   /** Re-read immediately before a network call, so a lost claim stops a send. */
   readonly releases: Pick<FactoryReleases, "inspect">;
   /** Overridden in tests so a publication is not a real network dependency. */
@@ -154,44 +157,64 @@ export interface FactoryReleaseDestinationCollaborators {
 export interface FactoryComposedReleaseDestinations {
   /** Which provider publishes one operation, by its persisted destination. */
   readonly providers: FactoryReleaseProviderResolver;
-  /**
-   * The adapter profiles `FactoryProtectedCommandEffects` will trust.
-   *
-   * Empty today, and that is a refusal rather than a gap: see this file's
-   * header. `requestRelease` answers `factory_protected_effect_untrusted`
-   * until an owner's profile can be built, which is a refusal at prepare time
-   * instead of a claimed operation that can never publish.
-   */
+  /** The adapter profiles `FactoryProtectedCommandEffects` will trust, one per declared profile. */
   readonly profiles: readonly FactoryReleaseCommandProfile[];
   /** The declared destination names, for the readiness report. */
   readonly destinations: readonly string[];
-  /** Each declared profile that could not be composed, and why. */
-  readonly uncomposedProfiles: readonly FactoryUncomposedReleaseProfile[];
-}
-
-/** Why a declared profile could not be composed, so the gap is readable. */
-export interface FactoryUncomposedReleaseProfile {
-  /** The declared profile's destination name. */
-  readonly destination: string;
-  readonly kind: "s3" | "github";
-  readonly reason: string;
 }
 
 /**
- * The profile a declared destination WOULD need, and why it is not built.
+ * The GitHub half: the accepted candidate is W07's publication request.
  *
- * Kept as data rather than as a comment so the readiness report can carry it:
- * an operator who declared a destination and sees `requestRelease` refuse is
- * otherwise looking for a bug that is really a missing collaborator.
+ * Validated by W07's own rule set, so a candidate the provider would refuse is
+ * refused here, before an operation exists. The destination object is the one
+ * shape `FactoryGitHubReleaseProvider` accepts for that request, and the
+ * release node may name the repository but never a different one.
  */
-function uncomposedProfile(declared: FactoryStartupReleaseDestination): FactoryUncomposedReleaseProfile {
+function githubReleaseRequest(repository: string, estimatedSpendMicros: number) {
+  return (input: FactoryReleaseCommandProfileInput) => {
+    const { request } = assertFactoryGitHubPublicationRequest(input.acceptedCandidate);
+    const requested = input.destination as { provider?: unknown; account?: unknown } | null;
+    if (!requested || typeof requested !== "object" || Array.isArray(requested) || requested.provider !== "github" || requested.account !== repository) {
+      throw new FactoryGitHubError("factory_github_foreign_target");
+    }
+    return { destination: { provider: "github", account: repository, object: `pull-request/${request.baseBranch}/${request.commitSha}` }, request: input.acceptedCandidate, estimatedSpendMicros };
+  };
+}
+
+/**
+ * The S3 half: W08's manifest profile, carrying the declared cost.
+ *
+ * `S3FactoryManifestReleaseProfile` implements only `resolve`, because listing
+ * the sealed materials is I/O and a synchronous `build` cannot do it. The
+ * trusted-profile surface still requires `build`, so it refuses by name rather
+ * than answering something `resolve` did not produce.
+ */
+function s3ReleaseProfile(profile: FactoryStartupReleaseProfile, account: string, collaborators: FactoryReleaseDestinationCollaborators): FactoryReleaseCommandProfile {
+  const manifest = new S3FactoryManifestReleaseProfile({ adapter: profile.adapter, action: profile.action, account, provenance: collaborators.attempts, materials: collaborators.materials });
   return Object.freeze({
-    destination: declared.name,
-    kind: declared.kind,
-    reason: declared.kind === "s3"
-      ? "W08's S3FactoryManifestReleaseProfile is the real profile for this destination, and it takes Pick<FactoryMaterialService,\"list\">; the only implementation, FactoryAttemptMaterials, is bound to one attempt's authority, so this composition cannot build one that serves whichever attempt a decision names (W04 owns the material service; W08 owns the profile)"
-      : "no owner has published a release profile for a git destination; FactoryGitHubReleaseProvider publishes a plan it does not build, and inventing the plan here would publish a shape no adapter agreed to (W07 owns the adapter)",
-  });
+    adapter: manifest.adapter,
+    action: manifest.action,
+    build(): never {
+      throw new FactoryReleaseDestinationError("factory_release_profile_asynchronous", profile.destination, "an S3 manifest profile reads sealed materials and resolves only asynchronously");
+    },
+    async resolve(input, signal) {
+      const resolved = await manifest.resolve(input, signal);
+      return sealFactoryReleaseProfileResult(input, { destination: resolved.destination, request: resolved.request, estimatedSpendMicros: profile.estimatedSpendMicros }, resolved.resolvedAtMs);
+    },
+  } satisfies FactoryReleaseCommandProfile);
+}
+
+/** One declared profile, over the destination it names, or a refusal by name. */
+function declaredReleaseProfile(profile: FactoryStartupReleaseProfile, destination: FactoryStartupReleaseDestination, collaborators: FactoryReleaseDestinationCollaborators): FactoryReleaseCommandProfile {
+  switch (destination.kind) {
+    case "s3":
+      return s3ReleaseProfile(profile, destination.account, collaborators);
+    case "github":
+      return factorySynchronousReleaseProfile({ adapter: profile.adapter, action: profile.action, build: githubReleaseRequest(destination.repository, profile.estimatedSpendMicros) });
+    default:
+      throw new FactoryReleaseDestinationError("factory_release_profile_unbuildable", profile.destination, `no release profile can be built for destination kind ${JSON.stringify((destination as { kind?: unknown }).kind)}`);
+  }
 }
 
 /**
@@ -223,11 +246,13 @@ export async function composeFactoryReleaseDestinations(
       ).catch((error: unknown) => {
         throw new FactoryReleaseDestinationError("factory_release_destination_unreadable", destination.name, `its credential set did not load (${(error as Error).message})`);
       }));
-    } else {
+    } else if (destination.kind === "github") {
       // Proved readable at composition so a misconfigured token is a startup
       // refusal, and re-read per call so a rotation does not need a restart.
       await readPrivateCredential(destination.name, destination.tokenPath, MAX_RELEASE_TOKEN_BYTES);
     }
+    // Any other kind has nothing to read here. The document validator refuses
+    // it first; a profile that names one is refused by name below.
   }
 
   // One publisher per declared S3 destination, keyed by the account the wire
@@ -269,8 +294,7 @@ export async function composeFactoryReleaseDestinations(
 
   return Object.freeze({
     providers,
-    profiles: Object.freeze([]),
+    profiles: Object.freeze(declaration.profiles.map((profile) => declaredReleaseProfile(profile, byName.get(profile.destination)!, collaborators))),
     destinations: Object.freeze(declaration.destinations.map((destination) => destination.name)),
-    uncomposedProfiles: Object.freeze(declaration.profiles.map((profile) => uncomposedProfile(byName.get(profile.destination)!))),
   });
 }
