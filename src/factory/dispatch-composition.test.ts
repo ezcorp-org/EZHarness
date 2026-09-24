@@ -573,6 +573,57 @@ describe("composeFactorySettlement", () => {
     expect(reported).toEqual([]);
   });
 
+  test("the production reconciler reads its scope from the composed FactoryTaskStops and clears the kernel through it", async () => {
+    const { tls, publicKeyPath } = await material();
+    const db = database();
+    const { stores: real, pool } = settlementStores(db);
+    // Only the evidence a reconciliation reads is supplied here; the stop
+    // store and the reconciler are built by the production composition.
+    const hold: FactoryUncertainHold = { projectId: "project-01", runId: "run-01", reservationId: "reservation-01", envelopeId: "envelope-01", heldCostMicros: "9", uncertainty: "provider outcome lost", cursor: { createdAtMs: 1, runId: "run-01", reservationId: "reservation-01" } };
+    const providerReceiptDigest = "e".repeat(64);
+    const usage = { kind: "measured" as const, inputTokens: 2, outputTokens: 3, computeMs: 4, costMicros: "5" };
+    const settledBudgets: string[] = [];
+    const stores = {
+      ...real,
+      budgets: Object.assign(Object.create(real.budgets), {
+        async listUncertainWithCostInTransaction() { return [hold]; },
+        async settleInTransaction(_transaction: MigrationDb, key: { reservationId: string }) { settledBudgets.push(key.reservationId); },
+      }) as typeof real.budgets,
+      journal: Object.assign(Object.create(real.journal), {
+        async operations() { return [{ operationId: "operation-01", operationIndex: 0, state: "uncertain", providerReceiptDigest, usage }]; },
+        async reconcileLate() {},
+      }) as typeof real.journal,
+      settlements: Object.assign(Object.create(real.settlements), {
+        async readByReceiptInTransaction() { return undefined; },
+        async recordInTransaction() { return { source: "reconciliation", knownCostMicros: "5", providerReceiptDigest, settledAtMs: 42, settlementDigest: `sha256:${"a".repeat(64)}` }; },
+      }) as typeof real.settlements,
+    };
+    const reported: string[] = [];
+    const composed = await composeFactorySettlement({
+      database: db, config: config(tls, publicKeyPath), stores, pool,
+      service: SERVICE, report: (role) => { reported.push(role); },
+    });
+    const read: string[] = [];
+    const cleared: { reservationId: string; atMs: number }[] = [];
+    const clear = composed.stops.clearResolvedStopInTransaction.bind(composed.stops);
+    composed.stops.readSettlementScopeInTransaction = async (_transaction, reservationId) => {
+      read.push(reservationId);
+      return { projectId: hold.projectId, runId: hold.runId, interpreterId: "root", reservationId, authority: { attemptId: "attempt-01" } as never };
+    };
+    composed.stops.clearResolvedStopInTransaction = async (transaction, reservationId, atMs) => {
+      cleared.push({ reservationId, atMs });
+      return clear(transaction, reservationId, atMs);
+    };
+
+    expect(await composed.usageReconciliation.step(SIGNAL)).toBe(true);
+    expect(reported).toEqual([]);
+    // resolve and reconcile each read the scope through this one stop store.
+    expect(read).toEqual([hold.reservationId, hold.reservationId]);
+    expect(settledBudgets).toEqual([hold.reservationId]);
+    // The settlement reaches the stop store that clears the kernel, once.
+    expect(cleared).toEqual([{ reservationId: hold.reservationId, atMs: 42 }]);
+  });
+
   test("refuses without the host launch endpoint the stop service lives behind", async () => {
     const { tls, publicKeyPath } = await material();
     const db = database();

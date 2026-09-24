@@ -521,6 +521,29 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
     expect(await foldedStatus(attempt, advanced)).toBe("cancelled");
   });
 
+  test("two reconcilers racing on one reservation settle it once and clear the kernel once", async () => {
+    const attempt = await launchedAttempt();
+    const { operation } = await dispatchedOperation(attempt);
+    const { reference, advanced } = await cancelled(attempt);
+    const held = harness(attempt, stopper(async request => signed(request)), acknowledger());
+    expect((await held.stops.stop(service, reference)).state).toBe("stopped");
+    // Two role processes, each with its own stop store, pick up the same hold.
+    const other = harness(attempt, stopper(async request => signed(request)), acknowledger());
+    const facts = { reservationId: attempt.reservationId, attemptId: attempt.attemptId, operationId: operation.operationId, providerReceiptDigest: "b".repeat(64), usage: { kind: "measured" as const, inputTokens: 2, outputTokens: 3, computeMs: 4, costMicros: "5" } };
+    const [first, second] = await Promise.all([
+      new FactoryUsageReconciliation(fixture.db, tenantId, held.stops, attempt.journal, lifecycle.budgets, held.settlements).reconcile(facts),
+      new FactoryUsageReconciliation(fixture.db, tenantId, other.stops, attempt.journal, lifecycle.budgets, other.settlements).reconcile(facts),
+    ]);
+    expect(second).toEqual(first);
+    expect(first).toMatchObject({ source: "reconciliation", knownCostMicros: "5" });
+    expect(await reservationState(attempt.reservationId)).toMatchObject({ state: "settled" });
+    expect((await settlementRows(attempt.run.runId)).map(row => row.source)).toEqual(["reconciliation"]);
+    const clearing = rows<{ payload: string }>(await fixture.db.execute(sql`SELECT payload FROM factory_inbox_events WHERE tenant_id=${tenantId} AND run_id=${attempt.run.runId} AND payload::jsonb->>'id' = ${`${reference.commandId}:usage-resolved`}`));
+    expect(clearing).toHaveLength(1);
+    expect((await inboxKinds(attempt.run.runId)).filter(kind => kind === "usage-settled")).toHaveLength(1);
+    expect(await foldedStatus(attempt, advanced)).toBe("cancelled");
+  });
+
   test("a hold whose usage is still unknown is not reconciled, and the kernel keeps the attempt uncertain", async () => {
     const attempt = await launchedAttempt();
     const { authority, operation } = await dispatchedOperation(attempt);

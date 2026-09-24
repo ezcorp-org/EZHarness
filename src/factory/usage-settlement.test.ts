@@ -120,7 +120,7 @@ test("binds the settlement store and its reconciler to one tenant", () => {
   const settlements = new FactoryUsageSettlements(database, "tenant", inbox);
   expect(settlements.tenantId).toBe("tenant");
   expect(settlements.transactionalDatabase).toBe(database);
-  const scopes = { async readSettlementScopeInTransaction() { return undefined; } };
+  const scopes = { async readSettlementScopeInTransaction() { return undefined; }, async clearResolvedStopInTransaction() { return undefined; } };
   const journal = { async reconcileLate(): Promise<never> { throw new Error("unused"); }, async operations(): Promise<never> { throw new Error("unused"); } };
   const budgets = { async settleInTransaction() { throw new Error("unused"); } };
   expect(() => new FactoryUsageReconciliation(database, "other-tenant", scopes, journal, budgets, settlements)).toThrow("factory_usage_settlement_scope");

@@ -375,10 +375,12 @@ export interface FactoryUsageSettlementAuthority {
   readSettlementScopeInTransaction(transaction: MigrationDb, reservationId: string): Promise<FactoryUsageSettlementScope | undefined>;
   /**
    * W05b: once reconciliation has settled a reservation, tell the kernel the
-   * stopped attempt is no longer uncertain. `FactoryTaskStops` implements it;
-   * a scope reader with no kernel behind it (a test double) may omit it.
+   * stopped attempt is no longer uncertain. `FactoryTaskStops` implements it.
+   * It is required, so a scope reader cannot silently leave the kernel
+   * holding a cancelled run open: a reader with no stop behind it must say so
+   * by returning nothing.
    */
-  clearResolvedStopInTransaction?(transaction: MigrationDb, reservationId: string, atMs: number): Promise<unknown>;
+  clearResolvedStopInTransaction(transaction: MigrationDb, reservationId: string, atMs: number): Promise<unknown>;
 }
 
 /** The journal seam a late receipt writes through. It never advances the cursor. */
@@ -492,7 +494,7 @@ export class FactoryUsageReconciliation implements FactoryUsageReconciler {
         await this.budgets.settleInTransaction(transaction, { projectId: scope.projectId, runId: scope.runId, reservationId: scope.reservationId }, { costMicros: input.usage.costMicros, tokens: input.usage.inputTokens + input.usage.outputTokens, computeMs: input.usage.computeMs }, settlement.settlementDigest);
         // The cost is settled, so the stopped attempt is no longer uncertain.
         // The kernel learns it from the sealed stop, in this same transaction.
-        await this.scopes.clearResolvedStopInTransaction?.(transaction, scope.reservationId, settlement.settledAtMs);
+        await this.scopes.clearResolvedStopInTransaction(transaction, scope.reservationId, settlement.settledAtMs);
       }
       return settlement;
     });
