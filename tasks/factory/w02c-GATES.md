@@ -87,6 +87,21 @@ preflight, runtime open) already refused a blocked package. Four things were mis
    orchestrator retries it until the quarantine lifts or the run is cancelled (C05: "wait for remediation or
    fail explicitly"). The private service maps it to 500 and reports it; it has no typed mapping.
 
+## Validation rulings (2026-09-23, w09d-validator-check, report `/tmp/factory-platform-evidence/w02c-validation/report.txt`)
+
+W02c at `daf5203cc` was accepted, with one delta (F3) required before the merge.
+
+- **F2, files owned by other packages. Ruling: accepted; behaviour kept; disclosed.** Each file was changed with its behaviour kept:
+  - `src/factory/run-lifecycle.ts` (W06): the body of `cancel` moved into `requestFactoryRunCancellationInTransaction`. Revision check, idempotency, authority and audit are unchanged.
+  - `src/factory/attempt-dispatcher.ts` (W01): a quarantined or revoked package's launch refusal now records its typed code, with the typed error as the result's cause. Every other denial still records `runner_package_denied`.
+  - `src/factory/native-runner-policy.ts` (W01): the admission fence (required since F3).
+  - `src/__tests__/helpers/factory-task-stops-suite.ts` (W03 tests): now uses the shared live-attempt fixture. It keeps the same 18 tests and 146 assertions.
+- **Deviation from interface-freeze section 3, dated 2026-09-23. Ruling: accepted, because the stop path is consumed, not changed.** Section 3 suggested a second, W03-owned authority path for package stops, with `lease-revoked` as the physical reason. The fence uses the operator's cancel instead, so the host stop receipt reads `cancelled`. The receipt records the physical fact. The typed reason lives on the run and in the affected-run record.
+- **W14 switch-over.** W14 moves its console to `createFactoryPackageTrusts` in its next round. Until then `src/factory/console.ts:78` builds a trust store without a fence, so its quarantine and revoke fail closed with `factory_package_fence_unavailable`.
+- **F3, delta: the admission fence is required.** `FactoryNativeRunnerPolicy` now takes the fence as a required argument, so omitting it is a type error. The constructor also refuses a missing or malformed fence at runtime (`factory_native_policy_invalid`). Every caller was updated. Suites that do not exercise trust pass the test-only double `packagesTrustedForTest`. The fence suite case "a runner policy cannot be built without the package fence" proves both halves: a `@ts-expect-error` for the compile error, and a runtime refusal.
+  CHECK: `bun run typecheck`; `bun run lint`; `bun test --timeout 120000` over the fence, lifecycle, task-stops, composition, restart and package-preparation suites; the fence and lifecycle suites on real PostgreSQL.
+  EVIDENCE: `/tmp/factory-platform-evidence/w02c/delta-f3/` (`lint.exit`, `focused.exit` and `focused.log`: 158 pass, 0 fail; `postgres.exit` and `postgres.log`: real PostgreSQL, fence and lifecycle suites, 83 pass, 0 fail, 1198 assertions, at `c17ea2aa9`; the one dirty file was this uncommitted gate file). `typecheck.log`: TypeScript and Python checks pass.
+
 ## Open
 
 - **A stopped run does not finish (W03).** In every pass, run A is cancelled with the typed reason and
