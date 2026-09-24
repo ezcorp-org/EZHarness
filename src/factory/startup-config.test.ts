@@ -441,3 +441,85 @@ describe("where a release may publish", () => {
     expect(reject(valid({ release: { ...release, extra: 1 } })).invalid).toContain("release.extra");
   });
 });
+
+describe("the trusted validator runtimes this installation judges claims on", () => {
+  const runner = { package: "@ezcorp/validator", manifestName: "validator", version: "1.0.0", digest: `sha256:${"a".repeat(64)}`, export: "run", configurationDigest: `sha256:${"c".repeat(64)}` };
+  const runtime = { name: "claim-runtime", kind: "podman-guest" as const, runner, materialPath: "/secrets/validator.json", materialDigest: `sha256:${"d".repeat(64)}` };
+
+  test("accepts a declared runtime, one pinning a model, and an absent section", () => {
+    expect(parseFactoryStartupConfig(valid({ validators: { runtimes: [runtime] } })).validators?.runtimes).toEqual([runtime]);
+    const pinned = { ...runtime, name: "model-runtime", runner: { ...runner, export: "judge", model: "model-1" } };
+    expect(parseFactoryStartupConfig(valid({ validators: { runtimes: [runtime, pinned] } })).validators?.runtimes).toHaveLength(2);
+    expect(parseFactoryStartupConfig(valid()).validators).toBeUndefined();
+  });
+
+  test("a present section declares at least one runtime and at most sixty-four", () => {
+    expect(reject(valid({ validators: {} })).invalid).toContain("validators.runtimes");
+    expect(reject(valid({ validators: { runtimes: [] } })).invalid).toContain("validators.runtimes");
+    expect(reject(valid({ validators: { runtimes: "runtime" } })).invalid).toContain("validators.runtimes");
+    const many = Array.from({ length: 65 }, (_, index) => ({ ...runtime, name: `runtime-${index}`, runner: { ...runner, export: `run-${index}` } }));
+    expect(reject(valid({ validators: { runtimes: many } })).invalid).toContain("validators.runtimes");
+  });
+
+  test("names the exact runtime that is malformed, by index", () => {
+    const { configurationDigest: _unpinned, ...unpinnedRunner } = runner;
+    const broken = [
+      { ...runtime, kind: "native" },
+      { ...runtime, name: "has space" },
+      { ...runtime, runner: unpinnedRunner },
+      { ...runtime, runner: { ...runner, configurationDigest: "sha256:short" } },
+      { ...runtime, runner: { ...runner, digest: "sha256:short" } },
+      { ...runtime, runner: { ...runner, extra: "field" } },
+      { ...runtime, runner: { ...runner, version: "" } },
+      { ...runtime, runner: "runner" },
+      { ...runtime, materialPath: "" },
+      { ...runtime, materialDigest: "digest" },
+      { ...runtime, materialDigest: 7 },
+      { ...runtime, extra: true },
+      "runtime",
+    ];
+    for (const entry of broken) {
+      expect(reject(valid({ validators: { runtimes: [runtime, entry] } })).invalid).toContain("validators.runtimes[1]");
+    }
+  });
+
+  test("a name or a runner declared twice would make which material governs depend on order", () => {
+    expect(reject(valid({ validators: { runtimes: [runtime, { ...runtime, runner: { ...runner, export: "other" } }] } })).invalid).toContain("validators.runtimes");
+    expect(reject(valid({ validators: { runtimes: [runtime, { ...runtime, name: "second" }] } })).invalid).toContain("validators.runtimes");
+  });
+
+  test("an unknown field, or a section that is not an object, is named rather than ignored", () => {
+    expect(reject(valid({ validators: { runtimes: [runtime], extra: 1 } })).invalid).toContain("validators.extra");
+    const scalar = reject(valid({ validators: true }));
+    expect(scalar.invalid).toEqual(["validators"]);
+  });
+});
+
+describe("the recovery sections: the Temporal HTTP API and the data-key wrapping service", () => {
+  const tls = { caPath: "/run/tls/temporal-ca.pem", certificatePath: "/run/tls/temporal.pem", privateKeyPath: "/run/tls/temporal.key" };
+
+  test("the Temporal endpoint is optional, and its client TLS is all three paths or none", () => {
+    expect(parseFactoryStartupConfig(valid()).temporalHttp).toBeUndefined();
+    expect(parseFactoryStartupConfig(valid({ temporalHttp: { endpoint: "https://temporal.internal:7243" } })).temporalHttp).toEqual({ endpoint: "https://temporal.internal:7243" });
+    expect(parseFactoryStartupConfig(valid({ temporalHttp: { endpoint: "https://temporal.internal:7243", tls } })).temporalHttp?.tls).toEqual(tls);
+    expect(reject(valid({ temporalHttp: { endpoint: "https://temporal.internal:7243", tls: { caPath: tls.caPath } } })).missing).toEqual(["temporalHttp.tls.certificatePath", "temporalHttp.tls.privateKeyPath"]);
+    // TLS material for no endpoint names the endpoint as missing.
+    expect(reject(valid({ temporalHttp: { tls } })).missing).toEqual(["temporalHttp.endpoint"]);
+    expect(reject(valid({ temporalHttp: { endpoint: "ftp://temporal" } })).invalid).toEqual(["temporalHttp.endpoint"]);
+  });
+
+  test("each key-management kind carries only its own fields, by reference", () => {
+    const cloud = { kind: "cloud-kms", keyId: "arn:aws:kms:eu-west-1:111122223333:key/abc", region: "eu-west-1", credentialsPath: "/run/secrets/kms.json" };
+    const transit = { kind: "transit", endpoint: "https://vault.internal:8200", keyName: "factory-tenant-01", tokenPath: "/run/secrets/transit.token" };
+    for (const accepted of [{ kind: "operator-master-key" }, cloud, { ...cloud, endpoint: "https://kms.internal" }, transit, { ...transit, mount: "transit-2", caPath: "/run/tls/vault-ca.pem" }]) {
+      expect(parseFactoryStartupConfig(valid({ keyManagement: accepted })).keyManagement).toEqual(accepted as never);
+    }
+    for (const refused of [
+      "cloud-kms", { kind: "hsm" }, { kind: "operator-master-key", keyId: "x" },
+      { ...cloud, secretAccessKey: "inline" }, { ...cloud, endpoint: "ftp://kms" }, { ...cloud, region: "bad region" },
+      { ...transit, token: "inline" }, { ...transit, endpoint: "not a url" }, { ...transit, mount: "bad mount" }, { ...transit, caPath: "" },
+    ]) {
+      expect(reject(valid({ keyManagement: refused })).invalid).toEqual(["keyManagement"]);
+    }
+  });
+});

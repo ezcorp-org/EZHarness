@@ -19,6 +19,7 @@ import { migrate } from "../../db/migrate";
 import * as schema from "../../db/schema";
 import { FactoryDatabaseAttemptLaunchStore, IsolatedFactoryAttemptRuntime, IsolatedFactoryTrustedRunner, factoryAttemptDeviceGrant, factoryAttemptInvocationId, factoryAttemptWorkerId, signFactoryPhysicalStopReceipt, type FactoryAttemptDeviceAuthorization, type FactoryAttemptLaunchIntent, type FactoryAttemptLaunchState, type FactoryAttemptLaunchStore, type FactoryAttemptLease, type FactoryAttemptRuntime, type FactoryPhysicalStopReceipt, type FactoryUnsignedPhysicalStopReceipt } from "./attempt-runtime";
 import { factoryRunnerRequestDigest } from "@ezcorp/factory-sdk/compiler";
+import { openFactoryEffectClaimsForTest } from "../../__tests__/helpers/factory-effect-claims";
 
 const raw = "a".repeat(64);
 const digest = `sha256:${raw}`;
@@ -96,6 +97,7 @@ test("a durable launch intent attaches after start response loss and never start
     await migrate(db);
     await db.execute(sql`INSERT INTO projects(id,name,path) VALUES (${request.authority.projectId},'Attempt runtime','/tmp/attempt-runtime')`);
     await db.execute(sql`INSERT INTO factory_installation(singleton,tenant_id,execution_epoch) VALUES (1,${request.authority.tenantId},6)`);
+    await openFactoryEffectClaimsForTest(db, request.authority.tenantId);
     await db.execute(sql`INSERT INTO factory_projects(tenant_id,project_id) VALUES (${request.authority.tenantId},${request.authority.projectId})`);
     await db.execute(sql`INSERT INTO factory_runs(tenant_id,project_id,run_id,definition_digest,interpreter_build,execution_epoch,request_digest,request_payload) VALUES (${request.authority.tenantId},${request.authority.projectId},${request.authority.runId},${digest},'runtime',6,${digest},'{}')`);
     await db.execute(sql`INSERT INTO factory_executions(attempt_id,tenant_id,project_id,run_id,node_instance_id,candidate_generation,attempt_number,grant_revision,reservation_generation,execution_epoch,cancellation_epoch,deadline_at,request_hash,request_json,status) VALUES (${request.authority.attemptId},${request.authority.tenantId},${request.authority.projectId},${request.authority.runId},${request.authority.nodeInstanceId},2,3,4,5,6,0,${new Date(request.authority.deadlineAtMs)},${digest},'{}','admitted')`);
@@ -151,6 +153,7 @@ test("concurrent open calls have one durable start winner and the other caller o
     await migrate(db);
     await db.execute(sql`INSERT INTO projects(id,name,path) VALUES (${request.authority.projectId},'Concurrent runtime','/tmp/concurrent-runtime')`);
     await db.execute(sql`INSERT INTO factory_installation(singleton,tenant_id,execution_epoch) VALUES (1,${request.authority.tenantId},6)`);
+    await openFactoryEffectClaimsForTest(db, request.authority.tenantId);
     await db.execute(sql`INSERT INTO factory_projects(tenant_id,project_id) VALUES (${request.authority.tenantId},${request.authority.projectId})`);
     await db.execute(sql`INSERT INTO factory_runs(tenant_id,project_id,run_id,definition_digest,interpreter_build,execution_epoch,request_digest,request_payload) VALUES (${request.authority.tenantId},${request.authority.projectId},${request.authority.runId},${digest},'runtime',6,${digest},'{}')`);
     await db.execute(sql`INSERT INTO factory_executions(attempt_id,tenant_id,project_id,run_id,node_instance_id,candidate_generation,attempt_number,grant_revision,reservation_generation,execution_epoch,cancellation_epoch,deadline_at,request_hash,request_json,status) VALUES (${request.authority.attemptId},${request.authority.tenantId},${request.authority.projectId},${request.authority.runId},${request.authority.nodeInstanceId},2,3,4,5,6,0,${new Date(request.authority.deadlineAtMs)},${digest},'{}','admitted')`);
@@ -204,6 +207,7 @@ test("a fresh isolated Bun guest receives only the minted attempt token and retu
     await migrate(db);
     await db.execute(sql`INSERT INTO projects(id,name,path) VALUES (${request.authority.projectId},'Attempt guest','/tmp/attempt-guest')`);
     await db.execute(sql`INSERT INTO factory_installation(singleton,tenant_id,execution_epoch) VALUES (1,${request.authority.tenantId},6)`);
+    await openFactoryEffectClaimsForTest(db, request.authority.tenantId);
     await db.execute(sql`INSERT INTO factory_projects(tenant_id,project_id) VALUES (${request.authority.tenantId},${request.authority.projectId})`);
     await db.execute(sql`INSERT INTO factory_runs(tenant_id,project_id,run_id,definition_digest,interpreter_build,execution_epoch,request_digest,request_payload) VALUES (${request.authority.tenantId},${request.authority.projectId},${request.authority.runId},${digest},'runtime',6,${digest},'{}')`);
     await db.execute(sql`INSERT INTO factory_executions(attempt_id,tenant_id,project_id,run_id,node_instance_id,candidate_generation,attempt_number,grant_revision,reservation_generation,execution_epoch,cancellation_epoch,deadline_at,request_hash,request_json,status) VALUES (${request.authority.attemptId},${request.authority.tenantId},${request.authority.projectId},${request.authority.runId},${request.authority.nodeInstanceId},2,3,4,5,6,0,${new Date(request.authority.deadlineAtMs)},${digest},'{}','admitted')`);

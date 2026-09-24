@@ -12,6 +12,7 @@ import * as schema from "../../src/db/schema";
 import { FactoryExecutionJournal, type FactoryAttemptAuthority } from "../../src/factory/executions";
 import { FactoryDatabaseAttemptLaunchStore, type FactoryAttemptDeviceAuthorization, type FactoryAttemptLease } from "../../src/factory/runner/attempt-runtime";
 import { factoryLaunchPackage } from "../../src/__tests__/helpers/factory-attempt-launch-fixture";
+import { openFactoryEffectClaimsForTest } from "../../src/__tests__/helpers/factory-effect-claims";
 import { nativeFactoryJournal } from "../../src/factory/runner/native";
 import { verifyFactoryExecutionAdmission } from "../../src/__tests__/helpers/factory-execution-admission-suite";
 
@@ -55,6 +56,7 @@ describe("factory execution journal on real Bun.sql PostgreSQL", () => {
     await __test.withPostgresMigrateLock(migrationDb => migrate(migrationDb));
     await db.execute(sql`INSERT INTO projects(id, name, path) VALUES ('execution-project', 'Execution', '/tmp/execution')`);
     await db.execute(sql`INSERT INTO factory_installation(singleton, tenant_id, execution_epoch) VALUES (1, 'execution-tenant', 1)`);
+    await openFactoryEffectClaimsForTest(db, "execution-tenant");
     await db.execute(sql`INSERT INTO factory_projects(tenant_id, project_id) VALUES ('execution-tenant', 'execution-project')`);
     await db.execute(sql`INSERT INTO factory_runs(tenant_id, project_id, run_id, definition_digest, interpreter_build, execution_epoch, request_digest, request_payload) VALUES ('execution-tenant', 'execution-project', 'execution-run', ${`sha256:${"a".repeat(64)}`}, 'postgres-test', 1, 'request', '{}')`);
     journal = new FactoryExecutionJournal(db, async () => {});

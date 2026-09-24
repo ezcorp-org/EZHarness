@@ -1452,6 +1452,65 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 - Queue at most one job on the shared heavy lock. I queued mutation and the journeys together; I had to stop one. Chain the heavy work into one script instead.
 - zsh does not word-split an unquoted `$var`, and `pkill -f <pattern>` kills the calling shell when the pattern is in its own command line. Use `bash -c` for arrays, and stop a server by its port.
 
+## 2026-09-22 — W09d: composing validators
+
+- A test suite that pins the clock cannot see a lease expire. W05's acceptance path re-recorded the candidate's terminal fact through a live-attempt authorization on every call, and every suite passed because `now` never moved past the candidate's lease. The real started application refused `factory_run_fence_changed` the first time a validator took longer than that lease, which is always. When a path can run long after the thing it re-authorizes, write one test whose authorizer says "expired".
+- A proof harness that treats "the server never became ready" as a pass for a negative control proves nothing. Two early control records passed vacuously that way. Every mode, control included, must first require a live application that accepted the run and reached the point under test.
+- Read what a database driver actually returns before matching on it. Bun's SQL returns a JSON column as an object, so `String(row.json).includes('"completed"')` is always false ("[object Object]"); parse whichever shape arrives.
+- Copy a harness by its whole closure, and re-copy when its owner moves. W01g's harness gained a supervisor wrapper (`bun-host.sh`) and moved its host mount from a proof branch into `wp/w01g-staging`; a stale copy failed twice before a single product line ran.
+- A fix proven in the kernel alone can still hang in the real application. The first `command-failed` handler stopped the run through `beginStopping`, which emits a `cancel-node` for every node it thinks is physical; a release node's only attempt was the effect that had just failed, so the cancel could never resolve and the run sat in `stopping`. The kernel tests passed because they used a task node. Prove a lifecycle change on the node kind the real run actually ends on.
+
+- A proof judge should check the exact thing a finding names. Round 4 passed with "a projected FACTORY_COMMAND_FAILED reason" while that reason said only "Activity task failed". The judge now requires the refusal's code, and it would have failed round 4.
+- After a worktree moves, rebuild everything that stored an absolute path. The Python virtual environments kept shebangs to the old path, so the typecheck failed although no source changed. Harness scripts with hard-coded worktree paths failed the same way.
+
+## 2026-09-22 — W15 retention, checkpoints, and restore
+
+- **Bun 1.3.14's `toMatchObject` overwrites array elements matched by `expect.any(...)`.** After
+  `expect(value).toMatchObject({ a: [expect.any(Object)] })`, `value.a[0]` was `{}` — measured
+  with a one-line probe. A later read of the same array then failed far from the assertion. Assert
+  lengths or exact values instead of asymmetric matchers inside arrays.
+- **Bun 1.3.14's line coverage reports a function's LAST line as unexecuted when the next function
+  in the file never runs.** A console probe showed the statement ran three times while lcov said 0,
+  and a six-line probe reproduced it: adding an unexecuted method after an executed one zeroed the
+  executed one's last line. Rewriting the statement changes nothing; exercising the following
+  function (or placing the new function where the next one runs) does. Reproduce a coverage
+  anomaly in a probe before rewriting production code to please the gate.
+- **Measure a pause, not only a barrier.** The first barrier drained senders while product writes
+  were already paused, so every writer stalled for the full one-second drain (writer p95 1042 ms).
+  Closing effect claims first and draining while writes still flowed cut the write pause to 54 ms
+  at p95 with the same barrier length. Report the window a user feels beside the total.
+- **Read where a key actually lives before recording it.** The barrier first aborted when the
+  product database held no data-key wrap; the W09b harness showed that a real deployment keeps the
+  wrap in the orchestration process's private file, which the product process must never read. The
+  manifest now says which of the two it saw, and restore proves the key opens with the operator's
+  keys either way.
+- **A re-verification must judge the state it was given, not the state it produced.** Restore's
+  second pass compared the database with the manifest after the first pass had imported archived
+  audit, and called a correct backup incompatible. Capture the comparison input when the epoch
+  opens, before any restore write.
+- **Iterating PostgreSQL suites against a private container is still a heavy producer.** I ran
+  focused PostgreSQL and S3 suites on a private container outside the shared lock to avoid a
+  multi-hour queue. The final evidence runs under the lock; the development runs are disclosed as
+  such rather than presented as the receipts.
+
+- W15: Temporal's HTTP describe route cannot address a workflow id that contains `/`, encoded once
+  or twice. Read positions through the visibility list (`?query=WorkflowId="..."`) and wait for it,
+  because visibility is eventually consistent. A running execution has no history length there.
+- W15: A PostgreSQL point-in-time replica refuses to start when its `max_connections` is below the
+  primary's. Pass the primary's value to the replica.
+- W15: Never stop a locked run with `pkill -f <pattern>`. It killed the `flock` parent, the lock
+  released, and the orphaned `bun test` kept running on the shared PostgreSQL outside the lock, then
+  left a temporary database no one can attribute. Record the batch's PID and kill that process
+  group only, and never change the tree while a batch that reads it live is running.
+- W15: A test that seeds `factory_installation` directly and then claims an effect needs the
+  explicit freshness opt-out (`openFactoryEffectClaimsForTest`). Find such tests with a grep over
+  every lane, including Podman lanes, before changing a gate default.
+## 2026-09-22 — W18b pool fixes
+
+- A failure label copied from a test name is a hypothesis, not a cause. W15 recorded the launcher failure as a Unix socket path limit because the test is named for it; the real error was a `TimeoutError` from a one-second readiness probe. Run the failing file under the pool's concurrency (six copies at once reproduced it 1 in 24) and read the error before naming a cause.
+- A "hard expiry" date in code is a scheduled behaviour change with no deploy. Once the date passes, retire the dead branch rather than keep a clock comparison that only looks alive. Source-regex gates that match indentation broke silently on a refactor; pin the behaviour on the real handler instead.
+- A project-root walk must accept only a real repository marker. `existsSync(".git")` also matched a stray empty `/tmp/.git`, which git itself rejects. Ask "what does git say?" and plant the stray marker inside the test's own tree so the case holds whatever the host's /tmp contains.
+- A git hook exports `GIT_DIR` and `GIT_INDEX_FILE`. Any `git` a test or tool spawns from inside a hook acts on the hook's repository, so `rev-parse` reports "inside a repository" everywhere and `git init <dir>` targets the wrong place. Drop the caller's `GIT_*` variables when git must discover from a directory.
 ## 2026-09-22 — A measured list is stale after a merge (W18a-2)
 
 - Recompute a complexity or CRAP list on the tree you will hand over. Do not trust the list in the brief. The brief
@@ -1480,3 +1539,6 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 - Check `scripts/coverage-config.ts` before adding a test for an uncovered Svelte line. A browser-canonical source takes coverage only from browser journeys, so a component test that already exercises the line does not count.
 - In a serial Playwright file one failure skips every later journey. Read "did not run" as untested, not as passed, and rerun the whole file after the fix.
 
+- Verify live state before you answer a factual question about it. When the user asked which model the subagents run on, the first answer came from the spawn parameter, not from evidence. Ask the agents (or read the source) first, then answer with the evidence named.
+- An outer `timeout` around a command that waits for a lock counts the wait. The first W18a-2 combined run waited about 1.6 hours for the heavy lock inside `timeout 9000` and was killed (exit 124) in its node leg. Put the timeout inside the lock (`flock ... timeout N cmd`), or rely on the runner's own per-leg bound.
+- Never pipe a command that must run to completion into a reader that can close early (head, a limited grep). A closed pipe kills git commit with SIGPIPE and nothing is committed. Write to a file, then summarize from the file.

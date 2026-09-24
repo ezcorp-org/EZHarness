@@ -339,13 +339,21 @@ export async function startFactoryRuntime(
     // `/api/ready` rather than a claim they have to take from a log line. Names
     // and reasons only: no endpoint, no identity beyond the tenant, no
     // credential.
+    //
+    // A held `checkpoint-barrier` role is never "ready": no barrier seals a
+    // checkpoint, so the database keeps release claims and attempt launches
+    // closed (C06 fails closed), and readiness says why instead of hiding it.
+    const barrierHeld = workerSet.held.some((worker) => worker.role === "checkpoint-barrier");
     setReadiness({
-      state: "ready",
+      state: barrierHeld ? "degraded" : "ready",
+      ...(barrierHeld ? { reason: "factory-checkpoint-barrier-held" } : {}),
       detail: {
         factory: {
           tenantId: config.tenantId,
           running: workerSet.workers.names(),
-          held: workerSet.held.map((worker) => ({ role: worker.role, workPackage: worker.workPackage })),
+          // The reason travels too: "held" alone cannot tell an operator whether
+          // to declare something, repair something, or wait for a package.
+          held: workerSet.held.map((worker) => ({ role: worker.role, workPackage: worker.workPackage, reason: worker.reason })),
           ...(dependencies.providerReadiness === undefined ? {} : { providerReadiness: dependencies.providerReadiness }),
         },
       },

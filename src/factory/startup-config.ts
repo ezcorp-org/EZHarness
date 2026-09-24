@@ -15,8 +15,9 @@
  * The document carries references — paths, endpoints, identities — and never a
  * credential value, matching `parseFactoryOrchestratorProcessConfig`.
  */
-import { basename, dirname, resolve } from "node:path";
-import { privateDirectory, readPrivateBounded } from "./private-files";
+import { resolve } from "node:path";
+import { isPlainRecord } from "./plain-values";
+import { readPrivatePath } from "./private-files";
 
 export const FACTORY_STARTUP_CONFIG_SCHEMA = "factory.startup.v1";
 const MAX_CONFIG_BYTES = 64 * 1024;
@@ -161,8 +162,98 @@ export interface FactoryStartupConfig {
     readonly destinations: readonly FactoryStartupReleaseDestination[];
     readonly profiles: readonly FactoryStartupReleaseProfile[];
   };
+  /**
+   * The trusted validator runtimes this installation runs protected claims on.
+   *
+   * A validator runtime is a pinned deployment fact: which runner judges a
+   * claim, in which environment, under which configuration. No factory
+   * definition can state it, because a definition that named its own judge
+   * would be trusting itself. So each runtime is declared here BY REFERENCE —
+   * a private material file and the digest it must have — and the composition
+   * reads it through the private bounded reader and refuses by name when it is
+   * missing, shared, or not the bytes the operator declared.
+   *
+   * Optional. An installation that declares none cannot accept a protected
+   * claim, and its readiness says so; a default runtime would be a judge
+   * nobody chose.
+   */
+  readonly validators?: {
+    readonly runtimes: readonly FactoryStartupValidatorRuntime[];
+  };
   readonly workers?: FactoryWorkerTuning;
+  /**
+   * The tenant namespace's Temporal HTTP API, for W15's checkpoint barrier.
+   *
+   * Every checkpoint records the Temporal position of each live workflow, so a
+   * restore can tell whether the live namespace moved past the restored product
+   * stream. Absent, the `checkpoint-barrier` role holds by name, readiness is
+   * `degraded`, and effect claims stay closed: C06 fails closed rather than
+   * sealing a checkpoint a restore could not verify. The client TLS material is
+   * all three paths or none.
+   */
+  readonly temporalHttp?: { readonly endpoint: string; readonly tls?: FactoryStartupTlsMaterial };
+  /**
+   * How the installation data key is wrapped. Absent, the operator master key
+   * named in `keys` wraps it. Every secret is by REFERENCE: a file the private
+   * bounded reader reads at composition, never a value in this document.
+   */
+  readonly keyManagement?: FactoryStartupKeyManagement;
 }
+
+/** The runtime kinds a declared validator may name. */
+export const FACTORY_VALIDATOR_RUNTIME_KINDS = Object.freeze(["podman-guest"] as const);
+
+/**
+ * One trusted validator runtime, declared by reference.
+ *
+ * `runner` is the lock the runtime registers under: the exact runner reference
+ * a definition's claim must name, configuration digest included. The material
+ * file carries the rest of the runtime (resources, environment digest, broker
+ * audience, evidence age) and must repeat the same runner, so the document and
+ * the file cannot disagree about which judge they describe.
+ */
+export interface FactoryStartupValidatorRuntime {
+  /** This document's own handle for the runtime; it never reaches the wire. */
+  readonly name: string;
+  readonly kind: (typeof FACTORY_VALIDATOR_RUNTIME_KINDS)[number];
+  readonly runner: {
+    readonly package: string;
+    readonly manifestName: string;
+    readonly version: string;
+    readonly digest: string;
+    readonly export: string;
+    readonly configurationDigest: string;
+    readonly model?: string;
+  };
+  /** The runtime material file, by reference. Read privately, never logged. */
+  readonly materialPath: string;
+  /** `sha256:` over the material file's exact bytes. */
+  readonly materialDigest: string;
+}
+
+/** The data-key wrapping service: the operator's own master key file, a hosted cloud KMS key, or a self-hosted transit engine. */
+export type FactoryStartupKeyManagement =
+  | { readonly kind: "operator-master-key" }
+  | {
+      readonly kind: "cloud-kms";
+      /** The KMS key id or ARN new wraps use. */
+      readonly keyId: string;
+      readonly region: string;
+      /** A private JSON file with `accessKeyId` and `secretAccessKey`. */
+      readonly credentialsPath: string;
+      readonly endpoint?: string;
+    }
+  | {
+      readonly kind: "transit";
+      /** A Vault or OpenBao server. */
+      readonly endpoint: string;
+      readonly keyName: string;
+      /** A private file holding the transit token, read for every call. */
+      readonly tokenPath: string;
+      readonly mount?: string;
+      /** The server's CA certificate, when it is not publicly trusted. */
+      readonly caPath?: string;
+    };
 
 /**
  * One place a release may publish, named so a profile can point at it.
@@ -319,16 +410,16 @@ export const FACTORY_STARTUP_FIELDS: readonly FieldSpec[] = Object.freeze([
   { field: "workers.idleDelayMs", kind: "interval", optional: true },
   { field: "workers.errorDelayMs", kind: "interval", optional: true },
   { field: "workers.maxErrorDelayMs", kind: "interval", optional: true },
+  { field: "temporalHttp.endpoint", kind: "url", optional: true },
+  { field: "temporalHttp.tls.caPath", kind: "path", optional: true },
+  { field: "temporalHttp.tls.certificatePath", kind: "path", optional: true },
+  { field: "temporalHttp.tls.privateKeyPath", kind: "path", optional: true },
 ]);
-
-function record(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 function read(root: Record<string, unknown>, field: string): { readonly present: boolean; readonly value: unknown } {
   let current: unknown = root;
   for (const segment of field.split(".")) {
-    if (!record(current) || !Object.hasOwn(current, segment)) return { present: false, value: undefined };
+    if (!isPlainRecord(current) || !Object.hasOwn(current, segment)) return { present: false, value: undefined };
     current = current[segment];
   }
   return { present: current !== undefined, value: current };
@@ -368,20 +459,26 @@ function httpsUrl(value: unknown): boolean {
 
 /** A signing key map: one key id to one file, at least one entry. */
 function wellFormedKeyPaths(value: unknown): boolean {
-  if (!record(value)) return false;
+  if (!isPlainRecord(value)) return false;
   const entries = Object.entries(value);
   return entries.length >= 1 && entries.length <= 32
     && entries.every(([kid, path]) => wellFormed("identity", kid) && wellFormed("path", path));
 }
 
 /** One runner this installation dispatches to, with its allocation. */
+const SHA256_DIGEST = /^sha256:[a-f0-9]{64}$/;
+const RUNNER_KEYS = ["package", "manifestName", "version", "digest", "export"] as const;
+
+/** A pinned runner reference: exactly these keys, each a bounded string, the digest a sha256. */
+function wellFormedRunner(runner: unknown, keys: readonly string[] = RUNNER_KEYS): runner is Record<string, string> {
+  return isPlainRecord(runner) && exactKeys(runner, keys)
+    && keys.every((key) => typeof runner[key] === "string" && (runner[key] as string).length > 0 && (runner[key] as string).length <= 512)
+    && SHA256_DIGEST.test(runner.digest as string);
+}
+
 function wellFormedRunnerProfile(value: unknown): boolean {
-  if (!record(value) || !exactKeys(value, ["runner", "resourceClass", "allocation", "allowedCapabilities"])) return false;
-  const runner = value.runner;
-  const runnerKeys = ["package", "manifestName", "version", "digest", "export"];
-  if (!record(runner) || !exactKeys(runner, runnerKeys)
-    || runnerKeys.some((key) => typeof runner[key] !== "string" || (runner[key] as string).length === 0 || (runner[key] as string).length > 512)
-    || !/^sha256:[a-f0-9]{64}$/.test(runner.digest as string)) return false;
+  if (!isPlainRecord(value) || !exactKeys(value, ["runner", "resourceClass", "allocation", "allowedCapabilities"])) return false;
+  if (!wellFormedRunner(value.runner)) return false;
   if (!wellFormed("identity", value.resourceClass)) return false;
   if (!Array.isArray(value.allowedCapabilities) || value.allowedCapabilities.length > 64
     || value.allowedCapabilities.some((capability) => !wellFormed("identity", capability))
@@ -437,7 +534,7 @@ function wellFormedRepository(value: unknown): boolean {
  * against half a declaration.
  */
 function wellFormedReleaseDestination(value: unknown): boolean {
-  if (!record(value) || !wellFormed("identity", value.name)) return false;
+  if (!isPlainRecord(value) || !wellFormed("identity", value.name)) return false;
   if (value.kind === "s3") {
     const required = ["name", "kind", "endpoint", "bucket", "account", "credentialsPath"];
     if (!exactKeys(value, required) && !exactKeys(value, [...required, "prefix"])) return false;
@@ -451,12 +548,47 @@ function wellFormedReleaseDestination(value: unknown): boolean {
   return false;
 }
 
+/** One data-key wrapping service, by kind, with only that kind's fields. */
+function wellFormedKeyManagement(value: unknown): boolean {
+  if (!isPlainRecord(value)) return false;
+  if (value.kind === "operator-master-key") return exactKeys(value, ["kind"]);
+  if (value.kind === "cloud-kms") {
+    const required = ["kind", "keyId", "region", "credentialsPath"];
+    if (!exactKeys(value, required) && !exactKeys(value, [...required, "endpoint"])) return false;
+    return wellFormed("statement", value.keyId) && wellFormed("identity", value.region) && wellFormed("path", value.credentialsPath)
+      && (value.endpoint === undefined || httpsUrl(value.endpoint));
+  }
+  if (value.kind === "transit") {
+    const optional = ["mount", "caPath"].filter((key) => Object.hasOwn(value, key));
+    if (!exactKeys(value, ["kind", "endpoint", "keyName", "tokenPath", ...optional])) return false;
+    return httpsUrl(value.endpoint) && wellFormed("identity", value.keyName) && wellFormed("path", value.tokenPath)
+      && (value.mount === undefined || wellFormed("identity", value.mount)) && (value.caPath === undefined || wellFormed("path", value.caPath));
+  }
+  return false;
+}
+
+/**
+ * W15's two recovery sections. Temporal client TLS is all three paths or none,
+ * and never without the endpoint it is for; the key service is one
+ * well-formed kind.
+ */
+function recoverySectionProblems(value: Record<string, unknown>, missing: string[], invalid: string[]): void {
+  const temporalTls = FACTORY_STARTUP_FIELDS.filter((spec) => spec.field.startsWith("temporalHttp.tls."));
+  const temporalTlsPresent = temporalTls.filter((spec) => read(value, spec.field).present);
+  if (temporalTlsPresent.length > 0 && temporalTlsPresent.length < temporalTls.length) {
+    for (const spec of temporalTls) if (!temporalTlsPresent.includes(spec)) missing.push(spec.field);
+  }
+  if (temporalTlsPresent.length > 0 && !read(value, "temporalHttp.endpoint").present) missing.push("temporalHttp.endpoint");
+  const keyManagement = read(value, "keyManagement");
+  if (keyManagement.present && !wellFormedKeyManagement(keyManagement.value)) invalid.push("keyManagement");
+}
+
 /** One adapter reference, its action, its destination, and its cost. */
 function wellFormedReleaseProfile(value: unknown): boolean {
-  if (!record(value) || !exactKeys(value, ["adapter", "action", "destination", "estimatedSpendMicros"])) return false;
+  if (!isPlainRecord(value) || !exactKeys(value, ["adapter", "action", "destination", "estimatedSpendMicros"])) return false;
   const adapter = value.adapter;
   const adapterKeys = ["package", "manifestName", "version", "digest", "export"];
-  if (!record(adapter) || !exactKeys(adapter, adapterKeys)
+  if (!isPlainRecord(adapter) || !exactKeys(adapter, adapterKeys)
     || adapterKeys.some((key) => typeof adapter[key] !== "string" || (adapter[key] as string).length === 0 || (adapter[key] as string).length > 512)
     || !/^sha256:[a-f0-9]{64}$/.test(adapter.digest as string)) return false;
   // A micro-denominated release cost is bounded well above a runner budget and
@@ -468,31 +600,50 @@ function wellFormedReleaseProfile(value: unknown): boolean {
 
 /** A task's pool vector, its memory, and the budget it may spend. */
 function wellFormedResourceProfile(value: unknown): boolean {
-  if (!record(value) || !exactKeys(value, ["resources", "memoryBytes", "budget"])) return false;
+  if (!isPlainRecord(value) || !exactKeys(value, ["resources", "memoryBytes", "budget"])) return false;
   const resources = value.resources;
-  if (!record(resources) || Object.keys(resources).length === 0
+  if (!isPlainRecord(resources) || Object.keys(resources).length === 0
     || Object.entries(resources).some(([name, amount]) => !wellFormed("identity", name) || !Number.isSafeInteger(amount) || (amount as number) < 0 || (amount as number) > 1_000_000)) return false;
   if (!Number.isSafeInteger(value.memoryBytes) || (value.memoryBytes as number) < 1) return false;
   const budget = value.budget;
   // `costMicros` is decimal TEXT rather than a number: a micro-denominated cost
   // can exceed a safe integer, and the budget ledger stores it as text for
   // exactly that reason.
-  return record(budget) && exactKeys(budget, ["costMicros", "tokens", "computeMs"])
+  return isPlainRecord(budget) && exactKeys(budget, ["costMicros", "tokens", "computeMs"])
     && typeof budget.costMicros === "string" && /^[0-9]{1,30}$/.test(budget.costMicros)
     && Number.isSafeInteger(budget.tokens) && (budget.tokens as number) >= 0
     && Number.isSafeInteger(budget.computeMs) && (budget.computeMs as number) >= 0;
 }
 
+/**
+ * One declared validator runtime.
+ *
+ * The runner must pin a configuration digest, because `FactoryTrustedValidators`
+ * binds the runtime's configuration to the runner reference a claim names; a
+ * runner without one could not be matched to any runtime and would refuse at
+ * the first claim instead of here.
+ */
+function wellFormedValidatorRuntime(value: unknown): boolean {
+  if (!isPlainRecord(value) || !exactKeys(value, ["name", "kind", "runner", "materialPath", "materialDigest"])) return false;
+  const runner = value.runner;
+  const keys = isPlainRecord(runner) && Object.hasOwn(runner, "model") ? [...RUNNER_KEYS, "configurationDigest", "model"] : [...RUNNER_KEYS, "configurationDigest"];
+  return wellFormed("identity", value.name)
+    && (FACTORY_VALIDATOR_RUNTIME_KINDS as readonly unknown[]).includes(value.kind)
+    && wellFormedRunner(runner, keys) && SHA256_DIGEST.test(runner.configurationDigest!)
+    && wellFormed("path", value.materialPath)
+    && typeof value.materialDigest === "string" && SHA256_DIGEST.test(value.materialDigest);
+}
+
 /** The set of leaf fields a valid document may carry, derived from the table. */
 const KNOWN_FIELDS: ReadonlySet<string> = new Set([
   "schemaVersion", "hostStopKeys", "privateService.tokens.publicKeyPaths", "runnerProfiles",
-  "release.destinations", "release.profiles",
+  "release.destinations", "release.profiles", "validators.runtimes", "keyManagement",
   ...FACTORY_STARTUP_FIELDS.map((spec) => spec.field),
 ]);
 
 /** One adapter reference as a comparable string, for the duplicate scan. */
 function canonicalAdapter(value: unknown): string {
-  if (!record(value)) return JSON.stringify(value);
+  if (!isPlainRecord(value)) return JSON.stringify(value);
   return JSON.stringify(Object.keys(value).sort().map((key) => [key, value[key]]));
 }
 
@@ -503,7 +654,7 @@ function exactKeys(value: Record<string, unknown>, keys: readonly string[]): boo
 }
 
 function leaves(value: unknown, prefix = ""): string[] {
-  if (!record(value)) return [prefix];
+  if (!isPlainRecord(value)) return [prefix];
   const found: string[] = [];
   for (const [key, nested] of Object.entries(value)) {
     const field = prefix === "" ? key : `${prefix}.${key}`;
@@ -514,8 +665,8 @@ function leaves(value: unknown, prefix = ""): string[] {
     // — so recursing into them would name a value as a field. Each is checked
     // by shape below instead.
     if (field === "hostStopKeys" || field === "runnerProfiles" || field === "privateService.tokens.publicKeyPaths"
-      || field === "release.destinations" || field === "release.profiles") { found.push(field); continue; }
-    found.push(...(record(nested) ? leaves(nested, field) : [field]));
+      || field === "release.destinations" || field === "release.profiles" || field === "validators.runtimes" || field === "keyManagement") { found.push(field); continue; }
+    found.push(...(isPlainRecord(nested) ? leaves(nested, field) : [field]));
   }
   return found;
 }
@@ -571,7 +722,7 @@ const checkHostStopKeys: StartupCheck = (value, { invalid }) => {
   const entries = hostStopKeys.value;
   if (!Array.isArray(entries) || entries.length === 0) { invalid.push("hostStopKeys"); return; }
   for (const [index, entry] of entries.entries()) {
-    if (!record(entry) || !exactKeys(entry, ["hostId", "hostKeyId", "publicKeyPath"])
+    if (!isPlainRecord(entry) || !exactKeys(entry, ["hostId", "hostKeyId", "publicKeyPath"])
       || !wellFormed("identity", entry.hostId) || !wellFormed("identity", entry.hostKeyId) || !wellFormed("path", entry.publicKeyPath)) {
       invalid.push(`hostStopKeys[${index}]`);
     }
@@ -584,6 +735,11 @@ const checkReadinessRetry: StartupCheck = (value, { missing }) => {
   const retryFields = ["readinessRetry.delayMs", "readinessRetry.windowMs"];
   const retryPresent = retryFields.filter((field) => read(value, field).present);
   if (retryPresent.length === 1) missing.push(retryFields.find((field) => !retryPresent.includes(field))!);
+};
+
+// The recovery sections: the Temporal HTTP API endpoint and the data-key wrapping service.
+const checkRecoverySections: StartupCheck = (value, { missing, invalid }) => {
+  recoverySectionProblems(value, missing, invalid);
 };
 
 // The private service's token verifier is all three fields or none: an issuer
@@ -603,7 +759,7 @@ const checkRunnerProfiles: StartupCheck = (value, { invalid }) => {
   const runners = read(value, "runnerProfiles");
   if (!runners.present) return;
   const section = runners.value;
-  if (!record(section) || !exactKeys(section, ["brokerAudience", "profiles"]) || !wellFormed("identity", section.brokerAudience)
+  if (!isPlainRecord(section) || !exactKeys(section, ["brokerAudience", "profiles"]) || !wellFormed("identity", section.brokerAudience)
     || !Array.isArray(section.profiles) || section.profiles.length === 0 || section.profiles.length > 64) {
     invalid.push("runnerProfiles");
     return;
@@ -659,10 +815,15 @@ const checkRelease: StartupCheck = (value, { missing, invalid }) => {
   checkReleaseProfiles(read(value, "release.profiles").value, names, invalid);
 };
 
+// The trusted validator runtimes, when the section is present.
+const checkValidatorRuntimes: StartupCheck = (value, { invalid }) => {
+  invalid.push(...invalidValidatorRuntimes(value));
+};
+
 // Run in this order; the error lists keep the order the problems are found in.
 const STARTUP_CHECKS: readonly StartupCheck[] = [
-  checkDeclaredFields, checkModelPin, checkHostLaunch, checkHostStopKeys, checkReadinessRetry,
-  checkPrivateServiceTokens, checkRunnerProfiles, checkRelease,
+  checkDeclaredFields, checkModelPin, checkHostLaunch, checkHostStopKeys, checkReadinessRetry, checkRecoverySections,
+  checkPrivateServiceTokens, checkRunnerProfiles, checkRelease, checkValidatorRuntimes,
 ];
 
 /** Cross-field rules on a document whose every field is already well formed. */
@@ -688,7 +849,7 @@ function assertStartupConfigBounds(config: FactoryStartupConfig): void {
  * operator thought they had configured.
  */
 export function parseFactoryStartupConfig(value: unknown): FactoryStartupConfig {
-  if (!record(value)) throw new FactoryStartupConfigError(["schemaVersion"], []);
+  if (!isPlainRecord(value)) throw new FactoryStartupConfigError(["schemaVersion"], []);
   const problems: StartupProblems = { missing: [], invalid: [] };
   for (const check of STARTUP_CHECKS) check(value, problems);
   if (problems.missing.length > 0 || problems.invalid.length > 0) throw new FactoryStartupConfigError(problems.missing, problems.invalid);
@@ -697,16 +858,30 @@ export function parseFactoryStartupConfig(value: unknown): FactoryStartupConfig 
   return Object.freeze(config);
 }
 
+/**
+ * Every problem with a present `validators` section, by field.
+ *
+ * A present section declares at least one runtime, because an empty list reads
+ * as configured while trusting nobody. Two runtimes may not share a name or a
+ * runner: the trusted set is keyed by the runner, so a second entry for one
+ * would make which material governs depend on declaration order.
+ */
+function invalidValidatorRuntimes(value: Record<string, unknown>): string[] {
+  const root = read(value, "validators");
+  // A non-record section is already named by the unknown-field scan.
+  if (!root.present || !isPlainRecord(root.value)) return [];
+  const runtimes = read(value, "validators.runtimes").value;
+  if (!Array.isArray(runtimes) || runtimes.length === 0 || runtimes.length > 64) return ["validators.runtimes"];
+  const invalid = runtimes.flatMap((entry, index) => wellFormedValidatorRuntime(entry) ? [] : [`validators.runtimes[${index}]`]);
+  const names = runtimes.map((entry) => (entry as { name?: unknown }).name);
+  const runners = runtimes.map((entry) => canonicalAdapter((entry as { runner?: unknown }).runner));
+  if (new Set(names).size !== names.length || new Set(runners).size !== runners.length) invalid.push("validators.runtimes");
+  return invalid;
+}
+
 /** Read the document through the private bounded reader, as the process entries do. */
 export async function loadFactoryStartupConfig(path: string): Promise<FactoryStartupConfig> {
-  const absolute = resolve(path);
-  const directory = await privateDirectory(dirname(absolute));
-  let bytes: Uint8Array;
-  try {
-    bytes = await readPrivateBounded(directory, basename(absolute), MAX_CONFIG_BYTES);
-  } finally {
-    await directory.close();
-  }
+  const bytes = await readPrivatePath(path, MAX_CONFIG_BYTES);
   let parsed: unknown;
   try {
     parsed = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));

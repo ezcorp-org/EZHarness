@@ -10,6 +10,7 @@ import * as schema from "../../db/schema";
 import type { TransactionalDb } from "../../db/migrations/types";
 import type { FactoryPreparedPackageReceipt } from "../../factory/package-preparation";
 import type { FactoryAttemptLease } from "../../factory/runner/attempt-runtime";
+import { openFactoryEffectClaimsForTest } from "./factory-effect-claims";
 
 const raw = "a".repeat(64);
 export const factoryLaunchDigest = `sha256:${raw}`;
@@ -70,6 +71,7 @@ export async function createFactoryLaunchFixture(request: FactoryRunnerRequest, 
   const { tenantId, projectId, runId } = request.authority;
   await db.execute(sql`INSERT INTO projects(id,name,path) VALUES (${projectId},'Factory launch','/tmp/factory-launch')`);
   await db.execute(sql`INSERT INTO factory_installation(singleton,tenant_id,execution_epoch) VALUES (1,${tenantId},${request.authority.executionEpoch})`);
+  await openFactoryEffectClaimsForTest(db, tenantId);
   await db.execute(sql`INSERT INTO factory_projects(tenant_id,project_id) VALUES (${tenantId},${projectId})`);
   await db.execute(sql`INSERT INTO factory_runs(tenant_id,project_id,run_id,definition_digest,interpreter_build,execution_epoch,request_digest,request_payload) VALUES (${tenantId},${projectId},${runId},${factoryLaunchDigest},'recovery',${request.authority.executionEpoch},${factoryLaunchDigest},'{}')`);
   const fixture: FactoryLaunchFixture = {

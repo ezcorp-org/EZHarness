@@ -115,7 +115,7 @@ function applyStart(factory: KernelFactoryPlan, state: KernelState, commands: Ke
  * answered by `advanceKernel` itself before the table is reached, so naming
  * them here would add a branch no run can take.
  */
-type DispatchedEvent = Exclude<KernelEvent, { readonly kind: "usage-settled" | "cancel" }>;
+type DispatchedEvent = Exclude<KernelEvent, { readonly kind: "usage-settled" | "cancel" | "command-failed" }>;
 
 /**
  * Dispatch one event to the single reducer that owns its kind.
@@ -174,6 +174,25 @@ export function advanceKernel(factory: KernelFactoryPlan, state: KernelState, ev
 
   if (event.kind === "cancel") {
     next = beginStopping(factory, next, event.reason, commands, true);
+    return finish(factory, next, commands);
+  }
+  if (event.kind === "command-failed") {
+    if (!event.error || event.error.length > 4096) throw new FactoryKernelError("a failed command requires a bounded typed reason");
+    // An acceptance or release node's attempt IS its effect command, so when that command failed
+    // there is nothing physical to stop, and a cancel-node for it could never resolve and would hold
+    // the run in `stopping` forever. That node fails here. Every other kind keeps the ordinary stop:
+    // a task's dispatch can fail on a lost response after its launch committed, and only a cancel
+    // proves such an attempt stopped.
+    for (const [nodeId, runtime] of Object.entries(next.nodes)) {
+      const kind = nodeFor(factory, nodeId)?.kind;
+      if (kind !== "acceptance" && kind !== "release") continue;
+      if (!runtime.attempts.some((attempt) => attempt.commandId === event.commandId && !attempt.stopped)) continue;
+      next = withNode(next, nodeId, {
+        ...runtime, status: "failed", error: event.error, timer: undefined,
+        attempts: runtime.attempts.map((attempt) => attempt.commandId === event.commandId ? { ...attempt, stopped: true } : attempt),
+      });
+    }
+    next = beginStopping(factory, next, event.error, commands, false);
     return finish(factory, next, commands);
   }
   if (event.kind === "timer-expired" && event.nodeId === undefined) {
@@ -1479,6 +1498,21 @@ function locateNode(factory: KernelFactoryPlan, nodeId: string): NodeLocation | 
 /** Resolve one expanded instance against the immutable compiled definition. */
 export function nodeFor(factory: KernelFactoryPlan, nodeId: string): FactoryNode | undefined {
   return locateNode(factory, nodeId)?.node;
+}
+
+/** The longest detail a `command-failed` reason carries after its prefix. */
+export const FACTORY_COMMAND_FAILED_DETAIL_LIMIT = 512;
+
+/**
+ * The kernel event for an effect command that could not be executed.
+ *
+ * One builder, so the orchestrator (a thrown activity) and the product (a refusal it can name)
+ * write the same event: the same id, so either one deduplicates the other, and the same reason,
+ * `FACTORY_COMMAND_FAILED: <kind> <command id>: <detail>`, so the projected run error says which
+ * effect stopped the run and why.
+ */
+export function factoryCommandFailedEvent(command: { readonly id: string; readonly kind: string }, detail: string, atMs: number): Extract<KernelEvent, { kind: "command-failed" }> {
+  return { kind: "command-failed", id: `${command.id}:command-failed`, atMs, commandId: command.id, error: `FACTORY_COMMAND_FAILED: ${command.kind} ${command.id}: ${detail.slice(0, FACTORY_COMMAND_FAILED_DETAIL_LIMIT)}` };
 }
 
 /** Recomputes protected acceptance/release inputs from the current kernel state. */

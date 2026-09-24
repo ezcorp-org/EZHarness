@@ -297,7 +297,13 @@ export type KernelEvent =
       readonly output?: JsonValue;
       readonly error?: string;
     })
-  | (KernelEventBase & { readonly kind: "cancel"; readonly reason: string });
+  | (KernelEventBase & { readonly kind: "cancel"; readonly reason: string })
+  /**
+   * An effect command the orchestrator could not execute. The run stops and fails with `error`, a
+   * typed reason, through the same `beginStopping`/`fail-run` path a run deadline takes, so the
+   * failure is a recorded transition the product projects rather than a workflow that disappears.
+   */
+  | (KernelEventBase & { readonly kind: "command-failed"; readonly commandId: string; readonly error: string });
 
 export type KernelCommand =
   | {

@@ -23,6 +23,7 @@ import { FactoryBackgroundWorkers, type FactoryWorkerProgress } from "./backgrou
 import type { FactoryWorkerTuning } from "./startup-config";
 import { factoryReleaseSeamsPresent, type FactoryRoleDriver, type FactoryRuntimeSeams } from "./runtime-seams";
 import type { TrustedFactoryServiceIdentity } from "./trusted-command-gateway";
+import type { FactoryRecoveryRoles } from "./recovery-composition";
 
 /** What the compute-admission primitives report; only `idle` means no work. */
 export interface FactoryComputeAdmissionDriver {
@@ -68,10 +69,22 @@ export interface FactoryRuntimeWorkerCollaborators {
   readonly projections?: FactoryProjectionDriver;
   /** Present only once the release store is composable. */
   readonly notificationInbox?: FactoryNotificationInboxDriver;
+  /**
+   * The two validator roles, present only when the startup document declares a
+   * validator runtime and the composition built W05's scheduler over it.
+   */
+  readonly validators?: { readonly registration: FactoryRoleDriver; readonly scheduling: FactoryRoleDriver };
+  /**
+   * Why the validator roles hold, from the composition that tried to build them.
+   * Absent means nothing was declared, which has its own reason below.
+   */
+  readonly validatorsHeld?: string;
   readonly tuning?: FactoryWorkerTuning;
   readonly report: (role: string, error: unknown) => void;
   /** Runs per projector pass. Bounded so one pass cannot hold the pool. */
   readonly projectionRuns?: number;
+  /** W15's retention and checkpoint roles, composed in `recovery-composition.ts`. */
+  readonly recovery?: FactoryRecoveryRoles;
 }
 
 export interface FactoryHeldWorker {
@@ -99,6 +112,10 @@ export const FACTORY_WORKER_ROLES = Object.freeze([
   "usage-reconciliation",
   "notification-send",
   "stop-settlement",
+  "validator-material-registration",
+  "validator-scheduling",
+  "retention-gc",
+  "checkpoint-barrier",
 ] as const);
 
 export type FactoryWorkerRole = (typeof FACTORY_WORKER_ROLES)[number];
@@ -255,6 +272,26 @@ export function registerFactoryRuntimeWorkers(collaborators: FactoryRuntimeWorke
     "a notification is not delivered until a sender confirms it left this host");
   seamRole("stop-settlement", "physicalStopper",
     "FactoryTaskStops needs the pool admission client, this installation's hostLaunch endpoint to reach the host stop service, and at least one configured hostStopKeys entry");
+
+  // The two validator roles run together or hold together: registering a
+  // material nobody schedules against, or scheduling against materials nobody
+  // registers, would each be half a validator. Holding is the answer for an
+  // installation with no declared runtime, because it cannot judge a protected
+  // claim at all, and readiness says so rather than an acceptance failing later.
+  const validators = collaborators.validators;
+  const validatorsHeld = collaborators.validatorsHeld
+    ?? "the startup document declares no validator runtime under `validators.runtimes`, so no protected claim can be judged and no acceptance can pass";
+  role("validator-material-registration", validators && (async (signal) => progress(!(await validators.registration.step(signal)))),
+    "trusted-validators", "W09d", validatorsHeld);
+  role("validator-scheduling", validators && (async (signal) => progress(!(await validators.scheduling.step(signal)))),
+    "trusted-validators", "W09d", validatorsHeld);
+  // W15. Both compose from the archive credential set; the barrier also needs
+  // the pool's checkpoint client. `recovery-composition.ts` reports the cause
+  // of an absent role under its own name.
+  role("retention-gc", collaborators.recovery?.retention, "recovery-composition", "W15",
+    "the recovery archive or the ordinary store's credentials did not compose, so nothing can be archived before expiry and nothing is collected");
+  role("checkpoint-barrier", collaborators.recovery?.checkpoint, "recovery-composition", "W15",
+    "the recovery archive or the pool checkpoint client did not compose, so no compatible checkpoint is sealed and the freshness rule stays off");
 
   return Object.freeze({ workers, held: Object.freeze(held) });
 }

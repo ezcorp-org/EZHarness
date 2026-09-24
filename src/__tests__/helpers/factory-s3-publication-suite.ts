@@ -43,6 +43,7 @@ import { FactoryReleases, type FactoryDestinationReservationReader, type Factory
 import { FaultInjectingArchive, MemoryFactoryReleaseArchive, type FactoryArchiveStore } from "./factory-archive-fixtures";
 import { FactoryMemoryS3Store } from "./factory-s3-memory-store";
 import { unboundFactoryValidatorBinders } from "./factory-validator-binders";
+import { openFactoryEffectClaimsForTest } from "./factory-effect-claims";
 
 export interface FactoryS3PublicationFixture {
   readonly db: TransactionalDb;
@@ -95,6 +96,7 @@ async function setup() {
 
   const records = new FactoryRecords(db, TENANT);
   await records.bindInstallation();
+  await openFactoryEffectClaimsForTest(db, TENANT);
   await db.execute(sql`INSERT INTO projects(id,name,path) VALUES (${projectId},'S3 publication',${`/tmp/${projectId}`})`);
   await records.bindProject(projectId);
   await db.execute(sql`INSERT INTO users(id,email,password_hash,name,role) VALUES (${admin.id},${`${admin.id}@example.test`},'x','s3','admin')`);

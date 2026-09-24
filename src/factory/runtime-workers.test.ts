@@ -47,6 +47,10 @@ describe("registerFactoryRuntimeWorkers", () => {
       "usage-reconciliation:W03",
       "notification-send:W17",
       "stop-settlement:W03",
+      "validator-material-registration:W09d",
+      "validator-scheduling:W09d",
+      "retention-gc:W15",
+      "checkpoint-barrier:W15",
     ]);
     for (const held of set.held) {
       expect(held.reason.length).toBeGreaterThan(20);
@@ -220,6 +224,24 @@ describe("registerFactoryRuntimeWorkers", () => {
     });
   });
 
+  test("W15's two recovery roles register when their steps compose and hold by name when they do not", async () => {
+    const calls: string[] = [];
+    const set = registerFactoryRuntimeWorkers(collaborators({
+      recovery: {
+        retention: async () => { calls.push("retention"); return "idle"; },
+        checkpoint: async () => { calls.push("checkpoint"); return calls.filter((call) => call === "checkpoint").length === 1 ? "worked" : "idle"; },
+      },
+    }));
+    expect(set.workers.names()).toContain("retention-gc");
+    expect(set.workers.names()).toContain("checkpoint-barrier");
+    expect(set.held.map((held) => held.role)).not.toContain("retention-gc");
+    expect(await set.workers.get("retention-gc").runBatch(new AbortController().signal)).toBe("idle");
+    expect(await set.workers.get("checkpoint-barrier").runBatch(new AbortController().signal)).toBe("idle");
+    expect(calls).toEqual(["retention", "checkpoint", "checkpoint"]);
+    const partial = registerFactoryRuntimeWorkers(collaborators({ recovery: { retention: async () => "idle" } }));
+    expect(partial.held.find((held) => held.role === "checkpoint-barrier")).toMatchObject({ seam: "recovery-composition", workPackage: "W15" });
+  });
+
   test("the role list covers every role the plan names", () => {
     expect([...FACTORY_WORKER_ROLES]).toEqual([
       "compute-admission-dispatch",
@@ -232,6 +254,10 @@ describe("registerFactoryRuntimeWorkers", () => {
       "usage-reconciliation",
       "notification-send",
       "stop-settlement",
+      "validator-material-registration",
+      "validator-scheduling",
+      "retention-gc",
+      "checkpoint-barrier",
     ]);
     const set = registerFactoryRuntimeWorkers(collaborators());
     const accounted = new Set([...set.workers.names(), ...set.held.map((held) => held.role)]);
@@ -277,5 +303,37 @@ describe("an attempt whose outcome the product refused to record", () => {
     }));
     expect(await set.workers.get("attempt-dispatch").runBatch(new AbortController().signal)).toBe("worked");
     expect(seen).toEqual([]);
+  });
+});
+
+describe("the validator roles", () => {
+  test("hold together, naming the missing declaration, when nothing is declared", () => {
+    const set = registerFactoryRuntimeWorkers(collaborators());
+    const held = set.held.filter((entry) => entry.seam === "trusted-validators");
+    expect(held.map((entry) => entry.role)).toEqual(["validator-material-registration", "validator-scheduling"]);
+    for (const entry of held) expect(entry.reason).toContain("`validators.runtimes`");
+  });
+
+  test("hold with the composition's own reason when a declaration did not compose", () => {
+    const set = registerFactoryRuntimeWorkers(collaborators({ validatorsHeld: "the validator declaration did not compose (factory_validator_declaration_digest_mismatch)" }));
+    expect(set.held.filter((entry) => entry.seam === "trusted-validators").map((entry) => entry.reason))
+      .toEqual(Array(2).fill("the validator declaration did not compose (factory_validator_declaration_digest_mismatch)"));
+  });
+
+  test("run together when composed, and a pass reports whether it did work", async () => {
+    let pending = 1;
+    const set = registerFactoryRuntimeWorkers(collaborators({
+      validators: {
+        registration: { async step() { return pending-- > 0; } },
+        scheduling: { async step() { return false; } },
+      },
+    }));
+    expect(set.workers.names()).toEqual(expect.arrayContaining(["validator-material-registration", "validator-scheduling"]));
+    expect(set.held.some((entry) => entry.seam === "trusted-validators")).toBe(false);
+    const signal = new AbortController().signal;
+    // A batch runs until a pass does no work: one registering pass, then an idle one.
+    expect(await set.workers.get("validator-material-registration").runBatch(signal)).toBe("idle");
+    expect(pending).toBe(-1);
+    expect(await set.workers.get("validator-scheduling").runBatch(signal)).toBe("idle");
   });
 });

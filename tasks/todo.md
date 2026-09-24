@@ -3604,6 +3604,141 @@ and 390 px in light and dark, and the mock tier proves the check fails on the ol
 unchecked. `run-format.ts` mutants now die by assertion (91.86% to 97.98%, 60 timeouts to 0). The selected
 run scrolls into the narrow strip. Real lane 11 of 11 and sweep green at the clean head. The restore port,
 W02c, W09c, W01g, and W16 items wait for their integ/w00 hashes.
+## W09d — compose validators into the installation (branch `wp/w09d-validators`)
+
+Brief: `/tmp/factory-platform-evidence/w00/briefs/w09d.md`. Evidence: `/tmp/factory-platform-evidence/w09d/`. Gates: `tasks/factory/w09d-GATES.md`. Report: `/tmp/factory-platform-evidence/w09d/report.txt`.
+
+- [x] Reproduce at the base: a run whose graph carries an acceptance node reaches no validator attempt (`reproduction.json`).
+- [x] Startup document `validators.runtimes[]` by reference; every refusal named; nothing declared holds both roles with a reason readiness shows.
+- [x] `FactoryTrustedValidators` from the declaration, shared by assurance, the scheduler, and the validator settlement.
+- [x] Material registration once per published version per process; idempotent across restarts; a changed runtime refuses by name.
+- [x] `validator-scheduling` role over W05's scheduler; the one attempt dispatcher settles validator attempts, routed by the durable assignment.
+- [x] Rulings: `recordCurrentCandidate` and `decideAcceptance` (decision and inbox event in one transaction); typed rejection for a failed or uncertain validator; immediate named refusal when nothing is composed; the release-authority candidate fix with injected-clock tests; the release operations supplier left to W09c.
+- [x] O1: the validator reservation is settled on its terminal (idempotent), or held uncertain under the typed reason.
+- [x] O5: a refused effect fails the run through a recorded `command-failed` kernel event and a projected `fail-run`.
+- [x] Orchestrator side on the Temporal test server (84 of 84 in the package's node leg).
+- [x] Proof: three passes and two controls on fresh databases, from this branch plus wp/w01g-staging only.
+- [x] Tests per common.md; coverage of new files and changed lines; PostgreSQL producers; gate file.
+- [x] Round 3 (validator ACCEPT-WITH-FIXES at `d1a0f31e0`):
+  - [x] F1: the REQUIRED_SHARED_IMPORTS row for `validator-declaration.ts`; the C13 inventory test passes.
+  - [x] F2: a crashed, timed-out, or uncertain validator is a typed `execution` failure, not a rejection: no repair round, and the typed reason is the projected run error (kernel, unit, and Temporal tests at maxRepairs 0 and 2).
+  - [x] F3: every claim is visited on every pass; the failure waits until every claim is terminal and holds each failed claim uncertain; the envelope closes only after reconciliation (two-claim unit tests, PostgreSQL envelope test).
+  - [x] F4: one `factoryCommandFailedEvent` builder; a named refusal of an effect answers it with the name; the workflow takes the activity's cause message (unit and Temporal tests).
+  - [x] F5: the lifecycle-suite additions disclosed with the ruling sentence.
+  - [x] F6: foreign-tenant, foreign-run, and foreign-service refusals asserted by name.
+  - [x] F7: `plain-values.ts` holds the one record guard and the one error-code reader.
+  - [x] Heavy legs and three passes at the final code; the judge requires the named refusal in the projected reason.
+
+### Review
+
+The package composes W05's validator pieces from a startup declaration, and the coordinator's rulings closed the gaps the real application exposed. The base reproduction showed no material, no contract route, and an acceptance command refusing `factory_assurance_not_found`. At the final code the started application registers the material, admits the validator through the pool, runs it in Podman through the one attempt dispatcher, records a strict PASS, decides `accepted`, and delivers the event in the decision's transaction. It then settles the validator's reservation, and when the release effect refuses (no profile yet, W09c) the run ends `failed` with a projected typed reason instead of hanging in `running`. Three passes did that on fresh databases, both controls refused by name, and the orchestrator's Temporal leg passes 84 of 84. Two defects only real timing showed are fixed at their roots with tests: the candidate re-derivation that required a live lease, and a failed effect on an acceptance or release node that left a cancel nothing could answer. Open, each with its owner: the public lock read and the contract route's opaque 500 (W14), and the release operations supplier and profiles (W09c). Round 3 changed three behaviors. A crashed or uncertain validator now fails the acceptance node with its typed reason and starts no repair round, because it judged nothing. Every claim is settled or held on every pass, so one failed claim cannot strand another claim's reservation. A refused effect now projects the refusal's name, for example `factory_protected_effect_untrusted`, instead of "Activity task failed". Three passes and both controls confirm the named reasons on the started application at `ceada04f5`.
+## W15 — Retention, compatible backups, and restore (branch `wp/w15-retention`)
+
+Evidence: `/tmp/factory-platform-evidence/w15/`. Gate file: `tasks/factory/w15-GATES.md`.
+Base: `260855e57` (W09b merged). Consumed, not edited: the W18a-2 files, W09c release
+declaration and profile composition, W01g guest broker/SDK, W14 console, W16 provisioning.
+
+Plan (plan section 5 W15, C06, C12):
+
+- [x] One additive migration `add-factory-recovery.ts`: retention ledger, checkpoint barriers
+  and policy, restore epochs and recovery reports; a statement-level barrier gate on every
+  `factory_*` product table; an effect-claim gate (release claim, attempt launch claim) that
+  closes on a stale checkpoint or an open restore epoch; a restore gate on run admission.
+  Mirror in `schema.ts`, PGlite test, PostgreSQL parity.
+- [x] `retention.ts`: the C06 classes (30/90/365 days), release extension that cannot shorten,
+  tombstone before collect, reference-aware GC, archive-before-expiry that stops cleanup on
+  failure, prior key-wrap retention.
+- [x] `recovery-archive.ts`: immutable recovery objects (audit streams, checkpoint manifests,
+  recovery reports) in the independent archive, sharing the release archive's S3 write path.
+- [x] Projection rebuild by replay from the database or from the archive; stop on gaps and
+  conflicting digests.
+- [x] Key wrapping: a KMS wrap port for hosted cloud KMS and the self-hosted external KMS,
+  beside the operator master key; rotation rewraps, keeps old wraps, never rewrites objects.
+- [x] `checkpoint-barrier.ts`: per-tenant coordinator (pause, drain/fence, reconcile, quiesce,
+  record product/pool/Temporal positions and object versions, seal in the archive, resume);
+  2 s target, 10 s maximum, abort claims nothing; scheduler with at most 16 in flight;
+  15-minute freshness gate. Bounds measured on real PostgreSQL.
+- [x] Pool checkpoint source: tenant ledger snapshot and restore import as `uncertain`.
+- [x] Temporal: namespace retention and history archival configuration, HTTP position reader,
+  proof against the pinned Temporal CLI dev server.
+- [x] WAL: readiness over `archive_mode`/`pg_stat_archiver`, and a PITR proof to a barrier LSN
+  on a private PostgreSQL instance.
+- [x] `restore.ts`: restore epoch, fencing, key/version/object checks, compatibility,
+  projection rebuild, archive import of release facts, provider reconciliation, pre-epoch
+  worker reconciliation with the original supervisor, tenant versus cluster mode, human
+  signature before enable.
+- [x] Worker roles `retention-gc` and `checkpoint-barrier` through W09b's worker shape.
+- [x] Tests: expired history, deleted projections, conflicting/gapped audit, missing
+  keys/versions, incompatible backups, lost pool ledger, releases after the checkpoint,
+  restored gateway DB with a surviving guest, old-epoch broker token, post-checkpoint
+  guest/release. PostgreSQL suites registered in `db-postgres.yml`.
+- [x] Gate file, evidence receipts, sweep, report.
+
+Review (W15, head after `daf0bb043`): all fifteen gates in `tasks/factory/w15-GATES.md` pass. The
+final heavy batch ran at `daf0bb043` under the shared lock: 181 unit and 40 PostgreSQL tests pass on
+the shared stores; barrier p95 1103 ms under four writers (write pause p95 78 ms); an abort at its
+maximum claims nothing; 100 tenants sealed in 1043 ms with 16 in flight; PITR to a barrier LSN
+reproduces the sealed state; the real application runs both roles and seals a checkpoint. The batch
+found and fixed three defects: Temporal's describe route cannot address a slash workflow id (now the
+visibility list), a PITR replica needs the primary's `max_connections`, and the full-stack check
+counted the intentionally ungated ledger tables. Open: real cloud KMS and Temporal archival are not
+proven on this host, the shared PostgreSQL does not archive WAL, and deployed restore, provisioner
+namespace settings, and failure-domain independence wait for W16. C09 purge, C08.14 inbox
+tombstones, and a signing surface are not built.
+
+### W15 round 2 (validator ACCEPT-WITH-FIXES at 0fe67b822)
+
+- [x] H1 freshness fails closed: no policy row means enforce at 900 s; a held `checkpoint-barrier` role makes readiness `degraded`. Tests for both.
+- [x] H2 an archived release intent that cannot be read or matched is a tenant-blocking finding. PostgreSQL test.
+- [x] H3 the startup document names the Temporal HTTP endpoint; the barrier records positions in every checkpoint; a tenant restore with no reader blocks as `temporal_unverified`. Full-stack manifest shows `captured: true`.
+- [x] M1 the pool service enforces at most sixteen barriers in flight across installations (checkpoint slots); the production barrier takes a slot or defers. PostgreSQL test and 100-tenant proof through slots.
+- [x] M2 enroll debug_log, accepted_evidence, approval, and receipt with their periods; tests.
+- [x] M3 production callers: key wrapper selected by the startup document (operator master key file, cloud KMS, transit KMS); restore reachable through a private operator command; tests through the installation composition.
+- [x] L1 disclose the pool ledger and release-adapter extractions with the coordinator ruling. M4 correct the pool-failure attribution.
+- [x] Low: L2 one archive S3 client construction; L5 keep the unwrap cause; L6 name the incompatible-schema branch in a test; L4 write the one-tenant-per-database rule at the gate.
+- [x] Sweep after `git merge --no-edit integ/w00`; private legs before the private container is removed; remove `w15-private-postgres` and note it in report.txt.
+
+Review (W15 round 2, source head `34f282f8a`): every validator finding is fixed and its gate
+passes. Freshness fails closed, and a held barrier role never reports ready. An unreadable
+release intent or receipt blocks the tenant. Every checkpoint records Temporal positions, and a
+restore without them blocks. The pool enforces sixteen barrier slots across tenants: 100 tenants
+started at once sealed in 1232 ms with at most 16 in flight. Evidence, approvals, and receipts
+enroll for 365 days. The startup document selects the key wrapper, and an operator command
+reaches restore through the installation's own composition. The run found three more tests that
+had relied on open claims, and a pool router that the new routes had pushed past the CRAP
+threshold; all are fixed. A broad `pkill` during the run escaped the lock and may have left one
+temporary database on the shared PostgreSQL that cannot be attributed (see lessons). Open: W16
+deployment items, W14 signing surface, real KMS and Temporal archival, C09 purge, a debug-log store.
+
+### Integration rulings (coordinator, 2026-09-23)
+- R1: the runtime codec ignores `keyManagement` and fails closed with `factory_key_missing`. It lands disclosed and is owned by W15b (branch `wp/w15b-runtime-kms`, brief `/tmp/factory-platform-evidence/w00/briefs/w15b.md`).
+- R2: the kind CHECK sits inside `CREATE TABLE IF NOT EXISTS`. Owned by W15b.
+- R3: the effect-claims comment. Owned by W15b.
+- R4: fencing is an operator attestation. It stays by design.
+
+## W18b — six pre-existing backend pool failures (branch `wp/w18b-pool-fixes`)
+
+Base `integ/w00` `94fb95b6a`. Receipts: `/tmp/factory-platform-evidence/w18b/`. Gates: `tasks/factory/w18b-GATES.md`.
+
+- [x] Reproduce each failure alone at base and record the assertion and the cause.
+- [x] Project root: the SDK walk accepts only a real git marker (a `.git` directory with `HEAD`, or a `.git` file naming `gitdir:`); every example copy routes through the SDK; tests pin a stray empty `.git` above the start.
+- [x] pi_session: remove the expired migration bridge and its calendar literal; the legacy cookie is always purged, never promoted; tests and docs follow.
+- [x] Launcher readiness: the runner probe reuses `inspectProductionRunner` and waits inside the launcher's readiness budget (one constant, `readiness_seconds=120`, used for the socket wait, the probe, and the health wait), not a separate one-second deadline; a test pins a slow runner inspect.
+- [x] The five files alone, the full backend pool, typecheck, lint, both boundary checks, gate-integrity, both coverage gates.
+- [x] Gate file `tasks/factory/w18b-GATES.md`, report, review paragraph.
+
+**Review.** The six failures had three causes, and W15's labels were wrong for two of them. First,
+three tests reported `/tmp` because every `.git` walk accepted any `.git` entry, and this host has an
+empty `/tmp/.git` that git itself rejects. The SDK walk now accepts only a real repository marker, the
+five example copies route through it, and the standalone ai-kit CLI asks git. The same cause also
+failed the SDK and ai-kit legs, which are fixed too. Second, the pi_session tests failed because their
+regexes matched indentation that a hook refactor changed. The 2026-06-01 literal was still a live
+product defect, so the expired bridge is retired: no date in code decides what the hook accepts.
+Third, the "Unix socket path limit" failure was a one-second readiness probe that timed out under pool
+load; the socket paths were already short. Each cause is pinned by a test that fails on the unfixed
+code. At `2d33f46d7` the full backend pool reports 0 fail, and every static and coverage gate passes.
+Two findings are left open outside scope: the ai-kit installer ignores its postinstall exit code, and
+`inspectProductionRunner` keeps a fixed 5-second default for verification commands.
 ## W18a-2 — second complexity pass and the three coverage-key gaps (branch `wp/w18a2-quality`)
 
 Brief: `/tmp/factory-platform-evidence/w00/briefs/w18a2.md`. Gates: `tasks/factory/w18a2-GATES.md`.
@@ -3637,14 +3772,9 @@ files that only CI's repository-wide shards or the browser receipt measure. None
 package changed.
 ## W18b — six pre-existing backend pool failures (branch `wp/w18b-pool-fixes`)
 
-Base `integ/w00` `94fb95b6a`. Receipts: `/tmp/factory-platform-evidence/w18b/`. Gates: `tasks/factory/w18b-GATES.md`.
+## Product rules (coordinator)
 
-- [x] Reproduce each failure alone at base and record the assertion and the cause.
-- [x] Project root: the SDK walk accepts only a real git marker (a `.git` directory with `HEAD`, or a `.git` file naming `gitdir:`); every example copy routes through the SDK; tests pin a stray empty `.git` above the start.
-- [x] pi_session: remove the expired migration bridge and its calendar literal; the legacy cookie is always purged, never promoted; tests and docs follow.
-- [x] Launcher readiness: the runner probe reuses `inspectProductionRunner` and waits inside the launcher's readiness budget (one constant, `readiness_seconds=120`, used for the socket wait, the probe, and the health wait), not a separate one-second deadline; a test pins a slow runner inspect.
-- [x] The five files alone, the full backend pool, typecheck, lint, both boundary checks, gate-integrity, both coverage gates.
-- [x] Gate file `tasks/factory/w18b-GATES.md`, report, review paragraph.
+- Every startup document declares the recovery sections; an installation without them stays degraded (factory-checkpoint-barrier-held) and never reports ready.
 
 **Review.** The six failures had three causes, and W15's labels were wrong for two of them. First,
 three tests reported `/tmp` because every `.git` walk accepted any `.git` entry, and this host has an
@@ -3658,3 +3788,6 @@ load; the socket paths were already short. Each cause is pinned by a test that f
 code. At `2d33f46d7` the full backend pool reports 0 fail, and every static and coverage gate passes.
 Two findings are left open outside scope: the ai-kit installer ignores its postinstall exit code, and
 `inspectProductionRunner` keeps a fixed 5-second default for verification commands.
+## W18 test-hygiene backlog (coordinator)
+
+- compose.factory-storage.local.yml: declare restart: on-failure for both SeaweedFS services and the proof PostgreSQL so a recreated store keeps the policy the coordinator set by hand on 2026-09-23 after the OOM kill; document it in docs/factory-local-storage.md.

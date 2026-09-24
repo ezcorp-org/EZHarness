@@ -1,0 +1,28 @@
+CRAP: --changed against origin/main → 328 measured file(s) in diff
+
+CRAP: 4566 functions in 328 files (max 30, warn 15)
+
+Worst 15:
+     76.4  cc= 20 cov= 48%  src/db/connection.ts:207 initPglite
+     30.0  cc= 30 cov=100%  packages/@ezcorp/factory-sdk/src/kernel.ts:370 applyUsage
+     30.0  cc= 30 cov=100%  packages/@ezcorp/factory-sdk/src/kernel.ts:1275 progressMap
+     30.0  cc= 30 cov=100%  src/factory/reference-image/model-lock.ts:71 assertReferenceImageModelLock
+     29.0  cc= 29 cov=100%  packages/@ezcorp/factory-sdk/src/parse.ts:93 number
+     29.0  cc= 29 cov=100%  src/factory/command-authority.ts:213 <anonymous@213>
+     29.0  cc= 29 cov=100%  src/factory/validator-materials.ts:386 resolveLocked
+     29.0  cc= 29 cov=100%  src/runtime/workflow-executor.ts:821 runWorkflow
+     28.0  cc= 28 cov=100%  packages/@ezcorp/factory-orchestrator/src/validation.ts:146 validateInboxEvent
+     28.0  cc= 28 cov=100%  packages/@ezcorp/factory-sdk/src/kernel.ts:250 applyPartitionCompletion
+     28.0  cc= 28 cov=100%  packages/@ezcorp/factory-sdk/src/validation.ts:960 validateFactoryRunnerResult
+     28.0  cc= 28 cov=100%  packages/@ezcorp/factory-sdk/src/validation.ts:1069 validateDurableInputPorts
+     28.0  cc= 28 cov=100%  src/factory/artifact-materials.ts:319 parseFactoryMaterialManifest
+     28.0  cc= 28 cov=100%  src/factory/assurance.ts:287 assertAcceptedReleaseInTransaction
+     28.0  cc= 28 cov=100%  src/factory/pool/readiness.ts:46 validState
+
+154 function(s) above the warn line (not failing).
+
+✗ 1 function(s) you touched are over CRAP 30:
+     76.4  cc= 20 cov= 48%  src/db/connection.ts:207 initPglite
+
+  fix: add tests for the uncovered lines (the (1-cov)^3 term falls fastest),
+       or split the function (lowers the comp^2 term). Report: coverage/quality/crap.json

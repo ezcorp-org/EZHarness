@@ -113,6 +113,27 @@ async function supervisorConfirmation(service: PoolAdmissionService, request: Fa
     : await service.confirmStopped(principal, stop));
 }
 
+/** C06's pool routes: a checkpoint page, a cluster-wide barrier slot, and a restore import. */
+const RECOVERY_ROUTES: ReadonlySet<string> = new Set(["/v1/pool/checkpoint", "/v1/pool/checkpoint-slot", "/v1/pool/checkpoint-slot/release", "/v1/pool/restore-import"]);
+
+async function recoveryRoute(service: PoolAdmissionService, request: FactoryPrivateRequest, principal: PoolPrincipal, path: string): Promise<FactoryPrivateResponse> {
+  if (path === "/v1/pool/checkpoint") {
+    const body = payload(request, ["after"]);
+    return json(200, await service.checkpoint(principal, body.after === undefined || body.after === null ? null : wireText(body.after, "checkpoint cursor")));
+  }
+  if (path === "/v1/pool/checkpoint-slot") {
+    payload(request, []);
+    return json(200, { slot: await service.acquireCheckpointSlot(principal) });
+  }
+  if (path === "/v1/pool/checkpoint-slot/release") {
+    const body = payload(request, ["token"]);
+    return json(200, { released: await service.releaseCheckpointSlot(principal, wireText(body.token, "checkpoint slot token")) });
+  }
+  const body = payload(request, ["rows"]);
+  if (!Array.isArray(body.rows) || body.rows.length > 64) fail(400, "invalid_request");
+  return json(200, await service.restoreImport(principal, (body.rows as unknown[]).map(row => wireRecord(row, "checkpoint row"))));
+}
+
 /** The route table itself, matched in the order the paths were written. */
 async function poolRoute(service: PoolAdmissionService, request: FactoryPrivateRequest, principal: PoolPrincipal, url: URL): Promise<FactoryPrivateResponse> {
   const parts = url.pathname.split("/").filter(Boolean);
@@ -129,6 +150,7 @@ async function poolRoute(service: PoolAdmissionService, request: FactoryPrivateR
     const handled = await reservationAction(service, request, principal, parts);
     if (handled) return handled;
   }
+  if (request.method === "POST" && RECOVERY_ROUTES.has(url.pathname)) return recoveryRoute(service, request, principal, url.pathname);
   if (request.method === "POST" && (url.pathname === "/v1/pool/supervisor/stop" || url.pathname === "/v1/pool/supervisor/reimage")) {
     return supervisorConfirmation(service, request, principal, url);
   }
