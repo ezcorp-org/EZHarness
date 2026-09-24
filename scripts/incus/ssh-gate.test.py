@@ -145,32 +145,35 @@ class NoEffectObservationGateTest(unittest.TestCase):
                        "instance": "ezh-expected", "oldCertificateSha256": "a" * 64}
 
     def observe(self, instances=None, operations=None, certificates=None, policy=None, raw=b"",
-                original=gate.OBSERVE_COMMAND):
+                original=gate.OBSERVE_COMMAND, operation_output=None):
         outputs = [instances if instances is not None else [],
-                   operations if operations is not None else {"running": [], "pending": []},
+                   operations if operations is not None else [],
                    certificates if certificates is not None else []]
         calls = []
 
         def execute(argv, input_bytes, timeout=gate.TIMEOUT):
             calls.append(argv)
+            if len(calls) == 2 and operation_output is not None:
+                return 0, operation_output, b""
             return 0, __import__("json").dumps(outputs[len(calls) - 1]).encode(), b""
 
         with patch.object(gate, "execute", side_effect=execute):
             result = gate.observe_noeffect(policy or self.policy, original, raw)
         self.assertEqual(calls, [
             ["incus", "list", "--project=ezharness", "--format=json"],
-            ["incus", "query", "/1.0/operations?project=ezharness"],
+            ["incus", "operation", "list", "--project=ezharness", "--format=json"],
             ["incus", "config", "trust", "list", "--format=json"],
         ])
         return result
 
     def test_exact_absence_empty_operations_and_revoked_old_certificate(self):
-        result = self.observe(instances=[{"name": "other"}], certificates=[{"fingerprint": "b" * 64}])
+        result = self.observe(instances=[{"name": "other"}], operations=[],
+                              certificates=[{"fingerprint": "b" * 64}])
         self.assertTrue(result["absent"] and result["oldCertificateRevoked"])
 
     def test_present_instance_active_operation_or_trusted_old_certificate_denied(self):
         for values in ({"instances": [{"name": "ezh-expected"}]},
-                       {"operations": {"running": ["/1.0/operations/123"]}},
+                       {"operations": [{"id": "123", "status": "Running"}]},
                        {"certificates": [{"fingerprint": "a" * 64}]}):
             with self.subTest(values=values), self.assertRaises(gate.Denied):
                 self.observe(**values)
@@ -179,7 +182,8 @@ class NoEffectObservationGateTest(unittest.TestCase):
         write_policy = {"version": 1, "planDigest": "b" * 64,
                         "commands": [{"argv": ["incus", "project", "create", "other"], "write": True}]}
         for kwargs in ({"policy": write_policy}, {"raw": b'{}'}, {"original": gate.ORIGINAL_COMMAND},
-                       {"operations": {"running": "unknown"}}, {"certificates": [{}]},
+                       {"operations": {"running": []}}, {"operations": ["bad"]},
+                       {"operation_output": b""}, {"certificates": [{}]},
                        {"instances": [{"unexpected": True}]}):
             with self.subTest(kwargs=kwargs), self.assertRaises(gate.Denied):
                 self.observe(**kwargs)

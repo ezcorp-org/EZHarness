@@ -247,7 +247,7 @@ def observe_noeffect(policy, original, raw):
     project = policy["project"]
     commands = (
         ["incus", "list", f"--project={project}", "--format=json"],
-        ["incus", "query", f"/1.0/operations?project={project}"],
+        ["incus", "operation", "list", f"--project={project}", "--format=json"],
         ["incus", "config", "trust", "list", "--format=json"],
     )
     results = []
@@ -263,15 +263,15 @@ def observe_noeffect(policy, original, raw):
     if not isinstance(instances, list) or any(not isinstance(row, dict) or not isinstance(row.get("name"), str)
                                               for row in instances):
         raise Denied("Incus instance list is invalid")
-    if not isinstance(operations, dict) or any(not isinstance(rows, list) or
-            any(not isinstance(row, str) for row in rows) for rows in operations.values()):
+    if not isinstance(operations, list) or any(not isinstance(row, dict) or
+            not isinstance(row.get("id"), str) for row in operations):
         raise Denied("Incus operation list is invalid")
     if not isinstance(certificates, list) or any(not isinstance(row, dict) or
             not isinstance(row.get("fingerprint"), str) for row in certificates):
         raise Denied("Incus trust list is invalid")
     if any(row["fingerprint"].lower() == policy["oldCertificateSha256"] for row in certificates):
         raise Denied("old provider certificate remains trusted")
-    if any(row["name"] == policy["instance"] for row in instances) or any(operations.values()):
+    if any(row["name"] == policy["instance"] for row in instances) or operations:
         raise Denied("instance or delayed Incus operation remains")
     return {"version": 1, "project": project, "instance": policy["instance"],
             "oldCertificateSha256": policy["oldCertificateSha256"],

@@ -66,7 +66,8 @@ fields: `version: 2`, `purpose: "noeffect-readback"`, `project`, `instance`,
 and `oldCertificateSha256`. It must pin the same values as the operator
 config. It has no command list or write classification. The account must
 have only the rights needed for `incus list --project=...`, project-scoped
-`incus query /1.0/operations?project=...`, and `incus config trust list`.
+`incus operation list --project=... --format=json`, and
+`incus config trust list --format=json`.
 Review the host account, key, policy owner and mode, forced command, and
 Incus authorization before use. This repository does not install them.
 
@@ -78,7 +79,13 @@ empty. Failed, malformed, or slow reads reject recovery. The observer does
 not take a command, host, project, instance, or fingerprint from the repair
 request. The SSH connection uses the private pinned host-key file, disables
 password authentication and forwarding, and has a bounded timeout. Do not
-use the setup gate's version 1 command policy for this observer.
+use the setup gate's version 1 command policy for this observer. A live
+read-only check on `sandbox-server` for project `ezharness` returned a JSON
+array with zero entries from `incus operation list --project=ezharness
+--format=json`. The raw `incus query "/1.0/operations?project=ezharness"`
+exited zero but returned no bytes for the same empty state, so the observer
+does not use that query. It rejects zero-byte output and any nonempty or
+malformed operation list.
 
 Add these fields to the supervisor's private JSON config:
 
