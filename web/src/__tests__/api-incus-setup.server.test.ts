@@ -110,7 +110,9 @@ test("saved setup reads, Apply, and probe remain reachable when the current reci
 	expect(serviceRecipes).toEqual([undefined, undefined, undefined]);
 	const stalePlan = await POST(postEvent({ action: "plan", installationId: "provider" }));
 	expect(stalePlan.status).toBe(409);
-	expect(await stalePlan.json()).toEqual({ code: "setup_failed", message: "Incus setup failed. Check host logs and inspect the saved plan." });
+	const stalePlanBody = await stalePlan.json();
+	expect(stalePlanBody).toMatchObject({ code: "setup_failed", message: "Incus setup failed. Check host logs and inspect the saved plan." });
+	expect(JSON.stringify(stalePlanBody)).not.toContain("private recipe details");
 	delete process.env.EZCORP_INCUS_SETUP_RECIPE_FILE;
 	expect(await (await POST(postEvent({ action: "probe", setupId: "setup-a" }))).json()).toEqual({ ready: true });
 	expect(recipePaths).toEqual(["/host/reviewed-recipe.json"]);
