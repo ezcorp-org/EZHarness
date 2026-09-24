@@ -501,6 +501,29 @@ describe("restore into a new execution epoch", () => {
     }
   }, 120_000);
 
+  test.each(["importLost", "liveRows", "revoke"] as const)("an abort during the pool's %s call stops the restore with the abort, and records no pool finding", async (step) => {
+    // Each case restores its own copy: an aborted restore leaves its epoch open, which refuses a second restore.
+    const restored = await restoredCopy(`aborted-${step.toLowerCase()}`);
+    try {
+      const controller = new AbortController();
+      const reason = new Error(`restore cancelled during ${step}`);
+      // The call fails because the restore was cancelled while it waited, not because the pool refused.
+      const cancelled = (): never => { controller.abort(reason); throw new Error("the operation was aborted"); };
+      const pool: FactoryRestorePoolLedger = {
+        importLost: async () => step === "importLost" ? cancelled() : { present: [], imported: [], overcommitted: [] },
+        liveRows: async () => step === "liveRows" ? cancelled() : [{ reservation_id: "reservation-after-checkpoint", allocation_generation: 1, host_id: "host-1" }],
+        revoke: async () => cancelled(),
+      };
+      const restoreId = `restore-aborted-${step.toLowerCase()}`;
+      await expect(restoreFor(restored.db, { poolRestore: pool }).begin({ restoreId, mode: "tenant" }, controller.signal)).rejects.toBe(reason);
+      const recorded = rows<{ reason: string }>(await restored.db.execute(sql`SELECT reason FROM factory_restore_findings WHERE tenant_id = ${tenantId} AND restore_id = ${restoreId}`));
+      expect(recorded.filter(row => row.reason === "pool_refused" || row.reason === "post_checkpoint_worker_unrevoked")).toEqual([]);
+      expect(rows<{ report_digest: string | null }>(await restored.db.execute(sql`SELECT report_digest FROM factory_restore_epochs WHERE restore_id = ${restoreId}`))[0]?.report_digest ?? null).toBeNull();
+    } finally {
+      await restored.close();
+    }
+  }, 120_000);
+
   test("a pool that refuses the restore token is a blocking finding, and sign refuses a report edited after it was written", async () => {
     const restored = await restoredCopy("refused");
     try {
