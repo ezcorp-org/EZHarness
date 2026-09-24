@@ -26,6 +26,14 @@ export interface FactoryServicesState {
 	readonly prepared: boolean;
 	/** Set once the stack has rewritten the draft a journey asked for. */
 	readonly futureDraftId?: string;
+	/** Set once the stack has opened the restore epoch a journey asked for. */
+	readonly restoreId?: string;
+	/** The digest `factory-restore begin` printed for that restore's report. */
+	readonly restoreReportDigest?: string;
+	/** The operator command's exit status: 0 signable, 2 blocked, anything else failed (see its log). */
+	readonly restoreExit?: number;
+	/** The tenant-blocking checks that report names; a report with any cannot be signed. */
+	readonly restoreBlockedChecks?: readonly string[];
 }
 
 export const FACTORY_SERVICES_STATE_PATH = process.env.FACTORY_SERVICES_STATE
@@ -37,6 +45,8 @@ export const FACTORY_SERVICES_STATE_PATH = process.env.FACTORY_SERVICES_STATE
 export const FACTORY_SERVICES_FUTURE_DRAFT_REQUEST_PATH = `${FACTORY_SERVICES_STATE_PATH}.future-draft-request`;
 /** The event cursor lifetime the stack gives the application, so the lane can observe a 410. */
 export const FACTORY_SERVICES_CURSOR_TTL_MS = 60_000;
+/** A journey creates this file to ask the stack to run one restore through the operator command. */
+export const FACTORY_SERVICES_RESTORE_REQUEST_PATH = `${FACTORY_SERVICES_STATE_PATH}.restore-request`;
 export const FACTORY_SERVICES_AUTH_PATH = join(dirname(fileURLToPath(import.meta.url)), "..", ".factory-services-auth.json");
 
 export function readFactoryServicesState(): FactoryServicesState {

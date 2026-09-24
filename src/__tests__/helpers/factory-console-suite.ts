@@ -10,6 +10,8 @@ import { createFactoryConsole, type FactoryConsoleServices } from "../../factory
 import type { FactoryPrincipal } from "../../factory/grants";
 import { FactoryRecords } from "../../factory/records";
 import { FACTORY_RUN_STATUS_CONSUMER_ID } from "../../factory/run-transition-projector";
+import { FactoryRestore, factoryRestoreReportDigest, type FactoryRestoreOptions, type FactoryRestoreReport } from "../../factory/restore";
+import { FactoryRestoreReports } from "../../factory/restore-console";
 import { canonicalJson } from "@ezcorp/extension-contract";
 import { DatabaseLifecycleRepository } from "../../db/queries/extension-releases";
 import { digestObject } from "../../extensions/v4/blobs";
@@ -71,7 +73,10 @@ export async function provisionConsoleInstallation(create: () => Promise<Factory
   const runId = (await application.runs.start(OWNER, { projectId: PROJECT, factoryId: FACTORY }, body, 0, "console-start")).run.runId;
   const childRunId = (await application.runs.start(OWNER, { projectId: PROJECT, factoryId: FACTORY }, body, 0, "console-child")).run.runId;
   // The suite's own clock drives expiry; the application's composition is proven separately.
-  const consoleServices = createFactoryConsole({ database: fixture.db, tenantId, grants: application.grants, runs: application.runs, artifacts: application.artifacts, blobs: fixture.blobs, key: new Uint8Array(32).fill(keyByte), now: () => clock.now });
+  // W15's own restore signs. `sign` reads only the database, the tenant, and the clock, so the
+  // archive, stores, fence, and providers a full restore needs are left out of this signer.
+  const restoreSigner = async () => new FactoryRestore({ database: fixture.db, tenantId, installationId: "console-installation", now: () => clock.now } as unknown as FactoryRestoreOptions);
+  const consoleServices = createFactoryConsole({ database: fixture.db, tenantId, grants: application.grants, runs: application.runs, artifacts: application.artifacts, blobs: fixture.blobs, key: new Uint8Array(32).fill(keyByte), now: () => clock.now, restoreSigner });
   const installation = { fixture, tenantId, application, console: consoleServices, runId, childRunId, artifactId: "", clock };
   return { ...installation, artifactId: await seedSections(installation) };
 }
@@ -470,6 +475,67 @@ export function factoryConsoleConformance(create: () => Promise<FactoryConsoleFi
       } finally {
         await a.fixture.db.execute(sql`DELETE FROM project_members WHERE id='console-outsider-other'`);
       }
+    });
+  });
+
+  // Last: signing moves the installation's runs to a new execution epoch.
+  describe("restore signature (W15)", () => {
+    function report(restoreId: string, previousEpoch: number, executionEpoch: number, blocked: boolean): FactoryRestoreReport {
+      const findings = [
+        { findingId: "f-verified", subjectKind: "check" as const, subjectId: "schema", disposition: "verified" as const, reason: "schema matches", detail: { secret: "never shown" } },
+        ...(blocked ? [{ findingId: "f-blocked", subjectKind: "check" as const, subjectId: "objects", disposition: "blocked" as const, reason: "object version missing", detail: {} }] : []),
+      ];
+      return {
+        schemaVersion: "factory.recovery-report.v1", tenantId: a.tenantId, installationId: "console-installation", restoreId, mode: "tenant", checkpointId: `checkpoint-${restoreId}`, manifestDigest: sha("manifest"),
+        previousEpoch, executionEpoch, findings, blockedChecks: blocked ? ["check:objects:object version missing"] : [], blockedRuns: [], blockedSubjects: [],
+        releaseIdentities: { archived: 1, recovered: 1, blocked: 0 }, measured: { checkpointStartedAtMs: 1, failureAtMs: null, internalProgressLossMs: null, recoveryMs: 42 }, reportedAtMs: 5,
+      };
+    }
+    async function openEpoch(restoreId: string, previousEpoch: number, executionEpoch: number, blocked: boolean, startedAtMs: number): Promise<FactoryRestoreReport> {
+      const value = report(restoreId, previousEpoch, executionEpoch, blocked);
+      await a.fixture.db.execute(sql`INSERT INTO factory_restore_epochs (tenant_id, restore_id, mode, checkpoint_id, manifest_digest, previous_epoch, execution_epoch, state, report_json, report_digest, started_at_ms, opened_state_json)
+        VALUES (${a.tenantId}, ${restoreId}, 'tenant', ${value.checkpointId}, ${value.manifestDigest}, ${previousEpoch}, ${executionEpoch}, 'awaiting_signature', ${canonicalJson(value)}, ${factoryRestoreReportDigest(value)}, ${startedAtMs}, '{}')`);
+      return value;
+    }
+
+    test("only a human tenant administrator reads the report, blocked findings first and without their detail", async () => {
+      const epoch = Number(rows<{ e: string | number }>(await a.fixture.db.execute(sql`SELECT MAX(execution_epoch) AS e FROM factory_runs WHERE tenant_id=${a.tenantId}`))[0]!.e);
+      const blocked = await openEpoch("restore-blocked", epoch + 5, epoch + 6, true, 1);
+      await openEpoch("restore-clean", epoch, epoch + 1, false, 2);
+      await expect(a.console.restores.list(MEMBER, a.tenantId)).rejects.toMatchObject({ code: "factory_forbidden" });
+      await expect(a.console.restores.list({ ...OWNER, authentication: "api-key" }, a.tenantId)).rejects.toMatchObject({ code: "factory_human_required" });
+      await expect(a.console.restores.list(OWNER, b.tenantId)).rejects.toMatchObject({ code: "factory_forbidden" });
+      expect(await b.console.restores.list(OWNER, b.tenantId)).toEqual([]);
+      const listed = await a.console.restores.list(OWNER, a.tenantId);
+      expect(listed.map(item => item.restoreId)).toEqual(["restore-clean", "restore-blocked"]);
+      const shown = listed[1]!;
+      expect(shown).toMatchObject({ state: "awaiting_signature", mode: "tenant", reportDigest: factoryRestoreReportDigest(blocked), report: { findingCount: 2, blockedChecks: ["check:objects:object version missing"], recoveryMs: 42 } });
+      expect(shown.report!.findings.map(item => item.disposition)).toEqual(["blocked", "verified"]);
+      expect(JSON.stringify(shown)).not.toContain("never shown");
+    });
+
+    test("W15 records the signature for the exact digest; the console refuses an altered report first, and service reopens once", async () => {
+      const clean = rows<{ report_json: string; report_digest: string }>(await a.fixture.db.execute(sql`SELECT report_json, report_digest FROM factory_restore_epochs WHERE tenant_id=${a.tenantId} AND restore_id='restore-clean'`))[0]!;
+      await expect(a.console.restores.sign(MEMBER, a.tenantId, "restore-clean", { reportDigest: clean.report_digest })).rejects.toMatchObject({ code: "factory_forbidden" });
+      // An installation that cannot compose a restore says so, after the same authority check.
+      await expect(new FactoryRestoreReports(a.fixture.db, a.tenantId).sign(OWNER, a.tenantId, "restore-clean", { reportDigest: clean.report_digest })).rejects.toMatchObject({ code: "factory_restore_unavailable" });
+      await expect(new FactoryRestoreReports(a.fixture.db, a.tenantId).sign(MEMBER, a.tenantId, "restore-clean", { reportDigest: clean.report_digest })).rejects.toMatchObject({ code: "factory_forbidden" });
+      await expect(a.console.restores.sign(OWNER, a.tenantId, "restore-clean", { reportDigest: "not-a-digest" })).rejects.toMatchObject({ code: "factory_restore_invalid" });
+      await expect(a.console.restores.sign(OWNER, a.tenantId, "restore-clean", { reportDigest: sha("other") })).rejects.toMatchObject({ code: "factory_restore_report_mismatch" });
+      await expect(a.console.restores.sign(OWNER, a.tenantId, "restore-missing", { reportDigest: clean.report_digest })).rejects.toMatchObject({ code: "factory_restore_not_found" });
+      const blockedDigest = rows<{ d: string }>(await a.fixture.db.execute(sql`SELECT report_digest AS d FROM factory_restore_epochs WHERE tenant_id=${a.tenantId} AND restore_id='restore-blocked'`))[0]!.d;
+      await expect(a.console.restores.sign(OWNER, a.tenantId, "restore-blocked", { reportDigest: blockedDigest })).rejects.toMatchObject({ code: "factory_restore_blocked" });
+      // A report altered after verification no longer matches its stored digest, so it cannot be signed under it.
+      await a.fixture.db.execute(sql`UPDATE factory_restore_epochs SET report_json=${clean.report_json.replace('"recoveryMs":42', '"recoveryMs":43')} WHERE tenant_id=${a.tenantId} AND restore_id='restore-clean'`);
+      await expect(a.console.restores.sign(OWNER, a.tenantId, "restore-clean", { reportDigest: clean.report_digest })).rejects.toMatchObject({ code: "factory_restore_report_mismatch" });
+      await a.fixture.db.execute(sql`UPDATE factory_restore_epochs SET report_json=${clean.report_json} WHERE tenant_id=${a.tenantId} AND restore_id='restore-clean'`);
+      const signed = await a.console.restores.sign(OWNER, a.tenantId, "restore-clean", { reportDigest: clean.report_digest });
+      expect(signed).toMatchObject({ restoreId: "restore-clean", enabled: true, blockedRuns: [] });
+      expect(signed.rebound).toBeGreaterThan(0);
+      const audit = rows<{ n: string | number }>(await a.fixture.db.execute(sql`SELECT COUNT(*) AS n FROM audit_log WHERE action='factory.restore.enabled' AND target='restore-clean'`));
+      expect(Number(audit[0]!.n)).toBe(1);
+      expect((await a.console.restores.list(OWNER, a.tenantId))[0]).toMatchObject({ restoreId: "restore-clean", state: "enabled", signedBy: OWNER.id });
+      await expect(a.console.restores.sign(OWNER, a.tenantId, "restore-clean", { reportDigest: clean.report_digest })).rejects.toMatchObject({ code: "factory_restore_state" });
     });
   });
 }

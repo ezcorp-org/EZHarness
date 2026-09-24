@@ -833,6 +833,27 @@
       ],
       "type": "object"
     },
+    "FactoryApiPage<FactoryRestoreResource>": {
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/definitions/FactoryRestoreResource"
+          },
+          "maxItems": 200,
+          "type": "array"
+        },
+        "nextCursor": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "items"
+      ],
+      "type": "object"
+    },
     "FactoryApiPage<FactoryRunSummary>": {
       "additionalProperties": false,
       "properties": {
@@ -1611,6 +1632,50 @@
             },
             "resource": {
               "$ref": "#/definitions/FactoryValidatorMaterialResource"
+            },
+            "schemaVersion": {
+              "const": "factory.api.response.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "resource"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "restore.page",
+              "type": "string"
+            },
+            "page": {
+              "$ref": "#/definitions/FactoryApiPage%3CFactoryRestoreResource%3E"
+            },
+            "schemaVersion": {
+              "const": "factory.api.response.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "page"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "restore.signature",
+              "type": "string"
+            },
+            "resource": {
+              "$ref": "#/definitions/FactoryRestoreSignatureResource"
             },
             "schemaVersion": {
               "const": "factory.api.response.v1",
@@ -2846,6 +2911,90 @@
       ],
       "type": "object"
     },
+    "FactoryRecoveryReportResource": {
+      "additionalProperties": false,
+      "description": "The recovery report a human tenant administrator signs, by digest. Findings are bounded; `findingCount` says how many the full report holds.",
+      "properties": {
+        "blockedChecks": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 1000,
+          "type": "array"
+        },
+        "blockedRuns": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 10000,
+          "type": "array"
+        },
+        "checkpointId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "findingCount": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "number"
+        },
+        "findings": {
+          "items": {
+            "$ref": "#/definitions/FactoryRestoreFindingResource"
+          },
+          "maxItems": 200,
+          "type": "array"
+        },
+        "manifestDigest": {
+          "maxLength": 71,
+          "minLength": 71,
+          "type": "string"
+        },
+        "recoveryMs": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "number"
+        },
+        "releaseIdentities": {
+          "additionalProperties": false,
+          "properties": {
+            "archived": {
+              "type": "number"
+            },
+            "blocked": {
+              "type": "number"
+            },
+            "recovered": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "archived",
+            "recovered",
+            "blocked"
+          ],
+          "type": "object"
+        },
+        "reportedAtMs": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "number"
+        }
+      },
+      "required": [
+        "checkpointId",
+        "manifestDigest",
+        "findings",
+        "findingCount",
+        "blockedChecks",
+        "blockedRuns",
+        "releaseIdentities",
+        "recoveryMs",
+        "reportedAtMs"
+      ],
+      "type": "object"
+    },
     "FactoryReference": {
       "additionalProperties": false,
       "properties": {
@@ -3515,6 +3664,161 @@
         "validatorTrustDigest",
         "approvedBy",
         "approvalGrantRevision"
+      ],
+      "type": "object"
+    },
+    "FactoryRestoreFindingResource": {
+      "additionalProperties": false,
+      "description": "One verified or reconciled or blocked result of a restore, without its raw detail.",
+      "properties": {
+        "disposition": {
+          "enum": [
+            "verified",
+            "reconciled",
+            "blocked"
+          ],
+          "type": "string"
+        },
+        "findingId": {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        },
+        "reason": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "subjectId": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "type": "string"
+        },
+        "subjectKind": {
+          "enum": [
+            "check",
+            "run",
+            "release",
+            "worker",
+            "pool",
+            "projection"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "findingId",
+        "subjectKind",
+        "subjectId",
+        "disposition",
+        "reason"
+      ],
+      "type": "object"
+    },
+    "FactoryRestoreResource": {
+      "additionalProperties": false,
+      "properties": {
+        "checkpointId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "executionEpoch": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "type": "number"
+        },
+        "mode": {
+          "enum": [
+            "tenant",
+            "cluster"
+          ],
+          "type": "string"
+        },
+        "previousEpoch": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "number"
+        },
+        "report": {
+          "$ref": "#/definitions/FactoryRecoveryReportResource"
+        },
+        "reportDigest": {
+          "description": "The digest a signature names; present once the report is written.",
+          "maxLength": 71,
+          "minLength": 71,
+          "type": "string"
+        },
+        "restoreId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "signedAtMs": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "number"
+        },
+        "signedBy": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "startedAtMs": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "number"
+        },
+        "state": {
+          "enum": [
+            "fenced",
+            "awaiting_signature",
+            "enabled"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "restoreId",
+        "mode",
+        "state",
+        "checkpointId",
+        "previousEpoch",
+        "executionEpoch",
+        "startedAtMs"
+      ],
+      "type": "object"
+    },
+    "FactoryRestoreSignatureResource": {
+      "additionalProperties": false,
+      "properties": {
+        "blockedRuns": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 10000,
+          "type": "array"
+        },
+        "enabled": {
+          "const": true,
+          "type": "boolean"
+        },
+        "rebound": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "number"
+        },
+        "restoreId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "restoreId",
+        "enabled",
+        "rebound",
+        "blockedRuns"
       ],
       "type": "object"
     },

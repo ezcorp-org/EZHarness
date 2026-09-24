@@ -581,6 +581,8 @@ export async function startFactoryInstallation(options: FactoryInstallationStart
       blobs,
       runOptions: host.runOptions,
       availableResourceClasses: host.availableResourceClasses,
+      // A human signs a restore report in the console (W14); W15's restore records it.
+      restoreSigner: () => composeFactoryInstallationRestore({ config, host, fence: FACTORY_SIGN_ONLY_FENCE }),
     },
     // The private worker API, and only that. The pool, the supervisor, and the
     // Node orchestrator each bind their own in their own process; this one binds
@@ -608,6 +610,16 @@ export async function startFactoryInstallation(options: FactoryInstallationStart
   const runtime = await startFactoryRuntime(config, options.databaseUrl, dependencies, options.signal, boot);
   return Object.freeze({ runtime, ...(provider === undefined ? {} : { provider }), stop: () => runtime.stop() });
 }
+
+/**
+ * The fence of a restore composed only to sign its report. Signing closes no
+ * ingress and revokes no credential (the operator's `begin` did, under its own
+ * attestation), so a call here is a composition error, refused by name.
+ */
+const FACTORY_SIGN_ONLY_FENCE: FactoryRestoreFence = {
+  closeIngress: async () => { throw new Error("a restore composed to sign a report never fences"); },
+  revokeCredentials: async () => { throw new Error("a restore composed to sign a report never fences"); },
+};
 
 /**
  * W15: a restore built from this installation's own composition.

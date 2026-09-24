@@ -386,3 +386,61 @@ export interface FactoryArtifactShareResource {
   readonly mediaType: string;
   readonly revoked: boolean;
 }
+
+/** One restore epoch's path under the tenant. */
+export interface FactoryRestorePath {
+  /** @minLength 1 @maxLength 512 */ readonly tenantId: string;
+  /** @minLength 1 @maxLength 512 */ readonly restoreId: string;
+  readonly projectId?: never;
+}
+
+/** One verified or reconciled or blocked result of a restore, without its raw detail. */
+export interface FactoryRestoreFindingResource {
+  /** @minLength 1 @maxLength 64 */ readonly findingId: string;
+  readonly subjectKind: "check" | "run" | "release" | "worker" | "pool" | "projection";
+  /** @minLength 1 @maxLength 1024 */ readonly subjectId: string;
+  readonly disposition: "verified" | "reconciled" | "blocked";
+  /** @minLength 1 @maxLength 512 */ readonly reason: string;
+}
+
+/**
+ * The recovery report a human tenant administrator signs, by digest. Findings
+ * are bounded; `findingCount` says how many the full report holds.
+ */
+export interface FactoryRecoveryReportResource {
+  /** @minLength 1 @maxLength 512 */ readonly checkpointId: string;
+  /** @minLength 71 @maxLength 71 */ readonly manifestDigest: string;
+  /** @maxItems 200 */ readonly findings: readonly FactoryRestoreFindingResource[];
+  /** @minimum 0 @maximum 9007199254740991 */ readonly findingCount: number;
+  /** @maxItems 1000 */ readonly blockedChecks: readonly string[];
+  /** @maxItems 10000 */ readonly blockedRuns: readonly string[];
+  readonly releaseIdentities: { /** @minimum 0 */ readonly archived: number; /** @minimum 0 */ readonly recovered: number; /** @minimum 0 */ readonly blocked: number };
+  /** @minimum 0 @maximum 9007199254740991 */ readonly recoveryMs: number;
+  /** @minimum 0 @maximum 9007199254740991 */ readonly reportedAtMs: number;
+}
+
+export interface FactoryRestoreResource {
+  /** @minLength 1 @maxLength 512 */ readonly restoreId: string;
+  readonly mode: "tenant" | "cluster";
+  readonly state: "fenced" | "awaiting_signature" | "enabled";
+  /** @minLength 1 @maxLength 512 */ readonly checkpointId: string;
+  /** @minimum 0 @maximum 9007199254740991 */ readonly previousEpoch: number;
+  /** @minimum 1 @maximum 9007199254740991 */ readonly executionEpoch: number;
+  /** @minimum 0 @maximum 9007199254740991 */ readonly startedAtMs: number;
+  /** The digest a signature names; present once the report is written. @minLength 71 @maxLength 71 */
+  readonly reportDigest?: string;
+  readonly report?: FactoryRecoveryReportResource;
+  /** @minLength 1 @maxLength 512 */ readonly signedBy?: string;
+  /** @minimum 0 @maximum 9007199254740991 */ readonly signedAtMs?: number;
+}
+
+export interface FactoryRestoreSignBody {
+  /** @minLength 71 @maxLength 71 */ readonly reportDigest: string;
+}
+
+export interface FactoryRestoreSignatureResource {
+  /** @minLength 1 @maxLength 512 */ readonly restoreId: string;
+  readonly enabled: true;
+  /** @minimum 0 @maximum 9007199254740991 */ readonly rebound: number;
+  /** @maxItems 10000 */ readonly blockedRuns: readonly string[];
+}

@@ -45,6 +45,10 @@ export async function dispatchFactoryConsoleRequest(application: FactoryApplicat
       return { schemaVersion: VERSION, kind: "purge.preview", resource: await (await application.console()).purge.preview(principal, request.path.tenantId) };
     case "purge.request":
       return { schemaVersion: VERSION, kind: "purge.request.resource", resource: await (await application.console()).purge.request(principal, request.path.tenantId, request.body, request.preconditions.idempotencyKey) };
+    case "restore.list":
+      return { schemaVersion: VERSION, kind: "restore.page", page: { items: [...await (await application.console()).restores.list(principal, request.path.tenantId)] } };
+    case "restore.sign":
+      return { schemaVersion: VERSION, kind: "restore.signature", resource: await (await application.console()).restores.sign(principal, request.path.tenantId, request.path.restoreId, request.body) };
     default:
       return null;
   }

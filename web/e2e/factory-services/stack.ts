@@ -20,6 +20,10 @@
  *   5. on a journey's request, one draft's stored source rewritten as a newer
  *      server would write it (schema version `factory.v9`): no server of this
  *      version can produce one, and the console must still show and export it.
+ *   6. on a journey's request, one restore through the operator's own command
+ *      (`scripts/factory-restore.ts begin`) against the checkpoint the
+ *      product's checkpoint role sealed, with an operator's fence attestation
+ *      for the old deployment. The console's signature of its report is real.
  *
  * Inputs: FACTORY_TEST_POSTGRES_URL, EZCORP_FACTORY_STORAGE_SECRETS_DIR, and
  * FACTORY_TEMPORAL_CLI (all required), FACTORY_SERVICES_PORT (4191),
@@ -39,7 +43,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { SQL } from "bun";
 import { buildFactoryGuest } from "./guest";
 import { freePort, httpSession, reachable, StackProcesses, waitFor } from "./processes";
-import { FACTORY_SERVICES_CURSOR_TTL_MS, FACTORY_SERVICES_FUTURE_DRAFT_REQUEST_PATH, FACTORY_SERVICES_STATE_PATH, type FactoryServicesState } from "./state";
+import { FACTORY_SERVICES_CURSOR_TTL_MS, FACTORY_SERVICES_FUTURE_DRAFT_REQUEST_PATH, FACTORY_SERVICES_RESTORE_REQUEST_PATH, FACTORY_SERVICES_STATE_PATH, type FactoryServicesState } from "./state";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, "..", "..", "..");
@@ -237,9 +241,11 @@ processes.start("supervisor", BUN, [join(REPO, "src/factory/runner/supervisor-pr
 // ── Temporal, behind a TLS terminator ─────────────────────────────────
 const temporalPort = freePort();
 const temporalTlsPort = freePort();
+// The HTTP API the checkpoint role reads Temporal positions through (W15).
+const temporalHttpPort = freePort();
 // The dev server, not the Java test server: only it reports the task-queue
 // pollers the orchestrator's readiness requires.
-processes.start("temporal", TEMPORAL, ["server", "start-dev", "--ip", "127.0.0.1", "--port", String(temporalPort), "--http-port", String(freePort()), "--ui-port", String(freePort()), "--namespace", NAMESPACE, "--headless", "--db-filename", join(root, "temporal.sqlite")], { cwd: root });
+processes.start("temporal", TEMPORAL, ["server", "start-dev", "--ip", "127.0.0.1", "--port", String(temporalPort), "--http-port", String(temporalHttpPort), "--ui-port", String(freePort()), "--namespace", NAMESPACE, "--headless", "--db-filename", join(root, "temporal.sqlite")], { cwd: root });
 if (!await waitFor(async () => await reachable(temporalPort) || null, 120, 1_000)) await fail("the Temporal dev server did not listen");
 processes.start("temporal-tls", "node", [join(HERE, "tls-terminator.mjs"), String(temporalTlsPort), String(temporalPort), secrets], { cwd: root });
 if (!await waitFor(async () => await reachable(temporalTlsPort) || null, 60, 500)) await fail("the Temporal TLS terminator did not listen");
@@ -257,8 +263,9 @@ startFactoryPrivateHttps({
 // ── The factory startup document ──────────────────────────────────────
 const privateServicePort = freePort();
 const releaseAdapter = { package: guest.reference.package, manifestName: guest.reference.manifestName, version: guest.reference.version, digest: `sha256:${"d".repeat(64)}`, export: "publish" };
-await writePrivate("factory-startup.json", JSON.stringify({
+const startupPath = await writePrivate("factory-startup.json", JSON.stringify({
 	schemaVersion: "factory.startup.v1", installationId: INSTALLATION, tenantId: TENANT, poolId: POOL, hostId: HOST, temporalNamespace: NAMESPACE,
+	temporalHttp: { endpoint: `http://127.0.0.1:${temporalHttpPort}` },
 	orphanSweepIntervalMs: 30_000,
 	orchestrationReadinessFilePath: join(readiness, "orchestration.json"),
 	poolReadinessFilePath: join(readiness, "pool.json"),
@@ -404,6 +411,7 @@ const state: { -readonly [K in keyof FactoryServicesState]: FactoryServicesState
 await writeFile(FACTORY_SERVICES_STATE_PATH, JSON.stringify(state, null, 2), { mode: 0o600 });
 await rm(STOP_FILE, { force: true });
 await rm(FACTORY_SERVICES_FUTURE_DRAFT_REQUEST_PATH, { force: true });
+await rm(FACTORY_SERVICES_RESTORE_REQUEST_PATH, { force: true });
 console.log(`[factory-services] held at ${baseURL}; logs in ${logs}`);
 
 // ── Hold, and prepare the package once the console has trusted it ─────
@@ -427,7 +435,45 @@ async function writeFutureDraft(factoryId: string): Promise<void> {
 	await rm(FACTORY_SERVICES_FUTURE_DRAFT_REQUEST_PATH, { force: true });
 	console.log(`[factory-services] draft ${factoryId} rewritten as schema factory.v9`);
 }
+
+/**
+ * Runs one restore through the operator's command, as an operator would: the
+ * product's checkpoint role must have sealed a checkpoint first, and the fence
+ * attestation states that the old deployment's ingress and credentials are
+ * closed (this lane has no second deployment, so the statement names the
+ * running one's identifiers). The report and its digest are the command's own.
+ */
+async function openRestoreEpoch(): Promise<void> {
+	const restoreId = `restore-${suffix}`;
+	const sealed = await waitFor(async () => {
+		const [row] = await productSql.unsafe(`SELECT checkpoint_id FROM factory_checkpoints WHERE tenant_id = $1 AND state = 'sealed' ORDER BY started_at_ms DESC LIMIT 1`, [TENANT]) as Array<{ checkpoint_id: string }>;
+		return row?.checkpoint_id ?? null;
+	}, 180, 1_000);
+	if (!sealed) throw new Error("the product's checkpoint role sealed no checkpoint to restore from");
+	const fence = await writePrivate(`restore-fence-${restoreId}.json`, JSON.stringify({ restoreId, ingress: `ingress withdrawn for ${INSTALLATION}`, credentials: `service credentials revoked for ${INSTALLATION}` }));
+	// The operator's restore reads the pool through a token that also carries the restore scope
+	// (W15 leaves issuing it to W16's deployment; here the stack is the deployment).
+	const restoreToken = await writePrivate("restore.token", serviceToken(TENANT, [`pool:tenant:${TENANT}`, `pool:grant:${TENANT}:factory`, `pool:restore:${TENANT}`]));
+	const startup = JSON.parse(await readFile(startupPath, "utf8")) as { pool: Record<string, unknown> };
+	const restoreStartup = await writePrivate("factory-restore-startup.json", JSON.stringify({ ...startup, pool: { ...startup.pool, serviceTokenPath: restoreToken } }));
+	const command = Bun.spawn(["bun", join(REPO, "scripts/factory-restore.ts"), "begin", "--restore-id", restoreId, "--fence", fence, "--config", restoreStartup], {
+		cwd: REPO, env: { ...process.env, DATABASE_URL: productUrl.toString() }, stdout: "pipe", stderr: "pipe",
+	});
+	const [out, err, exit] = await Promise.all([new Response(command.stdout).text(), new Response(command.stderr).text(), command.exited]);
+	await writeFile(join(logs, "factory-restore-begin.log"), `exit ${exit}\n${out}\n${err}`, { mode: 0o600 });
+	// The command prints one JSON line (exit 0 clean, 2 blocked); anything else is a failed restore,
+	// recorded for the journey to report rather than crashing the stack.
+	let result: { reportDigest?: string; blockedChecks?: readonly string[] } = {};
+	try { result = JSON.parse(out.trim().split("\n").at(-1) ?? "") as typeof result; } catch { result = {}; }
+	state.restoreId = restoreId;
+	state.restoreExit = exit;
+	if (result.reportDigest !== undefined) state.restoreReportDigest = result.reportDigest;
+	if (result.blockedChecks !== undefined) state.restoreBlockedChecks = [...result.blockedChecks];
+	await writeFile(FACTORY_SERVICES_STATE_PATH, JSON.stringify(state, null, 2), { mode: 0o600 });
+	console.log(`[factory-services] restore ${restoreId}: the operator command exited ${exit} with ${result.blockedChecks?.length ?? "no"} blocked checks`);
+}
 while (!stopping && Date.now() < heldUntil && !await Bun.file(STOP_FILE).exists()) {
+	if (state.restoreId === undefined && await Bun.file(FACTORY_SERVICES_RESTORE_REQUEST_PATH).exists()) await openRestoreEpoch();
 	if (state.futureDraftId === undefined && await Bun.file(FACTORY_SERVICES_FUTURE_DRAFT_REQUEST_PATH).exists()) {
 		await writeFutureDraft((await readFile(FACTORY_SERVICES_FUTURE_DRAFT_REQUEST_PATH, "utf8")).trim());
 	}

@@ -77,6 +77,7 @@ const MUTATION_KINDS = new Set([
   "purge.request",
   "artifact.share",
   "artifact.unshare",
+  "restore.sign",
 ]);
 
 export function readFactoryJson(request: Request): Promise<unknown> {

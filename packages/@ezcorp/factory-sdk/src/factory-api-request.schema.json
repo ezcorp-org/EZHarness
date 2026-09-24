@@ -1796,6 +1796,58 @@
             "query"
           ],
           "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "restore.list",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryTenantPath"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "body": {
+              "$ref": "#/definitions/FactoryRestoreSignBody"
+            },
+            "kind": {
+              "const": "restore.sign",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryRestorePath"
+            },
+            "preconditions": {
+              "$ref": "#/definitions/FactoryMutationPreconditions"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path",
+            "preconditions",
+            "body"
+          ],
+          "type": "object"
         }
       ],
       "description": "Canonical C09 route input. `path` is populated from trusted routing state. Tenant identity is intentionally absent, and resource identity never appears in a request body."
@@ -3039,6 +3091,41 @@
       "required": [
         "packageLock",
         "validatorTrustDigest"
+      ],
+      "type": "object"
+    },
+    "FactoryRestorePath": {
+      "additionalProperties": false,
+      "description": "One restore epoch's path under the tenant.",
+      "properties": {
+        "restoreId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "tenantId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "tenantId",
+        "restoreId"
+      ],
+      "type": "object"
+    },
+    "FactoryRestoreSignBody": {
+      "additionalProperties": false,
+      "properties": {
+        "reportDigest": {
+          "maxLength": 71,
+          "minLength": 71,
+          "type": "string"
+        }
+      },
+      "required": [
+        "reportDigest"
       ],
       "type": "object"
     },

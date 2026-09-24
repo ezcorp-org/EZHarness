@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { MigrationDb } from "../db/migrations/types";
-import { factoryTenantAdministratorRefusalInTransaction, isActiveFactoryAdministrator } from "./tenant-administrator";
+import { assertFactoryTenantAdministratorInTransaction, factoryTenantAdministratorRefusalInTransaction, isActiveFactoryAdministrator } from "./tenant-administrator";
 
 /** A transaction whose one read returns the given user rows. */
 const transaction = (users: readonly unknown[]) => ({ execute: async () => ({ rows: users }) }) as unknown as MigrationDb;
@@ -22,5 +22,12 @@ describe("the tenant administrator rule", () => {
     expect(await factoryTenantAdministratorRefusalInTransaction(transaction([{ role: "admin", status: null }]), session)).toBe("factory_forbidden");
     expect(await factoryTenantAdministratorRefusalInTransaction(transaction([]), session)).toBe("factory_forbidden");
     expect(await factoryTenantAdministratorRefusalInTransaction(transaction([{ role: "admin", status: "active" }]), session)).toBeNull();
+  });
+
+  test("the tenant gate refuses another tenant before it reads a user, then raises the rule's refusal", async () => {
+    const active = transaction([{ role: "admin", status: "active" }]);
+    await expect(assertFactoryTenantAdministratorInTransaction(active, "tenant-a", "tenant-b", session)).rejects.toMatchObject({ code: "factory_forbidden" });
+    await expect(assertFactoryTenantAdministratorInTransaction(active, "tenant-a", "tenant-a", { ...session, authentication: "api-key" })).rejects.toMatchObject({ code: "factory_human_required" });
+    await expect(assertFactoryTenantAdministratorInTransaction(active, "tenant-a", "tenant-a", session)).resolves.toBeUndefined();
   });
 });

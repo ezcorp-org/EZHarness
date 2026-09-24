@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/svelte";
 import { describe, expect, test, vi } from "vitest";
-import type { FactoryGrantResource, FactoryPackageImpact, FactoryPackageResource, FactoryPackageTransition } from "@ezcorp/factory-sdk/types";
+import type { FactoryGrantResource, FactoryPackageImpact, FactoryPackageResource, FactoryPackageTransition, FactoryRestoreResource } from "@ezcorp/factory-sdk/types";
 import FactoryAdministration from "./FactoryAdministration.svelte";
 import { FactoryApiClientError, type FactoryAdministrationApi } from "./client";
 
@@ -11,6 +11,14 @@ const pkg = (name: string, state?: FactoryPackageResource["state"], revision = 1
 });
 const grant = (principalId: string, overrides: Partial<FactoryGrantResource> = {}): FactoryGrantResource => ({ principalKind: "user", principalId, action: "factory.run", revision: 2, expiresAtMs: null, revoked: false, ...overrides });
 const preview = { tenantId: "tenant-1", ready: false, auditRowsLost: 1, preconditions: [{ id: "live-runs", satisfied: false, count: 2, detail: "Runs still running" }, { id: "uncertain-usage", satisfied: true, count: 0, detail: "Uncertain usage" }] };
+
+const reportDigest = `sha256:${"b".repeat(64)}`;
+const finding = (id: string, disposition: "verified" | "reconciled" | "blocked", reason = `${id} reason`) => ({ findingId: id, subjectKind: "check" as const, subjectId: id, disposition, reason });
+const restore = (restoreId: string, overrides: Partial<FactoryRestoreResource> = {}): FactoryRestoreResource => ({
+	restoreId, mode: "tenant", state: "awaiting_signature", checkpointId: `checkpoint-${restoreId}`, previousEpoch: 3, executionEpoch: 4, startedAtMs: 1, reportDigest,
+	report: { checkpointId: `checkpoint-${restoreId}`, manifestDigest: digest, findings: [finding("schema", "verified")], findingCount: 1, blockedChecks: [], blockedRuns: [], releaseIdentities: { archived: 2, recovered: 2, blocked: 0 }, recoveryMs: 4_000, reportedAtMs: 2 },
+	...overrides,
+});
 
 function api(overrides: Partial<FactoryAdministrationApi> = {}): FactoryAdministrationApi {
 	return {
@@ -23,6 +31,8 @@ function api(overrides: Partial<FactoryAdministrationApi> = {}): FactoryAdminist
 		revokeGrant: vi.fn(async (_p, principalKind, principalId, action) => grant(principalId, { principalKind, action, revoked: true })),
 		purgePreview: vi.fn(async () => preview),
 		requestPurge: vi.fn(async () => ({ ...preview, requestId: "purge-1", state: "refused" as const, requestedBy: "u", requestedAtMs: 1 })),
+		listRestores: vi.fn(async () => []),
+		signRestore: vi.fn(async (_tenant: string, restoreId: string) => ({ restoreId, enabled: true as const, rebound: 1, blockedRuns: [] })),
 		...overrides,
 	};
 }
@@ -142,6 +152,54 @@ describe("FactoryAdministration", () => {
 		await fireEvent.click(screen.getByRole("button", { name: "Record purge request" }));
 		expect(await screen.findByText("Purge request purge-2 is queued. Nothing has been deleted.")).toBeVisible();
 		expect(await screen.findByText(/would remove/)).toHaveTextContent("A purge would remove 2 audit records.");
+	});
+
+	test("a recovery report is signed by its exact digest; a blocked check or a finished restore offers no signature", async () => {
+		const blockedReport = { ...restore("restore-blocked").report!, findings: [finding("objects", "blocked", "object version missing"), { ...finding("release-1", "blocked", "receipt_unverified"), subjectKind: "release" as const, subjectId: "[\"project-1\",\"factory-release:abc\"]" }, { ...finding("odd", "verified"), subjectId: "[\"unclosed" }, { ...finding("numbers", "verified"), subjectId: "[1,2]" }, finding("schema", "verified")], findingCount: 240, blockedChecks: ["check:objects:object version missing"] };
+		const service = api({
+			listRestores: vi.fn(async () => [
+				restore("restore-clean", { report: { ...restore("restore-clean").report!, blockedRuns: ["[\"p\",\"r\"]"] } }),
+				restore("restore-blocked", { report: blockedReport }),
+				restore("restore-done", { state: "enabled", signedBy: "admin-1", signedAtMs: Date.UTC(2031, 0, 2, 3, 4) }),
+				restore("restore-fenced", { state: "fenced", reportDigest: undefined, report: undefined }),
+			]),
+			signRestore: vi.fn(async (_tenant: string, restoreId: string) => ({ restoreId, enabled: true as const, rebound: 1, blockedRuns: ["[\"p\",\"r\"]", "[\"p\",\"s\"]"] })),
+		});
+		mount(service);
+		const clean = await screen.findByRole("article", { name: "restore-clean" });
+		expect(clean).toHaveTextContent(reportDigest);
+		expect(clean).toHaveTextContent("3 → 4");
+		expect(clean).toHaveTextContent("Releases recovered 2 of 2. Blocked runs 1. Recovery took 4 s.");
+		const blocked = screen.getByRole("article", { name: "restore-blocked" });
+		expect(blocked).toHaveTextContent("Findings, 5 of 240 with every blocked one first");
+		// A subject that names several identities reads as a path; any other subject is shown as stored.
+		expect(within(blocked).getByText("project-1 / factory-release:abc")).toBeVisible();
+		expect(within(blocked).getByText("[\"unclosed")).toBeVisible();
+		expect(within(blocked).getByText("[1,2]")).toBeVisible();
+		expect(blocked).toHaveTextContent("A blocked check keeps the tenant closed, so this report cannot be signed: check:objects:object version missing.");
+		expect(within(blocked).queryByRole("button")).toBeNull();
+		expect(screen.getByRole("article", { name: "restore-done" })).toHaveTextContent("by admin-1 · 2031-01-02 03:04 UTC");
+		expect(within(screen.getByRole("article", { name: "restore-done" })).queryByRole("button")).toBeNull();
+		expect(within(screen.getByRole("article", { name: "restore-fenced" })).queryByRole("table")).toBeNull();
+		await fireEvent.click(within(clean).getByRole("button", { name: /Sign report and reopen service/ }));
+		expect(await screen.findByRole("status")).toHaveTextContent("Restore restore-clean is signed and service is open. 1 run moved to epoch 4. 2 blocked runs stay at the old epoch.");
+		expect(service.signRestore).toHaveBeenCalledWith("tenant-1", "restore-clean", reportDigest);
+		service.signRestore = vi.fn(async () => ({ restoreId: "restore-clean", enabled: true as const, rebound: 2, blockedRuns: ["[\"p\",\"r\"]"] }));
+		await fireEvent.click(within(screen.getByRole("article", { name: "restore-clean" })).getByRole("button", { name: /Sign report/ }));
+		expect(await screen.findByRole("status")).toHaveTextContent("2 runs moved to epoch 4. 1 blocked run stays at the old epoch.");
+		service.signRestore = vi.fn(async () => { throw new FactoryApiClientError(412, "factory_restore_report_mismatch", "stale"); });
+		await fireEvent.click(within(screen.getByRole("article", { name: "restore-clean" })).getByRole("button", { name: /Sign report/ }));
+		expect(await screen.findByRole("alert")).toHaveTextContent("Someone changed this first.");
+	});
+
+	test("with no restore, the panel says so; a signature without a known digest does nothing", async () => {
+		const service = api({ listRestores: vi.fn(async () => [restore("restore-x", { reportDigest: undefined })]) });
+		mount(service);
+		const pending = await screen.findByRole("article", { name: "restore-x" });
+		expect(within(pending).getByRole("button", { name: /Sign report/ })).toBeDisabled();
+		const empty = api();
+		render(FactoryAdministration, { projectId: "project-2", tenantId: "tenant-1", administrator: true, api: empty });
+		expect(await screen.findByText("No restore has been opened for this tenant.")).toBeVisible();
 	});
 
 	test("a member reads but cannot change, and an unknown tenant is said plainly", async () => {

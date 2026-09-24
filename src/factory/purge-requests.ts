@@ -6,8 +6,8 @@ import { insertTransactionalAuditEntry } from "../db/queries/audit-log";
 import { releaseRows as rows } from "../db/queries/extension-releases";
 import { idempotencyInputDigest, isBoundedIdempotencyKey } from "../idempotency";
 import { FactoryConsoleError } from "./console-tokens";
-import { factoryTenantAdministratorRefusalInTransaction } from "./tenant-administrator";
-import { FactoryGrantError, type FactoryPrincipal } from "./grants";
+import { assertFactoryTenantAdministratorInTransaction } from "./tenant-administrator";
+import type { FactoryPrincipal } from "./grants";
 import { FactoryMutationError } from "./mutations";
 import { assertFactoryIdentity } from "./records";
 
@@ -79,10 +79,8 @@ export class FactoryPurgeRequests {
     });
   }
 
-  private async authorize(transaction: MigrationDb, principal: FactoryPrincipal, tenantId: string): Promise<void> {
-    if (tenantId !== this.tenantId) throw new FactoryGrantError("factory_forbidden");
-    const refusal = await factoryTenantAdministratorRefusalInTransaction(transaction, principal);
-    if (refusal) throw new FactoryGrantError(refusal);
+  private authorize(transaction: MigrationDb, principal: FactoryPrincipal, tenantId: string): Promise<void> {
+    return assertFactoryTenantAdministratorInTransaction(transaction, this.tenantId, tenantId, principal);
   }
 
   private async evaluate(transaction: MigrationDb): Promise<FactoryPurgePreview> {

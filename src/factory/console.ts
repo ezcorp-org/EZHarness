@@ -12,6 +12,7 @@ import type { FactoryGrants } from "./grants";
 import { FactoryPackageAdmin } from "./package-admin";
 import { FactoryPackageTrusts } from "./package-preparation";
 import { FactoryPurgeRequests } from "./purge-requests";
+import { FactoryRestoreReports, type FactoryRestoreSigner } from "./restore-console";
 import { FactoryRunEvents } from "./run-events";
 import { FactoryRunInspections } from "./run-inspection";
 import type { FactoryRunLifecycle } from "./run-lifecycle";
@@ -23,6 +24,7 @@ export interface FactoryConsoleServices {
   readonly events: FactoryRunEvents;
   readonly packages: FactoryPackageAdmin;
   readonly purge: FactoryPurgeRequests;
+  readonly restores: FactoryRestoreReports;
   readonly tickets: FactoryArtifactTickets;
 }
 
@@ -38,6 +40,8 @@ export interface FactoryConsoleOptions {
   readonly now?: () => number;
   /** How long an event cursor lives. Defaults to the installation setting, else 15 minutes. */
   readonly cursorTtlMs?: number;
+  /** Composes the installation's restore to sign a report; absent, a signature answers unavailable. */
+  readonly restoreSigner?: FactoryRestoreSigner;
 }
 
 const MIN_CURSOR_TTL_MS = 5_000;
@@ -83,6 +87,7 @@ export function createFactoryConsole(options: FactoryConsoleOptions): FactoryCon
     events: new FactoryRunEvents(options.database, options.tenantId, options.grants, cursors),
     packages: new FactoryPackageAdmin(options.database, options.tenantId, options.grants, preparations, trusts),
     purge: new FactoryPurgeRequests(options.database, options.tenantId, now),
+    restores: new FactoryRestoreReports(options.database, options.tenantId, options.restoreSigner),
     tickets: new FactoryArtifactTickets(options.database, options.tenantId, options.grants, options.artifacts, signer, sharing, now),
   });
 }

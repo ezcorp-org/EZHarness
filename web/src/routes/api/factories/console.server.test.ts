@@ -8,6 +8,7 @@ import { FactoryPackagePreparationError } from "$server/factory/package-preparat
 import { FactoryRunLifecycleError } from "$server/factory/run-lifecycle";
 import { FactoryArtifactError } from "$server/factory/artifacts";
 import { FactoryArtifactAccessError } from "$server/factory/artifact-access";
+import { FactoryRestoreError } from "$server/factory/restore";
 import type { FactoryRunEventBatch } from "$server/factory/run-events";
 import { FACTORY_STREAM_EVENT_NAMES } from "$lib/runtime-event-names";
 import { logger } from "$server/logger";
@@ -22,6 +23,7 @@ const services = {
   events: { read: vi.fn() },
   packages: { list: vi.fn(), install: vi.fn(), transition: vi.fn(), impact: vi.fn() },
   purge: { preview: vi.fn(), request: vi.fn() },
+  restores: { list: vi.fn(), sign: vi.fn() },
   tickets: { issue: vi.fn(), download: vi.fn(), share: vi.fn(), unshare: vi.fn(), readShared: vi.fn() },
 };
 
@@ -43,6 +45,8 @@ const impact = await import("./projects/[projectId]/packages/[referenceId]/impac
 const purgePreview = await import("./tenants/[tenantId]/purge-preview/+server");
 const purgeRequests = await import("./tenants/[tenantId]/purge-requests/+server");
 const materials = await import("./projects/[projectId]/validator-materials/+server");
+const restores = await import("./tenants/[tenantId]/restores/+server");
+const restoreSignatures = await import("./tenants/[tenantId]/restores/[restoreId]/signatures/+server");
 
 const digest = `sha256:${"a".repeat(64)}`;
 const referenceId = "b".repeat(64);
@@ -122,6 +126,37 @@ describe("console routes", () => {
     expect((await read("")).status).toBe(400);
     services.inspections.material.mockRejectedValueOnce(new FactoryConsoleError("factory_material_not_found"));
     expect((await json(await read("?factoryId=f&factoryVersion=9"))).error?.code).toBe("factory_material_not_found");
+  });
+
+  test("restore reports and signatures are administrator-session only, and each refusal keeps its status", async () => {
+    const params = { tenantId: "tenant-1" };
+    const reportDigest = `sha256:${"e".repeat(64)}`;
+    const restore = { restoreId: "restore-1", mode: "tenant", state: "awaiting_signature", checkpointId: "checkpoint-1", previousEpoch: 1, executionEpoch: 2, startedAtMs: 1, reportDigest };
+    services.restores.list.mockResolvedValue([restore]);
+    services.restores.sign.mockResolvedValue({ restoreId: "restore-1", enabled: true, rebound: 3, blockedRuns: [] });
+    const list = (options: Options = {}) => restores.GET(event("GET", "/api/factories/tenants/tenant-1/restores", { params, role: "admin", ...options }));
+    const sign = (options: Options = {}) => restoreSignatures.POST(event("POST", "/api/factories/tenants/tenant-1/restores/restore-1/signatures", { params: { ...params, restoreId: "restore-1" }, role: "admin", body: { reportDigest }, revision: 0, key: "sign-1", ...options }));
+    // No API key reaches either service, whatever its scope (review L4).
+    const calls = services.restores.sign.mock.calls.length;
+    expect((await list({ auth: "api-key", scopes: ["admin"] })).status).toBe(403);
+    expect((await sign({ auth: "api-key", scopes: ["admin"] })).status).toBe(403);
+    expect(services.restores.sign.mock.calls.length).toBe(calls);
+    // A session that is not a tenant administrator is refused by the service.
+    services.restores.list.mockRejectedValueOnce(new FactoryGrantError("factory_forbidden"));
+    expect((await list({ role: "member" })).status).toBe(403);
+    expect(await json(await list())).toMatchObject({ kind: "restore.page", page: { items: [restore] } });
+    expect(services.restores.list).toHaveBeenLastCalledWith(session, "tenant-1");
+    expect(await json(await sign())).toMatchObject({ kind: "restore.signature", resource: { enabled: true, rebound: 3 } });
+    expect(services.restores.sign).toHaveBeenLastCalledWith(session, "tenant-1", "restore-1", { reportDigest });
+    expect((await sign({ revision: 1 })).status).toBe(412);
+    for (const [code, status] of [["factory_restore_invalid", 400], ["factory_restore_not_found", 404], ["factory_restore_state", 409], ["factory_restore_human_required", 403], ["factory_restore_report_mismatch", 412], ["factory_restore_blocked", 422]] as const) {
+      services.restores.sign.mockRejectedValueOnce(new FactoryRestoreError(code));
+      const refused = await sign({ key: `sign-${code}` });
+      expect([code, refused.status]).toEqual([code, status]);
+    }
+    // An installation that cannot compose a restore answers unavailable, not a 500.
+    services.restores.sign.mockRejectedValueOnce(new FactoryConsoleError("factory_restore_unavailable"));
+    expect((await sign({ key: "sign-unavailable" })).status).toBe(503);
   });
 
   test("the event stream reads its first batch before streaming, so refusals are statuses", async () => {

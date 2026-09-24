@@ -4,6 +4,7 @@ import type { FactoryRunKey } from "./records";
 
 /** Errors the console read models raise. The web boundary maps each code to one status. */
 export type FactoryConsoleErrorCode =
+  | "factory_restore_unavailable"
   | "factory_cursor_invalid"
   | "factory_cursor_expired"
   | "factory_page_invalid"

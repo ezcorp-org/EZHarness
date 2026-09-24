@@ -15,6 +15,7 @@ import { FactoryArtifactError } from "$server/factory/artifacts";
 import { FactoryConsoleError } from "$server/factory/console-tokens";
 import { FactoryPackagePreparationError } from "$server/factory/package-preparation";
 import { FactoryTrustedValidatorError } from "$server/factory/validator-materials";
+import { FactoryRestoreError } from "$server/factory/restore";
 import { requireScope } from "$lib/server/security/api-keys";
 import {
   FACTORY_API_RESPONSE_SCHEMA_VERSION,
@@ -271,6 +272,7 @@ const ERROR_FAMILIES: readonly ErrorFamily[] = [
       answer(410, "The artifact ticket expired.", "factory_ticket_expired"),
       answer(400, "Name a published version or a validator lock digest, not both.", "factory_material_query_invalid"),
       answer(404, "No validator material is registered for this version or lock.", "factory_material_not_found"),
+      answer(503, "This installation cannot compose a restore, so no report can be signed here.", "factory_restore_unavailable"),
     ],
   },
   {
@@ -296,6 +298,18 @@ const ERROR_FAMILIES: readonly ErrorFamily[] = [
       answer(409, "Different validator material already uses this identity.", "factory_validator_material_conflict"),
       answer(403, "Trusted validator authority is required.", "factory_validator_scope"),
       answer(400, "The validator material request is invalid.", "factory_validator_invalid", "factory_validator_material_invalid"),
+    ],
+  },
+  {
+    type: FactoryRestoreError,
+    storage: null,
+    answers: [
+      answer(400, "The restore signature request is invalid.", "factory_restore_invalid"),
+      answer(404, "Restore not found.", "factory_restore_not_found", "factory_restore_no_checkpoint"),
+      answer(409, "The restore is not awaiting a signature.", "factory_restore_state"),
+      answer(403, "A human tenant administrator must sign the recovery report.", "factory_restore_human_required"),
+      answer(412, "The signed digest does not match the recovery report the server holds.", "factory_restore_report_mismatch"),
+      answer(422, "A recovery report with a blocked check cannot reopen service.", "factory_restore_blocked"),
     ],
   },
 ];

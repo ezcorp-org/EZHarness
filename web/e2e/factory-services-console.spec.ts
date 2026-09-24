@@ -22,6 +22,8 @@
  *      artifact carries no authority on its source; a draft a newer server
  *      wrote is read-only and exports; long labels and a large map at 1440
  *      and 390 px in light and dark; no console error in any journey.
+ *   8. runs a restore through the operator command; the console shows its report,
+ *      and a blocked check refuses every signature (last: it opens a new epoch).
  *
  * Two deployment facts are the stack's, and it says so in its record: the v4
  * installation record of the guest release, and the package PREPARATION once
@@ -32,7 +34,7 @@ import type { APIRequestContext, Browser, Page } from "@playwright/test";
 import { expect, test } from "./fixtures/hydration.js";
 import { captureEvidence } from "./fixtures/evidence.js";
 import { factoryGraphProblems, factoryLayoutOverflow } from "./fixtures/factory-layout.js";
-import { FACTORY_SERVICES_CURSOR_TTL_MS, FACTORY_SERVICES_FUTURE_DRAFT_REQUEST_PATH, FACTORY_SERVICES_STATE_PATH, readFactoryServicesState, type FactoryServicesState } from "./factory-services/state.js";
+import { FACTORY_SERVICES_CURSOR_TTL_MS, FACTORY_SERVICES_FUTURE_DRAFT_REQUEST_PATH, FACTORY_SERVICES_RESTORE_REQUEST_PATH, FACTORY_SERVICES_STATE_PATH, readFactoryServicesState, type FactoryServicesState } from "./factory-services/state.js";
 
 test.describe.configure({ mode: "serial" });
 
@@ -567,4 +569,57 @@ test("long labels and a large map read cleanly at 1440 and 390 px, in light and 
 		expect(await factoryLayoutOverflow(page)).toEqual([]);
 		await captureEvidence(page, testInfo, `factory-services-run-${width}-${theme}`);
 	}
+});
+
+test("a restore the operator command opened shows its report and blocked check, and no signature reopens a tenant it keeps closed @evidence", async ({ page, playwright }, testInfo) => {
+	// The stack runs `factory-restore begin` as an operator would, against the checkpoint the
+	// product's checkpoint role sealed; the report and its digest are the command's own (M3).
+	writeFileSync(FACTORY_SERVICES_RESTORE_REQUEST_PATH, "");
+	let opened: FactoryServicesState = state;
+	await expect.poll(() => (opened = JSON.parse(readFileSync(FACTORY_SERVICES_STATE_PATH, "utf8")) as FactoryServicesState).restoreId ?? "", { timeout: 300_000, intervals: [2_000] }).not.toBe("");
+	const restoreId = opened.restoreId!;
+	// This lane restores in place: the product database is the live one, past the checkpoint,
+	// so the database-position check blocks (exit 2). Restoring the database to the checkpoint
+	// first is W16's deployed restore; the signature itself is proven in the console suite.
+	expect(opened.restoreExit).toBe(2);
+	expect(opened.restoreBlockedChecks).toEqual(["check:database-position:database_position_mismatch"]);
+	const tenantBase = `/api/factories/tenants/${encodeURIComponent(state.tenantId)}/restores`;
+	const listed = (await (await page.request.get(tenantBase)).json()) as { page: { items: Array<{ restoreId: string; state: string; reportDigest: string; report?: { blockedChecks: string[] } }> } };
+	const pending = listed.page.items.find(item => item.restoreId === restoreId)!;
+	expect(pending).toMatchObject({ state: "awaiting_signature", reportDigest: opened.restoreReportDigest, report: { blockedChecks: opened.restoreBlockedChecks } });
+
+	// No API key reaches the signature, whatever its scope: the route is session-only (review L4).
+	const minted = await page.request.post("/api/settings/developer/api-keys", { data: { name: "w14-admin-key", scopes: ["admin"] } });
+	expect(minted.status()).toBe(201);
+	const keyed = await playwright.request.newContext({ baseURL: state.baseURL, extraHTTPHeaders: { Authorization: `Bearer ${((await minted.json()) as { key: string }).key}` }, storageState: { cookies: [], origins: [] } });
+	try {
+		const refused = await keyed.post(`${tenantBase}/${encodeURIComponent(restoreId)}/signatures`, { headers: { "If-Match": "0", "Idempotency-Key": once("key-sign") }, data: { reportDigest: pending.reportDigest } });
+		expect([401, 403]).toContain(refused.status());
+	} finally {
+		await keyed.dispose();
+	}
+
+	// The console shows the exact report, and says why it offers no signature.
+	await selectProject(page, "admin");
+	const article = page.getByRole("article", { name: restoreId });
+	await expect(article).toContainText("awaiting signature");
+	await expect(article).toContainText(pending.reportDigest);
+	await expect(article).toContainText("database_position_mismatch");
+	await expect(article.getByText(/cannot be signed/)).toBeVisible();
+	await expect(article.getByRole("button", { name: /Sign report/ })).toHaveCount(0);
+	await article.scrollIntoViewIfNeeded();
+	expect(await factoryLayoutOverflow(page)).toEqual([]);
+	await captureEvidence(page, testInfo, "factory-services-restore-blocked");
+	await page.setViewportSize({ width: 390, height: 844 });
+	await article.scrollIntoViewIfNeeded();
+	expect(await factoryLayoutOverflow(page)).toEqual([]);
+	await captureEvidence(page, testInfo, "factory-services-restore-blocked-narrow");
+	await page.setViewportSize({ width: 1440, height: 900 });
+
+	// A human administrator session that signs anyway is refused by W15's restore, and nothing moves.
+	const signed = await page.request.post(`${tenantBase}/${encodeURIComponent(restoreId)}/signatures`, { headers: { "If-Match": "0", "Idempotency-Key": once("session-sign") }, data: { reportDigest: pending.reportDigest } });
+	expect(signed.status(), await signed.text()).toBe(422);
+	expect(((await signed.json()) as { error: { code: string } }).error.code).toBe("factory_restore_blocked");
+	const after = (await (await page.request.get(tenantBase)).json()) as { page: { items: Array<{ restoreId: string; state: string }> } };
+	expect(after.page.items.find(item => item.restoreId === restoreId)?.state).toBe("awaiting_signature");
 });

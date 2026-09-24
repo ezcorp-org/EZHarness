@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { AlertTriangle, CheckCircle2, KeyRound, Package, PackagePlus, RefreshCw, ShieldOff, Trash2, X } from "lucide-svelte";
+	import { AlertTriangle, CheckCircle2, History, KeyRound, Package, PackagePlus, RefreshCw, ShieldOff, Signature, Trash2, X } from "lucide-svelte";
 	import type {
 		FactoryAction,
 		FactoryGrantResource,
@@ -9,6 +9,7 @@
 		FactoryPrincipalKind,
 		FactoryPurgePreview,
 		FactoryPurgeRequestResource,
+		FactoryRestoreResource,
 	} from "@ezcorp/factory-sdk/types";
 	import { FactoryApiClient, FactoryApiClientError, type FactoryAdministrationApi } from "./client";
 
@@ -28,6 +29,17 @@
 	const TRANSITIONS: readonly FactoryPackageTransition[] = ["publish", "quarantine", "revoke"];
 
 	/** What each transition means for this package now. The server still decides whether it is allowed. */
+	/** A restore subject is canonical JSON when it names several identities (project, operation): shown as a path. */
+	function subjectLabel(subjectId: string): string {
+		try {
+			const parts: unknown = JSON.parse(subjectId);
+			if (Array.isArray(parts) && parts.length > 0 && parts.every(part => typeof part === "string")) return parts.join(" / ");
+		} catch {
+			// A plain identifier is shown as it is.
+		}
+		return subjectId;
+	}
+
 	function transitionLabel(item: Pick<FactoryPackageResource, "state">, transition: FactoryPackageTransition): string {
 		if (transition === "quarantine") return "Quarantine";
 		if (transition === "revoke") return "Revoke";
@@ -47,6 +59,7 @@
 	let grantForm = $state({ principalKind: "user" as FactoryPrincipalKind, principalId: "", action: "factory.run" as FactoryAction, expires: "" });
 	let purgeReason = $state("");
 	let purgeConfirm = $state("");
+	let restores = $state<readonly FactoryRestoreResource[]>([]);
 	let requestVersion = 0;
 
 	$effect(() => {
@@ -82,7 +95,10 @@
 		await Promise.all([
 			section(() => api.listPackages(current, { limit: 200 }), page => { packages = page.items; }),
 			section(() => api.listGrants(current, { limit: 200 }), page => { grants = page.items; }),
-			...(administrator && tenantId ? [section(() => api.purgePreview(tenantId), value => { preview = value; })] : []),
+			...(administrator && tenantId ? [
+				section(() => api.purgePreview(tenantId), value => { preview = value; }),
+				section(() => api.listRestores(tenantId), value => { restores = value; }),
+			] : []),
 		]);
 		if (version === requestVersion && failures.length > 0) errorMessage = [...new Set(failures)].join(" ");
 	}
@@ -155,6 +171,18 @@
 			return purgeResult.state === "queued"
 				? `Purge request ${purgeResult.requestId} is queued. Nothing has been deleted.`
 				: `Purge request ${purgeResult.requestId} was recorded and refused: open work remains.`;
+		});
+	}
+
+	/** Signs the exact report digest the administrator was shown. */
+	function signRestore(restore: FactoryRestoreResource): Promise<void> {
+		const tenant = tenantId;
+		const digest = restore.reportDigest;
+		if (!tenant || !digest) return Promise.resolve();
+		return run(async () => {
+			const signed = await api.signRestore(tenant, restore.restoreId, digest);
+			const blocked = signed.blockedRuns.length > 0 ? ` ${signed.blockedRuns.length} blocked run${signed.blockedRuns.length === 1 ? " stays" : "s stay"} at the old epoch.` : "";
+			return `Restore ${signed.restoreId} is signed and service is open. ${signed.rebound} run${signed.rebound === 1 ? "" : "s"} moved to epoch ${restore.executionEpoch}.${blocked}`;
 		});
 	}
 
@@ -267,6 +295,54 @@
 			{#if purgeResult}<p class="purge-result" data-state={purgeResult.state} role="status">Request <code>{purgeResult.requestId}</code> · {purgeResult.state}</p>{/if}
 		{/if}
 	</section>
+
+	{#if administrator && tenantId}
+		<section class="panel restores" aria-labelledby="restore-title">
+			<div class="panel-heading">
+				<div><span class="panel-index">04</span><h2 id="restore-title">Restore signatures</h2><span class="count">{restores.length}</span></div>
+			</div>
+			<p class="purge-copy">A restore keeps service closed until a tenant administrator signs its recovery report. The signature names the report digest; the server checks it against the report it holds.</p>
+			{#if restores.length === 0}<p class="empty-copy">No restore has been opened for this tenant.</p>{/if}
+			{#each restores as restore (restore.restoreId)}
+				<article class="restore" data-state={restore.state} aria-labelledby={`restore-${restore.restoreId}`}>
+					<header>
+						<History size={15} />
+						<h3 id={`restore-${restore.restoreId}`}>{restore.restoreId}</h3>
+						<span class="chip" data-state={restore.state === "enabled" ? "active" : restore.report && restore.report.blockedChecks.length > 0 ? "revoked" : "quarantined"}>{restore.state.replace("_", " ")}</span>
+					</header>
+					<dl class="restore-facts">
+						<div><dt>Mode</dt><dd>{restore.mode}</dd></div>
+						<div><dt>Checkpoint</dt><dd>{restore.checkpointId}</dd></div>
+						<div><dt>Epoch</dt><dd>{restore.previousEpoch} → {restore.executionEpoch}</dd></div>
+						{#if restore.reportDigest}<div class="wide"><dt>Report digest</dt><dd><code title={restore.reportDigest}>{restore.reportDigest}</code></dd></div>{/if}
+						{#if restore.signedBy}<div class="wide"><dt>Signed</dt><dd>by {restore.signedBy}{restore.signedAtMs ? ` · ${new Date(restore.signedAtMs).toISOString().slice(0, 16).replace("T", " ")} UTC` : ""}</dd></div>{/if}
+					</dl>
+					{#if restore.report}
+						{@const report = restore.report}
+						<table class="preconditions findings">
+							<caption>Findings{report.findingCount > report.findings.length ? `, ${report.findings.length} of ${report.findingCount} with every blocked one first` : ""}</caption>
+							<thead><tr><th scope="col">Subject</th><th scope="col">Result</th><th scope="col">Reason</th></tr></thead>
+							<tbody>
+								{#each report.findings as finding (finding.findingId)}
+									<tr data-disposition={finding.disposition}><td><span class="subject-kind">{finding.subjectKind}</span> <code>{subjectLabel(finding.subjectId)}</code></td><td>{finding.disposition}</td><td>{finding.reason}</td></tr>
+								{/each}
+							</tbody>
+						</table>
+						<p class="audit-loss"><span>Releases recovered <strong>{report.releaseIdentities.recovered}</strong> of {report.releaseIdentities.archived}. Blocked runs <strong>{report.blockedRuns.length}</strong>. Recovery took {Math.round(report.recoveryMs / 1000)} s.</span></p>
+					{/if}
+					{#if restore.state === "awaiting_signature"}
+						<div class="form-actions restore-actions">
+							{#if restore.report && restore.report.blockedChecks.length > 0}
+								<p class="refusal">A blocked check keeps the tenant closed, so this report cannot be signed: {restore.report.blockedChecks.join("; ")}.</p>
+							{:else}
+								<button class="button-primary" disabled={busy || !restore.reportDigest} onclick={() => signRestore(restore)}><Signature size={14} /> Sign report and reopen service</button>
+							{/if}
+						</div>
+					{/if}
+				</article>
+			{/each}
+		</section>
+	{/if}
 </section>
 
 {#if review}
@@ -302,7 +378,27 @@
 	.administration { min-height: calc(100vh - 188px); background: var(--color-surface); padding: 18px 20px 28px; color: var(--color-text-primary); }
 	.columns { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); align-items: start; gap: 16px; }
 	.panel { min-width: 0; border: 1px solid var(--color-border); border-radius: 3px; background: var(--color-surface-secondary); }
-	.purge { margin-top: 16px; }
+	.purge, .restores { margin-top: 16px; }
+	.restore { border-top: 1px solid var(--color-border); padding: 12px 14px; }
+	/* A long restore id keeps its line; the state chip moves below it rather than squeezing it. */
+	.restore header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+	.restore h3 { min-width: 0; flex: 1 1 14rem; margin: 0; font-size: 13px; overflow-wrap: anywhere; }
+	.restore-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 12px; margin: 10px 0 0; font-size: 12px; }
+	.restore-facts .wide { grid-column: 1 / -1; }
+	.restore-facts dt { color: var(--color-text-muted); font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+	.restore-facts dd { margin: 2px 0 0; overflow-wrap: anywhere; }
+	.restore-facts code { overflow-wrap: anywhere; white-space: normal; }
+	.preconditions.findings { width: 100%; margin: 12px 0 0; table-layout: fixed; }
+	/* A finding is read in full: subjects and reasons wrap, and only the disposition keeps one line. */
+	.preconditions.findings td { overflow-wrap: break-word; vertical-align: top; }
+	.preconditions.findings code { font-size: 11px; overflow-wrap: anywhere; }
+	.subject-kind { color: var(--color-text-muted); }
+	.preconditions.findings :is(th, td):nth-child(1) { width: 38%; }
+	.preconditions.findings :is(th, td):nth-child(2) { width: 84px; white-space: nowrap; }
+	.findings tr[data-disposition="blocked"] td:nth-child(2) { color: var(--color-red-600); font-weight: 700; }
+	.restore .audit-loss { margin: 10px 0 0; }
+	.restore-actions { flex-direction: column; align-items: flex-end; gap: 6px; margin-top: 10px; }
+	.restore-actions .refusal { margin: 0; font-size: 12px; overflow-wrap: anywhere; }
 	.panel-heading { display: flex; min-height: 52px; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; border-bottom: 1px solid var(--color-border); padding: 8px 14px; }
 	.panel-heading > div { display: flex; align-items: center; gap: 8px; }
 	.panel-heading h2 { margin: 0; font-size: 14px; }
@@ -374,5 +470,12 @@
 		.rows li { grid-template-columns: auto minmax(0, 1fr); }
 		.rows li .chip { justify-self: start; grid-column: 2; }
 		.review-dialog footer { flex-direction: column-reverse; align-items: stretch; }
+		/* Narrow findings read as short cards: the subject on its own line, then the result and reason. */
+		.preconditions.findings, .preconditions.findings tbody, .preconditions.findings tr { display: block; }
+		.preconditions.findings thead { display: none; }
+		.preconditions.findings tr { border-bottom: 1px solid var(--color-border); padding: 6px 0; }
+		.preconditions.findings td { display: inline; border: 0; padding: 0 6px 0 0; }
+		.preconditions.findings td:first-child { display: block; padding-bottom: 2px; }
+		.preconditions.findings :is(th, td):nth-child(1), .preconditions.findings :is(th, td):nth-child(2) { width: auto; }
 	}
 </style>

@@ -36,6 +36,8 @@ import type {
 	FactoryPackageInstallBody,
 	FactoryPackageTransition,
 	FactoryPurgePreview,
+	FactoryRestoreResource,
+	FactoryRestoreSignatureResource,
 	FactoryValidatorMaterialQuery,
 	FactoryValidatorMaterialResource,
 	FactoryPurgeRequestResource,
@@ -411,6 +413,17 @@ export class FactoryApiClient {
 		return expectKind(await this.read(this.tenant(tenantId) + "/purge-preview"), "purge.preview").resource;
 	}
 
+	/** The tenant's restore epochs and their recovery reports, newest first. */
+	async listRestores(tenantId: string): Promise<readonly FactoryRestoreResource[]> {
+		return expectKind(await this.read(this.tenant(tenantId) + "/restores"), "restore.page").page.items;
+	}
+
+	/** Signs one recovery report by the digest the reader was shown; the server re-derives it before recording. */
+	async signRestore(tenantId: string, restoreId: string, reportDigest: string): Promise<FactoryRestoreSignatureResource> {
+		const path = this.tenant(tenantId) + "/restores/" + encoded(restoreId) + "/signatures";
+		return expectKind(await this.read(path, this.mutationInit("sign-restore:" + restoreId, 0, { reportDigest })), "restore.signature").resource;
+	}
+
 	async requestPurge(tenantId: string, reason: string, confirmTenantId: string): Promise<FactoryPurgeRequestResource> {
 		return expectKind(await this.read(this.tenant(tenantId) + "/purge-requests", this.mutationInit("purge:" + tenantId, 0, { reason, confirmTenantId })), "purge.request.resource").resource;
 	}
@@ -438,7 +451,7 @@ export type FactoryRunControlApi = Pick<FactoryApiClient, "listRuns" | "getRun" 
 export type FactoryRunInspectorApi = Pick<FactoryApiClient, "listRuns" | "inspectRun" | "inspectRunSection" | "openRunEvents" | "artifactTicket" | "artifactBytes">;
 
 export type FactoryAdministrationApi = Pick<FactoryApiClient,
-	"listPackages" | "installPackage" | "packageImpact" | "transitionPackage" | "listGrants" | "setGrant" | "revokeGrant" | "purgePreview" | "requestPurge"
+	"listPackages" | "installPackage" | "packageImpact" | "transitionPackage" | "listGrants" | "setGrant" | "revokeGrant" | "purgePreview" | "requestPurge" | "listRestores" | "signRestore"
 >;
 
 export function blankFactory(factoryId: string): FactoryDefinition {
