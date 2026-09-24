@@ -67,7 +67,7 @@ function safeError(error: unknown): Response {
   if (typeof code === "string" && Object.hasOwn(providerErrors, code)) {
     return json({ code: "provider_probe_failed", message: providerErrors[code] }, { status: 409 });
   }
-  const known = /^(The (active approved release|provider release|exact ready plan|setup is already|setup outcome)|Incus (setup was not found|setup endpoint|did not report|server certificate|provider|client identity)|Reviewed Incus recipe|Host-owned SSH|SSH (connection|host is not pinned|known_hosts)|OpenSSL is required|Verify the reviewed|Provider release|Provider connection|setup plan digest mismatch)/.test(message);
+  const known = /^(The (active approved release|provider release|exact ready plan|setup is already|setup outcome)|Incus (setup was not found|setup endpoint|did not report|server certificate|provider|client identity)|Reviewed Incus (recipe|client identity)|Retired provider connection has unfinished sandboxes|Host-owned SSH|SSH (connection|host is not pinned|known_hosts)|OpenSSL is required|Verify the reviewed|Provider release|Provider connection|setup plan digest mismatch)/.test(message);
   if (known) return json({ code: "setup_failed", message }, { status: 409 });
   const record = error && typeof error === "object" && !Array.isArray(error) ? error as Record<string, unknown> : undefined;
   const name = error instanceof Error ? error.name : record?.name;
