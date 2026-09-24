@@ -56,7 +56,8 @@ mock.module("../github-user/broker", () => ({
     if (input.authorizeDispatch) await getTestDb().transaction(input.authorizeDispatch);
     return effect("host-token");
   },
-  withUserTokenReadOnly: async (_input: unknown, effect: (token: string) => Promise<unknown>) => {
+  withUserTokenReadOnly: async (input: { userId: string; repositoryId: number; expectedAccountId: number }, effect: (token: string) => Promise<unknown>) => {
+    expect(input).toEqual({ userId: owner, repositoryId: 42, expectedAccountId: 17 });
     if (reconcileMode === "not_found") throw new FakeGithubUserError("GITHUB_404");
     return effect("host-token");
   },

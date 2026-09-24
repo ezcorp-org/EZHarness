@@ -394,17 +394,17 @@ export async function checkRepository({ userId, repositoryId }: { userId: string
 
 /** Host-only read path for an uncertain, already-dispatched operation. No new write claim. */
 export async function withUserTokenReadOnly<T>(
-  input: { userId: string; repositoryId: number; expectedGeneration: number },
+  input: { userId: string; repositoryId: number; expectedAccountId: number },
   effect: (token: string) => Promise<T>,
 ): Promise<T> {
-  if (!Number.isSafeInteger(input.repositoryId) || input.repositoryId <= 0) throw new GithubUserError("INVALID_REPOSITORY", "Invalid repository");
+  if (!Number.isSafeInteger(input.repositoryId) || input.repositoryId <= 0 || !Number.isSafeInteger(input.expectedAccountId) || input.expectedAccountId <= 0) throw new GithubUserError("INVALID_REPOSITORY", "Invalid repository or account");
   const current = await currentToken(input.userId);
   const repository = await checkRepositoryWithToken(current.token, input.repositoryId, getGithubUserConfig().appId, "read");
   if (repository.status !== "ready") throw new GithubUserError("REPOSITORY_ACCESS", "GitHub repository access is unavailable");
   await getDb().transaction(async (tx: DbTransaction) => {
     const authority = await lockAuthority(tx, input.userId);
     const [connection] = await tx.select().from(githubUserConnections).where(eq(githubUserConnections.userId, input.userId));
-    if (authority.generation !== input.expectedGeneration || current.generation !== authority.generation || connection?.connectionId !== current.connectionId || connection.state !== "connected") throw new GithubUserError("STALE_CONNECTION", "GitHub connection changed");
+    if (current.generation !== authority.generation || connection?.connectionId !== current.connectionId || connection.state !== "connected" || connection.githubAccountId !== input.expectedAccountId) throw new GithubUserError("STALE_CONNECTION", "GitHub connection changed");
   });
   return effect(current.token);
 }
