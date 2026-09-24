@@ -1,0 +1,67 @@
+W15 report, round 2: retention, compatible backups, and restore (C06)
+
+Branch wp/w15-retention, head ef958511b (merge of integ/w00 at 578692e8a).
+Last W15 source commit 34f282f8a. Commits after it: W15 tasks/ docs, and the merge of W18b's pool fixes.
+Gate file: tasks/factory/w15-GATES.md (G1-G17). Round 1 report: superseded by this file.
+
+VALIDATOR FINDINGS (ACCEPT-WITH-FIXES at 0fe67b822), ALL FIXED
+  H1  no policy row enforces 900 s; held checkpoint-barrier makes readiness degraded
+  H2  unreadable/missing archived intent -> tenant-blocking check; unreadable receipt blocks its release
+  H3  temporalHttp in the startup document; every checkpoint records positions (full stack: captured true);
+      tenant restore with no reader or no positions blocks (temporal_unverified / temporal_not_captured)
+  M1  pool holds 16 cluster-wide barrier slots (15 s hold); production barrier takes one or defers
+  M2  accepted_evidence, approval, receipt enroll per terminal run for 365 d, tombstoned, never deleted;
+      debug_log has no factory store, so nothing enrolls (stated in the gate file)
+  M3  keyManagement selects operator key / cloud KMS (AWS SDK client) / transit; restore built from the
+      installation's own composition; operator entry scripts/factory-restore.ts begin|verify|status
+  L1  pool/ledger.ts and release-adapters.ts extractions disclosed with the coordinator ruling
+  L2  one S3 client construction; L3 abort overshoot documented; L4 gate precondition written;
+      L5 unwrap causes kept; L6 incompatible_schema test
+  M4  corrected: production-image-lifecycle-launch passes alone 4/0 (receipts/pool-failures-alone.json)
+
+MEASURED (barrier clock, never a sleep; one host)
+  first barrier 98 ms; blocked writer 72 ms; abort at 300 ms max -> 305 ms, nothing claimed
+  4 writers x 20 barriers: all sealed, p95 1088 ms (1 s drain of a held release), write pause p95 82 ms
+  100 tenants started at once through pool slots: 100 sealed, max 16 in flight, 16 slot rows max,
+    cycle 1232 ms, barrier p95 243 / max 579 ms
+  restore recovery 128 ms, progress loss 1268 ms, signed rebound 4; PITR recovery 2412 ms, state = manifest
+
+GREEN
+  1cd812693: W15 suites 268 unit + 34 PostgreSQL pass / 0 fail; Node/V8 producer; WAL; PITR; Temporal;
+    100-tenant cycle; web build; full stack passed
+  34f282f8a: pool-checkpoint 6/0, executions 7/0, routes 9/0, full stack passed; static gates exit 0;
+    new-file coverage 14 files; patch coverage 31 files; no CRAP offender W15 wrote or grew
+  ef958511b: static gates exit 0
+  Regression 1cd812693: storage step 308/1 (executions, fixed at 34f282f8a); backend pool 28164/5 in
+    four files outside W15 (W18b's fixes, since merged)
+
+POST-MERGE SWEEP AT ef958511b (worktree relocated to /home/dev/work/EZCorp/EZHarness/.worktrees/w15-retention)
+  All steps green at ef958511b, clean tree, receipts refreshed:
+    W15 suites: 268 unit; pg retention 13, checkpoint 12, restore 13, rotation 1, pool-checkpoint 6, wal 1; 0 fail
+      (retention and checkpoint first hit transient S3 HTTP 500s while the disk was 97% full; rerun green)
+    Node/V8 coverage producer; WAL readiness and PITR on a fresh private PostgreSQL; Temporal; 100-tenant
+      cycle; web build; full stack passed; static gates exit 0; new-file (14) and patch (31 files) coverage pass
+    Storage step 309 pass / 0 fail. Backend pool 28156 / 6 fail in three files outside W15; all three
+      pass alone after repairing the relocated worktree's environment: stale Python venv shebangs
+      (uv sync --locked) and a stale @ezcorp/sdk dist missing W18b's new exports (tsc build). No source change.
+  integ/w00 has since moved to ceb995563; not merged, per instruction to keep the head.
+
+STORAGE
+  2026-09-23T07:28:54Z  stopped and removed w15-private-postgres; deleted its data directory (6.5 GB).
+  2026-09-23T08:27Z     recreated it, W15-only, for the post-merge PITR leg.
+  2026-09-23T15:12:55Z  stopped and removed it again; deleted its data (897 MB), coverage dirs (48 MB),
+                        and the coverage clone (310 MB): about 1.25 GB freed. Receipts and this report kept.
+  Nothing shared was touched.
+  Shared S3: ordinary test objects removed; archive objects are immutable under W15-only prefixes.
+  One lapse: a broad pkill stopped a locked run's flock parent; the orphaned storage-step test ran
+  about a minute outside the lock and was then stopped. It may have left one factory_proof_<uuid>
+  database on the shared PostgreSQL. It cannot be told apart from the 45 idle ones other sessions
+  left, so none was deleted. Lesson recorded.
+
+OPEN
+  W16: deployed restore, failure domains, namespace arguments, pool:restore scope, temporalHttp and
+    keyManagement in every startup document, the fence attestation file
+  W14: console signing surface. Not proven here: real KMS, Temporal archival, shared WAL archiving.
+  Not built: C09 purge, C08.14 inbox tombstones, a debug-log store.
+  Interface notice: a startup document without temporalHttp, archive credentials, or a pool serving
+    the slot routes keeps its effect claims closed.
