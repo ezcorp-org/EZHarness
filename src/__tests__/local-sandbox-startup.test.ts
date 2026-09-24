@@ -14,9 +14,12 @@ const { loadLocalSandboxConfig, verifyLocalSandboxHost, initializeLocalSandbox }
 const root = await mkdtemp(join(tmpdir(), "ez-sandbox-startup-"));
 afterAll(async () => { await rm(root, { recursive: true, force: true }); mock.restore(); });
 const executable = join(root, "tool");
-await writeFile(executable, "#!/bin/sh\nexit 0\n", { mode: 0o700 });
+await writeFile(executable, "#!/bin/sh\nexit 0\n");
+await chmod(executable, 0o700);
 const config = { stateRoot: join(root, "state"), imageReference: `localhost/example@sha256:${"a".repeat(64)}`, imageId: "b".repeat(64), podmanPath: executable, fuse2fsPath: executable, supervisorPath: executable, nativeToolsArtifact: executable, workspaceUid: 0 as const, workspaceGid: 0 as const };
-async function save(name: string, value: unknown = config, mode = 0o600) { const path = join(root, name); await writeFile(path, typeof value === "string" ? value : JSON.stringify(value), { mode }); return path; }
+// chmod after the write: writeFile's mode is masked by the umask (a 077 runner
+// would make the "public" fixture private) and ignored for an existing file.
+async function save(name: string, value: unknown = config, mode = 0o600) { const path = join(root, name); await writeFile(path, typeof value === "string" ? value : JSON.stringify(value)); await chmod(path, mode); return path; }
 
 test("loads only private operator configuration and available immutable artifacts", async () => {
   expect(await loadLocalSandboxConfig(await save("valid"))).toEqual(config);

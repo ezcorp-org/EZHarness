@@ -484,7 +484,10 @@ describe("setup-podman.sh — the env file", () => {
   test("refuses an existing env file with group or other access and changes nothing", () => {
     const env = scratch("Darwin");
     const original = "EZCORP_ENCRYPTION_SECRET=keep-this-secret\n";
-    writeFileSync(env.EZ_SETUP_ENV_FILE, original, { mode: 0o644 });
+    writeFileSync(env.EZ_SETUP_ENV_FILE, original);
+    // Explicit chmod: writeFileSync's mode is masked by the umask, and a 077
+    // runner made this "group or other access" fixture private.
+    chmodSync(env.EZ_SETUP_ENV_FILE, 0o644);
 
     const r = run(["--no-start", "--accept-unsandboxed-extensions"], env);
 
