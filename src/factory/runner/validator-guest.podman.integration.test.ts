@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { openFactoryEffectClaimsForTest } from "../../__tests__/helpers/factory-effect-claims";
 import { PGlite } from "@electric-sql/pglite";
 import { vector } from "@electric-sql/pglite-pgvector";
 import { pg_trgm } from "@electric-sql/pglite/contrib/pg_trgm";
@@ -68,6 +69,7 @@ test("a real isolated guest validates a read-only candidate and returns a strict
     await migrate(db);
     await db.execute(sql`INSERT INTO projects(id,name,path) VALUES (${projectId},'Validator guest','/tmp/validator-guest')`);
     await db.execute(sql`INSERT INTO factory_installation(singleton,tenant_id,execution_epoch) VALUES (1,${tenantId},1)`);
+    await openFactoryEffectClaimsForTest(db, tenantId);
     await db.execute(sql`INSERT INTO factory_projects(tenant_id,project_id) VALUES (${tenantId},${projectId})`);
     await db.execute(sql`INSERT INTO factory_runs(tenant_id,project_id,run_id,definition_digest,interpreter_build,execution_epoch,request_digest,request_payload) VALUES (${tenantId},${projectId},${runId},${digest},'validator',1,${digest},'{}')`);
     await db.execute(sql`INSERT INTO factory_executions(attempt_id,tenant_id,project_id,run_id,node_instance_id,candidate_generation,attempt_number,grant_revision,reservation_generation,execution_epoch,cancellation_epoch,deadline_at,request_hash,request_json,status) VALUES (${attemptId},${tenantId},${projectId},${runId},${nodeInstanceId},0,1,1,1,1,0,${new Date(request.authority.deadlineAtMs)},${digest},'{}','admitted')`);

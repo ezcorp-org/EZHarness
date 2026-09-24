@@ -23,6 +23,7 @@ import { FactoryBackgroundWorkers, type FactoryWorkerProgress } from "./backgrou
 import type { FactoryWorkerTuning } from "./startup-config";
 import { factoryReleaseSeamsPresent, type FactoryRoleDriver, type FactoryRuntimeSeams } from "./runtime-seams";
 import type { TrustedFactoryServiceIdentity } from "./trusted-command-gateway";
+import type { FactoryRecoveryRoles } from "./recovery-composition";
 
 /** What the compute-admission primitives report; only `idle` means no work. */
 export interface FactoryComputeAdmissionDriver {
@@ -82,6 +83,8 @@ export interface FactoryRuntimeWorkerCollaborators {
   readonly report: (role: string, error: unknown) => void;
   /** Runs per projector pass. Bounded so one pass cannot hold the pool. */
   readonly projectionRuns?: number;
+  /** W15's retention and checkpoint roles, composed in `recovery-composition.ts`. */
+  readonly recovery?: FactoryRecoveryRoles;
 }
 
 export interface FactoryHeldWorker {
@@ -111,6 +114,8 @@ export const FACTORY_WORKER_ROLES = Object.freeze([
   "stop-settlement",
   "validator-material-registration",
   "validator-scheduling",
+  "retention-gc",
+  "checkpoint-barrier",
 ] as const);
 
 export type FactoryWorkerRole = (typeof FACTORY_WORKER_ROLES)[number];
@@ -280,6 +285,13 @@ export function registerFactoryRuntimeWorkers(collaborators: FactoryRuntimeWorke
     "trusted-validators", "W09d", validatorsHeld);
   role("validator-scheduling", validators && (async (signal) => progress(!(await validators.scheduling.step(signal)))),
     "trusted-validators", "W09d", validatorsHeld);
+  // W15. Both compose from the archive credential set; the barrier also needs
+  // the pool's checkpoint client. `recovery-composition.ts` reports the cause
+  // of an absent role under its own name.
+  role("retention-gc", collaborators.recovery?.retention, "recovery-composition", "W15",
+    "the recovery archive or the ordinary store's credentials did not compose, so nothing can be archived before expiry and nothing is collected");
+  role("checkpoint-barrier", collaborators.recovery?.checkpoint, "recovery-composition", "W15",
+    "the recovery archive or the pool checkpoint client did not compose, so no compatible checkpoint is sealed and the freshness rule stays off");
 
   return Object.freeze({ workers, held: Object.freeze(held) });
 }

@@ -1,4 +1,4 @@
-import { AbortMultipartUploadCommand, CompleteMultipartUploadCommand, CreateMultipartUploadCommand, GetObjectCommand, HeadObjectCommand, PutObjectCommand, UploadPartCommand } from "@aws-sdk/client-s3";
+import { AbortMultipartUploadCommand, CompleteMultipartUploadCommand, CreateMultipartUploadCommand, DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, ListObjectVersionsCommand, PutObjectCommand, UploadPartCommand } from "@aws-sdk/client-s3";
 
 /**
  * One in-memory S3 for every factory S3 adapter test.
@@ -57,6 +57,8 @@ export class FactoryMemoryS3Store {
   readonly current = new Map<string, FactoryMemoryS3Object>();
   readonly versions = new Map<string, FactoryMemoryS3Object>();
   readonly uploads = new Map<string, MemoryUpload>();
+  /** Keys whose current version is a delete marker. Their prior versions stay readable by id. */
+  readonly deleteMarkers = new Set<string>();
   /** Every command class name this store was asked for, in order. */
   readonly calls: string[] = [];
   losePutResponse = false;
@@ -77,6 +79,7 @@ export class FactoryMemoryS3Store {
     const stored: FactoryMemoryS3Object = { bytes, version, etag: `"etag-${this.sequence}${options.multipart ? "-2" : ""}"`, contentType: options.contentType, metadata: options.metadata, multipart: options.multipart };
     this.current.set(key, stored);
     this.versions.set(`${key}:${version}`, stored);
+    this.deleteMarkers.delete(key);
     return stored;
   }
 
@@ -90,6 +93,8 @@ export class FactoryMemoryS3Store {
     if (command instanceof UploadPartCommand) return this.uploadPart(command);
     if (command instanceof CompleteMultipartUploadCommand) return this.completeUpload(command);
     if (command instanceof AbortMultipartUploadCommand) return this.abortUpload(command);
+    if (command instanceof ListObjectVersionsCommand) return this.listVersions(command);
+    if (command instanceof DeleteObjectCommand) return this.deleteObject(command);
     throw new Error("unexpected S3 command");
   }
 
@@ -147,5 +152,30 @@ export class FactoryMemoryS3Store {
     if (this.failAbort) throw new Error("abort refused");
     this.uploads.delete(command.input.UploadId!);
     return {};
+  }
+
+  /** A versioned delete: the key gets a delete marker and every prior version stays readable by id. */
+  private deleteObject(command: DeleteObjectCommand): Record<string, unknown> {
+    const key = command.input.Key!;
+    if (this.current.delete(key)) this.deleteMarkers.add(key);
+    return { DeleteMarker: true, VersionId: `marker-${++this.sequence}` };
+  }
+
+  /** Every version under a prefix, key order then newest first, paged the way S3 pages. */
+  private listVersions(command: ListObjectVersionsCommand): Record<string, unknown> {
+    const prefix = command.input.Prefix ?? "";
+    const all = [...this.versions.entries()].flatMap(([compound, item]) => {
+      const key = compound.slice(0, compound.length - item.version.length - 1);
+      return key.startsWith(prefix) ? [{ Key: key, VersionId: item.version, IsLatest: this.current.get(key)?.version === item.version, order: Number(item.version.slice("version-".length)) }] : [];
+    }).sort((left, right) => left.Key === right.Key ? right.order - left.order : left.Key < right.Key ? -1 : 1);
+    const start = command.input.KeyMarker === undefined ? 0 : all.findIndex(item => item.Key === command.input.KeyMarker && item.VersionId === command.input.VersionIdMarker) + 1;
+    const limit = command.input.MaxKeys ?? 1_000;
+    const page = all.slice(start, start + limit);
+    const truncated = start + limit < all.length;
+    return {
+      Versions: page.map(({ order: _order, ...version }) => version),
+      IsTruncated: truncated,
+      ...(truncated ? { NextKeyMarker: page.at(-1)!.Key, NextVersionIdMarker: page.at(-1)!.VersionId } : {}),
+    };
   }
 }

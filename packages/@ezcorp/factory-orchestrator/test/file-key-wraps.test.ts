@@ -3,8 +3,9 @@ import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { after, it } from "node:test";
 import { defaultPayloadConverter } from "@temporalio/common";
-import { InstallationDataKey, StaticMasterKeyProvider, type InstallationKeyWrap, type InstallationKeyWrapStore } from "../../../../src/factory/encryption.ts";
-import { loadFactoryTemporalPayloadCodec, type FactoryKeyWrapFile, type FactoryTemporalPayloadCodecFileConfig } from "../../../../src/factory/file-key-wraps.ts";
+import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
+import { InstallationDataKey, StaticMasterKeyProvider, type FactoryDataKeyWrapper, type InstallationKeyWrap, type InstallationKeyWrapStore } from "../../../../src/factory/encryption.ts";
+import { loadFactoryTemporalPayloadCodec, parseFactoryKeyWrapFile, readFactoryKeyWrapFile, type FactoryKeyWrapFile, type FactoryTemporalPayloadCodecFileConfig } from "../../../../src/factory/file-key-wraps.ts";
 
 class Wraps implements InstallationKeyWrapStore {
   readonly values: InstallationKeyWrap[] = [];
@@ -55,4 +56,43 @@ it("fails Node readiness for missing, empty, foreign, malformed, private, and wr
   await assert.rejects(() => loadFactoryTemporalPayloadCodec(config), { code: "factory_key_unsafe" });
   await chmod(config.wrappedKeyFilePath, 0o600);
   await assert.rejects(() => loadFactoryTemporalPayloadCodec({ ...config, grantableRoots: [root] }), { code: "factory_key_unsafe" });
+});
+
+/** A KMS-shaped wrapper: its key id is an ARN with slashes, and its wrap is larger than an operator wrap. */
+function kmsShapedWrapper(keyId: string, padding = 300): FactoryDataKeyWrapper {
+  const secret = randomBytes(32);
+  return {
+    async currentKeyId() { return keyId; },
+    async wrap(dataKey, id, binding) {
+      const iv = randomBytes(12), cipher = createCipheriv("aes-256-gcm", secret, iv);
+      cipher.setAAD(Buffer.from(`${binding.installationId}:${binding.wrapVersion}:${id}`));
+      const body = Buffer.concat([cipher.update(dataKey), cipher.final()]);
+      return new Uint8Array(Buffer.concat([iv, cipher.getAuthTag(), body, Buffer.alloc(padding)]));
+    },
+    async unwrap(wrapped, id, binding) {
+      if (id !== keyId) return undefined;
+      const blob = Buffer.from(wrapped), decipher = createDecipheriv("aes-256-gcm", secret, blob.subarray(0, 12));
+      decipher.setAAD(Buffer.from(`${binding.installationId}:${binding.wrapVersion}:${id}`));
+      decipher.setAuthTag(blob.subarray(12, 28));
+      return new Uint8Array(Buffer.concat([decipher.update(blob.subarray(28, 60)), decipher.final()]));
+    },
+  };
+}
+
+it("holds a KMS wrap: a key ARN with slashes and a wrap larger than an operator wrap", async () => {
+  const { root } = await fixture();
+  const keyId = "arn:aws:kms:eu-west-1:111122223333:key/tenant";
+  const wrapper = kmsShapedWrapper(keyId), wraps = new Wraps();
+  const created = await InstallationDataKey.loadOrCreate("installation-a", wraps, wrapper);
+  const path = join(root, "kms-wraps.json");
+  const file = (values: readonly InstallationKeyWrap[]): string => JSON.stringify({ schemaVersion: "factory.key-wraps.v1", installationId: "installation-a", wraps: values.map(wrap => ({ ...wrap, wrappedDataKey: Buffer.from(wrap.wrappedDataKey).toString("base64") })) });
+  await writeFile(path, file(wraps.values), { mode: 0o600 });
+  const store = await readFactoryKeyWrapFile(path, "installation-a", keyId);
+  assert.equal((await InstallationDataKey.loadExisting("installation-a", store, wrapper)).wrapVersion, created.wrapVersion);
+  await assert.rejects(() => store.save(wraps.values[0]!), { code: "factory_key_unsafe" });
+  await assert.rejects(() => store.load("installation-b"), { code: "factory_key_invalid" });
+  // A wrapping key id is still one token, and a wrap has a ceiling.
+  assert.throws(() => parseFactoryKeyWrapFile({}, "installation-a", "key with space"), { code: "factory_key_invalid" });
+  await writeFile(path, file([{ ...wraps.values[0]!, wrappedDataKey: new Uint8Array(1_025) }]), { mode: 0o600 });
+  await assert.rejects(() => readFactoryKeyWrapFile(path, "installation-a", keyId), { code: "factory_key_invalid" });
 });
