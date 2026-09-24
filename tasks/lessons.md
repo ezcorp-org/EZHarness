@@ -1509,6 +1509,12 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
   batch shell leaked `DATABASE_URL` into the backend pool and failed eleven tests that expect none.
 - W15b: Node's type stripping rejects TypeScript parameter properties. A module the Node
   orchestrator loads declares its fields explicitly and imports with `.ts` extensions.
+- W15b: Gate integrity treats a moved test file or coverage key as a deleted gate. To merge two
+  modules, keep the gated file's name as the home of the moved code. Search dynamic imports
+  (`import("...")`) and evidence scripts too when a module's exports move.
+- W15b: A module a Node service imports must not reach `src/db/queries/*`; their dynamic import of
+  `db/connection` pulls in the Bun SQL driver. Share constants through a leaf module and prove it
+  with a Node-target build test.
 ## 2026-09-22 — A measured list is stale after a merge (W18a-2)
 
 - Recompute a complexity or CRAP list on the tree you will hand over. Do not trust the list in the brief. The brief

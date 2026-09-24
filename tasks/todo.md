@@ -3690,6 +3690,7 @@ Brief: `/tmp/factory-platform-evidence/w00/briefs/w15b.md`. Gate file: `tasks/fa
 - [x] R3 the effect-claims comment corrected.
 - [x] R4 unchanged by design.
 - [x] Gates, receipts, report.
+- [x] Round 2: the pool bundles for Node again (checkpoint limits in a leaf); gate integrity green against `integ/w00` (key service back in `key-composition.ts`); final legs rerun at `5f341bf01`.
 
 Review (W15b): The orchestrator's payload codec and the restore now open the data key through one unit,
 so a startup document that selects a cloud KMS or a transit engine works at runtime, not only in the
@@ -3697,6 +3698,10 @@ restore. The Node process may link the KMS client, and the boundary test says ex
 made under another service, or a service that cannot open it, refuses with `FactoryEncryptionError`.
 The retention kind constraint is replaced by name on every boot. The first backend-pool run failed
 because the batch leaked the PostgreSQL environment into it; the batch now uses subshells.
+Round 2: the W15 merge made the pool service import the checkpoint barrier, which links the Bun
+database driver, so the Node pool bundle failed. The limits now live in a leaf module the barrier
+re-exports. Gate integrity had refused round 1's move of `key-composition.ts`; the selection is back
+in that file. Every final leg exits 0 at `5f341bf01`, including the backend pool.
 
 ### W18 hygiene backlog: load-sensitive suites outside W15b (recorded by W15b, 2026-09-24)
 
