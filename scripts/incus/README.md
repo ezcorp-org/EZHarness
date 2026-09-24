@@ -11,6 +11,11 @@ verifier reads the exact Incus instance over pinned mTLS and computes the
 canonical observation digest using the supervisor's new PID and start tick.
 The supervisor gives the verifier no app-provided after digest; it compares
 the computed result with the app claim before it signs.
+The restart acknowledgement has a five-second client limit. The new app passes
+the saved run deadline when it requests a receipt. The receipt client waits at
+most 40 seconds and never past that deadline. The supervisor also bounds its
+snapshot and verification commands to 30 seconds each and signing to five
+seconds, with every stage capped by the remaining run time.
 
 Set `EZCORP_INCUS_RECEIPT_CONFIG` in the supervisor service to an absolute,
 operator-owned, mode `0600` JSON file. It has two fields:

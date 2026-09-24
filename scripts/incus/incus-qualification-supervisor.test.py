@@ -11,6 +11,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 from pathlib import Path
 
 
@@ -75,6 +76,32 @@ def wait_file(path):
 
 
 class SupervisorTest(unittest.TestCase):
+    def test_receipt_never_signs_after_run_deadline(self):
+        with tempfile.TemporaryDirectory(prefix="incus-supervisor-", dir="/tmp") as directory:
+            root = Path(directory)
+            key = root / "key.pem"
+            key.write_text("private test key")
+            key.chmod(0o600)
+            supervisor = MODULE.Supervisor(str(root / "control.sock"), ["true"],
+                os.getuid(), os.getgid(), key, ["true"], ["true"],
+                enforce_distinct_uid=False)
+            supervisor.child_identity = {"pid": 2, "startTicks": "2"}
+            original = {"runId": "run", "nonce": "nonce", "deadlineMs": int(time.time() * 1000) + 100,
+                "scope": {}, "fixtureOperationId": "fixture", "bindingId": "binding",
+                "generation": 1, "connectionRevision": 1, "lastOperationId": "operation",
+                "beforeDigest": "a" * 64}
+            supervisor.pending = {"request": original, "oldProcess": {"pid": 1, "startTicks": "1"},
+                                  "snapshot": {}}
+            claim = {"version": 1, "action": "receipt", "runId": "run", "nonce": "nonce",
+                     "afterDigest": "b" * 64}
+            def delayed_verify(_command, **_kwargs):
+                time.sleep(0.2)
+                return subprocess.CompletedProcess([], 0, stdout=json.dumps({"afterDigest": "b" * 64}).encode())
+            with mock.patch.object(MODULE.subprocess, "run", side_effect=delayed_verify) as run:
+                with self.assertRaisesRegex(ValueError, "receipt expired"):
+                    supervisor.receipt(claim)
+                self.assertEqual(run.call_count, 1, "expired receipt reached signing")
+
     def test_disabled_example_verifier_does_not_sign_receipt(self):
         with tempfile.TemporaryDirectory(prefix="incus-supervisor-", dir="/tmp") as directory:
             root = Path(directory)

@@ -18,9 +18,11 @@ export interface SupervisorRestartRequest {
   beforeDigest: string;
 }
 
-async function exchange(socketPath: string, message: unknown, timeoutMs = 5000): Promise<unknown> {
+const RESTART_ACK_TIMEOUT_MS = 5_000;
+const RECEIPT_TIMEOUT_MS = 40_000;
+
+async function exchange(socketPath: string, message: unknown, timeoutMs: number): Promise<unknown> {
   if (!socketPath.startsWith("/") || !socketPath.length) throw new Error("Incus supervisor socket is unavailable");
-  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) throw new Error("Incus supervisor deadline expired");
   return await new Promise((resolve, reject) => {
     const socket = createConnection(socketPath);
     let received = "";
@@ -50,24 +52,19 @@ async function exchange(socketPath: string, message: unknown, timeoutMs = 5000):
 
 export async function requestIncusSupervisorRestart(socketPath: string,
   request: SupervisorRestartRequest): Promise<void> {
-  const response = await exchange(socketPath, request) as { accepted?: unknown };
+  const response = await exchange(socketPath, request, RESTART_ACK_TIMEOUT_MS) as { accepted?: unknown };
   if (response.accepted !== true) throw new Error("Incus supervisor refused restart");
-}
-
-export function supervisorReceiptTimeoutMs(deadlineMs: number, nowMs: number): number {
-  const remainingMs = deadlineMs - nowMs;
-  if (!Number.isSafeInteger(deadlineMs) || !Number.isSafeInteger(nowMs) || remainingMs <= 0) {
-    throw new Error("Incus supervisor deadline expired");
-  }
-  return Math.min(remainingMs, 20_000);
 }
 
 export async function requestIncusSupervisorReceipt(socketPath: string, runId: string,
   nonce: string, afterDigest: string, deadlineMs: number): Promise<SignedRestartHandoff> {
-  const timeoutMs = supervisorReceiptTimeoutMs(deadlineMs, Date.now());
+  const remainingMs = deadlineMs - Date.now();
+  if (!Number.isSafeInteger(deadlineMs) || remainingMs <= 0) {
+    throw new Error("Incus supervisor receipt deadline expired");
+  }
   const response = await exchange(socketPath, {
     version: 1, action: "receipt", runId, nonce, afterDigest,
-  }, timeoutMs) as { receipt?: SignedRestartHandoff };
+  }, Math.min(remainingMs, RECEIPT_TIMEOUT_MS)) as { receipt?: SignedRestartHandoff };
   if (!response.receipt?.payload || typeof response.receipt.signature !== "string") {
     throw new Error("Incus supervisor receipt is invalid");
   }

@@ -29,6 +29,10 @@ REQUEST_KEYS = {"version", "action", "runId", "nonce", "deadlineMs", "scope",
                 "lastOperationId", "beforeDigest"}
 CLAIM_KEYS = {"version", "action", "runId", "nonce", "afterDigest"}
 SCOPE_KEYS = {"installationId", "releaseId", "connectionId", "presetId"}
+AUTHORIZE_TIMEOUT_SECONDS = 10
+SNAPSHOT_TIMEOUT_SECONDS = 30
+VERIFY_TIMEOUT_SECONDS = 30
+SIGN_TIMEOUT_SECONDS = 5
 
 
 def identity(pid):
@@ -55,6 +59,13 @@ def read_message(connection):
 
 def send_message(connection, message):
     connection.sendall(canonical(message) + b"\n")
+
+
+def bounded_timeout(deadline_ms, stage_limit_seconds):
+    remaining = (deadline_ms - time.time() * 1000) / 1000
+    if remaining <= 0:
+        raise ValueError("receipt expired")
+    return min(remaining, stage_limit_seconds)
 
 
 def validate_request(message):
@@ -125,7 +136,9 @@ class Supervisor:
 
     def authorize(self, request):
         check = subprocess.run(self.authority_command, input=canonical(request) + b"\n",
-                               capture_output=True, timeout=10, check=False,
+                               capture_output=True,
+                               timeout=bounded_timeout(request["deadlineMs"], AUTHORIZE_TIMEOUT_SECONDS),
+                               check=False,
                                preexec_fn=self.drop_app_privileges)
         if check.returncode != 0:
             raise ValueError("operator authority verifier rejected run")
@@ -156,17 +169,20 @@ class Supervisor:
         verified = subprocess.run(self.receipt_authority_command,
                                   input=canonical({"phase": "verify", "payload": verification_payload,
                                                    "snapshot": pending["snapshot"]}) + b"\n", capture_output=True,
-                                  timeout=10, check=False)
+                                  timeout=bounded_timeout(original["deadlineMs"], VERIFY_TIMEOUT_SECONDS),
+                                  check=False)
         if verified.returncode != 0 or json.loads(verified.stdout) != {
                 "afterDigest": request["afterDigest"]}:
             raise ValueError("independent backend receipt verification failed")
+        sign_timeout = bounded_timeout(original["deadlineMs"], SIGN_TIMEOUT_SECONDS)
         # OpenSSL's Ed25519 one-shot operation requires a seekable input file.
         with tempfile.TemporaryDirectory(prefix="incus-handoff-") as directory:
             data = Path(directory) / "payload"
             data.write_bytes(canonical(payload))
             signed = subprocess.run(["openssl", "pkeyutl", "-sign", "-rawin", "-inkey",
-                                     str(self.key_path), "-in", str(data)],
-                                    capture_output=True, timeout=5, check=True)
+                                    str(self.key_path), "-in", str(data)],
+                                    capture_output=True, timeout=sign_timeout, check=True)
+        bounded_timeout(original["deadlineMs"], SIGN_TIMEOUT_SECONDS)
         self.pending = None
         return {"payload": payload, "signature": base64.b64encode(signed.stdout).decode("ascii")}
 
@@ -244,13 +260,16 @@ class Supervisor:
             self.authorize(request)
             snapshot_result = subprocess.run(self.receipt_authority_command,
                 input=canonical({"phase": "snapshot", "request": request}) + b"\n",
-                capture_output=True, timeout=10, check=False,
+                capture_output=True,
+                timeout=bounded_timeout(request["deadlineMs"], SNAPSHOT_TIMEOUT_SECONDS),
+                check=False,
                 preexec_fn=self.drop_app_privileges)
             if snapshot_result.returncode != 0:
                 raise ValueError("independent durable receipt snapshot failed")
             snapshot_reply = json.loads(snapshot_result.stdout)
             if set(snapshot_reply) != {"snapshot"} or not isinstance(snapshot_reply["snapshot"], dict):
                 raise ValueError("independent durable receipt snapshot invalid")
+            bounded_timeout(request["deadlineMs"], SNAPSHOT_TIMEOUT_SECONDS)
         except (ValueError, OSError, subprocess.SubprocessError, json.JSONDecodeError):
             self.start_child()
             return

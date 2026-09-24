@@ -1604,3 +1604,14 @@ The new runner can hand off after a stopped fixture checkpoint and resume in a r
 ### Review
 
 The server project initially allowed only a remote image host; Incus v6.0.6 rejected the pinned local image source. The reviewed correction now permits that local source, and a disposable guest proved it. The REST probe cannot attest helper version or guest runtime controls. It keeps those controls false. No EZHarness-owned guest has been created yet.
+
+## Incus supervisor bounded receipt timeout — 2026-09-24
+
+- [x] Reproduce a delayed receipt response on the Unix client path.
+- [x] Bound restart snapshot, receipt verification, and signing by the run deadline and stage limits.
+- [x] Let the receipt client wait through those stages while retaining an absolute bound.
+- [x] Run process, client, typecheck, lint, and diff checks; commit the focused repair.
+
+Plan review: The client currently closes the receipt socket after five seconds, while the supervisor may spend ten seconds verifying and five seconds signing. Keep the fast restart acknowledgement bound. Pass the run deadline to the receipt client and cap each supervisor stage by its remaining time.
+
+Review: The delayed Unix receipt test failed at the old five-second client timer and now passes after 5.2 seconds. The receipt client waits at most 40 seconds or until the saved run deadline. The supervisor caps authorization at 10 seconds, snapshot and verification at 30 seconds each, and signing at five seconds, with every stage cut off by the run deadline. A Python test proves an expired run cannot reach signing. Pinned Bun 1.3.14: six focused tests pass; five Python process tests and Python compile pass. Full typecheck, focused Biome, and diff check pass. No live supervisor or Incus endpoint was used.
