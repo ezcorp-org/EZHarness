@@ -207,6 +207,36 @@ describe("servePreviewRequest serving path", () => {
 });
 
 describe("servePreviewRequest dynamic passthrough (Phase 3a)", () => {
+  test("an authenticated sandbox preview never falls through to the AMD loopback proxy", async () => {
+    verifyPreviewToken.mockResolvedValue({ previewId: VALID_ID, userId: "u1" });
+    getServablePreview.mockResolvedValue({
+      id: VALID_ID, userId: "u1", kind: "dynamic", staticPath: null, targetPort: 5173,
+      expiresAt: new Date(Date.now() + 60_000),
+      workspaceTarget: { kind: "sandbox", binding: {
+        projectId: "project-1", workspaceId: "sandbox-1", connectionId: "connection-1",
+        providerId: "incus", generation: 1, presetId: "compose",
+        releaseDigest: "a".repeat(64), presetDigest: "b".repeat(64),
+        effectiveSettingsDigest: "c".repeat(64),
+      } },
+    });
+    const realFetch = globalThis.fetch;
+    let localFetches = 0;
+    globalThis.fetch = (async () => {
+      localFetches++;
+      return new Response("AMD service must not be exposed");
+    }) as unknown as typeof fetch;
+    try {
+      const req = new Request(`http://${VALID_ID}.preview.ezcorp.example.com/`, {
+        headers: { cookie: "__ezpreview=tok" },
+      });
+      const res = await servePreviewRequest(req, { previewId: VALID_ID });
+      expect(res.status).toBe(502);
+      expect(localFetches).toBe(0);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
   test("proxies an authorized dynamic preview to the pinned dev port (port-pin + cookie strip)", async () => {
     verifyPreviewToken.mockResolvedValue({ previewId: VALID_ID, userId: "u1" });
     getServablePreview.mockResolvedValue({

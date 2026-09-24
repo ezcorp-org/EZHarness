@@ -121,6 +121,24 @@ test("host-owned Incus preflight reaches reserved RPC and fails closed after a b
   } finally { value.process.kill(); }
 });
 
+test("preview endpoint commands stay closed before a scoped host relay exists", async () => {
+  const value = await fixture();
+  try {
+    const scope = {
+      providerId: "incus", connectionId: value.input.connectionId,
+      sandboxId: "sandbox-1", rpcDeadlineMs: Date.now() + 5_000,
+      requestId: "endpoint-open-1", idempotencyKey: "endpoint-open-1",
+      port: 5173, protocol: "http", expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    };
+    await expect(value.broker.prepareAction(value.snapshot, "sandbox-1", "endpoints.open", scope))
+      .rejects.toMatchObject({ code: "CAPABILITY_DENIED" });
+    await expect(value.broker.prepareAction(value.snapshot, "sandbox-1", "endpoints.close", {
+      ...scope, endpointId: "endpoint-1",
+    })).rejects.toMatchObject({ code: "CAPABILITY_DENIED" });
+    expect(value.transportCalls).toBe(0);
+  } finally { value.process.kill(); }
+});
+
 test("ordinary calls and forged provider pins never reach the backend", async () => {
   const value = await fixture();
   const ordinary = registerCallProvenance({ actorExtensionId: value.snapshot.installation.id, onBehalfOf: "fixture-owner",
