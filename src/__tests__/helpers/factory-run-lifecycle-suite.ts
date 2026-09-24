@@ -1,9 +1,12 @@
 import { afterAll, beforeAll, expect, spyOn, test } from "bun:test";
 import { generateKeyPairSync } from "node:crypto";
-import { rm } from "node:fs/promises";
+import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { DeleteObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
 import { sql } from "drizzle-orm";
 import { referenceCodeV1, validateFactoryApiResponse, createKernelState, createPartitionKernelState, advanceKernel, factoryRunnerRequestDigest, FACTORY_LAZY_INPUT_SCHEMA_VERSION, type FactoryDefinition, type FactoryRunnerRequest, type FactoryRunnerResult, type FactoryRunStartBody, type JsonValue } from "@ezcorp/factory-sdk";
 import type { TransactionalDb } from "../../db/migrations/types";
+import type { KernelEvent } from "@ezcorp/factory-sdk/kernel-types";
 import { releaseRows as rows } from "../../db/queries/extension-releases";
 import type { BlobStore } from "../../extensions/v4/types";
 import { digestBytes, digestObject } from "../../extensions/v4/blobs";
@@ -55,9 +58,36 @@ import { FactoryProtectedValidatorScheduler } from "../../factory/validator-sche
 import { FactoryValidatorAttemptDispatch } from "../../factory/validator-dispatch";
 import { assertFactoryDispatchNodeOrigin, factoryAdmissionOriginDigest } from "../../factory/admission-origin";
 import { up } from "../../db/migrations/add-factory-run-lifecycle";
+import { FactoryAttemptMaterials, FactoryScopedMaterials, factoryMaterialDigest } from "../../factory/artifact-materials";
+import { FACTORY_S3_ACCEPTED_PUBLICATION_SCHEMA_VERSION, FactoryS3PublicationProvenance, FactoryVerifiedAttemptMaterials } from "../../factory/release-s3-scope";
+import { FACTORY_S3_MANIFEST_NAME, type FactoryS3ManifestReceipt } from "../../factory/release-s3-publication";
+import type { S3ClientLike } from "../../factory/release-adapters";
+import { composeFactoryReleaseDestinations } from "../../factory/release-declaration";
+import { FactoryDestinationReservations, FactoryStoreSenderFence } from "../../factory/release-destinations";
+import { factoryReleaseOutcomeDriver } from "../../factory/dispatch-composition";
+import { FactoryReleaseOutcomeDelivery, factoryReleaseOutcomeEventId } from "../../factory/release-outcome-delivery";
+import { FactoryMemoryS3Store } from "./factory-s3-memory-store";
+import { FaultInjectingArchive, MemoryFactoryReleaseArchive } from "./factory-archive-fixtures";
+import { FactoryArchiveWriter, factoryArchiveFailureDomain } from "../../factory/archive-writer";
+import { FactoryPublicationOutputReader } from "../../factory/release-publication-set";
 import { persistTransition } from "../../../packages/@ezcorp/factory-orchestrator/src/transition-pages";
+import { openFactoryEffectClaimsForTest } from "./factory-effect-claims";
 
-export function factoryRunLifecycleConformance(create: () => Promise<{ db: TransactionalDb; blobs?: BlobStore; close(): Promise<void> }>): void {
+/**
+ * A real object store a producer lends the publishing cases.
+ *
+ * The composition never receives `client`: it builds its own from the declared credential file,
+ * which is the point. `client` is only how the case reads back what was published.
+ */
+export interface FactoryLifecyclePublicationStore {
+  readonly endpoint: string;
+  readonly bucket: string;
+  readonly prefix: string;
+  readonly credentials: { readonly accessKeyId: string; readonly secretAccessKey: string };
+  readonly client: S3ClientLike;
+}
+
+export function factoryRunLifecycleConformance(create: () => Promise<{ db: TransactionalDb; blobs?: BlobStore; publication?: FactoryLifecyclePublicationStore; close(): Promise<void> }>): void {
   let fixture: Awaited<ReturnType<typeof create>>;
   let definitions: FactoryDefinitions;
   let grants: FactoryGrants;
@@ -68,6 +98,9 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
   let now = Date.UTC(2030, 0, 1);
   let sequence = 0;
   let stages = 0;
+  const publicationRoots: string[] = [];
+  /** Every object a publishing case wrote to a lent real store, removed by exact version afterwards. */
+  const publishedObjects: Array<{ readonly key: string; readonly versionId: string }> = [];
   const duration = 7 * 24 * 60 * 60 * 1000;
   const tenantId = "lifecycle-tenant";
   const projectId = "lifecycle-project";
@@ -238,7 +271,14 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     } };
     lifecycle = new FactoryRunLifecycle(fixture.db, tenantId, options, () => now);
   });
-  afterAll(async () => { await fixture?.close(); });
+  afterAll(async () => {
+    await Promise.all(publicationRoots.splice(0).map(root => rm(root, { recursive: true, force: true })));
+    const lent = fixture?.publication;
+    if (lent !== undefined) {
+      for (const object of publishedObjects.splice(0)) await lent.client.send(new DeleteObjectCommand({ Bucket: lent.bucket, Key: object.key, VersionId: object.versionId }));
+    }
+    await fixture?.close();
+  });
 
   test("run, budget, current grants and outbox commit once with exact mutation identity", async () => {
     const before = stages;
@@ -512,6 +552,22 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     return { parentRunId: parentRun.runId, commandId: command.id, run: { runId, revision }, authority: parent.authority };
   };
 
+  /** What one publishing case changes about the protected fixture. */
+  interface ProtectedReleaseShape {
+    readonly candidate?: JsonValue;
+    readonly destination?: JsonValue;
+    readonly beforeCompletion?: (completed: Awaited<ReturnType<typeof completedTask>>) => Promise<void>;
+  }
+
+  /** An archive that keeps what it is given, for the cases that do not measure the archive. */
+  const memoryReleaseArchive = () => {
+    const archive = new Map<string, Uint8Array>();
+    return {
+      async writeImmutable(_tenant: string, operationId: string, name: string, bytes: Uint8Array) { const key = `${operationId}/${name}`; archive.set(key, bytes.slice()); return { key, digest: `sha256:${digestBytes(bytes)}` }; },
+      async read(reference: { readonly key: string }) { const bytes = archive.get(reference.key); if (!bytes) throw new Error("archive is missing"); return bytes.slice(); },
+    };
+  };
+
   /**
    * Builds one whole protected acceptance: a completed candidate, a pinned validator runtime, a
    * human-approved contract, and a bound validator attempt whose report carries `passed`.
@@ -521,8 +577,12 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
    *
    * `parentReleaseMode` composes the whole thing as a child, which is the only way the inherited
    * release authority under test is a fact about the run rather than an argument to a stub.
+   *
+   * `release` lets one case publish for real: the candidate the task returns, the destination the
+   * release node names, and the materials the attempt seals before it completes, which is the
+   * order a guest writes them in.
    */
-  async function protectedAcceptance(passed: boolean, bindValidator = true, parentReleaseMode?: "none" | "authorized", validatorResources: import("@ezcorp/factory-sdk").ResourceBounds = { maxComputeMs: 1_000 }) {
+  async function protectedAcceptance(passed: boolean, bindValidator = true, parentReleaseMode?: "none" | "authorized", validatorResources: import("@ezcorp/factory-sdk").ResourceBounds = { maxComputeMs: 1_000 }, release: ProtectedReleaseShape = {}) {
     const candidateRunner = referenceCodeV1.graph.nodes.find(node => node.id === "snapshot-repository");
     const releaseNode = referenceCodeV1.graph.nodes.find(node => node.id === "github-pr-release");
     const claim = referenceCodeV1.acceptance.claims[0]!;
@@ -535,15 +595,16 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
       graph: { nodes: [
         { id: "candidate", kind: "task", runner: candidateRunner.runner, outputPorts: { candidate: artifactPort }, effects: ["write"] },
         { id: "accept", kind: "acceptance", dependsOn: ["candidate"], contract: `${definitionKey.factoryId}.contract`, candidate: { kind: "ref", root: "node", name: "candidate", path: ["candidate"] }, evidence: { kind: "literal", value: [] }, outputPorts: { acceptedCandidate: artifactPort } },
-        { id: "release", kind: "release", dependsOn: ["accept"], adapter: releaseNode.adapter, acceptedCandidate: { kind: "ref", root: "node", name: "accept", path: ["acceptedCandidate"] }, destination: { kind: "literal", value: { target: "protected" } }, effects: ["publish"], outputPorts: { receipt: artifactPort } },
+        { id: "release", kind: "release", dependsOn: ["accept"], adapter: releaseNode.adapter, acceptedCandidate: { kind: "ref", root: "node", name: "accept", path: ["acceptedCandidate"] }, destination: { kind: "literal", value: release.destination ?? { target: "protected" } }, effects: ["publish"], outputPorts: { receipt: artifactPort } },
       ], outputs: { receipt: { kind: "ref", root: "node", name: "release", path: ["receipt"] } } },
     };
     await definitions.save(principal, definitionKey, 0, `protected-definition-${sequence}`, source);
     const version = await definitions.publish(principal, definitionKey, 1, `protected-publish-${sequence}`);
     const request: FactoryRunStartBody = { factoryVersion: version.version, definitionDigest: version.definitionDigest, grantRevision: 1, parameters: {} };
-    const candidate = { digest: `sha256:${"7".repeat(64)}`, mediaType: "application/json", storage: "protected" };
+    const candidate = release.candidate ?? { digest: `sha256:${"7".repeat(64)}`, mediaType: "application/json", storage: "protected" };
     const composed = parentReleaseMode === undefined ? undefined : await childRunUnder(parentReleaseMode, definitionKey, request, `protected-${sequence}`);
     const completed = await completedTask({ candidate }, definitionKey, request, composed?.run);
+    await release.beforeCompletion?.(completed);
     const completion = await completed.completions.complete(completed.task.service, completed.task.dispatchReference, completed.result);
     const completionDelivery = await completed.task.queue.read(projectId, completed.task.dispatch.id);
     if (!completionDelivery) throw new Error("protected completion delivery is missing");
@@ -585,13 +646,24 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     } };
     const assurance = new FactoryAssurance(fixture.db, tenantId, grants, validators, fenceReader, validators, Date.now);
     await assurance.approveContract(principal, { projectId, contractId: material.contractId, revision: 1, contractDigest: material.contractDigest, validatorLockDigest: material.validatorLockDigest, mandatoryClaims: material.mandatoryClaims, claimGroups: material.claimGroups }, `protected-contract-${sequence}`);
-    const archive = new Map<string, Uint8Array>();
     const releases = new FactoryReleases(fixture.db, tenantId, grants, assurance, releaseAuthority, releaseAuthority,
       { async reserveInTransaction() { throw new Error("release dispatch is outside this protected prepare test"); } },
-      { async writeImmutable(_tenant, operationId, name, bytes) { const key = `${operationId}/${name}`; archive.set(key, bytes.slice()); return { key, digest: `sha256:${digestBytes(bytes)}` }; }, async read(reference) { const bytes = archive.get(reference.key); if (!bytes) throw new Error("archive is missing"); return bytes.slice(); } },
+      memoryReleaseArchive(),
       { async proveStopped() { return false; } }, Date.now);
     const effects = new FactoryProtectedCommandEffects(fixture.db, tenantId, completed.task.authority, completed.completions, releaseAuthority, assurance, releases, [factorySynchronousReleaseProfile({ adapter: releaseNode.adapter, action: "publish", build(input) { return { destination: { provider: "test", account: "protected", object: "result" }, request: { acceptedCandidate: input.acceptedCandidate, destination: input.destination }, estimatedSpendMicros: 42 }; } })]);
     return { effects, completed, acceptanceReference, acceptanceCommand, candidateAdvanced, candidate, releaseNode, releaseAuthority, assurance, releases, claim, validators, material, candidateKey, runtime, validatorAdmission, composed };
+  }
+
+  /** Accepts the fixture's candidate and returns the release command the kernel issues next. */
+  async function acceptedRelease(world: Pick<Awaited<ReturnType<typeof protectedAcceptance>>, "effects" | "completed" | "acceptanceReference" | "candidateAdvanced">) {
+    const { effects, completed, acceptanceReference, candidateAdvanced } = world;
+    const accepted = await effects.requestAcceptance(completed.task.service, acceptanceReference);
+    const acceptedAdvanced = advanceKernel(completed.task.compiled, candidateAdvanced.nextState, accepted);
+    await persistTransition(completed.task.identity, 4, accepted, acceptedAdvanced.nextState, acceptedAdvanced.commands, undefined, completed.task.activities);
+    await new FactoryRunTransitionProjector(fixture.db, tenantId, completed.task.transitions, lifecycle).project(runKey(completed.task.run.runId), 8);
+    const releaseCommand = acceptedAdvanced.commands.find(command => command.kind === "request-release");
+    if (releaseCommand?.kind !== "request-release") throw new Error("protected release command is missing");
+    return { accepted, acceptedAdvanced, releaseCommand, releaseReference: { ...completed.task.identity, commandId: releaseCommand.id } };
   }
 
   test("protected acceptance and release use exact completed, trusted, and committed facts", async () => {
@@ -623,13 +695,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
   test("an acceptance-only child returns its accepted artifact and creates no release operation", async () => {
     const { effects, completed, acceptanceReference, candidateAdvanced, candidate, composed, assurance } = await protectedAcceptance(true, true, "none");
     if (!composed) throw new Error("the acceptance-only fixture must be composed as a child");
-    const accepted = await effects.requestAcceptance(completed.task.service, acceptanceReference);
-    const acceptedAdvanced = advanceKernel(completed.task.compiled, candidateAdvanced.nextState, accepted);
-    await persistTransition(completed.task.identity, 4, accepted, acceptedAdvanced.nextState, acceptedAdvanced.commands, undefined, completed.task.activities);
-    await new FactoryRunTransitionProjector(fixture.db, tenantId, completed.task.transitions, lifecycle).project(runKey(completed.task.run.runId), 8);
-    const releaseCommand = acceptedAdvanced.commands.find(command => command.kind === "request-release");
-    if (releaseCommand?.kind !== "request-release") throw new Error("protected release command is missing");
-    const releaseReference = { ...completed.task.identity, commandId: releaseCommand.id };
+    const { releaseCommand, releaseReference } = await acceptedRelease({ effects, completed, acceptanceReference, candidateAdvanced });
 
     const result = await effects.requestRelease(completed.task.service, releaseReference);
     expect(result).toMatchObject({ kind: "node-result", nodeId: "release", commandId: releaseCommand.id });
@@ -681,13 +747,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
   test("cancelling the parent stops an acceptance-only child's release rather than completing it", async () => {
     const { effects, completed, acceptanceReference, candidateAdvanced, composed } = await protectedAcceptance(true, true, "none");
     if (!composed) throw new Error("the acceptance-only fixture must be composed as a child");
-    const accepted = await effects.requestAcceptance(completed.task.service, acceptanceReference);
-    const acceptedAdvanced = advanceKernel(completed.task.compiled, candidateAdvanced.nextState, accepted);
-    await persistTransition(completed.task.identity, 4, accepted, acceptedAdvanced.nextState, acceptedAdvanced.commands, undefined, completed.task.activities);
-    await new FactoryRunTransitionProjector(fixture.db, tenantId, completed.task.transitions, lifecycle).project(runKey(completed.task.run.runId), 8);
-    const releaseCommand = acceptedAdvanced.commands.find(command => command.kind === "request-release");
-    if (releaseCommand?.kind !== "request-release") throw new Error("protected release command is missing");
-    const releaseReference = { ...completed.task.identity, commandId: releaseCommand.id };
+    const { releaseReference } = await acceptedRelease({ effects, completed, acceptanceReference, candidateAdvanced });
 
     const parentRevision = Number(rows<{ revision: number | string }>(await fixture.db.execute(sql`SELECT revision FROM factory_run_lifecycle WHERE tenant_id=${tenantId} AND project_id=${projectId} AND run_id=${composed.parentRunId}`))[0]!.revision);
     await cancelRun(principal, runKey(composed.parentRunId), parentRevision, `acceptance-only-cancel-${composed.parentRunId}`);
@@ -699,17 +759,320 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
 
   test("an authorized child still creates exactly one release operation", async () => {
     const { effects, completed, acceptanceReference, candidateAdvanced } = await protectedAcceptance(true, true, "authorized");
-    const accepted = await effects.requestAcceptance(completed.task.service, acceptanceReference);
-    const acceptedAdvanced = advanceKernel(completed.task.compiled, candidateAdvanced.nextState, accepted);
-    await persistTransition(completed.task.identity, 4, accepted, acceptedAdvanced.nextState, acceptedAdvanced.commands, undefined, completed.task.activities);
-    await new FactoryRunTransitionProjector(fixture.db, tenantId, completed.task.transitions, lifecycle).project(runKey(completed.task.run.runId), 8);
-    const releaseCommand = acceptedAdvanced.commands.find(command => command.kind === "request-release");
-    if (releaseCommand?.kind !== "request-release") throw new Error("protected release command is missing");
-    const releaseReference = { ...completed.task.identity, commandId: releaseCommand.id };
+    const { releaseReference } = await acceptedRelease({ effects, completed, acceptanceReference, candidateAdvanced });
 
     expect(await effects.requestRelease(completed.task.service, releaseReference)).toBeNull();
     expect(rows(await fixture.db.execute(sql`SELECT action FROM factory_release_operations WHERE tenant_id=${tenantId} AND project_id=${projectId} AND run_id=${completed.task.run.runId}`))).toEqual([{ action: "publish" }]);
     await new FactoryRunTransitionProjector(fixture.db, tenantId, completed.task.transitions, lifecycle).project(runKey(completed.task.run.runId));
+  });
+
+  /**
+   * One release node whose adapter a startup DECLARATION trusts, composed the way the installation
+   * composes it: `composeFactoryReleaseDestinations` builds the profile and the provider from the
+   * declared S3 destination, `FactoryProtectedCommandEffects` receives that profile set, and the
+   * running `release-outcome` role claims and publishes through the declared provider.
+   *
+   * The task's attempt seals its members before it completes, as a guest does, and the accepted
+   * candidate names them by object and version only. Every digest, media type, and size the
+   * published objects carry is pinned by the profile from those sealed records.
+   */
+  async function declaredS3Release(requestedAccount = "lifecycle-publication") {
+    const declaredAccount = "lifecycle-publication";
+    const store = fixture.publication ?? {
+      endpoint: "http://127.0.0.1:18333", bucket: "tenant-01", prefix: `ordinary/lifecycle-release/${++sequence}`,
+      credentials: { accessKeyId: "lifecycle-publish-id", secretAccessKey: "lifecycle-publish-secret" }, client: new FactoryMemoryS3Store(),
+    };
+    const materialOperationId = `lifecycle-publication-${++sequence}`;
+    const sealedFiles = [
+      { objectName: "candidate.json", text: '{"accepted":"dataset"}', mediaType: "application/json" },
+      { name: "data/part-0.csv", objectName: "part-0.csv", text: "id,value\n1,alpha\n", mediaType: "text/csv" },
+      { name: "data/part-1.csv", objectName: "part-1.csv", text: "id,value\n2,beta\n", mediaType: "text/csv" },
+    ];
+    const published = sealedFiles.filter((file): file is typeof file & { name: string } => file.name !== undefined);
+    const accepted = {
+      schemaVersion: FACTORY_S3_ACCEPTED_PUBLICATION_SCHEMA_VERSION, materialOperationId, candidateObjectName: "candidate.json", candidateVersion: 1,
+      files: published.map(file => ({ name: file.name, objectName: file.objectName, version: 1 })),
+    };
+    const object = `releases/${materialOperationId}`;
+    const world = await protectedAcceptance(true, true, undefined, undefined, {
+      candidate: accepted,
+      destination: { provider: "s3", account: requestedAccount, object },
+      async beforeCompletion(completed) {
+        const materials = new FactoryAttemptMaterials({ database: fixture.db, artifacts: completed.artifacts, blobs: objectStore, journal: completed.task.journal, authority: completed.authority });
+        for (const file of sealedFiles) {
+          const bytes = new TextEncoder().encode(file.text);
+          const identity = { tenantId, projectId, runId: completed.task.run.runId, attemptId: completed.authority.attemptId, operationId: materialOperationId, objectName: file.objectName, version: 1 };
+          await materials.begin(identity, file.mediaType, bytes.byteLength, 1);
+          await materials.writeChunk(identity, { index: 0, digest: factoryMaterialDigest(bytes), encodedBytes: bytes.byteLength }, bytes);
+          await materials.seal(identity, factoryMaterialDigest(bytes));
+        }
+      },
+    });
+
+    // The credential set is a private file the declaration names, read at composition. It lives
+    // under the home directory because the private reader refuses a world-writable ancestor such
+    // as the system temporary directory.
+    const root = await mkdtemp(join(process.env.HOME!, ".factory-lifecycle-release-"));
+    publicationRoots.push(root);
+    await chmod(root, 0o700);
+    const credentialsPath = join(root, "publication.json");
+    await writeFile(credentialsPath, JSON.stringify({ identities: [{ name: tenantId, credentials: [{ accessKey: store.credentials.accessKeyId, secretKey: store.credentials.secretAccessKey }] }] }), { mode: 0o600 });
+
+    // The installation's archive writer, not a stand-in: it reads every member through the scoped
+    // reader, and a validator's report, which is its attempt's terminal output, through the output
+    // reader, each under the location the provenance proves.
+    const artifacts = new FactoryArtifacts(fixture.db, objectStore, tenantId);
+    const scopedReader = new FactoryScopedMaterials({ database: fixture.db, artifacts, blobs: objectStore });
+    const provenance = new FactoryS3PublicationProvenance({ database: fixture.db, tenantId });
+    const archiveStore = new FaultInjectingArchive(new MemoryFactoryReleaseArchive());
+    const archiveWriter = new FactoryArchiveWriter({
+      archive: archiveStore, inventory: archiveStore, reader: scopedReader, publicationSet: provenance.publicationSet(),
+      outputs: new FactoryPublicationOutputReader({ database: fixture.db, tenantId, artifacts }),
+      failureDomain: factoryArchiveFailureDomain({ productEndpoint: "http://127.0.0.1:18333", archiveEndpoint: "http://127.0.0.1:18334", productCredentialSet: "ordinary.json", archiveCredentialSet: "archive.json" }),
+    });
+    const releases = new FactoryReleases(fixture.db, tenantId, grants, world.assurance, world.releaseAuthority, world.releaseAuthority,
+      new FactoryDestinationReservations({ database: fixture.db, tenantId }), archiveWriter, new FactoryStoreSenderFence({ database: fixture.db, tenantId }), Date.now);
+    const composed = await composeFactoryReleaseDestinations({
+      release: {
+        destinations: [{ name: "publication", kind: "s3", endpoint: store.endpoint, bucket: store.bucket, account: declaredAccount, prefix: store.prefix, credentialsPath }],
+        profiles: [{ adapter: world.releaseNode.adapter, action: "publish", destination: "publication", estimatedSpendMicros: 42 }],
+      },
+    }, {
+      database: fixture.db, tenantId, releases,
+      reader: scopedReader,
+      attempts: provenance,
+      materials: new FactoryVerifiedAttemptMaterials({ database: fixture.db, blobs: objectStore, journal: world.completed.task.journal }),
+      // Only the in-memory store needs handing over; a real one is reached through the declared credentials.
+      ...(fixture.publication === undefined ? { s3Client: store.client } : {}),
+    });
+    if (composed === undefined) throw new Error("a declared destination must compose");
+    const effects = new FactoryProtectedCommandEffects(fixture.db, tenantId, world.completed.task.authority, world.completed.completions, world.releaseAuthority, world.assurance, releases, composed.profiles);
+    // A release claim passes the C06 checkpoint gate (W15); this world is not about freshness.
+    await openFactoryEffectClaimsForTest(fixture.db, tenantId);
+    const { releaseReference, acceptedAdvanced } = await acceptedRelease(world);
+    const reports: Array<{ role: string; code: unknown; reason: unknown }> = [];
+    const report = (role: string, error: unknown) => {
+      reports.push({ role, code: (error as { code?: unknown }).code, reason: (error as { reason?: unknown }).reason });
+    };
+    // The installation's shape: one protected-effects instance answers the command and is the
+    // reader the delivery asks which command a settled operation answers.
+    const delivery = new FactoryReleaseOutcomeDelivery({
+      database: fixture.db, tenantId, service: world.completed.task.service, effects, authority: world.completed.task.authority, inbox: new FactoryInbox(fixture.db, tenantId, () => now),
+    });
+    const driverFor = (resolver: typeof composed.providers, delivered?: FactoryReleaseOutcomeDelivery) =>
+      factoryReleaseOutcomeDriver(fixture.db, releases, lifecycle, async () => [projectId], resolver, report, undefined, delivered);
+    const driver = driverFor(composed.providers, delivery);
+    /** The same role in a process that crashed after settlement and before its delivery. */
+    const settlingOnly = driverFor(composed.providers);
+    /** Inbox events this run holds for one operation's outcome. */
+    const outcomeEvents = async (operationId: string) => rows<{ payload: string }>(await fixture.db.execute(sql`SELECT payload FROM factory_inbox_events WHERE tenant_id=${tenantId} AND project_id=${projectId} AND run_id=${world.completed.task.run.runId} AND event_id=${factoryReleaseOutcomeEventId(operationId)}`))
+      .map(row => JSON.parse(row.payload) as KernelEvent);
+    const operationRows = async () => rows<{ operation_id: string; state: string; destination_provider: string; destination_account: string; destination_object: string; estimated_spend_micros: number | string; action: string }>(await fixture.db.execute(sql`SELECT operation_id,state,destination_provider,destination_account,destination_object,estimated_spend_micros,action FROM factory_release_operations WHERE tenant_id=${tenantId} AND project_id=${projectId} AND run_id=${world.completed.task.run.runId}`))
+      .map(row => ({ ...row, estimated_spend_micros: Number(row.estimated_spend_micros) }));
+    const read = async (key: string): Promise<Uint8Array | null> => {
+      try { return await ((await store.client.send(new GetObjectCommand({ Bucket: store.bucket, Key: key }))) as { Body: { transformToByteArray(): Promise<Uint8Array> } }).Body.transformToByteArray(); }
+      catch { return null; }
+    };
+    // A consent may not outlive its operation, and assurance bounds an approval to one day.
+    const consentExpiry = (operation: { readonly deadlineMs: number }) => Math.min(operation.deadlineMs, Date.now() + 60 * 60 * 1000);
+    // The role walks the whole project, which other cases share, so a case reads only its own reports.
+    const reportsFor = (operationId: string) => reports.filter(report => report.role.endsWith(`:${operationId}`));
+    // Leaves the shared project as the next case expects it: this run projected to its head, and
+    // the approval notifications this case queued delivered rather than ahead of another case's.
+    const finish = async () => {
+      await new FactoryRunTransitionProjector(fixture.db, tenantId, world.completed.task.transitions, lifecycle).project(runKey(world.completed.task.run.runId));
+      for (;;) if (await releases.deliverNextNotification(projectId) === null) break;
+    };
+    return { ...world, store, object, published, releases, composed, effects, releaseReference, driver, reports, operationRows, read, declaredAccount, consentExpiry, reportsFor, finish, archiveWriter, provenance, delivery, driverFor, settlingOnly, outcomeEvents, acceptedAdvanced, service: world.completed.task.service };
+  }
+
+  test("a declared S3 destination and profile prepare, claim, and publish the attempt's sealed members", async () => {
+    const world = await declaredS3Release();
+    expect(world.composed.profiles.map(profile => profile.adapter)).toEqual([world.releaseNode.adapter]);
+
+    // Prepared, not published: the operation exists at the declared destination and cost.
+    expect(await world.effects.requestRelease(world.service, world.releaseReference)).toBeNull();
+    const [prepared] = await world.operationRows();
+    expect(prepared).toMatchObject({ state: "pending", destination_provider: "s3", destination_account: world.declaredAccount, destination_object: world.object, estimated_spend_micros: 42, action: "publish" });
+
+    // Nothing consents yet, so the running role claims nothing and says why by name.
+    await world.driver.step(new AbortController().signal);
+    expect(world.reportsFor(prepared!.operation_id)).toEqual([{ role: `release-outcome:transient:${prepared!.operation_id}`, code: "factory_release_consent_absent", reason: "no_consent" }]);
+    expect((await world.operationRows())[0]!.state).toBe("pending");
+
+    // A human approval through W05's production writers, then the role claims and publishes it.
+    const operation = (await world.releases.inspect(projectId, prepared!.operation_id))!;
+    const approval = await world.releases.requestApproval(principal, projectId, operation.operationId, world.consentExpiry(operation), operation.dispatchGeneration, `declared-approval-${sequence}`);
+    await world.assurance.decideApproval(principal, projectId, approval.approvalId, approval.contextDigest, true, `declared-decision-${sequence}`);
+    expect(await world.driver.step(new AbortController().signal)).toBe(true);
+    const settled = (await world.releases.inspect(projectId, operation.operationId))!;
+    expect(settled).toMatchObject({ state: "succeeded", outcomeCode: "confirmed" });
+
+    // The exact sealed bytes, under the declared prefix, and a manifest that names them.
+    // The recovery archive holds the validator's report under the validator attempt that produced
+    // it, read as that attempt's terminal output: never under the candidate's material scope.
+    const archived = await world.archiveWriter.readManifest(settled.materialArchive!, settled.materialDigest);
+    const evidence = archived.members.filter(member => member.role === "evidence");
+    expect(evidence).toHaveLength(1);
+    expect(evidence[0]).toMatchObject({ source: "attempt-output", scope: { attemptId: world.validatorAdmission.attemptId, runId: world.completed.task.run.runId } });
+    expect(archived.members.find(member => member.role === "candidate")?.scope.attemptId).toBe(world.completed.authority.attemptId);
+    const receipt = settled.receipt as FactoryS3ManifestReceipt;
+    publishedObjects.push(...receipt.files.map(file => ({ key: file.key, versionId: file.versionId })), { key: receipt.manifestKey, versionId: receipt.version });
+    expect(receipt.manifestKey).toBe(`${world.store.prefix}/${world.object}/${FACTORY_S3_MANIFEST_NAME}`);
+    expect(receipt.files.map(file => file.key)).toEqual(world.published.map(file => `${world.store.prefix}/${world.object}/${file.name}`));
+    for (const [index, file] of world.published.entries()) {
+      expect(new TextDecoder().decode((await world.read(receipt.files[index]!.key))!)).toBe(file.text);
+    }
+    const manifest = JSON.parse(new TextDecoder().decode((await world.read(receipt.manifestKey))!)) as { requestDigest: string };
+    expect(manifest.requestDigest).toBe(settled.requestDigest);
+
+    // A replayed command neither resolves again nor opens a second operation.
+    expect(await world.effects.requestRelease(world.service, world.releaseReference)).toBeNull();
+    expect((await world.operationRows()).map(row => row.operation_id)).toEqual([operation.operationId]);
+
+    // Delivered back to the run in the same pass: one node-result for the release command, whose
+    // output is the receipt, and the kernel completes the Release node and the run on it.
+    const [event] = await world.outcomeEvents(operation.operationId);
+    expect(await world.outcomeEvents(operation.operationId)).toHaveLength(1);
+    expect(event).toMatchObject({ kind: "node-result", nodeId: "release", commandId: world.releaseReference.commandId, output: { receipt: settled.receipt } });
+    const completedRun = advanceKernel(world.completed.task.compiled, world.acceptedAdvanced.nextState, event!);
+    expect(completedRun.nextState.nodes.release?.status).toBe("succeeded");
+    expect(completedRun.commands.map(command => command.kind)).toContain("complete-run");
+    // The event is applied once: the kernel ignores the same id a second time.
+    expect(advanceKernel(world.completed.task.compiled, completedRun.nextState, event!)).toEqual({ nextState: completedRun.nextState, commands: [] });
+    // Another pass, and a direct redelivery, write nothing new.
+    await world.driver.step(new AbortController().signal);
+    expect(await world.delivery.deliver(projectId, operation.operationId)).toEqual(event!);
+    expect(await world.outcomeEvents(operation.operationId)).toHaveLength(1);
+    expect(await world.delivery.undelivered()).toEqual([]);
+    await world.finish();
+  });
+
+  test("a settlement that crashed before its delivery is delivered once on the next pass, even when raced", async () => {
+    const world = await declaredS3Release();
+    expect(await world.effects.requestRelease(world.service, world.releaseReference)).toBeNull();
+    const [prepared] = await world.operationRows();
+    const operation = (await world.releases.inspect(projectId, prepared!.operation_id))!;
+    const approval = await world.releases.requestApproval(principal, projectId, operation.operationId, world.consentExpiry(operation), operation.dispatchGeneration, `crash-approval-${sequence}`);
+    await world.assurance.decideApproval(principal, projectId, approval.approvalId, approval.contextDigest, true, `crash-decision-${sequence}`);
+
+    // The process that settled it died before delivering: settled, and owed.
+    expect(await world.settlingOnly.step(new AbortController().signal)).toBe(true);
+    const crashed = (await world.releases.inspect(projectId, operation.operationId))!;
+    expect(crashed.state).toBe("succeeded");
+    const crashedReceipt = crashed.receipt as FactoryS3ManifestReceipt;
+    publishedObjects.push(...crashedReceipt.files.map(file => ({ key: file.key, versionId: file.versionId })), { key: crashedReceipt.manifestKey, versionId: crashedReceipt.version });
+    expect(await world.outcomeEvents(operation.operationId)).toEqual([]);
+    expect(await world.delivery.undelivered()).toContainEqual({ projectId, operationId: operation.operationId });
+
+    // Two workers find it at once; the inbox keeps one event, and both answer with it.
+    const [first, second] = await Promise.all([world.delivery.deliver(projectId, operation.operationId), world.delivery.deliver(projectId, operation.operationId)]);
+    expect(first).toEqual(second);
+    expect(await world.outcomeEvents(operation.operationId)).toEqual([first!]);
+    // The next pass owes nothing for it.
+    await world.driver.step(new AbortController().signal);
+    expect(await world.outcomeEvents(operation.operationId)).toHaveLength(1);
+    expect(await world.delivery.undelivered()).not.toContainEqual({ projectId, operationId: operation.operationId });
+    await world.finish();
+  });
+
+  test("an uncertain release enqueues nothing and stays visible; a failed one fails the Release node by name", async () => {
+    const world = await declaredS3Release();
+    expect(await world.effects.requestRelease(world.service, world.releaseReference)).toBeNull();
+    const [prepared] = await world.operationRows();
+    const operation = (await world.releases.inspect(projectId, prepared!.operation_id))!;
+    const approval = await world.releases.requestApproval(principal, projectId, operation.operationId, world.consentExpiry(operation), operation.dispatchGeneration, `uncertain-approval-${sequence}`);
+    await world.assurance.decideApproval(principal, projectId, approval.approvalId, approval.contextDigest, true, `uncertain-decision-${sequence}`);
+    // A provider whose answer is lost after the send: the operation is uncertain, not failed.
+    const lost = world.driverFor({ async resolve() { return { async publish() { throw new Error("the response was lost after the send"); } } as never; } }, world.delivery);
+    await lost.step(new AbortController().signal);
+    expect((await world.releases.inspect(projectId, operation.operationId))!.state).toBe("uncertain");
+    expect(await world.delivery.deliver(projectId, operation.operationId)).toBeNull();
+    expect(await world.outcomeEvents(operation.operationId)).toEqual([]);
+    expect(await world.delivery.undelivered()).not.toContainEqual({ projectId, operationId: operation.operationId });
+
+    // A settled failure answers the run with the operation's own outcome code.
+    await fixture.db.execute(sql`UPDATE factory_release_operations SET state='failed',outcome_code='destination_refused' WHERE tenant_id=${tenantId} AND project_id=${projectId} AND operation_id=${operation.operationId}`);
+    const failed = await world.delivery.deliver(projectId, operation.operationId);
+    expect(failed).toMatchObject({ kind: "node-failed", nodeId: "release", commandId: world.releaseReference.commandId, error: "destination_refused", failureKind: "execution" });
+    // Measured kernel behaviour, recorded rather than changed here: W09d's fix fails an acceptance or
+    // release node in place on `command-failed`, but a `node-failed` for a Release node still takes
+    // the task path, so the kernel answers with a `cancel-node` for a node that has no physical
+    // attempt. The kernel is W06's (see the gate file; on the backlog for W18's final gate).
+    const failedRun = advanceKernel(world.completed.task.compiled, world.acceptedAdvanced.nextState, failed!);
+    expect(failedRun.nextState.nodes.release?.status).toBe("stopping");
+    expect(failedRun.nextState.nodes.release?.error).toBe("destination_refused");
+    expect(failedRun.commands).toContainEqual(expect.objectContaining({ kind: "cancel-node", nodeId: "release" }));
+    expect(await world.outcomeEvents(operation.operationId)).toEqual([failed!]);
+    await world.finish();
+  });
+
+  test("a delivery can never reach another tenant, and a doctored receipt names no command", async () => {
+    const world = await declaredS3Release();
+    expect(await world.effects.requestRelease(world.service, world.releaseReference)).toBeNull();
+    const [prepared] = await world.operationRows();
+    const operation = (await world.releases.inspect(projectId, prepared!.operation_id))!;
+    await fixture.db.execute(sql`UPDATE factory_release_operations SET state='succeeded',receipt_json=${JSON.stringify({ forged: true })} WHERE tenant_id=${tenantId} AND project_id=${projectId} AND operation_id=${operation.operationId}`);
+
+    // Another tenant's delivery sees no such operation and owes nothing.
+    const foreign = new FactoryReleaseOutcomeDelivery({ database: fixture.db, tenantId: "foreign-tenant", service: { tenantId: "foreign-tenant", subject: "orchestration" }, effects: world.effects, authority: world.completed.task.authority, inbox: new FactoryInbox(fixture.db, "foreign-tenant") });
+    await expect(foreign.deliver(projectId, operation.operationId)).rejects.toMatchObject({ code: "factory_release_outcome_missing" });
+    expect(await foreign.undelivered()).toEqual([]);
+    expect(() => new FactoryReleaseOutcomeDelivery({ database: fixture.db, tenantId, service: { tenantId: "foreign-tenant", subject: "orchestration" }, effects: world.effects, authority: world.completed.task.authority, inbox: new FactoryInbox(fixture.db, tenantId) })).toThrow("factory_release_outcome_invalid");
+    await expect(fixture.db.transaction(transaction => world.effects.readReleaseCommandInTransaction(transaction, { ...operation, tenantId: "foreign-tenant" }))).rejects.toMatchObject({ code: "factory_protected_effect_scope" });
+
+    // A request digest the operation does not carry names no command.
+    expect(await fixture.db.transaction(transaction => world.effects.readReleaseCommandInTransaction(transaction, { ...operation, requestDigest: `sha256:${"0".repeat(64)}` }))).toBeUndefined();
+    // A doctored protected receipt is corrupt, never a command.
+    await fixture.db.execute(sql`UPDATE factory_protected_command_effects SET receipt_digest=${`sha256:${"0".repeat(64)}`} WHERE tenant_id=${tenantId} AND project_id=${projectId} AND command_id=${world.releaseReference.commandId}`);
+    await expect(fixture.db.transaction(transaction => world.effects.readReleaseCommandInTransaction(transaction, operation))).rejects.toMatchObject({ code: "factory_protected_effect_corrupt" });
+    await world.finish();
+  });
+
+  test("an evidence member from an unrelated attempt, or with no sealing record, is refused by name", async () => {
+    const world = await declaredS3Release();
+    expect(await world.effects.requestRelease(world.service, world.releaseReference)).toBeNull();
+    const [prepared] = await world.operationRows();
+    const operation = (await world.releases.inspect(projectId, prepared!.operation_id))!;
+    const sources = (evidence: unknown) => world.provenance.sourcesFor(tenantId, operation.operationId, { ...operation.material, evidence: [{ artifact: evidence }] } as never);
+    // The candidate task's own terminal output is an attempt output no validator assignment binds.
+    await expect(sources(world.completed.result.output)).rejects.toMatchObject({ code: "factory_archive_member_unbound" });
+    // An artifact with no sealing record anywhere is never read under the candidate's scope.
+    await expect(sources({ artifactId: "factory-artifact-never-sealed", digest: `sha256:${"9".repeat(64)}`, encodedBytes: 1 })).rejects.toMatchObject({ code: "factory_archive_member_scope_missing" });
+    // The pinned evidence itself resolves to the validator attempt that sealed it.
+    const pinned = await world.provenance.sourcesFor(tenantId, operation.operationId, operation.material);
+    expect(pinned.evidence).toEqual([expect.objectContaining({ source: "attempt-output", scope: expect.objectContaining({ attemptId: world.validatorAdmission.attemptId }) })]);
+    await world.finish();
+  });
+
+  test("a release node naming an account nobody declared is refused at prepare, with no operation", async () => {
+    const world = await declaredS3Release("undeclared-account");
+    await expect(world.effects.requestRelease(world.service, world.releaseReference)).rejects.toMatchObject({ code: "factory_s3_profile_invalid" });
+    expect(await world.operationRows()).toEqual([]);
+    expect(rows(await fixture.db.execute(sql`SELECT command_id FROM factory_protected_command_effects WHERE run_id=${world.completed.task.run.runId} AND kind='request-release'`))).toEqual([]);
+    await world.finish();
+  });
+
+  test("a revoked automatic policy and a rejected approval each fail the claim by name, and publish nothing", async () => {
+    const world = await declaredS3Release();
+    expect(await world.effects.requestRelease(world.service, world.releaseReference)).toBeNull();
+    const [prepared] = await world.operationRows();
+    const operation = (await world.releases.inspect(projectId, prepared!.operation_id))!;
+    const policyId = `declared-policy-${sequence}`;
+    await world.releases.createPolicy(principal, {
+      projectId, policyId, principal, action: operation.action, destinationProvider: "s3", destinationAccount: world.declaredAccount, destinationPrefix: "releases/",
+      contractDigest: operation.contractDigest, revision: 1, maxOperations: 5, maxSpendMicros: 1_000, expiresAtMs: world.consentExpiry(operation),
+    }, `${policyId}-create`);
+    await world.releases.revokePolicy(principal, projectId, policyId, 1, `${policyId}-revoke`);
+    await world.driver.step(new AbortController().signal);
+    expect(world.reportsFor(operation.operationId).at(-1)).toMatchObject({ code: "factory_release_consent_absent", reason: "policy_revoked" });
+    const approval = await world.releases.requestApproval(principal, projectId, operation.operationId, world.consentExpiry(operation), operation.dispatchGeneration, `${policyId}-approval`);
+    await world.assurance.decideApproval(principal, projectId, approval.approvalId, approval.contextDigest, false, `${policyId}-reject`);
+    await world.driver.step(new AbortController().signal);
+    expect(world.reportsFor(operation.operationId).at(-1)).toMatchObject({ code: "factory_release_consent_absent", reason: "approval_not_approved" });
+    expect((await world.operationRows())[0]!.state).toBe("pending");
+    expect(await world.read(`${world.store.prefix}/${world.object}/${FACTORY_S3_MANIFEST_NAME}`)).toBeNull();
+    await world.finish();
   });
 
   test("the inherited release mode is read from the live ancestry, and `none` narrows every descendant", async () => {

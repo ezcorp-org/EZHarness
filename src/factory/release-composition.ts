@@ -20,6 +20,7 @@ import {
   factoryArchiveFailureDomain,
   factoryArchivePublicationSet,
   S3FactoryArchiveInventory,
+  type FactoryArchiveAttemptOutputReader,
   type FactoryArchiveDenialAttempt,
   type FactoryArchiveDenialProbe,
   type FactoryArchiveMemberSources,
@@ -126,8 +127,10 @@ export interface FactoryArchiveCompositionOptions {
   readonly tenantId: string;
   readonly ordinary: FactoryStartupStorage;
   readonly archive: FactoryStartupStorage;
-  /** W04's one scoped reader. Every archived member is read through it. */
+  /** W04's one scoped reader. Every archived sealed-material member is read through it. */
   readonly reader: FactoryScopedArtifactReader;
+  /** W09c: the reader for members that are an attempt's terminal output, such as a validator's report. */
+  readonly outputs?: FactoryArchiveAttemptOutputReader;
   /** W07/W08 supply the pinned attempt scope a release operation archives from. */
   readonly resolveMembers: (tenantId: string, operationId: string, material: FactoryReleaseMaterial, signal?: AbortSignal) => FactoryArchiveMemberSources | Promise<FactoryArchiveMemberSources>;
   readonly denialProbe?: FactoryArchiveDenialProbe;
@@ -172,6 +175,7 @@ export function composeFactoryArchiveWriter(options: FactoryArchiveCompositionOp
   return new FactoryArchiveWriter({
     archive,
     reader: options.reader,
+    ...(options.outputs === undefined ? {} : { outputs: options.outputs }),
     publicationSet: factoryArchivePublicationSet(options.resolveMembers),
     failureDomain,
     inventory,

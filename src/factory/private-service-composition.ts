@@ -171,15 +171,21 @@ export interface FactoryPrivateServiceCompositionOptions {
   /**
    * The release adapters this installation trusts.
    *
-   * Empty by default, and that is a refusal rather than a gap being papered
-   * over: `requestRelease` answers `factory_protected_effect_untrusted` for an
-   * adapter no profile names. A profile pairs a definition's release-node
-   * adapter reference with the destination it publishes to, so it is a
-   * per-installation declaration and the startup document has no field for one
-   * yet. W05 owns `factorySynchronousReleaseProfile`; W07 owns the GitHub
-   * adapter it would lift.
+   * Composed from the startup document's `release.profiles` by
+   * `composeFactoryReleaseDestinations`, one per declared adapter. Absent when
+   * nothing is declared, and that is a refusal rather than a gap:
+   * `requestRelease` answers `factory_protected_effect_untrusted` for an
+   * adapter no profile names.
    */
   readonly releaseProfiles?: Iterable<FactoryReleaseCommandProfile>;
+  /**
+   * The installation's one protected-effects instance, when it built one.
+   *
+   * `release-outcome` reads the verified command behind a settled operation
+   * through the same instance that answers `request-release`. Absent, this
+   * service builds its own from the same collaborators.
+   */
+  readonly protectedEffects?: FactoryProtectedCommandEffects;
   /** The host's reporter, so a refusal this service could not classify is readable. */
   readonly report?: (role: string, error: unknown) => void;
   /**
@@ -216,7 +222,7 @@ export async function composeFactoryPrivateService(options: FactoryPrivateServic
 
   const releases = options.releases;
   const access = new FactoryArtifactAccess(database, config.tenantId, application.grants, application.artifacts);
-  const protectedEffects = new FactoryProtectedCommandEffects(
+  const protectedEffects = options.protectedEffects ?? new FactoryProtectedCommandEffects(
     database, config.tenantId, stores.authority,
     // `FactoryTaskCompletions` is only absent when the pool client is, and the
     // guard above already refused that case.

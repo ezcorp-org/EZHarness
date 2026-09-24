@@ -1063,6 +1063,7 @@
   "src/factory/runtime-composition.ts": 100,
   "src/factory/release-composition.ts": 100,
   "src/factory/release-declaration.ts": 100,
+  "src/factory/release-outcome-delivery.ts": 100,
   "src/factory/validator-declaration.ts": 100,
   "src/factory/validator-composition.ts": 100,
   "src/factory/validator-acceptance.ts": 100,
