@@ -189,7 +189,7 @@ describe("a local model the operator registered", () => {
     const broker = createFactoryProviderBroker({
       pin: OLLAMA,
       resolveCredential: async () => KEY,
-      stream: ((resolved: Model<Api>, context: unknown, options: unknown) => { sent.push(resolved); return answering("local")(resolved, context, options); }) as never,
+      stream: ((resolved: Model<Api>, context: unknown, options: unknown) => { sent.push(resolved); return (answering("local") as unknown as (...args: unknown[]) => unknown)(resolved, context, options); }) as never,
     });
     const answered = await (await broker.stream(request({ model: model(OLLAMA.provider, OLLAMA.model) }))).result();
     expect((answered.content[0] as { text: string }).text).toBe(`local:${KEY.token}`);

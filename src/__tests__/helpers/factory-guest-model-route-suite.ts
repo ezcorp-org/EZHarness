@@ -165,7 +165,7 @@ export function factoryGuestModelRouteConformance(createFixture: () => Promise<F
         headers: { authorization: `Bearer ${hostToken}` },
         body: Buffer.from(JSON.stringify({ attemptToken: token, payload })),
       });
-      const body = JSON.parse(response.body.toString("utf8")) as unknown;
+      const body = JSON.parse(new TextDecoder().decode(response.body)) as unknown;
       if (response.status !== 200) throw new Error(`route answered ${response.status}: ${JSON.stringify(body)}`);
       return body;
     };
