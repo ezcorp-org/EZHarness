@@ -2,6 +2,7 @@ import type { FactoryPrivateRequest, FactoryPrivateResponse } from "../private-h
 import { verifyFactoryAttemptToken } from "../attempt-token";
 import type { FactoryAttemptAuthority } from "../executions";
 import { verifyPoolToken, type PoolTokenVerifierOptions } from "../pool/service-token";
+import { FACTORY_GUEST_BROKER_MAX_BODY_BYTES, FACTORY_GUEST_BROKER_PATH, FACTORY_GUEST_BROKER_SCOPE } from "./guest-broker-contract";
 import type { FactoryGuestMaterialFrameBroker } from "./guest-material-broker";
 
 /**
@@ -29,14 +30,6 @@ import type { FactoryGuestMaterialFrameBroker } from "./guest-material-broker";
  * carries the host's own token. It is never logged and never leaves this
  * function.
  */
-
-export const FACTORY_GUEST_BROKER_PATH = "/v1/guest/broker";
-
-/** One staging frame plus its own base64 chunk, with room for the JSON envelope. */
-export const FACTORY_GUEST_BROKER_MAX_BODY_BYTES = 128 * 1024;
-
-/** The scope a host's bearer token must carry to forward a guest frame. */
-export const FACTORY_GUEST_BROKER_SCOPE = "factory:guest-broker";
 
 export interface FactoryGuestBrokerServiceOptions {
   /** Each host that may forward a guest frame: its mTLS peer identity, and the host id it runs as. */

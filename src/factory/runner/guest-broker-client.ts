@@ -1,6 +1,6 @@
 import { createGatewayTransport, type GatewayTransportOptions } from "@ezcorp/factory-transport";
 import { isFactoryGuestMaterialFrame, validateFactoryGuestMaterialResponse, type FactoryGuestMaterialResponse, type FactoryRunnerRequest } from "@ezcorp/factory-sdk";
-import { FACTORY_GUEST_BROKER_MAX_BODY_BYTES, FACTORY_GUEST_BROKER_PATH } from "./guest-broker-service";
+import { FACTORY_GUEST_BROKER_MAX_BODY_BYTES, FACTORY_GUEST_BROKER_PATH } from "./guest-broker-contract";
 import { FactoryGuestFrameError } from "./guest-frames";
 import type { FactoryGuestBroker } from "./guest-model-broker";
 
