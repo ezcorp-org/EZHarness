@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { up as addSandboxController } from "../db/migrations/add-sandbox-controller";
 import * as schema from "../db/schema";
+import { reconcileIncusWithClaimedCleanup } from "../infrastructure/incus-startup";
 import {
   SandboxController,
   type SandboxProviderDispatcher,
@@ -73,6 +74,49 @@ afterEach(async () => {
 });
 
 describe("SandboxController durable dispatch", () => {
+  test("general reconciliation skips an SP05 journal inserted after its startup check", async () => {
+    const { db } = await setup("sp05-fence");
+    const provider = new FakeProvider();
+    provider.dispatchHandler = async request => ({ outcome: "SUCCEEDED",
+      observedState: request.kind === "DESTROY" ? "ABSENT" : "RUNNING" });
+    const controller = new SandboxController(db, provider);
+    const recovery = await binding(controller, "sp05-fence", "sp05-binding");
+    await db.insert(schema.projects).values({ id: "sp05-neighbor", name: "sp05-neighbor",
+      path: "/work/sp05-neighbor" });
+    const unrelated = await binding(controller, "sp05-neighbor", "unrelated-binding");
+    let releaseRead!: () => void;
+    let readStarted!: () => void;
+    const checked = new Promise<void>(resolve => { readStarted = resolve; });
+    const allowRead = new Promise<void>(resolve => { releaseRead = resolve; });
+    let sp05Id = "";
+    let ordinaryId = "";
+    const tick = reconcileIncusWithClaimedCleanup({
+      checkpoints: { pendingCleanup: async () => { readStarted(); await allowRead; return null; },
+        fail: async () => { throw new Error("unexpected failure transition"); } },
+      recover: async () => { throw new Error("unexpected recovery"); },
+      verifySettled: async () => { throw new Error("unexpected settlement"); },
+      reconcile: async () => {
+        // The witness publishes its journal after the empty startup read.
+        sp05Id = (await controller.journalOperation({ bindingId: recovery.id, kind: "DESTROY",
+          generation: 1, idempotencyScope: "incus-qualification",
+          idempotencyKey: "qual-recovery-run-one:destroy", payload: {} })).id;
+        ordinaryId = (await controller.journalOperation({ bindingId: unrelated.id, kind: "START",
+          generation: 1, idempotencyScope: "feature", idempotencyKey: "start-one", payload: {} })).id;
+        expect((await controller.reconcile()).examined).toBe(1);
+      },
+    });
+    await checked;
+    releaseRead();
+    await tick;
+    expect((await controller.getOperation(sp05Id))?.state).toBe("JOURNALED");
+    expect((await controller.getOperation(ordinaryId))?.state).toBe("SUCCEEDED");
+    expect(provider.dispatches.map(request => request.operationId)).toEqual([ordinaryId]);
+    expect((await controller.reconcile(1, ordinaryId)).examined).toBe(0);
+    expect((await controller.reconcile(1, sp05Id)).examined).toBe(1);
+    expect((await controller.getOperation(sp05Id))?.state).toBe("SUCCEEDED");
+    expect(provider.dispatches.map(request => request.operationId)).toEqual([ordinaryId, sp05Id]);
+  });
+
   test("a reserved UUID is journaled exactly and replay keeps the first receipt", async () => {
     const { db } = await setup("reserved-id");
     const controller = new SandboxController(db, new FakeProvider());

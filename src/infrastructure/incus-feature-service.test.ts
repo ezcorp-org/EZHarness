@@ -265,7 +265,7 @@ test("uncertain fixture destroy denies Ready until the original operation confir
   await configureAdmission();
   const presetDigest = await sandboxPresetDigest(preset);
   const effectiveSettingsDigest = digest({ presetDigest, connectionRevision: 1 });
-  const fixtureOperationId = "qualification-fixture";
+  const fixtureOperationId = "qual-recovery-run-one";
   const bindingId = "qualification-binding";
   const fixtureProjectId = "qualification-project";
   await db.insert(schema.projects).values({ id: fixtureProjectId, name: fixtureProjectId,
@@ -297,12 +297,16 @@ test("uncertain fixture destroy denies Ready until the original operation confir
 
   // Reconciliation inspects the same operation. A provider absence receipt by
   // itself is insufficient: the retained disk still needs its cleanup intent.
-  await controller.reconcile();
+  await service.reconcile();
+  expect((await controller.getOperation(destroy.id))?.state).toBe("OUTCOME_UNKNOWN");
+  await controller.reconcile(1, destroy.id);
   expect((await controller.getOperation(destroy.id))?.state).toBe("SUCCEEDED");
   expect((await controller.getBinding(bindingId))?.cleanupConfirmedAt).toBeInstanceOf(Date);
   expect((await admission.getReservation(bindingId))?.diskState).toBe("RELEASE_REQUESTED");
   await expect(service.prepare(input)).rejects.toMatchObject({ code: "QUALIFICATION_CLEANUP_UNVERIFIED" });
   await service.reconcile();
+  expect((await admission.getReservation(bindingId))?.diskState).toBe("RELEASE_REQUESTED");
+  await service.reconcile(1, destroy.id);
   expect((await admission.getReservation(bindingId))?.diskState).toBe("RELEASED");
   expect((await controller.getOperation(destroy.id))?.id).toBe(destroy.id);
   await db.update(schema.sandboxBindings).set({ cleanupConfirmedAt: null })

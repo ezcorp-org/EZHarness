@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { and, asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, ne, not, sql } from "drizzle-orm";
 import type { Database, DbTransaction } from "../db/connection";
 import {
   sandboxBindings,
@@ -26,6 +26,14 @@ const RECONCILE_STATES: SandboxOperationState[] = [
   "OUTCOME_UNKNOWN",
 ];
 const RESERVED_OPERATION_ID = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
+
+/** The operator SP05 witness alone settles these journals after checking its
+ * claimed run and exact fixture. A general background poll must skip them. */
+export const operatorRecoveryDestroy = and(
+  eq(sandboxOperations.kind, "DESTROY"),
+  eq(sandboxOperations.idempotencyScope, "incus-qualification"),
+  sql`${sandboxOperations.idempotencyKey} ~ ${"^qual-recovery-[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}:destroy$"}`,
+)!;
 
 export type SandboxControllerErrorCode =
   | "BINDING_NOT_FOUND"
@@ -521,11 +529,15 @@ export class SandboxController {
   }
 
   /** Inspect at most one configured batch. Uncertain external effects are never redispatched. */
-  async reconcile(requestedLimit = this.#maxReconcileBatch): Promise<ReconcileResult> {
+  async reconcile(requestedLimit = this.#maxReconcileBatch,
+    operatorRecoveryOperationId?: string): Promise<ReconcileResult> {
     const requested = Number.isFinite(requestedLimit) ? Math.trunc(requestedLimit) : this.#maxReconcileBatch;
     const limit = Math.min(Math.max(1, requested), this.#maxReconcileBatch);
     const candidates = await this.db.select().from(sandboxOperations)
-      .where(inArray(sandboxOperations.state, RECONCILE_STATES))
+      .where(and(inArray(sandboxOperations.state, RECONCILE_STATES),
+        operatorRecoveryOperationId
+          ? and(eq(sandboxOperations.id, operatorRecoveryOperationId), operatorRecoveryDestroy)
+          : not(operatorRecoveryDestroy)))
       .orderBy(sql`${sandboxOperations.reconcileOrder} ASC NULLS FIRST`, asc(sandboxOperations.createdAt), asc(sandboxOperations.id))
       .limit(limit);
     const result: ReconcileResult = {

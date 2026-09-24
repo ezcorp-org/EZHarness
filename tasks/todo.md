@@ -1712,3 +1712,14 @@ The red test showed a fresh controller lost the pending destroy identity. The re
 Review: Eleven cutover tests pass. A real child holding the parent directory is denied, and the root descriptor scan passes on the current host. The script and runbook remain preparation only; no live app, database, or Incus state changed. The separate SP05 reconciler race is still under repair.
 
 Follow-up review: The runner token and socket parent paths now reject an old-UID-owned or group/world-writable ancestor. The new path test passes; twelve cutover tests pass. Live cutover remains pending.
+
+## SP05 background reconciliation race — 2026-09-24
+
+- [x] Reproduce a journal inserted after the startup cleanup read and before general reconciliation.
+- [x] Exclude the strict SP05 destroy shape from general operation and settlement queries.
+- [x] Let the dedicated recovery path select only its saved operation ID.
+- [x] Show unrelated reconciliation still proceeds; run focused tests, typecheck, and lint.
+
+### Review
+
+A controlled barrier publishes the SP05 journal after the empty startup read. General reconciliation leaves it JOURNALED while it completes an unrelated START. The dedicated call then settles only the saved SP05 ID. The focused controller, feature service, and recovery suites pass (27 tests). Backend/web/test typecheck and Biome pass. No live app or server was changed.

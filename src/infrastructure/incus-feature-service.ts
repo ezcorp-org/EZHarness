@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { and, asc, eq, inArray, ne, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, ne, not, or, sql } from "drizzle-orm";
 import {
   sandboxPresetDigest,
   validateSandboxProviderMethodExchange,
@@ -11,7 +11,7 @@ import { incusQualificationFixtures, projects, sandboxBindings, sandboxOperation
 import { getReleaseRuntime, ReleaseProcess, resolveActiveRelease, type ActiveExtensionRelease } from "../extensions/release-process";
 import { assertSandboxPresetReady } from "../extensions/v4/sandbox-preset-qualification";
 import { SandboxAdmissionStore, type SandboxResourceVector } from "../sandboxes/admission";
-import { SandboxController } from "../sandboxes/controller";
+import { SandboxController, operatorRecoveryDestroy } from "../sandboxes/controller";
 import { IncusSandboxProviderDispatcher } from "../sandboxes/incus-dispatcher";
 import { IncusMethodCaller } from "./incus-method-caller";
 import { callRetiredIncusCleanup } from "./incus-retired-cleanup";
@@ -446,14 +446,17 @@ export class IncusFeatureService {
     await this.settle(operation);
   }
 
-  async reconcile(limit?: number): Promise<ReturnType<SandboxController["reconcile"]> extends Promise<infer T> ? T : never> {
-    const result = await this.controller.reconcile(limit);
+  async reconcile(limit?: number, operatorRecoveryOperationId?: string): Promise<ReturnType<SandboxController["reconcile"]> extends Promise<infer T> ? T : never> {
+    const result = await this.controller.reconcile(limit, operatorRecoveryOperationId);
     const requested = limit === undefined || !Number.isFinite(limit) ? 100 : Math.trunc(limit);
     const settlementLimit = Math.min(Math.max(1, requested), 100);
     const completed = await this.db.select({ operation: sandboxOperations }).from(sandboxOperations)
       .innerJoin(sandboxBindings, eq(sandboxBindings.currentOperationId, sandboxOperations.id))
       .innerJoin(sandboxReservations, eq(sandboxReservations.bindingId, sandboxBindings.id))
       .where(and(eq(sandboxOperations.state, "SUCCEEDED"),
+        operatorRecoveryOperationId
+          ? and(eq(sandboxOperations.id, operatorRecoveryOperationId), operatorRecoveryDestroy)
+          : not(operatorRecoveryDestroy),
         eq(sandboxOperations.generation, sandboxBindings.generation),
         eq(sandboxReservations.generation, sandboxBindings.generation),
         or(

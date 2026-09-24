@@ -238,7 +238,7 @@ export class IncusLiveCleanupController {
         "PROVIDER_PENDING", "OUTCOME_UNKNOWN"])).limit(2);
     requireCleanup(candidates.length === 1 && candidates[0]?.id === operationId,
       "another pending operation blocks exact recovery");
-    await this.freshFeatureGate().reconcile(1);
+    await this.freshFeatureGate().reconcile(1, operationId);
     await this.freshFeatureGate().settleCompletedOperation(operationId);
     await this.verifySettledDestroy(scope, handle, operationId);
   }
