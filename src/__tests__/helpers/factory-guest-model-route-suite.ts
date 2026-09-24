@@ -184,7 +184,9 @@ export function factoryGuestModelRouteConformance(createFixture: () => Promise<F
   }
 
   async function operationRows(attempt: Attempt) {
-    return releaseRows<{ operation_id: string; state: string; kind: string; provider_receipt_digest: string | null; result_json: unknown }>(await fixture.db.execute(sql`SELECT operation_id, state, kind, provider_receipt_digest, result_json FROM factory_execution_operations WHERE attempt_id=${attempt.authority.attemptId} ORDER BY operation_index`));
+    // Copied into plain objects: a real PostgreSQL driver's rows are not, and
+    // an object matcher compares prototypes as well as fields.
+    return releaseRows<{ operation_id: string; state: string; kind: string; provider_receipt_digest: string | null; result_json: unknown }>(await fixture.db.execute(sql`SELECT operation_id, state, kind, provider_receipt_digest, result_json FROM factory_execution_operations WHERE attempt_id=${attempt.authority.attemptId} ORDER BY operation_index`)).map(row => ({ ...row }));
   }
 
   test("a pinned guest completes an attempt that called its model, and its result mirrors the journal exactly", async () => {

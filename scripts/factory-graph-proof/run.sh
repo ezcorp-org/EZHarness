@@ -19,6 +19,9 @@
 # Run it under the shared heavy lock, with the timeout inside the lock:
 #   flock --close /tmp/ezcorp-validation-heavy.lock timeout 5400 scripts/factory-graph-proof/run.sh all
 set -uo pipefail
+# The mock mode opens the test surface, which also requires NODE_ENV not to be
+# "production"; other code paths change under "test", so it is left unset.
+unset NODE_ENV
 REPO=$(cd "$(dirname "$0")/../.." && pwd)
 export PATH=/tmp/factory-tools/bun-1.3.14/bun-linux-x64:$PATH
 export W19A_REPO=$REPO

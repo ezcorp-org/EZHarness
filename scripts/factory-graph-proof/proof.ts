@@ -95,7 +95,7 @@ stack = await startStack({
   runnerProfiles: () => graphRunnerProfiles(graphReferences(build!.guest, pin), pin),
   // The mock mode's provider is the product's own in-process fake, which only
   // resolves with the test surface open. The ollama mode leaves it closed.
-  webEnv: MODE === "mock" ? { PI_E2E_REAL: "1", EZCORP_ALLOW_TEST_SURFACE: "1", NODE_ENV: "test" } : {},
+  webEnv: MODE === "mock" ? { PI_E2E_REAL: "1", EZCORP_ALLOW_TEST_SURFACE: "1" } : {},
 });
 if (!record.ready) await finish(`the server never reported ready: ${JSON.stringify({ orchestration: record.orchestration, hostProcesses: record.hostProcesses })}`);
 const api = stack.session;
