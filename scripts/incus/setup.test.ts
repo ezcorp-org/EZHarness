@@ -74,8 +74,14 @@ function bootstrapInventory(overrides: Partial<IncusInventory> = {}): IncusInven
 }
 
 describe("reviewed Incus SSH gate", () => {
+  const validateServerPolicy = (policy: unknown) => {
+    const source = "import importlib.util,json,sys; s=importlib.util.spec_from_file_location('gate',sys.argv[1]); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); m.validate_policy(json.loads(sys.argv[2]))";
+    const checked = Bun.spawnSync(["python3", "-c", source, join(import.meta.dir, "ssh-gate.py"), JSON.stringify(policy)]);
+    expect(checked.exitCode).toBe(0);
+  };
   test("the bootstrap policy has only fixed inventory reads", () => {
     const policy = createReadOnlySshGatePolicy();
+    validateServerPolicy(policy);
     expect(policy.commands.length).toBeGreaterThan(15);
     expect(policy.commands.every(command => command.stdinSha256 === undefined)).toBe(true);
     expect(policy.commands.some(command => command.argv.includes("create") || command.argv.includes("set") || command.argv.includes("add-certificate"))).toBe(false);
@@ -85,6 +91,7 @@ describe("reviewed Incus SSH gate", () => {
     const current = bootstrapInventory({ connection: { ...bootstrapInventory().connection, sshMode: "reviewed-envelope-v1" } });
     const plan = createImageBootstrapPlan(reviewed, current);
     const policy = createSshGatePolicy(reviewed, current, plan);
+    validateServerPolicy(policy);
     expect(policy.planDigest).toBe(plan.planDigest);
     expect(policy.commands.some(command => command.write === true && command.argv.join(" ") === `incus storage create ${reviewed.storage.name} ${reviewed.storage.driver} size=${reviewed.storage.size} volume.size=${reviewed.storage.defaultVolumeSize}`)).toBe(true);
     expect(policy.commands.some(command => command.argv.includes("delete"))).toBe(false);
@@ -97,6 +104,17 @@ describe("reviewed Incus SSH gate", () => {
     expect(JSON.parse(sshGateRequest(["incus", "query", "/1.0"], undefined, plan.planDigest)).planDigest).toBe(plan.planDigest);
     expect(() => sshGateRequest(["incus", "query", "/1.0"], undefined, "wrong")).toThrow("Invalid Incus SSH plan digest");
     expect(() => sshGateRequest(["incus", "query", "/1.0"], "x".repeat(64 * 1024))).toThrow("64 KiB");
+  });
+  test("the full setup policy uses only server-recognized read commands", () => {
+    const source = checkedInRecipe as IncusSetupRecipe;
+    const reviewed: IncusSetupRecipe = { ...source, providerClient: { name: "engine", certificateFingerprint: "b".repeat(64),
+      certificatePem: pem, projects: [source.project.name], restricted: true } };
+    const base = bootstrapInventory();
+    const current = bootstrapInventory({ connection: { ...base.connection, sshMode: "reviewed-envelope-v1" },
+      images: [{ fingerprint: source.guestImage!.fingerprint!, aliases: [source.guestImage!.alias] }] });
+    const plan = createSetupPlan(reviewed, current);
+    expect(plan.status).toBe("ready");
+    validateServerPolicy(createSshGatePolicy(reviewed, current, plan));
   });
 });
 

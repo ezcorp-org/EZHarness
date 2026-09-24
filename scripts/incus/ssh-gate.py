@@ -4,6 +4,7 @@
 import hashlib
 import json
 import os
+import re
 from datetime import datetime, timezone, timedelta
 import selectors
 import signal
@@ -20,6 +21,49 @@ TIMEOUT = 55
 MAX_WRITE_WINDOW = timedelta(minutes=20)
 EXECUTABLES = {"hostnamectl", "cat", "uname", "nproc", "getconf", "df", "stat",
                "timedatectl", "systemctl", "incus", "ip"}
+READ_ONLY_COMMANDS = {
+    ("hostnamectl", "--static"), ("cat", "/etc/os-release"), ("uname", "-r"), ("uname", "-m"),
+    ("nproc",), ("getconf", "_PHYS_PAGES"), ("getconf", "PAGESIZE"),
+    ("df", "-B1", "--output=avail", "/"), ("stat", "-f", "-c", "%T", "/sys/fs/cgroup"),
+    ("timedatectl", "show", "--property=NTPSynchronized", "--value"),
+    ("systemctl", "is-active", "incus.service"), ("incus", "version"),
+    ("incus", "query", "/1.0"), ("incus", "project", "list", "--format=json"),
+    ("incus", "storage", "list", "--format=json"),
+    ("incus", "network", "list", "--all-projects", "--format=json"),
+    ("incus", "profile", "list", "--all-projects", "--format=json"),
+    ("incus", "list", "--all-projects", "--format=json"),
+    ("incus", "config", "trust", "list", "--format=json"),
+    ("incus", "image", "list", "--project=default", "--format=json"),
+    ("ip", "-j", "route", "show", "table", "all"), ("ip", "-j", "address", "show"),
+    ("cat", "/proc/meminfo"), ("cat", "/proc/loadavg"),
+    ("cat", "/proc/sys/kernel/threads-max"), ("cat", "/proc/sys/kernel/pid_max"),
+    ("incus", "config", "get", "core.https_address"),
+}
+SAFE_NAME = r"[a-z][a-z0-9-]{0,62}"
+PROFILE_KEYS = {"limits.cpu", "limits.memory", "limits.memory.enforce", "limits.processes",
+                "security.idmap.isolated", "security.nesting", "security.privileged"}
+
+
+def is_read_only_argv(argv):
+    values = tuple(argv)
+    if values in READ_ONLY_COMMANDS:
+        return True
+    if len(argv) == 3 and argv[:2] == ["incus", "query"]:
+        path = argv[2]
+        return bool(re.fullmatch(rf"/1\.0/(?:storage-pools|projects|certificates)/{SAFE_NAME}", path) or
+            re.fullmatch(r"/1\.0/certificates/[a-f0-9]{64}", path) or
+            re.fullmatch(rf"/1\.0/networks/{SAFE_NAME}\?project=default", path) or
+            re.fullmatch(rf"/1\.0/profiles/{SAFE_NAME}\?project={SAFE_NAME}", path))
+    if len(argv) == 4 and argv[:3] == ["incus", "--force-local", "query"]:
+        return bool(re.fullmatch(rf"/1\.0/storage-pools/{SAFE_NAME}/resources", argv[3]))
+    if len(argv) == 7 and argv[:3] == ["incus", "profile", "get"]:
+        return bool(re.fullmatch(SAFE_NAME, argv[3]) and argv[4] in PROFILE_KEYS and
+                    argv[5] == "--project" and re.fullmatch(SAFE_NAME, argv[6]))
+    if len(argv) == 9 and argv[:4] == ["incus", "profile", "device", "get"]:
+        return bool(re.fullmatch(SAFE_NAME, argv[4]) and argv[5] in ("eth0", "root") and
+                    argv[6] in ("security.port_isolation", "type") and argv[7] == "--project" and
+                    re.fullmatch(SAFE_NAME, argv[8]))
+    return False
 
 
 class Denied(Exception):
@@ -63,6 +107,8 @@ def validate_policy(policy):
         if "stdinSha256" in command and (not isinstance(command["stdinSha256"], str) or
             len(command["stdinSha256"]) != 64 or any(c not in "0123456789abcdef" for c in command["stdinSha256"])):
             raise Denied("invalid input digest")
+        if command.get("write") is not True and ("stdinSha256" in command or not is_read_only_argv(argv)):
+            raise Denied("command cannot be classified as read-only")
     has_writes = any(command.get("write") is True for command in policy["commands"])
     if has_writes != ("writeExpiresAt" in policy):
         raise Denied("write policy requires an absolute expiry")
@@ -105,6 +151,8 @@ def authorize(policy, original, payload, now=None):
     matches = [command for command in policy["commands"] if {key: value for key, value in command.items() if key != "write"} == candidate]
     if len(matches) != 1:
         raise Denied("command is outside the reviewed plan")
+    if matches[0].get("write") is not True and not is_read_only_argv(argv):
+        raise Denied("command cannot be classified as read-only")
     if matches[0].get("write") is True:
         if plan_digest is None:
             raise Denied("a reviewed plan digest is required for server writes")

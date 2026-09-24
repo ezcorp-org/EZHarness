@@ -99,6 +99,23 @@ class ReviewedCommandGateTest(unittest.TestCase):
         with self.assertRaisesRegex(gate.Denied, "lifetime exceeds"):
             gate.validate_policy(self.policy)
 
+    def test_unclassified_writes_cannot_hide_in_read_only_policy(self):
+        for argv in (
+            ["incus", "config", "set", "core.https_address=0.0.0.0:8443"],
+            ["incus", "config", "trust", "add-certificate", "-", "--name", "admin"],
+            ["incus", "project", "create", "other"],
+            ["incus", "profile", "set", "compose", "security.privileged=true", "--project", "ezharness"],
+            ["cat", "/etc/shadow"],
+            ["incus", "query", "/1.0/projects/ezharness", "-X", "DELETE"],
+            ["incus", "profile", "get", "compose", "limits.cpu", "--project"],
+        ):
+            with self.subTest(argv=argv):
+                unclassified = {"version": 1, "planDigest": "b" * 64, "commands": [{"argv": argv}]}
+                with self.assertRaisesRegex(gate.Denied, "cannot be classified as read-only"):
+                    gate.validate_policy(unclassified)
+                with self.assertRaisesRegex(gate.Denied, "cannot be classified as read-only"):
+                    gate.authorize(unclassified, gate.ORIGINAL_COMMAND, {"version": 1, "argv": argv})
+
     def test_policy_cannot_authorize_shell_or_unbounded_arguments(self):
         self.policy["commands"].append({"argv": ["sh", "-c", "id"]})
         with self.assertRaises(gate.Denied):
