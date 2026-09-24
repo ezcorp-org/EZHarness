@@ -188,17 +188,6 @@ describe("C12 the pool service process runs on Node", () => {
   });
 });
 
-/** The pool service is a Node process: it must never link the product's Bun database driver. */
-const POOL_SERVICE_ENTRY = "src/factory/pool/service-server.ts";
-
-describe("C12 the pool service process runs on Node", () => {
-  test("its entry bundles for the Node target", async () => {
-    const result = await Bun.build({ entrypoints: [resolve(REPO_ROOT, POOL_SERVICE_ENTRY)], target: "node", format: "esm", throw: false });
-    expect(result.logs.filter((log) => log.level === "error").map(String)).toEqual([]);
-    expect(result.success).toBe(true);
-  });
-});
-
 describe("C05 the host supervisor holds only host identity", () => {
   test("its own module links no tenant store, credential broker, or database", () => {
     const closure = runtimeClosure(["src/factory/runner/supervisor.ts"]);

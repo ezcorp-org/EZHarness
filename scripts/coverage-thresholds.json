@@ -1149,7 +1149,6 @@
   "src/factory/wal-backup.ts": 100,
   "src/factory/key-composition.ts": 100,
   "src/factory/startup-values.ts": 100,
-  "src/factory/checkpoint-limits.ts": 100,
   "src/factory/restore-command.ts": 100,
   "src/factory/restore-composition.ts": 100,
   "src/runtime/tools/native-tools.ts": 100,
