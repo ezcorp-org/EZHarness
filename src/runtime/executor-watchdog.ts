@@ -30,6 +30,11 @@ function envIdleMs(name: string, fallback: number): number {
 export const WATCHDOG_TICK_MS = 15_000;
 const WATCHDOG_IDLE_MS = envIdleMs("EZCORP_WATCHDOG_IDLE_MS", 90_000);
 const HEARTBEAT_REFRESH_MS = 30_000;
+// A gap between two ticks this much longer than WATCHDOG_TICK_MS means the
+// process was frozen — in practice the host slept (laptop lid closed, a
+// Colima/Podman VM paused). Timers catch up on wake, so the idle clock jumps
+// by the whole sleep and the run trips the moment the machine wakes.
+const SUSPEND_GAP_MS = 4 * WATCHDOG_TICK_MS;
 
 // Reasoning models (OpenAI gpt-5.x / o-series on the Codex/Responses path,
 // and any other model pi-ai flags `reasoning: true`) routinely go SILENT —
@@ -169,6 +174,12 @@ export class WatchdogManager {
   // cause (permission gate → tool in flight) still print, and `since`
   // gives the resume line a real duration instead of a bare event.
   private deferState = new Map<string, { reason: string; since: number }>();
+  // Per-run tick bookkeeping for suspend detection: when the previous tick
+  // ran, and how much of the current idle stretch the process spent frozen
+  // (reset by any real activity). Used only to word the kill reason — a
+  // "no activity" error after a sleep reads like a hung model otherwise.
+  private lastTickAt = new Map<string, number>();
+  private suspendedMs = new Map<string, number>();
   private orphanInterval: ReturnType<typeof setInterval> | undefined;
 
   constructor(private host: WatchdogHost) {}
@@ -234,6 +245,7 @@ export class WatchdogManager {
    *  uses this to distinguish "actually working" from "leaked promise that keeps the run alive". */
   bumpActivity(runId: string): void {
     this.lastActivityAt.set(runId, Date.now());
+    this.suspendedMs.delete(runId);
   }
 
   /**
@@ -370,6 +382,13 @@ export class WatchdogManager {
       const now = Date.now();
       const last = this.lastActivityAt.get(runId) ?? run.startedAt;
       const idleMs = now - last;
+      const prevTick = this.lastTickAt.get(runId);
+      this.lastTickAt.set(runId, now);
+      if (prevTick !== undefined && now - prevTick >= SUSPEND_GAP_MS) {
+        const frozen = now - prevTick - WATCHDOG_TICK_MS;
+        this.suspendedMs.set(runId, (this.suspendedMs.get(runId) ?? 0) + frozen);
+        log.warn("Watchdog: process was suspended", { runId, conversationId, suspendedMs: frozen });
+      }
       // Model-aware idle ceiling: reasoning models get a wider window (see
       // resolveIdleThreshold). Resolved every tick so a mid-run setModel /
       // setThinkingLevel takes effect immediately.
@@ -426,6 +445,12 @@ export class WatchdogManager {
         // and the run-level reason is a single string anyway.
         const runMap = this.inflightTools.get(runId);
         let reason = `Watchdog: no activity for ${Math.round(idleMs / 1000)}s`;
+        const suspended = this.suspendedMs.get(runId) ?? 0;
+        if (suspended >= idleMs / 2) {
+          reason +=
+            ` — the computer was asleep or suspended for about ${Math.round(suspended / 60_000) || 1} min` +
+            ` during this run, which interrupts the model connection. Send your message again to retry.`;
+        }
         if (runMap) {
           for (const info of runMap.values()) {
             // Defensive: requiresUserInput tools never produce a
@@ -573,6 +598,8 @@ export class WatchdogManager {
     }
     this.lastActivityAt.delete(runId);
     this.lastHeartbeatWriteAt.delete(runId);
+    this.lastTickAt.delete(runId);
+    this.suspendedMs.delete(runId);
     this.inflightTools.delete(runId);
     this.persistError.delete(runId);
     // Same lifetime as the other per-run clocks: a run that dies mid-defer
@@ -596,6 +623,8 @@ export class WatchdogManager {
     this.heartbeats.clear();
     this.lastActivityAt.clear();
     this.lastHeartbeatWriteAt.clear();
+    this.lastTickAt.clear();
+    this.suspendedMs.clear();
     this.inflightTools.clear();
     this.persistError.clear();
     this.deferState.clear();
