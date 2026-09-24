@@ -15,10 +15,11 @@
  * The document carries references — paths, endpoints, identities — and never a
  * credential value, matching `parseFactoryOrchestratorProcessConfig`.
  */
-import { basename, dirname, resolve } from "node:path";
-import { privateDirectory, readPrivateBounded } from "./private-files";
+import { resolve } from "node:path";
 import { wellFormedFactoryKeyManagement, type FactoryKeyManagement } from "./key-management";
-import { exactKeys, httpsUrl, record, wellFormed, type FieldKind } from "./startup-values";
+import { isPlainRecord } from "./plain-values";
+import { readPrivatePath } from "./private-files";
+import { exactKeys, httpsUrl, wellFormed, type FieldKind } from "./startup-values";
 
 export const FACTORY_STARTUP_CONFIG_SCHEMA = "factory.startup.v1";
 const MAX_CONFIG_BYTES = 64 * 1024;
@@ -163,6 +164,24 @@ export interface FactoryStartupConfig {
     readonly destinations: readonly FactoryStartupReleaseDestination[];
     readonly profiles: readonly FactoryStartupReleaseProfile[];
   };
+  /**
+   * The trusted validator runtimes this installation runs protected claims on.
+   *
+   * A validator runtime is a pinned deployment fact: which runner judges a
+   * claim, in which environment, under which configuration. No factory
+   * definition can state it, because a definition that named its own judge
+   * would be trusting itself. So each runtime is declared here BY REFERENCE —
+   * a private material file and the digest it must have — and the composition
+   * reads it through the private bounded reader and refuses by name when it is
+   * missing, shared, or not the bytes the operator declared.
+   *
+   * Optional. An installation that declares none cannot accept a protected
+   * claim, and its readiness says so; a default runtime would be a judge
+   * nobody chose.
+   */
+  readonly validators?: {
+    readonly runtimes: readonly FactoryStartupValidatorRuntime[];
+  };
   readonly workers?: FactoryWorkerTuning;
   /**
    * The tenant namespace's Temporal HTTP API, for W15's checkpoint barrier.
@@ -183,10 +202,39 @@ export interface FactoryStartupConfig {
   readonly keyManagement?: FactoryStartupKeyManagement;
 }
 
+/** The runtime kinds a declared validator may name. */
+export const FACTORY_VALIDATOR_RUNTIME_KINDS = Object.freeze(["podman-guest"] as const);
+
+/**
+ * One trusted validator runtime, declared by reference.
+ *
+ * `runner` is the lock the runtime registers under: the exact runner reference
+ * a definition's claim must name, configuration digest included. The material
+ * file carries the rest of the runtime (resources, environment digest, broker
+ * audience, evidence age) and must repeat the same runner, so the document and
+ * the file cannot disagree about which judge they describe.
+ */
+export interface FactoryStartupValidatorRuntime {
+  /** This document's own handle for the runtime; it never reaches the wire. */
+  readonly name: string;
+  readonly kind: (typeof FACTORY_VALIDATOR_RUNTIME_KINDS)[number];
+  readonly runner: {
+    readonly package: string;
+    readonly manifestName: string;
+    readonly version: string;
+    readonly digest: string;
+    readonly export: string;
+    readonly configurationDigest: string;
+    readonly model?: string;
+  };
+  /** The runtime material file, by reference. Read privately, never logged. */
+  readonly materialPath: string;
+  /** `sha256:` over the material file's exact bytes. */
+  readonly materialDigest: string;
+}
+
 /** The data-key wrapping service. Owned by `key-management.ts`. */
 export type FactoryStartupKeyManagement = FactoryKeyManagement;
-
-
 
 /**
  * One place a release may publish, named so a profile can point at it.
@@ -348,11 +396,10 @@ export const FACTORY_STARTUP_FIELDS: readonly FieldSpec[] = Object.freeze([
   { field: "temporalHttp.tls.privateKeyPath", kind: "path", optional: true },
 ]);
 
-
 function read(root: Record<string, unknown>, field: string): { readonly present: boolean; readonly value: unknown } {
   let current: unknown = root;
   for (const segment of field.split(".")) {
-    if (!record(current) || !Object.hasOwn(current, segment)) return { present: false, value: undefined };
+    if (!isPlainRecord(current) || !Object.hasOwn(current, segment)) return { present: false, value: undefined };
     current = current[segment];
   }
   return { present: current !== undefined, value: current };
@@ -362,20 +409,26 @@ function read(root: Record<string, unknown>, field: string): { readonly present:
 
 /** A signing key map: one key id to one file, at least one entry. */
 function wellFormedKeyPaths(value: unknown): boolean {
-  if (!record(value)) return false;
+  if (!isPlainRecord(value)) return false;
   const entries = Object.entries(value);
   return entries.length >= 1 && entries.length <= 32
     && entries.every(([kid, path]) => wellFormed("identity", kid) && wellFormed("path", path));
 }
 
 /** One runner this installation dispatches to, with its allocation. */
+const SHA256_DIGEST = /^sha256:[a-f0-9]{64}$/;
+const RUNNER_KEYS = ["package", "manifestName", "version", "digest", "export"] as const;
+
+/** A pinned runner reference: exactly these keys, each a bounded string, the digest a sha256. */
+function wellFormedRunner(runner: unknown, keys: readonly string[] = RUNNER_KEYS): runner is Record<string, string> {
+  return isPlainRecord(runner) && exactKeys(runner, keys)
+    && keys.every((key) => typeof runner[key] === "string" && (runner[key] as string).length > 0 && (runner[key] as string).length <= 512)
+    && SHA256_DIGEST.test(runner.digest as string);
+}
+
 function wellFormedRunnerProfile(value: unknown): boolean {
-  if (!record(value) || !exactKeys(value, ["runner", "resourceClass", "allocation", "allowedCapabilities"])) return false;
-  const runner = value.runner;
-  const runnerKeys = ["package", "manifestName", "version", "digest", "export"];
-  if (!record(runner) || !exactKeys(runner, runnerKeys)
-    || runnerKeys.some((key) => typeof runner[key] !== "string" || (runner[key] as string).length === 0 || (runner[key] as string).length > 512)
-    || !/^sha256:[a-f0-9]{64}$/.test(runner.digest as string)) return false;
+  if (!isPlainRecord(value) || !exactKeys(value, ["runner", "resourceClass", "allocation", "allowedCapabilities"])) return false;
+  if (!wellFormedRunner(value.runner)) return false;
   if (!wellFormed("identity", value.resourceClass)) return false;
   if (!Array.isArray(value.allowedCapabilities) || value.allowedCapabilities.length > 64
     || value.allowedCapabilities.some((capability) => !wellFormed("identity", capability))
@@ -431,7 +484,7 @@ function wellFormedRepository(value: unknown): boolean {
  * against half a declaration.
  */
 function wellFormedReleaseDestination(value: unknown): boolean {
-  if (!record(value) || !wellFormed("identity", value.name)) return false;
+  if (!isPlainRecord(value) || !wellFormed("identity", value.name)) return false;
   if (value.kind === "s3") {
     const required = ["name", "kind", "endpoint", "bucket", "account", "credentialsPath"];
     if (!exactKeys(value, required) && !exactKeys(value, [...required, "prefix"])) return false;
@@ -464,10 +517,10 @@ function recoverySectionProblems(value: Record<string, unknown>, missing: string
 
 /** One adapter reference, its action, its destination, and its cost. */
 function wellFormedReleaseProfile(value: unknown): boolean {
-  if (!record(value) || !exactKeys(value, ["adapter", "action", "destination", "estimatedSpendMicros"])) return false;
+  if (!isPlainRecord(value) || !exactKeys(value, ["adapter", "action", "destination", "estimatedSpendMicros"])) return false;
   const adapter = value.adapter;
   const adapterKeys = ["package", "manifestName", "version", "digest", "export"];
-  if (!record(adapter) || !exactKeys(adapter, adapterKeys)
+  if (!isPlainRecord(adapter) || !exactKeys(adapter, adapterKeys)
     || adapterKeys.some((key) => typeof adapter[key] !== "string" || (adapter[key] as string).length === 0 || (adapter[key] as string).length > 512)
     || !/^sha256:[a-f0-9]{64}$/.test(adapter.digest as string)) return false;
   // A micro-denominated release cost is bounded well above a runner budget and
@@ -479,37 +532,56 @@ function wellFormedReleaseProfile(value: unknown): boolean {
 
 /** A task's pool vector, its memory, and the budget it may spend. */
 function wellFormedResourceProfile(value: unknown): boolean {
-  if (!record(value) || !exactKeys(value, ["resources", "memoryBytes", "budget"])) return false;
+  if (!isPlainRecord(value) || !exactKeys(value, ["resources", "memoryBytes", "budget"])) return false;
   const resources = value.resources;
-  if (!record(resources) || Object.keys(resources).length === 0
+  if (!isPlainRecord(resources) || Object.keys(resources).length === 0
     || Object.entries(resources).some(([name, amount]) => !wellFormed("identity", name) || !Number.isSafeInteger(amount) || (amount as number) < 0 || (amount as number) > 1_000_000)) return false;
   if (!Number.isSafeInteger(value.memoryBytes) || (value.memoryBytes as number) < 1) return false;
   const budget = value.budget;
   // `costMicros` is decimal TEXT rather than a number: a micro-denominated cost
   // can exceed a safe integer, and the budget ledger stores it as text for
   // exactly that reason.
-  return record(budget) && exactKeys(budget, ["costMicros", "tokens", "computeMs"])
+  return isPlainRecord(budget) && exactKeys(budget, ["costMicros", "tokens", "computeMs"])
     && typeof budget.costMicros === "string" && /^[0-9]{1,30}$/.test(budget.costMicros)
     && Number.isSafeInteger(budget.tokens) && (budget.tokens as number) >= 0
     && Number.isSafeInteger(budget.computeMs) && (budget.computeMs as number) >= 0;
 }
 
+/**
+ * One declared validator runtime.
+ *
+ * The runner must pin a configuration digest, because `FactoryTrustedValidators`
+ * binds the runtime's configuration to the runner reference a claim names; a
+ * runner without one could not be matched to any runtime and would refuse at
+ * the first claim instead of here.
+ */
+function wellFormedValidatorRuntime(value: unknown): boolean {
+  if (!isPlainRecord(value) || !exactKeys(value, ["name", "kind", "runner", "materialPath", "materialDigest"])) return false;
+  const runner = value.runner;
+  const keys = isPlainRecord(runner) && Object.hasOwn(runner, "model") ? [...RUNNER_KEYS, "configurationDigest", "model"] : [...RUNNER_KEYS, "configurationDigest"];
+  return wellFormed("identity", value.name)
+    && (FACTORY_VALIDATOR_RUNTIME_KINDS as readonly unknown[]).includes(value.kind)
+    && wellFormedRunner(runner, keys) && SHA256_DIGEST.test(runner.configurationDigest!)
+    && wellFormed("path", value.materialPath)
+    && typeof value.materialDigest === "string" && SHA256_DIGEST.test(value.materialDigest);
+}
+
 /** The set of leaf fields a valid document may carry, derived from the table. */
 const KNOWN_FIELDS: ReadonlySet<string> = new Set([
   "schemaVersion", "hostStopKeys", "privateService.tokens.publicKeyPaths", "runnerProfiles",
-  "release.destinations", "release.profiles", "keyManagement",
+  "release.destinations", "release.profiles", "validators.runtimes", "keyManagement",
   ...FACTORY_STARTUP_FIELDS.map((spec) => spec.field),
 ]);
 
 /** One adapter reference as a comparable string, for the duplicate scan. */
 function canonicalAdapter(value: unknown): string {
-  if (!record(value)) return JSON.stringify(value);
+  if (!isPlainRecord(value)) return JSON.stringify(value);
   return JSON.stringify(Object.keys(value).sort().map((key) => [key, value[key]]));
 }
 
 
 function leaves(value: unknown, prefix = ""): string[] {
-  if (!record(value)) return [prefix];
+  if (!isPlainRecord(value)) return [prefix];
   const found: string[] = [];
   for (const [key, nested] of Object.entries(value)) {
     const field = prefix === "" ? key : `${prefix}.${key}`;
@@ -520,25 +592,22 @@ function leaves(value: unknown, prefix = ""): string[] {
     // — so recursing into them would name a value as a field. Each is checked
     // by shape below instead.
     if (field === "hostStopKeys" || field === "runnerProfiles" || field === "privateService.tokens.publicKeyPaths"
-      || field === "release.destinations" || field === "release.profiles" || field === "keyManagement") { found.push(field); continue; }
-    found.push(...(record(nested) ? leaves(nested, field) : [field]));
+      || field === "release.destinations" || field === "release.profiles" || field === "validators.runtimes" || field === "keyManagement") { found.push(field); continue; }
+    found.push(...(isPlainRecord(nested) ? leaves(nested, field) : [field]));
   }
   return found;
 }
 
-/**
- * Validate one startup document, naming every problem at once.
- *
- * An unknown field is an error rather than a warning: a renamed dependency
- * that is silently ignored composes an application missing the thing the
- * operator thought they had configured.
- */
-export function parseFactoryStartupConfig(value: unknown): FactoryStartupConfig {
-  if (!record(value)) throw new FactoryStartupConfigError(["schemaVersion"], []);
-  const missing: string[] = [];
-  const invalid: string[] = [];
-  if (value.schemaVersion !== FACTORY_STARTUP_CONFIG_SCHEMA) invalid.push("schemaVersion");
+/** Every problem found so far, in the order the checks below find them. */
+interface StartupProblems {
+  readonly missing: string[];
+  readonly invalid: string[];
+}
+type StartupCheck = (value: Record<string, unknown>, problems: StartupProblems) => void;
 
+/** The schema version, every declared field, and no field this document does not declare. */
+const checkDeclaredFields: StartupCheck = (value, { missing, invalid }) => {
+  if (value.schemaVersion !== FACTORY_STARTUP_CONFIG_SCHEMA) invalid.push("schemaVersion");
   for (const spec of FACTORY_STARTUP_FIELDS) {
     const { present, value: field } = read(value, spec.field);
     if (!present) {
@@ -550,46 +619,60 @@ export function parseFactoryStartupConfig(value: unknown): FactoryStartupConfig 
   for (const field of leaves(value)) {
     if (!KNOWN_FIELDS.has(field)) invalid.push(field);
   }
-  // A model pin is both halves or neither. Half a pin is the shape that would
-  // otherwise be resolved at the first guest call, which is where a missing
-  // provider becomes a substitute rather than a refusal.
+};
+
+// A model pin is both halves or neither. Half a pin is the shape that would
+// otherwise be resolved at the first guest call, which is where a missing
+// provider becomes a substitute rather than a refusal.
+const checkModelPin: StartupCheck = (value, { invalid }) => {
   const pinned = ["modelProvider.provider", "modelProvider.model"].filter((field) => read(value, field).present);
   if (pinned.length === 1) invalid.push(pinned[0] === "modelProvider.provider" ? "modelProvider.model" : "modelProvider.provider");
+};
 
-  // A host launch transport is every part or none. A base URL with no client
-  // material cannot open a mutual TLS connection, and half a transport would
-  // fail at the first dispatch rather than at boot.
+// A host launch transport is every part or none. A base URL with no client
+// material cannot open a mutual TLS connection, and half a transport would
+// fail at the first dispatch rather than at boot.
+const checkHostLaunch: StartupCheck = (value, { missing }) => {
   const transport = FACTORY_STARTUP_FIELDS.filter((spec) => spec.field.startsWith("hostLaunch."));
   const supplied = transport.filter((spec) => read(value, spec.field).present);
   if (supplied.length > 0 && supplied.length < transport.length) {
     for (const spec of transport) if (!supplied.includes(spec)) missing.push(spec.field);
   }
+};
 
-  // Host PUBLIC keys, by reference. Each entry names a host, a key id, and a
-  // file; a private key never appears in this document and an empty list is a
-  // list that verifies nothing.
+// Host PUBLIC keys, by reference. Each entry names a host, a key id, and a
+// file; a private key never appears in this document and an empty list is a
+// list that verifies nothing.
+const checkHostStopKeys: StartupCheck = (value, { invalid }) => {
   const hostStopKeys = read(value, "hostStopKeys");
-  if (hostStopKeys.present) {
-    const entries = hostStopKeys.value;
-    if (!Array.isArray(entries) || entries.length === 0) invalid.push("hostStopKeys");
-    else for (const [index, entry] of entries.entries()) {
-      if (!record(entry) || !exactKeys(entry, ["hostId", "hostKeyId", "publicKeyPath"])
-        || !wellFormed("identity", entry.hostId) || !wellFormed("identity", entry.hostKeyId) || !wellFormed("path", entry.publicKeyPath)) {
-        invalid.push(`hostStopKeys[${index}]`);
-      }
+  if (!hostStopKeys.present) return;
+  const entries = hostStopKeys.value;
+  if (!Array.isArray(entries) || entries.length === 0) { invalid.push("hostStopKeys"); return; }
+  for (const [index, entry] of entries.entries()) {
+    if (!isPlainRecord(entry) || !exactKeys(entry, ["hostId", "hostKeyId", "publicKeyPath"])
+      || !wellFormed("identity", entry.hostId) || !wellFormed("identity", entry.hostKeyId) || !wellFormed("path", entry.publicKeyPath)) {
+      invalid.push(`hostStopKeys[${index}]`);
     }
   }
-  // The private service's token verifier is all three fields or none: an issuer
-  // with no keys verifies nothing, and a key map with no audience would accept
-  // a token minted for another service.
-  // Both halves or neither: a delay with no window would retry forever and a
-  // window with no delay would spin.
+};
+
+// Both halves or neither: a delay with no window would retry forever and a
+// window with no delay would spin.
+const checkReadinessRetry: StartupCheck = (value, { missing }) => {
   const retryFields = ["readinessRetry.delayMs", "readinessRetry.windowMs"];
   const retryPresent = retryFields.filter((field) => read(value, field).present);
   if (retryPresent.length === 1) missing.push(retryFields.find((field) => !retryPresent.includes(field))!);
+};
 
+// The recovery sections: the Temporal HTTP API endpoint and the data-key wrapping service.
+const checkRecoverySections: StartupCheck = (value, { missing, invalid }) => {
   recoverySectionProblems(value, missing, invalid);
+};
 
+// The private service's token verifier is all three fields or none: an issuer
+// with no keys verifies nothing, and a key map with no audience would accept
+// a token minted for another service.
+const checkPrivateServiceTokens: StartupCheck = (value, { missing, invalid }) => {
   const tokenFields = ["privateService.tokens.issuer", "privateService.tokens.audience", "privateService.tokens.publicKeyPaths"];
   const tokensPresent = tokenFields.filter((field) => read(value, field).present);
   if (tokensPresent.length > 0 && tokensPresent.length < tokenFields.length) {
@@ -597,63 +680,81 @@ export function parseFactoryStartupConfig(value: unknown): FactoryStartupConfig 
   }
   const publicKeyPaths = read(value, "privateService.tokens.publicKeyPaths");
   if (publicKeyPaths.present && !wellFormedKeyPaths(publicKeyPaths.value)) invalid.push("privateService.tokens.publicKeyPaths");
+};
 
+const checkRunnerProfiles: StartupCheck = (value, { invalid }) => {
   const runners = read(value, "runnerProfiles");
-  if (runners.present) {
-    const section = runners.value;
-    if (!record(section) || !exactKeys(section, ["brokerAudience", "profiles"]) || !wellFormed("identity", section.brokerAudience)
-      || !Array.isArray(section.profiles) || section.profiles.length === 0 || section.profiles.length > 64) {
-      invalid.push("runnerProfiles");
-    } else {
-      for (const [index, profile] of section.profiles.entries()) {
-        if (!wellFormedRunnerProfile(profile)) invalid.push(`runnerProfiles.profiles[${index}]`);
-      }
-      // A resource class named twice would make the admission profile map
-      // depend on declaration order, which is not a fact an operator states.
-      const classes = section.profiles.map((profile) => (profile as { resourceClass?: unknown }).resourceClass);
-      if (new Set(classes).size !== classes.length) invalid.push("runnerProfiles.profiles");
-    }
+  if (!runners.present) return;
+  const section = runners.value;
+  if (!isPlainRecord(section) || !exactKeys(section, ["brokerAudience", "profiles"]) || !wellFormed("identity", section.brokerAudience)
+    || !Array.isArray(section.profiles) || section.profiles.length === 0 || section.profiles.length > 64) {
+    invalid.push("runnerProfiles");
+    return;
   }
-  // Where a release may publish. Both halves or neither: destinations nothing
-  // points at publish nothing, and a profile with no destinations has nowhere
-  // to send — and either half alone reads as configured while refusing at the
-  // first release.
+  for (const [index, profile] of section.profiles.entries()) {
+    if (!wellFormedRunnerProfile(profile)) invalid.push(`runnerProfiles.profiles[${index}]`);
+  }
+  // A resource class named twice would make the admission profile map
+  // depend on declaration order, which is not a fact an operator states.
+  const classes = section.profiles.map((profile) => (profile as { resourceClass?: unknown }).resourceClass);
+  if (new Set(classes).size !== classes.length) invalid.push("runnerProfiles.profiles");
+};
+
+/** The declared release destinations; returns their names when the list itself is well formed. */
+function checkReleaseDestinations(destinations: unknown, invalid: string[]): string[] | undefined {
+  if (!Array.isArray(destinations) || destinations.length === 0 || destinations.length > 64) { invalid.push("release.destinations"); return undefined; }
+  for (const [index, entry] of destinations.entries()) {
+    if (!wellFormedReleaseDestination(entry)) invalid.push(`release.destinations[${index}]`);
+  }
+  const names = destinations.map((entry) => (entry as { name?: unknown }).name).filter((name): name is string => typeof name === "string");
+  // A name declared twice makes "which destination" depend on declaration
+  // order, which is not a fact an operator stated.
+  if (new Set(names).size !== names.length) invalid.push("release.destinations");
+  return names;
+}
+
+function checkReleaseProfiles(profiles: unknown, names: string[] | undefined, invalid: string[]): void {
+  if (!Array.isArray(profiles) || profiles.length === 0 || profiles.length > 64) { invalid.push("release.profiles"); return; }
+  const declared = new Set(names ?? []);
+  for (const [index, entry] of profiles.entries()) {
+    if (!wellFormedReleaseProfile(entry)) { invalid.push(`release.profiles[${index}]`); continue; }
+    // A profile pointing at a destination nobody declared would compose a
+    // profile with nowhere to publish, and `requestRelease` would refuse it
+    // at the first release instead of at boot.
+    if (names !== undefined && !declared.has((entry as { destination: string }).destination)) invalid.push(`release.profiles[${index}].destination`);
+  }
+  // Two profiles for one adapter make the trusted set depend on order, and
+  // `FactoryProtectedCommandEffects` refuses the second at construction.
+  const adapters = profiles.map((entry) => canonicalAdapter((entry as { adapter?: unknown }).adapter));
+  if (new Set(adapters).size !== adapters.length) invalid.push("release.profiles");
+}
+
+// Where a release may publish. Both halves or neither: destinations nothing
+// points at publish nothing, and a profile with no destinations has nowhere
+// to send — and either half alone reads as configured while refusing at the
+// first release.
+const checkRelease: StartupCheck = (value, { missing, invalid }) => {
   const releaseHalves = ["release.destinations", "release.profiles"];
   const releasePresent = releaseHalves.filter((field) => read(value, field).present);
   if (releasePresent.length === 1) missing.push(releaseHalves.find((field) => !releasePresent.includes(field))!);
-  if (releasePresent.length === 2) {
-    const destinations = read(value, "release.destinations").value;
-    const profiles = read(value, "release.profiles").value;
-    let names: string[] | undefined;
-    if (!Array.isArray(destinations) || destinations.length === 0 || destinations.length > 64) invalid.push("release.destinations");
-    else {
-      for (const [index, entry] of destinations.entries()) {
-        if (!wellFormedReleaseDestination(entry)) invalid.push(`release.destinations[${index}]`);
-      }
-      names = destinations.map((entry) => (entry as { name?: unknown }).name).filter((name): name is string => typeof name === "string");
-      // A name declared twice makes "which destination" depend on declaration
-      // order, which is not a fact an operator stated.
-      if (new Set(names).size !== names.length) invalid.push("release.destinations");
-    }
-    if (!Array.isArray(profiles) || profiles.length === 0 || profiles.length > 64) invalid.push("release.profiles");
-    else {
-      const declared = new Set(names ?? []);
-      for (const [index, entry] of profiles.entries()) {
-        if (!wellFormedReleaseProfile(entry)) { invalid.push(`release.profiles[${index}]`); continue; }
-        // A profile pointing at a destination nobody declared would compose a
-        // profile with nowhere to publish, and `requestRelease` would refuse it
-        // at the first release instead of at boot.
-        if (names !== undefined && !declared.has((entry as { destination: string }).destination)) invalid.push(`release.profiles[${index}].destination`);
-      }
-      // Two profiles for one adapter make the trusted set depend on order, and
-      // `FactoryProtectedCommandEffects` refuses the second at construction.
-      const adapters = profiles.map((entry) => canonicalAdapter((entry as { adapter?: unknown }).adapter));
-      if (new Set(adapters).size !== adapters.length) invalid.push("release.profiles");
-    }
-  }
-  if (missing.length > 0 || invalid.length > 0) throw new FactoryStartupConfigError(missing, invalid);
+  if (releasePresent.length !== 2) return;
+  const names = checkReleaseDestinations(read(value, "release.destinations").value, invalid);
+  checkReleaseProfiles(read(value, "release.profiles").value, names, invalid);
+};
 
-  const config = value as unknown as FactoryStartupConfig;
+// The trusted validator runtimes, when the section is present.
+const checkValidatorRuntimes: StartupCheck = (value, { invalid }) => {
+  invalid.push(...invalidValidatorRuntimes(value));
+};
+
+// Run in this order; the error lists keep the order the problems are found in.
+const STARTUP_CHECKS: readonly StartupCheck[] = [
+  checkDeclaredFields, checkModelPin, checkHostLaunch, checkHostStopKeys, checkReadinessRetry, checkRecoverySections,
+  checkPrivateServiceTokens, checkRunnerProfiles, checkRelease, checkValidatorRuntimes,
+];
+
+/** Cross-field rules on a document whose every field is already well formed. */
+function assertStartupConfigBounds(config: FactoryStartupConfig): void {
   // A cap below the first delay it caps would silently shorten the backoff.
   if ((config.workers?.maxErrorDelayMs ?? Number.MAX_SAFE_INTEGER) < (config.workers?.errorDelayMs ?? 0)) {
     throw new FactoryStartupConfigError([], ["workers.maxErrorDelayMs"]);
@@ -665,19 +766,49 @@ export function parseFactoryStartupConfig(value: unknown): FactoryStartupConfig 
     const within = resolve(root);
     if (resolve(config.keys.masterKeyFilePath).startsWith(`${within}/`)) throw new FactoryStartupConfigError([], ["keys.masterKeyFilePath"]);
   }
+}
+
+/**
+ * Validate one startup document, naming every problem at once.
+ *
+ * An unknown field is an error rather than a warning: a renamed dependency
+ * that is silently ignored composes an application missing the thing the
+ * operator thought they had configured.
+ */
+export function parseFactoryStartupConfig(value: unknown): FactoryStartupConfig {
+  if (!isPlainRecord(value)) throw new FactoryStartupConfigError(["schemaVersion"], []);
+  const problems: StartupProblems = { missing: [], invalid: [] };
+  for (const check of STARTUP_CHECKS) check(value, problems);
+  if (problems.missing.length > 0 || problems.invalid.length > 0) throw new FactoryStartupConfigError(problems.missing, problems.invalid);
+  const config = value as unknown as FactoryStartupConfig;
+  assertStartupConfigBounds(config);
   return Object.freeze(config);
+}
+
+/**
+ * Every problem with a present `validators` section, by field.
+ *
+ * A present section declares at least one runtime, because an empty list reads
+ * as configured while trusting nobody. Two runtimes may not share a name or a
+ * runner: the trusted set is keyed by the runner, so a second entry for one
+ * would make which material governs depend on declaration order.
+ */
+function invalidValidatorRuntimes(value: Record<string, unknown>): string[] {
+  const root = read(value, "validators");
+  // A non-record section is already named by the unknown-field scan.
+  if (!root.present || !isPlainRecord(root.value)) return [];
+  const runtimes = read(value, "validators.runtimes").value;
+  if (!Array.isArray(runtimes) || runtimes.length === 0 || runtimes.length > 64) return ["validators.runtimes"];
+  const invalid = runtimes.flatMap((entry, index) => wellFormedValidatorRuntime(entry) ? [] : [`validators.runtimes[${index}]`]);
+  const names = runtimes.map((entry) => (entry as { name?: unknown }).name);
+  const runners = runtimes.map((entry) => canonicalAdapter((entry as { runner?: unknown }).runner));
+  if (new Set(names).size !== names.length || new Set(runners).size !== runners.length) invalid.push("validators.runtimes");
+  return invalid;
 }
 
 /** Read the document through the private bounded reader, as the process entries do. */
 export async function loadFactoryStartupConfig(path: string): Promise<FactoryStartupConfig> {
-  const absolute = resolve(path);
-  const directory = await privateDirectory(dirname(absolute));
-  let bytes: Uint8Array;
-  try {
-    bytes = await readPrivateBounded(directory, basename(absolute), MAX_CONFIG_BYTES);
-  } finally {
-    await directory.close();
-  }
+  const bytes = await readPrivatePath(path, MAX_CONFIG_BYTES);
   let parsed: unknown;
   try {
     parsed = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));

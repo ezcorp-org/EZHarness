@@ -237,13 +237,16 @@ describe("startFactoryRuntime opens admission only after the probes pass", () =>
         tenantId: "tenant-01",
         running: ["compute-admission-dispatch", "compute-admission-poll", "attempt-dispatch", "run-projection", "checkpoint-barrier"],
         held: [
-          { role: "notification-inbox-delivery", workPackage: "W07/W08" },
-          { role: "child-settlement", workPackage: "W06" },
-          { role: "release-outcome", workPackage: "W07/W08" },
-          { role: "usage-reconciliation", workPackage: "W03" },
-          { role: "notification-send", workPackage: "W17" },
-          { role: "stop-settlement", workPackage: "W03" },
-          { role: "retention-gc", workPackage: "W15" },
+          { role: "notification-inbox-delivery", workPackage: "W07/W08", reason: expect.any(String) },
+          { role: "child-settlement", workPackage: "W06", reason: expect.any(String) },
+          { role: "release-outcome", workPackage: "W07/W08", reason: expect.any(String) },
+          { role: "usage-reconciliation", workPackage: "W03", reason: expect.any(String) },
+          { role: "notification-send", workPackage: "W17", reason: expect.any(String) },
+          { role: "stop-settlement", workPackage: "W03", reason: expect.any(String) },
+          // An installation with no declared validator cannot accept, and readiness says why.
+          { role: "validator-material-registration", workPackage: "W09d", reason: expect.stringContaining("`validators.runtimes`") },
+          { role: "validator-scheduling", workPackage: "W09d", reason: expect.stringContaining("no acceptance can pass") },
+          { role: "retention-gc", workPackage: "W15", reason: expect.any(String) },
         ],
       },
     });

@@ -6,10 +6,6 @@
 
 export type FieldKind = "identity" | "path" | "port" | "interval" | "url" | "roots" | "statement" | "count";
 
-export function record(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 /** Exactly these keys, no more and no fewer. */
 export function exactKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
   const present = Object.keys(value);

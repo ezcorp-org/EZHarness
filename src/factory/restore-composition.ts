@@ -4,7 +4,7 @@ import { loadFactoryStopHostKeys } from "./dispatch-composition";
 import { loadFactoryDataKeyFromFiles } from "./file-key-wraps";
 import type { FactoryKeyCompositionDependencies } from "./key-management";
 import { createPoolAdmissionClient, createPoolCheckpointClient, type PoolAdmissionClient, type PoolCheckpointClient } from "./pool/client";
-import { readPrivateFileBounded } from "./private-files";
+import { readPrivatePath } from "./private-files";
 import { factoryClientRestorePoolLedger, factoryTemporalPositionsFromConfig } from "./recovery-composition";
 import { S3FactoryRecoveryArchive } from "./recovery-archive";
 import type { FactoryReleaseProviderResolver } from "./release-application";
@@ -96,7 +96,7 @@ export async function composeFactoryRestore(input: FactoryRestoreCompositionInpu
  */
 export function factoryAttestedRestoreFence(path: string): FactoryRestoreFence {
   const statement = async (restoreId: string, field: "ingress" | "credentials"): Promise<string> => {
-    const parsed = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(await readPrivateFileBounded(path, 16 * 1024))) as Record<string, unknown>;
+    const parsed = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(await readPrivatePath(path, 16 * 1024))) as Record<string, unknown>;
     const value = parsed[field];
     if (parsed.restoreId !== restoreId) throw new Error(`the fence attestation is for another restore`);
     if (typeof value !== "string" || value.length < 1 || value.length > 512) throw new Error(`the fence attestation names no ${field} fence`);

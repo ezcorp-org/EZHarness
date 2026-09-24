@@ -1,6 +1,6 @@
 import { EncryptedRecordCodec, FactoryEncryptionError, FactoryTemporalPayloadCodec, InstallationDataKey, type InstallationKeyWrap, type InstallationKeyWrapStore } from "./encryption.ts";
 import { composeFactoryDataKeyWrapper, wellFormedFactoryKeyManagement, type FactoryKeyCompositionDependencies, type FactoryKeyManagement, type FactoryOperatorKeyReference } from "./key-management.ts";
-import { readPrivateFileBounded } from "./private-files.ts";
+import { readPrivatePath } from "./private-files.ts";
 
 const KEY_WRAP_SCHEMA_VERSION = "factory.key-wraps.v1";
 const MAX_KEY_WRAP_FILE_BYTES = 16 * 1024;
@@ -70,7 +70,7 @@ export function parseFactoryKeyWrapFile(value: unknown, expectedInstallationId: 
 }
 
 async function readPrivateKeyWrapFile(path: string): Promise<Uint8Array> {
-  try { return await readPrivateFileBounded(path, MAX_KEY_WRAP_FILE_BYTES); }
+  try { return await readPrivatePath(path, MAX_KEY_WRAP_FILE_BYTES); }
   catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") throw new FactoryEncryptionError("factory_key_missing");
     throw new FactoryEncryptionError("factory_key_unsafe");

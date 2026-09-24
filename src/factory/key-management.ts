@@ -1,7 +1,8 @@
 import { DecryptCommand, EncryptCommand, KMSClient } from "@aws-sdk/client-kms";
 import { FactoryEncryptionError, factoryMasterKeyWrapper, readOperatorMasterKey, StaticMasterKeyProvider, type FactoryDataKeyWrapBinding, type FactoryDataKeyWrapper } from "./encryption.ts";
-import { readPrivateFileBounded } from "./private-files.ts";
-import { exactKeys, httpsUrl, record, wellFormed } from "./startup-values.ts";
+import { readPrivatePath } from "./private-files.ts";
+import { isPlainRecord } from "./plain-values.ts";
+import { exactKeys, httpsUrl, wellFormed } from "./startup-values.ts";
 
 /**
  * C06's two KMS wrapping adapters (W15). Each wraps the installation data key
@@ -116,7 +117,7 @@ export class FactoryTransitKmsWrapper implements FactoryDataKeyWrapper {
   }
 
   private async token(): Promise<string> {
-    return new TextDecoder("utf-8", { fatal: true }).decode(await readPrivateFileBounded(this.options.tokenPath, 4_096)).trim();
+    return new TextDecoder("utf-8", { fatal: true }).decode(await readPrivatePath(this.options.tokenPath, 4_096)).trim();
   }
 
   private async call(operation: "encrypt" | "decrypt", body: Record<string, string>): Promise<Record<string, unknown>> {
@@ -174,7 +175,7 @@ export interface FactoryOperatorKeyReference {
 
 /** One data-key wrapping service, by kind, with only that kind's fields. */
 export function wellFormedFactoryKeyManagement(value: unknown): value is FactoryKeyManagement {
-  if (!record(value)) return false;
+  if (!isPlainRecord(value)) return false;
   if (value.kind === "operator-master-key") return exactKeys(value, ["kind"]);
   if (value.kind === "cloud-kms") {
     const required = ["kind", "keyId", "region", "credentialsPath"];
@@ -216,7 +217,7 @@ export function factoryAwsKmsClient(options: FactoryCloudKmsClientOptions): Fact
 }
 
 async function readSecretText(path: string): Promise<string> {
-  try { return new TextDecoder("utf-8", { fatal: true }).decode(await readPrivateFileBounded(path, MAX_SECRET_FILE_BYTES)); }
+  try { return new TextDecoder("utf-8", { fatal: true }).decode(await readPrivatePath(path, MAX_SECRET_FILE_BYTES)); }
   catch (cause) { throw new FactoryEncryptionError("factory_key_unsafe", { cause }); }
 }
 

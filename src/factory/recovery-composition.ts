@@ -7,7 +7,7 @@ import { factoryPoolSnapshotFromPages } from "./pool/checkpoint";
 import { S3FactoryRecoveryArchive } from "./recovery-archive";
 import { S3FactoryReleaseArchive } from "./release-adapters";
 import { loadFactoryStorageCredentials } from "./release-composition";
-import { readPrivateFileBounded } from "./private-files";
+import { readPrivatePath } from "./private-files";
 import { FactoryRetention, S3FactoryRetentionBlobEraser } from "./retention";
 import type { FactoryStartupConfig } from "./startup-config";
 import { FactoryTemporalHttpPositions } from "./temporal-retention";
@@ -107,7 +107,7 @@ export function factoryPoolCheckpointClientSlots(client: Pick<PoolCheckpointClie
 export async function factoryTemporalPositionsFromConfig(config: Pick<FactoryStartupConfig, "temporalNamespace" | "temporalHttp">): Promise<FactoryTemporalHttpPositions> {
   const http = config.temporalHttp;
   if (http === undefined) throw new Error("the startup document declares no temporalHttp endpoint, so no checkpoint could record Temporal positions");
-  const text = async (path: string) => new TextDecoder("utf-8", { fatal: true }).decode(await readPrivateFileBounded(path, 64 * 1024));
+  const text = async (path: string) => new TextDecoder("utf-8", { fatal: true }).decode(await readPrivatePath(path, 64 * 1024));
   return new FactoryTemporalHttpPositions({
     endpoint: http.endpoint, namespace: config.temporalNamespace,
     ...(http.tls === undefined ? {} : { tls: { cert: await text(http.tls.certificatePath), key: await text(http.tls.privateKeyPath), ca: await text(http.tls.caPath) } }),

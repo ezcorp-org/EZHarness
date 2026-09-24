@@ -1446,6 +1446,17 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 - Bun's isolated store keeps a STALE version after a lockfile change, and an incremental `bun install --frozen-lockfile` does not remove it. After merging main's dependency bump my worktree held `zod@4.5.2` next to `zod@4.5.4`, and 25 typecheck errors appeared in a package I had never touched. I proved the SOURCE trees were byte-identical against staging and reported the red as inherited — which was wrong, because a tree diff says nothing about the installed graph. Staging, reinstalled clean, was green at the same merge base with the same SDK. After merging a dependency bump: `rm -rf node_modules web/node_modules`, reinstall both, rebuild the workspace packages, THEN judge a red.
 - Attributing a failure away from yourself needs a stronger proof than attributing one to yourself. "The files are identical" is evidence about one input; a build has several. Before telling someone a red is theirs, reproduce it somewhere they control, or rule out every input you own.
 
+## 2026-09-22 — W09d: composing validators
+
+- A test suite that pins the clock cannot see a lease expire. W05's acceptance path re-recorded the candidate's terminal fact through a live-attempt authorization on every call, and every suite passed because `now` never moved past the candidate's lease. The real started application refused `factory_run_fence_changed` the first time a validator took longer than that lease, which is always. When a path can run long after the thing it re-authorizes, write one test whose authorizer says "expired".
+- A proof harness that treats "the server never became ready" as a pass for a negative control proves nothing. Two early control records passed vacuously that way. Every mode, control included, must first require a live application that accepted the run and reached the point under test.
+- Read what a database driver actually returns before matching on it. Bun's SQL returns a JSON column as an object, so `String(row.json).includes('"completed"')` is always false ("[object Object]"); parse whichever shape arrives.
+- Copy a harness by its whole closure, and re-copy when its owner moves. W01g's harness gained a supervisor wrapper (`bun-host.sh`) and moved its host mount from a proof branch into `wp/w01g-staging`; a stale copy failed twice before a single product line ran.
+- A fix proven in the kernel alone can still hang in the real application. The first `command-failed` handler stopped the run through `beginStopping`, which emits a `cancel-node` for every node it thinks is physical; a release node's only attempt was the effect that had just failed, so the cancel could never resolve and the run sat in `stopping`. The kernel tests passed because they used a task node. Prove a lifecycle change on the node kind the real run actually ends on.
+
+- A proof judge should check the exact thing a finding names. Round 4 passed with "a projected FACTORY_COMMAND_FAILED reason" while that reason said only "Activity task failed". The judge now requires the refusal's code, and it would have failed round 4.
+- After a worktree moves, rebuild everything that stored an absolute path. The Python virtual environments kept shebangs to the old path, so the typecheck failed although no source changed. Harness scripts with hard-coded worktree paths failed the same way.
+
 ## 2026-09-22 — W15 retention, checkpoints, and restore
 
 - **Bun 1.3.14's `toMatchObject` overwrites array elements matched by `expect.any(...)`.** After
@@ -1498,3 +1509,17 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
   batch shell leaked `DATABASE_URL` into the backend pool and failed eleven tests that expect none.
 - W15b: Node's type stripping rejects TypeScript parameter properties. A module the Node
   orchestrator loads declares its fields explicitly and imports with `.ts` extensions.
+## 2026-09-22 — A measured list is stale after a merge (W18a-2)
+
+- Recompute a complexity or CRAP list on the tree you will hand over. Do not trust the list in the brief. The brief
+  named six functions from wave4c. After the W09b merge, `parseFactoryStartupConfig` was at 65 and
+  `parseFactoryPoolProcessConfig` was at 44 instead of 37. Only a fresh run of the gate showed this.
+- A bun coverage run from `web/` writes root files as `SF:../src/...` and web files as `SF:src/...`. Rewrite both
+  prefixes before merging. Otherwise the root coverage of that leg lands under a path no gate reads. The global floor
+  showed this, as a `../../../src/db/migrate.ts` entry.
+- A behaviour-free split can still be proved by more than the existing tests. Run the old function and the new one
+  side by side on generated inputs, and compare exact outputs, including error lists. That is cheap, and it found
+  nothing to fix here, which is the point.
+- Verify live state before you answer a factual question about it. When the user asked which model the subagents run on, the first answer came from the spawn parameter, not from evidence. Ask the agents (or read the source) first, then answer with the evidence named.
+- An outer `timeout` around a command that waits for a lock counts the wait. The first W18a-2 combined run waited about 1.6 hours for the heavy lock inside `timeout 9000` and was killed (exit 124) in its node leg. Put the timeout inside the lock (`flock ... timeout N cmd`), or rely on the runner's own per-leg bound.
+- Never pipe a command that must run to completion into a reader that can close early (head, a limited grep). A closed pipe kills git commit with SIGPIPE and nothing is committed. Write to a file, then summarize from the file.

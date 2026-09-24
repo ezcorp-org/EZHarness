@@ -65,36 +65,49 @@ function integer(value: unknown, minimum: number, maximum: number): value is num
   return Number.isSafeInteger(value) && (value as number) >= minimum && (value as number) <= maximum;
 }
 
+function optionalInteger(value: unknown, minimum: number, maximum: number): boolean {
+  return value === undefined || integer(value, minimum, maximum);
+}
+
+function validRoot(value: unknown): value is Record<string, unknown> {
+  const rootRequired = ["schemaVersion", "installationId", "tenantId", "temporal", "gateway", "codec", "readinessFilePath"];
+  return record(value) && optionalKeys(value, rootRequired, ["readinessHeartbeatMs", "dispatchEmptyDelayMs"])
+    && value.schemaVersion === CONFIG_SCHEMA && text(value.installationId) && text(value.tenantId) && text(value.readinessFilePath)
+    && optionalInteger(value.readinessHeartbeatMs, 1_000, 60_000)
+    && optionalInteger(value.dispatchEmptyDelayMs, 10, 5_000);
+}
+
+function validTemporal(temporal: unknown): boolean {
+  const temporalRequired = ["address", "namespace", "serverName", "caPath", "certificatePath", "privateKeyPath", "apiKeyPath"];
+  return record(temporal) && optionalKeys(temporal, temporalRequired, ["credentialRefreshMs", "pollingProbeTimeoutMs"])
+    && temporalRequired.every((key) => text(temporal[key]))
+    && optionalInteger(temporal.credentialRefreshMs, 1_000, 60_000)
+    && optionalInteger(temporal.pollingProbeTimeoutMs, 1_000, 60_000);
+}
+
+function validGateway(gateway: unknown): boolean {
+  return record(gateway) && optionalKeys(gateway, ["baseUrl", "tls"], ["serverName", "requestTimeoutMs"])
+    && text(gateway.baseUrl) && (gateway.serverName === undefined || text(gateway.serverName))
+    && optionalInteger(gateway.requestTimeoutMs, 100, 60_000) && record(gateway.tls)
+    && exact(gateway.tls, ["caPath", "certificatePath", "privateKeyPath", "serviceTokenPath"])
+    && Object.values(gateway.tls).every((item) => text(item));
+}
+
+/**
+ * `keyManagement` selects the service that opens the data key, exactly as the
+ * startup document's section does; absent, the operator master key file.
+ */
+function validCodec(codec: unknown): boolean {
+  return record(codec) && optionalKeys(codec, ["wrappedKeyFilePath", "masterKeyFilePath", "masterKeyId", "grantableRoots"], ["keyManagement"])
+    && (codec.keyManagement === undefined || wellFormedFactoryKeyManagement(codec.keyManagement))
+    && text(codec.wrappedKeyFilePath) && text(codec.masterKeyFilePath) && text(codec.masterKeyId)
+    && Array.isArray(codec.grantableRoots) && codec.grantableRoots.length >= 1 && codec.grantableRoots.length <= 32
+    && codec.grantableRoots.every((item) => text(item));
+}
+
 /** Strict config parser. The document contains references and no credential values. */
 export function parseFactoryOrchestratorProcessConfig(value: unknown): FactoryOrchestratorProcessConfig {
-  const rootRequired = ["schemaVersion", "installationId", "tenantId", "temporal", "gateway", "codec", "readinessFilePath"];
-  if (!record(value) || !optionalKeys(value, rootRequired, ["readinessHeartbeatMs", "dispatchEmptyDelayMs"])
-    || value.schemaVersion !== CONFIG_SCHEMA || !text(value.installationId) || !text(value.tenantId) || !text(value.readinessFilePath)
-    || (value.readinessHeartbeatMs !== undefined && !integer(value.readinessHeartbeatMs, 1_000, 60_000))
-    || (value.dispatchEmptyDelayMs !== undefined && !integer(value.dispatchEmptyDelayMs, 10, 5_000))) throw new Error("factory orchestrator config is invalid");
-
-  const temporal = value.temporal;
-  const temporalRequired = ["address", "namespace", "serverName", "caPath", "certificatePath", "privateKeyPath", "apiKeyPath"];
-  if (!record(temporal) || !optionalKeys(temporal, temporalRequired, ["credentialRefreshMs", "pollingProbeTimeoutMs"])
-    || temporalRequired.some((key) => !text(temporal[key]))
-    || (temporal.credentialRefreshMs !== undefined && !integer(temporal.credentialRefreshMs, 1_000, 60_000))
-    || (temporal.pollingProbeTimeoutMs !== undefined && !integer(temporal.pollingProbeTimeoutMs, 1_000, 60_000))) throw new Error("factory orchestrator config is invalid");
-
-  const gateway = value.gateway;
-  if (!record(gateway) || !optionalKeys(gateway, ["baseUrl", "tls"], ["serverName", "requestTimeoutMs"])
-    || !text(gateway.baseUrl) || (gateway.serverName !== undefined && !text(gateway.serverName))
-    || (gateway.requestTimeoutMs !== undefined && !integer(gateway.requestTimeoutMs, 100, 60_000)) || !record(gateway.tls)
-    || !exact(gateway.tls, ["caPath", "certificatePath", "privateKeyPath", "serviceTokenPath"])
-    || Object.values(gateway.tls).some((item) => !text(item))) throw new Error("factory orchestrator config is invalid");
-
-  // `keyManagement` selects the service that opens the data key, exactly as the
-  // startup document's section does; absent, the operator master key file.
-  const codec = value.codec;
-  if (!record(codec) || !optionalKeys(codec, ["wrappedKeyFilePath", "masterKeyFilePath", "masterKeyId", "grantableRoots"], ["keyManagement"])
-    || (codec.keyManagement !== undefined && !wellFormedFactoryKeyManagement(codec.keyManagement))
-    || !text(codec.wrappedKeyFilePath) || !text(codec.masterKeyFilePath) || !text(codec.masterKeyId)
-    || !Array.isArray(codec.grantableRoots) || codec.grantableRoots.length < 1 || codec.grantableRoots.length > 32
-    || codec.grantableRoots.some((item) => !text(item))) throw new Error("factory orchestrator config is invalid");
+  if (!validRoot(value) || !validTemporal(value.temporal) || !validGateway(value.gateway) || !validCodec(value.codec)) throw new Error("factory orchestrator config is invalid");
   return value as unknown as FactoryOrchestratorProcessConfig;
 }
 

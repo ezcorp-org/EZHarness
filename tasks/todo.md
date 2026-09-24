@@ -3545,6 +3545,34 @@ it as an inline UNIQUE, so the database calls it
 `factory_release_operations_tenant_id_project_id_run_id_node_key`. A live probe confirms two unique
 arbiters and only two.
 
+## W09d — compose validators into the installation (branch `wp/w09d-validators`)
+
+Brief: `/tmp/factory-platform-evidence/w00/briefs/w09d.md`. Evidence: `/tmp/factory-platform-evidence/w09d/`. Gates: `tasks/factory/w09d-GATES.md`. Report: `/tmp/factory-platform-evidence/w09d/report.txt`.
+
+- [x] Reproduce at the base: a run whose graph carries an acceptance node reaches no validator attempt (`reproduction.json`).
+- [x] Startup document `validators.runtimes[]` by reference; every refusal named; nothing declared holds both roles with a reason readiness shows.
+- [x] `FactoryTrustedValidators` from the declaration, shared by assurance, the scheduler, and the validator settlement.
+- [x] Material registration once per published version per process; idempotent across restarts; a changed runtime refuses by name.
+- [x] `validator-scheduling` role over W05's scheduler; the one attempt dispatcher settles validator attempts, routed by the durable assignment.
+- [x] Rulings: `recordCurrentCandidate` and `decideAcceptance` (decision and inbox event in one transaction); typed rejection for a failed or uncertain validator; immediate named refusal when nothing is composed; the release-authority candidate fix with injected-clock tests; the release operations supplier left to W09c.
+- [x] O1: the validator reservation is settled on its terminal (idempotent), or held uncertain under the typed reason.
+- [x] O5: a refused effect fails the run through a recorded `command-failed` kernel event and a projected `fail-run`.
+- [x] Orchestrator side on the Temporal test server (84 of 84 in the package's node leg).
+- [x] Proof: three passes and two controls on fresh databases, from this branch plus wp/w01g-staging only.
+- [x] Tests per common.md; coverage of new files and changed lines; PostgreSQL producers; gate file.
+- [x] Round 3 (validator ACCEPT-WITH-FIXES at `d1a0f31e0`):
+  - [x] F1: the REQUIRED_SHARED_IMPORTS row for `validator-declaration.ts`; the C13 inventory test passes.
+  - [x] F2: a crashed, timed-out, or uncertain validator is a typed `execution` failure, not a rejection: no repair round, and the typed reason is the projected run error (kernel, unit, and Temporal tests at maxRepairs 0 and 2).
+  - [x] F3: every claim is visited on every pass; the failure waits until every claim is terminal and holds each failed claim uncertain; the envelope closes only after reconciliation (two-claim unit tests, PostgreSQL envelope test).
+  - [x] F4: one `factoryCommandFailedEvent` builder; a named refusal of an effect answers it with the name; the workflow takes the activity's cause message (unit and Temporal tests).
+  - [x] F5: the lifecycle-suite additions disclosed with the ruling sentence.
+  - [x] F6: foreign-tenant, foreign-run, and foreign-service refusals asserted by name.
+  - [x] F7: `plain-values.ts` holds the one record guard and the one error-code reader.
+  - [x] Heavy legs and three passes at the final code; the judge requires the named refusal in the projected reason.
+
+### Review
+
+The package composes W05's validator pieces from a startup declaration, and the coordinator's rulings closed the gaps the real application exposed. The base reproduction showed no material, no contract route, and an acceptance command refusing `factory_assurance_not_found`. At the final code the started application registers the material, admits the validator through the pool, runs it in Podman through the one attempt dispatcher, records a strict PASS, decides `accepted`, and delivers the event in the decision's transaction. It then settles the validator's reservation, and when the release effect refuses (no profile yet, W09c) the run ends `failed` with a projected typed reason instead of hanging in `running`. Three passes did that on fresh databases, both controls refused by name, and the orchestrator's Temporal leg passes 84 of 84. Two defects only real timing showed are fixed at their roots with tests: the candidate re-derivation that required a live lease, and a failed effect on an acceptance or release node that left a cancel nothing could answer. Open, each with its owner: the public lock read and the contract route's opaque 500 (W14), and the release operations supplier and profiles (W09c). Round 3 changed three behaviors. A crashed or uncertain validator now fails the acceptance node with its typed reason and starts no repair round, because it judged nothing. Every claim is settled or held on every pass, so one failed claim cannot strand another claim's reservation. A refused effect now projects the refusal's name, for example `factory_protected_effect_untrusted`, instead of "Activity task failed". Three passes and both controls confirm the named reasons on the started application at `ceada04f5`.
 ## W15 — Retention, compatible backups, and restore (branch `wp/w15-retention`)
 
 Evidence: `/tmp/factory-platform-evidence/w15/`. Gate file: `tasks/factory/w15-GATES.md`.
@@ -3623,6 +3651,12 @@ threshold; all are fixed. A broad `pkill` during the run escaped the lock and ma
 temporary database on the shared PostgreSQL that cannot be attributed (see lessons). Open: W16
 deployment items, W14 signing surface, real KMS and Temporal archival, C09 purge, a debug-log store.
 
+### Integration rulings (coordinator, 2026-09-23)
+- R1: the runtime codec ignores `keyManagement` and fails closed with `factory_key_missing`. It lands disclosed and is owned by W15b (branch `wp/w15b-runtime-kms`, brief `/tmp/factory-platform-evidence/w00/briefs/w15b.md`).
+- R2: the kind CHECK sits inside `CREATE TABLE IF NOT EXISTS`. Owned by W15b.
+- R3: the effect-claims comment. Owned by W15b.
+- R4: fencing is an operator attestation. It stays by design.
+
 ## W18b — six pre-existing backend pool failures (branch `wp/w18b-pool-fixes`)
 
 Base `integ/w00` `94fb95b6a`. Receipts: `/tmp/factory-platform-evidence/w18b/`. Gates: `tasks/factory/w18b-GATES.md`.
@@ -3673,3 +3707,42 @@ because the batch leaked the PostgreSQL environment into it; the batch now uses 
   and checksums, then publishes only its exact human-approved release" hit its 120 s timeout and two
   credential-broker cases failed after it; alone it passes 3/0. Evidence: `.../w15b/logs/pool-flake-alone-2.log`.
 
+## W18a-2 — second complexity pass and the three coverage-key gaps (branch `wp/w18a2-quality`)
+
+Brief: `/tmp/factory-platform-evidence/w00/briefs/w18a2.md`. Gates: `tasks/factory/w18a2-GATES.md`.
+Receipts: `/tmp/factory-platform-evidence/w18a2/`.
+
+- [x] Split `mappedError` (92) and `dispatchFactoryRequest` (43) in `web/src/routes/api/factories/_shared.ts`. The result is one answer table per error class and six owner groups.
+- [x] Split `handle` (59) in `src/factory/private-service.ts` into authentication plus four route groups, in the same order.
+- [x] Split `readSealed` (54) in `src/factory/task-stops.ts` into scope, request, authority, and event checks, in the same order.
+- [x] Split `parseFactoryOrchestratorProcessConfig` (37) and `parseFactoryPoolProcessConfig` (44) into one predicate per section.
+- [x] Split `parseFactoryStartupConfig` (65). This function was not on the brief, because W09b took it above 30 after wave4c.
+- [x] Add threshold keys at 100 for `private-files.ts` and the two migrations. Add `src/factory/private-files.test.ts`, because the file was a real gap.
+- [x] Re-measure `private-files.ts`, `boot.ts`, and `factory-service-token.ts` on the fullest local lcov, and name the covering leg for each.
+- [x] Run the CRAP gate against origin/main over the fullest lcov: exit 0. Fix the two real gaps it showed (`loadExisting`, `initPglite`).
+- [x] Run the common sweep at `868d8c853`, the head after the `integ/w00` merge.
+
+### Review
+
+Seven functions went from complexity 37–92 to 3–7. Each split kept its check or route order. The worst function in
+the six files is now `wellFormed` at 24, which this package did not change. The existing suites passed unchanged,
+and every combined-runner producer exited 0. Old-versus-new runs agreed on 840 error inputs, 10871 process configs,
+and 11727 startup documents, error lists included. The three coverage-key files are gated at 100 and measure 100.
+
+The whole-diff CRAP gate exits 0 on the fullest local merged lcov. That is the runner's legs plus seventeen
+single-suite legs. Over the runner's own lcov, six functions still read red. Each one is a leg-list gap, and one
+named suite covers it at 100 percent. The coordinator is asked to add four bun suites and one web bun suite to the
+runner. Two gaps were real and are fixed. `InstallationDataKey.loadExisting` had no bun caller and now has a direct
+test. `initPglite` carried a changed line whose factory branch cannot run, and that line now matches origin/main.
+
+The global floor (73.88 percent), the per-file thresholds, and the origin/main new-file gate stay red. The cause is
+files that only CI's repository-wide shards or the browser receipt measure. None of those files is one this
+package changed.
+
+## Product rules (coordinator)
+
+- Every startup document declares the recovery sections; an installation without them stays degraded (factory-checkpoint-barrier-held) and never reports ready.
+
+## W18 test-hygiene backlog (coordinator)
+
+- compose.factory-storage.local.yml: declare restart: on-failure for both SeaweedFS services and the proof PostgreSQL so a recreated store keeps the policy the coordinator set by hand on 2026-09-23 after the OOM kill; document it in docs/factory-local-storage.md.
