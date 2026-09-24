@@ -918,3 +918,14 @@ Follow-up plan: The job's one `bun test` invocation with four files violates the
 Follow-up review: The workflow now loops over the same four files, runs each in its own `bun test --timeout 30000` process, and uses `set -e` for fail-fast. Extracting and running the exact YAML step on the Linux host passed 33 + 11 + 3 + 1 tests with one expected skip and zero failures. Actionlint and `git diff --check` passed. This local run is on x86_64; the previous hosted arm64 job passed before the process-isolation edit. Commit locally and hold push as requested.
 
 Integration plan: #309 landed on main at 3b5095303. Merge that exact base into this branch without force-pushing, resolve any overlapping task journal as a union, then verify the arm64 CI job and required aggregator survived. Run the full local quality line and an appropriate browser receipt before pushing because the base changed. Recheck the remote head before push.
+
+## PR #314 residual CI follow-up — 2026-09-24
+
+- [x] Read the failed hosted job log and reproduce its two failing cases locally.
+- [x] Replace the test fixture's 5-second file-readiness deadlines with producer-liveness checks.
+- [x] Run the focused lifecycle suite and relevant static checks.
+- [x] Review the exact diff with the lead agent before pushing.
+
+Plan review: Both failures stopped after about five seconds while waiting for a startup file. The PR does not change the launcher. Wait for an observable process state instead of measuring host scheduling time; keep the test's overall timeout as the deadlock guard.
+
+Review: The helper now reads nonempty readiness content until it appears or the producer exits. One new test proves that a producer exit fails immediately. The exact lifecycle suite passed 5/5 on pinned Bun 1.3.14; Biome and full typecheck passed. The failed hosted job cannot be rerun while its workflow is active (GitHub HTTP 403), so the change needs a new CI run after push.
