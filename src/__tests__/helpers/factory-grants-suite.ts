@@ -7,7 +7,7 @@ import { up } from "../../db/migrations/add-factory-grants";
 import { FactoryRunGrants } from "../../factory/run-grants";
 import { FactoryExecutionJournal, type FactoryAttemptAuthority } from "../../factory/executions";
 import { FactoryRecords } from "../../factory/records";
-import { FactoryGrants, type FactoryPrincipal } from "../../factory/grants";
+import { FACTORY_GRANTEE_NAME_MAX, FACTORY_GRANTEE_UNNAMED, FactoryGrants, type FactoryPrincipal } from "../../factory/grants";
 import { releaseRows as rows } from "../../db/queries/extension-releases";
 import { FactoryServiceCredentials } from "../../factory/service-credentials";
 
@@ -289,4 +289,30 @@ test("invalid updates, stale writes and removed memberships cannot keep authorit
   await expect(grants.authorize(member, "grant-project", "factory.release")).rejects.toMatchObject({ code: "factory_forbidden" });
 });
 
+
+test("grant records name the grantee from its own record, and a grantee with no name shows the stated placeholder", async () => {
+  const named: FactoryPrincipal = { kind: "user", id: "grant-named", authentication: "session" };
+  const blank: FactoryPrincipal = { kind: "user", id: "grant-blank", authentication: "session" };
+  const long: FactoryPrincipal = { kind: "user", id: "grant-long", authentication: "session" };
+  for (const [user, name] of [[named, "  Grace Named  "], [blank, "   "], [long, "L".repeat(FACTORY_GRANTEE_NAME_MAX + 44)]] as const) {
+    await fixture.db.execute(sql`INSERT INTO users (id, email, password_hash, name, role) VALUES (${user.id}, ${`${user.id}@example.test`}, 'not-a-login', ${name}, 'member')`);
+    await fixture.db.execute(sql`INSERT INTO project_members (id, project_id, user_id, role) VALUES (${`member-${user.id}`}, 'grant-project', ${user.id}, 'member')`);
+    await grants.set(admin, { projectId: "grant-project", principal: user, action: "factory.author", expectedRevision: 0, expiresAtMs: null });
+  }
+  const listed = new Map((await grants.list(admin, "grant-project", { principalKind: "user", action: "factory.author", limit: 200 })).items.map(item => [item.principalId, item]));
+  expect(listed.get(named.id)?.displayName).toBe("Grace Named");
+  expect(listed.get(blank.id)?.displayName).toBe(FACTORY_GRANTEE_UNNAMED);
+  expect(listed.get(long.id)?.displayName).toBe("L".repeat(FACTORY_GRANTEE_NAME_MAX));
+  // This suite names its users after their ids; a name that is the id is the id, so it is not shown as one.
+  expect(listed.get(member.id)?.displayName).toBe(FACTORY_GRANTEE_UNNAMED);
+  for (const item of listed.values()) expect(item.displayName).not.toBe(item.principalId);
+  // The record carries the name and no other personal field.
+  expect(Object.keys(listed.get(named.id)!).sort()).toEqual(["action", "displayName", "expiresAtMs", "issuerId", "principalId", "principalKind", "projectId", "revision", "revoked", "updatedAtMs"]);
+  expect(await grants.read(admin, { projectId: "grant-project", principal: named, action: "factory.author" })).toMatchObject({ displayName: "Grace Named" });
+  // A service grantee is named by its account.
+  expect((await grants.list(admin, "grant-project", { principalKind: "service", limit: 200 })).items.find(item => item.principalId === "grant-service")?.displayName).toBe("Grant service");
+  expect(await grants.displayNameOf(named)).toBe("Grace Named");
+  expect(await grants.displayNameOf({ kind: "user", id: "grant-nobody" })).toBe(FACTORY_GRANTEE_UNNAMED);
+  expect(await grants.displayNameOf({ kind: "service", id: "grant-service" })).toBe("Grant service");
+});
 }

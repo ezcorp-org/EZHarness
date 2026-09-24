@@ -1,0 +1,99 @@
+{
+  "candidateCommit": "0d74fc4418c3124f9ebd73cc280dcef7f78a365a",
+  "liveProductionCommit": "8ea169e057b55f4428fa6a72b782d5e9cfe725cd",
+  "baseCommit": "550b7c67e1116f78f0448f2133f8ad18201fed1d",
+  "startedUtc": "2026-09-21T00:16:32Z",
+  "finishedUtc": "2026-09-21T01:00:01Z",
+  "files": [
+    {
+      "path": "tasks/evidence/pluggable-final-third/sdk.log",
+      "bytes": 34,
+      "sha256": "781a10af5b6d2c1214f2be00467fa8dde4ce30fefcc5665279ba2750a69a0754"
+    },
+    {
+      "path": "tasks/evidence/pluggable-final-third/typecheck.log",
+      "bytes": 302,
+      "sha256": "71363350a1c68ebd1c313ac5095ea430b0f36c10494e44f20b72890d33854eaa"
+    },
+    {
+      "path": "tasks/evidence/pluggable-final-third/lint.log",
+      "bytes": 6609,
+      "sha256": "12709c34cfdbf95a0dc8761d09239b8cfc1039ff9501a32e0aa972393e2cda78"
+    },
+    {
+      "path": "tasks/evidence/pluggable-final-third/native-tools.log",
+      "bytes": 179,
+      "sha256": "35f313c9a8ea1169eacfafe39b80e9d6e3cc005185da5ca9e648da811aab5ed2"
+    },
+    {
+      "path": "tasks/evidence/pluggable-final-third/supervisor.log",
+      "bytes": 179,
+      "sha256": "9a639c8c3d47375fe60601dfed199bf8a464189ced5682b59c58151fb06dd702"
+    },
+    {
+      "path": "tasks/evidence/pluggable-final-third/browser.log",
+      "bytes": 634336,
+      "sha256": "56e303335eb9f543cf6699aacdd031cdb64770fea367e8bb278556e0bb37a561"
+    },
+    {
+      "path": "tasks/evidence/pluggable-final-third/coverage.log",
+      "bytes": 226280,
+      "sha256": "732adebaf8ff026e97c42f8d356019cf49b027c8b51fced7317e5351ef316daf"
+    },
+    {
+      "path": "tasks/evidence/pluggable-final-third/build.log",
+      "bytes": 163429,
+      "sha256": "adad5f26d0467d2f307f3db3d00219c811538e57a14660504c0bd8915af6c45b"
+    },
+    {
+      "path": "tasks/evidence/pluggable-final-third/new-file-coverage.log",
+      "bytes": 60,
+      "sha256": "1f17949bf1fe4370fcf3209a64386c44cedf5bb98668a13d37ea85d0fc682597"
+    },
+    {
+      "path": "tasks/evidence/pluggable-final-third/patch-coverage.log",
+      "bytes": 79,
+      "sha256": "5fe34ea2ceba729afe319a66f251f42663e0580249974f9b2ed3caa6928c0d0e"
+    },
+    {
+      "path": "tasks/evidence/pluggable-final-third/gate-integrity.log",
+      "bytes": 76,
+      "sha256": "b1a0297506aab4a182c44b23c41d861c6f4ae88da68848497d810bb39bff6bda"
+    },
+    {
+      "path": "tasks/evidence/pluggable-final-third/coverage.lcov",
+      "bytes": 2030848,
+      "sha256": "ccf0f6efa63c93fb58bf66f366c5cb86aa4edd9a1bfa2b2933e3e034bee89dd7"
+    },
+    {
+      "path": "tasks/evidence/pluggable-final-third/new-source-coverage.json",
+      "bytes": 4154,
+      "sha256": "f390abab93c7d2b2d55272fe34f63db3aa07c21e720df2f7b20b362bd81f74b9"
+    },
+    {
+      "path": "tasks/evidence/pluggable-real-final/e2e.log",
+      "bytes": 215625,
+      "sha256": "d7ed7ba2d3b37747c6f50e75c5fe0c2b67db73eeef433d192dcb46e9247aa299"
+    },
+    {
+      "path": "tasks/evidence/pluggable-real-final/cleanup-verified.json",
+      "bytes": 131,
+      "sha256": "6d55612282ffacbd1527d13b39b8401554a2d1af4709442b3cc7ae0543126f23"
+    },
+    {
+      "path": "tasks/evidence/pluggable-local/runtime-receipt.json",
+      "bytes": 6694,
+      "sha256": "d326d0b6143660b60b4935b1efc0cae93692006810b2648542365380e8c253de"
+    },
+    {
+      "path": "tasks/evidence/pluggable-local/production-driver-current-receipt.json",
+      "bytes": 246,
+      "sha256": "0161d4485c9a7ea222ad6224bdd96107e2705b42b671b215cd5e3f9ad566abfe"
+    },
+    {
+      "path": "tasks/evidence/pluggable-disposal-recovery/parent-hardware-probe.json",
+      "bytes": 396,
+      "sha256": "323a3360cc206f1ae43a6154f3acdc960708152a98ea5a20e9e5b81830b0c436"
+    }
+  ]
+}

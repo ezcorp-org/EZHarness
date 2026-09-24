@@ -187,17 +187,8 @@ export class FactoryRunLifecycle {
     principal = snapshot.principal; key = snapshot.key;
     if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 1 || expectedRevision >= Number.MAX_SAFE_INTEGER || !reason || reason.length > 2048) throw new FactoryRunLifecycleError("factory_revision_invalid");
     return this.mutations.execute({ principal, projectId: key.projectId, action: "factory.operate", idempotencyKey, input: { kind: "run.cancel", ...key, expectedRevision, reason } }, async transaction => {
-      const row = await this.row(transaction, key, true);
-      if (Number(row.revision) !== expectedRevision) throw new FactoryRunLifecycleError("factory_revision_conflict");
-      if (row.status === "succeeded" || row.status === "failed") throw new FactoryRunLifecycleError("factory_run_terminal");
-      if (row.status === "cancelled" || row.status === "cancelling") return this.requestResult(transaction, key, row, "decision", this.cancellationEventId(key, Number(row.cancellation_epoch)));
-      const epoch = Number(row.cancellation_epoch) + 1;
-      if (!Number.isSafeInteger(epoch)) throw new FactoryRunLifecycleError("factory_epoch_invalid");
-      await transaction.execute(sql`UPDATE factory_run_lifecycle SET status='cancelling', revision=${expectedRevision + 1}, cancellation_epoch=${epoch}, updated_at=NOW() WHERE tenant_id=${this.tenantId} AND project_id=${key.projectId} AND run_id=${key.runId}`);
-      const eventId = this.cancellationEventId(key, epoch);
-      await this.inbox.enqueueInTransaction(transaction, { ...key, interpreterId: "root" }, { kind: "cancel", id: eventId, atMs: this.now(), reason });
-      await insertTransactionalAuditEntry(transaction, eventId, principal.kind === "user" ? principal.id : null, "factory.run.cancel.requested", key.runId, { tenantId: this.tenantId, projectId: key.projectId, cancellationEpoch: epoch, reason, principalId: principal.id, principalKind: principal.kind });
-      return this.requestResult(transaction, key, await this.row(transaction, key), "decision", eventId);
+      const cancellation = await requestFactoryRunCancellationInTransaction(transaction, { tenantId: this.tenantId, inbox: this.inbox, now: this.now }, key, { principal, reason, expectedRevision });
+      return this.requestResult(transaction, key, await this.row(transaction, key), "decision", cancellation.eventId);
     }, transaction => this.authorizeCancellation(transaction, principal, key));
   }
 
@@ -264,10 +255,6 @@ export class FactoryRunLifecycle {
   /** Internal worker guard for a scoped durable read-model update. */
   async assertProjectionScopeInTransaction(transaction: MigrationDb, key: FactoryRunKey): Promise<void> {
     await this.row(transaction, key, true);
-  }
-
-  private cancellationEventId(key: FactoryRunKey, epoch: number): string {
-    return `factory-cancel:${digestObject({ tenantId: this.tenantId, ...key, epoch })}`;
   }
 
   private async requestResult(transaction: MigrationDb, key: FactoryRunKey, row: LifecycleRow, kind: "start_run" | "decision", eventId?: string): Promise<FactoryRunRequest> {
@@ -361,13 +348,60 @@ export class FactoryRunLifecycle {
   }
 
   private async row(transaction: MigrationDb, key: FactoryRunKey, lock = false): Promise<LifecycleRow> {
-    assertFactoryIdentity(key.projectId, key.runId);
-    if (lock) {
-      if (!await lockFactoryScope(transaction, this.tenantId, key.projectId)) throw new FactoryRunLifecycleError("factory_run_not_found");
-      await transaction.execute(sql`SELECT run_id FROM factory_runs WHERE tenant_id=${this.tenantId} AND project_id=${key.projectId} AND run_id=${key.runId} FOR UPDATE`);
-    }
-    const row = rows<LifecycleRow>(await transaction.execute(sql`SELECT factory_id, factory_version, definition_digest, grant_revision, revision, cancellation_epoch, status, deadline_ms, parameters_json, parameters_digest, output_json, error_json, FLOOR(EXTRACT(EPOCH FROM created_at) * 1000) AS created_ms, FLOOR(EXTRACT(EPOCH FROM updated_at) * 1000) AS updated_ms FROM factory_run_lifecycle WHERE tenant_id=${this.tenantId} AND project_id=${key.projectId} AND run_id=${key.runId} ${lock ? sql`FOR UPDATE` : sql``}`))[0];
-    if (!row) throw new FactoryRunLifecycleError("factory_run_not_found");
-    return row;
+    return lifecycleRow(transaction, this.tenantId, key, lock);
   }
+}
+
+async function lifecycleRow(transaction: MigrationDb, tenantId: string, key: FactoryRunKey, lock: boolean): Promise<LifecycleRow> {
+  assertFactoryIdentity(key.projectId, key.runId);
+  if (lock) {
+    if (!await lockFactoryScope(transaction, tenantId, key.projectId)) throw new FactoryRunLifecycleError("factory_run_not_found");
+    await transaction.execute(sql`SELECT run_id FROM factory_runs WHERE tenant_id=${tenantId} AND project_id=${key.projectId} AND run_id=${key.runId} FOR UPDATE`);
+  }
+  const row = rows<LifecycleRow>(await transaction.execute(sql`SELECT factory_id, factory_version, definition_digest, grant_revision, revision, cancellation_epoch, status, deadline_ms, parameters_json, parameters_digest, output_json, error_json, FLOOR(EXTRACT(EPOCH FROM created_at) * 1000) AS created_ms, FLOOR(EXTRACT(EPOCH FROM updated_at) * 1000) AS updated_ms FROM factory_run_lifecycle WHERE tenant_id=${tenantId} AND project_id=${key.projectId} AND run_id=${key.runId} ${lock ? sql`FOR UPDATE` : sql``}`))[0];
+  if (!row) throw new FactoryRunLifecycleError("factory_run_not_found");
+  return row;
+}
+
+function cancellationEventId(tenantId: string, key: FactoryRunKey, epoch: number): string {
+  return `factory-cancel:${digestObject({ tenantId, ...key, epoch })}`;
+}
+
+/** What one cancellation request did: the cancel event that stops the run, and whether this call queued it. */
+export interface FactoryRunCancellation {
+  readonly eventId: string;
+  /** False when the run was already cancelling or cancelled; the earlier request's event is returned. */
+  readonly requested: boolean;
+}
+
+/**
+ * The one implementation of "stop this run".
+ *
+ * It moves a live run to `cancelling` and queues the kernel `cancel` event. The
+ * kernel answers with a `cancel-node` for every active attempt, and each of those
+ * reaches the host through the ordinary stop path (W03), so every caller stops
+ * work the same way and records it under the same audit action. An operator's
+ * cancel and the package fence (`package-fence.ts`) both call it. The caller has
+ * already checked authority. `expectedRevision` is the operator's optimistic
+ * check; the package fence acts on the run as it currently stands. A run that
+ * already finished is refused as `factory_run_terminal`, and a repeat request is
+ * answered with the earlier event rather than a second one.
+ */
+export async function requestFactoryRunCancellationInTransaction(
+  transaction: MigrationDb,
+  scope: { readonly tenantId: string; readonly inbox: FactoryInbox; readonly now: () => number },
+  key: FactoryRunKey,
+  input: { readonly principal: FactoryPrincipal; readonly reason: string; readonly expectedRevision?: number },
+): Promise<FactoryRunCancellation> {
+  const row = await lifecycleRow(transaction, scope.tenantId, key, true);
+  if (input.expectedRevision !== undefined && Number(row.revision) !== input.expectedRevision) throw new FactoryRunLifecycleError("factory_revision_conflict");
+  if (row.status === "succeeded" || row.status === "failed") throw new FactoryRunLifecycleError("factory_run_terminal");
+  if (row.status === "cancelled" || row.status === "cancelling") return { eventId: cancellationEventId(scope.tenantId, key, Number(row.cancellation_epoch)), requested: false };
+  const epoch = Number(row.cancellation_epoch) + 1;
+  if (!Number.isSafeInteger(epoch)) throw new FactoryRunLifecycleError("factory_epoch_invalid");
+  await transaction.execute(sql`UPDATE factory_run_lifecycle SET status='cancelling', revision=${Number(row.revision) + 1}, cancellation_epoch=${epoch}, updated_at=NOW() WHERE tenant_id=${scope.tenantId} AND project_id=${key.projectId} AND run_id=${key.runId}`);
+  const eventId = cancellationEventId(scope.tenantId, key, epoch);
+  await scope.inbox.enqueueInTransaction(transaction, { ...key, interpreterId: "root" }, { kind: "cancel", id: eventId, atMs: scope.now(), reason: input.reason });
+  await insertTransactionalAuditEntry(transaction, eventId, input.principal.kind === "user" ? input.principal.id : null, "factory.run.cancel.requested", key.runId, { tenantId: scope.tenantId, projectId: key.projectId, cancellationEpoch: epoch, reason: input.reason, principalId: input.principal.id, principalKind: input.principal.kind });
+  return { eventId, requested: true };
 }

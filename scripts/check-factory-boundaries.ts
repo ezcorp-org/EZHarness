@@ -101,6 +101,7 @@ export const REQUIRED_SHARED_IMPORTS: readonly RequiredImport[] = [
   { factoryPath: "src/factory/legacy-workflow/import.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/native-runner-policy.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/outbox.ts", sharedModule: "src/delivery-queue/durable-delivery-queue.ts" },
+  { factoryPath: "src/factory/package-fence.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/package-preparation.ts", sharedModule: "src/db/queries/audit-log.ts" },
   { factoryPath: "src/factory/package-preparation.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/protected-command-effects.ts", sharedModule: "src/extensions/v4/blobs.ts" },

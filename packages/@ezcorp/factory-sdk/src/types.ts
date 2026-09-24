@@ -1360,6 +1360,12 @@ export interface FactoryGrantResource {
   /** @minimum 1 @maximum 9007199254740991 */
   readonly expiresAtMs: number | null;
   readonly revoked: boolean;
+  /**
+   * The grantee's display name, or the stated placeholder "Unnamed principal".
+   * Never the raw principal id.
+   * @minLength 1 @maxLength 256
+   */
+  readonly displayName: string;
 }
 
 export interface FactoryServiceCredentialResource {

@@ -261,4 +261,32 @@ elif [ -z "$REQUESTED_ENV_FILES" ] && ! dotenv_declares_runner_group; then
   export EZ_RUNNER_GROUP
 fi
 
+# Dockerfile.dev stores these values in OCI labels and runtime env. Export
+# derived DEFAULTS, never the operator-facing variables themselves. Compose's
+# nested defaults in docker-compose.yml then retain its native precedence and
+# parsing for explicit shell, .env, --env-file, and --env-file=value values.
+# Git metadata is diagnostic only: every command must still work from a source
+# archive or any other checkout where Git cannot answer.
+EZCORP_BUILD_COMMIT_DEFAULT="$(bash "$REPO_ROOT/scripts/resolve-dev-image-source-state.sh" --revision "$REPO_ROOT")"
+export EZCORP_BUILD_COMMIT_DEFAULT
+
+# The revision alone cannot say whether Docker's build-context inputs differed
+# from HEAD. Keep this detector shared with the printed direct-Docker rebuild
+# command so both entry points stamp the same clean/dirty/unknown contract.
+EZCORP_BUILD_SOURCE_STATE_DEFAULT="$(bash "$REPO_ROOT/scripts/resolve-dev-image-source-state.sh")"
+export EZCORP_BUILD_SOURCE_STATE_DEFAULT
+
+# The prod image also stamps a version and a creation time. VERSION comes from
+# package.json — the same value release-image.yml builds with — read with sed
+# so reading the version needs neither jq nor bun. CREATED is the COMMIT time, not the wall
+# clock, matching scripts/lib/build-archived-image.sh: a wall-clock value
+# would change on every invocation, and since the Dockerfile materializes the
+# build args in a layer (so Podman cannot serve stale metadata from cache),
+# every rebuild would then re-run the whole runtime stage for nothing. Both
+# degrade to `unknown` rather than failing, like the commit above.
+EZCORP_BUILD_VERSION_DEFAULT="$(sed -n 's/^  "version": "\([^"]*\)",\{0,1\}$/\1/p' "$REPO_ROOT/package.json" 2>/dev/null | head -1 || true)"
+export EZCORP_BUILD_VERSION_DEFAULT="${EZCORP_BUILD_VERSION_DEFAULT:-unknown}"
+EZCORP_BUILD_CREATED_DEFAULT="$(bash "$REPO_ROOT/scripts/resolve-dev-image-source-state.sh" --created "$REPO_ROOT")"
+export EZCORP_BUILD_CREATED_DEFAULT="${EZCORP_BUILD_CREATED_DEFAULT:-unknown}"
+
 exec "${COMPOSE_CMD[@]}" "${ENV_FILE_ARGS[@]}" "$@"

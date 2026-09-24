@@ -184,3 +184,19 @@ Podman suites ran at `23965e397` on a clean tree; the static sweep at the final 
   store refused writes from 08:32 on 2026-09-23 because the host disk is full.
   `receipts/store-unwritable-r4.json` records it, and the failed runs are kept in
   `repro/history/*-r4-store-unwritable.json`. The coordinator owns the repair.
+
+## Round 5 (integrator red at merge, C05 at f0aafe3a0)
+
+- Defect: `src/__tests__/factory-process-boundaries.test.ts` C05 failed. The supervisor process
+  reached `@aws-sdk/client-s3`, PGlite and drizzle-orm through `guest-broker-client.ts` ->
+  `guest-broker-service.ts` -> `attempt-token.ts` -> `auth/jwt.ts` -> `db/queries/settings.ts`.
+- Fix at `6ed5d8be9`: the route path, body cap and host scope move to the leaf
+  `src/factory/runner/guest-broker-contract.ts`. The client imports only the leaf. The client
+  verifies no token, so `auth/jwt.ts` is unchanged. No behavior change.
+- Supervisor closure: 152 files and 11 credential specifiers at `f0aafe3a0`; 14 files and none at
+  `6ed5d8be9`. EVIDENCE: `/tmp/factory-platform-evidence/w01g/fix-c05/supervisor-closure-*.json`.
+- Rerun at `6ed5d8be9` (0 dirty): C05 green; the route tests (host token, `forbidden_host`) green;
+  typecheck, lint, boundaries, gate-integrity green; coverage legs, `coverage-postgres` 59/0,
+  new-file and patch gates with `BASE_REF=integ/w00` green; three passes COMPLETED and the
+  negative control `failed`. EVIDENCE: `/tmp/factory-platform-evidence/w01g/fix-c05/`,
+  `three-passes.json`.

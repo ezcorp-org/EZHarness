@@ -10,7 +10,29 @@ import { FramedExecution, type FramedTransport, type ReverseRpc } from "./protoc
 import { fetchLockedDependencies } from "./dependencies";
 import { browserBuild, browserBuilderProgram } from "./browser";
 
-export const DEFAULT_IMAGE = "docker.io/oven/bun@sha256:50317d83cd5a5ae1d8b35b3379c69f57ce1a0dbf4def91f0965653d767851834";
+/**
+ * The runner image, pinned to the OCI **index** of `oven/bun:1.3.14` rather
+ * than to one platform's manifest.
+ *
+ * The previous pin, `sha256:50317d83cd5a5ae1d8b35b3379c69f57ce1a0dbf4def91f0965653d767851834`, was the index's linux/amd64 child on its own.
+ * That is byte-identical to what an amd64 host resolves from this index —
+ * nothing changes on CI or on Linux/amd64 — but on an arm64 host (every
+ * Apple-silicon `podman machine`) a single-platform digest cannot be
+ * satisfied natively, so podman pulled the amd64 image with a
+ * platform-mismatch warning and ran every build and execution under
+ * qemu-user emulation. The index has a native linux/arm64 child
+ * (`sha256:d8a4c24744b290bf789d58966a6f2521fc4d8bec36ec02cead6c541147b7d550`); podman resolves it without a warning and `--pull=never` works
+ * against the index reference (measured: `uname -m` → aarch64, bun 1.3.14).
+ *
+ * Still an immutable digest, so the `image_unpinned` check below is satisfied
+ * and reproducibility is unchanged: an index digest fixes both children.
+ * What a recipe records as `image` is this string, and a runner whose image
+ * differs from a release's recipe refuses to execute it
+ * (`runtime_profile_changed`) — so changing this value, like any image change,
+ * means releases built before it must be rebuilt. See the PR that introduced
+ * this pin for the migration note.
+ */
+export const DEFAULT_IMAGE = "docker.io/oven/bun@sha256:e10577f0db68676a7024391c6e5cb4b879ebd17188ab750cf10024a6d700e5c4";
 const seccompDefault = new URL("../seccomp.json", import.meta.url).pathname;
 /**
  * The sandbox's init process. It holds the three control FIFOs open for the

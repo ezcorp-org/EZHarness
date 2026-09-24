@@ -38,7 +38,8 @@ import { FactoryScopedMaterials } from "./artifact-materials";
 import { composeFactoryArchiveWriter, loadFactoryStorageCredentials } from "./release-composition";
 import { FactoryDestinationReservations, FactoryStoreSenderFence } from "./release-destinations";
 import { factoryReleaseFenceReader } from "./release-fence";
-import { FactoryS3PublicationProvenance } from "./release-s3-scope";
+import { FactoryS3PublicationProvenance, FactoryVerifiedAttemptMaterials } from "./release-s3-scope";
+import { FactoryPublicationOutputReader } from "./release-publication-set";
 import { FactoryReleases } from "./releases";
 import { FactoryNotificationDelivery } from "./notification-delivery";
 import { FactoryTrustedValidators, type FactoryTrustedValidatorRuntime } from "./validator-materials";
@@ -55,8 +56,10 @@ import { loadFactoryStartupConfig, type FactoryStartupConfig } from "./startup-c
 import { factoryInstallationStores, type FactoryInstallationStores } from "./installation-stores";
 import { composeFactoryAttemptDispatch, factoryPackageReadiness, type FactoryHostPhysicalStopper } from "./attempt-composition";
 import { composeFactorySettlement, factoryReleaseOutcomeDriver } from "./dispatch-composition";
-import { composeFactoryReleaseDestinations, type FactoryComposedReleaseDestinations } from "./release-declaration";
-import type { FactoryReleaseProviderResolver } from "./release-application";
+import { FactoryProtectedCommandEffects } from "./protected-command-effects";
+import { FactoryReleaseOutcomeDelivery } from "./release-outcome-delivery";
+import { composeFactoryReleaseDestinations, FactoryReleaseDestinationError, type FactoryComposedReleaseDestinations } from "./release-declaration";
+import { FactoryReleaseApplication, type FactoryReleaseProviderResolver } from "./release-application";
 import { startFactoryRuntime, type FactoryRuntime, type FactoryRuntimeDependencies } from "./runtime-composition";
 import type { FactoryStorageProbeTarget } from "./service-probes";
 import { factoryPageDriver, type FactoryItemDisposition } from "./role-drivers";
@@ -289,6 +292,33 @@ export function factoryChildSettlementDriver(
   });
 }
 
+/** The release store, its assurance, and what the document declares for it. */
+export type FactoryInstallationRelease = Readonly<{ releases: FactoryReleases; assurance: FactoryAssurance; destinations?: FactoryComposedReleaseDestinations }>;
+
+/**
+ * The public release surface, over the one assurance and store the effects use.
+ *
+ * `PUT .../release/contracts/{id}` is where a human approves a contract, and it
+ * answered `factory_release_application_unavailable` because nothing supplied
+ * this. Built over the same assurance and release store the protected effects
+ * judge and prepare through, an approval written here is the one acceptance
+ * reads. An installation that declares no destination still gets the contract,
+ * approval, policy and inspection routes; the one step that needs a provider,
+ * a reconciliation, refuses by name.
+ */
+export function factoryReleaseOperations(
+  tenantId: string,
+  release: Pick<FactoryInstallationRelease, "releases" | "assurance">,
+  resolver: FactoryReleaseProviderResolver | undefined,
+): NonNullable<FactoryApplicationOptions["createReleaseOperations"]> {
+  const providers: FactoryReleaseProviderResolver = resolver ?? {
+    resolve(operation) {
+      throw new FactoryReleaseDestinationError("factory_release_destination_unknown", operation.destination.account, "this installation declares no release destination");
+    },
+  };
+  return (context) => new FactoryReleaseApplication(tenantId, context.grants, release.assurance, release.releases, providers);
+}
+
 /**
  * The release store, composed from the startup document alone.
  *
@@ -317,12 +347,6 @@ export function factoryChildSettlementDriver(
  * hold by name, which is visible in the readiness report, instead of taking the
  * whole installation down with them.
  */
-interface FactoryInstallationRelease {
-  readonly releases: FactoryReleases;
-  readonly assurance: FactoryAssurance;
-  readonly destinations?: FactoryComposedReleaseDestinations;
-}
-
 async function installationReleases(
   config: FactoryStartupConfig,
   database: TransactionalDb,
@@ -341,6 +365,9 @@ async function installationReleases(
       ordinary: config.storage.ordinary,
       archive: config.storage.archive,
       reader,
+      // A validator's report is its attempt's terminal output, not a sealed
+      // material, so the archive reads it through its own proved path.
+      outputs: new FactoryPublicationOutputReader({ database, tenantId: config.tenantId, artifacts }),
       resolveMembers: (tenantId, operationId, material, signal) => provenance.sourcesFor(tenantId, operationId, material, signal),
       archiveCredentials: await loadFactoryStorageCredentials(config.storage.archive, config.tenantId),
     });
@@ -353,9 +380,12 @@ async function installationReleases(
     // Where this installation may publish, from its own document. It is built
     // here rather than beside the roles because it needs the same scoped reader
     // and the same publication provenance the archive already holds: a second
-    // reader would read members under another scope.
+    // reader would read members under another scope. The S3 profile lists the
+    // accepted attempt's sealed materials through the one attempt-agnostic
+    // reader, over the same blob store and journal every attempt writes through.
     const destinations = await composeFactoryReleaseDestinations(config, {
       database, tenantId: config.tenantId, reader, attempts: provenance, releases,
+      materials: new FactoryVerifiedAttemptMaterials({ database, blobs, journal: stores.journal }),
     });
     // The assurance travels with the store: `FactoryProtectedCommandEffects`
     // takes both, and a second assurance built over the same tables would
@@ -582,6 +612,8 @@ export async function startFactoryInstallation(options: FactoryInstallationStart
       blobs,
       runOptions: host.runOptions,
       availableResourceClasses: host.availableResourceClasses,
+      // The public release routes, over the release store composed above.
+      ...composed?.application,
     },
     // The private worker API, and only that. The pool, the supervisor, and the
     // Node orchestrator each bind their own in their own process; this one binds
@@ -673,6 +705,7 @@ async function installationCollaborators(
   readonly workers: FactoryRuntimeDependencies["workers"];
   readonly seams: FactoryRuntimeDependencies["seams"];
   readonly listeners: readonly FactoryStartedListener[];
+  readonly application: Pick<FactoryApplicationOptions, "createReleaseOperations">;
   readonly guestBroker: FactoryGuestBrokerReadiness;
 }> {
   const { createFactoryApplication } = await import("./application");
@@ -735,8 +768,8 @@ async function installationCollaborators(
 
   // The release store, and the two roles it feeds. `notification-inbox-delivery`
   // composes from the store alone. `release-outcome` composes from the store,
-  // this tenant's projects and the run lifecycle — and from a destination this
-  // process cannot name, so it holds unless the deployment supplies one.
+  // this tenant's projects and the run lifecycle — and from a destination the
+  // startup document declares, so it holds when none is declared.
   const release = await installationReleases(config, host.database, blobs, application.artifacts, application, host.report, gateway.validators);
   const validation = await installationValidatorRoles(config, host, stores, application, release, gateway, signal);
 
@@ -747,6 +780,7 @@ async function installationCollaborators(
   // The caller's resolver wins, so a host that holds a provider this document
   // cannot describe is not overruled by it; otherwise the declared one serves.
   const resolver = releaseProviders ?? release?.destinations?.providers;
+  const outcomes = composeReleaseOutcomeDelivery(config, host, stores, application, release, service);
   const releaseOutcome = release === undefined || resolver === undefined ? undefined
     : factoryReleaseOutcomeDriver(
       host.database,
@@ -755,6 +789,8 @@ async function installationCollaborators(
       () => factoryTenantProjectIds(host.database, factoryTenantProjects(config.tenantId)),
       resolver,
       host.report,
+      undefined,
+      outcomes?.delivery,
     );
 
   // With no validator composed, acceptance refuses by name at once: nothing
@@ -762,7 +798,7 @@ async function installationCollaborators(
   const acceptance = validation.composed?.acceptance.command ?? factoryValidatorAcceptanceRefusal(
     validation.held === undefined ? "factory_validator_none_declared" : "factory_validator_unavailable",
     validation.held ?? "the startup document declares no validator runtime under validators.runtimes");
-  const privateService = await composePrivateService(config, host, stores, transitions, application, release, settlement?.stops, acceptance);
+  const privateService = await composePrivateService(config, host, stores, transitions, application, release, settlement?.stops, acceptance, outcomes?.effects);
   const recovery = await composeFactoryRecoveryRoles({ config, database: host.database, report: host.report });
 
   // ── W01g: the guest-broker route ────────────────────────────────────
@@ -795,8 +831,39 @@ async function installationCollaborators(
       ...(privateService === undefined ? [] : [privateService]),
       ...(guestBroker.listener === undefined ? [] : [guestBroker.listener]),
     ],
+    application: release === undefined ? {} : { createReleaseOperations: factoryReleaseOperations(config.tenantId, release, resolver) },
     guestBroker: guestBroker.readiness,
   };
+}
+
+/**
+ * The protected effects, built once, and the delivery that reads through them.
+ *
+ * The private service answers `request-release` with this instance, and
+ * `release-outcome` reads the verified command behind a settled operation
+ * through the same one, so the command that prepared an operation and the
+ * command its outcome answers cannot come from two different readers. Absent
+ * with the release store or the task completions, exactly as the private
+ * service is. Every input is the installation's own and already validated:
+ * the startup document refuses a duplicate adapter and a malformed action, and
+ * every store here shares one tenant, so the constructors have nothing left to
+ * refuse.
+ */
+function composeReleaseOutcomeDelivery(
+  config: FactoryStartupConfig,
+  host: Pick<FactoryInstallationHost, "database">,
+  stores: FactoryInstallationStores,
+  application: FactoryApplication,
+  release: FactoryInstallationRelease | undefined,
+  service: TrustedFactoryServiceIdentity,
+): { readonly effects: FactoryProtectedCommandEffects; readonly delivery: FactoryReleaseOutcomeDelivery } | undefined {
+  if (release === undefined || stores.completions === undefined) return undefined;
+  const effects = new FactoryProtectedCommandEffects(
+    host.database, config.tenantId, stores.authority, stores.completions, application.releaseAuthority,
+    release.assurance, release.releases, release.destinations?.profiles ?? [],
+  );
+  const delivery = new FactoryReleaseOutcomeDelivery({ database: host.database, tenantId: config.tenantId, service, effects, authority: stores.authority, inbox: stores.inbox });
+  return Object.freeze({ effects, delivery });
 }
 
 /**
@@ -817,6 +884,7 @@ async function composePrivateService(
   release: FactoryInstallationRelease | undefined,
   stops: FactoryTaskStops | undefined,
   acceptance?: FactoryPrivateCommandHandler,
+  protectedEffects?: FactoryProtectedCommandEffects,
 ): Promise<FactoryStartedListener | undefined> {
   if (config.privateService.tokens === undefined) return undefined;
   try {
@@ -831,6 +899,7 @@ async function composePrivateService(
       ...(release?.destinations === undefined ? {} : { releaseProfiles: release.destinations.profiles }),
       ...(stops === undefined ? {} : { stops }),
       ...(acceptance === undefined ? {} : { acceptance }),
+      ...(protectedEffects === undefined ? {} : { protectedEffects }),
       report: host.report,
     });
   } catch (error) {

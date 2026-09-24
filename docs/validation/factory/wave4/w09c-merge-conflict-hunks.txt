@@ -1,0 +1,17 @@
+diff --cc src/factory/installation-startup.ts
+index 502cc76e9,b131e0044..000000000
+--- a/src/factory/installation-startup.ts
++++ b/src/factory/installation-startup.ts
+@@@ -759,8 -752,7 +795,12 @@@ async function installationCollaborator
+    const acceptance = validation.composed?.acceptance.command ?? factoryValidatorAcceptanceRefusal(
+      validation.held === undefined ? "factory_validator_none_declared" : "factory_validator_unavailable",
+      validation.held ?? "the startup document declares no validator runtime under validators.runtimes");
+++<<<<<<< HEAD
+ +  const privateService = await composePrivateService(config, host, stores, transitions, application, release, settlement?.stops, acceptance);
+ +  const recovery = await composeFactoryRecoveryRoles({ config, database: host.database, report: host.report });
+++=======
++   const privateService = await composePrivateService(config, host, stores, transitions, application, release, settlement?.stops, acceptance, outcomes?.effects);
+++>>>>>>> wp/w09c-profiles
+  
+    return {
+      workers: {

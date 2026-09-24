@@ -1,3 +1,5 @@
+Current pluggable infrastructure work: [gates/pluggable-root.md](gates/pluggable-root.md). Prior project records follow unchanged.
+
 # Cancellation authority leaf
 
 - [x] Every journal predicate fences `cancellation_epoch`.

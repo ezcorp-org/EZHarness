@@ -1,0 +1,348 @@
+{
+ "package": "w04b",
+ "branch": "wp/w04b-regrant",
+ "head": "9e76bc6ef4bada354201e1ab134e51b4244e4111",
+ "validatorVerdict": "ACCEPT-WITH-FIXES (w15-validator at 122fed3f9, report copied as w04b-validation-report.txt) + ACCEPT on the delta 9e76bc6ef (validator-3, copied as w04b-validation-delta.txt). Combined: mergeable at 9e76bc6ef.",
+ "mergeSha": "ddc03abedea22f83293857c0f769c9d9f968e2b7",
+ "tree": "c74aa12c6a880b4bcd71fff4afd4ba01ed6b7faf",
+ "parents": [
+  "6964dec93663450ffd74050ef24db6be0110c548",
+  "9e76bc6ef4bada354201e1ab134e51b4244e4111"
+ ],
+ "conflicts": {
+  "tasks/todo.md": "union",
+  "scripts/coverage-thresholds.json": "both keys kept (W02c package-fence keys and W04b allow-factory-artifact-regrant), none lowered",
+  "src/db/migrate.ts": "registration, both kept: add-factory-package-fence-runs, then allow-factory-artifact-regrant, then add-factory-recovery last (the checkpoint barrier attaches to every factory table that exists)",
+  "web/src/routes/api/factories/_shared.ts": "no conflict (W14 has not landed)",
+  "hunks": "w04b-merge-conflict-hunks.txt"
+ },
+ "integrationFix": [
+  {
+   "what": "src/__tests__/helpers/factory-migration-restart-suite.ts: both new tests kept side by side (W02c 'repeated migration keeps every package fence record ...' and W04b 'repeated migration keeps a revoked artifact share beside its re-grant ...')",
+   "ruling": "coordinator approved 2026-09-24",
+   "hunks": "w04b-merge-conflict-hunks.txt"
+  },
+  {
+   "what": "tests/postgres/factory-schema.test.ts: expectedIndexes is the union of both sides (adds idx_factory_artifact_read_grants_active to W02c's list with idx_factory_package_fence_runs_run)",
+   "ruling": "coordinator approved 2026-09-24",
+   "hunks": "w04b-merge-conflict-hunks.txt"
+  }
+ ],
+ "rulings": {
+  "migration": "proven on the old shape holding a revoked row (allow-factory-artifact-regrant.test.ts); oids kept on rerun",
+  "regrant": "a revoked grant never blocks a new grant; the revoked row stays for audit; racing re-grants leave one active row and one typed conflict",
+  "displayName": "falls back to 'Unnamed principal'; no other personal field is exposed",
+  "F1": "closed: the proof PostgreSQL password was in two worker receipts (argv); receipts redacted and regenerated, sweep.sh exports the URL inside the leg; password scan of w04b/ and w04b-validation/ finds 0 files (integrator scan 2026-09-24)",
+  "F2": "closed at 9e76bc6ef: preW04bSeal pin test in artifact-access.test.ts",
+  "F3": "closed: disclosures added"
+ },
+ "checks": [
+  {
+   "name": "registration",
+   "exitCode": 0,
+   "start": "2026-09-24T19:58:12Z",
+   "end": "2026-09-24T19:58:13Z",
+   "command": "bun test --timeout 30000 ./scripts/factory-postgres-suite-registration.test.ts ./src/__tests__/factory-ci-registration.test.ts ./scripts/check-required-checks.test.ts",
+   "logSha256": "d3724128c532c0a667116945d438c1f2f74d323db2d6d622253206c214ccf521"
+  },
+  {
+   "name": "typecheck",
+   "exitCode": 0,
+   "start": "2026-09-24T19:58:13Z",
+   "end": "2026-09-24T19:59:00Z",
+   "command": "bun run typecheck",
+   "logSha256": "b135a9ed447a2f9d3c6fbf9e0ca2f858dd6a5d2a41cdb6f4872b1f90af3d9101"
+  },
+  {
+   "name": "lint",
+   "exitCode": 0,
+   "start": "2026-09-24T19:59:00Z",
+   "end": "2026-09-24T19:59:02Z",
+   "command": "bun run lint",
+   "logSha256": "ca1f5572b70cda4a5b3824b35b43ee28bc19e2dcc4d0110a464ca7d65ae82d2a"
+  },
+  {
+   "name": "gate-integrity",
+   "exitCode": 0,
+   "start": "2026-09-24T19:59:02Z",
+   "end": "2026-09-24T19:59:05Z",
+   "command": "bun scripts/gate-integrity.ts",
+   "logSha256": "b1a0297506aab4a182c44b23c41d861c6f4ae88da68848497d810bb39bff6bda"
+  },
+  {
+   "name": "boundaries",
+   "exitCode": 0,
+   "start": "2026-09-24T19:59:05Z",
+   "end": "2026-09-24T19:59:05Z",
+   "command": "bun scripts/check-factory-boundaries.ts",
+   "logSha256": "7bc27ebaae7b275fdd2403a02dc60c70eb94d07e269401e006b56590502d16e7"
+  },
+  {
+   "name": "schema-drift",
+   "exitCode": 0,
+   "start": "2026-09-24T19:59:05Z",
+   "end": "2026-09-24T19:59:10Z",
+   "command": "bun scripts/check-schema-generate-drift.ts",
+   "logSha256": "bf54d71df4bb820ddd5c50188d70a55f86e50dcea637f3af20599f18a8d2dabc"
+  },
+  {
+   "name": "focused-packages-@ezcorp-factory-sdk-src-factory-api-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-24T19:59:10Z",
+   "end": "2026-09-24T19:59:12Z",
+   "command": "bun test --timeout 60000 ./packages/@ezcorp/factory-sdk/src/factory-api.test.ts",
+   "logSha256": "fb029f0b0db83808d3e3178bc0af8aa933bd49b72fd2b8afe64b1b5afecb5c82"
+  },
+  {
+   "name": "focused-src-db-migrations-allow-factory-artifact-regrant-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-24T19:59:12Z",
+   "end": "2026-09-24T19:59:15Z",
+   "command": "bun test --timeout 60000 ./src/db/migrations/allow-factory-artifact-regrant.test.ts",
+   "logSha256": "564747f06b6130a064047cf659c800eb17e45df60f5810d0803b47c62be1aec7"
+  },
+  {
+   "name": "focused-src-factory-archive-writer-integration-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-24T19:59:15Z",
+   "end": "2026-09-24T19:59:22Z",
+   "command": "bun test --timeout 60000 ./src/factory/archive-writer.integration.test.ts",
+   "logSha256": "a5459cf76cbbe49841f1e1173a8dc3fe09435aba2bd67c73bb38719c9db173bd"
+  },
+  {
+   "name": "focused-src-factory-artifact-access-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-24T19:59:22Z",
+   "end": "2026-09-24T19:59:23Z",
+   "command": "bun test --timeout 60000 ./src/factory/artifact-access.test.ts",
+   "logSha256": "50c947789b5627ed10e17f9db9a1bb69b63ba7640f06d94606295caa8b7fd323"
+  },
+  {
+   "name": "focused-src-factory-assurance-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-24T19:59:23Z",
+   "end": "2026-09-24T19:59:25Z",
+   "command": "bun test --timeout 60000 ./src/factory/assurance.test.ts",
+   "logSha256": "b337024e11ad9bf6d5815d80b8a2b72c3f50f26983e6b99d39d5c429688992d7"
+  },
+  {
+   "name": "focused-src-factory-attempt-queue-integration-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-24T19:59:25Z",
+   "end": "2026-09-24T19:59:28Z",
+   "command": "bun test --timeout 60000 ./src/factory/attempt-queue.integration.test.ts",
+   "logSha256": "e9e3806f36b002fdb135e631a468f4e17bf090fb3790df9512be28b8ad234224"
+  },
+  {
+   "name": "focused-src-factory-child-artifacts-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-24T19:59:28Z",
+   "end": "2026-09-24T19:59:29Z",
+   "command": "bun test --timeout 60000 ./src/factory/child-artifacts.test.ts",
+   "logSha256": "7accf8e4f3a60b687eb232dcb889f4af80a4e43c2cd21e13c48a8c9ada2a3f86"
+  },
+  {
+   "name": "focused-src-factory-lazy-commands-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-24T19:59:29Z",
+   "end": "2026-09-24T19:59:33Z",
+   "command": "bun test --timeout 60000 ./src/factory/lazy-commands.test.ts",
+   "logSha256": "ca188b6eb37b9129d8195c9edb3eceec670db6fa98bcda6573fd02e3a0306fa6"
+  },
+  {
+   "name": "focused-src-factory-package-preparation-integration-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-24T19:59:33Z",
+   "end": "2026-09-24T19:59:42Z",
+   "command": "bun test --timeout 60000 ./src/factory/package-preparation.integration.test.ts",
+   "logSha256": "b0cbae19268070c6d9eaeaa73605dabb5e2b3cda8fb2b15d2fb24951b05298cd"
+  },
+  {
+   "name": "focused-src-factory-release-authority-integration-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-24T19:59:42Z",
+   "end": "2026-09-24T19:59:44Z",
+   "command": "bun test --timeout 60000 ./src/factory/release-authority.integration.test.ts",
+   "logSha256": "a92033ae134a02c176eaa697131feafa7d84288351aedde88f97e4aabfa72c30"
+  },
+  {
+   "name": "focused-src-factory-release-s3-publication-integration-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-24T19:59:44Z",
+   "end": "2026-09-24T19:59:58Z",
+   "command": "bun test --timeout 60000 ./src/factory/release-s3-publication.integration.test.ts",
+   "logSha256": "e146719593c03eccc747916b86e00fa9a58cf2408a413fb9639537b9c7b2c32e"
+  },
+  {
+   "name": "focused-src-factory-releases-integration-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-24T19:59:58Z",
+   "end": "2026-09-24T20:00:02Z",
+   "command": "bun test --timeout 60000 ./src/factory/releases.integration.test.ts",
+   "logSha256": "92709e9c82848ffdb8c4f8ecc0e0bed028bd7882c870827ffc44a73827146cf1"
+  },
+  {
+   "name": "focused-src-factory-run-inputs-integration-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-24T20:00:02Z",
+   "end": "2026-09-24T20:00:04Z",
+   "command": "bun test --timeout 60000 ./src/factory/run-inputs.integration.test.ts",
+   "logSha256": "56ab39be14bec7512826190f5fdca3270c136d600b11665487dc8ee4622a824f"
+  },
+  {
+   "name": "focused-src-factory-validator-materials-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-24T20:00:04Z",
+   "end": "2026-09-24T20:00:08Z",
+   "command": "bun test --timeout 60000 ./src/factory/validator-materials.test.ts",
+   "logSha256": "d32a1e94343b8917f47555215405a8d029bd6af182d7ba8c673660c1e3e30278"
+  },
+  {
+   "name": "focused-src-__tests__-factory-definitions-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-24T20:00:08Z",
+   "end": "2026-09-24T20:00:10Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/factory-definitions.test.ts",
+   "logSha256": "1d7856bd171081e3fc408254f2460ad6e5ebd287eee9a0b84e43ab571bdff8fc"
+  },
+  {
+   "name": "focused-src-__tests__-factory-grants-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-24T20:00:10Z",
+   "end": "2026-09-24T20:00:12Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/factory-grants.test.ts",
+   "logSha256": "44af49d61e786fbb09df0dcf6301ccc5c3efcfb15fd7325ee1b1fce79e010414"
+  },
+  {
+   "name": "focused-src-__tests__-factory-migration-restart-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-24T20:00:12Z",
+   "end": "2026-09-24T20:00:20Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/factory-migration-restart.test.ts",
+   "logSha256": "fc49cb734aca250dd1cd5e74982618abbc932165b8ea33e8cc42178f59410367"
+  },
+  {
+   "name": "focused-src-__tests__-factory-package-fence-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-24T20:00:21Z",
+   "end": "2026-09-24T20:00:35Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/factory-package-fence.test.ts",
+   "logSha256": "d168c1712858ca3750e087d8fc045b656305cf41239cd084fddff19078001282"
+  },
+  {
+   "name": "focused-src-__tests__-factory-retention-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-24T20:00:35Z",
+   "end": "2026-09-24T20:00:38Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/factory-retention.test.ts",
+   "logSha256": "58e7af7f5346132410ed7baa3b6027b468776164fb64ec55806a9af8cc07e611"
+  },
+  {
+   "name": "focused-src-__tests__-factory-run-lifecycle-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-24T20:00:38Z",
+   "end": "2026-09-24T20:01:08Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/factory-run-lifecycle.test.ts",
+   "logSha256": "f804bbf469a8bce4ae2a01ab4274ede47175c9bb8b1274cceb3ee0d025c3a919"
+  },
+  {
+   "name": "focused-src-__tests__-factory-service-credentials-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-24T20:01:08Z",
+   "end": "2026-09-24T20:01:10Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/factory-service-credentials.test.ts",
+   "logSha256": "8a3d15ba97c9953cbc997535cd7d52f24d0544786701a66904b5b2ceb0dfbd5f"
+  },
+  {
+   "name": "focused-src-__tests__-factory-task-stops-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-24T20:01:10Z",
+   "end": "2026-09-24T20:01:17Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/factory-task-stops.test.ts",
+   "logSha256": "ce5718abdc5a2a94e197dfc9e149bec223912c406d4102faad35982206b6d12b"
+  },
+  {
+   "name": "web-vitest (route-kit.server, factories.server)",
+   "exitCode": 0,
+   "counts": {
+    "files": 2,
+    "tests": 30
+   },
+   "command": "cd web && bunx vitest run src/lib/server/factory/route-kit.server.test.ts src/routes/api/factories/factories.server.test.ts",
+   "logSha256": "4574c12123b9ce1461d7a264bae8594155f93f6fc9f34b97ad9622a237b05822"
+  },
+  {
+   "name": "build-factory-sdk",
+   "exitCode": 0,
+   "log": "w00/w04b-merge/build-factory-sdk.log"
+  }
+ ],
+ "heavy": {
+  "script": "w00/merge-heavy-batch.sh (26 real-PostgreSQL suites reaching grants.ts or artifact-access.ts directly or through the shared helpers)",
+  "summary": [
+   "=== heavy batch 2026-09-24T20:13:36Z",
+   "HEAD 6964dec93663450ffd74050ef24db6be0110c548 MERGE_HEAD 9e76bc6ef4bada354201e1ab134e51b4244e4111 index-tree c74aa12c6a880b4bcd71fff4afd4ba01ed6b7faf umask 0077",
+   "df: /dev/nvme0n1p2  1.8T  1.6T  184G  90% /",
+   "--- START pg-factory-archive-writer 2026-09-24T20:13:36Z",
+   "--- END   pg-factory-archive-writer 2026-09-24T20:16:50Z exit=0  10 pass 0 fail ",
+   "--- START pg-factory-artifact-access 2026-09-24T20:16:50Z",
+   "--- END   pg-factory-artifact-access 2026-09-24T20:18:05Z exit=0  2 pass 0 fail ",
+   "--- START pg-factory-assurance 2026-09-24T20:18:05Z",
+   "--- END   pg-factory-assurance 2026-09-24T20:18:17Z exit=0  17 pass 0 fail ",
+   "--- START pg-factory-attempt-queue 2026-09-24T20:18:17Z",
+   "--- END   pg-factory-attempt-queue 2026-09-24T20:18:28Z exit=0  1 pass 0 fail ",
+   "--- START pg-factory-checkpoint 2026-09-24T20:18:28Z",
+   "--- END   pg-factory-checkpoint 2026-09-24T20:19:11Z exit=0  12 pass 0 fail ",
+   "--- START pg-factory-child-artifacts 2026-09-24T20:19:11Z",
+   "--- END   pg-factory-child-artifacts 2026-09-24T20:19:23Z exit=0  5 pass 0 fail ",
+   "--- START pg-factory-definitions 2026-09-24T20:19:23Z",
+   "--- END   pg-factory-definitions 2026-09-24T20:19:48Z exit=0  11 pass 0 fail ",
+   "--- START pg-factory-grants 2026-09-24T20:19:48Z",
+   "--- END   pg-factory-grants 2026-09-24T20:20:02Z exit=0  13 pass 0 fail ",
+   "--- START pg-factory-lazy-commands 2026-09-24T20:20:02Z",
+   "--- END   pg-factory-lazy-commands 2026-09-24T20:21:18Z exit=0  7 pass 0 fail ",
+   "--- START pg-factory-lazy-input 2026-09-24T20:21:18Z",
+   "--- END   pg-factory-lazy-input 2026-09-24T20:21:30Z exit=0  3 pass 0 fail ",
+   "--- START pg-factory-migration-restart 2026-09-24T20:21:30Z",
+   "--- END   pg-factory-migration-restart 2026-09-24T20:23:40Z exit=0  17 pass 0 fail ",
+   "--- START pg-factory-package-fence 2026-09-24T20:23:40Z",
+   "--- END   pg-factory-package-fence 2026-09-24T20:27:56Z exit=0  17 pass 0 fail ",
+   "--- START pg-factory-package-preparation 2026-09-24T20:27:56Z",
+   "--- END   pg-factory-package-preparation 2026-09-24T20:32:30Z exit=0  22 pass 0 fail ",
+   "--- START pg-factory-release-authority 2026-09-24T20:32:30Z",
+   "--- END   pg-factory-release-authority 2026-09-24T20:32:46Z exit=0  14 pass 0 fail ",
+   "--- START pg-factory-release-declare-race 2026-09-24T20:32:46Z",
+   "--- END   pg-factory-release-declare-race 2026-09-24T20:33:36Z exit=0  4 pass 0 fail ",
+   "--- START pg-factory-releases 2026-09-24T20:33:36Z",
+   "--- END   pg-factory-releases 2026-09-24T20:33:48Z exit=0  23 pass 0 fail ",
+   "--- START pg-factory-restore 2026-09-24T20:33:48Z",
+   "--- END   pg-factory-restore 2026-09-24T20:34:49Z exit=0  13 pass 0 fail ",
+   "--- START pg-factory-retention 2026-09-24T20:34:49Z",
+   "--- END   pg-factory-retention 2026-09-24T20:35:04Z exit=0  13 pass 0 fail ",
+   "--- START pg-factory-run-inputs 2026-09-24T20:35:04Z",
+   "--- END   pg-factory-run-inputs 2026-09-24T20:35:17Z exit=0  5 pass 0 fail ",
+   "--- START pg-factory-run-lifecycle-s3 2026-09-24T20:35:17Z",
+   "--- END   pg-factory-run-lifecycle-s3 2026-09-24T20:36:17Z exit=0  66 pass 0 fail ",
+   "--- START pg-factory-run-lifecycle 2026-09-24T20:36:17Z",
+   "--- END   pg-factory-run-lifecycle 2026-09-24T20:36:59Z exit=0  66 pass 0 fail ",
+   "--- START pg-factory-s3-publication 2026-09-24T20:36:59Z",
+   "--- END   pg-factory-s3-publication 2026-09-24T20:39:33Z exit=0  18 pass 0 fail ",
+   "--- START pg-factory-schema 2026-09-24T20:39:33Z",
+   "--- END   pg-factory-schema 2026-09-24T20:39:42Z exit=0  2 pass 0 fail ",
+   "--- START pg-factory-service-credentials 2026-09-24T20:39:42Z",
+   "--- END   pg-factory-service-credentials 2026-09-24T20:39:50Z exit=0  5 pass 0 fail ",
+   "--- START pg-factory-task-stops 2026-09-24T20:39:50Z",
+   "--- END   pg-factory-task-stops 2026-09-24T20:40:08Z exit=0  18 pass 0 fail ",
+   "--- START pg-factory-validator-materials 2026-09-24T20:40:08Z",
+   "--- END   pg-factory-validator-materials 2026-09-24T20:40:21Z exit=0  9 pass 0 fail ",
+   "BATCH DONE status=0 2026-09-24T20:40:21Z"
+  ]
+ },
+ "commitHook": {
+  "firstAttempt": "REFUSED: tests/postgres/factory-artifact-access.test.ts failed 0/2 with 'EZCORP_FACTORY_STORAGE_SECRETS_DIR is required for PostgreSQL factory storage proofs.' because the commit wrapper did not export the storage credential directory (environment gap, not a W04b failure; the same suite passed 2/0 in the heavy batch). Nothing was committed.",
+  "secondAttempt": "directory exported: every hook suite passes (factory-api 5/0, allow-factory-artifact-regrant 1/0, artifact-access 7/0, migrate 8/0, pg artifact-access 2/0, pg schema 2/0, vitest factories.server); commit exit 0",
+  "wrapperFix": "w00/commit-with-postgres.sh now discovers and exports EZCORP_FACTORY_STORAGE_SECRETS_DIR (a path, not a secret)"
+ },
+ "listNote": "the first focused/PostgreSQL list was computed with an unsplit zsh variable and was too short; recomputed in bash before any check ran",
+ "standingSteps": "df 191G at merge start, 190G before the heavy batch, 155G at commit"
+}

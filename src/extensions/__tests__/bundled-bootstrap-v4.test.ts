@@ -24,6 +24,7 @@ mock.module("../extension-lifecycle-service", () => ({ getExtensionLifecycle: as
   },
   async build(actor: unknown, input: unknown) { builds.push({ actor, input }); return { id: "operation", state: "awaiting_approval" }; },
   async runBuild() { throw new Error("Completed operation must not restart"); },
+  policyDigest: () => "policy",
   async approve(...args: unknown[]) { approved.push(args); },
 }) }));
 const { stageBundledExtensionSources, bundledInstallationId } = await import("../bundled-bootstrap");
