@@ -1,4 +1,5 @@
-import { expect, test, mock } from "bun:test";
+import { afterAll, expect, test, mock } from "bun:test";
+import { restoreModuleMocks } from "../../__tests__/helpers/mock-cleanup";
 import { configureHostApiTransport, handleHostApi, routeMatches, validateHostApiRequest } from "../host-api-broker";
 import { registerCallProvenance, releaseCallProvenance } from "../call-provenance";
 import { grantsToCapabilitySet, hostApiRouteCapability, intersectPermissions } from "../capability-types";
@@ -7,6 +8,7 @@ import type { ExtensionPermissions, JsonRpcRequest } from "../types";
 
 let activeUser = true;
 mock.module("../../db/queries/users", () => ({ getUserById: async () => ({ id: "user", status: activeUser ? "active" : "inactive" }) }));
+afterAll(restoreModuleMocks);
 
 const permissions: NonNullable<ExtensionPermissions["hostApi"]> = { events: false, routes: [{ method: "GET", path: "/api/conversations/:id" }, { method: "POST", path: "/api/conversations" }] };
 
@@ -53,7 +55,7 @@ test("production broker requires matching identity, live grants, active user and
     expect((await handleHostApi(deps, "extension", request())).error?.message).toContain("not configured");
     configureHostApiTransport({ request: requestTransport, events: eventTransport });
     expect((await handleHostApi(deps, "extension", request())).result).toEqual({ status: 200, body: "owned response" });
-    expect(requestTransport).toHaveBeenCalledWith("user", { method: "GET", path: "/api/conversations/conv_1" });
+    expect(requestTransport).toHaveBeenCalledWith("user", { method: "GET", path: "/api/conversations/conv_1" }, "extension");
     expect(authorize).toHaveBeenCalledWith(expect.objectContaining({ userId: "user", conversationId: "conversation" }), [hostApiRouteCapability(permissions.routes[0]!)]);
     allowed = false;
     expect((await handleHostApi(deps, "extension", request())).error?.message).toContain("not permitted");

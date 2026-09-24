@@ -2,8 +2,9 @@ import { sql } from "drizzle-orm";
 import type { FactoryArtifactReference } from "@ezcorp/factory-sdk";
 import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
 import { releaseRows as rows } from "../db/queries/extension-releases";
-import { factoryArchivePublicationSet, type FactoryArchiveMemberSources, type FactoryArchivePublicationSet } from "./archive-writer";
-import type { FactoryMaterialScope } from "./artifact-materials";
+import { FACTORY_ARCHIVE_ATTEMPT_OUTPUT_OPERATION, FactoryArchiveWriterError, factoryArchiveEvidenceArtifacts, factoryArchivePublicationSet, type FactoryArchiveAttemptOutputReader, type FactoryArchiveEvidenceLocation, type FactoryArchiveMemberSources, type FactoryArchivePublicationSet } from "./archive-writer";
+import { snapshotFactoryMaterialScope, type FactoryMaterialScope } from "./artifact-materials";
+import type { FactoryArtifacts } from "./artifacts";
 import { assertFactoryIdentity } from "./records";
 import type { FactoryReleaseAuthorityStore } from "./release-authority";
 import { FactoryReleaseError, type FactoryReleaseMaterial, type FactoryReleaseOperation } from "./releases";
@@ -212,7 +213,7 @@ export class FactoryPublicationProvenance {
    * The scope is the verified attempt plus the material operation the provider names. When a
    * second derivation is configured, both must produce the same attempt id.
    */
-  async sourcesFor(tenantId: string, operationId: string, _material: FactoryReleaseMaterial, signal?: AbortSignal): Promise<FactoryArchiveMemberSources> {
+  async sourcesFor(tenantId: string, operationId: string, material: FactoryReleaseMaterial, signal?: AbortSignal): Promise<FactoryArchiveMemberSources> {
     if (tenantId !== this.tenantId) factoryPublicationProvenanceUntrusted();
     const facts = await this.operationFacts(operationId, signal);
     const verified = await this.attemptForDecision(facts.projectId, facts.runId, facts.decisionId, signal);
@@ -224,12 +225,84 @@ export class FactoryPublicationProvenance {
       tenantId: this.tenantId, projectId: facts.projectId, runId: facts.runId,
       attemptId: verified.attemptId, operationId: members.materialOperationId,
     };
-    return Object.freeze({ scope, ...(members.candidate ? { candidate: members.candidate } : {}), ...(members.request ? { request: members.request } : {}) });
+    const evidence = await this.evidenceLocations(facts, verified.attemptId, material, signal);
+    return Object.freeze({ scope, evidence, ...(members.candidate ? { candidate: members.candidate } : {}), ...(members.request ? { request: members.request } : {}) });
+  }
+
+  /**
+   * W09c: where each evidence member was sealed, authorized by the record that binds it here.
+   *
+   * A real validator's report is its attempt's terminal output, sealed under that attempt and not
+   * under the candidate's material operation, so one candidate scope cannot read it. Each member's
+   * location comes from a durable record, never from the member's own metadata:
+   *
+   * - a sealed material names its attempt and operation in `factory_artifact_materials`; it is
+   *   admitted when that attempt is the verified candidate attempt or a validator assigned to
+   *   this candidate;
+   * - an attempt's terminal output names its attempt in `factory_execution_terminals`; it is
+   *   admitted only when a validator assignment binds that attempt to this candidate.
+   *
+   * No record is `factory_archive_member_scope_missing`; a record whose attempt nothing binds to
+   * this candidate is `factory_archive_member_unbound`. Neither falls back to the candidate scope.
+   */
+  private async evidenceLocations(facts: FactoryPublicationOperationFacts, candidateAttemptId: string, material: FactoryReleaseMaterial, signal?: AbortSignal): Promise<readonly FactoryArchiveEvidenceLocation[]> {
+    signal?.throwIfAborted();
+    const artifacts = factoryArchiveEvidenceArtifacts(Array.isArray(material?.evidence) ? material.evidence : []);
+    if (artifacts.length === 0) return Object.freeze([]);
+    return this.database.transaction(async (transaction) => {
+      const assigned = async (attemptId: string): Promise<boolean> => rows(await transaction.execute(sql`SELECT 1 AS bound FROM factory_validator_assignments
+        WHERE tenant_id=${this.tenantId} AND project_id=${facts.projectId} AND run_id=${facts.runId} AND validator_attempt_id=${attemptId}
+          AND candidate_node_instance_id=${facts.nodeInstanceId} AND candidate_generation=${facts.candidateGeneration} LIMIT 1`)).length === 1;
+      const locations: FactoryArchiveEvidenceLocation[] = [];
+      for (const artifact of artifacts) {
+        const scopeOf = (attemptId: string, operationId: string): FactoryMaterialScope => snapshotFactoryMaterialScope({ tenantId: this.tenantId, projectId: facts.projectId, runId: facts.runId, attemptId, operationId });
+        const sealed = rows<{ attempt_id: string; operation_id: string }>(await transaction.execute(sql`SELECT attempt_id,operation_id FROM factory_artifact_materials
+          WHERE tenant_id=${this.tenantId} AND project_id=${facts.projectId} AND run_id=${facts.runId} AND object_id=${artifact.artifactId} AND sealed=TRUE`))[0];
+        if (sealed) {
+          if (sealed.attempt_id !== candidateAttemptId && !await assigned(sealed.attempt_id)) throw new FactoryArchiveWriterError("factory_archive_member_unbound");
+          locations.push(Object.freeze({ artifactId: artifact.artifactId, source: "material" as const, scope: scopeOf(sealed.attempt_id, sealed.operation_id) }));
+          continue;
+        }
+        const output = rows<{ attempt_id: string }>(await transaction.execute(sql`SELECT attempt_id FROM factory_execution_terminals
+          WHERE tenant_id=${this.tenantId} AND project_id=${facts.projectId} AND run_id=${facts.runId} AND output_artifact_id=${artifact.artifactId}`))[0];
+        if (!output) throw new FactoryArchiveWriterError("factory_archive_member_scope_missing");
+        if (!await assigned(output.attempt_id)) throw new FactoryArchiveWriterError("factory_archive_member_unbound");
+        locations.push(Object.freeze({ artifactId: artifact.artifactId, source: "attempt-output" as const, scope: scopeOf(output.attempt_id, FACTORY_ARCHIVE_ATTEMPT_OUTPUT_OPERATION) }));
+      }
+      return Object.freeze(locations);
+    });
   }
 
   /** The seam W09 hands `FactoryArchiveWriter`. */
   publicationSet(): FactoryArchivePublicationSet {
     return factoryArchivePublicationSet((tenantId, operationId, material, signal) => this.sourcesFor(tenantId, operationId, material, signal));
+  }
+}
+
+/**
+ * W09c: reads one attempt's own terminal output for the archive writer.
+ *
+ * The attempt's terminal row must name exactly this artifact as its output, and the artifact is
+ * loaded as a `candidate_output` with its digest and size re-verified, so a location cannot point
+ * the archive at bytes the attempt did not produce. Which attempts may be read at all is decided
+ * by `FactoryPublicationProvenance.sourcesFor`, before a plan names one.
+ */
+export class FactoryPublicationOutputReader implements FactoryArchiveAttemptOutputReader {
+  constructor(private readonly options: { readonly database: TransactionalDb; readonly tenantId: string; readonly artifacts: Pick<FactoryArtifacts, "loadInTransaction"> }) {
+    assertFactoryIdentity(options.tenantId);
+  }
+
+  async read(scopeValue: FactoryMaterialScope, artifact: FactoryArtifactReference, signal?: AbortSignal): Promise<Uint8Array> {
+    const scope = snapshotFactoryMaterialScope(scopeValue);
+    signal?.throwIfAborted();
+    if (scope.tenantId !== this.options.tenantId || scope.operationId !== FACTORY_ARCHIVE_ATTEMPT_OUTPUT_OPERATION) throw new FactoryArchiveWriterError("factory_archive_member_unbound");
+    return this.options.database.transaction(async (transaction) => {
+      const terminal = rows<{ output_artifact_id: string | null; output_digest: string | null; output_bytes: number | string | null }>(await transaction.execute(sql`SELECT output_artifact_id,output_digest,output_bytes FROM factory_execution_terminals
+        WHERE tenant_id=${scope.tenantId} AND project_id=${scope.projectId} AND run_id=${scope.runId} AND attempt_id=${scope.attemptId}`))[0];
+      if (!terminal || terminal.output_artifact_id !== artifact.artifactId || terminal.output_digest !== artifact.digest || Number(terminal.output_bytes) !== artifact.encodedBytes) throw new FactoryArchiveWriterError("factory_archive_member_unbound");
+      const loaded = await this.options.artifacts.loadInTransaction(transaction, { tenantId: scope.tenantId, projectId: scope.projectId, logicalRunId: scope.runId }, { objectId: artifact.artifactId, digest: artifact.digest, encodedBytes: artifact.encodedBytes }, ["candidate_output"]);
+      return loaded.content;
+    });
   }
 }
 

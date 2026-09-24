@@ -30,8 +30,6 @@
  * accepted set without restarting the product, the same property the host stop
  * route gets from reloading its signing pair per signature.
  */
-import { basename, dirname, resolve as resolvePath } from "node:path";
-import { factoryCommandFailedEvent } from "@ezcorp/factory-sdk";
 import type { KernelEvent } from "@ezcorp/factory-sdk/kernel-types";
 import type { TransactionalDb } from "../db/migrations/types";
 import type { FactoryApplication } from "./application";
@@ -44,16 +42,17 @@ import { FactoryInstallationCommandOutbox } from "./outbox";
 import { FactoryLazyCommands } from "./lazy-commands";
 import { FactoryLazyInputReader } from "./lazy-input";
 import { FactoryPartitionCommands } from "./partition-commands";
-import { factoryErrorCode } from "./plain-values";
-import { FactoryPrivateCommands, type FactoryPrivateCommandHandler, type FactoryPrivateCommandStores } from "./private-commands";
-import { privateDirectory, readPrivateBounded } from "./private-files";
+import { FactoryPrivateCommands, type FactoryPrivateCommandHandler } from "./private-commands";
+import { readPrivateText as readPrivateFileText } from "./private-files";
 import { startFactoryPrivateService } from "./private-service";
+import type { PoolTokenVerifierOptions } from "./pool/service-token";
 import { FactoryProtectedCommandEffects, type FactoryReleaseCommandProfile } from "./protected-command-effects";
 import type { FactoryReleases } from "./releases";
 import type { FactoryStartedListener } from "./runtime-composition";
 import type { FactoryInstallationStores } from "./installation-stores";
 import type { FactoryStartupConfig, FactoryStartupRunnerProfile } from "./startup-config";
 import { FactoryNativeRunnerPolicy, type FactoryNativeRunnerProfile } from "./native-runner-policy";
+import { FactoryPackageTrusts } from "./package-preparation";
 import { FactoryTaskAdmission, type FactoryTaskResourceProfile } from "./task-admission";
 import { FactoryTaskExecutionAdmission } from "./task-execution-admission";
 import { FACTORY_PHYSICAL_STOP_TIMEOUT_MS, type FactoryTaskStops } from "./task-stops";
@@ -61,6 +60,24 @@ import type { FactoryTransitionArtifacts } from "./transition-artifacts";
 import type { TrustedFactoryCommandReference, TrustedFactoryServiceIdentity } from "./trusted-command-gateway";
 
 const MAX_PRIVATE_MATERIAL_BYTES = 64 * 1024;
+
+const readPrivateText = (path: string) => readPrivateFileText(path, MAX_PRIVATE_MATERIAL_BYTES);
+
+/**
+ * A service bearer-token verifier from a startup document's `tokens` section.
+ *
+ * The keys are read per request, so rotating a key file rotates the accepted
+ * set without restarting the product.
+ */
+export function factoryServiceTokenVerifier(tokens: { readonly issuer: string; readonly audience: string; readonly publicKeyPaths: Readonly<Record<string, string>> }): () => Promise<PoolTokenVerifierOptions> {
+  return async () => ({
+    issuer: tokens.issuer,
+    audience: tokens.audience,
+    publicKeys: Object.fromEntries(await Promise.all(
+      Object.entries(tokens.publicKeyPaths).map(async ([kid, path]) => [kid, await readPrivateText(path)] as const),
+    )),
+  });
+}
 
 /**
  * Longer than the longest effect this service serves, and measured rather than
@@ -89,16 +106,6 @@ export class FactoryPrivateServiceCompositionError extends Error {
   }
 }
 
-async function readPrivateText(path: string): Promise<string> {
-  const absolute = resolvePath(path);
-  const directory = await privateDirectory(dirname(absolute));
-  try {
-    return new TextDecoder("utf-8", { fatal: true }).decode(await readPrivateBounded(directory, basename(absolute), MAX_PRIVATE_MATERIAL_BYTES));
-  } finally {
-    await directory.close();
-  }
-}
-
 /**
  * Cancelling a node: an event only when a host confirmed the stop.
  *
@@ -118,30 +125,6 @@ export function factoryCancelNodeEffect(stops: Pick<FactoryTaskStops, "stop">): 
   return async (service: TrustedFactoryServiceIdentity, reference: TrustedFactoryCommandReference): Promise<KernelEvent | null> => {
     const receipt = await stops.stop(service, reference);
     return receipt.state === "stopped" ? receipt.event : null;
-  };
-}
-
-/**
- * An effect whose named refusal reaches the run's projected error.
- *
- * The private service answers a refusal it does not classify with an opaque
- * `request_failed`, so the orchestrator could only record "Activity task
- * failed" and an operator could not see which rule stopped the run. A refusal
- * that names itself with a `factory_` code is answered here instead, as the
- * same `command-failed` event the orchestrator would have built, carrying the
- * name. The outcome is unchanged: an effect runs once, and any failure of it
- * already fails the run. Every other error still throws, so a fault this
- * service cannot name stays a fault.
- */
-export function factoryNamedRefusalEffect(kind: string, handler: FactoryPrivateCommandHandler): FactoryPrivateCommandHandler {
-  return async (service: TrustedFactoryServiceIdentity, reference: TrustedFactoryCommandReference): Promise<KernelEvent | null> => {
-    try {
-      return await handler(service, reference);
-    } catch (error) {
-      const code = factoryErrorCode(error);
-      if (code === undefined || !code.startsWith("factory_")) throw error;
-      return factoryCommandFailedEvent({ id: reference.commandId, kind }, code, Date.now());
-    }
   };
 }
 
@@ -196,15 +179,21 @@ export interface FactoryPrivateServiceCompositionOptions {
   /**
    * The release adapters this installation trusts.
    *
-   * Empty by default, and that is a refusal rather than a gap being papered
-   * over: `requestRelease` answers `factory_protected_effect_untrusted` for an
-   * adapter no profile names. A profile pairs a definition's release-node
-   * adapter reference with the destination it publishes to, so it is a
-   * per-installation declaration and the startup document has no field for one
-   * yet. W05 owns `factorySynchronousReleaseProfile`; W07 owns the GitHub
-   * adapter it would lift.
+   * Composed from the startup document's `release.profiles` by
+   * `composeFactoryReleaseDestinations`, one per declared adapter. Absent when
+   * nothing is declared, and that is a refusal rather than a gap:
+   * `requestRelease` answers `factory_protected_effect_untrusted` for an
+   * adapter no profile names.
    */
   readonly releaseProfiles?: Iterable<FactoryReleaseCommandProfile>;
+  /**
+   * The installation's one protected-effects instance, when it built one.
+   *
+   * `release-outcome` reads the verified command behind a settled operation
+   * through the same instance that answers `request-release`. Absent, this
+   * service builds its own from the same collaborators.
+   */
+  readonly protectedEffects?: FactoryProtectedCommandEffects;
   /** The host's reporter, so a refusal this service could not classify is readable. */
   readonly report?: (role: string, error: unknown) => void;
   /**
@@ -241,7 +230,7 @@ export async function composeFactoryPrivateService(options: FactoryPrivateServic
 
   const releases = options.releases;
   const access = new FactoryArtifactAccess(database, config.tenantId, application.grants, application.artifacts);
-  const protectedEffects = new FactoryProtectedCommandEffects(
+  const protectedEffects = options.protectedEffects ?? new FactoryProtectedCommandEffects(
     database, config.tenantId, stores.authority,
     // `FactoryTaskCompletions` is only absent when the pool client is, and the
     // guard above already refused that case.
@@ -258,18 +247,18 @@ export async function composeFactoryPrivateService(options: FactoryPrivateServic
     tasks: new FactoryTaskAdmission(database, stores.authority, stores.budgets, profiles.admission, stores.compute),
     execution: new FactoryTaskExecutionAdmission(
       stores.authority, stores.compute, stores.journal, stores.queue,
-      new FactoryNativeRunnerPolicy(config.tenantId, application.grants, profiles.runners, profiles.brokerAudience),
+      new FactoryNativeRunnerPolicy(config.tenantId, application.grants, profiles.runners, profiles.brokerAudience, new FactoryPackageTrusts(database, config.tenantId, application.grants)),
     ),
     inputs: new FactoryLazyCommands(stores.authority, new FactoryLazyInputReader(database, config.tenantId, application.artifacts, access, application.grants)),
     children: stores.children,
     approvals: new FactoryAssuranceCommands(database, config.tenantId, application.grants, stores.authority, stores.inbox, releases, service),
-    effects: Object.fromEntries(Object.entries({
+    effects: {
       "cancel-node": factoryCancelNodeEffect(options.stops),
       "request-acceptance": options.acceptance ?? protectedEffects.requestAcceptance,
       "request-release": protectedEffects.requestRelease,
       "invalidate-partition": partitions.execute.bind(partitions),
       "notify-partition": partitions.execute.bind(partitions),
-    }).map(([kind, handler]) => [kind, factoryNamedRefusalEffect(kind, handler)])) as FactoryPrivateCommandStores["effects"],
+    },
   });
 
   const [ca, cert, key] = await Promise.all([
@@ -285,15 +274,7 @@ export async function composeFactoryPrivateService(options: FactoryPrivateServic
     port: config.privateService.port,
     requestTimeoutMs: FACTORY_PRIVATE_SERVICE_REQUEST_TIMEOUT_MS,
     tls: { ca, cert, key },
-    // Read per request, so rotating a key file rotates the accepted set without
-    // restarting the product.
-    tokens: async () => ({
-      issuer: tokens.issuer,
-      audience: tokens.audience,
-      publicKeys: Object.fromEntries(await Promise.all(
-        Object.entries(tokens.publicKeyPaths).map(async ([kid, path]) => [kid, await readPrivateText(path)] as const),
-      )),
-    }),
+    tokens: factoryServiceTokenVerifier(tokens),
     queue: new (await import("./transport-queue")).FactoryTransportQueue(
       new FactoryInstallationCommandOutbox(database, config.tenantId),
       stores.inbox,

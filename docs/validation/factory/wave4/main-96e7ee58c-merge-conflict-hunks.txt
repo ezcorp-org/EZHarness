@@ -1,0 +1,559 @@
+===== .github/workflows/ci.yml (1 hunks)
+@@ line 44
+<<<<<<< HEAD
+  factory-runner-readiness:
+    name: Factory runner readiness precheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: .bun-version
+      - name: Require online real and GPU runners before self-hosted jobs queue
+        env:
+          FACTORY_RUNNER_READ_TOKEN: ${{ secrets.FACTORY_RUNNER_READ_TOKEN }}
+          FACTORY_TEST_TENANT_COUNT: "10"
+        run: bun scripts/check-factory-runners.ts
+
+  factory-schema-kernel:
+    name: Factory schema and kernel
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+      - name: Build factory SDK
+        run: bun run --cwd packages/@ezcorp/factory-sdk build
+      - name: Enforce deterministic validation and C13 reuse
+        run: bun scripts/check-factory-boundaries.ts
+      # `src/*.schema.json` is generated only (interface freeze, section 12).
+      # Nothing regenerates it during the SDK build, so before this step a hand
+      # edit to a wire schema shipped green. The gate regenerates, byte-compares,
+      # and restores the committed bytes.
+      - name: Reject hand-edited generated schemas
+        run: bun scripts/check-schema-generate-drift.ts
+      - name: Run factory schema, compiler, kernel, simulator, and reference fixtures
+        env:
+          FACTORY_ONLY: "1"
+        run: bash scripts/test.sh
+
+  # C11 lane 2 of 7. The Node orchestrator build plus BOTH runtime conformance
+  # suites against the same generated schema, and each runtime's OWN measured
+  # coverage: coverage.py for Python, never a Bun leg standing in for it.
+  factory-runner-contracts:
+    name: Factory runner contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+      - uses: ./.github/actions/setup-python-toolchain
+      - name: Build the Node orchestrator from the pinned lock
+        run: bun run --cwd packages/@ezcorp/factory-orchestrator build
+      - name: Run strict Python lint, strict types, standard-library tests, and coverage.py LCOV
+        env:
+          PYTHON_COVERAGE_OUT: coverage-factory-python
+        run: bash scripts/python-quality.sh all
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: lcov-cov-factory-python
+          path: coverage-factory-python/lcov.info
+          retention-days: 3
+          if-no-files-found: error
+      # Both runners validate the SAME generated schema. Running them in one
+      # step keeps a pass from one runtime from being read as conformance for
+      # the other.
+      - name: Run the Bun and Python runner conformance suites against the same generated schema
+        run: |
+          bun test --timeout 120000 \
+            ./src/factory/runner/native.integration.test.ts \
+            ./src/factory/runner/python-runner.integration.test.ts
+
+  factory-temporal:
+    name: Factory Temporal integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+      - name: Install pinned Temporal test server
+        shell: bash
+        run: |
+          curl --fail --location --retry 3 --output /tmp/temporal-test-server.tar.gz \
+            https://github.com/temporalio/sdk-java/releases/download/v1.38.0/temporal-test-server_1.38.0_linux_amd64.tar.gz
+          echo '41df834fe8e1ac59619e13908f41b63e4d1054f37634a2f89033d8cf6af71b96  /tmp/temporal-test-server.tar.gz' | sha256sum --check
+          mkdir -p /tmp/factory-tools/temporal-test-server
+          tar -xzf /tmp/temporal-test-server.tar.gz -C /tmp/factory-tools/temporal-test-server
+          chmod u+x /tmp/factory-tools/temporal-test-server/temporal-test-server_1.38.0_linux_amd64/temporal-test-server
+      - name: Provision private Node runtime directory
+        run: sudo install -d -m 700 -o "$(id -u)" -g "$(id -g)" "/run/user/$(id -u)"
+      - name: Run Node-only factory workflow, cancellation, and saved-history replay
+        env:
+          COV_OUT: coverage-shard
+          FACTORY_TEMPORAL_TEST_SERVER: /tmp/factory-tools/temporal-test-server/temporal-test-server_1.38.0_linux_amd64/temporal-test-server
+        run: bash scripts/factory-orchestrator-coverage.sh
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: lcov-cov-factory-orchestrator
+          path: coverage-shard/lcov.info
+          retention-days: 3
+          if-no-files-found: error
+
+  # ── C11 lanes 5-7: dedicated hardware and real credentials ────────────────
+  #
+  # These three request SELF-HOSTED runner labels. Every one of them declares
+  # `needs: [factory-runner-readiness]` so that when no runner carries the
+  # label the candidate fails through that five-minute precheck instead of
+  # sitting in GitHub's queue for up to 24 hours. That dependency is the whole
+  # reason the precheck exists; before this change it guarded `factory-real`
+  # and `factory-gpu` while no job requested either label (W00 discrepancy 17).
+  #
+  # They are expected to be RED until the runners, secrets, and W13-W17 sources
+  # exist. That is the intended fail-closed state: an unavailable runtime is a
+  # failed readiness, never a skipped success. See
+  # docs/validation/factory/stage-2b/ for the exact external changes to apply.
+
+  # C11 lane 5 of 7. Real CPU/GPU runtime profiles: a CPU attempt must see NO
+  # devices and a GPU attempt must see EXACTLY the authorized one.
+  factory-isolation:
+    name: Factory isolation
+    runs-on: [self-hosted, factory-gpu]
+    needs: [factory-runner-readiness]
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+      - name: Provision the rootless container runtime
+        run: bash scripts/setup-extension-runner-ci.sh --install
+      - name: Prove CPU attempts see no device and the GPU attempt sees exactly one
+        run: bash scripts/verify-factory-local-gpu.sh
+      - name: Run the real container crash, reconnect, and cancel observations
+        run: |
+          bun test --timeout 300000 \
+            ./packages/@ezcorp/extension-runner/tests/podman.integration.test.ts \
+            ./src/factory/runner/supervisor.podman.integration.test.ts \
+            ./src/factory/runner/validator-guest.podman.integration.test.ts \
+            ./src/factory/runner/guest-model.podman.integration.test.ts
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: factory-isolation-results
+          path: tasks/testing-gaps/factory-isolation/
+          retention-days: 3
+          if-no-files-found: ignore
+
+  # C11 lane 6 of 7. Service-backed browser journeys on the `factory-services`
+  # lane. W18 registers the lane in every consumer; W14 owns its specs and its
+  # Playwright configuration, so the collector fails closed with an explicit
+  # message until both land.
+  factory-product-e2e:
+    name: Factory product and domain E2E
+    runs-on: [self-hosted, factory-real]
+    needs: [factory-runner-readiness, browser-coverage-build]
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+        with:
+          web: "true"
+          sync: "true"
+          playwright: "true"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: browser-coverage-build
+          path: web
+      - run: bash scripts/verify-browser-build-transfer.sh --check
+      - name: Run the service-backed factory browser journeys
+        shell: bash
+        env:
+          FACTORY_TEST_POSTGRES_URL: ${{ secrets.FACTORY_TEST_POSTGRES_URL }}
+          EZCORP_FACTORY_STORAGE_SECRETS_DIR: ${{ secrets.EZCORP_FACTORY_STORAGE_SECRETS_DIR }}
+          FACTORY_TEMPORAL_TEST_SERVER: ${{ secrets.FACTORY_TEMPORAL_TEST_SERVER }}
+        run: |
+          EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST="$(bun scripts/browser-route-coverage-manifest.ts --print)"
+          export EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST
+          EZCORP_BROWSER_COVERAGE_OUTPUT="$PWD/tasks/testing-gaps/browser/v8-coverage/factory-services" \
+            bash scripts/collect-browser-route-coverage-lane.sh factory-services
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: browser-v8-factory-services
+          path: tasks/testing-gaps/browser/v8-coverage/factory-services/
+          retention-days: 3
+          if-no-files-found: error
+
+  # C11 lane 7 of 7. Installation, provisioning, upgrade, rollback, and restore
+  # against real storage and a real engine.
+  factory-deployment-operations:
+    name: Factory deployment and operations
+    runs-on: [self-hosted, factory-real]
+    needs: [factory-runner-readiness]
+    timeout-minutes: 90
+    services:
+      postgres:
+        image: pgvector/pgvector:pg15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ezcorp_deployment
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      FACTORY_TEST_POSTGRES_URL: postgres://postgres:postgres@localhost:5432/ezcorp_deployment
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+      - name: Start factory object storage
+        shell: bash
+        run: |
+          set -euo pipefail
+          runtime_dir="$RUNNER_TEMP/factory-storage-runtime"
+          install -d -m 700 "$runtime_dir"
+          export XDG_RUNTIME_DIR="$runtime_dir"
+          setup_output="$(scripts/setup-factory-storage.sh up)"
+          storage_dir="$(printf '%s\n' "$setup_output" | sed -n 's#^Factory local storage is ready. Credentials are in \(.*\) below.*#\1#p')"
+          test -n "$storage_dir"
+          echo "XDG_RUNTIME_DIR=$runtime_dir" >> "$GITHUB_ENV"
+          echo "EZCORP_FACTORY_STORAGE_SECRETS_DIR=$storage_dir" >> "$GITHUB_ENV"
+      - name: Verify the deployed object storage is real and reachable
+        # --restart-stores is safe here only because this job creates and
+        # tears down its own ephemeral storage stack above/below (never pass
+        # it against a shared host's long-lived stores — see
+        # docs/factory-local-storage.md).
+        run: bun scripts/verify-factory-storage.ts --restart-stores
+      - name: Provision a tenant against the real engine
+        run: bun test --timeout 120000 ./tests/postgres/factory-provisioning.test.ts
+      - name: Prove a compatible upgrade preserves data
+        run: bash scripts/verify-docker-upgrade.sh
+      - name: Prove a rollback restores the previous release
+        run: bash scripts/verify-docker-rollback.sh
+      - name: Prove a backup restores to a consistent position
+        run: bun scripts/verify-backup-rollback.ts
+      - name: Stop factory object storage
+        if: always()
+        shell: bash
+        run: scripts/setup-factory-storage.sh down
+=======
+  dev-image-provenance:
+    name: Dev image provenance
+    runs-on: ubuntu-latest
+    # A lockfile change invalidates both frozen installs and the image-wide
+    # ownership layer. Keep the first uncached proof from timing out while
+    # ordinary runs continue to use the Buildx GHA cache.
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Create an untracked empty Docker-context directory
+        run: |
+          mkdir .dev-image-empty-context-probe
+          test "$(bash scripts/resolve-dev-image-source-state.sh)" = dirty
+      - name: Build development image with provenance metadata
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: Dockerfile.dev
+          load: true
+          tags: ezcorp:verify-dev-provenance
+          build-args: |
+            EZCORP_BUILD_COMMIT=${{ github.sha }}
+            EZCORP_BUILD_SOURCE_STATE=dirty
+          cache-from: type=gha,scope=dev-image-provenance
+          cache-to: type=gha,mode=max,scope=dev-image-provenance
+      - name: Inspect OCI labels and runtime environment
+        env:
+          EZCORP_CONTAINER_ENGINE: docker
+          VERIFY_DEV_PROVENANCE_REVISION: ${{ github.sha }}
+          VERIFY_DEV_PROVENANCE_SOURCE_STATE: dirty
+          VERIFY_DEV_PROVENANCE_CONTEXT_DIR: .dev-image-empty-context-probe
+        run: bash scripts/verify-dev-image-provenance.sh --no-build
+>>>>>>> 96e7ee58c
+
+===== GATES.md (1 hunks)
+@@ line 1
+<<<<<<< HEAD
+# Cancellation authority leaf
+=======
+Current pluggable infrastructure work: [gates/pluggable-root.md](gates/pluggable-root.md). Prior project records follow unchanged.
+
+# Gates: Extension v4 implementation and PR
+>>>>>>> 96e7ee58c
+
+===== bun.lock (4 hunks)
+@@ line 8
+<<<<<<< HEAD
+        "@aws-sdk/client-kms": "3.1131.0",
+        "@aws-sdk/client-s3": "3.1131.0",
+=======
+        "@balena/dockerignore": "1.0.2",
+>>>>>>> 96e7ee58c
+
+@@ line 602
+<<<<<<< HEAD
+    "acorn": ["acorn@8.18.0", "", { "bin": { "acorn": "bin/acorn" } }, "sha512-lGq+9yr1/GuAWaVYIHRjvvySG5/4VfKIvC8EWxStPdcDh/Ka7FG3twP6v4d5BkravUilhIAsG4Qj83t02LWUPQ=="],
+
+    "adm-zip": ["adm-zip@0.5.18", "", {}, "sha512-ufJnssQGbxzLNS1Ho9bCtX4rQKCCvoVuDLHoJyc3F9dOGDB4BkWs2Ci0kv53lqocAEQ/Cbi+I2XCsNYGqVYqng=="],
+=======
+    "adm-zip": ["adm-zip@0.6.1", "", {}, "sha512-Xwrja8nx9e5o2N1my4DsKCeKpdrnACyr1wtbPxBDgGzKzKyE9kRtBFA8mWldI+RVlD7CBZNWY/wQ2+ydwOR6kQ=="],
+>>>>>>> 96e7ee58c
+
+@@ line 834
+<<<<<<< HEAD
+    "glob-to-regex.js": ["glob-to-regex.js@1.3.1", "", { "peerDependencies": { "tslib": "2" } }, "sha512-zhWhMRsgnOym+1txhUmYJGD6eUsbUdrZv55gCYKuJX8t2p3+M8My23PD09bEIsreGUs5pnSa/idmcfp2/IlqGg=="],
+
+    "global-agent": ["global-agent@3.0.0", "", { "dependencies": { "boolean": "^3.0.1", "es6-error": "^4.1.1", "matcher": "^3.0.0", "roarr": "^2.15.3", "semver": "^7.3.2", "serialize-error": "^7.0.1" } }, "sha512-PT6XReJ+D07JvGoxQMkT6qji/jVNfX/h364XHZOWeRzy64sSFr+xJ5OX7LI3b4MPQzdL4H8Y8M0xzPpsVMwA8Q=="],
+=======
+    "global-agent": ["global-agent@4.1.3", "", { "dependencies": { "globalthis": "^1.0.2", "matcher": "^4.0.0", "semver": "^7.3.5", "serialize-error": "^8.1.0" } }, "sha512-KUJEViiuFT3I97t+GYMikLPJS2Lfo/S2F+DQuBWzuzaMPnvt5yyZePzArx36fBzpGTxZjIpDbXLeySLgh+k76g=="],
+>>>>>>> 96e7ee58c
+
+@@ line 1324
+<<<<<<< HEAD
+    "debug/ms": ["ms@2.1.3", "", {}, "sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA=="],
+=======
+    "bun-types/@types/node": ["@types/node@26.5.1", "", { "dependencies": { "undici-types": "~8.9.0" } }, "sha512-CzNm2FezW4VR/LjG6yUdiEgLE/rAQ9Slj5gCu/C2VrdcW7I0ahNZ8DRbHT7zOZ6r3ONgd/bsQIeSaoDGrd1C6g=="],
+>>>>>>> 96e7ee58c
+
+===== docs/extensions/examples/claude-design/lib/project.test.ts (1 hunks)
+@@ line 66
+<<<<<<< HEAD
+    // A bare `.git` directory is not a repository. The host once carried an
+    // empty `/tmp/.git`; plant one in the test's own tree so the case holds
+    // whatever the host's /tmp contains.
+    mkdirSync(join(lonely, ".git"));
+    const start = join(lonely, "child");
+    mkdirSync(start);
+    try {
+      // Ascends to `/` without finding a repository → returns `from`.
+      expect(findProjectRoot(start)).toBe(start);
+=======
+    const fs = require("node:fs") as typeof import("node:fs");
+    const exists = fs.existsSync;
+    const stub = spyOn(fs, "existsSync").mockImplementation(path =>
+      String(path).endsWith("/.git") ? false : exists(path),
+    );
+    try {
+      // The host may have /tmp/.git; simulate a tree with no Git ancestor.
+      expect(findProjectRoot(lonely)).toBe(lonely);
+>>>>>>> 96e7ee58c
+
+===== docs/extensions/examples/graded-card-scanner/postinstall.test.ts (1 hunks)
+@@ line 30
+<<<<<<< HEAD
+    // A bare `.git` directory is not a repository (the host once carried an
+    // empty `/tmp/.git`); the walk passes it and returns `from`.
+    mkdirSync(join(dir, ".git"));
+    const start = join(dir, "child");
+    mkdirSync(start);
+    try {
+      expect(findProjectRoot(start)).toBe(start);
+=======
+    const exists = fs.existsSync;
+    const stub = spyOn(fs, "existsSync").mockImplementation(path =>
+      String(path).endsWith("/.git") ? false : exists(path),
+    );
+    try {
+      // The host may have /tmp/.git; simulate a tree with no Git ancestor.
+      expect(findProjectRoot(dir)).toBe(dir);
+>>>>>>> 96e7ee58c
+
+===== manifest.lock.json (3 hunks)
+@@ line 35
+<<<<<<< HEAD
+      "files": 28,
+      "bytes": 604960,
+      "sourceDigest": "db39b459db9dd880c3bff8af6d7fd2df527a28051c23806f89042c9701f6a08d"
+=======
+      "files": 27,
+      "bytes": 603470,
+      "sourceDigest": "dc9c8bc8595b82d5a2f43cb56f7629751d8af7a5bc7164c35629fb4d29a80664"
+>>>>>>> 96e7ee58c
+
+@@ line 126
+<<<<<<< HEAD
+      "bytes": 312100,
+      "sourceDigest": "9b5d049b2be9bfe1d62a601cb387f99422678f4c541587b6c91f2f2b7518d177"
+=======
+      "bytes": 312238,
+      "sourceDigest": "5b074901d12a98f7cee57b0ec5db8c43f085f681cebab3b5268397c43ff38550"
+>>>>>>> 96e7ee58c
+
+@@ line 369
+<<<<<<< HEAD
+      "bytes": 400018,
+      "sourceDigest": "e28c36ea4bbab1bda7d63a66f5991825b75ded7a4b3092f9cfeb3afaa0af0b26"
+=======
+      "bytes": 398412,
+      "sourceDigest": "d2423ff5c9b0b80955408f17cdce1355dfd460d0ea1ab96c7a3602fa7e7d30b0"
+>>>>>>> 96e7ee58c
+
+===== package.json (1 hunks)
+@@ line 63
+<<<<<<< HEAD
+    "@aws-sdk/client-kms": "3.1131.0",
+    "@aws-sdk/client-s3": "3.1131.0",
+=======
+    "@balena/dockerignore": "1.0.2",
+>>>>>>> 96e7ee58c
+
+===== packages/@ezcorp/sdk/test/fs.test.ts (1 hunks)
+@@ line 49
+<<<<<<< HEAD
+  test("accepts a .git file that names its gitdir (a worktree or submodule)", () => {
+    writeFileSync(join(workDir, ".git"), "gitdir: /elsewhere/.git/worktrees/w\n");
+    const nested = join(workDir, "sub");
+    mkdirSync(nested);
+    expect(findProjectRoot(nested)).toBe(workDir);
+  });
+
+  test("ignores a stray empty .git directory and a .git file without gitdir, as git does", () => {
+    // The host once carried an empty `/tmp/.git`, and every walk from a temp
+    // directory anchored there. Plant both non-repository forms inside the
+    // test's own tree so the case holds whatever the host's /tmp contains.
+    mkdirSync(join(workDir, ".git"));
+    const inner = join(workDir, "inner");
+    mkdirSync(inner);
+    writeFileSync(join(inner, ".git"), "not a gitdir pointer\n");
+    const start = join(inner, "deep");
+    mkdirSync(start);
+    expect(outsideAnyGitRepository(start)).toBe(true);
+    expect(() => findProjectRoot(start)).toThrow(/no \.git ancestor found/);
+  });
+
+  test("throws when no .git ancestor exists up to filesystem root", () => {
+    expect(outsideAnyGitRepository(workDir), "precondition: the temp dir must be outside every git repository").toBe(true);
+    expect(() => findProjectRoot(workDir)).toThrow(/no \.git ancestor found/);
+=======
+  test("throws when no .git ancestor exists up to filesystem root", () => {
+    // A shared host can have /tmp/.git. Hide Git markers for this walk only.
+    const fs = require("node:fs") as typeof import("node:fs");
+    const exists = fs.existsSync;
+    const stub = spyOn(fs, "existsSync").mockImplementation(path =>
+      String(path).endsWith("/.git") ? false : exists(path),
+    );
+    try {
+      expect(() => findProjectRoot(workDir)).toThrow(/no \.git ancestor found/);
+    } finally {
+      stub.mockRestore();
+    }
+>>>>>>> 96e7ee58c
+
+===== src/__tests__/build-allowed-env-injection.test.ts (3 hunks)
+@@ line 19
+<<<<<<< HEAD
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+=======
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+>>>>>>> 96e7ee58c
+
+@@ line 142
+<<<<<<< HEAD
+    // findProjectRoot() walks up from process.cwd() and throws when it hits
+    // the filesystem root with no repository ancestor. buildAllowedEnv
+    // catches that so a spawn outside a git tree doesn't crash — it just
+    // leaves EZCORP_PROJECT_ROOT unset. A stray empty `.git` above the cwd
+    // is not a repository (the host once carried an empty `/tmp/.git`, which
+    // made this test report `/tmp`), so plant one in the test's own tree.
+    const cwd = process.cwd();
+    const outside = mkdtempSync(join(tmpdir(), "ext-nogit-"));
+    mkdirSync(join(outside, ".git"));
+    mkdirSync(join(outside, "child"));
+=======
+    // The host may have /tmp/.git, so simulate a tree with no Git ancestor.
+    const cwd = process.cwd();
+    const fs = require("node:fs") as typeof import("node:fs");
+    const exists = fs.existsSync;
+    const stub = spyOn(fs, "existsSync").mockImplementation(path =>
+      String(path).endsWith("/.git") ? false : exists(path),
+    );
+>>>>>>> 96e7ee58c
+
+@@ line 168
+<<<<<<< HEAD
+      rmSync(outside, { recursive: true, force: true });
+=======
+      stub.mockRestore();
+>>>>>>> 96e7ee58c
+
+===== src/__tests__/mentions-search-symlink-integration.test.ts (1 hunks)
+@@ line 95
+<<<<<<< HEAD
+// No `$server/db/schema` stub. The fake `getDb()` above ignores whatever table
+// it is handed, so the real tables cost these specs nothing — and stubbing them
+// costs a LATER suite everything: this route module is linked ONCE per process,
+// so whichever suite imports it first binds its `extensions` for all of them,
+// and a re-registration in afterAll cannot rebind an import that is already
+// resolved. An empty table then reaches a real drizzle query as
+// `Object.entries(undefined)` inside `orderSelectedFields`.
+=======
+// Path mentions exercise the direct local-workspace branch. The persisted
+// sandbox policy is covered by its own runtime tests; keep this filesystem
+// boundary fixture independent from database startup.
+mock.module("$server/runtime/workspace/target", () => ({
+  projectRequiresSandbox: async () => false,
+}));
+
+mock.module("$server/db/schema", () => ({
+  extensions: {},
+  agentConfigs: {},
+}));
+>>>>>>> 96e7ee58c
+
+===== src/runtime/tools/shell.ts (1 hunks)
+@@ line 15
+<<<<<<< HEAD
+import { factoryBootConfig } from "../../factory/boot";
+import { isSensitiveEnvironmentEntry } from "../../extensions/sensitive-environment";
+=======
+import { raceControlled } from "./race-control";
+>>>>>>> 96e7ee58c
+
+===== web/bun.lock (1 hunks)
+@@ line 10
+<<<<<<< HEAD
+        "@huggingface/transformers": "^4.2.0",
+        "@xyflow/svelte": "1.6.6",
+=======
+        "@huggingface/transformers": "^4.3.0",
+>>>>>>> 96e7ee58c
+
+===== web/e2e/evidence-covers.json (1 hunks)
+@@ line 541
+<<<<<<< HEAD
+  "web/e2e/factory-authoring-console.spec.ts": [
+    "web/src/lib/factory/**",
+    "web/src/routes/(app)/factories/**",
+    "web/src/routes/(app)/+layout.svelte"
+=======
+  "web/e2e/project-sandbox-panel.spec.ts": [
+    "web/src/lib/components/ProjectSandboxPanel.svelte",
+    "web/src/routes/(app)/project/[id]/settings/+page.svelte"
+>>>>>>> 96e7ee58c
+
+===== web/package.json (1 hunks)
+@@ line 50
+<<<<<<< HEAD
+		"@huggingface/transformers": "^4.2.0",
+		"@xyflow/svelte": "1.6.6",
+=======
+		"@huggingface/transformers": "^4.3.0",
+>>>>>>> 96e7ee58c
+

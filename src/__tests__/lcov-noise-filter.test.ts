@@ -11,7 +11,11 @@
  * NOT be matched.
  */
 import { test, expect, describe } from "bun:test";
-import { isNoiseLine, templateInteriorProseLines } from "../../scripts/lcov-noise-filter.ts";
+import {
+  destructuredParameterSignatureLines,
+  isNoiseLine,
+  templateInteriorProseLines,
+} from "../../scripts/lcov-noise-filter.ts";
 
 describe("isNoiseLine — positive matches (noise)", () => {
   test("blank lines", () => {
@@ -370,6 +374,37 @@ describe("isNoiseLine — negative matches (real executable code)", () => {
     // An inline `case x: doThing(); break;` carries executable code, so
     // SWITCH_LABEL does NOT strip it.
     expect(/^\s*(case\s+.+|default)\s*:\s*$/.test("  case x: doThing(); break;")).toBe(false);
+  });
+});
+
+describe("destructuredParameterSignatureLines", () => {
+  test("classifies a simple multi-line function signature", () => {
+    const source = [
+      "async function searchTools({",
+      "  url,",
+      "  q,",
+      "  results,",
+      "}: MentionSearchContext): Promise<Response> {",
+      "  return json(results);",
+      "}",
+    ];
+    expect([...destructuredParameterSignatureLines(source)]).toEqual([1, 2, 3, 4, 5]);
+  });
+
+  test("does not hide an object literal or executable parameter defaults", () => {
+    expect([...destructuredParameterSignatureLines([
+      "const request = {",
+      "  url,",
+      "  q,",
+      "};",
+    ])]).toEqual([]);
+    expect([...destructuredParameterSignatureLines([
+      "function search({",
+      "  q = normalize(),",
+      "}: Context) {",
+      "  return q;",
+      "}",
+    ])]).toEqual([]);
   });
 });
 

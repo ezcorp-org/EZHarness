@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Usage: heavy-leg.sh <log> <timeout-seconds> <cwd> <command...>
+# Runs one heavy leg under the shared lock and records the INNER command's exit.
+# The exit is read into rc on the line right after the command, before any other
+# expansion (a "$(date)" in the same echo resets $? to 0: the heavy.log
+# "backend-pool exit=0" overstatement of 2026-09-24).
+set -u
+log=$1 limit=$2 dir=$3; shift 3
+export PATH=/tmp/factory-tools/bun-1.3.14/bun-linux-x64:$PATH EZ_SKIP_HOOKS=1
+export FACTORY_TEMPORAL_TEST_SERVER=/tmp/factory-tools/temporal-test-server/temporal-test-server_1.38.0_linux_amd64/temporal-test-server
+EZCORP_FACTORY_STORAGE_SECRETS_DIR=$(ls -d /run/user/1001/ezcorp-factory-storage.* | head -1)
+export EZCORP_FACTORY_STORAGE_SECRETS_DIR
+set -a; . /tmp/factory-platform-evidence/postgres.env; set +a
+port=$(podman port factory-platform-proof-postgres 5432 | head -1 | sed 's/.*://')
+export FACTORY_TEST_POSTGRES_URL="postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@127.0.0.1:${port}/${POSTGRES_DB}"
+unset POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB DATABASE_URL GATE_CHANGE_APPROVED
+start=$(date -Is)
+disk=$(df -h / | tail -1)
+cd "$dir" || exit 2
+{ echo "start=$start head=$(git rev-parse HEAD) index-tree=$(git write-tree) umask=$(umask)"; echo "df: $disk"; echo "cmd: $*"; } > "$log"
+flock --close /tmp/ezcorp-validation-heavy.lock timeout "$limit" "$@" >> "$log" 2>&1
+rc=$?
+echo "end=$(date -Is) exit=$rc" >> "$log"
+echo "exit=$rc log=$log"
+exit "$rc"

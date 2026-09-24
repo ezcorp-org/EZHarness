@@ -80,7 +80,7 @@ function responses(): FactoryApiResponse[] {
   const version = { factoryId: referenceCodeV1.id, version: referenceCodeV1.version, draftRevision: 1, definitionDigest: compiled.digest, compiledBlobDigest, compiledBytes: new TextEncoder().encode(compiledJson).byteLength, publishedAtMs: 1 } as const;
   const run = { runId: "run-1", factoryId: referenceCodeV1.id, factoryVersion: referenceCodeV1.version, definitionDigest: compiled.digest, grantRevision: 1, revision: 1, status: "running", createdAtMs: 1, updatedAtMs: 1 } as const;
   const approval = { approvalId: "approval-1", runId: "run-1", commandId: "command-1", nodeInstanceId: "approval-node", revision: 1, contextDigest: sourceDigest, status: "pending", choices: ["approve", "deny"], context: { subject: "deploy" }, actorScope: "operator", expiresAtMs: 2 } as const;
-  const grant = { principalKind: "user", principalId: "user-1", action: "factory.author", revision: 1, expiresAtMs: null, revoked: false } as const;
+  const grant = { principalKind: "user", principalId: "user-1", action: "factory.author", revision: 1, expiresAtMs: null, revoked: false, displayName: "Ada Author" } as const;
   const credential = { serviceAccountId: "service-1", credentialId: "credential-1", scopes: ["read", "chat"] as const, revision: 1, issuedAtMs: 1_999_999_940_000, expiresAtMs: 2_000_000_000_000, revoked: false } as const;
   const trust = { revision: 1, state: "active" as const, packageLock, packageTrustDigest: `sha256:${compiledBlobDigest}`, validatorTrustDigest: `sha256:${sourceDigest}`, approvedBy: "admin-1", approvalGrantRevision: 1 };
   const releaseOperation = { operationId: "operation-1", runId: "run-1", nodeInstanceId: "node-1", candidateGeneration: 0, decisionId: "decision-1", candidateDigest: `sha256:${sourceDigest}`, contractDigest: `sha256:${compiledBlobDigest}`, executionEpoch: 1, cancellationEpoch: 0, releaseEnableEpoch: 1, action: "publish", destination: releaseDestination, destinationDigest: `sha256:${sourceDigest}`, requestDigest: `sha256:${compiledBlobDigest}`, estimatedSpendMicros: 10, deadlineMs: 2_000_000_000_000, state: "pending" as const, dispatchGeneration: 0, dispatchStarted: false, archiveReady: true };
@@ -251,6 +251,12 @@ describe("factory product API schema", () => {
     expect(code(validateFactoryApiResponse({ ...grant, resource: { ...grant.resource, principalKind: "service", expiresAtMs: null } }))).toBe("API_GRANT_EXPIRY");
     const grantPage = responses()[12] as Extract<FactoryApiResponse, { kind: "grant.page" }>;
     expect(code(validateFactoryApiResponse({ ...grantPage, page: { items: [{ ...grantPage.page.items[0]!, principalKind: "service", expiresAtMs: null }] } }))).toBe("API_GRANT_EXPIRY");
+    // W04b: the grantee's display name is required, bounded, and never empty.
+    const { displayName: _name, ...unnamed } = grant.resource;
+    for (const resource of [unnamed, { ...grant.resource, displayName: "" }, { ...grant.resource, displayName: "x".repeat(257) }]) {
+      expect(validateFactoryApiResponse({ ...grant, resource } as never).ok).toBe(false);
+    }
+    expect(validateFactoryApiResponse({ ...grant, resource: { ...grant.resource, displayName: "x".repeat(256) } }).ok).toBe(true);
     const receipt = responses()[13] as Extract<FactoryApiResponse, { kind: "mutation.accepted" }>;
     expect(code(validateFactoryApiResponse({ ...receipt, receipt: { ...receipt.receipt, statusUrl: "/wrong/run-1" } }))).toBe("API_RECEIPT");
     const error = responses()[14] as Extract<FactoryApiResponse, { kind: "error" }>;

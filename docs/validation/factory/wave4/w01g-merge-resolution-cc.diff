@@ -1,0 +1,241 @@
+97809fd85a041a29b923ed1d0aca3064e50c7ad8 merge: wp/w01g-staging 7dec8a4ec into integ/w00 (guest material staging over the broker; C05 supervisor closure fixed)
+
+diff --cc src/factory/installation-startup.ts
+index d5960ca5d,67a0cc032..21b0bac55
+--- a/src/factory/installation-startup.ts
++++ b/src/factory/installation-startup.ts
+@@@ -68,11 -65,8 +68,12 @@@ import type { FactoryApplication, Facto
+  import type { TrustedFactoryServiceIdentity } from "./trusted-command-gateway";
+  import type { FactoryRoleDriver } from "./runtime-seams";
+  import type { FactoryStartedListener } from "./runtime-composition";
++ import { composeFactoryGuestBroker, type FactoryGuestBrokerReadiness } from "./guest-broker-composition";
+  import type { FactoryPhysicalStopper, FactoryTaskStops } from "./task-stops";
+ +import { composeFactoryRecoveryRoles } from "./recovery-composition";
+ +import type { FactoryKeyCompositionDependencies } from "./key-composition";
+ +import type { FactoryRestore, FactoryRestoreFence } from "./restore";
+ +import { FactoryRunTransitionProjector } from "./run-transition-projector";
+  
+  export class FactoryInstallationStartupError extends Error {
+    constructor(readonly code: "factory-startup-config-missing" | "factory-startup-blobs-missing" | "factory-startup-unreachable", message: string) {
+@@@ -703,7 -630,7 +705,8 @@@ async function installationCollaborator
+    readonly workers: FactoryRuntimeDependencies["workers"];
+    readonly seams: FactoryRuntimeDependencies["seams"];
+    readonly listeners: readonly FactoryStartedListener[];
+ +  readonly application: Pick<FactoryApplicationOptions, "createReleaseOperations">;
++   readonly guestBroker: FactoryGuestBrokerReadiness;
+  }> {
+    const { createFactoryApplication } = await import("./application");
+    // A throwaway application only to reach the lifecycle the roles read. The
+@@@ -795,9 -719,16 +798,17 @@@
+    const acceptance = validation.composed?.acceptance.command ?? factoryValidatorAcceptanceRefusal(
+      validation.held === undefined ? "factory_validator_none_declared" : "factory_validator_unavailable",
+      validation.held ?? "the startup document declares no validator runtime under validators.runtimes");
+ -  const privateService = await composePrivateService(config, host, stores, transitions, application, release, settlement?.stops, acceptance);
+ +  const privateService = await composePrivateService(config, host, stores, transitions, application, release, settlement?.stops, acceptance, outcomes?.effects);
+ +  const recovery = await composeFactoryRecoveryRoles({ config, database: host.database, report: host.report });
+  
++   // ── W01g: the guest-broker route ────────────────────────────────────
++   // The runner host forwards a guest's staging frames here, because this is
++   // the process that holds the tenant database. Its own listener, beside the
++   // private service rather than inside it: a different peer set (hosts, not
++   // the orchestrator) and a different credential (the attempt token).
++   const guestBroker = await composeFactoryGuestBroker({ database: host.database, config, application, blobs, report: host.report });
++   // ── end W01g ─────────────────────────────────────────────────────────
++ 
+    return {
+      workers: {
+        projections: stores.projections,
+@@@ -816,8 -746,11 +827,12 @@@
+          usageReconciler: settlement.usageReconciliation,
+        }),
+      },
+-     listeners: privateService === undefined ? [] : [privateService],
++     listeners: [
++       ...(privateService === undefined ? [] : [privateService]),
++       ...(guestBroker.listener === undefined ? [] : [guestBroker.listener]),
++     ],
+ +    application: release === undefined ? {} : { createReleaseOperations: factoryReleaseOperations(config.tenantId, release, resolver) },
++     guestBroker: guestBroker.readiness,
+    };
+  }
+  
+diff --cc src/factory/private-service-composition.ts
+index 93db2b831,e399c715e..a76ee4dfe
+--- a/src/factory/private-service-composition.ts
++++ b/src/factory/private-service-composition.ts
+@@@ -30,7 -30,7 +30,6 @@@
+   * accepted set without restarting the product, the same property the host stop
+   * route gets from reloading its signing pair per signature.
+   */
+- import { basename, dirname, resolve as resolvePath } from "node:path";
+ -import { factoryCommandFailedEvent } from "@ezcorp/factory-sdk";
+  import type { KernelEvent } from "@ezcorp/factory-sdk/kernel-types";
+  import type { TransactionalDb } from "../db/migrations/types";
+  import type { FactoryApplication } from "./application";
+@@@ -43,9 -43,11 +42,10 @@@ import { FactoryInstallationCommandOutb
+  import { FactoryLazyCommands } from "./lazy-commands";
+  import { FactoryLazyInputReader } from "./lazy-input";
+  import { FactoryPartitionCommands } from "./partition-commands";
+ -import { factoryErrorCode } from "./plain-values";
+ -import { FactoryPrivateCommands, type FactoryPrivateCommandHandler, type FactoryPrivateCommandStores } from "./private-commands";
+ +import { FactoryPrivateCommands, type FactoryPrivateCommandHandler } from "./private-commands";
+- import { privateDirectory, readPrivateBounded } from "./private-files";
++ import { readPrivateText as readPrivateFileText } from "./private-files";
+  import { startFactoryPrivateService } from "./private-service";
++ import type { PoolTokenVerifierOptions } from "./pool/service-token";
+  import { FactoryProtectedCommandEffects, type FactoryReleaseCommandProfile } from "./protected-command-effects";
+  import type { FactoryReleases } from "./releases";
+  import type { FactoryStartedListener } from "./runtime-composition";
+diff --cc src/factory/startup-config.ts
+index 68d065150,0cfc6f3e8..c8d9e04cd
+--- a/src/factory/startup-config.ts
++++ b/src/factory/startup-config.ts
+@@@ -636,8 -590,8 +670,8 @@@ function wellFormedValidatorRuntime(val
+  
+  /** The set of leaf fields a valid document may carry, derived from the table. */
+  const KNOWN_FIELDS: ReadonlySet<string> = new Set([
+-   "schemaVersion", "hostStopKeys", "privateService.tokens.publicKeyPaths", "runnerProfiles",
++   "schemaVersion", "hostStopKeys", "privateService.tokens.publicKeyPaths", "runnerProfiles", "guestBroker.hosts", "guestBroker.tokens.publicKeyPaths",
+ -  "release.destinations", "release.profiles", "validators.runtimes",
+ +  "release.destinations", "release.profiles", "validators.runtimes", "keyManagement",
+    ...FACTORY_STARTUP_FIELDS.map((spec) => spec.field),
+  ]);
+  
+@@@ -664,8 -618,8 +698,8 @@@ function leaves(value: unknown, prefix 
+      // Three branches are maps whose KEYS are data — a key id, a resource class
+      // — so recursing into them would name a value as a field. Each is checked
+      // by shape below instead.
+-     if (field === "hostStopKeys" || field === "runnerProfiles" || field === "privateService.tokens.publicKeyPaths"
++     if (field === "hostStopKeys" || field === "runnerProfiles" || field === "privateService.tokens.publicKeyPaths" || field === "guestBroker.hosts" || field === "guestBroker.tokens.publicKeyPaths"
+ -      || field === "release.destinations" || field === "release.profiles" || field === "validators.runtimes") { found.push(field); continue; }
+ +      || field === "release.destinations" || field === "release.profiles" || field === "validators.runtimes" || field === "keyManagement") { found.push(field); continue; }
+      found.push(...(isPlainRecord(nested) ? leaves(nested, field) : [field]));
+    }
+    return found;
+@@@ -711,27 -663,39 +745,41 @@@ const checkHostLaunch: StartupCheck = (
+    if (supplied.length > 0 && supplied.length < transport.length) {
+      for (const spec of transport) if (!supplied.includes(spec)) missing.push(spec.field);
+    }
+ +};
+  
+ -  // The guest-broker route is every part or none, and it verifies attempt
+ -  // tokens with the host launch secret, so it cannot stand without one.
+++// The guest-broker route is every part or none, and it verifies attempt
+++// tokens with the host launch secret, so it cannot stand without one.
+++const checkGuestBroker: StartupCheck = (value, { missing, invalid }) => {
++   const brokerFields = [...FACTORY_STARTUP_FIELDS.filter((spec) => spec.field.startsWith("guestBroker.")).map((spec) => spec.field), "guestBroker.hosts", "guestBroker.tokens.publicKeyPaths"];
++   const brokerSupplied = brokerFields.filter((field) => read(value, field).present);
+ -  if (brokerSupplied.length > 0) {
+ -    for (const field of brokerFields) if (!brokerSupplied.includes(field)) missing.push(field);
+ -    if (!read(value, "hostLaunch.attemptTokenSecretPath").present) missing.push("hostLaunch.attemptTokenSecretPath");
+ -    const hosts = read(value, "guestBroker.hosts");
+ -    if (hosts.present && !wellFormedHostMap(hosts.value)) invalid.push("guestBroker.hosts");
+ -    const brokerKeys = read(value, "guestBroker.tokens.publicKeyPaths");
+ -    if (brokerKeys.present && !wellFormedKeyPaths(brokerKeys.value)) invalid.push("guestBroker.tokens.publicKeyPaths");
+ -  }
+ -
+ -  // Host PUBLIC keys, by reference. Each entry names a host, a key id, and a
+ -  // file; a private key never appears in this document and an empty list is a
+ -  // list that verifies nothing.
+++  if (brokerSupplied.length === 0) return;
+++  for (const field of brokerFields) if (!brokerSupplied.includes(field)) missing.push(field);
+++  if (!read(value, "hostLaunch.attemptTokenSecretPath").present) missing.push("hostLaunch.attemptTokenSecretPath");
+++  const hosts = read(value, "guestBroker.hosts");
+++  if (hosts.present && !wellFormedHostMap(hosts.value)) invalid.push("guestBroker.hosts");
+++  const brokerKeys = read(value, "guestBroker.tokens.publicKeyPaths");
+++  if (brokerKeys.present && !wellFormedKeyPaths(brokerKeys.value)) invalid.push("guestBroker.tokens.publicKeyPaths");
+++};
+++
+ +// Host PUBLIC keys, by reference. Each entry names a host, a key id, and a
+ +// file; a private key never appears in this document and an empty list is a
+ +// list that verifies nothing.
+ +const checkHostStopKeys: StartupCheck = (value, { invalid }) => {
+    const hostStopKeys = read(value, "hostStopKeys");
+ -  if (hostStopKeys.present) {
+ -    const entries = hostStopKeys.value;
+ -    if (!Array.isArray(entries) || entries.length === 0) invalid.push("hostStopKeys");
+ -    else for (const [index, entry] of entries.entries()) {
+ -      if (!isPlainRecord(entry) || !exactKeys(entry, ["hostId", "hostKeyId", "publicKeyPath"])
+ -        || !wellFormed("identity", entry.hostId) || !wellFormed("identity", entry.hostKeyId) || !wellFormed("path", entry.publicKeyPath)) {
+ -        invalid.push(`hostStopKeys[${index}]`);
+ -      }
+ +  if (!hostStopKeys.present) return;
+ +  const entries = hostStopKeys.value;
+ +  if (!Array.isArray(entries) || entries.length === 0) { invalid.push("hostStopKeys"); return; }
+ +  for (const [index, entry] of entries.entries()) {
+ +    if (!isPlainRecord(entry) || !exactKeys(entry, ["hostId", "hostKeyId", "publicKeyPath"])
+ +      || !wellFormed("identity", entry.hostId) || !wellFormed("identity", entry.hostKeyId) || !wellFormed("path", entry.publicKeyPath)) {
+ +      invalid.push(`hostStopKeys[${index}]`);
+      }
+    }
+ -  // The private service's token verifier is all three fields or none: an issuer
+ -  // with no keys verifies nothing, and a key map with no audience would accept
+ -  // a token minted for another service.
+ -  // Both halves or neither: a delay with no window would retry forever and a
+ -  // window with no delay would spin.
+ +};
+ +
+ +// Both halves or neither: a delay with no window would retry forever and a
+ +// window with no delay would spin.
+ +const checkReadinessRetry: StartupCheck = (value, { missing }) => {
+    const retryFields = ["readinessRetry.delayMs", "readinessRetry.windowMs"];
+    const retryPresent = retryFields.filter((field) => read(value, field).present);
+    if (retryPresent.length === 1) missing.push(retryFields.find((field) => !retryPresent.includes(field))!);
+@@@ -810,24 -731,40 +858,24 @@@ const checkRelease: StartupCheck = (val
+    const releaseHalves = ["release.destinations", "release.profiles"];
+    const releasePresent = releaseHalves.filter((field) => read(value, field).present);
+    if (releasePresent.length === 1) missing.push(releaseHalves.find((field) => !releasePresent.includes(field))!);
+ -  if (releasePresent.length === 2) {
+ -    const destinations = read(value, "release.destinations").value;
+ -    const profiles = read(value, "release.profiles").value;
+ -    let names: string[] | undefined;
+ -    if (!Array.isArray(destinations) || destinations.length === 0 || destinations.length > 64) invalid.push("release.destinations");
+ -    else {
+ -      for (const [index, entry] of destinations.entries()) {
+ -        if (!wellFormedReleaseDestination(entry)) invalid.push(`release.destinations[${index}]`);
+ -      }
+ -      names = destinations.map((entry) => (entry as { name?: unknown }).name).filter((name): name is string => typeof name === "string");
+ -      // A name declared twice makes "which destination" depend on declaration
+ -      // order, which is not a fact an operator stated.
+ -      if (new Set(names).size !== names.length) invalid.push("release.destinations");
+ -    }
+ -    if (!Array.isArray(profiles) || profiles.length === 0 || profiles.length > 64) invalid.push("release.profiles");
+ -    else {
+ -      const declared = new Set(names ?? []);
+ -      for (const [index, entry] of profiles.entries()) {
+ -        if (!wellFormedReleaseProfile(entry)) { invalid.push(`release.profiles[${index}]`); continue; }
+ -        // A profile pointing at a destination nobody declared would compose a
+ -        // profile with nowhere to publish, and `requestRelease` would refuse it
+ -        // at the first release instead of at boot.
+ -        if (names !== undefined && !declared.has((entry as { destination: string }).destination)) invalid.push(`release.profiles[${index}].destination`);
+ -      }
+ -      // Two profiles for one adapter make the trusted set depend on order, and
+ -      // `FactoryProtectedCommandEffects` refuses the second at construction.
+ -      const adapters = profiles.map((entry) => canonicalAdapter((entry as { adapter?: unknown }).adapter));
+ -      if (new Set(adapters).size !== adapters.length) invalid.push("release.profiles");
+ -    }
+ -  }
+ +  if (releasePresent.length !== 2) return;
+ +  const names = checkReleaseDestinations(read(value, "release.destinations").value, invalid);
+ +  checkReleaseProfiles(read(value, "release.profiles").value, names, invalid);
+ +};
+ +
+ +// The trusted validator runtimes, when the section is present.
+ +const checkValidatorRuntimes: StartupCheck = (value, { invalid }) => {
+    invalid.push(...invalidValidatorRuntimes(value));
+ -  if (missing.length > 0 || invalid.length > 0) throw new FactoryStartupConfigError(missing, invalid);
+ +};
+  
+ -  const config = value as unknown as FactoryStartupConfig;
+ +// Run in this order; the error lists keep the order the problems are found in.
+ +const STARTUP_CHECKS: readonly StartupCheck[] = [
+-   checkDeclaredFields, checkModelPin, checkHostLaunch, checkHostStopKeys, checkReadinessRetry, checkRecoverySections,
+++  checkDeclaredFields, checkModelPin, checkHostLaunch, checkGuestBroker, checkHostStopKeys, checkReadinessRetry, checkRecoverySections,
+ +  checkPrivateServiceTokens, checkRunnerProfiles, checkRelease, checkValidatorRuntimes,
+ +];
+ +
+ +/** Cross-field rules on a document whose every field is already well formed. */
+ +function assertStartupConfigBounds(config: FactoryStartupConfig): void {
+    // A cap below the first delay it caps would silently shorten the backoff.
+    if ((config.workers?.maxErrorDelayMs ?? Number.MAX_SAFE_INTEGER) < (config.workers?.errorDelayMs ?? 0)) {
+      throw new FactoryStartupConfigError([], ["workers.maxErrorDelayMs"]);

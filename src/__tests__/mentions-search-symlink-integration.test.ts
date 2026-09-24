@@ -99,6 +99,13 @@ mock.module("../db/connection", () => ({
 // and a re-registration in afterAll cannot rebind an import that is already
 // resolved. An empty table then reaches a real drizzle query as
 // `Object.entries(undefined)` inside `orderSelectedFields`.
+// Path mentions exercise the direct local-workspace branch. The persisted
+// sandbox policy is covered by its own runtime tests; keep this filesystem
+// boundary fixture independent from database startup.
+mock.module("$server/runtime/workspace/target", () => ({
+  projectRequiresSandbox: async () => false,
+}));
+
 
 mock.module("drizzle-orm", () => ({
   eq: () => ({}),

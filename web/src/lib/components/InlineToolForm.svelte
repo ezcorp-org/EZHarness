@@ -25,28 +25,43 @@
 	let requiredFields = $derived((tool.inputSchema?.required as string[]) ?? []);
 	let propertyKeys = $derived(Object.keys(properties));
 
-	// Form values - initialize from initialValues or defaults
-	let values = $state<Record<string, unknown>>({});
-	let errors = $state<Record<string, string>>({});
-
-	$effect(() => {
+	function buildDefaultValues(
+		fields: Record<string, Record<string, unknown>>,
+		initial: Record<string, unknown>,
+		shared: Record<string, string>,
+	): Record<string, unknown> {
 		const init: Record<string, unknown> = {};
-		for (const key of propertyKeys) {
-			if (initialValues && key in initialValues) {
-				init[key] = initialValues[key];
+		for (const [key, prop] of Object.entries(fields)) {
+			if (key in initial) {
+				init[key] = initial[key];
 			} else {
-				const prop = properties[key];
 				// Pre-fill from x-shared via sharedValues prop
 				const sharedKey = prop['x-shared'] as string | undefined;
-				if (sharedKey && sharedValues[sharedKey]) {
-					init[key] = sharedValues[sharedKey];
+				if (sharedKey && shared[sharedKey]) {
+					init[key] = shared[sharedKey];
 				} else if (prop.format === 'tag-input' && prop.type === 'array') init[key] = [];
 				else if (prop.type === 'boolean') init[key] = false;
 				else if (prop.type === 'number' || prop.type === 'integer') init[key] = '';
 				else init[key] = '';
 			}
 		}
-		values = init;
+		return init;
+	}
+	function currentDefaults(): Record<string, unknown> {
+		return buildDefaultValues(properties, initialValues, sharedValues);
+	}
+
+	// Seed before the form can receive input. A parent can refresh equivalent
+	// defaults while the operator types; that must not erase an in-progress field.
+	let seededDefaults = currentDefaults();
+	let values = $state<Record<string, unknown>>({ ...seededDefaults });
+	let errors = $state<Record<string, string>>({});
+
+	$effect(() => {
+		const nextDefaults = currentDefaults();
+		if (JSON.stringify(nextDefaults) === JSON.stringify(seededDefaults)) return;
+		seededDefaults = nextDefaults;
+		values = { ...nextDefaults };
 		errors = {};
 	});
 

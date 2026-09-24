@@ -1,0 +1,282 @@
+{
+ "package": "origin/main",
+ "branch": "origin/main",
+ "head": "96e7ee58c4bf35c680d64cd6afeebe53e66382e1",
+ "mergeSha": "9ba704f4fad35dc86b6b56be1b2ca000c3913d69",
+ "tree": "755b86474f3f2f464825c778c652ec0e8ceebe2d",
+ "parents": [
+  "6c8ec29c50c3edfa6b1aef31cf16f44c84de260d",
+  "96e7ee58c4bf35c680d64cd6afeebe53e66382e1"
+ ],
+ "validatorVerdict": "ACCEPT (validator-2, 2026-09-24, on re-staged tree 755b86474 = 29a453a8d + F1; proof commit 0d3671c51, ref proof/main-96e7ee58c-staged-r3). Earlier: ACCEPT-WITH-FIXES on 29a453a8d (proof ref proof/main-96e7ee58c-staged-r2); first validator run on e79654ea0 (proof ref proof/main-96e7ee58c-staged). Record: main-96e7ee58c-validation.json. The verdicts were sent as messages; the validator sessions could not write a report file.",
+ "workerReport": "none (origin/main is not a work package); staging log in main-96e7ee58c-merge-conflict-hunks.txt and main-96e7ee58c-merge-lock-diff-summary.txt",
+ "conflicts": {
+  "tasks/todo.md": "union",
+  "tasks/lessons.md": "union",
+  "scripts/coverage-thresholds.json": "both sides kept, 1171 keys, none lowered",
+  ".github/workflows/ci.yml": "both jobs kept; 38 jobs parse",
+  "code": "12 files (package manifests and locks, manifest.lock.json, 4 tests with a double /tmp/.git fix, mentions-search stub, shell.ts imports, evidence-covers.json, GATES.md); resolved as proposed and approved by the coordinator; hunks in main-96e7ee58c-merge-conflict-hunks.txt. Locks regenerated from ours with main's bumps; main's exact entries for @types/node 26.6.2 and nested magic-string 1.4.2; manifest.lock.json regenerated on the final tree."
+ },
+ "integrationFix": [
+  {
+   "id": "F1",
+   "what": "main-origin test src/__tests__/bundled-bootstrap-policy-change.test.ts parked its bundled builds for ever on the process-wide build queue and left its module mocks in place, so every later bundled build in the same process stalled (bundled-source-lock 3 fails, bundled-v4-bootstrap 12 fails when run after it). Fix: afterAll rejects the parked builds and calls restoreModuleMocks(); both parts are needed (module restore alone: 49 pass 12 fail).",
+   "files": [
+    "src/__tests__/bundled-bootstrap-policy-change.test.ts"
+   ],
+   "patch": "main-96e7ee58c-f1.patch",
+   "proof": "validator-2: policy-change + source-lock + v4 in one process 64/64 (was 49/15); mock-cleanup-coverage 16/16. Integrator in staging: trio exit 0 64/64, mock-cleanup-coverage exit 0 16/16, biome exit 0."
+  }
+ ],
+ "rulings": {
+  "F2": "pool-coverage is red at 29a453a8d and already at 6c8ec29c5 (green at 260855e57, before W15) for a W15-side reason: the --target node bundle of src/factory/pool/service-server.ts pulls drizzle-orm/bun-sql through checkpoint-barrier -> db/queries/extension-releases -> db/connection. Not caused by this merge. Fixed by W15b (wp/w15b-runtime-kms c39c039b9, leaf module src/factory/checkpoint-limits.ts), not by a separate W15c branch. wave4f is blocked until W15b lands.",
+  "F3": "main-origin hygiene, owner W18a-3: four tests fail at umask 077 (setup-podman 1, dev-image-provenance 1, local-sandbox-startup 2); fix the tests to set explicit modes.",
+  "F4": "main-origin hygiene, owner W18a-3: podman-compose-wrapper fails 10 of 63 with 'dirty' on pure main at umask 022 and 077 and with an empty HOME.",
+  "h1Leak": "main-origin ordered leak, owner W18a-3: h1-local-provider-ssrf alone 148/0; after cross-tenant-deletion-projects-kb-modes or mentions-search-symlink-integration it fails with \"Export named 'requireAdmin' not found in module '$lib/server/security/api-keys'\". Reproduced on pure main 96e7ee58c and integ 6c8ec29c5 (main-96e7ee58c-h1-*.log). Cause: partial mocks of the api-keys alias with only requireScope.",
+  "workflowBranchLeak": {
+   "pair": "src/__tests__/mentions-search-workflow-branch.test.ts then src/__tests__/mentions-search-symlink-integration.test.ts (reverse order 31 pass 0 fail)",
+   "reproduction": {
+    "pureMain96e7ee58c": "25 pass 6 fail, \"Database not initialized \u2014 call initDb() first\" (temporary detached worktree, removed)",
+    "staging": "25 pass 6 fail, \"TypeError: {} is not iterable\" at src/runtime/workspace/target.ts:61 (main's $server/db/schema stub is dropped by the approved resolution)"
+   },
+   "cause": "main's mentions route imports $server/runtime/workspace/target; only the symlink test mocks it; when workflow-branch links the route first, the later mock cannot rebind",
+   "owner": "W18a-3: workflow-branch mocks workspace/target too, or the claim-and-revert pattern; proof by the pair matrix",
+   "ruling": "coordinator: record as pre-existing on main; main's tests not changed in this merge"
+  },
+  "wave4fBlockedOn": [
+   "W15b (pool-coverage, F2)",
+   "W18a-3 fixes for F3, F4, the h1 leak and the workflow-branch leak"
+  ]
+ },
+ "secondFetch": "refs/remotes/origin/main read 8aa507304 during staging; 96e7ee58c merged now, the rest in the next main merge",
+ "lockfileSummary": [
+  "bun.lock: entries 741 (ours 741, main 521); new paths 6 (versions all from a parent); dropped from both 12; version in neither parent 0 []",
+  "web/bun.lock: entries 631 (ours 634, main 612); new paths 0 (versions all from a parent); dropped from both 15; version in neither parent 0 []"
+ ],
+ "backendPoolCorrection": "logs/heavy.log of the first validator run says 'backend-pool exit=0'. That value was wrong: the wrapper printed $? inside an echo that began with $(date -Is), and the command substitution reset $? to 0. The pool itself (main-96e7ee58c-validation-backend-pool.log, tree e79654ea0, umask 0077) exited 1 with 28769 pass, 15 fail, 1942 files. Causes: the F1 bundled leak (stale parked builds), F3 and F4.",
+ "heavyWrapperFix": "approved by the coordinator: w00/heavy-leg.sh (copy main-96e7ee58c-heavy-leg.sh.txt) stores rc=$? on the line right after the flock/timeout command and logs head, index tree, umask and df before the run; every integrator heavy leg uses it from now on.",
+ "checks": [
+  {
+   "name": "build-factory-sdk",
+   "exitCode": 0,
+   "start": "2026-09-24T06:05:58Z",
+   "end": "2026-09-24T06:05:58Z"
+  },
+  {
+   "name": "build-factory-transport",
+   "exitCode": 0,
+   "start": "2026-09-24T06:05:58Z",
+   "end": "2026-09-24T06:05:58Z"
+  },
+  {
+   "name": "build-extension-contract",
+   "exitCode": 0,
+   "start": "2026-09-24T06:05:58Z",
+   "end": "2026-09-24T06:05:58Z"
+  },
+  {
+   "name": "build-factory-orchestrator",
+   "exitCode": 0,
+   "start": "2026-09-24T06:05:58Z",
+   "end": "2026-09-24T06:05:58Z"
+  },
+  {
+   "name": "build-sdk",
+   "exitCode": 0,
+   "start": "2026-09-24T06:05:58Z",
+   "end": "2026-09-24T06:05:58Z"
+  },
+  {
+   "name": "gate-integrity",
+   "exitCode": 0,
+   "start": "2026-09-24T06:06:51Z",
+   "end": "2026-09-24T06:06:53Z"
+  },
+  {
+   "name": "boundaries",
+   "exitCode": 0,
+   "start": "2026-09-24T06:06:53Z",
+   "end": "2026-09-24T06:06:54Z"
+  },
+  {
+   "name": "schema-drift",
+   "exitCode": 0,
+   "start": "2026-09-24T06:06:54Z",
+   "end": "2026-09-24T06:06:59Z"
+  },
+  {
+   "name": "registration",
+   "exitCode": 0,
+   "start": "2026-09-24T06:06:59Z",
+   "end": "2026-09-24T06:07:00Z"
+  },
+  {
+   "name": "c13-inventory",
+   "exitCode": 0,
+   "start": "2026-09-24T06:07:00Z",
+   "end": "2026-09-24T06:07:01Z"
+  },
+  {
+   "name": "resolved-build-allowed-env-injection",
+   "exitCode": 0,
+   "start": "2026-09-24T06:07:20Z",
+   "end": "2026-09-24T06:07:20Z"
+  },
+  {
+   "name": "resolved-mentions-search-symlink-integration",
+   "exitCode": 0,
+   "start": "2026-09-24T06:07:20Z",
+   "end": "2026-09-24T06:07:21Z"
+  },
+  {
+   "name": "resolved-factory-boot",
+   "exitCode": 0,
+   "start": "2026-09-24T06:07:21Z",
+   "end": "2026-09-24T06:07:22Z"
+  },
+  {
+   "name": "resolved-factory-shell-required",
+   "exitCode": 0,
+   "start": "2026-09-24T06:07:22Z",
+   "end": "2026-09-24T06:07:23Z"
+  },
+  {
+   "name": "resolved-runtime-tools-shell",
+   "exitCode": 0,
+   "start": "2026-09-24T06:07:23Z",
+   "end": "2026-09-24T06:07:25Z"
+  },
+  {
+   "name": "resolved-sandbox-seam-a-b",
+   "exitCode": 0,
+   "start": "2026-09-24T06:07:25Z",
+   "end": "2026-09-24T06:07:27Z"
+  },
+  {
+   "name": "resolved-bundled-source-lock",
+   "exitCode": 0,
+   "start": "2026-09-24T06:07:27Z",
+   "end": "2026-09-24T06:07:28Z"
+  },
+  {
+   "name": "resolved-ez-factory-agents-bundled-wiring",
+   "exitCode": 0,
+   "start": "2026-09-24T06:07:28Z",
+   "end": "2026-09-24T06:07:38Z"
+  },
+  {
+   "name": "resolved-sdk-fs",
+   "exitCode": 0,
+   "start": "2026-09-24T06:07:38Z",
+   "end": "2026-09-24T06:07:45Z"
+  },
+  {
+   "name": "resolved-project",
+   "exitCode": 0,
+   "start": "2026-09-24T06:08:16Z",
+   "end": "2026-09-24T06:08:17Z"
+  },
+  {
+   "name": "resolved-postinstall",
+   "exitCode": 0,
+   "start": "2026-09-24T06:08:17Z",
+   "end": "2026-09-24T06:08:18Z"
+  },
+  {
+   "name": "lint-2",
+   "exitCode": 0,
+   "start": "2026-09-24T06:08:18Z",
+   "end": "2026-09-24T06:08:20Z"
+  },
+  {
+   "name": "runtime-version-pins",
+   "exitCode": 0,
+   "start": "2026-09-24T07:13:22Z",
+   "end": "2026-09-24T07:13:22Z"
+  },
+  {
+   "name": "typecheck",
+   "exitCode": 0,
+   "start": "2026-09-24T07:13:22Z",
+   "end": "2026-09-24T07:14:07Z"
+  },
+  {
+   "name": "lint",
+   "exitCode": 0,
+   "start": "2026-09-24T07:14:07Z",
+   "end": "2026-09-24T07:14:09Z"
+  },
+  {
+   "name": "web-check",
+   "exitCode": 0,
+   "start": "2026-09-24T07:14:09Z",
+   "end": "2026-09-24T07:14:17Z"
+  },
+  {
+   "name": "f1-trio",
+   "exitCode": 0,
+   "counts": {
+    "pass": 64,
+    "fail": 0
+   },
+   "command": "bun test --timeout 60000 ./src/__tests__/bundled-bootstrap-policy-change.test.ts ./src/__tests__/bundled-source-lock.test.ts ./src/__tests__/bundled-v4-bootstrap.test.ts",
+   "log": "main-96e7ee58c-merge-f1-trio.log",
+   "logSha256": "6c03e57f33680a7b4608eb9c2515a36d73da5ffe9e3781a8931e708a035d5d30"
+  },
+  {
+   "name": "f1-mock-cleanup-coverage",
+   "exitCode": 0,
+   "counts": {
+    "pass": 16,
+    "fail": 0
+   },
+   "command": "bun test --timeout 30000 ./src/__tests__/mock-cleanup-coverage.test.ts",
+   "log": "main-96e7ee58c-merge-f1-mock-cleanup-coverage.log",
+   "logSha256": "4e7a8639622a4f78340f2d86801125030e1565dcee7310cd3adcbebbc35986a2"
+  },
+  {
+   "name": "f1-biome",
+   "exitCode": 0,
+   "command": "bunx biome check src/__tests__/bundled-bootstrap-policy-change.test.ts",
+   "log": "main-96e7ee58c-merge-f1-biome.log",
+   "logSha256": "7a6dfdd197ed4da5d27cc9242027bc7662b3384be132e1d8adb054e033123ffa"
+  },
+  {
+   "name": "focused (integrator, staging)",
+   "exitCode": 1,
+   "start": "2026-09-24T10:26:49-04:00",
+   "end": "2026-09-24T10:33:28-04:00",
+   "tree": "755b86474",
+   "umask": "0077",
+   "counts": {
+    "pass": 1760,
+    "skip": 1,
+    "fail": 15,
+    "error": 1
+   },
+   "causes": "14 failing tests = F3 (4) + F4 (10); the 15th fail and the 1 error = the h1 leak. bundled-* 0 fails (15 before F1). None caused by the merge.",
+   "command": "w00/heavy-leg.sh ... bun test --timeout 30000 --coverage --coverage-reporter=lcov <the validator's 110 focused files>",
+   "log": "main-96e7ee58c-merge-focused.log",
+   "logSha256": "c9fb5f018e9e6c8fa2a39177afb8c8d79883ad9b510e751bbca35e2bf59a9ccf"
+  },
+  {
+   "name": "focused (validator-2, proof 0d3671c51)",
+   "exitCode": 1,
+   "counts": {
+    "pass": 1760,
+    "fail": 15,
+    "error": 1
+   },
+   "causes": "same as the integrator run",
+   "log": "main-96e7ee58c-validation-r3-focused.log",
+   "logSha256": "77fad53c9da6baf6d181ce47d935b120235d49c55d54bb46ff1eb5d54bb481df"
+  }
+ ],
+ "commitHook": "the pre-commit hook skipped its staged tests (74 test files map to the commit, above its cap of 12); the checks above cover them. Commit log: w00/main96e-merge/commit.log",
+ "receiptsAdded": [
+  "W18 hygiene backlog in tasks/todo.md: W09b harness (2), pre-commit cap skip, F3, F4, h1 leak, workflow-branch leak, wave4f blocker",
+  "tasks/lessons.md: report a value only after reading the output; save rc right after the command",
+  "incident line 2026-09-24T06:08Z (gate-scripts test re-initialised the shared repository config) in wave3/shared-store-incidents.jsonl"
+ ],
+ "standingSteps": "touch step 2026-09-24: denied to the integrator by the permission classifier; the coordinator ran it. df: 101G at start, 99-100G after the focused leg (stopped), 97G at ACCEPT (stopped), 113G at commit."
+}

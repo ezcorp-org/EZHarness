@@ -1,0 +1,8 @@
+=== heavy batch 2026-09-24T21:42:40Z
+HEAD 66d7c3aef86a3cda49ba5a01b1f88aaf56bb3ca6 MERGE_HEAD 7dec8a4ec267bcff07db90515f859da625f3f4ae index-tree 708aa541bdb2012aa951b78fa2038e381310b5c4 umask 0077
+df: /dev/nvme0n1p2  1.8T  1.6T  147G  92% /
+--- START pg-factory-reference-data 2026-09-24T21:42:40Z
+--- END   pg-factory-reference-data 2026-09-24T21:47:34Z exit=0  11 pass 0 fail 
+--- START podman-journey.integration 2026-09-24T21:47:34Z
+--- END   podman-journey.integration 2026-09-24T21:48:38Z exit=0  11 pass 0 fail 
+BATCH DONE status=0 2026-09-24T21:48:38Z

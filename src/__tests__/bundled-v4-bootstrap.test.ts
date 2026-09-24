@@ -35,7 +35,8 @@ mock.module("../db/queries/extensions", () => ({ getExtensionByName: async (name
 mock.module("../db/queries/users", () => ({ listUsers: async () => users }));
 mock.module("../extensions/project-root", () => ({ getProjectRoot: () => "/reviewed" }));
 mock.module("../../scripts/migrate-extension-v4", () => ({ snapshotFirstPartyExtension: snapshot }));
-mock.module("../extensions/extension-lifecycle-service", () => ({ getExtensionLifecycle: async () => ({ createWorkspace: workspace, build, runBuild }) }));
+const POLICY = "build-policy";
+mock.module("../extensions/extension-lifecycle-service", () => ({ getExtensionLifecycle: async () => ({ createWorkspace: workspace, build, runBuild, policyDigest: () => POLICY }) }));
 
 const { stageBundledExtensionSources, bundledInstallationId } = await import("../extensions/bundled-bootstrap");
 const entries = [{ name: "candidate", path: "extensions/candidate" }];
@@ -157,7 +158,7 @@ describe("host-owned bundled source staging", () => {
     expect(state.approvals).toEqual({});
     expect(update).not.toHaveBeenCalled();
     expect(Object.values(state.workspaces).some((candidate) => candidate.sourceDigest === expectedDigest)).toBe(true);
-    expect(build.mock.calls.at(-1)?.[1].idempotencyKey).toBe(`bundled-bootstrap:${expectedDigest}`);
+    expect(build.mock.calls.at(-1)?.[1].idempotencyKey).toBe(`bundled-bootstrap:${expectedDigest}:${POLICY}`);
     await stage();
     expect(workspace).toHaveBeenCalledTimes(2);
     expect(state.installation).toEqual(approved);
@@ -268,7 +269,7 @@ describe("host-owned bundled source staging", () => {
     expect(create).toHaveBeenCalledTimes(1);
     expect(workspace).toHaveBeenCalledTimes(1);
     expect(build.mock.calls[0]![1]).toEqual(build.mock.calls[1]![1]);
-    expect(build.mock.calls[0]![1]).toMatchObject({ expectedRevision: 1, entrypoint: "extension.ts", idempotencyKey: `bundled-bootstrap:${digestObject(files)}` });
+    expect(build.mock.calls[0]![1]).toMatchObject({ expectedRevision: 1, entrypoint: "extension.ts", idempotencyKey: `bundled-bootstrap:${digestObject(files)}:${POLICY}` });
   });
 
   test("any source change creates a new workspace without changing active grants", async () => {
@@ -320,7 +321,7 @@ describe("retrying a bundled build that only lacked an extension runner", () => 
   let failure: string[] | undefined;
 
   function key(suffix = ""): string {
-    return `bundled-bootstrap:${digestObject(files)}${suffix}`;
+    return `bundled-bootstrap:${digestObject(files)}:${POLICY}${suffix}`;
   }
   function keys(): (string | undefined)[] {
     return build.mock.calls.map((call) => call[1].idempotencyKey);

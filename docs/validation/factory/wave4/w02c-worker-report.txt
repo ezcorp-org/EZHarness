@@ -1,0 +1,122 @@
+W02c — the package quarantine fence. Final report.
+
+Branch wp/w02c-quarantine, head daf5203cc (clean tree).
+Base: integ/w00 578692e8a. integ/w00 was merged three times: 943b9fa0c at 43d224900, 8cea0f638 at 3695f8351, and 39a7189e0 at daf5203cc.
+Since 3695f8351, only docs changed.
+Gate file: tasks/factory/w02c-GATES.md. Todo section and review: tasks/todo.md. Lessons: tasks/lessons.md.
+
+COMMITS
+083d6b7f4 refactor(factory): one in-transaction run cancellation for operator and system callers
+f33739a78 test(factory): share the live-attempt fixture the stop suite built inline
+4c74721ad test(factory): move the stop harness helpers into the shared live-attempt fixture
+ffebd0a23 feat(db): the package fence's affected-run record
+af25914d3 feat(factory): the package quarantine fence
+21cb97465 docs(tasks): W02c plan
+43d224900 merge integ/w00
+ce7c6cc4b test(factory): prepare the package before racing a launch against a quarantine
+1d06a7394 ci(factory): run the package fence suite on real PostgreSQL
+09f8c7217 docs(factory): W02c gate file, review, and lessons
+3695f8351 merge integ/w00
+2184b4ded docs(factory): W02c receipts at the merged head
+daf5203cc merge integ/w00 (docs only)
+
+REPRODUCTION AT BASE (real application, W09b's stack, a guest that waits 45 s)
+The receipt is proof/receipt-base.json, with the full record in proof/record-base.json. It ran at 578692e8a from 06:26 to 06:36 local.
+- Run A: the quarantine committed while its guest was running.
+  - The run stayed running. Its inbox held no cancel event, factory_task_stops stayed empty, and the run never reached a terminal state.
+- Run B: started while the package was quarantined.
+  - It was admitted: a journal row was written with status admitted.
+  - Its launch was then denied with the generic code runner_package_denied.
+  - The run stayed stuck in running and was not relaunched after the lift.
+- No affected-run record existed.
+Two earlier attempts failed on infrastructure and are preserved:
+- proof/failed-base-attempt2: the execution gateway was not ready (transient).
+- proof/failed-base-attempt3-disk-full: the host disk was full, so the S3 store answered writes with 500.
+
+WHAT CHANGED
+- The production stop seam is src/factory/package-fence.ts, class FactoryPackageFence.
+  - It runs inside the quarantine or revoke transaction, which holds the installation write lock.
+  - It cancels every run with a live attempt on the package. It uses the operator's own cancel, requestFactoryRunCancellationInTransaction, which was extracted from FactoryRunLifecycle.cancel with no change in behaviour.
+  - The cancel carries the typed reason, factory_package_quarantined or factory_package_revoked.
+  - The kernel answers with cancel-node, and W03's stop path settles it unchanged.
+- Each affected attempt gets one sealed row in the new table factory_package_fence_runs.
+  - preview() returns live attempts using the same query the fence acts on.
+  - affectedRuns() reads the record, one page at a time.
+- Refusals are typed. FactoryPackageBlockedError carries code, trustRevision and installationGeneration. It is raised:
+  - at admission: FactoryNativeRunnerPolicy now reads current trust, and the production composition supplies the check;
+  - at preflight;
+  - at launch: the dispatcher's queue failure code is now the typed code.
+- The trust store fails closed. A FactoryPackageTrusts without a fence refuses quarantine and revoke with factory_package_fence_unavailable.
+- createFactoryPackageTrusts() composes the trust store the way the product must.
+
+THE PASSES (real server; driver repro-v2/three.sh; each pass holds the heavy lock)
+proof/receipt-v2-pass-1.json, -2 and -3 ran at 1d06a7394 from 08:44 to 08:57 local. Each receipt reads outcome passed with 9 of 9 checks held:
+- Run A's guest launched, and the package was quarantined while the guest ran.
+- The product server was killed with SIGKILL mid-stop and came back ready.
+- Run A was cancelled once, with the typed reason.
+- Run A's guest was stopped through W03's stop path before it returned. The stop row is stopped, and no result was recorded.
+- Run A appears in the affected-run record with the typed reason.
+- Run B, started while quarantined, was refused admission by name.
+- After the lift, a new run C was admitted and launched.
+- Run A stayed stopped, with its one cancel, after the lift.
+Two measurements are reported under outsideScope in every pass and do not count toward the verdict (see OPEN): run A reached terminal status (false), and run B ended explicitly (false).
+The first harness version (proof/receipt-pass-1..3, 06:36 to 07:09) counted those two as checks. It also expected B itself to relaunch after the lift. It therefore reported 6 of 9 in all three passes. The fence's own checks gave the same results in both versions.
+
+SWEEP
+At 3695f8351 on a clean tree, every leg exited 0. Receipts are in sweep-final/receipts/.
+| Leg | Result |
+| --- | --- |
+| Focused coverage | 208 pass, 0 fail |
+| Real PostgreSQL | 118 pass, 0 fail, fence suite included |
+| PostgreSQL with S3 | 22 pass, 0 fail |
+| Backend pool | 28183 pass, 0 fail, 1900 files |
+| typecheck, lint, boundaries, gate-integrity | exit 0 |
+| New-file coverage gate | 2 new source files at 100% |
+| Patch coverage gate | all changed lines covered, 10 files |
+The same sweep was green at 1d06a7394 (sweep-final-1d06a7394/).
+A preliminary sweep at 43d224900 (sweep-prelim-43d224900/) found two defects, both since fixed:
+- The new PostgreSQL suite was not registered in db-postgres.yml.
+- A gap in the launch-race test, which PGlite hid by serializing the two transactions.
+
+OPEN (interface questions)
+1. W03 usage reconciliation.
+   - Run A is cancelling with the typed reason and its guest is stopped, but the run never finishes.
+   - Cause: the attempt was stopped before its first operation, so its budget hold stays uncertain. Reconciliation refuses it on every pass with factory_usage_hold_unresolved: no-operation-receipt.
+   - An operator's cancel of a running attempt takes the same path.
+   - Needed: a W03 settlement rule for a stopped attempt whose journal has no operations.
+2. The orchestrator runs each effect once (retry maximumAttempts: 1 in workflow.ts).
+   - A refused dispatch-node admission therefore fails the run's workflow, and the run stays running.
+   - At base the same run was admitted, then denied at launch, and was equally stuck.
+   - C05 says an affected run waits or fails explicitly.
+   - Needed: a typed refusal path from an effect back to the kernel.
+3. Freeze section 3 suggested a W03-owned second authority path for package stops, with lease-revoked as the physical stop reason.
+   - The fence does not need that path: it consumes the existing cancel.
+   - As a result, the host stop receipt reads cancelled. The typed reason lives on the run's stop reason and its error message.
+4. W14's console still builds FactoryPackageTrusts without a fence, so after this merges its quarantine refuses with factory_package_fence_unavailable.
+   - W14 was told on 2026-09-23 to use createFactoryPackageTrusts, and to use FactoryPackageFence.preview and affectedRuns.
+   - Expect a small textual conflict in package-preparation.ts, in change().
+5. C05 also blocks new acceptance and release claims. That belongs to the release fence (W09c/W09d) and is not done here.
+
+FILES OUTSIDE W02's SET
+- run-lifecycle.ts (W06): the cancel extraction.
+- attempt-dispatcher.ts (W01): the typed failure code.
+- native-runner-policy.ts (W01): the optional admission fence.
+- private-service-composition.ts: supplies that fence.
+- factory-task-stops-suite.ts (W03 tests): now uses the shared fixture. Its 18 tests and 146 assertions are unchanged.
+- migrate.ts, schema.ts, the restart suite and db-postgres.yml: one appended migration, its model, its restart case, and its CI registration.
+
+INCIDENTS (reported to the lead at the time)
+- The tmpfiles clean removed postgres.env. The runner now reads the values from podman inspect when the file is missing, and never prints them.
+- The host disk filled, and S3 writes answered 500. The coordinator repaired it.
+
+RULINGS FROM THE LEAD (2026-09-23, after this report; the head daf5203cc is unchanged)
+1. The settlement rule for a stopped attempt with no operations (OPEN 1) is assigned to package W03e.
+2. OPEN 2 is answered by W09d's fail-in-place path, which merged into integ/w00 at 8cea0f638 and is in this branch from 3695f8351:
+   - the workflow emits a command-failed event carrying the named refusal;
+   - the kernel fails the run in place.
+   On the merged tree, run B should end failed with factory_package_quarantined. The validator checks this. My passes ran at 1d06a7394, before that merge, so they did not observe it.
+3. OPEN 3 is accepted:
+   - the host stop receipt records the physical fact (cancelled);
+   - the typed reason lives on the run and in the affected-run record;
+   - the freeze's second W03-owned stop path is not required.
+4. The tmpfiles exclusion is the user's decision and is on their list.

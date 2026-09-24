@@ -448,7 +448,21 @@ function applyFailure(factory: KernelFactoryPlan, state: KernelState, event: Ext
   if (!runtime || !node || !matchesAttempt(runtime, event)) return state;
   if (state.nowMs >= runtime.attempts.at(-1)!.deadlineAtMs) return failNode(factory, state, node, event.nodeId, "NODE_DEADLINE_EXPIRED", "deadline", commands);
   if (event.failureKind === "acceptance_rejected" && node.kind === "acceptance") return applyRejection(factory, state, node, event.nodeId, event.error, commands);
+  if (event.failureKind === "admission_denied" && node.kind === "task" && runtime.status === "running") return applyAdmissionRefusal(factory, state, node, event.nodeId, event, commands);
   return stopFailedAttempt(factory, state, node, event.nodeId, event.error, commands);
+}
+
+/**
+ * Fails a task node whose dispatch the product refused before anything was queued.
+ *
+ * The attempt never started, so there is nothing to stop: a `cancel-node` for it could only be
+ * refused as stale, and the run would wait in `stopping` for ever. The node fails in place with the
+ * refusal's name, like an admission the pool denied.
+ */
+function applyAdmissionRefusal(factory: KernelFactoryPlan, state: KernelState, node: FactoryNode, nodeId: string, event: Extract<KernelEvent, { kind: "node-failed" }>, commands: KernelCommand[]): KernelState {
+  const runtime = state.nodes[nodeId]!;
+  const settled = withNode(state, nodeId, { ...runtime, attempts: runtime.attempts.map(attempt => attempt.commandId === event.commandId ? { ...attempt, stopped: true } : attempt), timer: undefined });
+  return failNode(factory, settled, node, nodeId, event.error, "admission_denied", commands);
 }
 
 /**
@@ -1498,6 +1512,18 @@ function locateNode(factory: KernelFactoryPlan, nodeId: string): NodeLocation | 
 /** Resolve one expanded instance against the immutable compiled definition. */
 export function nodeFor(factory: KernelFactoryPlan, nodeId: string): FactoryNode | undefined {
   return locateNode(factory, nodeId)?.node;
+}
+
+/**
+ * The kernel event for a dispatch the product refused by name before anything was queued.
+ *
+ * Only the product can know this: it refused the admission, and no queued attempt exists for the
+ * command, so no guest can ever start for it. The kernel fails that task node in place with the
+ * refusal's name, with no cancel, because there is nothing to stop. A dispatch that failed any
+ * other way stays a `command-failed` event and keeps the ordinary stop.
+ */
+export function factoryAdmissionRefusedEvent(command: Extract<KernelCommand, { kind: "dispatch-node" }>, code: string, atMs: number): Extract<KernelEvent, { kind: "node-failed" }> {
+  return { kind: "node-failed", id: `${command.id}:admission-refused`, atMs, nodeId: command.nodeId, commandId: command.id, candidateGeneration: command.candidateGeneration, attempt: command.attempt, error: code, failureKind: "admission_denied" };
 }
 
 /** The longest detail a `command-failed` reason carries after its prefix. */

@@ -1,3 +1,5 @@
+Current pluggable infrastructure work: [docs/plans/pluggable-infrastructure-execution.md](docs/plans/pluggable-infrastructure-execution.md). Prior project records follow unchanged.
+
 # Extension v4 implementation
 
 Current shipping status is in [the validation report](docs/extension-v4-shipping-validation-report.md) and [shipping gates](gates/shipping-root.md). The implementation checkpoints below are historical. The user has authorized a normal push to the existing draft PR #246; policy approval and merge remain separate.

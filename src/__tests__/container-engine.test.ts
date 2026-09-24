@@ -104,6 +104,7 @@ describe("container-engine.sh — the resolution rule", () => {
 
 const CONVERTED = [
   "scripts/verify-docker-image.sh",
+  "scripts/verify-dev-image-provenance.sh",
   "scripts/verify-docker-rollback.sh",
   "scripts/verify-docker-upgrade.sh",
   "scripts/lib/build-archived-image.sh",
