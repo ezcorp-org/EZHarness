@@ -1723,3 +1723,13 @@ Follow-up review: The runner token and socket parent paths now reject an old-UID
 ### Review
 
 A controlled barrier publishes the SP05 journal after the empty startup read. General reconciliation leaves it JOURNALED while it completes an unrelated START. The dedicated call then settles only the saved SP05 ID. The focused controller, feature service, and recovery suites pass (27 tests). Backend/web/test typecheck and Biome pass. No live app or server was changed.
+
+# Incus qualification release bundle (Sol worktree)
+
+- [x] Stage only tracked Git HEAD source from a clean checkout in a new destination outside the checkout.
+- [x] Check pinned Bun 1.3.14 and lock digests, install frozen dependencies, build the SDK, runner dependencies, web app, and native tools.
+- [x] Write an exact file inventory with Git SHA, lock digests, Bun digest, file hashes, modes, and symlink targets. Reject external links.
+- [ ] Verify the inventory and run a non-root disposable app smoke outside `/home/dev`.
+- [x] Add focused tests and run local checks; record full-stage limits after the actual build.
+
+Review: pending.
