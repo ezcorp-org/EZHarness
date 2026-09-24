@@ -176,6 +176,25 @@ test("S1b: a sleep before the first scheduled tick still names the sleep", async
   h.manager.destroy();
 });
 
+test("S1c: a tool timeout after host sleep keeps the tool reason and names the sleep", async () => {
+  const h = makeHarness();
+  const { run, persisted } = start(h);
+  h.manager.noteToolStart(RUN_ID, "tool-1", {
+    toolName: "shell",
+    conversationId: CONV_ID,
+    extensionId: "builtin",
+    startedAt: fakeNow,
+    callTimeoutMs: 90_000,
+  });
+  await advanceAndTick(600_000);
+  expect(run.status).toBe("error");
+  const error = run.result?.error ?? "";
+  expect(error).toStartWith("Tool shell exceeded its 90000ms call timeout");
+  expect(error).toContain("may have been asleep or suspended for about 10 min");
+  expect(persisted).toEqual([`Error: ${error}`]);
+  h.manager.destroy();
+});
+
 test("S2: ordinary idling keeps the plain reason", async () => {
   const h = makeHarness();
   const { run } = start(h);

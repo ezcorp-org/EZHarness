@@ -374,12 +374,10 @@ export class WatchdogManager {
     log.warn("Watchdog: process may have been suspended", { runId, conversationId, suspendedMs: frozen });
   }
 
-  private idleReason(runId: string, idleMs: number): string {
-    const base = `Watchdog: no activity for ${Math.round(idleMs / 1000)}s`;
+  private suspendNote(runId: string, idleMs: number): string {
     const suspended = this.suspendedMs.get(runId) ?? 0;
-    if (suspended < idleMs / 2) return base;
-    return base +
-      ` — the computer may have been asleep or suspended for about ${Math.round(suspended / 60_000) || 1} min` +
+    if (suspended < idleMs / 2) return "";
+    return ` — the computer may have been asleep or suspended for about ${Math.round(suspended / 60_000) || 1} min` +
       ` during this run, which can interrupt the model connection. Send your message again to retry.`;
   }
 
@@ -460,7 +458,7 @@ export class WatchdogManager {
         // expired tool — there's typically only one in flight at a time,
         // and the run-level reason is a single string anyway.
         const runMap = this.inflightTools.get(runId);
-        let reason = this.idleReason(runId, idleMs);
+        let reason = `Watchdog: no activity for ${Math.round(idleMs / 1000)}s`;
         if (runMap) {
           for (const info of runMap.values()) {
             // Defensive: requiresUserInput tools never produce a
@@ -475,6 +473,7 @@ export class WatchdogManager {
             }
           }
         }
+        reason += this.suspendNote(runId, idleMs);
         log.error("Watchdog tripped, interrupting run", { runId, conversationId, idleMs, reason });
         // Terminalize BOTH representations of run state together. The
         // watchdog exists precisely to kill runs whose underlying await

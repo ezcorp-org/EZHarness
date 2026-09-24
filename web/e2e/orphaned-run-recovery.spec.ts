@@ -91,12 +91,18 @@ test.describe("Orphaned Run Recovery", () => {
 		await expect(page.getByText("Resuming...")).not.toBeVisible();
 	});
 
+	const sleepNote = " — the computer may have been asleep or suspended for about 10 min during this run, which can interrupt the model connection. Send your message again to retry.";
 	for (const scenario of [
 		{ name: "connection error", persisted: "Error: connection timeout", visible: "connection timeout" },
 		{
 			name: "sleep-related watchdog error",
-			persisted: "Error: Watchdog: no activity for 600s — the computer may have been asleep or suspended for about 10 min during this run, which can interrupt the model connection. Send your message again to retry.",
+			persisted: `Error: Watchdog: no activity for 600s${sleepNote}`,
 			visible: "may have been asleep or suspended for about 10 min",
+		},
+		{
+			name: "sleep-related tool timeout",
+			persisted: `Error: Tool shell exceeded its 90000ms call timeout${sleepNote}`,
+			visible: "Tool shell exceeded its 90000ms call timeout — the computer may have been asleep or suspended",
 		},
 	]) {
 	test(`run:error SSE clears the resumed skeleton and restores the persisted ${scenario.name}`, async ({ page, mockApi, emitSse }) => {
