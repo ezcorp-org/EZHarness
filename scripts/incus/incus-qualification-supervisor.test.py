@@ -44,6 +44,15 @@ else:
     (root / 'stale.json').write_text(json.dumps(call(stale)))
     (root / 'receipt.json').write_text(json.dumps(call(receipt)))
     (root / 'replay.json').write_text(json.dumps(call(receipt)))
+    if (root / 'fault.json').exists():
+        arm = json.loads((root / 'fault.json').read_text())
+        for label, phase, value in [('presence', 'presence', None),
+                ('premature', 'readback', arm), ('arm', 'arm', arm),
+                ('same-arm', 'arm', arm), ('changed-arm', 'arm', dict(arm, bindingId='user-binding')),
+                ('readback', 'readback', arm)]:
+            message = {'version':1,'action':'fault','phase':phase}
+            if value is not None: message['arm'] = value
+            (root / f'fault-{label}.json').write_text(json.dumps(call(message)))
 while True: time.sleep(0.1)
 '''
 
@@ -65,6 +74,14 @@ elif input['phase'] == 'verify':
     if input['snapshot'] != {'fixture':'binding'}: sys.exit(1)
     print(json.dumps({'afterDigest':'b'*64}))
 else: sys.exit(1)
+'''
+
+FAULT_AUTH = r'''
+import hashlib, json, sys
+message=json.loads(sys.stdin.read())
+arm=message['arm']
+canonical=json.dumps(arm,sort_keys=True,separators=(',',':'),ensure_ascii=False).encode()
+print(json.dumps({'authorized':True,'armDigest':hashlib.sha256(canonical).hexdigest()}))
 '''
 
 
@@ -254,6 +271,11 @@ m.Supervisor(sys.argv[2],[sys.executable,'-c','raise SystemExit(7)'],
                        "generation": 3, "connectionRevision": 2,
                        "lastOperationId": "stop-operation", "beforeDigest": "a"*64}
             (root / "request.json").write_text(json.dumps(request))
+            (root / "fault.json").write_text(json.dumps({
+                "runId": "run", "nonce": "nonce", "deadlineMs": int(time.time()*1000)+20000,
+                "scope": request["scope"], "fixtureOperationId": "fixture", "bindingId": "binding",
+                "destroyOperationId": "e3a94f88-c426-4bc3-8cd3-263681049a1b",
+                "generation": 3, "providerGeneration": 2, "connectionRevision": 2}))
             # Production constructor rejects a shared app/operator UID.
             with self.assertRaisesRegex(RuntimeError, "distinct UIDs"):
                 MODULE.Supervisor(str(socket_path), ["true"], os.getuid(), os.getgid(), key,
@@ -262,12 +284,14 @@ m.Supervisor(sys.argv[2],[sys.executable,'-c','raise SystemExit(7)'],
             runner = subprocess.Popen([sys.executable, "-c", """
 import importlib.util, sys
 s=importlib.util.spec_from_file_location('supervisor',sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
-m.Supervisor(sys.argv[2],[sys.executable,'-c',sys.argv[3],sys.argv[4],sys.argv[2]],
+supervisor=m.Supervisor(sys.argv[2],[sys.executable,'-c',sys.argv[3],sys.argv[4],sys.argv[2]],
  int(sys.argv[5]),int(sys.argv[6]),sys.argv[7],[sys.executable,'-c',sys.argv[8],sys.argv[4]],
  [sys.executable,'-c',sys.argv[9]],
- enforce_distinct_uid=False).serve()
+ enforce_distinct_uid=False)
+supervisor.fault_authority_command=[sys.executable,'-c',sys.argv[10]]
+supervisor.serve()
 """, str(SOURCE), str(socket_path), APP, directory, str(os.getuid()), str(os.getgid()), str(key),
-                  AUTH, RECEIPT_AUTH],
+                  AUTH, RECEIPT_AUTH, FAULT_AUTH],
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             new_pid = None
             try:
@@ -278,6 +302,10 @@ m.Supervisor(sys.argv[2],[sys.executable,'-c',sys.argv[3],sys.argv[4],sys.argv[2
                 with socket.socket(socket.AF_UNIX) as rogue:
                     rogue.connect(str(socket_path))
                     rogue.sendall(json.dumps(request).encode()+b"\n")
+                    self.assertIn("unauthorized control peer", rogue.recv(4096).decode())
+                with socket.socket(socket.AF_UNIX) as rogue:
+                    rogue.connect(str(socket_path))
+                    rogue.sendall(b'{"version":1,"action":"fault","phase":"presence"}\n')
                     self.assertIn("unauthorized control peer", rogue.recv(4096).decode())
                 old = wait_file(root / "app-0.json")
                 new = wait_file(root / "app-1.json")
@@ -291,6 +319,13 @@ m.Supervisor(sys.argv[2],[sys.executable,'-c',sys.argv[3],sys.argv[4],sys.argv[2
                 self.assertEqual(response["receipt"]["payload"]["oldProcess"], old)
                 self.assertEqual(response["receipt"]["payload"]["newProcess"], new)
                 self.assertEqual(wait_file(root / "replay.json"), {"error": "receipt unavailable"})
+                self.assertEqual(wait_file(root / "fault-presence.json"), {"authorized": True})
+                self.assertEqual(wait_file(root / "fault-premature.json"), {"error": "fault was not armed"})
+                self.assertEqual(wait_file(root / "fault-arm.json"), {"authorized": True})
+                self.assertEqual(wait_file(root / "fault-same-arm.json"), {"authorized": True})
+                self.assertEqual(wait_file(root / "fault-changed-arm.json"),
+                                 {"error": "fault claim mismatch"})
+                self.assertEqual(wait_file(root / "fault-readback.json"), {"authorized": True})
                 public = subprocess.run(["openssl", "pkey", "-in", str(key), "-pubout"],
                                         check=True, capture_output=True).stdout
                 signature = __import__("base64").b64decode(response["receipt"]["signature"])

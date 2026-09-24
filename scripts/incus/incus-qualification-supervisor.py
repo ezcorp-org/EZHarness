@@ -26,6 +26,7 @@ from pathlib import Path
 
 IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
 DIGEST = re.compile(r"^[a-f0-9]{64}$")
+UUID = re.compile(r"^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$")
 REQUEST_KEYS = {"version", "action", "runId", "nonce", "deadlineMs", "scope",
                 "fixtureOperationId", "bindingId", "generation", "connectionRevision",
                 "lastOperationId", "beforeDigest"}
@@ -34,6 +35,9 @@ RECOVERY_KEYS = {"version", "action", "nonce", "reviewId", "scope",
                  "fixtureOperationId", "bindingId", "operationId", "generation",
                  "connectionRevision", "fenceEvidence", "allClientsFenced", "deadlineMs"}
 SCOPE_KEYS = {"installationId", "releaseId", "connectionId", "presetId"}
+FAULT_ARM_KEYS = {"runId", "nonce", "deadlineMs", "scope", "fixtureOperationId",
+                  "bindingId", "destroyOperationId", "generation", "providerGeneration",
+                  "connectionRevision"}
 AUTHORIZE_TIMEOUT_SECONDS = 10
 SNAPSHOT_TIMEOUT_SECONDS = 30
 VERIFY_TIMEOUT_SECONDS = 30
@@ -117,6 +121,38 @@ def validate_recovery(message):
         raise ValueError("operator recovery deadline invalid")
 
 
+def validate_fault(message):
+    if not isinstance(message, dict) or message.get("version") != 1 \
+            or message.get("action") != "fault" or message.get("phase") not in \
+            ("presence", "arm", "readback"):
+        raise ValueError("invalid fault request")
+    if message["phase"] == "presence":
+        if set(message) != {"version", "action", "phase"}:
+            raise ValueError("invalid fault presence request")
+        return None
+    if set(message) != {"version", "action", "phase", "arm"} \
+            or not isinstance(message["arm"], dict) or set(message["arm"]) != FAULT_ARM_KEYS:
+        raise ValueError("invalid fault arm")
+    arm = message["arm"]
+    if not isinstance(arm["scope"], dict) or set(arm["scope"]) != SCOPE_KEYS \
+            or not all(isinstance(value, str) and IDENTIFIER.fullmatch(value)
+                       for value in arm["scope"].values()):
+        raise ValueError("invalid fault scope")
+    for name in ("runId", "nonce", "fixtureOperationId", "bindingId"):
+        if not isinstance(arm[name], str) or not IDENTIFIER.fullmatch(arm[name]):
+            raise ValueError("invalid fault identity")
+    if not isinstance(arm["destroyOperationId"], str) \
+            or not UUID.fullmatch(arm["destroyOperationId"]):
+        raise ValueError("invalid destroy operation identity")
+    for name in ("deadlineMs", "generation", "providerGeneration", "connectionRevision"):
+        if type(arm[name]) is not int or arm[name] <= 0:
+            raise ValueError("invalid fault number")
+    now = int(time.time() * 1000)
+    if not now < arm["deadlineMs"] <= now + 30000:
+        raise ValueError("fault deadline expired or excessive")
+    return arm
+
+
 class Supervisor:
     def __init__(self, socket_path, app_command, app_uid, app_gid, key_path, authority_command,
                  receipt_authority_command,
@@ -137,6 +173,9 @@ class Supervisor:
         self.receipt_authority_command = receipt_authority_command
         self.child = None
         self.pending = None
+        self.claimed = None
+        self.fault_armed = None
+        self.fault_authority_command = None
         self.used_runs = set()
         self.used_recoveries = set()
         self.operator_socket_path = None
@@ -347,7 +386,43 @@ class Supervisor:
                                     capture_output=True, timeout=sign_timeout, check=True)
         bounded_timeout(original["deadlineMs"], SIGN_TIMEOUT_SECONDS)
         self.pending = None
+        self.claimed = {"request": original, "newProcess": self.child_identity}
         return {"payload": payload, "signature": base64.b64encode(signed.stdout).decode("ascii")}
+
+    def fault(self, message):
+        arm = validate_fault(message)
+        claimed = self.claimed
+        if not self.fault_authority_command or claimed is None \
+                or self.child_identity != claimed["newProcess"]:
+            raise ValueError("operator fault authority unavailable")
+        if arm is None:
+            return {"authorized": True}
+        original = claimed["request"]
+        if arm["runId"] != original["runId"] or arm["nonce"] != original["nonce"] \
+                or arm["scope"] != original["scope"] \
+                or arm["fixtureOperationId"] != original["fixtureOperationId"] \
+                or arm["bindingId"] != original["bindingId"] \
+                or arm["generation"] != original["generation"] \
+                or arm["connectionRevision"] != original["connectionRevision"]:
+            raise ValueError("fault claim mismatch")
+        arm_bytes = canonical(arm)
+        if self.fault_armed is not None and arm_bytes != self.fault_armed:
+            raise ValueError("different fault already armed")
+        if message["phase"] == "readback" and self.fault_armed is None:
+            raise ValueError("fault was not armed")
+        expected = {"authorized": True, "armDigest": hashlib.sha256(arm_bytes).hexdigest()}
+        check = subprocess.run(self.fault_authority_command,
+                               input=canonical({"phase": message["phase"], "arm": arm}) + b"\n",
+                               capture_output=True,
+                               timeout=min(5, (arm["deadlineMs"] - time.time() * 1000) / 1000),
+                               check=False)
+        if check.returncode != 0 or json.loads(check.stdout) != expected:
+            raise ValueError("independent fault readback rejected")
+        if int(time.time() * 1000) >= arm["deadlineMs"]:
+            raise ValueError("fault deadline expired")
+        if message["phase"] == "arm":
+            self.fault_armed = arm_bytes
+        return {"authorized": True}
 
     def serve(self):
         parent = self.socket_path.parent.stat()
@@ -409,6 +484,8 @@ class Supervisor:
                             self.restart_authorized(message)
                         elif message.get("action") == "receipt":
                             send_message(connection, {"receipt": self.receipt(message)})
+                        elif message.get("action") == "fault":
+                            send_message(connection, self.fault(message))
                         else:
                             raise ValueError("unknown control action")
                     except (ValueError, OSError, subprocess.SubprocessError, json.JSONDecodeError) as error:
@@ -434,6 +511,8 @@ class Supervisor:
     def restart_authorized(self, request):
         old_identity = self.child_identity
         self.used_runs.add(request["runId"])
+        self.claimed = None
+        self.fault_armed = None
         os.killpg(self.child.pid, signal.SIGTERM)
         try:
             self.child.wait(timeout=10)
@@ -472,7 +551,8 @@ def main():
     config = json.loads(Path(args.config).read_text())
     required = {"socket", "appCommand", "appUid", "appGid", "key", "authorityCommand",
                 "receiptAuthorityCommand"}
-    optional = {"operatorSocket", "recoveryCommand", "recoveryFenceCommand"}
+    optional = {"operatorSocket", "recoveryCommand", "recoveryFenceCommand",
+                "faultAuthorityCommand"}
     if not required <= set(config) or set(config) - required - optional \
             or bool(config.get("operatorSocket")) != bool(config.get("recoveryCommand")) \
             or not all(type(config[name]) is int and config[name] > 0
@@ -494,6 +574,10 @@ def main():
             or not config["recoveryFenceCommand"]
             or not all(isinstance(value, str) and value for value in config["recoveryFenceCommand"])):
         raise ValueError("invalid independent runner fence verifier")
+    if "faultAuthorityCommand" in config and (not isinstance(config["faultAuthorityCommand"], list)
+            or not config["faultAuthorityCommand"]
+            or not all(isinstance(value, str) and value for value in config["faultAuthorityCommand"])):
+        raise ValueError("invalid operator fault verifier")
     if args.recover_request:
         if os.geteuid() != 0 or not config.get("operatorSocket"):
             raise ValueError("operator recovery requires root and a private socket")
@@ -518,6 +602,7 @@ def main():
         supervisor.operator_socket_path = Path(config["operatorSocket"])
         supervisor.recovery_command = config["recoveryCommand"]
         supervisor.recovery_fence_command = config.get("recoveryFenceCommand")
+    supervisor.fault_authority_command = config.get("faultAuthorityCommand")
     supervisor.serve()
 
 

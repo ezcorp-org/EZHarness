@@ -2,10 +2,11 @@ import { expect, test } from "bun:test";
 import { spawn } from "node:child_process";
 import { join } from "node:path";
 
-test("Linux supervisor process handoff and private socket", async () => {
+for (const filename of ["incus-qualification-supervisor.test.py",
+  "incus-qualification-supervisor-fault.test.py",
+  "incus-qualification-fault-authorize.test.py"]) test(filename, async () => {
   const result = await new Promise<{ code: number | null; stderr: string; timedOut: boolean }>((resolve, reject) => {
-    const child = spawn("python3", [join(import.meta.dir,
-      "incus-qualification-supervisor.test.py")], { detached: true, stdio: ["ignore", "ignore", "pipe"] });
+    const child = spawn("python3", [join(import.meta.dir, filename)], { detached: true, stdio: ["ignore", "ignore", "pipe"] });
     let stderr = "";
     let timedOut = false;
     let killGrace: ReturnType<typeof setTimeout> | undefined;

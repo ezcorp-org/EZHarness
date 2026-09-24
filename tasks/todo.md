@@ -1658,3 +1658,15 @@ The red test showed a raw TLS error on CREATE's first GET became `effect: unknow
 - [x] Run focused tests, typecheck, lint, and document any proof gap.
 
 Review: The repair is behind a root-only socket and an independent runner-client fence command. The supervisor rejects a shared app UID before stopping the app, waits 65 seconds after stopping, and requires two pinned backend reads. A signed receipt binds the stopped process, exact scope, resource, CREATE ID, review, and observation times. The atomic transaction retains the original CREATE receipt in an audit row, records an explicit no-effect failure and no-op cleanup, and releases the reservation. A two-process test reopened a persistent PGlite database; stale state, provider ID, live operation, signature forgery, and replay fail. The saved live database and Incus server remain unchanged. The current dev UID is shared and no independent client-fence command is deployed, so live repair remains blocked pending dedicated supervised app UID and reviewed external fence proof.
+
+## SP05 operator fault authority — 2026-09-24
+
+- [x] Define a private, exact fault arm and readback wire with the live witness client owner.
+- [x] Add a separate operator verifier for pinned, read-only Incus instance evidence.
+- [x] Add fault actions to the supervisor after the offline CREATE recovery edit lands.
+- [x] Test real managed-child peer enforcement, claim binding, replay denial, and backend verifier rejection.
+- [x] Run focused Python/Bun tests, typecheck, lint, and record the review result.
+
+### Review
+
+The private app socket requires the exact managed process, a signed restart claim, one exact fault arm, and a configured independent verifier. The verifier pins the Incus server leaf and reads only the exact instance. Arm requires stopped and tagged; readback requires absent. The app separately checks the durable destroy operation. Three Bun-wrapped Python suites pass; full typecheck, lint, and diff checks pass. No app or server was changed by this implementation.
