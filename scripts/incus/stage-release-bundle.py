@@ -118,8 +118,18 @@ def check_required(root):
     require((root / "bin/bun").is_file(), "pinned Bun is absent")
 
 
+def check_runtime_placeholder(root):
+    try:
+        mode = (root / RUNTIME_DIR).lstat().st_mode
+    except FileNotFoundError as error:
+        raise ValueError("runtime directory is absent") from error
+    require(stat.S_ISDIR(mode), "runtime directory must not be a symlink or file")
+    require(stat.S_IMODE(mode) == 0o755, "runtime directory must have mode 0755")
+
+
 def verify(root):
     root = root.resolve(strict=True)
+    check_runtime_placeholder(root)
     document = json.loads((root / MANIFEST).read_text())
     require(set(document) == {"schema", "gitSha", "bunVersion", "bunSha256", "locks", "files"}
             and document["schema"] == 1 and document["bunVersion"] == "1.3.14",
@@ -228,6 +238,8 @@ def stage(source, output, bun, expected_bun_sha256):
         run([executable, "install", "--production", "--frozen-lockfile", "--ignore-scripts"], cwd=work / "web", env=env)
         shutil.rmtree(work / "web/.svelte-kit", ignore_errors=True)
         require(not os.path.lexists(work / RUNTIME_DIR), "build created reserved runtime path")
+        (work / RUNTIME_DIR).mkdir(mode=0o755)
+        os.chmod(work / RUNTIME_DIR, 0o755)
         check_required(work)
         document = {"schema": 1, "gitSha": head, "bunVersion": "1.3.14",
                     "bunSha256": expected_bun_sha256,

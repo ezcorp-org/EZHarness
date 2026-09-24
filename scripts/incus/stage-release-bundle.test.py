@@ -7,6 +7,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 SCRIPT = Path(__file__).with_name("stage-release-bundle.py")
@@ -28,6 +29,7 @@ class ReleaseBundleTests(unittest.TestCase):
         (root / "bin/bun").write_bytes(b"pinned bun")
         (root / "bun.lock").write_bytes(b"root lock")
         (root / "web/bun.lock").write_bytes(b"web lock")
+        (root / MODULE.RUNTIME_DIR).mkdir(mode=0o755)
 
     def seal_fixture(self, root):
         manifest = {"schema": 1, "gitSha": "a" * 40, "bunVersion": "1.3.14",
@@ -44,7 +46,6 @@ class ReleaseBundleTests(unittest.TestCase):
             self.seal_fixture(root)
             MODULE.verify(root)
             (root / ".ezcorp/cache").mkdir(parents=True)
-            os.chmod(root / ".ezcorp", 0o700)
             (root / ".ezcorp/cache/session.json").write_text('{"runtime":true}')
             MODULE.verify(root)
             (root / "web/.ezcorp").mkdir()
@@ -63,9 +64,50 @@ class ReleaseBundleTests(unittest.TestCase):
             self.release_fixture(root)
             (root / "runtime").mkdir()
             self.seal_fixture(root)
+            (root / ".ezcorp").rmdir()
             (root / ".ezcorp").symlink_to("runtime")
             with self.assertRaisesRegex(ValueError, "runtime directory must not be a symlink"):
                 MODULE.verify(root)
+
+    def test_verify_requires_real_mode_0755_runtime_placeholder(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as directory:
+            root = Path(directory)
+            self.release_fixture(root)
+            self.seal_fixture(root)
+            MODULE.verify(root)
+            os.chmod(root / MODULE.RUNTIME_DIR, 0o700)
+            with self.assertRaisesRegex(ValueError, "runtime directory must have mode 0755"):
+                MODULE.verify(root)
+            os.chmod(root / MODULE.RUNTIME_DIR, 0o755)
+            (root / MODULE.RUNTIME_DIR).rmdir()
+            with self.assertRaisesRegex(ValueError, "runtime directory is absent"):
+                MODULE.verify(root)
+
+    def test_stage_creates_empty_runtime_placeholder_outside_inventory(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as directory:
+            source = Path(directory) / "source"
+            source.mkdir()
+            bun = source / "bun"
+            bun.write_bytes(b"fake bun")
+            output = Path(directory) / "release"
+
+            def fake_run(_argv, *, cwd, env):
+                if cwd.name == "release" and not (cwd / "bun.lock").exists():
+                    self.release_fixture(cwd)
+                    (cwd / "bin/bun").write_bytes(bun.read_bytes())
+                    (cwd / MODULE.RUNTIME_DIR).rmdir()
+
+            with patch.object(MODULE, "git_head", return_value="a" * 40), \
+                 patch.object(MODULE, "extract_head"), \
+                 patch.object(MODULE, "run", side_effect=fake_run), \
+                 patch.object(MODULE.subprocess, "check_output", return_value="1.3.14\n"):
+                MODULE.stage(source, output, bun, MODULE.sha256(bun))
+            placeholder = output / MODULE.RUNTIME_DIR
+            self.assertTrue(placeholder.is_dir())
+            self.assertEqual(placeholder.stat().st_mode & 0o777, 0o755)
+            self.assertEqual(list(placeholder.iterdir()), [])
+            self.assertFalse(any(item["path"].startswith(".ezcorp/")
+                                 for item in MODULE.verify(output)["files"]))
 
     def test_archive_rejects_tracked_runtime_directory(self):
         with tempfile.TemporaryDirectory(dir="/tmp") as directory:
@@ -124,6 +166,7 @@ class ReleaseBundleTests(unittest.TestCase):
             (root / "bun.lock").write_bytes(b"root")
             (root / "web").mkdir()
             (root / "web/bun.lock").write_bytes(b"web")
+            (root / MODULE.RUNTIME_DIR).mkdir(mode=0o755)
             manifest = {"schema": 1, "gitSha": "a" * 40, "bunVersion": "1.3.14",
                         "bunSha256": MODULE.sha256(root / "bin/bun"),
                         "locks": {name: MODULE.sha256(root / name)
