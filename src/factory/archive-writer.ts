@@ -417,6 +417,13 @@ export class FactoryArchiveWriter implements FactoryReleaseArchive {
    * read through the scoped reader, written immutably, and read back byte for
    * byte; the first failure aborts before the material object exists.
    */
+  /** One member's bytes: a sealed material through the scoped reader, an attempt output through the output reader. */
+  private async readMember(plan: FactoryArchiveMemberPlan, signal?: AbortSignal): Promise<Uint8Array> {
+    if (plan.source !== "attempt-output") return this.reader.read(plan.scope, plan.artifact, signal);
+    if (!this.outputs) throw new FactoryArchiveWriterError("factory_archive_member_unavailable");
+    return this.outputs.read(plan.scope, plan.artifact, signal);
+  }
+
   private async archiveMembers(tenantId: string, operationId: string, material: FactoryReleaseMaterial, materialBytes: Uint8Array, signal?: AbortSignal): Promise<FactoryArchiveMemberManifest> {
     const plans = await this.publicationSet.plan(tenantId, operationId, material, signal);
     if (plans.length > FACTORY_ARCHIVE_MEMBER_LIMITS.maxMembers) throw new FactoryArchiveWriterError("factory_archive_member_limit");
@@ -424,8 +431,10 @@ export class FactoryArchiveWriter implements FactoryReleaseArchive {
     let total = 0;
     for (const plan of plans) {
       let content: Uint8Array;
-      try { content = plan.source === "attempt-output" ? await this.outputs!.read(plan.scope, plan.artifact, signal) : await this.reader.read(plan.scope, plan.artifact, signal); }
-      catch { throw new FactoryArchiveWriterError("factory_archive_member_unavailable"); }
+      try { content = await this.readMember(plan, signal); }
+      // A typed archive refusal keeps its name, so an unbound member is not reported as merely
+      // unavailable; every other failure stays opaque, as W04a's reader requires.
+      catch (error) { throw error instanceof FactoryArchiveWriterError ? error : new FactoryArchiveWriterError("factory_archive_member_unavailable"); }
       total += content.byteLength;
       assertFactoryArchiveMemberBytes(content.byteLength, total);
       const object = await this.archive.writeImmutable(tenantId, operationId, "material", content);

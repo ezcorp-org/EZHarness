@@ -93,9 +93,14 @@ refuses with `factory_protected_effect_untrusted` before any operation exists.
       `approval_not_approved`. The operation stays `pending` and no manifest
       exists.
       EVIDENCE: as G2 and G3.
-- [x] G5: Coverage. 100 percent of changed executable lines, no new source file.
+- [x] G5: Coverage. 100 percent of changed executable lines and of every new
+      source file. At the first round there was no new source file; the later
+      rounds added `src/factory/release-outcome-delivery.ts`, which is
+      registered at 100 in `scripts/coverage-thresholds.json` and passes the
+      new-file gate.
       CHECK: `bun scripts/merge-lcov.ts '/tmp/factory-platform-evidence/w09c/lcov/flat/*.lcov' coverage/lcov.info && BASE_REF=integ/w00 bun scripts/check-new-file-coverage.ts && BASE_REF=integ/w00 bun scripts/check-patch-coverage.ts`
-      EXPECT: "Patch coverage gate PASSED: all changed executable lines covered".
+      EXPECT: "Patch coverage gate PASSED: all changed executable lines covered", and
+      "New-file coverage gate PASSED".
       EVIDENCE: `/tmp/factory-platform-evidence/w09c/logs/patch-coverage-final.log`
 - [x] G6: Static gates stay green.
       CHECK: `bun run typecheck && bun run lint && bun scripts/check-factory-boundaries.ts && bun scripts/gate-integrity.ts`
@@ -152,9 +157,10 @@ refuses with `factory_protected_effect_untrusted` before any operation exists.
       `factory_release_application_unavailable`. The route's own dispatch to
       `putContract` is covered by `web/src/routes/api/factories/factories.server.test.ts`.
       The contract route answering 200 through the real started application
-      is proved by the final three passes after W09d merges.
+      is proved by the round-3 passes (G12).
       Ownership: by coordinator ruling this composition is W09c's. W09d
-      removed its copy (head `d1a0f31e0`).
+      removed its copy (head `d1a0f31e0`), and the merged `integ/w00` carries
+      only this branch's composition.
       EVIDENCE: `/tmp/factory-platform-evidence/w09c/receipts/final-sweep.json`
 
 - [x] G12: The final real-application passes after W09d (2026-09-23).
@@ -216,11 +222,20 @@ refuses with `factory_protected_effect_untrusted` before any operation exists.
       attempt-output member gives `factory_archive_member_unavailable`. The
       output reader refuses a terminal that names other bytes, a material
       scope, and another tenant.
-      RED WITHOUT THE FIX: with the resolver's locations turned off, four
-      lifecycle cases fail with `factory_archive_member_unavailable`, which is
-      the production failure.
+      RED WITHOUT THE FIX: with the resolver's locations turned off, six cases
+      of the full lifecycle suite fail (67 pass, 6 fail) with
+      `factory_archive_member_unavailable`, which is the production failure.
+      An earlier filtered run showed four; the validator counted six over the
+      full suite, and the full rerun confirms six.
       EVIDENCE: `/tmp/factory-platform-evidence/w09c/logs/lifecycle-scope.log`,
-      `/tmp/factory-platform-evidence/w09c/logs/lifecycle-scope-without-fix.log`
+      `/tmp/factory-platform-evidence/w09c/logs/lifecycle-scope-without-fix-full.log`
+- [x] G15: A typed archive refusal keeps its name through the writer (validation finding F1).
+      CHECK: `bun test --timeout 30000 ./src/factory/archive-member-scope.test.ts`
+      EXPECT: 6/0. The output reader's `factory_archive_member_unbound`
+      reaches the caller as `factory_archive_member_unbound`. Any other
+      failure is still reported as `factory_archive_member_unavailable`. With
+      the old catch-all this case fails (5 pass, 1 fail).
+      EVIDENCE: `/tmp/factory-platform-evidence/w09c/logs/f1-without-fix.log`
       W04a's own suites run unchanged and green: archive-writer 12/0,
       archive-writer.integration 10/0, release-s3-publication 18/0 and 18/0,
       release-composition 17/0.
@@ -268,6 +283,32 @@ refuses with `factory_protected_effect_untrusted` before any operation exists.
   the artifact.
 - **`src/factory/release-composition.ts`:** `outputs` is passed through
   `composeFactoryArchiveWriter`. `installation-startup.ts` supplies it.
+- **W06, `src/__tests__/helpers/factory-run-lifecycle-suite.ts`: 418 lines
+  changed in this branch (validation finding F2; freeze section 12 names W06
+  as owner).** What changed, all additive except one extracted helper:
+  - `protectedAcceptance` gains a trailing `release` option (candidate,
+    destination, and materials sealed before completion). W09d's
+    `validatorResources` parameter precedes it; every existing call is
+    unchanged.
+  - `acceptedRelease` extracts the accept, advance, persist, and project
+    sequence that four cases repeated; three existing cases call it with the
+    same behaviour. `memoryReleaseArchive` extracts the inline map archive.
+  - `declaredS3Release` builds the publishing world: the declared
+    destination, the composed profile set, the installation's real
+    `FactoryArchiveWriter` with the output reader, the delivery, and the
+    release-outcome role.
+  - Eight cases are added: publish, foreign account, revoked policy and
+    rejected approval, crash before delivery, uncertain and failed, tenant
+    scope and doctored receipt, and evidence member scope.
+  - The fixture accepts an optional `publication` store that the real S3
+    producer lends, and afterwards removes what the cases published by
+    exact version.
+- **Other test files changed here:**
+  - `tests/postgres/factory-run-lifecycle-s3.test.ts` lends the real store.
+  - `packages/@ezcorp/factory-orchestrator/test/temporal-replay.test.ts` adds
+    one workflow case for the release-outcome event.
+  - `src/factory/dispatch-composition.test.ts` (W09's) adds three driver
+    cases, and its store fake's `dispatch` returns the settled operation.
 
 ## Rulings and disclosures
 
@@ -291,11 +332,11 @@ refuses with `factory_protected_effect_untrusted` before any operation exists.
   `FactoryProtectedCommandEffects` once in the release region. It hands that
   instance to the private service and to the delivery.
   `composeFactoryPrivateService` builds its own only when none is supplied.
-- **Where the public release application is wired.** W09d composes
-  `createReleaseOperations` and the contract route. Per the coordinator's
-  correction, this branch does not compose it. After W09d merges, the declared
-  profiles and the providers from `composeFactoryReleaseDestinations` plug into
-  that composition. This branch carries none of W09d's commits.
+- **Where the public release application is wired.** This branch composes
+  `createReleaseOperations` in the release region of
+  `installation-startup.ts` (G11), by the coordinator's final ownership ruling.
+  W09d removed its own copy before it merged. This branch reached W09d's
+  commits only through the `integ/w00` merge `34b2ed825`.
 - **Measured kernel behaviour, not changed.** A `node-failed` for a Release
   node takes the task path in `applyFailure`. The node goes to `stopping` and
   the kernel issues a `cancel-node` for a node with no physical attempt. W05
@@ -304,15 +345,10 @@ refuses with `factory_protected_effect_untrusted` before any operation exists.
 
 ## Open
 
-1. **The "published through the real started application" pass is blocked
-   upstream on W09d.** A composition proof round after W09d lands will close
-   it. `installation-startup.ts` builds `FactoryTrustedValidators` with no
-   runtime, nothing registers validator material, and nothing composes the
-   validator scheduler. So every pass stops at `request-acceptance` with
-   `factory_release_trust_missing` (G7). The harness under
-   `/tmp/factory-platform-evidence/w09c/e2e/repro/` already consents over
-   HTTP, waits for the role to publish, and reads the manifest back once an
-   operation exists.
+1. **Closed: published through the real started application.** Before W09d,
+   every pass stopped at `request-acceptance` with
+   `factory_release_trust_missing`. W09d composed the validators, G14 fixed
+   the archive member scope, and the round-3 passes publish (G7, G12).
 2. **A failed Release node emits a `cancel-node`.** W09d's fix e99533e4a
    fails an effect node in place on `command-failed`. A `node-failed` for a
    Release node still takes the task path, and the pinning test still holds

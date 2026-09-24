@@ -18,6 +18,7 @@ import type { FactoryMaterialScope, FactoryScopedArtifactReader } from "./artifa
 import {
   FACTORY_ARCHIVE_ATTEMPT_OUTPUT_OPERATION,
   FactoryArchiveWriter,
+  FactoryArchiveWriterError,
   factoryArchiveFailureDomain,
   factoryArchiveMemberPlan,
   factoryArchivePublicationSet,
@@ -89,6 +90,14 @@ test("an attempt-output member is read only through the output reader, under its
   expect(stored.key).toContain("/material/");
   expect(reads).toEqual([`material:${candidateScope.attemptId}:${candidate.artifactId}`]);
   expect(outputReads).toEqual([`output:validator-attempt:${report.artifactId}`]);
+});
+
+test("a typed refusal from the output reader keeps its name through the writer", async () => {
+  const { writer } = writerWith({ async read() { throw new FactoryArchiveWriterError("factory_archive_member_unbound"); } });
+  await expect(writer.writeImmutable(TENANT, OPERATION, "material", materialBytes())).rejects.toThrow("factory_archive_member_unbound");
+  // Any other failure stays opaque, as W04a's reader requires.
+  const opaque = writerWith({ async read() { throw new Error("socket closed"); } });
+  await expect(opaque.writer.writeImmutable(TENANT, OPERATION, "material", materialBytes())).rejects.toThrow("factory_archive_member_unavailable");
 });
 
 test("without an output reader an attempt-output member is refused by name", async () => {
