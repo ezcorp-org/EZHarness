@@ -83,7 +83,8 @@ def inventory(root):
             entry.update(type="file", size=path.stat().st_size, sha256=sha256(path))
         elif stat.S_ISLNK(mode):
             resolved = path.resolve(strict=True)
-            require(resolved.is_relative_to(root.resolve()) and resolved.is_file(),
+            require(resolved.is_relative_to(root.resolve())
+                    and (resolved.is_file() or resolved.is_dir()),
                     f"dependency link escapes release: {relative}")
             entry.update(type="link", target=os.readlink(path))
         else:

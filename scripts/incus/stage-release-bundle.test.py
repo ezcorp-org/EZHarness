@@ -23,6 +23,16 @@ class ReleaseBundleTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "escapes release"):
                 MODULE.inventory(root)
 
+    def test_inventory_accepts_an_internal_dependency_directory_link(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as directory:
+            root = Path(directory) / "release"
+            (root / "packages/example").mkdir(parents=True)
+            (root / "node_modules").mkdir()
+            (root / "node_modules/example").symlink_to("../packages/example")
+            entries = MODULE.inventory(root)
+            self.assertIn({"path": "node_modules/example", "mode": 0o777,
+                           "type": "link", "target": "../packages/example"}, entries)
+
     def test_inventory_has_stable_order_hashes_modes_and_links(self):
         with tempfile.TemporaryDirectory(dir="/tmp") as directory:
             root = Path(directory) / "release"
