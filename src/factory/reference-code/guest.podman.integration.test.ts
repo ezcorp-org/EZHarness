@@ -29,6 +29,7 @@ import { referenceCodeGuestFiles, REFERENCE_CODE_GUEST_ENTRYPOINT } from "./gues
 import { REFERENCE_CODE_GUEST_MANIFEST, REFERENCE_CODE_GUEST_SCHEMA_VERSION, REFERENCE_CODE_GUEST_TOOL, type ReferenceCodeGuestInput } from "./guest-entry";
 import { REFERENCE_CODE_VALIDATOR_MANIFEST_NAME, REFERENCE_CODE_VALIDATOR_PACKAGE } from "./pack";
 import type { ReferenceCodeFile } from "./snapshot";
+import { openFactoryEffectClaimsForTest } from "../../__tests__/helpers/factory-effect-claims";
 
 /**
  * The reference code validator, running as a real isolated attempt.
@@ -99,6 +100,7 @@ test("a real isolated guest reports the reference code contract's static protect
     await migrate(db);
     await db.execute(sql`INSERT INTO projects(id,name,path) VALUES (${projectId},'Reference code','/tmp/reference-code')`);
     await db.execute(sql`INSERT INTO factory_installation(singleton,tenant_id,execution_epoch) VALUES (1,${tenantId},1)`);
+    await openFactoryEffectClaimsForTest(db, tenantId);
     await db.execute(sql`INSERT INTO factory_projects(tenant_id,project_id) VALUES (${tenantId},${projectId})`);
     await db.execute(sql`INSERT INTO factory_runs(tenant_id,project_id,run_id,definition_digest,interpreter_build,execution_epoch,request_digest,request_payload) VALUES (${tenantId},${projectId},${runId},${digest},'reference-code',1,${digest},'{}')`);
 

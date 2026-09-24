@@ -1,12 +1,14 @@
-import { basename, dirname, resolve } from "node:path";
 import { EncryptedRecordCodec, FactoryEncryptionError, FactoryTemporalPayloadCodec, InstallationDataKey, StaticMasterKeyProvider, readOperatorMasterKey, type InstallationKeyWrap, type InstallationKeyWrapStore } from "./encryption.ts";
-import { privateDirectory, readPrivateBounded } from "./private-files.ts";
+import { readPrivatePath } from "./private-files.ts";
 
 const KEY_WRAP_SCHEMA_VERSION = "factory.key-wraps.v1";
 const MAX_KEY_WRAP_FILE_BYTES = 16 * 1024;
 const MAX_KEY_WRAPS = 32;
-const MAX_WRAPPED_DATA_KEY_BYTES = 128;
+/** A KMS wrap is larger than an operator-key wrap: an AWS KMS ciphertext blob, or a transit `vault:v1:` string. */
+const MAX_WRAPPED_DATA_KEY_BYTES = 1_024;
 const IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
+/** A wrapping key id: an operator key id, a KMS key ARN, or a transit `transit:<mount>/<name>` id. */
+const WRAPPING_KEY_ID = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/;
 
 export interface FactoryKeyWrapFile {
   readonly schemaVersion: typeof KEY_WRAP_SCHEMA_VERSION;
@@ -43,7 +45,7 @@ function canonicalBase64(value: unknown): Uint8Array | undefined {
 
 /** Parse only the immutable private secret format delivered to the Node process. */
 export function parseFactoryKeyWrapFile(value: unknown, expectedInstallationId: string, expectedMasterKeyId: string): readonly InstallationKeyWrap[] {
-  if (!validIdentifier(expectedInstallationId) || !validIdentifier(expectedMasterKeyId) || typeof value !== "object" || value === null
+  if (!validIdentifier(expectedInstallationId) || typeof expectedMasterKeyId !== "string" || !WRAPPING_KEY_ID.test(expectedMasterKeyId) || typeof value !== "object" || value === null
     || !exactKeys(value, ["installationId", "schemaVersion", "wraps"])) keyInvalid();
   const file = value as FactoryKeyWrapFile;
   if (file.schemaVersion !== KEY_WRAP_SCHEMA_VERSION || file.installationId !== expectedInstallationId || !Array.isArray(file.wraps)
@@ -61,15 +63,23 @@ export function parseFactoryKeyWrapFile(value: unknown, expectedInstallationId: 
 }
 
 async function readPrivateKeyWrapFile(path: string): Promise<Uint8Array> {
-  const requested = resolve(path);
-  try {
-    const directory = await privateDirectory(dirname(requested));
-    try { return await readPrivateBounded(directory, basename(requested), MAX_KEY_WRAP_FILE_BYTES); }
-    finally { await directory.close(); }
-  } catch (error) {
+  try { return await readPrivatePath(path, MAX_KEY_WRAP_FILE_BYTES); }
+  catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") throw new FactoryEncryptionError("factory_key_missing");
     throw new FactoryEncryptionError("factory_key_unsafe");
   }
+}
+
+/**
+ * The installation's wraps from its private wrap file, as a read-only store:
+ * every wrap must be under `wrappingKeyId`. Shared by the orchestrator's codec
+ * and the restore's key check.
+ */
+export async function readFactoryKeyWrapFile(path: string, installationId: string, wrappingKeyId: string): Promise<InstallationKeyWrapStore> {
+  let parsed: unknown;
+  try { parsed = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(await readPrivateKeyWrapFile(path))); }
+  catch (error) { if (error instanceof FactoryEncryptionError) throw error; throw new FactoryEncryptionError("factory_key_invalid"); }
+  return new ReadonlyFileKeyWrapStore(parseFactoryKeyWrapFile(parsed, installationId, wrappingKeyId));
 }
 
 class ReadonlyFileKeyWrapStore implements InstallationKeyWrapStore {
@@ -91,10 +101,7 @@ export async function loadFactoryTemporalPayloadCodec(config: FactoryTemporalPay
     || !Array.isArray(config.grantableRoots) || config.grantableRoots.some(root => typeof root !== "string" || root.length === 0)
     || typeof config.wrappedKeyFilePath !== "string" || config.wrappedKeyFilePath.length === 0
     || typeof config.masterKeyFilePath !== "string" || config.masterKeyFilePath.length === 0) keyInvalid();
-  let parsed: unknown;
-  try { parsed = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(await readPrivateKeyWrapFile(config.wrappedKeyFilePath))); }
-  catch (error) { if (error instanceof FactoryEncryptionError) throw error; throw new FactoryEncryptionError("factory_key_invalid"); }
-  const wraps = new ReadonlyFileKeyWrapStore(parseFactoryKeyWrapFile(parsed, config.installationId, config.masterKeyId));
+  const wraps = await readFactoryKeyWrapFile(config.wrappedKeyFilePath, config.installationId, config.masterKeyId);
   const master = await readOperatorMasterKey(config.masterKeyFilePath, config.masterKeyId, config.grantableRoots);
   const key = await InstallationDataKey.loadExisting(config.installationId, wraps, new StaticMasterKeyProvider(master));
   return new FactoryTemporalPayloadCodec(new EncryptedRecordCodec(key, "history"), config.tenantId);

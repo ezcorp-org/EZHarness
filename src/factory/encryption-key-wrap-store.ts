@@ -14,8 +14,13 @@ export class DatabaseInstallationKeyWrapStore implements InstallationKeyWrapStor
     return rows.map(row => ({ installationId: row.installation_id, wrapVersion: Number(row.wrap_version), masterKeyId: row.master_key_id, wrappedDataKey: new Uint8Array(row.wrapped_data_key) }));
   }
 
+  /**
+   * A wrap of the 32-byte data key under any authenticated scheme is at least
+   * the key plus a 16-byte tag. The floor is that, not the master-key envelope's
+   * own length, so a cloud or transit KMS wrap is stored the same way.
+   */
   async save(value: InstallationKeyWrap): Promise<void> {
-    if (!value.installationId || !value.masterKeyId || value.wrappedDataKey.byteLength < 80 || !Number.isSafeInteger(value.wrapVersion) || value.wrapVersion < 1) throw new FactoryEncryptionError("factory_key_invalid");
+    if (!value.installationId || !value.masterKeyId || value.wrappedDataKey.byteLength < 48 || !Number.isSafeInteger(value.wrapVersion) || value.wrapVersion < 1) throw new FactoryEncryptionError("factory_key_invalid");
     await this.database.execute(sql`INSERT INTO factory_installation_key_wraps(installation_id, wrap_version, master_key_id, wrapped_data_key) VALUES (${value.installationId}, ${value.wrapVersion}, ${value.masterKeyId}, ${Buffer.from(value.wrappedDataKey)}) ON CONFLICT (installation_id, wrap_version) DO NOTHING`);
   }
 }

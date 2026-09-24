@@ -1,0 +1,32 @@
+queued 2026-09-23T23:40:31Z
+=== W15 merge heavy batch ===
+lock acquired: 2026-09-24T00:56:31Z
+tree: d5ee523098efb921526ce079f5507ff08f8c14dc + staged merge of ef958511b680337272925ce26fbdbf7d1066ff48
+--- START pg-factory-retention 2026-09-24T00:56:31Z
+--- END   pg-factory-retention 2026-09-24T00:56:38Z exit=0
+--- START pg-factory-checkpoint 2026-09-24T00:56:38Z
+--- END   pg-factory-checkpoint 2026-09-24T00:57:14Z exit=0
+--- START pg-factory-restore 2026-09-24T00:57:14Z
+--- END   pg-factory-restore 2026-09-24T00:57:41Z exit=0
+--- START pg-factory-key-rotation 2026-09-24T00:57:41Z
+--- END   pg-factory-key-rotation 2026-09-24T00:57:46Z exit=0
+--- START pg-factory-pool-checkpoint 2026-09-24T00:57:46Z
+--- END   pg-factory-pool-checkpoint 2026-09-24T00:57:48Z exit=0
+--- START pg-factory-wal-backup 2026-09-24T00:57:48Z
+--- END   pg-factory-wal-backup 2026-09-24T00:57:53Z exit=0
+--- START pg-factory-boot 2026-09-24T00:57:53Z
+--- END   pg-factory-boot 2026-09-24T00:57:58Z exit=0
+--- START pg-factory-schema 2026-09-24T00:57:58Z
+--- END   pg-factory-schema 2026-09-24T00:58:03Z exit=0
+--- START pg-factory-private-service 2026-09-24T00:58:03Z
+--- END   pg-factory-private-service 2026-09-24T00:58:12Z exit=0
+--- START pg-factory-run-lifecycle 2026-09-24T00:58:12Z
+--- END   pg-factory-run-lifecycle 2026-09-24T00:58:41Z exit=0
+--- START orchestrator-leg 2026-09-24T00:58:41Z
+--- END   orchestrator-leg 2026-09-24T01:00:48Z exit=0
+--- START podman-guests 2026-09-24T01:00:48Z
+--- END   podman-guests 2026-09-24T01:01:12Z exit=0
+--- START real-server-pass 2026-09-24T01:01:12Z
+--- END   real-server-pass 2026-09-24T01:15:33Z exit=1
+BATCH DONE status=1 2026-09-24T01:15:33Z
+wrapper exit=1 2026-09-24T01:15:33Z

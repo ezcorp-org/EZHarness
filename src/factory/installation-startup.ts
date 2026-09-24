@@ -66,6 +66,10 @@ import type { TrustedFactoryServiceIdentity } from "./trusted-command-gateway";
 import type { FactoryRoleDriver } from "./runtime-seams";
 import type { FactoryStartedListener } from "./runtime-composition";
 import type { FactoryPhysicalStopper, FactoryTaskStops } from "./task-stops";
+import { composeFactoryRecoveryRoles } from "./recovery-composition";
+import type { FactoryKeyCompositionDependencies } from "./key-composition";
+import type { FactoryRestore, FactoryRestoreFence } from "./restore";
+import { FactoryRunTransitionProjector } from "./run-transition-projector";
 
 export class FactoryInstallationStartupError extends Error {
   constructor(readonly code: "factory-startup-config-missing" | "factory-startup-blobs-missing" | "factory-startup-unreachable", message: string) {
@@ -612,6 +616,45 @@ export async function startFactoryInstallation(options: FactoryInstallationStart
 }
 
 /**
+ * W15: a restore built from this installation's own composition.
+ *
+ * The release providers, the host stop client, and the run projector are the
+ * very ones the running product uses, so a restore reconciles a release with
+ * the provider that sent it and rebuilds projections with the projector that
+ * serves them. Nothing is started: a restore runs before admission opens.
+ */
+export async function composeFactoryInstallationRestore(options: {
+  readonly config: FactoryStartupConfig;
+  readonly host: FactoryInstallationHost;
+  readonly fence: FactoryRestoreFence;
+  readonly blobs?: BlobStore;
+  readonly releaseProviders?: FactoryReleaseProviderResolver;
+  readonly keys?: FactoryKeyCompositionDependencies;
+}): Promise<FactoryRestore> {
+  const { config, host } = options;
+  const { createFactoryApplication } = await import("./application");
+  const { composeFactoryRestore } = await import("./restore-composition");
+  const blobs = options.blobs ?? await productObjectStore(config);
+  const artifacts = new FactoryArtifacts(host.database, blobs, config.tenantId);
+  const application = createFactoryApplication({ database: host.database, tenantId: config.tenantId, blobs, runOptions: host.runOptions, availableResourceClasses: host.availableResourceClasses });
+  // The same validator gateway the running installation composes (W09d), so the
+  // restore's release store judges through the declared runtimes, not an empty set.
+  const { validators } = await installationTrustedValidators(config, host.database, application, host.report);
+  const release = await installationReleases(config, host.database, blobs, artifacts, application, host.report, validators);
+  let stopper: FactoryHostStopClient | undefined;
+  try { stopper = config.hostLaunch === undefined ? undefined : await factoryHostStopper(config); }
+  catch (error) { host.report("restore-host-stop-client", error); }
+  const providers = options.releaseProviders ?? release?.destinations?.providers;
+  return composeFactoryRestore({
+    config, database: host.database, fence: options.fence, report: host.report,
+    ...(providers === undefined ? {} : { providers }),
+    ...(stopper === undefined ? {} : { stopper: stopper.client }),
+    projections: new FactoryRunTransitionProjector(host.database, config.tenantId, new FactoryTransitionArtifacts(artifacts), application.runs),
+    ...(options.keys === undefined ? {} : { keys: options.keys }),
+  });
+}
+
+/**
  * The roles this process can drive, built from the stores it already has.
  *
  * A pool client that cannot be created leaves the two compute roles without a
@@ -723,6 +766,7 @@ async function installationCollaborators(
     validation.held === undefined ? "factory_validator_none_declared" : "factory_validator_unavailable",
     validation.held ?? "the startup document declares no validator runtime under validators.runtimes");
   const privateService = await composePrivateService(config, host, stores, transitions, application, release, settlement?.stops, acceptance);
+  const recovery = await composeFactoryRecoveryRoles({ config, database: host.database, report: host.report });
 
   return {
     workers: {
@@ -732,6 +776,7 @@ async function installationCollaborators(
       ...(notificationInbox === undefined ? {} : { notificationInbox }),
       ...(validation.composed === undefined ? {} : { validators: validation.composed.roles }),
       ...(validation.held === undefined ? {} : { validatorsHeld: validation.held }),
+      recovery,
     },
     seams: {
       childSettlement: factoryChildSettlementDriver(host.database, stores.children, service, host.report),

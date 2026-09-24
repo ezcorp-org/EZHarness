@@ -133,11 +133,16 @@ function boundedLimit(value: number | undefined, maximum: number): number {
   return value;
 }
 
-function rows<Result>(result: unknown): Result[] {
+/** The pool database's result rows, whichever driver shape returned them. Shared with the pool checkpoint source. */
+export function poolRows<Result>(result: unknown): Result[] {
   if (Array.isArray(result)) return result as Result[];
   if (result && typeof result === "object" && "rows" in result && Array.isArray(result.rows)) return result.rows as Result[];
   throw new Error("Pool ledger received an unsupported PostgreSQL result.");
 }
+const rows = poolRows;
+
+/** The scheduler's one serialization point. Anything that changes reservation rows outside the ledger takes it too. */
+export const POOL_SCHEDULER_LOCK_SQL = "SELECT pg_advisory_xact_lock(hashtext('factory_pool_scheduler_v1'))";
 
 function compareCodeUnits(left: string, right: string): number {
   return left === right ? 0 : left < right ? -1 : 1;
@@ -603,7 +608,7 @@ export class FactoryPoolLedger {
   }
 
   private async lock(transaction: PoolSql): Promise<void> {
-    await transaction.unsafe("SELECT pg_advisory_xact_lock(hashtext('factory_pool_scheduler_v1'))");
+    await transaction.unsafe(POOL_SCHEDULER_LOCK_SQL);
   }
 
   private async capacities(transaction: PoolSql, lockClause: "FOR SHARE" | "FOR UPDATE"): Promise<Record<PoolResourceClass, { total: number; allocated: number }>> {
