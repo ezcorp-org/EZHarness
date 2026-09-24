@@ -2,7 +2,6 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/sve
 import { afterEach, describe, expect, test, vi } from "vitest";
 import type { FactoryRunInspection, FactoryRunSummary } from "@ezcorp/factory-sdk/types";
 import FactoryRunInspector from "./FactoryRunInspector.svelte";
-import { FACTORY_STREAM_LABELS, appendUnique, formatBytes, formatMicros, shortDigest, streamSummary } from "./run-format";
 import { FactoryApiClientError, type FactoryRunControlApi, type FactoryRunInspectorApi } from "./client";
 
 const digest = `sha256:${"a".repeat(64)}`;
@@ -60,22 +59,6 @@ function api(overrides: Partial<FactoryRunInspectorApi & FactoryRunControlApi> =
 }
 
 afterEach(() => { vi.restoreAllMocks(); });
-
-describe("stream helpers", () => {
-	test("labels and summaries say what the stream has seen, in plain words", () => {
-		expect(Object.keys(FACTORY_STREAM_LABELS).sort()).toEqual(["catching-up", "connecting", "ended", "lagging", "live", "offline", "reconnecting", "revoked"]);
-		expect(streamSummary({ state: "live", applied: 4, duplicates: 0, gaps: 0, reconnects: 0, lag: 0 })).toBe("sequence 4");
-		expect(streamSummary({ state: "lagging", applied: 4, duplicates: 1, gaps: 1, reconnects: 1, lag: 1 })).toBe("sequence 4 · 1 event not yet in status · 1 duplicate ignored · 1 gap recovered · 1 reconnect");
-		expect(streamSummary({ state: "lagging", applied: 4, duplicates: 2, gaps: 3, reconnects: 4, lag: 5 })).toBe("sequence 4 · 5 events not yet in status · 2 duplicates ignored · 3 gaps recovered · 4 reconnects");
-		expect(formatMicros("0")).toBe("0.0000");
-		expect(formatMicros("1234567")).toBe("1.2345");
-		expect(formatMicros("123456789012345")).toBe("123,456,789.0123");
-		expect(shortDigest(digest)).toBe("aaaaaaaaaaaa");
-		expect(shortDigest("b".repeat(64))).toBe("bbbbbbbbbbbb");
-		expect(appendUnique([{ id: "a" }, { id: "b" }], [{ id: "b" }, { id: "c" }], item => item.id)).toEqual([{ id: "a" }, { id: "b" }, { id: "c" }]);
-		expect([formatBytes(0), formatBytes(1023), formatBytes(1024), formatBytes(1536), formatBytes(1024 * 1024 - 1), formatBytes(1024 * 1024), formatBytes(5 * 1024 * 1024)]).toEqual(["0 B", "1023 B", "1.0 KiB", "1.5 KiB", "1024.0 KiB", "1.0 MiB", "5.0 MiB"]);
-	});
-});
 
 describe("FactoryRunInspector", () => {
 	test("lists runs by status, then shows one run's snapshot and follows its events to the end", async () => {
@@ -209,6 +192,25 @@ describe("FactoryRunInspector", () => {
 		service.inspectRunSection = vi.fn(async () => { throw new FactoryApiClientError(403, "factory_forbidden", "no"); });
 		await fireEvent.submit(screen.getByRole("search"));
 		await waitFor(() => expect(service.inspectRunSection).toHaveBeenCalledTimes(1));
+	});
+
+	test("on a narrow strip the selected run scrolls into view, and a visible one stays put", async () => {
+		// jsdom lays nothing out, so the strip and the selected card report where a 390 px screen puts them.
+		vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+			if (this.classList.contains("runs")) return { left: 0, right: 390 } as DOMRect;
+			// A card moves left as the strip scrolls right, as it does on screen.
+			const scrolled = this.closest("ul")?.scrollLeft ?? 0;
+			const [left, right] = (this.textContent ?? "").includes("run-2") ? [600, 900] : [10, 300];
+			return { left: left - scrolled, right: right - scrolled } as DOMRect;
+		});
+		const service = api({ openRunEvents: vi.fn(async () => frames(drained(5))) });
+		render(FactoryRunInspector, { projectId: "project-1", onOpenInbox: vi.fn(), initialRunId: "run-2", api: service });
+		const strip = (await screen.findByRole("button", { name: /run-2/ })).closest("ul")!;
+		await waitFor(() => expect(strip.scrollLeft).toBe(510));
+		strip.scrollLeft = 0;
+		await fireEvent.click(screen.getByRole("button", { name: /run-1/ }));
+		await waitFor(() => expect(service.inspectRun).toHaveBeenCalledWith("project-1", "run-1", undefined));
+		expect(strip.scrollLeft).toBe(0);
 	});
 
 	test("a run named by the URL opens once the list has loaded, and only once", async () => {

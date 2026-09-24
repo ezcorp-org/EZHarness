@@ -45,3 +45,14 @@ export function formatBytes(bytes: number): string {
 	if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
 	return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
 }
+
+/**
+ * How far a horizontal strip must scroll so one of its items is fully in view:
+ * negative scrolls left, positive right, 0 when it already shows. An item wider
+ * than the strip is aligned by its left edge.
+ */
+export function horizontalRevealOffset(strip: { readonly left: number; readonly right: number }, item: { readonly left: number; readonly right: number }): number {
+	if (item.left < strip.left) return item.left - strip.left;
+	if (item.right > strip.right) return Math.min(item.right - strip.right, item.left - strip.left);
+	return 0;
+}

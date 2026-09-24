@@ -95,9 +95,9 @@ export async function factoryGraphProblems(page: Page): Promise<string[]> {
 	const reading = await factoryGraphReading(page);
 	const problems: string[] = [];
 	if (reading.canvasDark !== reading.appDark) problems.push(`the canvas is ${reading.canvasDark ? "dark" : "light"} in the ${reading.appDark ? "dark" : "light"} app`);
-	for (const part of ["controls", "minimap"] as const) {
+	for (const [part, name] of [["controls", "the zoom controls are"], ["minimap", "the minimap is"]] as const) {
 		// Dark surfaces sit well under mid-grey luminance, light ones well over it.
-		if (reading.appDark ? reading[part] > 0.2 : reading[part] < 0.6) problems.push(`the ${part} are drawn for the other theme (luminance ${reading[part].toFixed(2)})`);
+		if (reading.appDark ? reading[part] > 0.2 : reading[part] < 0.6) problems.push(`${name} drawn for the other theme (luminance ${reading[part].toFixed(2)})`);
 	}
 	if (reading.appDark ? reading.grid > 0.35 : reading.grid < 0.35) problems.push(`the grid lines are drawn for the other theme (luminance ${reading.grid.toFixed(2)})`);
 	if (reading.labelPx < FACTORY_GRAPH_MIN_LABEL_PX) problems.push(`node labels render at ${reading.labelPx.toFixed(1)} px`);

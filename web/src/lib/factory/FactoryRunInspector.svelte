@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { AlertTriangle, ArrowUpRight, Boxes, CircleDollarSign, Download, Eye, FileCheck2, GitMerge, Radio, RefreshCw, Rocket, Search, ShieldAlert } from "lucide-svelte";
-	import { onDestroy } from "svelte";
+	import { onDestroy, tick } from "svelte";
 	import type { FactoryArtifactResource, FactoryAttemptResource, FactoryChildRunResource, FactoryRunEvent, FactoryRunInspection, FactoryRunStatus, FactoryRunSummary } from "@ezcorp/factory-sdk/types";
 	import { FactoryApiClient, FactoryApiClientError, type FactoryRunControlApi, type FactoryRunInspectorApi } from "./client";
-	import { FACTORY_STREAM_LABELS, appendUnique, formatBytes, formatMicros, shortDigest, streamSummary } from "./run-format";
+	import { FACTORY_STREAM_LABELS, appendUnique, formatBytes, formatMicros, horizontalRevealOffset, shortDigest, streamSummary } from "./run-format";
 	import { FactoryRunStream, type FactoryRunStreamStatus } from "./run-stream";
 	import FactoryArtifactPreview from "./FactoryArtifactPreview.svelte";
 	import FactoryRunControls from "./FactoryRunControls.svelte";
@@ -56,6 +56,20 @@
 	});
 
 	onDestroy(() => closeStream());
+
+	// On a narrow screen the run list is a sideways strip: the selected run is scrolled into it, so the
+	// card and the inspector below always name the same run.
+	let strip = $state<HTMLUListElement | null>(null);
+	$effect(() => {
+		const selected = selectedRunId;
+		void runs;
+		if (!strip || selected === null) return;
+		const list = strip;
+		void tick().then(() => {
+			const row = list.querySelector(".run-row.active");
+			if (row) list.scrollLeft += horizontalRevealOffset(list.getBoundingClientRect(), row.getBoundingClientRect());
+		});
+	});
 
 	function describe(error: unknown): string {
 		if (error instanceof FactoryApiClientError) {
@@ -202,7 +216,7 @@
 			</select>
 		</label>
 		{#if listError}<p class="inline-error" role="alert">{listError}</p>{/if}
-		<ul class="runs">
+		<ul class="runs" bind:this={strip}>
 			{#if loadingRuns && runs.length === 0}<li class="empty-copy" aria-live="polite">Reading runs…</li>
 			{:else if runs.length === 0}<li class="empty-copy">No runs match this view.</li>{/if}
 			{#each runs as item (item.runId)}
