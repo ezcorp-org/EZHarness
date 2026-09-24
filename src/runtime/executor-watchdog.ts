@@ -371,7 +371,7 @@ export class WatchdogManager {
 
     const frozen = now - previous - WATCHDOG_TICK_MS;
     this.suspendedMs.set(runId, (this.suspendedMs.get(runId) ?? 0) + frozen);
-    log.warn("Watchdog: process was suspended", { runId, conversationId, suspendedMs: frozen });
+    log.warn("Watchdog: process may have been suspended", { runId, conversationId, suspendedMs: frozen });
   }
 
   private idleReason(runId: string, idleMs: number): string {
@@ -379,8 +379,8 @@ export class WatchdogManager {
     const suspended = this.suspendedMs.get(runId) ?? 0;
     if (suspended < idleMs / 2) return base;
     return base +
-      ` — the computer was asleep or suspended for about ${Math.round(suspended / 60_000) || 1} min` +
-      ` during this run, which interrupts the model connection. Send your message again to retry.`;
+      ` — the computer may have been asleep or suspended for about ${Math.round(suspended / 60_000) || 1} min` +
+      ` during this run, which can interrupt the model connection. Send your message again to retry.`;
   }
 
   /** Start the activity-based watchdog for a run. Replaces the old setInterval-based heartbeat.

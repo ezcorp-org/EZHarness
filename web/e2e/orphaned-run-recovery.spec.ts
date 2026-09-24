@@ -95,8 +95,8 @@ test.describe("Orphaned Run Recovery", () => {
 		{ name: "connection error", persisted: "Error: connection timeout", visible: "connection timeout" },
 		{
 			name: "sleep-related watchdog error",
-			persisted: "Error: Watchdog: no activity for 600s — the computer was asleep or suspended for about 10 min during this run, which interrupts the model connection. Send your message again to retry.",
-			visible: "asleep or suspended for about 10 min",
+			persisted: "Error: Watchdog: no activity for 600s — the computer may have been asleep or suspended for about 10 min during this run, which can interrupt the model connection. Send your message again to retry.",
+			visible: "may have been asleep or suspended for about 10 min",
 		},
 	]) {
 	test(`run:error SSE clears the resumed skeleton and restores the persisted ${scenario.name}`, async ({ page, mockApi, emitSse }) => {

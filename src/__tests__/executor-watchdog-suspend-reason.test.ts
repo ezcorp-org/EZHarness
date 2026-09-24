@@ -158,7 +158,7 @@ test("S1: a trip right after the host slept names the sleep", async () => {
   expect(run.status).toBe("error");
   const error = run.result?.error ?? "";
   expect(error).toContain("no activity for 615s");
-  expect(error).toContain("asleep or suspended for about 10 min");
+  expect(error).toContain("may have been asleep or suspended for about 10 min");
   expect(persisted).toEqual([`Error: ${error}`]);
   h.manager.destroy();
 });
@@ -171,7 +171,7 @@ test("S1b: a sleep before the first scheduled tick still names the sleep", async
   expect(run.status).toBe("error");
   const error = run.result?.error ?? "";
   expect(error).toContain("no activity for 600s");
-  expect(error).toContain("asleep or suspended for about 10 min");
+  expect(error).toContain("may have been asleep or suspended for about 10 min");
   expect(persisted).toEqual([`Error: ${error}`]);
   h.manager.destroy();
 });
