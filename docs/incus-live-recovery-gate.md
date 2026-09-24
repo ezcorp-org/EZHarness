@@ -16,8 +16,28 @@ waits for its exit, and starts a second process on the same PGlite directory to
 claim it. This proves the checkpoint survives a process boundary; it does not
 prove an operator supervisor restarted EZHarness or read a real Incus endpoint.
 
-The external operator supervisor and authenticated private control channel are
-still absent. The HTTP qualification action still runs on one process stack;
+An operator supervisor implementation and Linux private control socket now live
+in `scripts/incus/incus-qualification-supervisor.py`. It launches the app,
+checks the connected peer's kernel UID and PID with `SO_PEERCRED`, compares the
+PID's `/proc` start tick with the child it launched, and restarts that child.
+The [Linux unix(7) manual](https://man7.org/linux/man-pages/man7/unix.7.html)
+states that these credentials are fixed when the Unix stream connects. The
+supervisor requires a distinct app UID in production and checks that its
+Ed25519 key is a regular operator-owned file with no group or other access.
+The process-level test rejects a rogue same-UID process, then observes a real
+old exit and new PID/start tick, a signed receipt, and replay rejection. It
+does not exercise a distinct UID because the local test user cannot start one.
+
+The offline PGlite verifier in
+`scripts/incus/incus-qualification-supervisor-authorize.ts` checks the exact
+`AWAITING_RESTART` row and stopped qualification fixture after the old app
+exits, before the new app opens that database. The supervisor refuses to sign
+the receipt unless a separately configured operator verifier independently
+checks both the new durable fixture and pinned Incus backend and returns its
+observation digest. The example configuration deliberately uses `false` for
+that command. A production verifier for concurrent PGlite readback and pinned
+Incus state is still missing, so the real receipt and live qualification remain
+blocked. The HTTP qualification action still runs on one process stack;
 it cannot publish a pass from this checkpoint. A production continuation must
 start in the new EZHarness process, open a new database connection and fixture
 service, read `status(scope, fixtureOperationId)` and the exact Incus instance
@@ -28,14 +48,33 @@ key held outside EZHarness, and authorize the single request through an
 operator-private channel with verified OS peer credentials. Until that exists
 and the complete SP run passes, `incusHostLiveWitnessReady()` remains `false`.
 
-`incusHostLiveWitnessReady()` stays `false`. The current application has no
-operator supervisor that can restart EZHarness and resume a qualification run,
-and no one-shot transport fault that can lose a real destroy reply after Incus
-has applied it. An in-process callback, a second `SandboxController` object, or
+`incusHostLiveWitnessReady()` stays `false`. The operator supervisor is not yet
+deployed or wired to a durable application continuation, its required independent
+receipt verifier is absent, and no one-shot transport fault can yet lose a real
+destroy reply after Incus has applied it. An in-process callback, a second `SandboxController` object, or
 a dropped `IncusQualificationFixtureService.destroy()` return value cannot
 prove either event.
 
 ## Restart contract
+
+For a NixOS deployment, create a dedicated `ezharness` system user and group
+with a fixed UID/GID, install the reviewed app and verifier files under a
+root-owned read-only `/opt/ezharness`, and run the example systemd unit at
+`scripts/incus/incus-qualification-supervisor.service.example`. Render the
+example JSON configuration with the actual app UID/GID. The service runs as
+root so it can drop the child and offline PGlite verifier to the app UID.
+Provision `/run/ezharness-incus-control` as root:`ezharness` mode `0750`; the
+supervisor creates its socket there as root:`ezharness` mode `0660`. Generate
+an Ed25519 private key into `/var/lib/ezharness-incus-supervisor` owned by root,
+mode `0600`, and pin its public key in the app's
+`EZCORP_INCUS_SUPERVISOR_PUBLIC_KEY`. Keep the private key out of the app's
+environment, UID, and mount namespace. Set
+`EZCORP_INCUS_SUPERVISOR_DB_PATH` to the same persistent PGlite directory as
+the app's `EZCORP_DB_PATH`; the offline verifier runs as the app UID only after
+the old app exits. The sample `receiptAuthorityCommand` is `false` until an
+operator verifier can independently read the new durable fixture and pinned
+Incus instance while the new app is running. Do not replace it with an
+app-provided digest echo.
 
 The runner now passes the exact stopped `LiveFixtureHandle` to
 `restartController(handle)`. This is a required input, not a restart

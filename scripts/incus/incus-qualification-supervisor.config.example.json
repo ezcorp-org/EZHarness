@@ -1,0 +1,9 @@
+{
+  "socket": "/run/ezharness-incus-control/control.sock",
+  "appCommand": ["/run/current-system/sw/bin/bun", "/opt/ezharness/server.js"],
+  "appUid": 1234,
+  "appGid": 1234,
+  "key": "/var/lib/ezharness-incus-supervisor/handoff-ed25519.pem",
+  "authorityCommand": ["/run/current-system/sw/bin/bun", "/opt/ezharness/scripts/incus/incus-qualification-supervisor-authorize.ts"],
+  "receiptAuthorityCommand": ["/run/current-system/sw/bin/false"]
+}

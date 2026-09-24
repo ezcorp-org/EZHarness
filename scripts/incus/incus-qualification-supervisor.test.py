@@ -1,0 +1,153 @@
+#!/usr/bin/env python3
+"""Process-level proof of the Linux control socket and restart handoff."""
+
+import importlib.util
+import json
+import os
+import socket
+import subprocess
+import sys
+import tempfile
+import time
+import unittest
+from pathlib import Path
+
+
+SOURCE = Path(__file__).with_name("incus-qualification-supervisor.py")
+SPEC = importlib.util.spec_from_file_location("incus_supervisor", SOURCE)
+MODULE = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(MODULE)
+
+
+APP = r'''
+import json, os, socket, sys, time
+from pathlib import Path
+root = Path(sys.argv[1]); control = sys.argv[2]
+stat = Path('/proc/self/stat').read_text(); ticks = stat[stat.rfind(')')+2:].split()[19]
+index = len(list(root.glob('app-*.json')))
+(root / f'app-{index}.json').write_text(json.dumps({'pid': os.getpid(), 'startTicks': ticks}))
+def call(data):
+    with socket.socket(socket.AF_UNIX) as sock:
+        sock.connect(control); sock.sendall(json.dumps(data).encode()+b'\n')
+        reply=b''
+        while not reply.endswith(b'\n'): reply += sock.recv(4096)
+        return json.loads(reply)
+request = json.loads((root / 'request.json').read_text())
+if index == 0:
+    (root / 'accepted.json').write_text(json.dumps(call(request)))
+else:
+    receipt = {'version':1,'action':'receipt','runId':request['runId'],
+               'nonce':request['nonce'],'afterDigest':'b'*64}
+    stale = dict(receipt, afterDigest='c'*64)
+    (root / 'stale.json').write_text(json.dumps(call(stale)))
+    (root / 'receipt.json').write_text(json.dumps(call(receipt)))
+    (root / 'replay.json').write_text(json.dumps(call(receipt)))
+while True: time.sleep(0.1)
+'''
+
+AUTH = r'''
+import json, sys
+from pathlib import Path
+root = Path(sys.argv[1]); request=json.loads(sys.stdin.read())
+old=json.loads((root/'app-0.json').read_text())
+if request['runId'] != 'run' or request['bindingId'] != 'binding': sys.exit(1)
+print(json.dumps({'authorized': True, 'oldProcess': old}))
+'''
+
+RECEIPT_AUTH = r'''
+import json, sys
+payload=json.loads(sys.stdin.read())
+if payload['afterDigest'] != 'b'*64: sys.exit(1)
+print(json.dumps({'authorized':True,'afterDigest':payload['afterDigest']}))
+'''
+
+
+def wait_file(path):
+    for _ in range(200):
+        if path.exists(): return json.loads(path.read_text())
+        time.sleep(0.05)
+    raise AssertionError(f"timed out waiting for {path}")
+
+
+class SupervisorTest(unittest.TestCase):
+    def test_real_restart_kernel_peer_and_one_use_receipt(self):
+        # AF_UNIX paths are short; do not inherit a nested CI TMPDIR.
+        with tempfile.TemporaryDirectory(prefix="incus-supervisor-", dir="/tmp") as directory:
+            root = Path(directory)
+            key = root / "key.pem"
+            subprocess.run(["openssl", "genpkey", "-algorithm", "Ed25519", "-out", str(key)],
+                           check=True, capture_output=True)
+            key.chmod(0o600)
+            socket_path = root / "control.sock"
+            request = {"version": 1, "action": "restart", "runId": "run", "nonce": "nonce",
+                       "deadlineMs": int(time.time()*1000)+30000,
+                       "scope": {"installationId": "installation", "releaseId": "release",
+                                 "connectionId": "connection", "presetId": "preset"},
+                       "fixtureOperationId": "fixture", "bindingId": "binding",
+                       "generation": 3, "connectionRevision": 2,
+                       "lastOperationId": "stop-operation", "beforeDigest": "a"*64}
+            (root / "request.json").write_text(json.dumps(request))
+            # Production constructor rejects a shared app/operator UID.
+            with self.assertRaisesRegex(RuntimeError, "distinct UIDs"):
+                MODULE.Supervisor(str(socket_path), ["true"], os.getuid(), os.getgid(), key,
+                                  ["true"], ["true"])
+            # Exercise the real accept loop in a separate supervisor process.
+            runner = subprocess.Popen([sys.executable, "-c", """
+import importlib.util, sys
+s=importlib.util.spec_from_file_location('supervisor',sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
+m.Supervisor(sys.argv[2],[sys.executable,'-c',sys.argv[3],sys.argv[4],sys.argv[2]],
+ int(sys.argv[5]),int(sys.argv[6]),sys.argv[7],[sys.executable,'-c',sys.argv[8],sys.argv[4]],
+ [sys.executable,'-c',sys.argv[9]],
+ enforce_distinct_uid=False).serve()
+""", str(SOURCE), str(socket_path), APP, directory, str(os.getuid()), str(os.getgid()), str(key),
+                  AUTH, RECEIPT_AUTH],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            try:
+                for _ in range(100):
+                    if socket_path.exists(): break
+                    time.sleep(0.05)
+                self.assertTrue(socket_path.exists())
+                with socket.socket(socket.AF_UNIX) as rogue:
+                    rogue.connect(str(socket_path))
+                    rogue.sendall(json.dumps(request).encode()+b"\n")
+                    self.assertIn("unauthorized control peer", rogue.recv(4096).decode())
+                old = wait_file(root / "app-0.json")
+                new = wait_file(root / "app-1.json")
+                self.assertNotEqual(old, new)
+                self.assertFalse(Path(f"/proc/{old['pid']}").exists())
+                response = wait_file(root / "receipt.json")
+                self.assertIn("receipt", response, response)
+                self.assertEqual(wait_file(root / "stale.json"),
+                                 {"error": "independent backend receipt verification failed"})
+                self.assertEqual(response["receipt"]["payload"]["oldProcess"], old)
+                self.assertEqual(response["receipt"]["payload"]["newProcess"], new)
+                self.assertEqual(wait_file(root / "replay.json"), {"error": "receipt unavailable"})
+                public = subprocess.run(["openssl", "pkey", "-in", str(key), "-pubout"],
+                                        check=True, capture_output=True).stdout
+                signature = __import__("base64").b64decode(response["receipt"]["signature"])
+                signed = MODULE.canonical(response["receipt"]["payload"])
+                pub = root / "public.pem"; pub.write_bytes(public)
+                data = root / "payload"; data.write_bytes(signed)
+                sig = root / "signature"; sig.write_bytes(signature)
+                verified = subprocess.run(["openssl", "pkeyutl", "-verify", "-rawin",
+                    "-pubin", "-inkey", str(pub), "-sigfile", str(sig), "-in", str(data)],
+                    capture_output=True)
+                self.assertEqual(verified.returncode, 0, verified.stderr)
+                receipt_file = root / "handoff.json"
+                receipt_file.write_text(json.dumps(response["receipt"]))
+                app_verified = subprocess.run(["bun", "-e", """
+import { verifyRestartHandoff } from './src/infrastructure/incus-qualification-checkpoint.ts';
+const receipt = await Bun.file(process.argv[1]).json();
+const key = await Bun.file(process.argv[2]).text();
+verifyRestartHandoff(receipt, key);
+""", str(receipt_file), str(pub)], cwd=SOURCE.parents[2], capture_output=True)
+                self.assertEqual(app_verified.returncode, 0, app_verified.stderr)
+            finally:
+                runner.terminate()
+                try: runner.wait(timeout=5)
+                except subprocess.TimeoutExpired: runner.kill(); runner.wait()
+                runner.stdout.close(); runner.stderr.close()
+
+
+if __name__ == "__main__":
+    unittest.main()

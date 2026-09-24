@@ -1,0 +1,21 @@
+[Unit]
+Description=EZHarness Incus qualification restart supervisor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=ezharness
+RuntimeDirectory=ezharness-incus-control
+RuntimeDirectoryMode=0750
+UMask=0077
+WorkingDirectory=/opt/ezharness
+Environment=EZCORP_INCUS_SUPERVISOR_DB_PATH=/var/lib/ezharness/db
+ExecStart=/run/current-system/sw/bin/python3 /opt/ezharness/scripts/incus/incus-qualification-supervisor.py --config /etc/ezharness/incus-supervisor.json
+Restart=on-failure
+KillMode=control-group
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target
