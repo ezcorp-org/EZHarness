@@ -12,20 +12,28 @@ import { logger } from "../logger";
 
 const log = logger.child("incus.reconcile");
 
+type StartupDependencies = {
+  backend?: ReturnType<typeof createProviderSandboxWorkspaceBackend>;
+  setResolver?: typeof setSandboxWorkspaceTargetResolver;
+  resolveRelease?: (installationId: string) => ReturnType<typeof resolveActiveRelease>;
+  getConnectionMetadata?: (connectionId: string) => ReturnType<ProviderConnectionStore["getMetadata"]>;
+};
+
 /** Install a resolver, not a standing provider grant. Each tool call rechecks
  * its binding, active release, connection revision, and selected preset. */
-export function initializeIncusSandboxWorkspace(): void {
-  const caller = new IncusWorkspaceCaller();
-  const backend = createProviderSandboxWorkspaceBackend(caller);
-  setSandboxWorkspaceTargetResolver(async binding => {
+export function initializeIncusSandboxWorkspace(dependencies: StartupDependencies = {}): void {
+  const backend = dependencies.backend ?? createProviderSandboxWorkspaceBackend(new IncusWorkspaceCaller());
+  (dependencies.setResolver ?? setSandboxWorkspaceTargetResolver)(async binding => {
     if (!binding.resourceKey || binding.resourceKey !== binding.id || !binding.connectionRevision
       || !binding.profile || !binding.presetId || !binding.presetDigest || !binding.effectiveSettingsDigest
       || binding.desiredState !== "RUNNING" || binding.observedState !== "RUNNING" || binding.tombstonedAt) {
       return null;
     }
     try {
-      const snapshot = await resolveActiveRelease(binding.providerInstallationId, getReleaseRuntime());
-      const connection = await new ProviderConnectionStore(getDb()).getMetadata(binding.connectionId);
+      const snapshot = await (dependencies.resolveRelease ??
+        (installationId => resolveActiveRelease(installationId, getReleaseRuntime())))(binding.providerInstallationId);
+      const connection = await (dependencies.getConnectionMetadata ??
+        (connectionId => new ProviderConnectionStore(getDb()).getMetadata(connectionId)))(binding.connectionId);
       if (snapshot.release.id !== binding.providerReleaseId || !connection || connection.revokedAt
         || connection.revision !== binding.connectionRevision
         || connection.providerInstallationId !== binding.providerInstallationId
@@ -52,16 +60,20 @@ export function initializeIncusSandboxWorkspace(): void {
 }
 
 /** Recover admitted effects and reservation state after a controller restart. */
-export function startIncusSandboxReconciler(intervalMs = 30_000): () => Promise<void> {
-  const database = getDb();
-  const qualifications = new IncusQualificationStore({ db: database });
-  const service = new IncusFeatureService({ db: database,
-    loadQualification: scope => qualifications.load(scope) });
+export function startIncusSandboxReconciler(intervalMs = 30_000,
+  reconcile?: () => Promise<unknown>): () => Promise<void> {
+  if (!reconcile) {
+    const database = getDb();
+    const qualifications = new IncusQualificationStore({ db: database });
+    const service = new IncusFeatureService({ db: database,
+      loadQualification: scope => qualifications.load(scope) });
+    reconcile = () => service.reconcile();
+  }
   let stopped = false;
   let pending: Promise<void> | null = null;
   const tick = () => {
     if (stopped || pending) return;
-    pending = service.reconcile().then(() => undefined)
+    pending = reconcile().then(() => undefined)
       .catch(error => log.warn("Incus reconciliation failed", { error: String(error) }))
       .finally(() => { pending = null; });
   };

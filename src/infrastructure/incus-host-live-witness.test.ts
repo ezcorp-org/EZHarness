@@ -231,7 +231,7 @@ test("resource enforcement binds guest cgroups and network checks to two running
   });
   expect(calls).toEqual([`backend:${handle.sandboxId}`, `backend:${other.sandboxId}`,
     `target:${other.sandboxId}`, "host:100.81.181.39:8443", "host:10.173.0.22:8080",
-    `guest:${handle.sandboxId}`]);
+    `guest:${handle.sandboxId}`, "host:100.81.181.39:8443", "host:10.173.0.22:8080"]);
   await expect(candidate.observeEnforcement(handle, handle)).rejects.toThrow("two distinct fixtures");
   fixtureReads = 0;
   bindingReads = 0;
