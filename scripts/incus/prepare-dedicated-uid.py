@@ -226,10 +226,21 @@ def sealed_source_parent(source):
             "source parent must be root-owned mode 0700 after old clients stop")
 
 
+def protected_runner_path(path, runner_uid, old_uid):
+    for parent in path.parents:
+        found = parent.lstat()
+        require(stat.S_ISDIR(found.st_mode) and not stat.S_ISLNK(found.st_mode)
+                and found.st_uid in (0, runner_uid) and found.st_uid != old_uid
+                and found.st_mode & 0o022 == 0,
+                f"runner path parent is mutable by the old app UID: {parent}")
+
+
 def runner_token(path, runner_uid, app_gid, old_uid):
-    token = checked_path(str(path)).lstat()
+    path = checked_path(str(path))
+    token = path.lstat()
     require(runner_uid != old_uid and token.st_uid == runner_uid,
             "runner token owner is not the dedicated runner")
+    protected_runner_path(path, runner_uid, old_uid)
     require(stat.S_ISREG(token.st_mode) and token.st_gid == app_gid
             and token.st_mode & 0o027 == 0 and token.st_mode & 0o040
             and 32 <= token.st_size <= 4096,
@@ -302,6 +313,8 @@ def check(value):
             and socket_parent.st_mode & 0o020 == 0
             and socket_parent.st_mode & 0o010 != 0,
             "runner socket directory is not app-searchable")
+    protected_runner_path(checked_path(value["runnerSocket"]),
+                          value["runnerUid"], value["oldUid"])
     accessible_to(checked_path(value["runnerSocket"]).parent,
                   value["newUid"], value["newGid"])
     for unit in ("oldAppUnit", "runnerUnit", "supervisorUnit"):

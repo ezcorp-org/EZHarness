@@ -1710,3 +1710,5 @@ The red test showed a fresh controller lost the pending destroy identity. The re
 - [x] Run disposable tests, root read-only descriptor scan, Python compile, and diff check.
 
 Review: Eleven cutover tests pass. A real child holding the parent directory is denied, and the root descriptor scan passes on the current host. The script and runbook remain preparation only; no live app, database, or Incus state changed. The separate SP05 reconciler race is still under repair.
+
+Follow-up review: The runner token and socket parent paths now reject an old-UID-owned or group/world-writable ancestor. The new path test passes; twelve cutover tests pass. Live cutover remains pending.

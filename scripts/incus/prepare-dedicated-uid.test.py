@@ -111,8 +111,17 @@ class DedicatedUidStageTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "runner token owner"):
                 MODULE.runner_token(token, runner_uid=62041,
                                     app_gid=os.getgid(), old_uid=os.getuid())
-            MODULE.runner_token(token, runner_uid=os.getuid(),
-                                app_gid=os.getgid(), old_uid=62042)
+
+    def test_old_uid_owned_runner_parents_are_rejected(self):
+        with tempfile.TemporaryDirectory() as temp:
+            parent = pathlib.Path(temp) / "runner"
+            parent.mkdir(mode=0o750)
+            for name in ("token", "runner.sock"):
+                with self.assertRaisesRegex(ValueError, "runner path parent is mutable"):
+                    MODULE.protected_runner_path(parent / name, runner_uid=62041,
+                                                 old_uid=os.getuid())
+        MODULE.protected_runner_path(pathlib.Path("/run/reviewed-runner-token"),
+                                     runner_uid=62041, old_uid=os.getuid())
 
     def test_unreadable_process_descriptors_block_stage(self):
         process = mock.MagicMock()

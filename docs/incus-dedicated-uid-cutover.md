@@ -72,6 +72,9 @@ restart the runner to apply this change; changing the app UID alone will
 break every runner call. The socket's parent must have the app group and
 group search permission. Its token file must be regular, non-symlink,
 group-readable by the app group, and not group-writable or world-readable.
+Every token and socket path ancestor must be root- or dedicated-runner-owned
+and must have no group or world write bit. A dev-owned `/tmp` parent fails
+this check even if the token itself has mode `0640`.
 The runner process still has its own UID and store. See the
 [runner deployment contract](../deploy/extension-runner/README.md).
 
