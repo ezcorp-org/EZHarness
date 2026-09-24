@@ -79,6 +79,26 @@ ever emitted that, so even a late stop receipt never cleared the attempt.
   (6 files), `basis-crap-changed.json` passed. The real-application passes were not rerun for this commit: it changes only the
   record's content, which the PostgreSQL suites exercise.
 
+- [x] G9: A stop sealed by pre-W03e code stays readable (validator finding, 2026-09-24).
+  CHECK: `bun test ./src/__tests__/factory-task-stops.test.ts` at `33ef581f2`, and the same suite with `task-stops.ts` from `83509f50a`.
+  EXPECT: a measured stop sealed after `stop-uncertain` in the old shape (no `uncertain` field) replays without `factory_task_stop_corrupt`; a shape no version wrote is still corrupt; the test fails on the previous re-derivation.
+  EVIDENCE: 25 pass 0 fail at `33ef581f2`; `logs/mutant-legacy-read.log`: the new test fails on `83509f50a`'s `task-stops.ts` (24 pass, 1 fail). The PostgreSQL stop and restart suites and the static checks are re-run at this head under the heavy lock; their receipts are `receipts/legacy-*.json`.
+
+## Interface-freeze disclosure (2026-09-24)
+
+Additive change to freeze section 4 (usage-settled event, W03), recorded here because packages do not
+edit the plan; W20 folds dated disclosures into the plan document.
+- `FactoryUsageSettlementSource` gains `"no-operations"`.
+- `FactoryUsageSettlement` gains `stopReceiptDigest?: string` (present exactly on `no-operations`: the
+  signed physical stop that proves the zero) and `basis?: "no-operations: compute at reserved bound"`
+  (present exactly on `no-operations`; derived from the source and covered by the settlement digest).
+- `factory_usage_settlements` gains `stop_receipt_digest` and `basis` columns, the source CHECK admits
+  `no-operations`, and three CHECKs fix the shape (`add-factory-usage-no-operations`).
+- A certain `attempt-stopped` that follows a durable `stop-uncertain` event carries `uncertain: false`.
+- Consumers: W14's cost views read the settlement source and must accept the new member.
+- Compute rule (lead ruling, 2026-09-24): a no-operations stop settles compute at its reserved bound, the
+  bound the tenant accepted at admission, and the record names that basis.
+
 ## Disclosed gaps (owners per the lead, 2026-09-24)
 
 - A hold that reconciliation later resolves from a provider receipt settles usage but never clears the
