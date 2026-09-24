@@ -70,3 +70,20 @@ ever emitted that, so even a late stop receipt never cleared the attempt.
   EVIDENCE: `receipts/final-gate-new-file-coverage.json` (1 new file at 100%),
   `final-gate-patch-coverage.json` (6 files, all changed lines covered), `final-crap-changed.json`
   (no touched function above CRAP 30).
+- [x] G8: The no-operations settlement names its basis (lead ruling, 2026-09-24).
+  CHECK: settlement unit test, stop suite, migration and restart suites, PostgreSQL producers, focused coverage and both coverage gates at `7ad032681`.
+  EXPECT: a no-operations row carries `basis = 'no-operations: compute at reserved bound'`, derived from the source and covered by the settlement digest; the CHECK refuses a missing basis, another basis, and a basis on any other source.
+  EVIDENCE: at `7ad032681` (only this gate file was uncommitted during the run): `receipts/basis-pg-factory-task-stops.json` 24/0,
+  `basis-pg-factory-migration-restart.json` 16/0, `basis-pg-factory-schema.json` 2/0, `basis-backend-pool.json` 28195 pass 0 fail
+  1901 files, `basis-cov-{1..7}.json` all 0 fail, `basis-gate-new-file-coverage.json` and `basis-gate-patch-coverage.json` passed
+  (6 files), `basis-crap-changed.json` passed. The real-application passes were not rerun for this commit: it changes only the
+  record's content, which the PostgreSQL suites exercise.
+
+## Disclosed gaps (owners per the lead, 2026-09-24)
+
+- A hold that reconciliation later resolves from a provider receipt settles usage but never clears the
+  kernel's uncertain attempt, so that run also stays `cancelling`. Owner: the run kernel's owner
+  (W05/W09), as a follow-up package. Suggested change: after `FactoryUsageReconciliation.reconcile`
+  settles, enqueue the sealed stop's `attempt-stopped` with `uncertain: false`.
+- A reservation whose reserved cost is zero is never listed by `listUncertainWithCostInTransaction`, so
+  it can never be reconciled. Owner: W03. The no-operations case no longer reaches this path.
