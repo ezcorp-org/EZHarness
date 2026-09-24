@@ -241,33 +241,6 @@ describe("theme", () => {
 		});
 	});
 
-	describe("observeDocumentDark", () => {
-		test("reports the current theme, every class change, and stops after unsubscribing", () => {
-			const observers: Array<{ callback: () => void; options: unknown; disconnected: boolean }> = [];
-			(globalThis as any).MutationObserver = class {
-				private readonly entry: { callback: () => void; options: unknown; disconnected: boolean };
-				constructor(callback: () => void) { this.entry = { callback, options: undefined, disconnected: false }; observers.push(this.entry); }
-				observe(_target: unknown, options: unknown) { this.entry.options = options; }
-				disconnect() { this.entry.disconnected = true; }
-			};
-			try {
-				const seen: boolean[] = [];
-				classList.add("dark");
-				const stop = theme.observeDocumentDark(isDark => seen.push(isDark));
-				expect(observers[0]!.options).toEqual({ attributes: true, attributeFilter: ["class"] });
-				theme.applyTheme(false);
-				observers[0]!.callback();
-				theme.applyTheme(true);
-				observers[0]!.callback();
-				expect(seen).toEqual([true, false, true]);
-				stop();
-				expect(observers[0]!.disconnected).toBe(true);
-			} finally {
-				delete (globalThis as any).MutationObserver;
-			}
-		});
-	});
-
 	describe("SSR safety", () => {
 		beforeEach(() => {
 			teardownBrowserMocks();
@@ -302,13 +275,6 @@ describe("theme", () => {
 
 		test("toggleTheme does not crash without window", () => {
 			expect(() => theme.toggleTheme()).not.toThrow();
-		});
-
-		test("observeDocumentDark reports nothing without window and unsubscribes cleanly", () => {
-			const seen: boolean[] = [];
-			const stop = theme.observeDocumentDark(isDark => seen.push(isDark));
-			expect(() => stop()).not.toThrow();
-			expect(seen).toEqual([]);
 		});
 	});
 });

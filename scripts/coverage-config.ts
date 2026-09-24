@@ -277,6 +277,7 @@ export const V8_CANONICAL_SOURCES: readonly string[] = [
   "web/src/lib/factory/layout.ts",
   "web/src/lib/factory/model.ts",
   "web/src/lib/factory/run-format.ts",
+  "web/src/lib/factory/document-theme.ts",
   "web/src/lib/factory/run-stream.ts",
   "web/src/lib/factory/workspace-view.ts",
   "web/src/lib/factory/preview.ts",

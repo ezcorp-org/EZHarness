@@ -10,7 +10,7 @@
 		type Node,
 	} from "@xyflow/svelte";
 	import "@xyflow/svelte/dist/style.css";
-	import { observeDocumentDark } from "$lib/theme";
+	import { observeDocumentDark } from "./document-theme";
 	import FactoryNode from "./FactoryNode.svelte";
 	import { layoutFactoryGraph, type FactoryFlowEdge, type FactoryFlowNode } from "./layout";
 	import type { FactoryGraphProjection } from "./model";
