@@ -106,8 +106,8 @@ export interface HostIncusLiveWitness {
   run(handle: LiveFixtureHandle, argv: readonly string[], timeoutMs: number): Promise<LiveCommandResult>;
   writeFile(handle: LiveFixtureHandle, path: string, bytes: Uint8Array): Promise<void>;
   readFile(handle: LiveFixtureHandle, path: string): Promise<Uint8Array>;
-  /** Must restart the host controller process, then reconnect through its durable store. */
-  restartController(): Promise<{ beforeProcessId: string; afterProcessId: string }>;
+  /** Must restart the host controller process and reopen this exact stopped fixture. */
+  restartController(handle: LiveFixtureHandle): Promise<{ beforeProcessId: string; afterProcessId: string }>;
   /** Deliberately loses one fixture destroy effect, records failed cleanup,
    * denies Ready, then reconciles using the original operation identity. */
   exerciseFailedCleanupRecovery(handle: LiveFixtureHandle,
@@ -296,7 +296,7 @@ export function createIncusLiveCaseRunner(options: IncusLiveRunnerOptions):
 
       await witness.setPower(primary, "stopped");
       assertInspection(await witness.inspectFixture(primary), primary, preset, "stopped");
-      const restart = await witness.restartController();
+      const restart = await witness.restartController(primary);
       requireFact(stableId(restart.beforeProcessId) && stableId(restart.afterProcessId)
         && restart.beforeProcessId !== restart.afterProcessId,
       "controller did not restart and reconnect");

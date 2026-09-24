@@ -491,7 +491,7 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
     return deny("guest process deadline expired");
   }
 
-  async restartController(): ReturnType<HostIncusLiveWitness["restartController"]> {
+  async restartController(_handle: LiveFixtureHandle): ReturnType<HostIncusLiveWitness["restartController"]> {
     return deny("host controller process restart and durable reconnect is not implemented");
   }
 

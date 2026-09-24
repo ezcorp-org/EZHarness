@@ -152,3 +152,16 @@ test("persistent workspace bytes must survive the controller restart", async () 
     .rejects.toThrow("retained workspace changed after restart");
   expect(value.destroyed).toHaveLength(2);
 });
+
+test("the restart authority receives the exact stopped fixture", async () => {
+  const value = witness();
+  const restarted: Array<{ sandboxId: string; operationId: string }> = [];
+  value.value.restartController = async handle => {
+    expect(value.states.get(handle.sandboxId)).toBe("stopped");
+    restarted.push(handle);
+    return { beforeProcessId: "engine-1", afterProcessId: "engine-2" };
+  };
+  await createIncusLiveCaseRunner({ witness: value.value })(scope, preset);
+  expect(restarted).toEqual([{ sandboxId: expect.stringMatching(/^sandbox-qual-primary-/),
+    operationId: expect.stringMatching(/^qual-primary-/) }]);
+});
