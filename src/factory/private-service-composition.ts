@@ -238,7 +238,6 @@ export async function composeFactoryPrivateService(options: FactoryPrivateServic
     inputs: new FactoryLazyCommands(stores.authority, new FactoryLazyInputReader(database, config.tenantId, application.artifacts, access, application.grants)),
     children: stores.children,
     approvals: new FactoryAssuranceCommands(database, config.tenantId, application.grants, stores.authority, stores.inbox, releases, service),
-    attempts: stores.queue,
     effects: {
       "cancel-node": factoryCancelNodeEffect(options.stops),
       "request-acceptance": options.acceptance ?? protectedEffects.requestAcceptance,

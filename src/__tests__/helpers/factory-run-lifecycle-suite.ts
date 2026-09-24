@@ -396,6 +396,19 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
       expect(await delayedResolution).toMatchObject({ resources: { memoryBytes: 128 }, grants: [] });
     });
     const execution = new FactoryTaskExecutionAdmission(authority, admissions, journal, queue, policy, () => now);
+    // W09d-2: a named refusal raised after the admission already wrote its queue row rolls back to
+    // the dispatch savepoint and is read in the same locked transaction, so "nothing queued" is
+    // certain; an error that names nothing still throws.
+    const refusingQueue = Object.assign(Object.create(queue) as typeof queue, {
+      async enqueueDurableInTransaction(...args: Parameters<typeof queue.enqueueDurableInTransaction>) {
+        await queue.enqueueDurableInTransaction(...args);
+        throw Object.assign(new Error("refused after the write"), { code: "factory_package_quarantined" });
+      },
+    });
+    expect(await new FactoryTaskExecutionAdmission(authority, admissions, journal, refusingQueue, policy, () => now).dispatch(service, dispatchReference)).toEqual({ refused: "factory_package_quarantined", queued: false });
+    expect(rows(await fixture.db.execute(sql`SELECT attempt_id FROM factory_attempt_queue WHERE tenant_id=${tenantId} AND attempt_id=${dispatch.id}`))).toHaveLength(0);
+    const unnamedQueue = Object.assign(Object.create(queue) as typeof queue, { async enqueueDurableInTransaction() { throw new Error("disk full"); } });
+    await expect(new FactoryTaskExecutionAdmission(authority, admissions, journal, unnamedQueue, policy, () => now).dispatch(service, dispatchReference)).rejects.toThrow("disk full");
     await fixture.db.execute(sql`ALTER TABLE factory_attempt_queue ADD CONSTRAINT task_execution_forced_rollback CHECK (FALSE) NOT VALID`);
     try { await expect(execution.admit(service, dispatchReference)).rejects.toThrow(); }
     finally { await fixture.db.execute(sql`ALTER TABLE factory_attempt_queue DROP CONSTRAINT task_execution_forced_rollback`); }
@@ -412,6 +425,10 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     expect(replayed.reservationId).toBe(result.reservationId);
     const changedPolicy = new FactoryNativeRunnerPolicy(tenantId, grants, [nativeProfile], "changed-broker");
     await expect(new FactoryTaskExecutionAdmission(authority, admissions, journal, queue, changedPolicy, () => now).admit(service, dispatchReference)).rejects.toMatchObject({ code: "factory_task_execution_conflict" });
+    // W09d-2: a refusal that arrives after the attempt was queued says so, so the router keeps the
+    // cautious command-failed and the kernel still cancels; the queued attempt is untouched.
+    expect(await new FactoryTaskExecutionAdmission(authority, admissions, journal, queue, changedPolicy, () => now).dispatch(service, dispatchReference)).toEqual({ refused: "factory_task_execution_conflict", queued: true });
+    expect(await execution.dispatch(service, dispatchReference)).toMatchObject({ admitted: { reservationId: result.reservationId, delivery: { reference: result.delivery.reference } } });
     await expect(execution.admit(service, { ...dispatchReference, projectId: "foreign-project" })).rejects.toThrow("factory_transition_command_not_found");
     now = lease.deadlineAt.getTime();
     await expect(execution.admit(service, dispatchReference)).rejects.toMatchObject({ code: "factory_run_fence_changed" });

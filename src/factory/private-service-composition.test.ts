@@ -330,7 +330,7 @@ describe("the private service's request timeout", () => {
 
 describe("the executions route", () => {
   /** A real router over stub stores, behind the real private service, with `admit` supplied per test. */
-  async function executions(admit: () => Promise<unknown>) {
+  async function executions(dispatch: () => Promise<unknown>) {
     const { startFactoryPrivateService } = await import("./private-service");
     const { FactoryPrivateCommands } = await import("./private-commands");
     const { nodeHttpsRequest, signedServiceToken } = await import("../__tests__/helpers/factory-certificates");
@@ -345,12 +345,11 @@ describe("the executions route", () => {
       authority: { tenantId, assertService() {} } as never,
       transitions: { async loadStoredCommand() { return { kind: "dispatch-node", id: commandId, nodeId: "work", candidateGeneration: 0, attempt: 1 } as never; } },
       tasks: { request: unused as never },
-      execution: { admit: admit as never },
+      execution: { admit: unused as never, dispatch: dispatch as never },
       inputs: { execute: unused as never },
       children: { resolve: unused as never },
       approvals: { tenantId, execute: unused as never },
       effects: { "cancel-node": unused, "request-acceptance": unused, "request-release": unused, "invalidate-partition": unused, "notify-partition": unused },
-      attempts: { async read() { return null; } },
     });
     const listener = startFactoryPrivateService({
       tenantId, certificateIdentity: "tenant-a",
@@ -374,7 +373,7 @@ describe("the executions route", () => {
 
   test("a named refusal of dispatch-node, with nothing queued, is answered as admission_denied carrying its name", async () => {
     const { FactoryPackageBlockedError } = await import("./package-preparation");
-    const { response, reported, commandId } = await executions(async () => { throw new FactoryPackageBlockedError("factory_package_quarantined", 3, 1); });
+    const { response, reported, commandId } = await executions(async () => ({ refused: new FactoryPackageBlockedError("factory_package_quarantined", 3, 1).code, queued: false }));
     expect(response.status).toBe(200);
     expect(JSON.parse(response.body.toString())).toMatchObject({
       kind: "node-failed", id: `${commandId}:admission-refused`, nodeId: "work", commandId, candidateGeneration: 0, attempt: 1,
