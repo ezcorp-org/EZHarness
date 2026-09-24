@@ -1763,6 +1763,8 @@ The pushed head `94a2fd43f` passed the repository pre-push lint, typecheck, and 
 - [x] Add an opt-in fixed SSH command with a bounded JSON request envelope.
 - [x] Bind SSH mode and exact commands to a reviewed plan and server policy.
 - [x] Require a durable, audited exact-plan approval before exporting write authority or running Apply in gate mode.
+- [x] Reject export of an older approved policy after a newer plan and bind Apply requests to the installed policy digest.
+- [x] Give exported server write policy a 15-minute absolute expiry while preserving read-only inventory access.
 - [x] Add a root-owned forced-command gate with exact argv/input checks and bounded execution.
 - [x] Reject shell, scp, cross-project, privileged, and unreviewed settings in tests.
 - [ ] Install the dedicated account, key, gate, and reviewed policy on the server after operator review.
@@ -1770,4 +1772,4 @@ The pushed head `94a2fd43f` passed the repository pre-push lint, typecheck, and 
 
 ### Review
 
-The gate runs approved commands directly without a shell. It starts with a fixed read-only policy; an administrator must approve the exact saved plan digest before the route exports any write policy or Apply starts. Approval and export audit the digest. Release, connection, mode, and live inventory checks bind the export to current state. Six Python negative tests, 46 focused Bun tests, 11 route tests, repository typecheck, focused Biome check, and the production build passed. The old SSH transport stays active until a separate server change is reviewed and tested; no live host or app setting changed in this worktree.
+The gate runs approved commands directly without a shell. It starts with a fixed read-only policy; an administrator must approve the exact saved plan digest before the route exports any write policy or Apply starts. Approval and export audit the digest and write deadline. Release, connection, mode, latest-plan, and live inventory checks bind the export to current state. Apply envelopes carry the plan digest; the gate rejects a mismatched policy before a shared write. It rejects expired writes but permits inventory reads. A fresh export for the same current approved plan remains possible; uncertain effects still require reconciliation. The operator must replace the full policy with read-only or disable the key after Apply. Nine Python gate tests, 47 focused Bun tests, 11 route tests, repository typecheck, focused Biome check, and production build passed. The old SSH transport stays active until a separate server change is reviewed and tested; no live host or app setting changed in this worktree.

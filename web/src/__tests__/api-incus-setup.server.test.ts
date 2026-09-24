@@ -26,7 +26,9 @@ vi.mock("$server/infrastructure/incus-operator/service", () => ({
 		async plan(id: string, user: string) { calls.push(`plan:${id}:${user}`); if (failure) throw failure; return { id: "setup-a" }; }
 		async apply(id: string, digest: string, user: string) { calls.push(`apply:${id}:${digest}:${user}`); if (failure) throw failure; return { id }; }
 		async approveGatePlan(id: string, digest: string, user: string) { calls.push(`approve-gate-plan:${id}:${digest}:${user}`); if (failure) throw failure; return { id, approvedPlanDigest: digest }; }
-		async gatePolicy(id: string) { calls.push(`gate-policy:${id}`); if (failure) throw failure; return { version: 1, planDigest: "a".repeat(64), commands: [{ argv: ["incus", "query", "/1.0"] }] }; }
+		async gatePolicy(id: string) { calls.push(`gate-policy:${id}`); if (failure) throw failure; return { version: 1, planDigest: "a".repeat(64),
+			issuedAt: "2026-09-24T12:00:00.000Z", writeExpiresAt: "2026-09-24T12:15:00.000Z",
+			commands: [{ argv: ["incus", "query", "/1.0"], write: true }] }; }
 		async probe(id: string) { calls.push(`probe:${id}`); if (failure) throw failure; return { ready: true }; }
 	},
 }));
@@ -156,7 +158,8 @@ test("exports an exact gate policy only to an admin and audits its digest", asyn
 	expect(await response.json()).toMatchObject({ policy: { planDigest: "a".repeat(64) } });
 	expect(calls).toContain("gate-policy:setup-a");
 	expect(auditCalls).toEqual([{ action: "incus:gate-policy-exported", target: "setup-a",
-		metadata: { planDigest: "a".repeat(64), commandCount: 1 } }]);
+		metadata: { planDigest: "a".repeat(64), issuedAt: "2026-09-24T12:00:00.000Z",
+			writeExpiresAt: "2026-09-24T12:15:00.000Z", commandCount: 1 } }]);
 });
 
 test("returns safe known and unknown errors from GET and POST", async () => {

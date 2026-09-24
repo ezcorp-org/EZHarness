@@ -8,8 +8,10 @@ export type RemoteRunner = (argv: readonly string[], stdin?: string) => Promise<
 export const SSH_GATE_COMMAND = "ezh-incus-operator-v1";
 export const SSH_GATE_MAX_REQUEST_BYTES = 64 * 1024;
 
-export function sshGateRequest(argv: readonly string[], stdin?: string): string {
-  const request = `${JSON.stringify({ version: 1, argv, ...(stdin === undefined ? {} : { stdin }) })}\n`;
+export function sshGateRequest(argv: readonly string[], stdin?: string, planDigest?: string): string {
+  if (planDigest !== undefined && !/^[a-f0-9]{64}$/.test(planDigest)) throw new Error("Invalid Incus SSH plan digest");
+  const request = `${JSON.stringify({ version: 1, argv, ...(stdin === undefined ? {} : { stdin }),
+    ...(planDigest ? { planDigest } : {}) })}\n`;
   if (Buffer.byteLength(request) > SSH_GATE_MAX_REQUEST_BYTES) throw new Error("Incus SSH gate request exceeds 64 KiB");
   return request;
 }
@@ -39,11 +41,11 @@ export async function verifyKnownHostPin(connection: IncusConnection): Promise<v
   }
 }
 
-export function sshRunner(connection: IncusConnection): RemoteRunner {
+export function sshRunner(connection: IncusConnection, planDigest?: string): RemoteRunner {
   return async (argv, stdin) => {
     if (connection.sshMode !== undefined && connection.sshMode !== "reviewed-envelope-v1") throw new Error("Unsupported Incus SSH mode");
     const reviewed = connection.sshMode === "reviewed-envelope-v1";
-    const request = reviewed ? sshGateRequest(argv, stdin) : stdin;
+    const request = reviewed ? sshGateRequest(argv, stdin, planDigest) : stdin;
     const command = reviewed ? SSH_GATE_COMMAND : argv.map(quote).join(" ");
     const args = [
       "-F", "/dev/null", "-i", connection.sshIdentityFile, "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",

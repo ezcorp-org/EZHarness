@@ -66,8 +66,8 @@ async function main(argv = process.argv.slice(2)): Promise<void> {
     const current = await inspectIncus(connection);
     const approval = execute ? { approvedPlanDigest: required(options, "approved-plan-digest") } : {};
     const receipt = command === "bootstrap-apply"
-      ? await applyImageBootstrapPlan(plan as IncusImageBootstrapPlan, sshRunner(connection), { execute, preflightPlan: createImageBootstrapPlan(recipe, current), ...approval })
-      : await applySetupPlan(plan, sshRunner(connection), { execute, preflightPlan: createSetupPlan(recipe, current), ...approval });
+      ? await applyImageBootstrapPlan(plan as IncusImageBootstrapPlan, sshRunner(connection, plan.planDigest), { execute, preflightPlan: createImageBootstrapPlan(recipe, current), ...approval })
+      : await applySetupPlan(plan, sshRunner(connection, plan.planDigest), { execute, preflightPlan: createSetupPlan(recipe, current), ...approval });
     await save(typeof options.out === "string" ? options.out : undefined, receipt);
     if (["blocked", "reconcile_required", "review_required"].includes(receipt.state)) process.exitCode = 1;
     return;

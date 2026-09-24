@@ -63,20 +63,24 @@ async function fixture(identityOverride?: Awaited<ReturnType<typeof issueIncusCl
       releaseDigest: snapshot.release.releaseDigest, principalId: snapshot.installation.ownerId, scope: "global", status: "consumed", expectedGeneration: 1 })]);
   let observed = inventory();
   const calls: string[][] = [];
+  const gateDigests: Array<string | undefined> = [];
   let run: RemoteRunner = async () => ({ exitCode: 1, stdout: "", stderr: "connection reset" });
   let probeFails = true;
+  let policyNow = new Date("2026-09-24T12:00:00.000Z");
   const bootstrapConnection: { ssh: IncusConnection; endpoint: string } = structuredClone(bootstrap);
   const connections = new ProviderConnectionStore(db);
   const service = new IncusOperatorSetupService({ database: db, connections, bootstrap: bootstrapConnection, recipe,
+    now: () => policyNow,
     activeRelease: async () => snapshot, inspect: async () => structuredClone(observed),
     identity: async () => identityOverride ?? ({ certificatePem: clientPem, privateKeyPem: "secret-private-key-canary", fingerprint: "b".repeat(64) }),
-    runner: () => async (argv, stdin) => { calls.push([...argv]); return run(argv, stdin); },
+    runner: (_connection, planDigest) => { gateDigests.push(planDigest); return async (argv, stdin) => { calls.push([...argv]); return run(argv, stdin); }; },
     process: () => ({ callIncusProbe: async () => {
       if (probeFails) throw new Error("probe unavailable");
       return { jsonrpc: "2.0", id: "probe", result: { ok: true } };
     } }),
   });
-  return { directory, client, db, service, connections, snapshot, calls, bootstrapConnection,
+  return { directory, client, db, service, connections, snapshot, calls, gateDigests, bootstrapConnection,
+    advancePolicyClock(ms: number) { policyNow = new Date(policyNow.getTime() + ms); },
     setRunner(next: RemoteRunner) { run = next; },
     allowProbe() { probeFails = false; },
     observe(value: IncusInventory) { observed = value; },
@@ -206,10 +210,34 @@ test("operator exports only the exact current reviewed gate policy", async () =>
       metadata: { planDigest: setup.plan.planDigest } }]);
     const policy = await value.service.gatePolicy(setup.id);
     expect(policy.planDigest).toBe(setup.plan.planDigest);
+    expect(policy.writeExpiresAt).toBe("2026-09-24T12:15:00.000Z");
     expect(policy.commands.some(command => command.argv.includes("add-certificate") && !!command.stdinSha256)).toBe(true);
     expect(JSON.stringify(policy)).not.toContain("secret-private-key-canary");
+    value.advancePolicyClock(60_000);
+    const refreshed = await value.service.gatePolicy(setup.id);
+    expect(refreshed.planDigest).toBe(policy.planDigest);
+    expect(refreshed.writeExpiresAt).toBe("2026-09-24T12:16:00.000Z");
     value.snapshot.installation.generation++;
     await expect(value.service.gatePolicy(setup.id)).rejects.toThrow("provider release changed");
+  } finally { await value.close(); }
+}, 30_000);
+
+test("a newer setup plan blocks export of an older approved SSH write policy", async () => {
+  const value = await fixture();
+  try {
+    value.bootstrapConnection.ssh.sshMode = "reviewed-envelope-v1";
+    const current = inventory();
+    value.observe({ ...current, connection: { ...current.connection, sshMode: "reviewed-envelope-v1" } });
+    const first = await value.service.plan(value.snapshot.installation.id, "admin");
+    await value.service.approveGatePlan(first.id, first.plan.planDigest, "admin");
+    const second = await value.service.plan(value.snapshot.installation.id, "admin");
+    expect(second.id).not.toBe(first.id);
+    await expect(value.service.gatePolicy(first.id)).rejects.toThrow("newer Incus setup plan replaced");
+    await expect(value.service.apply(first.id, first.plan.planDigest, "admin")).rejects.toThrow("replaced by a newer plan");
+    expect(value.calls).toHaveLength(0);
+    await value.service.approveGatePlan(second.id, second.plan.planDigest, "admin");
+    await value.service.apply(second.id, second.plan.planDigest, "admin");
+    expect(value.gateDigests).toContain(second.plan.planDigest);
   } finally { await value.close(); }
 }, 30_000);
 

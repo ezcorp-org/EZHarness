@@ -57,9 +57,10 @@ interface SetupDependencies {
   bootstrap: IncusOperatorBootstrap;
   activeRelease(installationId: string): Promise<ActiveExtensionRelease>;
   inspect?: typeof inspectIncus;
-  runner?: (connection: IncusConnection) => RemoteRunner;
+  runner?: (connection: IncusConnection, planDigest?: string) => RemoteRunner;
   identity?: typeof issueIncusClientIdentity;
   recipe?: IncusSetupRecipe;
+  now?: () => Date;
   process?: (installationId: string) => Pick<ReleaseProcess, "callIncusProbe">;
 }
 
@@ -263,7 +264,11 @@ export class IncusOperatorSetupService {
       revision: row.connectionRevision });
     if (this.deps.bootstrap.ssh.sshMode !== row.plan.sshMode) throw new Error("SSH mode changed. Make a new reviewed setup plan.");
     const current = await (this.deps.inspect ?? inspectIncus)(this.deps.bootstrap.ssh);
-    return createSshGatePolicy(row.recipe, current, row.plan, incusPresets(snapshot));
+    const policy = createSshGatePolicy(row.recipe, current, row.plan, incusPresets(snapshot), this.deps.now?.() ?? new Date());
+    const latest = releaseRows<{ id: string }>(await this.deps.database.execute(sql`SELECT id FROM incus_operator_setups
+      WHERE provider_installation_id = ${row.providerInstallationId} ORDER BY created_at DESC, id DESC LIMIT 1`))[0];
+    if (latest?.id !== id) throw new Error("A newer Incus setup plan replaced this SSH gate policy review");
+    return policy;
   }
 
   async approveGatePlan(id: string, planDigest: string, principalId: string): Promise<PublicSetup> {
@@ -319,7 +324,7 @@ export class IncusOperatorSetupService {
     try {
       const inventory = await (this.deps.inspect ?? inspectIncus)(this.deps.bootstrap.ssh);
       const preflightPlan = createSetupPlan(row.recipe, inventory, incusPresets(snapshot));
-      const receipt = await applySetupPlan(row.plan, (this.deps.runner ?? sshRunner)(this.deps.bootstrap.ssh),
+      const receipt = await applySetupPlan(row.plan, (this.deps.runner ?? sshRunner)(this.deps.bootstrap.ssh, row.plan.planDigest),
         { execute: true, approvedPlanDigest, preflightPlan });
       let state: SetupState = receipt.state === "dry_run" || receipt.state === "blocked" ? "review_required" : receipt.state;
       let failures: string[] = receipt.blockedReasons ?? [];

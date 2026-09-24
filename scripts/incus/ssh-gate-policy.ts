@@ -10,8 +10,12 @@ import { createImageBootstrapPlan, createSetupPlan } from "./plan";
 export interface SshGatePolicy {
   version: 1;
   planDigest: string;
-  commands: Array<{ argv: string[]; stdinSha256?: string }>;
+  issuedAt?: string;
+  writeExpiresAt?: string;
+  commands: Array<{ argv: string[]; stdinSha256?: string; write?: true }>;
 }
+
+export const SSH_GATE_WRITE_LIFETIME_MS = 15 * 60_000;
 
 /** First install this policy so an operator can inspect and plan through the gate. It has no writes. */
 export function createReadOnlySshGatePolicy(): SshGatePolicy {
@@ -21,7 +25,7 @@ export function createReadOnlySshGatePolicy(): SshGatePolicy {
 
 /** Generate an exact command policy from the recipe, inventory, and reviewed plan. */
 export function createSshGatePolicy(recipe: IncusSetupRecipe, inventory: IncusInventory,
-  plan: IncusSetupPlan | IncusImageBootstrapPlan, presets?: readonly SandboxPreset[]): SshGatePolicy {
+  plan: IncusSetupPlan | IncusImageBootstrapPlan, presets?: readonly SandboxPreset[], issuedAt = new Date()): SshGatePolicy {
   assertSetupPlanDigest(plan);
   if (plan.status !== "ready" || plan.sshMode !== "reviewed-envelope-v1" ||
     inventory.connection.sshMode !== "reviewed-envelope-v1") throw new Error("A ready reviewed SSH gate plan is required");
@@ -31,12 +35,14 @@ export function createSshGatePolicy(recipe: IncusSetupRecipe, inventory: IncusIn
     ...incusCapacityCommands(recipe.storage.name).map(argv => ({ argv })),
     ...plan.steps.flatMap(step => [
       { argv: step.inspect.argv },
-      { argv: step.apply.argv, ...(step.apply.stdin === undefined ? {} :
+      { argv: step.apply.argv, write: true as const, ...(step.apply.stdin === undefined ? {} :
         { stdinSha256: createHash("sha256").update(step.apply.stdin).digest("hex") }) },
     ])];
   const unique = new Map<string, SshGatePolicy["commands"][number]>();
   for (const command of commands) unique.set(JSON.stringify(command), command);
-  return { version: 1, planDigest: plan.planDigest, commands: [...unique.values()] };
+  if (!Number.isFinite(issuedAt.getTime())) throw new Error("SSH gate policy issue time is invalid");
+  return { version: 1, planDigest: plan.planDigest, issuedAt: issuedAt.toISOString(),
+    writeExpiresAt: new Date(issuedAt.getTime() + SSH_GATE_WRITE_LIFETIME_MS).toISOString(), commands: [...unique.values()] };
 }
 
 async function main(): Promise<void> {

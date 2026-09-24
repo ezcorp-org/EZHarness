@@ -155,7 +155,8 @@ export const POST: RequestHandler = async ({ locals, request }) => {
       const setupId = input.setupId as string;
       const policy = await configured.gatePolicy(setupId);
       await insertTransactionalAuditEntry(getDb(), randomUUID(), user.id, "incus:gate-policy-exported", setupId,
-        { planDigest: policy.planDigest, commandCount: policy.commands.length });
+        { planDigest: policy.planDigest, issuedAt: policy.issuedAt, writeExpiresAt: policy.writeExpiresAt,
+          commandCount: policy.commands.length });
       return json({ policy });
     }
     return json(await configured.probe(input.setupId as string));

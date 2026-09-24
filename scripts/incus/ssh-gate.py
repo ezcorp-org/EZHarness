@@ -4,6 +4,7 @@
 import hashlib
 import json
 import os
+from datetime import datetime, timezone, timedelta
 import selectors
 import signal
 import stat
@@ -16,16 +17,13 @@ MAX_REQUEST = 64 * 1024
 MAX_POLICY = 128 * 1024
 MAX_OUTPUT = 1024 * 1024
 TIMEOUT = 55
+MAX_WRITE_WINDOW = timedelta(minutes=20)
 EXECUTABLES = {"hostnamectl", "cat", "uname", "nproc", "getconf", "df", "stat",
                "timedatectl", "systemctl", "incus", "ip"}
 
 
 class Denied(Exception):
     pass
-
-
-def exact_keys(value, keys):
-    return isinstance(value, dict) and set(value) == set(keys)
 
 
 def read_policy(path):
@@ -43,15 +41,19 @@ def read_policy(path):
 
 
 def validate_policy(policy):
-    if not exact_keys(policy, ("version", "planDigest", "commands")) or policy["version"] != 1:
+    if (not isinstance(policy, dict) or set(policy) not in ({"version", "planDigest", "commands"},
+            {"version", "planDigest", "issuedAt", "writeExpiresAt", "commands"}) or policy["version"] != 1):
         raise Denied("unsupported policy")
     if not isinstance(policy["planDigest"], str) or len(policy["planDigest"]) != 64 or any(c not in "0123456789abcdef" for c in policy["planDigest"]):
         raise Denied("invalid reviewed digest")
     if not isinstance(policy["commands"], list) or not 0 < len(policy["commands"]) <= 128:
         raise Denied("invalid command policy")
     for command in policy["commands"]:
-        if not isinstance(command, dict) or set(command) not in ({"argv"}, {"argv", "stdinSha256"}):
+        if not isinstance(command, dict) or set(command) not in ({"argv"}, {"argv", "stdinSha256"},
+                                                        {"argv", "write"}, {"argv", "stdinSha256", "write"}):
             raise Denied("invalid command entry")
+        if "write" in command and command["write"] is not True:
+            raise Denied("invalid write classification")
         argv = command["argv"]
         if not isinstance(argv, list) or not 1 <= len(argv) <= 64 or argv[0] not in EXECUTABLES or any(
             not isinstance(arg, str) or not 0 < len(arg) <= 4096 or "\x00" in arg or any(ord(c) < 32 for c in arg)
@@ -61,22 +63,54 @@ def validate_policy(policy):
         if "stdinSha256" in command and (not isinstance(command["stdinSha256"], str) or
             len(command["stdinSha256"]) != 64 or any(c not in "0123456789abcdef" for c in command["stdinSha256"])):
             raise Denied("invalid input digest")
+    has_writes = any(command.get("write") is True for command in policy["commands"])
+    if has_writes != ("writeExpiresAt" in policy):
+        raise Denied("write policy requires an absolute expiry")
+    if has_writes:
+        issued = parse_utc(policy["issuedAt"])
+        expires = parse_utc(policy["writeExpiresAt"])
+        if not timedelta(0) < expires - issued <= MAX_WRITE_WINDOW:
+            raise Denied("write policy lifetime exceeds the allowed window")
 
 
-def authorize(policy, original, payload):
+def parse_utc(value):
+    if not isinstance(value, str) or len(value) > 32 or not value.endswith("Z"):
+        raise Denied("invalid policy timestamp")
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as error:
+        raise Denied("invalid policy timestamp") from error
+    if parsed.tzinfo is None:
+        raise Denied("invalid policy timestamp")
+    return parsed.astimezone(timezone.utc)
+
+
+def authorize(policy, original, payload, now=None):
     if original != ORIGINAL_COMMAND:
         raise Denied("unexpected SSH command")
-    if not isinstance(payload, dict) or set(payload) not in ({"version", "argv"}, {"version", "argv", "stdin"}) or payload["version"] != 1:
+    if not isinstance(payload, dict) or set(payload) not in ({"version", "argv"}, {"version", "argv", "stdin"},
+                                                         {"version", "argv", "planDigest"},
+                                                         {"version", "argv", "stdin", "planDigest"}) or payload["version"] != 1:
         raise Denied("invalid SSH envelope")
     argv = payload["argv"]
     stdin = payload.get("stdin")
     if not isinstance(argv, list) or any(not isinstance(arg, str) for arg in argv) or stdin is not None and not isinstance(stdin, str):
         raise Denied("invalid SSH command")
+    plan_digest = payload.get("planDigest")
+    if plan_digest is not None and plan_digest != policy["planDigest"]:
+        raise Denied("installed SSH policy does not match reviewed plan digest")
     candidate = {"argv": argv}
     if stdin is not None:
         candidate["stdinSha256"] = hashlib.sha256(stdin.encode()).hexdigest()
-    if candidate not in policy["commands"]:
+    matches = [command for command in policy["commands"] if {key: value for key, value in command.items() if key != "write"} == candidate]
+    if len(matches) != 1:
         raise Denied("command is outside the reviewed plan")
+    if matches[0].get("write") is True:
+        if plan_digest is None:
+            raise Denied("a reviewed plan digest is required for server writes")
+        current = now or datetime.now(timezone.utc)
+        if current < parse_utc(policy["issuedAt"]) - timedelta(minutes=2) or current >= parse_utc(policy["writeExpiresAt"]):
+            raise Denied("reviewed server write policy has expired")
     return argv, stdin.encode() if stdin is not None else b""
 
 

@@ -3,6 +3,7 @@ import os
 import pathlib
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 
 
 source = pathlib.Path(__file__).with_name("ssh-gate.py")
@@ -13,18 +14,31 @@ spec.loader.exec_module(gate)
 
 class ReviewedCommandGateTest(unittest.TestCase):
     def setUp(self):
-        self.policy = {"version": 1, "planDigest": "a" * 64, "commands": [
+        issued = datetime.now(timezone.utc)
+        self.policy = {"version": 1, "planDigest": "a" * 64,
+                       "issuedAt": issued.isoformat().replace("+00:00", "Z"),
+                       "writeExpiresAt": (issued + timedelta(minutes=15)).isoformat().replace("+00:00", "Z"),
+                       "commands": [
             {"argv": ["incus", "query", "/1.0/projects/ezharness"]},
-            {"argv": ["incus", "project", "create", "ezharness", "--config", "restricted=true"]},
+            {"argv": ["incus", "project", "create", "ezharness", "--config", "restricted=true"], "write": True},
         ]}
         gate.validate_policy(self.policy)
 
-    def allow(self, argv, original="ezh-incus-operator-v1", **extra):
-        return gate.authorize(self.policy, original, {"version": 1, "argv": argv, **extra})
+    def allow(self, argv, original="ezh-incus-operator-v1", now=None, **extra):
+        return gate.authorize(self.policy, original, {"version": 1, "argv": argv, **extra}, now=now)
 
     def test_exact_reviewed_read_and_write(self):
         self.assertEqual(self.allow(["incus", "query", "/1.0/projects/ezharness"])[0][0], "incus")
-        self.assertEqual(self.allow(["incus", "project", "create", "ezharness", "--config", "restricted=true"])[0][1], "project")
+        self.assertEqual(self.allow(["incus", "project", "create", "ezharness", "--config", "restricted=true"], planDigest="a" * 64)[0][1], "project")
+
+    def test_policy_digest_blocks_old_policy_before_shared_write(self):
+        shared_write = ["incus", "project", "create", "ezharness", "--config", "restricted=true"]
+        with self.assertRaisesRegex(gate.Denied, "does not match reviewed plan digest"):
+            self.allow(shared_write, planDigest="b" * 64)
+        with self.assertRaisesRegex(gate.Denied, "required for server writes"):
+            self.allow(shared_write)
+        with self.assertRaisesRegex(gate.Denied, "does not match reviewed plan digest"):
+            self.allow(["incus", "query", "/1.0/projects/ezharness"], planDigest="b" * 64)
 
     def test_shell_scp_and_wrong_original_command_are_denied(self):
         for command in ("sh", "bash -c id", "scp -t /tmp/x", "", "ezh-incus-operator-v1;id"):
@@ -51,13 +65,39 @@ class ReviewedCommandGateTest(unittest.TestCase):
         import hashlib
         certificate = "approved certificate\n"
         self.policy["commands"].append({"argv": ["incus", "config", "trust", "add-certificate", "-", "--name", "engine", "--projects", "ezharness", "--restricted"],
-                                        "stdinSha256": hashlib.sha256(certificate.encode()).hexdigest()})
+                                        "stdinSha256": hashlib.sha256(certificate.encode()).hexdigest(), "write": True})
         argv = self.policy["commands"][-1]["argv"]
-        self.assertEqual(self.allow(argv, stdin=certificate)[1], certificate.encode())
+        self.assertEqual(self.allow(argv, stdin=certificate, planDigest="a" * 64)[1], certificate.encode())
         with self.assertRaises(gate.Denied):
-            self.allow(argv, stdin="different certificate")
+            self.allow(argv, stdin="different certificate", planDigest="a" * 64)
         with self.assertRaises(gate.Denied):
             self.allow(argv)
+
+    def test_expired_policy_denies_trust_add_but_keeps_reads(self):
+        import hashlib
+        certificate = "approved certificate\n"
+        trust = {"argv": ["incus", "config", "trust", "add-certificate", "-", "--name", "engine", "--projects", "ezharness", "--restricted"],
+                 "stdinSha256": hashlib.sha256(certificate.encode()).hexdigest(), "write": True}
+        self.policy["commands"].append(trust)
+        expired = datetime.now(timezone.utc) - timedelta(seconds=1)
+        self.policy["issuedAt"] = (expired - timedelta(minutes=15)).isoformat().replace("+00:00", "Z")
+        self.policy["writeExpiresAt"] = expired.isoformat().replace("+00:00", "Z")
+        gate.validate_policy(self.policy)
+        with self.assertRaisesRegex(gate.Denied, "expired"):
+            self.allow(trust["argv"], stdin=certificate, planDigest="a" * 64)
+        self.assertEqual(self.allow(["incus", "query", "/1.0/projects/ezharness"])[0][0], "incus")
+        readonly = {"version": 1, "planDigest": "c" * 64,
+                    "commands": [{"argv": ["incus", "query", "/1.0/projects/ezharness"]}]}
+        gate.validate_policy(readonly)
+        with self.assertRaises(gate.Denied):
+            gate.authorize(readonly, gate.ORIGINAL_COMMAND,
+                           {"version": 1, "argv": trust["argv"], "stdin": certificate, "planDigest": "c" * 64})
+
+    def test_policy_cannot_extend_write_window(self):
+        issued = datetime.fromisoformat(self.policy["issuedAt"].replace("Z", "+00:00"))
+        self.policy["writeExpiresAt"] = (issued + timedelta(minutes=21)).isoformat().replace("+00:00", "Z")
+        with self.assertRaisesRegex(gate.Denied, "lifetime exceeds"):
+            gate.validate_policy(self.policy)
 
     def test_policy_cannot_authorize_shell_or_unbounded_arguments(self):
         self.policy["commands"].append({"argv": ["sh", "-c", "id"]})
