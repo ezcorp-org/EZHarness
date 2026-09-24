@@ -25,7 +25,7 @@ const SETTINGS: FactoryKubernetesSettings = {
   runtimeSocketPath: "/run/containerd/containerd.sock", nodeSelector: { "ezcorp.io/runner": "true" },
 };
 
-interface Container { name: string; image: string; command: string[]; env: { name: string; value: string }[]; securityContext: Record<string, unknown>; volumeMounts: { name: string; mountPath: string; readOnly?: boolean }[] }
+interface Container { name: string; image: string; command: string[]; env: { name: string; value: string }[]; securityContext: Record<string, unknown>; volumeMounts: { name: string; mountPath: string; subPath?: string; readOnly?: boolean }[] }
 interface PodSpec { containers: Container[]; initContainers?: Container[]; volumes: Record<string, unknown>[]; hostNetwork?: boolean; securityContext?: Record<string, unknown>; automountServiceAccountToken?: boolean }
 
 const kind = (objects: readonly FactoryKubernetesObject[], name: string) => objects.filter((object) => object.kind === name);
