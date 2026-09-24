@@ -1571,3 +1571,15 @@ The test conflict uses main's producer-liveness helper and passes the actual hol
 Plan review: `tasks/incus-completion/PLAN.md` fixes ownership and interfaces before the Sol agents work. `GATES.md` and the leaf gate files record proof. The new ingress generation is already built and pinned in the NixOS review packet; the current server generation still blocks AMD TCP 8443. The user asked to continue all work, so the root agent may use the reviewed guarded activation plan after fresh preflight. Server writes stay with the root agent.
 
 Review: PR #303 now includes merge commit `c0b8a7a28` against `origin/main` at `85d9c9c50`. The only conflict was this task journal; both histories remain. Pinned Bun 1.3.14 passed 167 focused failover/credential tests, 31 Incus test files in separate processes, typecheck, lint over 4,861 files, production build, gate integrity, staged pre-commit tests, and `git diff --check`. Hosted CI on the pushed exact head and live qualification remain open.
+
+## Independent Incus receipt verifier — 2026-09-24
+
+- [x] Reproduce the sample verifier's fail-closed receipt behavior in a process test.
+- [x] Capture the exact stopped durable fixture after old-app exit, before PGlite is reopened.
+- [x] Read the pinned Incus backend from an operator-owned configuration at receipt time and compute the observation digest independently.
+- [x] Require the supervisor to compare that digest with the app claim before signing, and reject all mismatch and verifier failure paths.
+- [x] Test the verifier and supervisor, run focused Bun/Python checks, and commit only the owned files.
+
+Plan review: PGlite has one live process owner. The supervisor will keep an in-memory fixture snapshot made in the safe gap between app processes. At receipt time the verifier will read Incus using a root-owned pin and build the canonical after observation from that snapshot and the supervisor's new process identity.
+
+Review: The sample `false` verifier blocks signing in a real supervisor process. The verifier's snapshot phase checks the exact durable stopped fixture while PGlite has no app owner. Its verify phase opens a private operator connection file without following a leaf symlink, reads the pinned Incus instance over mTLS, and computes the after digest without receiving the app claim. A local mTLS fixture proves success and rejects changed scope, process identity, backend state, file permissions, and project purpose. Three focused Bun suites, four Python process tests, Incus script typecheck, Biome, and diff check pass. No live Incus endpoint was used; the sample stays closed.

@@ -1,5 +1,47 @@
 # Deterministic Incus setup artifacts
 
+## Operator restart receipt
+
+The restart supervisor keeps its example `receiptAuthorityCommand` set to
+`false`. This leaves signing closed until the operator installs an independent
+connection file. After the old app exits, the production verifier reads the
+exact stopped fixture from PGlite before the new app opens it. The supervisor
+keeps that snapshot in memory. When the new app requests a receipt, the
+verifier reads the exact Incus instance over pinned mTLS and computes the
+canonical observation digest using the supervisor's new PID and start tick.
+The supervisor gives the verifier no app-provided after digest; it compares
+the computed result with the app claim before it signs.
+
+Set `EZCORP_INCUS_RECEIPT_CONFIG` in the supervisor service to an absolute,
+operator-owned, mode `0600` JSON file. It has two fields:
+
+```json
+{
+  "context": {
+    "scope": { "installationId": "...", "releaseId": "...", "connectionId": "..." },
+    "connection": { "revision": 1, "project": "...", "serverCertificatePem": "...",
+      "configuration": { "profile": "...", "helperVersion": "...", "guestUser": "..." } },
+    "preset": { "id": "...", "profile": "...", "imageDigest": "...",
+      "helperDigests": ["..."], "limits": {} },
+    "presetDigest": "...", "effectiveSettingsDigest": "...",
+    "recipe": {}
+  },
+  "transportConnection": { "endpoint": "https://...:8443", "project": "...",
+    "serverCertificatePem": "...", "clientCertificatePem": "...", "privateKeyPem": "..." }
+}
+```
+
+Fill `context` with the reviewed active release preset and exact setup recipe;
+fill `transportConnection` with the operator's pinned Incus client identity.
+The verifier checks the scope, revision, preset and settings digests against
+the durable fixture. The two server certificates and project names must agree.
+Keep the file outside the app UID's read access. It contains a private client
+key, so do not commit it. Once this file and the supervised live path are
+validated, replace the example command with
+`["/run/current-system/sw/bin/bun", "/opt/ezharness/scripts/incus/incus-qualification-supervisor-receipt.ts"]`.
+The verifier requires `EZCORP_INCUS_SUPERVISOR_DB_PATH` to name the same
+isolated PGlite directory as the app. It refuses `DATABASE_URL`.
+
 ## Operator screen
 
 After the Incus sandbox extension release is verified, reviewed, and active, an administrator opens **Extensions → Set up Incus**. The engine reads one host-owned SSH bootstrap target, inspects it, issues a scoped client certificate, and saves the exact server plan and digest. The administrator checks the plan and confirms it in the screen. The engine then applies only that saved plan over SSH, reinspects the server, and offers a read-only provider probe. An interrupted or uncertain apply stays visible for review; it does not start an untracked new plan.

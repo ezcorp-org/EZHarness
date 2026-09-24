@@ -152,11 +152,13 @@ class Supervisor:
                    "lastOperationId", "beforeDigest")}
         payload.update(version=1, oldProcess=pending["oldProcess"],
                        newProcess=self.child_identity, afterDigest=request["afterDigest"])
+        verification_payload = {key: value for key, value in payload.items() if key != "afterDigest"}
         verified = subprocess.run(self.receipt_authority_command,
-                                  input=canonical(payload) + b"\n", capture_output=True,
+                                  input=canonical({"phase": "verify", "payload": verification_payload,
+                                                   "snapshot": pending["snapshot"]}) + b"\n", capture_output=True,
                                   timeout=10, check=False)
         if verified.returncode != 0 or json.loads(verified.stdout) != {
-                "authorized": True, "afterDigest": request["afterDigest"]}:
+                "afterDigest": request["afterDigest"]}:
             raise ValueError("independent backend receipt verification failed")
         # OpenSSL's Ed25519 one-shot operation requires a seekable input file.
         with tempfile.TemporaryDirectory(prefix="incus-handoff-") as directory:
@@ -240,10 +242,20 @@ class Supervisor:
         # after the old app exits, before any new app can open the database.
         try:
             self.authorize(request)
+            snapshot_result = subprocess.run(self.receipt_authority_command,
+                input=canonical({"phase": "snapshot", "request": request}) + b"\n",
+                capture_output=True, timeout=10, check=False,
+                preexec_fn=self.drop_app_privileges)
+            if snapshot_result.returncode != 0:
+                raise ValueError("independent durable receipt snapshot failed")
+            snapshot_reply = json.loads(snapshot_result.stdout)
+            if set(snapshot_reply) != {"snapshot"} or not isinstance(snapshot_reply["snapshot"], dict):
+                raise ValueError("independent durable receipt snapshot invalid")
         except (ValueError, OSError, subprocess.SubprocessError, json.JSONDecodeError):
             self.start_child()
             return
-        self.pending = {"request": request, "oldProcess": old_identity}
+        self.pending = {"request": request, "oldProcess": old_identity,
+                        "snapshot": snapshot_reply["snapshot"]}
         self.start_child()
 
 

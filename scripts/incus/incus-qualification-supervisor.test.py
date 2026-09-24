@@ -4,6 +4,7 @@
 import importlib.util
 import json
 import os
+import shutil
 import socket
 import subprocess
 import sys
@@ -56,9 +57,13 @@ print(json.dumps({'authorized': True, 'oldProcess': old}))
 
 RECEIPT_AUTH = r'''
 import json, sys
-payload=json.loads(sys.stdin.read())
-if payload['afterDigest'] != 'b'*64: sys.exit(1)
-print(json.dumps({'authorized':True,'afterDigest':payload['afterDigest']}))
+input=json.loads(sys.stdin.read())
+if input['phase'] == 'snapshot':
+    print(json.dumps({'snapshot':{'fixture':input['request']['bindingId']}}))
+elif input['phase'] == 'verify':
+    if input['snapshot'] != {'fixture':'binding'}: sys.exit(1)
+    print(json.dumps({'afterDigest':'b'*64}))
+else: sys.exit(1)
 '''
 
 
@@ -70,6 +75,40 @@ def wait_file(path):
 
 
 class SupervisorTest(unittest.TestCase):
+    def test_disabled_example_verifier_does_not_sign_receipt(self):
+        with tempfile.TemporaryDirectory(prefix="incus-supervisor-", dir="/tmp") as directory:
+            root = Path(directory)
+            key = root / "key.pem"
+            subprocess.run(["openssl", "genpkey", "-algorithm", "Ed25519", "-out", str(key)],
+                           check=True, capture_output=True)
+            key.chmod(0o600)
+            socket_path = root / "control.sock"
+            request = {"version": 1, "action": "restart", "runId": "run", "nonce": "nonce",
+                       "deadlineMs": int(time.time()*1000)+30000,
+                       "scope": {"installationId": "installation", "releaseId": "release",
+                                 "connectionId": "connection", "presetId": "preset"},
+                       "fixtureOperationId": "fixture", "bindingId": "binding",
+                       "generation": 3, "connectionRevision": 2,
+                       "lastOperationId": "stop-operation", "beforeDigest": "a"*64}
+            (root / "request.json").write_text(json.dumps(request))
+            runner = subprocess.Popen([sys.executable, "-c", """
+import importlib.util, sys
+s=importlib.util.spec_from_file_location('supervisor',sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
+m.Supervisor(sys.argv[2],[sys.executable,'-c',sys.argv[3],sys.argv[4],sys.argv[2]],
+ int(sys.argv[5]),int(sys.argv[6]),sys.argv[7],[sys.executable,'-c',sys.argv[8],sys.argv[4]],
+ [sys.argv[9]],
+ enforce_distinct_uid=False).serve()
+""", str(SOURCE), str(socket_path), APP, directory, str(os.getuid()), str(os.getgid()), str(key),
+                  AUTH, shutil.which("false")], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            try:
+                wait_file(root / "app-1.json")
+                self.assertEqual(wait_file(root / "receipt.json"), {"error": "receipt unavailable"})
+            finally:
+                runner.terminate()
+                try: runner.wait(timeout=5)
+                except subprocess.TimeoutExpired: runner.kill(); runner.wait()
+                runner.stdout.close(); runner.stderr.close()
+
     def test_unexpected_app_exit_ends_supervisor_with_failure(self):
         with tempfile.TemporaryDirectory(prefix="incus-supervisor-", dir="/tmp") as directory:
             root = Path(directory)
