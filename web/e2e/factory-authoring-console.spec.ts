@@ -2,6 +2,7 @@ import type { Page } from "@playwright/test";
 import type { FactoryDefinition, FactoryDraftDetails, FactoryDraftSummary, FactoryVersionDetails, FactoryVersionSummary } from "@ezcorp/factory-sdk/types";
 import { expect, test, captureEvidence } from "./fixtures/test-base.js";
 import { makeProject } from "./fixtures/data.js";
+import { factoryGraphProblems } from "./fixtures/factory-layout.js";
 
 const projectId = "factory-project";
 const factoryId = "catalog-enrichment-with-a-deliberately-long-definition-name";
@@ -237,6 +238,21 @@ async function openConsole(page: Page): Promise<void> {
 }
 
 test.describe("factory authoring console", () => {
+	// The operating system's scheme is the opposite of the app theme on purpose: the canvas must follow the app.
+	for (const [theme, system, width, height] of [["dark", "light", 1440, 900], ["light", "dark", 1440, 900], ["dark", "light", 390, 844], ["light", "dark", 390, 844]] as const) {
+		test(`the graph canvas follows the ${theme} app theme over a ${system} system scheme at ${width}px and its labels read @evidence`, async ({ page, mockApi }, testInfo) => {
+			await page.addInitScript(value => localStorage.setItem("ezcorp-theme", value), theme);
+			await page.emulateMedia({ colorScheme: system });
+			await page.setViewportSize({ width, height });
+			await mockApi({ projects: [makeProject({ id: projectId, name: "Product Operations" })] });
+			await routeFactoryApi(page);
+			await openConsole(page);
+			await expect(page.getByTestId("factory-graph").locator(".factory-node-label").first()).toBeVisible();
+			await expect.poll(() => factoryGraphProblems(page)).toEqual([]);
+			await captureEvidence(page, testInfo, `factory-graph-${theme}-over-${system}-${width}`);
+		});
+	}
+
 	test("shows the current-authorized release inbox and records an exact decision @evidence", async ({ page, mockApi }, testInfo) => {
 		await page.addInitScript(() => localStorage.setItem("ezcorp-theme", "light"));
 		await page.setViewportSize({ width: 1440, height: 980 });

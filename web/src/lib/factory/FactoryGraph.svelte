@@ -10,6 +10,7 @@
 		type Node,
 	} from "@xyflow/svelte";
 	import "@xyflow/svelte/dist/style.css";
+	import { observeDocumentDark } from "$lib/theme";
 	import FactoryNode from "./FactoryNode.svelte";
 	import { layoutFactoryGraph, type FactoryFlowEdge, type FactoryFlowNode } from "./layout";
 	import type { FactoryGraphProjection } from "./model";
@@ -30,9 +31,19 @@
 		onDeleteEdge: (source: string, target: string) => void;
 	} = $props();
 
+	/**
+	 * The smallest zoom the first view uses: node labels stay readable (14 px
+	 * at 1, at least 11 px here). A larger graph opens at this zoom and is
+	 * panned, with the minimap showing the whole of it.
+	 */
+	const FACTORY_GRAPH_READABLE_ZOOM = 0.8;
+
 	let nodes = $state.raw<FactoryFlowNode[]>([]);
 	let edges = $state.raw<FactoryFlowEdge[]>([]);
 	let layoutGeneration = 0;
+	// The canvas follows the app's theme, not the operating system's.
+	let colorMode = $state<"light" | "dark">("light");
+	$effect(() => observeDocumentDark(isDark => { colorMode = isDark ? "dark" : "light"; }));
 
 	$effect(() => {
 		const current = projection;
@@ -73,7 +84,7 @@
 		bind:edges
 		nodeTypes={{ factory: FactoryNode }}
 		fitView
-		fitViewOptions={{ padding: 0.25, maxZoom: 1.15 }}
+		fitViewOptions={{ padding: 0.25, maxZoom: 1.15, minZoom: FACTORY_GRAPH_READABLE_ZOOM }}
 		minZoom={0.2}
 		maxZoom={2.4}
 		deleteKey={["Backspace", "Delete"]}
@@ -83,7 +94,7 @@
 		onpaneclick={() => onSelectNode(null)}
 		onconnect={connect}
 		ondelete={remove}
-		colorMode="system"
+		{colorMode}
 	>
 		<Controls />
 		<MiniMap pannable zoomable />
@@ -93,6 +104,21 @@
 
 <style>
 	.factory-flow {
+		/* The canvas draws with the app's tokens in either theme. */
+		--xy-background-color: transparent;
+		--xy-background-pattern-lines-color: color-mix(in srgb, var(--color-border) 70%, transparent);
+		--xy-controls-button-background-color: var(--color-surface-elevated);
+		--xy-controls-button-background-color-hover: var(--color-surface-secondary);
+		--xy-controls-button-color: var(--color-text-primary);
+		--xy-controls-button-color-hover: var(--color-text-primary);
+		--xy-controls-button-border-color: var(--color-border);
+		--xy-minimap-background-color: var(--color-surface-elevated);
+		--xy-minimap-mask-background-color: color-mix(in srgb, var(--color-surface-secondary) 70%, transparent);
+		--xy-minimap-mask-stroke-color: var(--color-border-strong);
+		--xy-minimap-node-background-color: color-mix(in srgb, var(--color-text-muted) 45%, transparent);
+		--xy-minimap-node-stroke-color: transparent;
+		--xy-edge-stroke: var(--color-text-muted);
+		--xy-attribution-background-color: transparent;
 		position: relative;
 		height: 100%;
 		min-height: 420px;

@@ -31,7 +31,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import type { APIRequestContext, Browser, Page } from "@playwright/test";
 import { expect, test } from "./fixtures/hydration.js";
 import { captureEvidence } from "./fixtures/evidence.js";
-import { factoryLayoutOverflow } from "./fixtures/factory-layout.js";
+import { factoryGraphProblems, factoryLayoutOverflow } from "./fixtures/factory-layout.js";
 import { FACTORY_SERVICES_CURSOR_TTL_MS, FACTORY_SERVICES_FUTURE_DRAFT_REQUEST_PATH, FACTORY_SERVICES_STATE_PATH, readFactoryServicesState, type FactoryServicesState } from "./factory-services/state.js";
 
 test.describe.configure({ mode: "serial" });
@@ -548,7 +548,7 @@ test("long labels and a large map read cleanly at 1440 and 390 px, in light and 
 		const nodes = Array.from({ length: 40 }, (_, index) => ({ ...template, id: `stage-${String(index).padStart(2, "0")}-${"with-a-long-node-label-".repeat(2)}${index}`, ...(index === 0 ? {} : { dependsOn: [`stage-${String(index - 1).padStart(2, "0")}-${"with-a-long-node-label-".repeat(2)}${index - 1}`] }) }));
 		return { ...definition, id: longId, graph: { ...graph, nodes }, bounds: { ...(definition.bounds as object), maxExpandedNodes: 100 } };
 	});
-	for (const [theme, width, height] of [["light", 1440, 900], ["dark", 390, 844]] as const) {
+	for (const [theme, width, height] of [["light", 1440, 900], ["dark", 1440, 900], ["light", 390, 844], ["dark", 390, 844]] as const) {
 		await page.addInitScript(value => localStorage.setItem("ezcorp-theme", value), theme);
 		await page.setViewportSize({ width, height });
 		await selectProject(page, "authoring");
@@ -556,7 +556,10 @@ test("long labels and a large map read cleanly at 1440 and 390 px, in light and 
 		await console.getByRole("button", { name: /a-deliberately-long-definition-label/ }).click();
 		await expect(console.getByRole("heading", { name: longId })).toBeVisible();
 		await expect(page.getByTestId("factory-graph")).toBeVisible();
+		await expect(page.getByTestId("factory-graph").locator(".factory-node-label").first()).toBeVisible();
 		expect(await factoryLayoutOverflow(page)).toEqual([]);
+		// The canvas follows the app theme (grid, minimap, controls) and opens at a zoom whose labels read.
+		await expect.poll(() => factoryGraphProblems(page)).toEqual([]);
 		await captureEvidence(page, testInfo, `factory-services-large-map-${width}-${theme}`);
 		await page.goto(`/factories?view=runs&run=${encodeURIComponent(runId)}`);
 		await page.getByLabel("Factory project").selectOption(state.projectId);

@@ -89,3 +89,17 @@ export function toggleTheme(): void {
 	const newMode: ThemeMode = isDark ? "light" : "dark";
 	setTheme(newMode);
 }
+
+/**
+ * Follows the app's effective theme (the `.dark` class `applyTheme` sets), for
+ * components that draw their own colours, such as the factory graph canvas.
+ * Calls back once now and on every change; returns the unsubscribe.
+ */
+export function observeDocumentDark(onChange: (isDark: boolean) => void): () => void {
+	if (!isBrowser()) return () => {};
+	const root = document.documentElement;
+	onChange(root.classList.contains("dark"));
+	const observer = new MutationObserver(() => onChange(root.classList.contains("dark")));
+	observer.observe(root, { attributes: true, attributeFilter: ["class"] });
+	return () => observer.disconnect();
+}
