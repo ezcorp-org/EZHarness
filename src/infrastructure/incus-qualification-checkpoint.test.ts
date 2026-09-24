@@ -192,3 +192,25 @@ test("a user project binding cannot create a qualification restart checkpoint", 
   expect((await client.query("SELECT run_id FROM incus_qualification_runs")).rows).toEqual([]);
   await client.close();
 });
+
+test("a changed binding or unpinned guest cannot create a restart checkpoint", async () => {
+  const { client, db } = await database();
+  try {
+    const store = new IncusQualificationCheckpointStore(db);
+    const before = observation(processIdentityKey(currentProcessIdentity()));
+    const begin = (candidate: typeof before) => store.begin({ runId: `run-${randomUUID()}`,
+      nonce: `nonce-${randomUUID()}`, deadlineMs: Date.now() + 60_000,
+      scope, handle, before: candidate });
+
+    await client.exec("UPDATE sandbox_bindings SET provider_release_id = 'other' WHERE id = 'binding'");
+    await expect(begin(before)).rejects.toThrow("exact stopped qualification binding");
+    await client.exec("UPDATE sandbox_bindings SET provider_release_id = 'release' WHERE id = 'binding'");
+
+    await expect(begin({ ...before, durable: { ...before.durable,
+      operation: { ...before.durable.operation!, id: "other-operation" } } }))
+      .rejects.toThrow("exact stopped qualification binding");
+    await expect(begin({ ...before, backend: { ...before.backend, imageDigest: "0".repeat(64) } }))
+      .rejects.toThrow("exact stopped qualification binding");
+    expect((await client.query("SELECT run_id FROM incus_qualification_runs")).rows).toEqual([]);
+  } finally { await client.close(); }
+});

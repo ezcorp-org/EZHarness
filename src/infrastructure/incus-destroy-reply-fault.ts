@@ -36,6 +36,53 @@ function requireScope(condition: unknown): asserts condition {
   if (!condition) throw new Error("Incus destroy reply fault scope is unavailable");
 }
 
+function requireArmInput(input: Readonly<LostDestroyReplyArm>, now: number): void {
+  requireScope(IDENTIFIER.test(input.runId) && IDENTIFIER.test(input.nonce)
+    && IDENTIFIER.test(input.fixtureOperationId) && IDENTIFIER.test(input.bindingId)
+    && RESERVED_OPERATION_ID.test(input.destroyOperationId)
+    && Number.isSafeInteger(input.generation) && input.generation > 0
+    && Number.isSafeInteger(input.providerGeneration) && input.providerGeneration > 0
+    && Number.isSafeInteger(input.connectionRevision) && input.connectionRevision > 0
+    && Number.isSafeInteger(input.deadlineMs) && input.deadlineMs > now
+    && input.deadlineMs - now <= 30_000);
+}
+
+function requireFixture(fixture: typeof incusQualificationFixtures.$inferSelect | undefined,
+  input: Readonly<LostDestroyReplyArm>): asserts fixture is typeof incusQualificationFixtures.$inferSelect {
+  requireScope(fixture && fixture.bindingId === input.bindingId
+    && fixture.installationId === input.scope.installationId
+    && fixture.releaseId === input.scope.releaseId
+    && fixture.connectionId === input.scope.connectionId
+    && fixture.presetId === input.scope.presetId
+    && fixture.connectionRevision === input.connectionRevision);
+}
+
+function requireStoppedBinding(binding: typeof sandboxBindings.$inferSelect | undefined,
+  fixture: typeof incusQualificationFixtures.$inferSelect, input: Readonly<LostDestroyReplyArm>): void {
+  requireScope(binding && binding.projectId === fixture.projectId && binding.id === fixture.bindingId
+    && binding.resourceKey === fixture.bindingId
+    && binding.providerInstallationId === fixture.installationId
+    && binding.providerReleaseId === fixture.releaseId
+    && binding.connectionId === fixture.connectionId
+    && binding.connectionRevision === input.connectionRevision
+    && binding.generation === input.generation
+    && binding.desiredState === "STOPPED" && binding.observedState === "STOPPED"
+    && binding.tombstonedAt === null);
+}
+
+function requireAvailableResources(connection: typeof providerConnections.$inferSelect | undefined,
+  reservation: typeof sandboxReservations.$inferSelect | undefined,
+  fixture: typeof incusQualificationFixtures.$inferSelect, input: Readonly<LostDestroyReplyArm>): void {
+  requireScope(connection && connection.providerInstallationId === fixture.installationId
+    && connection.providerReleaseId === fixture.releaseId
+    && connection.revision === input.connectionRevision && connection.revokedAt === null
+    && reservation && reservation.projectId === fixture.projectId
+    && reservation.connectionId === fixture.connectionId
+    && reservation.generation === input.generation
+    && reservation.cleanupIntentId === null
+    && reservation.diskState === "RESERVED");
+}
+
 /** Host-only, single-use fault. No model or public request can arm it. */
 export class HostIncusLostDestroyReplyFault implements PostEffectDestroyReplyFault {
   private armed: LostDestroyReplyArm | null = null;
@@ -51,22 +98,10 @@ export class HostIncusLostDestroyReplyFault implements PostEffectDestroyReplyFau
     requireScope(!this.wasArmed && !this.armed && !this.arming);
     this.arming = true;
     try {
-    requireScope(IDENTIFIER.test(input.runId) && IDENTIFIER.test(input.nonce)
-      && IDENTIFIER.test(input.fixtureOperationId) && IDENTIFIER.test(input.bindingId)
-      && RESERVED_OPERATION_ID.test(input.destroyOperationId)
-      && Number.isSafeInteger(input.generation) && input.generation > 0
-      && Number.isSafeInteger(input.providerGeneration) && input.providerGeneration > 0
-      && Number.isSafeInteger(input.connectionRevision) && input.connectionRevision > 0
-      && Number.isSafeInteger(input.deadlineMs) && input.deadlineMs > this.now()
-      && input.deadlineMs - this.now() <= 30_000);
+    requireArmInput(input, this.now());
     const [fixture] = await this.db.select().from(incusQualificationFixtures)
       .where(eq(incusQualificationFixtures.operationId, input.fixtureOperationId)).limit(1);
-    requireScope(fixture && fixture.bindingId === input.bindingId
-      && fixture.installationId === input.scope.installationId
-      && fixture.releaseId === input.scope.releaseId
-      && fixture.connectionId === input.scope.connectionId
-      && fixture.presetId === input.scope.presetId
-      && fixture.connectionRevision === input.connectionRevision);
+    requireFixture(fixture, input);
     const [[project], [binding], [connection], [operation], [reservation]] = await Promise.all([
       this.db.select().from(projects).where(eq(projects.id, fixture.projectId)).limit(1),
       this.db.select().from(sandboxBindings).where(eq(sandboxBindings.id, fixture.bindingId)).limit(1),
@@ -77,25 +112,9 @@ export class HostIncusLostDestroyReplyFault implements PostEffectDestroyReplyFau
           eq(sandboxOperations.idempotencyKey, `${input.fixtureOperationId}:destroy`)))).limit(1),
       this.db.select().from(sandboxReservations).where(eq(sandboxReservations.bindingId, fixture.bindingId)).limit(1),
     ]);
-    requireScope(project?.purpose === "incus-qualification" && binding
-      && binding.projectId === fixture.projectId && binding.id === fixture.bindingId
-      && binding.resourceKey === fixture.bindingId
-      && binding.providerInstallationId === fixture.installationId
-      && binding.providerReleaseId === fixture.releaseId
-      && binding.connectionId === fixture.connectionId
-      && binding.connectionRevision === input.connectionRevision
-      && binding.generation === input.generation
-      && binding.desiredState === "STOPPED" && binding.observedState === "STOPPED"
-      && binding.tombstonedAt === null
-      && connection && connection.providerInstallationId === fixture.installationId
-      && connection.providerReleaseId === fixture.releaseId
-      && connection.revision === input.connectionRevision && connection.revokedAt === null
-      && !operation
-      && reservation && reservation.projectId === fixture.projectId
-      && reservation.connectionId === fixture.connectionId
-      && reservation.generation === input.generation
-      && reservation.cleanupIntentId === null
-      && reservation.diskState === "RESERVED");
+    requireScope(project?.purpose === "incus-qualification" && !operation);
+    requireStoppedBinding(binding, fixture, input);
+    requireAvailableResources(connection, reservation, fixture, input);
     await this.authority.authorizeRun(input);
     requireScope(!this.wasArmed && !this.armed && input.deadlineMs > this.now());
     this.armed = { ...input, scope: { ...input.scope } };

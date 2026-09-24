@@ -293,82 +293,123 @@ async function monitoredLoad(primary: LiveFixtureHandle, resource: Resource, tar
   return result;
 }
 
-/** Executes bounded loads. Every fact must be measured, with an independent neighbor. */
-export async function exerciseIncusControlledLoads(
-  primary: LiveFixtureHandle, preset: SandboxPreset, deps: IncusLoadProbeDependencies,
-  options: IncusLoadProbeOptions = {},
-): Promise<IncusLoadProbeResult> {
-  const limits = { memory: preset.limits.memoryBytes, cpu: preset.limits.cpuMillis,
+function presetLimits(preset: SandboxPreset): Record<Resource, number> {
+  return { memory: preset.limits.memoryBytes, cpu: preset.limits.cpuMillis,
     pids: preset.limits.pids, disk: preset.limits.diskBytes };
-  const attempted = { memory: limits.memory + 1024 * 1024, cpu: limits.cpu + 1_000,
+}
+
+function loadTargets(limits: Record<Resource, number>): Record<Resource, number> {
+  return { memory: limits.memory + 1024 * 1024, cpu: limits.cpu + 1_000,
     pids: limits.pids + 1, disk: limits.disk + 1024 * 1024 };
-  const high = ORDER.some(resource => !finite(limits[resource]) || attempted[resource] > CAPS[resource]);
-  let deadlineMs = TIMEOUT_MS;
-  if (high) {
-    const scope = options.scope;
-    requireProbe(scope && deps.resolveApprovedBudget && deps.verifyCleanup,
-      "high-load mode requires a host-owned operator approval and cleanup readback");
-    const binding: IncusLoadBudgetBinding = { ...scope, presetId: preset.id,
-      presetDigest: await sandboxPresetDigest(preset), sandboxId: primary.sandboxId };
-    requireProbe(validBinding(binding), "high-load scope is invalid");
-    const budget = await deps.resolveApprovedBudget(binding);
-    requireProbe(approvedBudget(budget, binding, limits, attempted, (options.now ?? Date.now)()),
-      "high-load approval is absent, stale, or bound to another fixture or limit");
-    deadlineMs = budget.maxDeadlineMs;
-  }
+}
+
+async function loadDeadline(primary: LiveFixtureHandle, preset: SandboxPreset,
+  deps: IncusLoadProbeDependencies, options: IncusLoadProbeOptions,
+  limits: Record<Resource, number>, attempted: Record<Resource, number>, high: boolean): Promise<number> {
+  if (!high) return TIMEOUT_MS;
+  const scope = options.scope;
+  requireProbe(scope && deps.resolveApprovedBudget && deps.verifyCleanup,
+    "high-load mode requires a host-owned operator approval and cleanup readback");
+  const binding: IncusLoadBudgetBinding = { ...scope, presetId: preset.id,
+    presetDigest: await sandboxPresetDigest(preset), sandboxId: primary.sandboxId };
+  requireProbe(validBinding(binding), "high-load scope is invalid");
+  const budget = await deps.resolveApprovedBudget(binding);
+  requireProbe(approvedBudget(budget, binding, limits, attempted, (options.now ?? Date.now)()),
+    "high-load approval is absent, stale, or bound to another fixture or limit");
+  return budget.maxDeadlineMs;
+}
+
+function validateLoadCaps(limits: Record<Resource, number>, attempted: Record<Resource, number>,
+  high: boolean): void {
   for (const resource of ORDER) {
     requireProbe(finite(limits[resource]) && limits[resource] > 0
       && attempted[resource] <= (high ? HIGH_CAPS[resource] : CAPS[resource]),
     `${resource} limit exceeds the reviewed safety cap`);
   }
-  const baseline = await deps.sampleHealth(primary);
-  requireProbe(healthy(baseline, baseline, primary), "host or independent neighbor baseline is unhealthy");
-  if (high) requireProbe(baseline.hostAvailableBytes >= attempted.memory + HIGH_RAM_MARGIN
+}
+
+function validateHostHeadroom(baseline: IncusLoadHealth, attempted: Record<Resource, number>,
+  high: boolean): void {
+  if (!high) return;
+  requireProbe(baseline.hostAvailableBytes >= attempted.memory + HIGH_RAM_MARGIN
     && baseline.hostDiskFreeBytes >= attempted.disk + HIGH_DISK_MARGIN
     && baseline.hostAvailablePids >= attempted.pids + HIGH_PID_MARGIN,
   "Xeon RAM, storage pool, or PID headroom is insufficient for approved load");
+}
+
+function containmentObserved(resource: Resource, childExit: unknown, limitEvents: number): boolean {
+  if (resource === "memory") return limitEvents > 0 && childExit === -9;
+  if (resource === "cpu" || resource === "pids") return limitEvents > 0 && childExit === 0;
+  return childExit === 28;
+}
+
+function loadMetric(resource: Resource): IncusLoadProbeResult["readouts"][number]["metric"] {
+  if (resource === "cpu") return "cpu.usage_usec";
+  if (resource === "memory") return "memory.peak";
+  if (resource === "pids") return "pids.peak";
+  return "disk.enospc";
+}
+
+async function measureResource(primary: LiveFixtureHandle, resource: Resource, target: number,
+  limit: number, deadlineMs: number, high: boolean, baseline: IncusLoadHealth,
+  deps: IncusLoadProbeDependencies, samples: IncusLoadProbeResult["samples"]): Promise<{
+    fact: LiveLimitLoadFact; readout: IncusLoadProbeResult["readouts"][number] }> {
+  const result = await monitoredLoad(primary, resource, target, deadlineMs, high,
+    baseline, deps, samples);
+  requireProbe(result.stdout.length <= 4096 && result.stderr.length <= 4096
+    && result.exitCode === 0, `${resource} guest probe failed`);
+  let parsed: Record<string, unknown>;
+  try { parsed = JSON.parse(result.stdout); }
+  catch { return fail(`${resource} guest readout is invalid`); }
+  const followup = await deps.sampleHealth(primary);
+  samples.push({ resource, phase: "after", health: followup });
+  requireProbe(healthy(followup, baseline, primary), `${resource} affected host or neighbor health`);
+  const diskQuota = resource === "disk" ? await deps.readRootQuota(primary) : null;
+  const observedLimit = diskQuota?.bytes ?? parsed.observedLimit;
+  requireProbe((!diskQuota || diskQuota.sandboxId === primary.sandboxId)
+    && parsed.attempted === target && finite(observedLimit)
+    && observedLimit > 0 && observedLimit <= limit
+    && finite(parsed.peak) && finite(parsed.limitEvents)
+    && parsed.cleanupComplete === true, `${resource} evidence is incomplete`);
+  // A child killed by the cgroup is expected for memory; all other probes
+  // must exit normally. CPU/PID require a measured cgroup throttle/hit.
+  requireProbe(containmentObserved(resource, parsed.childExit, parsed.limitEvents),
+    `${resource} containment was not observed`);
+  if (high) {
+    requireProbe(followup.hostAvailableBytes >= HIGH_RAM_MARGIN
+      && followup.hostDiskFreeBytes >= HIGH_DISK_MARGIN
+      && followup.hostAvailablePids >= HIGH_PID_MARGIN,
+    `${resource} left the host below its safety margin`);
+  }
+  const readout = { resource, attempted: target, observedLimit: Number(observedLimit),
+    metric: loadMetric(resource), metricValue: Number(parsed.peak),
+    limitEvents: Number(parsed.limitEvents), childExit: Number(parsed.childExit), cleanupComplete: true };
+  const fact = { resource, attempted: target, observedLimit: Number(observedLimit),
+    contained: true, neighborHealthy: true, hostHealthy: true };
+  return { fact, readout };
+}
+
+/** Executes bounded loads. Every fact must be measured, with an independent neighbor. */
+export async function exerciseIncusControlledLoads(
+  primary: LiveFixtureHandle, preset: SandboxPreset, deps: IncusLoadProbeDependencies,
+  options: IncusLoadProbeOptions = {},
+): Promise<IncusLoadProbeResult> {
+  const limits = presetLimits(preset);
+  const attempted = loadTargets(limits);
+  const high = ORDER.some(resource => !finite(limits[resource]) || attempted[resource] > CAPS[resource]);
+  const deadlineMs = await loadDeadline(primary, preset, deps, options, limits, attempted, high);
+  validateLoadCaps(limits, attempted, high);
+  const baseline = await deps.sampleHealth(primary);
+  requireProbe(healthy(baseline, baseline, primary), "host or independent neighbor baseline is unhealthy");
+  validateHostHeadroom(baseline, attempted, high);
   const samples: IncusLoadProbeResult["samples"] = [{ resource: "baseline", phase: "before", health: baseline }];
   const readouts: IncusLoadProbeResult["readouts"] = [];
   const facts: LiveLimitLoadFact[] = [];
   for (const resource of ORDER) {
-    const target = attempted[resource];
-    const result = await monitoredLoad(primary, resource, target, deadlineMs, high,
-      baseline, deps, samples);
-    requireProbe(result.stdout.length <= 4096 && result.stderr.length <= 4096
-      && result.exitCode === 0, `${resource} guest probe failed`);
-    let parsed: Record<string, unknown>;
-    try { parsed = JSON.parse(result.stdout); }
-    catch { return fail(`${resource} guest readout is invalid`); }
-    const followup = await deps.sampleHealth(primary);
-    samples.push({ resource, phase: "after", health: followup });
-    requireProbe(healthy(followup, baseline, primary), `${resource} affected host or neighbor health`);
-    const diskQuota = resource === "disk" ? await deps.readRootQuota(primary) : null;
-    const observedLimit = diskQuota?.bytes ?? parsed.observedLimit;
-    requireProbe((!diskQuota || diskQuota.sandboxId === primary.sandboxId)
-      && parsed.attempted === target && finite(observedLimit)
-      && observedLimit > 0 && observedLimit <= limits[resource]
-      && finite(parsed.peak) && finite(parsed.limitEvents)
-      && parsed.cleanupComplete === true, `${resource} evidence is incomplete`);
-    // A child killed by the cgroup is expected for memory; all other probes
-    // must exit normally. CPU/PID require a measured cgroup throttle/hit.
-    const childExit = parsed.childExit;
-    const cgroupHit = Number(parsed.limitEvents) > 0;
-    requireProbe(resource === "memory" ? cgroupHit && childExit === -9
-      : resource === "cpu" || resource === "pids" ? cgroupHit && childExit === 0
-        : childExit === 28, `${resource} containment was not observed`);
-    if (high) {
-      requireProbe(followup.hostAvailableBytes >= HIGH_RAM_MARGIN
-        && followup.hostDiskFreeBytes >= HIGH_DISK_MARGIN
-        && followup.hostAvailablePids >= HIGH_PID_MARGIN,
-      `${resource} left the host below its safety margin`);
-    }
-    const metric = resource === "cpu" ? "cpu.usage_usec"
-      : resource === "memory" ? "memory.peak" : resource === "pids" ? "pids.peak" : "disk.enospc";
-    readouts.push({ resource, attempted: target, observedLimit: Number(observedLimit),
-      metric, metricValue: Number(parsed.peak), limitEvents: Number(parsed.limitEvents),
-      childExit: Number(childExit), cleanupComplete: true });
-    facts.push({ resource, attempted: target, observedLimit: Number(observedLimit),
-      contained: true, neighborHealthy: true, hostHealthy: true });
+    const { readout, fact } = await measureResource(primary, resource, attempted[resource],
+      limits[resource], deadlineMs, high, baseline, deps, samples);
+    readouts.push(readout);
+    facts.push(fact);
   }
   return { facts, samples, readouts };
 }

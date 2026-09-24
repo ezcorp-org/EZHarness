@@ -141,37 +141,51 @@ function sameScope(left: IncusQualificationScope, right: IncusQualificationScope
 
 function requireIdentity(row: FixtureIdentityRow | undefined, scope: IncusQualificationScope,
   handle: LiveFixtureHandle, observation: RecoveryObservation): asserts row is FixtureIdentityRow {
-  if (row?.projectPurpose !== "incus-qualification" || row.operationId !== handle.operationId
-    || row.bindingId !== handle.sandboxId || row.installationId !== scope.installationId
-    || row.releaseId !== scope.releaseId || row.connectionId !== scope.connectionId
-    || row.presetId !== scope.presetId || row.desiredState !== "STOPPED"
-    || row.observedState !== "STOPPED" || row.lastOperationState !== "SUCCEEDED"
-    || row.lastOperationId !== observation.durable.operation?.id
-    || row.lastOperationGeneration !== row.generation
-    || row.bindingInstallationId !== row.installationId
-    || row.bindingReleaseId !== row.releaseId
-    || row.bindingConnectionId !== row.connectionId
-    || row.bindingConnectionRevision !== row.connectionRevision
-    || row.bindingPresetId !== row.presetId
-    || row.connectionRevision !== observation.durable.fixture.connectionRevision
-    || row.generation !== observation.durable.binding.generation
-    || observation.durable.fixture.installationId !== scope.installationId
-    || observation.durable.fixture.releaseId !== scope.releaseId
-    || observation.durable.fixture.connectionId !== scope.connectionId
-    || observation.durable.fixture.presetId !== scope.presetId
-    || observation.durable.fixture.operationId !== handle.operationId
-    || observation.durable.fixture.bindingId !== handle.sandboxId
-    || observation.durable.binding.id !== handle.sandboxId
-    || observation.durable.binding.desiredState !== "STOPPED"
-    || observation.durable.binding.observedState !== "STOPPED"
-    || observation.backend.sandboxId !== handle.sandboxId
-    || observation.backend.state !== "stopped" || observation.backend.bootId !== null
-    || !sha256.test(observation.backend.imageDigest ?? "")
-    || !sha256.test(observation.backend.helperDigest ?? "")
-    || observation.backend.imageDigest === zeroDigest
-    || observation.backend.helperDigest === zeroDigest) {
+  if (!row || !fixtureMatchesRequest(row, scope, handle)
+    || !bindingMatchesFixture(row, observation)
+    || !observationMatchesFixture(observation, scope, handle)) {
     throw new Error("Incus restart checkpoint fixture is not the exact stopped qualification binding");
   }
+}
+
+function fixtureMatchesRequest(row: FixtureIdentityRow, scope: IncusQualificationScope,
+  handle: LiveFixtureHandle): boolean {
+  return row.projectPurpose === "incus-qualification" && row.operationId === handle.operationId
+    && row.bindingId === handle.sandboxId && row.installationId === scope.installationId
+    && row.releaseId === scope.releaseId && row.connectionId === scope.connectionId
+    && row.presetId === scope.presetId && row.desiredState === "STOPPED"
+    && row.observedState === "STOPPED" && row.lastOperationState === "SUCCEEDED";
+}
+
+function bindingMatchesFixture(row: FixtureIdentityRow, observation: RecoveryObservation): boolean {
+  return row.lastOperationId === observation.durable.operation?.id
+    && row.lastOperationGeneration === row.generation
+    && row.bindingInstallationId === row.installationId
+    && row.bindingReleaseId === row.releaseId
+    && row.bindingConnectionId === row.connectionId
+    && row.bindingConnectionRevision === row.connectionRevision
+    && row.bindingPresetId === row.presetId
+    && row.connectionRevision === observation.durable.fixture.connectionRevision
+    && row.generation === observation.durable.binding.generation;
+}
+
+function observationMatchesFixture(observation: RecoveryObservation, scope: IncusQualificationScope,
+  handle: LiveFixtureHandle): boolean {
+  return observation.durable.fixture.installationId === scope.installationId
+    && observation.durable.fixture.releaseId === scope.releaseId
+    && observation.durable.fixture.connectionId === scope.connectionId
+    && observation.durable.fixture.presetId === scope.presetId
+    && observation.durable.fixture.operationId === handle.operationId
+    && observation.durable.fixture.bindingId === handle.sandboxId
+    && observation.durable.binding.id === handle.sandboxId
+    && observation.durable.binding.desiredState === "STOPPED"
+    && observation.durable.binding.observedState === "STOPPED"
+    && observation.backend.sandboxId === handle.sandboxId
+    && observation.backend.state === "stopped" && observation.backend.bootId === null
+    && sha256.test(observation.backend.imageDigest ?? "")
+    && sha256.test(observation.backend.helperDigest ?? "")
+    && observation.backend.imageDigest !== zeroDigest
+    && observation.backend.helperDigest !== zeroDigest;
 }
 
 async function fixtureIdentity(db: Database, fixtureOperationId: string): Promise<FixtureIdentityRow | undefined> {
