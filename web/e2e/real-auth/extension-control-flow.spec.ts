@@ -50,21 +50,21 @@ test("external harness builds and invokes real code; failed updates retain the a
 
 test("author dependency resolution saves an overridden transitive version in the workspace lock", async ({ page, request, baseURL }) => {
   const { client } = await extensionClient(request, baseURL!);
+  const name = `override-${crypto.randomUUID().slice(0, 8)}`;
   const created = await client.extensionControl<CreatedWorkspace>("extensions_workspace", {
-    action: "create", name: `override-${crypto.randomUUID().slice(0, 8)}`,
+    action: "create", name,
   });
-  const initial = await client.extensionControl<{ files: Record<string, string> }>("extensions_workspace", {
-    action: "read", installationId: created.installation.id, workspaceId: created.workspace.id,
-  });
-  const manifest = JSON.parse(initial.files["package.json"]!);
   const packageJson = JSON.stringify({
-    ...manifest,
+    name,
+    version: "1.0.0",
+    private: true,
     dependencies: { "is-odd": "3.0.1" },
     overrides: { "is-number": "7.0.0" },
   }, null, 2);
 
   await page.goto(created.openUrl);
-  await page.getByRole("button", { name: "package.json", exact: true }).click();
+  await page.getByLabel("Add a file", { exact: true }).fill("package.json");
+  await page.getByRole("button", { name: "Add file", exact: true }).click();
   await page.getByRole("textbox", { name: "Source: package.json", exact: true }).fill(packageJson);
   await page.getByRole("button", { name: "Save revision", exact: true }).click();
   await expect(page.getByRole("status")).toContainText("Saved revision");
