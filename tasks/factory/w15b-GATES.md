@@ -16,7 +16,7 @@ Changes outside W15's own files:
 - [x] G2 (R1, full stack): The running product and orchestrator open the data key through each selected kind, and the sealed manifest names it.
   CHECK: `W15B_KEY_KIND=<kind> bash /tmp/factory-platform-evidence/w15b/repro/one-run.sh`, for each of operator-master-key, cloud-kms, and transit
   EXPECT: outcome `passed`; `manifest.keys.service` equals the kind; for a non-file kind the orchestrator reached that service
-  EVIDENCE: `receipts/full-stack-*.json`; `/tmp/factory-platform-evidence/w15b/full-stack-<kind>.json`. The cloud-kms run made 2 `kms:decrypt` calls from the orchestrator, and the transit run made 3 `transit:decrypt` calls.
+  EVIDENCE: `receipts/full-stack-*.json`; `/tmp/factory-platform-evidence/w15b/full-stack-<kind>.json`. The cloud-kms run made 2 `kms:decrypt` calls from the orchestrator, and the transit run made 2 `transit:decrypt` calls (corrected in round 3; validator-2 N1 read 2 in the worker outputs). Round 3 at `9f1391d18`: all three kinds passed again, and `recovery.archivedCheckpoint.keys.service` names each kind.
 
 - [x] G3 (R2): The retention kind constraint is replaced by name on every boot, so a table created before the kinds grew accepts every kind.
   CHECK: the retention conformance suite, under PGlite (`src/__tests__/factory-retention.test.ts`, in `unit.json`) and PostgreSQL (`tests/postgres/factory-retention.test.ts`)
@@ -44,3 +44,20 @@ Changes outside W15's own files:
   CHECK: `bun build src/factory/pool/service-server.ts --target node --format esm`; `bun test ./src/__tests__/factory-process-boundaries.test.ts` (the C12 pool block, in `unit.json`); `tests/postgres/factory-pool-mtls.test.ts` and `tests/postgres/factory-pool-checkpoint.test.ts` under PostgreSQL
   EXPECT: exit 0; the pool closure holds `checkpoint-limits.ts` and no `checkpoint-barrier.ts`, `src/db/connection.ts`, or `src/db/queries/`
   EVIDENCE: `receipts/pool-node-build.json` exit 0; `pg-pool-mtls.json` 1 pass / 0 fail; `pg-pool-checkpoint.json` 6 pass / 0 fail. With the pool importing the barrier again, both C12 tests fail with "Browser build cannot import Bun builtin" (red run before commit `2ba2c70e6`).
+
+- [x] G9 (round 3, post-W15c): The branch carries W15c's gate, not a second copy, and a cancelled restore stops instead of recording a pool finding.
+  Merge: `integ/w00` at `b9de6910c` (W15c merge `943501e4e`) merged into W15b with no conflict. Commit `389c46d75` keeps one copy of each thing both branches added: the C12 block (W15b's, with its Node build test and closure case; W15c's copy of the build test removed), the `checkpoint-limits.ts` coverage key (the `integ/w00` line), and the Node-service lesson (W15c's). The runtime import walker exists once, in `scripts/check-factory-boundaries.ts`; `checkpoint-limits.ts` and `pool/checkpoint.ts` are the base's files unchanged.
+  N5 (commit `9f1391d18`): the restore's three pool calls (import of lost reservations, the live-reservation read, and the revoke of a post-checkpoint worker) rethrow the restore's abort before they record `pool_refused` or `post_checkpoint_worker_unrevoked`. Only a real pool refusal becomes a finding.
+  CHECK: `tests/postgres/factory-restore.test.ts` under PostgreSQL ("an abort during the pool's <call> call stops the restore ...", one case per call)
+  EXPECT: the restore rejects with the abort's own reason, records no pool finding, and writes no report; the 403 refusal case still records `pool_refused`
+  EVIDENCE: `receipts/pg-restore.json` 17 pass / 0 fail at `9f1391d18`. Red on the old `restore.ts`: 0/3 (`logs/n5-red-per-case.log`); the first red run recorded `pool_refused` before the restore stopped (`logs/n5-red.log`).
+
+- [x] G10 (round 3): Every leg the lead named, at `9f1391d18`, `BASE_REF=b9de6910c`.
+  CHECK: `BASE_REF=b9de6910c flock --close /tmp/ezcorp-validation-heavy.lock timeout 7200 bash /tmp/factory-platform-evidence/w15b/bin/batch.sh` (df checked before each heavy step; stop below 100 GB)
+  EXPECT: exit 0 for each step
+  EVIDENCE: `logs/batch-r5.log`, `receipts/*.json`. Typecheck, lint, boundaries, gate integrity, schema drift 0; suite registration 18/0; unit 273/0; Node orchestrator 0; PostgreSQL retention 14/0, checkpoint 12/0, restore 17/0, key rotation 1/0, pool checkpoint 6/0; pool producer `scripts/factory-pool-coverage.sh` 0 (86/0 over nine runs); pool Node build 0; new-file and patch coverage 0; full stack for all three kinds 0. A first run (`logs/batch-r4-stale-builds.log`) failed typecheck, the Node leg, and patch coverage because the workspace packages were built before the merge; after `bun install` and a rebuild of every workspace package (`logs/rebuild-r3.log`) the rerun passed. Not rerun in round 3: the backend pool, the web build, and the storage step (not in the lead's round-3 list); their round-2 receipts are in `receipts-r2-5f341bf01/`.
+
+Disclosed follow-ups (validator-2 notes, not fixed in W15b):
+- N2 (owner W15): the checkpoint manifest's `keys.service` only echoes the configuration, and `wrapVersion`, `masterKeyId`, and `wrappedDigest` are null in all three runs, so the manifest does not tie the checkpoint to its wrap. The proof of the kind is the orchestrator's decrypt call count.
+- N3 (hygiene): the retention kind constraint is dropped and re-added on every boot, under the advisory lock. Skip the change when the `pg_constraint` definition already matches.
+- N4 (defence in depth): the tamper check cannot catch an edit that also rewrites `report_digest`; that needs a keyed digest.

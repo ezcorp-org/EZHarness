@@ -3800,6 +3800,10 @@ Brief: `/tmp/factory-platform-evidence/w00/briefs/w15b.md`. Gate file: `tasks/fa
 - [x] R4 unchanged by design.
 - [x] Gates, receipts, report.
 - [x] Round 2: the pool bundles for Node again (checkpoint limits in a leaf); gate integrity green against `integ/w00` (key service back in `key-composition.ts`); final legs rerun at `5f341bf01`.
+- [x] Round 3 (post-W15c): merged `integ/w00` `b9de6910c`; one copy of the C12 block, the coverage key, and the lesson; N1 gate text; N5 an aborted restore stops without a pool finding; all legs rerun at `9f1391d18`.
+- [ ] Follow-up N2 (owner W15): the checkpoint manifest does not tie the checkpoint to its key wrap (`keys.service` echoes config; the wrap fields are null).
+- [ ] Follow-up N3 (hygiene): skip the retention kind constraint change when `pg_constraint` already holds the same definition.
+- [ ] Follow-up N4 (defence in depth): a keyed report digest, so an edit that also rewrites `report_digest` is caught.
 
 Review (W15b): The orchestrator's payload codec and the restore now open the data key through one unit,
 so a startup document that selects a cloud KMS or a transit engine works at runtime, not only in the
@@ -3811,6 +3815,8 @@ Round 2: the W15 merge made the pool service import the checkpoint barrier, whic
 database driver, so the Node pool bundle failed. The limits now live in a leaf module the barrier
 re-exports. Gate integrity had refused round 1's move of `key-composition.ts`; the selection is back
 in that file. Every final leg exits 0 at `5f341bf01`, including the backend pool.
+Round 3: W15c's gate replaced W15b's copy of the pool checks. A restore cancelled during a pool call
+now stops with its abort and records nothing for that call; before, it recorded a pool refusal first.
 
 ### W18 hygiene backlog: load-sensitive suites outside W15b (recorded by W15b, 2026-09-24)
 
