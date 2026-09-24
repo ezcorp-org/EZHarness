@@ -49,6 +49,8 @@ sudo python3 scripts/incus/prepare-qualification-settings.py \
   --manifest /root/incus-qualification-settings.json prepare --execute
 sudo python3 scripts/incus/prepare-qualification-settings.py \
   --manifest /root/incus-qualification-settings.json check
+sudo python3 scripts/incus/prepare-qualification-settings.py \
+  --manifest /root/incus-qualification-settings.json check-live-source
 ```
 
 The tool reads the actual old process environment, checks its PID, start time,
@@ -59,7 +61,11 @@ mode `0600` candidates for `old-isolated.env`, `qualification.env`,
 `qualification-runner.env`, and `qualification-runner-token`, plus a
 hash-only receipt. It prints no secret values. Only the new app settings
 refer to the reviewed dedicated-UID socket, token, setup key, and supervisor
-paths. The tool does not copy the developer's SSH key. Review file hashes
+paths. They set `HOST=127.0.0.1` and `PORT` to the pinned local app port
+because the built adapter reads those values. The manifest also pins a
+root-owned mode `0600` canonical Ed25519 public-key PEM file. The tool
+encodes it as one line in the new app environment. It does not print the
+PEM or decoded key and does not copy the developer's SSH key. Review file hashes
 and paths, then copy the exact candidates to the NixOS module's reviewed
 `/etc/ezharness` paths in a separate cutover step. Stop the old app and
 runner before the database stage. A fresh final `check` and the existing
@@ -67,10 +73,10 @@ runner before the database stage. A fresh final `check` and the existing
 The latter requires the dedicated runner's runtime token and directory.
 Provision and review those before the database stage; candidate generation
 alone does not create them.
-The live qualification witness also needs the supervisor's Ed25519 public
-key in `EZCORP_INCUS_SUPERVISOR_PUBLIC_KEY`. Its reviewed delivery to the
-app environment is a separate activation gate; this tool does not invent
-or embed the key.
+Run `check-live-source` immediately before stopping the old app. It checks
+that the old process still has the pinned boot, PID, start time, UID, and
+byte-equal selected environment. After the old process stops, use the staged
+`check` action; it does not need the old process.
 
 Prepare two root-owned mode `0600` environment files: one exact baseline
 for the old isolated app and one for the new app. They must keep

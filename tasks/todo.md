@@ -1788,10 +1788,13 @@ Review: Five disposable tests pass, including capture from a fake running
 process, stale process start time, unexpected keys, and missing hold evidence.
 The current isolated process has the expected key names and its values pass
 the literal parser; no values were printed. The generated app and runner
-keys match the existing dedicated-UID parser. The supervisor public-key
-delivery remains an activation gate. No live app or server files changed.
+keys match the existing dedicated-UID parser. A follow-up review found that
+the built adapter reads HOST and PORT; candidates now set both. The reviewed
+Ed25519 public key becomes canonical single-line base64 in the app env.
+`check-live-source` rejects a restarted or changed old process before stop.
+The disposable bundled adapter bound to a local port and returned HTTP 200
+as UID 1001. No live app or server files changed.
 
-The app now accepts a canonical single-line base64 Ed25519 supervisor public
-key from a sealed setting. Live readiness and checkpoint code share one parser;
-the focused readiness/checkpoint tests pass. The settings preparation tool
-must still emit the reviewed public key before activation.
+Live readiness and checkpoint code share one parser for the sealed supervisor
+public key; the focused tests pass. The exact public key still needs operator
+review and sealed installation before activation.

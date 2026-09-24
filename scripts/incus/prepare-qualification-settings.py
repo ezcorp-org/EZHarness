@@ -6,6 +6,7 @@ The operator holds traffic before capturing the actual old app process environme
 """
 
 import argparse
+import base64
 import hashlib
 import json
 import os
@@ -33,7 +34,7 @@ FIELDS = {
     "controlProbeRoot", "qualificationProjectId", "composeFixtureImageRef",
     "setupSshMode", "setupSshTarget", "setupSshIdentityFile",
     "setupSshKnownHostsFile", "setupSshHostKeySha256", "setupEndpoint",
-    "setupRecipeFile",
+    "setupRecipeFile", "supervisorPublicKeyFile",
 }
 FILES = ("old-isolated.env", "qualification.env", "qualification-runner.env",
          "qualification-runner-token", "qualification-settings-receipt.json")
@@ -95,6 +96,7 @@ def manifest(path):
             "settings manifest keys changed")
     for key in ("sourcePid", "sourceStartTicks", "oldUid", "newUid", "runnerUid", "port"):
         require(type(value[key]) is int and value[key] > 0, "positive numeric identity required")
+    require(value["port"] <= 65535, "local app port is invalid")
     require(isinstance(value["sourceBootId"], str)
             and re.fullmatch(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}",
                              value["sourceBootId"]), "pinned boot identity required")
@@ -105,6 +107,7 @@ def manifest(path):
                 "runnerStore", "supervisorSocket", "controlProbeRoot",
                 "setupSshIdentityFile", "setupSshKnownHostsFile", "setupRecipeFile"):
         absolute(value[key])
+    absolute(value["supervisorPublicKeyFile"])
     app_paths = tuple(Path(value[key]) for key in
                       ("sourceDb", "targetDb", "sourceProjectRoot", "targetProjectRoot"))
     stage = Path(value["stageDir"])
@@ -116,7 +119,7 @@ def manifest(path):
                          "runnerSocket", "runnerTokenRuntime", "runnerStore",
                          "supervisorSocket", "controlProbeRoot",
                          "setupSshIdentityFile", "setupSshKnownHostsFile",
-                         "setupRecipeFile"}:
+                         "setupRecipeFile", "supervisorPublicKeyFile"}:
         clean_value(value[key])
     require(value["setupSshMode"] == "reviewed-envelope-v1",
             "reviewed SSH gate required")
@@ -205,13 +208,29 @@ def env_bytes(values):
                    for key in sorted(values)).encode()
 
 
-def candidates(old, value, token):
+def reviewed_public_key(path):
+    pem = private_file(path).read_bytes()
+    match = re.fullmatch(
+        rb"-----BEGIN PUBLIC KEY-----\n([A-Za-z0-9+/]{59}=)\n"
+        rb"-----END PUBLIC KEY-----\n", pem)
+    require(match is not None, "canonical Ed25519 public key PEM required")
+    der = base64.b64decode(match.group(1), validate=True)
+    require(base64.b64encode(der) == match.group(1)
+            and len(der) == 44
+            and der.startswith(bytes.fromhex("302a300506032b6570032100")),
+            "Ed25519 public key required")
+    return pem
+
+
+def candidates(old, value, token, supervisor_public_key):
     require(all(old[key] for key in CRYPTO), "old app crypto identity is incomplete")
     old_env = dict(old)
     app = {key: old[key] for key in
                (*CRYPTO, "EZCORP_DB_PATH", "EZCORP_PROJECT_ROOT", "EZCORP_PORT",
                 "ORIGIN", "EZCORP_PUBLIC_URL")}
     app.update({
+        "HOST": "127.0.0.1",
+        "PORT": str(value["port"]),
         "EZCORP_DB_PATH": value["targetDb"],
         "EZCORP_PROJECT_ROOT": value["targetProjectRoot"],
         "EZCORP_PROJECT_ROOT": value["targetProjectRoot"],
@@ -219,6 +238,8 @@ def candidates(old, value, token):
         "EZCORP_EXTENSION_RUNNER_SOCKET": value["runnerSocket"],
         "EZCORP_EXTENSION_RUNNER_TOKEN_FILE": value["runnerTokenRuntime"],
         "EZCORP_INCUS_SUPERVISOR_SOCKET": value["supervisorSocket"],
+        "EZCORP_INCUS_SUPERVISOR_PUBLIC_KEY_B64":
+            base64.b64encode(supervisor_public_key).decode("ascii"),
         "EZCORP_INCUS_CONTROL_PROBE_ROOT": value["controlProbeRoot"],
         "EZCORP_INCUS_QUALIFICATION_USER_PROJECT_ID": value["qualificationProjectId"],
         "EZCORP_INCUS_COMPOSE_FIXTURE_IMAGE_REF": value["composeFixtureImageRef"],
@@ -254,7 +275,8 @@ def prepare(value):
     require(not any(stage.iterdir()), "stage directory must be empty")
     hold_receipt(value)
     old = read_old_process(value)
-    result = candidates(old, value, os.urandom(32).hex().encode() + b"\n")
+    public_key = reviewed_public_key(value["supervisorPublicKeyFile"])
+    result = candidates(old, value, os.urandom(32).hex().encode() + b"\n", public_key)
     receipt = {
         "version": 1,
         "sourcePid": value["sourcePid"],
@@ -290,7 +312,7 @@ def parse_env_file(data):
     return values
 
 
-def check(value):
+def check(value, quiet=False):
     require(os.geteuid() == 0, "root operator required")
     stage = private_stage(value["stageDir"])
     require(set(path.name for path in stage.iterdir()) == set(FILES),
@@ -313,7 +335,8 @@ def check(value):
     runner = parse_env_file(data[FILES[2]])
     require(set(old) == SOURCE_KEYS,
             "old baseline keys changed")
-    expected = candidates(old, value, data[FILES[3]])
+    expected = candidates(old, value, data[FILES[3]],
+                          reviewed_public_key(value["supervisorPublicKeyFile"]))
     require(data[FILES[0]] == expected[FILES[0]]
             and data[FILES[1]] == expected[FILES[1]]
             and data[FILES[2]] == expected[FILES[2]],
@@ -331,13 +354,23 @@ def check(value):
             "runner keys changed")
     require(re.fullmatch(rb"[0-9a-f]{64}\n", data[FILES[3]]),
             "runner token candidate is invalid")
-    print("Sealed candidate files match the pinned source and manifest.")
+    if not quiet:
+        print("Sealed candidate files match the pinned source and manifest.")
+
+
+def check_live_source(value):
+    check(value, quiet=True)
+    hold_receipt(value)
+    captured = private_file(Path(value["stageDir"]) / FILES[0]).read_bytes()
+    require(env_bytes(read_old_process(value)) == captured,
+            "live old app environment changed after capture")
+    print("Live old app still matches the sealed candidate files.")
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", required=True)
-    parser.add_argument("action", choices=("prepare", "check"))
+    parser.add_argument("action", choices=("prepare", "check", "check-live-source"))
     parser.add_argument("--execute", action="store_true")
     args = parser.parse_args()
     require(args.action != "prepare" or args.execute,
@@ -345,6 +378,8 @@ def main():
     value = manifest(args.manifest)
     if args.action == "prepare":
         prepare(value)
+    elif args.action == "check-live-source":
+        check_live_source(value)
     else:
         check(value)
 

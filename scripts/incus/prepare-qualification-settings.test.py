@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Disposable checks for sealed candidate preparation; values are fake."""
 
+import base64
 import importlib.util
 import json
 import os
@@ -46,7 +47,14 @@ def fixture(root, pid=1, start=1):
         "setupSshHostKeySha256": "SHA256:" + "a" * 43,
         "setupEndpoint": "https://fixture.invalid:8443",
         "setupRecipeFile": "/opt/ezharness/scripts/incus/recipe.json",
+        "supervisorPublicKeyFile": str(root / "supervisor-public.pem"),
     }
+
+
+def fake_public_key():
+    der = bytes.fromhex("302a300506032b6570032100") + b"a" * 32
+    return (b"-----BEGIN PUBLIC KEY-----\n" + base64.b64encode(der)
+            + b"\n-----END PUBLIC KEY-----\n")
 
 
 def old_environment(value):
@@ -76,6 +84,7 @@ class QualificationSettingsTests(unittest.TestCase):
             root = Path(directory)
             stage = root / "stage"
             stage.mkdir()
+            (root / "supervisor-public.pem").write_bytes(fake_public_key())
             initial = fixture(root)
             child = subprocess.Popen(
                 [shutil.which("sleep") or "sleep", "20"],
@@ -105,10 +114,27 @@ class QualificationSettingsTests(unittest.TestCase):
                     self.assertTrue(all(app[key] == old[key] for key in MODULE.CRYPTO))
                     self.assertEqual(app["EZCORP_DB_PATH"], value["targetDb"])
                     self.assertEqual(app["EZCORP_PROJECT_ROOT"], value["targetProjectRoot"])
+                    self.assertEqual(app["HOST"], "127.0.0.1")
+                    self.assertEqual(app["PORT"], str(value["port"]))
+                    self.assertEqual(base64.b64decode(
+                        app["EZCORP_INCUS_SUPERVISOR_PUBLIC_KEY_B64"], validate=True),
+                        fake_public_key())
                     self.assertEqual(runner["EZ_EXTENSION_APP_UID"], "62040")
                     self.assertNotIn("DATABASE_URL", app)
                     with patch("builtins.print"):
                         MODULE.check(value)
+                        MODULE.check_live_source(value)
+                    with patch.object(MODULE, "read_old_process",
+                                      return_value={**old_environment(value),
+                                                    "EZCORP_JWT_SECRET": "changed-fake-jwt"}):
+                        with self.assertRaises(ValueError):
+                            MODULE.check_live_source(value)
+                    child.terminate()
+                    child.wait(timeout=5)
+                    with patch("builtins.print"):
+                        MODULE.check(value)
+                    with self.assertRaises(FileNotFoundError):
+                        MODULE.check_live_source(value)
                     with self.assertRaises(ValueError):
                         MODULE.prepare(value)
                     (stage / MODULE.FILES[1]).write_bytes(
@@ -116,8 +142,9 @@ class QualificationSettingsTests(unittest.TestCase):
                     with self.assertRaises(ValueError):
                         MODULE.check(value)
             finally:
-                child.terminate()
-                child.wait(timeout=5)
+                if child.poll() is None:
+                    child.terminate()
+                    child.wait(timeout=5)
 
     def test_rejects_extra_keys_database_url_and_duplicate_values(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -127,6 +154,8 @@ class QualificationSettingsTests(unittest.TestCase):
             self.assertEqual(MODULE.parse_environ(raw), old)
             for suffix in (b"DATABASE_URL=postgres://fake\0",
                            b"EZCORP_UNKNOWN=fake\0",
+                           b"EZCORP_INCUS_SUPERVISOR_PUBLIC_KEY=fake\0",
+                           b"EZCORP_INCUS_SUPERVISOR_PUBLIC_KEY_B64=fake\0",
                            b"EZCORP_DB_PATH=other\0"):
                 with self.assertRaises(ValueError):
                     MODULE.parse_environ(raw + suffix)
@@ -137,14 +166,27 @@ class QualificationSettingsTests(unittest.TestCase):
             value = fixture(root)
             old = old_environment(value)
             with self.assertRaises(ValueError):
-                MODULE.candidates({**old, "EZCORP_JWT_SECRET": "$(cmd)"}, value, b"token\n")
-            result = MODULE.candidates(old, value, b"a" * 64 + b"\n")
+                MODULE.candidates({**old, "EZCORP_JWT_SECRET": "$(cmd)"}, value,
+                                  b"token\n", fake_public_key())
+            result = MODULE.candidates(old, value, b"a" * 64 + b"\n", fake_public_key())
             app = MODULE.parse_env_file(result[MODULE.FILES[1]])
             self.assertEqual(app["EZCORP_EXTENSION_RUNNER_SOCKET"], value["runnerSocket"])
             self.assertEqual(app["EZCORP_EXTENSION_RUNNER_TOKEN_FILE"],
                              value["runnerTokenRuntime"])
             self.assertEqual(app["EZCORP_INCUS_SUPERVISOR_SOCKET"],
                              value["supervisorSocket"])
+            self.assertEqual(app["HOST"], "127.0.0.1")
+            self.assertEqual(app["PORT"], "4301")
+
+    def test_rejects_non_ed25519_or_changed_public_key(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "public.pem"
+            with patch.object(MODULE, "private_file", return_value=path):
+                path.write_bytes(fake_public_key())
+                self.assertEqual(MODULE.reviewed_public_key(path), fake_public_key())
+                path.write_bytes(b"-----BEGIN PUBLIC KEY-----\nAAAA\n-----END PUBLIC KEY-----\n")
+                with self.assertRaises(ValueError):
+                    MODULE.reviewed_public_key(path)
 
     def test_missing_hold_and_mutable_stage_refused(self):
         with tempfile.TemporaryDirectory() as directory:
