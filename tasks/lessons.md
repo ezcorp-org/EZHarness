@@ -419,3 +419,4 @@
 - After an exact plan is approved, execute and verify it before preparing another review packet. State the one next dependency and its owner after each step.
 - Parallelize independent read-only audits and documentation. Keep app cutover, unknown-effect repair, provider setup, and sandbox creation in one ordered live sequence so agents do not race on shared state.
 - Before treating an unknown-effect repair as ready, prove the observation credential stays usable after every credential that could repeat the effect is fenced. A readback with the old write-capable client certificate is not independent evidence.
+- Keep a recovery fence scoped to the clients and credentials that can repeat the saved effect. Idle operator access is not itself an active client. Do not replace a missing live hold with a static `trafficHeld` field or add a new signer unless the proof actually needs it; verify the hold remains effective throughout the observation and database repair.
