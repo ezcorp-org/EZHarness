@@ -84,4 +84,6 @@ const POST: RequestHandler = async ({ locals, request }) => {
 return { GET, POST };
 }
 
-export const { GET, POST } = _createCapacityHandlers(() => _createService(defaultDependencies));
+const _handlers = _createCapacityHandlers(() => _createService(defaultDependencies));
+export const GET: RequestHandler = _handlers.GET;
+export const POST: RequestHandler = _handlers.POST;
