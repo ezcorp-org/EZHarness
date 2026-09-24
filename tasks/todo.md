@@ -3716,6 +3716,21 @@ package changed.
 
 - Every startup document declares the recovery sections; an installation without them stays degraded (factory-checkpoint-barrier-held) and never reports ready.
 
+## W15c — Pool service leaf (branch `wp/w15c-pool-leaf`)
+
+Gate file: `tasks/factory/w15c-GATES.md`. Evidence: `/tmp/factory-platform-evidence/w15c/`.
+
+- [x] The checkpoint limits and pool-facing types move to the leaf `checkpoint-limits.ts`; the barrier re-exports them.
+- [x] The Node build of the pool service passes with no `bun` import; the pool mTLS suite passes under PostgreSQL.
+- [x] `check-factory-boundaries.ts` rejects a pool service graph that reaches `src/db/connection.ts`; a deliberate violation is tested.
+- [ ] Backend pool: 3 Podman guest suites fail because the host lost their pinned images at about 16:50Z.
+
+Review (W15c): The W15 merge put the checkpoint barrier into the pool service's import graph, and the
+barrier reaches the Bun SQL driver, so the pool could not bundle for Node. The pool now reads a leaf
+module. The factory boundary checker owns the runtime import walker and fails the build if the pool
+graph reaches the database connection again. Every gate passes except the backend pool, which fails
+only in three guest suites whose images were removed from the host.
+
 ## W18 test-hygiene backlog (coordinator)
 
 - compose.factory-storage.local.yml: declare restart: on-failure for both SeaweedFS services and the proof PostgreSQL so a recreated store keeps the policy the coordinator set by hand on 2026-09-23 after the OOM kill; document it in docs/factory-local-storage.md.

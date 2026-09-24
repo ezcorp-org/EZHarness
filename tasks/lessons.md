@@ -1519,3 +1519,9 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 - Verify live state before you answer a factual question about it. When the user asked which model the subagents run on, the first answer came from the spawn parameter, not from evidence. Ask the agents (or read the source) first, then answer with the evidence named.
 - An outer `timeout` around a command that waits for a lock counts the wait. The first W18a-2 combined run waited about 1.6 hours for the heavy lock inside `timeout 9000` and was killed (exit 124) in its node leg. Put the timeout inside the lock (`flock ... timeout N cmd`), or rely on the runner's own per-leg bound.
 - Never pipe a command that must run to completion into a reader that can close early (head, a limited grep). A closed pipe kills git commit with SIGPIPE and nothing is committed. Write to a file, then summarize from the file.
+
+## 2026-09-24 — A Node service must not import a product module for a constant (W15c)
+
+- A Node service may import only leaf modules from the product. `src/db/queries/*` and anything that
+  reaches them (records, auth) pull in `db/connection` and the Bun SQL driver. Put shared constants and
+  types in a leaf, and let `check-factory-boundaries.ts` (`NODE_SERVICE_BOUNDARIES`) guard the entry.
