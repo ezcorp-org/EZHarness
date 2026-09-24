@@ -17,6 +17,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join, delimiter } from "node:path";
+import { SYSCALLS_BY_ARCH, syscallNumber, syscallsFor } from "../extensions/sandbox/landlock-ffi";
 import {
   findBwrap,
   selectTier,
@@ -91,9 +92,30 @@ describe("selectTier — pure tier selection", () => {
     expect(r).toEqual({ tier: "advisory", landlockUsable: false });
   });
 
-  test("advisory: non-x86_64 arch disables Landlock even if ABI>0", () => {
-    const r = selectTier(outcomes({ landlockAbi: 4, userns: true, arch: "arm64" }));
-    expect(r).toEqual({ tier: "advisory", landlockUsable: false });
+  // The guarantee the old "non-x86_64 → advisory" case protected is kept, but
+  // stated as what it always meant: an arch with no VERIFIED syscall table
+  // must not get Landlock. arm64 now has one (see SYSCALLS_BY_ARCH), so the
+  // unverified case is exercised with arches that do not.
+  for (const unverified of ["ia32", "ppc64", "riscv64", "s390x", "arm"]) {
+    test(`advisory: ${unverified} has no verified syscall table, so no Landlock even if ABI>0`, () => {
+      const r = selectTier(outcomes({ landlockAbi: 4, userns: true, arch: unverified }));
+      expect(r).toEqual({ tier: "advisory", landlockUsable: false });
+    });
+  }
+
+  test("arm64 with a Landlock ABI gets the same tiers as x86_64", () => {
+    for (const bwrap of [
+      { userns: true, bwrapPresent: true, bwrapSetuid: false, want: "bwrap" },
+      { userns: false, bwrapPresent: true, bwrapSetuid: false, want: "landlock" },
+      { userns: true, bwrapPresent: true, bwrapSetuid: true, want: "landlock" },
+    ] as const) {
+      const onArm = selectTier(outcomes({ landlockAbi: 4, arch: "arm64", ...bwrap }));
+      const onX64 = selectTier(outcomes({ landlockAbi: 4, arch: "x64", ...bwrap }));
+      expect(onArm.tier).toBe(bwrap.want);
+      // Held against x64 rather than restated: the arch must not change the
+      // decision once both have a verified table.
+      expect(onArm).toEqual(onX64);
+    }
   });
 
   test("landlock tier ignores cgroup/kvm (informational only)", () => {
@@ -263,5 +285,34 @@ describe("the probe never selects a tier it cannot execute", () => {
     const caps = probeSandboxCapabilities();
     expect(caps.bwrapPresent).toBe(findBwrap() !== null);
     expect(caps.tier === "bwrap" && !caps.bwrapPresent).toBe(false);
+  });
+});
+
+describe("SYSCALLS_BY_ARCH — the verified syscall table", () => {
+  test("Landlock numbers are shared across arches; prctl is not", () => {
+    // Landlock postdates the asm-generic unification, prctl does not. A row
+    // copied from x86_64 would give aarch64 prctl=157, which is setsid(2)
+    // there — the exact mistake this table exists to prevent.
+    const { x64, arm64 } = SYSCALLS_BY_ARCH;
+    expect(arm64.landlock_create_ruleset).toBe(x64.landlock_create_ruleset);
+    expect(arm64.landlock_add_rule).toBe(x64.landlock_add_rule);
+    expect(arm64.landlock_restrict_self).toBe(x64.landlock_restrict_self);
+    expect(arm64.prctl).not.toBe(x64.prctl);
+  });
+
+  test("an arch without a table resolves to null, never to a borrowed row", () => {
+    for (const arch of ["ia32", "ppc64", "riscv64", "", "__proto__", "constructor"]) {
+      expect(syscallsFor(arch)).toBeNull();
+      expect(() => syscallNumber("prctl", arch)).toThrow(`unsupported architecture ${arch}`);
+    }
+    expect(syscallNumber("prctl", "x64")).toBe(157n);
+    expect(syscallNumber("prctl", "arm64")).toBe(167n);
+  });
+
+  test("selectTier grants Landlock exactly to the arches that have a table", () => {
+    for (const arch of ["x64", "arm64", "ia32", "ppc64", "riscv64"]) {
+      const usable = selectTier(outcomes({ landlockAbi: 3, userns: false, arch })).landlockUsable;
+      expect(usable, arch).toBe(syscallsFor(arch) !== null);
+    }
   });
 });
