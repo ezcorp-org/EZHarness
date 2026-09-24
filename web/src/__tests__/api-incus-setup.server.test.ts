@@ -178,6 +178,12 @@ test("unknown probe failures expose only fixed diagnostic labels", async () => {
 	const body = await response.json();
 	expect(response.status).toBe(409);
 	expect(body).toEqual({ code: "setup_failed", message: "Incus setup failed. Check host logs and inspect the saved plan.",
-		diagnostic: { errorType: "ContractError", errorCode: "INTERNAL", source: "release_process" } });
+		diagnostic: { errorType: "ContractError", errorCode: "INTERNAL", source: "release_process", shape: "object",
+			hasMessage: true, hasError: false, hasKind: false, hasStatus: false } });
 	expect(JSON.stringify(body)).not.toContain("private-key-must-never-escape");
+	failure = { name: "RunnerError", code: "extension_error", message: "private-key-must-never-escape", error: { secret: "private-key-must-never-escape" } };
+	const structuralBody = await (await POST(postEvent({ action: "probe", setupId: "setup-a" }))).json();
+	expect(structuralBody.diagnostic).toEqual({ errorType: "RunnerError", errorCode: "extension_error", source: "other",
+		shape: "object", hasMessage: true, hasError: true, hasKind: false, hasStatus: false });
+	expect(JSON.stringify(structuralBody)).not.toContain("private-key-must-never-escape");
 });
