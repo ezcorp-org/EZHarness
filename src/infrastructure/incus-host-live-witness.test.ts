@@ -28,10 +28,10 @@ test("every unmeasured host probe denies instead of reporting a passing fact", a
   const preset = INCUS_PRESETS[0]!;
   for (const call of [
     () => witness.controlFacts(scope, preset),
-    () => witness.exerciseLimits(handle, { sandboxId: "other", operationId: "other-operation" }),
     () => witness.restartController(handle),
     () => witness.exerciseFailedCleanupRecovery(handle, handle),
   ]) await expect(call()).rejects.toThrow("Incus live witness unavailable");
+  await expect(witness.exerciseLimits(handle, handle)).rejects.toThrow("two distinct running fixtures");
   await expect(witness.observeEnforcement(handle, handle)).rejects.toThrow("two distinct fixtures");
 });
 

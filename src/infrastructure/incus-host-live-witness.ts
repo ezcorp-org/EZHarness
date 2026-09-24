@@ -12,6 +12,7 @@ import { IncusQualificationFixtureService, IncusQualificationStore, type IncusIm
   type IncusQualificationScope } from "./incus-qualification";
 import type { HostIncusLiveWitness, LiveFixtureHandle, LiveFixtureInspection } from "./incus-live-cases";
 import { observeIncusResourceEnforcement, type IncusNetworkTarget } from "./incus-live-resource-probes";
+import { exerciseIncusLimits } from "./incus-live-limit-probe";
 import { IncusLiveNetworkProbe } from "./incus-live-network-probe";
 import { HostIncusLiveReadback, type LiveReadbackContext } from "./incus-transport/live-readback";
 import { ProviderConnectionStore, type ProviderConnectionCredentials,
@@ -458,9 +459,34 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
       });
   }
 
-  async exerciseLimits(_handle: LiveFixtureHandle,
-    _neighbor: LiveFixtureHandle): ReturnType<HostIncusLiveWitness["exerciseLimits"]> {
-    return deny("controlled limit and neighbor load probes are not implemented");
+  async exerciseLimits(handle: LiveFixtureHandle,
+    neighbor: LiveFixtureHandle): ReturnType<HostIncusLiveWitness["exerciseLimits"]> {
+    if (!this.resourceNetwork || handle.sandboxId === neighbor.sandboxId
+      || handle.operationId === neighbor.operationId) deny("limit probe needs two distinct running fixtures");
+    const [primary, adjacent] = await Promise.all([this.owned(handle, true), this.owned(neighbor, true)]);
+    if (primary.scope.installationId !== adjacent.scope.installationId
+      || primary.scope.releaseId !== adjacent.scope.releaseId
+      || primary.scope.connectionId !== adjacent.scope.connectionId
+      || primary.scope.presetId !== adjacent.scope.presetId) deny("limit probe fixture scopes differ");
+    const { context } = await this.context(primary.scope, primary.selected.preset);
+    const endpoint = new URL(primary.selected.connection.endpoint);
+    const management = { address: endpoint.hostname.replace(/^\[|\]$/g, ""), port: Number(endpoint.port || 443) };
+    const healthyInstance = async (fixture: LiveFixtureHandle) => {
+      const observed = await this.backend.instance(context, fixture.sandboxId);
+      return observed.state === "running" && observed.privateNetwork === true
+        && observed.restrictedProject === true && observed.unprivileged === true;
+    };
+    const facts = await this.observeEnforcement(handle, neighbor);
+    return exerciseIncusLimits(handle, primary.selected.preset, facts, {
+      runGuest: (fixture, argv, timeoutMs) => this.run(fixture, argv, timeoutMs),
+      neighborHealthy: async () => {
+        if (!await healthyInstance(neighbor)) return false;
+        const canary = await this.run(neighbor, ["sh", "-c", "printf %s ezh-neighbor-ok"], 10_000);
+        return canary.exitCode === 0 && canary.stdout === "ezh-neighbor-ok" && canary.stderr === "";
+      },
+      hostHealthy: async () => await healthyInstance(handle)
+        && await this.resourceNetwork!.hostCanConnect(management),
+    });
   }
 
   async setPower(handle: LiveFixtureHandle, state: "running" | "stopped"): Promise<void> {
