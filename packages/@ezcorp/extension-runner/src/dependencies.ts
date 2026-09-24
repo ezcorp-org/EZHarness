@@ -161,9 +161,7 @@ export function extractPackage(archive: Uint8Array): Record<string, Uint8Array> 
   return result;
 }
 
-export async function fetchLockedDependencies(files: WorkspaceFiles, signal?: AbortSignal): Promise<{ text: WorkspaceFiles; binary: Record<string, Uint8Array>; executable: string[] }> {
-  const { dependencies: declared, overrides } = packagePolicy(files);
-  if (Object.keys(declared).length === 0) return { text: {}, binary: {}, executable: [] };
+function validatedLock(files: WorkspaceFiles, declared: Record<string, string>, overrides: OverridePolicy): PackageLock {
   if (!files["package-lock.json"]) throw new RunnerError("lockfile_required", "Resolve dependencies into a workspace revision before building", "dependencies");
   const lock: PackageLock = JSON.parse(workspaceText(files["package-lock.json"], "package-lock.json"));
   if (lock.lockfileVersion !== 3 || !lock.packages || typeof lock.packages !== "object" || Object.keys(lock.packages).length > 201) throw new RunnerError("lockfile_invalid", "Expected bounded npm lockfile version 3", "dependencies");
@@ -174,6 +172,30 @@ export async function fetchLockedDependencies(files: WorkspaceFiles, signal?: Ab
     if (!entry || !("version" in entry) || entry.version !== version) throw new RunnerError("lockfile_stale", "Direct dependency version differs from lock", "dependencies");
   }
   validateLockedClosure(lock.packages, overrides);
+  return lock;
+}
+
+function validatePackageArchive(path: string, entry: LockedPackage, archive: Uint8Array): { extracted: Record<string, Uint8Array>; executable: string[] } {
+  if (`sha512-${createHash("sha512").update(archive).digest("base64")}` !== entry.integrity) throw new RunnerError("dependency_integrity", "Dependency archive integrity mismatch", "dependencies");
+  const extracted = extractPackage(archive);
+  const manifest = JSON.parse(new TextDecoder().decode(extracted["package.json"]));
+  if (manifest.version !== entry.version || path.split("/node_modules/").at(-1)?.replace(/^node_modules\//, "") !== manifest.name) throw new RunnerError("dependency_identity", "Package identity differs from lock", "dependencies");
+  if (JSON.stringify(Object.entries(entry.dependencies ?? {}).sort()) !== JSON.stringify(Object.entries(manifest.dependencies ?? {}).sort())) throw new RunnerError("dependency_identity", "Package dependency declarations differ from lock", "dependencies");
+  const executable: string[] = [];
+  const binaries = typeof manifest.bin === "string" ? [manifest.bin] : Object.values(manifest.bin ?? {});
+  for (const binary of binaries) {
+    if (typeof binary !== "string") throw new RunnerError("dependency_identity", "Invalid package binary declaration", "dependencies");
+    const binaryPath = relativePath(binary.replace(/^\.\//, ""));
+    if (!Object.hasOwn(extracted, binaryPath)) throw new RunnerError("dependency_identity", "Declared binary is missing", "dependencies");
+    executable.push(`${path}/${binaryPath}`);
+  }
+  return { extracted, executable };
+}
+
+export async function fetchLockedDependencies(files: WorkspaceFiles, signal?: AbortSignal): Promise<{ text: WorkspaceFiles; binary: Record<string, Uint8Array>; executable: string[] }> {
+  const { dependencies: declared, overrides } = packagePolicy(files);
+  if (Object.keys(declared).length === 0) return { text: {}, binary: {}, executable: [] };
+  const lock = validatedLock(files, declared, overrides);
   const binary: Record<string, Uint8Array> = Object.create(null);
   const executable: string[] = [];
   let bytes = 0;
@@ -184,19 +206,9 @@ export async function fetchLockedDependencies(files: WorkspaceFiles, signal?: Ab
     if (!/^node_modules\/(?:@[a-z0-9._-]+\/)?[a-z0-9._-]+(?:\/node_modules\/(?:@[a-z0-9._-]+\/)?[a-z0-9._-]+)*$/.test(path) || path.includes("@ezcorp/")) throw new RunnerError("lockfile_invalid", "Invalid dependency location", "dependencies");
     if (!("version" in entry) || !exactVersion.test(entry.version) || typeof entry.integrity !== "string" || !/^sha512-[a-zA-Z0-9+/]{86}==$/.test(entry.integrity)) throw new RunnerError("lockfile_invalid", "Dependency requires exact version and SHA-512 integrity", "dependencies");
     const archive = await registryBytes(entry.resolved, maximumArchive, signal);
-    if (`sha512-${createHash("sha512").update(archive).digest("base64")}` !== entry.integrity) throw new RunnerError("dependency_integrity", "Dependency archive integrity mismatch", "dependencies");
-    const extracted = extractPackage(archive);
-    const manifest = JSON.parse(new TextDecoder().decode(extracted["package.json"]));
-    if (manifest.version !== entry.version || path.split("/node_modules/").at(-1)?.replace(/^node_modules\//, "") !== manifest.name) throw new RunnerError("dependency_identity", "Package identity differs from lock", "dependencies");
-    if (JSON.stringify(Object.entries(entry.dependencies ?? {}).sort()) !== JSON.stringify(Object.entries(manifest.dependencies ?? {}).sort())) throw new RunnerError("dependency_identity", "Package dependency declarations differ from lock", "dependencies");
-    const binaries = typeof manifest.bin === "string" ? [manifest.bin] : Object.values(manifest.bin ?? {});
-    for (const binary of binaries) {
-      if (typeof binary !== "string") throw new RunnerError("dependency_identity", "Invalid package binary declaration", "dependencies");
-      const binaryPath = relativePath(binary.replace(/^\.\//, ""));
-      if (!Object.hasOwn(extracted, binaryPath)) throw new RunnerError("dependency_identity", "Declared binary is missing", "dependencies");
-      executable.push(`${path}/${binaryPath}`);
-    }
-    for (const [name, content] of Object.entries(extracted)) {
+    const validated = validatePackageArchive(path, entry, archive);
+    executable.push(...validated.executable);
+    for (const [name, content] of Object.entries(validated.extracted)) {
       bytes += content.byteLength;
       if (bytes > maximumClosure) throw new RunnerError("dependency_limit", "Dependency closure exceeds policy", "dependencies");
       binary[`${path}/${name}`] = content;
