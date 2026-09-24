@@ -101,22 +101,10 @@ refuses with `factory_protected_effect_untrusted` before any operation exists.
       CHECK: `bun run typecheck && bun run lint && bun scripts/check-factory-boundaries.ts && bun scripts/gate-integrity.ts`
       EXPECT: exit 0 each, and zero lint diagnostics.
       EVIDENCE: `/tmp/factory-platform-evidence/w09c/receipts/final-sweep.json`
-- [ ] G7: A PUBLISHED release end to end through the real started application.
-      CHECK: `flock --close /tmp/ezcorp-validation-heavy.lock timeout 5400 bash /tmp/factory-platform-evidence/w09c/e2e/repro/run-three.sh`
-      EXPECT (met): three fresh product databases. In each, the run is accepted
-      over public HTTP and the W01g staging guest COMPLETES. It seals
-      `part-0.csv`, `part-1.csv`, and `candidate.json` under its own operation
-      and returns an S3 accepted publication. The kernel issues
-      `request-acceptance`, and `release-outcome` runs from the declared
-      destination.
-      NOT MET: the acceptance command is refused with
-      `FactoryReleaseAuthorityError: factory_release_trust_missing` in all
-      three passes. So no release operation is prepared, and nothing is claimed
-      or published. The proof worktree is `adc489aa2`, the merge of
-      `wp/w09c-profiles` `9f09db074` and `wp/w01g-staging` `70638290b`.
-      EVIDENCE: `/tmp/factory-platform-evidence/w09c/e2e/three-passes.json`,
-      `/tmp/factory-platform-evidence/w09c/e2e/proof-{1,2,3}.json`
-
+- [x] G7: A PUBLISHED release end to end through the real started application.
+      Closed by G12 round 3 below. The earlier three passes at `adc489aa2`,
+      which stopped at `factory_release_trust_missing` before W09d, are kept
+      as history in `/tmp/factory-platform-evidence/w09c/e2e/`.
 - [x] G8: A settled release is delivered back to its run exactly once.
       CHECK: `bun test --timeout 30000 ./src/factory/release-outcome-delivery.test.ts ./src/factory/dispatch-composition.test.ts` and the lifecycle suite (G2, G3).
       EXPECT: `succeeded` becomes one `node-result` for the release command
@@ -169,29 +157,40 @@ refuses with `factory_protected_effect_untrusted` before any operation exists.
       removed its copy (head `d1a0f31e0`).
       EVIDENCE: `/tmp/factory-platform-evidence/w09c/receipts/final-sweep.json`
 
-- [ ] G12: The final real-application passes after W09d (2026-09-23).
+- [x] G12: The final real-application passes after W09d (2026-09-23).
       CHECK: `flock --close /tmp/ezcorp-validation-heavy.lock timeout 9000 bash /tmp/factory-platform-evidence/w09c/final/repro/run-three.sh`
-      from the proof worktree `75495b8cb`, the merge of `wp/w09c-profiles`
-      `34b2ed825` and `wp/w01g-staging` `b6fee475a`. The harness is W09d's,
-      with the release leg added.
-      MEASURED (round 2, fresh databases): the guest completes and seals its
-      members. The declared validator runs and acceptance is `accepted`. `PUT
-      release/contracts` answers 200 through the real route. `requestRelease`
-      prepares the operation at `tenant-01`, `releases/pass-*`, cost 1000.
-      The undeclared-destination control PASSES: `factory_s3_profile_invalid`
-      at prepare, and no operation.
-      NOT MET: in every proof pass the archive step then fails with
-      `factory_archive_member_unavailable`. The operation never becomes
-      `archive_ready`, the approval is refused with
-      `factory_release_not_claimable`, and the run fails. The revoked-policy
-      control cannot run for the same reason. Cause:
-      `factoryArchiveMemberPlan` (W04a) reads every member under the candidate
-      attempt's one scope, and a real validator's evidence is sealed under the
-      validator attempt. Reported to the coordinator as an interface conflict.
-      Round 1 stopped earlier at `factory_forbidden`, because the harness had
-      not granted `factory.release`. That is fixed.
+      from the proof worktree `0ee226cb7`. Its parents are `75495b8cb`
+      (`wp/w09c-profiles` `34b2ed825` merged with `wp/w01g-staging`
+      `b6fee475a`) and `06f886b61` (the member-scope fix). Five passes, each
+      on a fresh product database, recordFresh true.
+      EXPECT (met in round 3): in each of `proof-1`, `proof-2` and `proof-3`:
+      - the W01g guest completes and seals its members;
+      - the declared validator runs, and acceptance is `accepted`;
+      - `PUT release/contracts` answers 200 through the real route;
+      - `requestRelease` prepares the operation at `tenant-01`,
+        `releases/pass-*`, cost 1000;
+      - the approval through `POST .../approvals` and `PUT
+        .../release/approvals/{id}` answers 200 and 200;
+      - the running `release-outcome` role claims and publishes, and the
+        operation settles `succeeded` with outcome `confirmed`;
+      - the manifest in the local ordinary store names both members, and the
+        members hold the sealed bytes;
+      - the `release-outcome:*` event is applied by the kernel, and the run is
+        projected `succeeded`.
+      Negative `undeclared-destination`: refused at prepare with
+      `factory_s3_profile_invalid`, and no operation. Negative
+      `revoked-policy`: a policy created and revoked through the routes
+      (200 and 200) fails the claim with `policy_revoked`, the operation stays
+      `pending`, and there is no manifest.
+      History: round 1 stopped at `factory_forbidden`, because the harness had
+      not granted `factory.release`; the explicit grant is the operator's path
+      (see the authority section). Round 2 stopped at
+      `factory_archive_member_unavailable`, which G14 fixes. The 9 objects
+      the proof passes published were removed by exact version afterwards.
       EVIDENCE: `/tmp/factory-platform-evidence/w09c/final/three-passes.json`,
-      `/tmp/factory-platform-evidence/w09c/final/logs/round-1/`
+      `proof-{1,2,3}.json`, `negative-*.json`, `SHA256SUMS`, and
+      `logs/round-{1,2}/` in the same directory, plus
+      `logs/cleanup-published.log`.
 - [x] G13: The sweep at the merge head `34b2ed825`.
       Non-lock steps (typecheck, lint, boundaries, gate integrity, focused
       suites, new-file and patch coverage) all exit 0 on a clean tree. The
@@ -318,7 +317,8 @@ refuses with `factory_protected_effect_untrusted` before any operation exists.
    fails an effect node in place on `command-failed`. A `node-failed` for a
    Release node still takes the task path, and the pinning test still holds
    after the merge.
-3. **The archive member scope (G12).** Waiting for a coordinator ruling.
+3. **The archive member scope.** Fixed under the coordinator ruling of
+   2026-09-23 (G14).
 4. **A failed Release node emits a `cancel-node` (original note).** By coordinator ruling
    2026-09-23 this is on the kernel backlog (W06 and W13 area) for W18's final
    gate. The pinning test stays as written.
