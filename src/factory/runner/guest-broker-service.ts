@@ -3,15 +3,18 @@ import { verifyFactoryAttemptToken } from "../attempt-token";
 import type { FactoryAttemptAuthority } from "../executions";
 import { verifyPoolToken, type PoolTokenVerifierOptions } from "../pool/service-token";
 import type { FactoryGuestMaterialFrameBroker } from "./guest-material-broker";
+import { isFactoryGuestModelPayload } from "./guest-model-broker";
+import type { FactoryGuestModelFrameBroker } from "./guest-model-route";
 
 /**
- * The product-side route a runner host forwards a guest's staging frame to.
+ * The product-side route a runner host forwards a guest's staging frame or
+ * model request to.
  *
  * C02 puts the container runner and the host signing key in one process and
  * every tenant record in another, and a sandboxed guest runs on
  * `--network=none`, so a guest cannot reach the execution gateway itself and
  * the host cannot answer for it: the host holds no tenant credential, no
- * database, and no material service. The frame therefore travels back the way
+ * database, no material service, and no provider. The frame therefore travels back the way
  * the launch came, over the same mutual TLS, and is answered here.
  *
  * **The host and the attempt are each proved, and neither by the frame.** The
@@ -26,8 +29,10 @@ import type { FactoryGuestMaterialFrameBroker } from "./guest-material-broker";
  * for an attempt it does not hold is refused `forbidden_host`.
  *
  * The attempt token is read from the body because the `Authorization` header
- * carries the host's own token. It is never logged and never leaves this
- * function.
+ * carries the host's own token. It is never logged. The staging half never
+ * sees it; the model half carries it on the attempt's in-memory runner request
+ * to the provider broker, exactly as an in-process runner would, and no
+ * journal row, receipt, or log line records it.
  */
 
 export const FACTORY_GUEST_BROKER_PATH = "/v1/guest/broker";
@@ -46,6 +51,12 @@ export interface FactoryGuestBrokerServiceOptions {
   /** The host that holds this attempt's lease, or undefined when no launch records one. */
   leaseHost(authority: FactoryAttemptAuthority): Promise<string | undefined>;
   readonly broker: FactoryGuestMaterialFrameBroker;
+  /**
+   * The model half. Always present: an installation that pins no provider
+   * composes one whose every call fails by name, so a model request is never
+   * handed to the staging broker, which would call it an invalid frame.
+   */
+  readonly model: FactoryGuestModelFrameBroker;
   readonly jwtSecret: string;
   readonly installationId: string;
 }
@@ -85,6 +96,7 @@ export function createFactoryGuestBrokerRouteHandler(options: FactoryGuestBroker
     // A host forwards only for the attempts its own lease holds.
     if (await options.leaseHost(authority) !== hostId) return json(403, { error: "forbidden_host" });
 
+    if (isFactoryGuestModelPayload(body.payload)) return json(200, await options.model.frame(authority, body.attemptToken, body.payload));
     return json(200, await options.broker.frame(authority, body.payload));
   };
 }

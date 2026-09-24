@@ -3794,3 +3794,28 @@ package changed.
 ## W18 test-hygiene backlog (coordinator)
 
 - compose.factory-storage.local.yml: declare restart: on-failure for both SeaweedFS services and the proof PostgreSQL so a recreated store keeps the policy the coordinator set by hand on 2026-09-23 after the OOM kill; document it in docs/factory-local-storage.md.
+
+## W19a — graph proof: deterministic tasks and a model task, end to end (branch `wp/w19a-graph-proof`)
+
+Brief: `/tmp/factory-platform-evidence/w00/briefs/w19a-graph-proof.md`. Gates: `tasks/factory/w19a-GATES.md`.
+Receipts: `/tmp/factory-platform-evidence/w19a/`. Base: `integ/w00` at `6c8ec29c5`, plus `wp/w01g-staging` at `f0aafe3a0`.
+
+Finding before the plan: at the base a guest's model call cannot reach a model in the real application. The host
+refuses it with `factory_host_broker_unavailable`, the product guest-broker route serves staging frames only, and the
+product composes its provider broker for readiness and never calls it. The runner profiles in the startup document
+cannot declare a model pin, and the provider broker resolves an Ollama model without its registered base URL.
+
+- [ ] Host: forward a guest model request over the existing guest-broker route (one broker, one channel).
+- [ ] Product: answer a model request on that route through `createFactoryGuestModelBroker`, the durable journal,
+      W04's workspace checkpoints, and the installation's pinned provider, resolved per call.
+- [ ] Provider: resolve a pinned model the way the chat router does (catalog, discovered, registered custom model,
+      the test-surface mock); readiness accepts a registered local model; temperature and seed reach the request.
+- [ ] Startup document: a runner profile may declare a model pin; boot refuses a pin that disagrees with its runner
+      or with the installation's `modelProvider`.
+- [ ] Mock provider for CI: a prompt-digest mode in the in-process mock LLM (fixed answer per prompt digest).
+- [ ] Harness in `scripts/factory-graph-proof/`: the W09b/W01g/W15b real-server stack, a three-export guest, the graph
+      A prepare -> B infer -> C combine, modes (a) Ollama and (b) mock, and four negative controls.
+- [ ] Proofs: three passes per mode on fresh databases, controls refused by name, determinism recorded.
+- [ ] Runbook `docs/factory-graph-proof.md`, followed literally.
+- [ ] Gates: coverage of new files and changed lines, PostgreSQL suites registered, typecheck, lint, boundaries,
+      gate-integrity, no credential value, dangling images pruned.

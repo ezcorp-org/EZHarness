@@ -61,7 +61,16 @@ function prefixedDigest(value: unknown): string {
   return `sha256:${digestObject(value)}`;
 }
 
-function validModel(runner: RunnerReference, model: FactoryModelPin | undefined): boolean {
+/**
+ * A runner and a pin describe the same model, or neither names one.
+ *
+ * The runner reference carries the model id and the configuration digest; the
+ * pin carries both again plus the configuration and policy they digest. Every
+ * one of those must agree, so a pin cannot be attached to a runner that
+ * declared a different model, and a digest cannot describe other bytes. The
+ * startup document is checked with this at boot, and dispatch again here.
+ */
+export function factoryModelPinMatchesRunner(runner: Pick<RunnerReference, "model" | "configurationDigest">, model: FactoryModelPin | undefined): boolean {
   if ((runner.model === undefined) !== (model === undefined)) return false;
   if (!model) return true;
   return runner.model === model.model
@@ -129,7 +138,7 @@ export class FactoryNativeRunnerPolicy implements FactoryTaskRunnerPolicy {
       || source.request.admissionDeadline !== new Date(context.command.deadlineAtMs).toISOString()) {
       throw new FactoryNativeRunnerPolicyError("factory_native_resource_denied");
     }
-    if (!validModel(context.node.runner, profile.model)) throw new FactoryNativeRunnerPolicyError("factory_native_model_denied");
+    if (!factoryModelPinMatchesRunner(context.node.runner, profile.model)) throw new FactoryNativeRunnerPolicyError("factory_native_model_denied");
     const allowed = new Set(capabilities);
     const tools = profile.tools.filter(tool => tool.requiredCapabilities.every(capability => allowed.has(capability))).map(tool => tool.declaration).sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0);
     const resources: ResourceBounds = {

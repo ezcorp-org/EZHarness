@@ -120,6 +120,16 @@ describe("factoryRunnerProfiles", () => {
     expect(Object.isFrozen(derived.admission)).toBe(true);
   });
 
+  test("hands a profile's model pin to the runner policy, and gives an unpinned profile none", () => {
+    const pin = { provider: "ollama", model: "qwen3:1.7b", configuration: {}, configurationDigest: `sha256:${"b".repeat(64)}`, policy: {}, policyDigest: `sha256:${"c".repeat(64)}` };
+    const unpinned = RUNNER_PROFILES.profiles[0]!;
+    const pinned = { ...unpinned, resourceClass: "cpu-model", runner: { ...unpinned.runner, export: "infer", model: pin.model, configurationDigest: pin.configurationDigest }, model: pin };
+    const derived = factoryRunnerProfiles({ runnerProfiles: { ...RUNNER_PROFILES, profiles: [unpinned, pinned] } } as unknown as FactoryStartupConfig);
+    expect(derived.runners[1]!.model).toEqual(pin);
+    expect(derived.runners[1]!.runner).toMatchObject({ model: pin.model, configurationDigest: pin.configurationDigest });
+    expect("model" in derived.runners[0]!).toBe(false);
+  });
+
   test("refuses by name when the installation declares none", () => {
     for (const runnerProfiles of [undefined, { brokerAudience: "a", profiles: [] }]) {
       expect(() => factoryRunnerProfiles({ runnerProfiles } as unknown as FactoryStartupConfig))
