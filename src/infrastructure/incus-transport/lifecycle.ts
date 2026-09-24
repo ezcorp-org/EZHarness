@@ -280,50 +280,78 @@ async function createInstance({ session, command, project, collection, input, po
   catch (error) { throw uncertain(error, stableId); }
 }
 
-async function mutateInstance(context: LifecycleContext, kind: "setPower" | "destroy", currentReply: Awaited<ReturnType<Session["request"]>>, existing: Record<string, unknown> | null, stableId: string, fault?: PostEffectDestroyReplyFault, scope?: HostConnectionScope) {
-  const { session, command, project, instancePath, input } = context;
-  if (!existing) {
-    if (kind === "destroy") return receipt("destroy", command, stableId);
-    throw new IncusTransportError("not_found", "Incus sandbox not found");
-  }
+function assertMutationAllowed(context: LifecycleContext, kind: "setPower" | "destroy",
+  existing: Record<string, unknown>, stableId: string) {
+  const { command, input } = context;
   const current = inspection(existing, command);
   if (!Number.isSafeInteger(input.expectedGeneration) || (input.expectedGeneration !== current.generation && !(input.expectedGeneration === current.generation - 1 && object(existing.config)["user.ezharness.operation_id"] === stableId))) throw new IncusTransportError("revision_conflict", "Incus sandbox generation changed");
   const previousIntent = object(existing.config)["user.ezharness.operation_id"] === stableId;
   if (previousIntent) {
-    if (kind === "setPower" && current.observedState === input.desiredState) return receipt("setPower", command, stableId);
+    if (kind === "setPower" && current.observedState === input.desiredState) return { current, alreadyDone: true };
     throw new IncusTransportError("unavailable", "Incus operation is still unresolved", { effect: "unknown", operationId: stableId });
   }
   if (kind === "setPower") {
     if (input.desiredState !== "running" && input.desiredState !== "stopped") invalid("Invalid Incus power state");
   } else if (current.observedState !== "stopped") throw new IncusTransportError("revision_conflict", "Incus sandbox must be stopped before destroy");
+  return { current, alreadyDone: false };
+}
+
+async function patchMutationIntent(context: LifecycleContext, kind: "setPower" | "destroy",
+  currentReply: Awaited<ReturnType<Session["request"]>>, generation: number, stableId: string): Promise<void> {
+  const { session, instancePath, input } = context;
   if (!currentReply.etag) denied("Incus instance ETag is required for mutation");
-  try { metadata(await session.request("PATCH", instancePath, { config: { "user.ezharness.generation": String(current.generation + 1), "user.ezharness.operation_id": stableId, "user.ezharness.desired_state": kind === "setPower" ? input.desiredState : "destroyed" } }, currentReply.etag)); }
+  try { metadata(await session.request("PATCH", instancePath, { config: { "user.ezharness.generation": String(generation + 1), "user.ezharness.operation_id": stableId, "user.ezharness.desired_state": kind === "setPower" ? input.desiredState : "destroyed" } }, currentReply.etag)); }
   catch (error) { throw uncertain(error, stableId); }
-  if (kind === "setPower") {
-    if (current.observedState === input.desiredState) return receipt("setPower", command, stableId);
-    try { const reply = await session.request("PUT", `/1.0/instances/${command.sandboxName}/state?project=${project}`, { action: input.desiredState === "running" ? "start" : "stop", timeout: 30 }); metadata(reply); return receipt("setPower", command, acceptedOperationId(reply, kind, stableId)); }
-    catch (error) { throw uncertain(error, stableId); }
-  }
+}
+
+async function applyPowerMutation(context: LifecycleContext, observedState: string, stableId: string) {
+  const { session, command, project, input } = context;
+  if (observedState === input.desiredState) return receipt("setPower", command, stableId);
+  try { const reply = await session.request("PUT", `/1.0/instances/${command.sandboxName}/state?project=${project}`, { action: input.desiredState === "running" ? "start" : "stop", timeout: 30 }); metadata(reply); return receipt("setPower", command, acceptedOperationId(reply, "setPower", stableId)); }
+  catch (error) { throw uncertain(error, stableId); }
+}
+
+async function applyDestroyMutation(context: LifecycleContext, stableId: string,
+  fault?: PostEffectDestroyReplyFault, scope?: HostConnectionScope) {
+  const { session, command, instancePath } = context;
   let reply: Awaited<ReturnType<Session["request"]>>;
   try { reply = await session.request("DELETE", instancePath); metadata(reply); }
   catch (error) { throw uncertain(error, stableId); }
-  const providerId = acceptedOperationId(reply, kind, stableId);
-  if (fault && scope && fault.matches(command, scope) && /^incus-destroy-[a-f0-9-]{36}$/.test(providerId)) {
-    // The reply is lost only after the same Incus operation succeeds and this
-    // pinned session independently reads the resource as absent.
-    while (Date.now() < command.deadlineMs) {
-      let state: string;
-      try { state = (await inspectIncusOperation(context, providerId)).operation.state; }
-      catch { break; }
-      if (state === "succeeded") {
-        if (fault.consume(command, scope)) throw new IncusTransportError("unavailable", "Incus destroy reply was lost after effect", { effect: "unknown", operationId: providerId });
-        break;
-      }
-      if (state !== "running") break;
-      await new Promise(resolve => setTimeout(resolve, Math.min(100, Math.max(0, command.deadlineMs - Date.now()))));
-    }
-  }
+  const providerId = acceptedOperationId(reply, "destroy", stableId);
+  await maybeLoseDestroyReply(context, providerId, fault, scope);
   return receipt("destroy", command, providerId);
+}
+
+async function maybeLoseDestroyReply(context: LifecycleContext, providerId: string,
+  fault?: PostEffectDestroyReplyFault, scope?: HostConnectionScope): Promise<void> {
+  const { command } = context;
+  if (!fault || !scope || !fault.matches(command, scope) || !/^incus-destroy-[a-f0-9-]{36}$/.test(providerId)) return;
+  // The reply is lost only after the same Incus operation succeeds and this
+  // pinned session independently reads the resource as absent.
+  while (Date.now() < command.deadlineMs) {
+    let state: string;
+    try { state = (await inspectIncusOperation(context, providerId)).operation.state; }
+    catch { break; }
+    if (state === "succeeded") {
+      if (fault.consume(command, scope)) throw new IncusTransportError("unavailable", "Incus destroy reply was lost after effect", { effect: "unknown", operationId: providerId });
+      break;
+    }
+    if (state !== "running") break;
+    await new Promise(resolve => setTimeout(resolve, Math.min(100, Math.max(0, command.deadlineMs - Date.now()))));
+  }
+}
+
+async function mutateInstance(context: LifecycleContext, kind: "setPower" | "destroy", currentReply: Awaited<ReturnType<Session["request"]>>, existing: Record<string, unknown> | null, stableId: string, fault?: PostEffectDestroyReplyFault, scope?: HostConnectionScope) {
+  const { command } = context;
+  if (!existing) {
+    if (kind === "destroy") return receipt("destroy", command, stableId);
+    throw new IncusTransportError("not_found", "Incus sandbox not found");
+  }
+  const { current, alreadyDone } = assertMutationAllowed(context, kind, existing, stableId);
+  if (alreadyDone) return receipt("setPower", command, stableId);
+  await patchMutationIntent(context, kind, currentReply, current.generation, stableId);
+  return kind === "setPower" ? applyPowerMutation(context, current.observedState, stableId)
+    : applyDestroyMutation(context, stableId, fault, scope);
 }
 
 async function requestLifecycleAction(session: Session, command: IncusTransportRequest, scope: HostConnectionScope, fault?: PostEffectDestroyReplyFault) {

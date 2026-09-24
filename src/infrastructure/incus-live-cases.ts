@@ -227,6 +227,107 @@ function assertCommand(value: LiveCommandResult, expected: string): void {
     "real guest command did not complete");
 }
 
+interface FixtureRunState {
+  primary: LiveFixtureHandle | null;
+  unrelated: LiveFixtureHandle | null;
+  recovery: LiveFixtureHandle | null;
+  primaryDestroyed: boolean;
+  unrelatedDestroyed: boolean;
+  recoveryDestroyed: boolean;
+}
+
+async function createLiveFixtures(witness: HostIncusLiveWitness, scope: IncusQualificationScope,
+  preset: SandboxPreset, token: string, state: FixtureRunState): Promise<void> {
+  const primaryId = `qual-primary-${token}`;
+  state.primary = await witness.createFixture(scope, preset, primaryId, true);
+  const primary = state.primary;
+  requireFact(stableId(primary.sandboxId) && primary.operationId === primaryId,
+    "created fixture lacks a stable operation identity");
+  const replay = await witness.createFixture(scope, preset, primaryId, false);
+  requireFact(replay.sandboxId === primary.sandboxId && replay.operationId === primary.operationId,
+    "lost create reply allocated another sandbox");
+  assertInspection(await witness.inspectFixture(primary), primary, preset, "stopped");
+  await witness.setPower(primary, "running");
+  assertInspection(await witness.inspectFixture(primary), primary, preset, "running");
+
+  state.unrelated = await witness.createFixture(scope, preset, `qual-unrelated-${token}`, false);
+  const unrelated = state.unrelated;
+  requireFact(stableId(unrelated.sandboxId) && unrelated.sandboxId !== primary.sandboxId,
+    "unrelated fixture was adopted");
+  assertInspection(await witness.inspectFixture(unrelated), unrelated, preset, "stopped");
+  await witness.setPower(unrelated, "running");
+  assertInspection(await witness.inspectFixture(unrelated), unrelated, preset, "running");
+  assertEnforcement(await witness.observeEnforcement(primary, unrelated), preset);
+  assertLoadFacts(await witness.exerciseLimits(primary, unrelated), preset);
+  await witness.setPower(unrelated, "stopped");
+  assertInspection(await witness.inspectFixture(unrelated), unrelated, preset, "stopped");
+}
+
+async function exerciseGuestAndRestart(witness: HostIncusLiveWitness, preset: SandboxPreset,
+  primary: LiveFixtureHandle, token: string, composeFixtureImageRef?: string): Promise<void> {
+  const marker = `ezh-${token}`;
+  assertCommand(await witness.run(primary, ["sh", "-c", "printf %s \"$1\"", "sh", marker], 30_000), marker);
+  await witness.writeFile(primary, MARKER_PATH, new TextEncoder().encode(marker));
+  if (preset.requirements.nestedCompose) {
+    requireFact(immutableImageRef(composeFixtureImageRef), "reviewed Compose fixture image is unavailable");
+    const yaml = `services:\n  proof:\n    image: ${composeFixtureImageRef}\n    command: ["sh", "-c", "printf ezh-compose-ok"]\n`;
+    await witness.writeFile(primary, COMPOSE_PATH, new TextEncoder().encode(yaml));
+    assertCommand(await witness.run(primary, ["docker", "compose", "-f", COMPOSE_PATH,
+      "run", "--rm", "proof"], 120_000), "ezh-compose-ok");
+  }
+
+  await witness.setPower(primary, "stopped");
+  assertInspection(await witness.inspectFixture(primary), primary, preset, "stopped");
+  const restart = await witness.restartController(primary);
+  requireFact(stableId(restart.beforeProcessId) && stableId(restart.afterProcessId)
+    && restart.beforeProcessId !== restart.afterProcessId,
+  "controller did not restart and reconnect");
+  await witness.setPower(primary, "running");
+  assertInspection(await witness.inspectFixture(primary), primary, preset, "running");
+  if (preset.storage.workspace === "persistent") {
+    requireFact(new TextDecoder().decode(await witness.readFile(primary, MARKER_PATH)) === marker,
+      "retained workspace changed after restart");
+  }
+  await witness.setPower(primary, "stopped");
+}
+
+async function destroyAndRecoverFixtures(witness: HostIncusLiveWitness, scope: IncusQualificationScope,
+  preset: SandboxPreset, token: string, state: FixtureRunState): Promise<void> {
+  const { primary, unrelated } = state;
+  requireFact(primary && unrelated, "live fixtures were not created");
+  await witness.destroyFixture(primary);
+  state.primaryDestroyed = true;
+  assertInspection(await witness.inspectFixture(primary), primary, preset, "absent");
+  assertInspection(await witness.inspectFixture(unrelated), unrelated, preset, "stopped");
+  state.recovery = await witness.createFixture(scope, preset, `qual-recovery-${token}`, false);
+  const recovery = state.recovery;
+  requireFact(stableId(recovery.sandboxId) && recovery.sandboxId !== primary.sandboxId
+    && recovery.sandboxId !== unrelated.sandboxId,
+  "cleanup recovery fixture was adopted");
+  assertInspection(await witness.inspectFixture(recovery), recovery, preset, "stopped");
+  assertCleanupRecovery(await witness.exerciseFailedCleanupRecovery(recovery, unrelated));
+  state.recoveryDestroyed = true;
+  assertInspection(await witness.inspectFixture(recovery), recovery, preset, "absent");
+  assertInspection(await witness.inspectFixture(unrelated), unrelated, preset, "stopped");
+  await witness.destroyFixture(unrelated);
+  state.unrelatedDestroyed = true;
+  assertInspection(await witness.inspectFixture(unrelated), unrelated, preset, "absent");
+}
+
+async function cleanupLiveFixtures(witness: HostIncusLiveWitness, state: FixtureRunState): Promise<unknown[]> {
+  const cleanupErrors: unknown[] = [];
+  for (const [fixture, destroyed] of [
+    [state.primary, state.primaryDestroyed],
+    [state.unrelated, state.unrelatedDestroyed],
+    [state.recovery, state.recoveryDestroyed],
+  ] as const) {
+    if (fixture && !destroyed) {
+      try { await witness.destroyFixture(fixture); } catch (error) { cleanupErrors.push(error); }
+    }
+  }
+  return cleanupErrors;
+}
+
 /** Produces SP01–SP08 only from ordered host actions and concrete observations.
  * The factory is intentionally not installed by startup while no published
  * image and controller qualification authority exist. */
@@ -249,92 +350,21 @@ export function createIncusLiveCaseRunner(options: IncusLiveRunnerOptions):
     assertControls(await witness.controlFacts(scope, preset));
 
     const fixtureToken = randomUUID();
-    const primaryId = `qual-primary-${fixtureToken}`;
-    const unrelatedId = `qual-unrelated-${fixtureToken}`;
-    const recoveryId = `qual-recovery-${fixtureToken}`;
     // The witness must reconcile or clean a create that throws before it can
     // return a handle. Once a handle exists, all later failures clean it here.
-    let primary: LiveFixtureHandle | null = null;
-    let unrelated: LiveFixtureHandle | null = null;
-    let recovery: LiveFixtureHandle | null = null;
-    let primaryDestroyed = false;
-    let unrelatedDestroyed = false;
-    let recoveryDestroyed = false;
+    const state: FixtureRunState = { primary: null, unrelated: null, recovery: null,
+      primaryDestroyed: false, unrelatedDestroyed: false, recoveryDestroyed: false };
     let failure: unknown;
-    const cleanupErrors: unknown[] = [];
+    let cleanupErrors: unknown[] = [];
     try {
-      primary = await witness.createFixture(scope, preset, primaryId, true);
-      requireFact(stableId(primary.sandboxId) && primary.operationId === primaryId,
-        "created fixture lacks a stable operation identity");
-      const replay = await witness.createFixture(scope, preset, primaryId, false);
-      requireFact(replay.sandboxId === primary.sandboxId && replay.operationId === primary.operationId,
-        "lost create reply allocated another sandbox");
-      assertInspection(await witness.inspectFixture(primary), primary, preset, "stopped");
-      await witness.setPower(primary, "running");
-      assertInspection(await witness.inspectFixture(primary), primary, preset, "running");
-      unrelated = await witness.createFixture(scope, preset, unrelatedId, false);
-      requireFact(stableId(unrelated.sandboxId) && unrelated.sandboxId !== primary.sandboxId,
-        "unrelated fixture was adopted");
-      assertInspection(await witness.inspectFixture(unrelated), unrelated, preset, "stopped");
-      await witness.setPower(unrelated, "running");
-      assertInspection(await witness.inspectFixture(unrelated), unrelated, preset, "running");
-      assertEnforcement(await witness.observeEnforcement(primary, unrelated), preset);
-      assertLoadFacts(await witness.exerciseLimits(primary, unrelated), preset);
-      await witness.setPower(unrelated, "stopped");
-      assertInspection(await witness.inspectFixture(unrelated), unrelated, preset, "stopped");
-
-      const marker = `ezh-${fixtureToken}`;
-      assertCommand(await witness.run(primary, ["sh", "-c", "printf %s \"$1\"", "sh", marker], 30_000), marker);
-      await witness.writeFile(primary, MARKER_PATH, new TextEncoder().encode(marker));
-      if (preset.requirements.nestedCompose) {
-        requireFact(immutableImageRef(options.composeFixtureImageRef), "reviewed Compose fixture image is unavailable");
-        const yaml = `services:\n  proof:\n    image: ${options.composeFixtureImageRef}\n    command: ["sh", "-c", "printf ezh-compose-ok"]\n`;
-        await witness.writeFile(primary, COMPOSE_PATH, new TextEncoder().encode(yaml));
-        assertCommand(await witness.run(primary, ["docker", "compose", "-f", COMPOSE_PATH,
-          "run", "--rm", "proof"], 120_000), "ezh-compose-ok");
-      }
-
-      await witness.setPower(primary, "stopped");
-      assertInspection(await witness.inspectFixture(primary), primary, preset, "stopped");
-      const restart = await witness.restartController(primary);
-      requireFact(stableId(restart.beforeProcessId) && stableId(restart.afterProcessId)
-        && restart.beforeProcessId !== restart.afterProcessId,
-      "controller did not restart and reconnect");
-      await witness.setPower(primary, "running");
-      assertInspection(await witness.inspectFixture(primary), primary, preset, "running");
-      if (preset.storage.workspace === "persistent") {
-        requireFact(new TextDecoder().decode(await witness.readFile(primary, MARKER_PATH)) === marker,
-          "retained workspace changed after restart");
-      }
-      await witness.setPower(primary, "stopped");
-      await witness.destroyFixture(primary);
-      primaryDestroyed = true;
-      assertInspection(await witness.inspectFixture(primary), primary, preset, "absent");
-      assertInspection(await witness.inspectFixture(unrelated), unrelated, preset, "stopped");
-      recovery = await witness.createFixture(scope, preset, recoveryId, false);
-      requireFact(stableId(recovery.sandboxId) && recovery.sandboxId !== primary.sandboxId
-        && recovery.sandboxId !== unrelated.sandboxId,
-      "cleanup recovery fixture was adopted");
-      assertInspection(await witness.inspectFixture(recovery), recovery, preset, "stopped");
-      assertCleanupRecovery(await witness.exerciseFailedCleanupRecovery(recovery, unrelated));
-      recoveryDestroyed = true;
-      assertInspection(await witness.inspectFixture(recovery), recovery, preset, "absent");
-      assertInspection(await witness.inspectFixture(unrelated), unrelated, preset, "stopped");
-      await witness.destroyFixture(unrelated);
-      unrelatedDestroyed = true;
-      assertInspection(await witness.inspectFixture(unrelated), unrelated, preset, "absent");
+      await createLiveFixtures(witness, scope, preset, fixtureToken, state);
+      requireFact(state.primary, "primary fixture was not created");
+      await exerciseGuestAndRestart(witness, preset, state.primary, fixtureToken, options.composeFixtureImageRef);
+      await destroyAndRecoverFixtures(witness, scope, preset, fixtureToken, state);
     } catch (error) {
       failure = error;
     } finally {
-      if (primary && !primaryDestroyed) {
-        try { await witness.destroyFixture(primary); } catch (error) { cleanupErrors.push(error); }
-      }
-      if (unrelated && !unrelatedDestroyed) {
-        try { await witness.destroyFixture(unrelated); } catch (error) { cleanupErrors.push(error); }
-      }
-      if (recovery && !recoveryDestroyed) {
-        try { await witness.destroyFixture(recovery); } catch (error) { cleanupErrors.push(error); }
-      }
+      cleanupErrors = await cleanupLiveFixtures(witness, state);
     }
     if (cleanupErrors.length) throw new AggregateError([...(failure ? [failure] : []), ...cleanupErrors],
       "Incus live fixture cleanup is unverified");
