@@ -1,0 +1,10 @@
+=== heavy batch 2026-09-24T19:44:49Z
+HEAD 8692ca900a200b2534f5bb2d81ac59a9190b3d2f MERGE_HEAD 7821e5d7c95b24a2576a824d4f33cb0f804ba831 index-tree 4096753e64125b1fa49512348b9712c4f9429d19 umask 0077
+df: /dev/nvme0n1p2  1.8T  1.6T  191G  89% /
+--- START podman-journey.integration 2026-09-24T19:44:49Z
+--- END   podman-journey.integration 2026-09-24T19:45:47Z exit=0  11 pass 0 fail 
+--- START podman-applied-controls.integration 2026-09-24T19:45:47Z
+--- END   podman-applied-controls.integration 2026-09-24T19:46:10Z exit=0  5 pass 0 fail 
+--- START podman-python-guest.integration 2026-09-24T19:46:10Z
+--- END   podman-python-guest.integration 2026-09-24T19:46:49Z exit=0  12 pass 0 fail 
+BATCH DONE status=0 2026-09-24T19:46:49Z
