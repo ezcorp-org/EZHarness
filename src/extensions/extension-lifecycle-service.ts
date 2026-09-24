@@ -187,6 +187,7 @@ async function initialize(): Promise<LifecycleServices> {
     // production transport shares this instance, but no request can arm it.
     authenticateOperator: async () => { throw new Error("Incus operator fault control is unavailable"); },
     authorizeRun: arm => new IncusQualificationCheckpointStore(getDb()).authorizeOwnedRun(arm),
+    authorizeReadback: arm => new IncusQualificationCheckpointStore(getDb()).authorizeOwnedRun(arm),
   });
   configureReleaseRuntime({
     runner: async () => runner,

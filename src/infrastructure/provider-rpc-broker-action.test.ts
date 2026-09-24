@@ -149,3 +149,17 @@ test("default host broker gives only lifecycle transport its operator fault inst
   expect(await broker.request(lifecycle, { command: lifecycle.expectedCommand }, deadline))
     .toMatchObject({ ok: false, error: { kind: "not_found" } });
 });
+
+test("a changed binding revision after lifecycle preparation denies dispatch before transport", async () => {
+  const { db, connections, scope } = await setup();
+  let matches = 0;
+  const broker = new ProviderRpcBroker(connections, undefined, db, undefined,
+    { matches: () => { matches++; return true; }, consume: () => true });
+  const deadline = Date.now() + 10_000;
+  const input = { providerId: "incus", connectionId: "connection", sandboxId: "binding", rpcDeadlineMs: deadline };
+  const prepared = { ...scope("lifecycle.inspect", input), approvedGuest: undefined };
+  await db.update(schema.sandboxBindings).set({ connectionRevision: 2 });
+  expect(await broker.request(prepared, { command: prepared.expectedCommand }, deadline))
+    .toMatchObject({ ok: false, error: { kind: "permission" } });
+  expect(matches).toBe(0);
+});

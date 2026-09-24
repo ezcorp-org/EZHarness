@@ -4,7 +4,7 @@ import { drizzle } from "drizzle-orm/pglite";
 import { up as addSandboxController } from "../db/migrations/add-sandbox-controller";
 import { up as addQualificationFixtures } from "../db/migrations/add-incus-qualification-fixtures";
 import * as schema from "../db/schema";
-import { HostIncusLostDestroyReplyFault, readIncusLostDestroyReplyState } from "./incus-destroy-reply-fault";
+import { HostIncusLostDestroyReplyFault } from "./incus-destroy-reply-fault";
 
 const scope = { installationId: "installation-a", releaseId: "release-a",
   connectionId: "connection-a", presetId: "preset-a" };
@@ -58,19 +58,22 @@ async function fixture() {
 test("operator arm is exact and single-use; readback retains the original unknown destroy", async () => {
   const { db, server } = await fixture();
   try {
+    const now = Date.now();
+    const liveArm = { ...arm, deadlineMs: now + 30_000 };
     let authenticated = 0;
     let authorized = 0;
     const fault = new HostIncusLostDestroyReplyFault(db, {
       authenticateOperator: async () => { authenticated++; },
       authorizeRun: async () => { authorized++; },
-    });
-    await expect(fault.arm({ ...arm, bindingId: "user-binding" })).rejects.toThrow();
-    await expect(fault.arm({ ...arm, destroyOperationId: "other-destroy" })).rejects.toThrow();
-    await expect(fault.arm({ ...arm, connectionRevision: 2 })).rejects.toThrow();
+      authorizeReadback: async () => { authorized++; },
+    }, () => now);
+    await expect(fault.arm({ ...liveArm, bindingId: "user-binding" })).rejects.toThrow();
+    await expect(fault.arm({ ...liveArm, destroyOperationId: "other-destroy" })).rejects.toThrow();
+    await expect(fault.arm({ ...liveArm, connectionRevision: 2 })).rejects.toThrow();
     await db.update(schema.projects).set({ purpose: "user" });
-    await expect(fault.arm(arm)).rejects.toThrow();
+    await expect(fault.arm(liveArm)).rejects.toThrow();
     await db.update(schema.projects).set({ purpose: "incus-qualification" });
-    await fault.arm(arm);
+    await fault.arm(liveArm);
     expect(authenticated).toBe(5);
     expect(authorized).toBe(1);
     expect(fault.matches(command as never, transportScope)).toBe(true);
@@ -79,16 +82,22 @@ test("operator arm is exact and single-use; readback retains the original unknow
     expect(fault.matches(command as never, { ...transportScope, revision: 2 })).toBe(false);
     expect(fault.consume(command as never, transportScope)).toBe(true);
     expect(fault.consume(command as never, transportScope)).toBe(false);
-    await expect(fault.arm(arm)).rejects.toThrow();
+    await expect(fault.arm(liveArm)).rejects.toThrow();
     await db.update(schema.sandboxOperations).set({ state: "OUTCOME_UNKNOWN",
       providerOperationId: "incus-destroy-11111111-1111-1111-1111-111111111111" });
-    const readback = await readIncusLostDestroyReplyState(db, arm);
+    const readback = await fault.readback(liveArm);
     expect(readback).toMatchObject({ fixtureOperationId: arm.fixtureOperationId,
       bindingId: arm.bindingId, generation: 1, cleanupIntentId: "incus-qualification-destroy-fixture-a",
       destroyOperationId: arm.destroyOperationId,
       providerOperationId: "incus-destroy-11111111-1111-1111-1111-111111111111",
       operationState: "OUTCOME_UNKNOWN", desiredState: "ABSENT",
       reservationDiskState: "RELEASE_REQUESTED", fact: "RECONCILE_REQUIRED" });
-    await expect(readIncusLostDestroyReplyState(db, { ...arm, bindingId: "user-binding" })).rejects.toThrow();
+    await expect(fault.readback({ ...liveArm, bindingId: "user-binding" })).rejects.toThrow();
+    const denied = new HostIncusLostDestroyReplyFault(db, {
+      authenticateOperator: async () => { throw new Error("operator peer denied"); },
+      authorizeRun: async () => { throw new Error("unexpected run authorization"); },
+      authorizeReadback: async () => { throw new Error("unexpected readback authorization"); },
+    }, () => now);
+    await expect(denied.readback(liveArm)).rejects.toThrow("operator peer denied");
   } finally { await server.close(); }
 }, 30_000);

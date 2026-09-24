@@ -25,6 +25,8 @@ type Authority = {
   authenticateOperator: () => Promise<void>;
   /** Must claim the matching durable run checkpoint and nonce once. */
   authorizeRun: (arm: Readonly<LostDestroyReplyArm>) => Promise<void>;
+  /** Must verify a live operator readback capability for this exact run. */
+  authorizeReadback: (arm: Readonly<LostDestroyReplyArm>) => Promise<void>;
 };
 
 const IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
@@ -123,10 +125,17 @@ export class HostIncusLostDestroyReplyFault implements PostEffectDestroyReplyFau
     this.armed = null;
     return true;
   }
+
+  async readback(input: Readonly<LostDestroyReplyArm>) {
+    await this.authority.authenticateOperator();
+    await this.authority.authorizeReadback(input);
+    requireScope(input.deadlineMs > this.now());
+    return readIncusLostDestroyReplyState(this.db, input);
+  }
 }
 
-/** Operator-only durable projection for the affected qualification fixture. */
-export async function readIncusLostDestroyReplyState(db: Database, input: Pick<LostDestroyReplyArm,
+/** Called only through the fault object after operator authorization. */
+async function readIncusLostDestroyReplyState(db: Database, input: Pick<LostDestroyReplyArm,
   "scope" | "fixtureOperationId" | "bindingId" | "destroyOperationId" | "generation" | "connectionRevision">) {
   const [fixture] = await db.select().from(incusQualificationFixtures)
     .where(eq(incusQualificationFixtures.operationId, input.fixtureOperationId)).limit(1);
