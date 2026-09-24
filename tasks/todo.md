@@ -958,3 +958,12 @@ Review: The helper now reads nonempty readiness content until it appears or the 
 - [x] Commit the reviewed changes and report exact results.
 
 Review: Hosted full mock browser lane failed 16 journeys; browser route coverage and per-file coverage then lacked a required producer. All 117 affected Chromium journeys pass after the fixes. Component checks pass 31/31 and show 100% line and branch coverage for ChatNavSection. Web production build, full typecheck, lint, and whitespace check pass. The hosted full browser and coverage lanes still need a new run after the branch is pushed by the parent agent.
+
+### Hosted CI follow-up at `12f9bb64b`
+
+- [x] Reproduce the two mobile drawer failures with Chromium Playwright.
+- [x] Scope the Chat link assertions to the exact navigation item.
+- [ ] Run the affected browser test and exact `mock-full` CI lane.
+- [ ] Commit the follow-up fix and report the result.
+
+Review: The hosted full mock lane reported two strict selector collisions in `mobile-tab-bar.spec.ts`: both the Chat nav link and All chats link matched the broad `Chat` locator. Downstream browser route coverage and per-file coverage gates failed because their browser producer failed. The two affected Chromium journeys failed before the fix and passed 2/2 after it. The full lane is pending.
