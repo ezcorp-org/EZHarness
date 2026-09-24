@@ -171,8 +171,8 @@ absolute paths:
   "targetDb": "/var/lib/ezharness-qual-data/pglite",
   "rollbackDb": "/var/lib/ezharness-qual-rollback/pglite",
   "oldAppUnit": null,
-  "runnerUnit": null,
-  "supervisorUnit": null,
+  "runnerUnit": "ezharness-qual-runner.service",
+  "supervisorUnit": "ezharness-qual-supervisor.service",
   "builtApp": "/opt/ezharness/web/build/index.js",
   "oldEnv": "/etc/ezharness/old-isolated.env",
   "newEnv": "/etc/ezharness/qualification.env",
@@ -185,9 +185,11 @@ absolute paths:
 
 The example paths and numeric IDs are placeholders. The app must have socket
 GID 62042 as a supplementary group; the runner must not have the app-only
-GID 62040. The preflight checks both. `null` means that the old
-process was started manually; it does not waive the process, socket, or
-database-open checks. Use a service name only for a real loaded unit. Refresh all process IDs
+GID 62040. The preflight checks both. Only `oldAppUnit` can be `null` when the
+old app was started manually. The two new service names must match the
+reviewed NixOS units, and both must be loaded, inactive, and have no main
+PID during preflight. The preflight also rejects any process under the new
+app UID or runner UID. Refresh all process IDs
 immediately before the cutover; the script requires those exact processes to
 be gone and scans process settings for the old database and runner socket.
 Read the real isolated
@@ -197,7 +199,7 @@ isolated PGlite app and must not be used for this cutover.
 
 At the time of writing, the isolated app is a manually started Vite dev process
 with four process IDs and its PGlite source is under a dev-owned `/tmp` parent.
-That launch has no reviewed systemd unit. Set the old unit fields to `null`,
+That launch has no reviewed systemd unit. Set only `oldAppUnit` to `null`,
 record every process ID, stop the old processes, and confirm the exact old
 PGlite path. Do not name a missing or dummy unit in the manifest. The separate
 development runner user unit is not proof that the isolated runner process is

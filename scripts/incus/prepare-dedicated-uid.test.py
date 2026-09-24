@@ -32,6 +32,7 @@ class DedicatedUidStageTest(unittest.TestCase):
                      "newUid": 62040, "newGid": 62040}
             with mock.patch.object(MODULE, "check", return_value=(source, quarantine, target, rollback)), \
                  mock.patch.object(MODULE, "no_old_clients"), \
+                 mock.patch.object(MODULE, "no_dedicated_clients"), \
                  mock.patch.object(MODULE, "no_open_database_files"), \
                  mock.patch.object(MODULE, "chown_tree"), \
                  mock.patch.object(MODULE.os, "chown"):
@@ -54,6 +55,7 @@ class DedicatedUidStageTest(unittest.TestCase):
             with mock.patch.object(MODULE, "check", return_value=(source, quarantine, base / "target",
                                                                     base / "backup")), \
                  mock.patch.object(MODULE, "no_old_clients"), \
+                 mock.patch.object(MODULE, "no_dedicated_clients"), \
                  mock.patch.object(MODULE, "no_open_database_files",
                                    side_effect=ValueError("late client")), \
                  mock.patch.object(MODULE.os, "chown"):
@@ -61,6 +63,25 @@ class DedicatedUidStageTest(unittest.TestCase):
                     MODULE.stage({"oldUid": 1001, "oldGid": 100})
             self.assertFalse(source.exists())
             self.assertEqual(stat.S_IMODE(quarantine.stat().st_mode), 0o700)
+            self.assertFalse((base / "target").exists())
+
+    def test_stage_rechecks_dedicated_runner_after_atomic_rename(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = pathlib.Path(temp)
+            source = base / "source"
+            quarantine = base / "quarantine"
+            source.mkdir()
+            with mock.patch.object(MODULE, "check", return_value=(source, quarantine, base / "target",
+                                                                    base / "backup")), \
+                 mock.patch.object(MODULE, "no_old_clients"), \
+                 mock.patch.object(MODULE, "no_dedicated_clients",
+                                   side_effect=ValueError("late runner")), \
+                 mock.patch.object(MODULE.os, "chown"):
+                with self.assertRaisesRegex(ValueError, "late runner"):
+                    MODULE.stage({"oldUid": 1001, "oldGid": 100,
+                                  "newUid": 62040, "newGid": 62040})
+            self.assertFalse(source.exists())
+            self.assertTrue(quarantine.exists())
             self.assertFalse((base / "target").exists())
 
     def test_source_tree_rejects_symlink_and_wrong_owner(self):
@@ -80,6 +101,43 @@ class DedicatedUidStageTest(unittest.TestCase):
         with mock.patch.object(MODULE.subprocess, "run", side_effect=responses):
             with self.assertRaisesRegex(ValueError, "must be inactive"):
                 MODULE.inactive("app.service")
+
+    def test_missing_new_unit_rejected(self):
+        value = {key: "/reviewed/path" for key in MODULE.FIELDS}
+        value.update({"oldUid": 1001, "oldGid": 100, "newUid": 62040,
+                      "newGid": 62040, "runnerUid": 62041, "socketGid": 62042,
+                      "oldProcessIds": [1234], "runnerProcessIds": [2345],
+                      "oldAppUnit": None, "runnerUnit": None,
+                      "supervisorUnit": None})
+        source = mock.Mock()
+        source.read_text.return_value = json.dumps(value)
+        with mock.patch.object(MODULE, "private_file", return_value=source):
+            with self.assertRaisesRegex(ValueError, "exact reviewed service required"):
+                MODULE.config("/reviewed/manifest.json")
+            value["runnerUnit"] = "ezharness-qual-runner.service"
+            source.read_text.return_value = json.dumps(value)
+            with self.assertRaisesRegex(ValueError, "exact reviewed service required"):
+                MODULE.config("/reviewed/manifest.json")
+            value["supervisorUnit"] = "ezharness-qual-supervisor.service"
+            source.read_text.return_value = json.dumps(value)
+            self.assertEqual(MODULE.config("/reviewed/manifest.json"), value)
+
+    def test_new_units_must_be_loaded_and_inactive(self):
+        not_loaded = subprocess.CompletedProcess([], 0, stdout="not-found\n")
+        with mock.patch.object(MODULE.subprocess, "run", return_value=not_loaded):
+            with self.assertRaisesRegex(ValueError, "not loaded"):
+                MODULE.inactive("ezharness-qual-runner.service")
+
+    def test_dedicated_runner_uid_process_blocks_stage(self):
+        process = mock.Mock()
+        process.name = "4567"
+        proc = mock.Mock()
+        proc.iterdir.return_value = [process]
+        for uid in (62040, 62041):
+            with self.subTest(uid=uid):
+                process.stat.return_value = types.SimpleNamespace(st_uid=uid)
+                with self.assertRaisesRegex(ValueError, "dedicated app or runner UID"):
+                    MODULE.no_dedicated_clients({"newUid": 62040, "runnerUid": 62041}, proc)
 
     def test_dedicated_uid_cannot_traverse_private_dev_directory(self):
         with tempfile.TemporaryDirectory() as temp:

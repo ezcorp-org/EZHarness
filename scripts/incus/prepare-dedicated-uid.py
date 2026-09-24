@@ -28,6 +28,8 @@ FIELDS = {"oldUid", "oldGid", "newUid", "newGid", "runnerUid", "socketGid",
           "builtApp", "oldEnv", "newEnv", "runnerEnv", "runnerSocket",
           "runnerTokenFile", "supervisorConfig"}
 SERVICE = re.compile(r"^[A-Za-z0-9_.@-]+\.service$")
+NEW_UNITS = {"runnerUnit": "ezharness-qual-runner.service",
+             "supervisorUnit": "ezharness-qual-supervisor.service"}
 IDENTITY_KEYS = ("EZCORP_ENCRYPTION_SECRET", "EZCORP_ENCRYPTION_SALT",
                  "EZCORP_JWT_SECRET")
 
@@ -88,9 +90,11 @@ def config(path):
                 and all(type(pid) is int and pid > 1 for pid in value[key])
                 and len(set(value[key])) == len(value[key]),
                 f"reviewed process IDs required: {key}")
-    for key in ("oldAppUnit", "runnerUnit", "supervisorUnit"):
-        require(value[key] is None or (isinstance(value[key], str)
-                and SERVICE.fullmatch(value[key])), "systemd service name or null required")
+    require(value["oldAppUnit"] is None or (isinstance(value["oldAppUnit"], str)
+            and SERVICE.fullmatch(value["oldAppUnit"])),
+            "old app service name or null required")
+    for key, unit in NEW_UNITS.items():
+        require(value[key] == unit, f"exact reviewed service required: {unit}")
     return value
 
 
@@ -161,6 +165,18 @@ def no_old_clients(value, source):
         require(source_env not in environment and socket_env not in environment
                 and socket_arg not in arguments,
                 f"old app or runner client still runs: {process.name}")
+
+
+def no_dedicated_clients(value, process_root=Path("/proc")):
+    for process in process_root.iterdir():
+        if not process.name.isdigit():
+            continue
+        try:
+            owner = process.stat().st_uid
+        except FileNotFoundError:
+            continue
+        require(owner not in (value["newUid"], value["runnerUid"]),
+                f"dedicated app or runner UID already has process {process.name}")
 
 
 def closed_socket(path):
@@ -334,18 +350,12 @@ def check(value):
                           value["runnerUid"], value["oldUid"])
     accessible_to(checked_path(value["runnerSocket"]).parent,
                   value["newUid"], groups)
-    for unit in ("oldAppUnit", "runnerUnit", "supervisorUnit"):
-        if value[unit] is not None:
-            inactive(value[unit])
+    if value["oldAppUnit"] is not None:
+        inactive(value["oldAppUnit"])
+    for key in NEW_UNITS:
+        inactive(value[key])
     no_old_clients(value, source)
-    for process in Path("/proc").iterdir():
-        if process.name.isdigit():
-            try:
-                owner = process.stat().st_uid
-            except FileNotFoundError:
-                continue
-            require(owner != value["newUid"],
-                    f"dedicated app UID already has process {process.name}")
+    no_dedicated_clients(value)
     closed_socket(checked_path(value["runnerSocket"]))
     no_open_database_files(source)
     return source, quarantine, target, rollback
@@ -378,6 +388,7 @@ def stage(value):
     os.chmod(quarantine, 0o700)
     try:
         no_old_clients(value, source)
+        no_dedicated_clients(value)
         no_open_database_files(quarantine)
         regular_tree(quarantine)
         chown_tree(quarantine, 0, 0)

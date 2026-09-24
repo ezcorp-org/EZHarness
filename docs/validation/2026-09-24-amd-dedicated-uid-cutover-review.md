@@ -105,8 +105,8 @@ scope and a negative command test before exposing the key to the app UID.
 
 The root-owned manifest must name the dedicated runner UID (62041), socket
 GID (62042), refreshed
-app/runner PIDs, the exact
-three service units (or `null` for the old manually launched app), all four
+app/runner PIDs, the exact two new service units (both loaded and inactive),
+and `oldAppUnit: null` for the old manually launched app, all four
 database paths, built entrypoint, three sealed environment files, socket,
 token, and supervisor config. `prepare-dedicated-uid.py check` is the final
 read-only gate after the old processes have stopped; `stage --execute` moves
@@ -128,7 +128,9 @@ recovery; a new UID alone is insufficient.
    and supervisor units still inactive, copy the exact sealed root-owned
    source token to the reviewed runtime path as runner:socket-group mode 0640.
    The [runbook](../incus-dedicated-uid-cutover.md) gives the guarded command.
-   Keep the runner socket absent until the database stage passes.
+   Keep the runner socket absent until the database stage passes. Confirm no
+   process remains under either new UID; an inactive unit alone does not prove
+   that a detached runner client stopped.
 3. Run the manifest `check`; inspect its result and path/mode readbacks. Then
    request a separate review of the exact stage manifest and digest before
    `stage --execute`.

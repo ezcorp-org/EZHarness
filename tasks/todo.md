@@ -1747,6 +1747,22 @@ before an installation review.
 
 ## Separate runner socket group in dedicated UID stage — 2026-09-24
 
+## Dedicated UID preflight unit and process fence — 2026-09-24
+
+- [x] Require exact new runner and supervisor service names in the manifest.
+- [x] Require both new units loaded/inactive and reject live app or runner UID processes.
+- [x] Add negative tests for omitted units and live runner UID; update the runbook.
+- [x] Run focused tests, compilation, and diff checks; record result.
+
+### Review
+
+The manifest now requires the exact two NixOS unit names. Both units must be
+loaded, inactive, and have no main PID. The process scan rejects live app or
+runner UID processes before staging and checks again after the atomic source
+rename. Missing-unit, wrong-unit, live UID, and late-runner tests pass. All
+18 focused Python tests, Python compilation, and `git diff --check` pass. No
+live host or app changed.
+
 - [x] Reproduce the stage preflight mismatch with socket GID 62042 and app primary GID 62040.
 - [x] Require a static `socketGid`, verify the app's supplementary group, and check token/socket access using that group.
 - [x] Test the numeric group fixture and wrong-group rejection; run focused tests, compile, and diff checks.
