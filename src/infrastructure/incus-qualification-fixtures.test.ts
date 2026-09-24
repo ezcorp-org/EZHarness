@@ -11,7 +11,7 @@ import * as schema from "../db/schema";
 import { SandboxAdmissionStore } from "../sandboxes/admission";
 import { SandboxController, type SandboxProviderRequest } from "../sandboxes/controller";
 import { IncusFeatureService } from "./incus-feature-service";
-import type { HostIncusLostDestroyReplyFault } from "./incus-destroy-reply-fault";
+import { HostIncusLostDestroyReplyFault } from "./incus-destroy-reply-fault";
 import { IncusQualificationFixtureService, type IncusQualificationScope, type IncusQualificationStore } from "./incus-qualification";
 
 const opened: PGlite[] = [];
@@ -25,10 +25,15 @@ async function setup(configureHost = true, pendingCreate = false, providerGenera
   await client.waitReady;
   await client.exec("CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, path TEXT NOT NULL, icon TEXT, variables JSONB NOT NULL DEFAULT '{}', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())");
   await client.exec("CREATE TABLE project_workspace_bindings (project_id TEXT PRIMARY KEY, kind TEXT NOT NULL, binding_id TEXT, revision INTEGER NOT NULL, state TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())");
+  await client.exec("CREATE TABLE provider_connections (id TEXT PRIMARY KEY, revision INTEGER NOT NULL, provider_installation_id TEXT NOT NULL, provider_release_id TEXT NOT NULL, endpoint TEXT NOT NULL, server_certificate_pem TEXT NOT NULL, project TEXT NOT NULL, configuration JSONB, client_certificate_pem TEXT NOT NULL, private_key_ciphertext TEXT NOT NULL, revoked_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())");
   const db = drizzle(client, { schema });
   await addController(db);
   await addQualificationFixtures(db);
   await addQualificationFixtures(db);
+  await db.insert(schema.providerConnections).values({ id: scope.connectionId, revision: 1,
+    providerInstallationId: scope.installationId, providerReleaseId: scope.releaseId,
+    endpoint: "https://127.0.0.1", serverCertificatePem: "cert", project: "sandbox",
+    clientCertificatePem: "client", privateKeyCiphertext: "ciphertext" });
   const preset = INCUS_PRESETS[0]!;
   const presetDigest = await sandboxPresetDigest(preset);
   const effectiveSettingsDigest = digest({ presetDigest, connectionRevision: 1 });
@@ -116,10 +121,18 @@ test("host fault destroy journals and arms the exact operation before dispatch",
       .where(eq(schema.sandboxReservations.bindingId, input.bindingId)).limit(1);
     expect(input.fixtureOperationId).toBe("fixture-fault");
     expect(input.bindingId).toBe(fixture!.bindingId);
-    expect(journal).toMatchObject({ kind: "DESTROY", state: "JOURNALED", idempotencyKey: "fixture-fault:destroy" });
-    expect(reservation?.cleanupIntentId).toBe("incus-qualification-destroy-fixture-fault");
+    expect(input.destroyOperationId).toMatch(/^[a-f0-9-]{36}$/);
+    expect(journal).toBeUndefined();
+    expect(reservation?.cleanupIntentId).toBeNull();
     expect(dispatches).toHaveLength(1);
-    armed.operationId = journal!.id;
+    armed.operationId = input.destroyOperationId;
+  }, assertArmedFor: async (input: { destroyOperationId: string; bindingId: string }) => {
+    const [reservation] = await db.select().from(schema.sandboxReservations)
+      .where(eq(schema.sandboxReservations.bindingId, input.bindingId)).limit(1);
+    expect(input.destroyOperationId).toBe(armed.operationId);
+    expect(reservation?.cleanupIntentId).toBe("incus-qualification-destroy-fixture-fault");
+    expect((await db.select().from(schema.sandboxOperations))
+      .filter(operation => operation.kind === "DESTROY")).toEqual([]);
   } } as unknown as HostIncusLostDestroyReplyFault;
   const destroyed = await service.destroyWithLostReplyFault(scope, "fixture-fault",
     { runId: "run-a", nonce: "nonce-a", deadlineMs: Date.now() + 30_000 }, fault);
@@ -127,6 +140,72 @@ test("host fault destroy journals and arms the exact operation before dispatch",
   expect(dispatches[1]?.operationId).toBe(armed.operationId);
   await expect(service.destroyWithLostReplyFault(scope, "fixture-fault",
     { runId: "run-a", nonce: "nonce-b", deadlineMs: Date.now() + 30_000 }, fault)).rejects.toThrow("fresh operation");
+});
+
+test("denied or stale operator fault authority cannot leave a destroy for reconciliation", async () => {
+  for (const denial of ["peer", "run", "revoked-connection"] as const) {
+    const { db, service, controller, dispatches } = await setup();
+    const fixtureOperationId = `fixture-denied-${denial}`;
+    await service.create(scope, fixtureOperationId);
+    const [fixture] = await db.select().from(schema.incusQualificationFixtures)
+      .where(eq(schema.incusQualificationFixtures.operationId, fixtureOperationId)).limit(1);
+    if (denial === "revoked-connection") await db.update(schema.providerConnections)
+      .set({ revokedAt: new Date() }).where(eq(schema.providerConnections.id, scope.connectionId));
+    const fault = new HostIncusLostDestroyReplyFault(db, {
+      authenticateOperator: async () => { if (denial === "peer") throw new Error("operator peer denied"); },
+      authorizeRun: async () => { if (denial === "run") throw new Error("operator run denied"); },
+      authorizeReadback: async () => { throw new Error("unexpected readback"); },
+    });
+    await expect(service.destroyWithLostReplyFault(scope, fixtureOperationId,
+      { runId: "run-a", nonce: "nonce-a", deadlineMs: Date.now() + 30_000 }, fault)).rejects.toThrow();
+    const before = await controller.getBinding(fixture!.bindingId);
+    expect(before).toMatchObject({ desiredState: "STOPPED", observedState: "STOPPED" });
+    expect((await db.select().from(schema.sandboxOperations))
+      .filter(operation => operation.bindingId === fixture!.bindingId && operation.kind === "DESTROY")).toEqual([]);
+    const [reservation] = await db.select().from(schema.sandboxReservations)
+      .where(eq(schema.sandboxReservations.bindingId, fixture!.bindingId)).limit(1);
+    expect(reservation?.cleanupIntentId).toBeNull();
+    await controller.reconcile();
+    expect(await controller.getBinding(fixture!.bindingId)).toMatchObject({ desiredState: "STOPPED", observedState: "STOPPED" });
+    expect(dispatches).toHaveLength(1);
+  }
+});
+
+test("expiry after cleanup intent keeps the obligation but cannot journal or reconcile destroy", async () => {
+  const { db, service, controller, admission, dispatches } = await setup();
+  await service.create(scope, "fixture-late-expiry");
+  await service.create(scope, "fixture-unrelated-stopped");
+  const beforeUnrelated = await service.status(scope, "fixture-unrelated-stopped");
+  const [fixture] = await db.select().from(schema.incusQualificationFixtures)
+    .where(eq(schema.incusQualificationFixtures.operationId, "fixture-late-expiry")).limit(1);
+  let clockNow = Date.now();
+  const deadlineMs = clockNow + 30_000;
+  const originalMark = admission.markCleanupIntent.bind(admission);
+  admission.markCleanupIntent = async (...args) => {
+    const result = await originalMark(...args);
+    clockNow = deadlineMs + 1;
+    return result;
+  };
+  const fault = new HostIncusLostDestroyReplyFault(db, {
+    authenticateOperator: async () => {},
+    authorizeRun: async () => { if (clockNow >= deadlineMs) throw new Error("operator run expired"); },
+    authorizeReadback: async () => { throw new Error("unexpected readback"); },
+  }, () => clockNow);
+  await expect(service.destroyWithLostReplyFault(scope, "fixture-late-expiry",
+    { runId: "run-a", nonce: "nonce-a", deadlineMs }, fault)).rejects.toThrow();
+  const [reservation] = await db.select().from(schema.sandboxReservations)
+    .where(eq(schema.sandboxReservations.bindingId, fixture!.bindingId)).limit(1);
+  expect(reservation?.cleanupIntentId).toBe("incus-qualification-destroy-fixture-late-expiry");
+  expect(reservation?.diskState).toBe("RELEASE_REQUESTED");
+  expect((await db.select().from(schema.sandboxOperations))
+    .filter(operation => operation.bindingId === fixture!.bindingId && operation.kind === "DESTROY")).toEqual([]);
+  expect(await controller.getBinding(fixture!.bindingId))
+    .toMatchObject({ desiredState: "STOPPED", observedState: "STOPPED" });
+  await controller.reconcile();
+  expect(await controller.getBinding(fixture!.bindingId))
+    .toMatchObject({ desiredState: "STOPPED", observedState: "STOPPED" });
+  expect(await service.status(scope, "fixture-unrelated-stopped")).toEqual(beforeUnrelated);
+  expect(dispatches).toHaveLength(2);
 });
 
 test("missing host capacity and reused fixture identity fail closed", async () => {

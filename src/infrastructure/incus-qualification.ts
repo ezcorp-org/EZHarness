@@ -601,16 +601,20 @@ export class IncusQualificationFixtureService {
       return replay;
     }
     const expectedGeneration = await readIncusProviderGeneration(binding, this.inspect, this.now);
+    const reservedId = injection ? crypto.randomUUID() : undefined;
+    const armedScope = injection && reservedId ? { ...injection.authority, scope,
+      fixtureOperationId: operationId, bindingId: row.bindingId,
+      destroyOperationId: reservedId, generation: binding.generation,
+      providerGeneration: expectedGeneration, connectionRevision: row.connectionRevision } : null;
+    if (injection && armedScope) await injection.fault.arm(armedScope);
     await this.admission.markCleanupIntent(row.bindingId, binding.generation,
       `incus-qualification-destroy-${operationId}`);
     const dispatch = { ...request, kind: "DESTROY" as const, payload: { expectedGeneration } };
     let operation: SandboxOperation;
-    if (injection) {
-      const journal = await this.controller.journalOperation(dispatch);
-      await injection.fault.arm({ ...injection.authority, scope, fixtureOperationId: operationId,
-        bindingId: row.bindingId, destroyOperationId: journal.id,
-        generation: binding.generation, providerGeneration: expectedGeneration,
-        connectionRevision: row.connectionRevision });
+    if (injection && reservedId && armedScope) {
+      await injection.fault.assertArmedFor(armedScope);
+      const journal = await this.controller.journalOperation(dispatch, reservedId);
+      if (journal.id !== reservedId) throw new Error("Incus qualification destroy fault lost its reserved operation identity");
       operation = await this.controller.executeOperation(journal.id);
     } else operation = await this.controller.requestAndDispatch(dispatch);
     if (operation.state === "SUCCEEDED" && (await this.controller.getBinding(row.bindingId))?.observedState === "ABSENT") {

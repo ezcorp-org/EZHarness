@@ -25,6 +25,7 @@ const RECONCILE_STATES: SandboxOperationState[] = [
   "PROVIDER_PENDING",
   "OUTCOME_UNKNOWN",
 ];
+const RESERVED_OPERATION_ID = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
 
 export type SandboxControllerErrorCode =
   | "BINDING_NOT_FOUND"
@@ -224,7 +225,10 @@ export class SandboxController {
   }
 
   /** Persist the immutable receipt and desired state in one transaction. */
-  async journalOperation(input: RequestSandboxOperationInput): Promise<SandboxOperation> {
+  async journalOperation(input: RequestSandboxOperationInput, reservedOperationId?: string): Promise<SandboxOperation> {
+    if (reservedOperationId !== undefined && !RESERVED_OPERATION_ID.test(reservedOperationId)) {
+      throw new RangeError("reserved sandbox operation ID must be a canonical UUID v4");
+    }
     const payloadHash = operationPayloadHash(input);
     return this.db.transaction(async (transaction: DbTransaction) => {
       const findExisting = async () => {
@@ -267,7 +271,7 @@ export class SandboxController {
       }
 
       const [inserted] = await transaction.insert(sandboxOperations).values({
-        id: crypto.randomUUID(),
+        id: reservedOperationId ?? crypto.randomUUID(),
         bindingId: input.bindingId,
         kind: input.kind,
         generation: input.generation,

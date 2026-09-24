@@ -73,6 +73,23 @@ afterEach(async () => {
 });
 
 describe("SandboxController durable dispatch", () => {
+  test("a reserved UUID is journaled exactly and replay keeps the first receipt", async () => {
+    const { db } = await setup("reserved-id");
+    const controller = new SandboxController(db, new FakeProvider());
+    const createdBinding = await binding(controller, "reserved-id");
+    const request = { bindingId: createdBinding.id, kind: "DESTROY" as const,
+      generation: 1, idempotencyScope: "incus-qualification",
+      idempotencyKey: "fixture:destroy", payload: { expectedGeneration: 1 } };
+    const reservedId = "11111111-1111-4111-8111-111111111111";
+    await expect(controller.journalOperation(request, "not-a-uuid")).rejects.toThrow("canonical UUID v4");
+    expect(await db.select().from(schema.sandboxOperations)).toEqual([]);
+    const first = await controller.journalOperation(request, reservedId);
+    expect(first.id).toBe(reservedId);
+    const replay = await controller.journalOperation(request, "22222222-2222-4222-8222-222222222222");
+    expect(replay.id).toBe(reservedId);
+    expect(await db.select().from(schema.sandboxOperations)).toHaveLength(1);
+  });
+
   test("journals before dispatch and enforces scoped payload idempotency", async () => {
     const { db } = await setup("journal");
     const provider = new FakeProvider();

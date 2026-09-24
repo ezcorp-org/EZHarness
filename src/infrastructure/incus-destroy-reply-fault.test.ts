@@ -10,7 +10,7 @@ const scope = { installationId: "installation-a", releaseId: "release-a",
   connectionId: "connection-a", presetId: "preset-a" };
 const arm = { runId: "run-a", nonce: "nonce-a", deadlineMs: Date.now() + 30_000,
   scope, fixtureOperationId: "fixture-a", bindingId: "binding-a",
-  destroyOperationId: "destroy-a", generation: 1, providerGeneration: 1, connectionRevision: 1 };
+  destroyOperationId: "11111111-1111-4111-8111-111111111111", generation: 1, providerGeneration: 1, connectionRevision: 1 };
 const transportScope = { providerInstallationId: scope.installationId,
   providerReleaseId: scope.releaseId, revision: 1 };
 const command = { action: "instance.destroy" as const, connectionId: scope.connectionId,
@@ -33,15 +33,11 @@ async function fixture() {
   await db.insert(schema.sandboxBindings).values({ id: arm.bindingId, projectId: "project-a",
     providerInstallationId: scope.installationId, providerReleaseId: scope.releaseId,
     connectionId: scope.connectionId, connectionRevision: 1, resourceKey: arm.bindingId,
-    desiredState: "ABSENT", observedState: "STOPPED", currentOperationId: arm.destroyOperationId });
+    desiredState: "STOPPED", observedState: "STOPPED" });
   await db.insert(schema.incusQualificationFixtures).values({ operationId: arm.fixtureOperationId,
     projectId: "project-a", bindingId: arm.bindingId, installationId: scope.installationId,
     releaseId: scope.releaseId, connectionId: scope.connectionId, connectionRevision: 1,
     presetId: scope.presetId, presetDigest: "a".repeat(64), effectiveSettingsDigest: "b".repeat(64) });
-  await db.insert(schema.sandboxOperations).values({ id: arm.destroyOperationId,
-    bindingId: arm.bindingId, kind: "DESTROY", generation: 1,
-    idempotencyScope: "incus-qualification", idempotencyKey: `${arm.fixtureOperationId}:destroy`,
-    payloadHash: "hash", requestPayload: { expectedGeneration: 1 }, state: "JOURNALED" });
   await db.insert(schema.sandboxHostCapacities).values({ providerInstallationId: scope.installationId,
     connectionId: scope.connectionId, allocatableMemoryBytes: 10, allocatableCpuMillicores: 10,
     allocatablePids: 10, allocatableDiskBytes: 10, allocatableExecutionSlots: 10,
@@ -50,8 +46,7 @@ async function fixture() {
   await db.insert(schema.sandboxReservations).values({ bindingId: arm.bindingId, projectId: "project-a",
     providerInstallationId: scope.installationId, connectionId: scope.connectionId,
     generation: 1, memoryBytes: 1, cpuMillicores: 1, pids: 1, diskBytes: 1, executionSlots: 1,
-    computeState: "RELEASED", diskState: "RELEASE_REQUESTED",
-    cleanupIntentId: `incus-qualification-destroy-${arm.fixtureOperationId}` });
+    computeState: "RELEASED", diskState: "RESERVED" });
   return { db, server };
 }
 
@@ -76,6 +71,9 @@ test("operator arm is exact and single-use; readback retains the original unknow
     await fault.arm(liveArm);
     expect(authenticated).toBe(5);
     expect(authorized).toBe(1);
+    await expect(fault.assertArmedFor({ ...liveArm, nonce: "another-nonce" })).rejects.toThrow();
+    await fault.assertArmedFor(liveArm);
+    expect(authorized).toBe(2);
     expect(fault.matches(command as never, transportScope)).toBe(true);
     expect(fault.matches({ ...command, idempotency: { requestId: "other", key: "other" } } as never, transportScope)).toBe(false);
     expect(fault.matches({ ...command, payload: { expectedGeneration: 2 } } as never, transportScope)).toBe(false);
@@ -83,7 +81,13 @@ test("operator arm is exact and single-use; readback retains the original unknow
     expect(fault.consume(command as never, transportScope)).toBe(true);
     expect(fault.consume(command as never, transportScope)).toBe(false);
     await expect(fault.arm(liveArm)).rejects.toThrow();
-    await db.update(schema.sandboxOperations).set({ state: "OUTCOME_UNKNOWN",
+    await db.update(schema.sandboxBindings).set({ desiredState: "ABSENT", currentOperationId: arm.destroyOperationId });
+    await db.update(schema.sandboxReservations).set({ diskState: "RELEASE_REQUESTED",
+      cleanupIntentId: `incus-qualification-destroy-${arm.fixtureOperationId}` });
+    await db.insert(schema.sandboxOperations).values({ id: arm.destroyOperationId,
+      bindingId: arm.bindingId, kind: "DESTROY", generation: 1,
+      idempotencyScope: "incus-qualification", idempotencyKey: `${arm.fixtureOperationId}:destroy`,
+      payloadHash: "hash", requestPayload: { expectedGeneration: 1 }, state: "OUTCOME_UNKNOWN",
       providerOperationId: "incus-destroy-11111111-1111-1111-1111-111111111111" });
     const readback = await fault.readback(liveArm);
     expect(readback).toMatchObject({ fixtureOperationId: arm.fixtureOperationId,

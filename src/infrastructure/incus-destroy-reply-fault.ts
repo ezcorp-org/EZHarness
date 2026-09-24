@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, or } from "drizzle-orm";
 import type { IncusTransportRequest } from "../../extensions/incus-sandbox/transport";
 import type { Database } from "../db/connection";
 import { incusQualificationFixtures, projects, providerConnections, sandboxBindings,
@@ -23,13 +23,14 @@ export interface LostDestroyReplyArm {
 type Authority = {
   /** Must authenticate the private operator socket's OS peer, outside this module. */
   authenticateOperator: () => Promise<void>;
-  /** Must claim the matching durable run checkpoint and nonce once. */
+  /** Must verify the matching durable run checkpoint and nonce on each call. */
   authorizeRun: (arm: Readonly<LostDestroyReplyArm>) => Promise<void>;
   /** Must verify a live operator readback capability for this exact run. */
   authorizeReadback: (arm: Readonly<LostDestroyReplyArm>) => Promise<void>;
 };
 
 const IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
+const RESERVED_OPERATION_ID = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
 
 function requireScope(condition: unknown): asserts condition {
   if (!condition) throw new Error("Incus destroy reply fault scope is unavailable");
@@ -44,6 +45,7 @@ export class HostIncusLostDestroyReplyFault implements PostEffectDestroyReplyFau
   constructor(private readonly db: Database, private readonly authority: Authority,
     private readonly now: () => number = Date.now) {}
 
+  /** Complete all fallible authority checks before cleanup intent or journal exists. */
   async arm(input: Readonly<LostDestroyReplyArm>): Promise<void> {
     await this.authority.authenticateOperator();
     requireScope(!this.wasArmed && !this.armed && !this.arming);
@@ -51,7 +53,7 @@ export class HostIncusLostDestroyReplyFault implements PostEffectDestroyReplyFau
     try {
     requireScope(IDENTIFIER.test(input.runId) && IDENTIFIER.test(input.nonce)
       && IDENTIFIER.test(input.fixtureOperationId) && IDENTIFIER.test(input.bindingId)
-      && IDENTIFIER.test(input.destroyOperationId)
+      && RESERVED_OPERATION_ID.test(input.destroyOperationId)
       && Number.isSafeInteger(input.generation) && input.generation > 0
       && Number.isSafeInteger(input.providerGeneration) && input.providerGeneration > 0
       && Number.isSafeInteger(input.connectionRevision) && input.connectionRevision > 0
@@ -69,7 +71,10 @@ export class HostIncusLostDestroyReplyFault implements PostEffectDestroyReplyFau
       this.db.select().from(projects).where(eq(projects.id, fixture.projectId)).limit(1),
       this.db.select().from(sandboxBindings).where(eq(sandboxBindings.id, fixture.bindingId)).limit(1),
       this.db.select().from(providerConnections).where(eq(providerConnections.id, fixture.connectionId)).limit(1),
-      this.db.select().from(sandboxOperations).where(eq(sandboxOperations.id, input.destroyOperationId)).limit(1),
+      this.db.select().from(sandboxOperations).where(or(eq(sandboxOperations.id, input.destroyOperationId),
+        and(eq(sandboxOperations.bindingId, fixture.bindingId),
+          eq(sandboxOperations.idempotencyScope, "incus-qualification"),
+          eq(sandboxOperations.idempotencyKey, `${input.fixtureOperationId}:destroy`)))).limit(1),
       this.db.select().from(sandboxReservations).where(eq(sandboxReservations.bindingId, fixture.bindingId)).limit(1),
     ]);
     requireScope(project?.purpose === "incus-qualification" && binding
@@ -80,28 +85,39 @@ export class HostIncusLostDestroyReplyFault implements PostEffectDestroyReplyFau
       && binding.connectionId === fixture.connectionId
       && binding.connectionRevision === input.connectionRevision
       && binding.generation === input.generation
-      && binding.currentOperationId === input.destroyOperationId
-      && binding.desiredState === "ABSENT" && binding.cleanupConfirmedAt === null
+      && binding.desiredState === "STOPPED" && binding.observedState === "STOPPED"
+      && binding.tombstonedAt === null
       && connection && connection.providerInstallationId === fixture.installationId
       && connection.providerReleaseId === fixture.releaseId
       && connection.revision === input.connectionRevision && connection.revokedAt === null
-      && operation && operation.bindingId === fixture.bindingId
-      && operation.kind === "DESTROY" && operation.generation === input.generation
-      && operation.idempotencyScope === "incus-qualification"
-      && operation.idempotencyKey === `${input.fixtureOperationId}:destroy`
-      && operation.requestPayload.expectedGeneration === input.providerGeneration
-      && (operation.state === "JOURNALED" || operation.state === "DISPATCHING")
-      && operation.providerOperationId === null
+      && !operation
       && reservation && reservation.projectId === fixture.projectId
       && reservation.connectionId === fixture.connectionId
       && reservation.generation === input.generation
-      && reservation.cleanupIntentId === `incus-qualification-destroy-${input.fixtureOperationId}`
-      && reservation.diskState !== "RELEASED");
+      && reservation.cleanupIntentId === null
+      && reservation.diskState === "RESERVED");
     await this.authority.authorizeRun(input);
     requireScope(!this.wasArmed && !this.armed && input.deadlineMs > this.now());
     this.armed = { ...input, scope: { ...input.scope } };
     this.wasArmed = true;
     } finally { this.arming = false; }
+  }
+
+  /** Recheck the exact arm after cleanup intent, before a dispatchable journal is published. */
+  async assertArmedFor(input: Readonly<LostDestroyReplyArm>): Promise<void> {
+    const armed = this.armed;
+    requireScope(armed && armed.runId === input.runId && armed.nonce === input.nonce
+      && armed.deadlineMs === input.deadlineMs && armed.fixtureOperationId === input.fixtureOperationId
+      && armed.bindingId === input.bindingId && armed.destroyOperationId === input.destroyOperationId
+      && armed.generation === input.generation && armed.providerGeneration === input.providerGeneration
+      && armed.connectionRevision === input.connectionRevision
+      && armed.scope.installationId === input.scope.installationId
+      && armed.scope.releaseId === input.scope.releaseId
+      && armed.scope.connectionId === input.scope.connectionId
+      && armed.scope.presetId === input.scope.presetId
+      && this.now() < armed.deadlineMs);
+    await this.authority.authorizeRun(input);
+    requireScope(this.armed === armed && this.now() < armed.deadlineMs);
   }
 
   matches(command: IncusTransportRequest, scope: HostConnectionScope): boolean {
