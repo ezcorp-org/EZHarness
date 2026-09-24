@@ -1,5 +1,19 @@
 # Wire `trusted-local` — the explicit, per-release-approved unsandboxed extension mode
 
+## PR #303 current Incus completion checklist — 2026-09-23
+
+- [x] Activate the exact reviewed provider release in the isolated test app.
+- [x] Repair the capacity route's filesystem/registry parity and push the fix.
+- [x] Wire host-owned network and control fixture probes without opening the qualification gate.
+- [x] Pass local residual tests (184/184), combined Incus tests (228/228), lint, typecheck, build, and gate integrity on head `695f2d558`.
+- [ ] Obtain approval for revised setup digest `fd430d6aece7cad6bdac995bd4417bf3b0c663ae37a3671d127c98a4ea21be43`; apply it once and verify server readback.
+- [ ] Probe the approved connection, review and apply capacity, then run a real EZHarness-owned guest fixture and complete cleanup.
+- [ ] Close restart and failed-cleanup recovery with an external supervisor and post-effect fault hook; keep SP qualification closed until live proof.
+- [ ] Qualify guest network/resource controls and the separately reviewed host firewall change.
+- [ ] Pass hosted CI at final PR head and record supported profiles and remaining limits.
+
+Review: The revised setup remains `planned` in the isolated app. Commits `74862f2a6` and `695f2d558` are pushed; `dc226e80e` adds the exact restart fixture argument and recovery design and awaits push. The 27-file combined suite passed before that last contract change; its 22 focused tests, lint, and typecheck passed after it. Hosted CI is running on `695f2d558`. No new server setup write or EZHarness-created guest has occurred.
+
 ## Live Incus operator Apply recovery — 2026-09-23
 
 Current status: Release `dcde361cc4fe348743c1aafc5272ac5104b025046b1c96273e58dc0b8d6e8bdd` is approved and active in the isolated app. Approved setup digest `b3e3a491775f8679e35b4606f67cd1ca6043e0d28ff40d911dbc9d99e313bd4d` failed at `restricted-project`: Incus 6.0.6 rejected `restricted.storage-pools.access`. No project or later resource was created. The revised recipe removes that unsupported key and blocks setup when any other storage pool exists. New setup ID `93c1db15-4515-43a0-aa5d-78326bc30c78`, digest `fd430d6aece7cad6bdac995bd4417bf3b0c663ae37a3671d127c98a4ea21be43`, passed read-only preflight and dry run; exact new Apply approval is pending. See `docs/validation/2026-09-23-isolated-incus-setup-plan-0.1.1-revised-review.md`.
