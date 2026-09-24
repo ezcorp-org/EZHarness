@@ -12,7 +12,7 @@
  * the ROCm fixture or another copy of itself. It changes no GPU configuration
  * and reimages nothing.
  *
- * Usage: bun scripts/verify-factory-attempt-gpu.ts [--out <path>]
+ * Usage: bun scripts/__tests__/live/verify-factory-attempt-gpu.ts [--out <path>]
  */
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { open } from "node:fs/promises";
@@ -20,8 +20,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { buildLimits, executionLimits, filesDigest, PodmanRunner, startExecutionDevices } from "@ezcorp/extension-runner";
-import { provisionToolchain } from "../packages/@ezcorp/extension-runner/src/provision";
-import { factoryAttemptDeviceGrant, factoryHeldAllocationDevices, type FactoryAttemptLease } from "../src/factory/runner/attempt-runtime";
+import { provisionToolchain } from "../../../packages/@ezcorp/extension-runner/src/provision";
+import { factoryAttemptDeviceGrant, factoryHeldAllocationDevices, type FactoryAttemptLease } from "../../../src/factory/runner/attempt-runtime";
 
 /** The supported local profile: both render nodes, because this ROCm runtime fails initialization with only the discrete device. */
 const LOCAL_AMD_PROFILE = Object.freeze({ hostId: "local-amd-host", devices: Object.freeze(["/dev/kfd", "/dev/dri/renderD128", "/dev/dri/renderD129"]), cdiDevices: Object.freeze([] as readonly string[]) });
@@ -58,7 +58,7 @@ async function main(): Promise<number> {
   // factory start must never inherit.
   const runner = new PodmanRunner({ root, configuredDevices: LOCAL_AMD_PROFILE.devices, ...await provisionToolchain({ sdkEntrypoint: process.env.EZ_RUNNER_SDK_ENTRY }) });
   try {
-    const files = (await import("../packages/@ezcorp/extension-runner/tests/helpers")).source(REPORT);
+    const files = (await import("../../../packages/@ezcorp/extension-runner/tests/helpers")).source(REPORT);
     const build = await runner.build({ operationId: randomUUID(), files, sourceDigest: filesDigest(files), entrypoint: "extension.ts", limits: buildLimits });
     if (build.state !== "succeeded") throw new Error(`guest build failed: ${JSON.stringify(build.diagnostics)}`);
     const artifactDigest = build.artifactDigest!;

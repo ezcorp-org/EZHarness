@@ -2354,6 +2354,41 @@ describe("check-boundaries: the worker runtime allowlist", () => {
   });
 });
 
+describe("check-boundaries: only a test may import test code", () => {
+  test("a deliberate violation from each production tree is rejected", () => {
+    const cases: [string, string, string][] = [
+      ["src/factory/boot.ts", "../__tests__/helpers/test-pglite", "src/__tests__/helpers/test-pglite"],
+      ["src/factory/boot.ts", "./boot.test", "src/factory/boot.test"],
+      ["web/src/lib/server/factory/route-kit.ts", "$server/__tests__/helpers/test-pglite", "src/__tests__/helpers/test-pglite"],
+      ["web/src/routes/api/factories/_shared.ts", "../../../../e2e/fixtures/api-mocks", "web/e2e/fixtures/api-mocks"],
+      ["scripts/check-boundaries.ts", "../tests/postgres/helpers/factory-test-database", "tests/postgres/helpers/factory-test-database"],
+      ["packages/@ezcorp/extension-runner/src/podman.ts", "../tests/helpers", "packages/@ezcorp/extension-runner/tests/helpers"],
+      ["packages/@ezcorp/sdk/src/index.ts", "../test/fixtures", "packages/@ezcorp/sdk/test/fixtures"],
+    ];
+    for (const [from, spec, target] of cases) {
+      expect(checkEdge(from, spec), `${from} -> ${spec}`).toMatchObject({ rule: "no-test-imports-outside-tests", target });
+    }
+    expect(checkSource("src/factory/boot.ts", `import { setupTestDb } from "../__tests__/helpers/test-pglite";`)).toHaveLength(1);
+  });
+
+  test("tests may import test code, and anyone may read test data", () => {
+    expect(checkEdge("src/__tests__/factory-boot.test.ts", "./helpers/test-pglite")).toBeNull();
+    expect(checkEdge("tests/postgres/factory-boot.test.ts", "./helpers/factory-test-database")).toBeNull();
+    expect(checkEdge("scripts/__tests__/live/verify-shipping-keyless-providers.ts", "../../../src/__tests__/helpers/test-pglite")).toBeNull();
+    expect(checkEdge("packages/@ezcorp/extension-runner/tests/podman.integration.test.ts", "./helpers")).toBeNull();
+    expect(checkEdge("scripts/e2e-lane-args.ts", "../web/e2e/lanes.json")).toBeNull();
+  });
+
+  test("the definition of a test path covers each test tree and nothing in production", () => {
+    for (const p of ["src/__tests__/x.ts", "a/b.test.ts", "a/b.spec.ts", "a/b.test", "tests/postgres/helpers/x.ts", "packages/@ezcorp/x/tests/h.ts", "packages/@ezcorp/x/test/h.ts", "web/e2e/fixtures/m.ts"]) {
+      expect(isTestPath(p), p).toBe(true);
+    }
+    for (const p of ["src/factory/boot.ts", "web/src/lib/server/factory/route-kit.ts", "scripts/check-boundaries.ts", "packages/@ezcorp/x/src/testing.ts", "src/contests/x.ts", "web/src/routes/e2e/x.ts", "web/src/routes/api/providers/local/test/+server.ts", "src/lib/tests/x.ts"]) {
+      expect(isTestPath(p), p).toBe(false);
+    }
+  });
+});
+
 describe("check-boundaries: source scanning", () => {
   test("extractSpecifiers finds every import form the repo uses", () => {
     const src = [
