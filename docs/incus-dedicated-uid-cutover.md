@@ -72,7 +72,33 @@ runner before the database stage. A fresh final `check` and the existing
 `prepare-dedicated-uid.py check` are required at their respective gates.
 The latter requires the dedicated runner's runtime token and directory.
 Provision and review those before the database stage; candidate generation
-alone does not create them.
+alone does not create them. With the new runner and supervisor services still
+inactive and the runner socket absent, seed the runtime token from the sealed
+root-owned source after the reviewed NixOS generation defines the static users:
+
+```sh
+sudo sh -eu -c '
+  test "$(systemctl show ezharness-qual-runner.service -p ActiveState --value)" = inactive
+  test "$(systemctl show ezharness-qual-supervisor.service -p ActiveState --value)" = inactive
+  test ! -e /run/ezharness-qual-runner/runner.sock
+  test ! -L /run/ezharness-qual-runner/runner.sock
+  test -f /etc/ezharness/qualification-runner-token
+  test ! -L /etc/ezharness/qualification-runner-token
+  test "$(stat -c %u:%g:%a /etc/ezharness/qualification-runner-token)" = 0:0:600
+  test "$(id -u ezharness-qual-runner)" = 62041
+  test "$(getent group ezharness-qual-socket | cut -d: -f3)" = 62042
+  install -d -m 2750 -o ezharness-qual-runner -g ezharness-qual-socket \
+    /run/ezharness-qual-runner
+  install -m 0640 -o ezharness-qual-runner -g ezharness-qual-socket \
+    /etc/ezharness/qualification-runner-token /run/ezharness-qual-runner/token
+'
+```
+
+First verify the source is a regular, root:root mode `0600` file and confirm
+these group names resolve to reviewed GIDs 62041 and 62042. Keep both services
+off until the database stage finishes. The runner service seeds the same token
+again on its later start. Do not start it just to create the token: its socket
+must remain absent during preflight.
 Run `check-live-source` immediately before stopping the old app. It checks
 that the old process still has the pinned boot, PID, start time, UID, and
 byte-equal selected environment. After the old process stops, use the staged
@@ -137,6 +163,7 @@ absolute paths:
   "newUid": 62040,
   "newGid": 62040,
   "runnerUid": 62041,
+  "socketGid": 62042,
   "oldProcessIds": [3878477, 3878556, 3878559, 3878560],
   "runnerProcessIds": [1982010, 1983979],
   "sourceDb": "/reviewed/old/pglite",
@@ -156,7 +183,9 @@ absolute paths:
 }
 ```
 
-The example paths and numeric IDs are placeholders. `null` means that the old
+The example paths and numeric IDs are placeholders. The app must have socket
+GID 62042 as a supplementary group; the runner must not have the app-only
+GID 62040. The preflight checks both. `null` means that the old
 process was started manually; it does not waive the process, socket, or
 database-open checks. Use a service name only for a real loaded unit. Refresh all process IDs
 immediately before the cutover; the script requires those exact processes to
@@ -258,12 +287,15 @@ Prepare these host writes for separate review before changing the live app:
    `/opt/ezharness`. Prove its dependency paths do not enter `/home/dev`.
    The preflight checks ownership and path access for `web/build/index.js`;
    first supervised start with traffic held must prove the full runtime.
-2. Declare a static app UID/GID and a separate runner UID. Prepare the new
+2. Declare a static app UID/GID, a separate runner UID, and the shared socket
+   GID. Prepare the new
    runner service with the reviewed runner executable, store, socket parent,
    token file, and `EZ_EXTENSION_APP_UID` set to the app UID. Prepare sealed
    app/runner settings and a root-owned supervisor service/config. The
    supervisor starts the new app, so do not also start a second app service.
-3. Create the root-only quarantine/rollback parents and root:new-app-group
+3. Seed the runtime token from the reviewed root-owned source while both new
+   services stay stopped and the socket is absent. Create the root-only
+   quarantine/rollback parents and root:new-app-group
    target parent. Hold the port's ingress, stop the four old app processes and
    isolated runner/gateway, remove only their stale socket after they exit,
    then seal the source parent. Refresh the manifest PIDs and run `check`.

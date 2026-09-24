@@ -1745,6 +1745,24 @@ before an installation review.
 
 ## Live Incus qualification remainder — 2026-09-24
 
+## Separate runner socket group in dedicated UID stage — 2026-09-24
+
+- [x] Reproduce the stage preflight mismatch with socket GID 62042 and app primary GID 62040.
+- [x] Require a static `socketGid`, verify the app's supplementary group, and check token/socket access using that group.
+- [x] Test the numeric group fixture and wrong-group rejection; run focused tests, compile, and diff checks.
+- [x] Document the stopped-service token seed and runner start order in the cutover packet.
+
+### Review
+
+The old preflight required socket and token group 62040, while the reviewed
+NixOS module gives them group 62042 to protect the app-only SSH key. The
+manifest now requires `socketGid`; its static group and the app's actual
+supplementary membership are checked before the database stage. The runner
+must remain outside app group 62040. The runtime token is seeded from the
+sealed source with both services off and the socket absent. Fourteen Python
+tests, Python compilation, and `git diff --check` pass. No host, app, or
+server changed.
+
 - [x] Push the integrated SP05, cutover-preflight, and release-bundle code; run pre-push lint, typecheck, and Svelte checks.
 - [ ] Integrate and verify the scoped, exact-plan SSH setup gate.
 - [ ] Rebuild and smoke-test a sealed bundle from the final reviewed PR head.

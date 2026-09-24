@@ -6,6 +6,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import types
 import unittest
 from unittest import mock
 
@@ -87,7 +88,54 @@ class DedicatedUidStageTest(unittest.TestCase):
             built = private / "index.js"
             built.write_text("export {}")
             with self.assertRaisesRegex(ValueError, "cannot access"):
-                MODULE.accessible_to(built, 62040, 62040, read_file=True)
+                MODULE.accessible_to(built, 62040, {62040, 62042}, read_file=True)
+
+    def test_socket_group_is_static_and_app_supplementary_only(self):
+        app = types.SimpleNamespace(pw_uid=62040, pw_gid=62040, pw_name="ezharness-qual")
+        runner = types.SimpleNamespace(pw_uid=62041, pw_gid=62041,
+                                       pw_name="ezharness-qual-runner")
+        value = {"newUid": 62040, "newGid": 62040,
+                 "runnerUid": 62041, "socketGid": 62042}
+        with mock.patch.object(MODULE.pwd, "getpwuid", side_effect={62040: app,
+                                                                    62041: runner}.get), \
+             mock.patch.object(MODULE.grp, "getgrgid",
+                               side_effect=lambda gid: types.SimpleNamespace(gr_gid=gid)), \
+             mock.patch.object(MODULE.os, "getgrouplist",
+                               side_effect=lambda name, primary: ([62040, 62042] if name == app.pw_name
+                                                                    else [62041, 62042])) as groups:
+            self.assertEqual(MODULE.app_groups(value), {62040, 62042})
+            self.assertEqual(groups.call_count, 2)
+            groups.side_effect = lambda name, primary: [62040] if name == app.pw_name else [62041]
+            with self.assertRaisesRegex(ValueError, "not a member"):
+                MODULE.app_groups(value)
+            groups.side_effect = lambda name, primary: ([62040, 62042] if name == app.pw_name
+                                                        else [62040, 62041, 62042])
+            with self.assertRaisesRegex(ValueError, "runner can read"):
+                MODULE.app_groups(value)
+
+    def test_socket_group_permissions_use_supplementary_gid(self):
+        with tempfile.TemporaryDirectory() as temp:
+            token = pathlib.Path(temp) / "token"
+            pathlib.Path(temp).chmod(0o755)
+            token.write_bytes(b"x" * 32)
+            actual_lstat = pathlib.Path.lstat
+
+            def socket_gid_stat(path):
+                if path == token:
+                    return types.SimpleNamespace(st_mode=stat.S_IFREG | 0o640,
+                                                 st_uid=62041, st_gid=62042, st_size=32)
+                return actual_lstat(path)
+
+            with mock.patch.object(pathlib.Path, "lstat", socket_gid_stat), \
+                 mock.patch.object(MODULE, "protected_runner_path"):
+                MODULE.runner_token(token, runner_uid=62041,
+                                    socket_gid=62042, old_uid=1001)
+                MODULE.accessible_to(token, 62040, {62040, 62042}, read_file=True)
+                with self.assertRaisesRegex(ValueError, "not private and app-readable"):
+                    MODULE.runner_token(token, runner_uid=62041,
+                                        socket_gid=62040, old_uid=1001)
+                with self.assertRaisesRegex(ValueError, "cannot access"):
+                    MODULE.accessible_to(token, 62040, {62040}, read_file=True)
 
     def test_shared_uid_source_parent_rejected(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -110,7 +158,7 @@ class DedicatedUidStageTest(unittest.TestCase):
             token.chmod(0o640)
             with self.assertRaisesRegex(ValueError, "runner token owner"):
                 MODULE.runner_token(token, runner_uid=62041,
-                                    app_gid=os.getgid(), old_uid=os.getuid())
+                                    socket_gid=os.getgid(), old_uid=os.getuid())
 
     def test_old_uid_owned_runner_parents_are_rejected(self):
         with tempfile.TemporaryDirectory() as temp:

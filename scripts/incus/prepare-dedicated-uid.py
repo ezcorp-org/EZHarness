@@ -21,7 +21,8 @@ import time
 from pathlib import Path
 
 
-FIELDS = {"oldUid", "oldGid", "newUid", "newGid", "runnerUid", "sourceDb", "quarantineDb", "targetDb",
+FIELDS = {"oldUid", "oldGid", "newUid", "newGid", "runnerUid", "socketGid",
+          "sourceDb", "quarantineDb", "targetDb",
           "rollbackDb", "oldAppUnit", "runnerUnit", "supervisorUnit",
           "oldProcessIds", "runnerProcessIds",
           "builtApp", "oldEnv", "newEnv", "runnerEnv", "runnerSocket",
@@ -72,11 +73,13 @@ def checked_path(value):
 def config(path):
     value = json.loads(private_file(path).read_text())
     require(isinstance(value, dict) and set(value) == FIELDS, "cutover manifest keys changed")
-    for key in ("oldUid", "oldGid", "newUid", "newGid", "runnerUid"):
+    for key in ("oldUid", "oldGid", "newUid", "newGid", "runnerUid", "socketGid"):
         require(type(value[key]) is int and value[key] > 0, "positive static UID/GID required")
     require(len({value["oldUid"], value["newUid"], value["runnerUid"]}) == 3,
             "app and runner UIDs must be dedicated")
-    for key in FIELDS - {"oldUid", "oldGid", "newUid", "newGid", "runnerUid",
+    require(value["socketGid"] != value["newGid"],
+            "runner socket group must differ from the app-only group")
+    for key in FIELDS - {"oldUid", "oldGid", "newUid", "newGid", "runnerUid", "socketGid",
                          "oldProcessIds", "runnerProcessIds",
                          "oldAppUnit", "runnerUnit", "supervisorUnit"}:
         checked_path(value[key])
@@ -197,15 +200,15 @@ def root_build(path):
     require(path.is_file(), "built app is absent")
 
 
-def accessible_to(path, uid, gid, read_file=False):
+def accessible_to(path, uid, gids, read_file=False):
     for item in [path, *path.parents]:
         found = item.lstat()
         bits = found.st_mode & (0o700 if found.st_uid == uid else
-                                0o070 if found.st_gid == gid else 0o007)
+                                0o070 if found.st_gid in gids else 0o007)
         needed = (0o400 if found.st_uid == uid else
-                  0o040 if found.st_gid == gid else 0o004) if item == path and read_file else (
+                  0o040 if found.st_gid in gids else 0o004) if item == path and read_file else (
                   0o100 if found.st_uid == uid else
-                  0o010 if found.st_gid == gid else 0o001)
+                  0o010 if found.st_gid in gids else 0o001)
         require(bits & needed, f"dedicated app cannot access: {item}")
 
 
@@ -235,24 +238,38 @@ def protected_runner_path(path, runner_uid, old_uid):
                 f"runner path parent is mutable by the old app UID: {parent}")
 
 
-def runner_token(path, runner_uid, app_gid, old_uid):
+def runner_token(path, runner_uid, socket_gid, old_uid):
     path = checked_path(str(path))
     token = path.lstat()
     require(runner_uid != old_uid and token.st_uid == runner_uid,
             "runner token owner is not the dedicated runner")
     protected_runner_path(path, runner_uid, old_uid)
-    require(stat.S_ISREG(token.st_mode) and token.st_gid == app_gid
+    require(stat.S_ISREG(token.st_mode) and token.st_gid == socket_gid
             and token.st_mode & 0o027 == 0 and token.st_mode & 0o040
             and 32 <= token.st_size <= 4096,
             "runner token is not private and app-readable")
 
 
+def app_groups(value):
+    app = pwd.getpwuid(value["newUid"])
+    runner = pwd.getpwuid(value["runnerUid"])
+    require(app.pw_uid == value["newUid"]
+            and app.pw_gid == value["newGid"]
+            and runner.pw_uid == value["runnerUid"]
+            and grp.getgrgid(value["newGid"]).gr_gid == value["newGid"]
+            and grp.getgrgid(value["socketGid"]).gr_gid == value["socketGid"],
+            "dedicated static app, runner, or socket identity is not provisioned")
+    groups = set(os.getgrouplist(app.pw_name, value["newGid"]))
+    require(value["socketGid"] in groups,
+            "dedicated app is not a member of the runner socket group")
+    require(value["newGid"] not in os.getgrouplist(runner.pw_name, runner.pw_gid),
+            "dedicated runner can read the app-only group")
+    return groups
+
+
 def check(value):
     require(os.geteuid() == 0, "root operator required")
-    require(value["newUid"] == pwd.getpwuid(value["newUid"]).pw_uid
-            and value["runnerUid"] == pwd.getpwuid(value["runnerUid"]).pw_uid
-            and value["newGid"] == grp.getgrgid(value["newGid"]).gr_gid,
-            "dedicated static app UID/GID is not provisioned")
+    groups = app_groups(value)
     source = checked_path(value["sourceDb"])
     quarantine = checked_path(value["quarantineDb"])
     target = checked_path(value["targetDb"])
@@ -270,7 +287,7 @@ def check(value):
             "source and root-only quarantine must share a filesystem for atomic rename")
     built = checked_path(value["builtApp"])
     root_build(built)
-    accessible_to(built, value["newUid"], value["newGid"], read_file=True)
+    accessible_to(built, value["newUid"], groups, read_file=True)
     parent_mode(target, 0, value["newGid"], 0o710)
     parent_mode(rollback, 0, 0, 0o700)
     old_env, new_env, runner_env = (read_env(value[name])
@@ -304,19 +321,19 @@ def check(value):
             and Path(fence[0]).name != "false",
             "supervisor config does not pin the dedicated app")
     runner_token(value["runnerTokenFile"], value["runnerUid"],
-                 value["newGid"], value["oldUid"])
-    accessible_to(checked_path(value["runnerTokenFile"]), value["newUid"], value["newGid"],
+                 value["socketGid"], value["oldUid"])
+    accessible_to(checked_path(value["runnerTokenFile"]), value["newUid"], groups,
                   read_file=True)
     socket_parent = checked_path(value["runnerSocket"]).parent.lstat()
     require(stat.S_ISDIR(socket_parent.st_mode)
-            and socket_parent.st_gid == value["newGid"]
+            and socket_parent.st_gid == value["socketGid"]
             and socket_parent.st_mode & 0o020 == 0
             and socket_parent.st_mode & 0o010 != 0,
             "runner socket directory is not app-searchable")
     protected_runner_path(checked_path(value["runnerSocket"]),
                           value["runnerUid"], value["oldUid"])
     accessible_to(checked_path(value["runnerSocket"]).parent,
-                  value["newUid"], value["newGid"])
+                  value["newUid"], groups)
     for unit in ("oldAppUnit", "runnerUnit", "supervisorUnit"):
         if value[unit] is not None:
             inactive(value[unit])

@@ -103,7 +103,8 @@ scope and a negative command test before exposing the key to the app UID.
 | Rollback | `/var/lib/ezharness-qual-rollback/pglite` | Parent root:root 0700, target and receipt absent. |
 | App projects | `/var/lib/ezharness-qual-data/projects` | Review the old `projects` tree and DB references; move or copy under separate checked procedure before opening traffic. The PGlite stage script does not handle it. |
 
-The root-owned manifest must name the dedicated runner UID (62041), refreshed
+The root-owned manifest must name the dedicated runner UID (62041), socket
+GID (62042), refreshed
 app/runner PIDs, the exact
 three service units (or `null` for the old manually launched app), all four
 database paths, built entrypoint, three sealed environment files, socket,
@@ -123,7 +124,11 @@ recovery; a new UID alone is insufficient.
 2. Record and hold ingress. Stop only the isolated Vite process group and
    isolated runner/gateway, verify their current PID start times, confirm
    port 4301 and the exact socket have closed, then seal the source parent.
-   Do not stop the unrelated development runner service.
+   Do not stop the unrelated development runner service. With the new runner
+   and supervisor units still inactive, copy the exact sealed root-owned
+   source token to the reviewed runtime path as runner:socket-group mode 0640.
+   The [runbook](../incus-dedicated-uid-cutover.md) gives the guarded command.
+   Keep the runner socket absent until the database stage passes.
 3. Run the manifest `check`; inspect its result and path/mode readbacks. Then
    request a separate review of the exact stage manifest and digest before
    `stage --execute`.
