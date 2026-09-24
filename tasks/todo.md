@@ -948,3 +948,13 @@ Integration plan: #309 landed on main at 3b5095303. Merge that exact base into t
 Plan review: Both failures stopped after about five seconds while waiting for a startup file. The PR does not change the launcher. Wait for an observable process state instead of measuring host scheduling time; keep the test's overall timeout as the deadlock guard.
 
 Review: The helper now reads nonempty readiness content until it appears or the producer exits. One new test proves that a producer exit fails immediately. The exact lifecycle suite passed 5/5 on pinned Bun 1.3.14; Biome and full typecheck passed. The failed hosted job cannot be rerun while its workflow is active (GitHub HTTP 403), so the change needs a new CI run after push.
+
+## PR #319 review and repair
+
+- [x] Read hosted browser failures and inspect the chat sidebar change.
+- [x] Fix stale project rows, missing new-chat refresh, empty All chats access, and fork/agent markers.
+- [x] Update old browser journeys to use the new Chat section.
+- [x] Complete focused browser, type, lint, and coverage checks.
+- [x] Commit the reviewed changes and report exact results.
+
+Review: Hosted full mock browser lane failed 16 journeys; browser route coverage and per-file coverage then lacked a required producer. All 117 affected Chromium journeys pass after the fixes. Component checks pass 31/31 and show 100% line and branch coverage for ChatNavSection. Web production build, full typecheck, lint, and whitespace check pass. The hosted full browser and coverage lanes still need a new run after the branch is pushed by the parent agent.

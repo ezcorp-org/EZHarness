@@ -31,6 +31,7 @@
 	import { groupConversations, type ConversationGroup } from "$lib/conversation-grouping.js";
 	import { CONVERSATIONS_CHANGED, notifyConversationsChanged, refreshQuickstart } from "$lib/stores.svelte.js";
 	import { unreadStore } from "$lib/unread.js";
+	import { untrack } from "svelte";
 
 	let {
 		chatBase,
@@ -71,6 +72,8 @@
 	let conversations = $state<Conversation[]>([]);
 	let loading = $state(false);
 	let loaded = $state(false);
+	let loadedFor = $state<string | null>(null);
+	let loadGeneration = 0;
 	let creating = $state(false);
 	let unreadRev = $state(0);
 
@@ -78,24 +81,36 @@
 
 	async function load() {
 		const requestedFor = projectId;
+		const generation = ++loadGeneration;
+		if (loadedFor !== requestedFor) {
+			conversations = [];
+			loaded = false;
+		}
 		loading = true;
 		try {
 			const page = await fetchConversations(requestedFor, { limit: CHAT_NAV_RECENT_LIMIT, offset: 0 });
-			// A project switch mid-flight must not paint the old project's threads.
-			if (requestedFor !== projectId) return;
+			if (generation !== loadGeneration || requestedFor !== projectId) return;
 			conversations = page;
+			loadedFor = requestedFor;
 		} catch {
 			// Degrade silently — the Chat label still links to the full list.
+			if (generation === loadGeneration) {
+				conversations = [];
+				loadedFor = requestedFor;
+			}
 		} finally {
-			loading = false;
-			loaded = true;
+			if (generation === loadGeneration) {
+				loading = false;
+				loaded = true;
+			}
 		}
 	}
 
 	// Load when first opened, and again whenever the project changes while open.
 	$effect(() => {
 		void projectId;
-		if (expanded) void load();
+		const open = expanded;
+		if (open) untrack(() => { void load(); });
 	});
 
 	$effect(() => {
@@ -147,6 +162,9 @@
 	// inside its parent. Every row, root or fork, counts against the cap.
 	type Row = { conv: Conversation; fork: boolean };
 	let groups = $derived.by((): { label: string; rows: Row[] }[] => {
+		// Effects run after rendering. Gate the rows synchronously on the current
+		// project, so an old project's rows never acquire the new chatBase href.
+		if (loadedFor !== projectId) return [];
 		const all: ConversationGroup[] = groupConversations(conversations, { now: Date.now() });
 		let budget = CHAT_NAV_RECENT_LIMIT;
 		const out: { label: string; rows: Row[] }[] = [];
@@ -155,7 +173,9 @@
 			const rows: Row[] = [];
 			for (const fam of group.families) {
 				if (budget <= 0) break;
-				rows.push({ conv: fam.root, fork: false });
+				// The parent can fall outside the eight fetched rows. Keep the fork
+				// marker even when grouping has no parent row to attach it to.
+				rows.push({ conv: fam.root, fork: Boolean(fam.root.forkedFromConversationId) });
 				budget--;
 				for (const fork of fam.forks.slice(0, budget)) {
 					rows.push({ conv: fork, fork: true });
@@ -204,8 +224,8 @@
 		<button
 			type="button"
 			class="flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-[var(--color-text-muted)] hover:bg-[var(--color-surface-tertiary)] hover:text-[var(--color-text-primary)] disabled:opacity-50"
-			aria-label="New chat"
-			title="New chat"
+			aria-label="New Chat"
+			title="New Chat"
 			data-testid="chat-nav-new"
 			disabled={creating}
 			onclick={newChat}
@@ -247,7 +267,12 @@
 									{#if row.fork}
 										<span class="shrink-0 text-[var(--color-text-muted)]" aria-hidden="true">↳</span>
 									{/if}
-									<span class="truncate">{titleOf(row.conv)}</span>
+									<span class="min-w-0 truncate">
+										<span class="block truncate">{titleOf(row.conv)}</span>
+										{#if row.conv.agentConfigId}
+											<span class="block truncate text-[10px] text-[var(--color-text-muted)]">Agent conversation</span>
+										{/if}
+									</span>
 									{#if !threadActive && unreadRev >= 0 && unreadStore.isUnread(row.conv.id)}
 										<span
 											class="ml-auto h-1.5 w-1.5 shrink-0 rounded-full bg-blue-500"
@@ -260,16 +285,16 @@
 						{/each}
 					</ul>
 				{/each}
-				<a
-					href={`${chatBase}?all=1`}
-					class="deck-row text-xs text-[var(--color-text-muted)]"
-					style="padding-left: 1.75rem;"
-					data-testid="chat-nav-show-all"
-					onclick={() => onnavigate?.()}
-				>
-					All chats →
-				</a>
 			{/if}
+			<a
+				href={`${chatBase}?all=1`}
+				class="deck-row text-xs text-[var(--color-text-muted)]"
+				style="padding-left: 1.75rem;"
+				data-testid="chat-nav-show-all"
+				onclick={() => onnavigate?.()}
+			>
+				All chats →
+			</a>
 		</div>
 	{/if}
 </div>

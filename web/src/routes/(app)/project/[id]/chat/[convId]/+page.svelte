@@ -168,6 +168,7 @@
 		try {
 			const conv = await createConversation({ projectId });
 			void refreshQuickstart();
+			notifyConversationsChanged(projectId);
 			goto(`/project/${projectId}/chat/${conv.id}`);
 		} catch (err) {
 			console.error("Failed to create conversation:", err);

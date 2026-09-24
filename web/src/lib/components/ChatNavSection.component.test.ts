@@ -4,7 +4,7 @@
  *
  * Covers: default open/closed (open while in Chat, closed elsewhere), a stored
  * choice winning in both directions and being remembered, blocked storage,
- * the RECENT cap + "Show all" (and its absence), date-group labels, the
+ * the recent cap and always-available "All chats" link, date-group labels, the
  * active-thread highlight, unread dots (shown for others, never the open
  * thread), the untitled fallback, every load outcome (in-flight, empty,
  * thrown), a project switch mid-fetch, both refresh events (same project,
@@ -168,6 +168,24 @@ describe("what it lists", () => {
 		expect(rows[1]).toHaveAttribute("aria-current", "page");
 	});
 
+	test("marks a recent fork whose parent is older than the fetch window", async () => {
+		api.fetchConversations.mockResolvedValue([
+			conv("fork", "Recent fork", 1, { forkedFromConversationId: "older-parent" }),
+			...Array.from({ length: 7 }, (_, i) => conv(`peer-${i}`, `Peer ${i}`, i + 2)),
+		]);
+		const { findAllByTestId } = mount({ active: true });
+		const rows = await findAllByTestId("chat-nav-thread");
+		const fork = rows.find((row) => row.getAttribute("data-conversation-id") === "fork");
+		expect(fork).toHaveAttribute("data-fork", "true");
+		expect(fork).toHaveTextContent("↳");
+	});
+
+	test("shows an agent conversation subtitle", async () => {
+		api.fetchConversations.mockResolvedValue([conv("agent", "Agent chat", 1, { agentConfigId: "cfg-1" })]);
+		const { findByTestId } = mount({ active: true });
+		expect(await findByTestId("chat-nav-thread")).toHaveTextContent("Agent conversation");
+	});
+
 	test("forks count against the cap like any other row", async () => {
 		const forks = Array.from({ length: CHAT_NAV_RECENT_LIMIT + 2 }, (_, i) =>
 			conv(`f${i}`, `Fork ${i}`, i + 1, { forkedFromConversationId: "root" }),
@@ -230,8 +248,9 @@ describe("loading outcomes", () => {
 
 	test("no threads yet", async () => {
 		api.fetchConversations.mockResolvedValue([]);
-		const { findByTestId } = mount({ active: true });
+		const { findByTestId, getByTestId } = mount({ active: true });
 		expect(await findByTestId("chat-nav-empty")).toHaveTextContent("No chats yet");
+		expect(getByTestId("chat-nav-show-all")).toHaveAttribute("href", `${BASE}?all=1`);
 	});
 
 	test("a failed fetch degrades to the empty state instead of breaking the menu", async () => {
@@ -252,6 +271,37 @@ describe("loading outcomes", () => {
 		releaseOld([conv("old", "From the old project")]);
 		await tick();
 		expect(view.queryByText("From the old project")).toBeNull();
+	});
+
+	test("a failed old-project request cannot erase the new project's rows", async () => {
+		let rejectOld!: (error: Error) => void;
+		api.fetchConversations
+			.mockReturnValueOnce(new Promise((_resolve, reject) => (rejectOld = reject)))
+			.mockResolvedValueOnce([conv("new", "New project row", 1, { projectId: "p-new" })]);
+		const view = mount({ active: true, projectId: "p-old" });
+		await view.rerender({ chatBase: "/project/p-new/chat", projectId: "p-new", currentPath: "/", active: true });
+		expect(await view.findByText("New project row")).toBeInTheDocument();
+		rejectOld(new Error("old project is offline"));
+		await tick();
+		expect(view.getByText("New project row")).toBeInTheDocument();
+	});
+
+	test("clears already-loaded project rows while the next project is loading", async () => {
+		let releaseNext!: (v: Conversation[]) => void;
+		api.fetchConversations
+			.mockResolvedValueOnce([conv("old", "Old project chat", 1, { projectId: "p-old" })])
+			.mockReturnValueOnce(new Promise((resolve) => (releaseNext = resolve)));
+		const view = mount({ active: true, projectId: "p-old" });
+		expect(await view.findByText("Old project chat")).toBeInTheDocument();
+		const switched = view.rerender({ chatBase: "/project/p-new/chat", projectId: "p-new", currentPath: "/", active: true });
+		// Rerender can paint before the fetch effect. The old row must be gone
+		// before it can be clicked with a p-new href.
+		expect(view.queryByText("Old project chat")).toBeNull();
+		await switched;
+		expect(view.queryByText("Old project chat")).toBeNull();
+		expect(view.getByTestId("chat-nav-loading")).toBeInTheDocument();
+		releaseNext([conv("new", "New project chat", 1, { projectId: "p-new" })]);
+		expect(await view.findByText("New project chat")).toBeInTheDocument();
 	});
 });
 

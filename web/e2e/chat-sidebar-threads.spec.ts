@@ -104,6 +104,27 @@ test("with only a few chats, All chats is still reachable — it is where search
 	await expect(page.getByRole("navigation", { name: "Conversations" }).getByTitle("Search conversations")).toBeVisible();
 });
 
+test("an empty project can still open All chats and create its first thread", async ({ page, mockApi }) => {
+	await mockApi({ projects: [proj], conversations: [], messages: [] });
+	await page.goto("/project/proj-1/chat");
+	await expect(section(page).getByTestId("chat-nav-empty")).toBeVisible();
+	await section(page).getByTestId("chat-nav-show-all").click();
+	await expect(page).toHaveURL(/\/project\/proj-1\/chat\?all=1$/);
+	await page.getByRole("navigation", { name: "Conversations" }).getByRole("button", { name: /New chat/i }).click();
+	await expect(page).toHaveURL(/\/project\/proj-1\/chat\/new-conv$/);
+	await expect(threadRow(page, "new-conv")).toHaveAttribute("aria-current", "page");
+});
+
+test("the full list creates a thread and refreshes the persistent sidebar", async ({ page, mockApi }) => {
+	await mockApi(setup());
+	await page.goto("/project/proj-1/chat/conv-2");
+	await section(page).getByTestId("chat-nav-show-all").click();
+	await expect(page).toHaveURL(/\/project\/proj-1\/chat\?all=1$/);
+	await page.getByRole("navigation", { name: "Conversations" }).getByRole("button", { name: /New chat/i }).click();
+	await expect(page).toHaveURL(/\/project\/proj-1\/chat\/new-conv$/);
+	await expect(threadRow(page, "new-conv")).toHaveAttribute("aria-current", "page");
+});
+
 test("plain /chat still takes you to your most recent chat", async ({ page, mockApi }) => {
 	await mockApi(setup());
 	await page.goto("/project/proj-1/chat");

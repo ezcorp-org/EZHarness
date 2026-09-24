@@ -300,9 +300,10 @@ test.describe("Swipe Drawer", () => {
 		await page.setViewportSize(desktop);
 		await goToChat(page, mockApi);
 
-		// On desktop the conversation list is a sidebar, not an overlay
-		await expect(page.getByText("Conversations")).toBeVisible();
-		await expect(page.getByText("Test Chat").first()).toBeVisible({ timeout: 5000 });
+		// On desktop the Chat section holds threads without an overlay.
+		const chatNav = page.getByTestId("chat-nav-section").first();
+		await expect(chatNav.getByTestId("chat-nav-threads")).toBeVisible();
+		await expect(chatNav.getByTestId("chat-nav-thread").filter({ hasText: "Test Chat" })).toBeVisible();
 
 		// No SwipeDrawer overlay should be present for the conv list
 		const hamburger = page.getByRole("button", { name: "Open conversations" });
