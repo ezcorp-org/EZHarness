@@ -2,7 +2,7 @@ import { streamSimple } from "@earendil-works/pi-ai/compat";
 import type { Api, AssistantMessageEventStream, Model } from "@earendil-works/pi-ai";
 import type { FactoryBroker, FactoryBrokerRequest } from "../runtime/factory-execution";
 import { tryGetCredential, type ProviderCredential } from "./credentials";
-import { resolvePinnedModel } from "./router";
+import { resolvePinnedModel, type PinnedModelResolution } from "./router";
 
 /**
  * The host side of the factory provider transport.
@@ -67,7 +67,12 @@ export interface FactoryProviderReadinessOptions {
  * call to a default endpoint that never heard of the model.
  */
 export async function isFactoryServableModel(provider: string, model: string): Promise<boolean> {
-  return (await resolvePinnedModel(provider, model)).source !== "stand-in";
+  return isServableResolution(await resolvePinnedModel(provider, model));
+}
+
+/** The same verdict for a resolution already in hand, so a caller never resolves twice. */
+export function isServableResolution(resolution: PinnedModelResolution): boolean {
+  return resolution.source !== "stand-in";
 }
 
 /**
@@ -96,6 +101,19 @@ export async function factoryProviderReadiness(
     failures,
     checkedAtMs: now(),
   };
+}
+
+/** A request for a model other than the pin: refused by name, never served by the pin instead. */
+export function factoryModelPinMismatch(provider: string, model: string): FactoryProviderReadinessError {
+  return new FactoryProviderReadinessError({
+    schemaVersion: FACTORY_PROVIDER_READINESS_SCHEMA_VERSION,
+    provider,
+    model,
+    ready: false,
+    credentialKind: null,
+    failures: ["model_pin_mismatch"],
+    checkedAtMs: Date.now(),
+  });
 }
 
 /** The readiness record with nothing secret in it, for an evidence file. */
@@ -134,15 +152,7 @@ export function createFactoryProviderBroker(options: FactoryProviderBrokerOption
   return {
     async stream(request: FactoryBrokerRequest): Promise<AssistantMessageEventStream> {
       if (request.model.provider !== options.pin.provider || request.model.id !== options.pin.model) {
-        throw new FactoryProviderReadinessError({
-          schemaVersion: FACTORY_PROVIDER_READINESS_SCHEMA_VERSION,
-          provider: request.model.provider,
-          model: request.model.id,
-          ready: false,
-          credentialKind: null,
-          failures: ["model_pin_mismatch"],
-          checkedAtMs: Date.now(),
-        });
+        throw factoryModelPinMismatch(request.model.provider, request.model.id);
       }
       const readiness = await factoryProviderReadiness(options.pin, options);
       if (!readiness.ready) throw new FactoryProviderReadinessError(readiness);

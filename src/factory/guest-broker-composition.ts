@@ -20,7 +20,7 @@
  */
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { TransactionalDb } from "../db/migrations/types";
-import { createFactoryProviderBroker, type FactoryProviderPin } from "../providers/factory-broker";
+import { createFactoryProviderBroker, factoryModelPinMismatch, isServableResolution, type FactoryProviderPin } from "../providers/factory-broker";
 import { resolvePinnedModel } from "../providers/router";
 import type { BlobStore } from "../extensions/v4/types";
 import type { FactoryApplication } from "./application";
@@ -83,8 +83,20 @@ export async function factoryUnpinnedModelProvider(): Promise<FactoryOneHopProvi
  * that disappeared since boot refuses by name.
  */
 export async function factoryInstallationModelProvider(pin: FactoryProviderPin): Promise<FactoryOneHopProvider> {
-  const model = (await resolvePinnedModel(pin.provider, pin.model)).piModel as Model<Api>;
-  return createFactoryOneHopProvider({ broker: createFactoryProviderBroker({ pin, resolveModel: () => model }), resolveModel: () => model });
+  const resolved = await resolvePinnedModel(pin.provider, pin.model);
+  const model = resolved.piModel as Model<Api>;
+  const broker = createFactoryProviderBroker({ pin, resolveModel: () => model, isAvailableModel: () => isServableResolution(resolved) });
+  return createFactoryOneHopProvider({
+    broker,
+    // The guest's request names the attempt's pin. It must be this
+    // installation's model, or the call would be served by another model
+    // while the journal named the first. The model route refuses it before
+    // any claim; this refuses it again here, before the provider is reached.
+    resolveModel: (asked) => {
+      if (asked.provider !== pin.provider || asked.model !== pin.model) throw factoryModelPinMismatch(asked.provider, asked.model);
+      return model;
+    },
+  });
 }
 
 export interface FactoryGuestBrokerComposition {
@@ -121,6 +133,7 @@ export async function composeFactoryGuestBroker(options: FactoryGuestBrokerCompo
       journal: options.application.journal,
       workspace: new FactoryWorkspaceCheckpoints(stores),
       provider: pin === undefined ? factoryUnpinnedModelProvider : () => provider(pin),
+      ...(pin === undefined ? {} : { installationPin: pin }),
     });
     const listener = startFactoryPrivateHttps({
       tls: { ca, cert, key },

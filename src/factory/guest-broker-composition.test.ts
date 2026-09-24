@@ -109,6 +109,15 @@ describe("the installation's pinned provider", () => {
     expect(seen).toHaveLength(0);
   });
 
+  test("a request naming another model than the installation's is refused before any request leaves the process", async () => {
+    await register([pin.model, "qwen3:8b"]);
+    const provider = await factoryInstallationModelProvider({ provider: pin.provider, model: pin.model });
+    const other: FactoryModelPin = { ...pin, model: "qwen3:8b" };
+    await expect(provider.complete(ask(other), attempt(other))).rejects.toMatchObject({ name: "FactoryProviderReadinessError", readiness: { provider: "ollama", model: "qwen3:8b", failures: ["model_pin_mismatch"] } });
+    await expect(provider.complete(ask({ ...pin, provider: "openai" }), attempt({ ...pin, provider: "openai" }))).rejects.toThrow("model_pin_mismatch");
+    expect(seen).toHaveLength(0);
+  });
+
   test("an installation with no pin has a provider that fails every call by name", async () => {
     await expect(factoryUnpinnedModelProvider()).rejects.toThrow(`${FACTORY_PROVIDER_NOT_CONFIGURED}: this installation declares no modelProvider`);
   });

@@ -47,6 +47,18 @@ This package changes these files. Each change is additive to the owner's contrac
 | `web/src/lib/server/mock-llm.ts`, the mock completions route | e2e harness | a stateless prompt-digest mode |
 | `web/src/lib/server/factory/route-kit.ts` | W18a-2 / API | compiler diagnostics mapped to the issue shape |
 | `src/__tests__/helpers/factory-run-lifecycle-suite.ts` | W09c | one added assertion: `factory_native_model_denied` |
+| `scripts/coverage-thresholds.json` | coverage (shared) | two keys at 100: `guest-model-route.ts`, `model-configuration.ts` |
+| `src/__tests__/factory-private-client.test.ts` | W01 | the timeout-settles case |
+| `src/__tests__/model-router.test.ts` | providers | `resolvePinnedModel` sources |
+| `src/factory/private-service-composition.test.ts` | W09 | the profile pin reaches the policy |
+| `src/factory/runner/guest-broker-transport.integration.test.ts` | W01g | model requests over mutual TLS; fixture admitted through the journal; timeout separation |
+| `src/factory/runner/provider-one-hop.test.ts` | W01e | sampling options and the unsupported-key refusal |
+| `src/factory/runner/supervisor-process.test.ts` | W01b/W01g | the unconfigured host names `services.guestBroker` for a model request |
+| `src/factory/startup-config.test.ts` | W09/W09b | pinned runner profiles |
+| `src/providers/factory-broker.test.ts` | W10 | registered local models; the test database |
+| `web/src/__tests__/mock-llm-route.test.ts` | e2e harness | prompt-digest route |
+| `web/src/__tests__/mock-llm-store.test.ts` | e2e harness | prompt-digest store |
+| `web/src/routes/api/factories/factories.server.test.ts` | API | diagnostics with a node; diagnostics absent |
 | `.github/workflows/db-postgres.yml` | CI | registers `tests/postgres/factory-guest-model-route.test.ts` |
 
 ## The gates
@@ -194,3 +206,28 @@ passes, with identical token counts. `summary.json` records it with the pinned s
   `src/providers/`. The fix is on `wp/w01g-staging`. Before its own merge, W19a merges the
   `integ/w00` hash that contains the fixed W01g, resolves `guest-broker-client.ts` and
   `guest-broker-service.ts` onto the new leaf module, and reruns the passes once.
+
+## Review round (validator-2's code review, 2026-09-24)
+
+Fixed before the post-W01g merge; each behaviour change has a test.
+
+- **M1.** An attempt pinned to a provider or model the installation does not serve is refused
+  `model_pin_mismatch` (`factory_model_pin_not_installed`) before any claim or provider call
+  (`guest-model-route.ts`, `attemptRefusal`); the installation provider also refuses a request naming
+  another model before any request leaves the process (`factoryInstallationModelProvider`). Tests:
+  the route suite ("an attempt pinned to a model the installation does not serve…") and
+  `guest-broker-composition.test.ts` ("a request naming another model…").
+- **M2.** The guest receives a fixed code only. Typed factory errors and journal invariants are
+  `invalid_request` naming their code (`factory_attempt_unknown`, `factory_attempt_not_live`,
+  `factory_operation_conflict`, …); any other store failure is `operation_busy` with
+  `factory_journal_unavailable`, the one retryable refusal in the contract. Tests: the route suite
+  ("a store failure is transient and retryable…", and the exact-code assertions).
+- **L3.** `factoryGuestModelRefusal` and `factoryGuestModelOperationIdOf` are exported from
+  `guest-model-broker.ts` and used by the route.
+- **L4.** The installation provider reuses its one resolution for the readiness check
+  (`isServableResolution`); the pin-mismatch error is one helper (`factoryModelPinMismatch`).
+- **L5.** An unsupported configuration key is refused before the claim, so no failed row is left.
+- **L6.** The transport test shows a staging frame timing out on the ordinary request timeout while a
+  model request is still waiting on its own.
+- **L7.** `issuesOf` returns no issues when diagnostics are absent, so the answer stays the named 422.
+- **L8.** The ownership table above lists the twelve further files.

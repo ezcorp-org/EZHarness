@@ -265,7 +265,9 @@ export function mappedFactoryError(error: unknown): Response {
  * diagnostic with a node made the error response itself invalid, so a named
  * 422 became an unnamed 500. The path already locates the node.
  */
-function issuesOf(diagnostics: unknown): readonly ValidationIssue[] {
+function issuesOf(diagnostics: unknown): readonly ValidationIssue[] | undefined {
+  // An error raised without its diagnostics is still the named 422, with no issues.
+  if (!Array.isArray(diagnostics)) return undefined;
   return (diagnostics as readonly ValidationIssue[]).map(({ code, message, path }) => ({ code, message, path }));
 }
 

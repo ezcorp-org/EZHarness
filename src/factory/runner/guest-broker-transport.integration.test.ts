@@ -333,21 +333,29 @@ test("an answer the product could not have produced is refused rather than hande
   await expect(other.invoke(fixture.request, modelRequest(fixture.operationId))).rejects.toThrow("answered a model request with something that is not JSON");
 }, 120_000);
 
-test("a model request waits on its own timeout, not the staging frame's", async () => {
+test("a staging frame keeps the ordinary request timeout while a model request waits on its own", async () => {
   const fixture = await setup();
-  // A product that has received the model request and not answered yet: the
-  // host's wait is bounded by the model timeout it was given, and ends there.
-  let arrived: () => void = () => {};
-  const received = new Promise<void>((resolve) => { arrived = resolve; });
+  // A product that has received both requests and answers neither.
+  let arrivals = 0;
+  let bothArrived: () => void = () => {};
+  const received = new Promise<void>((resolve) => { bothArrived = resolve; });
   const silent = startFactoryPrivateHttps({
     tls: { key: fixture.certs.serverKey, cert: fixture.certs.serverCert, ca: fixture.certs.ca },
-    handle: () => { arrived(); return new Promise(() => {}); },
+    handle: () => { arrivals += 1; if (arrivals === 2) bothArrived(); return new Promise(() => {}); },
   });
   closing.push(async () => { silent.stop(); });
-  const host = await createFactoryGuestBrokerClient({ baseUrl: silent.url, tls: fixture.paths, serverName: "localhost", modelRequestTimeoutMs: 200 });
-  const waiting = host.invoke(fixture.request, modelRequest(fixture.operationId));
+  // The ordinary timeout is the transport's `requestTimeoutMs` (30 s unless
+  // set); the model request's is `modelRequestTimeoutMs` (five minutes unless set).
+  const host = await createFactoryGuestBrokerClient({ baseUrl: silent.url, tls: fixture.paths, serverName: "localhost", requestTimeoutMs: 200, modelRequestTimeoutMs: 5_000 });
+  let modelSettled = false;
+  const model = host.invoke(fixture.request, modelRequest(fixture.operationId)).finally(() => { modelSettled = true; });
+  const frame = { schemaVersion: "factory.guest-material-begin.v1", operationId: fixture.operationId, operationIndex: 0, objectName: "slow.bin", version: 1, mediaType: "application/octet-stream", totalBytes: 1, chunkCount: 1 };
+  const staging = host.invoke(fixture.request, frame);
   await received;
-  await expect(waiting).rejects.toThrow("factory gateway request timed out");
+  await expect(staging).rejects.toThrow("factory gateway request timed out");
+  // The staging frame gave up on its own timeout; the model request is still waiting on its longer one.
+  expect(modelSettled).toBe(false);
+  await expect(model).rejects.toThrow("factory gateway request timed out");
   expect(FACTORY_GUEST_MODEL_REQUEST_TIMEOUT_MS).toBe(300_000);
 }, 120_000);
 

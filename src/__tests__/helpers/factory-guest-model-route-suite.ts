@@ -148,13 +148,15 @@ export function factoryGuestModelRouteConformance(createFixture: () => Promise<F
   }
 
   /** The real route handler, as a host reaches it, with the model half over `provider`. */
-  function route(provider: () => Promise<FactoryOneHopProvider>, lease: () => string | undefined = () => HOST) {
+  function route(provider: () => Promise<FactoryOneHopProvider>, lease: () => string | undefined = () => HOST, routeOptions: { readonly installationPin?: { provider: string; model: string } | null; readonly journal?: FactoryExecutionJournal } = {}) {
+    // The installation's own pin by default, as the composition passes it; `null` declares none.
+    const installationPin = routeOptions.installationPin === undefined ? { provider: pin.provider, model: pin.model } : routeOptions.installationPin;
     const handle = createFactoryGuestBrokerRouteHandler({
       hosts: { [HOST_IDENTITY]: HOST },
       tokens: async () => ({ issuer: ISSUER, audience: AUDIENCE, publicKeys: { test: hostKeys.publicKey.export({ type: "spki", format: "pem" }).toString() } }),
       leaseHost: async () => lease(),
       broker: createFactoryGuestMaterialFrameBroker({ services: createFactoryGuestMaterialServices(stores) }),
-      model: createFactoryGuestModelFrameBroker({ journal, workspace: new FactoryWorkspaceCheckpoints(stores), provider }),
+      model: createFactoryGuestModelFrameBroker({ journal: routeOptions.journal ?? journal, workspace: new FactoryWorkspaceCheckpoints(stores), provider, ...(installationPin === null ? {} : { installationPin }) }),
       jwtSecret: SECRET,
       installationId: INSTALLATION,
     });
@@ -230,22 +232,59 @@ export function factoryGuestModelRouteConformance(createFixture: () => Promise<F
 
   test("an installation that pins no provider refuses by name and still journals the failed call", async () => {
     const attempt = await admit();
-    const result = await infer(attempt.request, route(factoryUnpinnedModelProvider)(attempt));
+    const result = await infer(attempt.request, route(factoryUnpinnedModelProvider, () => HOST, { installationPin: null })(attempt));
     expect(result).toMatchObject({ status: "failed", error: { code: "provider_unavailable" } });
     expect(String((result.error as { message: string }).message)).toStartWith(FACTORY_PROVIDER_NOT_CONFIGURED);
     await verifies(attempt, result);
     expect(await operationRows(attempt)).toMatchObject([{ state: "failed" }]);
   });
 
-  test("a configuration key this installation cannot honour fails the call by name before the provider is reached", async () => {
+  test("a configuration key this installation cannot honour is refused by name before any claim", async () => {
     const odd = { temperature: 0, topK: 4 };
     const oddPin: FactoryModelPin = { ...pin, configuration: odd, configurationDigest: `sha256:${digestObject(odd)}` };
     const attempt = await admit({ model: oddPin });
     const provider = streamDouble(() => text("never"));
     const result = await infer(attempt.request, route(async () => providerOver(provider.broker))(attempt));
-    expect(String((result.error as { message: string }).message)).toBe("factory_model_configuration_unsupported: topK");
+    expect(result).toMatchObject({ status: "failed", operations: [], error: { code: "invalid_request", message: "factory_model_configuration_unsupported: topK" } });
     expect(provider.seen).toHaveLength(0);
+    // Refused before the claim, so no failed row is left behind.
+    expect(await operationRows(attempt)).toHaveLength(0);
     await verifies(attempt, result);
+  });
+
+  test("an attempt pinned to a model the installation does not serve is refused before any claim or provider call", async () => {
+    // Admitted under this pin; the installation now serves another model, as
+    // after a restart that changed `modelProvider`.
+    const attempt = await admit();
+    const provider = streamDouble(() => text("never"));
+    const result = await infer(attempt.request, route(async () => providerOver(provider.broker), () => HOST, { installationPin: { provider: "ollama", model: "qwen3:8b" } })(attempt));
+    expect(result).toMatchObject({ status: "failed", operations: [], error: { code: "model_pin_mismatch" } });
+    expect(String((result.error as { message: string }).message)).toStartWith("factory_model_pin_not_installed");
+    expect(provider.seen).toHaveLength(0);
+    expect(await operationRows(attempt)).toHaveLength(0);
+    await verifies(attempt, result);
+  });
+
+  test("a store failure is transient and retryable, and the guest never sees the store's own text", async () => {
+    const attempt = await admit();
+    const provider = streamDouble(() => text("never"));
+    const secretText = "connect ECONNRESET 10.0.0.7:5432 while reading factory_executions for tenant graph-tenant";
+    const failing = (method: "request" | "prepare") => new Proxy(journal, {
+      get(target, property, receiver) {
+        if (property === method) return async () => { throw new Error(secretText); };
+        const value = Reflect.get(target, property, receiver) as unknown;
+        return typeof value === "function" ? (value as (...args: unknown[]) => unknown).bind(target) : value;
+      },
+    });
+    const ask = { schemaVersion: "factory.guest-model-request.v1", operationId: `${runId}:${attempt.authority.nodeInstanceId}:0:0`, operationIndex: 0, model: pin, messages: [{ role: "user", text: "x" }], maxOutputTokens: 8 } as unknown as JsonValue;
+    for (const method of ["request", "prepare"] as const) {
+      const answer = await route(async () => providerOver(provider.broker), () => HOST, { journal: failing(method) })(attempt)(ask) as { status: string; refusal: { code: string; message: string } };
+      expect(answer).toMatchObject({ status: "refused", refusal: { code: "operation_busy" } });
+      expect(answer.refusal.message).toStartWith("factory_journal_unavailable");
+      expect(JSON.stringify(answer)).not.toContain("ECONNRESET");
+    }
+    expect(provider.seen).toHaveLength(0);
+    expect(await operationRows(attempt)).toHaveLength(0);
   });
 
   test("an attempt admitted with no pin may call no model: refused before any claim, and the failed result verifies", async () => {
@@ -304,7 +343,7 @@ export function factoryGuestModelRouteConformance(createFixture: () => Promise<F
     const call = route(async () => providerOver(provider.broker))(attempt);
     const ask = (words: string) => ({ schemaVersion: "factory.guest-model-request.v1", operationId: `${runId}:${attempt.authority.nodeInstanceId}:0:0`, operationIndex: 0, model: pin, messages: [{ role: "user", text: words }], maxOutputTokens: 8 }) as unknown as JsonValue;
     expect(await call(ask("the first question"))).toMatchObject({ status: "completed" });
-    expect(await call(ask("a different question"))).toMatchObject({ status: "refused", refusal: { code: "invalid_request", message: "Factory operation conflicts with its durable journal entry." } });
+    expect(await call(ask("a different question"))).toMatchObject({ status: "refused", refusal: { code: "invalid_request", message: "factory_operation_conflict" } });
     expect(provider.seen).toHaveLength(1);
     expect(await operationRows(attempt)).toMatchObject([{ state: "completed" }]);
   });
@@ -316,11 +355,12 @@ export function factoryGuestModelRouteConformance(createFixture: () => Promise<F
     const ask = (attempt: FactoryAttemptAuthority) => ({ schemaVersion: "factory.guest-model-request.v1", operationId: `${runId}:${attempt.nodeInstanceId}:0:0`, operationIndex: 0, model: pin, messages: [{ role: "user", text: "x" }], maxOutputTokens: 8 }) as unknown as JsonValue;
     const forged = async (authority: FactoryAttemptAuthority) => call({ ...live, authority }, await signFactoryAttemptToken(authority, SECRET, INSTALLATION))(ask(authority));
 
-    expect(await forged({ ...live.authority, attemptId: "graph-attempt-never" })).toMatchObject({ status: "refused", refusal: { code: "invalid_request", message: expect.stringContaining("factory_attempt_unknown") } });
-    expect(await forged({ ...live.authority, candidateGeneration: 1 })).toMatchObject({ status: "refused", refusal: { code: "invalid_request", message: expect.stringContaining("factory_attempt_not_live") } });
-    expect(await forged({ ...live.authority, projectId: "graph-project-other" })).toMatchObject({ status: "refused", refusal: { code: "invalid_request", message: expect.stringContaining("factory_attempt_unknown") } });
+    // The code alone: the journal's own text never reaches the guest.
+    expect(await forged({ ...live.authority, attemptId: "graph-attempt-never" })).toMatchObject({ status: "refused", refusal: { code: "invalid_request", message: "factory_attempt_unknown" } });
+    expect(await forged({ ...live.authority, candidateGeneration: 1 })).toMatchObject({ status: "refused", refusal: { code: "invalid_request", message: "factory_attempt_not_live" } });
+    expect(await forged({ ...live.authority, projectId: "graph-project-other" })).toMatchObject({ status: "refused", refusal: { code: "invalid_request", message: "factory_attempt_unknown" } });
     expect(await journal.cancel(live.authority)).toBe(true);
-    expect(await call(live)(ask(live.authority))).toMatchObject({ status: "refused", refusal: { code: "invalid_request", message: expect.stringContaining("factory_attempt_not_live") } });
+    expect(await call(live)(ask(live.authority))).toMatchObject({ status: "refused", refusal: { code: "invalid_request", message: "factory_attempt_not_live" } });
     expect(provider.seen).toHaveLength(0);
     expect(await operationRows(live)).toHaveLength(0);
   });
