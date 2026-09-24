@@ -7,6 +7,7 @@ import {
   type IncusTransport,
   type IncusTransportRequest,
 } from "../../../extensions/incus-sandbox/transport";
+import type { IncusSetupRecipe } from "../../../scripts/incus/model";
 
 const MAX_RESPONSE_BYTES = 64 * 1024;
 const MAX_HTTP_HEADER_BYTES = 8 * 1024;
@@ -30,6 +31,9 @@ export interface HostConnectionScope {
     limits: { memoryBytes: number; cpuMillis: number; pids: number; diskBytes: number };
   };
   approvedGuest?: { user: string; uid: number; gid: number; helperSha256: string };
+  /** Host-owned, persisted setup and real guest qualification. Never supplied by a provider worker. */
+  approvedPreflight?: { recipe: IncusSetupRecipe; imageFingerprint: string; helperSha256: string;
+    nestedCompose: boolean };
 }
 
 export interface ResolvedIncusConnection {
@@ -372,28 +376,80 @@ export class HostIncusProbeTransport implements IncusTransport {
       if (!architecture || typeof environment.server_version !== "string" || server.api_version !== "1.0") {
         throw new IncusTransportError("unavailable", "Incus server information is unsupported");
       }
-      // The REST probe cannot attest guest helper behavior. False controls make preflight fail closed.
+      const approved = this.scope.approvedPreflight;
+      let storageDriver = "unverified";
+      let backendControls = { unprivileged: false, projectLimits: false, privateNetwork: false };
+      let reviewedGuest = false;
+      if (approved) {
+        const recipe = approved.recipe;
+        const image = recipe.guestImage;
+        if (!image || image.fingerprint !== approved.imageFingerprint
+          || image.helperSha256 !== approved.helperSha256 || image.user !== command.pins.guestUser
+          || recipe.profile.name !== command.pins.profile || recipe.project.name !== connection.project) {
+          throw new IncusTransportError("permission", "Incus reviewed setup or guest image changed");
+        }
+        const exact = (actual: Record<string, unknown>, expected: Record<string, unknown>) =>
+          Object.keys(expected).every(key => actual[key] === expected[key]);
+        const projectExpected = { ...recipe.project.config, "restricted.images.servers": "," };
+        if (!exact(projectConfig, projectExpected) || projectConfig.restricted !== "true"
+          || projectConfig["features.images"] !== "false") {
+          throw new IncusTransportError("permission", "Incus reviewed project controls changed");
+        }
+        const profileConfig = object(profile.config);
+        const profileDevices = object(profile.devices);
+        const root = object(profileDevices.root);
+        const nic = object(profileDevices.eth0);
+        if (!exact(profileConfig, recipe.profile.config)
+          || Object.keys(profileDevices).sort().join(",") !== "eth0,root"
+          || !recipe.profile.devices.root || !recipe.profile.devices.eth0
+          || !exact(root, recipe.profile.devices.root)
+          || !exact(nic, recipe.profile.devices.eth0)) {
+          throw new IncusTransportError("permission", "Incus reviewed profile controls changed");
+        }
+        const pool = await get(`/1.0/storage-pools/${encodeURIComponent(recipe.storage.name)}?project=${encodeURIComponent(connection.project)}`);
+        const imageRow = await get(`/1.0/images/${approved.imageFingerprint}?project=${encodeURIComponent(connection.project)}`);
+        const aliases = imageRow.aliases;
+        if (pool.name !== recipe.storage.name || pool.driver !== recipe.storage.driver
+          || imageRow.fingerprint !== approved.imageFingerprint || imageRow.type !== "container"
+          || !Array.isArray(aliases) || !aliases.some(value => object(value).name === image.alias)) {
+          throw new IncusTransportError("permission", "Incus reviewed storage or image changed");
+        }
+        storageDriver = pool.driver as string;
+        backendControls = {
+          unprivileged: profileConfig["security.privileged"] === "false"
+            && profileConfig["security.idmap.isolated"] === "true",
+          projectLimits: projectConfig["limits.memory"] === recipe.project.config["limits.memory"]
+            && projectConfig["limits.cpu"] === recipe.project.config["limits.cpu"]
+            && projectConfig["limits.processes"] === recipe.project.config["limits.processes"]
+            && projectConfig[`limits.disk.pool.${recipe.storage.name}`] === recipe.project.config[`limits.disk.pool.${recipe.storage.name}`],
+          privateNetwork: projectConfig["restricted.networks.access"] === recipe.network.name
+            && nic.network === recipe.network.name && nic["security.port_isolation"] === "true",
+        };
+        reviewedGuest = true;
+      }
+      // The guest controls below require both the pinned image/helper and a
+      // matching, unexpired real guest qualification supplied by the host.
       return {
         serverCertificateSha256: actualFingerprint,
         project: connection.project,
         profile: command.pins.profile,
-        helperVersion: "unverified",
+        helperVersion: reviewedGuest ? command.pins.helperVersion : "unverified",
         backendApi: "incus.v1",
         backendVersion: environment.server_version,
         architecture,
-        storageDriver: "unverified",
+        storageDriver,
         isolation: "container",
-        nestedCompose: false,
+        nestedCompose: reviewedGuest && approved!.nestedCompose,
         controls: {
           restrictedProject: projectConfig.restricted === "true",
-          unprivileged: false,
-          projectLimits: false,
-          privateNetwork: false,
+          unprivileged: backendControls.unprivileged,
+          projectLimits: backendControls.projectLimits,
+          privateNetwork: backendControls.privateNetwork,
           workspaceRoot: "/workspace",
-          explicitGuestUser: false,
-          atomicFileReplace: false,
-          durableProcesses: false,
-          boundedOutput: false,
+          explicitGuestUser: reviewedGuest,
+          atomicFileReplace: reviewedGuest,
+          durableProcesses: reviewedGuest,
+          boundedOutput: reviewedGuest,
           endpointProxy: false,
         },
       };

@@ -3,6 +3,8 @@ import { createHash, X509Certificate } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { IncusTransportError, type IncusTransportRequest } from "../../../extensions/incus-sandbox/transport";
 import { HostIncusProbeTransport } from "./transport";
+import recipe from "../../../scripts/incus/recipe.json";
+import type { IncusSetupRecipe } from "../../../scripts/incus/model";
 
 const certificate = readFileSync(new URL("./test-server.pem", import.meta.url), "utf8");
 const fingerprint = createHash("sha256").update(new X509Certificate(certificate).raw).digest("hex");
@@ -107,6 +109,52 @@ test("probe uses only fixed GET routes and reports unverified guest controls as 
   expect(result.controls.atomicFileReplace).toBe(false);
   expect(result.controls.durableProcesses).toBe(false);
   expect(result.nestedCompose).toBe(false);
+});
+
+test("reviewed live evidence reads the pinned image and storage and still reports unsupported endpoints", async () => {
+  const reviewedPins = { ...pins, project: recipe.project.name, profile: recipe.profile.name };
+  const reviewedCommand = { ...command, pins: reviewedPins };
+  const routes: string[] = [];
+  const transport = new HostIncusProbeTransport({ resolveForHost: async () => ({ ...connection,
+    project: recipe.project.name }) }, { ...scope, approvedPreflight: {
+    recipe: recipe as IncusSetupRecipe, imageFingerprint: recipe.guestImage.fingerprint,
+    helperSha256: recipe.guestImage.helperSha256, nestedCompose: true,
+  } }, async (url) => {
+    const parsed = new URL(url);
+    routes.push(`${parsed.pathname}${parsed.search}`);
+    const value = parsed.pathname === "/1.0" ? { api_version: "1.0", environment: liveServerEnvironment }
+      : parsed.pathname.startsWith("/1.0/projects/") ? { name: recipe.project.name, config: recipe.project.config }
+      : parsed.pathname.startsWith("/1.0/profiles/") ? { name: recipe.profile.name,
+        config: recipe.profile.config, devices: recipe.profile.devices }
+      : parsed.pathname.startsWith("/1.0/storage-pools/") ? { name: recipe.storage.name, driver: recipe.storage.driver }
+      : { fingerprint: recipe.guestImage.fingerprint, type: "container", aliases: [{ name: recipe.guestImage.alias }] };
+    return Response.json({ type: "sync", status_code: 200, metadata: value });
+  });
+  const result = await transport.request(reviewedCommand);
+  expect(routes).toHaveLength(5);
+  expect(result.storageDriver).toBe("btrfs");
+  expect(result.helperVersion).toBe(reviewedPins.helperVersion);
+  expect(result.nestedCompose).toBe(true);
+  expect(result.controls).toMatchObject({ restrictedProject: true, unprivileged: true,
+    projectLimits: true, privateNetwork: true, explicitGuestUser: true,
+    atomicFileReplace: true, durableProcesses: true, boundedOutput: true, endpointProxy: false });
+});
+
+test("reviewed preflight rejects a drifted Incus profile", async () => {
+  const reviewedPins = { ...pins, project: recipe.project.name, profile: recipe.profile.name };
+  const transport = new HostIncusProbeTransport({ resolveForHost: async () => ({ ...connection,
+    project: recipe.project.name }) }, { ...scope, approvedPreflight: {
+    recipe: recipe as IncusSetupRecipe, imageFingerprint: recipe.guestImage.fingerprint,
+    helperSha256: recipe.guestImage.helperSha256, nestedCompose: true,
+  } }, async url => {
+    const path = new URL(url).pathname;
+    const value = path === "/1.0" ? { api_version: "1.0", environment: liveServerEnvironment }
+      : path.startsWith("/1.0/projects/") ? { name: recipe.project.name, config: recipe.project.config }
+      : { name: recipe.profile.name, config: { ...recipe.profile.config, "security.privileged": "true" },
+        devices: recipe.profile.devices };
+    return Response.json({ type: "sync", status_code: 200, metadata: value });
+  });
+  await expect(transport.request({ ...command, pins: reviewedPins })).rejects.toMatchObject({ kind: "permission" });
 });
 
 test("read-only probe rejects a restricted project that excludes the pinned local image", async () => {

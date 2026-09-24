@@ -1,10 +1,12 @@
 import { createHash, X509Certificate } from "node:crypto";
 import { ContractError, canonicalJson, sandboxPresetDigest, validateSandboxProviderMethodValue, type JsonValue, type SandboxProtocolOperation } from "@ezcorp/extension-contract";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { getDb, type Database } from "../db/connection";
+import { releaseRows } from "../db/queries/extension-releases";
 import { sandboxBindings, sandboxReservations, type SandboxBinding } from "../db/schema";
 import type { ActiveExtensionRelease } from "../extensions/release-process";
 import { HostIncusProbeTransport, type HostConnectionResolver } from "./incus-transport/transport";
+import type { IncusSetupRecipe } from "../../scripts/incus/model";
 import { HostIncusLifecycleTransport, type PostEffectDestroyReplyFault } from "./incus-transport/lifecycle";
 import { HostIncusGuestTransport } from "./incus-transport/guest";
 import { GUEST_HELPER_VERSION, guestHelperSha256 } from "./incus-guest/protocol";
@@ -35,6 +37,8 @@ export interface PreparedIncusProbe {
   readonly connectionId: string;
   readonly revision: number;
   readonly config: IncusConnectionConfig;
+  readonly approvedPreflight?: { recipe: IncusSetupRecipe; imageFingerprint: string;
+    helperSha256: string; nestedCompose: boolean };
 }
 
 export interface PreparedIncusAction extends PreparedIncusProbe {
@@ -151,6 +155,7 @@ export class ProviderRpcBroker {
         providerInstallationId: scope.installationId,
         providerReleaseId: scope.releaseId,
         revision: scope.revision,
+        approvedPreflight: scope.approvedPreflight,
         signal,
       }),
     private readonly db?: Database,
@@ -172,6 +177,38 @@ export class ProviderRpcBroker {
   ) {}
 
   private get database(): Database { return this.db ?? getDb(); }
+
+  private async reviewedPreflight(scope: PreparedIncusProbe, command: IncusTransportRequest): Promise<PreparedIncusProbe["approvedPreflight"]> {
+    // Unit callers without a host database can still make a conservative probe.
+    if (!this.db) return undefined;
+    const payload = command.payload;
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) return undefined;
+    const presetId = payload.presetId;
+    if (typeof presetId !== "string") return undefined;
+    const [setup] = releaseRows<{ providerReleaseId: string; providerReleaseDigest: string;
+      connectionId: string; connectionRevision: number; state: string; recipe: IncusSetupRecipe }>(
+      await this.db.execute(sql`SELECT provider_release_id AS "providerReleaseId",
+        provider_release_digest AS "providerReleaseDigest", connection_id AS "connectionId",
+        connection_revision AS "connectionRevision", state, recipe FROM incus_operator_setups
+        WHERE provider_installation_id = ${scope.installationId}
+        ORDER BY created_at DESC, id DESC LIMIT 1`));
+    if (setup?.state !== "verified" || setup.providerReleaseId !== scope.releaseId
+      || setup.providerReleaseDigest !== scope.releaseDigest || setup.connectionId !== scope.connectionId
+      || setup.connectionRevision !== scope.revision) return undefined;
+    const { IncusQualificationStore } = await import("./incus-qualification");
+    const qualification = await new IncusQualificationStore({ db: this.db }).load({
+      installationId: scope.installationId, releaseId: scope.releaseId,
+      connectionId: scope.connectionId, presetId,
+    });
+    const image = setup.recipe?.guestImage;
+    if (!qualification || qualification.presetDigest !== payload.presetDigest
+      || qualification.effectiveSettingsDigest !== payload.effectiveSettingsDigest
+      || !image || typeof image.fingerprint !== "string" || !/^[a-f0-9]{64}$/.test(image.fingerprint)
+      || typeof image.helperSha256 !== "string" || !/^[a-f0-9]{64}$/.test(image.helperSha256)) return undefined;
+    return { recipe: setup.recipe, imageFingerprint: image.fingerprint,
+      helperSha256: image.helperSha256,
+      nestedCompose: qualification.profile === "persistent-web-compose.v1" };
+  }
 
   /** Bind one host-journaled operation to its exact approved release and preset. */
   async prepareAction(
@@ -314,9 +351,12 @@ export class ProviderRpcBroker {
           throw new IncusTransportError("permission", "Incus binding changed before transport dispatch");
         }
       }
+      const reviewedScope = !isAction(scope)
+        ? { ...scope, approvedPreflight: await this.reviewedPreflight(scope, command) }
+        : scope;
       const transport = isAction(scope)
         ? this.actionTransportFactory(scope, signal)
-        : this.transportFactory(scope, signal);
+        : this.transportFactory(reviewedScope, signal);
       return await transport.request({ ...command, deadlineMs: Math.min(command.deadlineMs, deadline) }) as JsonValue;
     };
     if (isAction(scope) && mutationOperations.has(scope.operation)) {
