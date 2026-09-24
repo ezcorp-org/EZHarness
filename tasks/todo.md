@@ -5,15 +5,16 @@
 - [x] Reproduce and fix the failed no-effect recovery restart path; keep a durable hold through supervisor restart.
 - [x] Build and install a final-head qualification bundle after independent review and tests.
 - [x] Run the guarded traffic hold, stop old isolated processes, stage the database and projects, and verify the saved fixture.
-- [ ] Keep mutable `.ezcorp` state outside the release with a persistent bind mount; rebuild/install a bundle whose verifier has that explicit exception.
-- [ ] Start the dedicated app and prove health, identity, runner socket, and saved Incus state before releasing traffic.
+- [x] Keep mutable `.ezcorp` state outside the release with a persistent bind mount; rebuild/install a bundle whose verifier has that explicit exception.
+- [x] Start the dedicated app and prove health, admin identity, runner socket, and saved Incus state under the traffic hold.
+- [ ] Fence the active `dev` Incus administrator route on the server before old-certificate revocation and signed no-effect recovery.
 - [x] Prove the saved `OUTCOME_UNKNOWN` CREATE and fixture from a detached database copy and the restored isolated app.
 - [ ] Activate the independent server observer and dedicated AMD app/runner with guarded rollback.
 - [ ] Reconcile the exact unknown CREATE only after old client authority is revoked and two independent readbacks pass.
 - [ ] Create, use, reconnect to, and clean up an EZHarness-owned guest; run real limits and isolation checks.
 - [ ] Push the final PR #303 source and pass hosted CI; keep support claims tied to live evidence.
 
-Review: The database gate is 4/4. The server observer is active. The old isolated app and runner are stopped behind a verified traffic hold. The staged database still matches the saved fixture, and the dedicated runner answers an authenticated socket check. The dedicated supervisor is stopped because the immutable release needs an external persistent `.ezcorp` runtime mount. Focused Python tests and full typecheck pass for the repair. The new bundle, host activation, hosted CI, signed CREATE repair, and live guest proof remain. See `gates/incus-final-live-2026-09-24.md`.
+Review: The database gate is 4/4. The server observer is active. The dedicated app and runner are active under a verified TCP hold; health and readiness return 200, the retained admin session is valid, and the runner returns 401 without auth and 200 with its token. The active NixOS generation binds persistent app-owned `.ezcorp` state into the verified 13dbc66b release. All 64 database-referenced extension blobs were copied by digest and checked; the original store remains intact. A stopped-app fixture readback matched the sealed candidate, and the app restarted with no errors. The old `engine` certificate remains trusted. The server's live `dev` SSH account has Incus administrator and sudo authority, so certificate revocation and no-effect recovery wait for a reviewed temporary fence. Hosted CI and live guest proof remain. See `gates/incus-final-live-2026-09-24.md`.
 
 ## Incus completion update — 2026-09-24
 

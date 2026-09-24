@@ -1,5 +1,10 @@
 # Lessons
 
+- Inspect an existing top-level gate ledger before applying a skill's default filename. Preserve historical gates and use the active task's scoped gate file.
+- Treat a PGlite readback as a writer of cache files. Run it on a detached copy or as the app UID; if a root readback must touch a stopped live database, check every file owner before app restart.
+- Before moving a mutable app into a frozen release, inventory both its writable runtime tree and every database-referenced blob. Mount persistent state outside the release and migrate only verified referenced blobs before first start.
+- A no-effect recovery fence must cover every live route that can repeat the external write, including administrator SSH and local daemon sockets. An observer alone only reports point-in-time state.
+
 - Before a guarded NixOS activation, verify that the target accepts the candidate closure's signatures. If `nix copy` rejects an unsigned path, keep the old generation active and build the pinned derivation on the target; do not disable signature checks to save time.
 - Pin the old Incus client identity from the live trust entry's certificate DER digest. A release digest or a copied value from another review packet is not an authority fingerprint.
 

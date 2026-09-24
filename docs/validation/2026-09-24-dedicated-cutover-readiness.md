@@ -379,18 +379,43 @@ can be stale. Never delete either rollback copy as part of recovery.
 
 ## Review result
 
-The traffic hold is active. The old isolated app and runner are stopped. The
-database and two project rows were staged under UID 62040; a detached readback
-still matches the saved fixture. The dedicated runner is active and its socket
-returned HTTP 200 only with the pinned bearer token. The dedicated supervisor
-is stopped. Its first app start found that the immutable release needs a
-writable `.ezcorp` runtime path. No Incus resource was created by this start.
-The server observer is active, but the old restricted Incus client certificate
-remains trusted until the no-effect recovery fence is ready.
+The guarded host switch completed at NixOS generation
+`/nix/store/qnfynrsjm8k3lnxqry6pkr7mqyvdl4v1-nixos-system-nixos-amd-26.05.20260430.15f4ee4`.
+The fresh-session postchecks passed and the rollback timer was disarmed. A
+private socket check in the packet needed root because the runner directory
+is not traversable by `dev`; the corrected packet is committed in the NixOS
+worktree. The old isolated app and runner remain stopped. The exact TCP hold
+is active and its root-allowed, non-root-denied health probe passes.
 
-The next bundle must exclude only a real top-level `.ezcorp` directory from
-its immutable inventory. The NixOS service must bind persistent, app-owned
-runtime data into that directory and verify the bind before app start. Keep
-the traffic hold in place until the dedicated app, saved state, and runner
-pass health and identity checks. The new host generation and bundle are not
-yet active. The [cutover gates](../../gates/incus-app-cutover.md) remain open.
+The installed frozen release is EZHarness `13dbc66b1aeacd47b641e7c58304c457b70818d1`,
+manifest SHA-256 `3658ef886ba77d4856c169203222fa66624275bdf8e95973e284f002ccd7d163`.
+Its inventory verifier passed after installation. The prior installed bundle
+is retained at `/opt/.ezharness-held-8bdfd945`; the older held bundle and
+database rollback copies remain. The live supervisor mount namespace reports
+the same device and inode for `/opt/ezharness/.ezcorp` and
+`/var/lib/ezharness-qual-data/runtime`, both UID/GID 62040 mode 0700. The
+root-owned release mountpoint is empty outside that namespace. A regression
+test and a real UID 62040 probe established why the descriptor walk must use
+search-only access for the host's mode 0711 `/opt` ancestor.
+
+The database referenced 64 source/artifact release blobs. Each was found in
+the old worktree store and verified by its SHA-256 filename before and after
+copy into the dedicated runtime store. The exact root-only transfer receipt
+is `/root/ezh-qualification-stage/release-blob-stage-8bdfd945.json`; its
+digest-set SHA-256 is
+`fb1a9e134343cc328e7d4b0d72d47c4e2a47db7536c47db5f6cc4ed5f3833e59`.
+The original 118-entry blob store remains intact. A stopped-app readback of
+the staged PGlite database matched the sealed fixture candidate SHA-256
+`e9be6bf6c8cfe379bb1955e6c3491658e18c8d300928b7b0c200cc221b68ffd3`.
+Root-run PGlite readback created three root-owned cache files; their exact
+owners were corrected before restart. The app then opened the database with
+all files UID/GID 62040 and no startup errors.
+
+The dedicated supervisor and runner are active with zero restarts. Health
+and readiness returned HTTP 200. The retained admin session returned role
+`admin`. The runner returned 401 without a token and 200 with its private
+token. The old `engine` certificate remains trusted. The server's live `dev`
+SSH route still has `incus-admin` and passwordless sudo rights, so no-effect
+recovery cannot truthfully assert that all writers are fenced yet. The
+[recovery execution packet](2026-09-24-unknown-create-recovery-execution.md)
+and [cutover gates](../../gates/incus-app-cutover.md) keep that work open.
