@@ -3664,3 +3664,12 @@ made under another service, or a service that cannot open it, refuses with `Fact
 The retention kind constraint is replaced by name on every boot. The first backend-pool run failed
 because the batch leaked the PostgreSQL environment into it; the batch now uses subshells.
 
+### W18 hygiene backlog: load-sensitive suites outside W15b (recorded by W15b, 2026-09-24)
+
+- [ ] `src/__tests__/production-image-lifecycle-launch.integration.test.ts`: under the full backend pool
+  on the shared host, "launcher cancellation reaps its verifier and runner before streams drain" failed
+  (5517 ms); alone it passes 5/0. Evidence: `/tmp/factory-platform-evidence/w15b/logs/pool-flake-alone.log`.
+- [ ] `src/__tests__/substack-pilot-installer.test.ts`: under the full pool, "Substack source seals settings
+  and checksums, then publishes only its exact human-approved release" hit its 120 s timeout and two
+  credential-broker cases failed after it; alone it passes 3/0. Evidence: `.../w15b/logs/pool-flake-alone-2.log`.
+

@@ -54,6 +54,16 @@ export async function runFactoryRestoreCommand(argv: readonly string[], io: Fact
     io.out(FACTORY_RESTORE_USAGE);
     return 64;
   }
+  // An operator reads one line: a refusal names its typed code, never a stack.
+  try { return await runRestoreAction(action as "begin" | "verify" | "status", restoreId, mode, fencePath, options, io); }
+  catch (error) {
+    const code = (error as { code?: unknown } | null)?.code;
+    io.out(JSON.stringify({ restoreId, error: typeof code === "string" ? code : "factory_restore_failed", message: error instanceof Error ? error.message : String(error) }));
+    return 1;
+  }
+}
+
+async function runRestoreAction(action: "begin" | "verify" | "status", restoreId: string, mode: FactoryRestoreMode, fencePath: string | undefined, options: Map<string, string>, io: FactoryRestoreCommandIo): Promise<number> {
   const config = await loadFactoryStartupConfig(options.get("--config") ?? factoryStartupConfigPath(io.env));
   const opened = await io.database();
   try {

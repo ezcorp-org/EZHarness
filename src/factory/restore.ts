@@ -53,7 +53,7 @@ export type FactoryRestoreDisposition = "verified" | "reconciled" | "blocked";
 export type FactoryRestoreSubject = "check" | "run" | "release" | "worker" | "pool" | "projection";
 
 export class FactoryRestoreError extends Error {
-  constructor(readonly code: "factory_restore_invalid" | "factory_restore_no_checkpoint" | "factory_restore_not_found" | "factory_restore_state" | "factory_restore_human_required" | "factory_restore_report_mismatch" | "factory_restore_blocked", options?: { cause?: unknown }) {
+  constructor(readonly code: "factory_restore_invalid" | "factory_restore_no_checkpoint" | "factory_restore_not_found" | "factory_restore_state" | "factory_restore_human_required" | "factory_restore_report_mismatch" | "factory_restore_report_tampered" | "factory_restore_blocked", options?: { cause?: unknown }) {
     super(code, options);
     this.name = "FactoryRestoreError";
   }
@@ -317,7 +317,12 @@ export class FactoryRestore {
       if (!epoch) throw new FactoryRestoreError("factory_restore_not_found");
       if (epoch.state !== "awaiting_signature") throw new FactoryRestoreError("factory_restore_state");
       if (epoch.report_digest !== reportDigest) throw new FactoryRestoreError("factory_restore_report_mismatch");
-      const report = JSON.parse(epoch.report_json!) as FactoryRestoreReport;
+      // The stored digest must be the stored report's own: a report edited after it was
+      // written cannot be signed by quoting the digest it was written with.
+      let report: FactoryRestoreReport;
+      try { report = JSON.parse(epoch.report_json!) as FactoryRestoreReport; }
+      catch { throw new FactoryRestoreError("factory_restore_report_tampered"); }
+      if (factoryRestoreReportDigest(report) !== epoch.report_digest) throw new FactoryRestoreError("factory_restore_report_tampered");
       if (report.blockedChecks.length > 0) throw new FactoryRestoreError("factory_restore_blocked");
       const blockedRuns = new Set(report.blockedRuns);
       const previous = Number(epoch.previous_epoch), next = Number(epoch.execution_epoch);
@@ -390,7 +395,9 @@ export class FactoryRestore {
   private async reconcilePool(manifest: FactoryCheckpointManifest, record: (finding: Omit<FactoryRestoreFinding, "findingId">) => Promise<void>): Promise<void> {
     if (!manifest.pool.captured) { await record({ subjectKind: "pool", subjectId: "ledger", disposition: "blocked", reason: "pool_not_captured", detail: { reason: manifest.pool.reason } }); return; }
     if (!this.options.pool) { await record({ subjectKind: "pool", subjectId: "ledger", disposition: "blocked", reason: "pool_unavailable", detail: {} }); return; }
-    const result = await this.options.pool.importLost(this.tenantId, manifest.pool.rows);
+    let result: Awaited<ReturnType<FactoryRestorePoolLedger["importLost"]>>;
+    try { result = await this.options.pool.importLost(this.tenantId, manifest.pool.rows); }
+    catch (error) { await record({ subjectKind: "pool", subjectId: "ledger", disposition: "blocked", reason: "pool_refused", detail: factoryPoolRefusal(error) }); return; }
     for (const reservationId of result.imported) await record({ subjectKind: "pool", subjectId: reservationId, disposition: "reconciled", reason: "lost_reservation_reimported_uncertain", detail: {} });
     for (const reservationId of result.overcommitted) await record({ subjectKind: "pool", subjectId: reservationId, disposition: "blocked", reason: "capacity_overcommitted", detail: {} });
     await record({ subjectKind: "pool", subjectId: "ledger", disposition: "verified", reason: "ledger_compared", detail: { present: result.present.length, imported: result.imported.length, overcommitted: result.overcommitted.length } });
@@ -565,7 +572,10 @@ export class FactoryRestore {
     if (!pool) return;
     const known = new Set(rows<{ reservation_id: string }>(await this.database.execute(sql`SELECT reservation_id FROM factory_attempt_launches WHERE tenant_id = ${this.tenantId}
       UNION SELECT reservation_id FROM factory_compute_admissions WHERE tenant_id = ${this.tenantId}`)).map(row => row.reservation_id));
-    for (const row of await pool.liveRows(this.tenantId, signal)) {
+    let live: readonly Record<string, unknown>[];
+    try { live = await pool.liveRows(this.tenantId, signal); }
+    catch (error) { await record({ subjectKind: "pool", subjectId: "live-reservations", disposition: "blocked", reason: "pool_refused", detail: factoryPoolRefusal(error) }); return; }
+    for (const row of live) {
       const reservationId = String(row.reservation_id);
       if (known.has(reservationId) || row.reason === "restore-import") continue;
       try {
@@ -578,6 +588,16 @@ export class FactoryRestore {
       }
     }
   }
+}
+
+/**
+ * A pool call the pool refused, as finding detail: the HTTP status when the
+ * transport has one (a 403 means the restore token lacks
+ * `pool:restore:<tenant>`), and the message. Never a stack.
+ */
+function factoryPoolRefusal(error: unknown): Record<string, unknown> {
+  const status = (error as { response?: { statusCode?: unknown } } | null)?.response?.statusCode;
+  return { ...(typeof status === "number" ? { status } : {}), error: error instanceof Error ? error.message : String(error) };
 }
 
 /**
