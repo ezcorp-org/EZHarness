@@ -35,8 +35,6 @@ export class IncusLiveCleanupController {
   private readonly fault: () => Promise<HostIncusLostDestroyReplyFault>;
   private readonly freshFeatureGate: () => FeatureGate;
   private readonly now: () => number;
-  private pending: { scope: IncusQualificationScope; handle: LiveFixtureHandle;
-    operationId: string; readinessDenied: boolean } | null = null;
 
   constructor(private readonly deps: IncusLiveCleanupControllerDependencies) {
     this.checkpoints = deps.checkpoints ?? new IncusQualificationCheckpointStore(deps.db);
@@ -76,7 +74,6 @@ export class IncusLiveCleanupController {
   }
 
   async injectLostDestroyReply(scope: IncusQualificationScope, handle: LiveFixtureHandle): Promise<void> {
-    requireCleanup(!this.pending, "another recovery fault is pending");
     const authority = await this.claimed(scope, handle);
     const fault = await this.fault();
     let lost: unknown;
@@ -103,59 +100,146 @@ export class IncusLiveCleanupController {
       && readback.destroyOperationId === operation.id
       && readback.bindingId === handle.sandboxId,
     "operator destroy readback did not confirm uncertainty");
-    this.pending = { scope, handle, operationId: operation.id, readinessDenied: false };
     throw lost;
   }
 
-  async attemptReadiness(scope: IncusQualificationScope, handle: LiveFixtureHandle): Promise<void> {
-    const pending = this.pending;
-    requireCleanup(pending && pending.handle.operationId === handle.operationId
-      && pending.handle.sandboxId === handle.sandboxId
-      && pending.scope.installationId === scope.installationId
-      && pending.scope.releaseId === scope.releaseId
-      && pending.scope.connectionId === scope.connectionId
-      && pending.scope.presetId === scope.presetId,
-    "operator readback is not bound to this readiness request");
-    requireCleanup(ID.test(this.deps.readinessProjectId), "operator readiness project is unavailable");
-    try {
-      await this.freshFeatureGate().checkReadiness({ projectId: this.deps.readinessProjectId,
-        installationId: scope.installationId, connectionId: scope.connectionId, presetId: scope.presetId });
-    } catch (error) {
-      if (error && typeof error === "object" && "code" in error
-        && error.code === "QUALIFICATION_CLEANUP_UNVERIFIED") pending.readinessDenied = true;
-      throw error;
-    }
+  private async claimedRecovery(scope: IncusQualificationScope, handle: LiveFixtureHandle) {
+    const runId = this.runId(handle);
+    const row = await this.checkpoints.get(runId);
+    const deadline = row?.claimedAt ? new Date(row.claimedAt).getTime() + 20 * 60_000 : Number.NaN;
+    requireCleanup(row?.state === "CLAIMED" && Number.isSafeInteger(deadline) && this.now() < deadline
+      && row.scope.installationId === scope.installationId
+      && row.scope.releaseId === scope.releaseId
+      && row.scope.connectionId === scope.connectionId
+      && row.scope.presetId === scope.presetId
+      && row.bindingId !== handle.sandboxId
+      && row.connectionRevision > 0,
+    "claimed recovery run changed or expired");
+    return row;
   }
 
-  async reconcileFromReopenedController(scope: IncusQualificationScope, handle: LiveFixtureHandle): Promise<void> {
-    const pending = this.pending;
-    requireCleanup(pending && pending.handle.operationId === handle.operationId
-      && pending.handle.sandboxId === handle.sandboxId
-      && pending.scope.installationId === scope.installationId
-      && pending.scope.releaseId === scope.releaseId
-      && pending.scope.connectionId === scope.connectionId
-      && pending.scope.presetId === scope.presetId,
-    "recovery journal identity changed");
-    requireCleanup(pending.readinessDenied, "production readiness did not deny uncertain cleanup");
-    // The bounded reconciliation pass must not dispatch an unrelated pending effect.
-    const candidates = await this.deps.db.select({ id: sandboxOperations.id }).from(sandboxOperations)
-      .where(inArray(sandboxOperations.state, ["JOURNALED", "DISPATCHING",
-        "PROVIDER_PENDING", "OUTCOME_UNKNOWN"])).limit(2);
-    requireCleanup(candidates.length === 1 && candidates[0]?.id === pending.operationId,
-      "another pending operation blocks exact recovery");
-    await this.freshFeatureGate().reconcile(1);
-    await this.freshFeatureGate().settleCompletedOperation(pending.operationId);
+  private async pendingDestroy(scope: IncusQualificationScope, handle: LiveFixtureHandle) {
+    const row = await this.claimedRecovery(scope, handle);
     const status = await this.deps.fixtures.status(scope, handle.operationId);
+    requireCleanup(status.fixture.bindingId === handle.sandboxId
+      && status.fixture.operationId === handle.operationId
+      && status.fixture.installationId === scope.installationId
+      && status.fixture.releaseId === scope.releaseId
+      && status.fixture.connectionId === scope.connectionId
+      && status.fixture.presetId === scope.presetId
+      && status.fixture.connectionRevision === row.connectionRevision
+      && status.binding.id === handle.sandboxId
+      && status.binding.generation === status.operation?.generation
+      && status.binding.desiredState === "ABSENT"
+      && status.operation.kind === "DESTROY" && status.operation.state === "OUTCOME_UNKNOWN",
+    "recovery destroy is not the exact uncertain fixture");
+    const [operation] = await this.deps.db.select().from(sandboxOperations)
+      .where(and(eq(sandboxOperations.id, status.operation.id),
+        eq(sandboxOperations.bindingId, handle.sandboxId))).limit(1);
     const [binding] = await this.deps.db.select().from(sandboxBindings)
       .where(eq(sandboxBindings.id, handle.sandboxId)).limit(1);
     const [reservation] = await this.deps.db.select().from(sandboxReservations)
       .where(eq(sandboxReservations.bindingId, handle.sandboxId)).limit(1);
-    requireCleanup(status.operation?.id === pending.operationId && status.operation.kind === "DESTROY"
-      && status.operation.state === "SUCCEEDED" && status.binding.desiredState === "ABSENT"
-      && status.binding.observedState === "ABSENT" && binding?.cleanupConfirmedAt
-      && reservation?.cleanupIntentId === `incus-qualification-destroy-${handle.operationId}`
+    requireCleanup(operation?.kind === "DESTROY" && operation.state === "OUTCOME_UNKNOWN"
+      && operation.generation === status.binding.generation
+      && operation.idempotencyScope === "incus-qualification"
+      && operation.idempotencyKey === `${handle.operationId}:destroy`
+      && binding?.currentOperationId === operation.id
+      && binding.generation === operation.generation
+      && binding.connectionRevision === row.connectionRevision
+      && binding.desiredState === "ABSENT"
+      && reservation?.generation === binding.generation
+      && reservation.cleanupIntentId === `incus-qualification-destroy-${handle.operationId}`,
+    "recovery destroy journal or cleanup intent changed");
+    return operation.id;
+  }
+
+  /** A process may die after the original journal settles but before the
+   * checkpoint is closed. Check the same completed operation without dispatch. */
+  async verifySettledDestroy(scope: IncusQualificationScope, handle: LiveFixtureHandle,
+    operationId: string): Promise<void> {
+    const row = await this.claimedRecovery(scope, handle);
+    const status = await this.deps.fixtures.status(scope, handle.operationId);
+    const [[operation], [binding], [reservation]] = await Promise.all([
+      this.deps.db.select().from(sandboxOperations).where(and(eq(sandboxOperations.id, operationId),
+        eq(sandboxOperations.bindingId, handle.sandboxId))).limit(1),
+      this.deps.db.select().from(sandboxBindings).where(eq(sandboxBindings.id, handle.sandboxId)).limit(1),
+      this.deps.db.select().from(sandboxReservations).where(eq(sandboxReservations.bindingId, handle.sandboxId)).limit(1),
+    ]);
+    requireCleanup(status.fixture.operationId === handle.operationId
+      && status.fixture.bindingId === handle.sandboxId
+      && status.fixture.installationId === scope.installationId
+      && status.fixture.releaseId === scope.releaseId
+      && status.fixture.connectionId === scope.connectionId
+      && status.fixture.presetId === scope.presetId
+      && status.fixture.connectionRevision === row.connectionRevision
+      && status.operation?.id === operationId && status.operation.kind === "DESTROY"
+      && status.operation.state === "SUCCEEDED"
+      && status.binding.id === handle.sandboxId
+      && status.binding.desiredState === "ABSENT" && status.binding.observedState === "ABSENT"
+      && operation?.kind === "DESTROY" && operation.state === "SUCCEEDED"
+      && operation.generation === status.binding.generation
+      && operation.idempotencyScope === "incus-qualification"
+      && operation.idempotencyKey === `${handle.operationId}:destroy`
+      && binding?.currentOperationId === operationId
+      && binding.generation === operation.generation
+      && binding.connectionRevision === row.connectionRevision
+      && binding.desiredState === "ABSENT" && binding.observedState === "ABSENT"
+      && binding.cleanupConfirmedAt
+      && reservation?.generation === binding.generation
+      && reservation.cleanupIntentId === `incus-qualification-destroy-${handle.operationId}`
       && reservation.computeState === "RELEASED" && reservation.diskState === "RELEASED",
     "original destroy journal or resource release is unverified");
-    this.pending = null;
+  }
+
+  async settleAlreadyCompletedDestroy(scope: IncusQualificationScope, handle: LiveFixtureHandle,
+    operationId: string): Promise<void> {
+    await this.claimedRecovery(scope, handle);
+    const status = await this.deps.fixtures.status(scope, handle.operationId);
+    const [operation] = await this.deps.db.select().from(sandboxOperations)
+      .where(and(eq(sandboxOperations.id, operationId),
+        eq(sandboxOperations.bindingId, handle.sandboxId))).limit(1);
+    requireCleanup(status.fixture.operationId === handle.operationId
+      && status.fixture.bindingId === handle.sandboxId
+      && status.fixture.installationId === scope.installationId
+      && status.fixture.releaseId === scope.releaseId
+      && status.fixture.connectionId === scope.connectionId
+      && status.fixture.presetId === scope.presetId
+      && status.operation?.id === operationId && status.operation.kind === "DESTROY"
+      && status.operation.state === "SUCCEEDED"
+      && status.binding.id === handle.sandboxId
+      && status.binding.desiredState === "ABSENT" && status.binding.observedState === "ABSENT"
+      && operation?.kind === "DESTROY" && operation.state === "SUCCEEDED"
+      && operation.generation === status.binding.generation
+      && operation.idempotencyScope === "incus-qualification"
+      && operation.idempotencyKey === `${handle.operationId}:destroy`,
+    "completed destroy journal identity changed");
+    await this.freshFeatureGate().settleCompletedOperation(operationId);
+    await this.verifySettledDestroy(scope, handle, operationId);
+  }
+
+  async attemptReadiness(scope: IncusQualificationScope, handle: LiveFixtureHandle): Promise<void> {
+    await this.pendingDestroy(scope, handle);
+    requireCleanup(ID.test(this.deps.readinessProjectId), "operator readiness project is unavailable");
+    await this.freshFeatureGate().checkReadiness({ projectId: this.deps.readinessProjectId,
+      installationId: scope.installationId, connectionId: scope.connectionId, presetId: scope.presetId });
+  }
+
+  async reconcileFromReopenedController(scope: IncusQualificationScope, handle: LiveFixtureHandle): Promise<void> {
+    const operationId = await this.pendingDestroy(scope, handle);
+    let denied = false;
+    try { await this.attemptReadiness(scope, handle); }
+    catch (error) { denied = !!error && typeof error === "object" && "code" in error
+      && error.code === "QUALIFICATION_CLEANUP_UNVERIFIED"; }
+    requireCleanup(denied, "production readiness did not deny uncertain cleanup");
+    // The bounded reconciliation pass must not dispatch an unrelated pending effect.
+    const candidates = await this.deps.db.select({ id: sandboxOperations.id }).from(sandboxOperations)
+      .where(inArray(sandboxOperations.state, ["JOURNALED", "DISPATCHING",
+        "PROVIDER_PENDING", "OUTCOME_UNKNOWN"])).limit(2);
+    requireCleanup(candidates.length === 1 && candidates[0]?.id === operationId,
+      "another pending operation blocks exact recovery");
+    await this.freshFeatureGate().reconcile(1);
+    await this.freshFeatureGate().settleCompletedOperation(operationId);
+    await this.verifySettledDestroy(scope, handle, operationId);
   }
 }

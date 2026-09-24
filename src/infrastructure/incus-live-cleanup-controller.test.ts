@@ -14,6 +14,7 @@ const destroyId = "11111111-1111-4111-8111-111111111111";
 
 function harness(fault?: "readback" | "other-operation" | "readiness" | "expired") {
   let phase = 0;
+  let settled = false;
   const calls: string[] = [];
   const status = () => ({ fixture: { ...scope, operationId: handle.operationId,
     bindingId: handle.sandboxId, connectionRevision: 2 },
@@ -25,16 +26,23 @@ function harness(fault?: "readback" | "other-operation" | "readiness" | "expired
     state: phase === 0 || phase === 2 ? "SUCCEEDED" : "OUTCOME_UNKNOWN", generation: 1 } });
   const db = { select: (shape?: Record<string, unknown>) => ({ from: (table: unknown) => ({ where: () => ({
     limit: async () => table === sandboxOperations ? shape?.id ? [{ id: fault === "other-operation" ? "other" : destroyId }]
-      : [{ id: destroyId, bindingId: handle.sandboxId, requestPayload: { expectedGeneration: 7 } }]
-      : table === sandboxBindings ? [{ id: handle.sandboxId, cleanupConfirmedAt: new Date() }]
-        : table === sandboxReservations ? [{ bindingId: handle.sandboxId,
+      : [{ id: destroyId, bindingId: handle.sandboxId, kind: "DESTROY",
+        state: phase === 1 ? "OUTCOME_UNKNOWN" : "SUCCEEDED", generation: 1,
+        idempotencyScope: "incus-qualification", idempotencyKey: `${handle.operationId}:destroy`,
+        requestPayload: { expectedGeneration: 7 } }]
+      : table === sandboxBindings ? [{ id: handle.sandboxId, generation: 1, connectionRevision: 2,
+        currentOperationId: destroyId, desiredState: "ABSENT", observedState: phase === 2 ? "ABSENT" : "UNKNOWN",
+        cleanupConfirmedAt: new Date() }]
+        : table === sandboxReservations ? [{ bindingId: handle.sandboxId, generation: 1,
           cleanupIntentId: `incus-qualification-destroy-${handle.operationId}`,
-          computeState: "RELEASED", diskState: "RELEASED" }] : [],
+          computeState: settled ? "RELEASED" : "RESERVED",
+          diskState: settled ? "RELEASED" : "RESERVED" }] : [],
   }) }) }) } as unknown as Database;
   const fixtures = { status: async () => status(),
     destroyWithLostReplyFault: async () => { calls.push("destroy"); phase = 1; throw new Error("reply lost"); },
   } as unknown as IncusQualificationFixtureService;
   const checkpoints = { get: async () => ({ state: "CLAIMED", nonce: "nonce", scope,
+    bindingId: "primary-binding", connectionRevision: 2,
     deadlineAt: new Date(now - 1),
     claimedAt: new Date(now - (fault === "expired" ? 20 * 60_000 : 60_000)) }),
   authorizeRecoveryFixtureForRun: async (arm: Record<string, unknown>) => {
@@ -52,13 +60,36 @@ function harness(fault?: "readback" | "other-operation" | "readiness" | "expired
     if (fault === "readiness") return;
     throw Object.assign(new Error("cleanup pending"), { code: "QUALIFICATION_CLEANUP_UNVERIFIED" });
   }, reconcile: async () => { calls.push("reconcile"); phase = 2; },
-  settleCompletedOperation: async (id: string) => { expect(id).toBe(destroyId); calls.push("settle"); },
+  settleCompletedOperation: async (id: string) => {
+    expect(id).toBe(destroyId); calls.push("settle"); settled = true; },
   } as unknown as IncusFeatureService;
-  const controller = new IncusLiveCleanupController({ db, fixtures,
+  const reopen = () => new IncusLiveCleanupController({ db, fixtures,
     qualifications: {} as IncusQualificationStore, readinessProjectId: "controlled-user-project",
     checkpoints, fault: async () => operatorFault, freshFeatureGate: () => featureGate, now: () => now });
-  return { controller, calls };
+  return { controller: reopen(), reopen, calls, completed: () => { phase = 2; } };
 }
+
+test("reopened controller resumes the exact uncertain destroy from durable identities", async () => {
+  const { controller, reopen, calls } = harness();
+  await expect(controller.injectLostDestroyReply(scope, handle)).rejects.toThrow("reply lost");
+  const replacement = reopen();
+  await expect(replacement.attemptReadiness(scope, handle)).rejects.toMatchObject({
+    code: "QUALIFICATION_CLEANUP_UNVERIFIED" });
+  await replacement.reconcileFromReopenedController(scope, handle);
+  expect(calls).toEqual(["destroy", "readback", "readiness", "readiness", "reconcile", "settle"]);
+});
+
+test("reopened controller settles an already completed destroy without another provider effect", async () => {
+  const { controller, completed, calls } = harness();
+  completed();
+  await expect(controller.verifySettledDestroy(scope, handle, destroyId))
+    .rejects.toThrow("resource release is unverified");
+  await controller.settleAlreadyCompletedDestroy(scope, handle, destroyId);
+  expect(calls).toEqual(["settle"]);
+  await expect(controller.settleAlreadyCompletedDestroy(scope, handle, "other-operation"))
+    .rejects.toThrow("completed destroy journal identity changed");
+  expect(calls).toEqual(["settle"]);
+});
 
 test("operator cleanup uses one lost reply, exact readback, readiness denial and same journal recovery", async () => {
   const { controller, calls } = harness();
@@ -66,9 +97,9 @@ test("operator cleanup uses one lost reply, exact readback, readiness denial and
   await expect(controller.attemptReadiness(scope, handle)).rejects.toMatchObject({
     code: "QUALIFICATION_CLEANUP_UNVERIFIED" });
   await controller.reconcileFromReopenedController(scope, handle);
-  expect(calls).toEqual(["destroy", "readback", "readiness", "reconcile", "settle"]);
+  expect(calls).toEqual(["destroy", "readback", "readiness", "readiness", "reconcile", "settle"]);
   await expect(controller.reconcileFromReopenedController(scope, handle))
-    .rejects.toThrow("recovery journal identity changed");
+    .rejects.toThrow("recovery destroy is not the exact uncertain fixture");
 });
 
 test("missing independent readback or an unrelated pending operation fails closed", async () => {
@@ -80,7 +111,7 @@ test("missing independent readback or an unrelated pending operation fails close
   await expect(noReadback.controller.injectLostDestroyReply(scope, handle))
     .rejects.toThrow("operator destroy readback did not confirm uncertainty");
   await expect(noReadback.controller.attemptReadiness(scope, handle))
-    .rejects.toThrow("not bound to this readiness request");
+    .rejects.toMatchObject({ code: "QUALIFICATION_CLEANUP_UNVERIFIED" });
   const competing = harness("other-operation");
   await expect(competing.controller.injectLostDestroyReply(scope, handle)).rejects.toThrow("reply lost");
   await expect(competing.controller.attemptReadiness(scope, handle))

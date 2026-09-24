@@ -8,6 +8,7 @@ import { createInterface } from "node:readline";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { up } from "../db/migrations/add-incus-qualification-runs";
+import { up as completeRuns } from "../db/migrations/complete-incus-qualification-runs";
 import { IncusQualificationCheckpointStore, currentProcessIdentity, observationDigest,
   processIdentityKey, restartHandoffSigningBytes, type ProcessIdentity,
   type RestartHandoffPayload } from "./incus-qualification-checkpoint";
@@ -42,6 +43,7 @@ async function database() {
   `);
   const db = drizzle(client);
   await up(db);
+  await completeRuns(db);
   return { directory, client, db };
 }
 
@@ -120,7 +122,46 @@ test("a new process opens the same database and claims a signed restart checkpoi
   const reopened = new PGlite(directory);
   await reopened.waitReady;
   expect((await new IncusQualificationCheckpointStore(drizzle(reopened)).get(runId))?.state).toBe("CLAIMED");
+  await reopened.exec(`ALTER TABLE provider_sandbox_operations ADD COLUMN kind TEXT DEFAULT 'CREATE';
+    ALTER TABLE provider_sandbox_operations ADD COLUMN idempotency_scope TEXT;
+    ALTER TABLE provider_sandbox_operations ADD COLUMN idempotency_key TEXT;
+    ALTER TABLE provider_sandbox_operations ADD COLUMN created_at TIMESTAMPTZ DEFAULT NOW();
+    INSERT INTO incus_qualification_fixtures VALUES
+      ('qual-recovery-${runId}', 'project', 'recovery-binding',
+        'installation', 'release', 'connection', 2, 'preset');`);
+  await reopened.query(`INSERT INTO provider_sandbox_operations
+    (id, binding_id, state, generation, kind, idempotency_scope, idempotency_key)
+    VALUES ($1, 'recovery-binding', 'OUTCOME_UNKNOWN', 1, 'DESTROY', 'incus-qualification', $2)`,
+  [randomUUID(), `qual-recovery-${runId}:destroy`]);
   await reopened.close();
+  const reader = spawn(process.execPath, [join(import.meta.dir, "__tests__/incus-qualification-checkpoint.worker.ts"),
+    "pending-cleanup", directory, runId, nonce], { stdio: ["ignore", "pipe", "pipe"],
+    env: { ...process.env, EZCORP_INCUS_SUPERVISOR_PUBLIC_KEY: publicKeyPem } });
+  const readerExit = new Promise(resolve => reader.once("exit", resolve));
+  let output = "";
+  for await (const chunk of reader.stdout) output += chunk.toString();
+  expect(await readerExit).toBe(0);
+  expect(JSON.parse(output)).toMatchObject({ runId, operationState: "OUTCOME_UNKNOWN",
+    originProcessCurrent: false,
+    handle: { operationId: `qual-recovery-${runId}`, sandboxId: "recovery-binding" } });
+  const completed = new PGlite(directory);
+  await completed.waitReady;
+  const completedDb = drizzle(completed);
+  const completedStore = new IncusQualificationCheckpointStore(completedDb, publicKeyPem);
+  await expect(completedStore.complete({ runId, nonce, scope })).rejects.toThrow("cannot complete");
+  expect((await completedStore.get(runId))?.state).toBe("CLAIMED");
+  await completed.query(`UPDATE provider_sandbox_operations SET state = 'SUCCEEDED'
+    WHERE idempotency_key = $1`, [`qual-recovery-${runId}:destroy`]);
+  await expect(completedDb.transaction(async tx => {
+    await completedStore.complete({ runId, nonce, scope }, tx);
+    throw new Error("evidence write failed");
+  })).rejects.toThrow("evidence write failed");
+  expect((await completedStore.get(runId))?.state).toBe("CLAIMED");
+  await completedDb.transaction(tx => completedStore.complete({ runId, nonce, scope }, tx));
+  expect((await completedStore.get(runId))?.state).toBe("COMPLETED");
+  await expect(completedStore.complete({ runId, nonce, scope })).rejects.toThrow("cannot complete");
+  expect(await completedStore.pendingCleanup()).toBeNull();
+  await completed.close();
 }, 90_000);
 
 test("the new process claims an exited writer and authorizes only its exact live fixture", async () => {

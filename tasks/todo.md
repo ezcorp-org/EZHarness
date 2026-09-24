@@ -1689,3 +1689,14 @@ Review: The current isolated app is a manually started Vite dev process (PIDs 38
 ### Review
 
 The red process test showed that a descendant which ignored TERM was alive when the durable snapshot ran. The supervisor now keeps the leader PID reserved until it signals the whole group, waits for all live group members and all live processes under the dedicated app UID, and fails closed after five seconds. Restart, offline recovery, and shutdown use one stop path. A negative test proves a failed fence prevents the snapshot. Nine process-level Python tests, four fault tests, all three Bun-wrapped supervisor suites, Python compilation, and diff checks pass. No live app or server changed.
+
+## SP05 durable lost DESTROY recovery — 2026-09-24
+
+- [x] Reproduce loss of the controller's in-memory pending state after a restart.
+- [x] Rebuild the exact recovery identity from the claimed run and destroy journal.
+- [x] Recheck readiness denial and reconcile only the same operation after restart.
+- [x] Test restart, mismatched identity, and successful settlement; run focused checks.
+
+### Review
+
+The red test showed a fresh controller lost the pending destroy identity. The recovery path now reads the claimed signed restart receipt and exact journal, fences the normal reconciler while SP05 is active, and settles only the saved operation after a replacement process starts. A crash after provider success but before reservation release is retried through the same completed operation. A dead run is marked failed after cleanup; it cannot publish SP05 evidence. A completed run and qualification evidence now commit in one transaction. Focused and neighboring tests pass (40 tests total), including a third process reopening persistent PGlite. Backend/web/test typecheck, lint, and build pass. No live app or server was changed.

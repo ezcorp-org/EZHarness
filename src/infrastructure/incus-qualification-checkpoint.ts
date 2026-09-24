@@ -127,6 +127,7 @@ interface RunRow {
   beforeDigest: string;
   oldProcessIdentity: ProcessIdentity;
   state: string;
+  receipt: SignedRestartHandoff | null;
 }
 
 type RecoveryFaultAuthority = { runId: string; nonce: string; scope: IncusQualificationScope;
@@ -137,7 +138,7 @@ const runColumns = sql`run_id AS "runId", fixture_operation_id AS "fixtureOperat
   scope, binding_id AS "bindingId", generation, connection_revision AS "connectionRevision",
   last_operation_id AS "lastOperationId", nonce, deadline_at AS "deadlineAt", claimed_at AS "claimedAt",
   before_observation AS "beforeObservation", before_digest AS "beforeDigest",
-  old_process_identity AS "oldProcessIdentity", state`;
+  old_process_identity AS "oldProcessIdentity", state, receipt`;
 
 function sameScope(left: IncusQualificationScope, right: IncusQualificationScope): boolean {
   return left.installationId === right.installationId && left.releaseId === right.releaseId
@@ -260,6 +261,75 @@ export class IncusQualificationCheckpointStore {
       ORDER BY deadline_at ASC, run_id ASC LIMIT 2`));
     if (rows.length > 1) throw new Error("Multiple Incus restart checkpoints require operator review");
     return rows[0] ?? null;
+  }
+
+  /** A claimed SP05 run can outlive its app process. The exact unknown journal
+   * blocks general reconciliation until a replacement process checks it. */
+  async pendingCleanup(): Promise<{ runId: string; scope: IncusQualificationScope;
+    handle: LiveFixtureHandle; operationId: string; operationState: string;
+    originProcessCurrent: boolean } | null> {
+    const candidates = releaseRows<{ id: string; bindingId: string; idempotencyKey: string;
+      state: string }>(await this.db.execute(sql`SELECT
+      o.id, o.binding_id AS "bindingId", o.idempotency_key AS "idempotencyKey", o.state
+      FROM provider_sandbox_operations o LEFT JOIN incus_qualification_runs r
+        ON o.idempotency_key = 'qual-recovery-' || r.run_id || ':destroy'
+      WHERE o.kind = 'DESTROY' AND o.idempotency_scope = 'incus-qualification'
+        AND o.idempotency_key LIKE 'qual-recovery-%:destroy'
+        AND (o.state IN ('JOURNALED', 'DISPATCHING', 'PROVIDER_PENDING', 'OUTCOME_UNKNOWN')
+          OR (o.state = 'SUCCEEDED' AND r.state = 'CLAIMED'))
+      ORDER BY o.created_at, o.id LIMIT 2`));
+    if (!candidates.length) return null;
+    if (candidates.length !== 1) throw new Error("Multiple uncertain Incus recovery destroys require operator review");
+    const key = candidates[0]!.idempotencyKey;
+    const fixtureOperationId = key.slice(0, -":destroy".length);
+    const runId = fixtureOperationId.slice("qual-recovery-".length);
+    if (!identifier.test(runId) || fixtureOperationId !== `qual-recovery-${runId}`) {
+      throw new Error("Incus recovery destroy identity is invalid");
+    }
+    const row = await this.get(runId);
+    if (row?.state !== "CLAIMED" || !row.receipt || !this.publicKeyPem) {
+      throw new Error("Incus recovery destroy has no claimed restart receipt");
+    }
+    verifyRestartHandoff(row.receipt, this.publicKeyPem);
+    const payload = row.receipt.payload;
+    if (payload.runId !== row.runId || payload.nonce !== row.nonce
+      || !sameScope(payload.scope, row.scope)
+      || payload.bindingId !== row.bindingId
+      || payload.fixtureOperationId !== row.fixtureOperationId
+      || payload.generation !== row.generation
+      || payload.connectionRevision !== row.connectionRevision
+      || payload.lastOperationId !== row.lastOperationId) {
+      throw new Error("Incus recovery destroy restart receipt changed");
+    }
+    return { runId, scope: row.scope, operationId: candidates[0]!.id,
+      operationState: candidates[0]!.state,
+      handle: { operationId: fixtureOperationId, sandboxId: candidates[0]!.bindingId },
+      originProcessCurrent: processIdentityKey(payload.newProcess)
+        === processIdentityKey(currentProcessIdentity()) };
+  }
+
+  /** Called inside the evidence write transaction, after every live case passed. */
+  async complete(input: { runId: string; nonce: string; scope: IncusQualificationScope },
+    transaction: Database = this.db): Promise<void> {
+    if (!identifier.test(input.runId) || !identifier.test(input.nonce)) {
+      throw new Error("Incus qualification completion identity is invalid");
+    }
+    const updated = releaseRows<{ runId: string }>(await transaction.execute(sql`UPDATE incus_qualification_runs
+      SET state = 'COMPLETED' WHERE run_id = ${input.runId} AND nonce = ${input.nonce}
+        AND state = 'CLAIMED' AND scope = ${JSON.stringify(input.scope)}::jsonb
+        AND receipt IS NOT NULL AND claimed_at IS NOT NULL
+        AND EXISTS (SELECT 1 FROM incus_qualification_fixtures f
+          JOIN provider_sandbox_operations o ON o.binding_id = f.binding_id
+          WHERE f.operation_id = ${`qual-recovery-${input.runId}`}
+            AND f.installation_id = ${input.scope.installationId}
+            AND f.release_id = ${input.scope.releaseId}
+            AND f.connection_id = ${input.scope.connectionId}
+            AND f.preset_id = ${input.scope.presetId}
+            AND o.idempotency_scope = 'incus-qualification'
+            AND o.idempotency_key = ${`qual-recovery-${input.runId}:destroy`}
+            AND o.kind = 'DESTROY' AND o.state = 'SUCCEEDED')
+      RETURNING run_id AS "runId"`));
+    if (updated.length !== 1) throw new Error("Incus qualification checkpoint cannot complete");
   }
 
   /** A failed resumed witness must retain its durable cleanup obligation and cannot be retried as a pass. */

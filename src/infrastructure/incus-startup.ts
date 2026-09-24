@@ -9,9 +9,10 @@ import { ProviderConnectionStore } from "./provider-connections/store";
 import { IncusWorkspaceCaller } from "./incus-workspace-caller";
 import { IncusSandboxPreviewBackend } from "./incus-preview-backend";
 import { IncusFeatureService } from "./incus-feature-service";
-import { IncusQualificationStore } from "./incus-qualification";
+import { IncusQualificationFixtureService, IncusQualificationStore } from "./incus-qualification";
 import { IncusQualificationCheckpointStore } from "./incus-qualification-checkpoint";
 import { IncusHostLiveWitness } from "./incus-host-live-witness";
+import { IncusLiveCleanupController } from "./incus-live-cleanup-controller";
 import { IncusLiveControlProbes } from "./incus-live-control-probes";
 import { IncusLiveProbeFixtureService } from "./incus-live-probe-fixtures";
 import { resumeDurableIncusLiveCases } from "./incus-live-cases";
@@ -49,7 +50,8 @@ export async function resumePendingIncusQualification(deps: QualificationContinu
     const evidence = await (deps.resume ?? resumeDurableIncusLiveCases)({ witness,
       composeFixtureImageRef: process.env.EZCORP_INCUS_COMPOSE_FIXTURE_IMAGE_REF },
     pending.scope, selected.preset, { runId: pending.runId, nonce: pending.nonce });
-    await qualifications.recordVerified(pending.scope, evidence);
+    await qualifications.recordVerified(pending.scope, evidence,
+      { runId: pending.runId, nonce: pending.nonce });
   } catch (error) {
     await checkpoints.fail(pending.runId).catch(failure =>
       log.warn("Incus qualification failure could not be saved", { error: String(failure) }));
@@ -122,6 +124,27 @@ export function initializeIncusSandboxWorkspace(dependencies: StartupDependencie
 }
 
 /** Recover admitted effects and reservation state after a controller restart. */
+export async function reconcileIncusWithClaimedCleanup(deps: {
+  checkpoints: Pick<IncusQualificationCheckpointStore, "pendingCleanup" | "fail">;
+  recover: (scope: IncusQualificationScope, handle: { operationId: string; sandboxId: string }) => Promise<void>;
+  verifySettled: (scope: IncusQualificationScope, handle: { operationId: string; sandboxId: string },
+    operationId: string) => Promise<void>;
+  reconcile: () => Promise<unknown>;
+}): Promise<void> {
+  const pending = await deps.checkpoints.pendingCleanup();
+  if (pending) {
+    // The active witness owns its fault. A background tick must not settle it early.
+    if (pending.originProcessCurrent) return;
+    if (pending.operationState === "OUTCOME_UNKNOWN") await deps.recover(pending.scope, pending.handle);
+    else if (pending.operationState === "SUCCEEDED") {
+      await deps.verifySettled(pending.scope, pending.handle, pending.operationId);
+    } else throw new Error("Incus recovery destroy needs operator review before reconciliation");
+    // The old process cannot publish its SP05 evidence after a crash.
+    await deps.checkpoints.fail(pending.runId);
+  }
+  await deps.reconcile();
+}
+
 export function startIncusSandboxReconciler(intervalMs = 30_000,
   reconcile?: () => Promise<unknown>, databaseOverride?: Database): () => Promise<void> {
   if (!reconcile) {
@@ -129,7 +152,20 @@ export function startIncusSandboxReconciler(intervalMs = 30_000,
     const qualifications = new IncusQualificationStore({ db: database });
     const service = new IncusFeatureService({ db: database,
       loadQualification: scope => qualifications.load(scope) });
-    reconcile = () => service.reconcile();
+    const checkpoints = new IncusQualificationCheckpointStore(database);
+    const cleanup = async () => {
+        const readinessProjectId = process.env.EZCORP_INCUS_QUALIFICATION_USER_PROJECT_ID;
+        if (!readinessProjectId) throw new Error("Incus cleanup recovery project is unavailable");
+        return new IncusLiveCleanupController({ db: database,
+          fixtures: new IncusQualificationFixtureService({ db: database, qualifications }),
+          qualifications, readinessProjectId, checkpoints });
+    };
+    reconcile = () => reconcileIncusWithClaimedCleanup({ checkpoints,
+      recover: async (scope, handle) => (await cleanup()).reconcileFromReopenedController(scope, handle),
+      verifySettled: async (scope, handle, operationId) =>
+        (await cleanup()).settleAlreadyCompletedDestroy(scope, handle, operationId),
+      reconcile: () => service.reconcile(),
+    });
   }
   let stopped = false;
   let pending: Promise<void> | null = null;

@@ -3046,6 +3046,8 @@ export async function migrate(db: MigrateDb): Promise<void> {
   await addIncusQualificationFixtures(db);
   const { up: addIncusQualificationRuns } = await import("./migrations/add-incus-qualification-runs");
   await addIncusQualificationRuns(db);
+  const { up: completeIncusQualificationRuns } = await import("./migrations/complete-incus-qualification-runs");
+  await completeIncusQualificationRuns(db);
   const { up: addIncusNoeffectRecoveries } = await import("./migrations/add-incus-noeffect-recoveries");
   await addIncusNoeffectRecoveries(db);
   const { extensionControlTools } = await import("../extensions/extension-control");

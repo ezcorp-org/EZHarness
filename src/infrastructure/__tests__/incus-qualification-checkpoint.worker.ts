@@ -9,14 +9,17 @@ import { checkpointTestHandle, checkpointTestObservation, checkpointTestScope }
 import type { RecoveryObservation } from "../incus-live-recovery-probes";
 
 const [mode, directory, runId, nonce, deadline] = process.argv.slice(2);
-if (!directory || !runId || !nonce || (mode !== "begin" && mode !== "claim")) {
+if (!directory || !runId || !nonce || !["begin", "claim", "pending-cleanup"].includes(mode ?? "")) {
   throw new Error("Missing checkpoint worker input");
 }
 const client = new PGlite(directory);
 await client.waitReady;
 const store = new IncusQualificationCheckpointStore(drizzle(client));
 const identity = currentProcessIdentity();
-if (mode === "begin") {
+if (mode === "pending-cleanup") {
+  const pending = await store.pendingCleanup();
+  process.stdout.write(`${JSON.stringify(pending)}\n`);
+} else if (mode === "begin") {
   if (!deadline) throw new Error("Missing checkpoint deadline");
   await store.begin({ runId, nonce, deadlineMs: Number(deadline),
     scope: checkpointTestScope, handle: checkpointTestHandle,

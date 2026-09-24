@@ -5,13 +5,14 @@ import { sandboxPresetDigest } from "@ezcorp/extension-contract";
 import { incusManifest } from "../../extensions/incus-sandbox/manifest";
 import { up as addSandboxController } from "../db/migrations/add-sandbox-controller";
 import { up as addQualificationFixtures } from "../db/migrations/add-incus-qualification-fixtures";
+import { up as addQualificationRuns } from "../db/migrations/add-incus-qualification-runs";
 import * as schema from "../db/schema";
 import type { SandboxWorkspaceTargetResolver } from "../runtime/workspaces/project-target";
 import type { ActiveExtensionRelease } from "../extensions/release-process";
 import type { ProviderConnectionMetadata } from "./provider-connections/store";
 import type { createProviderSandboxWorkspaceBackend } from "../runtime/workspaces/provider-backend";
 import { initializeIncusSandboxWorkspace, resumePendingIncusQualification,
-  startIncusSandboxReconciler } from "./incus-startup";
+  reconcileIncusWithClaimedCleanup, startIncusSandboxReconciler } from "./incus-startup";
 
 let resolver: SandboxWorkspaceTargetResolver | null = null;
 let releaseId = "release";
@@ -20,6 +21,38 @@ let revision = 1;
 let revoked = false;
 let reconcileCalls = 0;
 const preset = incusManifest.sandboxProviders![0]!.presets[0]!;
+
+test("startup fences the active SP05 run and recovers only a replacement process's exact journal", async () => {
+  const calls: string[] = [];
+  const scope = { installationId: "install", releaseId: "release", connectionId: "connection", presetId: "preset" };
+  const handle = { operationId: "qual-recovery-run", sandboxId: "binding" };
+  const pending = { runId: "run", scope, handle, operationId: "destroy-operation",
+    operationState: "OUTCOME_UNKNOWN", originProcessCurrent: true };
+  const deps = { checkpoints: { pendingCleanup: async () => pending,
+    fail: async (runId: string) => { calls.push(`fail:${runId}`); } },
+  recover: async (seenScope: typeof scope, seenHandle: typeof handle) => {
+    expect(seenScope).toEqual(scope); expect(seenHandle).toEqual(handle); calls.push("recover"); },
+  verifySettled: async () => { calls.push("verify"); },
+  reconcile: async () => { calls.push("general"); } };
+  await reconcileIncusWithClaimedCleanup(deps as never);
+  expect(calls).toEqual([]);
+  pending.originProcessCurrent = false;
+  await reconcileIncusWithClaimedCleanup(deps as never);
+  expect(calls).toEqual(["recover", "fail:run", "general"]);
+  calls.length = 0;
+  pending.operationState = "SUCCEEDED";
+  await reconcileIncusWithClaimedCleanup(deps as never);
+  expect(calls).toEqual(["verify", "fail:run", "general"]);
+  calls.length = 0;
+  pending.operationState = "PROVIDER_PENDING";
+  await expect(reconcileIncusWithClaimedCleanup(deps as never)).rejects.toThrow("operator review");
+  expect(calls).toEqual([]);
+  pending.operationState = "OUTCOME_UNKNOWN";
+  await expect(reconcileIncusWithClaimedCleanup({ ...deps,
+    recover: async () => { throw new Error("journal changed"); },
+  } as never)).rejects.toThrow("journal changed");
+  expect(calls).toEqual([]);
+});
 
 function binding(presetDigest: string) {
   return { id: "binding", projectId: "project", providerInstallationId: "installation",
@@ -96,6 +129,7 @@ test("startup reconciler reads durable state through the real service before shu
     const db = drizzle(pglite, { schema });
     await addSandboxController(db);
     await addQualificationFixtures(db);
+    await addQualificationRuns(db);
     let reads = 0;
     const observedDb = new Proxy(db, { get(target, key) {
       const value = Reflect.get(target, key, target);

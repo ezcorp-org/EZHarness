@@ -26,6 +26,7 @@ import type { HostIncusLostDestroyReplyFault } from "./incus-destroy-reply-fault
 import { inspectRelease, readIncusProviderGeneration, type IncusFeatureServiceDependencies } from "./incus-feature-service";
 import { ProviderConnectionStore, type ProviderConnectionCredentials, type ProviderConnectionScope } from "./provider-connections/store";
 import type { IncusProbeResult, IncusTransportRequest } from "../../extensions/incus-sandbox/transport";
+import { IncusQualificationCheckpointStore } from "./incus-qualification-checkpoint";
 
 export interface IncusQualificationScope {
   installationId: string;
@@ -207,7 +208,8 @@ export class IncusQualificationStore {
 
   /** Evidence from a claimed durable run is verified again against this process's release and backend probe. */
   async recordVerified(scope: IncusQualificationScope,
-    resumedEvidence?: IncusLiveCaseEvidence): Promise<LiveSandboxPresetQualification> {
+    resumedEvidence?: IncusLiveCaseEvidence,
+    claimedRun?: { runId: string; nonce: string }): Promise<LiveSandboxPresetQualification> {
     if (!resumedEvidence && !this.deps.runLiveCases) throw new Error("Live Incus qualification runner is unavailable");
     const selected = await this.current(scope);
     const probe = await this.probe(scope, selected.connection, selected.preset,
@@ -249,7 +251,8 @@ export class IncusQualificationStore {
       connectionId: scope.connectionId, effectiveSettingsDigest: selected.effectiveSettingsDigest,
       now: this.now(),
     });
-    await this.db.execute(sql`INSERT INTO incus_live_qualifications (
+    const persist = async (database: Database) => {
+      await database.execute(sql`INSERT INTO incus_live_qualifications (
       installation_id, release_id, release_digest, connection_id, connection_revision,
       preset_id, preset_digest, effective_settings_digest, profile, image_digest,
       helper_digest, probe_observation, live_observation, qualification, verified_at, valid_until
@@ -267,6 +270,11 @@ export class IncusQualificationStore {
       probe_observation = EXCLUDED.probe_observation, live_observation = EXCLUDED.live_observation,
       qualification = EXCLUDED.qualification,
       verified_at = EXCLUDED.verified_at, valid_until = EXCLUDED.valid_until, updated_at = NOW()`);
+      if (claimedRun) await new IncusQualificationCheckpointStore(this.db).complete({
+        ...claimedRun, scope }, database);
+    };
+    if (claimedRun) await this.db.transaction(persist);
+    else await persist(this.db);
     return qualification;
   }
 
