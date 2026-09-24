@@ -1527,3 +1527,18 @@ Review: The helper now reads nonempty readiness content until it appears or the 
 ### Review
 
 The test conflict uses main's producer-liveness helper and passes the actual holder process in its second caller. The focused suite first failed with `producer.exitCode` on an undefined producer, then passed 7/7 after the caller fix. Full typecheck, lint, gate integrity, and Actionlint pass. The Incus refactor had already passed 46 focused tests and build before this merge. The task journal resolution keeps both branch histories; hosted CI on the merged head is still pending.
+
+## Incus completion continuation — 2026-09-24
+
+- [ ] Apply and verify the reviewed scoped AMD-to-Incus firewall generation with guards.
+- [ ] Pass the isolated app's approved-provider mTLS probe.
+- [ ] Review/apply the exact capacity plan; run and clean up an EZHarness-owned feature guest.
+- [ ] Prove host-management denial, guest isolation, reconnect, and failure recovery on the live server.
+- [ ] Wire independent supervisor receipt verification and durable qualification continuation.
+- [ ] Implement and verify post-effect lost-destroy-reply recovery without duplicate effects.
+- [ ] Merge current main into PR #303, fix conflicts, run local and hosted gates on its final head.
+- [ ] Update the support matrix and release status from measured evidence only.
+
+Plan review: `tasks/incus-completion/PLAN.md` fixes ownership and interfaces before the Sol agents work. `GATES.md` and the leaf gate files record proof. The new ingress generation is already built and pinned in the NixOS review packet; the current server generation still blocks AMD TCP 8443. The user asked to continue all work, so the root agent may use the reviewed guarded activation plan after fresh preflight. Server writes stay with the root agent.
+
+Review: pending.
