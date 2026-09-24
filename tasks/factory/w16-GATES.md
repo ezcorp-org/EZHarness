@@ -18,7 +18,10 @@ Operator guide: `docs/factory-deployment.md`.
    identity files and verifies each credential's scope with HEAD requests only.
    It never starts, stops, or reconfigures a shared store. The product's own
    readiness probe writes one key under its tenant's `ordinary/readiness/`
-   prefix; that is the product's behaviour, not the provisioner's.
+   prefix, and W15's checkpoint barrier writes its checkpoint records under the
+   tenant's `archive/` prefix. That is the product's behaviour, not the
+   provisioner's. The fleet cleanup deletes no archive object: the archive is
+   the store that keeps evidence.
 3. **Seeded store identities cannot be revoked here.** Revocation needs the
    store's admin authority, which the provisioner does not hold on a shared
    store. Teardown destroys the private copies and records the named residue
@@ -26,12 +29,15 @@ Operator guide: `docs/factory-deployment.md`.
 4. **The gateway is a real process.** `src/factory/gateway-process.ts`
    composes the execution gateway over the installation's database.
 5. **Kubernetes is manifests plus a kind smoke, labelled as such.**
-6. **W15's namespace settings.** `factoryTemporalNamespaceArguments` is W15's
-   (not yet in `integ/w00`); `temporal-namespace.ts` carries a stand-in with
-   its name, signature, and output, and translates the arguments into the
-   RegisterNamespace request. At W15's merge the stand-in becomes a re-export.
-   The deployed restore proof is W15's after this lands; the host-minted pool
-   token already carries `pool:restore:<tenant>`.
+6. **W15's namespace settings.** `temporal-namespace.ts` re-exports W15's
+   `factoryTemporalNamespaceArguments` (`src/factory/temporal-retention.ts`)
+   and translates its arguments into the RegisterNamespace request. The W16
+   stand-in is gone.
+7. **The Temporal HTTP route reuses the namespace certificate.** The route's
+   client certificate is the installation's existing Temporal client
+   certificate. Its CN is the namespace (`temporal.ts` issues it that way and
+   `verify` checks it), so no new certificate is issued. The harness receives
+   that certificate, its key, and the CA. It never receives the admin token.
 
 ## Files changed outside W16's freeze ownership
 
@@ -147,15 +153,47 @@ Coordinator ruling 2026-09-22: approved for W16; the owner's package inherits it
   `factoryHeldAllocationDevices` (runner/attempt-wire.ts) has no production
   caller. W16 does not build the consumer; W02d takes it after W16 lands.
 
-## Waiting on W15's merge
+## After W15 (merged at 6c8ec29c5)
 
-W15 (round 2, `ef958511b`, not yet in `integ/w00`) makes a startup document
-need three things before effect claims and attempt launches open:
+Every rendered startup document now declares every recovery section:
+`storage.archive`, the checkpoint pool client (its host-minted token carries
+`pool:restore:<tenant>`), retention (`storage.ordinary`), `temporalHttp`, and
+`keyManagement { kind: "operator-master-key" }`. The declaration test is in
+`src/factory/provisioning/deployment.test.ts`.
 
-1. `storage.archive` credentials: already declared by every rendered startup document.
-2. A pool serving the checkpoint-barrier slot routes: the fleet host's pool runs
-   the image's pool code, so it serves them once W15's code is in the image.
-3. `temporalHttp` (endpoint and optional TLS): the local platform exposes
-   Temporal's gRPC API only, through the mTLS/JWT gateway. Declaring it needs a
-   namespace-scoped route to Temporal's HTTP API through that gateway. The
-   current startup parser refuses the field, so it lands with W15's merge.
+`temporalHttp` is a read-only route at the Temporal gateway (ruling, six
+requirements):
+
+| Requirement | Where it is met | Proof |
+| --- | --- | --- |
+| 1. Reuse the namespace certificate | Assumption 7 | `deployment.test.ts` delivery |
+| 2. Path namespace must equal the certificate CN, before injection | `authorizeRead` in `scripts/factory-temporal-authorizer.mjs` | unit, route proof, live |
+| 3. Only W15's two reads; anything else is a typed 403 | `READS` and the method check in the authorizer | unit, route proof, live |
+| 4. Token `read:<namespace>`, file 0600, never in a document, log, or receipt | `temporal.ts` read token; the authorizer logs only the decision | `temporal.test.ts`, `deployment.test.ts` |
+| 5. Rotation in the same step; old token refused | `rotate` replaces the token and revokes its ID | unit, route proof, live |
+| 6. Live in Compose, two or more installations | `prove-selfhosted.ts`, `prove-lifecycle.ts` | final hold |
+
+Each unit guard was shown red with its check removed
+(`logs/temporal-http-unit-red.log`). The offline route proof
+(`repro/temporal-http-route.ts`, `temporal-http-route.json`) runs the real
+Envoy binary with the gateway's own config, the real authorizer, and W15's own
+`FactoryTemporalHttpPositions`. It passed 11 of 11 checks. The red run
+(`repro/temporal-http-route-red.sh`, `logs/temporal-http-route-red.log`)
+removes one guard at a time: the namespace check, the method check, the path
+allow-list, the caller-token check, the token-ID revocation, the certificate
+revocation, and the listener's required client certificate. Each removal turns
+its own named check red, and the unmodified run passes. The live proofs use
+the same checks (`repro/temporal-http-checks.ts`).
+
+Follow-up `orchestrator-key-management` (W15b): the orchestrator's `codec`
+section does not yet accept `keyManagement`, because W15b has not landed. The
+installation startup document declares it now. The orchestrator document
+declares it when the merged orchestrator parser accepts the field.
+
+## Test fixtures fixed this round
+
+- `src/factory/pool/process.test.ts`: each fixture generated five RSA keys, so
+  the failure-report test (fourteen fixtures) passed its five-second budget
+  under load. One certificate set now serves the file. Loop at 12-way load: old
+  red 12 of 20 alone and 141 of 240 loaded; new red 0 of 20 and 0 of 240
+  (`logs/supervisor-flake-pool-fixture-*.log`).

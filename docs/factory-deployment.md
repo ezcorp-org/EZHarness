@@ -147,7 +147,7 @@ owner, attempts, resources (references only), and failure on the ledger.
 | --- | --- | --- |
 | 1 database | `provisioner/postgres` | The product database with its own login role, a generated password, and the `vector` and `pg_trgm` extensions, created by the administrator |
 | 2 storage | `provisioner/object-store` | Product and archive credentials, each proven scoped to its prefix |
-| 3 temporal | `provisioner/temporal` | Namespace (30-day retention, history and visibility archival, W15's settings) and its client certificate and token |
+| 3 temporal | `provisioner/temporal` | Namespace (30-day retention, history and visibility archival, W15's settings), its client certificate and token, and the gateway's read token for the namespace |
 | 4 secrets | `provisioner/secrets` | Application secrets and the wrapped data key |
 | 5 deployment | `provisioner/deployer` | Harness, orchestrator, and gateway, admitted to the fleet host's pool and supervisor, all ready |
 | 6 ingress | `provisioner/ingress` | Hostname bound to the installation ID; route held |
@@ -210,7 +210,7 @@ Two credentials expire and must be rotated before their deadline:
 | Credential | Lifetime | Command | Where the deadline is |
 | --- | --- | --- | --- |
 | Service tokens and mesh leaf certificates | 30 days | `rotate <tenant> deployment` | `meshTokensExpireAtMs` on step 5 in `status <tenant>` |
-| Temporal namespace token | 30 days | `rotate <tenant> temporal` | the token's `exp`; rotate with the mesh |
+| Temporal namespace token | 30 days | `rotate <tenant> temporal` | the token's `exp`; rotate with the mesh. The same step replaces the certificate and the read token and revokes the old ones |
 
 Only a complete step rotates. A rotation that fails is recorded as
 `step.rotation_failed` and leaves the previous credential in force. A database
@@ -268,8 +268,8 @@ its approver is still an active administrator. The operator can name an
 approval but cannot create one.
 
 Teardown holds the route, walks the steps backwards, withdraws every login,
-revokes the namespace identity at the Temporal gateway, and destroys the
-delivered secrets. It keeps the databases and the release archive.
+revokes the namespace identity and its read token at the Temporal gateway, and
+destroys the delivered secrets. It keeps the databases and the release archive.
 
 Teardown moves the key wrap into the operator's escrow before it deletes the
 installation's copy. Purge requires a valid approval and no active or uncertain
@@ -306,17 +306,31 @@ profile without evidence for each of the eight C05 criteria. The local AMD
 profile is `trusted-local` and is unmet on every production row. See
 `docs/factory-local-gpu.md` for the measured verdicts.
 
+## The Temporal read route
+
+The checkpoint barrier in each harness reads its namespace's workflow
+positions through the Temporal gateway's read-only HTTP route
+(`portBase + 1004`). The harness presents its namespace client certificate
+and no token. The gateway allows two reads only: describe the namespace, and
+list its workflows by query. It refuses, with a 403 that names the reason, any
+other method or path, a path that names another namespace, a caller's own
+token, and a revoked certificate. For an allowed read it injects the
+namespace's `read:<namespace>` token. The provisioner keeps one token file per
+namespace (mode 0600) in the platform's `temporal/http-tokens` directory. The
+harness never receives it.
+
 ## Ports on this host
 
 | Port | Use |
 | --- | --- |
 | `portBase + 10*n` to `+2` | Tenant `n`: harness, private service, gateway, all on 127.0.0.1 |
-| `portBase + 1001` | Temporal gateway |
+| `portBase + 1001` | Temporal gateway (gRPC, mTLS and token) |
+| `portBase + 1004` | Temporal gateway, read-only HTTP route for the checkpoint barrier |
 | `portBase + 1002`, `+1003` | The fleet host's shared pool and supervisor |
 | `portBase + 1005` | Ingress (HTTPS) |
 
 Each service runs in its own `pasta` network namespace and can reach only the
 host loopback ports it forwards. The shared pool and each gateway reach only
 the database. Each harness reaches its database, its stores, its gateway, and
-the shared pool and supervisor. The orchestrator reaches only Temporal and its own harness's private
-service.
+the shared pool and supervisor, and the Temporal gateway's read-only HTTP route. The orchestrator
+reaches only Temporal and its own harness's private service.
