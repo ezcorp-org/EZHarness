@@ -967,3 +967,13 @@ Review: Hosted full mock browser lane failed 16 journeys; browser route coverage
 - [ ] Commit the follow-up fix and report the result.
 
 Review: The hosted full mock lane reported two strict selector collisions in `mobile-tab-bar.spec.ts`: both the Chat nav link and All chats link matched the broad `Chat` locator. Downstream browser route coverage and per-file coverage gates failed because their browser producer failed. The two affected Chromium journeys failed before the fix and passed 2/2 after it. The full lane is pending.
+
+### Hosted patch coverage follow-up at `444e4b488`
+
+- [x] Reproduce hosted patch-coverage misses locally at the exact head.
+- [x] Add a list/store integration test for scoped and unscoped refresh events.
+- [x] Add a layout integration test for the mobile Chat section path.
+- [x] Run focused tests, local coverage, typecheck, and lint.
+- [ ] Commit the coverage repair and report the result.
+
+Review: Hosted global and new-file coverage passed. Patch coverage missed `ConversationList.svelte:237`, `stores.svelte.ts:372`, and `(app)/+layout.svelte:609`. The new integration tests pass 20/20. Targeted V8 coverage now records 3, 3, and 1 hit on those lines. Full typecheck and lint pass. The exact-head browser receipt and full coverage gate remain to run after the other agent's shared test slot clears. No gate configuration changed.
