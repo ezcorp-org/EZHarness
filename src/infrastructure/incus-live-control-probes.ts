@@ -246,6 +246,7 @@ export class IncusLiveControlProbes {
       return unavailable("unqualified preset allocated a feature binding");
     }
     if (!binding || await this.admission.getReservation(binding.id)) unavailable("control binding has a reservation");
+    if ((await this.inventory(context)).includes(binding.id)) unavailable("control binding has a backend instance");
     const resources = { memoryBytes: preset.limits.memoryBytes, cpuMillicores: preset.limits.cpuMillis,
       pids: preset.limits.pids, diskBytes: preset.limits.diskBytes, executionSlots: 1 };
     if (kind === "missingControl") {

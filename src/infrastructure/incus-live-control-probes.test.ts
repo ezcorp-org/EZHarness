@@ -144,6 +144,12 @@ test("canary and backend changes are visible, and a missing quota prerequisite f
   await expect(probes.attempt("missingControl", scope, preset)).rejects.toThrow("prerequisites changed");
 });
 
+test("a control binding with an existing backend instance cannot prove denial", async () => {
+  const { preset, scope, cases, probes, setBackendIds } = await fixture();
+  setBackendIds(["existing-sandbox", cases.drift.bindingId!]);
+  await expect(probes.attempt("drift", scope, preset)).rejects.toThrow("control binding has a backend instance");
+});
+
 test("configuration requires separate AMD files and a present control project", async () => {
   const { db, preset, scope, cases, probes } = await fixture();
   expect(() => new IncusLiveControlProbes({ cases: { ...cases,
@@ -211,5 +217,5 @@ test("default probe delegates inventory and backend drift to protected readback 
   });
   expect((await probes.snapshot("drift", scope)).backendIds).toEqual(["scoped-instance"]);
   expect(await probes.attempt("drift", scope, preset)).toBe("DENIED_DRIFT");
-  expect(calls).toEqual(["inventory", "readback"]);
+  expect(calls).toEqual(["inventory", "inventory", "readback"]);
 });
