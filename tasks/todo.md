@@ -3597,6 +3597,13 @@ captures found four more defects, all fixed: the 390 px tab rail, a lone run car
 casing, and an unbounded evidence wait. Mutation is 95.60%; no W14 line is uncovered. Waiting: W15
 (restore, L4, M3), W02c (fence and quarantine commit), W09c (web inbox composition), W01g (a real
 candidate), W16 (two HTTP installations).
+
+Review update (W14, round 3 part 1, head `754d7b29b`): the validator's four findings are fixed. The graph
+canvas follows the app theme and opens at a readable zoom; the real lane checks theme and label size at 1440
+and 390 px in light and dark, and the mock tier proves the check fails on the old canvas. Waiting items are
+unchecked. `run-format.ts` mutants now die by assertion (91.86% to 97.98%, 60 timeouts to 0). The selected
+run scrolls into the narrow strip. Real lane 11 of 11 and sweep green at the clean head. The restore port,
+W02c, W09c, W01g, and W16 items wait for their integ/w00 hashes.
 ## W18a-2 — second complexity pass and the three coverage-key gaps (branch `wp/w18a2-quality`)
 
 Brief: `/tmp/factory-platform-evidence/w00/briefs/w18a2.md`. Gates: `tasks/factory/w18a2-GATES.md`.

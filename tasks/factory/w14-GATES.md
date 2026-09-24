@@ -141,6 +141,46 @@ text with the bytes a ticket downloads; (3) the 390 px tab rail shows all four t
 and the restore findings ellipsis is fixed with the restore work after W15; (4) every receipt above
 is at a clean committed head.
 
+## Round 3, items that need no merge (validator ACCEPT-WITH-FIXES on round 2)
+
+Code head `754d7b29b`. Real lane `journeys-13`: 11 of 11 at a clean head. Sweep `sweep-10` at the same
+head: every W14 check passes; patch coverage has 0 uncovered W14 lines (the 4 W18a-2 files remain).
+
+- **F1, the graph canvas ignored the app theme** (`281ba1dc6`, `754d7b29b`). `FactoryGraph.svelte` used
+  `colorMode="system"`. The canvas now follows the app's `.dark` class through
+  `web/src/lib/factory/document-theme.ts`, draws with the app's tokens, and its first view never zooms
+  below 0.8, so labels render at 11 px or more. Proof: the real-lane journey "long labels and a large map
+  read cleanly at 1440 and 390 px, in light and dark" now runs all four pairs and fails on
+  `factoryGraphProblems` (canvas theme, controls, minimap, and grid brightness, label size, read from the
+  rendered page). The mock tier runs the same check with the system scheme opposite the app theme; against
+  the old graph file all four fail (canvas theme, controls, minimap, grid, labels at 7.1 px), and with the
+  fix all four pass (`logs/r3-theme-*.log`).
+- **F2, todo checkboxes** (`62e2a3305`). The purge, console-UI, and two-installation items are unchecked
+  and name what they wait on (items 13, 1 and 2, and 9).
+- **F3, run-format mutants died only by timeout** (`c0f087368`). `run-format.unit.test.ts` pins every
+  label, plural, boundary, and grouping exactly. Focused Stryker on `run-format.ts`:
+
+  | Head | Score | Killed | Timeout | Survived |
+  | --- | --- | --- | --- | --- |
+  | Before, `281ba1dc6` | 91.86% | 19 | 60 | 7 |
+  | After, `754d7b29b` | 97.98% | 97 | 0 | 2 |
+
+  The two survivors are equivalent (`<` against `<=` at an edge where both branches return 0). The whole
+  mutation gate at `754d7b29b` is 94.08%; `run-stream.ts` still has 97 of its 316 mutants caught only by
+  timeout (a stream loop that hangs when mutated), so the overall score moves with host load.
+- **F4, the narrow run strip showed a different run from the inspector** (`c0f087368`). The selected card
+  is scrolled into the strip by the least distance (`horizontalRevealOffset`, unit-tested; component test
+  with laid-out positions). Seen in `journeys-13` at 390 px dark.
+
+Cross-owner findings, closed by the coordinator: validator material registration exists at integ/w00
+`873b04759` (my base predated it); a revoked share that cannot be granted again, and the grants panel's
+missing display names, go to W04b. W14 consumes the W04b API when it lands.
+
+Housekeeping: `podman image prune -f` runs after every lane build; the lane tags no image of its own
+(image lists before and after `journeys-12` are identical). One leftover test database from a failed
+restore proof, `factory_services_product_1790204490942_e8f74f`, remains on the shared PostgreSQL:
+the permission layer refused my drop, and the coordinator surfaced it to the user.
+
 ## Decisions and assumptions
 
 - **The lane needs the Temporal CLI dev server.** The Java test server cannot report task-queue
