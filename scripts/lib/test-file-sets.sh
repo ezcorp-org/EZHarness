@@ -244,6 +244,13 @@ web_host_files() {
     # extension-RBAC grants API route tests (coverage for the two rbac
     # +server.ts files pinned at 100 in coverage-thresholds.json).
     find web/src/routes/api/rbac/__tests__ -name "*.test.ts"
+    # These Incus routes are pinned at 100% and need LCOV from the root host
+    # pool. Their isolated bun:test files also gate pass/fail through P.
+    printf '%s\n' \
+      web/src/routes/api/infrastructure/incus/probe-fixtures/probe-fixtures.test.ts \
+      web/src/routes/api/infrastructure/incus/qualification/qualification.test.ts \
+      web/src/routes/api/infrastructure/incus/capacity/route.test.ts \
+      web/src/routes/api/infrastructure/incus/smoke/smoke.test.ts
     # Scoped web bun:test files. Per-file notes on why each is MEASURED (the
     # C-side rationale) — all of them also GATE, per the header above.
     #   permission-mode-indicator: the github-projects route tests import
