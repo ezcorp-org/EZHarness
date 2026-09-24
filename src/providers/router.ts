@@ -58,6 +58,9 @@ export class ProviderUnavailableError extends Error {
     public readonly failedProvider: string,
     public readonly failedModel: string,
     public readonly suggestion: FallbackSuggestion | null,
+    /** What the failure was (e.g. an upstream rate limit), for the error card.
+     *  See describeProviderFailure in runtime/stream-chat/provider-error-classifier. */
+    public readonly detail: { reason?: "rate_limited"; upstreamProvider?: string } = {},
   ) {
     super(message);
     this.name = "ProviderUnavailableError";

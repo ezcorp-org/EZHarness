@@ -30,6 +30,48 @@ import {
 
 // ── Types ─────────────────────────────────────────────────────────────
 
+
+/**
+ * The placeholder credential for a provider that needs no key — Kilo's
+ * keyless free tier, and local servers registered as custom models. It exists
+ * only because pi-ai refuses an empty `apiKey`; it is not a secret, and it
+ * must never reach the wire as `Authorization: Bearer no-key-needed`.
+ *
+ * That used to be harmless. It is not any more: Kilo's gateway now answers a
+ * free model with HTTP 200 when there is NO Authorization header, and with
+ * 401 INVALID_TOKEN ("Your authentication token is invalid") when the header
+ * carries this placeholder — measured side by side, same model, same minute.
+ * Sending it made every keyless Kilo turn fail.
+ */
+export const KEYLESS_TOKEN = "no-key-needed";
+
+/** pi-ai header value that suppresses a default header (documented: "A null
+ *  value suppresses a provider/API default header with the same name"). */
+type SuppressibleHeaders = Record<string, string | null>;
+
+/**
+ * pi-ai call options for a credential token: the key, and — for the keyless
+ * placeholder — `Authorization: null`, so the SDK sends no bearer at all.
+ * Every direct pi-ai call site spreads this instead of `{ apiKey: cred.token }`;
+ * src/__tests__/keyless-auth-header.test.ts fails if one does not.
+ */
+export function authCallOptions(token: string): { apiKey: string; headers?: SuppressibleHeaders } {
+  return token === KEYLESS_TOKEN ? { apiKey: token, headers: { Authorization: null } } : { apiKey: token };
+}
+
+/**
+ * The same rule applied to a pi-ai Model, for callers whose transport options
+ * cannot carry headers — pi-agent-core's Agent forwards only a fixed config,
+ * but pi-ai merges `model.headers` into every request it makes.
+ */
+export function withKeylessAuth<M extends { headers?: Record<string, string> }>(model: M, token: string): M {
+  if (token !== KEYLESS_TOKEN) return model;
+  // pi-ai types model headers as string-valued; null is the documented
+  // suppression value its clients honour at runtime.
+  const headers = { ...model.headers, Authorization: null } as unknown as Record<string, string>;
+  return { ...model, headers };
+}
+
 export interface ProviderCredential {
   type: "oauth" | "apikey";
   token: string;
@@ -262,7 +304,7 @@ export async function getCredential(
   //    LLM ignores the token, but pi-ai's createClient requires a non-empty
   //    key, so hand back a sentinel. Gated so this never resolves in prod.
   if (provider === MOCK_PROVIDER && isTestSurfaceEnabled()) {
-    return { type: "apikey", token: "no-key-needed" };
+    return { type: "apikey", token: KEYLESS_TOKEN };
   }
 
   // 1. Check conversation-level override
@@ -311,14 +353,16 @@ export async function getCredential(
     // model with no credential at all (HTTP 200) and 401s a paid one with
     // PAID_MODEL_AUTH_REQUIRED.
     //
-    // Handing back the same `no-key-needed` sentinel the local-provider
+    // Handing back the same KEYLESS_TOKEN sentinel the local-provider
     // branch below uses is deliberate: pi-ai's createClient rejects an empty
-    // key, and the gateway ignores an unusable bearer on free models
-    // (measured: HTTP 200 with this exact token). It is NOT what restricts
+    // key. The gateway once ignored an unusable bearer on free models; it no
+    // longer does (401 INVALID_TOKEN), so the sentinel must never be SENT —
+    // every call site applies authCallOptions / withKeylessAuth, which
+    // suppress the Authorization header for it. It is NOT what restricts
     // this deployment to free models — `kilo-catalog.ts` does that by
     // filtering the catalog before routing ever sees a paid id.
     if (hasKeylessFreeTier(provider)) {
-      return { type: "apikey", token: "no-key-needed" };
+      return { type: "apikey", token: KEYLESS_TOKEN };
     }
 
     // Last resort: local providers with baseUrl don't need credentials
@@ -332,7 +376,7 @@ export async function getCredential(
           return r.provider === provider && typeof r.baseUrl === "string";
         })
       ) {
-        return { type: "apikey", token: "no-key-needed" };
+        return { type: "apikey", token: KEYLESS_TOKEN };
       }
     } catch {}
 

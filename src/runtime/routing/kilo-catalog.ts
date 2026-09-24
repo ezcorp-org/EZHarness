@@ -36,6 +36,7 @@
  */
 
 import { type RoutingTier, isRoutingTier } from "../tier-classifier";
+import { KILO_PROVIDER } from "./llm-providers";
 
 /** Gateway root. pi-ai's openai-completions client appends
  *  `/chat/completions`, so this is the path WITHOUT that suffix. */
@@ -123,6 +124,30 @@ export const KILO_AUTO_TIERS: Readonly<Record<string, RoutingTier>> = {
  */
 export function isFreeKiloModelId(id: string): boolean {
   return id === KILO_FREE_AUTO_MODEL || id.endsWith(":free");
+}
+
+/**
+ * Which Kilo model to retry on when a FREE Kilo model is rate-limited, or null.
+ *
+ * A free model behind Kilo is served by another company on a shared free-tier
+ * account, and that account gets rate-limited (measured: `poolside/laguna-s-
+ * 2.1:free` answered 5 of 6 requests, the sixth a 429 "Rate limit exceeded",
+ * limit_source "upstream_provider_account"). That is a limit on ONE model, not
+ * on Kilo — `kilo-auto/free`, Kilo's own router across free models, answered
+ * 6 of 6 in the same run. So the right retry is another free model on the same
+ * provider, before anyone concludes the provider is down.
+ *
+ * Deliberately narrow:
+ *  - free → free only. A paid model is never swapped for a free one: that
+ *    would silently change the quality of an answer someone chose to pay for.
+ *  - rate limits only. A bad request or a content filter would fail the same
+ *    way on the next model.
+ *  - never from kilo-auto/free itself, which already spans the free models.
+ */
+export function kiloModelFallbackFor(provider: string, model: string, reason: string | undefined): string | null {
+  if (provider !== KILO_PROVIDER || reason !== "rate_limited") return null;
+  if (model === KILO_FREE_AUTO_MODEL || !isFreeKiloModelId(model)) return null;
+  return KILO_FREE_AUTO_MODEL;
 }
 
 // ── Wire payload parsing ─────────────────────────────────────────────
