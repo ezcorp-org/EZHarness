@@ -16,6 +16,9 @@ import { callRetiredIncusCleanup } from "./incus-retired-cleanup";
 const certificates = makeTestCertificates();
 const read = certificates.read;
 const clients: PGlite[] = [];
+// Each test creates and migrates a fresh PGlite database. Parallel Incus tests
+// can make setup exceed Bun's default five seconds without a product failure.
+const DB_TEST_TIMEOUT_MS = 30_000;
 afterEach(async () => { await Promise.all(clients.splice(0).map(client => client.close())); });
 
 async function fixture() {
@@ -95,7 +98,7 @@ test("retired host cleanup reaches only the exact pinned destroy transport", asy
   await expect(callRetiredIncusCleanup(db, { ...binding, connectionId: "other" }, "lifecycle.destroy", input, brokerFactory)).rejects.toThrow();
   await expect(callRetiredIncusCleanup(db, { ...binding, providerReleaseId: "other" }, "lifecycle.destroy", input, brokerFactory)).rejects.toThrow();
   expect(calls).toHaveLength(1);
-});
+}, DB_TEST_TIMEOUT_MS);
 
 test("a lost retired destroy reply stays reconcilable and stale journals cannot dispatch", async () => {
   const { db, binding, brokerFactory, calls, setFailure } = await fixture();
@@ -113,7 +116,7 @@ test("a lost retired destroy reply stays reconcilable and stale journals cannot 
     ok: true, operation: { state: "outcome_unknown", operationId: "provider-destroy" },
   });
   expect(calls).toEqual(["instance.destroy", "operation.inspect"]);
-});
+}, DB_TEST_TIMEOUT_MS);
 
 test("retired inspection, changed connection, and denied transport fail closed", async () => {
   const { db, binding, brokerFactory, calls, setFailure } = await fixture();
@@ -127,7 +130,7 @@ test("retired inspection, changed connection, and denied transport fail closed",
   await expect(callRetiredIncusCleanup(db, binding, "lifecycle.destroy", input, brokerFactory))
     .rejects.toThrow("transport failed");
   expect(calls).toEqual(["instance.destroy"]);
-});
+}, DB_TEST_TIMEOUT_MS);
 
 test("revoked credentials and reactivated release cannot reach retired transport", async () => {
   const { client, db, binding, brokerFactory, calls } = await fixture();
@@ -143,4 +146,4 @@ test("revoked credentials and reactivated release cannot reach retired transport
   await expect(callRetiredIncusCleanup(db, binding, "lifecycle.destroy", input, brokerFactory))
     .rejects.toThrow("Retired provider release is unavailable");
   expect(calls).toEqual([]);
-});
+}, DB_TEST_TIMEOUT_MS);

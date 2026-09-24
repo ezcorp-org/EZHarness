@@ -72,6 +72,8 @@ function assertJournalIntent(
 
 /** Host-only method caller. A provider worker cannot supply this authority. */
 export class IncusMethodCaller implements HostAuthorizedIncusMethodCaller {
+  constructor(private readonly retiredCleanup: typeof callRetiredIncusCleanup = callRetiredIncusCleanup) {}
+
   async call(scope: IncusDispatchScope, method: string, input: Record<string, unknown>): Promise<unknown> {
     const lifecycleOperations: SandboxProtocolOperation[] = [
       "lifecycle.create", "lifecycle.setPower", "lifecycle.destroy", "lifecycle.inspectOperation",
@@ -91,7 +93,7 @@ export class IncusMethodCaller implements HostAuthorizedIncusMethodCaller {
       if (receipt.kind !== "DESTROY" || !["lifecycle.destroy", "lifecycle.inspectOperation"].includes(operation)) {
         throw new IncusDispatchAuthorizationError("RELEASE_REVOKED");
       }
-      return callRetiredIncusCleanup(getDb(), current, operation, input);
+      return this.retiredCleanup(getDb(), current, operation, input);
     }
     if (snapshot.installation.generation < 1) {
       throw new IncusDispatchAuthorizationError("RELEASE_CHANGED");

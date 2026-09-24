@@ -25,12 +25,6 @@ mock.module("../extensions/release-process", () => ({
     async whenCallsSettled() { settled = true; }
   },
 }));
-mock.module("./incus-retired-cleanup", () => ({
-  callRetiredIncusCleanup: async (_db: unknown, _binding: unknown, operation: string) => {
-    retiredCalls.push(operation);
-    return { ok: true, retired: true };
-  },
-}));
 const { IncusMethodCaller } = await import("./incus-method-caller");
 
 const scope: IncusDispatchScope = {
@@ -42,6 +36,9 @@ const common = { providerId: "incus", sandboxId: "binding", connectionId: "conne
 const create = { ...common, requestId: "operation", idempotencyKey: "operation", profile: "profile",
   presetId: "preset", presetDigest: "preset-digest", effectiveSettingsDigest: "settings-digest" };
 const databases: PGlite[] = [];
+// Each case starts a fresh in-memory PostgreSQL engine and schema. Under a
+// parallel Incus suite this can take longer than Bun's 5-second default.
+const DB_TEST_TIMEOUT_MS = 30_000;
 async function fixture(kind: "CREATE" | "START" | "STOP" | "DESTROY" = "CREATE") {
   calls.length = 0;
   retiredCalls.length = 0;
@@ -64,7 +61,10 @@ async function fixture(kind: "CREATE" | "START" | "STOP" | "DESTROY" = "CREATE")
     requestPayload: kind === "CREATE" ? { profile: "profile", presetId: "preset", presetDigest: "preset-digest",
       effectiveSettingsDigest: "settings-digest" } : { expectedGeneration: 1 }, state: "DISPATCHING",
     providerOperationId: "provider-operation" });
-  return new IncusMethodCaller();
+  return new IncusMethodCaller(async (_db, _binding, operation) => {
+    retiredCalls.push(operation);
+    return { ok: true, retired: true };
+  });
 }
 afterEach(async () => { await Promise.all(databases.splice(0).map(client => client.close())); });
 
@@ -73,7 +73,7 @@ test("a durable create receipt reaches the active release and settles its call",
   expect(await caller.call(scope, "incus/lifecycle/create", create)).toEqual({ ok: true, operation: "lifecycle.create" });
   expect(calls).toEqual([{ operation: "lifecycle.create", input: create }]);
   expect(settled).toBe(true);
-});
+}, DB_TEST_TIMEOUT_MS);
 
 test("method caller denies unapproved methods and forged scope before any effect", async () => {
   const caller = await fixture();
@@ -89,7 +89,7 @@ test("method caller denies unapproved methods and forged scope before any effect
       .rejects.toMatchObject({ code: "SCOPE_INVALID" });
   }
   expect(calls).toHaveLength(0);
-});
+}, DB_TEST_TIMEOUT_MS);
 
 test("current release and journal state gate mutations", async () => {
   const caller = await fixture("START");
@@ -106,7 +106,7 @@ test("current release and journal state gate mutations", async () => {
   await expect(caller.call(scope, "incus/lifecycle/setPower", power))
     .rejects.toMatchObject({ code: "RELEASE_REVOKED" });
   expect(calls).toHaveLength(1);
-});
+}, DB_TEST_TIMEOUT_MS);
 
 test("operation readback uses its durable provider id after the binding advances", async () => {
   const caller = await fixture();
@@ -121,7 +121,7 @@ test("operation readback uses its durable provider id after the binding advances
   await expect(caller.call(scope, "incus/lifecycle/inspectOperation", inspect))
     .rejects.toMatchObject({ code: "RELEASE_CHANGED" });
   expect(calls).toHaveLength(1);
-});
+}, DB_TEST_TIMEOUT_MS);
 
 test("operation ID, journal state and generation mismatch deny readback or mutation", async () => {
   const caller = await fixture("STOP");
@@ -137,7 +137,7 @@ test("operation ID, journal state and generation mismatch deny readback or mutat
   await expect(caller.call(scope, "incus/lifecycle/inspectOperation", { ...common, operationId: "provider-operation" }))
     .rejects.toMatchObject({ code: "SCOPE_INVALID" });
   expect(calls).toHaveLength(0);
-});
+}, DB_TEST_TIMEOUT_MS);
 
 test("feature service default inspection closes its release process", async () => {
   await fixture();
@@ -149,7 +149,7 @@ test("feature service default inspection closes its release process", async () =
     .toEqual({ ok: true, operation: "lifecycle.inspect" });
   expect(calls).toEqual([{ operation: "lifecycle.inspect", input: common }]);
   expect(settled).toBe(true);
-});
+}, DB_TEST_TIMEOUT_MS);
 
 
 test("retired destroy uses host cleanup with the durable destroy receipt", async () => {
@@ -160,4 +160,4 @@ test("retired destroy uses host cleanup with the durable destroy receipt", async
     .toEqual({ ok: true, retired: true });
   expect(retiredCalls).toEqual(["lifecycle.destroy"]);
   expect(calls).toHaveLength(0);
-});
+}, DB_TEST_TIMEOUT_MS);
