@@ -155,6 +155,8 @@ test("the new process claims an exited writer and authorizes only its exact live
     .rejects.toThrow("run authority is unavailable");
   await reopened.exec("UPDATE projects SET purpose = 'user' WHERE id = 'project'");
   await expect(store.authorizeOwnedRun(authority)).rejects.toThrow("operator fixture changed");
+  await store.fail(runId);
+  expect((await store.get(runId))?.state).toBe("FAILED");
   await reopened.close();
 }, 90_000);
 
@@ -220,6 +222,9 @@ test("startup selects one unexpired handoff, fails expired work, and rejects amb
       last_operation_id, $2, deadline_at, before_observation, before_digest, old_process_identity
     FROM incus_qualification_runs WHERE state = 'AWAITING_RESTART' LIMIT 1`, [second, `nonce-${randomUUID()}`]);
   await expect(store.pending()).rejects.toThrow("Multiple Incus restart checkpoints");
+  await store.fail(second);
+  expect((await store.get(second))?.state).toBe("FAILED");
+  expect((await store.pending())?.runId).not.toBe(second);
   await client.close();
 });
 

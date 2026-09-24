@@ -1,9 +1,9 @@
+import { randomUUID } from "node:crypto";
 import { json } from "@sveltejs/kit";
 import { requireAdminSession } from "$server/auth/middleware";
-import { IncusHostLiveWitness, incusHostLiveWitnessReady } from "$server/infrastructure/incus-host-live-witness";
-import { createIncusLiveCaseRunner } from "$server/infrastructure/incus-live-cases";
-import { IncusLiveControlProbes } from "$server/infrastructure/incus-live-control-probes";
-import { IncusLiveProbeFixtureService } from "$server/infrastructure/incus-live-probe-fixtures";
+import { incusHostLiveWitnessReady } from "$server/infrastructure/incus-host-live-witness";
+import { beginDurableIncusLiveCases } from "$server/infrastructure/incus-live-cases";
+import { createIncusQualificationWitness } from "$server/infrastructure/incus-startup";
 import { IncusQualificationFixtureService, IncusQualificationStore,
   type IncusQualificationScope } from "$server/infrastructure/incus-qualification";
 import type { RequestHandler } from "./$types";
@@ -51,19 +51,13 @@ export const POST: RequestHandler = async ({ locals, request }) => {
         return json({ code: "qualification_unavailable",
           message: "The host live qualification witness is incomplete." }, { status: 503 });
       }
-      const rootDirectory = process.env.EZCORP_INCUS_CONTROL_PROBE_ROOT;
-      if (!rootDirectory) throw new Error("Incus control probe root is unavailable");
-      const config = await new IncusLiveProbeFixtureService({ rootDirectory })
-        .readyConfig(input.scope, input.operationId);
-      const witness = new IncusHostLiveWitness({ controlProbe: new IncusLiveControlProbes(config) });
-      const runLiveCases = createIncusLiveCaseRunner({ witness,
-        composeFixtureImageRef: process.env.EZCORP_INCUS_COMPOSE_FIXTURE_IMAGE_REF });
-      const qualification = await new IncusQualificationStore({ runLiveCases }).recordVerified(input.scope);
-      return json({ qualification: { providerId: qualification.providerId,
-        connectionId: qualification.connectionId, presetId: qualification.presetId,
-        releaseDigest: qualification.releaseDigest, verifiedAt: qualification.verifiedAt,
-        validUntil: qualification.validUntil,
-        cases: qualification.cases.map(item => ({ caseId: item.caseId, status: item.status })) } });
+      const selected = await new IncusQualificationStore().authorizeFixture(input.scope);
+      const witness = await createIncusQualificationWitness(input.scope, input.operationId);
+      const run = await beginDurableIncusLiveCases({ witness,
+        composeFixtureImageRef: process.env.EZCORP_INCUS_COMPOSE_FIXTURE_IMAGE_REF },
+      input.scope, selected.preset, { runId: input.operationId, nonce: randomUUID(),
+        deadlineMs: Date.now() + 110_000 });
+      return json({ run }, { status: 202 });
     }
     const service = new IncusQualificationFixtureService();
     if (input.action === "status") return json(await service.status(input.scope, input.operationId));

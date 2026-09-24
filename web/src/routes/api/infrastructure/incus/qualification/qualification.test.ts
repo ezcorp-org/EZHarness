@@ -3,7 +3,7 @@ import { afterEach, expect, mock, test } from "bun:test";
 const calls: string[] = [];
 let fail = false;
 let witnessReady = false;
-let verifiedStoreResult = false;
+let beginResult = false;
 let fixtureReady = true;
 const originalRoot = process.env.EZCORP_INCUS_CONTROL_PROBE_ROOT;
 afterEach(() => {
@@ -12,52 +12,31 @@ afterEach(() => {
 });
 mock.module("$server/infrastructure/incus-host-live-witness", () => ({
   incusHostLiveWitnessReady: () => witnessReady,
-  IncusHostLiveWitness: class {
-    constructor(options: { controlProbe: unknown }) {
-      calls.push(`witness.construct:${options.controlProbe instanceof ControlProbe}`);
-    }
-  },
 }));
-class ControlProbe {
-  constructor(config: { cases: Record<string, unknown> }) {
-    calls.push(`control.construct:${Object.keys(config.cases).length}`);
-  }
-}
-mock.module("$server/infrastructure/incus-live-control-probes", () => ({ IncusLiveControlProbes: ControlProbe }));
-mock.module("$server/infrastructure/incus-live-probe-fixtures", () => ({
-  IncusLiveProbeFixtureService: class {
-    constructor(options: { rootDirectory: string }) { calls.push(`probe-fixture.construct:${options.rootDirectory}`); }
-    async readyConfig(input: { connectionId: string }, operationId: string) {
-      calls.push(`probe-fixture.ready:${input.connectionId}:${operationId}`);
-      if (!fixtureReady) throw new Error("fixture missing or stale");
-      return { cases: { unsupported: {}, missingControl: {}, drift: {}, unqualified: {} } };
-    }
+mock.module("$server/infrastructure/incus-startup", () => ({
+  createIncusQualificationWitness: async (input: { connectionId: string }, operationId: string) => {
+    calls.push(`witness.create:${input.connectionId}:${operationId}`);
+    if (!process.env.EZCORP_INCUS_CONTROL_PROBE_ROOT || !fixtureReady) throw new Error("control unavailable");
+    return { name: "operator-witness" };
   },
 }));
 mock.module("$server/infrastructure/incus-live-cases", () => ({
-  createIncusLiveCaseRunner: (options: { witness: unknown; composeFixtureImageRef?: string }) => {
-    calls.push(`runner.construct:${Boolean(options.witness)}:${options.composeFixtureImageRef ?? "missing"}`);
-    return async () => {
-      calls.push("runner.execute");
-      if (verifiedStoreResult) return { cases: [{ caseId: "SP01", status: "passed" }] };
-      throw new Error("mock runner must not certify a live case");
-    };
+  beginDurableIncusLiveCases: async (options: { witness: unknown; composeFixtureImageRef?: string },
+    _scope: unknown, _preset: unknown, run: { runId: string; nonce: string; deadlineMs: number }) => {
+    calls.push(`runner.begin:${Boolean(options.witness)}:${options.composeFixtureImageRef ?? "missing"}:${run.runId}`);
+    expect(run.nonce).toMatch(/^[a-f0-9-]{36}$/);
+    expect(run.deadlineMs).toBeGreaterThan(Date.now());
+    if (beginResult) return { runId: run.runId, state: "AWAITING_RESTART" };
+    throw new Error("mock restart unavailable");
   },
 }));
 const operation = { id: "controller-operation", kind: "CREATE", state: "SUCCEEDED", generation: 1,
   providerOperationId: "provider-operation", errorCode: null, requestPayload: { privateKeyPem: "secret" } };
 mock.module("$server/infrastructure/incus-qualification", () => ({
   IncusQualificationStore: class {
-    constructor(private readonly deps: { runLiveCases: (scope: unknown, preset: unknown) => Promise<unknown> }) {
-      calls.push("store.construct");
-    }
-    async recordVerified(scope: { connectionId: string }) {
-      calls.push(`recordVerified:${scope.connectionId}`);
-      await this.deps.runLiveCases(scope, {});
-      if (verifiedStoreResult) return { providerId: "incus", connectionId: scope.connectionId,
-        presetId: "preset", releaseDigest: "a".repeat(64), verifiedAt: "2026-09-23T00:00:00Z",
-        validUntil: "2026-09-24T00:00:00Z", cases: [{ caseId: "SP01", status: "passed" }] };
-      throw new Error("mock store must not certify a live case");
+    async authorizeFixture(scope: { connectionId: string }) {
+      calls.push(`authorize:${scope.connectionId}`);
+      return { preset: { id: "preset" } };
     }
   },
   IncusQualificationFixtureService: class {
@@ -138,43 +117,40 @@ test("qualify fails closed when the operator root or exact ready fixture is abse
   try {
     delete process.env.EZCORP_INCUS_CONTROL_PROBE_ROOT;
     expect((await POST(event(admin, { ...scope, action: "qualify" }))).status).toBe(409);
-    expect(calls).toEqual([]);
+    expect(calls).toEqual(["authorize:connection", "witness.create:connection:fixture-1"]);
     process.env.EZCORP_INCUS_CONTROL_PROBE_ROOT = "/private/operator";
     fixtureReady = false;
     const response = await POST(event(admin, { ...scope, action: "qualify" }));
     expect(response.status).toBe(409);
-    expect(calls).toEqual(["probe-fixture.construct:/private/operator", "probe-fixture.ready:connection:fixture-1"]);
+    expect(calls).toEqual(["authorize:connection", "witness.create:connection:fixture-1",
+      "authorize:connection", "witness.create:connection:fixture-1"]);
   } finally { witnessReady = false; fixtureReady = true; }
 });
 
-test("qualify wires exact ready controls and the live witness into recordVerified", async () => {
+test("qualify starts a durable run and does not publish a pass from this process", async () => {
   calls.length = 0;
   witnessReady = true;
   process.env.EZCORP_INCUS_CONTROL_PROBE_ROOT = "/private/operator";
   try {
     const response = await POST(event(admin, { ...scope, action: "qualify" }));
     expect(response.status).toBe(409);
-    expect(calls).toEqual(["probe-fixture.construct:/private/operator", "probe-fixture.ready:connection:fixture-1",
-      "control.construct:4", "witness.construct:true", "runner.construct:true:missing",
-      "store.construct", "recordVerified:connection", "runner.execute"]);
+    expect(calls).toEqual(["authorize:connection", "witness.create:connection:fixture-1",
+      "runner.begin:true:missing:fixture-1"]);
   } finally { witnessReady = false; }
 });
 
-test("qualify returns only store-owned verification metadata", async () => {
+test("qualify returns only the durable run identity and pending state", async () => {
   calls.length = 0;
   witnessReady = true;
-  verifiedStoreResult = true;
+  beginResult = true;
   process.env.EZCORP_INCUS_CONTROL_PROBE_ROOT = "/private/operator";
   try {
     const response = await POST(event(admin, { ...scope, action: "qualify" }));
-    expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ qualification: { providerId: "incus", connectionId: "connection",
-      presetId: "preset", releaseDigest: "a".repeat(64), verifiedAt: "2026-09-23T00:00:00Z",
-      validUntil: "2026-09-24T00:00:00Z", cases: [{ caseId: "SP01", status: "passed" }] } });
-    expect(calls).toEqual(["probe-fixture.construct:/private/operator", "probe-fixture.ready:connection:fixture-1",
-      "control.construct:4", "witness.construct:true", "runner.construct:true:missing",
-      "store.construct", "recordVerified:connection", "runner.execute"]);
-  } finally { witnessReady = false; verifiedStoreResult = false; }
+    expect(response.status).toBe(202);
+    expect(await response.json()).toEqual({ run: { runId: "fixture-1", state: "AWAITING_RESTART" } });
+    expect(calls).toEqual(["authorize:connection", "witness.create:connection:fixture-1",
+      "runner.begin:true:missing:fixture-1"]);
+  } finally { witnessReady = false; beginResult = false; }
 });
 
 test("malformed JSON is rejected before fixture or provider activity", async () => {

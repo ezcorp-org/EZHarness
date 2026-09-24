@@ -87,6 +87,7 @@ vi.mock("$server/db/connection", () => ({
 vi.mock("$server/infrastructure/incus-startup", () => ({
 	initializeIncusSandboxWorkspace: vi.fn(),
 	startIncusSandboxReconciler: vi.fn(() => async () => undefined),
+	startIncusQualificationContinuation: vi.fn(() => async () => undefined),
 }));
 vi.mock("$lib/server/shutdown", () => ({
 	installShutdownHandlers: vi.fn(),

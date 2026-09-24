@@ -8,9 +8,59 @@ import { ProviderConnectionStore } from "./provider-connections/store";
 import { IncusWorkspaceCaller } from "./incus-workspace-caller";
 import { IncusFeatureService } from "./incus-feature-service";
 import { IncusQualificationStore } from "./incus-qualification";
+import { IncusQualificationCheckpointStore } from "./incus-qualification-checkpoint";
+import { IncusHostLiveWitness } from "./incus-host-live-witness";
+import { IncusLiveControlProbes } from "./incus-live-control-probes";
+import { IncusLiveProbeFixtureService } from "./incus-live-probe-fixtures";
+import { resumeDurableIncusLiveCases } from "./incus-live-cases";
+import type { IncusQualificationScope } from "./incus-qualification";
 import { logger } from "../logger";
 
 const log = logger.child("incus.reconcile");
+
+export async function createIncusQualificationWitness(scope: IncusQualificationScope,
+  runId: string, db: Database = getDb()): Promise<IncusHostLiveWitness> {
+  const rootDirectory = process.env.EZCORP_INCUS_CONTROL_PROBE_ROOT;
+  if (!rootDirectory) throw new Error("Incus control probe root is unavailable");
+  const config = await new IncusLiveProbeFixtureService({ db, rootDirectory }).readyConfig(scope, runId);
+  return new IncusHostLiveWitness({ db, controlProbe: new IncusLiveControlProbes(config) });
+}
+
+type QualificationContinuationDependencies = {
+  db?: Database;
+  checkpoints?: Pick<IncusQualificationCheckpointStore, "pending" | "fail">;
+  qualifications?: Pick<IncusQualificationStore, "authorizeFixture" | "recordVerified">;
+  createWitness?: typeof createIncusQualificationWitness;
+  resume?: typeof resumeDurableIncusLiveCases;
+};
+
+/** Run only after the replacement process has opened its own database connection. */
+export async function resumePendingIncusQualification(deps: QualificationContinuationDependencies = {}): Promise<void> {
+  const db = deps.db ?? getDb();
+  const checkpoints = deps.checkpoints ?? new IncusQualificationCheckpointStore(db);
+  const pending = await checkpoints.pending();
+  if (!pending) return;
+  try {
+    const qualifications = deps.qualifications ?? new IncusQualificationStore({ db });
+    const selected = await qualifications.authorizeFixture(pending.scope);
+    const witness = await (deps.createWitness ?? createIncusQualificationWitness)(pending.scope, pending.runId, db);
+    const evidence = await (deps.resume ?? resumeDurableIncusLiveCases)({ witness,
+      composeFixtureImageRef: process.env.EZCORP_INCUS_COMPOSE_FIXTURE_IMAGE_REF },
+    pending.scope, selected.preset, { runId: pending.runId, nonce: pending.nonce });
+    await qualifications.recordVerified(pending.scope, evidence);
+  } catch (error) {
+    await checkpoints.fail(pending.runId).catch(failure =>
+      log.warn("Incus qualification failure could not be saved", { error: String(failure) }));
+    throw error;
+  }
+}
+
+/** Keep the database open until an accepted handoff finishes or fails. */
+export function startIncusQualificationContinuation(deps: QualificationContinuationDependencies = {}): () => Promise<void> {
+  const running = resumePendingIncusQualification(deps)
+    .catch(error => log.warn("Incus qualification continuation failed", { error: String(error) }));
+  return async () => { await running; };
+}
 
 type StartupDependencies = {
   backend?: ReturnType<typeof createProviderSandboxWorkspaceBackend>;

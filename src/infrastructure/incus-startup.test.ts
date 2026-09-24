@@ -10,7 +10,8 @@ import type { SandboxWorkspaceTargetResolver } from "../runtime/workspaces/proje
 import type { ActiveExtensionRelease } from "../extensions/release-process";
 import type { ProviderConnectionMetadata } from "./provider-connections/store";
 import type { createProviderSandboxWorkspaceBackend } from "../runtime/workspaces/provider-backend";
-import { initializeIncusSandboxWorkspace, startIncusSandboxReconciler } from "./incus-startup";
+import { initializeIncusSandboxWorkspace, resumePendingIncusQualification,
+  startIncusSandboxReconciler } from "./incus-startup";
 
 let resolver: SandboxWorkspaceTargetResolver | null = null;
 let releaseId = "release";
@@ -90,3 +91,43 @@ test("startup reconciler reads durable state through the real service before shu
     await pglite.close();
   }
 }, 30_000);
+
+test("replacement startup uses one pending checkpoint and persists only resumed evidence", async () => {
+  const calls: string[] = [];
+  const scope = { installationId: "installation", releaseId: "release", connectionId: "connection", presetId: "preset" };
+  const pending = { runId: "run", nonce: "nonce", scope };
+  const witness = { name: "new-process-witness" };
+  const evidence = { cases: [{ caseId: "SP01", status: "passed" }] };
+  const deps = {
+    db: {} as never,
+    checkpoints: { pending: async () => { calls.push("pending"); return pending; },
+      fail: async () => { calls.push("failed"); } },
+    qualifications: {
+      authorizeFixture: async () => { calls.push("authorize"); return { preset: { id: "preset" } }; },
+      recordVerified: async (_scope: unknown, result: unknown) => {
+        calls.push("record"); expect(result).toBe(evidence);
+      },
+    },
+    createWitness: async (_scope: unknown, runId: string) => {
+      calls.push(`witness:${runId}`); return witness;
+    },
+    resume: async (_options: { witness: unknown }, _scope: unknown, _preset: unknown,
+      run: { runId: string; nonce: string }) => {
+      calls.push(`resume:${run.runId}:${run.nonce}`);
+      expect(_options.witness).toBe(witness);
+      return evidence;
+    },
+  };
+  await resumePendingIncusQualification(deps as never);
+  expect(calls).toEqual(["pending", "authorize", "witness:run", "resume:run:nonce", "record"]);
+  calls.length = 0;
+  await expect(resumePendingIncusQualification({ ...deps,
+    resume: async () => { throw new Error("pinned backend changed"); },
+  } as never)).rejects.toThrow("pinned backend changed");
+  expect(calls).toEqual(["pending", "authorize", "witness:run", "failed"]);
+  calls.length = 0;
+  await resumePendingIncusQualification({ ...deps,
+    checkpoints: { ...deps.checkpoints, pending: async () => { calls.push("pending"); return null; } },
+  } as never);
+  expect(calls).toEqual(["pending"]);
+});

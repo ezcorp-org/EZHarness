@@ -1615,3 +1615,11 @@ The server project initially allowed only a remote image host; Incus v6.0.6 reje
 Plan review: The client currently closes the receipt socket after five seconds, while the supervisor may spend ten seconds verifying and five seconds signing. Keep the fast restart acknowledgement bound. Pass the run deadline to the receipt client and cap each supervisor stage by its remaining time.
 
 Review: The delayed Unix receipt test failed at the old five-second client timer and now passes after 5.2 seconds. The receipt client waits at most 40 seconds or until the saved run deadline. The supervisor caps authorization at 10 seconds, snapshot and verification at 30 seconds each, and signing at five seconds, with every stage cut off by the run deadline. A Python test proves an expired run cannot reach signing. Pinned Bun 1.3.14: six focused tests pass; five Python process tests and Python compile pass. Full typecheck, focused Biome, and diff check pass. No live supervisor or Incus endpoint was used.
+
+## Incus startup and API continuation (2026-09-24)
+- [x] Replace one-stack qualification route with durable begin and run-ID response.
+- [x] Dispatch one pending checkpoint after fresh app database startup and persist only resumed evidence.
+- [x] Cover route, startup, and failure behavior; run pinned checks and commit.
+
+### Review
+The route returns a pending run ID after a supervised handoff. New process startup selects one saved run, rebuilds the host witness and current preset, completes live cases, and only then records the qualification. Failed continuation marks the checkpoint FAILED and leaves the fixture cleanup obligation durable. The readiness flag remains false until live server proof. Pinned focused tests, lint, typecheck and build pass.

@@ -257,6 +257,14 @@ export class IncusQualificationCheckpointStore {
     return rows[0] ?? null;
   }
 
+  /** A failed resumed witness must retain its durable cleanup obligation and cannot be retried as a pass. */
+  async fail(runId: string): Promise<void> {
+    if (!identifier.test(runId)) throw new Error("Incus restart checkpoint is unavailable");
+    await this.db.execute(sql`UPDATE incus_qualification_runs
+      SET state = 'FAILED', failure_reason = 'qualification continuation failed'
+      WHERE run_id = ${runId} AND state IN ('AWAITING_RESTART', 'CLAIMED')`);
+  }
+
   /** Used by the private operator control boundary before arming a fault. */
   async authorizeOwnedRun(input: { runId: string; nonce: string; scope: IncusQualificationScope;
     fixtureOperationId: string; bindingId: string; generation: number;
