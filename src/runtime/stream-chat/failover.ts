@@ -44,7 +44,7 @@
 import type { Agent } from "@earendil-works/pi-agent-core";
 import { getCircuitBreaker } from "../../providers/circuit-breaker";
 import { ProviderUnavailableError, type FallbackSuggestion } from "../../providers/router";
-import { classifyProviderError } from "./provider-error-classifier";
+import { classifyProviderError, describeProviderFailure } from "./provider-error-classifier";
 import { logger } from "../../logger";
 import type { SetupToolsResult } from "./setup-tools";
 import type { StreamChatContext } from "./context";
@@ -152,6 +152,16 @@ export interface RunWithFailoverParams {
   ): Promise<FallbackSuggestion | null>;
   /** Resolve a suggested fallback into a full attempt (model object + cred). */
   resolveAttempt(suggestion: FallbackSuggestion): Promise<FailoverAttempt>;
+  /**
+   * Optional MODEL-level fallback on the SAME provider, consulted after a
+   * model has spent its retries and BEFORE the provider is charged a breaker
+   * failure or a cross-provider fallback is sought. For a limit that belongs
+   * to one model (a free model's upstream rate limit), blaming the whole
+   * provider is wrong twice: it tells the user the provider is down, and it
+   * feeds a breaker that then blocks the provider's working models too.
+   * Real impl: routing/kilo-catalog.kiloModelFallbackFor.
+   */
+  suggestModelFallback?(failed: FailoverAttempt, errorMessage: string): FallbackSuggestion | null;
 }
 
 /**
@@ -173,6 +183,9 @@ export async function runWithFailover(params: RunWithFailoverParams): Promise<vo
   // Providers we've already tried (incl. the initial) — prevents a
   // suggestFallback loop (A→B→A) from cycling forever.
   const attempted = new Set<string>([initial.provider]);
+  // Same idea one level down: provider/model pairs already tried, so a
+  // model-level fallback can never loop either.
+  const attemptedModels = new Set<string>([`${initial.provider}/${initial.model}`]);
   let current = initial;
   let lastErrorMessage = "";
 
@@ -254,10 +267,29 @@ export async function runWithFailover(params: RunWithFailoverParams): Promise<vo
       break;
     }
 
+    // The MODEL is exhausted — but the provider may not be. Try another model
+    // on the same provider first, without charging the provider's breaker:
+    // a limit on one model says nothing about the provider's other models.
+    const modelFallback = attempt + 1 < maxAttempts
+      ? params.suggestModelFallback?.(current, lastErrorMessage) ?? null
+      : null;
+    const modelKey = modelFallback ? `${modelFallback.provider}/${modelFallback.model}` : "";
+    if (modelFallback && modelFallback.provider === current.provider && !attemptedModels.has(modelKey)) {
+      attemptedModels.add(modelKey);
+      log.info("model limited before first token — trying another model on the same provider", {
+        provider: current.provider,
+        failedModel: current.model,
+        fallbackModel: modelFallback.model,
+      });
+      current = await params.resolveAttempt(modelFallback);
+      continue;
+    }
+
     // Provider exhausted its same-provider retries (transient), or was skipped
     // straight here (account-limit / failover-only) → feed the breaker (exactly
     // ONE failure per provider per turn) and try a fallback.
     getCircuitBreaker(current.provider, credentialScope).recordFailure();
+    if (attempt + 1 >= maxAttempts) break;
     log.info("provider failure before first token — attempting failover", {
       failedProvider: current.provider,
       failedModel: current.model,
@@ -268,12 +300,24 @@ export async function runWithFailover(params: RunWithFailoverParams): Promise<vo
     if (!suggestion || attempted.has(suggestion.provider)) {
       // Single-provider BYOK, every alternative's breaker open, or a loop
       // back to an already-tried provider → clean, rendered outcome.
-      throw new ProviderUnavailableError(lastErrorMessage, current.provider, current.model, null);
+      throw new ProviderUnavailableError(
+        lastErrorMessage,
+        current.provider,
+        current.model,
+        null,
+        describeProviderFailure(lastErrorMessage),
+      );
     }
     attempted.add(suggestion.provider);
     current = await params.resolveAttempt(suggestion);
   }
 
   // Exhausted the attempt budget with every candidate failing.
-  throw new ProviderUnavailableError(lastErrorMessage, current.provider, current.model, null);
+  throw new ProviderUnavailableError(
+    lastErrorMessage,
+    current.provider,
+    current.model,
+    null,
+    describeProviderFailure(lastErrorMessage),
+  );
 }
