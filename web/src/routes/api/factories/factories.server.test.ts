@@ -395,6 +395,11 @@ describe("factory definition and grant routes", () => {
     }
     definitions.read.mockRejectedValueOnce(new FactoryDefinitionError("factory_definition_invalid", [{ code: "BROKEN", message: "Broken", path: [] }]));
     expect((await item.GET(event("GET", "/api/factories/projects/project-1/definitions/reference.code.v1", { params }))).status).toBe(422);
+    // A compiler diagnostic that names its node is still a named 422, carried in the issue shape.
+    definitions.read.mockRejectedValueOnce(new FactoryDefinitionError("factory_definition_invalid", [{ code: "BINDING_PORT", message: "Node references must start with a declared output port.", path: ["graph", "nodes", 2, "bindings", "answer"], nodeId: "infer" }]));
+    const refused = await item.GET(event("GET", "/api/factories/projects/project-1/definitions/reference.code.v1", { params }));
+    expect(refused.status).toBe(422);
+    expect(await json(refused)).toEqual({ schemaVersion: "factory.api.response.v1", kind: "error", error: { code: "factory_definition_invalid", message: "The factory definition is not publishable.", retryable: false, issues: [{ code: "BINDING_PORT", message: "Node references must start with a declared output port.", path: ["graph", "nodes", 2, "bindings", "answer"] }] } });
     for (const [code, status] of [["factory_grant_conflict", 412], ["factory_grant_not_found", 404], ["factory_forbidden", 403], ["factory_grant_invalid", 400], ["factory_grant_corrupt", 500]] as const) {
       grants.list.mockRejectedValueOnce(new FactoryGrantError(code));
       expect((await grantList.GET(event("GET", "/api/factories/projects/project-1/grants", { params }))).status).toBe(status);

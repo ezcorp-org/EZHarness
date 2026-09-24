@@ -313,9 +313,11 @@ if (CONTROL === "none") {
     expect("B ran with no model pin", b?.ran === true && b?.model === null, b?.model);
     expect("B was refused model_pin_mismatch by the broker", error?.code === "model_pin_mismatch", error);
     expect("nothing was claimed or journaled for B", (b?.operations ?? []).length === 0, b?.operations);
-    const compile = record.compileControl as { valid?: boolean | null; diagnosticCodes?: string[]; publishStatus?: number; draft?: { availability?: string } } | undefined;
+    const compile = record.compileControl as { valid?: boolean | null; diagnosticCodes?: string[]; publishStatus?: number; publishBody?: { error?: { code?: string; issues?: Array<{ code?: string }> } }; draft?: { availability?: string } } | undefined;
     expect("the compiler refused the missing port by name, BINDING_PORT", compile?.valid === false && (compile.diagnosticCodes ?? []).includes("BINDING_PORT"), compile);
-    expect("the invalid draft is unavailable and cannot be published", compile?.draft?.availability === "unavailable" && (compile?.publishStatus ?? 0) >= 400, compile);
+    expect("the invalid draft is unavailable, and publishing it is refused 422 factory_definition_invalid naming BINDING_PORT",
+      compile?.draft?.availability === "unavailable" && compile.publishStatus === 422 && compile.publishBody?.error?.code === "factory_definition_invalid"
+        && (compile.publishBody.error.issues ?? []).some((issue) => issue.code === "BINDING_PORT"), compile);
   } else {
     expect("B was refused provider_unavailable", error?.code === "provider_unavailable", error);
     expect("the refusal carries Ollama's own missing-model message", String(error?.message ?? "").includes(`model '${OLLAMA_MISSING_MODEL}' not found`), error);

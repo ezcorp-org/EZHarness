@@ -298,6 +298,17 @@ export function factoryGuestModelRouteConformance(createFixture: () => Promise<F
     expect(await operationRows(attempt)).toHaveLength(1);
   });
 
+  test("an operation id reused for different content is refused by the journal before any provider call", async () => {
+    const attempt = await admit();
+    const provider = streamDouble(() => text("first"));
+    const call = route(async () => providerOver(provider.broker))(attempt);
+    const ask = (words: string) => ({ schemaVersion: "factory.guest-model-request.v1", operationId: `${runId}:${attempt.authority.nodeInstanceId}:0:0`, operationIndex: 0, model: pin, messages: [{ role: "user", text: words }], maxOutputTokens: 8 }) as unknown as JsonValue;
+    expect(await call(ask("the first question"))).toMatchObject({ status: "completed" });
+    expect(await call(ask("a different question"))).toMatchObject({ status: "refused", refusal: { code: "invalid_request", message: "Factory operation conflicts with its durable journal entry." } });
+    expect(provider.seen).toHaveLength(1);
+    expect(await operationRows(attempt)).toMatchObject([{ state: "completed" }]);
+  });
+
   test("an unknown attempt, another generation, another project and a cancelled attempt are refused by name with nothing claimed", async () => {
     const live = await admit();
     const provider = streamDouble(() => text("never"));

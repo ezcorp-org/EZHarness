@@ -187,7 +187,7 @@ happened.
 
 | Control | How to run it | Correct result |
 | --- | --- | --- |
-| A binding to a port that does not exist | part of the `no-pin` pass | `POST .../definitions/<id>/validate` answers `valid: false` with the diagnostic `BINDING_PORT`; the draft is stored as `unavailable`; publishing it is refused with a 4xx |
+| A binding to a port that does not exist | part of the `no-pin` pass | `POST .../definitions/<id>/validate` answers `valid: false` with the diagnostic `BINDING_PORT`; the draft is stored as `unavailable`; publishing it answers 422 `factory_definition_invalid` with the issue `BINDING_PORT` |
 | `infer` with no model pin | `run.sh pass mock no-pin control-no-pin` | `infer` fails with `model_pin_mismatch`; the journal holds no operation for it; `combine` never runs; the run ends `failed` |
 | A model Ollama does not have | `run.sh pass ollama missing-model control-missing-model` | `infer` fails with `provider_unavailable`, carrying `model 'qwen3:w19a-missing' not found`; the journal holds one failed model operation with that message; `combine` never runs |
 

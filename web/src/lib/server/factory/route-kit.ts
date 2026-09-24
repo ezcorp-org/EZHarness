@@ -252,9 +252,21 @@ export function mappedFactoryError(error: unknown): Response {
   if (!family) throw error;
   const { code, diagnostics } = error as FactoryCodedError;
   const found = family.answers.find(candidate => candidate.codes.has(code));
-  if (found) return factoryErrorResponse(found.status, code, found.message, found.status >= 500, found.diagnostics ? diagnostics as readonly ValidationIssue[] : undefined);
+  if (found) return factoryErrorResponse(found.status, code, found.message, found.status >= 500, found.diagnostics ? issuesOf(diagnostics) : undefined);
   if (family.storage === null) throw error;
   return factoryErrorResponse(500, code, family.storage, true);
+}
+
+/**
+ * A compiler diagnostic in the response's issue shape.
+ *
+ * A diagnostic may name the node it concerns (`nodeId`), and the issue schema
+ * allows exactly `code`, `message` and `path`. Passed through unchanged, a
+ * diagnostic with a node made the error response itself invalid, so a named
+ * 422 became an unnamed 500. The path already locates the node.
+ */
+function issuesOf(diagnostics: unknown): readonly ValidationIssue[] {
+  return (diagnostics as readonly ValidationIssue[]).map(({ code, message, path }) => ({ code, message, path }));
 }
 
 export function factoryErrorResponse(status: number, code: string, message: string, retryable = false, issues?: readonly ValidationIssue[]): Response {
