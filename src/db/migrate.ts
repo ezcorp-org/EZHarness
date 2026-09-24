@@ -3027,6 +3027,10 @@ export async function migrate(db: MigrateDb): Promise<void> {
   await addExtensionRuntimeLocks(db);
   const { up: addExtensionBrowserRequests } = await import("./migrations/add-extension-browser-requests");
   await addExtensionBrowserRequests(db);
+  const { up: addProjectWorkspaceBindings } = await import("./migrations/add-project-workspace-bindings");
+  await addProjectWorkspaceBindings(db);
+  const { up: addSandboxControl } = await import("./migrations/add-sandbox-control");
+  await addSandboxControl(db);
   const { up: addWorkflowDelegationRelease } = await import("./migrations/add-workflow-delegation-release");
   await addWorkflowDelegationRelease(db);
   const { up: addFactoryRecords } = await import("./migrations/add-factory-records");

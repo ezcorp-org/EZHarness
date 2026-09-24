@@ -4,6 +4,7 @@ import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
 import { errorJson } from "$lib/server/http-errors";
 import { awaitRunCompletion } from "$server/runtime/await-run-completion";
+import { disableBunRequestIdleTimeout } from "$lib/server/bun-request-timeout";
 import { resolveRootConversationForOwnership } from "$lib/server/conversation-ownership";
 import type { AuthUser } from "$server/auth/types";
 import type { RequestHandler } from "./$types";
@@ -59,7 +60,7 @@ function maxConcurrentWaits(): number {
   return Number.isFinite(n) && n >= 0 ? n : 200;
 }
 
-export const GET: RequestHandler = async ({ params, url, locals, request }) => {
+export const GET: RequestHandler = async ({ params, url, locals, request, platform }) => {
   const scopeErr = requireScope(locals, "read");
   if (scopeErr) return scopeErr;
   const user = requireAuth(locals);
@@ -76,6 +77,7 @@ export const GET: RequestHandler = async ({ params, url, locals, request }) => {
     if (activeWaits >= maxConcurrentWaits()) {
       return errorJson(429, "Too many concurrent run waits", { retryAfter: 5 });
     }
+    disableBunRequestIdleTimeout(platform);
     activeWaits++;
     try {
       const result = await awaitRunCompletion({

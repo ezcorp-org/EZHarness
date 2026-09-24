@@ -3,6 +3,7 @@
 - Seal every persisted field that controls a protected decision, including its scope, revision, and approving authority. Recompute the canonical seal before acceptance and before a later effect claim; a semantic source digest alone cannot detect authority or policy-row tampering.
 
 - Keep definition list rows bounded. Persist compact semantic and resource metadata when a bounded source is saved; do not load or compile up to 200 full 16 MiB sources for one list request. Snapshot mutable request input before an authorization await.
+- When infrastructure is not provisioned, separate locally verifiable contract work from later network qualification. Do not infer AMD, Xeon, Incus, Infisical, or credential availability from a delivery plan.
 
 - Describe a raw entrypoint subprocess as a process, not an installed immutable release.
 - In asynchronous delivery tests, await an observed operation or use transport ordering. Do not use a fixed sleep as proof of completion.
@@ -1519,3 +1520,25 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 - Verify live state before you answer a factual question about it. When the user asked which model the subagents run on, the first answer came from the spawn parameter, not from evidence. Ask the agents (or read the source) first, then answer with the evidence named.
 - An outer `timeout` around a command that waits for a lock counts the wait. The first W18a-2 combined run waited about 1.6 hours for the heavy lock inside `timeout 9000` and was killed (exit 124) in its node leg. Put the timeout inside the lock (`flock ... timeout N cmd`), or rely on the runner's own per-leg bound.
 - Never pipe a command that must run to completion into a reader that can close early (head, a limited grep). A closed pipe kills git commit with SIGPIPE and nothing is committed. Write to a file, then summarize from the file.
+## 2026-09-21 — Isolated Git fixtures
+
+- Never delegate `git init` from a fake Git shim that can inherit the caller's repository variables. Use a real temporary repository with every `GIT_*` variable removed, and assert that provenance probes leave `core.bare=false`.
+
+## Pluggable infrastructure scope
+
+- When infrastructure does not exist, validate locally first. Do not make external host connections a prerequisite for the local implementation. Keep local validation and later remote networking as separate milestones.
+
+- This infrastructure build uses the native EZHarness loop only. Claude and Codex guest workers are excluded by user decision; do not add worker placement or SDK integrations for them.
+
+- When the user requests the bare minimum MVP, reduce the active milestone explicitly. Keep optional protocols, second-provider proof and external services in the later backlog; do not keep building them under the earlier full-plan scope.
+- 2026-09-20: For integration audits, verify the exact parent worktree and HEAD before reporting findings. Do not infer current code from an earlier feature worktree.
+- 2026-09-20: Before classifying a focused-suite failure as a source defect, check ownership messages and active fixture migrations; distinguish an assigned stale-test update from behavior.
+
+- Freeze every tracked file, including documentation and task notes, while collecting or verifying source-attested browser coverage. Apply pending documentation only after those checks finish. Rebuilding mapped assets can change chunk names; preserve the exact mapped build until coverage receipt validation completes.
+
+- A lock released in `finally` must await every returned asynchronous cleanup inside the `try`. Test the final deletion phase with at least three queued callers; serializing only the earlier unmount phase does not prove the lock lifetime. Preserve post-conflict idempotency replay when adding a pre-insert lookup.
+ - `tasks/` is gitignored but `tasks/todo.md` and `tasks/lessons.md` are force-tracked. Append a section; never overwrite either file, and check `git status` after writing under `tasks/`.
+- A report-only flag must suppress only the verdict it was made for. Classify a tool exit by whether the tool produced its report this run; delete the previous report first so a stale file cannot vouch for a crash.
+- A summary reporter must be told which gates ran. Absence of a report is a failure, never an omission; there is no safe default for the expected set.
+- A PR in conflict with its base gets no pull_request workflow runs at all; GitHub cannot build the merge ref. When checks are silently absent, check `mergeable` before suspecting the workflow. Merge or rebase, then reinstall dependencies before the pre-push typecheck when the base moved a lockfile.
+- Budget a hosted-runner job against the 360-minute cap with a measured rate, not a guess. When one job cannot finish, shard the work and merge with an exact-count check so a missing slice fails instead of shrinking the denominator.
