@@ -24,6 +24,9 @@ export async function up(db: MigrationDb): Promise<void> {
   )`);
   await db.execute(sql`ALTER TABLE incus_operator_setups ADD COLUMN IF NOT EXISTS applied_by TEXT`);
   await db.execute(sql`ALTER TABLE incus_operator_setups ADD COLUMN IF NOT EXISTS apply_token TEXT`);
+  await db.execute(sql`ALTER TABLE incus_operator_setups ADD COLUMN IF NOT EXISTS capacity_receipt JSONB`);
+  await db.execute(sql`ALTER TABLE incus_operator_setups ADD COLUMN IF NOT EXISTS capacity_applied_by TEXT`);
+  await db.execute(sql`ALTER TABLE incus_operator_setups ADD COLUMN IF NOT EXISTS capacity_applied_at TIMESTAMPTZ`);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_incus_operator_setups_installation
     ON incus_operator_setups(provider_installation_id, created_at DESC)`);
   await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_incus_operator_one_apply_per_installation

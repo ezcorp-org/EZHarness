@@ -343,9 +343,9 @@ export class SandboxAdmissionStore {
     return reservation ?? null;
   }
 
-  async configureHostCapacity(input: SandboxHostCapacityInput): Promise<void> {
+  async configureHostCapacity(input: SandboxHostCapacityInput, existingTransaction?: DbTransaction): Promise<void> {
     assertCapacityInput(input);
-    await this.db.transaction(async (transaction: DbTransaction) => {
+    const write = async (transaction: DbTransaction) => {
       const values = {
         providerInstallationId: input.providerInstallationId,
         connectionId: input.connectionId,
@@ -382,7 +382,9 @@ export class SandboxAdmissionStore {
         eq(sandboxHostCapacities.providerInstallationId, input.providerInstallationId),
         eq(sandboxHostCapacities.connectionId, input.connectionId),
       ));
-    });
+    };
+    if (existingTransaction) await write(existingTransaction);
+    else await this.db.transaction(write);
   }
 
   async configureProjectQuota(input: SandboxProjectQuotaInput): Promise<void> {
