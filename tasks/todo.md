@@ -4441,3 +4441,21 @@ killed product server, the run was recorded, a new run was refused by name, and 
 Two things the fence consumes still stop a run from ending. W03's usage reconciliation leaves a stopped
 zero-operation attempt's hold unresolved, so run A stays `cancelling`. The orchestrator runs each effect once,
 so a refused admission kills the run's workflow. Both are reported as interface questions, not worked around.
+
+## W09d-2 — named refusals on the executions route (branch `wp/w09d2-named-refusals`)
+
+Base `wp/w02c-quarantine` `daf5203cc`. Evidence: `/tmp/factory-platform-evidence/w09d2/`. Gates: `tasks/factory/w09d2-GATES.md`.
+
+- [x] Reproduce at the base: W02c's run B stays `running` (red).
+- [x] One named-refusal answer in the router, on the executions route and the effects; the W09d wrapper is moved, not copied.
+- [x] Measure that the name alone does not end run B, and find why (cancel refused as stale, run held in `stopping`).
+- [x] Atomic "nothing queued" in `FactoryTaskExecutionAdmission.dispatch` (savepoint, same locked transaction), per the coordinator's safety condition.
+- [x] The kernel ends a running task node in place on `admission_denied`; every other dispatch failure keeps the cancel.
+- [x] Real server at the head: run B ends `failed` with `factory_package_quarantined` (10/10).
+- [x] Unit, route, real-store, kernel, and Temporal replay tests; W09d and W02c suites; coverage and static gates.
+- [x] Measure and disclose the leftover compute lease and budget hold (W02, W03).
+
+### Review
+
+The executions route now answers a typed refusal by name, from the same one place as the effects. That was not enough. The kernel answers a failed dispatch with a cancel, the stop path refused that cancel because nothing was ever queued, and the run waited in `stopping` for ever. The product now decides "refused, and nothing queued" inside the refusal's own locked transaction under a savepoint. Only then does it tell the kernel `admission_denied`, and the kernel fails the task node in place with the refusal's name. Every uncertain case keeps the cancel. On the real server, run B went from `running` at the base to `failed` with `factory_package_quarantined` at the head. One gap is left, measured and assigned: the admitted compute lease and budget hold of a refused dispatch are released by nothing (W02, W03).
+

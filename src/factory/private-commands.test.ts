@@ -61,3 +61,74 @@ test("private command routing uses stored kinds, captures references, and reject
   expect(await pending).toEqual({ ...definitionSource, definitionDigest: factory.digest });
   expect(calls.at(-1)).toEqual({ identity: service, stored: { ...reference, factory } });
 });
+
+const SERVICE = { tenantId: "tenant-a", subject: "orchestration" };
+const REFERENCE = { tenantId: "tenant-a", projectId: "project-a", logicalRunId: "run-a", interpreterId: "root", commandId: "command-a" };
+
+/** A router whose every handler throws `state.failure`, over a stored command of the current `kind`. */
+function refusingRouter(dispatch?: FactoryPrivateCommandStores["execution"]["dispatch"]) {
+  const state: { kind: KernelCommand["kind"]; failure: unknown } = { kind: "dispatch-node", failure: Object.assign(new Error("quarantined"), { code: "factory_package_quarantined" }) };
+  const fail = async () => { throw state.failure; };
+  const router = new FactoryPrivateCommands({
+    service: SERVICE,
+    authority: { tenantId: SERVICE.tenantId, assertService() {} } as never,
+    transitions: { async loadStoredCommand() { return { kind: state.kind, id: "command-a", nodeId: "work", candidateGeneration: 2, attempt: 3 } as KernelCommand; } },
+    tasks: { request: fail as never },
+    execution: { admit: fail as never, ...(dispatch === undefined ? {} : { dispatch }) },
+    inputs: { execute: fail as never },
+    children: { resolve: fail as never },
+    approvals: { tenantId: SERVICE.tenantId, execute: fail as never },
+    effects: { "cancel-node": fail, "request-acceptance": fail, "request-release": fail, "invalidate-partition": fail, "notify-partition": fail },
+  });
+  return { router, state };
+}
+
+test("a named refusal on any effect or cancel is answered as the command-failed event that carries its name", async () => {
+  const { router, state } = refusingRouter();
+  for (const kind of ["cancel-node", "request-acceptance", "request-release", "invalidate-partition", "notify-partition"] as const) {
+    state.kind = kind;
+    const before = Date.now();
+    const event = await router.execute(SERVICE, REFERENCE);
+    expect(event).toMatchObject({ kind: "command-failed", id: "command-a:command-failed", commandId: "command-a", error: `FACTORY_COMMAND_FAILED: ${kind} command-a: factory_package_quarantined` });
+    expect((event as { atMs: number }).atMs).toBeGreaterThanOrEqual(before);
+  }
+});
+
+test("a dispatch refused with nothing queued, decided atomically, ends its node: admission_denied with the refusal's name", async () => {
+  const seen: unknown[] = [];
+  const { router } = refusingRouter(async (service, reference) => { seen.push([service, reference]); return { refused: "factory_package_quarantined", queued: false }; });
+  expect(await router.execute(SERVICE, REFERENCE)).toMatchObject({
+    kind: "node-failed", id: "command-a:admission-refused", nodeId: "work", commandId: "command-a", candidateGeneration: 2, attempt: 3,
+    error: "factory_package_quarantined", failureKind: "admission_denied",
+  });
+  expect(seen).toEqual([[SERVICE, REFERENCE]]);
+});
+
+test("a dispatch refused after its attempt was queued keeps command-failed, so the kernel still cancels", async () => {
+  const { router } = refusingRouter(async () => ({ refused: "factory_task_execution_conflict", queued: true }));
+  expect(await router.execute(SERVICE, REFERENCE)).toMatchObject({ kind: "command-failed", error: "FACTORY_COMMAND_FAILED: dispatch-node command-a: factory_task_execution_conflict" });
+});
+
+test("an admitted dispatch answers nothing; without the atomic decision, or refused before it, a dispatch keeps command-failed", async () => {
+  const admitted = refusingRouter(async () => ({ admitted: {} as never }));
+  expect(await admitted.router.execute(SERVICE, REFERENCE)).toBeNull();
+  const unread = refusingRouter();
+  expect(await unread.router.execute(SERVICE, REFERENCE)).toMatchObject({ kind: "command-failed", error: "FACTORY_COMMAND_FAILED: dispatch-node command-a: factory_package_quarantined" });
+  const stale = refusingRouter(async () => { throw Object.assign(new Error("stale"), { code: "factory_command_stale" }); });
+  expect(await stale.router.execute(SERVICE, REFERENCE)).toMatchObject({ kind: "command-failed", error: "FACTORY_COMMAND_FAILED: dispatch-node command-a: factory_command_stale" });
+});
+
+test("anything that is not a named refusal, and every command off those two routes, still throws", async () => {
+  const boom = new Error("internal");
+  const failing = refusingRouter(async () => { throw boom; });
+  await expect(failing.router.execute(SERVICE, REFERENCE)).rejects.toBe(boom);
+  const { router, state } = refusingRouter();
+  const foreign = Object.assign(new Error("reset"), { code: "ECONNRESET" });
+  state.failure = foreign;
+  await expect(router.execute(SERVICE, REFERENCE)).rejects.toBe(foreign);
+  state.failure = Object.assign(new Error("quarantined"), { code: "factory_package_quarantined" });
+  for (const kind of ["request-admission", "read-input-value", "request-approval"] as const) {
+    state.kind = kind;
+    await expect(router.execute(SERVICE, REFERENCE)).rejects.toMatchObject({ code: "factory_package_quarantined" });
+  }
+});

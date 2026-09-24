@@ -12,7 +12,7 @@ import { createFactoryWorker } from "../src/worker.ts";
 import { Context } from "@temporalio/activity";
 import { canonicalizeJson, compileFactory, createCompiledExecutionManifest, createCompiledPartitionArtifact, FACTORY_LAZY_INPUT_SCHEMA_VERSION } from "@ezcorp/factory-sdk";
 import { encodeFactoryPageBase64 } from "@ezcorp/factory-sdk/page-bytes";
-import { advanceKernel, createKernelState, factoryCommandFailedEvent } from "@ezcorp/factory-sdk/kernel";
+import { advanceKernel, createKernelState, factoryAdmissionRefusedEvent, factoryCommandFailedEvent } from "@ezcorp/factory-sdk/kernel";
 import type { KernelState } from "@ezcorp/factory-sdk/kernel-types";
 import { factoryWorkflowId, type FactoryWorkflowResult } from "../src/contracts.ts";
 import { deliverFactoryCommand, reconcileFactoryCommand } from "../src/dispatcher.ts";
@@ -585,6 +585,41 @@ describe("factory Temporal workflow", () => {
     // The failure is a recorded transition, which is what the product projects.
     assert.ok(recorded.includes(`${commandId}:command-failed`));
     assert.equal(effects, 1);
+  });
+
+  // W09d-2: a dispatch the product refused by name with nothing queued is answered as node-failed
+  // admission_denied. The task node fails in place with the refusal's name and no cancel-node, the run
+  // ends failed through its own transitions, and the history replays.
+  it("ends a task node in place when the product refuses its dispatch before anything was queued", async () => {
+    const startedAtMs = Math.trunc(await environment.currentTimeMs());
+    const factory = compiled([{ ...node, outputPorts: {} }], "dispatch-refused");
+    const recorded: string[] = [];
+    const stops: string[] = [];
+    const activities = {
+      ...inboxAcceptanceActivities(factory, { acceptance: [], stops: [] }, () => undefined),
+      recordTransition: async (record) => { recorded.push(record.eventId); },
+    };
+    const base = activities.executeCommand;
+    activities.executeCommand = async (input) => {
+      if (input.command.kind === "dispatch-node") return factoryAdmissionRefusedEvent(input.command, "factory_package_quarantined", Date.now());
+      if (input.command.kind === "cancel-node") { stops.push(input.command.id); throw new Error("nothing to stop"); }
+      return base(input);
+    };
+    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, activities });
+    const workflowId = `tenant/dispatch-refused-${process.pid}`;
+    await worker.runUntil(async () => {
+      const handle = await environment.client.workflow.start("factoryWorkflow", { workflowId, taskQueue: queue, retry: { maximumAttempts: 1 }, args: [workflowInput(factory, { logicalRunId: "dispatch-refused", startedAtMs })] });
+      const result = await handle.result();
+      assert.equal(result.status, "failed");
+      assert.equal(result.error, "factory_package_quarantined");
+      const state: KernelState = await handle.query("factoryState");
+      assert.equal(state.nodes.work?.status, "failed");
+      assert.equal(state.nodes.work?.error, "factory_package_quarantined");
+      const history = await handle.fetchHistory();
+      await Worker.runReplayHistory({ workflowBundle: bundle }, JSON.parse(historyToJSON(history)), workflowId);
+    });
+    assert.deepEqual(stops, []);
+    assert.equal(recorded.filter(id => id.endsWith(":admission-refused")).length, 1);
   });
 
   // F4: the product answers a named refusal as the command-failed event itself, so the refusal's
