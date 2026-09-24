@@ -483,31 +483,47 @@ export function runtimeImportClosure(roots: readonly string[], read: SourceReade
 /** A Node process entry and the modules its runtime graph must never reach. */
 export interface NodeServiceBoundary {
   readonly entry: string;
+  /** Repo-relative source files. */
   readonly forbidden: readonly string[];
+  /** Bare specifiers: `name` matches it and its subpaths, `scheme:*` matches every `scheme:` builtin. */
+  readonly forbiddenPackages: readonly string[];
   readonly reason: string;
 }
 
 /**
  * The pool service runs on Node (C12). `db/connection` links `drizzle-orm/bun-sql`
  * and so the `bun` builtin, which a Node bundle cannot load; a W15 import chain
- * once reached it through the checkpoint barrier and broke the pool build.
+ * once reached it through the checkpoint barrier and broke the pool build. The
+ * bare specifiers catch a direct import of the driver or a Bun builtin too.
  */
 export const NODE_SERVICE_BOUNDARIES: readonly NodeServiceBoundary[] = [{
   entry: "src/factory/pool/service-server.ts",
   forbidden: ["src/db/connection.ts"],
-  reason: "links the Bun SQL driver that a Node bundle cannot load",
+  forbiddenPackages: ["bun", "bun:*", "drizzle-orm/bun-sql"],
+  reason: "links the Bun SQL driver or a Bun builtin that a Node bundle cannot load",
 }];
 
-/** One violation per forbidden module a Node service entry reaches, with the import chain that reaches it. */
+function matchesPackage(specifier: string, pattern: string): boolean {
+  return pattern.endsWith(":*") ? specifier.startsWith(pattern.slice(0, -1)) : specifier === pattern || specifier.startsWith(`${pattern}/`);
+}
+
+/** One violation per forbidden module or package a Node service entry reaches, with the import chain that reaches it. */
 export function nodeServiceViolations(boundaries: readonly NodeServiceBoundary[] = NODE_SERVICE_BOUNDARIES, read: SourceReader = readRepositorySource): BoundaryViolation[] {
   return boundaries.flatMap((boundary) => {
     if (read(boundary.entry) === undefined) return [{ path: boundary.entry, line: 1, rule: "node-service-link" as const, message: "Node service entry is missing" }];
     const closure = runtimeImportClosure([boundary.entry], read);
-    return boundary.forbidden.filter((file) => closure.files.includes(file)).map((file) => {
+    const chainTo = (file: string): string[] => {
       const chain = [file];
       while (chain[0] !== boundary.entry) chain.unshift(closure.importedBy.get(chain[0]!)!);
-      return { path: boundary.entry, line: 1, rule: "node-service-link" as const, message: `reaches ${file}, which ${boundary.reason}: ${chain.join(" -> ")}` };
+      return chain;
+    };
+    const violation = (subject: string, chain: readonly string[]): BoundaryViolation => ({
+      path: boundary.entry, line: 1, rule: "node-service-link", message: `reaches ${subject}, which ${boundary.reason}: ${chain.join(" -> ")}`,
     });
+    const files = boundary.forbidden.filter((file) => closure.files.includes(file)).map((file) => violation(file, chainTo(file)));
+    const packages = [...closure.bare].filter(([specifier]) => boundary.forbiddenPackages.some((pattern) => matchesPackage(specifier, pattern)))
+      .map(([specifier, importers]) => violation(`"${specifier}"`, [...chainTo(importers[0]!), `"${specifier}"`]));
+    return [...files, ...packages];
   });
 }
 

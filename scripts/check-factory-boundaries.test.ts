@@ -146,7 +146,7 @@ const connection = "src/db/connection.ts";
 
 describe("Node service links", () => {
   test("the rule guards the pool service against the Bun database driver", () => {
-    expect(NODE_SERVICE_BOUNDARIES).toContainEqual(expect.objectContaining({ entry: poolEntry, forbidden: [connection] }));
+    expect(NODE_SERVICE_BOUNDARIES).toContainEqual(expect.objectContaining({ entry: poolEntry, forbidden: [connection], forbiddenPackages: ["bun", "bun:*", "drizzle-orm/bun-sql"] }));
   });
 
   test("rejects a deliberate violation and names the chain, through a dynamic import two hops away", () => {
@@ -161,8 +161,27 @@ describe("Node service links", () => {
       path: poolEntry,
       line: 1,
       rule: "node-service-link",
-      message: `reaches ${connection}, which links the Bun SQL driver that a Node bundle cannot load: ${poolEntry} -> src/factory/pool/service-routes.ts -> src/factory/checkpoint-barrier.ts -> src/db/queries/extension-releases.ts -> ${connection}`,
+      message: `reaches ${connection}, which links the Bun SQL driver or a Bun builtin that a Node bundle cannot load: ${poolEntry} -> src/factory/pool/service-routes.ts -> src/factory/checkpoint-barrier.ts -> src/db/queries/extension-releases.ts -> ${connection}`,
+    }, {
+      path: poolEntry,
+      line: 1,
+      rule: "node-service-link",
+      message: `reaches "bun", which links the Bun SQL driver or a Bun builtin that a Node bundle cannot load: ${poolEntry} -> src/factory/pool/service-routes.ts -> src/factory/checkpoint-barrier.ts -> src/db/queries/extension-releases.ts -> ${connection} -> "bun"`,
     }]);
+  });
+
+  test("rejects a direct bare import of the Bun driver or any Bun builtin, and names each", () => {
+    const helper = "src/factory/pool/helper.ts";
+    const files = reader({
+      [poolEntry]: 'import { drizzle } from "drizzle-orm/bun-sql/driver";\nimport { helper } from "./helper";\nexport const server = [drizzle, helper];',
+      [helper]: 'import { Database } from "bun:sqlite";\nimport { sql } from "drizzle-orm";\nimport { bundle } from "bundler";\nexport const helper = [Database, sql, bundle, await import("bun:ffi")];',
+    });
+    const reason = "which links the Bun SQL driver or a Bun builtin that a Node bundle cannot load";
+    expect(nodeServiceViolations(undefined, files).map((violation) => violation.message).sort()).toEqual([
+      `reaches "bun:ffi", ${reason}: ${poolEntry} -> ${helper} -> "bun:ffi"`,
+      `reaches "bun:sqlite", ${reason}: ${poolEntry} -> ${helper} -> "bun:sqlite"`,
+      `reaches "drizzle-orm/bun-sql/driver", ${reason}: ${poolEntry} -> "drizzle-orm/bun-sql/driver"`,
+    ]);
   });
 
   test("accepts a leaf module, and a type import links nothing", () => {
@@ -188,7 +207,7 @@ describe("Node service links", () => {
   });
 
   test("a missing entry is a violation, not a silent pass", () => {
-    expect(nodeServiceViolations([{ entry: "src/gone.ts", forbidden: [connection], reason: "r" }], reader({}))).toEqual([
+    expect(nodeServiceViolations([{ entry: "src/gone.ts", forbidden: [connection], forbiddenPackages: [], reason: "r" }], reader({}))).toEqual([
       { path: "src/gone.ts", line: 1, rule: "node-service-link", message: "Node service entry is missing" },
     ]);
   });
