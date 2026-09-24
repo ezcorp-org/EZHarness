@@ -3,7 +3,7 @@ import { createHash, X509Certificate } from "node:crypto";
 import { createServer, type Server } from "node:https";
 import type { AddressInfo } from "node:net";
 import { IncusTransportError, type IncusTransportRequest } from "../../../extensions/incus-sandbox/transport";
-import { HostIncusProbeTransport } from "./transport";
+import { HostIncusProbeTransport, verifiedHttpsRequest } from "./transport";
 import { makeTestCertificates } from "./test-certificates";
 
 const certificates = makeTestCertificates();
@@ -107,6 +107,17 @@ test("real TLS probe accepts a pinned server and approved client identity", asyn
   }
 }, 15_000);
 
+test("real TLS probe accepts an exact pinned non-CA server leaf", async () => {
+  const server = await localIncusServer(substituteServerCert, substituteServerKey);
+  try {
+    const result = await probe(server.endpoint, substituteServerCert);
+    expect(result.serverCertificateSha256).toBe(fingerprint(substituteServerCert));
+    expect(server.requests).toHaveLength(3);
+  } finally {
+    await server.close();
+  }
+}, 15_000);
+
 test("real TLS probe rejects missing and unapproved client certificates", async () => {
   const server = await localIncusServer();
   try {
@@ -146,6 +157,20 @@ test("real TLS probe rejects a different leaf signed by the pinned certificate",
   const server = await localIncusServer(substituteServerCert, substituteServerKey);
   try {
     await expect(probe(server.endpoint)).rejects.toMatchObject({ kind: "unavailable" });
+    expect(server.requests).toHaveLength(0);
+  } finally {
+    await server.close();
+  }
+}, 15_000);
+
+test("verified socket enforces the stored leaf even if its callback accepts a substitute", async () => {
+  const server = await localIncusServer(substituteServerCert, substituteServerKey);
+  try {
+    await expect(verifiedHttpsRequest(`${server.endpoint}/1.0`, {
+      method: "GET", proxy: false, decompress: false,
+      tls: { cert: clientCert, key: clientKey, ca: serverCert, rejectUnauthorized: true,
+        checkServerIdentity: () => undefined },
+    })).rejects.toThrow("Incus server identity was rejected");
     expect(server.requests).toHaveLength(0);
   } finally {
     await server.close();

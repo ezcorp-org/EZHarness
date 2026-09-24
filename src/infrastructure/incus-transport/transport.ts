@@ -131,22 +131,23 @@ function parseHttpResponse(wire: Buffer): Response {
   return new Response(status === 204 || status === 304 ? null : Uint8Array.from(body), { status, headers });
 }
 
-// Queue no HTTP bytes until the TLS socket is authorized and its actual leaf
-// matches the stored pin. Bun fetch and https.request can deliver a GET before
-// a checkServerIdentity rejection, so the socket is checked here explicitly.
+// Queue no HTTP bytes until the actual leaf matches the stored pin and the
+// endpoint name. The stored Incus leaf may be signed by an unavailable CA;
+// ordinary chain validation can reject it before the exact pin is checked.
+// Bun fetch and https.request can deliver a GET before a peer rejection, so
+// this socket is checked explicitly before writing any request bytes.
 export function verifiedHttpsRequest(url: string, init: Parameters<PinnedFetch>[1]): Promise<Response> {
   return new Promise((resolve, reject) => {
     const target = new URL(url);
     const hostname = target.hostname.replace(/^\[|\]$/g, "");
+    const expectedLeaf = createHash("sha256").update(new X509Certificate(init.tls.ca).raw).digest("hex");
     const socket = tlsConnect({
       host: hostname,
       port: target.port ? Number(target.port) : 443,
       servername: isIP(hostname) ? undefined : hostname,
       cert: init.tls.cert,
       key: init.tls.key,
-      ca: init.tls.ca,
-      rejectUnauthorized: true,
-      checkServerIdentity: init.tls.checkServerIdentity,
+      rejectUnauthorized: false,
     });
     const abort = () => socket.destroy(new Error("Incus probe was cancelled"));
     init.signal?.addEventListener("abort", abort, { once: true });
@@ -155,8 +156,9 @@ export function verifiedHttpsRequest(url: string, init: Parameters<PinnedFetch>[
     socket.once("close", () => reject(new Error("Incus HTTP connection closed before completion")));
     socket.once("secureConnect", () => {
       const peer = socket.getPeerCertificate(true);
-      const identityError = init.tls.checkServerIdentity(hostname, peer);
-      if (!socket.authorized || !peer.raw || identityError) {
+      const identityError = checkServerIdentity(hostname, peer) ?? init.tls.checkServerIdentity(hostname, peer);
+      const leafMatches = peer.raw && createHash("sha256").update(peer.raw).digest("hex") === expectedLeaf;
+      if (!leafMatches || identityError) {
         socket.destroy();
         reject(new Error("Incus server identity was rejected"));
         return;
