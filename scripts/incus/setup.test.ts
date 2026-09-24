@@ -30,7 +30,7 @@ function recipe(overrides: Partial<IncusSetupRecipe> = {}): IncusSetupRecipe {
     project: { name: "project", description: "Owned", config: {
       "features.images": "false", "features.networks": "false", "features.networks.zones": "false", "features.profiles": "true", "features.storage.buckets": "false", "features.storage.volumes": "true",
       "limits.containers": "4", "limits.cpu": "8", "limits.disk.pool.pool": "80GiB", "limits.memory": "32GiB", "limits.networks": "0", "limits.processes": "4096", "limits.virtual-machines": "0",
-      restricted: "true", "restricted.containers.nesting": "allow", "restricted.devices.nic": "managed", "restricted.images.servers": "images.linuxcontainers.org", "restricted.networks.access": "bridge", "restricted.storage-pools.access": "pool",
+      restricted: "true", "restricted.containers.nesting": "allow", "restricted.devices.nic": "managed", "restricted.images.servers": "images.linuxcontainers.org", "restricted.networks.access": "bridge",
     } },
     profile: { name: "compose", description: "Bounded", config: { "limits.cpu": "2", "limits.memory": "8GiB", "limits.memory.enforce": "hard", "limits.processes": "1024", "security.idmap.isolated": "true", "security.nesting": "true", "security.privileged": "false" }, devices: { eth0: { type: "nic", name: "eth0", network: "bridge", "security.port_isolation": "true" }, root: { type: "disk", path: "/", pool: "pool", size: "16GiB" } } },
     server: { httpsAddress: "100.81.181.39:8443" },
@@ -542,6 +542,7 @@ describe("Incus setup planning", () => {
     expect(reviewed.expected.incusVersion).toBe("6.0.6");
     expect(reviewed.project.config["limits.virtual-machines"]).toBe("0");
     expect(reviewed.project.config).not.toHaveProperty("restricted.virtual-machines.nesting");
+    expect(reviewed.project.config).not.toHaveProperty("restricted.storage-pools.access");
     expect(reviewed.expected.requiredApiExtensions).toContain("projects_restricted_image_servers");
     expect(reviewed.expected.requiredApiExtensions).toContain("projects_limits_disk_pool");
     expect(() => validateRecipe(reviewed)).not.toThrow();
@@ -665,6 +666,7 @@ describe("Incus setup planning", () => {
     expect(createSetupPlan(recipe(), inventory({ host: { ...inventory().host, addresses: ["127.0.0.1"] } })).blockedReasons).toContain("https_bind_address_missing");
     expect(createSetupPlan(recipe(), inventory({ host: { ...inventory().host, cpuThreads: 4 } })).blockedReasons).toContain("resource_limits_exceed_host");
     expect(createSetupPlan(recipe(), inventory({ storagePools: [{ name: "pool", driver: "dir", description: "foreign", config: {}, status: "Created" }] })).blockedReasons).toContain("storage_pool_drift");
+    expect(createSetupPlan(recipe(), inventory({ storagePools: [{ name: "other", driver: "lvm", description: "foreign", config: {}, status: "Created" }] })).blockedReasons).toContain("unrestricted_storage_pools_present");
     expect(createSetupPlan(recipe(), inventory({ instances: [{ name: "foreign", project: "default", status: "Running", type: "container" }] })).blockedReasons).toContain("instances_present");
     expect(createSetupPlan(recipe(), inventory({ trust: [{ fingerprint: "c".repeat(64), name: "foreign", restricted: false, projects: [], type: "client" }] })).blockedReasons).toContain("unexpected_trust_entry");
     const desiredProject = recipe().project;

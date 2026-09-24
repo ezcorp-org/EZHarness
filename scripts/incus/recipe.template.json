@@ -78,8 +78,7 @@
       "restricted.containers.nesting": "allow",
       "restricted.devices.nic": "managed",
       "restricted.images.servers": "images.linuxcontainers.org",
-      "restricted.networks.access": "ezharness0",
-      "restricted.storage-pools.access": "ezharness-btrfs"
+      "restricted.networks.access": "ezharness0"
     }
   },
   "profile": {

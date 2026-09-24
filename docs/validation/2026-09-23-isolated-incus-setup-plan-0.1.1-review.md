@@ -1,5 +1,12 @@
 # Isolated Incus setup plan review (release 0.1.1)
 
+**Obsolete. Do not apply this digest again.** Its approved Apply stopped at
+`restricted-project`: Incus 6.0.6 rejected `restricted.storage-pools.access`.
+The app receipt is `review_required`; a read-only server inspection confirmed
+that the `ezharness` project and all later plan resources are absent. The
+replacement plan is recorded in
+[the revised review packet](2026-09-23-isolated-incus-setup-plan-0.1.1-revised-review.md).
+
 The isolated EZHarness app approved and activated the reviewed Incus provider release `dcde361cc4fe348743c1aafc5272ac5104b025046b1c96273e58dc0b8d6e8bdd`. Its activation operation `0caf1629-2191-4744-ae5d-c73270766689` is active. This did not write to the Incus server.
 
 | Item | Exact value |
@@ -14,6 +21,8 @@ The isolated EZHarness app approved and activated the reviewed Incus provider re
 | Guest image | `57c0d028e4456a3847fb9822802d6a8f613ba4e6ef03002999e8c957a1f40c6c` |
 
 The plan is `ready`. The read-only dry run returned `dry_run` with the same digest. It found the reviewed 100 GiB `ezharness-btrfs` pool and `ezharness0` bridge already present, so those two steps will be skipped. It found no `ezharness` project, no `compose` profile, no Incus HTTPS listener, and no `engine` client certificate. Those steps are planned.
+
+A read-only Xeon firewall review found that traffic from `ezharness0` to the host's Tailscale address enters the host INPUT chain. Current NixOS rules drop TCP 8443 from that bridge, so the planned Incus API listener is not expected to be guest reachable. This is a ruleset finding, not a guest test; after Apply, a real guest must fail to connect to the API. TCP 22 is globally allowed and remains a separate management-surface review item before claiming full guest isolation.
 
 Apply will create the restricted `ezharness` Incus project (at most four containers, 32 GiB total project memory, 80 GiB pool disk), create its bounded `compose` profile (8 GiB memory, 2 CPUs, 1024 processes, 20 GiB root disk, unprivileged nesting), attach its NIC to `ezharness0` with `security.port_isolation=true`, bind Incus HTTPS to the server's Tailscale address on port 8443, and trust only the new engine certificate restricted to `ezharness`. It does not create a feature sandbox. The separate local credential connection was prepared by the isolated app during Plan.
 
