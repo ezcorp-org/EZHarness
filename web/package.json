@@ -32,8 +32,9 @@
 		"@testing-library/svelte": "^5.3.1",
 		"@types/jsdom": "^30.0.0",
 		"@typescript/native": "npm:typescript@7.0.2",
-		"@vitest/coverage-v8": "4.1.11",
+		"@vitest/coverage-v8": "5.0.0",
 		"ast-v8-to-istanbul": "1.0.6",
+		"istanbul-lib-coverage": "3.2.2",
 		"jsdom": "^30.0.1",
 		"rollup-plugin-visualizer": "^7.1.1",
 		"svelte": "^5.57.0",
@@ -41,12 +42,12 @@
 		"tailwindcss": "^4.2.1",
 		"typescript": "^6.0.3",
 		"vite": "^8.3.0",
-		"vitest": "4.1.11"
+		"vitest": "5.0.0"
 	},
 	"dependencies": {
 		"@electric-sql/pglite": "0.5.8",
 		"@electric-sql/pglite-pgvector": "0.0.9",
-		"@huggingface/transformers": "^4.2.0",
+		"@huggingface/transformers": "^4.3.0",
 		"ansi_up": "^6.0.6",
 		"diff2html": "^3.4.56",
 		"highlight.js": "^11.12.0",
@@ -57,7 +58,7 @@
 		"marked": "^18.0.13",
 		"svelte-adapter-bun": "^1.0.1",
 		"svelte-dnd-action": "^0.9.79",
-		"zod": "^4.6.4"
+		"zod": "^4.6.5"
 	},
 	"overrides": {
 		"sharp": "0.35.4"
