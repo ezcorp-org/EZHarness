@@ -18,7 +18,7 @@
  */
 
 import { test, expect, describe, beforeAll, afterAll, mock } from "bun:test";
-import { restoreModuleMocks, unavailableWorkflowAccess, webApiKeysModule } from "./helpers/mock-cleanup";
+import { restoreModuleMocks, unavailableWorkflowAccess, webLibModule } from "./helpers/mock-cleanup";
 import { serverContextStub } from "./helpers/mock-request";
 import { mkdtemp, mkdir, writeFile, symlink, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -56,7 +56,7 @@ mock.module("$server/auth/middleware", () => ({
   requireAuth: (locals: unknown) => (stubRequireAuth ? { id: "test-user", role: "admin" } : require("../auth/middleware").requireAuth(locals)),
 }));
 
-mock.module("$lib/server/security/api-keys", () => webApiKeysModule({ requireScope: () => null }));
+mock.module("$lib/server/security/api-keys", () => webLibModule("server/security/api-keys", { requireScope: () => null }));
 
 mock.module("$lib/server/workflow-access", () => ({
   listVisibleWorkflows: async () => [],
