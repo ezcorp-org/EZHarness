@@ -1748,7 +1748,7 @@ before an installation review.
 - [x] Push the integrated SP05, cutover-preflight, and release-bundle code; run pre-push lint, typecheck, and Svelte checks.
 - [ ] Integrate and verify the scoped, exact-plan SSH setup gate.
 - [ ] Rebuild and smoke-test a sealed bundle from the final reviewed PR head.
-- [ ] Review the AMD qualification service module and its static identity/access tests; keep host activation separate.
+- [x] Review the AMD qualification service module and its static identity/access tests; keep host activation separate.
 - [ ] Prepare one exact cutover packet for release install, sealed settings, runner, supervisor, and database stage.
 - [ ] Move the isolated app only after cutover gates pass; verify old fixture and repair the saved no-effect CREATE under the dedicated identity.
 - [ ] Review/apply a new exact Incus setup plan; run the EZHarness-owned sandbox lifecycle and security/resource qualifications.
@@ -1756,7 +1756,7 @@ before an installation review.
 
 ### Review
 
-The pushed head `94a2fd43f` passed the repository pre-push lint, typecheck, and Svelte checks. The scoped SSH gate and AMD service module are still under independent review. No dedicated app UID, server setup gate, or EZHarness-owned guest is live yet.
+The pushed head `94a2fd43f` passed the repository pre-push lint, typecheck, and Svelte checks. The AMD module passed independent review and is in draft NixOS PR #2; it is not activated. The scoped SSH gate has two peer-review fixes in progress. Hosted mock E2E is failing at preview startup and is under reproduction. No dedicated app UID, server setup gate, or EZHarness-owned guest is live yet.
 ## Dedicated Incus SSH command gate — 2026-09-24
 
 - [x] Trace setup, inventory, and capacity command shapes.
