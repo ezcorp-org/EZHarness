@@ -898,3 +898,53 @@ uses explicit portable empty-variable syntax and preserves its literal rebuild c
 tests pass 132 tests and 315 assertions. The repaired full backend pool passes 26,273 tests across
 1,676 files. Lint over 4,680 files, full typecheck, Svelte check, dependency boundaries, gate
 integrity, Actionlint, Bash syntax, ShellCheck, the production build, and `git diff --check` pass.
+
+## PR #315 keyless credential review — 2026-09-23
+
+- [x] Read PR intent, changed files, review state, and failed CI log.
+- [x] Reproduce the failing quality gate and inspect the real HTTP behavior.
+- [x] Refactor the extension LLM mediator so changed functions meet the quality gate.
+- [x] Run focused tests and relevant local checks, then commit and push to the PR head if safe.
+- [x] Recheck hosted CI and record a final review below.
+
+Plan review: Keep the token suppression rule and the audited credential boundary intact. Extract cohesive stages from the existing extension LLM handler, preserve its error codes and audit behavior, and test the same request path before and after the change.
+
+Local review: The PR wire test proves that the raw keyless placeholder reaches a local server as a bearer, while both repaired pi-ai paths send no Authorization header and real keys remain intact. The hosted quality log reports CRAP 50 for `handlePiLlmComplete` at 98% coverage. Extracting grant validation, quota reservation, and successful-response recording reduces source complexity to 24, 8, 8, and 15 respectively. The extension handler suite passes 19/19; keyless wire and credential-boundary suites pass 12/12; pinned-Bun typecheck passes; lint checks 4,686 files. The full local coverage test pool passes 27,200 tests with zero failures, including 595 Vitest files / 7,482 tests. Its wrapper exits 1 before LCOV merge because the direct invocation lacks the browser-coverage receipts that `scripts/ci-local.sh` supplies. Hosted CI must confirm patch coverage and the merged CRAP gate.
+
+Hosted follow-up: Commit `811f564a5` passed 45 source/coverage producer checks, but the per-file coverage gate stopped at patch lines 225 and 228 in the permission-denied return. The new absent-grant regression exercises that complete reverse-RPC response, proves model resolution does not run, and checks that no audit row is written. Pinned Bun targeted LCOV records `DA:225,14` and `DA:228,16`; the focused suite passes 20/20. Typecheck and lint pass. The next hosted run must still confirm the aggregate patch and CRAP gates.
+
+Hosted verdict: Commit `e38879396` passed all 50 checks. The per-file gate covered every changed executable line, checked 1,665 enforced files, and scored 18 touched functions with zero CRAP violations (limit 30). The PR still needs a non-author review and a current-base CI run after the ordered merges.
+
+Final base refresh: #309 and #314 are in `origin/main` at `cc0a3b9a3`. The only merge conflict was this append-only task journal; both parents' entries are retained, with #315's hosted-CI checklist marked complete. Five isolated auth, Kilo, agent, and extension suites pass 69/69. Pinned Bun typecheck and lint over 4,686 files pass. The full local gate is waiting for the concurrent #317 browser/coverage run to release host memory.
+
+## PR #314 review — 2026-09-23
+
+- [x] Read PR scope, history, review state, and current CI.
+- [x] Review the arm64 job and sandbox suite for real coverage and gate safety.
+- [x] Reproduce the PR-owned gate gap; make and verify a focused repair.
+- [x] Run each arm64 sandbox file in its own Bun process; verify the exact job lane.
+- [ ] Merge current main after #309; preserve the arm64 job and required aggregator.
+- [ ] Run exact focused lane, Actionlint, lint, typecheck, full backend, and coverage gate.
+- [ ] Push normal merge history and confirm hosted CI at the exact head.
+- [ ] Recheck current CI, document findings, and hand off merge status.
+
+Plan review: PR #314 is stacked on #309. Review its final CI commit against its parent and keep #309's product changes with their own review. The arm64 job passed on GitHub. Inspect the three failed jobs to separate runner or base failures from PR-owned failures before changing code.
+
+Review: The live GitHub arm64 job passed 48 tests, with one expected conditional skip. Its deny and allow child containment tests both executed. The applied branch protection requires `Backend tests`, but does not require `Sandbox (arm64)` and no required check depended on it. Add that result to the required backend aggregator so a regression blocks merge. The three failed checks on the original run came from a production candidate runner's `actions/checkout` TLS CA error and its dependent jobs; no PR source executed there. Actionlint and `git diff --check` pass after the aggregator edit. PR #309 remains open and needs its own review; PR #314 needs CODEOWNERS approval.
+
+Follow-up plan: The job's one `bun test` invocation with four files violates the root testing rule and can share `mock.module()` state. Keep its Landlock guard, run the same four files one at a time with Bun's 30-second per-test budget, check the exact loop, and commit locally. Hold the push until #309 merges and the base is updated.
+
+Follow-up review: The workflow now loops over the same four files, runs each in its own `bun test --timeout 30000` process, and uses `set -e` for fail-fast. Extracting and running the exact YAML step on the Linux host passed 33 + 11 + 3 + 1 tests with one expected skip and zero failures. Actionlint and `git diff --check` passed. This local run is on x86_64; the previous hosted arm64 job passed before the process-isolation edit. Commit locally and hold push as requested.
+
+Integration plan: #309 landed on main at 3b5095303. Merge that exact base into this branch without force-pushing, resolve any overlapping task journal as a union, then verify the arm64 CI job and required aggregator survived. Run the full local quality line and an appropriate browser receipt before pushing because the base changed. Recheck the remote head before push.
+
+## PR #314 residual CI follow-up — 2026-09-24
+
+- [x] Read the failed hosted job log and reproduce its two failing cases locally.
+- [x] Replace the test fixture's 5-second file-readiness deadlines with producer-liveness checks.
+- [x] Run the focused lifecycle suite and relevant static checks.
+- [x] Review the exact diff with the lead agent before pushing.
+
+Plan review: Both failures stopped after about five seconds while waiting for a startup file. The PR does not change the launcher. Wait for an observable process state instead of measuring host scheduling time; keep the test's overall timeout as the deadlock guard.
+
+Review: The helper now reads nonempty readiness content until it appears or the producer exits. One new test proves that a producer exit fails immediately. The exact lifecycle suite passed 5/5 on pinned Bun 1.3.14; Biome and full typecheck passed. The failed hosted job cannot be rerun while its workflow is active (GitHub HTTP 403), so the change needs a new CI run after push.

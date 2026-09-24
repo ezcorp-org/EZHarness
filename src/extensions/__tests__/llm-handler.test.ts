@@ -234,6 +234,29 @@ describe("handlePiLlmComplete — happy path", () => {
 });
 
 describe("handlePiLlmComplete — soft-fail ladder", () => {
+  test("no LLM grant denies before model resolution without an audit side effect", async () => {
+    const ctx = makeMockedHandlerCtx({ granted: { grantedAt: {} } });
+    ctx.resolveModelFn = async () => {
+      throw new Error("model resolution must not run without an LLM grant");
+    };
+    const resp = await handlePiLlmComplete(
+      {
+        jsonrpc: "2.0", id: 1, method: "ezcorp/llm-complete",
+        params: {
+          provider: "anthropic", model: "claude-sonnet-4",
+          messages: [{ role: "user", content: "hi" }],
+        },
+      },
+      ctx,
+      makeRpcMeta(),
+    );
+    expect(resp).toEqual({
+      jsonrpc: "2.0", id: 1,
+      error: { code: -32101, message: "ctx.llm permission not granted to this extension" },
+    });
+    expect(await getTestDb().select().from(auditLog)).toHaveLength(0);
+  });
+
   test("provider not granted → -32101 + audit row", async () => {
     const ctx = makeMockedHandlerCtx({ granted: makeGranted({ providers: ["anthropic"] }) });
     const resp = await handlePiLlmComplete(
