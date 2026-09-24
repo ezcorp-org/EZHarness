@@ -240,3 +240,56 @@ test("reservation settlement is bounded, fair after a bad row, and durable acros
   await service.reconcile(2);
   expect((await admission.getReservation("settlement-binding-0"))?.computeState).toBe("RELEASED");
 }, DB_TEST_TIMEOUT_MS);
+
+test("uncertain fixture destroy denies Ready until the original operation confirms absence and cleanup settles", async () => {
+  const { db, service, controller, admission, preset, configureAdmission } = await fixture();
+  await configureAdmission();
+  const presetDigest = await sandboxPresetDigest(preset);
+  const effectiveSettingsDigest = digest({ presetDigest, connectionRevision: 1 });
+  const fixtureOperationId = "qualification-fixture";
+  const bindingId = "qualification-binding";
+  const fixtureProjectId = "qualification-project";
+  await db.insert(schema.projects).values({ id: fixtureProjectId, name: fixtureProjectId,
+    purpose: "incus-qualification", path: "/__incus_qualification__/test" });
+  await db.insert(schema.sandboxBindings).values({ id: bindingId, projectId: fixtureProjectId,
+    providerInstallationId: "installation", providerReleaseId: "release", connectionId: "connection",
+    connectionRevision: 1, profile: preset.profile, presetId: preset.id, presetDigest,
+    effectiveSettingsDigest, resourceKey: bindingId, desiredState: "STOPPED", observedState: "STOPPED" });
+  await db.insert(schema.incusQualificationFixtures).values({ operationId: fixtureOperationId,
+    projectId: fixtureProjectId, bindingId, installationId: "installation", releaseId: "release",
+    connectionId: "connection", connectionRevision: 1, presetId: preset.id, presetDigest,
+    effectiveSettingsDigest });
+  await db.insert(schema.sandboxReservations).values({ bindingId, projectId: fixtureProjectId,
+    providerInstallationId: "installation", connectionId: "connection", generation: 1,
+    memoryBytes: preset.limits.memoryBytes, cpuMillicores: preset.limits.cpuMillis,
+    pids: preset.limits.pids, diskBytes: preset.limits.diskBytes, executionSlots: 1,
+    computeState: "RELEASED", diskState: "RESERVED" });
+  const input = { projectId: "project", installationId: "installation", connectionId: "connection",
+    presetId: preset.id };
+  await service.prepare(input);
+  await admission.markCleanupIntent(bindingId, 1, `incus-qualification-destroy-${fixtureOperationId}`);
+  const destroy = await controller.requestAndDispatch({ bindingId, generation: 1,
+    idempotencyScope: "incus-qualification", idempotencyKey: `${fixtureOperationId}:destroy`,
+    kind: "DESTROY", payload: { expectedGeneration: 1 } });
+  expect(destroy.state).toBe("PROVIDER_PENDING");
+  await db.update(schema.sandboxOperations).set({ state: "OUTCOME_UNKNOWN" })
+    .where(eq(schema.sandboxOperations.id, destroy.id));
+  await expect(service.prepare(input)).rejects.toMatchObject({ code: "QUALIFICATION_CLEANUP_UNVERIFIED" });
+
+  // Reconciliation inspects the same operation. A provider absence receipt by
+  // itself is insufficient: the retained disk still needs its cleanup intent.
+  await controller.reconcile();
+  expect((await controller.getOperation(destroy.id))?.state).toBe("SUCCEEDED");
+  expect((await controller.getBinding(bindingId))?.cleanupConfirmedAt).toBeInstanceOf(Date);
+  expect((await admission.getReservation(bindingId))?.diskState).toBe("RELEASE_REQUESTED");
+  await expect(service.prepare(input)).rejects.toMatchObject({ code: "QUALIFICATION_CLEANUP_UNVERIFIED" });
+  await service.reconcile();
+  expect((await admission.getReservation(bindingId))?.diskState).toBe("RELEASED");
+  expect((await controller.getOperation(destroy.id))?.id).toBe(destroy.id);
+  await db.update(schema.sandboxBindings).set({ cleanupConfirmedAt: null })
+    .where(eq(schema.sandboxBindings.id, bindingId));
+  await expect(service.prepare(input)).rejects.toMatchObject({ code: "QUALIFICATION_CLEANUP_UNVERIFIED" });
+  await db.update(schema.sandboxBindings).set({ cleanupConfirmedAt: new Date() })
+    .where(eq(schema.sandboxBindings.id, bindingId));
+  expect(await service.prepare(input)).toMatchObject({ projectId: "project" });
+}, DB_TEST_TIMEOUT_MS);

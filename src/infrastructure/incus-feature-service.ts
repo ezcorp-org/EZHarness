@@ -50,6 +50,14 @@ export type IncusFeatureEffect =
   | { state: "QUEUED" | "REJECTED"; reason: string | null; operation: null }
   | { state: "DISPATCHED"; operation: SandboxOperation };
 
+export class IncusQualificationCleanupError extends Error {
+  readonly code = "QUALIFICATION_CLEANUP_UNVERIFIED";
+
+  constructor() {
+    super("Incus qualification fixture cleanup is unverified");
+  }
+}
+
 export async function inspectRelease(installationId: string, bindingId: string, input: Record<string, unknown>): Promise<unknown> {
   const process = new ReleaseProcess(installationId);
   try {
@@ -92,6 +100,22 @@ function intentId(kind: string, request: IncusFeatureRequest): string {
   return `incus-${kind.toLowerCase()}-${createHash("sha256")
     .update(JSON.stringify([request.bindingId, request.idempotencyScope, request.idempotencyKey]))
     .digest("hex")}`;
+}
+
+type QualificationFixture = typeof incusQualificationFixtures.$inferSelect;
+
+function fixtureMatchesBinding(fixture: QualificationFixture, binding: SandboxBinding): boolean {
+  return binding.id === fixture.bindingId && binding.projectId === fixture.projectId
+    && binding.resourceKey === fixture.bindingId
+    && binding.providerInstallationId === fixture.installationId
+    && binding.providerReleaseId === fixture.releaseId && binding.connectionId === fixture.connectionId
+    && binding.connectionRevision === fixture.connectionRevision && binding.presetId === fixture.presetId
+    && binding.presetDigest === fixture.presetDigest
+    && binding.effectiveSettingsDigest === fixture.effectiveSettingsDigest;
+}
+
+function qualificationDestroyIntent(operationId: string): string {
+  return `incus-qualification-destroy-${operationId}`;
 }
 
 export class IncusFeatureService {
@@ -145,6 +169,11 @@ export class IncusFeatureService {
     }
     const digest = await sandboxPresetDigest(preset);
     const effectiveSettingsDigest = setupDigest({ presetDigest: digest, connectionRevision: revision });
+    if (requireQualification) {
+      await this.assertFixtureCleanupVerified({ installationId: input.installationId,
+        releaseId: snapshot.release.id, connectionId: input.connectionId, connectionRevision: revision,
+        presetId: input.presetId, presetDigest: digest, effectiveSettingsDigest });
+    }
     let qualification: LiveSandboxPresetQualification | null = null;
     if (requireQualification) {
       qualification = await this.deps.loadQualification({
@@ -165,6 +194,41 @@ export class IncusFeatureService {
       throw new Error("Incus feature binding changed");
     }
     return { snapshot, connection, preset, qualification, presetDigest: digest, effectiveSettingsDigest };
+  }
+
+  /** A fixture destroy is cleared only by the original journaled operation,
+   * provider-confirmed absence, and settled admission reservation. */
+  private async assertFixtureCleanupVerified(scope: {
+    installationId: string; releaseId: string; connectionId: string; connectionRevision: number;
+    presetId: string; presetDigest: string; effectiveSettingsDigest: string;
+  }): Promise<void> {
+    const destroys = await this.db.select({ fixture: incusQualificationFixtures,
+      binding: sandboxBindings, operation: sandboxOperations, reservation: sandboxReservations })
+      .from(incusQualificationFixtures)
+      .innerJoin(sandboxBindings, eq(sandboxBindings.id, incusQualificationFixtures.bindingId))
+      .innerJoin(sandboxOperations, and(eq(sandboxOperations.bindingId, incusQualificationFixtures.bindingId),
+        eq(sandboxOperations.kind, "DESTROY")))
+      .leftJoin(sandboxReservations, eq(sandboxReservations.bindingId, incusQualificationFixtures.bindingId))
+      .where(and(eq(incusQualificationFixtures.installationId, scope.installationId),
+        eq(incusQualificationFixtures.releaseId, scope.releaseId),
+        eq(incusQualificationFixtures.connectionId, scope.connectionId),
+        eq(incusQualificationFixtures.connectionRevision, scope.connectionRevision),
+        eq(incusQualificationFixtures.presetId, scope.presetId),
+        eq(incusQualificationFixtures.presetDigest, scope.presetDigest),
+        eq(incusQualificationFixtures.effectiveSettingsDigest, scope.effectiveSettingsDigest)));
+    for (const { fixture, binding, operation, reservation } of destroys) {
+      if (!fixtureMatchesBinding(fixture, binding) || operation.idempotencyScope !== "incus-qualification"
+        || operation.idempotencyKey !== `${fixture.operationId}:destroy`
+        || operation.state !== "SUCCEEDED" || binding.currentOperationId !== operation.id
+        || binding.generation !== operation.generation || binding.desiredState !== "ABSENT"
+        || binding.observedState !== "ABSENT" || !binding.tombstonedAt || !binding.cleanupConfirmedAt
+        || !reservation || reservation.generation !== operation.generation
+        || reservation.cleanupIntentId !== qualificationDestroyIntent(fixture.operationId)
+        || !reservation.cleanupRequestedAt || reservation.computeState !== "RELEASED"
+        || reservation.diskState !== "RELEASED") {
+        throw new IncusQualificationCleanupError();
+      }
+    }
   }
 
   async prepare(input: PrepareIncusFeatureInput): Promise<SandboxBinding> {
@@ -315,14 +379,39 @@ export class IncusFeatureService {
     if (!binding || binding.generation !== operation.generation || binding.currentOperationId !== operation.id) return;
     const request = { bindingId: binding.id, idempotencyScope: operation.idempotencyScope,
       idempotencyKey: operation.idempotencyKey };
+    const [fixture] = await this.db.select().from(incusQualificationFixtures)
+      .where(eq(incusQualificationFixtures.bindingId, binding.id)).limit(1);
+    const settlementIntent = () => {
+      if (!fixture) return intentId(operation.kind, request);
+      if (!fixtureMatchesBinding(fixture, binding)) {
+        throw new IncusQualificationCleanupError();
+      }
+      if (operation.idempotencyScope === "incus-qualification" && operation.kind === "CREATE"
+        && operation.idempotencyKey === fixture.operationId) {
+        const scope = { installationId: fixture.installationId, releaseId: fixture.releaseId,
+          connectionId: fixture.connectionId, presetId: fixture.presetId };
+        const identity = createHash("sha256").update(JSON.stringify([scope, fixture.operationId])).digest("hex");
+        return `incus-qualification-create-${identity}`;
+      }
+      if (operation.idempotencyScope === "incus-qualification-power" && operation.kind === "STOP"
+        && operation.idempotencyKey.startsWith(`${fixture.operationId}:`)) {
+        const powerId = operation.idempotencyKey.slice(fixture.operationId.length + 1);
+        if (powerId) return `incus-qualification-stop-${fixture.operationId}-${powerId}`;
+      }
+      if (operation.idempotencyScope === "incus-qualification" && operation.kind === "DESTROY"
+        && operation.idempotencyKey === `${fixture.operationId}:destroy`) {
+        return qualificationDestroyIntent(fixture.operationId);
+      }
+      throw new IncusQualificationCleanupError();
+    };
     if (operation.kind === "CREATE" && binding.observedState === "STOPPED") {
-      const id = intentId("CREATE", request);
+      const id = settlementIntent();
       await this.admission.markStopIntent(binding.id, binding.generation, id);
       await this.admission.recordObservedState(binding.id, binding.generation, "STOPPED", id);
     } else if (operation.kind === "STOP" && binding.observedState === "STOPPED") {
-      await this.admission.recordObservedState(binding.id, binding.generation, "STOPPED", intentId("STOP", request));
+      await this.admission.recordObservedState(binding.id, binding.generation, "STOPPED", settlementIntent());
     } else if (operation.kind === "DESTROY" && binding.observedState === "ABSENT") {
-      await this.admission.recordObservedState(binding.id, binding.generation, "ABSENT", intentId("DESTROY", request));
+      await this.admission.recordObservedState(binding.id, binding.generation, "ABSENT", settlementIntent());
     }
   }
 
