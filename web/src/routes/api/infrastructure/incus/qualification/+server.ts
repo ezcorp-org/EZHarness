@@ -2,6 +2,8 @@ import { json } from "@sveltejs/kit";
 import { requireAdminSession } from "$server/auth/middleware";
 import { IncusHostLiveWitness, incusHostLiveWitnessReady } from "$server/infrastructure/incus-host-live-witness";
 import { createIncusLiveCaseRunner } from "$server/infrastructure/incus-live-cases";
+import { IncusLiveControlProbes } from "$server/infrastructure/incus-live-control-probes";
+import { IncusLiveProbeFixtureService } from "$server/infrastructure/incus-live-probe-fixtures";
 import { IncusQualificationFixtureService, IncusQualificationStore,
   type IncusQualificationScope } from "$server/infrastructure/incus-qualification";
 import type { RequestHandler } from "./$types";
@@ -16,8 +18,7 @@ function parse(value: unknown): { action: Action; scope: IncusQualificationScope
   if (input.action !== "create" && input.action !== "status" && input.action !== "destroy"
     && input.action !== "start" && input.action !== "stop" && input.action !== "qualify") return null;
   const power = input.action === "start" || input.action === "stop";
-  const expected = input.action === "qualify" ? fields.filter(field => field !== "operationId")
-    : power ? [...fields, "powerOperationId"] : fields;
+  const expected = power ? [...fields, "powerOperationId"] : fields;
   if (Object.keys(input).sort().join(",") !== [...expected].sort().join(",")) return null;
   for (const field of expected.slice(1)) if (typeof input[field] !== "string" || !identifier.test(input[field])) return null;
   if (power && (typeof input.powerOperationId !== "string" || !identifier.test(input.powerOperationId))) return null;
@@ -50,7 +51,11 @@ export const POST: RequestHandler = async ({ locals, request }) => {
         return json({ code: "qualification_unavailable",
           message: "The host live qualification witness is incomplete." }, { status: 503 });
       }
-      const witness = new IncusHostLiveWitness();
+      const rootDirectory = process.env.EZCORP_INCUS_CONTROL_PROBE_ROOT;
+      if (!rootDirectory) throw new Error("Incus control probe root is unavailable");
+      const config = await new IncusLiveProbeFixtureService({ rootDirectory })
+        .readyConfig(input.scope, input.operationId);
+      const witness = new IncusHostLiveWitness({ controlProbe: new IncusLiveControlProbes(config) });
       const runLiveCases = createIncusLiveCaseRunner({ witness,
         composeFixtureImageRef: process.env.EZCORP_INCUS_COMPOSE_FIXTURE_IMAGE_REF });
       const qualification = await new IncusQualificationStore({ runLiveCases }).recordVerified(input.scope);

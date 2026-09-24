@@ -12,6 +12,7 @@ import { IncusQualificationFixtureService, IncusQualificationStore, type IncusIm
   type IncusQualificationScope } from "./incus-qualification";
 import type { HostIncusLiveWitness, LiveFixtureHandle, LiveFixtureInspection } from "./incus-live-cases";
 import { observeIncusResourceEnforcement, type IncusNetworkTarget } from "./incus-live-resource-probes";
+import { IncusLiveNetworkProbe } from "./incus-live-network-probe";
 import { HostIncusLiveReadback, type LiveReadbackContext } from "./incus-transport/live-readback";
 import { ProviderConnectionStore, type ProviderConnectionCredentials,
   type ProviderConnectionScope } from "./provider-connections/store";
@@ -74,8 +75,7 @@ export interface IncusHostLiveWitnessDependencies {
     attempt(kind: ControlDenial, scope: IncusQualificationScope, preset: SandboxPreset): Promise<string>;
   };
   /** Host-owned source of a running, distinct sandbox service and independent
-   * host reachability checks. The default is absent until real inventory and
-   * control-target ownership can be verified. */
+   * host reachability checks. */
   resourceNetwork?: {
     neighborTarget(context: LiveReadbackContext, neighbor: LiveFixtureHandle): Promise<IncusNetworkTarget & {
       sandboxId: string;
@@ -132,7 +132,7 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
     this.readSetup = deps.readSetup ?? (id => readSetup(this.db, id));
     this.backend = deps.backend ?? new HostIncusLiveReadback(new ProviderConnectionStore(this.db));
     this.controlProbe = deps.controlProbe;
-    this.resourceNetwork = deps.resourceNetwork;
+    this.resourceNetwork = deps.resourceNetwork ?? new IncusLiveNetworkProbe({ db: this.db });
     this.now = deps.now ?? Date.now;
   }
 

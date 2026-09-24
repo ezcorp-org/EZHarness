@@ -1,12 +1,38 @@
-import { expect, mock, test } from "bun:test";
+import { afterEach, expect, mock, test } from "bun:test";
 
 const calls: string[] = [];
 let fail = false;
 let witnessReady = false;
 let verifiedStoreResult = false;
+let fixtureReady = true;
+const originalRoot = process.env.EZCORP_INCUS_CONTROL_PROBE_ROOT;
+afterEach(() => {
+  if (originalRoot === undefined) delete process.env.EZCORP_INCUS_CONTROL_PROBE_ROOT;
+  else process.env.EZCORP_INCUS_CONTROL_PROBE_ROOT = originalRoot;
+});
 mock.module("$server/infrastructure/incus-host-live-witness", () => ({
   incusHostLiveWitnessReady: () => witnessReady,
-  IncusHostLiveWitness: class { constructor() { calls.push("witness.construct"); } },
+  IncusHostLiveWitness: class {
+    constructor(options: { controlProbe: unknown }) {
+      calls.push(`witness.construct:${options.controlProbe instanceof ControlProbe}`);
+    }
+  },
+}));
+class ControlProbe {
+  constructor(config: { cases: Record<string, unknown> }) {
+    calls.push(`control.construct:${Object.keys(config.cases).length}`);
+  }
+}
+mock.module("$server/infrastructure/incus-live-control-probes", () => ({ IncusLiveControlProbes: ControlProbe }));
+mock.module("$server/infrastructure/incus-live-probe-fixtures", () => ({
+  IncusLiveProbeFixtureService: class {
+    constructor(options: { rootDirectory: string }) { calls.push(`probe-fixture.construct:${options.rootDirectory}`); }
+    async readyConfig(input: { connectionId: string }, operationId: string) {
+      calls.push(`probe-fixture.ready:${input.connectionId}:${operationId}`);
+      if (!fixtureReady) throw new Error("fixture missing or stale");
+      return { cases: { unsupported: {}, missingControl: {}, drift: {}, unqualified: {} } };
+    }
+  },
 }));
 mock.module("$server/infrastructure/incus-live-cases", () => ({
   createIncusLiveCaseRunner: (options: { witness: unknown; composeFixtureImageRef?: string }) => {
@@ -87,7 +113,7 @@ test("fixture actions reject forged scope, extra authority, and invalid IDs befo
     { ...scope, action: "create", qualification: { producer: "live-provider" } },
     { ...scope, action: "create", operationId: "../other" },
     { ...scope, action: "create", releaseId: "" },
-    { ...scope, action: "qualify" },
+    { ...scope, action: "qualify", operationId: "../other" },
     { ...scope, action: "qualify", qualification: { forged: true } },
     { ...scope, action: "status", projectId: "other-project" },
     { ...scope, action: "destroy", connectionId: undefined },
@@ -100,21 +126,36 @@ test("fixture actions reject forged scope, extra authority, and invalid IDs befo
 test("qualify rejects incomplete host witness before store or provider activity", async () => {
   calls.length = 0;
   witnessReady = false;
-  const { operationId: _operationId, ...exactScope } = scope;
-  const response = await POST(event(admin, { ...exactScope, action: "qualify" }));
+  const response = await POST(event(admin, { ...scope, action: "qualify" }));
   expect(response.status).toBe(503);
   expect(await response.json()).toMatchObject({ code: "qualification_unavailable" });
   expect(calls).toEqual([]);
 });
 
-test("qualify wires the real witness runner into recordVerified when readiness opens", async () => {
+test("qualify fails closed when the operator root or exact ready fixture is absent", async () => {
   calls.length = 0;
   witnessReady = true;
-  const { operationId: _operationId, ...exactScope } = scope;
   try {
-    const response = await POST(event(admin, { ...exactScope, action: "qualify" }));
+    delete process.env.EZCORP_INCUS_CONTROL_PROBE_ROOT;
+    expect((await POST(event(admin, { ...scope, action: "qualify" }))).status).toBe(409);
+    expect(calls).toEqual([]);
+    process.env.EZCORP_INCUS_CONTROL_PROBE_ROOT = "/private/operator";
+    fixtureReady = false;
+    const response = await POST(event(admin, { ...scope, action: "qualify" }));
     expect(response.status).toBe(409);
-    expect(calls).toEqual(["witness.construct", "runner.construct:true:missing",
+    expect(calls).toEqual(["probe-fixture.construct:/private/operator", "probe-fixture.ready:connection:fixture-1"]);
+  } finally { witnessReady = false; fixtureReady = true; }
+});
+
+test("qualify wires exact ready controls and the live witness into recordVerified", async () => {
+  calls.length = 0;
+  witnessReady = true;
+  process.env.EZCORP_INCUS_CONTROL_PROBE_ROOT = "/private/operator";
+  try {
+    const response = await POST(event(admin, { ...scope, action: "qualify" }));
+    expect(response.status).toBe(409);
+    expect(calls).toEqual(["probe-fixture.construct:/private/operator", "probe-fixture.ready:connection:fixture-1",
+      "control.construct:4", "witness.construct:true", "runner.construct:true:missing",
       "store.construct", "recordVerified:connection", "runner.execute"]);
   } finally { witnessReady = false; }
 });
@@ -123,15 +164,16 @@ test("qualify returns only store-owned verification metadata", async () => {
   calls.length = 0;
   witnessReady = true;
   verifiedStoreResult = true;
-  const { operationId: _operationId, ...exactScope } = scope;
+  process.env.EZCORP_INCUS_CONTROL_PROBE_ROOT = "/private/operator";
   try {
-    const response = await POST(event(admin, { ...exactScope, action: "qualify" }));
+    const response = await POST(event(admin, { ...scope, action: "qualify" }));
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ qualification: { providerId: "incus", connectionId: "connection",
       presetId: "preset", releaseDigest: "a".repeat(64), verifiedAt: "2026-09-23T00:00:00Z",
       validUntil: "2026-09-24T00:00:00Z", cases: [{ caseId: "SP01", status: "passed" }] } });
-    expect(calls).toEqual(["witness.construct", "runner.construct:true:missing", "store.construct",
-      "recordVerified:connection", "runner.execute"]);
+    expect(calls).toEqual(["probe-fixture.construct:/private/operator", "probe-fixture.ready:connection:fixture-1",
+      "control.construct:4", "witness.construct:true", "runner.construct:true:missing",
+      "store.construct", "recordVerified:connection", "runner.execute"]);
   } finally { witnessReady = false; verifiedStoreResult = false; }
 });
 

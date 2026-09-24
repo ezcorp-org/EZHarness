@@ -7,6 +7,7 @@ import type { Database } from "../db/connection";
 import { incusQualificationFixtures } from "../db/schema";
 import type { ActiveExtensionRelease } from "../extensions/release-process";
 import { IncusHostLiveWitness, incusHostLiveWitnessReady } from "./incus-host-live-witness";
+import { IncusLiveNetworkProbe } from "./incus-live-network-probe";
 import type { IncusQualificationFixtureService, IncusQualificationStore } from "./incus-qualification";
 import type { ProviderConnectionCredentials } from "./provider-connections/store";
 
@@ -19,17 +20,19 @@ const witness = new IncusHostLiveWitness({ db: {} as Database,
 
 test("production qualification remains closed while SP probes are incomplete", () => {
   expect(incusHostLiveWitnessReady()).toBe(false);
+  expect((witness as unknown as { resourceNetwork: unknown }).resourceNetwork)
+    .toBeInstanceOf(IncusLiveNetworkProbe);
 });
 
 test("every unmeasured host probe denies instead of reporting a passing fact", async () => {
   const preset = INCUS_PRESETS[0]!;
   for (const call of [
     () => witness.controlFacts(scope, preset),
-    () => witness.observeEnforcement(handle, { sandboxId: "other", operationId: "other-operation" }),
     () => witness.exerciseLimits(handle, { sandboxId: "other", operationId: "other-operation" }),
     () => witness.restartController(),
     () => witness.exerciseFailedCleanupRecovery(handle, handle),
   ]) await expect(call()).rejects.toThrow("Incus live witness unavailable");
+  await expect(witness.observeEnforcement(handle, handle)).rejects.toThrow("two distinct fixtures");
 });
 
 test("observe requires exact verified setup and rejects forged backend artifact readback", async () => {

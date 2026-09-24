@@ -41,11 +41,12 @@ async function fixture() {
     effectiveSettingsDigest: "settings" };
   let authorized = 0;
   let disabled = false;
+  let connectionRevision = 1;
   const qualifications = { authorizeFixture: async (input: typeof scope) => {
     authorized++;
     if (disabled) throw new Error("release disabled");
     if (JSON.stringify(input) !== JSON.stringify(scope)) throw new Error("scope denied");
-    return selected;
+    return { ...selected, connection: { ...selected.connection, revision: connectionRevision } };
   }, load: async () => null } as unknown as IncusQualificationStore;
   await db.insert(schema.sandboxHostCapacities).values({
     providerInstallationId: scope.installationId, connectionId: scope.connectionId,
@@ -56,8 +57,19 @@ async function fixture() {
   });
   const service = new IncusLiveProbeFixtureService({ db, rootDirectory: root, qualifications });
   return { db, root, scope, service, authorized: () => authorized,
-    disable: () => { disabled = true; } };
+    disable: () => { disabled = true; },
+    changeRevision: () => { connectionRevision++; } };
 }
+
+test("only an intact fixture matching the current reviewed plan supplies control config", async () => {
+  const { scope, service, changeRevision } = await fixture();
+  await expect(service.readyConfig(scope, "run-one")).rejects.toThrow("missing, incomplete, or stale");
+  const plan = await service.plan(scope, "run-one");
+  await service.apply(scope, "run-one", plan.digest);
+  expect(await service.readyConfig(scope, "run-one")).toEqual(plan.config);
+  changeRevision();
+  await expect(service.readyConfig(scope, "run-one")).rejects.toThrow("missing, incomplete, or stale");
+});
 
 test("reviewed plan creates four private AMD canaries and exactly two allocation-free bindings; replay is stable", async () => {
   const { db, root, scope, service } = await fixture();

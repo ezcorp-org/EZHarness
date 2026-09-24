@@ -228,6 +228,16 @@ export class IncusLiveProbeFixtureService {
     } catch { return { state: "incomplete", receipt }; }
   }
 
+  /** Use only an applied, intact plan that still matches current reviewed settings. */
+  async readyConfig(scope: IncusQualificationScope, operationId: string): Promise<IncusControlProbeConfig> {
+    const current = await this.plan(scope, operationId);
+    const status = await this.status(scope, operationId);
+    if (status.state !== "ready" || status.receipt?.planDigest !== current.digest) {
+      throw new Error("Incus probe fixture is missing, incomplete, or stale");
+    }
+    return current.config;
+  }
+
   private async savedPlan(scope: IncusQualificationScope, operationId: string): Promise<IncusProbeFixturePlan | null> {
     assertScope(scope, operationId);
     await privateDirectory(this.deps.rootDirectory);
