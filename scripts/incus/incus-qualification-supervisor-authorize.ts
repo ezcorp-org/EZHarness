@@ -23,7 +23,7 @@ async function main() {
       connectionRevision: number; lastOperationId: string; beforeDigest: string;
       oldProcess: { pid: number; startTicks: string }; state: string;
       projectPurpose: string; desiredState: string; observedState: string;
-      operationState: string; operationGeneration: number; fixtureBindingId: string;
+      currentOperationId: string; operationState: string; operationGeneration: number; fixtureBindingId: string;
       fixtureConnectionRevision: number; fixtureInstallationId: string;
       fixtureReleaseId: string; fixtureConnectionId: string; fixturePresetId: string;
       bindingGeneration: number; bindingInstallationId: string;
@@ -35,7 +35,7 @@ async function main() {
       r.last_operation_id AS "lastOperationId", r.before_digest AS "beforeDigest",
       r.old_process_identity AS "oldProcess", r.state,
       p.purpose AS "projectPurpose", b.desired_state AS "desiredState",
-      b.observed_state AS "observedState", o.state AS "operationState",
+      b.observed_state AS "observedState", o.id AS "currentOperationId", o.state AS "operationState",
       o.generation AS "operationGeneration", f.binding_id AS "fixtureBindingId",
       f.connection_revision AS "fixtureConnectionRevision",
       f.installation_id AS "fixtureInstallationId", f.release_id AS "fixtureReleaseId",
@@ -64,7 +64,9 @@ async function main() {
       && row.connectionRevision === input.connectionRevision
       && row.fixtureConnectionRevision === input.connectionRevision
       && row.bindingConnectionRevision === input.connectionRevision
-      && row.lastOperationId === input.lastOperationId && row.beforeDigest === input.beforeDigest
+      && row.lastOperationId === input.lastOperationId
+      && row.currentOperationId === row.lastOperationId
+      && row.beforeDigest === input.beforeDigest
       && row.projectPurpose === "incus-qualification"
       && row.desiredState === "STOPPED" && row.observedState === "STOPPED"
       && row.operationState === "SUCCEEDED" && row.operationGeneration === row.generation

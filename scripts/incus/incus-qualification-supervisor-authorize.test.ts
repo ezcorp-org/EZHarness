@@ -58,8 +58,17 @@ test("offline verifier accepts only the exact stopped qualification checkpoint",
     }
     const changedDb = new PGlite(directory);
     await changedDb.waitReady;
-    await changedDb.exec("UPDATE projects SET purpose = 'user' WHERE id = 'project'");
+    await changedDb.exec(`
+      INSERT INTO provider_sandbox_operations VALUES ('replacement-operation', 'binding', 'SUCCEEDED', 3);
+      UPDATE sandbox_bindings SET current_operation_id = 'replacement-operation' WHERE id = 'binding';
+    `);
     await changedDb.close();
+    expect(invoke(request).status).not.toBe(0);
+    const changedPurposeDb = new PGlite(directory);
+    await changedPurposeDb.waitReady;
+    await changedPurposeDb.exec("UPDATE sandbox_bindings SET current_operation_id = 'operation' WHERE id = 'binding'");
+    await changedPurposeDb.exec("UPDATE projects SET purpose = 'user' WHERE id = 'project'");
+    await changedPurposeDb.close();
     expect(invoke(request).status).not.toBe(0);
   } finally {
     await rm(directory, { recursive: true, force: true });

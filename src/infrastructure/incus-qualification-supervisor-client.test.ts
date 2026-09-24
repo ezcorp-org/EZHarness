@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { requestIncusSupervisorReceipt, requestIncusSupervisorRestart,
   type SupervisorRestartRequest } from "./incus-qualification-supervisor-client";
+import type { SignedRestartHandoff } from "./incus-qualification-checkpoint";
 
 const roots: string[] = [];
 const servers: Server[] = [];
@@ -44,7 +45,10 @@ test("client sends exact restart and receipt frames", async () => {
     return '{"accepted":true}\n';
   });
   await requestIncusSupervisorRestart(restartSocket, restart);
-  const receipt = { payload: { version: 1 }, signature: "signature" };
+  const receipt: SignedRestartHandoff = { payload: {
+    ...restart, oldProcess: { pid: 1, startTicks: "1" },
+    newProcess: { pid: 2, startTicks: "2" }, afterDigest: "b".repeat(64),
+  }, signature: "signature" };
   const receiptSocket = await server(input => {
     expect(input).toEqual({ version: 1, action: "receipt", runId: "run", nonce: "nonce",
       afterDigest: "b".repeat(64) });

@@ -1438,7 +1438,7 @@ Review: four isolated Sol worktrees supplied the refactors and focused receipts,
 - [x] Reproduce the missing cross-process continuation with a test on one persistent database.
 - [x] Add durable checkpoint migration and a single-claim resume API bound to the exact qualification fixture.
 - [x] Verify a signed external handoff receipt and observations before a checkpoint can be claimed.
-- [ ] Add a private operator supervisor contract; keep the host witness gate closed until actual restart proof exists.
+- [x] Add a private operator supervisor contract; keep the host witness gate closed until actual restart proof exists.
 - [x] Run focused tests, typecheck, lint, and record results here.
 
 ### Review
@@ -1450,3 +1450,26 @@ Focused tests: 4 pass under pinned Bun 1.3.14. Focused LCOV measures the new
 checkpoint module at 27/27 functions and 173/173 lines. Backend and web
 typecheck pass. Biome check of changed files passes. The operator supervisor, its authenticated private channel,
 real endpoint readback, and production continuation remain the live gate.
+
+## Incus qualification continuation seam (2026-09-23)
+
+- [x] Reproduce the process boundary with a failing two-process persistent database test.
+- [x] Add a stopped fixture prepare/resume seam that reads fixture status and pinned Incus instance.
+- [x] Check the signed supervisor handoff, stable observations, and single claim before returning restart evidence.
+- [x] Verify stale observations fail closed; run focused tests, typecheck, lint, and coverage.
+
+### Review
+
+The two-process PGlite test passed after the first process exited. The new process rebuilt its observation and claimed the signed handoff once. A separate test denied a running or changed observation and an operator verifier rejection. Focused coverage measured 100% functions and lines in the continuation source. The seam returns restart evidence only. The current synchronous live-case runner and external supervisor need a durable startup integration before a live SP case can be recorded.
+
+## Incus qualification supervisor review (2026-09-23)
+
+- [x] Test the private Linux socket with a real child restart, peer rejection, signed receipt, and replay denial.
+- [x] Reject group-writable control directories and changed current operation IDs.
+- [x] Reap managed child processes on supervisor termination and fail the supervisor when its child exits unexpectedly.
+- [x] Run focused Bun and Python tests, typecheck, build, Biome, and gate integrity.
+- [ ] Integrate the operator verifier and startup continuation with the production live runner, then qualify on the selected hosts.
+
+### Review
+
+The real-process Python suite passes three cases. The Bun wrapper, persisted authorizer, client, and continuation tests pass. The authorizer now rejects a replacement current operation even when it has the same generation and succeeded state. The sample receipt verifier remains disabled, so it cannot sign production restart proof. The host witness stays closed until the real backend verifier, process owner, and live continuation are integrated and tested.

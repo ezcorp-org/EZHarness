@@ -70,6 +70,40 @@ def wait_file(path):
 
 
 class SupervisorTest(unittest.TestCase):
+    def test_unexpected_app_exit_ends_supervisor_with_failure(self):
+        with tempfile.TemporaryDirectory(prefix="incus-supervisor-", dir="/tmp") as directory:
+            root = Path(directory)
+            key = root / "key.pem"
+            subprocess.run(["openssl", "genpkey", "-algorithm", "Ed25519", "-out", str(key)],
+                           check=True, capture_output=True)
+            key.chmod(0o600)
+            socket_path = root / "control.sock"
+            runner = subprocess.run([sys.executable, "-c", """
+import importlib.util, sys
+s=importlib.util.spec_from_file_location('supervisor',sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
+m.Supervisor(sys.argv[2],[sys.executable,'-c','raise SystemExit(7)'],
+ int(sys.argv[3]),int(sys.argv[4]),sys.argv[5],['true'],['true'],
+ enforce_distinct_uid=False).serve()
+""", str(SOURCE), str(socket_path), str(os.getuid()), str(os.getgid()), str(key)],
+                capture_output=True, timeout=5)
+            self.assertNotEqual(runner.returncode, 0)
+            self.assertIn(b"managed app exited unexpectedly", runner.stderr)
+            self.assertFalse(socket_path.exists())
+
+    def test_group_writable_control_directory_is_rejected(self):
+        with tempfile.TemporaryDirectory(prefix="incus-supervisor-", dir="/tmp") as directory:
+            root = Path(directory)
+            key = root / "key.pem"
+            subprocess.run(["openssl", "genpkey", "-algorithm", "Ed25519", "-out", str(key)],
+                           check=True, capture_output=True)
+            key.chmod(0o600)
+            root.chmod(0o770)
+            supervisor = MODULE.Supervisor(str(root / "control.sock"), ["true"],
+                                           os.getuid(), os.getgid(), key, ["true"], ["true"],
+                                           enforce_distinct_uid=False)
+            with self.assertRaisesRegex(RuntimeError, "operator-owned and private"):
+                supervisor.serve()
+
     def test_real_restart_kernel_peer_and_one_use_receipt(self):
         # AF_UNIX paths are short; do not inherit a nested CI TMPDIR.
         with tempfile.TemporaryDirectory(prefix="incus-supervisor-", dir="/tmp") as directory:
@@ -102,6 +136,7 @@ m.Supervisor(sys.argv[2],[sys.executable,'-c',sys.argv[3],sys.argv[4],sys.argv[2
 """, str(SOURCE), str(socket_path), APP, directory, str(os.getuid()), str(os.getgid()), str(key),
                   AUTH, RECEIPT_AUTH],
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            new_pid = None
             try:
                 for _ in range(100):
                     if socket_path.exists(): break
@@ -113,6 +148,7 @@ m.Supervisor(sys.argv[2],[sys.executable,'-c',sys.argv[3],sys.argv[4],sys.argv[2
                     self.assertIn("unauthorized control peer", rogue.recv(4096).decode())
                 old = wait_file(root / "app-0.json")
                 new = wait_file(root / "app-1.json")
+                new_pid = new["pid"]
                 self.assertNotEqual(old, new)
                 self.assertFalse(Path(f"/proc/{old['pid']}").exists())
                 response = wait_file(root / "receipt.json")
@@ -147,6 +183,9 @@ verifyRestartHandoff(receipt, key);
                 try: runner.wait(timeout=5)
                 except subprocess.TimeoutExpired: runner.kill(); runner.wait()
                 runner.stdout.close(); runner.stderr.close()
+                if new_pid is not None:
+                    self.assertFalse(Path(f"/proc/{new_pid}").exists(),
+                                     "supervisor left its managed app running after shutdown")
 
 
 if __name__ == "__main__":

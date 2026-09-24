@@ -170,19 +170,27 @@ class Supervisor:
 
     def serve(self):
         parent = self.socket_path.parent.stat()
-        if parent.st_uid != os.geteuid() or parent.st_mode & 0o007:
+        if parent.st_uid != os.geteuid() or parent.st_mode & 0o027:
             raise RuntimeError("control directory must be operator-owned and private")
         if self.socket_path.exists():
             raise RuntimeError("control socket already exists")
         listener = socket.socket(socket.AF_UNIX)
+        previous_term = signal.getsignal(signal.SIGTERM)
+        signal.signal(signal.SIGTERM, lambda _signum, _frame: sys.exit(0))
         try:
             listener.bind(str(self.socket_path))
             os.chown(self.socket_path, -1, self.app_gid)
             os.chmod(self.socket_path, 0o660)
             listener.listen(4)
+            listener.settimeout(0.5)
             self.start_child()
             while True:
-                connection, _ = listener.accept()
+                if self.child.poll() is not None:
+                    raise RuntimeError("managed app exited unexpectedly")
+                try:
+                    connection, _ = listener.accept()
+                except socket.timeout:
+                    continue
                 with connection:
                     connection.settimeout(5)
                     try:
@@ -208,11 +216,16 @@ class Supervisor:
                         except OSError:
                             pass
         finally:
+            signal.signal(signal.SIGTERM, previous_term)
             listener.close()
             self.socket_path.unlink(missing_ok=True)
             if self.child and self.child.poll() is None:
-                self.child.terminate()
-                self.child.wait(timeout=10)
+                os.killpg(self.child.pid, signal.SIGTERM)
+                try:
+                    self.child.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    os.killpg(self.child.pid, signal.SIGKILL)
+                    self.child.wait(timeout=5)
 
     def restart_authorized(self, request):
         old_identity = self.child_identity
