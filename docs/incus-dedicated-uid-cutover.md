@@ -12,26 +12,13 @@ against the live app or its database while the runbook was prepared.
 
 ## 1. Review the identity and release
 
-Provision a static NixOS system user and group for this one isolated app.
-Choose unused numeric UID and GID values and record them in the cutover
-manifest. Keep the operator supervisor as root and the extension runner under
-its separate account. For example, in a reviewed NixOS module:
-
-```nix
-users.groups.ezharness-qual = { gid = 62040; };
-users.users.ezharness-qual = {
-  isSystemUser = true;
-  uid = 62040;
-  group = "ezharness-qual";
-  home = "/var/lib/ezharness-qual";
-  createHome = true;
-};
-```
-
-The values above are examples, not reserved IDs. Evaluate and apply the
-host's NixOS configuration separately. Confirm that the chosen UID owns no
-other process or file tree. The [NixOS manual](https://nixos.org/manual/nixos/stable/)
-describes declarative users and systemd services.
+Use the disabled-by-default AMD host module in
+[NixOS PR #2](https://github.com/EZArchy/nixos/pull/2). It proposes app
+UID/GID 62040, runner UID/GID 62041, and a shared socket GID 62042. The
+runner is not in the app-only group that can read the setup SSH key. These
+IDs remain candidates until the host generation is reviewed and activated.
+Check live UID/GID collisions and file ownership before that step. Keep the
+operator supervisor as root and the extension runner under its own account.
 
 Build the reviewed app release before stopping the old app. Install the whole
 release and its dependency closure under a root-owned, non-writable path such
@@ -69,9 +56,10 @@ The extension runner gateway checks the peer's numeric UID with Linux
 `EZ_EXTENSION_APP_UID` to the new app UID and keep
 `EZ_EXTENSION_RUNNER_SOCKET` equal to the app's socket setting. Stop and
 restart the runner to apply this change; changing the app UID alone will
-break every runner call. The socket's parent must have the app group and
-group search permission. Its token file must be regular, non-symlink,
-group-readable by the app group, and not group-writable or world-readable.
+break every runner call. The socket parent uses the separate socket group
+62042 and group search permission. Its token file must be regular,
+non-symlink, readable by that socket group, and not group-writable or
+world-readable. The runner must not join the app-only group.
 Every token and socket path ancestor must be root- or dedicated-runner-owned
 and must have no group or world write bit. A dev-owned `/tmp` parent fails
 this check even if the token itself has mode `0640`.
@@ -113,9 +101,9 @@ absolute paths:
   "builtApp": "/opt/ezharness/web/build/index.js",
   "oldEnv": "/etc/ezharness/old-isolated.env",
   "newEnv": "/etc/ezharness/qualification.env",
-  "runnerEnv": "/etc/ezharness/runner.env",
-  "runnerSocket": "/run/ezharness-runner/runner.sock",
-  "runnerTokenFile": "/etc/ezharness/runner-token",
+  "runnerEnv": "/etc/ezharness/qualification-runner.env",
+  "runnerSocket": "/run/ezharness-qual-runner/runner.sock",
+  "runnerTokenFile": "/run/ezharness-qual-runner/token",
   "supervisorConfig": "/etc/ezharness/incus-supervisor.json"
 }
 ```

@@ -21,13 +21,15 @@ It is not an authorization to run `stage --execute` or the saved CREATE repair.
 
 ## Proposed AMD host declaration
 
-Use a reviewed NixOS module for the static identities and services. Transient
+Use the disabled-by-default module in
+[NixOS PR #2](https://github.com/EZArchy/nixos/pull/2) for the static identities
+and services. Its offline build and access tests pass; it is not activated. Transient
 `systemd-run` units are useful for a guarded rehearsal, but their settings can
 drift across restarts and do not provide a stable process fence. Keep this
 configuration on the AMD host; no NixOS change on `sandbox-server` is needed.
 
-1. Reserve `ezharness-qual` UID/GID **62040** and `ezharness-qual-runner`
-   UID/GID **62041**, only after a fresh collision and ownership check. Give
+1. Reserve `ezharness-qual` UID/GID **62040**, `ezharness-qual-runner`
+   UID/GID **62041**, and socket GID **62042**, only after a fresh collision and ownership check. Give
    neither account password or SSH login, sudo, Docker group, nor Incus admin
    group. The runner can keep the shell that rootless Podman needs.
    The runner needs its own rootless Podman subordinate ID range, lingered user
@@ -56,9 +58,10 @@ configuration on the AMD host; no NixOS change on `sandbox-server` is needed.
    child and `operator.sock` mode 0600 for root. Keep signing key, pinned
    backend credentials, and operator verifier configuration root-only.
 4. Give the runner its own service, socket directory
-   `/run/ezharness-qual-runner` mode 2750 with the shared app group, private
+   `/run/ezharness-qual-runner` mode 2750 with the separate socket group 62042, private
    store `/var/lib/ezharness-qual-runner` mode 0700, and token file mode 0640
-   owned by the runner with app group 62040. Pin
+   owned by the runner with socket group 62042. The runner must not join the
+   app-only group that can read the setup SSH key. Pin
    `EZ_EXTENSION_APP_UID=62040`; the gateway checks the real Unix peer using
    `SO_PEERCRED`. The app receives only the socket and token file. Pin the
    runner release to the same reviewed SDK as the app. Start the runner before
@@ -76,14 +79,10 @@ configuration on the AMD host; no NixOS change on `sandbox-server` is needed.
    Incus recipe/connection inputs. Do not put secrets in a Nix derivation or
    world-readable unit property.
 
-The stage script currently requires the **runner environment file to be
-root-owned mode 0600**. A non-root `systemd --user` service cannot read that
-file as its own `EnvironmentFile`. Resolve this before cutover: use a root
-system manager to pass the protected environment into a service with
-`User=ezharness-qual-runner` and prove rootless Podman/cgroup operation, or
-change the preflight to verify an equivalent runner-owned sealed file while
-retaining an independently protected manifest. Do not prepare two unrelated
-copies of runner settings and assume they match.
+The module uses a root system manager to load the root-owned mode 0600 runner
+environment file into a service with `User=ezharness-qual-runner`. Its offline
+evaluation and group access tests pass. Rootless Podman and cgroup operation
+under this exact service remain live cutover gates.
 
 The current setup SSH identity is the developer's personal key. Moving it
 unchanged into the app would give app code that key's full server authority.
