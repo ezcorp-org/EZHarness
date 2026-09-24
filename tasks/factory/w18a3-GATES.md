@@ -3,6 +3,19 @@
 Receipts are under `/tmp/factory-platform-evidence/w18a3/`. `steps.jsonl` records each gate run with its head,
 exit code, and times. The combined runner is an unchanged copy of `/tmp/factory-platform-evidence/w00/combined-integration.py`.
 
+## Package branch
+
+The package branch is `wp/w18a3-quality-r2` (coordinator ruling 2026-09-24); `wp/w18a3-quality` stays at f7d79e629.
+The three fixture-authored commits were rebuilt with `git commit-tree` on their own trees and parents, with only the
+author changed to archy: db1ad8652 -> 48da9c886, 15bb52e0b -> 48ad53775, f7d79e629 -> 5e4772016 (parents d6914c53b
+and 6c8ec29c5 kept). A plain rebase would have linearized the merge and rewritten about 30 integ/w00 commits.
+Identical-tree proof: `git diff --quiet f7d79e629 5e4772016` exits 0, and each pair has the same tree id
+(`git rev-parse <sha>^{tree}`). `backup/w18a3-quality-fixture-authored` keeps f7d79e629 until the merge lands.
+The four leak commits were first made on `wp/w18a3-leaks` (from the staged main merge 0d3671c51) and were then
+cherry-picked onto -r2 after the merge of integ/w00 7a87aed5e: 2c03e3625 -> e8bba6baf, 9e14d178c -> fb4c8c2e0,
+0ae26f4b0 -> 0221670af, 17e2e8a63 -> 0d5e64514. The ten files they touch are byte-identical on both branches.
+`wp/w18a3-leaks` is kept until the merge lands.
+
 ## Gates
 
 - [x] G1: initPglite is judged only because the gate ran on an uncommitted merge. No leg is missing, and the gap is not real on a committed tree.
@@ -59,49 +72,165 @@ exit code, and times. The combined runner is an unchanged copy of `/tmp/factory-
   repository. The file at f7d79e629 wrote `patch-fixture@example.test` into the dummy's config; the file at
   d2c025a29 exits 0 and leaves the dummy unchanged. The commit of d2c025a29 went through the real pre-commit
   hook (gate-scripts 210 pass, git-hooks 17 pass), and the shared config's sha256 was the same before and after.
+  9dc2ba9fb adds GIT_CONFIG_NOSYSTEM=1 to `scratchGitEnv` (validator-3 L3); the unit test pins it, also over a
+  caller's GIT_CONFIG_NOSYSTEM=0, and the guard test pins that it is the only GIT_* variable left.
 
 - [ ] G6: Every gate is green at the final head over the fullest lcov, and the tree is clean.
-  CHECK: `continue/final-sweep.sh` (the combined runner, then the extra legs), then `continue/manual-merge-gates.sh`
+  CHECK: `continue/final-sweep.sh` (the combined runner, then the extra legs); `continue/manual-merge-gates.sh` if a producer fails
   EXPECT: every producer exits 0; CRAP --changed exits 0; new-file and patch vs integ/w00 exit 0
-  EVIDENCE: `final-d2c025a29/` at d2c025a29, clean tree. 16 of 17 producers exit 0 (focused 4059 pass, postgres
-  423 pass, web, node, compute, provisioning, python, types, lint, gate-integrity, boundaries). pool-coverage exits 1:
-  the node bundle imports the "bun" builtin through W15's checkpoint-barrier (F2 of the main-merge validation,
-  owner W15c). The runner merges no lcov when a producer fails, so `manual-merge-gates.sh` repeats its merge from the
-  other producers, the extra legs, and one added leg (`temporal-retention.test.ts`, which the focused list omits).
-  Over that lcov: new-file and patch vs integ/w00 exit 0. CRAP --changed exits 1 on 7 functions, all in
-  `src/factory/pool/` and measured only by the missing pool leg. Global floor (75.45 percent), per-file
-  thresholds, and new-file vs origin/main exit 1 and name no file this package changed. OPEN until W15c lands.
+  EVIDENCE (partial, d2c025a29): `final-d2c025a29/`. 16 of 17 producers exit 0. pool-coverage exits 1 on the node
+  bundle defect (the "bun" builtin through checkpoint-barrier), so the runner merges no lcov. The manual merge (same
+  labels and re-rooting, plus the extra legs and a `temporal-retention.test.ts` leg the focused list omits) gives:
+  new-file and patch vs integ/w00 exit 0; CRAP --changed exits 1 on 7 functions, all in `src/factory/pool/` and
+  measured only by the missing pool leg; global floor (75.45 percent), per-file thresholds, and new-file vs
+  origin/main exit 1 and name no file this package changed.
+  OPEN: rerun after W15b lands in integ/w00 and is merged here (coordinator ruling).
 
-## Main-origin leaks and flakes (branch wp/w18a3-leaks)
+## Main-origin leaks and flakes (now on -r2)
 
-These fixes need the files of the origin/main 96e7ee58c merge, which integ/w00 does not have yet. They are on
-`wp/w18a3-leaks`, based on proof/main-96e7ee58c-staged-r3 (0d3671c51, the staged merge tree 755b86474). They change
-test files only and apply on the committed main merge. Receipts: `continue/`. Every matrix runs at umask 077.
+Base for every comparison: integ/w00 7a87aed5e (the committed origin/main 96e7ee58c merge), in its own clean worktree.
+Head: 9dc2ba9fb, clean tree, after `bun install --frozen-lockfile` (root and web). Every matrix runs at umask 077.
+Receipts: `continue/consolidated/`. The first head run used node_modules from before the main merge; it gave the same
+counts but is kept apart in `consolidated/stale-deps/` and is not cited. Earlier receipts at 0d3671c51 and
+17e2e8a63 stay in `continue/` as history.
 
-- [x] G7: workflow-branch then mentions-search-symlink-integration (6 fail) and three suites then h1-local-provider-ssrf ("Export named 'requireAdmin' not found").
-  CHECK: `continue/pair-matrix.sh` (a copy of the triage tool; worktree and file list are parameters) over `leak-files.txt` and `wide-files.txt`
+- [x] G7: workflow-branch then mentions-search-symlink-integration (6 fail); three suites, then h1-local-provider-ssrf ("Export named 'requireAdmin' not found"); executor-slash-command-expansion-e2e, then h1 or cross-tenant-deletion-projects-kb-modes.
+  CHECK: `continue/pair-matrix.sh` (a copy of the triage tool; worktree and file list are parameters) over `leak-files.txt` (4 files) and `wide-files.txt` (the triage list plus both security suites, 14 files)
   EXPECT: the recorded pairs green; no new bad pair
-  EVIDENCE: 2c03e3625 and 17e2e8a63. Four files: 4 of 12 ordered pairs bad at 0d3671c51
-  (`pairs-leaks-base-0d3671c51.txt`), 0 after. Fourteen files (the triage list plus both security suites): 9 of 182
-  bad at base (`pairs-wide-base-0d3671c51.txt`), 3 at 17e2e8a63 (`pairs-wide-head-17e2e8a63.txt`). The 3 are the pairs
-  the triage report ruled a suite redesign (trusted-local-runner wiring then in-process; scratchpad-e2e then either
-  mentions suite); they are red at base as well. Cause 1: the symlink suite stubbed workspace-target through the
-  `$server` alias, which cannot reach a route another suite linked first; it now stubs the relative path and
-  restores it. Cause 2: partial `$lib` factories freeze the module's export names; `webLibModule()` spreads the real
-  module under the overrides (four suites).
+  EVIDENCE: e8bba6baf and 0d5e64514. Four files: 4 of 12 bad at base (`consolidated/pairs-leak-base-7a87aed5e.txt`),
+  0 of 12 at head (`consolidated/pairs-leak-head-9dc2ba9fb.txt`). Fourteen files: 9 of 182 bad at base
+  (`consolidated/pairs-wide-base-7a87aed5e.txt`), 3 at head (`consolidated/pairs-wide-head-9dc2ba9fb.txt`). The 3 are
+  the pairs the focused-triage report ruled a suite redesign (trusted-local-runner-wiring then in-process;
+  scratchpad-e2e then either mentions suite); they are red at base too. (validator-3 L2: the earlier "0 of 12" rests
+  on these clean-head receipts and on `pairs-wide-head-17e2e8a63.txt`, not on the dirty `pairs-leaks-exp2.txt`.)
+  Cause 1: the symlink suite stubbed workspace-target through the `$server` alias, which cannot reach a route another
+  suite linked first; it now stubs the relative path, spreads the real module, and restores it in afterAll.
+  Cause 2: a partial `$lib` factory freezes the module's export names; `webLibModule()` in `helpers/mock-cleanup.ts`
+  spreads the real module under the overrides (complete the mock, as the focused-triage fixes did).
 - [x] G8: four tests fail at umask 077 (setup-podman, dev-image-provenance, local-sandbox-startup x2).
   CHECK: `continue/umask-run.sh` at umask 077, 022, and 000; the pair matrix over `umask-files.txt`
   EXPECT: 0 fail at every umask; 0 bad pairs
-  EVIDENCE: 9e14d178c and 0ae26f4b0. Before, at 077: 100 pass, 4 fail (`umask077-base.log`). After: the four suites
-  give 167 pass, 0 fail at each umask (`umask-four-fixed{077,022,000}.log`). Pairs: 12 of 12 bad at base, where no
-  suite is green alone; 0 of 12 at 17e2e8a63.
+  EVIDENCE: fb4c8c2e0 and 0221670af. Before, at 077: 100 pass, 4 fail (`umask077-base.log`, at 0d3671c51). Head:
+  167 pass, 0 fail at each umask (`consolidated/umask-four-{077,022,000}-9dc2ba9fb.log`). Pairs: 12 of 12 bad at base,
+  where no suite is green alone (`consolidated/pairs-umask-base-7a87aed5e.txt`); 0 of 12 at head
+  (`consolidated/pairs-umask-head-9dc2ba9fb.txt`; also `pairs-umask-head-17e2e8a63.txt`). (validator-3 L1:
+  `umask077-fixed.log`, `umask022-fixed.log`, `umask000-fixed.log`, `umask-four-fixed{077,022,000}.log`, and
+  `podman-wrapper-fixed{022,077}.log` are superseded dirty-tree attempts, not proof.)
 - [x] G9: podman-compose-wrapper fails 10 of 63 "dirty" on pure main.
   CHECK: `continue/umask-run.sh` on the wrapper suite; EZCORP_DEBUG_SOURCE_STATE=1 for the cause
   EXPECT: 63 pass at every umask
-  EVIDENCE: 0ae26f4b0. The fixture copied `.dockerignore` with its source mode; a checkout made under umask 077 holds
-  it at 0600, and the resolver rightly counts a permission change ("tracked permission mode changed: .dockerignore").
-  Before: 53 pass, 10 fail at 022 (`podman-wrapper-base022.log`). After: 63 pass at 022 and 077.
-- [x] G10: static gates on the leak head.
-  CHECK: `continue/leaks-static.sh`
-  EXPECT: lint, typecheck, gate-integrity (BASE_REF=0d3671c51), both boundary scripts, and mock-cleanup-coverage exit 0
-  EVIDENCE: `continue/leaks-static.txt` at 17e2e8a63: all six exit 0.
+  EVIDENCE: 0221670af. The fixture copied `.dockerignore` with its source mode; a checkout made under umask 077 holds it
+  at 0600, and the resolver rightly counts a permission change ("tracked permission mode changed: .dockerignore").
+  Before: 53 pass, 10 fail at 022 (`podman-wrapper-base022.log`). Head: 63 pass alone in
+  `consolidated/pairs-umask-head-9dc2ba9fb.txt` and inside the 167 of each `consolidated/umask-four-*-9dc2ba9fb.log`.
+- [x] G10: static gates at the consolidated head.
+  CHECK: `continue/consolidated/static-fresh.sh`
+  EXPECT: lint, typecheck, gate-integrity (BASE_REF=7a87aed5e), both boundary scripts, mock-cleanup-coverage, and gate-scripts plus git-hooks exit 0
+  EVIDENCE: `consolidated/static-fresh.txt` at 9dc2ba9fb: all seven exit 0, tree clean before and after.
+- [x] G11: the test-path boundary rule holds on the merged tree.
+  CHECK: `bun scripts/check-boundaries.ts`; `bun test ./src/__tests__/gate-scripts.test.ts`
+  EXPECT: 0 violations
+  EVIDENCE: 380588398. The main merge brought `web/qualification/local-sandbox/local-mvp.pw.ts`, a Playwright spec its
+  config selects with testMatch, which imports web/e2e fixtures (3 violations). `isTestPath` now counts the `.pw.`
+  suffix; the table test pins the spec as a test path and its config and a `pwd` name as production.
+  `consolidated/boundaries-9dc2ba9fb.log`: 0 violations.
+- [ ] G12: the pool-service import rule lives in the boundary script (coordinator item, lowest priority).
+  OPEN: waits for W15b in integ/w00; then move the walker from `factory-process-boundaries.test.ts` into
+  `scripts/check-factory-boundaries.ts` and keep the C12 test as the deliberate-violation proof.
+
+## Disclosed follow-ups (owner: W18 hygiene; not done in this package)
+
+- F1: convert every partial `$lib/server/security/api-keys` mock to `webLibModule()`, and add a guard test that
+  rejects a partial `$lib/*` factory. No measured pair fails because of them today, but any of them run before a
+  route that imports `requireAdmin` fails to link. The 60 suites at 9dc2ba9fb:
+  - `src/__tests__/admin-analytics-api-routes.test.ts`
+  - `src/__tests__/admin-session-api-routes.test.ts`
+  - `src/__tests__/attachments-admin-audit.test.ts`
+  - `src/__tests__/attachments-cross-user-security.test.ts`
+  - `src/__tests__/attachments-gc.test.ts`
+  - `src/__tests__/attachments-serve-route.test.ts`
+  - `src/__tests__/conversations-clone-turns-api.test.ts`
+  - `src/__tests__/ext-files-route.test.ts`
+  - `src/__tests__/extension-event-end-to-end.test.ts`
+  - `src/__tests__/extension-toggle-agent-gating.test.ts`
+  - `src/__tests__/extensions-delete-route-policy.test.ts`
+  - `src/__tests__/extensions-patch-route.test.ts`
+  - `src/__tests__/feature-endpoints.test.ts`
+  - `src/__tests__/local-model-test-endpoint.test.ts`
+  - `src/__tests__/memory-list-derived-owner.integration.test.ts`
+  - `src/__tests__/messages-multipart-route.test.ts`
+  - `src/__tests__/messages-patch-content.test.ts`
+  - `src/__tests__/messages-permission-mode-ceiling-route.test.ts`
+  - `src/__tests__/modes-api.test.ts`
+  - `src/__tests__/seam-auth-chat-integration.test.ts`
+  - `src/__tests__/security/c1-settings-api.test.ts`
+  - `src/__tests__/security/c2-session-revocation.test.ts`
+  - `src/__tests__/security/c3-confirm-endpoint.test.ts`
+  - `src/__tests__/security/c3-extension-install.test.ts`
+  - `src/__tests__/security/c5-provider-keys-admin-gate.test.ts`
+  - `src/__tests__/security/h1-local-provider-ssrf.test.ts`
+  - `src/__tests__/security/h2-tool-call-ownership.test.ts`
+  - `src/__tests__/security/h3-conversations-memories-idor.test.ts`
+  - `src/__tests__/security/h3b-conversation-subroutes-idor.test.ts`
+  - `src/__tests__/security/kb-file-sharing-api.test.ts`
+  - `src/__tests__/security/kb-ownerless-rows-are-shared.test.ts`
+  - `src/__tests__/security/kb-retrieval-is-user-scoped.test.ts`
+  - `src/__tests__/security/m3-fs-list-sandbox.test.ts`
+  - `src/__tests__/security/project-members-api.test.ts`
+  - `src/__tests__/security/project-permission-mode-authz.test.ts`
+  - `src/integrations/github-projects/__tests__/web-connect-flow.integration.test.ts`
+  - `web/src/__tests__/agent-chat-api.test.ts`
+  - `web/src/__tests__/ask-user-answer-route.test.ts`
+  - `web/src/__tests__/extension-browser-isolation.test.ts`
+  - `web/src/__tests__/extensions-api.test.ts`
+  - `web/src/__tests__/extensions-data-route.test.ts`
+  - `web/src/__tests__/extensions-events-route.test.ts`
+  - `web/src/__tests__/memories-api-post.test.ts`
+  - `web/src/__tests__/mention-search-cmd-api.test.ts`
+  - `web/src/__tests__/mention-search-file-api.test.ts`
+  - `web/src/__tests__/messages-ownership-api.test.ts`
+  - `web/src/__tests__/messages-ownership-baseline-api.test.ts`
+  - `web/src/__tests__/security/bearer-auth.test.ts`
+  - `web/src/__tests__/tasks-api.test.ts`
+  - `web/src/__tests__/tasks-assignment-api.test.ts`
+  - `web/src/__tests__/tasks-stop-retry-api.test.ts`
+  - `web/src/__tests__/team-panel-refresh-flow.test.ts`
+  - `web/src/routes/api/conversations/[id]/extension-toolbar/__tests__/list.test.ts`
+  - `web/src/routes/api/extensions/[name]/uploads/__tests__/upload.test.ts`
+  - `web/src/routes/api/extensions/__tests__/secrets-route.test.ts`
+  - `web/src/routes/api/extensions/__tests__/triggers-route.test.ts`
+  - `web/src/routes/api/hub/pages/[id]/__tests__/run-variant-route.test.ts`
+  - `web/src/routes/api/import/__tests__/commit.test.ts`
+  - `web/src/routes/api/import/__tests__/preview.test.ts`
+  - `web/src/routes/api/integrations/github-projects/__tests__/handlers.test.ts`
+- F2 (validator-3 L3): route every test that runs `git init` in a tmpdir through `helpers/scratch-git.ts`, and add a
+  lint or guard that forbids a bare `git init` in tests. The hook now strips GIT_* from staged tests, so the
+  2026-09-24 incident cannot repeat through the hook; these files still inherit the caller's context when run any
+  other way. The 27 files at 9dc2ba9fb:
+  - `docs/extensions/examples/docs-updater/index.integration.test.ts`
+  - `docs/extensions/examples/task-stack/index.test.ts`
+  - `packages/@ezcorp/ai-kit/test/unit/cli-install.test.ts`
+  - `scripts/check-patch-coverage-typeonly.test.ts`
+  - `src/extensions/first-party-integration/docs-updater/git.test.ts`
+  - `src/extensions/first-party-integration/repo-activity-notify/git.test.ts`
+  - `src/extensions/project-git-refs.test.ts`
+  - `src/extensions/__tests__/project-git-broker.test.ts`
+  - `src/extensions/__tests__/project-open-pr.test.ts`
+  - `src/extensions/__tests__/source-project-credentials.test.ts`
+  - `src/factory/git-objects.test.ts`
+  - `src/factory/reference-code/git-reader.test.ts`
+  - `src/factory/release-git-refs.test.ts`
+  - `src/__tests__/biome-ignores-worktrees.test.ts`
+  - `src/__tests__/cli-ext-coverage.test.ts`
+  - `src/__tests__/cli-ext-typed-scaffold.test.ts`
+  - `src/__tests__/ext-docs-validation.test.ts`
+  - `src/__tests__/ext-init.test.ts`
+  - `src/__tests__/git-install.test.ts`
+  - `src/__tests__/lessons-audit-queries.test.ts`
+  - `src/__tests__/memory-types.test.ts`
+  - `src/__tests__/security/c3-extension-install.test.ts`
+  - `src/__tests__/source-parser-git-coverage.test.ts`
+  - `src/__tests__/source-parser.test.ts`
+  - `src/__tests__/unlanded-branches.test.ts`
+  - `src/__tests__/visual-evidence-select.test.ts`
+  - `web/src/__tests__/copyable-content.test.ts`

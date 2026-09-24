@@ -3714,7 +3714,7 @@ package changed.
 
 ## W18a-3 — hook context, initPglite/loadExisting, compute-admissions order, test-path imports, main-origin leaks
 
-Branches: `wp/w18a3-quality-r2` (items 1–4) and `wp/w18a3-leaks` (item 5, on the staged origin/main merge).
+Package branch: `wp/w18a3-quality-r2` (all items; the leak commits were cherry-picked from `wp/w18a3-leaks` after the merge of integ/w00 7a87aed5e).
 Gates: `tasks/factory/w18a3-GATES.md`. Receipts: `/tmp/factory-platform-evidence/w18a3/` and its `continue/`.
 
 - [x] Re-author the three fixture-authored commits as archy, trees unchanged (new branch; see Review).
@@ -3726,24 +3726,27 @@ Gates: `tasks/factory/w18a3-GATES.md`. Receipts: `/tmp/factory-platform-evidence
 - [x] Leaks: workflow-branch then symlink, and four suites then h1 or cross-tenant (2c03e3625, 17e2e8a63, G7).
 - [x] umask 077: setup-podman, dev-image-provenance, local-sandbox-startup x2 (9e14d178c, 0ae26f4b0, G8).
 - [x] podman-compose-wrapper 10 of 63 "dirty" (0ae26f4b0, G9).
-- [ ] Final gates green over the fullest lcov (G6): open until W15c fixes the pool bundle.
+- [x] Consolidate on -r2: merge integ/w00 7a87aed5e, cherry-pick the leak commits, rerun the matrices and static gates (G7–G10).
+- [x] A Playwright `.pw.` spec counts as a test path (380588398, G11); scratch repositories set GIT_CONFIG_NOSYSTEM=1 (9dc2ba9fb).
+- [ ] Final gates green over the fullest lcov (G6): open until W15b lands in integ/w00.
+- [ ] Move the pool-service import walker into `scripts/check-factory-boundaries.ts` (G12): after W15b lands.
 
 ### Review
 
-The re-author kept every tree byte-identical, but it is on the new branch `wp/w18a3-quality-r2`: moving the old
-branch ref was refused by the session's permission rules. The old head stays reachable as
-`backup/w18a3-quality-fixture-authored`.
+The re-author kept every tree byte-identical (commit-tree, same parents). The coordinator made `wp/w18a3-quality-r2`
+the package branch; `wp/w18a3-quality` stays at f7d79e629, and `backup/w18a3-quality-fixture-authored` keeps it until
+the merge lands.
 
 Every leak was a fixture fault, not a product fault. Two mock-lifetime rules explain the ordered leaks: a
 `$server/*` alias registration cannot reach a route that another suite linked first, and a partial `$lib/*`
 factory freezes the module's export names for the rest of the process. The umask and wrapper faults were fixture
 files whose modes followed the runner's umask or the checkout's own modes; the resolver is right to count a
-permission change as a Docker build-context change. 61 more suites still register a partial api-keys module. No
-pair in the measured matrices fails because of them today, but any of them run before a `requireAdmin` route will
-fail the same way; converting them to `webLibModule()` and adding a guard is a follow-up.
+permission change as a Docker build-context change. 60 more suites still register a partial api-keys module, and 27
+test files run a bare `git init`; both are disclosed follow-ups F1 and F2 in the gates file (owner W18 hygiene).
 
 At the final head, every producer except pool-coverage exits 0. pool-coverage fails on the W15 bundle defect
-(F2, owner W15c), so the CRAP gate reads 7 pool functions as uncovered. No red gate names a file this package changed.
+(the node bundle reaches the "bun" builtin), so the CRAP gate reads 7 pool functions as uncovered. No red gate names a
+file this package changed. G6 is rerun after W15b lands.
 
 ## Product rules (coordinator)
 
