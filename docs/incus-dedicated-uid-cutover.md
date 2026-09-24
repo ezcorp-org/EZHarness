@@ -103,9 +103,9 @@ absolute paths:
   "quarantineDb": "/tmp/ezharness-qual-quarantine/pglite",
   "targetDb": "/var/lib/ezharness-qual-data/pglite",
   "rollbackDb": "/var/lib/ezharness-qual-rollback/pglite",
-  "oldAppUnit": "reviewed-old-app.service",
-  "runnerUnit": "reviewed-runner.service",
-  "supervisorUnit": "ezharness-incus-supervisor.service",
+  "oldAppUnit": null,
+  "runnerUnit": null,
+  "supervisorUnit": null,
   "builtApp": "/opt/ezharness/web/build/index.js",
   "oldEnv": "/etc/ezharness/old-isolated.env",
   "newEnv": "/etc/ezharness/qualification.env",
@@ -116,28 +116,30 @@ absolute paths:
 }
 ```
 
-The example paths and numeric IDs are placeholders. Refresh all process IDs
+The example paths and numeric IDs are placeholders. `null` means that the old
+process was started manually; it does not waive the process, socket, or
+database-open checks. Use a service name only for a real loaded unit. Refresh all process IDs
 immediately before the cutover; the script requires those exact processes to
 be gone and scans process settings for the old database and runner socket.
 Read the real isolated
-app's process, loaded service unit, PGlite path, runner settings, and build artifact
+app's process, any loaded service unit, PGlite path, runner settings, and build artifact
 before replacing them. A main app using external `DATABASE_URL` is not the
 isolated PGlite app and must not be used for this cutover.
 
 At the time of writing, the isolated app is a manually started Vite dev process
 with four process IDs and its PGlite source is under a dev-owned `/tmp` parent.
-That launch has no reviewed systemd unit and cannot pass this preflight. First
-prepare a reviewed unit that owns the old app process group, stop the old
-processes, and confirm the exact old PGlite path. Do not name a missing or
-dummy unit in the manifest. The separate development runner user unit is also
-not proof that the isolated runner process is stopped; register and review the
-isolated runner unit before the cutover.
+That launch has no reviewed systemd unit. Set the old unit fields to `null`,
+record every process ID, stop the old processes, and confirm the exact old
+PGlite path. Do not name a missing or dummy unit in the manifest. The separate
+development runner user unit is not proof that the isolated runner process is
+stopped. The preflight checks the recorded PIDs and live process settings.
 
 ## 4. Hold traffic, stop, and stage
 
 Hold ingress and all runner clients. Stop the old isolated app, its runner,
-and any old supervisor unit. Verify all three units are inactive with no
-main PID; verify the runner public socket is gone. Seal the source parent as
+and any old supervisor unit. Verify all named units are inactive with no
+main PID and every manually launched process is gone; verify the runner public
+socket is gone. Seal the source parent as
 described above. Keep traffic held. Run:
 
 ```sh
@@ -183,3 +185,44 @@ back to the old copy could lose writes.
 This procedure only prepares the UID cutover. The saved CREATE still needs
 the independent client-fence verifier and the separate operator recovery
 review in [incus-create-noeffect-recovery.md](./incus-create-noeffect-recovery.md).
+
+## Current isolated test-app preparation packet
+
+Read-only inspection on 2026-09-24 found the isolated app on
+`127.0.0.1:4301`, with Vite process IDs `3878477`, `3878556`, `3878559`,
+and `3878560`. Its `EZCORP_DB_PATH` was
+`/tmp/ezh-incus-isolated-app.QMhk6Qhv/db`. The isolated runner was PID
+`1982010`, and its gateway was PID `1983979`; both used dev UID `1001`.
+The gateway pinned that same UID and served
+`/tmp/ezh-incus-isolated-app.QMhk6Qhv/runner.sock`; the token file was
+`/tmp/ezh-incus-isolated-app.QMhk6Qhv/runner.token`. These IDs are time-
+limited evidence and must be refreshed. The active user service
+`ezharness-extension-runner-dev.service` is a different runner; stopping it
+does not stop the isolated runner. No qualification supervisor process was
+found. No root-owned built release exists at `/opt/ezharness`; the app still
+starts from `/home/dev`, which mode `0700` denies to the new UID.
+
+Prepare these host writes for separate review before changing the live app:
+
+1. Install a reviewed build and its runtime files under root-owned
+   `/opt/ezharness`. Prove its dependency paths do not enter `/home/dev`.
+   The preflight checks ownership and path access for `web/build/index.js`;
+   first supervised start with traffic held must prove the full runtime.
+2. Declare a static app UID/GID and a separate runner UID. Prepare the new
+   runner service with the reviewed runner executable, store, socket parent,
+   token file, and `EZ_EXTENSION_APP_UID` set to the app UID. Prepare sealed
+   app/runner settings and a root-owned supervisor service/config. The
+   supervisor starts the new app, so do not also start a second app service.
+3. Create the root-only quarantine/rollback parents and root:new-app-group
+   target parent. Hold the port's ingress, stop the four old app processes and
+   isolated runner/gateway, remove only their stale socket after they exit,
+   then seal the source parent. Refresh the manifest PIDs and run `check`.
+4. Run `stage --execute` only after the preflight passes. Start the new
+   runner service, then the supervisor. Check the new child UID, read-only
+   fixture state, backend connection, and runner socket while ingress stays
+   held. Keep the original database quarantined and rollback copy private.
+
+The script can check and stage steps 2–4 after the operator prepares them.
+It cannot build or install a release, assign static UIDs, stop live processes,
+seal the source parent, create service units, or prove that all runtime imports
+work under the new UID. It does not run the saved CREATE repair.

@@ -85,8 +85,8 @@ def config(path):
                 and len(set(value[key])) == len(value[key]),
                 f"reviewed process IDs required: {key}")
     for key in ("oldAppUnit", "runnerUnit", "supervisorUnit"):
-        require(isinstance(value[key], str) and SERVICE.fullmatch(value[key]),
-                "systemd service name required")
+        require(value[key] is None or (isinstance(value[key], str)
+                and SERVICE.fullmatch(value[key])), "systemd service name or null required")
     return value
 
 
@@ -281,7 +281,8 @@ def check(value):
     accessible_to(checked_path(value["runnerSocket"]).parent,
                   value["newUid"], value["newGid"])
     for unit in ("oldAppUnit", "runnerUnit", "supervisorUnit"):
-        inactive(value[unit])
+        if value[unit] is not None:
+            inactive(value[unit])
     no_old_clients(value, source)
     for process in Path("/proc").iterdir():
         if process.name.isdigit():
