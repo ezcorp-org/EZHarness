@@ -35,6 +35,61 @@ test("every unmeasured host probe denies instead of reporting a passing fact", a
   await expect(witness.observeEnforcement(handle, handle)).rejects.toThrow("two distinct fixtures");
 });
 
+test("cleanup witness reads durable fault, real readiness denial, and same-operation recovery", async () => {
+  const other = { sandboxId: "other-binding", operationId: "other-operation" };
+  let phase = 0;
+  const calls: string[] = [];
+  const status = (value: typeof handle) => ({
+    fixture: { ...scope, operationId: value.operationId, bindingId: value.sandboxId,
+      projectId: `project-${value.sandboxId}`, connectionRevision: 1 },
+    binding: { id: value.sandboxId, generation: 1,
+      desiredState: value.sandboxId === handle.sandboxId && phase > 0 ? "ABSENT" : "STOPPED",
+      observedState: value.sandboxId === handle.sandboxId && phase === 2 ? "ABSENT" : "STOPPED" },
+    operation: { id: value.sandboxId === handle.sandboxId && phase > 0 ? "destroy-one" : "create-one",
+      kind: value.sandboxId === handle.sandboxId && phase > 0 ? "DESTROY" : "CREATE",
+      state: value.sandboxId === handle.sandboxId && phase === 1 ? "OUTCOME_UNKNOWN" : "SUCCEEDED",
+      generation: 1 },
+  });
+  const candidate = new IncusHostLiveWitness({ db: {} as Database,
+    qualifications: {} as IncusQualificationStore,
+    fixtures: { status: async (_scope: typeof scope, operationId: string) =>
+      status(operationId === handle.operationId ? handle : other) } as unknown as IncusQualificationFixtureService,
+    cleanupRecovery: {
+      injectLostDestroyReply: async (seenScope, seenHandle) => {
+        expect(seenScope).toEqual(scope); expect(seenHandle).toEqual(handle);
+        calls.push("fault"); phase = 1; throw new Error("reply lost");
+      },
+      attemptReadiness: async (seenScope, seenHandle) => {
+        expect(seenScope).toEqual(scope); expect(seenHandle).toEqual(handle);
+        calls.push("ready"); throw Object.assign(new Error("cleanup pending"),
+        { code: "QUALIFICATION_CLEANUP_UNVERIFIED" }); },
+      reconcileFromReopenedController: async (seenScope, seenHandle) => {
+        expect(seenScope).toEqual(scope); expect(seenHandle).toEqual(handle);
+        calls.push("reopen"); phase = 2;
+      },
+    },
+  });
+  const internal = candidate as unknown as {
+    owned: (value: typeof handle) => Promise<unknown>;
+    context: () => Promise<unknown>;
+    assertDurableState: (value: typeof handle, _scope: typeof scope, state: string) => Promise<void>;
+  };
+  internal.owned = async value => ({ scope, selected: { preset: INCUS_PRESETS[0]! }, binding: { id: value.sandboxId } });
+  internal.context = async () => ({ context: {} });
+  internal.assertDurableState = async (value, _scope, state) => { calls.push(`${value.sandboxId}:${state}`); };
+  candidate.inspectFixture = async value => ({ sandboxId: value.sandboxId,
+    state: value.sandboxId === handle.sandboxId ? "absent" : "stopped" }) as Awaited<
+      ReturnType<IncusHostLiveWitness["inspectFixture"]>>;
+  expect(await candidate.exerciseFailedCleanupRecovery(handle, other)).toEqual({
+    firstDestroyOperationId: "destroy-one", recordedState: "RECONCILE_REQUIRED",
+    readinessErrorCode: "QUALIFICATION_CLEANUP_UNVERIFIED", reconciledOperationId: "destroy-one",
+    finalState: "absent", unrelatedState: "stopped",
+  });
+  expect(calls).toEqual(["fault", "ready", "reopen", `${handle.sandboxId}:ABSENT`, `${other.sandboxId}:STOPPED`]);
+  await expect(candidate.exerciseFailedCleanupRecovery(handle, handle))
+    .rejects.toThrow("two distinct fixtures");
+});
+
 test("observe requires exact verified setup and rejects forged backend artifact readback", async () => {
   const preset = INCUS_PRESETS[0]!;
   const presetDigest = await sandboxPresetDigest(preset);

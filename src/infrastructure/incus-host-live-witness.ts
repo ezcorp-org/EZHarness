@@ -20,6 +20,7 @@ import { ProviderConnectionStore, type ProviderConnectionCredentials,
 import { IncusQualificationCheckpointStore } from "./incus-qualification-checkpoint";
 import { IncusQualificationContinuation } from "./incus-qualification-continuation";
 import { requestIncusSupervisorReceipt, requestIncusSupervisorRestart } from "./incus-qualification-supervisor-client";
+import { observeFailedCleanupRecovery } from "./incus-live-recovery-probes";
 
 const MAX_FILE_BYTES = 64 * 1024;
 const POLL_MS = 100;
@@ -68,7 +69,10 @@ export interface IncusHostLiveWitnessDependencies {
   activeRelease?: (installationId: string) => Promise<ActiveExtensionRelease>;
   resolveConnection?: (scope: ProviderConnectionScope) => Promise<ProviderConnectionCredentials>;
   readSetup?: (installationId: string) => Promise<IncusImageReceipt | null>;
-  backend?: Pick<HostIncusLiveReadback, "image" | "instance">;
+  backend?: Pick<HostIncusLiveReadback, "image" | "instance"> & {
+    /** Added by the pinned host readback; absent implementations fail SP04. */
+    poolResources?: (context: LiveReadbackContext) => Promise<{ freeBytes: number }>;
+  };
   /** An operator-owned probe must call production admission and read independent
    * reservation, operation, backend inventory, and local canary state. No default. */
   controlProbe?: {
@@ -85,6 +89,14 @@ export interface IncusHostLiveWitnessDependencies {
       sandboxId: string;
     }>;
     hostCanConnect(target: IncusNetworkTarget): Promise<boolean>;
+  };
+  /** Operator-owned fault controller. It must use the one-shot post-effect
+   * destroy fault, call real feature preparation for readiness, then reopen
+   * the durable controller and reconcile the same journaled operation. */
+  cleanupRecovery?: {
+    injectLostDestroyReply(scope: IncusQualificationScope, handle: LiveFixtureHandle): Promise<void>;
+    attemptReadiness(scope: IncusQualificationScope, handle: LiveFixtureHandle): Promise<void>;
+    reconcileFromReopenedController(scope: IncusQualificationScope, handle: LiveFixtureHandle): Promise<void>;
   };
   supervisorSocketPath?: string;
   now?: () => number;
@@ -124,6 +136,7 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
   private readonly backend: NonNullable<IncusHostLiveWitnessDependencies["backend"]>;
   private readonly controlProbe: IncusHostLiveWitnessDependencies["controlProbe"];
   private readonly resourceNetwork: IncusHostLiveWitnessDependencies["resourceNetwork"];
+  private readonly cleanupRecovery: IncusHostLiveWitnessDependencies["cleanupRecovery"];
   private readonly now: () => number;
   private readonly supervisorSocketPath: string | undefined;
 
@@ -139,6 +152,7 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
     this.backend = deps.backend ?? new HostIncusLiveReadback(new ProviderConnectionStore(this.db));
     this.controlProbe = deps.controlProbe;
     this.resourceNetwork = deps.resourceNetwork ?? new IncusLiveNetworkProbe({ db: this.db });
+    this.cleanupRecovery = deps.cleanupRecovery;
     this.now = deps.now ?? Date.now;
     this.supervisorSocketPath = deps.supervisorSocketPath ?? process.env.EZCORP_INCUS_SUPERVISOR_SOCKET;
   }
@@ -484,8 +498,17 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
         const canary = await this.run(neighbor, ["sh", "-c", "printf %s ezh-neighbor-ok"], 10_000);
         return canary.exitCode === 0 && canary.stdout === "ezh-neighbor-ok" && canary.stderr === "";
       },
-      hostHealthy: async () => await healthyInstance(handle)
-        && await this.resourceNetwork!.hostCanConnect(management),
+      hostHealthy: async () => {
+        if (!await this.resourceNetwork!.hostCanConnect(management)) return false;
+        const readback = await this.backend.image(context);
+        return readback.imageDigest === primary.selected.preset.imageDigest
+          && readback.profile === primary.selected.preset.profile
+          && primary.selected.preset.helperDigests.includes(readback.helperDigest);
+      },
+      hostStorageFreeBytes: async () => {
+        if (!this.backend.poolResources) deny("independent Incus storage-pool readback is unavailable");
+        return (await this.backend.poolResources(context)).freeBytes;
+      },
     });
   }
 
@@ -568,9 +591,31 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
     return deny("host controller process restart and durable reconnect is not implemented");
   }
 
-  async exerciseFailedCleanupRecovery(_handle: LiveFixtureHandle,
-    _unrelated: LiveFixtureHandle): ReturnType<HostIncusLiveWitness["exerciseFailedCleanupRecovery"]> {
-    return deny("failed cleanup fault and readiness denial probe is not implemented");
+  async exerciseFailedCleanupRecovery(handle: LiveFixtureHandle,
+    unrelated: LiveFixtureHandle): ReturnType<HostIncusLiveWitness["exerciseFailedCleanupRecovery"]> {
+    if (!this.cleanupRecovery) deny("operator-owned destroy fault and readiness probe are unavailable");
+    if (handle.sandboxId === unrelated.sandboxId || handle.operationId === unrelated.operationId) {
+      deny("cleanup recovery needs two distinct fixtures");
+    }
+    const [primary, adjacent] = await Promise.all([this.owned(handle, false), this.owned(unrelated, false)]);
+    if (primary.scope.installationId !== adjacent.scope.installationId
+      || primary.scope.releaseId !== adjacent.scope.releaseId
+      || primary.scope.connectionId !== adjacent.scope.connectionId
+      || primary.scope.presetId !== adjacent.scope.presetId) deny("cleanup recovery fixture scopes differ");
+    await this.context(primary.scope, primary.selected.preset);
+    const observed = await observeFailedCleanupRecovery(primary.scope, handle, unrelated, {
+      readDurable: value => this.fixtures.status(primary.scope, value.operationId),
+      readBackend: value => this.inspectFixture(value),
+      injectLostDestroyReply: () => this.cleanupRecovery!.injectLostDestroyReply(primary.scope, handle),
+      attemptReadiness: () => this.cleanupRecovery!.attemptReadiness(primary.scope, handle),
+      reconcileFromReopenedController: () => this.cleanupRecovery!.reconcileFromReopenedController(primary.scope, handle),
+    });
+    await Promise.all([this.assertDurableState(handle, primary.scope, "ABSENT"),
+      this.assertDurableState(unrelated, primary.scope, "STOPPED")]);
+    return { firstDestroyOperationId: observed.failed.operation!.id,
+      recordedState: "RECONCILE_REQUIRED", readinessErrorCode: observed.readinessErrorCode,
+      reconciledOperationId: observed.recovered.operation!.id,
+      finalState: observed.backend.state, unrelatedState: observed.unrelatedBackend.state };
   }
 
   async destroyFixture(handle: LiveFixtureHandle): Promise<void> {

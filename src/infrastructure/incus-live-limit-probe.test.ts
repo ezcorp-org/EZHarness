@@ -9,8 +9,10 @@ const facts = { memoryMaxBytes: preset.limits.memoryBytes, cpuQuotaMillis: prese
   pidsMax: preset.limits.pids, rootQuotaBytes: preset.limits.diskBytes,
   privateNetworkProbeBlocked: true, unprivilegedUidMap: true };
 
-function harness(fault?: { resource?: string; detail?: boolean; neighbor?: boolean; host?: boolean }) {
+function harness(fault?: { resource?: string; detail?: boolean; neighbor?: boolean; host?: boolean;
+  pool?: "full" | "leak" }) {
   const calls: string[] = [];
+  const poolFreeBytes = preset.limits.diskBytes + 128 * 1024 * 1024;
   const deps: IncusLimitProbeDependencies = {
     runGuest: async (fixture, argv, timeout) => {
       expect(fixture).toEqual(handle);
@@ -23,7 +25,7 @@ function harness(fault?: { resource?: string; detail?: boolean; neighbor?: boole
       const detail = resource === "memory" ? { oomKillDelta: 1, childExit: -9 }
         : resource === "cpu" ? { throttledDelta: 3, elapsedMs: 4000 }
           : resource === "pids" ? { denialEventDelta: 1, spawned: observedLimit - 1 }
-            : { errno: 122, freeBeforeBytes: attempted + 17_000_000 };
+            : { errno: 122 };
       if (fault?.detail && resource === "cpu") detail.throttledDelta = 0;
       return { exitCode: 0, stderr: "", stdout: JSON.stringify({
         resource: fault?.resource === resource ? "forged" : resource,
@@ -37,6 +39,12 @@ function harness(fault?: { resource?: string; detail?: boolean; neighbor?: boole
     hostHealthy: async () => {
       calls.push("host");
       return fault?.host !== false;
+    },
+    hostStorageFreeBytes: async () => {
+      calls.push("pool");
+      return fault?.pool === "full" ? preset.limits.diskBytes
+        : fault?.pool === "leak" && calls.filter(call => call === "pool").length === 2
+          ? poolFreeBytes - 96 * 1024 * 1024 : poolFreeBytes;
     },
   };
   return { calls, run: () => exerciseIncusLimits(handle, preset, facts, deps) };
@@ -60,6 +68,7 @@ test("four resource loads require kernel evidence and healthy host and neighbor 
   }
   expect(value.calls.filter(call => call === "host")).toHaveLength(8);
   expect(value.calls.filter(call => call === "neighbor")).toHaveLength(8);
+  expect(value.calls.filter(call => call === "pool")).toHaveLength(2);
 });
 
 test("missing kernel evidence, forged identity, or unhealthy neighbor denies qualification", async () => {
@@ -74,6 +83,12 @@ test("an observed limit above the reviewed preset denies before any load", async
   await expect(exerciseIncusLimits(handle, preset, { ...facts, memoryMaxBytes: preset.limits.memoryBytes + 1 }, {
     runGuest: async () => { invoked = true; throw new Error("must not run"); },
     neighborHealthy: async () => true, hostHealthy: async () => true,
+    hostStorageFreeBytes: async () => preset.limits.diskBytes + 128 * 1024 * 1024,
   })).rejects.toThrow("memory observed limit or requested load is invalid");
   expect(invoked).toBe(false);
+});
+
+test("disk quota denial needs independent host pool headroom and recovered pool space", async () => {
+  await expect(harness({ pool: "full" }).run()).rejects.toThrow("insufficient independent free space");
+  await expect(harness({ pool: "leak" }).run()).rejects.toThrow("did not recover");
 });

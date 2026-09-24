@@ -10,6 +10,8 @@ export interface IncusLimitProbeDependencies {
   neighborHealthy: () => Promise<boolean>;
   /** Checks the pinned Incus management endpoint from the host. */
   hostHealthy: () => Promise<boolean>;
+  /** Reads available bytes from the Incus host storage pool, not guest statvfs. */
+  hostStorageFreeBytes: () => Promise<number>;
 }
 
 function requireLimit(condition: unknown, message: string): asserts condition {
@@ -77,9 +79,6 @@ elif mode=='pids':
  detail={'denialEventDelta':after-before,'spawned':len(children)}
 elif mode=='disk':
  import tempfile
- # A host or pool that is already full is not proof of the fixture quota.
- free=os.statvfs('/workspace').f_bavail*os.statvfs('/workspace').f_frsize
- if free<=target+16777216: raise RuntimeError('insufficient host storage to isolate quota denial')
  fd,path=tempfile.mkstemp(prefix='.ezh-limit-',dir='/workspace')
  os.unlink(path)
  denied=False; code=0
@@ -88,7 +87,7 @@ elif mode=='disk':
   except OSError as exc:
    code=exc.errno; denied=code in (errno.ENOSPC,errno.EDQUOT)
  finally: os.close(fd)
- contained=denied; detail={'errno':code,'freeBeforeBytes':free}
+ contained=denied; detail={'errno':code}
 else: raise RuntimeError('invalid resource')
 print(json.dumps({'resource':mode,'attempted':target,'observedLimit':actual,'contained':contained,'detail':detail},separators=(',',':')))
 `;
@@ -105,8 +104,7 @@ function evidence(resource: Resource, detail: Record<string, unknown>, attempted
   if (resource === "pids") return Number.isSafeInteger(detail.denialEventDelta)
     && Number(detail.denialEventDelta) > 0 && Number.isSafeInteger(detail.spawned)
     && Number(detail.spawned) >= 0 && Number(detail.spawned) < attempted;
-  return (detail.errno === 28 || detail.errno === 122)
-    && Number.isSafeInteger(detail.freeBeforeBytes) && Number(detail.freeBeforeBytes) > attempted;
+  return detail.errno === 28 || detail.errno === 122;
 }
 
 function observed(resource: Resource, facts: LiveEnforcementFacts): number {
@@ -139,6 +137,10 @@ export async function exerciseIncusLimits(handle: LiveFixtureHandle, preset: San
       `${resource} observed limit or requested load is invalid`);
     requireLimit(await deps.hostHealthy() && await deps.neighborHealthy(),
       `host or neighbor was unhealthy before ${resource} load`);
+    const poolFreeBefore = resource === "disk" ? await deps.hostStorageFreeBytes() : null;
+    if (resource === "disk") requireLimit(Number.isSafeInteger(poolFreeBefore)
+      && poolFreeBefore! > attempted + 32 * 1024 * 1024,
+    "host storage pool has insufficient independent free space for the quota probe");
     const run = await deps.runGuest(handle,
       ["python3", "-c", LIMIT_PROBE_SCRIPT, resource, String(attempted), String(limit)], TIMEOUT_MS);
     requireLimit(run.exitCode === 0 && run.stderr.length === 0 && run.stdout.length <= 4096,
@@ -155,6 +157,12 @@ export async function exerciseIncusLimits(handle: LiveFixtureHandle, preset: San
     const hostHealthy = await deps.hostHealthy();
     const neighborHealthy = await deps.neighborHealthy();
     requireLimit(hostHealthy && neighborHealthy, `${resource} load affected host or neighbor`);
+    if (resource === "disk") {
+      const poolFreeAfter = await deps.hostStorageFreeBytes();
+      requireLimit(Number.isSafeInteger(poolFreeAfter) && poolFreeAfter > attempted
+        && poolFreeBefore! - poolFreeAfter <= 64 * 1024 * 1024,
+      "host storage pool did not recover after the quota probe");
+    }
     result.push({ resource, attempted, observedLimit: limit, contained: true, hostHealthy, neighborHealthy });
   }
   return result;
