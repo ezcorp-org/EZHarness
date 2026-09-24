@@ -11,6 +11,7 @@
 
 - Check every planned Incus project key against the actual server's API extensions and version before seeking approval. A local dry run proves plan shape, but it does not prove the server accepts a key. On an approved Apply failure, capture a sanitized exact-command error, inspect live state, and issue a new digest for any changed command.
 - When a guest is expected to fail reaching a control target, prove the target still works from the host after the guest attempt. Bind a challenge to the exact target across both host checks; an expired listener or replaced challenge can create a false isolation pass.
+- A new CI job that selects several backend Bun test files must run each file in a separate Bun process. The root pool requires process isolation because cross-file mocks can contaminate or deadlock a combined run; an explicit multi-file command is not an exception.
 
 - Select gpt-5.6-sol explicitly with fresh bounded briefs when the user requests a Sol team. Use distinct ownership and worktrees.
 - Match each new team to the model requested for that task; a previous Sol request does not override a later Terra request.
@@ -403,3 +404,4 @@
 - Authenticate and bind operator authority before writing a cleanup intent or a dispatchable destroy journal. A rejected fault arm after journaling can still let reconciliation perform the destroy.
 - When a timed operator arm precedes a durable journal, reserve the exact operation ID first and recheck the arm and deadline immediately before journal publication. A late failure must leave no executable operation; retain and report any cleanup intent that was already written.
 - Agents in one worktree share the Git index. Before each commit, stage explicit owned paths and inspect `git diff --cached --name-only`; do not assume another agent's staged files are isolated.
+- When hosted CI times out on fixture readiness, fix the test's synchronization even if the PR did not change that fixture. Wait for the producer's observable output or exit; do not treat a passing focused rerun as proof that a wall-clock deadline is safe.

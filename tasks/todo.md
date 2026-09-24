@@ -1483,3 +1483,47 @@ The real-process Python suite passes three cases. The Bun wrapper, persisted aut
 ### Review
 
 The failing functions were `arm`, `requireIdentity`, `exerciseIncusControlledLoads`, the live-cases callback at line 238, and `mutateInstance`. Agents split each into focused checks without lowering the 30-point limit. The integrated focused run passed 46 tests and 219 assertions; all five changed production sources retained 100% line coverage. Full typecheck, lint, production build, and gate integrity passed. Astra found no behavior change in static review and 37 old/new differential runner cases. Hosted CI remains to be completed on the combined head.
+
+## PR #314 review — 2026-09-23
+
+- [x] Read PR scope, history, review state, and current CI.
+- [x] Review the arm64 job and sandbox suite for real coverage and gate safety.
+- [x] Reproduce the PR-owned gate gap; make and verify a focused repair.
+- [x] Run each arm64 sandbox file in its own Bun process; verify the exact job lane.
+- [ ] Merge current main after #309; preserve the arm64 job and required aggregator.
+- [ ] Run exact focused lane, Actionlint, lint, typecheck, full backend, and coverage gate.
+- [ ] Push normal merge history and confirm hosted CI at the exact head.
+- [ ] Recheck current CI, document findings, and hand off merge status.
+
+Plan review: PR #314 is stacked on #309. Review its final CI commit against its parent and keep #309's product changes with their own review. The arm64 job passed on GitHub. Inspect the three failed jobs to separate runner or base failures from PR-owned failures before changing code.
+
+Review: The live GitHub arm64 job passed 48 tests, with one expected conditional skip. Its deny and allow child containment tests both executed. The applied branch protection requires `Backend tests`, but does not require `Sandbox (arm64)` and no required check depended on it. Add that result to the required backend aggregator so a regression blocks merge. The three failed checks on the original run came from a production candidate runner's `actions/checkout` TLS CA error and its dependent jobs; no PR source executed there. Actionlint and `git diff --check` pass after the aggregator edit. PR #309 remains open and needs its own review; PR #314 needs CODEOWNERS approval.
+
+Follow-up plan: The job's one `bun test` invocation with four files violates the root testing rule and can share `mock.module()` state. Keep its Landlock guard, run the same four files one at a time with Bun's 30-second per-test budget, check the exact loop, and commit locally. Hold the push until #309 merges and the base is updated.
+
+Follow-up review: The workflow now loops over the same four files, runs each in its own `bun test --timeout 30000` process, and uses `set -e` for fail-fast. Extracting and running the exact YAML step on the Linux host passed 33 + 11 + 3 + 1 tests with one expected skip and zero failures. Actionlint and `git diff --check` passed. This local run is on x86_64; the previous hosted arm64 job passed before the process-isolation edit. Commit locally and hold push as requested.
+
+Integration plan: #309 landed on main at 3b5095303. Merge that exact base into this branch without force-pushing, resolve any overlapping task journal as a union, then verify the arm64 CI job and required aggregator survived. Run the full local quality line and an appropriate browser receipt before pushing because the base changed. Recheck the remote head before push.
+
+## PR #314 residual CI follow-up — 2026-09-24
+
+- [x] Read the failed hosted job log and reproduce its two failing cases locally.
+- [x] Replace the test fixture's 5-second file-readiness deadlines with producer-liveness checks.
+- [x] Run the focused lifecycle suite and relevant static checks.
+- [x] Review the exact diff with the lead agent before pushing.
+
+Plan review: Both failures stopped after about five seconds while waiting for a startup file. The PR does not change the launcher. Wait for an observable process state instead of measuring host scheduling time; keep the test's overall timeout as the deadlock guard.
+
+Review: The helper now reads nonempty readiness content until it appears or the producer exits. One new test proves that a producer exit fails immediately. The exact lifecycle suite passed 5/5 on pinned Bun 1.3.14; Biome and full typecheck passed. The failed hosted job cannot be rerun while its workflow is active (GitHub HTTP 403), so the change needs a new CI run after push.
+
+## PR #303 main merge and CI restart — 2026-09-24
+
+- [x] Identify why current PR-head checks are absent: GitHub reports a merge conflict.
+- [x] Merge latest `origin/main`, preserving the changed production-image test and both task journals.
+- [x] Reproduce and fix the merged readiness helper's missing producer argument.
+- [x] Run the affected lifecycle suite, typecheck, lint, gate integrity, Actionlint, and diff check.
+- [ ] Push the merge and confirm hosted CI starts on the exact head.
+
+### Review
+
+The test conflict uses main's producer-liveness helper and passes the actual holder process in its second caller. The focused suite first failed with `producer.exitCode` on an undefined producer, then passed 7/7 after the caller fix. Full typecheck, lint, gate integrity, and Actionlint pass. The Incus refactor had already passed 46 focused tests and build before this merge. The task journal resolution keeps both branch histories; hosted CI on the merged head is still pending.

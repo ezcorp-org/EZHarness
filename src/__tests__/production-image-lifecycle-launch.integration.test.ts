@@ -154,27 +154,29 @@ async function removeFixture(fixture: LaunchFixture): Promise<void> {
 const cancellationObservationMs = 10_000;
 const sleep = (ms: number) => new Promise<void>((resolveSleep) => setTimeout(resolveSleep, ms));
 
-async function waitForFile(path: string, timeoutMs = 5_000): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (!existsSync(path)) {
-    if (Date.now() >= deadline) throw new Error(`Timed out waiting for ${path}`);
+async function readReadyFile(path: string, producer: ReturnType<typeof Bun.spawn>): Promise<string> {
+  while (true) {
+    try {
+      const value = (await readFile(path, "utf8")).trim();
+      if (value) return value;
+    } catch (error) {
+      if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") throw error;
+    }
+    if (producer.exitCode !== null) throw new Error(`Launcher exited ${producer.exitCode} before writing ${path}`);
     await sleep(10);
   }
 }
 
-async function readReadyFile(path: string, timeoutMs = 5_000): Promise<string> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    try {
-      const value = (await readFile(path, "utf8")).trim();
-      if (value) return value;
-    } catch {
-      // The producer may have created the path before its first write.
-    }
-    await sleep(10);
+test("launcher readiness fails when its producer exits without a file", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "production-lifecycle-readiness-"));
+  const producer = Bun.spawn([process.execPath, "-e", "process.exit(17)"], { stdout: "ignore", stderr: "ignore" });
+  try {
+    await expect(readReadyFile(join(directory, "never-created"), producer)).rejects.toThrow("Launcher exited 17 before writing");
+  } finally {
+    await producer.exited;
+    await rm(directory, { recursive: true, force: true });
   }
-  throw new Error(`Timed out waiting for content in ${path}`);
-}
+});
 
 type ProcessIdentity = {
   processGroup: number;
@@ -317,7 +319,7 @@ async function assertLauncherCancellation(suspendRunner: boolean): Promise<void>
     const stdout = new Response(launched.stdout).text();
     const stderr = new Response(launched.stderr).text();
     try {
-      await waitForFile(verifierReady, 15_000);
+      await readReadyFile(verifierReady, child);
     } catch (error) {
       throw new Error(`${String(error)}\n${await launcherDiagnostics(fixture.receipt)}\nlauncher_exit=${await settlesWithin(child.exited, 100)}\nstdout=${await settlesWithin(stdout, 100)}\nstderr=${await settlesWithin(stderr, 100)}`);
     }
@@ -329,8 +331,7 @@ async function assertLauncherCancellation(suspendRunner: boolean): Promise<void>
     expect(runnerPid).toBeGreaterThan(1);
     const [runnerRoot] = (await readFile(fixture.runnerTransport, "utf8")).trim().split("\n");
     const reportedGroupFile = join(runnerRoot!, "..", "verification-group.pid");
-    await waitForFile(reportedGroupFile);
-    const reportedVerifierGroup = Number(await readReadyFile(reportedGroupFile));
+    const reportedVerifierGroup = Number(await readReadyFile(reportedGroupFile, child));
     const verifierIdentity = await processIdentity(observedVerifierPid);
     const verifierDescendantIdentity = await processIdentity(verifierDescendantPid);
     const runnerIdentity = await processIdentity(runnerPid);
@@ -399,7 +400,7 @@ test("verifier group liveness excludes defunct children held by another parent",
   ].join("\n"), groupFile], { stdout: "ignore", stderr: "pipe" });
   let groupPid: number | undefined;
   try {
-    groupPid = Number(await readReadyFile(groupFile));
+    groupPid = Number(await readReadyFile(groupFile, holder));
     const identity = await processIdentity(groupPid);
     expect(identity?.processGroup).toBe(groupPid);
     const script = await readFile(join(root, "scripts/verify-production-image-lifecycle.sh"), "utf8");
@@ -443,8 +444,7 @@ test("launcher cancellation before verifier group readiness reaps its owned star
     owned.push({ pid: launched.pid, identity: launcherIdentity! });
     const stdout = new Response(launched.stdout).text();
     const stderr = new Response(launched.stderr).text();
-    await waitForFile(fixture.setsidStarter);
-    const starterPid = Number(await readFile(fixture.setsidStarter, "utf8"));
+    const starterPid = Number(await readReadyFile(fixture.setsidStarter, child));
     expect(starterPid).toBeGreaterThan(1);
     const starterIdentity = await processIdentity(starterPid);
     expect(starterIdentity).toBeDefined();
