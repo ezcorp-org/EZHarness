@@ -387,6 +387,30 @@ describe("hook-lib > staged_test_targets", () => {
   });
 });
 
+describe("hook-lib > run_staged_tests", () => {
+  const HOOK_LIB = join(REPO_ROOT, "scripts/lib/hook-lib.sh");
+
+  test("runs each staged suite without the git context the hook exports", () => {
+    // A fake `bun` reports the GIT_* variables it received. The hook's own git
+    // calls still see the real context; only the test process must not.
+    const bin = mkdtempSync(join(tmpdir(), "hook-lib-fake-bun-"));
+    try {
+      writeFileSync(join(bin, "bun"), '#!/bin/sh\nenv | grep "^GIT_" | sed "s/^/seen: /"\necho "ran: $*"\n', { mode: 0o755 });
+      const gitDir = sh(["git", "rev-parse", "--absolute-git-dir"], { cwd: REPO_ROOT }).out.trim();
+      const staged = "src/__tests__/git-hooks.test.ts";
+      const res = sh(["bash", "-c", `source "${HOOK_LIB}" && run_staged_tests "$@"`, "_", staged], {
+        cwd: REPO_ROOT,
+        env: { ...baseEnv, PATH: `${bin}:${baseEnv.PATH}`, GIT_DIR: gitDir, GIT_INDEX_FILE: join(gitDir, "index"), GIT_PREFIX: "" },
+      });
+      expect(res.exitCode).toBe(0);
+      expect(res.out).toContain(`ran: test --timeout 30000 ./${staged}`);
+      expect(res.out).not.toContain("seen: GIT_");
+    } finally {
+      rmSync(bin, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("fixture env isolation", () => {
   test("drops the git context a hook exports, so fixtures never touch the real repo", () => {
     expect(
