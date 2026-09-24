@@ -1750,6 +1750,8 @@ before an installation review.
 - [ ] Rebuild and smoke-test a sealed bundle from the final reviewed PR head.
 - [x] Review the AMD qualification service module and its static identity/access tests; keep host activation separate.
 - [ ] Prepare one exact cutover packet for release install, sealed settings, runner, supervisor, and database stage.
+- [x] Make the supervisor public key available as a safe single-line sealed app setting and test both readiness and checkpoint verification.
+- [ ] Seed the new runner's runtime token before database staging while its socket and supervisor stay stopped.
 - [ ] Move the isolated app only after cutover gates pass; verify old fixture and repair the saved no-effect CREATE under the dedicated identity.
 - [ ] Review/apply a new exact Incus setup plan; run the EZHarness-owned sandbox lifecycle and security/resource qualifications.
 - [ ] Publish final PR head, hosted CI, support matrix, and live validation evidence before calling the feature ready.
@@ -1786,3 +1788,8 @@ The current isolated process has the expected key names and its values pass
 the literal parser; no values were printed. The generated app and runner
 keys match the existing dedicated-UID parser. The supervisor public-key
 delivery remains an activation gate. No live app or server files changed.
+
+The app now accepts a canonical single-line base64 Ed25519 supervisor public
+key from a sealed setting. Live readiness and checkpoint code share one parser;
+the focused readiness/checkpoint tests pass. The settings preparation tool
+must still emit the reviewed public key before activation.

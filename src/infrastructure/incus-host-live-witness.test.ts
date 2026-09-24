@@ -51,6 +51,9 @@ test("live readiness requires private host wiring and exact supervisor protocol"
   try {
     await new Promise<void>((resolve, reject) => server.listen(socket, () => resolve()).once("error", reject));
     expect(await incusHostLiveWitnessReady({ env })).toBe(true);
+    const { EZCORP_INCUS_SUPERVISOR_PUBLIC_KEY: _inlineKey, ...singleLineEnv } = env;
+    expect(await incusHostLiveWitnessReady({ env: { ...singleLineEnv,
+      EZCORP_INCUS_SUPERVISOR_PUBLIC_KEY_B64: Buffer.from(key).toString("base64") } })).toBe(true);
     response = { ready: true, protocol: "wrong" };
     expect(await incusHostLiveWitnessReady({ env })).toBe(false);
     expect(await incusHostLiveWitnessReady({ env: { ...env,

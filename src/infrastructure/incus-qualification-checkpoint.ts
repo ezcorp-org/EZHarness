@@ -6,6 +6,7 @@ import { releaseRows } from "../db/queries/extension-releases";
 import type { LiveFixtureHandle } from "./incus-live-cases";
 import { observeFixtureAcrossRestart, type RecoveryObservation } from "./incus-live-recovery-probes";
 import type { IncusQualificationScope } from "./incus-qualification";
+import { incusSupervisorPublicKeyPem } from "./incus-supervisor-public-key";
 
 const identifier = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
 const sha256 = /^[a-f0-9]{64}$/;
@@ -215,7 +216,7 @@ async function fixtureIdentity(db: Database, fixtureOperationId: string): Promis
 
 export class IncusQualificationCheckpointStore {
   constructor(private readonly db: Database,
-    private readonly publicKeyPem: string | undefined = process.env.EZCORP_INCUS_SUPERVISOR_PUBLIC_KEY,
+    private readonly publicKeyPem: string | undefined = incusSupervisorPublicKeyPem(),
     private readonly now: () => number = Date.now) {}
 
   async begin(input: { runId: string; nonce: string; deadlineMs: number;

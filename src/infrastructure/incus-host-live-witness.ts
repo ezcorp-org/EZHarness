@@ -1,4 +1,4 @@
-import { createHash, createPublicKey, randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { lstat, realpath } from "node:fs/promises";
 import { eq, sql } from "drizzle-orm";
 import { resolveSandboxPreset, sandboxPresetDigest, validateSandboxProviderMethodExchange,
@@ -24,6 +24,7 @@ import { requestIncusSupervisorReadiness, requestIncusSupervisorReceipt,
   requestIncusSupervisorRestart } from "./incus-qualification-supervisor-client";
 import { observeFailedCleanupRecovery } from "./incus-live-recovery-probes";
 import { IncusLiveCleanupController } from "./incus-live-cleanup-controller";
+import { incusSupervisorPublicKeyPem } from "./incus-supervisor-public-key";
 
 const MAX_FILE_BYTES = 64 * 1024;
 const POLL_MS = 100;
@@ -43,14 +44,12 @@ export async function incusHostLiveWitnessReady(deps: {
   const socket = env.EZCORP_INCUS_SUPERVISOR_SOCKET;
   const project = env.EZCORP_INCUS_QUALIFICATION_USER_PROJECT_ID;
   const image = env.EZCORP_INCUS_COMPOSE_FIXTURE_IMAGE_REF;
-  const key = env.EZCORP_INCUS_SUPERVISOR_PUBLIC_KEY;
   if (process.platform !== "linux" || !root?.startsWith("/") || !socket?.startsWith("/")
     || !project || !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(project)
     || !image || !/^[a-z0-9][a-z0-9.-]+(?::[1-9][0-9]{0,4})?\/[a-z0-9][a-z0-9._/-]*@sha256:[a-f0-9]{64}$/.test(image)
-    || !key || typeof process.getuid !== "function") return false;
+    || typeof process.getuid !== "function") return false;
   try {
-    const publicKey = createPublicKey(key);
-    if (publicKey.asymmetricKeyType !== "ed25519") return false;
+    if (!incusSupervisorPublicKeyPem(env)) return false;
     const [rootStat, socketStat, canonicalRoot] = await Promise.all([
       lstat(root), lstat(socket), realpath(root),
     ]);
