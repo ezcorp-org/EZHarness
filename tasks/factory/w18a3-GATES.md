@@ -134,9 +134,14 @@ counts but is kept apart in `consolidated/stale-deps/` and is not cited. Earlier
   config selects with testMatch, which imports web/e2e fixtures (3 violations). `isTestPath` now counts the `.pw.`
   suffix; the table test pins the spec as a test path and its config and a `pwd` name as production.
   `consolidated/boundaries-9dc2ba9fb.log`: 0 violations.
-- [ ] G12: the pool-service import rule lives in the boundary script (coordinator item, lowest priority).
-  OPEN: waits for W15b in integ/w00; then move the walker from `factory-process-boundaries.test.ts` into
-  `scripts/check-factory-boundaries.ts` and keep the C12 test as the deliberate-violation proof.
+- [x] G12: WITHDRAWN (coordinator, 2026-09-24). The pool-service import rule is carried by W15c (wp/w15c-pool-leaf
+  126b776d2) as the node-service-link rule in the boundary gate, and W15c merges first.
+- [x] G13: the hook runs staged factory-orchestrator files through the package's own test script, never `bun test`.
+  CHECK: `bun test ./src/__tests__/git-hooks.test.ts`; a real `run_staged_tests packages/@ezcorp/factory-orchestrator/test/dispatcher.test.ts`
+  EXPECT: the package script runs once in the package directory; no orchestrator test goes to bun; other tests stay on bun; a failing script fails the hook
+  EVIDENCE: 7f4d27042. git-hooks 21 pass, 0 fail (also in the commit's own hook run). Against the old hook-lib, three
+  of the four new tests fail (`consolidated/hook-orchestrator-against-unfixed.txt`). Real run with bun 1.3.14 and
+  node 24.14.1: tsc, then node --test, 87 pass, 0 fail, exit 0 (`consolidated/hook-orchestrator-real.log`).
 
 ## Disclosed follow-ups (owner: W18 hygiene; not done in this package)
 

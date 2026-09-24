@@ -3729,7 +3729,8 @@ Gates: `tasks/factory/w18a3-GATES.md`. Receipts: `/tmp/factory-platform-evidence
 - [x] Consolidate on -r2: merge integ/w00 7a87aed5e, cherry-pick the leak commits, rerun the matrices and static gates (G7–G10).
 - [x] A Playwright `.pw.` spec counts as a test path (380588398, G11); scratch repositories set GIT_CONFIG_NOSYSTEM=1 (9dc2ba9fb).
 - [ ] Final gates green over the fullest lcov (G6): open until W15b lands in integ/w00.
-- [ ] Move the pool-service import walker into `scripts/check-factory-boundaries.ts` (G12): after W15b lands.
+- [x] ~~Move the pool-service import walker into the boundary script (G12)~~: withdrawn; W15c carries the rule.
+- [x] The hook runs staged factory-orchestrator files through the package's node test script (7f4d27042, G13).
 
 ### Review
 
