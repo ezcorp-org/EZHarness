@@ -2,9 +2,9 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { refreshQuickstart, store } from "$lib/stores.svelte.js";
 
-function quickstartResponse(provider: boolean): Response {
+function quickstartResponse(provider: boolean, usableProvider = provider): Response {
 	return new Response(
-		JSON.stringify({ steps: { provider, chat: false, extension: false, agent: false } }),
+		JSON.stringify({ steps: { provider, usableProvider, chat: false, extension: false, agent: false } }),
 		{ status: 200, headers: { "content-type": "application/json" } },
 	);
 }
@@ -40,5 +40,12 @@ describe("refreshQuickstart", () => {
 
 		await refreshQuickstart();
 		expect(store.quickstartSteps).toEqual({ provider: true, chat: true, extension: false, agent: false });
+	});
+
+	test("keeps credential setup incomplete when keyless chat is available", async () => {
+		vi.stubGlobal("fetch", vi.fn().mockResolvedValue(quickstartResponse(false, true)));
+		await refreshQuickstart();
+		expect(store.quickstartSteps?.provider).toBe(false);
+		expect(store.quickstartSteps?.usableProvider).toBe(true);
 	});
 });

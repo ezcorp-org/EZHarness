@@ -179,6 +179,7 @@ export interface TaskSnapshot {
 
 export interface QuickstartSteps {
 	provider: boolean;
+	usableProvider?: boolean;
 	chat: boolean;
 	extension: boolean;
 	agent: boolean;
@@ -366,6 +367,7 @@ export async function refreshQuickstart(): Promise<void> {
 		if (!data.steps || request !== quickstartRequest) return;
 		store.quickstartSteps = {
 			provider: data.steps.provider === true,
+			usableProvider: data.steps.usableProvider ?? data.steps.provider === true,
 			chat: data.steps.chat === true,
 			extension: data.steps.extension === true,
 			agent: data.steps.agent === true,
