@@ -48,6 +48,32 @@ async function service(requireRecipe = false): Promise<IncusOperatorSetupService
     activeRelease: installationId => resolveActiveRelease(installationId, getReleaseRuntime()) });
 }
 
+function safeDiagnostic(error: unknown, code: unknown, message: string) {
+  const record = error && typeof error === "object" && !Array.isArray(error) ? error as Record<string, unknown> : undefined;
+  const name = error instanceof Error ? error.name : record?.name;
+  const errorType = typeof name === "string" && ["Error", "ContractError", "LifecycleError", "TypeError",
+    "IncusTransportError", "RunnerError"].includes(name) ? name : "unknown";
+  const errorCode = typeof code === "string" && ["CAPABILITY_UNAVAILABLE", "CAPABILITY_DENIED", "RUNNER_UNAVAILABLE",
+    "RELEASE_NOT_ACTIVE", "EXPIRED_CONTEXT", "INVALID_CONTEXT", "CONTEXT_MISMATCH", "INVALID_CALL_TOKEN",
+    "INVALID_REQUEST", "INTERNAL", "UNDECLARED_CONTRIBUTION", "INVALID_PROVIDER_VALUE",
+    "extension_error", "runner_failed", "protocol_error", "dependency_unavailable"].includes(code) ? code : undefined;
+  // A fixed label for the first stack frame narrows the failing boundary
+  // without returning a raw stack, path, network address, or secret.
+  const firstFrame = error instanceof Error ? error.stack?.split("\n")[1] ?? "" : "";
+  const source = firstFrame.includes("incus-operator/service") ? "operator_setup"
+    : firstFrame.includes("provider-connections/store") ? "connection_store"
+    : firstFrame.includes("provider-rpc-broker") ? "provider_broker"
+    : firstFrame.includes("release-process") ? "release_process"
+    : firstFrame.includes("incus-transport/") ? "incus_transport" : "other";
+  const shape = typeof error === "string" ? "string" : Array.isArray(error) ? "array"
+    : record ? "object" : error === null ? "null" : "other";
+  const boundedRunnerReason = errorType === "RunnerError" && code === "extension_error" ? runnerReason(message) : undefined;
+  return { errorType, ...(errorCode ? { errorCode } : {}), source, shape,
+      ...(boundedRunnerReason ? { runnerReason: boundedRunnerReason } : {}),
+      ...(record ? { hasMessage: typeof record.message === "string", hasError: Object.hasOwn(record, "error"),
+        hasKind: Object.hasOwn(record, "kind"), hasStatus: Object.hasOwn(record, "status") } : {}) };
+}
+
 function safeError(error: unknown): Response {
   const message = error instanceof Error ? error.message : "Incus setup failed";
   // Provider invocation errors cross a process boundary. Only expose stable
@@ -71,30 +97,8 @@ function safeError(error: unknown): Response {
   }
   const known = /^(The (active approved release|provider release|exact ready plan|setup is already|setup outcome)|Incus (setup was not found|setup endpoint|did not report|server certificate|provider|client identity)|Reviewed Incus (recipe|client identity)|Retired provider connection has unfinished sandboxes|Host-owned SSH|SSH (connection|host is not pinned|known_hosts)|OpenSSL is required|Verify the reviewed|Provider release|Provider connection|setup plan digest mismatch)/.test(message);
   if (known) return json({ code: "setup_failed", message }, { status: 409 });
-  const record = error && typeof error === "object" && !Array.isArray(error) ? error as Record<string, unknown> : undefined;
-  const name = error instanceof Error ? error.name : record?.name;
-  const errorType = typeof name === "string" && ["Error", "ContractError", "LifecycleError", "TypeError",
-    "IncusTransportError", "RunnerError"].includes(name) ? name : "unknown";
-  const errorCode = typeof code === "string" && ["CAPABILITY_UNAVAILABLE", "CAPABILITY_DENIED", "RUNNER_UNAVAILABLE",
-    "RELEASE_NOT_ACTIVE", "EXPIRED_CONTEXT", "INVALID_CONTEXT", "CONTEXT_MISMATCH", "INVALID_CALL_TOKEN",
-    "INVALID_REQUEST", "INTERNAL", "UNDECLARED_CONTRIBUTION", "INVALID_PROVIDER_VALUE",
-    "extension_error", "runner_failed", "protocol_error", "dependency_unavailable"].includes(code) ? code : undefined;
-  // A fixed label for the first stack frame narrows the failing boundary
-  // without returning a raw stack, path, network address, or secret.
-  const firstFrame = error instanceof Error ? error.stack?.split("\n")[1] ?? "" : "";
-  const source = firstFrame.includes("incus-operator/service") ? "operator_setup"
-    : firstFrame.includes("provider-connections/store") ? "connection_store"
-    : firstFrame.includes("provider-rpc-broker") ? "provider_broker"
-    : firstFrame.includes("release-process") ? "release_process"
-    : firstFrame.includes("incus-transport/") ? "incus_transport" : "other";
-  const shape = typeof error === "string" ? "string" : Array.isArray(error) ? "array"
-    : record ? "object" : error === null ? "null" : "other";
-  const boundedRunnerReason = errorType === "RunnerError" && code === "extension_error" ? runnerReason(message) : undefined;
   return json({ code: "setup_failed", message: "Incus setup failed. Check host logs and inspect the saved plan.",
-    diagnostic: { errorType, ...(errorCode ? { errorCode } : {}), source, shape,
-      ...(boundedRunnerReason ? { runnerReason: boundedRunnerReason } : {}),
-      ...(record ? { hasMessage: typeof record.message === "string", hasError: Object.hasOwn(record, "error"),
-        hasKind: Object.hasOwn(record, "kind"), hasStatus: Object.hasOwn(record, "status") } : {}) } }, { status: 409 });
+    diagnostic: safeDiagnostic(error, code, message) }, { status: 409 });
 }
 
 export const GET: RequestHandler = async ({ locals, url }) => {
