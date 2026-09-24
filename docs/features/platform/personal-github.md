@@ -113,6 +113,10 @@ expires. The retry uses the same reviewed files and a new operation and branch.
 An old worker cannot resume publication under the replaced claim. If a commit
 ID was saved, recovery only checks the exact remote branch and draft PR.
 **Check GitHub** is read-only; it does not start another publication.
+After reconnect, the same signed-in owner can check that stored outcome with the
+same numeric GitHub account and current read access to the exact repository.
+A different GitHub account cannot reconcile it, and the old connection
+generation cannot authorize another write.
 
 Logout prevents an in-flight authorization callback from saving credentials.
 A DNS failure before token refresh is sent can be retried after the network
