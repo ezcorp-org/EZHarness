@@ -58,6 +58,14 @@ export async function requestIncusSupervisorRestart(socketPath: string,
   if (response.accepted !== true) throw new Error("Incus supervisor refused restart");
 }
 
+/** Read-only preflight from the authenticated managed app process. */
+export async function requestIncusSupervisorReadiness(socketPath: string): Promise<boolean> {
+  const response = await exchange(socketPath, { version: 1, action: "readiness" }, RESTART_ACK_TIMEOUT_MS) as {
+    ready?: unknown; protocol?: unknown;
+  };
+  return response.ready === true && response.protocol === "incus-qualification.v1";
+}
+
 export async function requestIncusSupervisorReceipt(socketPath: string, runId: string,
   nonce: string, afterDigest: string, deadlineMs: number): Promise<SignedRestartHandoff> {
   const remainingMs = deadlineMs - Date.now();

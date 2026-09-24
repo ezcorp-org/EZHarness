@@ -1,4 +1,5 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, createPublicKey, randomUUID } from "node:crypto";
+import { lstat, realpath } from "node:fs/promises";
 import { eq, sql } from "drizzle-orm";
 import { resolveSandboxPreset, sandboxPresetDigest, validateSandboxProviderMethodExchange,
   type SandboxPreset, type SandboxProtocolOperation } from "@ezcorp/extension-contract";
@@ -19,7 +20,8 @@ import { ProviderConnectionStore, type ProviderConnectionCredentials,
   type ProviderConnectionScope } from "./provider-connections/store";
 import { IncusQualificationCheckpointStore } from "./incus-qualification-checkpoint";
 import { IncusQualificationContinuation } from "./incus-qualification-continuation";
-import { requestIncusSupervisorReceipt, requestIncusSupervisorRestart } from "./incus-qualification-supervisor-client";
+import { requestIncusSupervisorReadiness, requestIncusSupervisorReceipt,
+  requestIncusSupervisorRestart } from "./incus-qualification-supervisor-client";
 import { observeFailedCleanupRecovery } from "./incus-live-recovery-probes";
 import { IncusLiveCleanupController } from "./incus-live-cleanup-controller";
 
@@ -31,9 +33,32 @@ const guestOperations = new Set<SandboxProtocolOperation>([
   "files.stat", "files.readRange", "files.writeAtomic", "processes.start", "processes.inspect", "processes.readOutput",
 ]);
 
-/** Operator qualification must stay closed until every SP witness method is real. */
-export function incusHostLiveWitnessReady(): boolean {
-  return false;
+/** This checks operator wiring before allocation. Only the full live run can publish SP evidence. */
+export async function incusHostLiveWitnessReady(deps: {
+  env?: NodeJS.ProcessEnv;
+  supervisorReadiness?: typeof requestIncusSupervisorReadiness;
+} = {}): Promise<boolean> {
+  const env = deps.env ?? process.env;
+  const root = env.EZCORP_INCUS_CONTROL_PROBE_ROOT;
+  const socket = env.EZCORP_INCUS_SUPERVISOR_SOCKET;
+  const project = env.EZCORP_INCUS_QUALIFICATION_USER_PROJECT_ID;
+  const image = env.EZCORP_INCUS_COMPOSE_FIXTURE_IMAGE_REF;
+  const key = env.EZCORP_INCUS_SUPERVISOR_PUBLIC_KEY;
+  if (process.platform !== "linux" || !root?.startsWith("/") || !socket?.startsWith("/")
+    || !project || !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(project)
+    || !image || !/^[a-z0-9][a-z0-9.-]+(?::[1-9][0-9]{0,4})?\/[a-z0-9][a-z0-9._/-]*@sha256:[a-f0-9]{64}$/.test(image)
+    || !key || typeof process.getuid !== "function") return false;
+  try {
+    const publicKey = createPublicKey(key);
+    if (publicKey.asymmetricKeyType !== "ed25519") return false;
+    const [rootStat, socketStat, canonicalRoot] = await Promise.all([
+      lstat(root), lstat(socket), realpath(root),
+    ]);
+    if (canonicalRoot !== root || !rootStat.isDirectory() || rootStat.isSymbolicLink()
+      || (rootStat.mode & 0o077) !== 0 || rootStat.uid !== process.getuid()
+      || !socketStat.isSocket() || socketStat.isSymbolicLink()) return false;
+    return await (deps.supervisorReadiness ?? requestIncusSupervisorReadiness)(socket);
+  } catch { return false; }
 }
 
 function deny(reason: string): never {
@@ -124,8 +149,8 @@ async function invokeRelease(installationId: string, bindingId: string, operatio
 }
 
 /** Host authority for a qualification fixture. It never accepts a user binding.
- * The incomplete host probes below throw, so this class cannot issue SP passes
- * until each missing readback has a real controller or Incus implementation. */
+ * The durable runner uses beginRestart/claimRestart. The legacy one-process
+ * restart method stays closed because it cannot survive its own process exit. */
 export class IncusHostLiveWitness implements HostIncusLiveWitness {
   private readonly db: Database;
   private readonly qualifications: IncusQualificationStore;

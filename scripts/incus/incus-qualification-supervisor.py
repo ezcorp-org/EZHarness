@@ -424,6 +424,22 @@ class Supervisor:
             self.fault_armed = arm_bytes
         return {"authorized": True}
 
+    def readiness(self, message):
+        if message != {"version": 1, "action": "readiness"}:
+            raise ValueError("invalid readiness request")
+        if self.pending is not None or self.claimed is not None:
+            raise ValueError("qualification run is already active")
+        if not self.fault_authority_command:
+            raise ValueError("operator fault verifier is unavailable")
+        for command, name in ((self.receipt_authority_command, "receipt"),
+                              (self.fault_authority_command, "fault")):
+            check = subprocess.run(command, input=b'{"phase":"readiness"}\n',
+                                   capture_output=True, timeout=5, check=False)
+            if check.returncode != 0 or check.stdout != \
+                    (b'{"ready":"' + name.encode() + b'.v1"}\n'):
+                raise ValueError("operator " + name + " verifier is unavailable")
+        return {"ready": True, "protocol": "incus-qualification.v1"}
+
     def serve(self):
         parent = self.socket_path.parent.stat()
         if parent.st_uid != os.geteuid() or parent.st_mode & 0o027:
@@ -486,6 +502,8 @@ class Supervisor:
                             send_message(connection, {"receipt": self.receipt(message)})
                         elif message.get("action") == "fault":
                             send_message(connection, self.fault(message))
+                        elif message.get("action") == "readiness":
+                            send_message(connection, self.readiness(message))
                         else:
                             raise ValueError("unknown control action")
                     except (ValueError, OSError, subprocess.SubprocessError, json.JSONDecodeError) as error:

@@ -11,7 +11,7 @@ afterEach(() => {
   else process.env.EZCORP_INCUS_CONTROL_PROBE_ROOT = originalRoot;
 });
 mock.module("$server/infrastructure/incus-host-live-witness", () => ({
-  incusHostLiveWitnessReady: () => witnessReady,
+  incusHostLiveWitnessReady: async () => witnessReady,
 }));
 mock.module("$server/infrastructure/incus-startup", () => ({
   createIncusQualificationWitness: async (input: { connectionId: string }, operationId: string) => {

@@ -93,6 +93,37 @@ def wait_file(path):
 
 
 class SupervisorTest(unittest.TestCase):
+    def test_readiness_requires_both_independent_verifiers_and_no_active_run(self):
+        with tempfile.TemporaryDirectory(prefix="incus-supervisor-", dir="/tmp") as directory:
+            root = Path(directory)
+            key = root / "key.pem"
+            key.write_text("private test key")
+            key.chmod(0o600)
+            supervisor = MODULE.Supervisor(str(root / "control.sock"), ["true"],
+                os.getuid(), os.getgid(), key, ["authority"], ["receipt"],
+                enforce_distinct_uid=False)
+            request = {"version": 1, "action": "readiness"}
+            with self.assertRaisesRegex(ValueError, "fault verifier"):
+                supervisor.readiness(request)
+            supervisor.fault_authority_command = ["fault"]
+            with mock.patch.object(MODULE.subprocess, "run", side_effect=[
+                    subprocess.CompletedProcess([], 0, stdout=b'{"ready":"receipt.v1"}\n'),
+                    subprocess.CompletedProcess([], 0, stdout=b'{"ready":"fault.v1"}\n')]) as run:
+                self.assertEqual(supervisor.readiness(request),
+                                 {"ready": True, "protocol": "incus-qualification.v1"})
+                self.assertEqual([call.args[0] for call in run.call_args_list],
+                                 [["receipt"], ["fault"]])
+            with mock.patch.object(MODULE.subprocess, "run", side_effect=[
+                    subprocess.CompletedProcess([], 0, stdout=b'{"ready":"receipt.v1"}\n'),
+                    subprocess.CompletedProcess([], 1, stdout=b'')]):
+                with self.assertRaisesRegex(ValueError, "fault verifier"):
+                    supervisor.readiness(request)
+            supervisor.pending = {"run": "active"}
+            with self.assertRaisesRegex(ValueError, "already active"):
+                supervisor.readiness(request)
+            with self.assertRaisesRegex(ValueError, "invalid readiness"):
+                supervisor.readiness({**request, "scope": "forged"})
+
     def test_operator_noeffect_recovery_requires_fence_and_two_independent_reads(self):
         with tempfile.TemporaryDirectory(prefix="incus-supervisor-", dir="/tmp") as directory:
             root = Path(directory)

@@ -1,5 +1,6 @@
-/** Independent operator receipt check. stdin: {phase:"snapshot",request} or
- * {phase:"verify",payload,snapshot}. The snapshot phase runs as the app UID
+/** Independent operator receipt check. stdin: {phase:"readiness"},
+ * {phase:"snapshot",request}, or {phase:"verify",payload,snapshot}.
+ * The snapshot phase runs as the app UID
  * after the old process exits; verify runs as the operator before signing. */
 import { closeSync, constants, fstatSync, openSync, readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
@@ -140,12 +141,7 @@ async function snapshot(request: Request): Promise<Snapshot> {
   }
 }
 
-async function verify(payload: Omit<RestartHandoffPayload, "afterDigest">, value: Snapshot): Promise<string> {
-  const { version, oldProcess, newProcess, ...request } = payload;
-  requireFact(version === 1 && value && same(value.request, request)
-    && same(value.oldProcess, oldProcess) && Number.isSafeInteger(newProcess?.pid)
-    && newProcess.pid > 0 && /^\d+$/.test(newProcess.startTicks)
-    && newProcess.pid !== oldProcess.pid && Date.now() < payload.deadlineMs, "handoff changed");
+function operatorConfig(): { context: LiveReadbackContext; transportConnection: ResolvedIncusConnection } {
   const path = process.env.EZCORP_INCUS_RECEIPT_CONFIG;
   if (!path?.startsWith("/")) throw new Error("operator connection file required");
   const descriptor = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
@@ -161,6 +157,20 @@ async function verify(payload: Omit<RestartHandoffPayload, "afterDigest">, value
   }
   const config = JSON.parse(raw) as { context: LiveReadbackContext;
     transportConnection: ResolvedIncusConnection };
+  requireFact(config.context?.recipe?.guestImage && config.context.preset?.imageDigest
+    && config.context.connection?.serverCertificatePem && config.transportConnection?.serverCertificatePem
+    && config.context.connection.serverCertificatePem === config.transportConnection.serverCertificatePem,
+  "operator connection pin is unavailable");
+  return config;
+}
+
+async function verify(payload: Omit<RestartHandoffPayload, "afterDigest">, value: Snapshot): Promise<string> {
+  const { version, oldProcess, newProcess, ...request } = payload;
+  requireFact(version === 1 && value && same(value.request, request)
+    && same(value.oldProcess, oldProcess) && Number.isSafeInteger(newProcess?.pid)
+    && newProcess.pid > 0 && /^\d+$/.test(newProcess.startTicks)
+    && newProcess.pid !== oldProcess.pid && Date.now() < payload.deadlineMs, "handoff changed");
+  const config = operatorConfig();
   const { context, transportConnection } = config;
   const image = context?.recipe?.guestImage;
   requireFact(image, "operator image pin required");
@@ -204,7 +214,12 @@ async function verify(payload: Omit<RestartHandoffPayload, "afterDigest">, value
 }
 
 const input = JSON.parse(await Bun.stdin.text());
-if (input.phase === "snapshot") {
+if (input.phase === "readiness" && Object.keys(input).length === 1) {
+  requireFact(process.env.EZCORP_INCUS_SUPERVISOR_DB_PATH?.startsWith("/")
+    && !process.env.DATABASE_URL, "isolated PGlite path required");
+  operatorConfig();
+  process.stdout.write('{"ready":"receipt.v1"}\n');
+} else if (input.phase === "snapshot") {
   process.stdout.write(JSON.stringify({ snapshot: await snapshot(input.request) }) + "\n");
 } else if (input.phase === "verify") {
   process.stdout.write(JSON.stringify({ afterDigest: await verify(input.payload, input.snapshot) }) + "\n");

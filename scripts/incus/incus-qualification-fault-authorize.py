@@ -122,12 +122,9 @@ def verify(message, config, observed):
     return {"authorized": True, "armDigest": hashlib.sha256(canonical(arm)).hexdigest()}
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--config", required=True)
-    args = parser.parse_args()
-    owned_file(args.config)
-    config = json.loads(Path(args.config).read_text())
+def load_config(path):
+    owned_file(path)
+    config = json.loads(Path(path).read_text())
     if not isinstance(config, dict) or set(config) != CONFIG_KEYS \
             or not isinstance(config["scope"], dict) or set(config["scope"]) != SCOPE_KEYS \
             or any(not isinstance(value, str) or not IDENTIFIER.fullmatch(value)
@@ -140,7 +137,18 @@ def main():
         if not isinstance(config[name], str) or not config[name].startswith("/"):
             raise ValueError("invalid operator client file")
         owned_file(config[name])
+    return config
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", required=True)
+    args = parser.parse_args()
+    config = load_config(args.config)
     message = json.loads(sys.stdin.buffer.readline(16385))
+    if message == {"phase": "readiness"}:
+        sys.stdout.buffer.write(b'{"ready":"fault.v1"}\n')
+        return
     arm = validate(message, config)
     result = verify(message, config, query_instance(config, arm))
     sys.stdout.buffer.write(canonical(result) + b"\n")

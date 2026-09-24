@@ -137,6 +137,9 @@ test("receipt verifier snapshots the stopped fixture and computes a pinned backe
     await db.close();
     const env = { EZCORP_INCUS_SUPERVISOR_DB_PATH: dbPath,
       EZCORP_INCUS_RECEIPT_CONFIG: configPath };
+    expect(await invoke({ phase: "readiness" }, env)).toMatchObject({
+      status: 0, stdout: '{"ready":"receipt.v1"}\n',
+    });
     const captured = await invoke({ phase: "snapshot", request: exactRequest }, env);
     expect(captured.status).toBe(0);
     const snapshot = JSON.parse(captured.stdout).snapshot;
@@ -159,6 +162,7 @@ test("receipt verifier snapshots the stopped fixture and computes a pinned backe
     wrongBackend = false;
     await chmod(configPath, 0o644);
     expect((await invoke({ phase: "verify", payload, snapshot }, env)).status).not.toBe(0);
+    expect((await invoke({ phase: "readiness" }, env)).status).not.toBe(0);
     await chmod(configPath, 0o600);
     const changedDb = new PGlite(dbPath);
     await changedDb.waitReady;

@@ -1,4 +1,9 @@
 import { expect, test } from "bun:test";
+import { generateKeyPairSync } from "node:crypto";
+import { chmod, mkdtemp, rm } from "node:fs/promises";
+import { createServer } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { sandboxPresetDigest } from "@ezcorp/extension-contract";
 import { incusManifest, INCUS_PRESETS } from "../../extensions/incus-sandbox/manifest";
 import recipe from "../../scripts/incus/recipe.json";
@@ -18,10 +23,48 @@ const witness = new IncusHostLiveWitness({ db: {} as Database,
   qualifications: {} as IncusQualificationStore,
   fixtures: {} as IncusQualificationFixtureService });
 
-test("production qualification remains closed while SP probes are incomplete", () => {
-  expect(incusHostLiveWitnessReady()).toBe(false);
+test("production qualification remains closed without operator wiring", async () => {
+  expect(await incusHostLiveWitnessReady({ env: {} })).toBe(false);
   expect((witness as unknown as { resourceNetwork: unknown }).resourceNetwork)
     .toBeInstanceOf(IncusLiveNetworkProbe);
+});
+
+test("live readiness requires private host wiring and exact supervisor protocol", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ezh-live-gate-"));
+  const socket = join(root, "control.sock");
+  const key = generateKeyPairSync("ed25519").publicKey.export({ type: "spki", format: "pem" }).toString();
+  const env = { EZCORP_INCUS_CONTROL_PROBE_ROOT: root,
+    EZCORP_INCUS_SUPERVISOR_SOCKET: socket,
+    EZCORP_INCUS_QUALIFICATION_USER_PROJECT_ID: "reviewed-project",
+    EZCORP_INCUS_COMPOSE_FIXTURE_IMAGE_REF: `registry.example/proof@sha256:${"a".repeat(64)}`,
+    EZCORP_INCUS_SUPERVISOR_PUBLIC_KEY: key };
+  let response = { ready: true, protocol: "incus-qualification.v1" };
+  const server = createServer(connection => {
+    let request = "";
+    connection.on("data", chunk => {
+      request += chunk.toString();
+      if (!request.includes("\n")) return;
+      expect(JSON.parse(request)).toEqual({ version: 1, action: "readiness" });
+      connection.end(`${JSON.stringify(response)}\n`);
+    });
+  });
+  try {
+    await new Promise<void>((resolve, reject) => server.listen(socket, () => resolve()).once("error", reject));
+    expect(await incusHostLiveWitnessReady({ env })).toBe(true);
+    response = { ready: true, protocol: "wrong" };
+    expect(await incusHostLiveWitnessReady({ env })).toBe(false);
+    expect(await incusHostLiveWitnessReady({ env: { ...env,
+      EZCORP_INCUS_COMPOSE_FIXTURE_IMAGE_REF: "registry.example/proof:latest" } })).toBe(false);
+    expect(await incusHostLiveWitnessReady({ env: { ...env,
+      EZCORP_INCUS_SUPERVISOR_PUBLIC_KEY: "not a key" } })).toBe(false);
+    expect(await incusHostLiveWitnessReady({ env: { ...env,
+      EZCORP_INCUS_QUALIFICATION_USER_PROJECT_ID: "../other" } })).toBe(false);
+    await chmod(root, 0o750);
+    expect(await incusHostLiveWitnessReady({ env })).toBe(false);
+  } finally {
+    await new Promise<void>(resolve => server.close(() => resolve()));
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("every unmeasured host probe denies instead of reporting a passing fact", async () => {

@@ -4,6 +4,9 @@
 import importlib.util
 import hashlib
 import json
+import subprocess
+import sys
+import tempfile
 import time
 import unittest
 from pathlib import Path
@@ -35,6 +38,29 @@ def instance(request):
 
 
 class FaultVerifierTest(unittest.TestCase):
+    def test_readiness_checks_private_pinned_config_without_backend_request(self):
+        with tempfile.TemporaryDirectory(prefix="incus-fault-ready-") as directory:
+            root = Path(directory)
+            certificate = root / "client.crt"
+            key = root / "client.key"
+            config_path = root / "config.json"
+            certificate.write_text("test certificate")
+            key.write_text("test key")
+            config_path.write_text(json.dumps({"endpoint": "https://incus.example:8443",
+                "project": "ezharness", "serverCertificateSha256": "a"*64,
+                "clientCertificate": str(certificate), "clientKey": str(key), "scope": SCOPE}))
+            for path in (certificate, key, config_path):
+                path.chmod(0o600)
+            def run():
+                return subprocess.run([sys.executable, str(SOURCE), "--config", str(config_path)],
+                    input=b'{"phase":"readiness"}\n', capture_output=True, check=False)
+            with patch.object(MODULE, "query_instance", side_effect=AssertionError("backend request")):
+                ready = run()
+            self.assertEqual(ready.returncode, 0, ready.stderr)
+            self.assertEqual(ready.stdout, b'{"ready":"fault.v1"}\n')
+            key.chmod(0o644)
+            self.assertNotEqual(run().returncode, 0)
+
     def test_stopped_exact_instance_arms_and_absence_reads_back(self):
         request = arm()
         armed = MODULE.verify({"phase": "arm", "arm": request}, CONFIG, instance(request))

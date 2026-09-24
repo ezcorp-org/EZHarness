@@ -47,7 +47,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   if (!input) return json({ code: "invalid_input", message: "Provide exact qualification scope and operation ID." }, { status: 400 });
   try {
     if (input.action === "qualify") {
-      if (!incusHostLiveWitnessReady()) {
+      if (!await incusHostLiveWitnessReady()) {
         return json({ code: "qualification_unavailable",
           message: "The host live qualification witness is incomplete." }, { status: 503 });
       }
