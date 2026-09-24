@@ -1,5 +1,5 @@
 import type { FactoryGuestModelRefusal, FactoryGuestModelResponse, FactoryRunnerRequest } from "@ezcorp/factory-sdk";
-import type { FactoryAttemptAuthority, FactoryExecutionJournal } from "../executions";
+import { FactoryAttemptLivenessError, type FactoryAttemptAuthority, type FactoryExecutionJournal } from "../executions";
 import { factoryModelSamplingOptions } from "../model-configuration";
 import { createFactoryGuestModelBroker, factoryGuestModelOperationIdOf, factoryGuestModelRefusal, type FactoryOneHopProvider } from "./guest-model-broker";
 import { createFactoryJournalGuestModelJournal } from "./guest-model-journal";
@@ -65,18 +65,18 @@ const JOURNAL_REFUSALS: ReadonlyMap<string, string> = new Map([
   ["Factory durable runner request is corrupt.", "factory_attempt_request_corrupt"],
 ]);
 
-const FACTORY_CODE = /^factory_[a-z0-9_]{1,120}$/;
-
 /**
  * A store failure, as a guest may see it: a fixed code and nothing else.
  *
- * A typed factory error (an unknown or no-longer-live attempt, a moved fence)
- * and a journal invariant are the attempt's own, so they are `invalid_request`
- * naming their code. Anything else is the store failing, which is transient.
+ * Classified by what raised it, never by the shape of its code. The journal's
+ * liveness error (an unknown or no-longer-live attempt, a moved fence) and
+ * its own invariants are the attempt's fault, so they are `invalid_request`
+ * naming their code. Anything else is the store or its transport failing,
+ * even when that error carries a `factory_` code of its own, and that is
+ * transient.
  */
 function storeRefusal(payload: unknown, error: unknown): FactoryGuestModelResponse {
-  const code = (error as { code?: unknown } | null)?.code;
-  const named = typeof code === "string" && FACTORY_CODE.test(code) ? code : error instanceof Error ? JOURNAL_REFUSALS.get(error.message) : undefined;
+  const named = error instanceof FactoryAttemptLivenessError ? error.code : error instanceof Error ? JOURNAL_REFUSALS.get(error.message) : undefined;
   return named === undefined
     ? refused(payload, "operation_busy", "factory_journal_unavailable: the attempt's journal could not be reached; retry the operation.")
     : refused(payload, "invalid_request", named);

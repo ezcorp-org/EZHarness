@@ -67,7 +67,7 @@ answer for each prompt digest.
 
    ```sh
    curl -s http://127.0.0.1:11434/api/version
-   curl -s http://127.0.0.1:11434/v1/models | grep -o '"qwen3:1.7b"'
+   curl -s http://127.0.0.1:11434/v1/models | grep --line-buffered -o '"qwen3:1.7b"'
    ```
 
 5. Export the storage credential directory. The path changes on every reboot,

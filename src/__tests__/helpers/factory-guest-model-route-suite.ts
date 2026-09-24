@@ -269,9 +269,12 @@ export function factoryGuestModelRouteConformance(createFixture: () => Promise<F
     const attempt = await admit();
     const provider = streamDouble(() => text("never"));
     const secretText = "connect ECONNRESET 10.0.0.7:5432 while reading factory_executions for tenant graph-tenant";
+    // A store-side failure may carry a factory code of its own (a key error
+    // raised inside the store); it is still the store failing, not the attempt.
+    const storeError = Object.assign(new Error(secretText), { code: "factory_key_unavailable" });
     const failing = (method: "request" | "prepare") => new Proxy(journal, {
       get(target, property, receiver) {
-        if (property === method) return async () => { throw new Error(secretText); };
+        if (property === method) return async () => { throw storeError; };
         const value = Reflect.get(target, property, receiver) as unknown;
         return typeof value === "function" ? (value as (...args: unknown[]) => unknown).bind(target) : value;
       },
@@ -282,6 +285,7 @@ export function factoryGuestModelRouteConformance(createFixture: () => Promise<F
       expect(answer).toMatchObject({ status: "refused", refusal: { code: "operation_busy" } });
       expect(answer.refusal.message).toStartWith("factory_journal_unavailable");
       expect(JSON.stringify(answer)).not.toContain("ECONNRESET");
+      expect(JSON.stringify(answer)).not.toContain("factory_key_unavailable");
     }
     expect(provider.seen).toHaveLength(0);
     expect(await operationRows(attempt)).toHaveLength(0);

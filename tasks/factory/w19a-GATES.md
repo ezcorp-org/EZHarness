@@ -231,3 +231,10 @@ Fixed before the post-W01g merge; each behaviour change has a test.
   model request is still waiting on its own.
 - **L7.** `issuesOf` returns no issues when diagnostics are absent, so the answer stays the named 422.
 - **L8.** The ownership table above lists the twelve further files.
+- **M2 follow-up (validator-2 on `3281b9c4d`).** The classification is by the error's class, not its
+  code prefix: only `FactoryAttemptLivenessError` and the journal's own invariants are
+  `invalid_request`. A store failure that carries a `factory_` code of its own is still
+  `operation_busy` / `factory_journal_unavailable`; the suite asserts it, and the case is red on
+  `3281b9c4d`'s classification.
+- **Runbook.** The Ollama check's `grep` carries `--line-buffered`, which this host's hook requires
+  (the validator's one change when following the runbook literally).
