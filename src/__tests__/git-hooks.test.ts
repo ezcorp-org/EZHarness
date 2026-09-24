@@ -46,6 +46,7 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseBunVersion } from "../../scripts/check-bun-version.ts";
+import { withoutGitContext } from "./helpers/scratch-git.ts";
 
 const REPO_ROOT = resolve(import.meta.dir, "..", "..");
 const PRE_COMMIT = join(REPO_ROOT, ".githooks/pre-commit");
@@ -57,31 +58,11 @@ const NODE_MODULES = join(REPO_ROOT, "node_modules");
 const CHECK_BUN_VERSION_TS = join(REPO_ROOT, "scripts/check-bun-version.ts");
 const BUN_VERSION_CHECK_SH = join(REPO_ROOT, "scripts/lib/bun-version-check.sh");
 
-/**
- * Drop every `GIT_*` variable. Git exports GIT_DIR, GIT_INDEX_FILE, GIT_PREFIX
- * and friends to hook processes, and the pre-commit staged-test map runs THIS
- * file inside a hook whenever it is staged. Left in place, they point every
- * fixture's git command at the REAL repository: `git init` in a tmpdir
- * re-initialised the outer repo as bare, `git config` wrote the fixture
- * identity into its shared config, and `git worktree add` registered tmp
- * worktrees on it. Each fixture builds its own repo, so nothing from the
- * parent's git context is ever wanted.
- */
-function withoutGitContext(env: Record<string, string>): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(env)) {
-    if (!k.startsWith("GIT_")) out[k] = v;
-  }
-  return out;
-}
-
 // Env with CI + EZ_SKIP_HOOKS stripped so the ambient runner (which may set CI)
 // can't mask the "hooks actually run / setup actually wires" default paths.
-const rawEnv: Record<string, string> = {};
-for (const [k, v] of Object.entries(process.env)) {
-  if (v !== undefined) rawEnv[k] = v;
-}
-const baseEnv = withoutGitContext(rawEnv);
+// The pre-commit staged-test map runs THIS file inside a hook whenever it is
+// staged, so the hook's git context is dropped (see helpers/scratch-git.ts).
+const baseEnv = withoutGitContext(process.env);
 delete baseEnv.CI;
 delete baseEnv.EZ_SKIP_HOOKS;
 
