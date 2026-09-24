@@ -540,6 +540,19 @@ export const SKIP_SERVER_ALIAS_RESTORE = new Set<string>([
   "db/connection",
 ]);
 
+/**
+ * The real `$lib/server/security/api-keys` exports with `overrides` on top.
+ * Mock api-keys through this, never with a partial factory: the first route
+ * that links the module fixes its export NAMES for the rest of the process,
+ * and neither a later registration nor `restoreModuleMocks()` can add one
+ * back. A factory with only `requireScope` made every later suite whose route
+ * imports `requireAdmin` fail to link ("Export named 'requireAdmin' not
+ * found"; h1-local-provider-ssrf after three suites, 2026-09-24).
+ */
+export function webApiKeysModule(overrides: Record<string, unknown>): Record<string, unknown> {
+  return { ...require("../../../web/src/lib/server/security/api-keys"), ...overrides };
+}
+
 export function restoreModuleMocks() {
   for (const [path, exports] of snapshots) {
     try {
