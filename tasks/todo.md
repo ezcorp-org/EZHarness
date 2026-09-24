@@ -3633,11 +3633,13 @@ package changed.
 
 Base `integ/w00` `39a7189e0`. Receipts: `/tmp/factory-platform-evidence/w03e/`. Gates: `tasks/factory/w03e-GATES.md`.
 
-- [ ] Reproduce on the real application with W02c's harness: a stopped attempt with no operations stays `cancelling` (fence stop and operator cancel).
+- [x] Reproduce on the real application with W02c's harness: a stopped attempt with no operations stays `cancelling` (fence stop and operator cancel).
 - [x] Root fix: a signed stop of an attempt whose journal is empty settles a typed `no-operations` zero in the stop transaction, with one `usage-settled` event and a settled budget; any journaled operation keeps the uncertain-hold path.
 - [x] A certain stop after a durable `stop-uncertain` event carries `uncertain: false`, so the kernel folds it.
 - [x] Migration `add-factory-usage-no-operations` (source, `stop_receipt_digest`, exact-shape CHECKs), schema mirror, restart case, threshold.
 - [x] Tests: success with a kernel fold to `cancelled`, journaled operation stays uncertain, concurrent stops, lost receipt, crash and restart, stale epoch, cross-tenant denial, corrupt certainty; each fails on the unfixed store.
-- [ ] Real-application proof: run A (fence) and run O (operator cancel) reach a settled terminal, three passes.
-- [ ] Sweep after `git merge --no-edit integ/w00`: typecheck, lint, boundaries, gate integrity, PostgreSQL producers, backend pool, both coverage gates.
-- [ ] Gate file, report, review paragraph.
+- [x] Real-application proof: run A (fence) and run O (operator cancel) reach a settled terminal, three passes.
+- [x] Sweep after `git merge --no-edit integ/w00`: typecheck, lint, boundaries, gate integrity, PostgreSQL producers, backend pool, both coverage gates.
+- [x] Gate file, report, review paragraph.
+
+**Review.** An attempt stopped before its first operation stayed `cancelling` forever. The stop saw no terminal usage and held the budget as uncertain, and reconciliation refused the hold with `no-operation-receipt`, because there was nothing to reconcile. The base run at W02c's head showed this for the package fence's run A and an operator-cancelled run O. C02 journals every operation before its effect, and an accepted cancel can prepare no more, so an empty journal after a signed stop proves zero provider cost. The stop now settles that zero in its own transaction as a typed `no-operations` settlement bound to the stop receipt, with one `usage-settled` event. Compute is charged at its reserved bound because nothing measured it. A second defect sat under it: the kernel only clears an uncertain attempt when a later stop says `uncertain: false`, which nothing emitted. The real stops went through exactly that path. Three passes at the merged head bring both runs to `cancelled`, run A with its typed reason, and the pool, PostgreSQL, coverage and complexity gates are green. Open: a hold that reconciliation later resolves from a provider receipt still never clears the kernel's uncertainty.
