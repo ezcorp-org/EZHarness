@@ -183,13 +183,17 @@ token reaches the client**, the loop:
    `RETRY_BACKOFF_MS = 150`). A transient 429/5xx often clears in a few
    hundred ms, and staying on the same provider preserves Anthropic
    prompt-cache locality and avoids a cross-model quality discontinuity.
-2. **Records one breaker failure** for that provider (one per provider per
+2. **Tries another model on the same provider** when a free Kilo model has a
+   transient rate limit. It switches to `kilo-auto/free` once, without charging
+   Kilo's circuit breaker for one upstream model's limit. Paid models and
+   account quota limits do not take this path.
+3. **Records one breaker failure** for that provider (one per provider per
    turn, not one per attempt) and asks `suggestFallback(provider, tier,
    scope)` for a **tier peer** on the next healthy provider in the preference
    order. The tier is the turn's *effective* tier from model resolution — a
    pinned Opus fails over to a `powerful`-tier peer, never silently to a
    mid-tier model; a routed turn fails over within the classifier's tier.
-3. **Rebuilds the pi-agent** on the fallback model (each attempt closes over
+4. **Rebuilds the pi-agent** on the fallback model (each attempt closes over
    its own model, so compaction budgets and cache-retention shaping stay
    correct) and re-prompts. All listeners from the previous attempt are
    detached first.
@@ -211,11 +215,14 @@ Boundaries and guarantees:
   rate limit never degrades routing for other users of the same provider.
   Standard closed/open/half-open machine: 3 failures → open, 60 s reset; the
   breaker map is bounded (512 entries, oldest-inserted evicted).
-- **Bounded.** At most `MAX_FAILOVER_ATTEMPTS = 4` distinct providers per
-  turn, each tried at most once (plus its same-provider retry).
+- **Bounded.** At most `MAX_FAILOVER_ATTEMPTS = 4` provider/model attempts per
+  turn, each tried at most once (plus its same-model retry). The error names
+  the last model actually tried when that budget runs out.
 - **Graceful single-provider degradation.** A BYOK user with only one
   provider's key (or every alternative's breaker open) gets a clean,
-  structured `provider_unavailable` error — never a crash.
+  structured `provider_unavailable` error — never a crash. The error card
+  names a transient rate limit and its upstream provider when known, instead
+  of calling the whole provider unavailable.
 - **Honest provenance.** Every attempt persists the provider/model that
   actually **served** the turn; `messages.usage` additionally records
   `requestedProvider`/`requestedModel` (the user's pin, `null` when routed),

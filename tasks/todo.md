@@ -930,6 +930,24 @@ Plan review: Keep this work on the PR #308 branch and change only the credential
 
 Review: The two source findings failed before the fix and pass after it. Focused broker, device, and PR-service suites pass 31 tests and 222 assertions. Full typecheck and lint over 4,740 files pass. The launcher integration suite passes 4 tests and 43 assertions locally with CI environment flags. Hosted residual integration failed twice at its 20-second watchdog on the old head; a fresh run on the repair commit is pending. Human non-author and CODEOWNERS review remain required.
 
+## PR #315 keyless credential review — 2026-09-23
+
+- [x] Read PR intent, changed files, review state, and failed CI log.
+- [x] Reproduce the failing quality gate and inspect the real HTTP behavior.
+- [x] Refactor the extension LLM mediator so changed functions meet the quality gate.
+- [x] Run focused tests and relevant local checks, then commit and push to the PR head if safe.
+- [x] Recheck hosted CI and record a final review below.
+
+Plan review: Keep the token suppression rule and the audited credential boundary intact. Extract cohesive stages from the existing extension LLM handler, preserve its error codes and audit behavior, and test the same request path before and after the change.
+
+Local review: The PR wire test proves that the raw keyless placeholder reaches a local server as a bearer, while both repaired pi-ai paths send no Authorization header and real keys remain intact. The hosted quality log reports CRAP 50 for `handlePiLlmComplete` at 98% coverage. Extracting grant validation, quota reservation, and successful-response recording reduces source complexity to 24, 8, 8, and 15 respectively. The extension handler suite passes 19/19; keyless wire and credential-boundary suites pass 12/12; pinned-Bun typecheck passes; lint checks 4,686 files. The full local coverage test pool passes 27,200 tests with zero failures, including 595 Vitest files / 7,482 tests. Its wrapper exits 1 before LCOV merge because the direct invocation lacks the browser-coverage receipts that `scripts/ci-local.sh` supplies. Hosted CI must confirm patch coverage and the merged CRAP gate.
+
+Hosted follow-up: Commit `811f564a5` passed 45 source/coverage producer checks, but the per-file coverage gate stopped at patch lines 225 and 228 in the permission-denied return. The new absent-grant regression exercises that complete reverse-RPC response, proves model resolution does not run, and checks that no audit row is written. Pinned Bun targeted LCOV records `DA:225,14` and `DA:228,16`; the focused suite passes 20/20. Typecheck and lint pass. The next hosted run must still confirm the aggregate patch and CRAP gates.
+
+Hosted verdict: Commit `e38879396` passed all 50 checks. The per-file gate covered every changed executable line, checked 1,665 enforced files, and scored 18 touched functions with zero CRAP violations (limit 30). The PR still needs a non-author review and a current-base CI run after the ordered merges.
+
+Final base refresh: #309 and #314 are in `origin/main` at `cc0a3b9a3`. The only merge conflict was this append-only task journal; both parents' entries are retained, with #315's hosted-CI checklist marked complete. Five isolated auth, Kilo, agent, and extension suites pass 69/69. Pinned Bun typecheck and lint over 4,686 files pass. The full local gate is waiting for the concurrent #317 browser/coverage run to release host memory.
+
 ## PR #314 review — 2026-09-23
 
 - [x] Read PR scope, history, review state, and current CI.
@@ -961,3 +979,14 @@ Integration plan: #309 landed on main at 3b5095303. Merge that exact base into t
 Plan review: Both failures stopped after about five seconds while waiting for a startup file. The PR does not change the launcher. Wait for an observable process state instead of measuring host scheduling time; keep the test's overall timeout as the deadlock guard.
 
 Review: The helper now reads nonempty readiness content until it appears or the producer exits. One new test proves that a producer exit fails immediately. The exact lifecycle suite passed 5/5 on pinned Bun 1.3.14; Biome and full typecheck passed. The failed hosted job cannot be rerun while its workflow is active (GitHub HTTP 403), so the change needs a new CI run after push.
+
+## PR #308 remaining dependency advisories — 2026-09-24
+
+- [ ] Resolve root esbuild and uuid advisories with compatibility tests (Sol root dependency agent).
+- [ ] Resolve web qs and cookie advisories with compatibility tests (Sol web dependency agent).
+- [ ] Independently verify fixed versions, installed resolution paths, and security regression tests.
+- [ ] Integrate changes; require zero advisory records with no allowlist additions.
+- [ ] Run complete local quality checks, build, browser lanes, coverage, and dependency audit on final source.
+- [ ] Push to PR #308, verify hosted checks, and record final evidence.
+
+Plan review: The user requests all six remaining lower-severity advisory records fixed, validated, and pushed. Include current main through `8aa507304` before the changes. Separate root and web manifests/locks between isolated Sol worktrees. Prefer supported parent updates; use narrowly justified dependency overrides only with real caller compatibility proof. Do not suppress advisories, weaken gates, or change test deadlines. Final results go in `tasks/pr308-dependency-results.md` so tracked source stays frozen during coverage attestation.
