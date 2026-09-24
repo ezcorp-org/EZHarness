@@ -10,6 +10,7 @@
 ## Validation discipline
 
 - Check every planned Incus project key against the actual server's API extensions and version before seeking approval. A local dry run proves plan shape, but it does not prove the server accepts a key. On an approved Apply failure, capture a sanitized exact-command error, inspect live state, and issue a new digest for any changed command.
+- When a guest is expected to fail reaching a control target, prove the target still works from the host after the guest attempt. Bind a challenge to the exact target across both host checks; an expired listener or replaced challenge can create a false isolation pass.
 
 - Select gpt-5.6-sol explicitly with fresh bounded briefs when the user requests a Sol team. Use distinct ownership and worktrees.
 - Match each new team to the model requested for that task; a previous Sol request does not override a later Terra request.
