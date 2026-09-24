@@ -163,6 +163,19 @@ test("S1: a trip right after the host slept names the sleep", async () => {
   h.manager.destroy();
 });
 
+test("S1b: a sleep before the first scheduled tick still names the sleep", async () => {
+  const h = makeHarness();
+  const { run, persisted } = start(h);
+  // The user closes the lid just after sending the message. No tick ran yet.
+  await advanceAndTick(600_000);
+  expect(run.status).toBe("error");
+  const error = run.result?.error ?? "";
+  expect(error).toContain("no activity for 600s");
+  expect(error).toContain("asleep or suspended for about 10 min");
+  expect(persisted).toEqual([`Error: ${error}`]);
+  h.manager.destroy();
+});
+
 test("S2: ordinary idling keeps the plain reason", async () => {
   const h = makeHarness();
   const { run } = start(h);
@@ -179,6 +192,19 @@ test("S3: activity after waking clears the sleep from the reason", async () => {
   await advanceAndTick(60_000); // a short sleep, under the idle window
   expect(run.status).toBe("running");
   h.manager.bumpActivity(RUN_ID);
+  for (let i = 0; i < 7 && run.status === "running"; i++) await advanceAndTick(15_000);
+  expect(run.status).toBe("error");
+  expect(run.result?.error).toBe("Watchdog: no activity for 90s");
+  h.manager.destroy();
+});
+
+test("S4: progress before the delayed tick clears the old tick gap", async () => {
+  const h = makeHarness();
+  const { run } = start(h);
+  await advanceAndTick(15_000);
+  fakeNow += 60_000; // The machine wakes and progress arrives before the timer callback.
+  h.manager.bumpActivity(RUN_ID);
+  await advanceAndTick(0);
   for (let i = 0; i < 7 && run.status === "running"; i++) await advanceAndTick(15_000);
   expect(run.status).toBe("error");
   expect(run.result?.error).toBe("Watchdog: no activity for 90s");

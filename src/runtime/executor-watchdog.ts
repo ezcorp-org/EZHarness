@@ -174,11 +174,12 @@ export class WatchdogManager {
   // cause (permission gate → tool in flight) still print, and `since`
   // gives the resume line a real duration instead of a bare event.
   private deferState = new Map<string, { reason: string; since: number }>();
-  // Per-run tick bookkeeping for suspend detection: when the previous tick
-  // ran, and how much of the current idle stretch the process spent frozen
+  // Per-run observation bookkeeping for suspend detection: when a tick or
+  // real progress last ran, and how much of the current idle stretch passed
+  // without scheduled ticks
   // (reset by any real activity). Used only to word the kill reason — a
   // "no activity" error after a sleep reads like a hung model otherwise.
-  private lastTickAt = new Map<string, number>();
+  private lastObservedAt = new Map<string, number>();
   private suspendedMs = new Map<string, number>();
   private orphanInterval: ReturnType<typeof setInterval> | undefined;
 
@@ -244,7 +245,9 @@ export class WatchdogManager {
    *  (token, tool start/complete/error, agent spawn/complete, turn boundaries). The watchdog
    *  uses this to distinguish "actually working" from "leaked promise that keeps the run alive". */
   bumpActivity(runId: string): void {
-    this.lastActivityAt.set(runId, Date.now());
+    const now = Date.now();
+    this.lastActivityAt.set(runId, now);
+    this.lastObservedAt.set(runId, now);
     this.suspendedMs.delete(runId);
   }
 
@@ -361,6 +364,25 @@ export class WatchdogManager {
       : WATCHDOG_IDLE_REASONING_MS;
   }
 
+  private recordTick(runId: string, conversationId: string, now: number): void {
+    const previous = this.lastObservedAt.get(runId);
+    this.lastObservedAt.set(runId, now);
+    if (previous === undefined || now - previous < SUSPEND_GAP_MS) return;
+
+    const frozen = now - previous - WATCHDOG_TICK_MS;
+    this.suspendedMs.set(runId, (this.suspendedMs.get(runId) ?? 0) + frozen);
+    log.warn("Watchdog: process was suspended", { runId, conversationId, suspendedMs: frozen });
+  }
+
+  private idleReason(runId: string, idleMs: number): string {
+    const base = `Watchdog: no activity for ${Math.round(idleMs / 1000)}s`;
+    const suspended = this.suspendedMs.get(runId) ?? 0;
+    if (suspended < idleMs / 2) return base;
+    return base +
+      ` — the computer was asleep or suspended for about ${Math.round(suspended / 60_000) || 1} min` +
+      ` during this run, which interrupts the model connection. Send your message again to retry.`;
+  }
+
   /** Start the activity-based watchdog for a run. Replaces the old setInterval-based heartbeat.
    *  Ticks every WATCHDOG_TICK_MS. If idle > WATCHDOG_IDLE_MS (with no pending permission),
    *  marks the run interrupted in the DB and emits run:error. Otherwise refreshes
@@ -382,13 +404,7 @@ export class WatchdogManager {
       const now = Date.now();
       const last = this.lastActivityAt.get(runId) ?? run.startedAt;
       const idleMs = now - last;
-      const prevTick = this.lastTickAt.get(runId);
-      this.lastTickAt.set(runId, now);
-      if (prevTick !== undefined && now - prevTick >= SUSPEND_GAP_MS) {
-        const frozen = now - prevTick - WATCHDOG_TICK_MS;
-        this.suspendedMs.set(runId, (this.suspendedMs.get(runId) ?? 0) + frozen);
-        log.warn("Watchdog: process was suspended", { runId, conversationId, suspendedMs: frozen });
-      }
+      this.recordTick(runId, conversationId, now);
       // Model-aware idle ceiling: reasoning models get a wider window (see
       // resolveIdleThreshold). Resolved every tick so a mid-run setModel /
       // setThinkingLevel takes effect immediately.
@@ -444,13 +460,7 @@ export class WatchdogManager {
         // expired tool — there's typically only one in flight at a time,
         // and the run-level reason is a single string anyway.
         const runMap = this.inflightTools.get(runId);
-        let reason = `Watchdog: no activity for ${Math.round(idleMs / 1000)}s`;
-        const suspended = this.suspendedMs.get(runId) ?? 0;
-        if (suspended >= idleMs / 2) {
-          reason +=
-            ` — the computer was asleep or suspended for about ${Math.round(suspended / 60_000) || 1} min` +
-            ` during this run, which interrupts the model connection. Send your message again to retry.`;
-        }
+        let reason = this.idleReason(runId, idleMs);
         if (runMap) {
           for (const info of runMap.values()) {
             // Defensive: requiresUserInput tools never produce a
@@ -598,7 +608,7 @@ export class WatchdogManager {
     }
     this.lastActivityAt.delete(runId);
     this.lastHeartbeatWriteAt.delete(runId);
-    this.lastTickAt.delete(runId);
+    this.lastObservedAt.delete(runId);
     this.suspendedMs.delete(runId);
     this.inflightTools.delete(runId);
     this.persistError.delete(runId);
@@ -623,7 +633,7 @@ export class WatchdogManager {
     this.heartbeats.clear();
     this.lastActivityAt.clear();
     this.lastHeartbeatWriteAt.clear();
-    this.lastTickAt.clear();
+    this.lastObservedAt.clear();
     this.suspendedMs.clear();
     this.inflightTools.clear();
     this.persistError.clear();
