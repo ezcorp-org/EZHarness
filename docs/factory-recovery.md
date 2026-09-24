@@ -53,8 +53,11 @@ The `checkpoint-barrier` role seals a checkpoint at least every five minutes.
 The database refuses a release claim or an attempt launch while the newest
 sealed checkpoint is older than 15 minutes. This rule holds with no policy
 row: a new installation cannot claim an effect until its first barrier seals.
-If the role cannot compose, it is held, readiness is `degraded` with the reason
-`factory-checkpoint-barrier-held`, and effect claims stay closed.
+If the role is held, readiness is `degraded` and effect claims stay closed.
+The reason says why: `factory-recovery-not-declared` when the startup document
+has no recovery section (readiness names the missing sections under
+`recoveryNotDeclared`), and `factory-checkpoint-barrier-held` when the sections
+are declared but the archive or pool client did not compose.
 
 The role needs three things from the startup document: the archive credential
 set, the pool client, and `temporalHttp`, the tenant namespace's Temporal HTTP

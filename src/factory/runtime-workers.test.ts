@@ -238,6 +238,10 @@ describe("registerFactoryRuntimeWorkers", () => {
     expect(calls).toEqual(["retention", "checkpoint", "checkpoint"]);
     const partial = registerFactoryRuntimeWorkers(collaborators({ recovery: { retention: async () => "idle" } }));
     expect(partial.held.find((held) => held.role === "checkpoint-barrier")).toMatchObject({ seam: "recovery-composition", workPackage: "W15" });
+    // Declared but not composed, and not declared at all, are held under different reasons.
+    expect(partial.held.find((held) => held.role === "checkpoint-barrier")!.reason).toContain("the recovery archive or the pool checkpoint client did not compose");
+    const undeclared = registerFactoryRuntimeWorkers(collaborators({ recovery: { retention: async () => "idle", undeclared: ["temporalHttp"] } }));
+    expect(undeclared.held.find((held) => held.role === "checkpoint-barrier")!.reason).toBe("recovery is not declared: the startup document has no temporalHttp, so no checkpoint is sealed and effect claims stay closed");
   });
 
   test("the role list covers every role the plan names", () => {

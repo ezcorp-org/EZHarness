@@ -38,6 +38,25 @@ export type FactoryRoleStep = (signal: AbortSignal) => Promise<FactoryWorkerProg
 export interface FactoryRecoveryRoles {
   readonly retention?: FactoryRoleStep;
   readonly checkpoint?: FactoryRoleStep;
+  /**
+   * The recovery sections the startup document does not declare. Recovery is
+   * required, so the barrier holds and effect claims stay closed; this names
+   * why, apart from a declared section that failed to compose.
+   */
+  readonly undeclared?: readonly FactoryRecoverySection[];
+}
+
+/**
+ * The startup-document sections recovery needs that have no default. The key
+ * service defaults to the operator key file; the Temporal HTTP endpoint has
+ * no default, because no checkpoint may omit Temporal positions.
+ */
+export const FACTORY_RECOVERY_SECTIONS = Object.freeze(["temporalHttp"] as const);
+export type FactoryRecoverySection = (typeof FACTORY_RECOVERY_SECTIONS)[number];
+
+/** The recovery sections this document leaves out. */
+export function factoryUndeclaredRecoverySections(config: Pick<FactoryStartupConfig, FactoryRecoverySection>): readonly FactoryRecoverySection[] {
+  return FACTORY_RECOVERY_SECTIONS.filter(section => config[section] === undefined);
 }
 
 /** One retention pass. Work is a state change: an enrollment, an archive copy, or a collection. */
@@ -134,19 +153,23 @@ export interface FactoryRecoveryCompositionInput {
  */
 export async function composeFactoryRecoveryRoles(input: FactoryRecoveryCompositionInput): Promise<FactoryRecoveryRoles> {
   const { config, database, report } = input;
+  const undeclared = factoryUndeclaredRecoverySections(config);
+  const declaredness = undeclared.length === 0 ? {} : { undeclared };
   let archiveOptions: ConstructorParameters<typeof S3FactoryRecoveryArchive>[0];
   try {
     archiveOptions = { endpoint: config.storage.archive.endpoint, bucket: config.storage.archive.bucket, prefix: config.storage.archive.prefix, credentials: { ...await loadFactoryStorageCredentials(config.storage.archive, config.tenantId) } };
   } catch (error) {
     report("recovery-archive", error);
-    return {};
+    return declaredness;
   }
   const archive = new S3FactoryRecoveryArchive(archiveOptions);
-  const roles: { retention?: FactoryRoleStep; checkpoint?: FactoryRoleStep } = {};
+  const roles: { retention?: FactoryRoleStep; checkpoint?: FactoryRoleStep; undeclared?: readonly FactoryRecoverySection[] } = { ...declaredness };
   try {
     const eraser = new S3FactoryRetentionBlobEraser({ endpoint: config.storage.ordinary.endpoint, bucket: config.storage.ordinary.bucket, prefix: config.storage.ordinary.prefix, credentials: { ...await loadFactoryStorageCredentials(config.storage.ordinary, config.tenantId) } });
     roles.retention = factoryRetentionStep(new FactoryRetention({ database, tenantId: config.tenantId, installationId: config.installationId, archive, releaseArchive: new S3FactoryReleaseArchive({ ...archiveOptions, credentials: { ...archiveOptions.credentials } }), eraser }));
   } catch (error) { report("retention-gc", error); }
+  // Not declared is not a failure to compose: the barrier holds with its own reason.
+  if (undeclared.length > 0) return roles;
   try {
     const client = await (input.poolClient ?? (() => createPoolCheckpointClient({
       tenantId: config.tenantId, baseUrl: config.pool.baseUrl,
