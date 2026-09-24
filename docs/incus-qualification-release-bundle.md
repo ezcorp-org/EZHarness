@@ -23,12 +23,14 @@ runner and package sources, the Incus supervisor and recipe, and installed root
 and web dependency trees. The manifest records the Git SHA, both lock hashes,
 the Bun binary hash, and every regular file's hash and mode or internal link
 target. `verify` rejects changed files, missing dependencies, and links that
-leave the bundle. The stage path must be on a filesystem with enough space for
-both the temporary build and final release; the destination must not exist.
+leave the bundle. The stage path must be under `/tmp` or `/var/tmp`, on a
+filesystem with enough space for both the temporary build and final release;
+the destination must not exist.
 
 The smoke runs the bundled app as the caller's **non-root** UID on a loopback
 ephemeral port. It creates disposable PGlite and home directories under `/tmp`,
 uses smoke-only credentials, checks the app health endpoint, and stops the app.
+It verifies the bundle again after the app stops.
 It does not test real runner authorization or an Incus connection. Run it before
 installing a reviewed bundle under `/opt/ezharness`. The NixOS module expects
 the bundle root there, including `bin/bun`, `web/build/index.js`,

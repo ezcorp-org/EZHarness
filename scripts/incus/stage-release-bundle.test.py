@@ -68,6 +68,14 @@ class ReleaseBundleTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "Bun digest changed"):
                 MODULE.verify(root)
 
+    def test_stage_rejects_live_destination_before_running_build(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as directory:
+            source = Path(directory)
+            bun = source / "bun"
+            bun.write_bytes(b"fake")
+            with self.assertRaisesRegex(ValueError, "must be under /tmp or /var/tmp"):
+                MODULE.stage(source, Path("/opt/ezharness"), bun, MODULE.sha256(bun))
+
 
 if __name__ == "__main__":
     unittest.main()

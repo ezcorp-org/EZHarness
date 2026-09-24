@@ -95,7 +95,9 @@ def inventory(root):
 
 def check_required(root):
     for relative in REQUIRED:
-        require((root / relative).exists(), f"required release file is absent: {relative}")
+        path = root / relative
+        expected = path.is_dir() if relative.startswith(("node_modules/", "web/node_modules/")) else path.is_file()
+        require(expected, f"required release file is absent: {relative}")
     require((root / "bin/bun").is_file(), "pinned Bun is absent")
 
 
@@ -152,8 +154,6 @@ def smoke(root):
                     continue
                 break
             require(status in (200, 401), f"bundled app health check failed: {status}")
-            return {"healthStatus": status, "nonRootUid": os.geteuid(),
-                    "smokeRoot": str(scratch)}
         finally:
             process.terminate()
             try:
@@ -161,6 +161,9 @@ def smoke(root):
             except subprocess.TimeoutExpired:
                 process.kill()
                 process.communicate(timeout=5)
+        verify(root)
+        return {"healthStatus": status, "nonRootUid": os.geteuid(),
+                "smokeRoot": str(scratch)}
 
 
 def stage(source, output, bun, expected_bun_sha256):
@@ -168,6 +171,9 @@ def stage(source, output, bun, expected_bun_sha256):
     output = output.absolute()
     require(not output.exists(), "release destination already exists")
     require(not output.is_relative_to(source), "release destination cannot be inside source checkout")
+    require(any(output.parent.resolve(strict=False).is_relative_to(Path(allowed))
+                for allowed in ("/tmp", "/var/tmp")),
+            "release staging destination must be under /tmp or /var/tmp")
     require(len(expected_bun_sha256) == 64 and sha256(bun) == expected_bun_sha256,
             "pinned Bun SHA-256 mismatch")
     require(subprocess.check_output([str(bun), "--version"], text=True).strip() == "1.3.14",

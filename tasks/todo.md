@@ -1729,7 +1729,16 @@ A controlled barrier publishes the SP05 journal after the empty startup read. Ge
 - [x] Stage only tracked Git HEAD source from a clean checkout in a new destination outside the checkout.
 - [x] Check pinned Bun 1.3.14 and lock digests, install frozen dependencies, build the SDK, runner dependencies, web app, and native tools.
 - [x] Write an exact file inventory with Git SHA, lock digests, Bun digest, file hashes, modes, and symlink targets. Reject external links.
-- [ ] Verify the inventory and run a non-root disposable app smoke outside `/home/dev`.
+- [x] Verify the inventory and run a non-root disposable app smoke outside `/home/dev`.
 - [x] Add focused tests and run local checks; record full-stage limits after the actual build.
 
-Review: pending.
+Review: A clean build from `2e1cc7559` staged 76,056 entries (2.4 GB) under
+`/tmp/ezh-qualification-release-2e1cc7559`. The manifest SHA-256 is
+`5644a843d040c3994deb66f78bc37dc2df8fc9471a3643dfed4607df74599b07`.
+The root and web frozen lock hashes are `8c2ae7d0ffec274681202bd8c90fd507597b2279ab631e03b71fdf73b9433b88`
+and `96e8a5adbc441d2cc77c1b5c860ad79c5695f473c4ac387f34132e2d4c5f8dc5`.
+The disposable app health check returned HTTP 200 as UID 1001 under `/tmp`;
+verification before and after smoke passed. Five focused Python tests passed.
+This proves local packaging and startup, not root-owned installation or live Incus qualification.
+The final safety edits after this artifact must be rebuilt from the final merged commit
+before an installation review.
