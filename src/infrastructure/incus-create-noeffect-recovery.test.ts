@@ -122,6 +122,23 @@ test("signed fenced recovery preserves CREATE receipt, records audit, and releas
   await expect(applyNoEffectRecovery(db, signed, publicKeyPem, now)).rejects.toThrow();
 });
 
+test("a receipt that expires while the transaction waits cannot change the CREATE", async () => {
+  const { db } = await setup();
+  const startedAt = Date.now();
+  const signed = receipt({ stoppedAtMs: startedAt - 85_000,
+    first: { observedAtMs: startedAt - 15_000, instanceState: "absent", activeOperations: [] },
+    second: { observedAtMs: startedAt - 9_000, instanceState: "absent", activeOperations: [] },
+    fenceUntilMs: startedAt + 500 });
+  const delayedDb = { transaction: async (callback: Parameters<typeof db.transaction>[0]) => {
+    await Bun.sleep(600);
+    return db.transaction(callback);
+  } } as typeof db;
+  await expect(applyNoEffectRecovery(delayedDb, signed, publicKeyPem, startedAt))
+    .rejects.toThrow("invalid or stale fence");
+  expect((await db.select().from(schema.sandboxOperations))[0]?.state).toBe("OUTCOME_UNKNOWN");
+  expect((await db.select().from(schema.sandboxReservations))[0]?.computeState).toBe("RESERVED");
+});
+
 test("offline repair reopens one persistent PGlite database in a second process", async () => {
   const directory = mkdtempSync(join(tmpdir(), "incus-noeffect-"));
   try {

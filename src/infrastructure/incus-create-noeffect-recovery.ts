@@ -171,6 +171,7 @@ export async function applyNoEffectRecovery(db: Database, receipt: NoEffectRecov
       generation: p.generation, idempotencyScope: "incus-qualification",
       idempotencyKey: `${p.fixtureOperationId}:destroy`, payload: cleanupPayload });
     const original = operations[0]!;
+    requireFact(Date.now() < p.fenceUntilMs, "invalid or stale fence");
     await tx.update(sandboxOperations).set({ state: "FAILED", errorCode: "OPERATOR_PROVEN_NO_EFFECT",
       errorMessage: `Operator review ${p.reviewId}; receipt ${p.nonce}`, updatedAt: new Date(now) })
       .where(eq(sandboxOperations.id, p.operationId));
