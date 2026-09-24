@@ -1,5 +1,8 @@
 import { afterEach, expect, test } from "bun:test";
 import { generateKeyPairSync, sign } from "node:crypto";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { eq } from "drizzle-orm";
@@ -28,7 +31,7 @@ function receipt(overrides: Partial<NoEffectRecoveryPayload> = {}): NoEffectReco
     nonce: "nonce-one", reviewId: "review-one", scope, fixtureOperationId, bindingId,
     operationId, generation: 1, connectionRevision: 1,
     resourceName: resourceName(scope.connectionId, bindingId),
-    oldProcess: { pid: 123, startTicks: "456" }, stoppedAtMs: now - 50_000,
+    oldProcess: { pid: 123, startTicks: "456" }, stoppedAtMs: now - 85_000,
     fenceUntilMs: now + 30_000, allClientsFenced: true,
     fenceEvidence: "operator stopped all app and runner clients",
     first: { observedAtMs: now - 15_000, instanceState: "absent", activeOperations: [] },
@@ -37,8 +40,8 @@ function receipt(overrides: Partial<NoEffectRecoveryPayload> = {}): NoEffectReco
   return { payload, signature: sign(null, Buffer.from(canonicalRecoveryJson(payload)), privateKey).toString("base64") };
 }
 
-async function setup(providerOperationId: string | null = null) {
-  const client = new PGlite();
+async function setup(providerOperationId: string | null = null, directory?: string) {
+  const client = new PGlite(directory);
   clients.push(client);
   await client.waitReady;
   await client.exec(`CREATE TABLE projects (
@@ -117,6 +120,31 @@ test("signed fenced recovery preserves CREATE receipt, records audit, and releas
     computeState: "RELEASED", diskState: "RELEASED" });
   expect((await client.query("SELECT * FROM incus_noeffect_recoveries")).rows).toHaveLength(1);
   await expect(applyNoEffectRecovery(db, signed, publicKeyPem, now)).rejects.toThrow();
+});
+
+test("offline repair reopens one persistent PGlite database in a second process", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "incus-noeffect-"));
+  try {
+    const { client } = await setup(null, directory);
+    await client.close();
+    const receiptPath = join(directory, "receipt.json");
+    const keyPath = join(directory, "public.pem");
+    writeFileSync(receiptPath, JSON.stringify(receipt()));
+    writeFileSync(keyPath, publicKeyPem);
+    const child = Bun.spawn([process.execPath,
+      new URL("./__tests__/incus-noeffect-recovery-worker.ts", import.meta.url).pathname,
+      directory, receiptPath, keyPath], { cwd: process.cwd(), stdout: "pipe", stderr: "pipe" });
+    const [exit, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);
+    expect(exit).toBe(0);
+    expect(stderr).toBe("");
+    const reopened = new PGlite(directory);
+    clients.push(reopened);
+    await reopened.waitReady;
+    const operations = await reopened.query<{ kind: string; state: string }>(
+      "SELECT kind, state FROM provider_sandbox_operations ORDER BY kind");
+    expect(operations.rows).toEqual([
+      { kind: "CREATE", state: "FAILED" }, { kind: "DESTROY", state: "SUCCEEDED" }]);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
 test("provider ID, stale state, live operation, and broken signature deny repair", async () => {

@@ -73,7 +73,7 @@ export function verifyNoEffectRecoveryReceipt(receipt: NoEffectRecoveryReceipt, 
     && p.fenceEvidence.length <= 512
     && Number.isSafeInteger(p.stoppedAtMs) && Number.isSafeInteger(p.fenceUntilMs)
     && Number.isSafeInteger(p.first?.observedAtMs) && Number.isSafeInteger(p.second?.observedAtMs)
-    && p.stoppedAtMs + 30_000 <= p.first.observedAtMs
+    && p.stoppedAtMs + 65_000 <= p.first.observedAtMs
     && p.first.observedAtMs + 5_000 <= p.second.observedAtMs
     && p.second.observedAtMs <= now && now < p.fenceUntilMs
     && now - p.second.observedAtMs <= 30_000

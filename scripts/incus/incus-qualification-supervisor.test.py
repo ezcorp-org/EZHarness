@@ -86,6 +86,10 @@ class SupervisorTest(unittest.TestCase):
                 os.getuid(), os.getgid(), key, ["true"], ["true"],
                 enforce_distinct_uid=False)
             supervisor.recovery_command = ["verifier"]
+            with self.assertRaisesRegex(ValueError, "independent runner client fence verifier"):
+                supervisor.verify_recovery_fence({"fenceEvidence": "evidence"},
+                                                 {"pid": 123, "startTicks": "456"})
+            supervisor.recovery_fence_command = ["checker"]
             request = {"version": 1, "action": "recover-noeffect",
                 "nonce": "nonce", "reviewId": "review", "scope": {
                     "installationId": "installation", "releaseId": "release",
@@ -96,8 +100,15 @@ class SupervisorTest(unittest.TestCase):
                 "fenceEvidence": "all app and runner clients stopped by operator",
                 "deadlineMs": int(time.time() * 1000) + 120000}
             events = []
+            supervisor.assert_exclusive_app_uid = lambda: (_ for _ in ()).throw(
+                ValueError("app UID is shared outside the managed process group"))
+            with self.assertRaisesRegex(ValueError, "app UID is shared"):
+                supervisor.recover_noeffect(request)
+            self.assertEqual(events, [], "shared UID preflight killed the app")
+            supervisor.assert_exclusive_app_uid = lambda: None
             supervisor.stop_child = lambda: events.append("stop") or {"pid": 123, "startTicks": "456"}
             supervisor.start_child = lambda: events.append("start")
+            supervisor.verify_recovery_fence = lambda _request, _old: events.append("fence")
             def stage(phase, value, _deadline):
                 events.append(phase)
                 if phase == "durable":
@@ -111,12 +122,12 @@ class SupervisorTest(unittest.TestCase):
             with mock.patch.object(MODULE.time, "sleep", lambda _seconds: None):
                 # The test clock must advance across the required quiet windows.
                 with mock.patch.object(MODULE.time, "time",
-                        side_effect=[1000, 1000, 1031, 1031, 1037]), \
+                        side_effect=[1000, 1000, 1066, 1066, 1072]), \
                      mock.patch.object(MODULE.subprocess, "run", return_value=subprocess.CompletedProcess(
                          [], 0, stdout=b"public key")):
                     request["deadlineMs"] = 1_120_000
                     result = supervisor.recover_noeffect(request)
-            self.assertEqual(events, ["stop", "durable", "backend", "durable", "backend",
+            self.assertEqual(events, ["stop", "fence", "durable", "backend", "durable", "backend",
                                       "sign", "apply", "start"])
             self.assertEqual(result["receipt"]["payload"]["oldProcess"],
                              {"pid": 123, "startTicks": "456"})

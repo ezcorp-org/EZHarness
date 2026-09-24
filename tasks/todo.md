@@ -1638,4 +1638,23 @@ The route returns a pending run ID after a supervised handoff. New process start
 
 ### Review
 
-Candidate release `9ec8e626-0a5d-4ed6-9333-a3fd1aa25472` is verified with zero build diagnostics. Both preset host fixtures passed and expire at `2026-09-24T16:25:43.588Z`. Release 0.1.1 remains active at generation 2. The review packet is `docs/validation/2026-09-24-isolated-incus-release-0.1.2-review.md`. No Incus server write or guest creation occurred.
+Candidate release `9ec8e626-0a5d-4ed6-9333-a3fd1aa25472` is verified with zero build diagnostics. Both preset host fixtures passed and expire at `2026-09-24T16:25:43.588Z`. Release 0.1.1 remained active at generation 2 during staging. The review packet is `docs/validation/2026-09-24-isolated-incus-release-0.1.2-review.md`. No Incus server write or guest creation occurred during the build. The user later approved this exact release; activation readback showed generation 3.
+## Incus CREATE pre-write TLS failure classification (2026-09-24)
+
+- [x] Reproduce the first-GET TLS failure as an incorrect unknown effect.
+- [x] Track whether a mutating HTTP request was attempted by the pinned lifecycle session.
+- [x] Keep a lost POST response unknown and a proven pre-write CREATE failure terminal.
+- [x] Run focused tests, typecheck, and lint.
+
+### Review
+
+The red test showed a raw TLS error on CREATE's first GET became `effect: unknown` before any write. `withSession()` now returns `effect: none` only before the first POST, PATCH, PUT, or DELETE attempt; later failures retain uncertainty. The lifecycle and controller focused suites pass (26 tests), as does the adapter failure suite (16 tests), backend/web typecheck, and Biome. The saved live CREATE operation remains `OUTCOME_UNKNOWN` because its old journal has no provider operation ID or durable proof that the mutation was not admitted. It needs separate operator evidence before cleanup; this code does not change that record.
+
+## Saved Incus CREATE unknown offline recovery
+- [x] Reproduce and identify the original null-ID unknown outcome and review the durable fixture.
+- [x] Test a stopped-app, operator-owned, signed one-use repair path against persistent PGlite.
+- [x] Add pinned project operation inventory and two independent backend reads.
+- [x] Add an audited atomic repair that preserves the original CREATE receipt and rejects stale claims.
+- [x] Run focused tests, typecheck, lint, and document any proof gap.
+
+Review: The repair is behind a root-only socket and an independent runner-client fence command. The supervisor rejects a shared app UID before stopping the app, waits 65 seconds after stopping, and requires two pinned backend reads. A signed receipt binds the stopped process, exact scope, resource, CREATE ID, review, and observation times. The atomic transaction retains the original CREATE receipt in an audit row, records an explicit no-effect failure and no-op cleanup, and releases the reservation. A two-process test reopened a persistent PGlite database; stale state, provider ID, live operation, signature forgery, and replay fail. The saved live database and Incus server remain unchanged. The current dev UID is shared and no independent client-fence command is deployed, so live repair remains blocked pending dedicated supervised app UID and reviewed external fence proof.

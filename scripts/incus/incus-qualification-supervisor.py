@@ -113,7 +113,7 @@ def validate_recovery(message):
         if type(message[name]) is not int or message[name] <= 0:
             raise ValueError("invalid operator recovery number")
     now = int(time.time() * 1000)
-    if not now + 45000 < message["deadlineMs"] <= now + 180000:
+    if not now + 85000 < message["deadlineMs"] <= now + 180000:
         raise ValueError("operator recovery deadline invalid")
 
 
@@ -141,6 +141,7 @@ class Supervisor:
         self.used_recoveries = set()
         self.operator_socket_path = None
         self.recovery_command = None
+        self.recovery_fence_command = None
         key_stat = self.key_path.lstat()
         if not stat.S_ISREG(key_stat.st_mode) or key_stat.st_uid != os.geteuid() \
                 or key_stat.st_mode & 0o077:
@@ -204,6 +205,19 @@ class Supervisor:
                         continue
         return old_identity
 
+    def assert_exclusive_app_uid(self):
+        if not self.enforce_distinct_uid:
+            return
+        for entry in Path("/proc").iterdir():
+            if not entry.name.isdigit():
+                continue
+            try:
+                if entry.stat().st_uid == self.app_uid \
+                        and os.getpgid(int(entry.name)) != self.child.pid:
+                    raise ValueError("app UID is shared outside the managed process group")
+            except (ProcessLookupError, FileNotFoundError):
+                continue
+
     def recovery_stage(self, phase, value, deadline_ms):
         check = subprocess.run(self.recovery_command,
             input=canonical({"phase": phase, **value}) + b"\n", capture_output=True,
@@ -213,17 +227,30 @@ class Supervisor:
             raise ValueError("independent operator recovery verifier failed")
         return json.loads(check.stdout)
 
+    def verify_recovery_fence(self, request, old_process):
+        if not self.recovery_fence_command:
+            raise ValueError("independent runner client fence verifier is required")
+        check = subprocess.run(self.recovery_fence_command,
+            input=canonical({"request": request, "oldProcess": old_process}) + b"\n",
+            capture_output=True, timeout=AUTHORIZE_TIMEOUT_SECONDS, check=False)
+        if check.returncode != 0 or json.loads(check.stdout) != {
+                "fenced": True, "evidence": request["fenceEvidence"]}:
+            raise ValueError("independent runner client fence verification failed")
+
     def recover_noeffect(self, request):
         validate_recovery(request)
-        if not self.recovery_command or request["nonce"] in self.used_recoveries:
+        if not self.recovery_command or not self.recovery_fence_command \
+                or request["nonce"] in self.used_recoveries:
             raise ValueError("operator recovery unavailable or replayed")
+        self.assert_exclusive_app_uid()
         self.used_recoveries.add(request["nonce"])
         old_process = self.stop_child()
         stopped_at_ms = int(time.time() * 1000)
         try:
-            # The lifecycle transport admits at most a 30-second RPC. No
-            # backend read may be used as no-effect evidence before it expires.
-            time.sleep(30)
+            self.verify_recovery_fence(request, old_process)
+            # The host transport has a 30-second RPC deadline, but the v4
+            # worker policy can run for 60 seconds. Leave margin for exit.
+            time.sleep(65)
             bounded_timeout(request["deadlineMs"], VERIFY_TIMEOUT_SECONDS)
             target = {key: request[key] for key in ("scope", "fixtureOperationId", "bindingId",
                       "operationId", "generation", "connectionRevision")}
@@ -445,7 +472,7 @@ def main():
     config = json.loads(Path(args.config).read_text())
     required = {"socket", "appCommand", "appUid", "appGid", "key", "authorityCommand",
                 "receiptAuthorityCommand"}
-    optional = {"operatorSocket", "recoveryCommand"}
+    optional = {"operatorSocket", "recoveryCommand", "recoveryFenceCommand"}
     if not required <= set(config) or set(config) - required - optional \
             or bool(config.get("operatorSocket")) != bool(config.get("recoveryCommand")) \
             or not all(type(config[name]) is int and config[name] > 0
@@ -463,6 +490,10 @@ def main():
             or not config["recoveryCommand"]
             or not all(isinstance(value, str) and value for value in config["recoveryCommand"])):
         raise ValueError("invalid operator recovery verifier")
+    if "recoveryFenceCommand" in config and (not isinstance(config["recoveryFenceCommand"], list)
+            or not config["recoveryFenceCommand"]
+            or not all(isinstance(value, str) and value for value in config["recoveryFenceCommand"])):
+        raise ValueError("invalid independent runner fence verifier")
     if args.recover_request:
         if os.geteuid() != 0 or not config.get("operatorSocket"):
             raise ValueError("operator recovery requires root and a private socket")
@@ -486,6 +517,7 @@ def main():
     if config.get("operatorSocket"):
         supervisor.operator_socket_path = Path(config["operatorSocket"])
         supervisor.recovery_command = config["recoveryCommand"]
+        supervisor.recovery_fence_command = config.get("recoveryFenceCommand")
     supervisor.serve()
 
 
