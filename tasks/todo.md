@@ -1626,3 +1626,15 @@ Review: The delayed Unix receipt test failed at the old five-second client timer
 
 ### Review
 The route returns a pending run ID after a supervised handoff. New process startup selects one saved run, rebuilds the host witness and current preset, completes live cases, and only then records the qualification. Failed continuation marks the checkpoint FAILED and leaves the fixture cleanup obligation durable. The readiness flag remains false until live server proof. Pinned focused tests, lint, typecheck and build pass.
+
+## Isolated Incus provider release 0.1.2 staging — 2026-09-24
+
+- [x] Confirm the live workspace source matches the prior 0.1.1 commit.
+- [x] Stage the three changed 0.1.2 source files from commit `e7da01193`.
+- [x] Verify the staged source matches that commit byte for byte.
+- [x] Build and inspect the candidate release and host fixtures.
+- [x] Record an exact release review packet without approval or activation.
+
+### Review
+
+Candidate release `9ec8e626-0a5d-4ed6-9333-a3fd1aa25472` is verified with zero build diagnostics. Both preset host fixtures passed and expire at `2026-09-24T16:25:43.588Z`. Release 0.1.1 remains active at generation 2. The review packet is `docs/validation/2026-09-24-isolated-incus-release-0.1.2-review.md`. No Incus server write or guest creation occurred.
