@@ -357,6 +357,15 @@ export class HostIncusProbeTransport implements IncusTransport {
       if (project.name !== connection.project || profile.name !== command.pins.profile) {
         throw new IncusTransportError("permission", "Incus project or profile identity does not match");
       }
+      const projectConfig = object(project.config);
+      const imageServers = projectConfig["restricted.images.servers"];
+      // The approved provider uses a pinned local image fingerprint. Incus
+      // represents that image source with an empty host. A non-empty allowlist
+      // of remote hosts excludes it, even when the image is already cached.
+      if (projectConfig.restricted === "true" && typeof imageServers === "string"
+        && imageServers.trim() && imageServers.split(",").every(server => server.trim())) {
+        throw new IncusTransportError("permission", "Incus project image policy denies the pinned local image");
+      }
       const environment = object(server.environment);
       const architecture = environment.kernel_architecture === "x86_64" ? "amd64"
         : environment.kernel_architecture === "aarch64" ? "arm64" : undefined;
@@ -376,7 +385,7 @@ export class HostIncusProbeTransport implements IncusTransport {
         isolation: "container",
         nestedCompose: false,
         controls: {
-          restrictedProject: object(project.config)["restricted"] === "true",
+          restrictedProject: projectConfig.restricted === "true",
           unprivileged: false,
           projectLimits: false,
           privateNetwork: false,

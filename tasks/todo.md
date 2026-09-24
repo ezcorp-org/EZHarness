@@ -1592,3 +1592,15 @@ Review: The sample `false` verifier blocks signing in a real supervisor process.
 
 ### Review
 The new runner can hand off after a stopped fixture checkpoint and resume in a replacement process. Startup must select the single pending run and call resume. Receipt exchange now waits for the independent verifier within the checkpoint deadline. The host readiness gate remains false until a live server completes every SP case and cleanup. Focused tests, lint, typecheck, and build passed locally; actual Incus and supervisor deployment remain root integration work.
+
+## Incus probe HTTP 409 diagnosis (2026-09-24)
+
+- [x] Reproduce isolated admin probe: HTTP 409 with a generic message.
+- [x] Trace transport and preflight boundaries; preserve fail-closed guest controls.
+- [x] Add bounded provider diagnostics and a read-only image policy check.
+- [x] Run focused transport and route tests, lint, and typecheck.
+- [ ] Retest the live app after it serves this commit to classify the first failing boundary.
+
+### Review
+
+The server project initially allowed only a remote image host; Incus v6.0.6 rejected the pinned local image source. The reviewed correction now permits that local source, and a disposable guest proved it. The REST probe cannot attest helper version or guest runtime controls. It keeps those controls false. No EZHarness-owned guest has been created yet.

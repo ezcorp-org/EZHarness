@@ -130,3 +130,24 @@ test("returns safe known and unknown errors from GET and POST", async () => {
 	failure = "opaque";
 	expect(await (await POST(postEvent({ action: "plan", installationId: "provider" }))).json()).toMatchObject({ code: "setup_failed" });
 });
+
+test("probe reports bounded provider diagnostics without exposing error text", async () => {
+	const transportFailure = Object.assign(new Error("secret client key material"), { code: "UNAVAILABLE" });
+	failure = transportFailure;
+	const transportResponse = await POST(postEvent({ action: "probe", setupId: "setup-a" }));
+	expect(transportResponse.status).toBe(409);
+	expect(await transportResponse.json()).toEqual({
+		code: "provider_probe_failed",
+		message: "Incus provider transport is unavailable. Check the HTTPS endpoint, server pin, and client trust.",
+	});
+	failure = Object.assign(new Error("Incus required controls are unavailable: boundedOutput, durableProcesses"), { code: "UNSUPPORTED_PROVIDER" });
+	expect(await (await POST(postEvent({ action: "probe", setupId: "setup-a" }))).json()).toEqual({
+		code: "provider_preflight_unverified",
+		message: "Incus provider preflight could not verify the required capabilities. Unverified controls: boundedOutput, durableProcesses.",
+	});
+	failure = Object.assign(new Error("Incus required controls are unavailable: privateKey=secret"), { code: "UNSUPPORTED_PROVIDER" });
+	expect(await (await POST(postEvent({ action: "probe", setupId: "setup-a" }))).json()).toEqual({
+		code: "provider_preflight_unverified",
+		message: "Incus provider preflight could not verify the required capabilities.",
+	});
+});

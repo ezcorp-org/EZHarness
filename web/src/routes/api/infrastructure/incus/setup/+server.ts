@@ -25,6 +25,29 @@ async function service(): Promise<IncusOperatorSetupService | Response> {
 
 function safeError(error: unknown): Response {
   const message = error instanceof Error ? error.message : "Incus setup failed";
+  // Provider invocation errors cross a process boundary. Only expose stable
+  // codes and the bounded control names that this host probe can attest.
+  const code = error && typeof error === "object" && "code" in error ? error.code : undefined;
+  if (code === "UNSUPPORTED_PROVIDER") {
+    const prefix = "Incus required controls are unavailable: ";
+    const controls = message.startsWith(prefix) ? message.slice(prefix.length).split(", ") : [];
+    const knownControls = new Set(["unprivileged", "projectLimits", "privateNetwork", "explicitGuestUser",
+      "atomicFileReplace", "durableProcesses", "boundedOutput", "endpointProxy"]);
+    const detail = controls.length && controls.every(control => knownControls.has(control))
+      ? ` Unverified controls: ${controls.join(", ")}.` : "";
+    return json({ code: "provider_preflight_unverified",
+      message: `Incus provider preflight could not verify the required capabilities.${detail}` }, { status: 409 });
+  }
+  const providerErrors: Record<string, string> = {
+    UNAVAILABLE: "Incus provider transport is unavailable. Check the HTTPS endpoint, server pin, and client trust.",
+    PERMISSION_DENIED: "Incus provider request was denied. Check the pinned endpoint and client trust.",
+    DEADLINE_EXCEEDED: "Incus provider probe timed out.",
+    INVALID_PROVIDER_CONFIG: "Incus provider connection configuration is invalid.",
+    RELEASE_CHANGED: "Incus provider release changed during the probe.",
+  };
+  if (typeof code === "string" && Object.hasOwn(providerErrors, code)) {
+    return json({ code: "provider_probe_failed", message: providerErrors[code] }, { status: 409 });
+  }
   const known = /^(The (active approved release|provider release|exact ready plan|setup is already|setup outcome)|Incus (setup was not found|setup endpoint|did not report|server certificate|provider|client identity)|Reviewed Incus recipe|Host-owned SSH|SSH (connection|host is not pinned|known_hosts)|OpenSSL is required|Verify the reviewed|Provider release|Provider connection|setup plan digest mismatch)/.test(message);
   return json({ code: "setup_failed", message: known ? message : "Incus setup failed. Check host logs and inspect the saved plan." }, { status: 409 });
 }

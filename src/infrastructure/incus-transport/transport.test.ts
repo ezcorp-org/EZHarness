@@ -109,6 +109,21 @@ test("probe uses only fixed GET routes and reports unverified guest controls as 
   expect(result.nestedCompose).toBe(false);
 });
 
+test("read-only probe rejects a restricted project that excludes the pinned local image", async () => {
+  const fetcher: ProbeFetch = async (url) => {
+    const response = readOnlyProbeResponse(url);
+    if (!new URL(url).pathname.includes("/projects/")) return response;
+    return Response.json({ type: "sync", status_code: 200, metadata: {
+      name: "sandbox", config: { restricted: "true", "features.images": "false",
+        "restricted.images.servers": "images.linuxcontainers.org" },
+    } });
+  };
+  const { transport } = fixture({ fetch: fetcher });
+  await expect(transport.request(command)).rejects.toMatchObject({
+    kind: "permission", message: "Incus project image policy denies the pinned local image", effect: "none",
+  });
+});
+
 test("probe rejects a server response without supported kernel architecture", async () => {
   const { transport } = fixture({ fetch: (url) => Promise.resolve(readOnlyProbeResponse(url, {
     server_architecture: "x86_64", server_version: "6.0.6",
