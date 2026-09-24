@@ -1,6 +1,11 @@
 import { expect, test } from "bun:test";
+import { PGlite } from "@electric-sql/pglite";
+import { drizzle } from "drizzle-orm/pglite";
 import { sandboxPresetDigest } from "@ezcorp/extension-contract";
 import { incusManifest } from "../../extensions/incus-sandbox/manifest";
+import { up as addSandboxController } from "../db/migrations/add-sandbox-controller";
+import { up as addQualificationFixtures } from "../db/migrations/add-incus-qualification-fixtures";
+import * as schema from "../db/schema";
 import type { SandboxWorkspaceTargetResolver } from "../runtime/workspaces/project-target";
 import type { ActiveExtensionRelease } from "../extensions/release-process";
 import type { ProviderConnectionMetadata } from "./provider-connections/store";
@@ -60,3 +65,28 @@ test("startup reconciler runs immediately and closes without scheduling more wor
   await stop();
   expect(reconcileCalls).toBe(1);
 });
+
+test("startup reconciler reads durable state through the real service before shutdown", async () => {
+  const pglite = new PGlite();
+  try {
+    await pglite.waitReady;
+    await pglite.exec("CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, path TEXT NOT NULL, icon TEXT, variables JSONB NOT NULL DEFAULT '{}', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())");
+    const db = drizzle(pglite, { schema });
+    await addSandboxController(db);
+    await addQualificationFixtures(db);
+    let reads = 0;
+    const observedDb = new Proxy(db, { get(target, key) {
+      const value = Reflect.get(target, key, target);
+      if (key === "select") return (...args: Parameters<typeof db.select>) => {
+        reads++;
+        return db.select(...args);
+      };
+      return typeof value === "function" ? value.bind(target) : value;
+    } });
+    const stop = startIncusSandboxReconciler(30_000, undefined, observedDb);
+    await stop();
+    expect(reads).toBeGreaterThan(0);
+  } finally {
+    await pglite.close();
+  }
+}, 30_000);

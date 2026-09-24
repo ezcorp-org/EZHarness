@@ -1,5 +1,5 @@
 import { sandboxPresetDigest } from "@ezcorp/extension-contract";
-import { getDb } from "../db/connection";
+import { getDb, type Database } from "../db/connection";
 import { getReleaseRuntime, resolveActiveRelease } from "../extensions/release-process";
 import { createProviderSandboxWorkspaceBackend } from "../runtime/workspaces/provider-backend";
 import { setSandboxWorkspaceTargetResolver } from "../runtime/workspaces/project-target";
@@ -61,9 +61,9 @@ export function initializeIncusSandboxWorkspace(dependencies: StartupDependencie
 
 /** Recover admitted effects and reservation state after a controller restart. */
 export function startIncusSandboxReconciler(intervalMs = 30_000,
-  reconcile?: () => Promise<unknown>): () => Promise<void> {
+  reconcile?: () => Promise<unknown>, databaseOverride?: Database): () => Promise<void> {
   if (!reconcile) {
-    const database = getDb();
+    const database = databaseOverride ?? getDb();
     const qualifications = new IncusQualificationStore({ db: database });
     const service = new IncusFeatureService({ db: database,
       loadQualification: scope => qualifications.load(scope) });
