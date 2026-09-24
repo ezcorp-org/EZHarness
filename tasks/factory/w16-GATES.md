@@ -131,6 +131,7 @@ Coordinator ruling 2026-09-22: approved for W16; the owner's package inherits it
 | `hosted-ingress-snippet` | ingress-nginx 1.9+ disables the `configuration-snippet` annotation that sets the installation header |
 | `hosted-host-identity-shared` | The Kubernetes supervisor DaemonSet holds one fleet-wide host identity (as the Compose fleet host now does too) |
 | `gpu-profile-lease-consumer` | Disclosed structural gap, owner W02; W02d builds it after W16 lands (coordinator ruling). The pool validates GPU declarations but does not yet authorize devices from them: `factoryHeldAllocationDevices` in `runner/attempt-wire.ts` has no production caller |
+| `restore-lifecycle-step` | Disclosed structural gap, owner W16, a follow-up package after this round (from W14's restore proof against W15). An in-place restore blocks on `database_position_mismatch`, because nothing restores the installation's database to the checkpoint first: the provisioner has no restore lifecycle step (point-in-time recovery to the checkpoint, then the pool restore import) |
 | `orchestrator-build-id-versioning` | The orchestrator does not implement Temporal worker build-ID versioning; builds are retained at the image and release level |
 | Production GPU, eight rows | `FACTORY_PRODUCTION_GPU_CRITERIA`, all unmet with the verdicts in `docs/factory-local-gpu.md` |
 
