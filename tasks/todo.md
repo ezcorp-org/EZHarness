@@ -1558,4 +1558,4 @@ The test conflict uses main's producer-liveness helper and passes the actual hol
 
 Plan review: `tasks/incus-completion/PLAN.md` fixes ownership and interfaces before the Sol agents work. `GATES.md` and the leaf gate files record proof. The new ingress generation is already built and pinned in the NixOS review packet; the current server generation still blocks AMD TCP 8443. The user asked to continue all work, so the root agent may use the reviewed guarded activation plan after fresh preflight. Server writes stay with the root agent.
 
-Review: pending.
+Review: PR #303 now includes merge commit `c0b8a7a28` against `origin/main` at `85d9c9c50`. The only conflict was this task journal; both histories remain. Pinned Bun 1.3.14 passed 167 focused failover/credential tests, 31 Incus test files in separate processes, typecheck, lint over 4,861 files, production build, gate integrity, staged pre-commit tests, and `git diff --check`. Hosted CI on the pushed exact head and live qualification remain open.
