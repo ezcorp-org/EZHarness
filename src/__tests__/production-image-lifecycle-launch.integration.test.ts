@@ -166,7 +166,6 @@ async function readReadyFile(path: string, child: ReturnType<typeof Bun.spawn>):
   void child.exited.then(() => wake());
   try {
     for (;;) {
-      if (child.exitCode !== null) throw new Error(`Launcher exited before ${path} was ready`);
       if (watchError) throw watchError;
       // Watch before the first read so a write cannot fall between inspection and subscription.
       // The producer creates the file before it writes its content.
@@ -184,6 +183,7 @@ async function readReadyFile(path: string, child: ReturnType<typeof Bun.spawn>):
       } catch (error) {
         if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") throw error;
       }
+      if (child.exitCode !== null) throw new Error(`Launcher exited ${child.exitCode} before writing ${path}`);
       await change;
     }
   } finally {
@@ -192,6 +192,16 @@ async function readReadyFile(path: string, child: ReturnType<typeof Bun.spawn>):
     directoryChanges.close();
   }
 }
+test("launcher readiness fails when its producer exits without a file", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "production-lifecycle-readiness-"));
+  const producer = Bun.spawn([process.execPath, "-e", "process.exit(17)"], { stdout: "ignore", stderr: "ignore" });
+  try {
+    await expect(readReadyFile(join(directory, "never-created"), producer)).rejects.toThrow("Launcher exited 17 before writing");
+  } finally {
+    await producer.exited;
+    await rm(directory, { recursive: true, force: true });
+  }
+});
 
 type ProcessIdentity = {
   processGroup: number;
