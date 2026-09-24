@@ -143,7 +143,9 @@ test("returns safe known and unknown errors from GET and POST", async () => {
 	failure = new Error("secret from host");
 	expect(await (await POST(postEvent({ action: "probe", setupId: "setup-a" }))).json()).toMatchObject({ code: "setup_failed", message: "Incus setup failed. Check host logs and inspect the saved plan." });
 	failure = "opaque";
-	expect(await (await POST(postEvent({ action: "plan", installationId: "provider" }))).json()).toMatchObject({ code: "setup_failed" });
+	expect(await (await POST(postEvent({ action: "plan", installationId: "provider" }))).json()).toMatchObject({
+		code: "setup_failed", diagnostic: { errorType: "unknown", source: "other" },
+	});
 });
 
 test("probe reports bounded provider diagnostics without exposing error text", async () => {
@@ -165,4 +167,15 @@ test("probe reports bounded provider diagnostics without exposing error text", a
 		code: "provider_preflight_unverified",
 		message: "Incus provider preflight could not verify the required capabilities.",
 	});
+});
+
+test("unknown probe failures expose only fixed diagnostic labels", async () => {
+	failure = Object.assign(new Error("private-key-must-never-escape"), { name: "ContractError", code: "INTERNAL",
+		stack: "ContractError: private-key-must-never-escape\n    at probe (/host/src/extensions/release-process.ts:1:1)" });
+	const response = await POST(postEvent({ action: "probe", setupId: "setup-a" }));
+	const body = await response.json();
+	expect(response.status).toBe(409);
+	expect(body).toEqual({ code: "setup_failed", message: "Incus setup failed. Check host logs and inspect the saved plan.",
+		diagnostic: { errorType: "ContractError", errorCode: "INTERNAL", source: "release_process" } });
+	expect(JSON.stringify(body)).not.toContain("private-key-must-never-escape");
 });

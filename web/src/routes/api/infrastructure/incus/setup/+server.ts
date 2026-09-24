@@ -49,7 +49,22 @@ function safeError(error: unknown): Response {
     return json({ code: "provider_probe_failed", message: providerErrors[code] }, { status: 409 });
   }
   const known = /^(The (active approved release|provider release|exact ready plan|setup is already|setup outcome)|Incus (setup was not found|setup endpoint|did not report|server certificate|provider|client identity)|Reviewed Incus recipe|Host-owned SSH|SSH (connection|host is not pinned|known_hosts)|OpenSSL is required|Verify the reviewed|Provider release|Provider connection|setup plan digest mismatch)/.test(message);
-  return json({ code: "setup_failed", message: known ? message : "Incus setup failed. Check host logs and inspect the saved plan." }, { status: 409 });
+  if (known) return json({ code: "setup_failed", message }, { status: 409 });
+  const name = error instanceof Error ? error.name : "unknown";
+  const errorType = ["Error", "ContractError", "LifecycleError", "TypeError", "IncusTransportError"].includes(name) ? name : "unknown";
+  const errorCode = typeof code === "string" && ["CAPABILITY_UNAVAILABLE", "CAPABILITY_DENIED", "RUNNER_UNAVAILABLE",
+    "RELEASE_NOT_ACTIVE", "EXPIRED_CONTEXT", "INVALID_CONTEXT", "CONTEXT_MISMATCH", "INVALID_CALL_TOKEN",
+    "INVALID_REQUEST", "INTERNAL", "UNDECLARED_CONTRIBUTION", "INVALID_PROVIDER_VALUE"].includes(code) ? code : undefined;
+  // A fixed label for the first stack frame narrows the failing boundary
+  // without returning a raw stack, path, network address, or secret.
+  const firstFrame = error instanceof Error ? error.stack?.split("\n")[1] ?? "" : "";
+  const source = firstFrame.includes("incus-operator/service") ? "operator_setup"
+    : firstFrame.includes("provider-connections/store") ? "connection_store"
+    : firstFrame.includes("provider-rpc-broker") ? "provider_broker"
+    : firstFrame.includes("release-process") ? "release_process"
+    : firstFrame.includes("incus-transport/") ? "incus_transport" : "other";
+  return json({ code: "setup_failed", message: "Incus setup failed. Check host logs and inspect the saved plan.",
+    diagnostic: { errorType, ...(errorCode ? { errorCode } : {}), source } }, { status: 409 });
 }
 
 export const GET: RequestHandler = async ({ locals, url }) => {
