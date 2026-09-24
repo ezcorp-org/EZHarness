@@ -3044,6 +3044,8 @@ export async function migrate(db: MigrateDb): Promise<void> {
   await addSandboxController(db);
   const { up: addIncusQualificationFixtures } = await import("./migrations/add-incus-qualification-fixtures");
   await addIncusQualificationFixtures(db);
+  const { up: addIncusQualificationRuns } = await import("./migrations/add-incus-qualification-runs");
+  await addIncusQualificationRuns(db);
   const { extensionControlTools } = await import("../extensions/extension-control");
   for (const tool of extensionControlTools) {
     await db.execute(sql`UPDATE modes SET allowed_tools = array_append(allowed_tools, ${tool.name}) WHERE slug = 'ez' AND allowed_tools IS NOT NULL AND NOT (${tool.name} = ANY(allowed_tools))`);

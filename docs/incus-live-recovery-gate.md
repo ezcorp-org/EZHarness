@@ -1,5 +1,33 @@
 # Incus live recovery gate
 
+## Checkpoint implementation status
+
+`incus_qualification_runs` now stores one active run per fixture, its exact
+qualification scope, binding generation, connection revision, last operation,
+stopped before-observation, nonce, and restart deadline. A claim is atomic and
+single use. It requires an Ed25519 handoff receipt under the public key pinned
+in `EZCORP_INCUS_SUPERVISOR_PUBLIC_KEY`. The receipt binds the old and new Linux
+PID and `/proc/<pid>/stat` start tick, fixture identity, and observation digests.
+The claim checks that the old process identity has exited and that the new
+identity is the claiming process. If `/proc` is unavailable, the claim fails.
+It also compares the durable fixture with the stopped backend observation and
+marks a mismatched claim failed. A test starts a checkpoint writer process,
+waits for its exit, and starts a second process on the same PGlite directory to
+claim it. This proves the checkpoint survives a process boundary; it does not
+prove an operator supervisor restarted EZHarness or read a real Incus endpoint.
+
+The external operator supervisor and authenticated private control channel are
+still absent. The HTTP qualification action still runs on one process stack;
+it cannot publish a pass from this checkpoint. A production continuation must
+start in the new EZHarness process, open a new database connection and fixture
+service, read `status(scope, fixtureOperationId)` and the exact Incus instance
+through `HostIncusLiveReadback.instance()`, and pass those observations to the
+claim. The supervisor must independently record the old and new process
+identities, wait for the old process to exit, sign the handoff with its private
+key held outside EZHarness, and authorize the single request through an
+operator-private channel with verified OS peer credentials. Until that exists
+and the complete SP run passes, `incusHostLiveWitnessReady()` remains `false`.
+
 `incusHostLiveWitnessReady()` stays `false`. The current application has no
 operator supervisor that can restart EZHarness and resume a qualification run,
 and no one-shot transport fault that can lose a real destroy reply after Incus

@@ -1432,3 +1432,21 @@ Pinned Bun 1.3.14: focused test 1 pass, 0 fail; `bun run typecheck` and `bun run
 Plan review: The hosted line-coverage, new-file, and patch gates passed on `5a42ae8a6`; the next gate reported 20 changed functions above score 30 in 15 files. The violations are fully covered or nearly so, so splitting large decision blocks is the direct fix. The Sol worktrees own extension contracts and runner, infrastructure control and transport, runtime workspace and admission, and route or agent-effect flows respectively. The root agent will integrate and verify. Do not weaken the maximum, hide touched files, or replace behavior tests with metric-only assertions.
 
 Review: four isolated Sol worktrees supplied the refactors and focused receipts, integrated through `b23ef4a86`. Additional behavior tests cover the spawn rate-limit and autonomous-cycle branches and release provenance guard ordering. Pinned Bun 1.3.14 passed 26,799 backend tests across 1,730 files with zero failures; typecheck, lint, build, Svelte check, and gate integrity passed. Hosted CI on code commit `68ee9cdb9` passed all 50 checks, including 1,721 enforced-file thresholds, 54 new-source thresholds, all changed executable lines, and the unchanged CRAP maximum of 30. Live server qualification remains a separate release gate.
+
+## Incus restart checkpoint (2026-09-23)
+
+- [x] Reproduce the missing cross-process continuation with a test on one persistent database.
+- [x] Add durable checkpoint migration and a single-claim resume API bound to the exact qualification fixture.
+- [x] Verify a signed external handoff receipt and observations before a checkpoint can be claimed.
+- [ ] Add a private operator supervisor contract; keep the host witness gate closed until actual restart proof exists.
+- [x] Run focused tests, typecheck, lint, and record results here.
+
+### Review
+
+The test starts a writer process, waits for exit, and starts a reader process on
+the same PGlite directory. The reader claims the signed checkpoint once and
+rejects replay. A signed same-process receipt fails and persists `FAILED`.
+Focused tests: 4 pass under pinned Bun 1.3.14. Focused LCOV measures the new
+checkpoint module at 27/27 functions and 173/173 lines. Backend and web
+typecheck pass. Biome check of changed files passes. The operator supervisor, its authenticated private channel,
+real endpoint readback, and production continuation remain the live gate.
