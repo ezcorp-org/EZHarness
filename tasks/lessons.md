@@ -1575,3 +1575,10 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 - Under zsh, an unmatched glob such as `--include=*.test.ts` fails the whole command substitution, so
   `bun test --timeout N $T` received no file and ran every test at the repo root. Build a test list in
   bash with `mapfile`, quote the pattern, and exit before `bun test` when the list is empty.
+
+## 2026-09-25 — Never pass --no-verify, not even in a scratch worktree (W16)
+
+- A scratch merge was started with `git merge --no-verify`. It stopped on a conflict, so nothing was
+  committed, but the rule is absolute: no `--no-verify` on any git command, in any worktree. If a hook
+  is in the way, the scratch tree is the wrong tool; merge without the flag and resolve, or do the work
+  on the real branch after the ruling that allows it.
