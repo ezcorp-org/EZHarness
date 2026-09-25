@@ -3605,6 +3605,19 @@ unchecked. `run-format.ts` mutants now die by assertion (91.86% to 97.98%, 60 ti
 run scrolls into the narrow strip. Real lane 11 of 11 and sweep green at the clean head. The restore port,
 W02c, W09c, W01g, and W16 items wait for their integ/w00 hashes.
 
+### Round 3, part 2 (worker w14-continue, from `46237000f`)
+
+- [x] Read the lane and sweep queued at `46237000f`: `journeys-14` 12 of 12, `sweep-11` every leg exit 0.
+- [x] Author check: every branch commit is archy's; `754d7b29b` (fixture identity) was rewritten to `5ea00bea8` (same tree) by the 04:02 reset-author rebase.
+- [x] Merge integ/w00 `2b2e12550` (W02c, W01g, W09c, W09d-2, W04b, W12c, W15, W15c).
+- [ ] W02c: the console builds its trusts with `createFactoryPackageTrusts`; the preview counts live attempts with the fence's own query; the console shows the affected-run record; the real lane commits a quarantine and lifts it.
+- [ ] W04b: the grants panel names each grantee by display name.
+- [ ] W09c: the web process composes command approvals beside release operations; the real lane decides an approval in the inbox.
+- [ ] W01g: the lane guest stages its output and completes; the run journey asserts the completed run.
+- [ ] `run-stream.ts`: mutants that die only by timeout die by assertion.
+- [ ] Final passes at the final head, one receipt per leg; gate file and review.
+- W16 items (two HTTP installations, W16 purge preconditions) wait until W16 lands.
+
 ## W09c — compose the release profile set from the declaration (branch `wp/w09c-profiles`)
 
 Worktree `.worktrees/w09c-profiles` from `integ/w00` at `260855e57`. Gate file
