@@ -58,8 +58,10 @@ stays unset and the existing 401 applies before any handler.
   EXPECT: exit 0
   EVIDENCE: 138 pass, 0 fail with the pool test (`logs/listener-suites-2.log`)
 
-- [ ] G3: Hold: PostgreSQL and Podman suites that start listeners, boundary suites (C05, closure, node-service-link), coverage vs 03538e909 (100 percent on changed lines), typecheck, lint, boundaries, gate integrity.
-  EVIDENCE: pending
+- [x] G3: Hold: PostgreSQL suites that start listeners, the Podman supervisor suite, the pool coverage producer (Node V8 for `service-server.ts`), focused suites with lcov, boundary suites (C05, closure, node-service-link), coverage vs 03538e909 (100 percent on changed lines), typecheck, lint, boundaries, gate integrity.
+  CHECK: `flock --close /tmp/ezcorp-validation-heavy.lock timeout 5400 bash /tmp/factory-platform-evidence/w16/repro/leaf-hold.sh /tmp/factory-platform-evidence/w01k/hold-config.sh <label>`
+  EXPECT: every leg exit 0
+  EVIDENCE: hold k3 at 8c413221f, `/tmp/factory-platform-evidence/w01k/receipts/k3/` (15 receipts, all exit 0, clean at start): PostgreSQL 36/0 (pool-http, compute-admissions, artifact-materials, pool-mtls), Podman supervisor 3/0, pool producer 86/0, focused 138/0, boundary suites 48/0; patch coverage 2 files, no new source file. Hold k2 (same head) failed only patch coverage on `service-server.ts` line 46, which runs only in the Node server and is measured by the pool producer that k2 did not run; k3 adds it
 
 - [ ] G4: W01 owner review (w01g-fix).
   EVIDENCE: pending
