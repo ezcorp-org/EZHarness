@@ -121,6 +121,71 @@ test("legacy CREATE inspection gains only its exact host-journaled identity afte
   expect(calls).toHaveLength(2);
 });
 
+test("expired power inspection gains only the exact current START journal identity and generation", async () => {
+  const { broker, calls, scope, db } = await setup();
+  const nativeId = "incus-setPower-11111111-1111-1111-1111-111111111111";
+  const input = { providerId: "incus", connectionId: "connection", sandboxId: "binding",
+    rpcDeadlineMs: Date.now() + 30_000, operationId: nativeId };
+  const action = { ...scope("lifecycle.inspectOperation", input), approvedGuest: undefined };
+  await db.insert(schema.sandboxOperations).values({ id: "journal-start", bindingId: "binding", kind: "START",
+    generation: 1, idempotencyScope: "feature", idempotencyKey: "client-key", payloadHash: "hash",
+    requestPayload: { expectedGeneration: 1 }, state: "PROVIDER_PENDING", providerOperationId: nativeId });
+  await db.update(schema.sandboxBindings).set({ currentOperationId: "journal-start", desiredState: "RUNNING", observedState: "STOPPED" });
+  expect(await broker.request(action, { command: action.expectedCommand }, input.rpcDeadlineMs)).toMatchObject({ ok: true });
+  expect(calls[0]?.idempotency).toEqual({ requestId: "journal-start", key: "journal-start" });
+  expect(calls[0]?.payload).toEqual({ operationId: nativeId,
+    readback: { expectedGeneration: 1, desiredState: "running" } });
+  await db.update(schema.sandboxBindings).set({ currentOperationId: "other-journal" });
+  expect(await broker.request(action, { command: action.expectedCommand }, input.rpcDeadlineMs))
+    .toMatchObject({ ok: false, error: { kind: "permission" } });
+  expect(calls).toHaveLength(1);
+  await db.update(schema.sandboxBindings).set({ currentOperationId: "journal-start", generation: 2 });
+  expect(await broker.request(action, { command: action.expectedCommand }, input.rpcDeadlineMs))
+    .toMatchObject({ ok: false, error: { kind: "permission" } });
+  await db.update(schema.sandboxBindings).set({ generation: 1, presetDigest: "wrong-preset" });
+  expect(await broker.request(action, { command: action.expectedCommand }, input.rpcDeadlineMs))
+    .toMatchObject({ ok: false, error: { kind: "permission" } });
+  await db.update(schema.sandboxBindings).set({ presetDigest: "a".repeat(64) });
+  await db.update(schema.sandboxOperations).set({ providerOperationId: "incus-setPower-33333333-3333-3333-3333-333333333333" });
+  expect(await broker.request(action, { command: action.expectedCommand }, input.rpcDeadlineMs))
+    .toMatchObject({ ok: false, error: { kind: "permission" } });
+  expect(calls).toHaveLength(1);
+
+  const stopId = "incus-setPower-22222222-2222-2222-2222-222222222222";
+  await db.insert(schema.sandboxOperations).values({ id: "journal-stop", bindingId: "binding", kind: "STOP",
+    generation: 2, idempotencyScope: "feature", idempotencyKey: "client-stop", payloadHash: "hash-stop",
+    requestPayload: { expectedGeneration: 2 }, state: "PROVIDER_PENDING", providerOperationId: stopId });
+  await db.update(schema.sandboxBindings).set({ generation: 2, currentOperationId: "journal-stop",
+    desiredState: "STOPPED", observedState: "RUNNING" });
+  const stopInput = { ...input, operationId: stopId };
+  const stopAction = { ...scope("lifecycle.inspectOperation", stopInput), bindingGeneration: 2, approvedGuest: undefined };
+  expect(await broker.request(stopAction, { command: stopAction.expectedCommand }, stopInput.rpcDeadlineMs)).toMatchObject({ ok: true });
+  expect(calls[1]?.idempotency).toEqual({ requestId: "journal-stop", key: "journal-stop" });
+  expect(calls[1]?.payload).toEqual({ operationId: stopId,
+    readback: { expectedGeneration: 2, desiredState: "stopped" } });
+});
+
+test("expired DESTROY readback needs the exact tombstoned current journal", async () => {
+  const { broker, calls, scope, db } = await setup();
+  const nativeId = "incus-destroy-11111111-1111-1111-1111-111111111111";
+  const input = { providerId: "incus", connectionId: "connection", sandboxId: "binding",
+    rpcDeadlineMs: Date.now() + 30_000, operationId: nativeId };
+  const action = { ...scope("lifecycle.inspectOperation", input), approvedGuest: undefined };
+  await db.insert(schema.sandboxOperations).values({ id: "journal-destroy", bindingId: "binding", kind: "DESTROY",
+    generation: 1, idempotencyScope: "feature", idempotencyKey: "client-destroy", payloadHash: "hash",
+    requestPayload: { expectedGeneration: 1 }, state: "PROVIDER_PENDING", providerOperationId: nativeId });
+  await db.update(schema.sandboxBindings).set({ currentOperationId: "journal-destroy", desiredState: "ABSENT",
+    observedState: "STOPPED", tombstonedAt: new Date() });
+  expect(await broker.request(action, { command: action.expectedCommand }, input.rpcDeadlineMs)).toMatchObject({ ok: true });
+  expect(calls[0]?.idempotency).toEqual({ requestId: "journal-destroy", key: "journal-destroy" });
+  expect(calls[0]?.payload).toEqual({ operationId: nativeId,
+    readback: { expectedGeneration: 1, desiredState: "absent" } });
+  await db.update(schema.sandboxBindings).set({ tombstonedAt: null });
+  expect(await broker.request(action, { command: action.expectedCommand }, input.rpcDeadlineMs))
+    .toMatchObject({ ok: false, error: { kind: "permission" } });
+  expect(calls).toHaveLength(1);
+});
+
 test("a repeated guest process mutation returns the first result without redispatch", async () => {
   const { broker, calls, scope } = await setup();
   const input = { providerId: "incus", connectionId: "connection", sandboxId: "binding",

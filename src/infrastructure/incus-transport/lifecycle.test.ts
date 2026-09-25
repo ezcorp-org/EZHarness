@@ -366,6 +366,69 @@ test("power intent advances generation with ETag before state change", async () 
   expect(calls).toEqual([`GET /1.0/instances/${sandboxName}`, `PATCH /1.0/instances/${sandboxName}`, `PUT /1.0/instances/${sandboxName}/state`]);
 });
 
+test("expired native power receipt settles only the exact host-journaled instance intent", async () => {
+  const nativeId = "incus-setPower-11111111-1111-1111-1111-111111111111";
+  const inspect = { ...command, action: "operation.inspect" as const,
+    idempotency: { requestId: "journal-start", key: "journal-start" },
+    payload: { operationId: nativeId, readback: { expectedGeneration: 1, desiredState: "running" } } };
+  const stableId = `ezh-setPower-${sandboxName.slice(4)}-${createHash("sha256")
+    .update("connection-a\0sandbox-a\0journal-start\0journal-start\0setPower").digest("hex").slice(0, 32)}`;
+  const config = { "user.ezharness.managed_by": "ezharness-incus-sandbox", "user.ezharness.connection_id": "connection-a",
+    "user.ezharness.sandbox_id": sandboxId, "user.ezharness.profile": "linux-exec.v1",
+    "user.ezharness.preset_id": "incus-linux-exec-v1", "volatile.base_image": "c".repeat(64),
+    "user.ezharness.generation": "2", "user.ezharness.operation_id": stableId,
+    "user.ezharness.desired_state": "running" };
+  let instance = { name: sandboxName, status: "Running", type: "container", profiles: ["ezharness"], config };
+  const fetcher = async (url: string) => new URL(url).pathname.startsWith("/1.0/operations/")
+    ? reply({}, 404) : reply(instance);
+  const transport = new HostIncusLifecycleTransport({ resolveForHost: async () => connection }, scope, fetcher as never);
+  expect(await transport.request(inspect)).toMatchObject({ operation: { state: "succeeded", kind: "setPower", observedState: "running" } });
+  for (const changed of [
+    { config: { ...config, "user.ezharness.operation_id": "another-intent" } },
+    { config: { ...config, "user.ezharness.generation": "3" } },
+    { status: "Stopped" },
+    { config: { ...config, "user.ezharness.desired_state": "stopped" } },
+    { config: { ...config, "user.ezharness.sandbox_id": "other-sandbox" } },
+    { config: { ...config, "volatile.base_image": "d".repeat(64) } },
+    { profiles: ["other-profile"] },
+  ]) {
+    instance = { ...instance, ...changed };
+    expect(await transport.request(inspect)).toMatchObject({ operation: { state: "outcome_unknown" } });
+    instance = { name: sandboxName, status: "Running", type: "container", profiles: ["ezharness"], config };
+  }
+  expect(await transport.request({ ...inspect, idempotency: undefined })).toMatchObject({ operation: { state: "outcome_unknown" } });
+  const stopInspect = { ...inspect, idempotency: { requestId: "journal-stop", key: "journal-stop" },
+    payload: { operationId: "incus-setPower-22222222-2222-2222-2222-222222222222",
+      readback: { expectedGeneration: 2, desiredState: "stopped" } } };
+  const stopMarker = `ezh-setPower-${sandboxName.slice(4)}-${createHash("sha256")
+    .update("connection-a\0sandbox-a\0journal-stop\0journal-stop\0setPower").digest("hex").slice(0, 32)}`;
+  instance = { ...instance, status: "Stopped", config: { ...config,
+    "user.ezharness.generation": "3", "user.ezharness.operation_id": stopMarker,
+    "user.ezharness.desired_state": "stopped" } };
+  expect(await transport.request(stopInspect)).toMatchObject({ operation: { state: "succeeded", observedState: "stopped" } });
+});
+
+test("expired native destroy receipt confirms only scoped absence, never an unreachable or present guest", async () => {
+  const inspect = { ...command, action: "operation.inspect" as const,
+    idempotency: { requestId: "journal-destroy", key: "journal-destroy" },
+    payload: { operationId: "incus-destroy-11111111-1111-1111-1111-111111111111",
+      readback: { expectedGeneration: 2, desiredState: "absent" } } };
+  let instanceStatus = 404;
+  const fetcher = async (url: string) => new URL(url).pathname.startsWith("/1.0/operations/")
+    ? reply({}, 404) : instanceStatus === 404 ? reply({}, 404)
+      : instanceStatus === 200 ? reply({ name: sandboxName, status: "Stopped", config: {
+        "user.ezharness.managed_by": "ezharness-incus-sandbox", "user.ezharness.connection_id": "connection-a",
+        "user.ezharness.sandbox_id": sandboxId } }) : new Response("", { status: instanceStatus });
+  const transport = new HostIncusLifecycleTransport({ resolveForHost: async () => connection }, scope, fetcher as never);
+  expect(await transport.request(inspect)).toMatchObject({ operation: { kind: "destroy", state: "succeeded", observedState: "absent" } });
+  instanceStatus = 200;
+  expect(await transport.request(inspect)).toMatchObject({ operation: { state: "outcome_unknown" } });
+  instanceStatus = 503;
+  await expect(transport.request(inspect)).rejects.toMatchObject({ kind: "unavailable" });
+  instanceStatus = 404;
+  expect(await transport.request({ ...inspect, idempotency: undefined })).toMatchObject({ operation: { state: "outcome_unknown" } });
+});
+
 test("mutation timeout reports unknown with the same readback identity", async () => {
   let posts = 0;
   const fetcher = async (url: string, init: RequestInit) => {

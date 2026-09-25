@@ -145,27 +145,32 @@ function approvedGuestHelper(operation: SandboxProtocolOperation, base: Prepared
   return helperSha256;
 }
 
-async function legacyCreateJournalId(db: Database, scope: PreparedIncusAction,
-  binding: SandboxBinding, providerOperationId: string): Promise<string | null> {
+async function lifecycleReadbackJournal(db: Database, scope: PreparedIncusAction,
+  binding: SandboxBinding, providerOperationId: string, kind: "CREATE" | "START" | "STOP" | "DESTROY"):
+  Promise<{ id: string; generation: number; desiredState: "running" | "stopped" | "absent" } | null> {
   if (scope.expectedCommand.idempotency) return null;
   const rows = await db.select().from(sandboxOperations).where(and(
     eq(sandboxOperations.bindingId, scope.bindingId),
     eq(sandboxOperations.providerOperationId, providerOperationId),
-    eq(sandboxOperations.kind, "CREATE"),
+    eq(sandboxOperations.kind, kind),
   )).limit(2);
   if (rows.length !== 1) return null;
   const journal = rows[0]!;
   const preset = scope.approvedPreset;
   if (!["DISPATCHING", "PROVIDER_PENDING", "OUTCOME_UNKNOWN"].includes(journal.state)
     || journal.id !== binding.currentOperationId || journal.generation !== binding.generation
-    || journal.generation !== scope.bindingGeneration || journal.generation !== 1
-    || binding.tombstonedAt || binding.desiredState !== "STOPPED"
+    || journal.generation !== scope.bindingGeneration
+    || Boolean(binding.tombstonedAt) !== (kind === "DESTROY")
+    || binding.desiredState !== (kind === "START" ? "RUNNING" : kind === "DESTROY" ? "ABSENT" : "STOPPED")
     || binding.profile !== preset.profile || binding.presetId !== preset.presetId
     || binding.presetDigest !== preset.presetDigest || binding.effectiveSettingsDigest !== preset.effectiveSettingsDigest
-    || journal.requestPayload.profile !== preset.profile || journal.requestPayload.presetId !== preset.presetId
-    || journal.requestPayload.presetDigest !== preset.presetDigest
-    || journal.requestPayload.effectiveSettingsDigest !== preset.effectiveSettingsDigest) return null;
-  return journal.id;
+    || kind === "CREATE" && (journal.generation !== 1
+      || journal.requestPayload.profile !== preset.profile || journal.requestPayload.presetId !== preset.presetId
+      || journal.requestPayload.presetDigest !== preset.presetDigest
+      || journal.requestPayload.effectiveSettingsDigest !== preset.effectiveSettingsDigest)
+    || kind !== "CREATE" && journal.requestPayload.expectedGeneration !== journal.generation) return null;
+  return { id: journal.id, generation: journal.generation,
+    desiredState: kind === "START" ? "running" : kind === "DESTROY" ? "absent" : "stopped" };
 }
 
 /** Only ReleaseProcess calls this broker. No generic extension capability exposes it. */
@@ -381,15 +386,29 @@ export class ProviderRpcBroker {
       const providerOperationId = command.action === "operation.inspect"
         && command.payload && typeof command.payload === "object" && !Array.isArray(command.payload)
         ? command.payload.operationId : null;
-      const legacyWorkerCreate = isAction(scope) && scope.operation === "lifecycle.inspectOperation"
+      const lifecycleReadbackKind = isAction(scope) && scope.operation === "lifecycle.inspectOperation"
         && !command.idempotency && typeof providerOperationId === "string"
         && (/^incus-create-[a-f0-9-]{36}$/.test(providerOperationId)
-          || /^ezh-create-[a-f0-9]{32}-[a-f0-9]{32}$/.test(providerOperationId));
+          || /^ezh-create-[a-f0-9]{32}-[a-f0-9]{32}$/.test(providerOperationId)) ? "CREATE"
+        : isAction(scope) && scope.operation === "lifecycle.inspectOperation"
+          && !command.idempotency && typeof providerOperationId === "string"
+          && (/^incus-destroy-[a-f0-9-]{36}$/.test(providerOperationId)
+            || /^ezh-destroy-[a-f0-9]{32}-[a-f0-9]{32}$/.test(providerOperationId)) ? "DESTROY"
+        : isAction(scope) && scope.operation === "lifecycle.inspectOperation"
+          && !command.idempotency && typeof providerOperationId === "string"
+          && (/^incus-setPower-[a-f0-9-]{36}$/.test(providerOperationId)
+            || /^ezh-setPower-[a-f0-9]{32}-[a-f0-9]{32}$/.test(providerOperationId))
+          ? binding?.desiredState === "RUNNING" ? "START" : "STOP" : null;
       let transportCommand = command;
-      if (legacyWorkerCreate) {
-        const journalId = binding ? await legacyCreateJournalId(this.database, scope, binding, providerOperationId) : null;
-        if (!journalId) throw new IncusTransportError("permission", "Incus creation journal is unavailable");
-        transportCommand = { ...command, idempotency: { requestId: journalId, key: journalId } };
+      if (lifecycleReadbackKind && isAction(scope)) {
+        const journal = binding ? await lifecycleReadbackJournal(this.database, scope, binding,
+          providerOperationId as string, lifecycleReadbackKind) : null;
+        if (!journal) throw new IncusTransportError("permission", "Incus lifecycle journal is unavailable");
+        transportCommand = { ...command,
+          idempotency: { requestId: journal.id, key: journal.id },
+          ...(lifecycleReadbackKind === "CREATE" ? {} : { payload: { ...command.payload as Record<string, JsonValue>,
+            readback: { expectedGeneration: journal.generation, desiredState: journal.desiredState } } }),
+        };
       }
       const transport = isAction(scope)
         ? this.actionTransportFactory(scope, signal)

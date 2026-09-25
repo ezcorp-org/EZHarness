@@ -258,12 +258,69 @@ async function inspectIncusOperation(context: LifecycleContext, id: string) {
   if (!operationMatch) invalid("Invalid Incus operation identity");
   const operationReply = await session.request("GET", `/1.0/operations/${operationMatch[2]}?project=${project}`);
   if (operationMatch[1] === "create" && operationReply.status === 404) return inspectExpiredCreateOperation(context, id);
+  if (operationMatch[1] === "setPower" && operationReply.status === 404) return inspectExpiredPowerOperation(context, id);
+  if (operationMatch[1] === "destroy" && operationReply.status === 404) return inspectExpiredDestroyOperation(context, id);
   const reply = object(metadata(operationReply));
   const resources = object(reply.resources);
   const instances = resources.instances;
   if (!Array.isArray(instances) || !instances.some(item => typeof item === "string" && new URL(item, "https://incus.invalid").pathname === `/1.0/instances/${command.sandboxName}`)) denied("Incus operation escaped sandbox scope");
   const { state, observedState, desiredState } = await verifyCompletedOperation(context, operationMatch[1]!, reply.status);
   return { ok: true, operation: { operationId: id, kind: operationMatch[1], sandboxId: command.tags.sandboxId, state, desiredState, observedState, resourceId: command.sandboxName, startedAt: String(reply.created_at ?? new Date().toISOString()), finishedAt: state === "succeeded" || state === "failed" || state === "outcome_unknown" ? String(reply.updated_at ?? new Date().toISOString()) : null, error: state === "outcome_unknown" ? { code: "OUTCOME_UNKNOWN", message: "Incus mutation outcome is unknown", retryable: false, operationId: id } : state === "failed" ? { code: "INTERNAL", message: "Incus operation failed", retryable: false } : null } };
+}
+
+async function inspectExpiredDestroyOperation({ session, command, instancePath, input }: LifecycleContext, id: string) {
+  const readback = input.readback && typeof input.readback === "object" && !Array.isArray(input.readback)
+    ? input.readback as Record<string, unknown> : null;
+  const authorized = Boolean(command.idempotency && Number.isSafeInteger(readback?.expectedGeneration)
+    && (readback!.expectedGeneration as number) >= 1 && readback?.desiredState === "absent");
+  // The expired operation record cannot prove which actor removed the guest.
+  // A pinned read of this exact managed resource can still prove the desired
+  // ABSENT state for the current host-journaled DESTROY. A failed read cannot.
+  const found = authorized ? metadata(await session.request("GET", instancePath), true) : null;
+  const absent = authorized && !found;
+  return { ok: true, operation: { operationId: id, kind: "destroy", sandboxId: command.tags.sandboxId,
+    state: absent ? "succeeded" : "outcome_unknown", desiredState: "absent",
+    observedState: absent ? "absent" : "unknown", resourceId: null,
+    startedAt: new Date().toISOString(), finishedAt: new Date().toISOString(),
+    error: absent ? null : { code: "OUTCOME_UNKNOWN", message: "Incus mutation outcome is unknown", retryable: false, operationId: id } } };
+}
+
+async function inspectExpiredPowerOperation({ session, command, instancePath, input, policy }: LifecycleContext, id: string) {
+  // A native operation can expire after Incus accepts it. The host broker
+  // supplies this journal identity only after matching the exact current
+  // START/STOP receipt; instance state alone is never proof of that receipt.
+  const readback = input.readback && typeof input.readback === "object" && !Array.isArray(input.readback)
+    ? input.readback as Record<string, unknown> : null;
+  const generation = readback?.expectedGeneration;
+  const desired = readback?.desiredState;
+  const stableId = command.idempotency ? operationId("setPower", command) : null;
+  let proven = false;
+  if (stableId && Number.isSafeInteger(generation) && (generation as number) >= 1
+    && (desired === "running" || desired === "stopped")) {
+    const found = metadata(await session.request("GET", instancePath), true);
+    if (found) {
+      try {
+        const instance = object(found);
+        instanceIdentity(instance, command);
+        const config = object(instance.config);
+        proven = config["user.ezharness.operation_id"] === stableId
+          && config["user.ezharness.generation"] === String((generation as number) + 1)
+          && config["user.ezharness.desired_state"] === desired
+          && instance.status === (desired === "running" ? "Running" : "Stopped")
+          && config["user.ezharness.profile"] === policy.profile
+          && config["user.ezharness.preset_id"] === policy.presetId
+          && config["volatile.base_image"] === policy.imageFingerprint
+          && Array.isArray(instance.profiles) && instance.profiles.length === 1
+          && instance.profiles[0] === policy.incusProfile
+          && (instance.type === undefined || instance.type === "container");
+      } catch { /* An unowned or malformed instance is no proof of this power operation. */ }
+    }
+  }
+  return { ok: true, operation: { operationId: id, kind: "setPower", sandboxId: command.tags.sandboxId,
+    state: proven ? "succeeded" : "outcome_unknown", desiredState: desired === "running" ? "running" : "stopped",
+    observedState: proven ? desired : "unknown", resourceId: proven ? command.sandboxName : null,
+    startedAt: new Date().toISOString(), finishedAt: new Date().toISOString(),
+    error: proven ? null : { code: "OUTCOME_UNKNOWN", message: "Incus mutation outcome is unknown", retryable: false, operationId: id } } };
 }
 
 async function inspectExpiredCreateOperation({ session, command, instancePath, policy }: LifecycleContext, id: string) {
