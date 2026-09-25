@@ -57,6 +57,8 @@ class GuestRunner implements Runner {
       },
       close: async () => { this.closed += 1; },
       onNotification: () => () => {},
+      // A dead guest's process reports the kernel's kill; an answering one exits cleanly.
+      exited: new Promise<number>(resolve => setTimeout(() => resolve(this.dies ? 137 : 0), this.delayMs)),
     };
   }
 }
@@ -136,7 +138,7 @@ test("mechanism 2: a guest whose container dies is recorded RUNNER_CONTAINER_EXI
   const world = await boundary("attempt-dies", runner, { clientMs: 10_000, windowMs: 4_000 });
   try {
     const lost = await (await world.open()).wait();
-    const detail = "extension runner process exited with code 137; state failed; exit_137: container was killed";
+    const detail = "extension runner process exited with code 137; exit code 137; state failed; exit_137: container was killed";
     expect(lost).toMatchObject({ status: "failed", error: { code: FACTORY_LOST_RESULT_CODES.container_exit, retryable: true } });
     expect(lost.status === "failed" && lost.error.message).toContain(detail);
     expect(await world.store.terminalResult("attempt-dies")).toEqual(lost);

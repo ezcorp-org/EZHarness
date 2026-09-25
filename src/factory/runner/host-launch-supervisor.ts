@@ -37,6 +37,8 @@ export interface FactoryHostLaunchSupervisorOptions {
 export const FACTORY_HOST_RESULT_RETENTION_MS = 15 * 60 * 1_000;
 
 const DIAGNOSTIC_LIMIT = 1_024;
+/** How long a dead guest's exit code may take to arrive before its account goes without it. */
+const EXIT_CODE_WAIT_MS = 3_000;
 
 /** What a guest's one invocation came to: its answer, or the typed reason it has none. */
 type HostOutcome = { readonly result: FactoryRunnerResult } | { readonly error: FactoryAttemptRuntimeError };
@@ -103,12 +105,25 @@ export function createFactoryHostLaunchSupervisor(options: FactoryHostLaunchSupe
     evict.unref?.();
   };
 
-  /** Names why a guest ended without an answer, with what the runner can still see of it. */
-  const exited = async (workerId: string, error: unknown): Promise<FactoryAttemptRuntimeError> => {
+  /**
+   * Names why a guest ended without an answer, with what the runner can still see of it.
+   *
+   * The worker's exit code arrives a moment after its invocation fails, so the
+   * account waits for it, briefly, and says `exit code unavailable` rather than
+   * waiting on a process that never reports. A guest stopped at its deadline
+   * says so: that is a timeout, not a crash.
+   */
+  const exited = async (workerId: string, execution: RunnerExecution, deadline: number, error: unknown): Promise<FactoryAttemptRuntimeError> => {
+    const code = execution.exited === undefined ? undefined : await Promise.race([
+      execution.exited.catch(() => null),
+      new Promise<undefined>(resolve => { const timer = setTimeout(() => resolve(undefined), EXIT_CODE_WAIT_MS); timer.unref?.(); }),
+    ]);
     const inspection = await options.runner.inspect(workerId).catch(() => undefined);
     const detail = [
       error instanceof Error ? error.message : String(error),
+      code === undefined || code === null ? "exit code unavailable" : `exit code ${code}`,
       inspection ? `state ${inspection.state}` : "state unavailable",
+      ...(now() >= deadline ? [`stopped at its deadline ${new Date(deadline).toISOString()}`] : []),
       ...(inspection?.diagnostics ?? []).map(diagnostic => `${diagnostic.code}: ${diagnostic.message}`),
     ].join("; ").slice(0, DIAGNOSTIC_LIMIT);
     return new FactoryAttemptRuntimeError("guest_exited", detail);
@@ -126,7 +141,7 @@ export function createFactoryHostLaunchSupervisor(options: FactoryHostLaunchSupe
     const settle = async (): Promise<HostOutcome> => {
       let outcome: HostOutcome;
       try { outcome = { result: await invoke(intent, execution, context) }; }
-      catch (error) { outcome = { error: await exited(intent.workerId, error) }; }
+      catch (error) { outcome = { error: await exited(intent.workerId, execution, context.deadline, error) }; }
       await execution.close().catch(() => undefined);
       options.onClosed?.(intent.workerId);
       evictLater(intent.workerId, attempt);

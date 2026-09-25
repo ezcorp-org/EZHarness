@@ -59,8 +59,13 @@ class GatedRunner implements Runner {
     this.attaches += 1;
     return this.execution(input.workerId, async () => { throw new Error("a reattached guest must never be invoked again"); });
   }
+  /** When set, each execution reports this exit code once the guest's invocation has settled. */
+  exitCode: number | undefined;
   private execution(workerId: string, invoke: () => Promise<FactoryRunnerResult>): RunnerExecution {
-    return { workerId, request: async () => invoke(), close: async () => { this.closes += 1; }, onNotification: () => () => {} };
+    const settled = latch<void>();
+    const request = async () => { try { return await invoke(); } finally { settled.resolve(); } };
+    const exited = this.exitCode === undefined ? undefined : settled.promise.then(() => this.exitCode!);
+    return { workerId, request, close: async () => { this.closes += 1; }, onNotification: () => () => {}, ...(exited ? { exited } : {}) };
   }
 }
 
@@ -138,8 +143,25 @@ describe("every way there will never be an answer is named", () => {
     const error = await refusal(host.result(intent, new AbortController().signal));
     expect(error).toBeInstanceOf(FactoryAttemptRuntimeError);
     expect((error as FactoryAttemptRuntimeError).code).toBe("guest_exited");
-    expect((error as Error).message).toBe("extension runner process exited with code 137; state failed; oom_killed: memory limit reached");
+    expect((error as Error).message).toBe("extension runner process exited with code 137; exit code unavailable; state failed; oom_killed: memory limit reached");
     expect(runner.closes).toBe(1);
+  });
+
+  test("a killed guest's account carries its exit code, and says when it was stopped at its deadline", async () => {
+    const runner = new GatedRunner();
+    runner.exitCode = 137;
+    const launchedAt = Date.now();
+    let clock = launchedAt;
+    const host = createFactoryHostLaunchSupervisor({ runner, hostId, broker: { invoke: async () => ({}) }, now: () => clock });
+    const intent = intentFor("attempt-killed");
+    await host.launch(intent, new AbortController().signal);
+    runner.states.set(intent.workerId, "cancelled");
+    // The runner killed it at the attempt's deadline.
+    clock = intent.request.authority.deadlineAtMs;
+    runner.answer.reject(new Error("Worker closed"));
+    const error = await refusal(host.result(intent, new AbortController().signal));
+    expect((error as FactoryAttemptRuntimeError).code).toBe("guest_exited");
+    expect((error as Error).message).toBe(`Worker closed; exit code 137; state cancelled; stopped at its deadline ${new Date(Math.min(intent.request.authority.deadlineAtMs, launchedAt + 60_000)).toISOString()}`);
   });
 
   test("a guest whose runner cannot be inspected after it died still names what it knows", async () => {
@@ -151,7 +173,7 @@ describe("every way there will never be an answer is named", () => {
     runner.answer.reject("not an error object");
     const error = await refusal(host.result(intent, new AbortController().signal));
     expect((error as FactoryAttemptRuntimeError).code).toBe("guest_exited");
-    expect((error as Error).message).toBe("not an error object; state unavailable");
+    expect((error as Error).message).toBe("not an error object; exit code unavailable; state unavailable");
   });
 
   test("an attempt this host never ran is attempt_unknown", async () => {
