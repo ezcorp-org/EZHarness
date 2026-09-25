@@ -1,18 +1,23 @@
 import { afterAll, describe, expect, test } from "bun:test";
+import { randomBytes } from "node:crypto";
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   PASS_PROCESSES,
   PASS_READINESS_FILES,
+  binaryForms,
   checkPassDiagnostics,
   collectSecretValues,
   openProcessLog,
   preserveStackDiagnostics,
+  jsonStringLeaves,
   processLogPath,
   redactStreamedLogs,
   stackCopyDir,
 } from "../../scripts/factory-graph-proof/diagnostics";
+import { graphReferences, graphRunnerProfiles, modePin } from "../../scripts/factory-graph-proof/graph";
+import { orchestratorDocument, poolDatabaseDocument, poolDocument, startupDocument, supervisorDocument, wrapsDocument, type StackLayout } from "../../scripts/factory-graph-proof/stack-documents";
 
 /**
  * What a graph-proof pass leaves behind, proved on real files.
@@ -73,7 +78,7 @@ describe("a process's streamed log", () => {
 });
 
 describe("the secrets a stack holds", () => {
-  test("are each credential file's content, each credential inside a JSON file, and each URL password, longest first", async () => {
+  test("are each text file's content, each non-configuration string inside a JSON file, and each URL password, longest first", async () => {
     const secrets = await scratch();
     await writeFile(join(secrets, "tenant.token"), "eyJhbGciOiJSUzI1NiJ9.tenant-token-body.signature\n");
     await writeFile(join(secrets, "pool-database.json"), JSON.stringify({ databaseUrl: "postgres://proof:s3cret-password-value@127.0.0.1:5432/w19a_pool" }));
@@ -104,10 +109,128 @@ describe("the secrets a stack holds", () => {
     const clean = join(dir, "clean.log");
     await writeFile(leaky, "token eyJhbGciOiJSUzI1NiJ9.body.sig and the password s3cret-password-value twice: s3cret-password-value\n");
     await writeFile(clean, "nothing to hide\n");
-    const counts = await redactStreamedLogs([leaky, clean, join(dir, "gone.log")], ["eyJhbGciOiJSUzI1NiJ9.body.sig", "s3cret-password-value"]);
+    const counts = redactStreamedLogs([leaky, clean, join(dir, "gone.log")], ["eyJhbGciOiJSUzI1NiJ9.body.sig", "s3cret-password-value"]);
     expect(counts).toEqual({ [leaky]: 3 });
     expect(await readFile(leaky, "utf8")).toBe("token [redacted] and the password [redacted] twice: [redacted]\n");
     expect(await readFile(clean, "utf8")).toBe("nothing to hide\n");
+  });
+});
+
+describe("every JSON document the stack writes under secrets/", () => {
+  /** The keys whose values are credentials. Every other string must be configuration. */
+  const SECRET_KEYS = new Set(["databaseUrl", "wrappedDataKey", "accessKey", "secretKey"]);
+  const guest = { package: "@ezcorp/w19a-graph-guest", manifestName: "w19a-graph-guest", version: "1.0.0", digest: `sha256:${"a".repeat(64)}` };
+  const layout = (mode: "mock" | "ollama" | "none"): StackLayout => {
+    const pin = mode === "none" ? undefined : modePin(mode);
+    return {
+      root: "/home/proof/.w19a-stack-abcdef",
+      poolDatabase: "w19a_pool_0123456789",
+      poolUrl: "postgres://w19a-proof-role:pool-password-0123456789@127.0.0.1:5432/w19a_pool_0123456789",
+      ports: { pool: 41001, hostService: 41002, guestBroker: 41003, temporalTls: 41004, temporalHttp: 41005, gateway: 41006, privateService: 41007 },
+      runnerProfiles: graphRunnerProfiles(graphReferences(guest, pin), pin),
+      ...(pin === undefined ? {} : { modelProvider: { provider: pin.provider, model: pin.model } }),
+    };
+  };
+  /** Each file by the name stack.ts gives it. The storage files are copies of the shared store's, in its shape. */
+  const documents = (mode: "mock" | "ollama" | "none"): Record<string, unknown> => ({
+    "pool-database.json": poolDatabaseDocument(layout(mode).poolUrl),
+    "wraps.json": wrapsDocument([{ installationId: "installation-w19a", wrapVersion: 1, masterKeyId: "master-1", wrappedDataKey: randomBytes(60) }]),
+    "pool.json": poolDocument(layout(mode)),
+    "supervisor.json": supervisorDocument(layout(mode)),
+    "factory-startup.json": startupDocument(layout(mode)),
+    "orchestrator.json": orchestratorDocument(layout(mode)),
+    "ordinary-storage.json": { identities: [{ name: "ordinary-identity", actions: ["Read", "Write", "List"], credentials: [{ accessKey: "ORDINARYACCESS0123", secretKey: "ordinary-secret-key-0123456789" }] }] },
+  });
+
+  test("has each string judged a secret exactly when its key is a credential key, so a new field fails here until it is classified", async () => {
+    for (const mode of ["mock", "ollama", "none"] as const) {
+      for (const [file, document] of Object.entries(documents(mode))) {
+        const leaves = jsonStringLeaves(JSON.parse(JSON.stringify(document)));
+        expect(leaves.length).toBeGreaterThan(0);
+        for (const leaf of leaves) expect({ file, at: leaf.at, secret: leaf.secret }).toEqual({ file, at: leaf.at, secret: SECRET_KEYS.has(leaf.key ?? "") });
+      }
+    }
+  });
+
+  test("is every document stack.ts writes: an inline JSON document there fails this test", async () => {
+    const source = await readFile(join(import.meta.dir, "../../scripts/factory-graph-proof/stack.ts"), "utf8");
+    const written = source.split("\n").filter((line) => line.includes("privateWrite(") && line.includes("JSON.stringify(")).map((line) => /JSON\.stringify\((\w+)/.exec(line)?.[1]);
+    expect(written.sort()).toEqual(["orchestratorDocument", "poolDatabaseDocument", "poolDocument", "startup", "supervisorDocument", "wrapsDocument"]);
+    expect(source).toContain("const startup = startupDocument(layout);");
+  });
+
+  test("yields its credentials to the collection and nothing else", async () => {
+    const secrets = await scratch();
+    const files = documents("mock");
+    for (const [file, document] of Object.entries(files)) await writeFile(join(secrets, file), JSON.stringify(document));
+    const values = await collectSecretValues(secrets);
+    const leaves = Object.values(files).flatMap((document) => jsonStringLeaves(JSON.parse(JSON.stringify(document))));
+    for (const leaf of leaves.filter((entry) => entry.value.length >= 12)) expect({ at: leaf.at, collected: values.includes(leaf.value) }).toEqual({ at: leaf.at, collected: leaf.secret });
+    expect(values).toContain("pool-password-0123456789");
+  });
+
+  test("fails closed: an unknown field, a bare string, and a string under a data-keyed object are secrets", () => {
+    const leaves = jsonStringLeaves({ serviceToken: "a", privateKey: "b", clientSecret: "c", tenants: { "tenant-a": "d" }, hosts: { subject: "host-1" }, publicKeyPaths: { proof: "/p" }, keyPath: "/k" });
+    expect(Object.fromEntries(leaves.map((leaf) => [leaf.at, leaf.secret]))).toEqual({
+      "$.serviceToken": true, "$.privateKey": true, "$.clientSecret": true, "$.tenants.tenant-a": true,
+      "$.hosts.subject": false, "$.publicKeyPaths.proof": false, "$.keyPath": false,
+    });
+    expect(jsonStringLeaves("a-bare-json-string")).toEqual([{ at: "$", key: undefined, value: "a-bare-json-string", secret: true }]);
+  });
+});
+
+describe("a binary secret file", () => {
+  test("yields its hex and base64 forms, and each form planted in a stack file is refused and redacted", async () => {
+    const root = await scratch();
+    await mkdir(join(root, "secrets"));
+    await mkdir(join(root, "readiness"));
+    // 32 random bytes with a NUL, as secrets/master.key is: never valid text.
+    const key = Buffer.concat([Buffer.from([0]), randomBytes(31)]);
+    await writeFile(join(root, "secrets", "master.key"), key);
+    const values = await collectSecretValues(join(root, "secrets"));
+    const forms = binaryForms(key);
+    expect(forms).toEqual([key.toString("hex"), key.toString("hex").toUpperCase(), key.toString("base64"), key.toString("base64").replace(/=+$/, ""), key.toString("base64url")]);
+    for (const form of forms) expect(values).toContain(form);
+    for (const [index, form] of forms.entries()) await writeFile(join(root, "readiness", `planted-${index}.json`), JSON.stringify({ lifecycle: "ready", masterKey: form }));
+    await writeFile(join(root, "readiness", "clean.json"), JSON.stringify({ lifecycle: "ready" }));
+    const preserved = await preserveStackDiagnostics(root, { dir: await scratch(), label: "binary" }, values);
+    expect(preserved.copied).toEqual(["readiness/clean.json"]);
+    expect([...preserved.refused].sort()).toEqual(forms.map((_, index) => `readiness/planted-${index}.json`));
+    const log = join(await scratch(), "printed.log");
+    await writeFile(log, `${forms.join("\n")}\n`);
+    redactStreamedLogs([log], values);
+    expect(await readFile(log, "utf8")).toBe(`${forms.map(() => "[redacted]").join("\n")}\n`);
+  });
+
+  test("is told from text by valid UTF-8 and no control byte other than tab, line feed and carriage return", async () => {
+    const secrets = await scratch();
+    const files: Record<string, Buffer> = {
+      "text.pem": Buffer.from("-----BEGIN KEY-----\r\n\tline-of-text-é\n"),
+      "invalid-utf8.key": Buffer.from([0xff, 0xfe, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4a]),
+      "delete-byte.key": Buffer.from("abcdefghijkl\x7fmnop", "latin1"),
+      "control-byte.key": Buffer.from("abcdefghijkl\x01mnop", "latin1"),
+    };
+    for (const [name, bytes] of Object.entries(files)) await writeFile(join(secrets, name), bytes);
+    const values = await collectSecretValues(secrets);
+    expect(values).toContain("-----BEGIN KEY-----\r\n\tline-of-text-é");
+    for (const name of ["invalid-utf8.key", "delete-byte.key", "control-byte.key"]) {
+      for (const form of binaryForms(files[name]!)) expect(values).toContain(form);
+    }
+  });
+});
+
+describe("redaction while a process runs", () => {
+  test("rewrites the log between two chunks without losing a byte, and counts only what it replaced", async () => {
+    const dir = await scratch();
+    const log = openProcessLog({ dir, label: "live" }, "pool", "bun", ["pool.ts"], 5, clock);
+    log.write("first line carries live-secret-0123456789\n");
+    expect(redactStreamedLogs([log.path], ["live-secret-0123456789"])).toEqual({ [log.path]: 1 });
+    log.write("second line is plain\n");
+    expect(redactStreamedLogs([log.path], ["live-secret-0123456789"])).toEqual({});
+    await log.close({ code: 0, signal: null });
+    expect(await readFile(log.path, "utf8")).toBe(
+      "[w19-harness] pool started 2026-09-25T10:00:00.000Z pid 5: bun pool.ts\nfirst line carries [redacted]\nsecond line is plain\n[w19-harness] pool exited 2026-09-25T10:00:00.000Z code 0 signal none\n",
+    );
   });
 });
 

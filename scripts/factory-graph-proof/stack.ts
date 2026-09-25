@@ -34,16 +34,12 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { SQL } from "bun";
 import type { JsonValue } from "@ezcorp/factory-sdk";
 import { collectSecretValues, openProcessLog, preserveStackDiagnostics, redactStreamedLogs, type PassDiagnostics, type ProcessLog } from "./diagnostics";
+import { GUEST_BROKER_AUDIENCE, GUEST_BROKER_ISSUER, INSTALLATION, MASTER_KEY_ID, NAMESPACE, SUPERVISOR_SUBJECT, TENANT, orchestratorDocument, poolDatabaseDocument, poolDocument, startupDocument, supervisorDocument, wrapsDocument, type StackLayout } from "./stack-documents";
 
-export const TENANT = "tenant-01";
-export const INSTALLATION = "installation-w19a";
-export const HOST_ID = "host-w19a";
-const POOL_ID = "pool-w19a";
-const NAMESPACE = "tenant-01.factory";
-const SUPERVISOR_SUBJECT = "supervisor-w19a";
+export { HOST_ID, INSTALLATION, TENANT } from "./stack-documents";
+/** How often the streamed logs are redacted while a pass runs. */
+const REDACT_INTERVAL_MS = 2_000;
 const TEMPORAL_CLI = process.env.W19A_TEMPORAL_CLI ?? "/tmp/factory-tools/temporal-cli/temporal";
-const GUEST_BROKER_ISSUER = "w19a-proof";
-const GUEST_BROKER_AUDIENCE = "factory-guest-broker";
 
 export interface StackOptions {
   readonly repo: string;
@@ -187,6 +183,15 @@ export async function startStack(options: StackOptions): Promise<Stack> {
   // redaction and the copy scan must know them too.
   const webSecrets = { jwt: `w19a-jwt-${randomBytes(12).toString("hex")}`, encryption: `w19a-enc-${randomBytes(12).toString("hex")}` };
   const secretsInEnvironment = [webSecrets.jwt, webSecrets.encryption];
+  const secretValues = () => collectSecretValues(secrets, [...secretsInEnvironment, process.env.FACTORY_TEST_POSTGRES_URL ?? ""]);
+  // Redaction runs while the pass runs, not only at its end, so a harness that
+  // dies leaves at most one interval of output unredacted.
+  const redactions: Record<string, number> = {};
+  const redact = (values: readonly string[]) => {
+    for (const [path, count] of Object.entries(redactStreamedLogs(children.map((entry) => entry.file.path), values))) redactions[path] = (redactions[path] ?? 0) + count;
+  };
+  const redactTimer = setInterval(() => { void secretValues().then(redact, () => undefined); }, REDACT_INTERVAL_MS);
+  redactTimer.unref();
   let admin: SQL | undefined;
   let productDatabase = "";
   let web: Child | undefined;
@@ -195,6 +200,7 @@ export async function startStack(options: StackOptions): Promise<Stack> {
   const stop = async (keepProduct: boolean, keepDiagnostics = keepProduct) => {
     if (stopped) return;
     stopped = true;
+    clearInterval(redactTimer);
     if (web !== undefined) {
       stopGroup(web.child.pid, "SIGTERM");
       await Promise.race([new Promise((settle) => web!.child.once("exit", settle)), sleep(30_000)]);
@@ -204,12 +210,12 @@ export async function startStack(options: StackOptions): Promise<Stack> {
     await Promise.race([Promise.all(children.map((entry) => entry.closed)), sleep(10_000)]);
     await Promise.all(children.map((entry) => entry.file.close({ code: null, signal: "harness-stopped" })));
     try {
-      const secretValues = await collectSecretValues(join(root, "secrets"), [...secretsInEnvironment, process.env.FACTORY_TEST_POSTGRES_URL ?? ""]);
-      const redactions = await redactStreamedLogs(children.map((entry) => entry.file.path), secretValues);
+      const values = await secretValues();
+      redact(values);
       record.diagnostics = {
         processLogs: children.map((entry) => entry.file.path),
         redactions,
-        ...(keepDiagnostics ? { stack: await preserveStackDiagnostics(root, options.diagnostics, secretValues) } : {}),
+        ...(keepDiagnostics ? { stack: await preserveStackDiagnostics(root, options.diagnostics, values) } : {}),
       };
     } catch (error) {
       record.diagnostics = { error: String(error) };
@@ -277,13 +283,13 @@ export async function startStack(options: StackOptions): Promise<Stack> {
   productUrl.pathname = `/${productDatabase}`;
   const poolUrl = new URL(process.env.FACTORY_TEST_POSTGRES_URL!);
   poolUrl.pathname = `/${poolDatabase}`;
-  await privateWrite(join(secrets, "pool-database.json"), JSON.stringify({ databaseUrl: poolUrl.toString() }));
+  await privateWrite(join(secrets, "pool-database.json"), JSON.stringify(poolDatabaseDocument(poolUrl.toString())));
   record.databases = { pool: poolDatabase, product: productDatabase };
 
   // ── The installation's key material, wrapped by the operator master key ──
   const { InstallationDataKey, StaticMasterKeyProvider } = await import(join(repo, "src/factory/encryption.ts"));
   const masterKeyPath = join(secrets, "master.key");
-  const masterKeyId = "master-1";
+  const masterKeyId = MASTER_KEY_ID;
   await privateWrite(masterKeyPath, randomBytes(32));
   const heldWraps: Array<{ installationId: string; wrapVersion: number; masterKeyId: string; wrappedDataKey: Uint8Array }> = [];
   await InstallationDataKey.loadOrCreate(INSTALLATION, {
@@ -291,31 +297,24 @@ export async function startStack(options: StackOptions): Promise<Stack> {
     async save(wrap: (typeof heldWraps)[number]) { heldWraps.push({ ...wrap }); },
   } as never, new StaticMasterKeyProvider({ id: masterKeyId, bytes: new Uint8Array(await readFile(masterKeyPath)) }));
   const wrappedKeyPath = join(secrets, "wraps.json");
-  await privateWrite(wrappedKeyPath, JSON.stringify({
-    schemaVersion: "factory.key-wraps.v1", installationId: INSTALLATION,
-    wraps: heldWraps.map((wrap) => ({ installationId: wrap.installationId, wrapVersion: wrap.wrapVersion, masterKeyId: wrap.masterKeyId, wrappedDataKey: Buffer.from(wrap.wrappedDataKey).toString("base64") })),
-  }));
+  await privateWrite(wrappedKeyPath, JSON.stringify(wrapsDocument(heldWraps)));
 
   // ── The guest, built into the store the supervisor will launch from ──
   const runnerRoot = join(root, "runner");
   const guestBuild = await options.buildGuest(runnerRoot);
   record.guestBuild = guestBuild;
 
+  // Every port and path a document names, fixed before the first document is written.
+  const layout: StackLayout = {
+    root, poolDatabase, poolUrl: poolUrl.toString(),
+    ports: { pool: freePort(), hostService: freePort(), guestBroker: freePort(), temporalTls: freePort(), temporalHttp: freePort(), gateway: freePort(), privateService: freePort() },
+    runnerProfiles: options.runnerProfiles(guestBuild),
+    ...(options.modelProvider === undefined ? {} : { modelProvider: options.modelProvider }),
+  };
+  const { temporalTls: temporalTlsPort, temporalHttp: temporalHttpPort, gateway: gatewayPort, privateService: privateServicePort, guestBroker: guestBrokerPort } = layout.ports;
+
   // ── Pool admission process ──
-  const poolPort = freePort();
-  await privateWrite(join(secrets, "pool.json"), JSON.stringify({
-    schemaVersion: "factory.pool-process.v1", installationId: INSTALLATION, poolId: POOL_ID,
-    hostname: "127.0.0.1", port: poolPort,
-    database: { credentialsPath: join(secrets, "pool-database.json"), expectedDatabase: poolDatabase, expectedRole: decodeURIComponent(poolUrl.username) },
-    tls: { privateKeyPath: join(secrets, "server.key"), certificatePath: join(secrets, "server.pem"), caPath: join(secrets, "ca.pem") },
-    tokens: { issuer: "factory-proof", audience: "factory-pool", publicKeyPaths: { proof: join(secrets, "pool-token.pem") } },
-    identities: {
-      tenants: { "tenant-a": { tenantId: TENANT, tokenSubject: TENANT } },
-      supervisors: { [SUPERVISOR_SUBJECT]: { supervisorId: SUPERVISOR_SUBJECT, tokenSubject: SUPERVISOR_SUBJECT, hostIds: [HOST_ID] } },
-    },
-    resources: { capacities: { cpu: 4 }, gpuHosts: [], hosts: [HOST_ID] },
-    readinessFilePath: join(root, "readiness", "pool.json"), readinessHeartbeatMs: 2_000,
-  }));
+  await privateWrite(join(secrets, "pool.json"), JSON.stringify(poolDocument(layout)));
   start("pool", bun, [join(repo, "src/factory/pool/process.ts"), join(secrets, "pool.json")]);
 
   // ── Host supervisor, carrying guest frames back over services.guestBroker ──
@@ -323,84 +322,24 @@ export async function startStack(options: StackOptions): Promise<Stack> {
   await privateWrite(join(secrets, "host.key"), hostKey.export({ type: "pkcs8", format: "pem" }).toString());
   await privateWrite(join(secrets, "host.kid"), "host-key-1");
   await privateWrite(join(secrets, "host.pub"), createPublicKey(hostKey).export({ type: "spki", format: "pem" }).toString());
-  const hostServicePort = freePort();
-  const guestBrokerPort = freePort();
-  const supervisorTls = { caPath: join(secrets, "ca.pem"), certificatePath: join(secrets, "supervisor.pem"), privateKeyPath: join(secrets, "supervisor.key") };
-  await privateWrite(join(secrets, "supervisor.json"), JSON.stringify({
-    schemaVersion: "factory.supervisor-process.v1", installationId: INSTALLATION, hostId: HOST_ID,
-    hostKeyPath: join(secrets, "host.key"), hostKeyId: "host-key-1",
-    runnerRoot, readinessFilePath: join(root, "readiness", "supervisor.json"), readinessHeartbeatMs: 2_000,
-    services: {
-      hostname: "127.0.0.1", port: hostServicePort, allowedPeers: ["tenant-a"], hostKeyIdPath: join(secrets, "host.kid"),
-      tls: { caPath: join(secrets, "ca.pem"), certificatePath: join(secrets, "server.pem"), privateKeyPath: join(secrets, "server.key") },
-      pool: { baseUrl: `https://127.0.0.1:${poolPort}`, serviceTokenPath: join(secrets, "supervisor.token"), tls: supervisorTls },
-      guestBroker: { baseUrl: `https://127.0.0.1:${guestBrokerPort}`, serviceTokenPath: join(secrets, "guest-broker-host.token"), tls: supervisorTls },
-    },
-  }));
+  await privateWrite(join(secrets, "supervisor.json"), JSON.stringify(supervisorDocument(layout)));
   start("supervisor", bun, [join(repo, "src/factory/runner/supervisor-process.ts"), join(secrets, "supervisor.json")]);
 
   // ── Temporal behind a mutual-TLS terminator ──
   const temporalPort = freePort();
-  const temporalTlsPort = freePort();
-  const temporalHttpPort = freePort();
   start("temporal", TEMPORAL_CLI, ["server", "start-dev", "--ip", "127.0.0.1", "--port", String(temporalPort), "--http-port", String(temporalHttpPort), "--namespace", NAMESPACE, "--headless", "--db-filename", join(root, "temporal.sqlite")]);
   for (let attempt = 0; attempt < 90 && !await reachable(temporalPort); attempt++) await sleep(1_000);
   start("temporal-tls", "node", [join(here, "tls-terminator.mjs"), String(temporalTlsPort), String(temporalPort), secrets]);
   for (let attempt = 0; attempt < 30 && !await reachable(temporalTlsPort); attempt++) await sleep(500);
 
   // ── The product's startup document ──
-  const gatewayPort = freePort();
-  const privateServicePort = freePort();
-  const clientTls = { caPath: join(secrets, "ca.pem"), certificatePath: join(secrets, "client.pem"), privateKeyPath: join(secrets, "client.key") };
-  const serverTls = { caPath: join(secrets, "ca.pem"), certificatePath: join(secrets, "server.pem"), privateKeyPath: join(secrets, "server.key") };
-  const startup = {
-    schemaVersion: "factory.startup.v1",
-    installationId: INSTALLATION, tenantId: TENANT, poolId: POOL_ID, hostId: HOST_ID,
-    temporalNamespace: NAMESPACE,
-    orphanSweepIntervalMs: 30_000,
-    orchestrationReadinessFilePath: join(root, "readiness", "orchestration.json"),
-    poolReadinessFilePath: join(root, "readiness", "pool.json"),
-    supervisorReadinessFilePath: join(root, "readiness", "supervisor.json"),
-    readinessHeartbeatMs: 5_000,
-    readinessRetry: { delayMs: 2_000, windowMs: 240_000 },
-    gateway: { hostname: "127.0.0.1", port: gatewayPort, tls: clientTls },
-    privateService: {
-      hostname: "127.0.0.1", port: privateServicePort, certificateIdentity: "tenant-a", tls: serverTls,
-      tokens: { issuer: "factory-proof", audience: "factory-pool", publicKeyPaths: { proof: join(secrets, "pool-token.pem") } },
-    },
-    temporalHttp: { endpoint: `http://127.0.0.1:${temporalHttpPort}` },
-    pool: { baseUrl: `https://127.0.0.1:${poolPort}`, serviceTokenPath: join(secrets, "tenant.token"), tls: clientTls },
-    hostLaunch: {
-      baseUrl: `https://127.0.0.1:${hostServicePort}`, serverName: "localhost",
-      attemptTokenSecretPath: join(secrets, "attempt-token"),
-      tls: { ...clientTls, serviceTokenPath: join(secrets, "tenant.token") },
-    },
-    hostStopKeys: [{ hostId: HOST_ID, hostKeyId: "host-key-1", publicKeyPath: join(secrets, "host.pub") }],
-    guestBroker: {
-      hostname: "127.0.0.1", port: guestBrokerPort, hosts: { [SUPERVISOR_SUBJECT]: HOST_ID }, tls: serverTls,
-      tokens: { issuer: GUEST_BROKER_ISSUER, audience: GUEST_BROKER_AUDIENCE, publicKeyPaths: { w19a: join(secrets, "guest-broker-host-token.pem") } },
-    },
-    runnerProfiles: options.runnerProfiles(guestBuild),
-    ...(options.modelProvider === undefined ? {} : { modelProvider: options.modelProvider }),
-    storage: {
-      ordinary: { endpoint: "http://127.0.0.1:18333", bucket: TENANT, prefix: "ordinary", credentialSet: "ordinary", credentialsPath: join(secrets, "ordinary-storage.json") },
-      archive: { endpoint: "http://127.0.0.1:18334", bucket: TENANT, prefix: "archive", credentialSet: "archive", credentialsPath: join(secrets, "archive-storage.json") },
-    },
-    keys: { masterKeyFilePath: masterKeyPath, masterKeyId, wrappedKeyFilePath: wrappedKeyPath, grantableRoots: [join(root, "project")] },
-    workers: { idleDelayMs: 200, batch: 4 },
-  };
+  const startup = startupDocument(layout);
   await privateWrite(join(secrets, "factory-startup.json"), JSON.stringify(startup));
   record.startupDocument = { runnerProfiles: startup.runnerProfiles, modelProvider: options.modelProvider ?? null, guestBroker: { port: guestBrokerPort, hosts: startup.guestBroker.hosts } };
 
   // ── The Node orchestrator's configuration ──
   await privateWrite(join(secrets, "temporal-api.key"), "w19a-proof-temporal-api-key");
-  await privateWrite(join(secrets, "orchestrator.json"), JSON.stringify({
-    schemaVersion: "factory.orchestrator-process.v1", installationId: INSTALLATION, tenantId: TENANT,
-    temporal: { address: `127.0.0.1:${temporalTlsPort}`, namespace: NAMESPACE, serverName: "localhost", ...clientTls, apiKeyPath: join(secrets, "temporal-api.key") },
-    gateway: { baseUrl: `https://127.0.0.1:${privateServicePort}`, serverName: "localhost", tls: { ...clientTls, serviceTokenPath: join(secrets, "orchestrator.token") } },
-    codec: { wrappedKeyFilePath: wrappedKeyPath, masterKeyFilePath: masterKeyPath, masterKeyId, grantableRoots: [join(root, "project")] },
-    readinessFilePath: join(root, "readiness", "orchestration.json"), readinessHeartbeatMs: 5_000,
-  }));
+  await privateWrite(join(secrets, "orchestrator.json"), JSON.stringify(orchestratorDocument(layout)));
 
   start("gateway-stub", bun, [join(here, "gateway-listener.ts")], { env: { W19A_REPO: repo, W19A_ROOT: root, W19A_GATEWAY_PORT: String(gatewayPort) } });
 

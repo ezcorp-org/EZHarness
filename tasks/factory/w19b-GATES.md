@@ -51,6 +51,11 @@ their readiness file in the stack directory, which went with it.
   EXPECT: `diagnostics.ts` 100 percent lines and functions in the leg; both gates exit 0 (they gate no file here: `scripts/factory-graph-proof/` is outside the coverage source globs); all static checks exit 0
   EVIDENCE: `receipts/cov-w19b.json`, `receipts/gate-*.json`, `receipts/final-*.json`
 
+- [ ] G5 (fix round): the secret rule fails closed, binary secrets are covered, and redaction runs while the pass runs.
+  CHECK: `bun test ./src/factory/graph-proof-diagnostics.test.ts --coverage`; under the lock with `df` first, `timeout 1800 run.sh pass mock forced-failure control-forced-failure` and `verify-diagnostics.ts`; the static checks and the coverage gates against `27d957531`; `credential-scan.sh`
+  EXPECT: 15 pass; `diagnostics.ts` and `stack-documents.ts` at 100 percent; the control fails by its named check and its diagnostics check is `ok: true`, with no readiness file refused; every static check and gate exits 0; the scan finds nothing
+  EVIDENCE: `receipts/fix-*.json`, `proof-fix/`
+
 ## History
 
 Campaign 1 at `69ec1817f` (kept as `proof-campaign-1-69ec1817f/`): the streamed logs worked, but every

@@ -220,11 +220,25 @@ guard accept those two names when the container's `/etc/hosts` maps them.
   (`lifecycle`, and `errorCode` when degraded).
 - A pass that could not reach `/api/ready` records `orchestration` and
   `hostProcesses`; the same files hold the rest.
-- Nothing in these files carries a secret. Every value under the stack's
-  `secrets/`, the database password, and the web server's own secrets are
-  collected first. A streamed log has each one replaced by `[redacted]`; a stack
-  file that carries one is refused, not copied. The record lists both under
-  `diagnostics` (`redactions`, and `stack.refused`), with `stack.copied`,
-  `stack.oversize` and `stack.unreadable`. `secrets/` is never copied.
+- Nothing in these files carries a secret once the pass has ended. The
+  harness collects every secret first:
+  - each text file under the stack's `secrets/`, whole;
+  - the hex and base64 forms of each binary file there (the master key);
+  - every string in a JSON file there, except the values of the configuration
+    keys listed in `CONFIGURATION_KEYS` in
+    `scripts/factory-graph-proof/diagnostics.ts` (ids, names, addresses,
+    paths). A new field counts as a secret until someone adds its key to that list;
+  - the database password, and the web server's own secrets.
+
+  A streamed log has each secret replaced by `[redacted]`. A stack file that
+  carries one is refused, not copied. The record lists both under `diagnostics`
+  (`redactions`, and `stack.refused`), with `stack.copied`, `stack.oversize` and
+  `stack.unreadable`. `secrets/` is never copied.
+- Redaction runs every 2 seconds while the pass runs, and once more after every
+  process has exited. If the harness itself dies (killed, or the machine stops),
+  the output of the last 2 seconds or less can stay unredacted in
+  `<label>.process-<name>.log`. Those files are mode 0600 inside the evidence
+  directory. After such a death, run the harness again or delete the logs; do
+  not share them first.
 - The product database of a failed pass is kept, except for the forced-failure
   control. Its name is in `retainedProductDatabase`. Drop it when you are done.
