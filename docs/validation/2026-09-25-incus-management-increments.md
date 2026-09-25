@@ -20,3 +20,9 @@ These checks cover source changes for PR #303. They do not replace live provider
 - Run final checks and hosted CI on the pushed PR head.
 
 The [active ledger](../../tasks/todo.md) records milestone completion. The [530 deployment receipt](2026-09-25-effectful-create-recovery-530-execution.md) records the live startup stop and preserved guest identity.
+
+## Recovery build
+
+The recovery-only build at source `fc59035d12513d1ae4f69d3118e0d3904763b882` includes the compatibility and bundle-smoke fixes, plus main's chat sidebar merge. Strict verification passes for all 76,120 bundle entries. Non-root startup returns HTTP 200 as UID 1001 and leaves the runtime placeholder empty. Manifest SHA-256: `3d05e326c5cf1754f3955e6b19f1094e99c6ce1e34cfeff717ace7458278145e`. Verifier SHA-256: `4e621540e76bd10d471adf2e84867fae40579a310e2465b06463eb4565875462`.
+
+This build is for recovering and completing the existing guest fixture. The management page and the newly found chat-route correction are not part of it. The route currently rejects an Incus project as a local workspace; its correction is a separate implementation gate before the normal project chat test.
