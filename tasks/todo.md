@@ -13,7 +13,7 @@ Current source: latest main's chat sidebar is merged. Both coverage keys and tas
 
 Recovery build `fc59035d1` passes strict inventory verification and non-root HTTP 200. Test the saved database in isolation, then install it to finish the existing guest smoke while final UI fixes continue. The final management build must include the later chat correction and the page's safe retry/cleanup behavior.
 
-Live blocker: the installed bundle rejects retained provider release 0.1.2 because the CREATE repair changed its canonical public wire schema. The source fix restores the exact original schema without weakening validation. Focused tests, generated-schema checks, lint, and typecheck pass. A checksum-verified detached database comparison proves the old validator rejects the saved manifest and the corrected validator accepts it. The app remains stopped under the existing hold; the original CREATE and guest identity remain unchanged. The combined management build still needs staging, startup, and real guest validation. Empty smoke-created runtime-directory contamination is separately fixed in the bundle script.
+Live status: the corrected `fc59035d1` bundle is installed. The original CREATE reconciled to `SUCCEEDED`, with the same guest and provider receipt; no duplicate CREATE was sent. START then reached Incus and the guest is running, but its native operation expired before controller inspection. START remains `OUTCOME_UNKNOWN` because only CREATE currently has expired-operation recovery. The saved START tag, generation 2, desired state, and guest binding match. Do not repeat START or continue the workload until host-authorized readback safely settles it. The team is extending this recovery for power operations while preserving the frozen public schema. See the exact live receipts in the validation workstream.
 
 Review: The guard caught unsafe dependency file permissions before stopping the app. The current guest is unchanged. The UX audit found that Incus feature APIs are not connected to the local sandbox panel; this is implementation work, not only testing.
 
@@ -38,8 +38,8 @@ Review: The guard caught unsafe dependency file permissions before stopping the 
 - [x] Review, authorize, and execute the corrected v4 second-CREATE recovery with a measured timer-margin gate and thaw-first rollback.
 - [x] Review the next EZHarness-owned guest smoke plan, validate the retained admin session, live scope/capacity, pinned image, and unused fixture ID without creating a guest.
 - [x] Run the approved first EZHarness CREATE; record its real stopped guest and the `OUTCOME_UNKNOWN` stop before START.
-- [ ] Fix durable CREATE inspection after the short-lived Incus operation disappears; prove the same journal and guest reconcile without another CREATE.
-- [ ] Prove recovery through the retained 0.1.2 provider worker schema and host broker; the active guest blocks routine release replacement.
+- [x] Fix durable CREATE inspection after the short-lived Incus operation disappears; prove the same journal and guest reconcile without another CREATE.
+- [x] Prove recovery through the retained 0.1.2 provider worker schema and host broker; the active guest blocks routine release replacement.
 - [x] Stage and verify the exact `f77b7ab8a` test-app bundle; non-root isolated smoke returns HTTP 200 without touching the live app.
 - [ ] Review and authorize recovery of the existing guest, then resume START/marker/Compose/STOP/DESTROY under a new exact plan.
 - [ ] Run a complete EZHarness-owned guest fixture, the live qualification cases, feature workflow, and cleanup.
