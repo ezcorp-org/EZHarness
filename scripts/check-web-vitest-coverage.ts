@@ -58,8 +58,8 @@ export function configuredWebVitestSources(patterns: readonly string[]): string[
  * Product sources owned by the Node/V8 producer. This is shared with the
  * LCOV filter so a broad Vitest include cannot add test fixtures, styles, or
  * assets to a product threshold while the source guard checks a different
- * set. The browser route inventory is the authoritative owner of every
- * scripted SvelteKit route, and browser-canonical code has one producer only.
+ * set. The browser route inventory owns scripted SvelteKit routes, except
+ * the app layout also has Node/V8 coverage for a browser source-map gap.
  */
 export async function canonicalWebVitestSources(): Promise<string[]> {
   const manifest = await Bun.file(WEB_VITEST_INCLUDE_MANIFEST).text();
@@ -68,8 +68,9 @@ export async function canonicalWebVitestSources(): Promise<string[]> {
     ...BROWSER_CANONICAL_SOURCES,
     ...BUN_CANONICAL_SOURCES,
   ]);
+  const dualMeasuredLayout = "web/src/routes/(app)/+layout.svelte";
   return configuredWebVitestSources(webVitestIncludePatterns(manifest))
-    .filter((file) => isSourceFile(file) && !nonNodeCanonical.has(file));
+    .filter((file) => isSourceFile(file) && (!nonNodeCanonical.has(file) || file === dualMeasuredLayout));
 }
 
 export async function missingWebLibCoverage(

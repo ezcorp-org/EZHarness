@@ -977,3 +977,12 @@ Review: The hosted full mock lane reported two strict selector collisions in `mo
 - [ ] Commit the coverage repair and report the result.
 
 Review: Hosted global and new-file coverage passed. Patch coverage missed `ConversationList.svelte:237`, `stores.svelte.ts:372`, and `(app)/+layout.svelte:609`. The new integration tests pass 20/20. Targeted V8 coverage now records 3, 3, and 1 hit on those lines. Full typecheck and lint pass. The exact-head browser receipt and full coverage gate remain to run after the other agent's shared test slot clears. No gate configuration changed.
+
+### Merged-layout coverage follow-up at `9c8aaa303`
+
+- [x] Compare targeted and merged LCOV for layout line 609.
+- [x] Trace the canonical Vitest source include and browser ownership filter.
+- [x] Add narrow dual measurement for the app layout and guard it with a test.
+- [ ] Run focused, full, patch, new-file, and gate-integrity checks at the new head.
+
+Review: The exact-head browser lanes and full host coverage passed, but the separate patch gate found layout line 609 at zero hits. Browser V8 source maps leave that prop line at zero; targeted Node V8 measured the mounted mobile drawer test at one hit. The canonical Node producer did not include the layout and its filter excluded scripted routes. Exactly this layout is now dual-measured: the sanctioned Vitest leg passed 596 files and 7,517 tests, retained layout line 609 with one hit, and its LCOV merged with the browser receipt covers 205/219 layout lines (93.61%, above 80%). The guard suite, lint, typecheck, and gate-integrity checks pass. Exact-head full receipt and coverage checks remain. No threshold or exclusion changed.
