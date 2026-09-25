@@ -9,6 +9,7 @@ import { createFactoryApplication, type FactoryApplication } from "../../factory
 import { createFactoryConsole, type FactoryConsoleServices } from "../../factory/console";
 import type { FactoryPrincipal } from "../../factory/grants";
 import { FactoryRecords } from "../../factory/records";
+import { FactoryPurgeRequests } from "../../factory/purge-requests";
 import { FACTORY_RUN_STATUS_CONSUMER_ID } from "../../factory/run-transition-projector";
 import { FactoryRestore, factoryRestoreReportDigest, type FactoryRestoreOptions, type FactoryRestoreReport } from "../../factory/restore";
 import { FactoryRestoreReports } from "../../factory/restore-console";
@@ -353,6 +354,55 @@ export function factoryConsoleConformance(create: () => Promise<FactoryConsoleFi
       expect(Number(audit[0]!.n)).toBe(1);
       // Authority is rechecked before a replay is served.
       await expect(a.console.purge.request(MEMBER, a.tenantId, body, "purge-key-1")).rejects.toMatchObject({ code: "factory_forbidden" });
+    });
+  });
+
+  describe("purge preconditions from W15", () => {
+    const tenantId = "console-tenant-w15";
+    /** A tenant with no open work of any kind, so only the condition a test opens can refuse its purge. */
+    async function closedTenant() {
+      const fixture = await create();
+      await new FactoryRecords(fixture.db, tenantId).bindInstallation();
+      await seedUsers(fixture.db);
+      return { fixture, purge: new FactoryPurgeRequests(fixture.db, tenantId, () => 1_900_000_000_000) };
+    }
+    const body = { reason: "tenant closing", confirmTenantId: tenantId };
+    const w15 = (preview: { preconditions: readonly { id: string; satisfied: boolean; count: number }[] }) =>
+      preview.preconditions.filter(item => item.id === "open-restore" || item.id === "unsealed-checkpoint").map(({ id, satisfied, count }) => ({ id, satisfied, count }));
+
+    test("with no open restore and no unsealed checkpoint barrier, the purge request is queued", async () => {
+      const { fixture, purge } = await closedTenant();
+      try {
+        const preview = await purge.preview(OWNER, tenantId);
+        expect(w15(preview)).toEqual([{ id: "open-restore", satisfied: true, count: 0 }, { id: "unsealed-checkpoint", satisfied: true, count: 0 }]);
+        expect(preview.ready).toBe(true);
+        expect((await purge.request(OWNER, tenantId, body, "w15-pass")).state).toBe("queued");
+      } finally { await fixture.close(); }
+    });
+
+    test("an open restore refuses the purge by name", async () => {
+      const { fixture, purge } = await closedTenant();
+      try {
+        await fixture.db.execute(sql`INSERT INTO factory_restore_epochs (tenant_id, restore_id, mode, checkpoint_id, manifest_digest, previous_epoch, execution_epoch, state, started_at_ms, opened_state_json)
+          VALUES (${tenantId}, 'restore-open', 'tenant', 'checkpoint-1', ${sha("manifest")}, 1, 2, 'fenced', 1, '{}')`);
+        const refused = await purge.request(OWNER, tenantId, body, "w15-restore");
+        expect(refused.state).toBe("refused");
+        expect(w15(refused)).toEqual([{ id: "open-restore", satisfied: false, count: 1 }, { id: "unsealed-checkpoint", satisfied: true, count: 0 }]);
+        expect(refused.preconditions.filter(item => !item.satisfied).map(item => item.id)).toEqual(["open-restore"]);
+      } finally { await fixture.close(); }
+    });
+
+    test("a checkpoint barrier that has not sealed refuses the purge by name, and not once it has passed", async () => {
+      const { fixture, purge } = await closedTenant();
+      try {
+        await fixture.db.execute(sql`INSERT INTO factory_checkpoint_gate (tenant_id, paused, checkpoint_id, claims_paused_until) VALUES (${tenantId}, FALSE, 'checkpoint-2', clock_timestamp() + interval '10 minutes')`);
+        const refused = await purge.request(OWNER, tenantId, body, "w15-barrier");
+        expect(refused.state).toBe("refused");
+        expect(w15(refused)).toEqual([{ id: "open-restore", satisfied: true, count: 0 }, { id: "unsealed-checkpoint", satisfied: false, count: 1 }]);
+        expect(refused.preconditions.filter(item => !item.satisfied).map(item => item.id)).toEqual(["unsealed-checkpoint"]);
+        await fixture.db.execute(sql`UPDATE factory_checkpoint_gate SET claims_paused_until = NULL WHERE tenant_id = ${tenantId}`);
+        expect((await purge.preview(OWNER, tenantId)).ready).toBe(true);
+      } finally { await fixture.close(); }
     });
   });
 

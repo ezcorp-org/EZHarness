@@ -25,7 +25,16 @@ const PRECONDITIONS: readonly { readonly id: string; readonly detail: string; re
   { id: "uncertain-stops", detail: "Attempt stops that have not been proven", count: tenant => sql`SELECT COUNT(*) AS n FROM factory_task_stops WHERE tenant_id=${tenant} AND state='uncertain'` },
   { id: "pending-approvals", detail: "Approvals still waiting for a decision", count: tenant => sql`SELECT (SELECT COUNT(*) FROM factory_command_approvals WHERE tenant_id=${tenant} AND status='pending') + (SELECT COUNT(*) FROM factory_release_approvals WHERE tenant_id=${tenant} AND status='pending') AS n` },
   { id: "undelivered-commands", detail: "Durable commands not yet delivered", count: tenant => sql`SELECT COUNT(*) AS n FROM factory_command_outbox WHERE tenant_id=${tenant} AND state IN ('queued','leased','outcome_unknown')` },
+  // W15: a purge must not destroy what an open restore or an unsealed checkpoint barrier still reads.
+  // Both come from W15's own gate function, the one the effect-claim trigger uses, so the two agree.
+  { id: "open-restore", detail: "A restore that is fenced or awaiting its signature", count: tenant => w15ClosedReason(tenant, "restore_epoch_open") },
+  { id: "unsealed-checkpoint", detail: "A checkpoint barrier that has not sealed", count: tenant => w15ClosedReason(tenant, "checkpoint_barrier") },
 ];
+
+/** 1 when W15's gate reports `reason` for the tenant now, else 0. */
+function w15ClosedReason(tenant: string, reason: "restore_epoch_open" | "checkpoint_barrier") {
+  return sql`SELECT CASE WHEN factory_effect_claims_closed_reason(${tenant}) = ${reason} THEN 1 ELSE 0 END AS n`;
+}
 
 type PurgeRequestRow = { metadata: unknown };
 
