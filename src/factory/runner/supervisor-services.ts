@@ -21,10 +21,11 @@
  * material service and the provider live in the product process. Answering
  * from here would be answering a model call with no model.
  *
- * A supervisor whose configuration names `services.guestBroker` passes the
- * forwarding client from `guest-broker-client.ts` as `broker`: it carries a
- * staging frame or a `FactoryGuestModelRequest` to the product route under the
- * guest's own attempt token. Everything else, and every call on a host with no
+ * A supervisor whose configuration names `services.guestBrokers` passes a
+ * broker that picks the forwarding client from `guest-broker-client.ts` for the
+ * attempt's own tenant: it carries a staging frame or a
+ * `FactoryGuestModelRequest` to that tenant's product route under the guest's
+ * own attempt token. Everything else, and every call on a host with no
  * such section, gets `factory_host_broker_unavailable`, which a reader can act
  * on, instead of a plausible reply it cannot distinguish from a real one.
  */

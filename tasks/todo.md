@@ -4817,6 +4817,61 @@ Base `wp/w12c-data-image-repin` `7821e5d7c`, merged with `integ/w00` `2b2e12550`
 bytecode off, every timestamp fixed and no build cache, the build reproduces the pin on this host's
 Podman version. Other Podman versions are not proven. The script now refuses a pin it does not
 reproduce and removes what it built. A deliberate change needs `--repin`.
+## W19b — the graph proof keeps a failed pass's diagnostics (branch `wp/w19b-harness-logs`)
+
+Gates: `tasks/factory/w19b-GATES.md`. Receipts: `/tmp/factory-platform-evidence/w19b/`.
+
+- [x] Stream the pool, supervisor, Temporal, TLS terminator, gateway stub, web and orchestrator logs to the pass output directory.
+- [x] On a failed pass, copy the stack's readiness files and logs out before the stack is deleted; never copy `secrets/`.
+- [x] Scan before copy and redact streamed logs; record refusals and redactions.
+- [x] Forced-failure control in mock mode, with `verify-diagnostics.ts`, in `run.sh all` and the summary.
+- [x] Runbook says where the files are.
+
+### Review
+
+A failed pass now leaves every process's own output and the pool's and supervisor's readiness files,
+and nothing it leaves carries a credential. The first campaign showed that treating every string in a
+configuration document as a secret refuses exactly the files a reader needs; only credentials are
+secrets now. The proof itself is unchanged: both modes passed three of three, and every control passed.
+
+### Fix round (validator-3's three low notes)
+
+- [x] L1: the secret rule fails closed. Every string in a JSON file under `secrets/` is a secret except
+  the values of `CONFIGURATION_KEYS`. The stack's documents come from `stack-documents.ts`, and a test
+  classifies every string leaf of every one, so a new field fails until it is classified.
+- [x] L2: a binary file under `secrets/` yields its hex and base64 forms; each form planted in a stack
+  file is refused and redacted.
+- [x] L3: streamed logs are redacted every 2 seconds while the pass runs, not only at the end; the
+  runbook states the window left when the harness itself dies.
+- [x] Heavy leg: the mock forced-failure control alone, under the lock, timeout 1800.
+
+### Second fix round (validator-3's F1 to F3)
+
+- [x] F1: the inline-document guard reads each `privateWrite(...)` call whole, marks anything but a named builder `"inline"`, compares with `toStrictEqual`, and is tested on fixtures, one line and split.
+- [x] F2: `receipt.sh` names every log and receipt per attempt; the first heavy attempt's receipt points at its preserved log and says the original was overwritten.
+- [x] F3: a URL's password is collected from every JSON string, whatever its key.
+## W16b — tenant-keyed guest-broker routes (branch `wp/w16b-guest-brokers-keyed`)
+
+Coordinator ruling 2026-09-25 (option A). Gate file `tasks/factory/w16b-GATES.md`,
+evidence `/tmp/factory-platform-evidence/w16b/`.
+
+- [x] services.guestBroker becomes services.guestBrokers (tenant to endpoint); the parser refuses the old form and malformed maps.
+- [x] The host picks the attempt's own tenant's route; an unknown tenant is refused by name before any byte leaves the host.
+- [x] Producers updated: supervisor tests, W01g transport suite, W19a graph-proof stack.
+- [x] Hold b1 at 61bc3428b: every leg exit 0.
+- [x] W01 owner review (w01g-fix) at 61bc3428b; the audience change sent for the same review.
+- [x] The route accepts only the contract's audience; a pool token is refused by name (ca92306c5). Hold b2 at fb3a990ee: every leg exit 0.
+- [ ] Validation (validator-2), then merge before W16 and W01h.
+
+### Review
+
+A fleet host serves every installation, so it now holds one guest-broker route
+per tenant and forwards each guest frame only to its own attempt's tenant.
+There is no fallback: an unknown tenant is refused by name. The lease carries
+no tenant, so the tenant comes from the launch intent, and the chosen route's
+attempt-token check still stops a launch that names the wrong tenant.
+
+
 
 ## W01h — runner_outcome_unknown leaves a run stuck (branch `wp/w01h-runner-outcome`)
 

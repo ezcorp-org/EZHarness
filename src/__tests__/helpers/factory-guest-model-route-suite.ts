@@ -16,7 +16,7 @@ import { signFactoryAttemptToken } from "../../factory/attempt-token";
 import { FactoryExecutionJournal, type FactoryAttemptAuthority } from "../../factory/executions";
 import { FACTORY_PROVIDER_NOT_CONFIGURED, factoryUnpinnedModelProvider } from "../../factory/guest-broker-composition";
 import type { FactoryBroker, FactoryBrokerRequest } from "../../runtime/factory-execution";
-import { FACTORY_GUEST_BROKER_PATH, FACTORY_GUEST_BROKER_SCOPE } from "../../factory/runner/guest-broker-contract";
+import { FACTORY_GUEST_BROKER_AUDIENCE, FACTORY_GUEST_BROKER_PATH, FACTORY_GUEST_BROKER_SCOPE } from "../../factory/runner/guest-broker-contract";
 import { createFactoryGuestBrokerRouteHandler } from "../../factory/runner/guest-broker-service";
 import { createFactoryGuestMaterialFrameBroker, createFactoryGuestMaterialServices } from "../../factory/runner/guest-material-broker";
 import type { FactoryOneHopProvider } from "../../factory/runner/guest-model-broker";
@@ -45,7 +45,6 @@ const SECRET = "graph-attempt-token-secret";
 const HOST_IDENTITY = "graph-host-peer";
 const HOST = "graph-host";
 const ISSUER = "graph-issuer";
-const AUDIENCE = "factory-guest-broker";
 const DIGEST = `sha256:${"a".repeat(64)}`;
 
 const configuration = { temperature: 0, seed: 7, reasoningEffort: "none" };
@@ -105,7 +104,7 @@ export function factoryGuestModelRouteConformance(createFixture: () => Promise<F
   const projectId = `graph-project-${randomUUID()}`;
   const runId = `graph-run-${randomUUID()}`;
   const hostKeys = generateKeyPairSync("rsa", { modulusLength: 2048 });
-  const hostToken = signedServiceToken(hostKeys.privateKey, { sub: HOST_IDENTITY, iss: ISSUER, aud: AUDIENCE, exp: Math.floor(Date.now() / 1_000) + 3_600, scope: [FACTORY_GUEST_BROKER_SCOPE] });
+  const hostToken = signedServiceToken(hostKeys.privateKey, { sub: HOST_IDENTITY, iss: ISSUER, aud: FACTORY_GUEST_BROKER_AUDIENCE, exp: Math.floor(Date.now() / 1_000) + 3_600, scope: [FACTORY_GUEST_BROKER_SCOPE] });
 
   beforeAll(async () => {
     fixture = await createFixture();
@@ -154,7 +153,7 @@ export function factoryGuestModelRouteConformance(createFixture: () => Promise<F
     const installationPin = routeOptions.installationPin === undefined ? { provider: pin.provider, model: pin.model } : routeOptions.installationPin;
     const handle = createFactoryGuestBrokerRouteHandler({
       hosts: { [HOST_IDENTITY]: HOST },
-      tokens: async () => ({ issuer: ISSUER, audience: AUDIENCE, publicKeys: { test: hostKeys.publicKey.export({ type: "spki", format: "pem" }).toString() } }),
+      tokens: async () => ({ issuer: ISSUER, audience: FACTORY_GUEST_BROKER_AUDIENCE, publicKeys: { test: hostKeys.publicKey.export({ type: "spki", format: "pem" }).toString() } }),
       leaseHost: async () => lease(),
       broker: createFactoryGuestMaterialFrameBroker({ services: createFactoryGuestMaterialServices(stores) }),
       model: createFactoryGuestModelFrameBroker({ journal: routeOptions.journal ?? journal, workspace: new FactoryWorkspaceCheckpoints(stores), provider, ...(installationPin === null ? {} : { installationPin }) }),

@@ -8,8 +8,10 @@
  *   W19A_MODE     `ollama` (the host's Ollama) or `mock` (the in-process
  *                 prompt-digest fake behind the test surface)
  *   W19A_CONTROL  `none` (the proof), `no-pin` (infer admitted with no model
- *                 pin, plus the compile-time bad-port control), or
- *                 `missing-model` (a registered model Ollama does not have)
+ *                 pin, plus the compile-time bad-port control),
+ *                 `missing-model` (a registered model Ollama does not have), or
+ *                 `forced-failure` (the proof, then failed on purpose, so the
+ *                 diagnostics a failed pass keeps can be checked)
  *   FACTORY_TEST_POSTGRES_URL, EZCORP_FACTORY_STORAGE_SECRETS_DIR  exported by run.sh
  *
  * Everything the run does goes through public product HTTP under the session
@@ -32,7 +34,7 @@ const REPO = process.env.W19A_REPO!;
 const OUT = process.env.W19A_OUT!;
 const LABEL = process.env.W19A_LABEL ?? "pass";
 const MODE = (process.env.W19A_MODE ?? "mock") as GraphProofMode;
-const CONTROL = (process.env.W19A_CONTROL ?? "none") as "none" | "no-pin" | "missing-model";
+const CONTROL = (process.env.W19A_CONTROL ?? "none") as "none" | "no-pin" | "missing-model" | "forced-failure";
 const BUN = process.execPath;
 const OLLAMA_URL = "http://127.0.0.1:11434";
 
@@ -52,9 +54,11 @@ async function finish(failure: string | undefined): Promise<never> {
   if (failure !== undefined) record.failure = failure;
   record.finishedAt = new Date().toISOString();
   if (stack) {
-    record.processLogTails = Object.fromEntries(stack.children.map((entry) => [entry.name, entry.log.join("").slice(-4_000)]));
-    await Bun.write(join(OUT, `${LABEL}.server.log`), stack.children.find((entry) => entry.name === "web")?.log.join("") ?? "");
-    await stack.stop(failure !== undefined).catch((error: unknown) => { record.stopError = String(error); });
+    // Every process's output is already on disk in `<label>.process-<name>.log`.
+    // A failed pass also keeps the stack's readiness files and logs, and its
+    // product database, except the forced-failure control, whose failure is
+    // on purpose and whose database has nothing left to explain.
+    await stack.stop(failure !== undefined && CONTROL !== "forced-failure", failure !== undefined).catch((error: unknown) => { record.stopError = String(error); });
   }
   await Bun.write(join(OUT, `${LABEL}.json`), JSON.stringify(record, null, 2));
   console.log(JSON.stringify({ label: LABEL, mode: MODE, control: CONTROL, outcome: record.outcome, failure: record.failure ?? null }));
@@ -97,6 +101,7 @@ stack = await startStack({
   // The mock mode's provider is the product's own in-process fake, which only
   // resolves with the test surface open. The ollama mode leaves it closed.
   webEnv: MODE === "mock" ? { PI_E2E_REAL: "1", EZCORP_ALLOW_TEST_SURFACE: "1" } : {},
+  diagnostics: { dir: OUT, label: LABEL },
 });
 if (!record.ready) await finish(`the server never reported ready: ${JSON.stringify({ orchestration: record.orchestration, hostProcesses: record.hostProcesses })}`);
 const api = stack.session;
@@ -287,7 +292,7 @@ const expect = (check: string, ok: boolean, detail?: unknown) => { checks.push({
 // Canonical JSON: a jsonb column returns its keys in its own order.
 const same = (left: unknown, right: unknown) => left !== undefined && right !== undefined && canonicalizeJson(left as JsonValue) === canonicalizeJson(right as JsonValue);
 
-if (CONTROL === "none") {
+if (CONTROL === "none" || CONTROL === "forced-failure") {
   const [a, b, c] = [nodes.prepare, nodes.infer, nodes.combine];
   expect("the run projected succeeded", (record.run as { terminal?: string }).terminal === "succeeded", timeline);
   expect("every node ran once", NODES.every((node) => nodes[node]?.ran === true), Object.fromEntries(NODES.map((node) => [node, nodes[node]?.ran])));
@@ -329,6 +334,9 @@ if (CONTROL === "none") {
     record.heldRunFinding = { held, timeline, reason: held ? HOLD : null };
   }
 }
+// The diagnostics control runs the whole proof, then fails the pass on purpose:
+// what a failed pass leaves behind is checked afterwards by verify-diagnostics.ts.
+if (CONTROL === "forced-failure") expect("forced failure: the diagnostics control fails this pass on purpose", false);
 record.checks = checks;
 const failed = checks.filter((entry) => !entry.ok).map((entry) => entry.check);
 await finish(failed.length === 0 ? undefined : `checks failed: ${failed.join("; ")}`);
