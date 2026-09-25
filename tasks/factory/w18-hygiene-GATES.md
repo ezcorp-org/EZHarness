@@ -147,11 +147,20 @@ the module this item completed.
   production code the test exercises, not the test file itself — the same convention this repo's own
   `NON_SOURCE_GLOBS` encodes for the gated coverage checks). The new assertions are real (see the test
   body) and the suite passing at 20/20 is the proof this branch is exercised.
+  (validator-3 N2: the original L1 evidence cited no receipt for the 20/20 claim itself — the
+  `typecheck`/`lint`/`boundaries`/`gate-integrity`/`gate-scripts` sweep never re-runs `git-hooks.test.ts`
+  directly. `git-hooks-l1.log` (20/20, exit 0) fills the gap: re-run on `wp/w18-hygiene-2`, where
+  `git diff 344b11efc -- src/__tests__/git-hooks.test.ts` is empty, i.e. byte-identical to the cited
+  commit — see `MANIFEST.json`'s `_notes_from_validator3.N2`.)
 
 Pass for item B: the silent skip is gone; a wide commit is loud and, by default, blocked; the one
 escape hatch is visible in every direction it applies (over cap, and now proven under cap too); no
 other hook behavior changed (the three original `repoWithPreCommit()` tests and `EZ_SKIP_HOOKS=1`
 bypass are unaffected).
+
+**Evidence fixes N1, N2 (validator-3, folded into item D's receipts per the ruling — no branch change):**
+N1 — `SHA256SUMS.txt` listed itself, so `sha256sum -c` always reported one `FAILED`; regenerated
+excluding its own filename from the input glob (`sha256sum -c` now exits 0 clean). N2 — above.
 
 ## Validator-3 fix round (M1, L1) — receipts corrected, one test added, no code behavior changed by M1
 
