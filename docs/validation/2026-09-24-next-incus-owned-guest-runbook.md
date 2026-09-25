@@ -1,6 +1,6 @@
 # Next EZHarness-owned Incus guest: one lifecycle
 
-Status: **runbook only; no live action or success claim**. Use this after the second unknown CREATE in [the exact recovery packet](2026-09-24-second-unknown-create-recovery-review.md) has a signed no-effect receipt and its binding is `ABSENT`. This smoke proves one guest lifecycle. The full SP01–SP08 qualification is a separate gate.
+Status: **runbook only; no live guest action or success claim**. The second unknown CREATE has a [signed v4 recovery receipt](2026-09-25-second-unknown-create-recovery-v4-execution.md) and an absent binding. Use this sequence only with the fixed scope and fresh gates in the [25 September guest smoke review](2026-09-25-next-incus-owned-guest-smoke-review.md). This smoke proves one guest lifecycle. The full SP01–SP08 qualification is a separate gate.
 
 ## Fixed scope and entry gate
 
@@ -13,19 +13,19 @@ The isolated app is at `http://127.0.0.1:4301`. Every request below is a same-or
 | `connectionId` | `540e2032-532f-4d8f-9a4e-df50c8e9f43a`, revision 1 |
 | `presetId` | `incus-compose-v1` |
 | old fixture to recover | `incus-smoke-post-recovery-20260924`; CREATE `016f7e51-60a6-4e19-aa32-77d44b745053` |
-| proposed **new** `operationId` | `incus-smoke-owned-lifecycle-20260924` (confirm unused immediately before use) |
+| proposed **new** `operationId` | `incus-smoke-owned-lifecycle-20260925-v1` (authoritatively absent in the reviewed detached copy; recheck scope before use) |
 | backend project | `ezharness` |
 
 Before a new CREATE, read the old fixture's saved status and signed recovery result. Require old CREATE `FAILED`/`OPERATOR_PROVEN_NO_EFFECT`, no-op DESTROY `SUCCEEDED`, binding `ABSENT`, and released reservation. Check the server inventory and active operation list, app and runner health, active release/connection revision, setup receipt, 32 GiB capacity record, and the exact release artifact in the dedicated runner store. Verify that the server's scoped client certificate is restored and that the setup gate and app use the intended current configuration. If any authority, digest, or state changed, stop and review the new values. An empty Incus list alone does not settle an unknown operation.
 
-Check the pinned guest image and helper digest against the active preset and image receipt. The last direct worker probe reported `Incus helper version pin does not match`; resolve this before interpreting a probe or qualification result. The Compose smoke also needs `EZCORP_INCUS_COMPOSE_FIXTURE_IMAGE_REF` in the isolated app environment as a reviewed immutable `registry/path@sha256:<64 hex>` reference. Its image must be available to the guest. Do not substitute a mutable tag.
+Check the pinned guest image and helper digest against the active preset and image receipt. The last direct worker probe reported `Incus helper version pin does not match` because the unqualified transport reports the helper as `unverified`; the guest smoke must prove the actual helper before claiming support. The isolated app already has a reviewed immutable `EZCORP_INCUS_COMPOSE_FIXTURE_IMAGE_REF`; recheck it before CREATE. The Compose action must prove that exact digest runs inside the new guest. Do not substitute a mutable tag.
 
 ## One smoke sequence
 
 Use `/api/infrastructure/incus/smoke` for each action. Send **exactly** these six JSON fields: `action`, `installationId`, `releaseId`, `connectionId`, `presetId`, `operationId`. The five ID values remain fixed for every call. Save the HTTP status, response body, time, and host/app logs in a root-private evidence directory. Never copy credentials into the packet.
 
 ```json
-{"action":"create","installationId":"00bcc640-c430-4c9a-8d97-e35835b8bcf8","releaseId":"9ec8e626-0a5d-4ed6-9333-a3fd1aa25472","connectionId":"540e2032-532f-4d8f-9a4e-df50c8e9f43a","presetId":"incus-compose-v1","operationId":"incus-smoke-owned-lifecycle-20260924"}
+{"action":"create","installationId":"00bcc640-c430-4c9a-8d97-e35835b8bcf8","releaseId":"9ec8e626-0a5d-4ed6-9333-a3fd1aa25472","connectionId":"540e2032-532f-4d8f-9a4e-df50c8e9f43a","presetId":"incus-compose-v1","operationId":"incus-smoke-owned-lifecycle-20260925-v1"}
 ```
 
 For each later call, change only `action` to the next value below. Supply the existing admin session cookie and `Origin: http://127.0.0.1:4301` through the private operator client. Do not add a guest command, image, path, generation, or credential field: the route rejects extra fields.

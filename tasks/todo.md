@@ -17,7 +17,8 @@
 - [x] Stop the v3 second-CREATE recovery before signing when the server timer margin fails; restore the exact cert and policy, and record the unresolved host rollback.
 - [x] Recover sandbox-server host control after the pending switch settled; prove thaw, old generation, SSH, original trust/policy, and inventory, then restore AMD configs and runner while keeping the TCP hold.
 - [x] Review, authorize, and execute the corrected v4 second-CREATE recovery with a measured timer-margin gate and thaw-first rollback.
-- [ ] Review the next EZHarness-owned guest smoke plan and run one CREATE/inspect/start/marker/Compose/stop/destroy lifecycle only after separate authorization.
+- [x] Review the next EZHarness-owned guest smoke plan, validate the retained admin session, live scope/capacity, pinned image, and unused fixture ID without creating a guest.
+- [ ] Obtain a separate decision and run one CREATE/inspect/start/marker/Compose/stop/destroy lifecycle for the reviewed new fixture.
 - [ ] Run a complete EZHarness-owned guest fixture, the live qualification cases, feature workflow, and cleanup.
 - [ ] Remove the temporary `/var/empty/.config` workaround after the corrected NixOS setup gate is active.
 - [ ] Finish the source fixes, pass the CRAP gate and all hosted checks on the final PR head, and publish the measured live evidence.
@@ -35,6 +36,8 @@ The approved v3 AMD activation passed. The second-CREATE recovery obtained two e
 The pending server switch later completed. Fresh dev SSH, old running/profile generation, thawed dev slice, original cert and policy, zero project instances/operations, and host services passed readback. AMD observer/fence files and runner were restored; app health passed, with the TCP ingress hold retained. A stopped-app database copy confirms the second CREATE is still `OUTCOME_UNKNOWN` with no provider operation ID. The console packet remains a record of the access contingency; a new v4 packet is under review before another signed recovery attempt.
 
 The approved v4 attempt succeeded. One submitted signed request and independent stopped-app readback confirm CREATE `FAILED/OPERATOR_PROVEN_NO_EFFECT`, no-op DESTROY `SUCCEEDED`, binding `ABSENT`, and compute/disk reservations `RELEASED`. The exact server cert/policy, old generation, AMD configs, app, and runner were restored; TCP ingress hold remains. See the [v4 execution receipt](../docs/validation/2026-09-25-second-unknown-create-recovery-v4-execution.md). No new guest lifecycle has been run.
+
+Read-only next-guest preparation found a valid admin session, active reviewed release and connection, verified setup, 32 GiB applied capacity, the pinned guest image, and an empty Incus project. An audited stopped-app copy proved the proposed new fixture and derived IDs absent, then the app restarted healthy behind the TCP hold. The [guest smoke review](../docs/validation/2026-09-25-next-incus-owned-guest-smoke-review.md) fixes the one new operation ID and the guarded lifecycle. No guest CREATE was sent.
 
 # Wire `trusted-local` — the explicit, per-release-approved unsandboxed extension mode
 
