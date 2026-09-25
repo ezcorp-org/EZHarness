@@ -109,17 +109,27 @@ export class FactoryRunStream {
 	/** Runs until the stream ends, is revoked, goes offline, or `stop()` is called. */
 	async run(): Promise<FactoryRunStreamStatus> {
 		let outcome: Outcome = "snapshot";
-		while (!this.controller.signal.aborted && outcome !== "stop") {
-			if (outcome === "backoff") {
-				this.failures += 1;
-				if (this.failures > this.maxReconnects) { this.update({ state: "offline", reason: "reconnect-limit" }); break; }
-				this.update({ state: "reconnecting", reconnects: this.status.reconnects + 1 });
-				await this.sleep(this.backoffMs(this.failures - 1), this.controller.signal);
-				outcome = this.token === "" ? "snapshot" : "reopen";
-				continue;
+		while (!this.controller.signal.aborted) {
+			switch (outcome) {
+				case "stop":
+					return this.status;
+				case "snapshot":
+					outcome = await this.takeSnapshot();
+					break;
+				case "reopen":
+					outcome = await this.follow();
+					break;
+				case "backoff":
+					this.failures += 1;
+					if (this.failures > this.maxReconnects) { this.update({ state: "offline", reason: "reconnect-limit" }); return this.status; }
+					this.update({ state: "reconnecting", reconnects: this.status.reconnects + 1 });
+					await this.sleep(this.backoffMs(this.failures - 1), this.controller.signal);
+					outcome = this.token === "" ? "snapshot" : "reopen";
+					break;
+				default:
+					// Every outcome is handled above; anything else is a defect, never a silent spin.
+					throw new Error(`factory run stream: unknown outcome ${String(outcome satisfies never)}`);
 			}
-			if (outcome === "snapshot") outcome = await this.takeSnapshot();
-			if (outcome === "reopen") outcome = await this.follow();
 		}
 		return this.status;
 	}
