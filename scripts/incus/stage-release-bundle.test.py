@@ -39,6 +39,29 @@ class ReleaseBundleTests(unittest.TestCase):
                     "files": MODULE.inventory(root)}
         (root / MODULE.MANIFEST).write_text(json.dumps(manifest))
 
+    def smoke_fixture(self, root, leave_file=False):
+        self.release_fixture(root)
+        executable = root / "bin/bun"
+        executable.write_text(f'''#!/usr/bin/env python3
+import os
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
+
+runtime = Path(os.environ["EZCORP_PROJECT_ROOT"]) / ".ezcorp/data"
+runtime.mkdir(mode=0o700)
+if {leave_file!r}:
+    (runtime / "state.txt").write_text("retain me")
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+    def log_message(self, *_args):
+        pass
+HTTPServer(("127.0.0.1", int(os.environ["PORT"])), Handler).serve_forever()
+''')
+        os.chmod(executable, 0o755)
+        self.seal_fixture(root)
+
     def test_verify_excludes_only_top_level_runtime_directory(self):
         with tempfile.TemporaryDirectory(dir="/tmp") as directory:
             root = Path(directory)
@@ -82,6 +105,35 @@ class ReleaseBundleTests(unittest.TestCase):
             (root / MODULE.RUNTIME_DIR).rmdir()
             with self.assertRaisesRegex(ValueError, "runtime directory is absent"):
                 MODULE.verify(root)
+
+    def test_smoke_restores_empty_runtime_placeholder_after_real_http_health(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as directory:
+            root = Path(directory)
+            self.smoke_fixture(root)
+            self.assertEqual(MODULE.smoke(root)["healthStatus"], 200)
+            self.assertEqual(list((root / MODULE.RUNTIME_DIR).iterdir()), [])
+            MODULE.verify(root)
+
+    def test_smoke_rejects_runtime_files_without_deleting_them(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as directory:
+            root = Path(directory)
+            self.smoke_fixture(root, leave_file=True)
+            with self.assertRaisesRegex(ValueError, "runtime placeholder must be empty"):
+                MODULE.smoke(root)
+            self.assertEqual((root / ".ezcorp/data/state.txt").read_text(), "retain me")
+            MODULE.verify(root)  # Deployed runtime state remains outside the immutable inventory.
+
+    def test_smoke_rejects_preexisting_runtime_state_before_starting_app(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as directory:
+            root = Path(directory)
+            self.smoke_fixture(root)
+            (root / ".ezcorp/data").mkdir(mode=0o700)
+            MODULE.verify(root)
+            with patch.object(MODULE.subprocess, "Popen") as start:
+                with self.assertRaisesRegex(ValueError, "runtime placeholder must be empty"):
+                    MODULE.smoke(root)
+                start.assert_not_called()
+            self.assertTrue((root / ".ezcorp/data").is_dir())
 
     def test_stage_creates_empty_runtime_placeholder_outside_inventory(self):
         with tempfile.TemporaryDirectory(dir="/tmp") as directory:

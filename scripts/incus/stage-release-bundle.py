@@ -162,6 +162,22 @@ def check_runtime_placeholder(root):
     require(stat.S_IMODE(mode) == 0o755, "runtime directory must have mode 0755")
 
 
+def check_empty_runtime_placeholder(root):
+    check_runtime_placeholder(root)
+    require(not any((root / RUNTIME_DIR).iterdir()), "runtime placeholder must be empty")
+
+
+def remove_empty_runtime_dirs(root):
+    def clean(directory):
+        for path in directory.iterdir():
+            if stat.S_ISDIR(path.lstat().st_mode):
+                clean(path)
+                if not any(path.iterdir()):
+                    path.rmdir()
+
+    clean(root / RUNTIME_DIR)
+
+
 def verify(root):
     root = root.resolve(strict=True)
     check_runtime_placeholder(root)
@@ -183,6 +199,7 @@ def verify(root):
 def smoke(root, native_lib_dir=None):
     require(os.geteuid() != 0, "smoke must run as a non-root user")
     verify(root)
+    check_empty_runtime_placeholder(root)
     if native_lib_dir is not None:
         native_lib_dir = native_lib_dir.resolve(strict=True)
         require(native_lib_dir.is_dir() and (native_lib_dir / "libstdc++.so.6").is_file(),
@@ -230,6 +247,8 @@ def smoke(root, native_lib_dir=None):
             except subprocess.TimeoutExpired:
                 process.kill()
                 process.communicate(timeout=5)
+            remove_empty_runtime_dirs(root)
+        check_empty_runtime_placeholder(root)
         verify(root)
         return {"healthStatus": status, "nonRootUid": os.geteuid(),
                 "smokeRoot": str(scratch)}
@@ -285,6 +304,7 @@ def stage(source, output, bun, expected_bun_sha256):
         (work / MANIFEST).write_text(json.dumps(document, sort_keys=True, separators=(",", ":")) + "\n")
         os.chmod(work / MANIFEST, 0o644)
         verify(work)
+        check_empty_runtime_placeholder(work)
         work.rename(output)
     return {"gitSha": head, "files": len(document["files"]), "output": str(output)}
 
