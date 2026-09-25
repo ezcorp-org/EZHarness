@@ -4641,3 +4641,20 @@ Numbering grants turns revoke-then-grant into history rather than a conflict. A 
 that matters: one active grant per target. First grants keep their old seal, so every existing row still
 verifies. The display name is read from the user or service-account record only. It is resolved outside the
 authorization path, and it can never fall back to the raw id.
+
+## W19b — the graph proof keeps a failed pass's diagnostics (branch `wp/w19b-harness-logs`)
+
+Gates: `tasks/factory/w19b-GATES.md`. Receipts: `/tmp/factory-platform-evidence/w19b/`.
+
+- [x] Stream the pool, supervisor, Temporal, TLS terminator, gateway stub, web and orchestrator logs to the pass output directory.
+- [x] On a failed pass, copy the stack's readiness files and logs out before the stack is deleted; never copy `secrets/`.
+- [x] Scan before copy and redact streamed logs; record refusals and redactions.
+- [x] Forced-failure control in mock mode, with `verify-diagnostics.ts`, in `run.sh all` and the summary.
+- [x] Runbook says where the files are.
+
+### Review
+
+A failed pass now leaves every process's own output and the pool's and supervisor's readiness files,
+and nothing it leaves carries a credential. The first campaign showed that treating every string in a
+configuration document as a secret refuses exactly the files a reader needs; only credentials are
+secrets now. The proof itself is unchanged: both modes passed three of three, and every control passed.
