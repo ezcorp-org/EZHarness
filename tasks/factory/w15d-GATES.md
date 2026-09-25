@@ -39,4 +39,5 @@ Scope: the team lead's W15d assignment (2026-09-25) and rulings. Branch `wp/w15d
 - [x] G8 (validator-3 F3): deletions are batched.
   CHECK: `tests/postgres/factory-storage-cleanup.test.ts`, scripted client cases
   EXPECT: 2,345 versions over three listing pages go in DeleteObjects calls of 1000, 1000, and 345, each version named once; a version and its marker share one call; an empty run sends no delete; a per-key refusal fails the cleanup naming the first refusal; the real-store case still passes
+  EVIDENCE: at `e5fb31f87` (`logs/batch-2.log`, `logs/batch-callers-2.log`): cleanup suite 7/0 (the pre-commit hook also ran it, 7/0, `logs/commit-hook-f.log`); typecheck, lint, boundaries, gate integrity, new-file and patch coverage 0; suite registration 5/0; recovery suites 44/0; other storage suites 30/0; the 13 callers one per step 234/0 in 13 minutes (22 minutes one delete per version). Nothing left under `ordinary/w15d-cleanup` or `ordinary/w15d-cleanup-published` afterwards (`f3-check.txt`).
 
