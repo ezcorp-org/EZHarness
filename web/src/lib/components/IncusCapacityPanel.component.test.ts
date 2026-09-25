@@ -153,15 +153,19 @@ describe("IncusCapacityPanel", () => {
 	});
 
 	test("reports status failure and recovers through a fresh status check", async () => {
+		let resolveStatus!: (response: Response) => void;
+		const pendingStatus = new Promise<Response>((resolve) => { resolveStatus = resolve; });
 		const fetcher = vi.fn().mockResolvedValueOnce(reply({ message: "Setup unavailable" }, 409))
-			.mockResolvedValueOnce(reply({ receipt: null }));
+			.mockReturnValueOnce(pendingStatus);
 		vi.stubGlobal("fetch", fetcher);
 		const view = render(IncusCapacityPanel, { setupId: "setup:1" });
 		await waitFor(() => expect(view.getByRole("alert")).toHaveTextContent("Setup unavailable"));
 		expect(view.getByRole("button", { name: "Plan capacity" })).toBeDisabled();
 		await fireEvent.click(view.getByRole("button", { name: "Check saved status" }));
 		await waitFor(() => expect(view.queryByRole("alert")).toBeNull());
-		expect(view.getByRole("button", { name: "Plan capacity" })).not.toBeDisabled();
+		expect(view.getByRole("button", { name: "Plan capacity" })).toBeDisabled();
+		resolveStatus(reply({ receipt: null }));
+		await waitFor(() => expect(view.getByRole("button", { name: "Plan capacity" })).not.toBeDisabled());
 	});
 
 	test("ignores an old apply failure after the selected setup changes", async () => {
