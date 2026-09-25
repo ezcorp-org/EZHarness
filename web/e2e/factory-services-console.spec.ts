@@ -464,8 +464,9 @@ test("the console quarantines a package under a live attempt, shows what the fen
 	expect(started.status(), await started.text()).toBe(202);
 	const heldRun = (await started.json() as { receipt: { resourceId: string } }).receipt.resourceId;
 	const heldInspection = `${project()}/runs/${heldRun}/inspection`;
-	await expect.poll(async () => (await (await page.request.get(heldInspection)).json() as { resource: { attempts: { items: Array<{ status: string }> } } }).resource.attempts.items.map(item => item.status),
-		{ timeout: 300_000, intervals: [2_000] }).toContain("running");
+	// A live attempt is `admitted` until it dispatches a journaled operation; this guest dispatches none.
+	await expect.poll(async () => (await (await page.request.get(heldInspection)).json() as { resource: { attempts: { items: Array<{ status: string }> } } }).resource.attempts.items.map(item => item.status).join(","),
+		{ timeout: 300_000, intervals: [2_000] }).toMatch(/^(admitted|running)$/);
 
 	await selectProject(page, "admin");
 	const admin = page.getByTestId("factory-administration");
@@ -487,7 +488,7 @@ test("the console quarantines a package under a live attempt, shows what the fen
 	const listed = await (await page.request.get(`${project()}/packages?limit=200`)).json() as { page: { items: Array<{ referenceId: string; reference: { configurationDigest?: string } }> } };
 	const referenceId = listed.page.items.find(item => item.reference.configurationDigest === undefined)!.referenceId;
 	const fenced = await (await page.request.get(`${project()}/packages/${referenceId}/affected-runs?trustRevision=2`)).json() as { page: { items: Array<Record<string, unknown>> } };
-	expect(fenced.page.items).toEqual([expect.objectContaining({ runId: heldRun, trustRevision: 2, state: "quarantined", reason: "factory_package_quarantined", disposition: "cancel-requested" })]);
+	expect(fenced.page.items).toEqual([expect.objectContaining({ runId: heldRun, attemptStatus: expect.stringMatching(/^(admitted|running)$/), trustRevision: 2, state: "quarantined", reason: "factory_package_quarantined", disposition: "cancel-requested" })]);
 	await expect.poll(async () => (await (await page.request.get(`${project()}/runs/${heldRun}`)).json() as { resource: { status: string } }).resource.status, { timeout: 120_000, intervals: [1_000] }).not.toBe("running");
 
 	// Lifting the quarantine is a later publish at the next revision.
