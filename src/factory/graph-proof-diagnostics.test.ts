@@ -152,11 +152,59 @@ describe("every JSON document the stack writes under secrets/", () => {
     }
   });
 
+  /**
+   * What each `privateWrite(...)` call in a source serializes: the name of the
+   * builder (or variable) handed to `JSON.stringify`, or `"inline"` for
+   * anything else, such as an object literal. Each call is read whole, however
+   * many lines it spans.
+   */
+  function writtenDocuments(source: string): string[] {
+    const found: string[] = [];
+    for (let at = source.indexOf("privateWrite("); at !== -1; at = source.indexOf("privateWrite(", at + 1)) {
+      let depth = 0;
+      let end = at + "privateWrite".length;
+      for (; end < source.length; end++) {
+        if (source[end] === "(") depth++;
+        else if (source[end] === ")" && --depth === 0) break;
+      }
+      const call = source.slice(at, end + 1);
+      for (const match of call.matchAll(/JSON\.stringify\(\s*/g)) {
+        found.push(/^([A-Za-z_$][\w$]*)\s*[()]/.exec(call.slice(match.index + match[0].length))?.[1] ?? "inline");
+      }
+    }
+    return found.sort();
+  }
+
   test("is every document stack.ts writes: an inline JSON document there fails this test", async () => {
     const source = await readFile(join(import.meta.dir, "../../scripts/factory-graph-proof/stack.ts"), "utf8");
-    const written = source.split("\n").filter((line) => line.includes("privateWrite(") && line.includes("JSON.stringify(")).map((line) => /JSON\.stringify\((\w+)/.exec(line)?.[1]);
-    expect(written.sort()).toEqual(["orchestratorDocument", "poolDatabaseDocument", "poolDocument", "startup", "supervisorDocument", "wrapsDocument"]);
+    expect(writtenDocuments(source)).toStrictEqual(["orchestratorDocument", "poolDatabaseDocument", "poolDocument", "startup", "supervisorDocument", "wrapsDocument"]);
     expect(source).toContain("const startup = startupDocument(layout);");
+  });
+
+  test("has a guard that sees an inline document on one line or split across lines", () => {
+    const builder = `await privateWrite(join(secrets, "pool.json"), JSON.stringify(poolDocument(layout)));`;
+    expect(writtenDocuments(builder)).toStrictEqual(["poolDocument"]);
+    expect(writtenDocuments(`${builder}\nawait privateWrite(join(secrets, "probe.json"), JSON.stringify({ probeToken: "x" }));`)).toStrictEqual(["inline", "poolDocument"]);
+    expect(writtenDocuments(`${builder}\nawait privateWrite(\n  join(secrets, "probe.json"),\n  JSON.stringify(\n    { probeToken: "x" },\n  ),\n);`)).toStrictEqual(["inline", "poolDocument"]);
+    expect(writtenDocuments(`await privateWrite(path, JSON.stringify(\n  document.field));`)).toStrictEqual(["inline"]);
+    expect(writtenDocuments(`await privateWrite(path, "plain text");`)).toStrictEqual([]);
+  });
+
+  test("gives up a URL's password even under a configuration key, and it is refused and redacted", async () => {
+    const root = await scratch();
+    await mkdir(join(root, "secrets"));
+    await mkdir(join(root, "readiness"));
+    const password = "url-password-0123456789";
+    await writeFile(join(root, "secrets", "service.json"), JSON.stringify({ baseUrl: `https://proof:${password}@127.0.0.1:9000/`, endpoint: "http://127.0.0.1:18333", hostname: "127.0.0.1" }));
+    const values = await collectSecretValues(join(root, "secrets"));
+    expect(values).toStrictEqual([password]);
+    await writeFile(join(root, "readiness", "pool.json"), JSON.stringify({ lifecycle: "degraded", detail: `login failed for ${password}` }));
+    const preserved = await preserveStackDiagnostics(root, { dir: await scratch(), label: "url" }, values);
+    expect(preserved.refused).toStrictEqual(["readiness/pool.json"]);
+    const log = join(await scratch(), "url.log");
+    await writeFile(log, `connecting as proof:${password}\n`);
+    expect(redactStreamedLogs([log], values)).toStrictEqual({ [log]: 1 });
+    expect(await readFile(log, "utf8")).toBe("connecting as proof:[redacted]\n");
   });
 
   test("yields its credentials to the collection and nothing else", async () => {

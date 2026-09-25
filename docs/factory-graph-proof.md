@@ -228,6 +228,7 @@ guard accept those two names when the container's `/etc/hosts` maps them.
     keys listed in `CONFIGURATION_KEYS` in
     `scripts/factory-graph-proof/diagnostics.ts` (ids, names, addresses,
     paths). A new field counts as a secret until someone adds its key to that list;
+  - the password of any URL with credentials in those files, under any key;
   - the database password, and the web server's own secrets.
 
   A streamed log has each secret replaced by `[redacted]`. A stack file that

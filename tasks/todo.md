@@ -4669,3 +4669,9 @@ secrets now. The proof itself is unchanged: both modes passed three of three, an
 - [x] L3: streamed logs are redacted every 2 seconds while the pass runs, not only at the end; the
   runbook states the window left when the harness itself dies.
 - [x] Heavy leg: the mock forced-failure control alone, under the lock, timeout 1800.
+
+### Second fix round (validator-3's F1 to F3)
+
+- [x] F1: the inline-document guard reads each `privateWrite(...)` call whole, marks anything but a named builder `"inline"`, compares with `toStrictEqual`, and is tested on fixtures, one line and split.
+- [x] F2: `receipt.sh` names every log and receipt per attempt; the first heavy attempt's receipt points at its preserved log and says the original was overwritten.
+- [x] F3: a URL's password is collected from every JSON string, whatever its key.

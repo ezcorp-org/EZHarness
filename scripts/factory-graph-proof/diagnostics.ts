@@ -164,17 +164,16 @@ function urlPasswords(value: string): string[] {
  * Every secret value the stack holds: each text file under `secrets/` (a
  * token, a key, a certificate) whole, the printed forms of each binary file
  * there (the master key), each string inside a JSON file there that is not
- * configuration, any URL password among them, and the extra values the caller
+ * configuration, the password of any URL anywhere among them (a configuration
+ * string included), and the extra values the caller
  * names (secrets that live only in a process environment).
  */
 export async function collectSecretValues(secretsDir: string, extra: readonly string[] = []): Promise<string[]> {
   const values = new Set<string>();
-  const add = (value: string) => {
-    const trimmed = value.trim();
-    if (trimmed.length < MIN_SECRET_LENGTH) return;
-    values.add(trimmed);
-    for (const password of urlPasswords(trimmed)) if (password.length >= MIN_SECRET_LENGTH) values.add(password);
-  };
+  const keep = (value: string) => { if (value.length >= MIN_SECRET_LENGTH) values.add(value); };
+  // A URL's password is a secret wherever the URL sits, even under a configuration key.
+  const addUrlPasswords = (value: string) => { for (const password of urlPasswords(value.trim())) keep(password); };
+  const add = (value: string) => { keep(value.trim()); addUrlPasswords(value); };
   for (const value of extra) add(value);
   let names: string[] = [];
   try { names = await readdir(secretsDir); } catch { return [...values]; }
@@ -187,7 +186,7 @@ export async function collectSecretValues(secretsDir: string, extra: readonly st
     const text = bytes.toString("utf8");
     let parsed: unknown;
     try { parsed = JSON.parse(text); } catch { add(text); continue; }
-    for (const leaf of jsonStringLeaves(parsed)) if (leaf.secret) add(leaf.value);
+    for (const leaf of jsonStringLeaves(parsed)) (leaf.secret ? add : addUrlPasswords)(leaf.value);
   }
   // Longest first, so a value that contains another is redacted whole.
   return [...values].sort((left, right) => right.length - left.length);
