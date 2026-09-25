@@ -8,6 +8,7 @@ import type { FactoryRunnerRequest } from "@ezcorp/factory-sdk";
 import type { FactoryPrivateRequest } from "../private-https";
 import { factoryAttemptLaunchIntentToWire, snapshotIntent, type FactoryAttemptLaunchIntent } from "./attempt-wire";
 import { certificates } from "../../__tests__/helpers/factory-certificates";
+import { factoryLaunchCompletedResult } from "../../__tests__/helpers/factory-attempt-launch-fixture";
 import { FACTORY_HOST_LAUNCH_PATH, FACTORY_HOST_ATTACH_PATH, FACTORY_HOST_RESULT_PATH } from "./host-launch-service";
 import { FACTORY_HOST_STOP_PATH } from "./host-stop-service";
 import {
@@ -303,32 +304,40 @@ describe("a guest this host ran to a result", () => {
       .rejects.toMatchObject({ code: "sandbox_stop_unconfirmed" });
   });
 
-  test("the router carries the finish from the result route to the stop route", async () => {
+  test("the router carries the finish from a guest this host closed to the stop route, and only that", async () => {
     const touched: string[] = [];
+    const states = new Map<string, RunnerInspection["state"]>();
     const runner: Runner = {
-      ...fakeRunner(new Map()),
-      async inspect(id): Promise<RunnerInspection> { touched.push(`inspect:${id}`); return { id, state: "unknown", diagnostics: [] }; },
+      ...fakeRunner(states),
+      async inspect(id): Promise<RunnerInspection> { touched.push(`inspect:${id}`); return { id, state: states.get(id) ?? "unknown", diagnostics: [] }; },
       async cancel(id) { touched.push(`cancel:${id}`); },
       async abort(id) { touched.push(`abort:${id}`); },
+      async start(input) {
+        states.set(input.workerId, "running");
+        return { workerId: input.workerId, request: async () => factoryLaunchCompletedResult("router"), close: async () => { states.set(input.workerId, "succeeded"); }, onNotification: () => () => {} };
+      },
     };
     const handle = createFactoryHostServiceRouter({ hostId, allowedPeers: [peer], runner, signingKey: await keyMaterial() });
     const intent = launchIntent();
+    const wire = Buffer.from(JSON.stringify({ intent: factoryAttemptLaunchIntentToWire(intent) }));
     const stop = { ...command, workerId: intent.workerId, reservationId: intent.lease.reservationId, holderGeneration: intent.lease.holderGeneration, allocationGeneration: intent.lease.allocationGeneration };
 
-    // Before the result route runs, this host knows nothing about the worker,
-    // so the stop is an ordinary three-phase proof — and `unknown` defeats it.
+    // Before this host ran the worker it knows nothing about it, so the stop is
+    // an ordinary three-phase proof, and `unknown` defeats it.
     expect(body(await handle(request({ path: FACTORY_HOST_STOP_PATH, body: Buffer.from(JSON.stringify(stop)) })))).toEqual({ error: "stop_failed" });
-    expect(touched.length).toBeGreaterThan(0);
+    // A result request for a worker this host never ran is refused, and it is
+    // not first-hand knowledge of anything: the stop still needs its proof.
+    expect(body(await handle(request({ path: FACTORY_HOST_RESULT_PATH, body: wire })))).toEqual({ error: "attempt_uncertain" });
+    expect(body(await handle(request({ path: FACTORY_HOST_STOP_PATH, body: Buffer.from(JSON.stringify(stop)) })))).toEqual({ error: "stop_failed" });
 
-    // The result route is reached with a real intent. This host never launched
-    // the worker, so the supervisor refuses — and the finish is recorded from
-    // `result`'s own `finally`, exactly as it is when a guest answers.
-    const collected = await handle(request({ path: FACTORY_HOST_RESULT_PATH, body: Buffer.from(JSON.stringify({ intent: factoryAttemptLaunchIntentToWire(intent) })) }));
-    expect(collected.status).toBe(409);
-    expect(body(collected)).toEqual({ error: "attempt_uncertain" });
+    // This host runs the guest to its answer, which closes the execution.
+    expect((await handle(request({ path: FACTORY_HOST_LAUNCH_PATH, body: wire }))).status).toBe(200);
+    const collected = await handle(request({ path: FACTORY_HOST_RESULT_PATH, body: wire }));
+    expect(collected.status).toBe(200);
+    expect(body(collected)).toEqual({ result: factoryLaunchCompletedResult("router") });
 
     // Now the same stop is first-hand knowledge and comes back signed, without
-    // the runner being asked a second time.
+    // the runner being asked again.
     touched.length = 0;
     const settled = await handle(request({ path: FACTORY_HOST_STOP_PATH, body: Buffer.from(JSON.stringify(stop)) }));
     expect(settled.status).toBe(200);

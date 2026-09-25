@@ -52,7 +52,7 @@ import {
   factoryRunnerSandboxControl,
   stopFactorySandbox,
 } from "./sandbox-stop";
-import type { FactoryAttemptLaunchIntent, FactoryPhysicalStopReceipt, FactoryUnsignedPhysicalStopReceipt } from "./attempt-wire";
+import type { FactoryPhysicalStopReceipt, FactoryUnsignedPhysicalStopReceipt } from "./attempt-wire";
 
 /** A launch body carries a whole runner request; a stop body is tiny. */
 const MAX_HOST_SERVICE_BODY_BYTES = 4 * 1024 * 1024;
@@ -176,27 +176,18 @@ export function createFactoryHostServiceRouter(options: FactoryHostServiceOption
   // ran to a result and closed. The launch half is the only thing that knows
   // it, and the stop half is the only thing that needs it.
   const finished = new Set<string>();
-  const launched = createFactoryHostLaunchSupervisor({
-    runner: options.runner,
-    hostId: options.hostId,
-    broker: options.broker ?? factoryHostBrokerUnavailable,
-    ...(options.now === undefined ? {} : { now: options.now }),
-  });
   const launch = createFactoryHostLaunchRouteHandler({
     hostId: options.hostId,
     allowedPeers: options.allowedPeers,
-    supervisor: Object.freeze({
-      launch: launched.launch.bind(launched),
-      attach: launched.attach.bind(launched),
-      async result(intent: FactoryAttemptLaunchIntent, signal: AbortSignal) {
-        try {
-          return await launched.result(intent, signal);
-        } finally {
-          // Recorded whether the guest answered or threw: either way this host
-          // closed the execution in `result`'s own `finally`.
-          finished.add(intent.workerId);
-        }
-      },
+    supervisor: createFactoryHostLaunchSupervisor({
+      runner: options.runner,
+      hostId: options.hostId,
+      broker: options.broker ?? factoryHostBrokerUnavailable,
+      // Recorded when the guest settles, whether it answered or died: that is
+      // when this host closes the execution, and a read of the answer may
+      // come later or never.
+      onClosed: (workerId) => { finished.add(workerId); },
+      ...(options.now === undefined ? {} : { now: options.now }),
     }),
   });
   const stop = createFactoryHostStopRouteHandler({
