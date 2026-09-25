@@ -30,7 +30,7 @@ import type { StagedAttachment } from "$server/chat/attachments/content-builder"
 import type { AttachmentSummary } from "$server/db/queries/conversations";
 import { buildCommandResolver } from "$lib/server/command-resolver";
 import type { RequestHandler } from "./$types";
-import { resolveLocalProjectTarget } from "$server/runtime/workspaces/project-target";
+import { resolveProjectWorkspaceTarget } from "$server/runtime/workspaces/project-target";
 
 const log = logger.child("api.messages");
 
@@ -213,10 +213,10 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
   // Select the durable project route before writing a message or starting a
   // stream. A sandbox binding cannot fall through to the AMD project path.
   const streamProject = await getProject(conv.projectId);
-  let streamWorkspaceTarget: Awaited<ReturnType<typeof resolveLocalProjectTarget>> | undefined;
+  let streamWorkspaceTarget: Awaited<ReturnType<typeof resolveProjectWorkspaceTarget>> | undefined;
   if (streamProject) {
     try {
-      streamWorkspaceTarget = await resolveLocalProjectTarget(streamProject, "conversation workspace");
+      streamWorkspaceTarget = await resolveProjectWorkspaceTarget(streamProject, "conversation workspace");
     } catch {
       return errorJson(503, "Sandbox workspace is unavailable");
     }
@@ -318,7 +318,7 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
         return errorJson(400, `Too many files (max ${caps.maxFilesPerMessage})`, { code: "TOO_MANY_FILES" });
       }
 
-      if (!streamProject?.path || !streamWorkspaceTarget) {
+      if (!streamWorkspaceTarget) {
         return errorJson(500, "Project path not resolvable for attachment storage");
       }
       const attachmentTarget = streamWorkspaceTarget;
@@ -401,7 +401,7 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
       // rather than failing the turn.
       if (editInheritSourceId) {
         try {
-          if (streamProject?.path && streamWorkspaceTarget) {
+          if (streamWorkspaceTarget) {
             const cloned = await cloneAttachmentsForFork({
               workspaceTarget: streamWorkspaceTarget,
               conversationId,

@@ -12,7 +12,10 @@
  * modules are off-limits.
  */
 
-import { test, expect, describe, vi, beforeEach } from "vitest";
+import { test, expect, describe, vi, beforeEach, afterEach } from "vitest";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 const getConversation = vi.fn();
@@ -51,7 +54,9 @@ vi.mock("$server/db/queries/projects", () => ({
 }));
 
 vi.mock("$server/runtime/workspaces/project-target", () => ({
-  resolveLocalProjectTarget: async (project: { path: string | null }) => {
+  resolveProjectWorkspaceTarget: async (project: { path: string | null; sandboxTarget?: unknown; stopped?: boolean }) => {
+    if (project.stopped) throw new Error("Sandbox workspace is unavailable");
+    if (project.sandboxTarget) return project.sandboxTarget;
     if (!project.path) throw new Error("Project path is unavailable");
     return { kind: "local", root: project.path };
   },
@@ -118,6 +123,8 @@ function makeEvent(opts: {
 }
 
 const user = { id: "u1", email: "u@x", name: "u", role: "user" };
+
+afterEach(() => getProject.mockReset());
 
 describe("GET /api/conversations/[id]/messages", () => {
   beforeEach(() => {
@@ -254,6 +261,70 @@ describe("POST /api/conversations/[id]/messages", () => {
     };
     expect(body.userMessage.id).toBe("m1");
     expect(typeof body.runId).toBe("string");
+  });
+
+  test("running Incus project starts chat with its guest target, never its inert host path", async () => {
+    const sandboxTarget = { kind: "sandbox", binding: { projectId: "p1", workspaceId: "guest-1" }, backend: {} };
+    getConversation.mockResolvedValue({ id: "c1", userId: "u1", projectId: "p1", provider: "openai", model: "gpt-4" });
+    getProject.mockResolvedValue({ id: "p1", path: "/__incus_workspace__/guest-1", sandboxTarget });
+    createMessage.mockResolvedValue({ id: "m1", role: "user", content: "Read README.md" });
+
+    const response = await POST(makeEvent({ method: "POST", locals: { user }, body: { content: "Read README.md" } }));
+
+    expect(response.status).toBe(200);
+    expect(streamChat).toHaveBeenCalledWith("c1", "Read README.md", expect.objectContaining({
+      projectId: "p1",
+      workspaceTarget: sandboxTarget,
+    }));
+  });
+
+  test("chat native read, edit, grep, and shell stay on the bound guest", async () => {
+    const hostRoot = await mkdtemp(join(tmpdir(), "incus-chat-host-canary-"));
+    try {
+      await writeFile(join(hostRoot, "README.md"), "AMD_HOST_CANARY");
+      const binding = { projectId: "p1", workspaceId: "guest-1", connectionId: "connection-1", providerId: "incus", generation: 1, presetId: "feature", releaseDigest: "a", presetDigest: "b", effectiveSettingsDigest: "c" };
+      const backend = { execute: vi.fn(async ({ toolName }: { toolName: string; binding: typeof binding }) => ({
+        content: [{ type: "text" as const, text: `GUEST_${toolName}` }], details: {},
+      })) };
+      const sandboxTarget = { kind: "sandbox" as const, binding, backend };
+      getConversation.mockResolvedValue({ id: "c1", userId: "u1", projectId: "p1", provider: "openai", model: "gpt-4" });
+      getProject.mockResolvedValue({ id: "p1", path: hostRoot, sandboxTarget });
+      createMessage.mockResolvedValue({ id: "m1", role: "user", content: "Use the project tools" });
+      const response = await POST(makeEvent({ method: "POST", locals: { user }, body: { content: "Use the project tools" } }));
+      expect(response.status).toBe(200);
+      const options = (streamChat.mock.calls[0] as unknown as [string, string, { workspaceTarget: typeof sandboxTarget }])[2];
+      expect(options.workspaceTarget).toBe(sandboxTarget);
+      vi.stubGlobal("Bun", { which: () => null });
+      const { getBuiltinToolDefs } = await import("$server/runtime/tools");
+      const tools = new Map(getBuiltinToolDefs(options.workspaceTarget).map(tool => [tool.name, tool]));
+      const calls = [
+        ["readFile", { path: "README.md" }],
+        ["editFile", { path: "README.md", old_string: "guest", new_string: "edited" }],
+        ["grep", { path: ".", pattern: "guest" }],
+        ["shell", { command: "pwd" }],
+      ] as const;
+      const results = await Promise.all(calls.map(async ([name, params]) => {
+        const result = await tools.get(name)!.execute(name, params);
+        return result.content.map(item => item.type === "text" ? item.text : "").join("");
+      }));
+      expect(results).toEqual(["GUEST_readFile", "GUEST_editFile", "GUEST_grep", "GUEST_shell"]);
+      expect(backend.execute.mock.calls.map(([request]) => request.binding)).toEqual([binding, binding, binding, binding]);
+      expect(backend.execute.mock.calls.map(([request]) => request.toolName)).toEqual(["readFile", "editFile", "grep", "shell"]);
+    } finally {
+      vi.unstubAllGlobals();
+      await rm(hostRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("stopped Incus project fails before message persistence or chat", async () => {
+    getConversation.mockResolvedValue({ id: "c1", userId: "u1", projectId: "p1" });
+    getProject.mockResolvedValue({ id: "p1", path: "/__incus_workspace__/guest-1", stopped: true });
+
+    const response = await POST(makeEvent({ method: "POST", locals: { user }, body: { content: "Read README.md" } }));
+
+    expect(response.status).toBe(503);
+    expect(createMessage).not.toHaveBeenCalled();
+    expect(streamChat).not.toHaveBeenCalled();
   });
 });
 

@@ -52,7 +52,7 @@ import { test, expect, describe, vi, beforeEach } from "vitest";
 import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 vi.mock("$server/runtime/workspaces/project-target", () => ({
-  resolveLocalProjectTarget: async (project: { path: string | null }) => {
+  resolveProjectWorkspaceTarget: async (project: { path: string | null }) => {
     if (!project.path) throw new Error("Project path is unavailable");
     return { kind: "local", root: project.path };
   },
