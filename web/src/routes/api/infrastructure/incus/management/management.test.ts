@@ -6,7 +6,7 @@ let queries = 0;
 let fail = false;
 let qualification: { validUntil: string } | null;
 let active: Record<string, unknown>;
-const connection = { installationId: "installation", releaseId: "release", connectionId: "connection", connectionRevision: 1, label: "Development" };
+const connection = { installationId: "installation", releaseId: "release", connectionId: "connection", connectionRevision: 1, label: "Development", setupId: null };
 const preset = { id: "compose", profile: "persistent-web-compose.v1", limits: { memoryBytes: 4294967296, cpuMillis: 2000, diskBytes: 21474836480, pids: 1024 } };
 const run = { runId: "run", state: "AWAITING_RESTART", deadlineAt: "2999-01-01T00:00:00Z" };
 mock.module("$server/auth/middleware", () => ({ requireAdminSession: (locals: { user?: { role: string }; authMethod?: string }) =>

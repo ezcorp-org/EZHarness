@@ -39,6 +39,16 @@ test("real migrated database lists user bindings and excludes fixture projects a
   expect(result.features).toHaveLength(1);
   expect(result.features[0]).toMatchObject({ projectId: "user", bindingId: "binding-user", observedState: "UNKNOWN", connectionRevision: 1, generation: 1,
     operation: { id: "operation-user", kind: "CREATE", state: "OUTCOME_UNKNOWN" } });
-  expect(result.environments[0]).toMatchObject({ connectionId: "connection", qualified: false });
+  expect(result.environments[0]).toMatchObject({ connectionId: "connection", qualified: false, setupId: null });
   expect(JSON.stringify(result)).not.toContain("SECRET");
+  for (const [id, release, revision, state] of [["setup-current", "release", 1, "verified"],
+    ["setup-old-release", "old-release", 1, "verified"], ["setup-old-revision", "release", 2, "verified"],
+    ["setup-unverified", "release", 1, "planned"]] as const) {
+    await db.execute(sql`INSERT INTO incus_operator_setups (id, provider_installation_id, provider_release_id,
+      provider_release_digest, provider_generation, connection_id, connection_revision, planned_by, recipe, plan, state)
+      VALUES (${id}, 'installation', ${release}, 'digest', 1, 'connection', ${revision}, 'admin', '{}', '{}', ${state})`);
+  }
+  const updated = await GET({ locals: {} } as Parameters<typeof GET>[0]);
+  expect(updated.status).toBe(200);
+  expect((await updated.json()).environments[0].setupId).toBe("setup-current");
 }, 30_000);

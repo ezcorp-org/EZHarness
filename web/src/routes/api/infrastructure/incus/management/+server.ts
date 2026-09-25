@@ -12,6 +12,7 @@ import type { RequestHandler } from "./$types";
 const pageSize = 100;
 interface Connection {
   installationId: string; releaseId: string; connectionId: string; connectionRevision: number; label: string;
+  setupId: string | null;
 }
 interface Run { runId: string; state: string; deadlineAt: string }
 
@@ -23,10 +24,14 @@ export const GET: RequestHandler = async ({ locals }) => {
     await getExtensionLifecycle();
     const db = getDb();
     const connections = releaseRows<Connection>(await db.execute(sql`SELECT
-      provider_installation_id AS "installationId", provider_release_id AS "releaseId",
-      id AS "connectionId", revision AS "connectionRevision", project AS label
-      FROM provider_connections WHERE revoked_at IS NULL AND configuration->>'kind' = 'incus'
-      ORDER BY id LIMIT ${pageSize + 1}`));
+      c.provider_installation_id AS "installationId", c.provider_release_id AS "releaseId",
+      c.id AS "connectionId", c.revision AS "connectionRevision", c.project AS label,
+      (SELECT s.id FROM incus_operator_setups s WHERE s.connection_id = c.id
+        AND s.connection_revision = c.revision AND s.provider_installation_id = c.provider_installation_id
+        AND s.provider_release_id = c.provider_release_id AND s.state = 'verified'
+        ORDER BY s.created_at DESC, s.id DESC LIMIT 1) AS "setupId"
+      FROM provider_connections c WHERE c.revoked_at IS NULL AND c.configuration->>'kind' = 'incus'
+      ORDER BY c.id LIMIT ${pageSize + 1}`));
     const projects = releaseRows<{ id: string; name: string }>(await db.execute(sql`SELECT id, name
       FROM projects WHERE purpose = 'user' ORDER BY name, id LIMIT ${pageSize + 1}`));
     // Explicit columns keep configuration, certificates, journals and secret data out of the response.
