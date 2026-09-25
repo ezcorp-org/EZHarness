@@ -2606,6 +2606,27 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     await new FactoryRunTransitionProjector(fixture.db, tenantId, transitions, lifecycle).project(runKey(run.runId));
   });
 
+  test("a denied approval fails its run by name in the transition that records the decision, with nothing left to stop", async () => {
+    // W01h, from W14's real lane: the deny used to put the run in `stopping` behind a cancel-node for
+    // the gate, which the attempt queue refused as stale, so the run never ended.
+    const { activities, approvals, compiled, first, identity, item, reference, releases, run, transitions } = await prepareApproval("operator", "denied-gate");
+    expect(await approvals.decide(principal, projectId, run.runId, item.approvalId, item.contextDigest, "hold", 0, "denied-gate-decision")).toMatchObject({ status: "answered", choice: "hold" });
+    const decided = await approvals.execute(reference);
+    expect(decided).toMatchObject({ kind: "approval-decided", choice: "hold" });
+    const ended = advanceKernel(compiled, first.nextState, decided!);
+    expect(ended.commands.some(command => command.kind === "cancel-node")).toBe(false);
+    expect(ended.commands).toContainEqual(expect.objectContaining({ kind: "fail-run", error: "APPROVAL_DENIED" }));
+    expect(ended.nextState).toMatchObject({ status: "failed", cancellationEpoch: 1 });
+    await persistTransition(identity, 2, decided!, ended.nextState, ended.commands, undefined, activities);
+    await new FactoryRunTransitionProjector(fixture.db, tenantId, transitions, lifecycle).project(runKey(run.runId));
+    const [row] = rows<{ status: string; cancellation_epoch: string | number; error_json: string | null }>(await fixture.db.execute(sql`SELECT status,cancellation_epoch,error_json FROM factory_run_lifecycle WHERE tenant_id=${tenantId} AND project_id=${projectId} AND run_id=${run.runId}`));
+    expect({ status: row?.status, epoch: Number(row?.cancellation_epoch) }).toEqual({ status: "failed", epoch: 1 });
+    expect(row?.error_json ?? "").toContain("APPROVAL_DENIED");
+    // The request is closed: it is no longer offered, and a second answer changes nothing.
+    expect((await releases.listDeliveredNotifications(principal, projectId, { limit: 200 })).items.some(value => value.kind === "command_approval_requested" && value.approvalId === item.approvalId)).toBe(false);
+    expect(await approvals.execute(reference)).toEqual(decided);
+  });
+
   test("owner and tenant contract administrator approval scopes do not widen human authority", async () => {
     await fixture.db.execute(sql`INSERT INTO users(id,email,password_hash,name,role) VALUES ('approval-reviewer','approval-reviewer@example.test','x','Approval reviewer','user'),('approval-admin','approval-admin@example.test','x','Approval admin','admin')`);
     await fixture.db.execute(sql`INSERT INTO project_members(id,project_id,user_id,role) VALUES ('approval-reviewer-member',${projectId},'approval-reviewer','member'),('approval-admin-member',${projectId},'approval-admin','member')`);
