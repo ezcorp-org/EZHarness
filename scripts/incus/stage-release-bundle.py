@@ -78,12 +78,47 @@ def immutable_paths(root):
             if directory == root and path.name == RUNTIME_DIR:
                 require(stat.S_ISDIR(mode), "runtime directory must not be a symlink or file")
                 continue
+            yield path
             if stat.S_ISDIR(mode):
                 yield from visit(path)
-            else:
-                yield path
 
-    return sorted(visit(root))
+    return [root, *sorted(visit(root))]
+
+
+def normalize_modes(root):
+    for path in immutable_paths(root):
+        status = path.lstat()
+        mode = status.st_mode
+        if stat.S_ISLNK(mode):
+            continue
+        if stat.S_ISDIR(mode):
+            safe_mode = 0o755
+        elif stat.S_ISREG(mode):
+            safe_mode = 0o755 if mode & 0o111 else 0o644
+        else:
+            raise ValueError(f"special file in release: {path.relative_to(root)}")
+        if stat.S_IMODE(mode) == safe_mode:
+            continue
+        if stat.S_ISREG(mode) and status.st_nlink > 1:
+            with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as temporary:
+                temporary_path = Path(temporary.name)
+            try:
+                shutil.copyfile(path, temporary_path)
+                os.chmod(temporary_path, safe_mode)
+                temporary_path.replace(path)
+            finally:
+                temporary_path.unlink(missing_ok=True)
+        else:
+            os.chmod(path, safe_mode)
+
+
+def check_safe_modes(root):
+    for path in immutable_paths(root):
+        mode = path.lstat().st_mode
+        if stat.S_ISDIR(mode) or stat.S_ISREG(mode):
+            kind = "directory" if stat.S_ISDIR(mode) else "file"
+            require(not mode & 0o022,
+                    f"writable release {kind}: {path.relative_to(root)}")
 
 
 def inventory(root):
@@ -130,6 +165,7 @@ def check_runtime_placeholder(root):
 def verify(root):
     root = root.resolve(strict=True)
     check_runtime_placeholder(root)
+    check_safe_modes(root)
     document = json.loads((root / MANIFEST).read_text())
     require(set(document) == {"schema", "gitSha", "bunVersion", "bunSha256", "locks", "files"}
             and document["schema"] == 1 and document["bunVersion"] == "1.3.14",
@@ -241,11 +277,13 @@ def stage(source, output, bun, expected_bun_sha256):
         (work / RUNTIME_DIR).mkdir(mode=0o755)
         os.chmod(work / RUNTIME_DIR, 0o755)
         check_required(work)
+        normalize_modes(work)
         document = {"schema": 1, "gitSha": head, "bunVersion": "1.3.14",
                     "bunSha256": expected_bun_sha256,
                     "locks": {name: sha256(work / name) for name in ("bun.lock", "web/bun.lock")},
                     "files": inventory(work)}
         (work / MANIFEST).write_text(json.dumps(document, sort_keys=True, separators=(",", ":")) + "\n")
+        os.chmod(work / MANIFEST, 0o644)
         verify(work)
         work.rename(output)
     return {"gitSha": head, "files": len(document["files"]), "output": str(output)}

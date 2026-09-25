@@ -109,6 +109,63 @@ class ReleaseBundleTests(unittest.TestCase):
             self.assertFalse(any(item["path"].startswith(".ezcorp/")
                                  for item in MODULE.verify(output)["files"]))
 
+    def test_stage_normalizes_dependency_modes_without_changing_hardlinked_source(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as directory:
+            source = Path(directory) / "source"
+            source.mkdir()
+            bun = source / "bun"
+            bun.write_bytes(b"fake bun")
+            output = Path(directory) / "release"
+            cached = source / "cached-license"
+            cached.write_bytes(b"license")
+            os.chmod(cached, 0o666)
+
+            def fake_run(_argv, *, cwd, env):
+                if cwd.name == "release" and not (cwd / "bun.lock").exists():
+                    self.release_fixture(cwd)
+                    (cwd / "bin/bun").write_bytes(bun.read_bytes())
+                    (cwd / MODULE.RUNTIME_DIR).rmdir()
+                    package = cwd / "web/node_modules/fast-uri"
+                    package.mkdir(mode=0o777)
+                    os.chmod(package, 0o777)
+                    os.link(cached, package / "LICENSE")
+                    (package / "LICENSE.link").symlink_to("LICENSE")
+                    executable = package / "tool"
+                    executable.write_bytes(b"tool")
+                    os.chmod(executable, 0o777)
+
+            with patch.object(MODULE, "git_head", return_value="a" * 40), \
+                 patch.object(MODULE, "extract_head"), \
+                 patch.object(MODULE, "run", side_effect=fake_run), \
+                 patch.object(MODULE.subprocess, "check_output", return_value="1.3.14\n"):
+                MODULE.stage(source, output, bun, MODULE.sha256(bun))
+            package = output / "web/node_modules/fast-uri"
+            self.assertEqual((package / "LICENSE").stat().st_mode & 0o777, 0o644)
+            self.assertEqual((package / "tool").stat().st_mode & 0o777, 0o755)
+            self.assertEqual(package.stat().st_mode & 0o777, 0o755)
+            self.assertEqual(cached.stat().st_mode & 0o777, 0o666)
+            self.assertNotEqual((package / "LICENSE").stat().st_ino, cached.stat().st_ino)
+            self.assertTrue((package / "LICENSE.link").is_symlink())
+            MODULE.verify(output)
+
+    def test_verify_rejects_writable_file_and_directory_with_matching_manifest(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as directory:
+            root = Path(directory)
+            self.release_fixture(root)
+            dependency = root / "web/node_modules/fast-uri"
+            dependency.mkdir()
+            license_file = dependency / "LICENSE"
+            license_file.write_bytes(b"license")
+            os.chmod(license_file, 0o666)
+            self.seal_fixture(root)
+            with self.assertRaisesRegex(ValueError, "writable release file"):
+                MODULE.verify(root)
+            os.chmod(license_file, 0o644)
+            os.chmod(dependency, 0o777)
+            self.seal_fixture(root)
+            with self.assertRaisesRegex(ValueError, "writable release directory"):
+                MODULE.verify(root)
+
     def test_archive_rejects_tracked_runtime_directory(self):
         with tempfile.TemporaryDirectory(dir="/tmp") as directory:
             source = Path(directory) / "source"
