@@ -129,6 +129,11 @@ Coordinator ruling 2026-09-22: approved for W16; the owner's package inherits it
   EXPECT: every leg exit 0; one receipt per leg
   EVIDENCE: PENDING the rerun at the head that renders guestBroker (after the W19a merge hash). Prior record, hold f3 at a1ba5d95b, 06:16Z-06:48Z, `/tmp/factory-platform-evidence/w16/receipts/f3/` (32 receipts, all exit 0, all clean at start). PostgreSQL first: provisioning+gateway 64, bootstrap 17, pool 8, grants 13, schema 2, grants importers 16, restore 13. Podman: supervisor-process 3, guest-broker-transport 8, package-preparation 1. Route proof 8/8 as expected. Live: self-hosted 42/42, lifecycle 27/27. Kubernetes 19 valid, kind admission as labelled. Unit 951/0, boundary suites 46/0 (factory-process-boundaries and check-factory-boundaries), web 19. New-file 36 files, patch 52 files. Earlier holds f1 (b09f210b0: every non-live leg green, candidate builder anchor defect) and f2 (b09f210b0: live found the gateway probe defect fixed in a1ba5d95b) are kept as evidence under `receipts/f1`, `receipts/f2`
 
+- [ ] G16: Every installation binds W01g's guest-broker route: the rendered startup document declares `guestBroker` (host authority, fleet supervisor identity, host token key, port `+3`), the product parser accepts it, and W01g's own composer binds it; live readiness names it `bound`, and only the fleet supervisor's certificate completes its TLS.
+  CHECK: `bun test --timeout 60000 ./src/factory/provisioning/deployment.test.ts`; the live self-hosted proof
+  EXPECT: exit 0; red without the section; live checks pass on all ten
+  EVIDENCE: unit at d77d70cc8: deployment.test.ts 47/0, red without the section 0/2 (`/tmp/factory-platform-evidence/w16/logs/guest-broker-render-red.log`); W16 unit set 999/0. Live: PENDING the next hold. The host side is open (`guest-broker-host-side`)
+
 ## Named readiness rows that stay open on this host
 
 | Row | Why it is open |
@@ -143,7 +148,7 @@ Coordinator ruling 2026-09-22: approved for W16; the owner's package inherits it
 | `hosted-host-identity-shared` | The Kubernetes supervisor DaemonSet holds one fleet-wide host identity (as the Compose fleet host now does too) |
 | `gpu-profile-lease-consumer` | Disclosed structural gap, owner W02; W02d builds it after W16 lands (coordinator ruling). The pool validates GPU declarations but does not yet authorize devices from them: `factoryHeldAllocationDevices` in `runner/attempt-wire.ts` has no production caller |
 | `restore-lifecycle-step` | Named follow-up, owner W16 (coordinator ruling 2026-09-24): the restore-to-checkpoint lifecycle step, a W16 package after this round (from W14's restore proof against W15). An in-place restore blocks on `database_position_mismatch`, because nothing restores the installation's database to the checkpoint first: the provisioner has no restore lifecycle step (point-in-time recovery to the checkpoint, then the pool restore import) |
-| `guest-broker-route-unrendered` | DEFECT, not a disclosed gap (coordinator ruling 2026-09-25): a provisioned installation has no guest staging route. Blocked on a design ruling: W01g's supervisor takes ONE `services.guestBroker` endpoint, and the fleet runs ONE shared supervisor for every installation (options sent to the coordinator: keyed endpoints per tenant, a fleet router, or per-installation supervisors) |
+| `guest-broker-host-side` | DEFECT in progress (coordinator ruling 2026-09-25). The installation side is rendered and bound (G16). The host side is blocked on a design ruling: W01g's supervisor takes ONE `services.guestBroker` endpoint, and the fleet runs ONE shared supervisor for every installation (options sent to the coordinator: keyed endpoints per tenant, a fleet router, or per-installation supervisors). Until then a staging guest is refused by name on a provisioned fleet |
 | `orchestrator-build-id-versioning` | The orchestrator does not implement Temporal worker build-ID versioning; builds are retained at the image and release level |
 | Production GPU, eight rows | `FACTORY_PRODUCTION_GPU_CRITERIA`, all unmet with the verdicts in `docs/factory-local-gpu.md` |
 

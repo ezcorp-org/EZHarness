@@ -3571,7 +3571,8 @@ Base: `260855e57` (W09b merged). Assumptions are stated in the gate file.
 - [x] P19 Merge integ/w00 2b2e12550 (70def1355): both sides kept in migrate.ts and todo.md; W01g's supervisor fixture by ruling; W15/W15c items recorded in the gate file.
 - [x] P20 Gateway probe accepts the execution gateway's own route-less 401 (a1ba5d95b), found by the live fleet; the test runs the real gateway.
 - [x] P21 Final hold f3 at a1ba5d95b: PostgreSQL producers first, Podman suites, route proof, live Compose fleet and lifecycle, Kubernetes, boundary suites, coverage vs 2b2e12550; all 32 legs exit 0 (G15).
-- [ ] P22 Render W01g's guestBroker route for every installation (ruled a defect); blocked on the shared-supervisor endpoint design ruling.
+- [x] P22 Render W01g's guestBroker route for every installation (ruled a defect): installation side at d77d70cc8 (G16 unit proof; live pending).
+- [ ] P22b The host side of the guest-broker route: blocked on the shared-supervisor endpoint design ruling.
 - [ ] P23 Final hold at the head that renders guestBroker (after the W19a merge hash).
 - [ ] P24 Disclosed follow-up owned by W16: the restore-to-checkpoint lifecycle step.
 
@@ -3595,8 +3596,8 @@ under a private umask, Envoy's user, the unconfigured extensions, and daemons
 failing on the read-only root. After the 2b2e12550 merge the final hold at a1ba5d95b
 passed every leg (self-hosted 42/42, lifecycle 27/27), after a live run
 exposed a gateway probe that accepted only a 404 the real gateway never sends.
-Open: the guestBroker route (a defect, blocked on a design ruling) and the
-restore-to-checkpoint lifecycle step (disclosed follow-up).
+Open: the host side of the guestBroker route (a defect, blocked on a design
+ruling) and the restore-to-checkpoint lifecycle step (disclosed follow-up).
 
 ## W09c — compose the release profile set from the declaration (branch `wp/w09c-profiles`)
 
