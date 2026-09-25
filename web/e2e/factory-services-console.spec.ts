@@ -225,6 +225,23 @@ test("a save racing a publish leaves one consistent winner; in either fixed orde
 });
 
 test("a run started from the version list is watched live to a terminal status with its attempts, costs, and evidence @evidence", async ({ page }, testInfo) => {
+	// A guest attempt, a validator attempt, a human consent, and a publication: longer than one journey's default.
+	test.setTimeout(900_000);
+	// The operator's release steps, through the product's own routes: the approver's grants, the release
+	// trust and control, and the contract pinned from the version's registered validator material.
+	for (const action of ["factory.release", "factory.approve"] as const) {
+		const granted = await mutate(page.request, "PUT", `${project()}/grants/user/${encodeURIComponent(state.adminId)}/${action}`, 0, { expiresAtMs: null });
+		expect(granted.status(), await granted.text()).toBe(200);
+	}
+	const material = (await (await page.request.get(`${project()}/validator-materials?factoryId=${encodeURIComponent(state.consoleFactoryId)}&factoryVersion=1.0.0`)).json() as { resource: { contractDigest: string; validatorLockDigest: string; mandatoryClaims: unknown[]; claimGroups: unknown[] } }).resource;
+	for (const [path, body] of [
+		["release/trust", { packageLock: state.guest.reference, validatorTrustDigest: material.validatorLockDigest }],
+		["release/control", { enabled: true }],
+		[`release/contracts/${encodeURIComponent(state.contractId)}`, { contractDigest: material.contractDigest, validatorLockDigest: material.validatorLockDigest, mandatoryClaims: material.mandatoryClaims, claimGroups: material.claimGroups }],
+	] as const) {
+		const put = await mutate(page.request, "PUT", `${project()}/${path}`, 0, body);
+		expect(put.status(), `${path}: ${await put.text()}`).toBe(200);
+	}
 	await selectProject(page, "authoring");
 	const console = page.getByTestId("factory-console");
 	await console.getByRole("button", { name: new RegExp(state.consoleFactoryId.replace(/\./g, "\\.")) }).first().click();
@@ -436,6 +453,8 @@ test("the scoped API: tickets, download headers, a read-only key, a service cred
 });
 
 test("the console quarantines a package under a live attempt, shows what the fence stopped, lifts it, and records a purge request that deletes nothing @evidence", async ({ page }, testInfo) => {
+	// Waiting for a live attempt and for the fenced run to leave `running`: longer than the default.
+	test.setTimeout(900_000);
 	// A run whose guest holds its attempt live, so the quarantine has live work to fence (W02c).
 	const published = (await (await page.request.get(`${project()}/definitions/${encodeURIComponent(state.consoleFactoryId)}/versions/1.0.0`)).json() as { resource: { version: string; definitionDigest: string } }).resource;
 	const started = await mutate(page.request, "POST", `${project()}/definitions/${encodeURIComponent(state.consoleFactoryId)}/runs`, 0, {
@@ -506,6 +525,7 @@ async function runGrantRevision(page: Page): Promise<number> {
 }
 
 test("a run waiting on an approval streams live, shows the approval blocker, and a revoked reader's stream closes as revoked @evidence", async ({ page, browser }, testInfo) => {
+	test.setTimeout(900_000);
 	const approvalFactory = await publishDefinition(page, definition => {
 		const graph = definition.graph as { nodes: Array<Record<string, unknown>> };
 		return {
