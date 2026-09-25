@@ -1,0 +1,667 @@
+  bun: src/integrations/github-projects/__tests__/web-connect-flow.integration.test.ts
+bun test v1.3.14 (0d9b296a)
+{"ts":"2026-09-25T09:02:16.048Z","level":"info","msg":"refresh-columns: credential resolve failed","subsystem":"ext.github-projects.api.refresh-columns","projectId":"3227745c-43ba-4127-b28c-9bec2562ec32","authMode":"pat","error":"no PAT stored for board or project"}
+
+ 23 pass
+ 0 fail
+ 140 expect() calls
+Ran 23 tests across 1 file. [7.07s]
+  bun: src/__tests__/admin-analytics-api-routes.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 13 pass
+ 0 fail
+ 56 expect() calls
+Ran 13 tests across 1 file. [569.00ms]
+  bun: src/__tests__/admin-session-api-routes.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 8 pass
+ 0 fail
+ 27 expect() calls
+Ran 8 tests across 1 file. [1151.00ms]
+  bun: src/__tests__/attachments-admin-audit.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 4 pass
+ 0 fail
+ 14 expect() calls
+Ran 4 tests across 1 file. [1122.00ms]
+  bun: src/__tests__/attachments-cross-user-security.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 6 pass
+ 0 fail
+ 8 expect() calls
+Ran 6 tests across 1 file. [1145.00ms]
+  bun: src/__tests__/attachments-gc.test.ts
+bun test v1.3.14 (0d9b296a)
+{"ts":"2026-09-25T09:02:24.653Z","level":"info","msg":"preview conversation reaped","subsystem":"preview.reaper","conversationId":"016cc6e3-d205-4dc1-aa24-c9b64fc9b42b","processesKilled":0,"processesUnconfirmed":0,"previewsRevoked":0,"uidReleased":false,"uidQuarantined":false}
+
+ 1 pass
+ 0 fail
+ 5 expect() calls
+Ran 1 test across 1 file. [1121.00ms]
+  bun: src/__tests__/attachments-serve-route.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 8 pass
+ 0 fail
+ 15 expect() calls
+Ran 8 tests across 1 file. [1168.00ms]
+  bun: src/__tests__/conversations-clone-turns-api.test.ts
+bun test v1.3.14 (0d9b296a)
+{"ts":"2026-09-25T09:02:26.579Z","level":"error","msg":"clone failed","subsystem":"api.clone-turns","error":"database down"}
+
+ 9 pass
+ 0 fail
+ 18 expect() calls
+Ran 9 tests across 1 file. [582.00ms]
+  bun: src/__tests__/extension-event-end-to-end.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 12 pass
+ 0 fail
+ 42 expect() calls
+Ran 12 tests across 1 file. [594.00ms]
+  bun: src/__tests__/extensions-delete-route-policy.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 9 pass
+ 0 fail
+ 27 expect() calls
+Ran 9 tests across 1 file. [571.00ms]
+  bun: src/__tests__/extensions-patch-route.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 11 pass
+ 0 fail
+ 51 expect() calls
+Ran 11 tests across 1 file. [583.00ms]
+  bun: src/__tests__/extension-toggle-agent-gating.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 5 pass
+ 0 fail
+ 22 expect() calls
+Ran 5 tests across 1 file. [1321.00ms]
+  bun: src/__tests__/ext-files-route.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 11 pass
+ 0 fail
+ 21 expect() calls
+Ran 11 tests across 1 file. [581.00ms]
+  bun: src/__tests__/feature-endpoints.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 57 pass
+ 0 fail
+ 146 expect() calls
+Ran 57 tests across 1 file. [15.79s]
+  bun: src/__tests__/git-hooks.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 20 pass
+ 0 fail
+ 204 expect() calls
+Ran 20 tests across 1 file. [3.57s]
+  bun: src/__tests__/local-model-test-endpoint.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 9 pass
+ 0 fail
+ 23 expect() calls
+Ran 9 tests across 1 file. [610.00ms]
+  bun: src/__tests__/memory-list-derived-owner.integration.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 8 pass
+ 0 fail
+ 45 expect() calls
+Ran 8 tests across 1 file. [3.07s]
+  bun: src/__tests__/messages-multipart-route.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 10 pass
+ 0 fail
+ 51 expect() calls
+Ran 10 tests across 1 file. [1261.00ms]
+  bun: src/__tests__/messages-patch-content.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 12 pass
+ 0 fail
+ 21 expect() calls
+Ran 12 tests across 1 file. [577.00ms]
+  bun: src/__tests__/messages-permission-mode-ceiling-route.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 17 pass
+ 0 fail
+ 48 expect() calls
+Ran 17 tests across 1 file. [1223.00ms]
+  bun: src/__tests__/mock-cleanup-coverage.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 23 pass
+ 0 fail
+ 50 expect() calls
+Ran 23 tests across 1 file. [835.00ms]
+  bun: src/__tests__/modes-api.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 53 pass
+ 0 fail
+ 91 expect() calls
+Ran 53 tests across 1 file. [1185.00ms]
+  bun: src/__tests__/seam-auth-chat-integration.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 3 pass
+ 0 fail
+ 15 expect() calls
+Ran 3 tests across 1 file. [1.57s]
+  bun: src/__tests__/security/c1-settings-api.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 13 pass
+ 0 fail
+ 30 expect() calls
+Ran 13 tests across 1 file. [626.00ms]
+  bun: src/__tests__/security/c2-session-revocation.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 4 pass
+ 0 fail
+ 25 expect() calls
+Ran 4 tests across 1 file. [662.00ms]
+  bun: src/__tests__/security/c3-confirm-endpoint.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 8 pass
+ 0 fail
+ 72 expect() calls
+Ran 8 tests across 1 file. [3.20s]
+  bun: src/__tests__/security/c3-extension-install.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 3 pass
+ 0 fail
+ 31 expect() calls
+Ran 3 tests across 1 file. [1220.00ms]
+  bun: src/__tests__/security/c5-provider-keys-admin-gate.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 8 pass
+ 0 fail
+ 35 expect() calls
+Ran 8 tests across 1 file. [609.00ms]
+  bun: src/__tests__/security/h1-local-provider-ssrf.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 148 pass
+ 0 fail
+ 331 expect() calls
+Ran 148 tests across 1 file. [594.00ms]
+  bun: src/__tests__/security/h2-tool-call-ownership.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 7 pass
+ 0 fail
+ 16 expect() calls
+Ran 7 tests across 1 file. [581.00ms]
+  bun: src/__tests__/security/h3b-conversation-subroutes-idor.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 15 pass
+ 0 fail
+ 22 expect() calls
+Ran 15 tests across 1 file. [612.00ms]
+  bun: src/__tests__/security/h3-conversations-memories-idor.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 37 pass
+ 0 fail
+ 74 expect() calls
+Ran 37 tests across 1 file. [610.00ms]
+  bun: src/__tests__/security/kb-file-sharing-api.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 26 pass
+ 0 fail
+ 80 expect() calls
+Ran 26 tests across 1 file. [1214.00ms]
+  bun: src/__tests__/security/kb-ownerless-rows-are-shared.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 21 pass
+ 0 fail
+ 72 expect() calls
+Ran 21 tests across 1 file. [601.00ms]
+  bun: src/__tests__/security/kb-retrieval-is-user-scoped.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 16 pass
+ 0 fail
+ 59 expect() calls
+Ran 16 tests across 1 file. [1172.00ms]
+  bun: src/__tests__/security/m3-fs-list-sandbox.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 9 pass
+ 0 fail
+ 18 expect() calls
+Ran 9 tests across 1 file. [649.00ms]
+  bun: src/__tests__/security/project-members-api.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 25 pass
+ 0 fail
+ 45 expect() calls
+Ran 25 tests across 1 file. [613.00ms]
+  bun: src/__tests__/security/project-permission-mode-authz.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 30 pass
+ 0 fail
+ 80 expect() calls
+Ran 30 tests across 1 file. [588.00ms]
+  bun: web/src/routes/api/conversations/[id]/extension-toolbar/__tests__/list.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 12 pass
+ 0 fail
+ 18 expect() calls
+Ran 12 tests across 1 file. [664.00ms]
+  bun: web/src/routes/api/extensions/[name]/uploads/__tests__/upload.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 21 pass
+ 0 fail
+ 45 expect() calls
+Ran 21 tests across 1 file. [637.00ms]
+  bun: web/src/routes/api/extensions/__tests__/secrets-route.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 29 pass
+ 0 fail
+ 77 expect() calls
+Ran 29 tests across 1 file. [598.00ms]
+  bun: web/src/routes/api/extensions/__tests__/triggers-route.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 13 pass
+ 0 fail
+ 22 expect() calls
+Ran 13 tests across 1 file. [596.00ms]
+  bun: web/src/routes/api/hub/pages/[id]/__tests__/run-variant-route.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 14 pass
+ 0 fail
+ 56 expect() calls
+Ran 14 tests across 1 file. [588.00ms]
+  bun: web/src/routes/api/import/__tests__/commit.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 13 pass
+ 0 fail
+ 48 expect() calls
+Ran 13 tests across 1 file. [627.00ms]
+  bun: web/src/routes/api/import/__tests__/preview.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 11 pass
+ 0 fail
+ 21 expect() calls
+Ran 11 tests across 1 file. [615.00ms]
+  bun: web/src/routes/api/integrations/github-projects/__tests__/handlers.test.ts
+bun test v1.3.14 (0d9b296a)
+{"ts":"2026-09-25T09:03:19.840Z","level":"warn","msg":"token persist failed","subsystem":"ext.github-projects.api.connect","error":"secret write failed"}
+{"ts":"2026-09-25T09:03:19.840Z","level":"warn","msg":"token persist failed","subsystem":"ext.github-projects.api.connect","error":"secret write failed"}
+{"ts":"2026-09-25T09:03:19.841Z","level":"info","msg":"board resolve failed","subsystem":"ext.github-projects.api.connect","error":"bad url"}
+{"ts":"2026-09-25T09:03:19.841Z","level":"info","msg":"auth validation threw","subsystem":"ext.github-projects.api.connect","error":"net"}
+{"ts":"2026-09-25T09:03:19.841Z","level":"warn","msg":"token persist failed","subsystem":"ext.github-projects.api.connect","error":"secret write failed"}
+{"ts":"2026-09-25T09:03:19.846Z","level":"warn","msg":"board override token purge failed on disconnect","subsystem":"ext.github-projects.api.link","linkId":"link-1","projectId":"proj-1","error":"secret purge failed"}
+{"ts":"2026-09-25T09:03:19.846Z","level":"warn","msg":"shared token purge failed on disconnect","subsystem":"ext.github-projects.api.link","linkId":"link-1","projectId":"proj-1","error":"secret purge failed"}
+{"ts":"2026-09-25T09:03:19.848Z","level":"warn","msg":"approve failed","subsystem":"ext.github-projects.api.approve","proposalId":"p1","error":"spawn boom"}
+{"ts":"2026-09-25T09:03:19.849Z","level":"warn","msg":"dismiss failed","subsystem":"ext.github-projects.api.dismiss","proposalId":"p1","error":"boom"}
+{"ts":"2026-09-25T09:03:19.850Z","level":"warn","msg":"rerun failed","subsystem":"ext.github-projects.api.rerun","proposalId":"p1","error":"db down"}
+{"ts":"2026-09-25T09:03:19.851Z","level":"info","msg":"refresh-columns: credential resolve failed","subsystem":"ext.github-projects.api.refresh-columns","projectId":"proj-1","authMode":"pat","error":"no PAT stored for board or project"}
+{"ts":"2026-09-25T09:03:19.851Z","level":"info","msg":"refresh-columns: board re-resolve failed","subsystem":"ext.github-projects.api.refresh-columns","projectId":"proj-1","error":"rate limited"}
+
+ 150 pass
+ 0 fail
+ 387 expect() calls
+Ran 150 tests across 1 file. [603.00ms]
+  bun: web/src/__tests__/agent-chat-api.test.ts
+bun test v1.3.14 (0d9b296a)
+{"ts":"2026-09-25T09:03:20.490Z","level":"error","msg":"streamChat error","subsystem":"api.agent-chat","error":"model timeout"}
+{"ts":"2026-09-25T09:03:20.493Z","level":"error","msg":"streamChat error","subsystem":"api.agent-chat","error":"No credentials available for anthropic. Connect via OAuth or add an API key."}
+
+ 39 pass
+ 0 fail
+ 101 expect() calls
+Ran 39 tests across 1 file. [617.00ms]
+  bun: web/src/__tests__/ask-user-answer-route.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 13 pass
+ 0 fail
+ 37 expect() calls
+Ran 13 tests across 1 file. [607.00ms]
+  bun: web/src/__tests__/extension-browser-isolation.test.ts
+bun test v1.3.14 (0d9b296a)
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+
+ 1 pass
+ 0 fail
+ 7 expect() calls
+Ran 1 test across 1 file. [1166.00ms]
+  bun: web/src/__tests__/extensions-api.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 55 pass
+ 0 fail
+ 277 expect() calls
+Ran 55 tests across 1 file. [593.00ms]
+  bun: web/src/__tests__/extensions-data-route.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 21 pass
+ 0 fail
+ 282 expect() calls
+Ran 21 tests across 1 file. [629.00ms]
+  bun: web/src/__tests__/extensions-events-route.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 44 pass
+ 0 fail
+ 141 expect() calls
+Ran 44 tests across 1 file. [604.00ms]
+  bun: web/src/__tests__/memories-api-post.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 20 pass
+ 0 fail
+ 28 expect() calls
+Ran 20 tests across 1 file. [578.00ms]
+  bun: web/src/__tests__/mention-search-cmd-api.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 12 pass
+ 0 fail
+ 18 expect() calls
+Ran 12 tests across 1 file. [610.00ms]
+  bun: web/src/__tests__/mention-search-file-api.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 34 pass
+ 0 fail
+ 64 expect() calls
+Ran 34 tests across 1 file. [625.00ms]
+  bun: web/src/__tests__/messages-ownership-api.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 21 pass
+ 0 fail
+ 32 expect() calls
+Ran 21 tests across 1 file. [628.00ms]
+  bun: web/src/__tests__/messages-ownership-baseline-api.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 22 pass
+ 0 fail
+ 35 expect() calls
+Ran 22 tests across 1 file. [606.00ms]
+  bun: web/src/__tests__/security/bearer-auth.test.ts
+bun test v1.3.14 (0d9b296a)
+{"ts":"2026-09-25T09:03:28.011Z","level":"info","msg":"internal-auth: on-behalf-of elevation","subsystem":"bearer-auth","extensionName":"ai-kit","keyId":"d6563295-4f90-4387-b33e-19894863d063","targetUserId":"geff"}
+{"ts":"2026-09-25T09:03:28.012Z","level":"info","msg":"internal-auth: on-behalf-of elevation","subsystem":"bearer-auth","extensionName":"ai-kit","keyId":"fbc0def5-28cb-4fa4-9f33-02a8398f22d2","targetUserId":"geff"}
+{"ts":"2026-09-25T09:03:28.012Z","level":"info","msg":"internal-auth: on-behalf-of elevation","subsystem":"bearer-auth","extensionName":"ai-kit","keyId":"c045e408-6b83-46e7-84e5-7ebffe80f1d0","targetUserId":"admin-123"}
+
+ 49 pass
+ 0 fail
+ 142 expect() calls
+Ran 49 tests across 1 file. [635.00ms]
+  bun: web/src/__tests__/tasks-api.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 10 pass
+ 0 fail
+ 22 expect() calls
+Ran 10 tests across 1 file. [597.00ms]
+  bun: web/src/__tests__/tasks-assignment-api.test.ts
+bun test v1.3.14 (0d9b296a)
+{"ts":"2026-09-25T09:03:29.267Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-09-25T09:03:29.267Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"agent-cfg-1","agentName":"TestAgent","subConversationId":"sub-conv-new","agentRunId":"12c67db1-73a8-4cfc-9610-b2829bdf7dfc"}
+
+web/src/__tests__/tasks-assignment-api.test.ts:
+[task-assignment-start] Started {
+  conversationId: "conv-1",
+  taskId: "task-1",
+  assignmentId: "assign-1",
+  agentConfigId: "agent-cfg-1",
+  agentName: "TestAgent",
+  subConversationId: "sub-conv-new",
+  agentRunId: "12c67db1-73a8-4cfc-9610-b2829bdf7dfc",
+}
+{"ts":"2026-09-25T09:03:29.268Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-09-25T09:03:29.268Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"agent-cfg-1","agentName":"TestAgent","subConversationId":"sub-conv-new","agentRunId":"23f8f17b-f738-47c3-bf6a-24a13a1185a1"}
+[task-assignment-start] Started {
+  conversationId: "conv-1",
+  taskId: "task-1",
+  assignmentId: "assign-1",
+  agentConfigId: "agent-cfg-1",
+  agentName: "TestAgent",
+  subConversationId: "sub-conv-new",
+  agentRunId: "23f8f17b-f738-47c3-bf6a-24a13a1185a1",
+}
+{"ts":"2026-09-25T09:03:29.268Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-09-25T09:03:29.268Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"agent-cfg-1","agentName":"TestAgent","subConversationId":"sub-conv-new","agentRunId":"eaeb40f3-c764-4040-b5a7-433762a80ace"}
+[task-assignment-start] Started {
+  conversationId: "conv-1",
+  taskId: "task-1",
+  assignmentId: "assign-1",
+  agentConfigId: "agent-cfg-1",
+  agentName: "TestAgent",
+  subConversationId: "sub-conv-new",
+  agentRunId: "eaeb40f3-c764-4040-b5a7-433762a80ace",
+}
+{"ts":"2026-09-25T09:03:29.268Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-09-25T09:03:29.268Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"agent-cfg-1","agentName":"TestAgent","subConversationId":"sub-conv-new","agentRunId":"3ffe76d5-d7b1-4b19-84a0-2fbee542775a"}
+[task-assignment-start] Started {
+  conversationId: "conv-1",
+  taskId: "task-1",
+  assignmentId: "assign-1",
+  agentConfigId: "agent-cfg-1",
+  agentName: "TestAgent",
+  subConversationId: "sub-conv-new",
+  agentRunId: "3ffe76d5-d7b1-4b19-84a0-2fbee542775a",
+}
+{"ts":"2026-09-25T09:03:29.268Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-09-25T09:03:29.268Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"agent-cfg-1","agentName":"TestAgent","subConversationId":"sub-conv-new","agentRunId":"f68df510-3381-4934-89d6-4a76c8bdcece"}
+[task-assignment-start] Started {
+  conversationId: "conv-1",
+  taskId: "task-1",
+  assignmentId: "assign-1",
+  agentConfigId: "agent-cfg-1",
+  agentName: "TestAgent",
+  subConversationId: "sub-conv-new",
+  agentRunId: "f68df510-3381-4934-89d6-4a76c8bdcece",
+}
+[task-assignment-start] Task not found {
+  taskId: "nonexistent-task",
+  conversationId: "conv-1",
+  storeTaskCount: 1,
+  taskIds: [ "task-1" ],
+}
+{"ts":"2026-09-25T09:03:29.268Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-09-25T09:03:29.269Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"agent-cfg-1","agentName":"TestAgent","subConversationId":"sub-conv-new","agentRunId":"c1f473ff-3b77-4886-91f7-1079d39c7e6d"}
+[task-assignment-start] Started {
+  conversationId: "conv-1",
+  taskId: "task-1",
+  assignmentId: "assign-1",
+  agentConfigId: "agent-cfg-1",
+  agentName: "TestAgent",
+  subConversationId: "sub-conv-new",
+  agentRunId: "c1f473ff-3b77-4886-91f7-1079d39c7e6d",
+}
+{"ts":"2026-09-25T09:03:29.269Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-09-25T09:03:29.269Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"agent-cfg-1","agentName":"TestAgent","subConversationId":"existing-sub-conv","agentRunId":"abdb1f2b-ed80-45de-961b-6bf3c3baab6f"}
+[task-assignment-start] Started {
+  conversationId: "conv-1",
+  taskId: "task-1",
+  assignmentId: "assign-1",
+  agentConfigId: "agent-cfg-1",
+  agentName: "TestAgent",
+  subConversationId: "existing-sub-conv",
+  agentRunId: "abdb1f2b-ed80-45de-961b-6bf3c3baab6f",
+}
+{"ts":"2026-09-25T09:03:29.269Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-09-25T09:03:29.269Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"agent-cfg-1","agentName":"TestAgent","subConversationId":"sub-conv-new","agentRunId":"33953c36-a4f3-4826-b44e-9d126210f496"}
+[task-assignment-start] Started {
+  conversationId: "conv-1",
+  taskId: "task-1",
+  assignmentId: "assign-1",
+  agentConfigId: "agent-cfg-1",
+  agentName: "TestAgent",
+  subConversationId: "sub-conv-new",
+  agentRunId: "33953c36-a4f3-4826-b44e-9d126210f496",
+}
+{"ts":"2026-09-25T09:03:29.271Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-09-25T09:03:29.271Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"agent-cfg-1","agentName":"TestAgent","subConversationId":"sub-conv-new","agentRunId":"f803b8eb-2382-4e50-bfbe-c99b22e3e52d"}
+[task-assignment-start] Started {
+  conversationId: "conv-1",
+  taskId: "task-1",
+  assignmentId: "assign-1",
+  agentConfigId: "agent-cfg-1",
+  agentName: "TestAgent",
+  subConversationId: "sub-conv-new",
+  agentRunId: "f803b8eb-2382-4e50-bfbe-c99b22e3e52d",
+}
+{"ts":"2026-09-25T09:03:29.271Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-09-25T09:03:29.271Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"agent-cfg-1","agentName":"TestAgent","subConversationId":"sub-conv-new","agentRunId":"4df3256d-a74a-48f1-b0ca-0f9b2276fdb6"}
+[task-assignment-start] Started {
+  conversationId: "conv-1",
+  taskId: "task-1",
+  assignmentId: "assign-1",
+  agentConfigId: "agent-cfg-1",
+  agentName: "TestAgent",
+  subConversationId: "sub-conv-new",
+  agentRunId: "4df3256d-a74a-48f1-b0ca-0f9b2276fdb6",
+}
+{"ts":"2026-09-25T09:03:29.271Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-09-25T09:03:29.271Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"agent-cfg-1","agentName":"TestAgent","subConversationId":"sub-conv-new","agentRunId":"7f82d2fa-adb4-421a-86f3-6fd55a246983"}
+[task-assignment-start] Started {
+  conversationId: "conv-1",
+  taskId: "task-1",
+  assignmentId: "assign-1",
+  agentConfigId: "agent-cfg-1",
+  agentName: "TestAgent",
+  subConversationId: "sub-conv-new",
+  agentRunId: "7f82d2fa-adb4-421a-86f3-6fd55a246983",
+}
+{"ts":"2026-09-25T09:03:29.271Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-09-25T09:03:29.271Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"agent-cfg-1","agentName":"TestAgent","subConversationId":"sub-conv-new","agentRunId":"a313ec22-88a2-4e49-8f3c-2e862eea4c31"}
+[task-assignment-start] Started {
+  conversationId: "conv-1",
+  taskId: "task-1",
+  assignmentId: "assign-1",
+  agentConfigId: "agent-cfg-1",
+  agentName: "TestAgent",
+  subConversationId: "sub-conv-new",
+  agentRunId: "a313ec22-88a2-4e49-8f3c-2e862eea4c31",
+}
+{"ts":"2026-09-25T09:03:29.272Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-09-25T09:03:29.272Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"agent-cfg-1","agentName":"TestAgent","subConversationId":"sub-conv-new","agentRunId":"2fe30720-2470-4a6f-ba49-47d1a7e4d9b0"}
+[task-assignment-start] Started {
+  conversationId: "conv-1",
+  taskId: "task-1",
+  assignmentId: "assign-1",
+  agentConfigId: "agent-cfg-1",
+  agentName: "TestAgent",
+  subConversationId: "sub-conv-new",
+  agentRunId: "2fe30720-2470-4a6f-ba49-47d1a7e4d9b0",
+}
+{"ts":"2026-09-25T09:03:29.272Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-09-25T09:03:29.272Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"agent-cfg-1","agentName":"TestAgent","subConversationId":"sub-conv-new","agentRunId":"ee7dc10e-5641-467d-bb70-c21b7ded7f4a"}
+[task-assignment-start] Started {
+  conversationId: "conv-1",
+  taskId: "task-1",
+  assignmentId: "assign-1",
+  agentConfigId: "agent-cfg-1",
+  agentName: "TestAgent",
+  subConversationId: "sub-conv-new",
+  agentRunId: "ee7dc10e-5641-467d-bb70-c21b7ded7f4a",
+}
+{"ts":"2026-09-25T09:03:29.272Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-09-25T09:03:29.272Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"agent-cfg-1","agentName":"TestAgent","subConversationId":"sub-conv-new","agentRunId":"5ab9c8c1-ac54-4bf4-ad3e-3a201a4e6a2c"}
+[task-assignment-start] Started {
+  conversationId: "conv-1",
+  taskId: "task-1",
+  assignmentId: "assign-1",
+  agentConfigId: "agent-cfg-1",
+  agentName: "TestAgent",
+  subConversationId: "sub-conv-new",
+  agentRunId: "5ab9c8c1-ac54-4bf4-ad3e-3a201a4e6a2c",
+}
+{"ts":"2026-09-25T09:03:29.272Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-09-25T09:03:29.272Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"agent-cfg-1","agentName":"TestAgent","subConversationId":"sub-conv-new","agentRunId":"ebd831e8-9ab1-4e16-9b9d-c4e4adaec077"}
+[task-assignment-start] Started {
+  conversationId: "conv-1",
+  taskId: "task-1",
+  assignmentId: "assign-1",
+  agentConfigId: "agent-cfg-1",
+  agentName: "TestAgent",
+  subConversationId: "sub-conv-new",
+  agentRunId: "ebd831e8-9ab1-4e16-9b9d-c4e4adaec077",
+}
+{"ts":"2026-09-25T09:03:29.272Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","status":"completed","hasStructured":false}
+{"ts":"2026-09-25T09:03:29.276Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-09-25T09:03:29.276Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"agent-cfg-1","agentName":"TestAgent","subConversationId":"sub-conv-new","agentRunId":"cca7cf90-c06f-4472-9d35-e3497b72b5f3"}
+[task-assignment-start] Started {
+  conversationId: "conv-1",
+  taskId: "task-1",
+  assignmentId: "assign-1",
+  agentConfigId: "agent-cfg-1",
+  agentName: "TestAgent",
+  subConversationId: "sub-conv-new",
+  agentRunId: "cca7cf90-c06f-4472-9d35-e3497b72b5f3",
+}
+{"ts":"2026-09-25T09:03:29.276Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-09-25T09:03:29.276Z","level":"info","msg":"Auto-continue with pending message","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","newRunId":"17c1f443-f8eb-4c30-983e-9ca13df9a634"}
+{"ts":"2026-09-25T09:03:29.277Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-09-25T09:03:29.277Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"agent-cfg-1","agentName":"TestAgent","subConversationId":"sub-conv-new","agentRunId":"30f99cca-b88a-4c50-95f4-c64cb38ba10d"}
+[task-assignment-start] Started {
+  conversationId: "conv-1",
+  taskId: "task-1",
+  assignmentId: "assign-1",
+  agentConfigId: "agent-cfg-1",
+  agentName: "TestAgent",
+  subConversationId: "sub-conv-new",
+  agentRunId: "30f99cca-b88a-4c50-95f4-c64cb38ba10d",
+}
+{"ts":"2026-09-25T09:03:29.277Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-09-25T09:03:29.277Z","level":"info","msg":"Auto-continue with pending message","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","newRunId":"28a1a0ff-286a-4970-81f7-b60d141157dd"}
+
+ 40 pass
+ 0 fail
+ 152 expect() calls
+Ran 40 tests across 1 file. [626.00ms]
+  bun: web/src/__tests__/tasks-stop-retry-api.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 17 pass
+ 0 fail
+ 88 expect() calls
+Ran 17 tests across 1 file. [600.00ms]
+  bun: web/src/__tests__/team-panel-refresh-flow.test.ts
+bun test v1.3.14 (0d9b296a)
+{"ts":"2026-09-25T09:03:30.521Z","level":"error","msg":"streamChat error","subsystem":"api.agent-chat","error":"model exploded"}
+
+ 4 pass
+ 0 fail
+ 21 expect() calls
+Ran 4 tests across 1 file. [600.00ms]
