@@ -54,5 +54,14 @@ one of them.
   EXPECT: every leg exit 0
   EVIDENCE: `/tmp/factory-platform-evidence/w16b/receipts/b1/` (13 receipts, all exit 0, clean at start); Podman supervisor 3/0; patch coverage 3 files; no new source file
 
-- [ ] G6: W01 owner review (w01g-fix).
-  EVIDENCE: pending
+- [x] G6: W01 owner review (w01g-fix).
+  EVIDENCE: approved at 61bc3428b (fail-closed selection, C05 closure unchanged, clean trial merge with W01h f8e24804b except a tasks/lessons.md union). The audience change (ca92306c5) was sent for the same review.
+
+- [ ] G7: The guest-broker route accepts only its own audience. `FACTORY_GUEST_BROKER_AUDIENCE` is defined once in the contract leaf; the route verifies against it whatever its configuration says; a token from the same key and issuer for another audience (a pool token) is refused 401 `token_audience_refused`; the startup parser refuses any other configured audience; no copy of the literal remains.
+  CHECK: `bun test ./src/factory/runner/guest-broker-transport.integration.test.ts ./src/factory/startup-config.test.ts`; `grep -rn '"factory-guest-broker"' src scripts`
+  EXPECT: exit 0; one match, in the contract leaf; each negative control red
+  EVIDENCE: controls at ca92306c5: route trusting its configured audience red (`/tmp/factory-platform-evidence/w16b/logs/audience-route-red.log`); parser pin removed red (`logs/audience-parser-red.log`). Hold: pending
+
+## Follow-up (recorded, not in W16b)
+
+- `launch-peer-tenant-binding` (from w01g-fix's review): the host launch route authorizes by peer only, so an allowed peer can start a guest attributed to another tenant on capacity leased to someone else. Data stays isolated, because that tenant's route verifies the attempt token with its own secret. Proposed: a peer-to-tenant map in the supervisor document, checked by the launch route against `intent.request.authority.tenantId`. Pre-existing, not introduced by W16b.
