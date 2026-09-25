@@ -18,7 +18,7 @@ const feature = (operation: { kind: string; state: string } | null = null) => ({
 	installationId: environment.installationId, releaseId: environment.releaseId,
 	connectionId: environment.connectionId, connectionRevision: 1, generation: 1,
 	presetId: environment.presetId, desiredState: "STOPPED", observedState: "STOPPED",
-	operation, tombstonedAt: null, cleanupConfirmedAt: null,
+	operation, tombstonedAt: null as string | null, cleanupConfirmedAt: null as string | null,
 });
 const reply = (body: unknown, status = 200) => new Response(JSON.stringify(body), {
 	status, headers: { "content-type": "application/json" },
@@ -89,6 +89,19 @@ describe("Incus management recovery", () => {
 		const view = render(Page, { props: { data: { operatorId } } });
 		await waitFor(() => expect(view.getByRole("button", { name: "Start" })).toBeEnabled());
 		expect(localStorage.getItem(storageKey("mutation-keys"))).toBeNull();
+	});
+
+	test("a saved mutation key is restored and invalid entries are ignored", async () => {
+		const coordinate = [environment.installationId, environment.releaseId, environment.connectionId, 1,
+			bindingId, 1, "start"].join(":");
+		const savedKey = "11111111-1111-4111-8111-111111111111";
+		localStorage.setItem(storageKey("mutation-keys"), JSON.stringify({ [coordinate]: savedKey, invalid: "not-a-uuid" }));
+		const { calls } = serve({ feature: feature() });
+		const view = render(Page, { props: { data: { operatorId } } });
+		await waitFor(() => expect(view.getByRole("button", { name: "Start" })).toBeEnabled());
+		await fireEvent.click(view.getByRole("button", { name: "Start" }));
+		await waitFor(() => expect(calls.some(body => body.action === "start")).toBe(true));
+		expect(calls.find(body => body.action === "start")?.idempotencyKey).toBe(savedKey);
 	});
 
 	test("a storage write failure keeps the mutation key in page memory for retry", async () => {
@@ -197,6 +210,40 @@ describe("Incus management recovery", () => {
 		expect(prepares[0]?.idempotencyKey).toBe(prepares[1]?.idempotencyKey);
 	});
 
+	test("a saved project draft restores its name and request keys", async () => {
+		const environmentKey = [environment.installationId, environment.releaseId, environment.releaseGeneration,
+			environment.connectionId, environment.connectionRevision, environment.presetId].join(":");
+		const prepareKey = "22222222-2222-4222-8222-222222222222";
+		const operationKey = "33333333-3333-4333-8333-333333333333";
+		localStorage.setItem(storageKey("project-draft"), JSON.stringify({ name: "Recovered sandbox", environmentKey,
+			prepareKey, operationKey, projectId: project.id }));
+		const { calls } = serve();
+		const view = render(Page, { props: { data: { operatorId } } });
+		await waitFor(() => expect(view.getByRole("textbox", { name: "New project name" })).toHaveValue("Recovered sandbox"));
+		await fireEvent.click(view.getByRole("button", { name: "Create project sandbox" }));
+		await waitFor(() => expect(calls.some(body => body.action === "create")).toBe(true));
+		expect(calls.find(body => body.action === "prepareProject")?.idempotencyKey).toBe(prepareKey);
+		expect(calls.find(body => body.action === "create")?.idempotencyKey).toBe(operationKey);
+	});
+
+	test("an invalid prepare receipt keeps the draft for a safe retry", async () => {
+		let attempts = 0;
+		const { calls } = serve({ onFeature: body => {
+			if (body.action !== "prepareProject") return reply({});
+			attempts++;
+			return attempts === 1 ? reply({ project, binding: {} }) : reply({ project, binding: { id: bindingId } });
+		} });
+		const view = render(Page, { props: { data: { operatorId } } });
+		await waitFor(() => expect(view.getByRole("button", { name: "Create project sandbox" })).toBeEnabled());
+		await fireEvent.click(view.getByRole("button", { name: "Create project sandbox" }));
+		await waitFor(() => expect(view.getByRole("alert")).toHaveTextContent("project sandbox was not prepared"));
+		await waitFor(() => expect(view.getByRole("button", { name: "Create project sandbox" })).toBeEnabled());
+		await fireEvent.click(view.getByRole("button", { name: "Create project sandbox" }));
+		await waitFor(() => expect(attempts).toBe(2));
+		const prepares = calls.filter(body => body.action === "prepareProject");
+		expect(prepares[0]?.idempotencyKey).toBe(prepares[1]?.idempotencyKey);
+	});
+
 	test("failed disposal preserves its key and requires a fresh confirmation for retry", async () => {
 		let attempts = 0;
 		const { calls } = serve({ feature: feature(), onFeature: body => {
@@ -215,5 +262,37 @@ describe("Incus management recovery", () => {
 		await waitFor(() => expect(attempts).toBe(2));
 		const destroys = calls.filter(body => body.action === "destroy");
 		expect(destroys[0]?.idempotencyKey).toBe(destroys[1]?.idempotencyKey);
+	});
+
+	test("failed retired cleanup keeps its key and the retry control", async () => {
+		let attempts = 0;
+		const retired = { ...feature(), tombstonedAt: "2026-09-25T00:00:00Z" };
+		const { calls } = serve({ feature: retired, onFeature: body => {
+			if (body.action !== "destroyRetired") return reply({});
+			attempts++;
+			return attempts === 1 ? reply({ reason: "Provider cleanup pending" }, 503) : reply({ state: "DISPATCHED" }, 202);
+		} });
+		const view = render(Page, { props: { data: { operatorId } } });
+		await waitFor(() => expect(view.getByText("Cleanup needs review")).toBeInTheDocument());
+		await fireEvent.click(view.getByRole("button", { name: "Retry cleanup" }));
+		await waitFor(() => expect(view.getByRole("alert")).toHaveTextContent("Provider cleanup pending"));
+		await fireEvent.click(view.getByRole("button", { name: "Retry cleanup" }));
+		await waitFor(() => expect(attempts).toBe(2));
+		const destroys = calls.filter(body => body.action === "destroyRetired");
+		expect(destroys[0]?.idempotencyKey).toBe(destroys[1]?.idempotencyKey);
+	});
+
+	test("a failed status refresh keeps unknown state blocked until reconcile succeeds", async () => {
+		const unknown = { ...feature({ kind: "START", state: "OUTCOME_UNKNOWN" }), observedState: "UNKNOWN" };
+		const { calls } = serve({ feature: unknown, onFeature: body => body.action === "status"
+			? new Response("invalid JSON", { status: 503 }) : reply({ message: "Reconcile unavailable" }, 503) });
+		const view = render(Page, { props: { data: { operatorId } } });
+		await waitFor(() => expect(view.getByText("Needs reconciliation")).toBeInTheDocument());
+		await fireEvent.click(view.getByRole("button", { name: "Refresh status" }));
+		await waitFor(() => expect(view.getByRole("alert")).toHaveTextContent("Request failed (503)"));
+		expect(view.queryByRole("button", { name: "Start" })).not.toBeInTheDocument();
+		await fireEvent.click(view.getByRole("button", { name: "Reconcile pending work" }));
+		await waitFor(() => expect(view.getByRole("alert")).toHaveTextContent("Reconcile unavailable"));
+		expect(calls.map(body => body.action)).toEqual(["status", "reconcile"]);
 	});
 });
