@@ -3,7 +3,7 @@ import { ContractError, canonicalJson, sandboxPresetDigest, validateSandboxProvi
 import { and, eq, sql } from "drizzle-orm";
 import { getDb, type Database } from "../db/connection";
 import { releaseRows } from "../db/queries/extension-releases";
-import { sandboxBindings, sandboxOperations, sandboxReservations, type SandboxBinding } from "../db/schema";
+import { sandboxBindings, sandboxOperations, sandboxReservations, type SandboxBinding, type SandboxOperation } from "../db/schema";
 import type { ActiveExtensionRelease } from "../extensions/release-process";
 import { HostIncusProbeTransport, type HostConnectionResolver } from "./incus-transport/transport";
 import type { IncusSetupRecipe } from "../../scripts/incus/model";
@@ -145,8 +145,31 @@ function approvedGuestHelper(operation: SandboxProtocolOperation, base: Prepared
   return helperSha256;
 }
 
+type ReadbackKind = "CREATE" | "START" | "STOP" | "DESTROY";
+
+function readbackScopeMatches(scope: PreparedIncusAction, binding: SandboxBinding,
+  journal: SandboxOperation, kind: ReadbackKind): boolean {
+  const preset = scope.approvedPreset;
+  return ["DISPATCHING", "PROVIDER_PENDING", "OUTCOME_UNKNOWN"].includes(journal.state)
+    && journal.id === binding.currentOperationId && journal.generation === binding.generation
+    && journal.generation === scope.bindingGeneration
+    && Boolean(binding.tombstonedAt) === (kind === "DESTROY")
+    && binding.desiredState === (kind === "START" ? "RUNNING" : kind === "DESTROY" ? "ABSENT" : "STOPPED")
+    && binding.profile === preset.profile && binding.presetId === preset.presetId
+    && binding.presetDigest === preset.presetDigest && binding.effectiveSettingsDigest === preset.effectiveSettingsDigest;
+}
+
+function readbackIntentMatches(scope: PreparedIncusAction, journal: SandboxOperation, kind: ReadbackKind): boolean {
+  if (kind !== "CREATE") return journal.requestPayload.expectedGeneration === journal.generation;
+  const preset = scope.approvedPreset;
+  return journal.generation === 1 && journal.requestPayload.profile === preset.profile
+    && journal.requestPayload.presetId === preset.presetId
+    && journal.requestPayload.presetDigest === preset.presetDigest
+    && journal.requestPayload.effectiveSettingsDigest === preset.effectiveSettingsDigest;
+}
+
 async function lifecycleReadbackJournal(db: Database, scope: PreparedIncusAction,
-  binding: SandboxBinding, providerOperationId: string, kind: "CREATE" | "START" | "STOP" | "DESTROY"):
+  binding: SandboxBinding, providerOperationId: string, kind: ReadbackKind):
   Promise<{ id: string; generation: number; desiredState: "running" | "stopped" | "absent" } | null> {
   if (scope.expectedCommand.idempotency) return null;
   const rows = await db.select().from(sandboxOperations).where(and(
@@ -156,21 +179,24 @@ async function lifecycleReadbackJournal(db: Database, scope: PreparedIncusAction
   )).limit(2);
   if (rows.length !== 1) return null;
   const journal = rows[0]!;
-  const preset = scope.approvedPreset;
-  if (!["DISPATCHING", "PROVIDER_PENDING", "OUTCOME_UNKNOWN"].includes(journal.state)
-    || journal.id !== binding.currentOperationId || journal.generation !== binding.generation
-    || journal.generation !== scope.bindingGeneration
-    || Boolean(binding.tombstonedAt) !== (kind === "DESTROY")
-    || binding.desiredState !== (kind === "START" ? "RUNNING" : kind === "DESTROY" ? "ABSENT" : "STOPPED")
-    || binding.profile !== preset.profile || binding.presetId !== preset.presetId
-    || binding.presetDigest !== preset.presetDigest || binding.effectiveSettingsDigest !== preset.effectiveSettingsDigest
-    || kind === "CREATE" && (journal.generation !== 1
-      || journal.requestPayload.profile !== preset.profile || journal.requestPayload.presetId !== preset.presetId
-      || journal.requestPayload.presetDigest !== preset.presetDigest
-      || journal.requestPayload.effectiveSettingsDigest !== preset.effectiveSettingsDigest)
-    || kind !== "CREATE" && journal.requestPayload.expectedGeneration !== journal.generation) return null;
+  if (!readbackScopeMatches(scope, binding, journal, kind)
+    || !readbackIntentMatches(scope, journal, kind)) return null;
   return { id: journal.id, generation: journal.generation,
     desiredState: kind === "START" ? "running" : kind === "DESTROY" ? "absent" : "stopped" };
+}
+
+function lifecycleReadbackKind(scope: PreparedIncusProbe, command: IncusTransportRequest,
+  binding: SandboxBinding | undefined, providerOperationId: unknown): "CREATE" | "START" | "STOP" | "DESTROY" | null {
+  if (!isAction(scope) || scope.operation !== "lifecycle.inspectOperation"
+    || command.idempotency || typeof providerOperationId !== "string") return null;
+  const match = /^(?:incus-(create|setPower|destroy)-[a-f0-9-]{36}|ezh-(create|setPower|destroy)-[a-f0-9]{32}-[a-f0-9]{32})$/.exec(providerOperationId);
+  const kind = match?.[1] ?? match?.[2];
+  if (kind === "create") return "CREATE";
+  if (kind === "destroy") return "DESTROY";
+  if (kind !== "setPower") return null;
+  if (binding?.desiredState === "RUNNING") return "START";
+  if (binding?.desiredState === "STOPPED") return "STOP";
+  throw new IncusTransportError("permission", "Incus power journal has no desired state");
 }
 
 /** Only ReleaseProcess calls this broker. No generic extension capability exposes it. */
@@ -386,27 +412,15 @@ export class ProviderRpcBroker {
       const providerOperationId = command.action === "operation.inspect"
         && command.payload && typeof command.payload === "object" && !Array.isArray(command.payload)
         ? command.payload.operationId : null;
-      const lifecycleReadbackKind = isAction(scope) && scope.operation === "lifecycle.inspectOperation"
-        && !command.idempotency && typeof providerOperationId === "string"
-        && (/^incus-create-[a-f0-9-]{36}$/.test(providerOperationId)
-          || /^ezh-create-[a-f0-9]{32}-[a-f0-9]{32}$/.test(providerOperationId)) ? "CREATE"
-        : isAction(scope) && scope.operation === "lifecycle.inspectOperation"
-          && !command.idempotency && typeof providerOperationId === "string"
-          && (/^incus-destroy-[a-f0-9-]{36}$/.test(providerOperationId)
-            || /^ezh-destroy-[a-f0-9]{32}-[a-f0-9]{32}$/.test(providerOperationId)) ? "DESTROY"
-        : isAction(scope) && scope.operation === "lifecycle.inspectOperation"
-          && !command.idempotency && typeof providerOperationId === "string"
-          && (/^incus-setPower-[a-f0-9-]{36}$/.test(providerOperationId)
-            || /^ezh-setPower-[a-f0-9]{32}-[a-f0-9]{32}$/.test(providerOperationId))
-          ? binding?.desiredState === "RUNNING" ? "START" : "STOP" : null;
+      const readbackKind = lifecycleReadbackKind(scope, command, binding, providerOperationId);
       let transportCommand = command;
-      if (lifecycleReadbackKind && isAction(scope)) {
+      if (readbackKind && isAction(scope)) {
         const journal = binding ? await lifecycleReadbackJournal(this.database, scope, binding,
-          providerOperationId as string, lifecycleReadbackKind) : null;
+          providerOperationId as string, readbackKind) : null;
         if (!journal) throw new IncusTransportError("permission", "Incus lifecycle journal is unavailable");
         transportCommand = { ...command,
           idempotency: { requestId: journal.id, key: journal.id },
-          ...(lifecycleReadbackKind === "CREATE" ? {} : { payload: { ...command.payload as Record<string, JsonValue>,
+          ...(readbackKind === "CREATE" ? {} : { payload: { ...command.payload as Record<string, JsonValue>,
             readback: { expectedGeneration: journal.generation, desiredState: journal.desiredState } } }),
         };
       }

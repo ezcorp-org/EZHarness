@@ -194,15 +194,21 @@ function matchesCreateInstance(instance: Record<string, unknown>, command: Incus
   return Boolean(command.idempotency
     && config["user.ezharness.create_key"] === command.idempotency.key
     && config["user.ezharness.operation_id"] === stableId
-    && config["user.ezharness.profile"] === policy.profile
-    && config["user.ezharness.preset_id"] === policy.presetId
-    && config["volatile.base_image"] === policy.imageFingerprint
+    && matchesApprovedInstance(instance, policy)
     && config["user.ezharness.generation"] === "1"
-    && Array.isArray(instance.profiles) && instance.profiles.length === 1 && instance.profiles[0] === policy.incusProfile
-    && (instance.type === undefined || instance.type === "container")
     && (observed === "running" || observed === "stopped")
     && config["user.ezharness.desired_state"] === observed
     && (requiredState === null || observed === requiredState));
+}
+
+function matchesApprovedInstance(instance: Record<string, unknown>, policy: LifecycleContext["policy"]): boolean {
+  const config = object(instance.config);
+  return config["user.ezharness.profile"] === policy.profile
+    && config["user.ezharness.preset_id"] === policy.presetId
+    && config["volatile.base_image"] === policy.imageFingerprint
+    && Array.isArray(instance.profiles) && instance.profiles.length === 1
+    && instance.profiles[0] === policy.incusProfile
+    && (instance.type === undefined || instance.type === "container");
 }
 
 async function inspectSyntheticOperation({ session, command, instancePath, policy }: LifecycleContext, id: string) {
@@ -285,40 +291,41 @@ async function inspectExpiredDestroyOperation({ session, command, instancePath, 
     error: absent ? null : { code: "OUTCOME_UNKNOWN", message: "Incus mutation outcome is unknown", retryable: false, operationId: id } } };
 }
 
-async function inspectExpiredPowerOperation({ session, command, instancePath, input, policy }: LifecycleContext, id: string) {
-  // A native operation can expire after Incus accepts it. The host broker
-  // supplies this journal identity only after matching the exact current
-  // START/STOP receipt; instance state alone is never proof of that receipt.
+function expiredPowerIntent(command: IncusTransportRequest, input: Record<string, unknown>):
+  { stableId: string; generation: number; desired: "running" | "stopped" } | null {
   const readback = input.readback && typeof input.readback === "object" && !Array.isArray(input.readback)
     ? input.readback as Record<string, unknown> : null;
   const generation = readback?.expectedGeneration;
   const desired = readback?.desiredState;
-  const stableId = command.idempotency ? operationId("setPower", command) : null;
+  if (!command.idempotency || !Number.isSafeInteger(generation) || (generation as number) < 1
+    || (desired !== "running" && desired !== "stopped")) return null;
+  return { stableId: operationId("setPower", command), generation: generation as number, desired };
+}
+
+async function inspectExpiredPowerOperation({ session, command, instancePath, input, policy }: LifecycleContext, id: string) {
+  // A native operation can expire after Incus accepts it. The host broker
+  // supplies this journal identity only after matching the exact current
+  // START/STOP receipt; instance state alone is never proof of that receipt.
+  const intent = expiredPowerIntent(command, input);
   let proven = false;
-  if (stableId && Number.isSafeInteger(generation) && (generation as number) >= 1
-    && (desired === "running" || desired === "stopped")) {
+  if (intent) {
     const found = metadata(await session.request("GET", instancePath), true);
     if (found) {
       try {
         const instance = object(found);
         instanceIdentity(instance, command);
         const config = object(instance.config);
-        proven = config["user.ezharness.operation_id"] === stableId
-          && config["user.ezharness.generation"] === String((generation as number) + 1)
-          && config["user.ezharness.desired_state"] === desired
-          && instance.status === (desired === "running" ? "Running" : "Stopped")
-          && config["user.ezharness.profile"] === policy.profile
-          && config["user.ezharness.preset_id"] === policy.presetId
-          && config["volatile.base_image"] === policy.imageFingerprint
-          && Array.isArray(instance.profiles) && instance.profiles.length === 1
-          && instance.profiles[0] === policy.incusProfile
-          && (instance.type === undefined || instance.type === "container");
+        proven = config["user.ezharness.operation_id"] === intent.stableId
+          && config["user.ezharness.generation"] === String(intent.generation + 1)
+          && config["user.ezharness.desired_state"] === intent.desired
+          && instance.status === (intent.desired === "running" ? "Running" : "Stopped")
+          && matchesApprovedInstance(instance, policy);
       } catch { /* An unowned or malformed instance is no proof of this power operation. */ }
     }
   }
   return { ok: true, operation: { operationId: id, kind: "setPower", sandboxId: command.tags.sandboxId,
-    state: proven ? "succeeded" : "outcome_unknown", desiredState: desired === "running" ? "running" : "stopped",
-    observedState: proven ? desired : "unknown", resourceId: proven ? command.sandboxName : null,
+    state: proven ? "succeeded" : "outcome_unknown", desiredState: intent?.desired ?? "stopped",
+    observedState: proven ? intent!.desired : "unknown", resourceId: proven ? command.sandboxName : null,
     startedAt: new Date().toISOString(), finishedAt: new Date().toISOString(),
     error: proven ? null : { code: "OUTCOME_UNKNOWN", message: "Incus mutation outcome is unknown", retryable: false, operationId: id } } };
 }
