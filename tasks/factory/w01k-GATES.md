@@ -63,8 +63,8 @@ stays unset and the existing 401 applies before any handler.
   EXPECT: every leg exit 0
   EVIDENCE: hold k3 at 8c413221f, `/tmp/factory-platform-evidence/w01k/receipts/k3/` (15 receipts, all exit 0, clean at start): PostgreSQL 36/0 (pool-http, compute-admissions, artifact-materials, pool-mtls), Podman supervisor 3/0, pool producer 86/0, focused 138/0, boundary suites 48/0; patch coverage 2 files, no new source file. Hold k2 (same head) failed only patch coverage on `service-server.ts` line 46, which runs only in the Node server and is measured by the pool producer that k2 did not run; k3 adds it
 
-- [ ] G4: W01 owner review (w01g-fix).
-  EVIDENCE: pending
+- [x] G4: W01 owner review (w01g-fix).
+  EVIDENCE: approved at 8c413221f: the callback names a peer only on success, a null authorizationError, and a non-empty CN; the five untrusted cases each fail on the old code; poolPeerIdentity only tightens the Node pool server; peerIdentity keeps its contract ("a certificate the listener's own authority verified"), now true; no import changed (C05 and the closure unchanged); the audit's two identity readers (private-https.ts, pool/service-server.ts) confirmed. Correction recorded: the defect was only in the inline handshake callback of private-https.ts; there is no handshake-args.ts in the tree (that name is my probe script under the evidence directory).
 
 ## Finding (recorded, per the ruling)
 
