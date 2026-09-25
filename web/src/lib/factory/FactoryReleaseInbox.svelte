@@ -164,7 +164,8 @@
 					{:else if item.kind === "command_approval_requested"}
 						<div class="decision-actions">
 							{#each item.choices as choice}
-								<button class="approve" disabled={deciding === item.approvalId} onclick={() => decideCommand(item, choice)}>{choice}</button>
+								<!-- The definition declares these choices; none is the default, so none is styled as one. -->
+								<button class="choice" disabled={deciding === item.approvalId} onclick={() => decideCommand(item, choice)}>{choice}</button>
 							{/each}
 						</div>
 					{:else if item.kind === "release_uncertain" && reconciling !== item.notificationId}
@@ -214,7 +215,8 @@
 	.copy small { color: var(--color-text-secondary); font-size: 10px; line-height: 1.4; }
 	.decision-actions { display: flex; grid-column: 1 / -1; justify-content: flex-end; gap: 6px; padding-top: 4px; }
 	.decision-actions button, .load-more { display: inline-flex; min-height: 30px; align-items: center; gap: 4px; border-radius: 3px; padding: 5px 9px; font-size: 11px; font-weight: 700; }
-	.deny { border: 1px solid var(--color-border-strong); background: transparent; color: var(--color-text-secondary); }
+	.deny, .choice { border: 1px solid var(--color-border-strong); background: transparent; color: var(--color-text-secondary); }
+	.choice { color: var(--color-text-primary); }
 	.approve { border: 1px solid var(--color-accent); background: var(--color-accent); color: white; }
 	.empty, .inbox-error { margin: 0; padding: 0 28px 14px; color: var(--color-text-muted); font-size: 11px; }
 	.inbox-error { color: var(--color-red-700); }

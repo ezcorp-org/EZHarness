@@ -254,7 +254,10 @@
 						<Package size={15} />
 						<span class="row-copy">
 							<strong title={item.reference.package}>{item.reference.package}@{item.reference.version}</strong>
-							<small title={item.reference.digest}>{item.reference.export}{item.reference.model ? ` · model ${item.reference.model}` : ""} · {item.reference.digest.slice(0, 19)}…{item.reference.configurationDigest ? ` · configuration ${item.reference.configurationDigest.slice(0, 19)}…` : ""} · trust revision {item.revision}</small>
+							<small title={item.reference.digest}>{item.reference.export} · {item.reference.digest.slice(0, 19)}… · trust revision {item.revision}</small>
+							{#if item.reference.model || item.reference.configurationDigest}
+								<small title={item.reference.configurationDigest}>{[item.reference.model ? `model ${item.reference.model}` : "", item.reference.configurationDigest ? `configuration ${item.reference.configurationDigest.slice(0, 19)}…` : ""].filter(Boolean).join(" · ")}</small>
+							{/if}
 						</span>
 						<span class="chip" data-state={item.state ?? "none"}>{item.state ?? "untrusted"}</span>
 						{#if item.state === "revoked"}

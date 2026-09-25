@@ -155,7 +155,9 @@ describe("FactoryAdministration", () => {
 		// Two pins of one package: each row, and each row's actions, is told apart by what it pins.
 		expect(await screen.findByRole("group", { name: "Trust actions for @ezcorp/validator model judge-small configuration cccccccccccc" })).toBeVisible();
 		expect(screen.getByRole("group", { name: "Trust actions for @ezcorp/validator" })).toBeVisible();
-		expect(screen.getByText(/run · model judge-small · sha256:[0-9a-f]{12}… · configuration sha256:cccccccccccc… · trust revision 1/)).toBeVisible();
+		// The pin's model and configuration sit on their own line, so the trust revision always shows.
+		expect(screen.getAllByText(/^run · sha256:[0-9a-f]{12}… · trust revision 1$/)).toHaveLength(2);
+		expect(screen.getByText("model judge-small · configuration sha256:cccccccccccc…")).toBeVisible();
 		await fireEvent.click(screen.getByRole("button", { name: /Install/ }));
 		const form = screen.getByRole("form", { name: "Install runner package" });
 		for (const [label, value] of [["Package", "@ezcorp/validator"], ["Manifest name", "validator"], ["Version", "1.0.0"], ["Export", "run"], ["Digest", digest], ["Model (optional)", " judge-small "], ["Configuration digest (optional)", ` sha256:${"c".repeat(64)} `], ["Installation", "inst"], ["Release", "rel"]] as const) {
