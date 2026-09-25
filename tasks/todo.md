@@ -4651,7 +4651,9 @@ evidence `/tmp/factory-platform-evidence/w16b/`.
 - [x] The host picks the attempt's own tenant's route; an unknown tenant is refused by name before any byte leaves the host.
 - [x] Producers updated: supervisor tests, W01g transport suite, W19a graph-proof stack.
 - [x] Hold b1 at 61bc3428b: every leg exit 0.
-- [ ] W01 owner review (w01g-fix), then validation, then merge before W16 and W01h.
+- [x] W01 owner review (w01g-fix) at 61bc3428b; the audience change sent for the same review.
+- [x] The route accepts only the contract's audience; a pool token is refused by name (ca92306c5). Hold b2 at fb3a990ee: every leg exit 0.
+- [ ] Validation (validator-2), then merge before W16 and W01h.
 
 ### Review
 

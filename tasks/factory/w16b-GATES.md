@@ -52,15 +52,15 @@ one of them.
 - [x] G5: Podman supervisor suite, coverage gates against 27d957531, typecheck, lint, boundaries, gate integrity.
   CHECK: `flock --close /tmp/ezcorp-validation-heavy.lock timeout 5400 bash /tmp/factory-platform-evidence/w16/repro/w16b-hold.sh <label>`
   EXPECT: every leg exit 0
-  EVIDENCE: `/tmp/factory-platform-evidence/w16b/receipts/b1/` (13 receipts, all exit 0, clean at start); Podman supervisor 3/0; patch coverage 3 files; no new source file
+  EVIDENCE: `/tmp/factory-platform-evidence/w16b/receipts/b1/` at 61bc3428b (13 receipts); rerun at fb3a990ee in `receipts/b2/` (14 receipts, all exit 0, clean at start); patch coverage 6 files; no new source file
 
 - [x] G6: W01 owner review (w01g-fix).
   EVIDENCE: approved at 61bc3428b (fail-closed selection, C05 closure unchanged, clean trial merge with W01h f8e24804b except a tasks/lessons.md union). The audience change (ca92306c5) was sent for the same review.
 
-- [ ] G7: The guest-broker route accepts only its own audience. `FACTORY_GUEST_BROKER_AUDIENCE` is defined once in the contract leaf; the route verifies against it whatever its configuration says; a token from the same key and issuer for another audience (a pool token) is refused 401 `token_audience_refused`; the startup parser refuses any other configured audience; no copy of the literal remains.
+- [x] G7: The guest-broker route accepts only its own audience. `FACTORY_GUEST_BROKER_AUDIENCE` is defined once in the contract leaf; the route verifies against it whatever its configuration says; a token from the same key and issuer for another audience (a pool token) is refused 401 `token_audience_refused`; the startup parser refuses any other configured audience; no copy of the literal remains.
   CHECK: `bun test ./src/factory/runner/guest-broker-transport.integration.test.ts ./src/factory/startup-config.test.ts`; `grep -rn '"factory-guest-broker"' src scripts`
   EXPECT: exit 0; one match, in the contract leaf; each negative control red
-  EVIDENCE: controls at ca92306c5: route trusting its configured audience red (`/tmp/factory-platform-evidence/w16b/logs/audience-route-red.log`); parser pin removed red (`logs/audience-parser-red.log`). Hold: pending
+  EVIDENCE: controls at ca92306c5: route trusting its configured audience red (`/tmp/factory-platform-evidence/w16b/logs/audience-route-red.log`); parser pin removed red (`logs/audience-parser-red.log`). Hold b2 at fb3a990ee: `/tmp/factory-platform-evidence/w16b/receipts/b2/` (14 receipts, all exit 0, clean at start): PostgreSQL guest-model route 17/0, Podman supervisor 3/0, focused with lcov 140/0 (supervisor, transport, supervisor-services, startup-config, guest-model route), boundary suites 46/0, patch coverage 6 files vs 27d957531, typecheck, lint, boundaries, gate integrity
 
 ## Follow-up (recorded, not in W16b)
 
