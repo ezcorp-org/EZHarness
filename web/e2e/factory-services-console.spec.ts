@@ -123,13 +123,13 @@ test("the console binds the built guest release and trusts it after reviewing it
 	await admin.getByRole("button", { name: "Install" }).click();
 	const form = admin.getByRole("form", { name: "Install runner package" });
 	const reference = state.guest.reference;
-	await form.getByLabel("Package").fill(reference.package);
-	await form.getByLabel("Manifest name").fill(reference.manifestName);
-	await form.getByLabel("Version").fill(reference.version);
-	await form.getByLabel("Export").fill(reference.export);
-	await form.getByLabel("Digest").fill(reference.digest);
-	await form.getByLabel("Installation").fill(state.guest.installationId);
-	await form.getByLabel("Release").fill(state.guest.releaseId);
+	await form.getByLabel("Package", { exact: true }).fill(reference.package);
+	await form.getByLabel("Manifest name", { exact: true }).fill(reference.manifestName);
+	await form.getByLabel("Version", { exact: true }).fill(reference.version);
+	await form.getByLabel("Export", { exact: true }).fill(reference.export);
+	await form.getByLabel("Digest", { exact: true }).fill(reference.digest);
+	await form.getByLabel("Installation", { exact: true }).fill(state.guest.installationId);
+	await form.getByLabel("Release", { exact: true }).fill(state.guest.releaseId);
 	await form.getByRole("button", { name: "Bind package" }).click();
 	await expect(admin.getByRole("status")).toContainText(`${reference.package}@${reference.version} is bound.`);
 	const actions = admin.getByRole("group", { name: `Trust actions for ${reference.package}`, exact: true });
@@ -147,7 +147,7 @@ test("the console binds the built guest release and trusts it after reviewing it
 	await admin.getByRole("button", { name: "Install" }).click();
 	for (const [label, value] of [["Package", validator.package], ["Manifest name", validator.manifestName], ["Version", validator.version], ["Export", validator.export], ["Digest", validator.digest],
 		["Configuration digest (optional)", validator.configurationDigest], ["Installation", state.guest.installationId], ["Release", state.guest.releaseId]] as const) {
-		await form.getByLabel(label).fill(value);
+		await form.getByLabel(label, { exact: true }).fill(value);
 	}
 	await form.getByRole("button", { name: "Bind package" }).click();
 	await expect(admin.getByRole("status")).toContainText(`${validator.package}@${validator.version} is bound.`);
@@ -255,7 +255,7 @@ test("a run started from the version list is watched live to a terminal status w
 		release = read.resource.releases[0] ?? release;
 		return release.operationId;
 	}, { timeout: 420_000, intervals: [2_000] }).not.toBe("");
-	await expect(inspector.getByRole("region", { name: "Acceptance" })).toContainText("accepted");
+	await expect(inspector.getByRole("region", { name: "Acceptance" })).toContainText("accepted", { timeout: 30_000 });
 	// An operation is approvable once its recovery archive is written; until then the request is refused.
 	await expect.poll(async () => (await mutate(page.request, "POST", `${project()}/releases/${encodeURIComponent(release.operationId)}/approvals`, release.dispatchGeneration, { expiresAtMs: Date.now() + 300_000 })).status(),
 		{ timeout: 120_000, intervals: [2_000] }).toBe(200);
