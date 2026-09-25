@@ -51,10 +51,10 @@ their readiness file in the stack directory, which went with it.
   EXPECT: `diagnostics.ts` 100 percent lines and functions in the leg; both gates exit 0 (they gate no file here: `scripts/factory-graph-proof/` is outside the coverage source globs); all static checks exit 0
   EVIDENCE: `receipts/cov-w19b.json`, `receipts/gate-*.json`, `receipts/final-*.json`
 
-- [ ] G5 (fix round): the secret rule fails closed, binary secrets are covered, and redaction runs while the pass runs.
+- [x] G5 (fix round): the secret rule fails closed, binary secrets are covered, and redaction runs while the pass runs.
   CHECK: `bun test ./src/factory/graph-proof-diagnostics.test.ts --coverage`; under the lock with `df` first, `timeout 1800 run.sh pass mock forced-failure control-forced-failure` and `verify-diagnostics.ts`; the static checks and the coverage gates against `27d957531`; `credential-scan.sh`
   EXPECT: 15 pass; `diagnostics.ts` and `stack-documents.ts` at 100 percent; the control fails by its named check and its diagnostics check is `ok: true`, with no readiness file refused; every static check and gate exits 0; the scan finds nothing
-  EVIDENCE: `receipts/fix-*.json`, `proof-fix/`
+  EVIDENCE: `receipts/fix-*.json`, `proof-fix/` (all at `080204bd3`). The first heavy attempt ran without the storage credential directory and refused to start; it is kept as `receipts/fix-heavy-attempt-1-no-storage-env.json`.
 
 ## History
 
