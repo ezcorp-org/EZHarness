@@ -67,6 +67,7 @@ function createTransport(
     request(method, path, value, responseLimit = DEFAULT_PRIVATE_HTTP_LIMIT, signal) {
       const body = value as Buffer | undefined;
       return new Promise((resolve, reject) => {
+        let responded = false;
         const url = new URL(path, endpoint);
         const options: RequestOptions = {
           method,
@@ -89,15 +90,49 @@ function createTransport(
           let received = 0;
           response.on("data", (chunk: Buffer) => {
             received += chunk.byteLength;
-            if (received > responseLimit) response.destroy(new Error(`factory gateway response exceeds ${responseLimit} bytes`));
-            else chunks.push(chunk);
+            if (received <= responseLimit) { chunks.push(chunk); return; }
+            const error = new Error(`factory gateway response exceeds ${responseLimit} bytes`);
+            reject(error);
+            response.destroy(error);
           });
+          responded = true;
+          let ended = false;
+          response.once("end", () => { ended = true; });
+          response.once("close", () => { if (!ended) reject(new Error("factory gateway response closed before it ended")); });
           response.on("end", () => resolve({ statusCode: response.statusCode ?? 0, headers: response.headers, body: Buffer.concat(chunks) }));
           response.on("error", reject);
         });
-        const deadline = setTimeout(() => request.destroy(new Error("factory gateway request timed out")), timeoutMs);
+        const deadline = setTimeout(() => {
+          const error = new Error("factory gateway request timed out");
+          // Settled here, not left to the `error` event: Bun destroys the
+          // request and emits only `close`, so a request whose peer never
+          // answered would otherwise stay pending forever. Node emits `error`
+          // as well, and the second rejection is a no-op.
+          reject(error);
+          request.destroy(error);
+        }, timeoutMs);
         request.once("close", () => clearTimeout(deadline));
         request.on("error", reject);
+        // An abort is settled here for the same reason as the deadline: under
+        // Bun an aborted request also emits only `close`, and a caller waiting
+        // on it would wait for ever.
+        const aborted = () => {
+          const reason: unknown = signal?.reason;
+          return reason instanceof Error ? reason : new Error("factory gateway request aborted");
+        };
+        const abort = () => {
+          const error = aborted();
+          reject(error);
+          request.destroy(error);
+        };
+        signal?.addEventListener("abort", abort, { once: true });
+        request.once("close", () => {
+          signal?.removeEventListener("abort", abort);
+          // Bun can close the request without ever emitting `error` — its own
+          // abort handling runs first and closes it synchronously — so a close
+          // before any response settles the request here.
+          if (!responded) reject(signal?.aborted ? aborted() : new Error("factory gateway connection closed before a response"));
+        });
         if (body) request.write(body);
         request.end();
       });
