@@ -170,7 +170,7 @@ test("qualifies an environment, creates a project sandbox, and manages its lifec
 	await expect(page.getByTestId("qualification-workflow").getByText("Operator fixtures are ready", { exact: true })).toBeVisible();
 	await page.getByRole("checkbox", { name: /host is ready for a live sandbox qualification/ }).check();
 	await page.getByRole("button", { name: "Run live qualification" }).click();
-	await expect(page.locator(".management-shell > .alert.notice")).toContainText("Qualification started");
+	await expect(page.getByTestId("qualification-workflow")).toContainText("Qualification passed");
 	await expect(page.getByText("Qualified", { exact: true })).toBeVisible();
 	await expect(page.getByRole("button", { name: "Create project sandbox" })).toBeEnabled();
 	await page.getByRole("textbox", { name: "New project name" }).fill(project.name);
