@@ -77,7 +77,7 @@ export async function run(input: unknown, context: GuestContext): Promise<Record
   const operationId = \`\${authority.runId}:\${authority.nodeInstanceId}:\${authority.candidateGeneration ?? 0}:\${operationIndex}\`;
   const staging = createFactoryGuestStaging({ call: async (payload) => context.call('factory.broker', payload), operationId, operationIndex });
   const validator = (request?.input as { kind?: string } | undefined)?.kind === 'artifact';
-  let value: unknown;
+  let value: Parameters<typeof staging.stageResult>[1];
   if (validator) {
     value = { schemaVersion: 'factory.validator-claims.v1', claims: [{ id: ${JSON.stringify(GUEST_CLAIM_ID)}, verdict: 'PASS', decisive: true, summary: 'factory-services validator guest', reasonCode: 'factory_services_pass' }] };
   } else {
