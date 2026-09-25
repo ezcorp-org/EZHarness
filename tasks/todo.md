@@ -963,8 +963,8 @@ Review: Hosted full mock browser lane failed 16 journeys; browser route coverage
 
 - [x] Reproduce the two mobile drawer failures with Chromium Playwright.
 - [x] Scope the Chat link assertions to the exact navigation item.
-- [ ] Run the affected browser test and exact `mock-full` CI lane.
-- [ ] Commit the follow-up fix and report the result.
+- [x] Run the affected browser test and exact `mock-full` CI lane.
+- [x] Commit the follow-up fix and report the result.
 
 Review: The hosted full mock lane reported two strict selector collisions in `mobile-tab-bar.spec.ts`: both the Chat nav link and All chats link matched the broad `Chat` locator. Downstream browser route coverage and per-file coverage gates failed because their browser producer failed. The two affected Chromium journeys failed before the fix and passed 2/2 after it. The full lane is pending.
 
@@ -974,7 +974,7 @@ Review: The hosted full mock lane reported two strict selector collisions in `mo
 - [x] Add a list/store integration test for scoped and unscoped refresh events.
 - [x] Add a layout integration test for the mobile Chat section path.
 - [x] Run focused tests, local coverage, typecheck, and lint.
-- [ ] Commit the coverage repair and report the result.
+- [x] Commit the coverage repair and report the result.
 
 Review: Hosted global and new-file coverage passed. Patch coverage missed `ConversationList.svelte:237`, `stores.svelte.ts:372`, and `(app)/+layout.svelte:609`. The new integration tests pass 20/20. Targeted V8 coverage now records 3, 3, and 1 hit on those lines. Full typecheck and lint pass. The exact-head browser receipt and full coverage gate remain to run after the other agent's shared test slot clears. No gate configuration changed.
 
@@ -986,3 +986,14 @@ Review: Hosted global and new-file coverage passed. Patch coverage missed `Conve
 - [ ] Run focused, full, patch, new-file, and gate-integrity checks at the new head.
 
 Review: The exact-head browser lanes and full host coverage passed, but the separate patch gate found layout line 609 at zero hits. Browser V8 source maps leave that prop line at zero; targeted Node V8 measured the mounted mobile drawer test at one hit. The canonical Node producer did not include the layout and its filter excluded scripted routes. Exactly this layout is now dual-measured: the sanctioned Vitest leg passed 596 files and 7,517 tests, retained layout line 609 with one hit, and its LCOV merged with the browser receipt covers 205/219 layout lines (93.61%, above 80%). The guard suite, lint, typecheck, and gate-integrity checks pass. Exact-head full receipt and coverage checks remain. No threshold or exclusion changed.
+## PR #320 watchdog sleep reason review — 2026-09-24
+
+- [x] Read the PR, runtime contract, relevant lessons, and failed hosted job.
+- [x] Reproduce the first-tick sleep failure through the watchdog and persisted error path.
+- [x] Fix first-tick detection, progress-before-tick attribution, and the code quality complexity failure.
+- [x] Run focused watchdog tests, typecheck, lint, and browser SSE/reload proof.
+- [ ] Verify the CRAP quality gate on merged coverage, then push and review hosted CI.
+
+Plan review: The hosted Per-file coverage job passed line coverage but failed the touched-function CRAP limit: tick() scored 31 over its limit of 30. The PR also missed a sleep before the first tick and progress just before a delayed tick. Keep kill thresholds unchanged. Move sleep accounting and reason text into small helpers, and prove visible and persisted wording through browser SSE and reload.
+
+Review: A new frozen-clock test failed at the original head when the host slept before the first timer callback. The fix initializes observation time on start and resets it on real progress. A tool timeout that expired during sleep also lost the sleep note; the selected tool reason now keeps precedence and gains the note. The text says sleep *may* have happened, since timer delay alone cannot prove it. Six focused suspension tests, the watchdog file suite, typecheck, lint, and six Chromium browser cases passed. Browser cases show both sleep error forms after SSE and page reload. Exact quality gate and hosted CI remain for the integrating agent.
