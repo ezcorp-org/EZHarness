@@ -14,10 +14,13 @@ test.describe("Chat", () => {
 		});
 		await page.goto(`/project/${proj.id}/chat`);
 
-		const conversations = page.getByRole("navigation", { name: "Conversations" });
-		await expect(conversations.getByRole("button", { name: /^First Chat\b/ })).toBeVisible();
+		// Landing on /chat still opens the most recent chat, and both threads are
+		// listed beside it — in the sidebar's Chat section now, which replaced
+		// the separate conversation column.
 		await expect(page.getByTestId("chat-title")).toHaveText("First Chat");
-		await expect(conversations.getByRole("button", { name: /^Second Chat\b/ })).toBeVisible();
+		const threads = page.getByTestId("chat-nav-section").first().getByTestId("chat-nav-thread");
+		await expect(threads.filter({ hasText: "First Chat" })).toBeVisible();
+		await expect(threads.filter({ hasText: "Second Chat" })).toBeVisible();
 	});
 
 	test("chat list shows empty state with New Chat button", async ({ page, mockApi }) => {

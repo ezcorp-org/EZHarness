@@ -126,8 +126,9 @@ test.describe("Chat branch button → fork to new chat", () => {
 		// secondary check only applies on the desktop viewport (the bulk
 		// path's mobile behaviour is owned by conversation-fork-flow.spec.ts).
 		if (testInfo.project.name !== "mobile-chromium") {
-			const sidebar = page.getByRole("navigation", { name: "Conversations" });
-			await expect(sidebar.getByText(/^Forked:/).first()).toBeVisible();
+			// In the sidebar's Chat section now (the conversation column is gone).
+			const threads = page.getByTestId("chat-nav-section").first().getByTestId("chat-nav-thread");
+			await expect(threads.filter({ hasText: /Forked:/ }).first()).toBeVisible();
 		}
 	});
 });

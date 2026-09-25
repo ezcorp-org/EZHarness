@@ -246,6 +246,7 @@
       "web/e2e/chat-resume-roundtrip.spec.ts",
       "web/e2e/chat-resume.spec.ts",
       "web/e2e/chat-select-mode.spec.ts",
+      "web/e2e/chat-sidebar-threads.spec.ts",
       "web/e2e/chat-stream-survives-convo-switch.spec.ts",
       "web/e2e/chat-streaming.spec.ts",
       "web/e2e/chat-title-rename.spec.ts",

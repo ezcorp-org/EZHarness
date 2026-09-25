@@ -35,6 +35,7 @@ const { fetchConversations, deleteConversation, updateConversation, searchConver
 
 import ConversationList from "./ConversationList.svelte";
 import { unreadStore } from "$lib/unread.js";
+import { notifyConversationsChanged } from "$lib/stores.svelte.js";
 
 const COLLAPSE_LS_KEY = "chatList.collapsedFamilies";
 const UNREAD_LS_KEY = "ez-unread-conversations";
@@ -83,6 +84,27 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe("ConversationList — fork tree rendering", () => {
+	test("project-scoped changes refresh this list and unscoped changes refresh every list", async () => {
+		const view = renderList([conv({ id: "chat", title: "Before rename" })]);
+		await view.findByText("Before rename");
+		const initialFetches = fetchConversations.mock.calls.length;
+
+		// A change in another project must leave the open list untouched.
+		notifyConversationsChanged("other-project");
+		expect(fetchConversations).toHaveBeenCalledTimes(initialFetches);
+
+		// The same event contract is used by the sidebar and full list. A
+		// matching project refresh must show the new title without navigation.
+		fetchConversations.mockResolvedValue([conv({ id: "chat", title: "After rename" })]);
+		notifyConversationsChanged("p1");
+		await view.findByText("After rename");
+		expect(fetchConversations).toHaveBeenCalledTimes(initialFetches + 1);
+
+		// An omitted project id announces a global change to every list.
+		notifyConversationsChanged();
+		await waitFor(() => expect(fetchConversations).toHaveBeenCalledTimes(initialFetches + 2));
+	});
+
 	test("a family with forks renders one chevron in its open state by default", async () => {
 		const parent = conv({ id: "p", title: "Parent Chat", updatedAt: new Date(NOW - 5 * 3_600_000).toISOString() });
 		const fork = conv({

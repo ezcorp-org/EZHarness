@@ -25,10 +25,10 @@ test.describe("Conversation List", () => {
 			projects: [proj],
 			conversations: [convRecent, convOlder],
 		});
-		await page.goto(`/project/${proj.id}/chat`);
+		await page.goto(`/project/${proj.id}/chat?all=1`);
 
 		await expect(conversationList(page).getByText("Recent Chat")).toBeVisible();
-		await expect(page.getByText("Older Chat")).toBeVisible();
+		await expect(conversationList(page).getByText("Older Chat")).toBeVisible();
 	});
 
 	test("clicking a conversation selects it", async ({ page, mockApi }) => {
@@ -37,7 +37,7 @@ test.describe("Conversation List", () => {
 			conversations: [convRecent],
 			messages: [],
 		});
-		await page.goto(`/project/${proj.id}/chat`);
+		await page.goto(`/project/${proj.id}/chat?all=1`);
 
 		await conversationList(page).getByText("Recent Chat").click();
 		await expect(page).toHaveURL(/\/chat\/c-recent/);
@@ -48,12 +48,12 @@ test.describe("Conversation List", () => {
 			projects: [proj],
 			conversations: [convRecent],
 		});
-		await page.goto(`/project/${proj.id}/chat`);
+		await page.goto(`/project/${proj.id}/chat?all=1`);
 
-		const searchBtn = page.getByTitle("Search conversations");
+		const searchBtn = conversationList(page).getByTitle("Search conversations");
 		await searchBtn.click();
 
-		const searchInput = page.getByPlaceholder("Search...");
+		const searchInput = conversationList(page).getByPlaceholder("Search...");
 		await expect(searchInput).toBeVisible();
 
 		await searchInput.press("Escape");
@@ -65,10 +65,10 @@ test.describe("Conversation List", () => {
 			projects: [proj],
 			conversations: [convRecent, convOlder],
 		});
-		await page.goto(`/project/${proj.id}/chat`);
+		await page.goto(`/project/${proj.id}/chat?all=1`);
 
-		await page.getByTitle("Search conversations").click();
-		await page.getByPlaceholder("Search...").fill("Recent");
+		await conversationList(page).getByTitle("Search conversations").click();
+		await conversationList(page).getByPlaceholder("Search...").fill("Recent");
 
 		// Wait for debounced search
 		await expect(conversationList(page).getByText("Recent Chat")).toBeVisible();
@@ -79,7 +79,7 @@ test.describe("Conversation List", () => {
 			projects: [proj],
 			conversations: [convRecent],
 		});
-		await page.goto(`/project/${proj.id}/chat`);
+		await page.goto(`/project/${proj.id}/chat?all=1`);
 
 		// Hover over conversation to reveal actions
 		await conversationList(page).getByText("Recent Chat").hover();
@@ -102,7 +102,7 @@ test.describe("Conversation List", () => {
 			projects: [proj],
 			conversations: [convRecent, convOlder],
 		});
-		await page.goto(`/project/${proj.id}/chat`);
+		await page.goto(`/project/${proj.id}/chat?all=1`);
 
 		// Hover over conversation to reveal delete button
 		await conversationList(page).getByText("Recent Chat").hover();
@@ -124,7 +124,7 @@ test.describe("Conversation List", () => {
 			projects: [proj],
 			conversations: [],
 		});
-		await page.goto(`/project/${proj.id}/chat`);
+		await page.goto(`/project/${proj.id}/chat?all=1`);
 
 		// This spec owns the SIDEBAR list, so scope to it. The chat page renders
 		// its own "No conversations yet" heading, and once the page is fully
@@ -162,7 +162,7 @@ test.describe("Conversation List", () => {
 
 		test("parent shows expand chevron; fork rows render indented with ↳ glyph", async ({ page, mockApi }) => {
 			await mockApi({ projects: [proj], conversations: [parent, forkA, forkB] });
-			await page.goto(`/project/${proj.id}/chat`);
+			await page.goto(`/project/${proj.id}/chat?all=1`);
 
 			const sidebar = conversationList(page);
 			await expect(sidebar).toBeVisible();
@@ -191,7 +191,7 @@ test.describe("Conversation List", () => {
 
 		test("clicking chevron collapses the family; reload preserves collapse via localStorage", async ({ page, mockApi }) => {
 			await mockApi({ projects: [proj], conversations: [parent, forkA, forkB] });
-			await page.goto(`/project/${proj.id}/chat`);
+			await page.goto(`/project/${proj.id}/chat?all=1`);
 
 			const sidebar = conversationList(page);
 
@@ -217,7 +217,7 @@ test.describe("Conversation List", () => {
 			// Only fork-a is loaded; the parent is missing (paginated off / deleted).
 			// The fork should still render (not silently dropped).
 			await mockApi({ projects: [proj], conversations: [forkA] });
-			await page.goto(`/project/${proj.id}/chat`);
+			await page.goto(`/project/${proj.id}/chat?all=1`);
 
 			const sidebar = conversationList(page);
 			await expect(sidebar.getByText("try OAuth path")).toBeVisible();
@@ -227,7 +227,7 @@ test.describe("Conversation List", () => {
 
 		test("family with no forks renders as a plain row (no chevron)", async ({ page, mockApi }) => {
 			await mockApi({ projects: [proj], conversations: [parent] });
-			await page.goto(`/project/${proj.id}/chat`);
+			await page.goto(`/project/${proj.id}/chat?all=1`);
 
 			const sidebar = conversationList(page);
 			await expect(sidebar.getByText("Parent Chat")).toBeVisible();
@@ -263,7 +263,7 @@ test.describe("Conversation List", () => {
 			}
 		});
 
-		await page.goto(`/project/${proj.id}/chat`);
+		await page.goto(`/project/${proj.id}/chat?all=1`);
 
 		// Scope everything to the sidebar (the 280px-wide conversation list container)
 		const sidebar = conversationList(page);

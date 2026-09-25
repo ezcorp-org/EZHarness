@@ -248,6 +248,9 @@ web_vitest_coverage_args() {
     "--coverage.include=src/lib/components/WorkflowBuilder.svelte"
     "--coverage.include=src/routes/**/onboarding/+page.server.ts"
     "--coverage.include=src/routes/**/onboarding/+page.svelte"
+    # Browser V8 misses the mobile Chat currentPath prop's source-map line;
+    # Node V8 measures the real layout via its mounted component test.
+    "--coverage.include=src/routes/(app)/+layout.svelte"
     "--coverage.include=src/lib/provider-access.ts"
     "--coverage.include=src/lib/components/ProviderSettings.svelte"
     "--coverage.include=src/lib/components/Tooltip.svelte"
