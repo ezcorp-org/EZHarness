@@ -12,7 +12,17 @@ mock.module("../../web/src/routes/api/memories/$types", () => ({}));
 mock.module("../../web/src/routes/api/memories/[id]/$types", () => ({}));
 mock.module("$lib/server/security/api-keys", () => webLibModule("server/security/api-keys", { requireScope: () => null }));
 mock.module("@sveltejs/kit", () => ({ json: (value: unknown, init?: ResponseInit) => Response.json(value, init) }));
-mock.module("$lib/server/http-errors", () => ({ errorJson: (status: number, error: string) => Response.json({ error }, { status }) }));
+// D residual fix: was a 2-arg errorJson(status, error) that dropped the real
+// module's `details`/`extraHeaders` params (web/src/lib/server/http-errors.ts:
+// `errorJson(status, message, details?, extraHeaders?)`, which spreads
+// `details` into the body). Not a missing-export bug — the name was right,
+// just the behavior was narrower than the real one — so completing the
+// export LIST alone (this item's usual fix) would not have caught it; only
+// running this file together with a sibling whose route relies on the
+// `details` param (messages-permission-mode-ceiling-route.test.ts) surfaced
+// the wrong-shaped body. See the matching fix + longer note in
+// extension-event-end-to-end.test.ts.
+mock.module("$lib/server/http-errors", () => webLibModule("server/http-errors", {}));
 
 const { GET: listMemoriesRoute } = await import("../../web/src/routes/api/memories/+server");
 const { GET: getMemoryRoute, PUT: putMemoryRoute, PATCH: patchMemoryRoute, DELETE: deleteMemoryRoute } = await import("../../web/src/routes/api/memories/[id]/+server");
