@@ -3789,6 +3789,44 @@ load; the socket paths were already short. Each cause is pinned by a test that f
 code. At `2d33f46d7` the full backend pool reports 0 fail, and every static and coverage gate passes.
 Two findings are left open outside scope: the ai-kit installer ignores its postinstall exit code, and
 `inspectProductionRunner` keeps a fixed 5-second default for verification commands.
+
+## W15b — Runtime key management and migration follow-ups (branch `wp/w15b-runtime-kms`)
+
+Brief: `/tmp/factory-platform-evidence/w00/briefs/w15b.md`. Gate file: `tasks/factory/w15b-GATES.md`.
+
+- [x] R1 one key-service unit for the orchestrator codec and the restore; each non-file kind proven at runtime (Node launcher and full stack); mismatches refuse typed; the manifest names the kind.
+- [x] R2 the retention kind constraint is replaced by name; proven on the old table shape under PGlite and PostgreSQL.
+- [x] R3 the effect-claims comment corrected.
+- [x] R4 unchanged by design.
+- [x] Gates, receipts, report.
+- [x] Round 2: the pool bundles for Node again (checkpoint limits in a leaf); gate integrity green against `integ/w00` (key service back in `key-composition.ts`); final legs rerun at `5f341bf01`.
+- [x] Round 3 (post-W15c): merged `integ/w00` `b9de6910c`; one copy of the C12 block, the coverage key, and the lesson; N1 gate text; N5 an aborted restore stops without a pool finding; all legs rerun at `9f1391d18`.
+- [ ] Follow-up N2 (owner W15): the checkpoint manifest does not tie the checkpoint to its key wrap (`keys.service` echoes config; the wrap fields are null).
+- [ ] Follow-up N3 (hygiene): skip the retention kind constraint change when `pg_constraint` already holds the same definition.
+- [ ] Follow-up N4 (defence in depth): a keyed report digest, so an edit that also rewrites `report_digest` is caught.
+
+Review (W15b): The orchestrator's payload codec and the restore now open the data key through one unit,
+so a startup document that selects a cloud KMS or a transit engine works at runtime, not only in the
+restore. The Node process may link the KMS client, and the boundary test says exactly that. A wrap
+made under another service, or a service that cannot open it, refuses with `FactoryEncryptionError`.
+The retention kind constraint is replaced by name on every boot. The first backend-pool run failed
+because the batch leaked the PostgreSQL environment into it; the batch now uses subshells.
+Round 2: the W15 merge made the pool service import the checkpoint barrier, which links the Bun
+database driver, so the Node pool bundle failed. The limits now live in a leaf module the barrier
+re-exports. Gate integrity had refused round 1's move of `key-composition.ts`; the selection is back
+in that file. Every final leg exits 0 at `5f341bf01`, including the backend pool.
+Round 3: W15c's gate replaced W15b's copy of the pool checks. A restore cancelled during a pool call
+now stops with its abort and records nothing for that call; before, it recorded a pool refusal first.
+
+### W18 hygiene backlog: load-sensitive suites outside W15b (recorded by W15b, 2026-09-24)
+
+- [ ] `src/__tests__/production-image-lifecycle-launch.integration.test.ts`: under the full backend pool
+  on the shared host, "launcher cancellation reaps its verifier and runner before streams drain" failed
+  (5517 ms); alone it passes 5/0. Evidence: `/tmp/factory-platform-evidence/w15b/logs/pool-flake-alone.log`.
+- [ ] `src/__tests__/substack-pilot-installer.test.ts`: under the full pool, "Substack source seals settings
+  and checksums, then publishes only its exact human-approved release" hit its 120 s timeout and two
+  credential-broker cases failed after it; alone it passes 3/0. Evidence: `.../w15b/logs/pool-flake-alone-2.log`.
+
 ## W18a-2 — second complexity pass and the three coverage-key gaps (branch `wp/w18a2-quality`)
 
 Brief: `/tmp/factory-platform-evidence/w00/briefs/w18a2.md`. Gates: `tasks/factory/w18a2-GATES.md`.

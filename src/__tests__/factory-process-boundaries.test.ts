@@ -112,8 +112,18 @@ const CREDENTIAL_PACKAGES = [
   "bun",              // Bun.sql, Bun.file — the Node process uses none of it
 ] as const;
 
+/**
+ * The key service is not a product store. C02 puts the tenant payload codec in
+ * the Node process, and C06 lets an installation open that codec's data key
+ * through a cloud KMS instead of the operator key file (W15b R1). The KMS
+ * client reaches the key service only: it holds no object-store, database, or
+ * provider credential, so it is the one `@aws-sdk/` client this closure may link.
+ */
+const KEY_SERVICE_PACKAGES = ["@aws-sdk/client-kms"] as const;
+
 function credentialPackages(closure: Closure): string[] {
   return [...closure.bare.keys()]
+    .filter((specifier) => !(KEY_SERVICE_PACKAGES as readonly string[]).includes(specifier))
     .filter((specifier) => CREDENTIAL_PACKAGES.some((name) => specifier === name || specifier.startsWith(name)))
     .sort();
 }
@@ -150,6 +160,14 @@ describe("C02.1 the Node orchestration process holds no product credential", () 
     const closure = runtimeClosure(NODE_ORCHESTRATION_ROOTS);
     expect(closure.files).toContain("src/factory/file-key-wraps.ts");
     expect(closure.files).toContain("src/factory/encryption.ts");
+    // The key service it opens that key through, and nothing else from the AWS SDK.
+    expect(closure.files).toContain("src/factory/key-composition.ts");
+    expect(closure.files).toContain("src/factory/key-management.ts");
+    expect([...closure.bare.keys()].filter((specifier) => specifier.startsWith("@aws-sdk/")).sort()).toEqual([...KEY_SERVICE_PACKAGES]);
+  });
+
+  test("the key-service exemption is exact: the object-store client is still a credential", () => {
+    expect(credentialPackages(runtimeClosure(["src/extensions/v4/blobs.ts"])).some((name) => name.startsWith("@aws-sdk/client-s3"))).toBe(true);
   });
 });
 
@@ -161,6 +179,12 @@ describe("C12 the pool service process runs on Node", () => {
     const result = await Bun.build({ entrypoints: [resolve(REPO_ROOT, POOL_SERVICE_ENTRY)], target: "node", format: "esm", throw: false });
     expect(result.logs.filter((log) => log.level === "error").map(String)).toEqual([]);
     expect(result.success).toBe(true);
+  });
+
+  test("it shares the checkpoint limits, not the barrier that links the product database", () => {
+    const closure = runtimeClosure([POOL_SERVICE_ENTRY]);
+    expect(closure.files).toContain("src/factory/checkpoint-limits.ts");
+    expect(closure.files.filter((file) => file === "src/factory/checkpoint-barrier.ts" || file === "src/db/connection.ts" || file.startsWith("src/db/queries/"))).toEqual([]);
   });
 });
 

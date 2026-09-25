@@ -1511,6 +1511,13 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 - A "hard expiry" date in code is a scheduled behaviour change with no deploy. Once the date passes, retire the dead branch rather than keep a clock comparison that only looks alive. Source-regex gates that match indentation broke silently on a refactor; pin the behaviour on the real handler instead.
 - A project-root walk must accept only a real repository marker. `existsSync(".git")` also matched a stray empty `/tmp/.git`, which git itself rejects. Ask "what does git say?" and plant the stray marker inside the test's own tree so the case holds whatever the host's /tmp contains.
 - A git hook exports `GIT_DIR` and `GIT_INDEX_FILE`. Any `git` a test or tool spawns from inside a hook acts on the hook's repository, so `rev-parse` reports "inside a repository" everywhere and `git init <dir>` targets the wrong place. Drop the caller's `GIT_*` variables when git must discover from a directory.
+- W15b: A batch script must source a database environment inside a subshell. Sourcing it into the
+  batch shell leaked `DATABASE_URL` into the backend pool and failed eleven tests that expect none.
+- W15b: Node's type stripping rejects TypeScript parameter properties. A module the Node
+  orchestrator loads declares its fields explicitly and imports with `.ts` extensions.
+- W15b: Gate integrity treats a moved test file or coverage key as a deleted gate. To merge two
+  modules, keep the gated file's name as the home of the moved code. Search dynamic imports
+  (`import("...")`) and evidence scripts too when a module's exports move.
 ## 2026-09-22 — A measured list is stale after a merge (W18a-2)
 
 - Recompute a complexity or CRAP list on the tree you will hand over. Do not trust the list in the brief. The brief
