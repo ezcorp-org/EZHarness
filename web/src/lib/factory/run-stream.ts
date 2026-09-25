@@ -116,9 +116,6 @@ export class FactoryRunStream {
 				case "snapshot":
 					outcome = await this.takeSnapshot();
 					break;
-				case "reopen":
-					outcome = await this.follow();
-					break;
 				case "backoff":
 					this.failures += 1;
 					if (this.failures > this.maxReconnects) { this.update({ state: "offline", reason: "reconnect-limit" }); return this.status; }
@@ -127,8 +124,8 @@ export class FactoryRunStream {
 					outcome = this.token === "" ? "snapshot" : "reopen";
 					break;
 				default:
-					// Every outcome is handled above; anything else is a defect, never a silent spin.
-					throw new Error(`factory run stream: unknown outcome ${String(outcome satisfies never)}`);
+					// "reopen". Every path through the loop awaits, so no outcome can spin it without yielding.
+					outcome = await this.follow();
 			}
 		}
 		return this.status;
