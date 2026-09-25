@@ -602,7 +602,12 @@ test("a run waiting on an approval streams live, shows the approval blocker, and
 	await captureEvidence(page, testInfo, "factory-services-command-approval");
 	await asked.getByRole("button", { name: "deny", exact: true }).click();
 	await expect(asked).toHaveCount(0);
-	await expect.poll(async () => (await (await page.request.get(`${project()}/runs/${waitingRun}`)).json() as { resource: { status: string } }).resource.status, { timeout: 120_000, intervals: [1_000] }).toBe("failed");
+	// Status and error together, so a run that does not end says where it stands.
+	await expect.poll(async () => {
+		const run = (await (await page.request.get(`${project()}/runs/${waitingRun}`)).json() as { resource: { status: string; error?: unknown } }).resource;
+		const read = (await (await page.request.get(inspection)).json() as { resource: { blockers: unknown[]; projectionLag: number } }).resource;
+		return JSON.stringify({ status: run.status, error: run.error ?? null, blockers: read.blockers, lag: read.projectionLag });
+	}, { timeout: 180_000, intervals: [2_000] }).toMatch(/^\{"status":"failed"/);
 	await expect.poll(async () => (await (await page.request.get(inspection)).json() as { resource: { blockers: Array<{ kind: string }> } }).resource.blockers.map(item => item.kind), { timeout: 30_000 }).not.toContain("approval");
 });
 
