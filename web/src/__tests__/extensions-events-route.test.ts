@@ -23,7 +23,7 @@
  */
 
 import { test, expect, describe, beforeEach, mock } from "bun:test";
-import { webLibModule } from "../../../src/__tests__/helpers/mock-cleanup";
+import { webLibModule, contextModule, serverModule } from "../../../src/__tests__/helpers/mock-cleanup";
 import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 // ── Mock auth + scope middleware ──────────────────────────────────
@@ -65,10 +65,11 @@ mock.module("$server/extensions/domain-event-outbox", () => ({
 // exercise the route's guarded executor-less catch (spawn path unwired).
 const fakeExecutor = { spawnQuota: {} } as unknown;
 let getExecutorImpl: () => unknown = () => fakeExecutor;
-mock.module("$lib/server/context", () => ({
+const contextExports = contextModule({
   getBus: () => mockBus,
   getExecutor: () => getExecutorImpl(),
-}));
+});
+mock.module("$lib/server/context", () => contextExports);
 
 // ── Mock errorJson + json (mirror ask-user-answer-route.test.ts) ──
 
@@ -131,14 +132,15 @@ let mockExt:
     }
   | null = null;
 const mockGetExtensionByName = mock(async (_name: string) => mockExt);
-mock.module("$server/db/queries/extensions", () => ({
+const dbExtensionsExports = serverModule("db/queries/extensions", {
   getExtensionByName: mockGetExtensionByName,
   // The registry (pulled in transitively via the route's imports) needs
   // these named exports; the mock must provide the full imported shape or
   // every import of the module fails with a missing-export error.
   listExtensions: mock(async () => []),
   updateExtension: mock(async () => {}),
-}));
+});
+mock.module("$server/db/queries/extensions", () => dbExtensionsExports);
 
 let mockWiredIds: string[] = [];
 const mockAddConvExt = mock(async (..._args: unknown[]) => {});

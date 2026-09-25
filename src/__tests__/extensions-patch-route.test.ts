@@ -1,5 +1,5 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
-import { restoreModuleMocks, webLibModule } from "./helpers/mock-cleanup";
+import { restoreModuleMocks, webLibModule, serverModule } from "./helpers/mock-cleanup";
 import { ADMIN_USER, MEMBER_USER, createMockEvent, mockServerAlias } from "./helpers/mock-request";
 import { LifecycleError, type LifecycleActor } from "../extensions/v4/types";
 
@@ -13,9 +13,9 @@ const mutations: { action: string; actor: LifecycleActor; id: string }[] = [];
 const directWrites = mock(() => { throw new Error("Route bypassed release lifecycle"); });
 const reload = mock(() => { throw new Error("Route bypassed fenced publication"); });
 const read = async (id: string) => missing ? null : { id, name: "fixture", enabled, manifest };
-const queries = () => ({ getExtensionByRef: read, getExtension: read, updateExtension: directWrites, deleteExtension: directWrites, resetFailures: directWrites });
-mock.module("../db/queries/extensions", queries);
-mock.module("$server/db/queries/extensions", queries);
+const queries = serverModule("db/queries/extensions", { getExtensionByRef: read, getExtension: read, updateExtension: directWrites, deleteExtension: directWrites, resetFailures: directWrites });
+mock.module("../db/queries/extensions", () => queries);
+mock.module("$server/db/queries/extensions", () => queries);
 const lifecycle = {
   async inspect() { if (missing || legacy) throw new LifecycleError("not_found", "Installation not found"); },
   async disable(actor: LifecycleActor, id: string) { if (mutationFailure) throw new LifecycleError("generation_superseded", "A newer generation exists"); mutations.push({ action: "disable", actor, id }); enabled = false; },

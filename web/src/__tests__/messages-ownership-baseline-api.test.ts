@@ -33,7 +33,7 @@
 
 import { test, expect, describe, beforeEach, mock } from "bun:test";
 
-import { webLibModule } from "../../../src/__tests__/helpers/mock-cleanup";
+import { webLibModule, contextModule } from "../../../src/__tests__/helpers/mock-cleanup";
 // ── Shared mutable state the mocks read ────────────────────────────────
 
 type Conversation = {
@@ -134,14 +134,15 @@ const apiKeysExports = webLibModule("server/security/api-keys", {
 });
 mock.module("$lib/server/security/api-keys", () => apiKeysExports);
 
-mock.module("$lib/server/security/resource-quotas", () => ({
+const resourceQuotasExports = webLibModule("server/security/resource-quotas", {
   checkTokenBudget: mock(async () => mockBudget),
-}));
+});
+mock.module("$lib/server/security/resource-quotas", () => resourceQuotasExports);
 
 // ── executor / context / misc ──────────────────────────────────────────
 
 const mockStreamChat = mock(() => ({ catch: () => Promise.resolve(), then: () => Promise.resolve() }));
-mock.module("$lib/server/context", () => ({
+const contextExports = contextModule({
   getExecutor: () => ({ streamChat: mockStreamChat }),
   getBus: () => ({ emit: mock(() => {}) }),
   // The messages POST handler now imports `getGoalHost` and calls it to
@@ -150,7 +151,8 @@ mock.module("$lib/server/context", () => ({
   // context.ts:getGoalHost), so the optional rehydrate block is skipped and
   // the ownership matrix under test is unchanged.
   getGoalHost: () => null,
-}));
+});
+mock.module("$lib/server/context", () => contextExports);
 
 mock.module("$lib/server/command-resolver", () => ({
   buildCommandResolver: () => async () => null,

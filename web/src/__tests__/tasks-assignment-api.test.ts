@@ -1,5 +1,5 @@
 import { test, expect, describe, beforeEach, mock } from "bun:test";
-import { webLibModule } from "../../../src/__tests__/helpers/mock-cleanup";
+import { webLibModule, contextModule } from "../../../src/__tests__/helpers/mock-cleanup";
 import { taskSnapshotPort, taskAssignmentPort } from "./helpers/task-state-port";
 import type {
   TaskSnapshot,
@@ -137,7 +137,7 @@ const mockStreamChat = mock(async (..._args: any[]) => ({}));
 // executor before streamChat (Wave-5 steer P4 guard) — the mock must accept it.
 const mockExecutor = { streamChat: mockStreamChat, registerRunMode: () => {} };
 
-mock.module("$lib/server/context", () => ({
+const contextExports = contextModule({
   getBus: () => mockBus,
   getExecutor: () => mockExecutor,
   getCommandRegistry: () => ({
@@ -145,7 +145,8 @@ mock.module("$lib/server/context", () => ({
     findCommand: async () => null,
     invalidate: () => {},
   }),
-}));
+});
+mock.module("$lib/server/context", () => contextExports);
 
 mock.module("$lib/server/command-resolver", () => ({
   buildCommandResolver: () => async () => null,

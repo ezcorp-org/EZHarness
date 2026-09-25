@@ -15,7 +15,7 @@
  */
 
 import { test, expect, describe, beforeEach, afterAll, mock } from "bun:test";
-import { webLibModule } from "../../../src/__tests__/helpers/mock-cleanup";
+import { webLibModule, serverModule } from "../../../src/__tests__/helpers/mock-cleanup";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -77,9 +77,10 @@ function resetMockExtRows(): void {
   mockExtRows.set("claude-design", { id: "ext-cd", name: "claude-design", enabled: true });
 }
 resetMockExtRows();
-mock.module("$server/db/queries/extensions", () => ({
+const dbExtensionsExports = serverModule("db/queries/extensions", {
   getExtensionByName: async (name: string) => mockExtRows.get(name) ?? null,
-}));
+});
+mock.module("$server/db/queries/extensions", () => dbExtensionsExports);
 
 // ── Import handler AFTER mocks ────────────────────────────────────
 

@@ -1,5 +1,5 @@
 import { test, expect, describe, beforeEach, mock } from "bun:test";
-import { webLibModule } from "../../../src/__tests__/helpers/mock-cleanup";
+import { webLibModule, contextModule } from "../../../src/__tests__/helpers/mock-cleanup";
 import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 // ── Shared state used by mocks ─────────────────────────────────────
@@ -78,7 +78,7 @@ const mockExecutor = {
   steerConversation: mockSteerConversation,
 };
 
-mock.module("$lib/server/context", () => ({
+const contextExports = contextModule({
   getBus: () => mockBus,
   getExecutor: () => mockExecutor,
   getCommandRegistry: () => ({
@@ -86,7 +86,8 @@ mock.module("$lib/server/context", () => ({
     findCommand: async () => null,
     invalidate: () => {},
   }),
-}));
+});
+mock.module("$lib/server/context", () => contextExports);
 
 mock.module("$server/db/queries/projects", () => ({
   getProject: async () => null,

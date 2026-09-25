@@ -18,7 +18,7 @@ import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { workspaceFileBytes, type WorkspaceFiles } from "@ezcorp/extension-contract";
-import { restoreModuleMocks, webLibModule } from "../../../../../../src/__tests__/helpers/mock-cleanup";
+import { restoreModuleMocks, webLibModule, contextModule, serverModule } from "../../../../../../src/__tests__/helpers/mock-cleanup";
 import {
   mockServerAlias,
   MEMBER_USER,
@@ -60,12 +60,13 @@ mock.module("$server/db/queries/user-commands", () => ({
 
 let existingExtNames = new Set<string>();
 let extLookupThrows = false;
-mock.module("$server/db/queries/extensions", () => ({
+const dbExtensionsExports = serverModule("db/queries/extensions", {
   getExtensionByName: async (n: string) => {
     if (extLookupThrows) throw new Error("lookup boom");
     return existingExtNames.has(n) ? { id: "x", name: n } : null;
   },
-}));
+});
+mock.module("$server/db/queries/extensions", () => dbExtensionsExports);
 
 let installCalls: any[] = [];
 let installImpl: (d: string) => Promise<{ id: string }> = async () => ({
@@ -91,13 +92,14 @@ mock.module("$server/extensions/registry", () => ({
 }));
 
 let invalidatedFor: string | null = null;
-mock.module("$lib/server/context", () => ({
+const contextExports = contextModule({
   getCommandRegistry: () => ({
     invalidateUser: (id: string) => {
       invalidatedFor = id;
     },
   }),
-}));
+});
+mock.module("$lib/server/context", () => contextExports);
 
 const { POST } = await import("../commit/+server");
 

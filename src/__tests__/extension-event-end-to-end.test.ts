@@ -24,7 +24,7 @@
  */
 
 import { afterAll, beforeEach, afterEach, describe, expect, mock, spyOn, test } from "bun:test";
-import { restoreModuleMocks, webLibModule } from "./helpers/mock-cleanup";
+import { restoreModuleMocks, webLibModule, contextModule, serverModule } from "./helpers/mock-cleanup";
 
 // ── Real SSE-filter and real EventBus — load FIRST so every other
 // mock can pull symbols from them.
@@ -68,7 +68,12 @@ mock.module("$server/db/queries/tool-calls", () => ({
 mock.module("$lib/server/security/api-keys", () => webLibModule("server/security/api-keys", {
   requireScope: () => null,
 }));
-mock.module("$server/auth/middleware", () => ({
+// F2: was a partial factory (checkProjectRole, requireAuth only) — the
+// same class of W18-hygiene item D bug, found while fixing this file's
+// $lib/server/context mock: a sibling test needing requireRole (or any
+// of the other 7 real exports) got a mock.module() registration that
+// lacked it, and Bun's "Export named X not found" persists across files.
+mock.module("$server/auth/middleware", () => serverModule("auth/middleware", {
   checkProjectRole: async () => true,
   requireAuth: () => ({
     id: "user-1",
@@ -93,7 +98,7 @@ mock.module("$lib/server/http-errors", () => ({
 // listens on. We don't import `web/src/lib/server/context` directly
 // (it pulls in the full server boot) — we mock the public surface.
 const bus = new EventBus<AgentEvents>();
-mock.module("$lib/server/context", () => ({
+const contextExports = contextModule({
   getBus: () => bus,
   // The route's spawn-path re-wire also imports getExecutor; a partial mock
   // that omits it fails EVERY import from the module at load. Throwing
@@ -101,7 +106,8 @@ mock.module("$lib/server/context", () => ({
   getExecutor: () => {
     throw new Error("executor not booted (test context)");
   },
-}));
+});
+mock.module("$lib/server/context", () => contextExports);
 
 afterAll(() => {
   unregisterExtensionEvent("fake", "ping");

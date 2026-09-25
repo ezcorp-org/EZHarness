@@ -112,13 +112,13 @@ const embeddingsMock = () => ({
 mock.module("$server/memory/embeddings", embeddingsMock);
 mock.module("../../memory/embeddings", embeddingsMock);
 
-const quotaMock = () => ({
+const quotaMock = webLibModule("server/security/resource-quotas", {
   checkStorageQuota: async () => ({ allowed: true }),
   checkTokenBudget: async () => ({ allowed: true }),
   recordTokenUsage: async () => {},
 });
-mock.module("$lib/server/security/resource-quotas", quotaMock);
-mock.module("../../../web/src/lib/server/security/resource-quotas", quotaMock);
+mock.module("$lib/server/security/resource-quotas", () => quotaMock);
+mock.module("../../../web/src/lib/server/security/resource-quotas", () => quotaMock);
 
 // The real chunker — cheap, pure, and the upload probe below should exercise
 // the genuine `isAllowedFile` gate rather than a stub of it.
