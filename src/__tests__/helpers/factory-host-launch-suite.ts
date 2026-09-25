@@ -177,6 +177,8 @@ export async function verifyFactoryHostLaunchLostResult(): Promise<{ readonly ex
     const lost = await world.terminal("attempt-exits");
     expect(lost).toMatchObject({ status: "failed", error: { code: FACTORY_LOST_RESULT_CODES.container_exit, retryable: true } });
     expect(lost?.status === "failed" && lost.error.message).toContain("container_exit");
+    // The kernel's kill, as the guest's own process reported it.
+    expect(lost?.status === "failed" && lost.error.message).toContain("exit code 137");
     expect(await world.queued("attempt-exits")).toBe("delivered");
     expect(world.settled).toContain("outcome:attempt-exits");
     expect(world.stops).toContain("attempt-exits:failed");

@@ -140,9 +140,15 @@ export function createFactoryHostLaunchSupervisor(options: FactoryHostLaunchSupe
   const remember = (intent: FactoryAttemptLaunchIntent, execution: RunnerExecution, context: ReturnType<typeof startRequest>["context"]): void => {
     const settle = async (): Promise<HostOutcome> => {
       let outcome: HostOutcome;
-      try { outcome = { result: await invoke(intent, execution, context) }; }
-      catch (error) { outcome = { error: await exited(intent.workerId, execution, context.deadline, error) }; }
-      await execution.close().catch(() => undefined);
+      try {
+        outcome = { result: await invoke(intent, execution, context) };
+        await execution.close().catch(() => undefined);
+      } catch (error) {
+        // Closed before the account is written: removing the container is when
+        // the runner reads the container's own exit code.
+        await execution.close().catch(() => undefined);
+        outcome = { error: await exited(intent.workerId, execution, context.deadline, error) };
+      }
       options.onClosed?.(intent.workerId);
       evictLater(intent.workerId, attempt);
       return outcome;
