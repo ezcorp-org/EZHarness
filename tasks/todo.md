@@ -1,3 +1,18 @@
+# Active completion milestones — 25 September 2026
+
+User authorized continued implementation and live validation with a Sol/Luna team. Continue the reviewed recovery and existing guest lifecycle without requesting the same approval again.
+
+- [ ] M1: Correct release file permissions, install the verified bundle, recover the existing CREATE, and pass the full guest smoke with cleanup.
+- [ ] M2: Pass live qualification and record each case with measured evidence.
+- [ ] M3: Add an Incus management screen with approved environment selection and persistent sandbox lifecycle controls; test the browser flow and the real feature flow.
+- [ ] M4: Run final repository checks, review changes, update PR #303, and report any remaining release gates accurately.
+
+Validated increments: bundle-mode regression tests pass (12); corrected bundle verification and non-root HTTP startup pass. Management API tests pass, including real migrated SQL and secret-column exclusion; the new route has 100% line coverage. Typecheck and lint pass for that increment. Project creation, browser management, live recovery, and full qualification are still in progress.
+
+Live blocker: the installed bundle rejects retained provider release 0.1.2 because the CREATE repair changed its canonical public wire schema. The source fix restores the exact original schema without weakening validation. Focused tests, generated-schema checks, lint, and typecheck pass. A checksum-verified detached database comparison proves the old validator rejects the saved manifest and the corrected validator accepts it. The app remains stopped under the existing hold; the original CREATE and guest identity remain unchanged. The combined management build still needs staging, startup, and real guest validation. Empty smoke-created runtime-directory contamination is separately fixed in the bundle script.
+
+Review: The guard caught unsafe dependency file permissions before stopping the app. The current guest is unchanged. The UX audit found that Incus feature APIs are not connected to the local sandbox panel; this is implementation work, not only testing.
+
 # Current Incus live completion
 
 - [x] Recover the first unknown CREATE with a signed no-effect receipt and restore the scoped client certificate.
