@@ -84,7 +84,35 @@ the module this item completed.
 
 ## Item B — pre-commit hook: no silent skip above the staged-suite cap
 
-- [ ] GB1: TODO — see report to team-lead; work not yet started.
+- [x] GB1: above `EZ_PRECOMMIT_TEST_MAX` (default 12), the hook names every test file it is not
+  running and, by default, blocks the commit; `EZ_SKIP_HOOK_TESTS=1` is the one acknowledged escape
+  hatch and it still prints the list plus the reason. The pre-existing under-cap
+  `EZ_SKIP_HOOK_TESTS=1` skip (previously zero output) now prints the same way, through the same code
+  path — one skip mechanism, not two.
+  CHECK: `bun test --timeout 30000 ./src/__tests__/git-hooks.test.ts`
+  EXPECT: all pass, including the 3 new cases in "pre-commit hook > staged-test cap (no silent skip)"
+  EVIDENCE: commits `702a97468` (fix) and `05b6329db` (tests). `git-hooks-b1.log`: 19/19 pass. Reproduced
+  the bug directly: committing this package's own 36-file and 24-file conversions (before the fix)
+  printed `36 test files map to this commit (cap 12) — skipping.` / `24 test files map to this commit
+  (cap 12) — skipping.` and exited 0 with the commit landing, no file names, matching the coordinator's
+  incident report of the 74-file main merge.
+
+- [x] GB2: typecheck, lint, boundaries, gate-integrity, `factory-process-boundaries.test.ts`, and
+  `gate-scripts.test.ts` (which also drives the real hook machinery) all green on the final head.
+  CHECK: see item A's GA8, same commands, rerun on `05b6329db`
+  EXPECT: all exit 0
+  EVIDENCE: `typecheck-final.log`, `lint-final.log`, `boundaries-final.log`, `gate-integrity-final.log`,
+  `factory-process-boundaries-final.log` — all exit 0; `gate-scripts-b1.log` 204/204.
+
+- [x] GB3: `check-new-file-coverage.ts` / `check-patch-coverage.ts` against `BASE_REF=2b2e12550` pass
+  (informational for this item — `.githooks/pre-commit` and `scripts/lib/hook-lib.sh` are shell, outside
+  this repo's lcov-based coverage system; the change is exercised by `git-hooks.test.ts` directly, not
+  measured by these gates).
+  EVIDENCE: `coverage-new-file-b1.log`, `coverage-patch-b1.log` — both exit 0.
+
+Pass for item B: the silent skip is gone; a wide commit is loud and, by default, blocked; the one
+escape hatch is visible in both directions it applies (over and under the cap); no other hook behavior
+changed (the three original `repoWithPreCommit()` tests and `EZ_SKIP_HOOKS=1` bypass are unaffected).
 
 ## Item C — F2: the 27 bare git-init tests
 

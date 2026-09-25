@@ -4640,7 +4640,22 @@ repro, and this affects every web-side file, not only the already-known dual-spe
 
 ### Item B — pre-commit hook cap
 
-Not started this session. See report to team-lead.
+- [x] `run_staged_tests()` names every staged test file above the cap and, by default, exits non-zero
+  (blocks the commit) instead of skipping silently.
+- [x] `EZ_SKIP_HOOK_TESTS=1` moved from a pre-filter in `.githooks/pre-commit` into `run_staged_tests()`
+  itself, so it is honoured — visibly — for both the over-cap and the pre-existing under-cap skip.
+- [x] Three new tests in `src/__tests__/git-hooks.test.ts` (a new `repoWithHookLib()` fixture): blocked
+  over cap, skipped-and-visible over cap with the env var, unaffected at the cap.
+- [x] typecheck, lint, boundaries, gate-integrity, `factory-process-boundaries.test.ts`,
+  `gate-scripts.test.ts` all green.
+
+**Review.** Reproduced the bug directly, twice, on this package's own commits: staging the 36-file and
+then the 24-file api-keys conversion each hit the cap and the hook printed one line ("N test files map
+to this commit (cap 12) — skipping.") and exited 0 — the commit landed with zero tests run and no file
+named. That is the same shape as the coordinator's 74-file main-merge incident. The fix does not lower
+the bar (a wide commit still does not run its tests locally — CI does), it makes the decision to skip an
+ACT the developer takes knowingly, every time, with the exact file list in front of them, rather than
+something that happens to them silently past a threshold they may not know exists.
 
 ### Item C — F2 (27 bare git-init tests)
 
