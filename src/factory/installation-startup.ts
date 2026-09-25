@@ -40,7 +40,7 @@ import { FactoryDestinationReservations, FactoryStoreSenderFence } from "./relea
 import { factoryReleaseFenceReader } from "./release-fence";
 import { FactoryS3PublicationProvenance, FactoryVerifiedAttemptMaterials } from "./release-s3-scope";
 import { FactoryPublicationOutputReader } from "./release-publication-set";
-import { FactoryReleases } from "./releases";
+import { FactoryReleases, type FactoryCommandApprovalCurrentAuthority } from "./releases";
 import { FactoryNotificationDelivery } from "./notification-delivery";
 import { FactoryTrustedValidators, type FactoryTrustedValidatorRuntime } from "./validator-materials";
 import { loadFactoryValidatorRuntimes } from "./validator-declaration";
@@ -375,6 +375,9 @@ async function installationReleases(
   stores: Pick<FactoryApplication, "grants" | "runs" | "journal" | "releaseAuthority">,
   report: (role: string, error: unknown) => void,
   validators: FactoryTrustedValidators,
+  // The inbox lists an approval node's request only after checking it is still the current
+  // command; without this, one such notification made the whole list refuse.
+  commandApprovals?: FactoryCommandApprovalCurrentAuthority,
 ): Promise<FactoryInstallationRelease | undefined> {
   try {
     const assurance = new FactoryAssurance(database, config.tenantId, stores.grants, validators, factoryReleaseFenceReader(stores.runs), validators);
@@ -396,6 +399,7 @@ async function installationReleases(
       new FactoryDestinationReservations({ database, tenantId: config.tenantId }),
       archive,
       new FactoryStoreSenderFence({ database, tenantId: config.tenantId }),
+      undefined, undefined, commandApprovals,
     );
     // Where this installation may publish, from its own document. It is built
     // here rather than beside the roles because it needs the same scoped reader
@@ -802,7 +806,7 @@ async function installationCollaborators(
   // composes from the store alone. `release-outcome` composes from the store,
   // this tenant's projects and the run lifecycle — and from a destination the
   // startup document declares, so it holds when none is declared.
-  const release = await installationReleases(config, host.database, blobs, application.artifacts, application, host.report, gateway.validators);
+  const release = await installationReleases(config, host.database, blobs, application.artifacts, application, host.report, gateway.validators, { authority: stores.authority, service });
   const validation = await installationValidatorRoles(config, host, stores, application, release, gateway, signal);
 
   const attempts = await composeAttemptDispatch(config, host, blobs, stores, application.grants, pool, stopper, validation.composed?.settlement);
