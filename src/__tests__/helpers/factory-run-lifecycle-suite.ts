@@ -1713,6 +1713,23 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     await new FactoryRunTransitionProjector(fixture.db, tenantId, task.transitions, lifecycle).project(runKey(task.run.runId));
   });
 
+  test("a late failure for an attempt the kernel already stopped makes no second transition and closes by name", async () => {
+    const { task, completions, outcomes, result } = await completedTask();
+    const late: FactoryRunnerResult = { schemaVersion: result.schemaVersion, status: "failed", journalCursor: result.journalCursor, operations: result.operations, resultDigest: "9".repeat(64), error: { code: "RUNNER_CONTAINER_EXIT", message: "exited after its deadline", retryable: true }, usage: result.usage, workspaceCheckpoint: result.workspaceCheckpoint };
+    // While the guest runs, the kernel's own timer stops the attempt: its cancellation is accepted.
+    const dispatcher = new FactoryAttemptDispatcher(fixture.db, task.queue, { async run() {
+      await fixture.db.execute(sql`UPDATE factory_executions SET status='cancel_accepted' WHERE attempt_id=${task.dispatch.id}`);
+      return late;
+    } }, completions, outcomes, dispatchReady, dispatchReadinessDisposition, { service: task.service, installationId: "dispatcher-installation", attemptTokenSecret: "dispatcher-secret" });
+    const closed = await dispatcher.dispatchOne();
+    expect(closed).toEqual({ kind: "cancelled", attemptId: task.dispatch.id, cause: expect.objectContaining({ code: "factory_attempt_superseded" }) });
+    expect(await task.queue.read(projectId, task.dispatch.id)).toMatchObject({ state: "cancelled", failureCode: "runner_outcome_superseded" });
+    // No outcome row and no node-failed: the kernel's own transition stands alone.
+    expect(rows(await fixture.db.execute(sql`SELECT command_id FROM factory_task_outcomes WHERE attempt_id=${task.dispatch.id}`))).toEqual([]);
+    expect(rows<{ payload: string }>(await fixture.db.execute(sql`SELECT payload FROM factory_inbox_events WHERE run_id=${task.run.runId}`)).map(row => (JSON.parse(row.payload) as KernelEvent).kind)).not.toContain("node-failed");
+    await new FactoryRunTransitionProjector(fixture.db, tenantId, task.transitions, lifecycle).project(runKey(task.run.runId));
+  });
+
   test("non-success outcome commit rolls back with its queue acknowledgement and detects corrupt recovery", async () => {
     const rolledBack = await completedTask();
     const uncertain: FactoryRunnerResult = { schemaVersion: rolledBack.result.schemaVersion, status: "uncertain", journalCursor: rolledBack.result.journalCursor, operations: rolledBack.result.operations, providerReceiptDigest: "9".repeat(64), usage: { kind: "unknown", reason: "provider pending", heldCostMicros: "4" }, workspaceCheckpoint: rolledBack.result.workspaceCheckpoint };
@@ -1760,17 +1777,27 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     expect(await tokenFailure.task.queue.claim()).toBeNull();
     expect(await tokenFailure.task.queue.read(projectId, tokenFailure.task.dispatch.id)).toMatchObject({ state: "cancelled", failureCode: "authority_rejected" });
     await new FactoryRunTransitionProjector(fixture.db, tenantId, tokenFailure.task.transitions, lifecycle).project(runKey(tokenFailure.task.run.runId));
-    const expired = await completedTask();
-    const dispatcher = new FactoryAttemptDispatcher(fixture.db, expired.task.queue, { async run() {
-      now += 301_000;
-      expect(await expired.task.queue.claim()).toBeNull();
-      return { schemaVersion: "factory.runner.result.v1", status: "cancelled", journalCursor: expired.result.journalCursor, operations: expired.result.operations, usage: expired.result.usage, workspaceCheckpoint: expired.result.workspaceCheckpoint };
-    } }, expired.completions, expired.outcomes, dispatchReady, dispatchReadinessDisposition, { service: expired.task.service, installationId: "dispatcher-installation", attemptTokenSecret: "dispatcher-secret", leaseMs: 300_000 });
-    // An expired owner is refused by the fence, and the fence names itself.
-    const lost = await dispatcher.dispatchOne();
-    expect(lost).toEqual({ kind: "outcome_unknown", attemptId: expired.task.dispatch.id, cause: expect.anything() });
-    expect(String((lost as { cause: unknown }).cause)).toContain("factory_run_fence_changed");
-    expect(await expired.task.queue.read(projectId, expired.task.dispatch.id)).toMatchObject({ state: "outcome_unknown", failureCode: "worker_lease_expired" });
+    // An owner that outlived its attempt deadline: a completion is still refused by
+    // the fence, which names itself; a failure is recorded, because the deadline is
+    // often why it failed and only the report lets the kernel act (defect 3, W01h).
+    const expiredOwner = async (status: "completed" | "cancelled") => {
+      const owner = await completedTask();
+      const dispatcher = new FactoryAttemptDispatcher(fixture.db, owner.task.queue, { async run() {
+        now += 301_000;
+        expect(await owner.task.queue.claim()).toBeNull();
+        return status === "completed" ? owner.result : { schemaVersion: "factory.runner.result.v1", status: "cancelled", journalCursor: owner.result.journalCursor, operations: owner.result.operations, usage: owner.result.usage, workspaceCheckpoint: owner.result.workspaceCheckpoint };
+      } }, owner.completions, owner.outcomes, dispatchReady, dispatchReadinessDisposition, { service: owner.task.service, installationId: "dispatcher-installation", attemptTokenSecret: "dispatcher-secret", leaseMs: 300_000 });
+      return { owner, result: await dispatcher.dispatchOne() };
+    };
+    const refused = await expiredOwner("completed");
+    expect(refused.result).toEqual({ kind: "outcome_unknown", attemptId: refused.owner.task.dispatch.id, cause: expect.anything() });
+    expect(String((refused.result as { cause: unknown }).cause)).toContain("factory_run_fence_changed");
+    expect(await refused.owner.task.queue.read(projectId, refused.owner.task.dispatch.id)).toMatchObject({ state: "outcome_unknown", failureCode: "worker_lease_expired" });
+    await new FactoryRunTransitionProjector(fixture.db, tenantId, refused.owner.task.transitions, lifecycle).project(runKey(refused.owner.task.run.runId));
+    const reported = await expiredOwner("cancelled");
+    expect(reported.result).toMatchObject({ kind: "cancelled", attemptId: reported.owner.task.dispatch.id, recovered: false, receipt: { resultStatus: "cancelled", event: { kind: "node-failed", commandId: reported.owner.task.dispatch.id, error: "RUNNER_CANCELLED" } } });
+    expect(await reported.owner.task.queue.read(projectId, reported.owner.task.dispatch.id)).toMatchObject({ state: "delivered" });
+    const expired = reported.owner;
     for (const options of [
       { service: { ...expired.task.service, tenantId: "foreign" }, installationId: "dispatcher-installation", attemptTokenSecret: "dispatcher-secret" },
       { service: expired.task.service, installationId: "", attemptTokenSecret: "dispatcher-secret" },

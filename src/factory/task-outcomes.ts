@@ -110,7 +110,9 @@ export class FactoryTaskOutcomes {
       if (saved) return saved;
       return this.authority.withCurrentInTransaction(transaction, service, reference, async (locked, context) => {
         if (context.command.kind !== "dispatch-node") throw new FactoryTaskOutcomeError("factory_task_outcome_invalid");
-        const stored = await this.attempts.readAuthorizedStoredInTransaction(locked, reference.projectId, reference.commandId);
+        // A failure is recorded even after the attempt's deadline: the deadline is
+        // often why it failed, and only the report lets the kernel stop and retry.
+        const stored = await this.attempts.readAuthorizedStoredInTransaction(locked, reference.projectId, reference.commandId, "reported");
         const expectedReservation = factoryTaskReservationId(reference, context);
         if (!stored || stored.delivery.reference.reservationId !== expectedReservation || stored.delivery.reference.nodeInstanceId !== context.command.nodeId || stored.delivery.reference.candidateGeneration !== context.command.candidateGeneration || stored.delivery.reference.attemptNumber !== context.command.attempt) throw new FactoryTaskOutcomeError("factory_task_outcome_stale");
         const compute = await this.compute.readAdmittedInTransaction(locked, { projectId: reference.projectId, runId: reference.logicalRunId, reservationId: stored.delivery.reference.reservationId });

@@ -4,6 +4,7 @@ import { canonicalJson } from "@ezcorp/extension-contract";
 import type { TransactionalDb } from "../db/migrations/types";
 import { factoryAttemptAuthority, FactoryAttemptQueueError, type ClaimedFactoryAttempt, type FactoryAttemptQueue } from "./attempt-queue";
 import { FACTORY_ATTEMPT_TOKEN_MAX_SECONDS, signFactoryAttemptToken } from "./attempt-token";
+import { FactoryAttemptLivenessError } from "./executions";
 import { FactoryPackageBlockedError } from "./package-preparation";
 import type { FactoryTaskCompletionReceipt, FactoryTaskCompletions } from "./task-completions";
 import type { FactoryTaskOutcomeReceipt, FactoryTaskOutcomes } from "./task-outcomes";
@@ -180,6 +181,13 @@ export class FactoryAttemptDispatcher {
     } catch (error) {
       const recovered = await this.recoverClaim(claim).catch(() => undefined);
       if (recovered) return recovered;
+      // The kernel already stopped this attempt from its own timer: the late
+      // report makes no second transition. The delivery closes by name, and
+      // what the host said stays on the attempt's launch record (defect 3).
+      if (error instanceof FactoryAttemptLivenessError && error.code === "factory_attempt_superseded") {
+        const closed = await this.queue.settle(claim, "cancelled", "runner_outcome_superseded").then(() => true, () => false);
+        if (closed) return { kind: "cancelled", attemptId: claim.delivery.id, cause: error };
+      }
       return this.markUnknown(claim, "outcome_commit_unknown", "outcome_unknown", error);
     }
   }

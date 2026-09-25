@@ -298,11 +298,13 @@ export class FactoryRunLifecycle {
     return fence;
   }
 
-  readonly authorizeAttemptInTransaction = async (transaction: MigrationDb, authority: FactoryAttemptAuthority): Promise<void> => {
+  readonly authorizeAttemptInTransaction = async (transaction: MigrationDb, authority: FactoryAttemptAuthority, options: { readonly expired?: "allowed" } = {}): Promise<void> => {
     authority = { ...authority, deadlineAt: new Date(authority.deadlineAt) };
     if (authority.tenantId !== this.tenantId) throw new FactoryRunLifecycleError("factory_scope_mismatch");
     const fence = await this.authorizeRunInTransaction(transaction, { projectId: authority.projectId, runId: authority.runId });
-    if (authority.cancellationEpoch !== fence.cancellationEpoch || authority.executionEpoch !== fence.executionEpoch || authority.grantRevision !== fence.grantRevision || !Number.isSafeInteger(authority.deadlineAt.getTime()) || authority.deadlineAt.getTime() <= this.now() || authority.deadlineAt.getTime() > fence.deadlineAtMs) throw new FactoryRunLifecycleError("factory_run_fence_changed");
+    // Only a non-success report may pass an expired attempt deadline (defect 3); nothing else is relaxed.
+    const expired = options.expired !== "allowed" && authority.deadlineAt.getTime() <= this.now();
+    if (authority.cancellationEpoch !== fence.cancellationEpoch || authority.executionEpoch !== fence.executionEpoch || authority.grantRevision !== fence.grantRevision || !Number.isSafeInteger(authority.deadlineAt.getTime()) || expired || authority.deadlineAt.getTime() > fence.deadlineAtMs) throw new FactoryRunLifecycleError("factory_run_fence_changed");
   };
 
   /** Root start outbox is the sealed source of the workflow's original clock. */
