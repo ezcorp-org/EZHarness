@@ -21,7 +21,7 @@
  * "simplified" into consistency by someone who has not read this.
  */
 import { test, expect, describe, afterAll, beforeEach, mock } from "bun:test";
-import { restoreModuleMocks } from "../helpers/mock-cleanup";
+import { restoreModuleMocks, webLibModule } from "../helpers/mock-cleanup";
 import {
   mockServerAlias,
   createMockEvent,
@@ -36,9 +36,9 @@ mock.module("../../../web/src/routes/api/projects/[id]/members/[userId]/$types",
 
 // The scope axis is covered by its own suites; these tests are about the
 // MEMBERSHIP axis, so scope is a no-op allow.
-const apiKeysMock = () => ({ requireScope: () => null });
-mock.module("$lib/server/security/api-keys", apiKeysMock);
-mock.module("../../../web/src/lib/server/security/api-keys", apiKeysMock);
+const apiKeysMock = webLibModule("server/security/api-keys", { requireScope: () => null });
+mock.module("$lib/server/security/api-keys", () => apiKeysMock);
+mock.module("../../../web/src/lib/server/security/api-keys", () => apiKeysMock);
 
 // ── In-memory stores ─────────────────────────────────────────────
 

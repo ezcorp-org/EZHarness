@@ -62,7 +62,7 @@
 import { test, expect, describe, afterAll, beforeEach, mock } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { restoreModuleMocks } from "../helpers/mock-cleanup";
+import { restoreModuleMocks, webLibModule } from "../helpers/mock-cleanup";
 import { mockServerAlias, createMockEvent, jsonFromResponse, ADMIN_USER } from "../helpers/mock-request";
 
 // ── Module-level mocks (BEFORE handler imports) ──────────────────
@@ -75,9 +75,9 @@ mock.module("../../../web/src/routes/api/projects/[id]/tool-permission-mode/$typ
 // every caller below is modelled as a principal that HOLDS `read` + `chat` —
 // which is exactly the attacker the hole handed the project to. The scope axis
 // has its own suite.
-const apiKeysMock = () => ({ requireScope: () => null });
-mock.module("$lib/server/security/api-keys", apiKeysMock);
-mock.module("../../../web/src/lib/server/security/api-keys", apiKeysMock);
+const apiKeysMock = webLibModule("server/security/api-keys", { requireScope: () => null });
+mock.module("$lib/server/security/api-keys", () => apiKeysMock);
+mock.module("../../../web/src/lib/server/security/api-keys", () => apiKeysMock);
 
 // The route imports the shared handler by SvelteKit alias at request time.
 // Point it at the real module so the conversation gate under test is the

@@ -2,7 +2,7 @@ import { test, expect, describe, beforeAll, afterAll, mock } from "bun:test";
 import { mkdtemp, rm, access } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { restoreModuleMocks } from "./helpers/mock-cleanup";
+import { restoreModuleMocks, webLibModule } from "./helpers/mock-cleanup";
 import { setupTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglite";
 import { mockServerAlias, ADMIN_USER } from "./helpers/mock-request";
 
@@ -15,7 +15,7 @@ mock.module("$server/auth/middleware", () => ({
 mock.module("$lib/server/security/validation", () => ({
   validationError: () => new Response("", { status: 400 }),
 }));
-mock.module("$lib/server/security/api-keys", () => ({
+mock.module("$lib/server/security/api-keys", () => webLibModule("server/security/api-keys", {
   requireScope: () => null,
 }));
 

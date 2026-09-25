@@ -1,12 +1,12 @@
 
 import { afterAll, expect, mock, test, beforeAll } from "bun:test";
-import { restoreModuleMocks } from "../helpers/mock-cleanup";
+import { restoreModuleMocks, webLibModule } from "../helpers/mock-cleanup";
 import { ADMIN_USER, MEMBER_USER, createMockEvent, mockServerAlias } from "../helpers/mock-request";
 
 mockServerAlias();
-const scopes = () => ({ requireScope: () => null });
-mock.module("$lib/server/security/api-keys", scopes);
-mock.module("../../../web/src/lib/server/security/api-keys", scopes);
+const scopes = webLibModule("server/security/api-keys", { requireScope: () => null });
+mock.module("$lib/server/security/api-keys", () => scopes);
+mock.module("../../../web/src/lib/server/security/api-keys", () => scopes);
 const { POST } = await import("../../../web/src/routes/api/extensions/+server");
 afterAll(() => restoreModuleMocks());
 

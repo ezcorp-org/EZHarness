@@ -1,7 +1,7 @@
 import { afterAll, beforeEach, expect, mock, test } from "bun:test";
 import { mockDbConnection, setupTestDb, closeTestDb, getTestDb } from "./helpers/test-pglite";
 import { mockServerAlias, createMockEvent } from "./helpers/mock-request";
-import { restoreModuleMocks } from "./helpers/mock-cleanup";
+import { restoreModuleMocks, webLibModule } from "./helpers/mock-cleanup";
 
 mockDbConnection();
 mockServerAlias();
@@ -10,7 +10,7 @@ mock.module("$server/extensions/audit-actions", () => require("../extensions/aud
 mock.module("$server/logger", () => require("../logger"));
 mock.module("../../web/src/routes/api/memories/$types", () => ({}));
 mock.module("../../web/src/routes/api/memories/[id]/$types", () => ({}));
-mock.module("$lib/server/security/api-keys", () => ({ requireScope: () => null }));
+mock.module("$lib/server/security/api-keys", () => webLibModule("server/security/api-keys", { requireScope: () => null }));
 mock.module("@sveltejs/kit", () => ({ json: (value: unknown, init?: ResponseInit) => Response.json(value, init) }));
 mock.module("$lib/server/http-errors", () => ({ errorJson: (status: number, error: string) => Response.json({ error }, { status }) }));
 

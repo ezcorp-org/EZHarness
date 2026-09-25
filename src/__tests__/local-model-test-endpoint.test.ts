@@ -1,5 +1,5 @@
 import { test, expect, describe, beforeEach, afterAll, mock } from "bun:test";
-import { restoreModuleMocks } from "./helpers/mock-cleanup";
+import { restoreModuleMocks, webLibModule } from "./helpers/mock-cleanup";
 import { mockServerAlias, createMockEvent, jsonFromResponse, ADMIN_USER, MEMBER_USER } from "./helpers/mock-request";
 
 // ── Module-level mocks (BEFORE handler imports) ──────────────────
@@ -51,7 +51,7 @@ mock.module("$server/providers/local-model-check", () => ({
 // F2: the REAL `requireScope` — not a `() => null` stub — so the scope axis is
 // genuinely under test. Cookie principals (no `apiKeyScopes`) still pass it,
 // which is why every pre-existing test in this file is unaffected.
-mock.module("$lib/server/security/api-keys", () => ({
+mock.module("$lib/server/security/api-keys", () => webLibModule("server/security/api-keys", {
   requireScope: realRequireScope,
   // Real contract: null when the principal IS an admin, else a 403 Response.
   // RETURNED, never thrown — a thrown Response 500s via SvelteKit.

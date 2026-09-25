@@ -40,6 +40,7 @@
  * execution, so `retrieval === detail === list` is a closed chain.
  */
 import { test, expect, describe, beforeAll, afterAll } from "bun:test";
+import { webLibModule } from "../helpers/mock-cleanup";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { setupTestDb, closeTestDb, mockDbConnection } from "../helpers/test-pglite";
@@ -59,9 +60,9 @@ mock.module("$lib/server/http-errors", () =>
 
 // The scope axis (`requireScope`) has its own suites; neutralised so a scope
 // failure can never masquerade as an ownership result.
-const apiKeysMock = () => ({ requireScope: () => null });
-mock.module("$lib/server/security/api-keys", apiKeysMock);
-mock.module("../../../web/src/lib/server/security/api-keys", apiKeysMock);
+const apiKeysMock = webLibModule("server/security/api-keys", { requireScope: () => null });
+mock.module("$lib/server/security/api-keys", () => apiKeysMock);
+mock.module("../../../web/src/lib/server/security/api-keys", () => apiKeysMock);
 
 // Only `requireAuth` is stubbed (these events carry a plain user object, not a
 // real session). `checkProjectRole` — the membership gate the share route

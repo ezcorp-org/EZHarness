@@ -24,7 +24,7 @@
  */
 
 import { afterAll, beforeEach, afterEach, describe, expect, mock, spyOn, test } from "bun:test";
-import { restoreModuleMocks } from "./helpers/mock-cleanup";
+import { restoreModuleMocks, webLibModule } from "./helpers/mock-cleanup";
 
 // ── Real SSE-filter and real EventBus — load FIRST so every other
 // mock can pull symbols from them.
@@ -65,7 +65,7 @@ mock.module("$server/db/queries/tool-calls", () => ({
 }));
 
 // ── Mock auth / scope so the route's gates pass.
-mock.module("$lib/server/security/api-keys", () => ({
+mock.module("$lib/server/security/api-keys", () => webLibModule("server/security/api-keys", {
   requireScope: () => null,
 }));
 mock.module("$server/auth/middleware", () => ({
