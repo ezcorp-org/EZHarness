@@ -884,6 +884,14 @@ describe("the roles this installation assembles", () => {
     expect(getFactoryApplication()).toBe(startup.runtime.application);
     expect(getFactoryApplication()?.releaseOperations).toBeInstanceOf(FactoryReleaseApplication);
     expect(getFactoryApplication()?.releaseOperations?.tenantId).toBe("tenant-01");
+    // The release store the inbox lists through carries the installation's command authority and service
+    // identity (c5b14cb49). Without them, one approval node's request made the whole notification list
+    // refuse factory_command_approval_authority_unavailable (reproduced in the real lane, journeys-22).
+    const application = getFactoryApplication();
+    if (!application) throw new Error("the installation configured no factory application");
+    const store = (application.releaseOperations as unknown as { releases: { commandApprovalCurrent?: { authority: { tenantId: string }; service: unknown } } }).releases;
+    expect(store.commandApprovalCurrent?.service).toEqual({ subject: "factory-private", tenantId: "tenant-01" });
+    expect(store.commandApprovalCurrent?.authority.tenantId).toBe("tenant-01");
     // The approval decisions are the real command store: a decision is judged by its rules, not refused as unavailable.
     const approvals = getFactoryApplication()?.commandApprovals;
     expect(approvals).toBeInstanceOf(FactoryAssuranceCommands);
