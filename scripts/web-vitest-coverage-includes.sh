@@ -68,6 +68,7 @@ web_vitest_coverage_args() {
     "--coverage.include=src/routes/api/settings/+server.ts"
     "--coverage.include=src/routes/api/projects/[id]/features/scan/+server.ts"
     "--coverage.include=src/routes/**/extensions/incus-setup/+page.server.ts"
+    "--coverage.include=src/routes/**/extensions/incus-management/+page.svelte"
     "--coverage.include=src/routes/api/infrastructure/incus/features/+server.ts"
     "--coverage.include=src/routes/api/infrastructure/incus/setup/+server.ts"
     "--coverage.include=src/routes/api/projects/[id]/sandbox/+server.ts"

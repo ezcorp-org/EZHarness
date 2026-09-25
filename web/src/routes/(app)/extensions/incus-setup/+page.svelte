@@ -76,6 +76,7 @@
   <div class="eyebrow">INFRASTRUCTURE / OPERATOR SETUP</div>
   <h1>Connect an Incus server</h1>
   <p class="intro">EZHarness inspects the server over a pinned SSH connection. You review the exact changes before it applies them. The client key stays on the engine host.</p>
+  <p><a class="manage-link" href="/extensions/incus-management">Manage qualified environments and project sandboxes →</a></p>
 
   <div class="steps" aria-label="Setup stages">
     <span class="active">01 Inspect</span><span>02 Review</span><span>03 Apply</span><span>04 Probe</span>
@@ -136,6 +137,7 @@
 <style>
   .setup-shell{max-width:920px;margin:0 auto;padding:32px 24px 96px;color:var(--color-text-primary)}
   .eyebrow{font-size:11px;letter-spacing:.16em;font-weight:700;color:var(--color-accent,#82b5ff)}
+  .manage-link{display:inline-block;margin:-12px 0 24px;color:var(--color-accent,#82b5ff);font-size:13px;text-decoration:none}.manage-link:hover{text-decoration:underline}
   h1{font-size:clamp(28px,4vw,42px);line-height:1.1;letter-spacing:-.03em;margin:12px 0}
   .intro{max-width:690px;color:var(--color-text-muted);line-height:1.55;margin-bottom:28px}
   .steps{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:24px}.steps span{padding:7px 11px;border:1px solid var(--color-border);border-radius:6px;font-size:12px;color:var(--color-text-muted)}.steps .active{color:var(--color-text-primary);border-color:var(--color-accent,#82b5ff)}
