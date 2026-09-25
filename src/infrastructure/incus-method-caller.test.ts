@@ -131,14 +131,32 @@ test("operation readback uses its durable provider id after the binding advances
   const caller = await fixture();
   await database.update(schema.sandboxOperations).set({ state: "OUTCOME_UNKNOWN" });
   await database.update(schema.sandboxBindings).set({ generation: 2, currentOperationId: "next" });
-  const inspect = { ...common, operationId: "provider-operation" };
+  const inspect = { ...common, operationId: "provider-operation", requestId: "operation", idempotencyKey: "operation" };
   expect(await caller.call(scope, "incus/lifecycle/inspectOperation", inspect))
     .toEqual({ ok: true, operation: "lifecycle.inspectOperation" });
+  expect(calls[0]?.input).toEqual({ ...common, operationId: "provider-operation" });
   await expect(caller.call(scope, "incus/lifecycle/inspectOperation", { ...inspect, operationId: "other" }))
     .rejects.toMatchObject({ code: "SCOPE_INVALID" });
+  for (const changed of [{ requestId: "other" }, { idempotencyKey: "other" }, { requestId: undefined }, { idempotencyKey: undefined }]) {
+    await expect(caller.call(scope, "incus/lifecycle/inspectOperation", { ...inspect, ...changed }))
+      .rejects.toMatchObject({ code: "SCOPE_INVALID" });
+  }
   activeRelease = { installation: { generation: 0 }, release: { id: "release" } };
   await expect(caller.call(scope, "incus/lifecycle/inspectOperation", inspect))
     .rejects.toMatchObject({ code: "RELEASE_CHANGED" });
+  expect(calls).toHaveLength(1);
+}, DB_TEST_TIMEOUT_MS);
+
+test("retained native CREATE inspection sends the legacy schema after host journal checks", async () => {
+  const caller = await fixture();
+  const nativeId = "incus-create-11111111-1111-1111-1111-111111111111";
+  await database.update(schema.sandboxOperations).set({ providerOperationId: nativeId, state: "OUTCOME_UNKNOWN" });
+  const inspect = { ...common, operationId: nativeId, requestId: "operation", idempotencyKey: "operation" };
+  expect(await caller.call(scope, "incus/lifecycle/inspectOperation", inspect))
+    .toEqual({ ok: true, operation: "lifecycle.inspectOperation" });
+  expect(calls[0]?.input).toEqual({ ...common, operationId: nativeId });
+  await expect(caller.call(scope, "incus/lifecycle/inspectOperation", { ...inspect, requestId: "forged" }))
+    .rejects.toMatchObject({ code: "SCOPE_INVALID" });
   expect(calls).toHaveLength(1);
 }, DB_TEST_TIMEOUT_MS);
 

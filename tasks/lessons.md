@@ -1,5 +1,8 @@
 # Lessons
 
+- Reach the first real end-to-end guest early. Contract tests and direct Incus probes did not expose an expiring daemon operation receipt. Report completed and missing live gates plainly instead of treating each setup step as near completion.
+- A short-lived provider operation UUID cannot be the only durable proof of a CREATE. Persist a stable request identity, then reconcile an expired operation through exact, host-authorized resource tags before any retry or state transition. Test this in a live E2E flow.
+
 - Before an exact no-effect recovery, verify every independent observer policy on the **server** names the target instance; updating only the AMD observer context does not change the server forced command's policy. Test the exact restricted SSH response before certificate revocation.
 - Before stopping a fenced service, inspect reverse systemd dependencies and test which other units stop. The recovery supervisor must survive the runner stop with the same PID and socket before a no-effect request can be signed.
 - A systemd drop-in cannot remove dependencies declared in the base unit. Test the loaded unit's effective `Requires`, not just drop-in syntax or generated source text. A zero-match `rg -c` check emits no count; use an explicit negative match with checked command status.

@@ -1,9 +1,9 @@
 import { createHash, X509Certificate } from "node:crypto";
 import { ContractError, canonicalJson, sandboxPresetDigest, validateSandboxProviderMethodValue, type JsonValue, type SandboxProtocolOperation } from "@ezcorp/extension-contract";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { getDb, type Database } from "../db/connection";
 import { releaseRows } from "../db/queries/extension-releases";
-import { sandboxBindings, sandboxReservations, type SandboxBinding } from "../db/schema";
+import { sandboxBindings, sandboxOperations, sandboxReservations, type SandboxBinding } from "../db/schema";
 import type { ActiveExtensionRelease } from "../extensions/release-process";
 import { HostIncusProbeTransport, type HostConnectionResolver } from "./incus-transport/transport";
 import type { IncusSetupRecipe } from "../../scripts/incus/model";
@@ -143,6 +143,29 @@ function approvedGuestHelper(operation: SandboxProtocolOperation, base: Prepared
     throw new ContractError("RELEASE_CHANGED", "Approved Incus guest image or helper is unavailable");
   }
   return helperSha256;
+}
+
+async function legacyCreateJournalId(db: Database, scope: PreparedIncusAction,
+  binding: SandboxBinding, providerOperationId: string): Promise<string | null> {
+  if (scope.expectedCommand.idempotency) return null;
+  const rows = await db.select().from(sandboxOperations).where(and(
+    eq(sandboxOperations.bindingId, scope.bindingId),
+    eq(sandboxOperations.providerOperationId, providerOperationId),
+    eq(sandboxOperations.kind, "CREATE"),
+  )).limit(2);
+  if (rows.length !== 1) return null;
+  const journal = rows[0]!;
+  const preset = scope.approvedPreset;
+  if (!["DISPATCHING", "PROVIDER_PENDING", "OUTCOME_UNKNOWN"].includes(journal.state)
+    || journal.id !== binding.currentOperationId || journal.generation !== binding.generation
+    || journal.generation !== scope.bindingGeneration || journal.generation !== 1
+    || binding.tombstonedAt || binding.desiredState !== "STOPPED"
+    || binding.profile !== preset.profile || binding.presetId !== preset.presetId
+    || binding.presetDigest !== preset.presetDigest || binding.effectiveSettingsDigest !== preset.effectiveSettingsDigest
+    || journal.requestPayload.profile !== preset.profile || journal.requestPayload.presetId !== preset.presetId
+    || journal.requestPayload.presetDigest !== preset.presetDigest
+    || journal.requestPayload.effectiveSettingsDigest !== preset.effectiveSettingsDigest) return null;
+  return journal.id;
 }
 
 /** Only ReleaseProcess calls this broker. No generic extension capability exposes it. */
@@ -333,8 +356,9 @@ export class ProviderRpcBroker {
       throw new IncusTransportError("permission", "Incus provider request is outside its approved connection");
     }
     const dispatch = async (): Promise<JsonValue> => {
+      let binding: SandboxBinding | undefined;
       if (isAction(scope)) {
-        const [binding] = await this.database.select().from(sandboxBindings)
+        [binding] = await this.database.select().from(sandboxBindings)
           .where(eq(sandboxBindings.id, scope.bindingId)).limit(1);
         const inspection = scope.operation === "lifecycle.inspectOperation";
         if (!binding || binding.projectId !== scope.projectId
@@ -354,10 +378,23 @@ export class ProviderRpcBroker {
       const reviewedScope = !isAction(scope)
         ? { ...scope, approvedPreflight: await this.reviewedPreflight(scope, command) }
         : scope;
+      const providerOperationId = command.action === "operation.inspect"
+        && command.payload && typeof command.payload === "object" && !Array.isArray(command.payload)
+        ? command.payload.operationId : null;
+      const legacyWorkerCreate = isAction(scope) && scope.operation === "lifecycle.inspectOperation"
+        && !command.idempotency && typeof providerOperationId === "string"
+        && (/^incus-create-[a-f0-9-]{36}$/.test(providerOperationId)
+          || /^ezh-create-[a-f0-9]{32}-[a-f0-9]{32}$/.test(providerOperationId));
+      let transportCommand = command;
+      if (legacyWorkerCreate) {
+        const journalId = binding ? await legacyCreateJournalId(this.database, scope, binding, providerOperationId) : null;
+        if (!journalId) throw new IncusTransportError("permission", "Incus creation journal is unavailable");
+        transportCommand = { ...command, idempotency: { requestId: journalId, key: journalId } };
+      }
       const transport = isAction(scope)
         ? this.actionTransportFactory(scope, signal)
         : this.transportFactory(reviewedScope, signal);
-      return await transport.request({ ...command, deadlineMs: Math.min(command.deadlineMs, deadline) }) as JsonValue;
+      return await transport.request({ ...transportCommand, deadlineMs: Math.min(command.deadlineMs, deadline) }) as JsonValue;
     };
     if (isAction(scope) && mutationOperations.has(scope.operation)) {
       const prior = this.dispatchedMutations.get(scope);

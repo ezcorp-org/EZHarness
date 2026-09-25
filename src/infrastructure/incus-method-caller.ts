@@ -54,6 +54,9 @@ function assertJournalIntent(
     if (input.operationId !== receipt.providerOperationId) {
       throw new IncusDispatchAuthorizationError("SCOPE_INVALID");
     }
+    if (receipt.kind === "CREATE" && (input.requestId !== scope.operationId || input.idempotencyKey !== scope.operationId)) {
+      throw new IncusDispatchAuthorizationError("SCOPE_INVALID");
+    }
   } else {
     if (receipt.kind !== expectedKind || input.requestId !== scope.operationId
       || input.idempotencyKey !== scope.operationId) {
@@ -102,7 +105,14 @@ export class IncusMethodCaller implements HostAuthorizedIncusMethodCaller {
     const runtime = getReleaseRuntime();
     const process = new ReleaseProcess(scope.installationId, runtime);
     try {
-      const response = await process.callIncusSandboxOperation(scope.bindingId, operation, input);
+      // Retained v0.1.2 workers accept only the original inspection fields.
+      // The host broker binds this legacy read to the saved CREATE journal.
+      const workerInput = { ...input };
+      if (operation === "lifecycle.inspectOperation" && receipt.kind === "CREATE") {
+        delete workerInput.requestId;
+        delete workerInput.idempotencyKey;
+      }
+      const response = await process.callIncusSandboxOperation(scope.bindingId, operation, workerInput);
       return response.result;
     } catch (error) {
       // This runner error is raised only when the pinned worker artifact is

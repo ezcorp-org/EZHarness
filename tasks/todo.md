@@ -18,10 +18,15 @@
 - [x] Recover sandbox-server host control after the pending switch settled; prove thaw, old generation, SSH, original trust/policy, and inventory, then restore AMD configs and runner while keeping the TCP hold.
 - [x] Review, authorize, and execute the corrected v4 second-CREATE recovery with a measured timer-margin gate and thaw-first rollback.
 - [x] Review the next EZHarness-owned guest smoke plan, validate the retained admin session, live scope/capacity, pinned image, and unused fixture ID without creating a guest.
-- [ ] Obtain a separate decision and run one CREATE/inspect/start/marker/Compose/stop/destroy lifecycle for the reviewed new fixture.
+- [x] Run the approved first EZHarness CREATE; record its real stopped guest and the `OUTCOME_UNKNOWN` stop before START.
+- [ ] Fix durable CREATE inspection after the short-lived Incus operation disappears; prove the same journal and guest reconcile without another CREATE.
+- [ ] Prove recovery through the retained 0.1.2 provider worker schema and host broker; the active guest blocks routine release replacement.
+- [ ] Review and authorize recovery of the existing guest, then resume START/marker/Compose/STOP/DESTROY under a new exact plan.
 - [ ] Run a complete EZHarness-owned guest fixture, the live qualification cases, feature workflow, and cleanup.
 - [ ] Remove the temporary `/var/empty/.config` workaround after the corrected NixOS setup gate is active.
 - [ ] Finish the source fixes, pass the CRAP gate and all hosted checks on the final PR head, and publish the measured live evidence.
+
+Review, 25 September 2026: The first approved EZHarness CREATE made one real stopped guest, but its saved Incus operation expired and the controller retained `OUTCOME_UNKNOWN`. The guest and reservation remain; no START or cleanup was sent. The durable readback and retained-worker compatibility repairs pass focused tests, lint, typecheck, and build. The frozen 0.1.2 artifact and the saved guest still need a reviewed live recovery before this guest can proceed. See the first guest execution receipt for exact evidence.
 
 Review: The server is up. Setup `97edb3a1-80e4-4305-baac-1325930b868d` is verified, and capacity digest `a4124441943808b4311afe333aa59d2b43a52b6623bb39a5a17de8719238ce43` applied. The first provider worker call failed because the new runner store held zero artifacts; the exact approved artifact digest `2fc8d4c91d0b8ec779451cc6ff0f8fc93e17ddec9085e0d632d65d9bde7008d5` has now been copied and SHA-256 checked. A new read-only worker probe reaches Incus and stops at the helper qualification gate, which needs live guest evidence. The second CREATE is still `OUTCOME_UNKNOWN`; the expected instance is absent, but that alone is not a no-effect proof. A separate direct canary was created and deleted, showing the pinned Incus transport works. PR #303's prior head has one failing CRAP gate; focused refactors and tests are in progress. See `docs/validation/2026-09-24-post-recovery-incus-setup-review.md`.
 

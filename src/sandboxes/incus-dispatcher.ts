@@ -175,6 +175,7 @@ export class IncusSandboxProviderDispatcher implements SandboxProviderDispatcher
         providerId: "incus", connectionId: request.binding.connectionId,
         sandboxId: request.binding.id, rpcDeadlineMs: deadlineMs,
         operationId: request.providerOperationId,
+        ...(request.kind === "CREATE" ? { requestId: request.operationId, idempotencyKey: request.operationId } : {}),
       };
       const result = await this.caller.call(scope, "incus/lifecycle/inspectOperation", input);
       const validated = validateSandboxProviderMethodExchange("lifecycle.inspectOperation", input, result).result as Record<string, unknown>;

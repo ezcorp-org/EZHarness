@@ -44,7 +44,7 @@ function assertScope(command: IncusTransportRequest, scope: HostConnectionScope)
   } else if (command.tags.sandboxId || command.sandboxName) invalid("Invalid Incus list scope");
   if (["instance.create", "instance.setPower", "instance.destroy", "helper.file.writeAtomic", "helper.file.remove", "helper.process.start", "helper.process.cancel"].includes(command.action)) {
     if (!command.idempotency || !ID.test(command.idempotency.requestId) || !ID.test(command.idempotency.key)) invalid("Invalid Incus operation identity");
-  } else if (command.idempotency) invalid("Unexpected Incus operation identity");
+  } else if (command.idempotency && (command.action !== "operation.inspect" || !ID.test(command.idempotency.requestId) || !ID.test(command.idempotency.key))) invalid("Unexpected Incus operation identity");
 }
 
 export interface Session {
@@ -187,16 +187,36 @@ async function listInstances({ session, command, project, input }: LifecycleCont
   return { ok: true, sandboxes: page, ...(last && sandboxes.some(item => item.sandboxId > last.sandboxId) ? { nextCursor: { connectionId: command.connectionId, afterSandboxId: last.sandboxId } } : {}) };
 }
 
-async function inspectSyntheticOperation({ session, command, instancePath }: LifecycleContext, id: string) {
+function matchesCreateInstance(instance: Record<string, unknown>, command: IncusTransportRequest,
+  policy: LifecycleContext["policy"], stableId: string, requiredState: "stopped" | null): boolean {
+  const config = object(instance.config);
+  const observed = instance.status === "Running" ? "running" : instance.status === "Stopped" ? "stopped" : null;
+  return Boolean(command.idempotency
+    && config["user.ezharness.create_key"] === command.idempotency.key
+    && config["user.ezharness.operation_id"] === stableId
+    && config["user.ezharness.profile"] === policy.profile
+    && config["user.ezharness.preset_id"] === policy.presetId
+    && config["volatile.base_image"] === policy.imageFingerprint
+    && config["user.ezharness.generation"] === "1"
+    && Array.isArray(instance.profiles) && instance.profiles.length === 1 && instance.profiles[0] === policy.incusProfile
+    && (instance.type === undefined || instance.type === "container")
+    && (observed === "running" || observed === "stopped")
+    && config["user.ezharness.desired_state"] === observed
+    && (requiredState === null || observed === requiredState));
+}
+
+async function inspectSyntheticOperation({ session, command, instancePath, policy }: LifecycleContext, id: string) {
   const match = /^ezh-(create|setPower|destroy)-([a-f0-9]{32})-([a-f0-9]{32})$/.exec(id);
   if (!match || `ezh-${match[2]}` !== command.sandboxName) denied("Incus operation escaped sandbox scope");
+  if (match[1] === "create" && (!command.idempotency || operationId("create", command) !== id)) denied("Incus creation operation does not match journal scope");
   const found = metadata(await session.request("GET", instancePath), true);
   const instance = found ? object(found) : null;
   if (instance) instanceIdentity(instance, command);
   const config = instance ? object(instance.config) : null;
   const desired = config?.["user.ezharness.desired_state"];
   const observed = instance?.status === "Running" ? "running" : instance?.status === "Stopped" ? "stopped" : "unknown";
-  const proven = config?.["user.ezharness.operation_id"] === id && desired === observed && (match[1] === "create" || match[1] === "setPower");
+  const createProof = match[1] !== "create" || Boolean(instance && matchesCreateInstance(instance, command, policy, id, null));
+  const proven = config?.["user.ezharness.operation_id"] === id && desired === observed && createProof && (match[1] === "create" || match[1] === "setPower");
   return { ok: true, operation: { operationId: id, kind: match[1], sandboxId: command.tags.sandboxId, state: proven ? "succeeded" : "outcome_unknown", desiredState: match[1] === "destroy" ? "absent" : desired === "running" ? "running" : "stopped", observedState: observed, resourceId: instance ? command.sandboxName : null, startedAt: new Date().toISOString(), finishedAt: new Date().toISOString(), error: proven ? null : { code: "OUTCOME_UNKNOWN", message: "Incus mutation outcome is unknown", retryable: false, operationId: id } } };
 }
 
@@ -236,12 +256,33 @@ async function inspectIncusOperation(context: LifecycleContext, id: string) {
   const { session, command, project } = context;
   const operationMatch = /^incus-(create|setPower|destroy)-([a-f0-9-]{36})$/.exec(id);
   if (!operationMatch) invalid("Invalid Incus operation identity");
-  const reply = object(metadata(await session.request("GET", `/1.0/operations/${operationMatch[2]}?project=${project}`)));
+  const operationReply = await session.request("GET", `/1.0/operations/${operationMatch[2]}?project=${project}`);
+  if (operationMatch[1] === "create" && operationReply.status === 404) return inspectExpiredCreateOperation(context, id);
+  const reply = object(metadata(operationReply));
   const resources = object(reply.resources);
   const instances = resources.instances;
   if (!Array.isArray(instances) || !instances.some(item => typeof item === "string" && new URL(item, "https://incus.invalid").pathname === `/1.0/instances/${command.sandboxName}`)) denied("Incus operation escaped sandbox scope");
   const { state, observedState, desiredState } = await verifyCompletedOperation(context, operationMatch[1]!, reply.status);
   return { ok: true, operation: { operationId: id, kind: operationMatch[1], sandboxId: command.tags.sandboxId, state, desiredState, observedState, resourceId: command.sandboxName, startedAt: String(reply.created_at ?? new Date().toISOString()), finishedAt: state === "succeeded" || state === "failed" || state === "outcome_unknown" ? String(reply.updated_at ?? new Date().toISOString()) : null, error: state === "outcome_unknown" ? { code: "OUTCOME_UNKNOWN", message: "Incus mutation outcome is unknown", retryable: false, operationId: id } : state === "failed" ? { code: "INTERNAL", message: "Incus operation failed", retryable: false } : null } };
+}
+
+async function inspectExpiredCreateOperation({ session, command, instancePath, policy }: LifecycleContext, id: string) {
+  // The daemon can discard completed operations. Only the host-authorized
+  // journal identity and the exact instance created by that journal can settle it.
+  const stableId = command.idempotency ? operationId("create", command) : null;
+  const found = stableId ? metadata(await session.request("GET", instancePath), true) : null;
+  let proven = false;
+  if (found) {
+    try {
+      const instance = object(found);
+      instanceIdentity(instance, command);
+      proven = matchesCreateInstance(instance, command, policy, stableId!, "stopped");
+    } catch { /* An untrusted or malformed instance is no proof of this CREATE. */ }
+  }
+  return { ok: true, operation: { operationId: id, kind: "create", sandboxId: command.tags.sandboxId,
+    state: proven ? "succeeded" : "outcome_unknown", desiredState: "stopped", observedState: proven ? "stopped" : "unknown",
+    resourceId: proven ? command.sandboxName : null, startedAt: new Date().toISOString(), finishedAt: new Date().toISOString(),
+    error: proven ? null : { code: "OUTCOME_UNKNOWN", message: "Incus mutation outcome is unknown", retryable: false, operationId: id } } };
 }
 
 async function inspectLifecycleOperation(context: LifecycleContext) {
@@ -252,7 +293,6 @@ async function inspectLifecycleOperation(context: LifecycleContext) {
 }
 
 async function createInstance({ session, command, project, collection, input, policy }: LifecycleContext, existing: Record<string, unknown> | null, stableId: string) {
-  const kind = "create";
   if (existing) {
     const config = object(existing.config);
     if (config["user.ezharness.create_key"] !== command.idempotency!.key) throw new IncusTransportError("already_exists", "Incus sandbox already exists");
@@ -283,7 +323,7 @@ async function createInstance({ session, command, project, collection, input, po
     "limits.memory": String(policy.limits.memoryBytes), "limits.cpu": String(Math.ceil(policy.limits.cpuMillis / 1000)),
     "limits.cpu.allowance": `${policy.limits.cpuMillis}ms/1000ms`, "limits.processes": String(policy.limits.pids),
   } };
-  try { const reply = await session.request("POST", collection, body); metadata(reply); return receipt("create", command, acceptedOperationId(reply, kind, stableId)); }
+  try { const reply = await session.request("POST", collection, body); metadata(reply); return receipt("create", command, stableId); }
   catch (error) { throw uncertain(error, stableId); }
 }
 

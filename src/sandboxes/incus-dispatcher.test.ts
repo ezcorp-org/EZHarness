@@ -114,6 +114,8 @@ test("reconcile inspects the saved provider operation and updates observed state
   expect((await controller.getBinding("binding"))?.observedState).toBe("RUNNING");
   expect(calls.map((call) => call.method)).toEqual(["incus/lifecycle/setPower", "incus/lifecycle/inspectOperation"]);
   expect(calls[1]?.input.operationId).toBe("provider-operation");
+  expect(calls[1]?.input.requestId).toBeUndefined();
+  expect(calls[1]?.input.idempotencyKey).toBeUndefined();
 });
 
 test("destroy finishes only after readback proves absence", async () => {
@@ -130,6 +132,8 @@ test("destroy finishes only after readback proves absence", async () => {
   expect((await controller.getOperation(pending.id))?.state).toBe("SUCCEEDED");
   expect((await controller.getBinding("binding"))?.cleanupConfirmedAt).toBeInstanceOf(Date);
   expect(calls.map((call) => call.method)).toEqual(["incus/lifecycle/destroy", "incus/lifecycle/inspectOperation"]);
+  expect(calls[1]?.input.requestId).toBeUndefined();
+  expect(calls[1]?.input.idempotencyKey).toBeUndefined();
 });
 
 test("revoked scope fails before mutation, and unpinned old bindings fail closed", async () => {

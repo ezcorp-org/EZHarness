@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { createIncusTransportCommand } from "../../extensions/incus-sandbox/adapter";
@@ -76,6 +77,48 @@ test("host broker routes a pinned guest read and denies changed worker command",
     ok: false, error: { kind: "permission" },
   });
   expect(calls).toHaveLength(1);
+});
+
+test("legacy CREATE inspection gains only its exact host-journaled identity after worker command approval", async () => {
+  const { broker, calls, scope, db } = await setup();
+  const nativeId = "incus-create-11111111-1111-1111-1111-111111111111";
+  const input = { providerId: "incus", connectionId: "connection", sandboxId: "binding",
+    rpcDeadlineMs: Date.now() + 30_000, operationId: nativeId };
+  const action = { ...scope("lifecycle.inspectOperation", input), approvedGuest: undefined };
+  expect(action.expectedCommand.idempotency).toBeUndefined();
+  await db.insert(schema.sandboxOperations).values({ id: "journal-create", bindingId: "binding", kind: "CREATE",
+    generation: 1, idempotencyScope: "feature", idempotencyKey: "client-key", payloadHash: "hash",
+    requestPayload: { profile: "linux-exec.v1", presetId: "incus-linux-exec-v1", presetDigest: "a".repeat(64),
+      effectiveSettingsDigest: "b".repeat(64) }, state: "OUTCOME_UNKNOWN", providerOperationId: nativeId });
+  await db.update(schema.sandboxBindings).set({ currentOperationId: "journal-create", desiredState: "STOPPED", observedState: "UNKNOWN" });
+
+  expect(await broker.request(action, { command: action.expectedCommand }, input.rpcDeadlineMs)).toMatchObject({ ok: true });
+  expect(calls).toHaveLength(1);
+  expect(calls[0]?.idempotency).toEqual({ requestId: "journal-create", key: "journal-create" });
+  expect(calls[0]?.payload).toEqual({ operationId: nativeId });
+
+  const stableId = `ezh-create-${createHash("sha256").update("connection").update("\0").update("binding").digest("hex").slice(0, 32)}-${createHash("sha256").update("connection\0binding\0journal-create\0journal-create\0create").digest("hex").slice(0, 32)}`;
+  await db.update(schema.sandboxOperations).set({ providerOperationId: stableId });
+  const stableInput = { ...input, operationId: stableId };
+  const stableAction = { ...scope("lifecycle.inspectOperation", stableInput), approvedGuest: undefined };
+  expect(await broker.request(stableAction, { command: stableAction.expectedCommand }, input.rpcDeadlineMs)).toMatchObject({ ok: true });
+  expect(calls[1]?.idempotency).toEqual({ requestId: "journal-create", key: "journal-create" });
+  expect(calls[1]?.payload).toEqual({ operationId: stableId });
+  await db.update(schema.sandboxOperations).set({ providerOperationId: nativeId });
+
+  const forged = { ...action.expectedCommand, payload: { operationId: "incus-create-22222222-2222-2222-2222-222222222222" } };
+  expect(await broker.request(action, { command: forged }, input.rpcDeadlineMs)).toMatchObject({ ok: false, error: { kind: "permission" } });
+  const wrongBinding: PreparedIncusAction = { ...action, bindingId: "other-binding" };
+  expect(await broker.request(wrongBinding, { command: action.expectedCommand }, input.rpcDeadlineMs))
+    .toMatchObject({ ok: false, error: { kind: "permission" } });
+  await db.update(schema.sandboxOperations).set({ providerOperationId: "incus-create-22222222-2222-2222-2222-222222222222" });
+  expect(await broker.request(action, { command: action.expectedCommand }, input.rpcDeadlineMs)).toMatchObject({ ok: false, error: { kind: "permission" } });
+  await db.update(schema.sandboxOperations).set({ providerOperationId: nativeId });
+  await db.update(schema.sandboxBindings).set({ currentOperationId: "other-journal" });
+  expect(await broker.request(action, { command: action.expectedCommand }, input.rpcDeadlineMs)).toMatchObject({ ok: false, error: { kind: "permission" } });
+  await db.update(schema.sandboxBindings).set({ currentOperationId: "journal-create", presetId: "other-preset" });
+  expect(await broker.request(action, { command: action.expectedCommand }, input.rpcDeadlineMs)).toMatchObject({ ok: false, error: { kind: "permission" } });
+  expect(calls).toHaveLength(2);
 });
 
 test("a repeated guest process mutation returns the first result without redispatch", async () => {

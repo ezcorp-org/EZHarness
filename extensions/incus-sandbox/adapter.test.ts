@@ -3,7 +3,7 @@ import type {
   SandboxOperationKind,
   SandboxProtocolOperation,
 } from "@ezcorp/extension-contract";
-import { IncusSandboxAdapter } from "./adapter";
+import { createIncusTransportCommand, IncusSandboxAdapter } from "./adapter";
 import type { IncusConnectionConfig } from "./config";
 import { createHostIncusTransport, INCUS_HOST_TRANSPORT_RPC } from "./host-transport";
 import { INCUS_PRESETS } from "./manifest";
@@ -28,6 +28,14 @@ const config: IncusConnectionConfig = {
 };
 const scope = { providerId: "incus", connectionId, sandboxId, rpcDeadlineMs };
 const mutation = { ...scope, requestId: "request-1", idempotencyKey: "idempotency-1" };
+
+test("operation inspection carries the original journal identity only when supplied", () => {
+  const input = { ...scope, operationId: "incus-create-uuid", requestId: "journal-1", idempotencyKey: "journal-1" };
+  expect(createIncusTransportCommand("lifecycle.inspectOperation", input, config).idempotency)
+    .toEqual({ requestId: "journal-1", key: "journal-1" });
+  expect(createIncusTransportCommand("lifecycle.inspectOperation", { ...scope, operationId: input.operationId }, config).idempotency)
+    .toBeUndefined();
+});
 const sandbox = {
   sandboxId,
   profile: "linux-exec.v1",

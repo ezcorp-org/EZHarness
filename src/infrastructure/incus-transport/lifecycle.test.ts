@@ -65,6 +65,8 @@ test("create takes image, profile and limits only from the host-approved policy"
   const transport = new HostIncusLifecycleTransport({ resolveForHost: async () => connection }, scope, fetcher as never);
   const result = await transport.request({ ...command, payload: { ...command.payload as object, image: "evil", profiles: ["default"], limits: { memoryBytes: 1 } } }) as Record<string, unknown>;
   expect(result.ok).toBe(true);
+  expect((result.receipt as { operationId: string }).operationId).toMatch(/^ezh-create-/);
+  expect((result.receipt as { operationId: string }).operationId).toBe((created!.config as Record<string, string>)["user.ezharness.operation_id"]!);
   expect(routes).toEqual([`GET /1.0/instances/${sandboxName}?project=sandbox`, "GET /1.0/profiles/ezharness?project=sandbox", "POST /1.0/instances?project=sandbox"]);
   expect(created?.source).toEqual({ type: "image", fingerprint: "c".repeat(64) });
   expect(created?.profiles).toEqual(["ezharness"]);
@@ -135,15 +137,71 @@ test("readback settles a matching create and rejects another sandbox operation",
   const fetcher = async (url: string, init: RequestInit) => {
     if (init.method === "GET") return new URL(url).pathname.includes("/profiles/")
       ? reply(safeProfile)
-      : created ? reply({ ...created, status: "Running" }) : reply({}, 404);
+      : created ? reply({ ...created, status: "Running", config: { ...created.config as object, "volatile.base_image": "c".repeat(64) } }) : reply({}, 404);
     created = JSON.parse(String(init.body)) as Record<string, unknown>;
     throw new Error("lost create response");
   };
   const transport = new HostIncusLifecycleTransport({ resolveForHost: async () => connection }, scope, fetcher as never);
   const failure = await transport.request(command).catch((error: unknown) => error) as { operationId: string };
-  const inspected = await transport.request({ ...command, action: "operation.inspect", idempotency: undefined, payload: { operationId: failure.operationId } }) as Record<string, unknown>;
+  const inspected = await transport.request({ ...command, action: "operation.inspect", payload: { operationId: failure.operationId } }) as Record<string, unknown>;
   expect((inspected.operation as Record<string, unknown>).state).toBe("succeeded");
-  await expect(transport.request({ ...command, action: "operation.inspect", idempotency: undefined, payload: { operationId: `ezh-create-${"0".repeat(64)}` } })).rejects.toMatchObject({ kind: "permission" });
+  await expect(transport.request({ ...command, action: "operation.inspect", payload: { operationId: `ezh-create-${"0".repeat(64)}` } })).rejects.toMatchObject({ kind: "permission" });
+});
+
+test("expired native CREATE settles only from its exact stopped journal-tagged instance", async () => {
+  const nativeId = "11111111-1111-1111-1111-111111111111";
+  const create = { ...command, payload: { ...command.payload as object, desiredState: "stopped" } };
+  let instance: Record<string, unknown> | null = null;
+  let posts = 0;
+  const routes: string[] = [];
+  const fetcher = async (url: string, init: RequestInit) => {
+    const route = new URL(url).pathname;
+    routes.push(`${init.method} ${route}`);
+    if (route.includes("/operations/")) return reply({}, 404);
+    if (route.includes("/profiles/")) return reply(safeProfile);
+    if (init.method === "POST") {
+      posts++;
+      const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+      instance = { ...body, status: "Stopped", config: { ...body.config as object, "volatile.base_image": "c".repeat(64) } };
+      return reply({ id: nativeId }, 202);
+    }
+    return instance ? reply(instance) : reply({}, 404);
+  };
+  const transport = new HostIncusLifecycleTransport({ resolveForHost: async () => connection }, scope, fetcher as never);
+  const accepted = await transport.request(create) as { receipt: { operationId: string } };
+  expect(accepted.receipt.operationId).toMatch(/^ezh-create-/);
+  const inspect = async (idempotency = create.idempotency) => transport.request({ ...create, action: "operation.inspect", idempotency,
+    payload: { operationId: `incus-create-${nativeId}` } }) as Promise<{ operation: { state: string; observedState: string } }>;
+  expect((await inspect()).operation).toMatchObject({ state: "succeeded", observedState: "stopped" });
+  expect(posts).toBe(1);
+  expect(routes.slice(-2)).toEqual([`GET /1.0/operations/${nativeId}`, `GET /1.0/instances/${sandboxName}`]);
+
+  const exact = structuredClone(instance) as unknown as Record<string, unknown>;
+  const config = exact.config as Record<string, unknown>;
+  const wrong = [
+    null,
+    { ...exact, status: "Running" },
+    { ...exact, config: { ...config, "user.ezharness.desired_state": "running" } },
+    { ...exact, config: { ...config, "user.ezharness.operation_id": "ezh-create-wrong" } },
+    { ...exact, config: { ...config, "user.ezharness.create_key": "other-journal" } },
+    { ...exact, config: { ...config, "user.ezharness.sandbox_id": "other-sandbox" } },
+    { ...exact, config: { ...config, "user.ezharness.connection_id": "other-connection" } },
+    { ...exact, config: { ...config, "user.ezharness.profile": "other-profile" } },
+    { ...exact, config: { ...config, "user.ezharness.preset_id": "other-preset" } },
+    { ...exact, config: { ...config, "volatile.base_image": "d".repeat(64) } },
+    { ...exact, config: { ...config, "user.ezharness.generation": "2" } },
+    { ...exact, profiles: ["other-profile"] },
+  ];
+  for (const candidate of wrong) {
+    instance = candidate;
+    expect((await inspect()).operation.state).toBe("outcome_unknown");
+  }
+  instance = exact;
+  const noJournal = await transport.request({ ...create, action: "operation.inspect", idempotency: undefined,
+    payload: { operationId: `incus-create-${nativeId}` } }) as { operation: { state: string } };
+  expect(noJournal.operation.state).toBe("outcome_unknown");
+  expect((await inspect({ requestId: "another-journal", key: "another-journal" })).operation.state).toBe("outcome_unknown");
+  expect(posts).toBe(1);
 });
 
 test("completed Incus operations settle only after owned instance state or absence readback", async () => {

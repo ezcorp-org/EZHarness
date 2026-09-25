@@ -349,6 +349,9 @@ export interface SandboxProviderDestroyInput extends SandboxProviderMutationScop
 export type SandboxProviderDestroyResult = SandboxOperationAcceptedResult;
 export interface SandboxProviderInspectOperationInput extends SandboxProviderRequestScope {
   operationId: string;
+  /** Original journal identity, required for durable readback of a CREATE. */
+  requestId?: string;
+  idempotencyKey?: string;
 }
 export interface SandboxOperationInspection {
   operationId: string;
