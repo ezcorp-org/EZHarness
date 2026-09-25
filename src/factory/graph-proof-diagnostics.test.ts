@@ -73,12 +73,14 @@ describe("a process's streamed log", () => {
 });
 
 describe("the secrets a stack holds", () => {
-  test("are each file's content, each string inside a JSON file, and each URL password, longest first", async () => {
+  test("are each credential file's content, each credential inside a JSON file, and each URL password, longest first", async () => {
     const secrets = await scratch();
     await writeFile(join(secrets, "tenant.token"), "eyJhbGciOiJSUzI1NiJ9.tenant-token-body.signature\n");
     await writeFile(join(secrets, "pool-database.json"), JSON.stringify({ databaseUrl: "postgres://proof:s3cret-password-value@127.0.0.1:5432/w19a_pool" }));
     await writeFile(join(secrets, "ordinary-storage.json"), JSON.stringify({ identities: [{ credentials: [{ accessKey: "ACCESSKEY0123456", secretKey: "secret-key-0123456789", note: "short" }] }] }));
     await writeFile(join(secrets, "host.kid"), "host-key-1");
+    // A process's configuration document is not a credential: its ids, namespaces and paths stay out.
+    await writeFile(join(secrets, "supervisor.json"), JSON.stringify({ installationId: "installation-w19a", temporalNamespace: "tenant-01.factory", services: { serviceTokenPath: "/home/dev/.w19a-stack-x/secrets/tenant.token", tls: { privateKeyPath: "/home/dev/.w19a-stack-x/secrets/client.key" } }, apiKey: "temporal-api-key-value" }));
     await writeFile(join(secrets, "huge.bin"), Buffer.alloc(64 * 1024 + 1, 97));
     await mkdir(join(secrets, "nested"));
     const values = await collectSecretValues(secrets, ["w19a-jwt-0123456789abcdef", "tiny"]);
@@ -86,7 +88,8 @@ describe("the secrets a stack holds", () => {
       expect(values).toContain(value);
     }
     // Too short to be a credential, a file too large to be one, and a directory: none is a value.
-    for (const value of ["host-key-1", "tiny", "short"]) expect(values).not.toContain(value);
+    for (const value of ["host-key-1", "tiny", "short", "installation-w19a", "tenant-01.factory", "/home/dev/.w19a-stack-x/secrets/tenant.token", "/home/dev/.w19a-stack-x/secrets/client.key"]) expect(values).not.toContain(value);
+    expect(values).toContain("temporal-api-key-value");
     expect(values.some((value) => value.startsWith("aaaa"))).toBe(false);
     expect([...values].sort((left, right) => right.length - left.length)).toEqual(values);
   });

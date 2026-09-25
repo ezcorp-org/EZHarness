@@ -14,9 +14,9 @@
  *     copied to `<label>.stack/` before the directory is deleted.
  *
  * The stack directory also holds keys and tokens, and a process can print one.
- * Nothing leaves it carrying a secret: every value under `secrets/` (each
- * file's content and each string inside a JSON file) and every extra value the
- * stack names is collected first. A file that contains one is refused, not
+ * Nothing leaves it carrying a secret: every credential under `secrets/` (each
+ * non-JSON file's content, and each value under a credential key inside a JSON
+ * file) and every extra value the stack names is collected first. A file that contains one is refused, not
  * copied, and the refusal is recorded by path; a streamed log that contains one
  * has each occurrence replaced by `[redacted]`, and the count is recorded.
  * `secrets/` itself is never copied.
@@ -74,10 +74,18 @@ export function openProcessLog(diagnostics: PassDiagnostics, name: string, comma
   };
 }
 
-function stringLeaves(value: unknown, into: string[]): void {
-  if (typeof value === "string") into.push(value);
-  else if (Array.isArray(value)) for (const item of value) stringLeaves(item, into);
-  else if (value !== null && typeof value === "object") for (const item of Object.values(value)) stringLeaves(item, into);
+/**
+ * The JSON keys whose values are credentials. `secrets/` also holds each
+ * process's configuration document, whose ids, namespaces and paths are not
+ * secrets; treating them as secrets refused every readiness file and redacted
+ * the Temporal namespace out of its own log (measured on the first W19b run).
+ */
+const CREDENTIAL_KEYS: ReadonlySet<string> = new Set(["accessKey", "secretKey", "accessKeyId", "secretAccessKey", "password", "token", "apiKey", "databaseUrl"]);
+
+function credentialLeaves(value: unknown, key: string | undefined, into: string[]): void {
+  if (typeof value === "string") { if (key !== undefined && CREDENTIAL_KEYS.has(key)) into.push(value); }
+  else if (Array.isArray(value)) for (const item of value) credentialLeaves(item, key, into);
+  else if (value !== null && typeof value === "object") for (const [name, item] of Object.entries(value)) credentialLeaves(item, name, into);
 }
 
 /** URL passwords are secrets even inside a longer value, so a database URL yields its password too. */
@@ -89,9 +97,10 @@ function urlPasswords(value: string): string[] {
 }
 
 /**
- * Every secret value the stack holds: each file under `secrets/`, each string
- * inside a JSON file there, any URL password among them, and the extra values
- * the caller names (secrets that live only in a process environment).
+ * Every secret value the stack holds: each non-JSON file under `secrets/` (a
+ * token, a key, a certificate), each credential inside a JSON file there, any
+ * URL password among them, and the extra values the caller names (secrets that
+ * live only in a process environment).
  */
 export async function collectSecretValues(secretsDir: string, extra: readonly string[] = []): Promise<string[]> {
   const values = new Set<string>();
@@ -109,12 +118,11 @@ export async function collectSecretValues(secretsDir: string, extra: readonly st
     const info = await stat(path);
     if (!info.isFile() || info.size > MAX_SECRET_FILE_BYTES) continue;
     const text = await readFile(path, "utf8");
-    add(text);
-    try {
-      const leaves: string[] = [];
-      stringLeaves(JSON.parse(text), leaves);
-      for (const leaf of leaves) add(leaf);
-    } catch { /* not JSON: the whole content is the value */ }
+    let parsed: unknown;
+    try { parsed = JSON.parse(text); } catch { add(text); continue; }
+    const leaves: string[] = [];
+    credentialLeaves(parsed, undefined, leaves);
+    for (const leaf of leaves) add(leaf);
   }
   // Longest first, so a value that contains another is redacted whole.
   return [...values].sort((left, right) => right.length - left.length);
