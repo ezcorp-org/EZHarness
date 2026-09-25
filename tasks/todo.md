@@ -3568,6 +3568,10 @@ Base: `260855e57` (W09b merged). Assumptions are stated in the gate file.
 - [x] P16 Sweep per common.md after `git merge --no-edit integ/w00`.
 - [x] P17 Review-1 fixes (H1-H4, M1-M9, L1-L11), the static live-path review's defects, W15's namespace settings and restore scope, and no fleet role residue on the cluster.
 - [x] P18 Shared pool and supervisor per the ruling: readiness keyed on the service's own identity (product side) and the fleet host (provisioner side).
+- [x] P19 Merge integ/w00 2b2e12550 (70def1355): both sides kept in migrate.ts and todo.md; W01g's supervisor fixture by ruling; W15/W15c items recorded in the gate file.
+- [x] P20 Gateway probe accepts the execution gateway's own route-less 401 (a1ba5d95b), found by the live fleet; the test runs the real gateway.
+- [x] P21 Final hold f3 at a1ba5d95b: PostgreSQL producers first, Podman suites, route proof, live Compose fleet and lifecycle, Kubernetes, boundary suites, coverage vs 2b2e12550; all 32 legs exit 0 (G15).
+- [ ] P22 Follow-ups owned by W16: the restore-to-checkpoint lifecycle step, and rendering W01g's guestBroker route (gate file rows).
 
 ### Review
 
@@ -3586,8 +3590,11 @@ all green. The live runs found and fixed real defects the unit tests could not
 see: Bun's JSON and array binding, a precedence bug, a gateway probe that
 treated 404 as down, unbounded product database pools, unreadable image files
 under a private umask, Envoy's user, the unconfigured extensions, and daemons
-failing on the read-only root. Open: W15's `temporalHttp` field lands with
-W15's merge, and the pool config's `installationId` field waits for W18a-2.
+failing on the read-only root. After the 2b2e12550 merge the final hold at a1ba5d95b
+passed every leg (self-hosted 42/42, lifecycle 27/27), after a live run
+exposed a gateway probe that accepted only a 404 the real gateway never sends.
+Open, owned by W16 as follow-ups: the restore-to-checkpoint lifecycle step and
+the unrendered guestBroker route.
 
 ## W09c — compose the release profile set from the declaration (branch `wp/w09c-profiles`)
 
