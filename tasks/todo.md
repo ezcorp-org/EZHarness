@@ -7,7 +7,7 @@
 - [x] Prove the sandbox server is reachable, Incus is active, and a direct disposable canary creates and deletes with the same pinned TLS transport.
 - [x] Make a missing runner artifact a definite pre-worker failure; prove the code survives the Unix runner API and the Incus dispatcher does not retry unknown errors.
 - [x] Run focused recovery, transport, preview, runner, dispatcher, and SSH-gate tests; full typecheck, lint, and production build pass on this worktree.
-- [ ] Recover the second unknown CREATE `016f7e51-60a6-4e19-aa32-77d44b745053` with the independent fence and signed no-effect procedure before another EZHarness CREATE.
+- [x] Recover the second unknown CREATE `016f7e51-60a6-4e19-aa32-77d44b745053` with the independent fence and signed no-effect procedure before another EZHarness CREATE.
 - [x] Record the first guarded second-CREATE recovery attempt and complete rollback; no signed request was sent.
 - [x] Prepare the exact second-target server observer policy in NixOS PR #12 and test its denial cases; test and reject the ineffective temporary AMD override proposed in PR #13.
 - [x] Stop the revised attempt at the live AMD dependency gate; record rollback and reject the ineffective temporary override.
@@ -16,7 +16,8 @@
 - [x] Activate and verify the corrected AMD generation under its rollback timer.
 - [x] Stop the v3 second-CREATE recovery before signing when the server timer margin fails; restore the exact cert and policy, and record the unresolved host rollback.
 - [x] Recover sandbox-server host control after the pending switch settled; prove thaw, old generation, SSH, original trust/policy, and inventory, then restore AMD configs and runner while keeping the TCP hold.
-- [ ] Review and authorize a corrected v4 second-CREATE recovery packet with a measured timer-margin gate and thaw-first rollback; no v4 live action yet.
+- [x] Review, authorize, and execute the corrected v4 second-CREATE recovery with a measured timer-margin gate and thaw-first rollback.
+- [ ] Review the next EZHarness-owned guest smoke plan and run one CREATE/inspect/start/marker/Compose/stop/destroy lifecycle only after separate authorization.
 - [ ] Run a complete EZHarness-owned guest fixture, the live qualification cases, feature workflow, and cleanup.
 - [ ] Remove the temporary `/var/empty/.config` workaround after the corrected NixOS setup gate is active.
 - [ ] Finish the source fixes, pass the CRAP gate and all hosted checks on the final PR head, and publish the measured live evidence.
@@ -32,6 +33,8 @@ The revised attempt then stopped before runner or server changes because systemd
 The approved v3 AMD activation passed. The second-CREATE recovery obtained two exact no-effect observations, but the final `frozen-until` gate rejected the unsigned request because the server rollback timer lacked its 120-second margin. The exact old cert and policy were restored. Manual old-generation switch hung while the dev slice remained frozen, and fresh host SSH is denied. The server responds to Tailscale and Incus HTTPS, but host rollback is unverified. Keep AMD runner and ingress fenced and CREATE unknown. See the [v3 attempt](../docs/validation/2026-09-24-second-unknown-create-recovery-v3-attempt.md) and [console packet](../docs/validation/2026-09-24-second-unknown-create-console-recovery-review.md).
 
 The pending server switch later completed. Fresh dev SSH, old running/profile generation, thawed dev slice, original cert and policy, zero project instances/operations, and host services passed readback. AMD observer/fence files and runner were restored; app health passed, with the TCP ingress hold retained. A stopped-app database copy confirms the second CREATE is still `OUTCOME_UNKNOWN` with no provider operation ID. The console packet remains a record of the access contingency; a new v4 packet is under review before another signed recovery attempt.
+
+The approved v4 attempt succeeded. One submitted signed request and independent stopped-app readback confirm CREATE `FAILED/OPERATOR_PROVEN_NO_EFFECT`, no-op DESTROY `SUCCEEDED`, binding `ABSENT`, and compute/disk reservations `RELEASED`. The exact server cert/policy, old generation, AMD configs, app, and runner were restored; TCP ingress hold remains. See the [v4 execution receipt](../docs/validation/2026-09-25-second-unknown-create-recovery-v4-execution.md). No new guest lifecycle has been run.
 
 # Wire `trusted-local` — the explicit, per-release-approved unsandboxed extension mode
 
