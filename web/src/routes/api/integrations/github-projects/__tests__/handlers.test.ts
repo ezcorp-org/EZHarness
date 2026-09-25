@@ -9,7 +9,7 @@
  * persisted when validation fails and that the plaintext token is never echoed.
  */
 import { test, expect, describe, beforeEach, afterAll, mock } from "bun:test";
-import { restoreModuleMocks } from "../../../../../../../src/__tests__/helpers/mock-cleanup";
+import { restoreModuleMocks, webLibModule } from "../../../../../../../src/__tests__/helpers/mock-cleanup";
 import {
   mockServerAlias,
   MEMBER_USER,
@@ -30,10 +30,11 @@ for (const seg of ["connect", "link", "link/refresh-columns", "proposals", "prop
 // Real pass-through for the response/scope helpers — we inspect statuses.
 import * as httpErrorsActual from "../../../../../lib/server/http-errors";
 mock.module("$lib/server/http-errors", () => httpErrorsActual);
-mock.module("$lib/server/security/api-keys", () => ({
+const apiKeysExports = webLibModule("server/security/api-keys", {
   // Default: scope allowed (cookie-style). Overridden per-test via setScope().
   requireScope: () => scopeResponse,
-}));
+});
+mock.module("$lib/server/security/api-keys", () => apiKeysExports);
 
 // requireAuth real impl throws a 401 Response when no user — keep it real.
 import * as middlewareActual from "../../../../../../../src/auth/middleware";

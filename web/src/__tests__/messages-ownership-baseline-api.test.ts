@@ -33,6 +33,7 @@
 
 import { test, expect, describe, beforeEach, mock } from "bun:test";
 
+import { webLibModule } from "../../../src/__tests__/helpers/mock-cleanup";
 // ── Shared mutable state the mocks read ────────────────────────────────
 
 type Conversation = {
@@ -128,9 +129,10 @@ mock.module("$server/auth/middleware", () => ({
   isInteractiveSession,
 }));
 
-mock.module("$lib/server/security/api-keys", () => ({
+const apiKeysExports = webLibModule("server/security/api-keys", {
   requireScope: () => null,
-}));
+});
+mock.module("$lib/server/security/api-keys", () => apiKeysExports);
 
 mock.module("$lib/server/security/resource-quotas", () => ({
   checkTokenBudget: mock(async () => mockBudget),

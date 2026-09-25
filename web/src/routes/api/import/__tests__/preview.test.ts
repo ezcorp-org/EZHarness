@@ -8,7 +8,7 @@ import { test, expect, describe, beforeEach, afterAll, mock } from "bun:test";
 import { mkdtemp, mkdir, writeFile, rm, stat, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { restoreModuleMocks } from "../../../../../../src/__tests__/helpers/mock-cleanup";
+import { restoreModuleMocks, webLibModule } from "../../../../../../src/__tests__/helpers/mock-cleanup";
 import {
   mockServerAlias,
   MEMBER_USER,
@@ -36,9 +36,10 @@ mock.module("$server/runtime/commands/discovery", () => discoveryActual);
 mock.module("$lib/server/http-errors", () => httpErrorsActual);
 
 let scopeResponse: Response | null = null;
-mock.module("$lib/server/security/api-keys", () => ({
+const apiKeysExports = webLibModule("server/security/api-keys", {
   requireScope: () => scopeResponse,
-}));
+});
+mock.module("$lib/server/security/api-keys", () => apiKeysExports);
 
 let projectRoot: string;
 let unwritablePath: string;

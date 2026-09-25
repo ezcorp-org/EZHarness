@@ -24,7 +24,7 @@
  * ROUTE hands the params off correctly.
  */
 import { test, expect, describe, beforeEach, afterAll, mock } from "bun:test";
-import { restoreModuleMocks } from "../../../../../../../../src/__tests__/helpers/mock-cleanup";
+import { restoreModuleMocks, webLibModule } from "../../../../../../../../src/__tests__/helpers/mock-cleanup";
 import {
   MEMBER_USER,
   createMockEvent,
@@ -58,9 +58,10 @@ mock.module("$server/auth/middleware", () => ({
 
 // Scope gate: allowed by default; overridable per-test.
 let scopeResponse: Response | null = null;
-mock.module("$lib/server/security/api-keys", () => ({
+const apiKeysExports = webLibModule("server/security/api-keys", {
   requireScope: () => scopeResponse,
-}));
+});
+mock.module("$lib/server/security/api-keys", () => apiKeysExports);
 
 // Hub id parser — an EXT parse for the known id, null otherwise (parsing itself
 // is covered by $lib/hub's own tests).

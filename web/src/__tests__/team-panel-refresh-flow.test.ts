@@ -17,6 +17,7 @@
  */
 import { test, expect, describe, beforeEach, mock } from "bun:test";
 
+import { webLibModule } from "../../../src/__tests__/helpers/mock-cleanup";
 // ── Conversation graph (mirrors the team structure) ────────────────
 //
 //   main-conv         (user-owned, the user's chat page)
@@ -88,9 +89,10 @@ mock.module("$server/db/queries/agent-configs", () => ({
 mock.module("$server/auth/middleware", () => ({
   requireAuth: () => ({ id: "user-1", email: "u@e.com", name: "U", role: "member" }),
 }));
-mock.module("$lib/server/security/api-keys", () => ({
+const apiKeysExports = webLibModule("server/security/api-keys", {
   requireScope: () => null,
-}));
+});
+mock.module("$lib/server/security/api-keys", () => apiKeysExports);
 mock.module("$server/runtime/pending-messages", () => ({ enqueue: () => {} }));
 mock.module("$server/types", () => ({ CURRENT_MODEL_SENTINEL: "__current__" }));
 

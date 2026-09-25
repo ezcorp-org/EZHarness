@@ -1,5 +1,6 @@
 import { test, expect, describe, beforeEach, mock } from "bun:test";
 
+import { webLibModule } from "../../../src/__tests__/helpers/mock-cleanup";
 // ── Mutable auth/scope state swapped by individual tests ─────────────────
 // `authUser` drives requireAuth/requireRole. `apiKeyScopes` drives
 // requireScope (undefined == cookie auth; arrays == API-key request).
@@ -84,9 +85,10 @@ mock.module("$server/auth/middleware", () => ({
 	checkRole: mockCheckRole,
 }));
 
-mock.module("$lib/server/security/api-keys", () => ({
+const apiKeysExports = webLibModule("server/security/api-keys", {
 	requireScope: mockRequireScope,
-}));
+});
+mock.module("$lib/server/security/api-keys", () => apiKeysExports);
 
 // ── DB/query mocks ───────────────────────────────────────────────────────
 const extensionFixture = {

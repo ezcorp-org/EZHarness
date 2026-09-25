@@ -11,7 +11,7 @@
  *   - auth + `extensions` scope are both enforced.
  */
 import { test, expect, describe, beforeEach, afterAll, mock } from "bun:test";
-import { restoreModuleMocks } from "../../../../../../src/__tests__/helpers/mock-cleanup";
+import { restoreModuleMocks, webLibModule } from "../../../../../../src/__tests__/helpers/mock-cleanup";
 import {
   mockServerAlias,
   MEMBER_USER,
@@ -32,9 +32,10 @@ import * as httpErrorsActual from "../../../../lib/server/http-errors";
 mock.module("$lib/server/http-errors", () => httpErrorsActual);
 
 // Scope gate: allowed by default; overridden per-test via `scopeResponse`.
-mock.module("$lib/server/security/api-keys", () => ({
+const apiKeysExports = webLibModule("server/security/api-keys", {
   requireScope: () => scopeResponse,
-}));
+});
+mock.module("$lib/server/security/api-keys", () => apiKeysExports);
 
 // requireAuth real impl throws a 401 Response when no user — keep it real.
 import * as middlewareActual from "../../../../../../src/auth/middleware";

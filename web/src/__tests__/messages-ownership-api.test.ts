@@ -27,6 +27,7 @@
 
 import { test, expect, describe, beforeEach, mock } from "bun:test";
 
+import { webLibModule } from "../../../src/__tests__/helpers/mock-cleanup";
 // ── Conversation graph ─────────────────────────────────────────────────
 //
 //   root-conv  (userId = rootOwner.id, parent = null)
@@ -159,7 +160,8 @@ mock.module("$server/auth/middleware", () => ({
   },
   isInteractiveSession,
 }));
-mock.module("$lib/server/security/api-keys", () => ({ requireScope: () => null }));
+const apiKeysExports = webLibModule("server/security/api-keys", { requireScope: () => null });
+mock.module("$lib/server/security/api-keys", () => apiKeysExports);
 mock.module("$lib/server/security/resource-quotas", () => ({
   checkTokenBudget: mock(async () => mockBudget),
 }));
