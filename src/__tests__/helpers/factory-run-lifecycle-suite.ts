@@ -1714,6 +1714,19 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     await new FactoryRunTransitionProjector(fixture.db, tenantId, task.transitions, lifecycle).project(runKey(task.run.runId));
   });
 
+  test("every way a host loses an answer reaches the kernel as node-failed with its own typed reason", async () => {
+    // The remote runtime turns each host-side loss into one of these; none parks the attempt unknown.
+    for (const code of Object.values(FACTORY_LOST_RESULT_CODES)) {
+      const { task, completions, outcomes } = await completedTask();
+      const lostResult = async (request: FactoryRunnerRequest) => failedFactoryRunnerResult(await nativeFactoryJournal(task.journal).snapshot(request), { code, message: `lost: ${code}`, retryable: true });
+      const dispatcher = new FactoryAttemptDispatcher(fixture.db, task.queue, { run: lostResult }, completions, outcomes, dispatchReady, dispatchReadinessDisposition, { service: task.service, installationId: "dispatcher-installation", attemptTokenSecret: "dispatcher-secret" });
+      const dispatched = await dispatcher.dispatchOne();
+      expect(dispatched).toMatchObject({ kind: "failed", attemptId: task.dispatch.id, receipt: { event: { kind: "node-failed", error: code, failureKind: "execution" } } });
+      expect(await task.queue.read(projectId, task.dispatch.id)).toMatchObject({ state: "delivered" });
+      await new FactoryRunTransitionProjector(fixture.db, tenantId, task.transitions, lifecycle).project(runKey(task.run.runId));
+    }
+  });
+
   test("the sealed attempt deadline is the node command's, not the first pool lease's", async () => {
     const { task, authority, completions, outcomes, result } = await completedTask();
     // The pool granted a lease one second long; the attempt keeps the node's own deadline and renews the lease instead.
