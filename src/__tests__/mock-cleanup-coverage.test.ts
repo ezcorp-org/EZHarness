@@ -258,13 +258,42 @@ function isExempt(path: string): boolean {
  * A name rebound to a DIFFERENT specifier is dropped: fail closed rather than
  * guess which binding a factory closed over.
  */
+// A serverModule()/webLibModule() binding's target does not depend on the
+// CALLING test file's location the way a plain `require("../../X")` does —
+// both helpers resolve relative to helpers/mock-cleanup.ts itself, always.
+// Tag these bindings so `record()` below can compare them directly against
+// the alias's canonical tail instead of running them through canonicalize()
+// (which assumes a path written AS THE TEST FILE WOULD WRITE IT and would
+// silently misresolve a bare `"db/queries/extensions"` argument).
+const CANONICAL_TAG = "CANONICAL:";
+
+/**
+ * Whole-module bindings a test file introduces, name → specifier.
+ *
+ * Three forms count, because all three are in use: `const realLogger =
+ * require("../logger")` (briefing-api, hub-api, hub-render-pull),
+ * `import * as realLogger from "../logger"` (extension-events-hub-branch,
+ * which documents the top-level import as the ORDER-SAFE choice for a module
+ * nothing mocks), and `const dbExtensionsExports =
+ * serverModule("db/queries/extensions", {...})` / `webLibModule("server/X",
+ * {...})` (W18-hygiene item D: the COMPLETE-mock pattern for a `$server/*`
+ * or `$lib/*` module — real exports spread under the caller's overrides, so
+ * there is nothing a later mock.module() or restoreModuleMocks() needs to
+ * undo, exactly like a plain require() passthrough). A factory returning any
+ * of these is a shim just as much as an inline `require()` — resolve the
+ * binding rather than pushing files onto one spelling.
+ *
+ * A name rebound to a DIFFERENT specifier is dropped: fail closed rather than
+ * guess which binding a factory closed over.
+ */
 function collectModuleBindings(source: string): Map<string, string> {
   const bindings = new Map<string, string>();
   const re =
-    /(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*require\(\s*"([^"]+)"\s*\)|import\s+\*\s+as\s+([A-Za-z_$][\w$]*)\s+from\s+"([^"]+)"/g;
+    /(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*require\(\s*"([^"]+)"\s*\)|import\s+\*\s+as\s+([A-Za-z_$][\w$]*)\s+from\s+"([^"]+)"|(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*serverModule\(\s*"([^"]+)"\s*,|(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*webLibModule\(\s*"([^"]+)"\s*,/g;
   for (const m of stripCommentLines(source).matchAll(re)) {
-    const name = m[1] ?? m[3]!;
-    const spec = m[2] ?? m[4]!;
+    const name = m[1] ?? m[3] ?? m[5] ?? m[7]!;
+    const spec = m[2] ?? m[4] ?? (m[6] !== undefined ? `${CANONICAL_TAG}../../${m[6]}` : undefined) ??
+      (m[8] !== undefined ? `${CANONICAL_TAG}../../../web/src/lib/${m[8]}` : undefined)!;
     if (!bindings.has(name)) bindings.set(name, spec);
     else if (bindings.get(name) !== spec) bindings.set(name, "");
   }
@@ -281,8 +310,13 @@ function classifyServerAliasFactories(
 
   const record = (alias: string, specifier: string | undefined) => {
     const tail = stripJsTsExt(alias.slice("$server/".length));
-    const verdict =
-      specifier && canonicalize(specifier, testFile) === `../../${tail}` ? "shim" : "redirect";
+    const target = `../../${tail}`;
+    const resolved = specifier?.startsWith(CANONICAL_TAG)
+      ? specifier.slice(CANONICAL_TAG.length)
+      : specifier
+        ? canonicalize(specifier, testFile)
+        : undefined;
+    const verdict = resolved === target ? "shim" : "redirect";
     // Fail closed: one redirect for an alias condemns it even if another
     // registration in the same file is well-formed.
     if (verdict === "redirect" || !byAlias.has(alias)) byAlias.set(alias, verdict);
