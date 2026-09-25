@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { generateKeyPairSync } from "node:crypto";
 import { certificates } from "../__tests__/helpers/factory-certificates";
 import { FACTORY_WORKER_ROLES } from "./runtime-workers";
+import { startFactoryExecutionGateway } from "./execution-gateway";
 import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
@@ -227,30 +228,50 @@ describe("factoryStorageProbeTarget", () => {
 });
 
 describe("factoryGatewayProbeTarget", () => {
-  /** A real mutual-TLS listener answering `status`, and the probe's material for it. */
-  async function listener(status: number) {
+  /** The probe's mutual-TLS material, and a target pointed at `port`. */
+  async function material() {
     const root = await privateRoot();
     const certs = await certificates(roots, "harness.tenant-01");
     const file = async (name: string, text: string) => { const path = join(root, "secrets", name); await writeFile(path, text, { mode: 0o600 }); await chmod(path, 0o600); return path; };
     const tls = { caPath: await file("ca.pem", certs.ca), certificatePath: await file("client.pem", certs.clientCert), privateKeyPath: await file("client.key", certs.clientKey) };
     await writeFile(join(root, "pool-token"), "token\n", { mode: 0o600 });
-    const server = Bun.serve({ hostname: "127.0.0.1", port: 0, tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca, requestCert: true }, fetch: () => new Response(null, { status }) });
-    const target = factoryGatewayProbeTarget({ ...document(root), gateway: { hostname: "127.0.0.1", port: server.port, tls } } as never);
-    return { target, stop: () => server.stop(true) };
+    return { certs, target: (port: number) => factoryGatewayProbeTarget({ ...document(root), gateway: { hostname: "127.0.0.1", port, tls } } as never) };
   }
 
-  test("the route-less 404 of a live gateway, or a success, proves it live", async () => {
-    for (const status of [200, 404]) {
-      const { target, stop } = await listener(status);
-      try { expect(await target.health(new AbortController().signal)).toBe(true); }
-      finally { stop(); }
-    }
+  /** A real mutual-TLS listener answering `status` with `body`. */
+  async function listener(status: number, body: string | null = null) {
+    const { certs, target } = await material();
+    const server = Bun.serve({ hostname: "127.0.0.1", port: 0, tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca, requestCert: true }, fetch: () => new Response(body, { status }) });
+    return { target: target(server.port!), stop: () => server.stop(true) };
+  }
+
+  test("the real execution gateway's route-less refusal proves it live", async () => {
+    const { certs, target } = await material();
+    // The gateway itself, not a stand-in: a route-less request never reaches
+    // the journal or the attempt authority, so neither is exercised.
+    const gateway = startFactoryExecutionGateway({
+      journal: {} as never,
+      authorizeAttempt: async () => { throw new Error("a route-less request must not reach attempt authority"); },
+      jwtSecret: "gateway-probe-test-secret-that-is-long-enough",
+      installationId: "installation-01",
+      tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca },
+      hostname: "127.0.0.1",
+      port: 0,
+    });
+    try { expect(await target(Number(new URL(gateway.url).port)).health(new AbortController().signal)).toBe(true); }
+    finally { gateway.stop(); }
   });
 
-  test("a failing gateway's 503, or any status other than the route-less 404, reports it down", async () => {
-    for (const status of [503, 500, 401, 403]) {
-      const { target, stop } = await listener(status);
-      try { expect({ status, live: await target.health(new AbortController().signal) }).toEqual({ status, live: false }); }
+  test("a success proves it live, should the gateway ever serve the route", async () => {
+    const { target, stop } = await listener(200);
+    try { expect(await target.health(new AbortController().signal)).toBe(true); }
+    finally { stop(); }
+  });
+
+  test("a failing gateway's 5xx, any other status, or another server's 401 reports it down", async () => {
+    for (const [status, body] of [[503, null], [500, null], [403, null], [404, null], [401, null], [401, "not json"], [401, '{"error":"forbidden"}'], [401, "null"]] as const) {
+      const { target, stop } = await listener(status, body);
+      try { expect({ status, body, live: await target.health(new AbortController().signal) }).toEqual({ status, body, live: false }); }
       finally { stop(); }
     }
   });

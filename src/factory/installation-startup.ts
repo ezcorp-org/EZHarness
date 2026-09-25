@@ -173,7 +173,21 @@ export function factoryStorageProbeTarget(blobs: BlobStore): FactoryStorageProbe
   };
 }
 
-/** The gateway is live when its own listener terminates TLS and answers its route-less 404. */
+/**
+ * The execution gateway's own answer to a request that names no route.
+ *
+ * The gateway serves no health route. It refuses any request without a route
+ * and an attempt token with 401 `{"error":"unauthorized"}`, after it has
+ * terminated TLS with this installation's material and parsed the request.
+ * Another server's 401 does not carry that body, so it does not count.
+ */
+function isGatewayRouteRefusal(response: { readonly statusCode: number; readonly body: Uint8Array }): boolean {
+  if (response.statusCode !== 401) return false;
+  try { return (JSON.parse(new TextDecoder().decode(response.body)) as { error?: unknown } | null)?.error === "unauthorized"; }
+  catch { return false; }
+}
+
+/** The gateway is live when its own listener terminates TLS and answers with its route-less refusal. */
 export function factoryGatewayProbeTarget(config: FactoryStartupConfig): FactoryRuntimeDependencies["gateway"] {
   return {
     async health(signal) {
@@ -188,15 +202,13 @@ export function factoryGatewayProbeTarget(config: FactoryStartupConfig): Factory
         },
         requestTimeoutMs: 5_000,
       });
-      // The execution gateway serves no health route, so a live gateway answers
-      // this path 404 after terminating TLS with this installation's material.
-      // Only that route-less 404 (or a success, should a route appear) proves
-      // it live: a 5xx is a gateway failing, and any other status is not the
-      // listener this probe expects. A refused connection or a failed
-      // handshake throws, and the probe reports the transport's own code.
+      // Only the gateway's route-less refusal (or a success, should a route
+      // appear) proves it live: a 5xx is a gateway failing, and any other
+      // answer is not the listener this probe expects. A refused connection or
+      // a failed handshake throws, and the probe reports the transport's own code.
       try { return (await transport.request("GET", "/internal/factory/v1/health", undefined, 64 * 1024, signal)).statusCode > 0; }
       catch (error) {
-        if (error instanceof GatewayStatusError) return error.response.statusCode === 404;
+        if (error instanceof GatewayStatusError) return isGatewayRouteRefusal(error.response);
         throw error;
       }
     },

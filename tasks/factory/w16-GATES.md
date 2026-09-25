@@ -49,7 +49,7 @@ Coordinator ruling 2026-09-22: approved for W16; the owner's package inherits it
 | `src/factory/service-readiness.ts` | Not in the section 16 table; coordinator (W09) | `installationId` optional; a shared service's record carries none |
 | `src/factory/service-probes.ts` | Not in the section 16 table; coordinator (W09) | Pool and supervisor probes match on `poolId` and `hostId` only |
 | `src/factory/runner/supervisor-process.ts` | Not in the section 16 table; Terra runtime (W01) | Readiness writer no longer passes the installation |
-| `src/factory/installation-startup.ts` | Not in the section 16 table; coordinator (W09) | The gateway liveness probe counts an HTTP error status as an answer, as its comment states; the transport raised it and no provisioned installation could become ready |
+| `src/factory/installation-startup.ts` | Not in the section 16 table; coordinator (W09) | The gateway liveness probe counts only the execution gateway's own route-less refusal (401 `unauthorized`) or a success as live. The M2 fix (0509650be) accepted only a 404, which the real gateway never sends, so no provisioned installation could become ready; the live fleet at b09f210b0 showed it and the probe test now runs the real gateway |
 | `src/factory/pool/process.ts` | Terra deployment (W16) | Identity row keyed by `pool_id`, upgraded in place; after W18a-2, the config drops `installationId` and loads `resources.gpuProfilesPath` |
 
 ## Gates
