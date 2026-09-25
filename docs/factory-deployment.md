@@ -323,7 +323,7 @@ harness never receives it.
 
 | Port | Use |
 | --- | --- |
-| `portBase + 10*n` to `+2` | Tenant `n`: harness, private service, gateway, all on 127.0.0.1 |
+| `portBase + 10*n` to `+3` | Tenant `n`: harness, private service, gateway, guest-broker route, all on 127.0.0.1 |
 | `portBase + 1001` | Temporal gateway (gRPC, mTLS and token) |
 | `portBase + 1004` | Temporal gateway, read-only HTTP route for the checkpoint barrier |
 | `portBase + 1002`, `+1003` | The fleet host's shared pool and supervisor |
@@ -334,3 +334,21 @@ host loopback ports it forwards. The shared pool and each gateway reach only
 the database. Each harness reaches its database, its stores, its gateway, and
 the shared pool and supervisor, and the Temporal gateway's read-only HTTP route. The orchestrator
 reaches only Temporal and its own harness's private service.
+
+### Guest-broker route
+
+Each harness binds W01g's guest-broker route (`guestBroker` in its startup
+document) on `portBase + 10*n + 3`. A sandboxed guest has no network, so the
+fleet host's supervisor carries the guest's staging frames to this route. The
+route admits only a client certificate from the host authority (the
+supervisor's `host-supervisor.crt`), a host token signed by the host token key
+(`host-token.pub`, delivered to the harness, audience `factory-guest-broker`,
+subject `supervisor.<fleet>`), and an attempt token that verifies with the
+installation's attempt-token secret. `/api/ready` names the route's state
+under `detail.factory.guestBroker`.
+
+Open: the supervisor side. W01g's supervisor document names ONE
+`services.guestBroker` endpoint, and a fleet runs one supervisor for every
+installation, so the host cannot yet reach each installation's route. The
+design is with the coordinator; until it lands, a guest that stages material
+is refused by name on a provisioned fleet.

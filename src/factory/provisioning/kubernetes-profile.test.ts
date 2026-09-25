@@ -150,7 +150,7 @@ describe("renderFactoryKubernetesInstallation", () => {
     expect(byName.harness!.env.map((entry: { name: string }) => entry.name)).not.toContain("EZCORP_INGRESS_PROOF_FILE");
   });
 
-  test("the ingress overwrites the installation header, and network policy admits only the ingress controller", () => {
+  test("the ingress overwrites the installation header, and network policy admits only the ingress controller and, on the guest-broker port, the system namespace", () => {
     const [ingress] = kind(objects, "Ingress");
     const snippet = (ingress!.metadata as { annotations: Record<string, string> }).annotations["nginx.ingress.kubernetes.io/configuration-snippet"]!;
     expect(snippet).toBe('more_clear_input_headers "X-EZCorp-Installation"; proxy_set_header X-EZCorp-Installation "inst-tenant-01";');
@@ -158,7 +158,11 @@ describe("renderFactoryKubernetesInstallation", () => {
     const policies = kind(objects, "NetworkPolicy");
     expect(policies.map((policy) => (policy.metadata as { name: string }).name)).toEqual(["default-deny", "installation"]);
     const policy = policies[1]!.spec as { ingress: unknown[]; egress: { to: unknown[]; ports: { port: number }[] }[] };
-    expect(policy.ingress).toEqual([{ from: [{ namespaceSelector: { matchLabels: { "kubernetes.io/metadata.name": "ingress-nginx" } } }], ports: [{ protocol: "TCP", port: bundle.ports.harness }] }]);
+    expect(policy.ingress).toEqual([
+      { from: [{ namespaceSelector: { matchLabels: { "kubernetes.io/metadata.name": "ingress-nginx" } } }], ports: [{ protocol: "TCP", port: bundle.ports.harness }] },
+      // Only the fleet host's supervisor, in the system namespace, reaches W01g's guest-broker route.
+      { from: [{ namespaceSelector: { matchLabels: { "kubernetes.io/metadata.name": "ezcorp-factory-system" } } }], ports: [{ protocol: "TCP", port: bundle.ports.guestBroker }] },
+    ]);
     expect(policy.egress[1]).toEqual({ to: [{ ipBlock: { cidr: "10.0.0.0/24" } }, { ipBlock: { cidr: "10.0.1.0/24" } }], ports: [5432, 7233, 9000].map((port) => ({ protocol: "TCP", port })) });
     // The fleet host's shared pool and supervisor, both in the system namespace.
     expect(policy.egress[2]).toEqual({ to: [{ namespaceSelector: { matchLabels: { "kubernetes.io/metadata.name": "ezcorp-factory-system" } } }], ports: [{ protocol: "TCP", port: 41_002 }, { protocol: "TCP", port: 41_003 }] } as never);

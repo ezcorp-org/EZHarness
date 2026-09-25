@@ -28,6 +28,8 @@ import { FactoryProvisioningError } from "./steps";
 export const FACTORY_MESH_TOKEN_KEY_ID = "mesh-1";
 export const FACTORY_POOL_AUDIENCE = "factory-pool";
 export const FACTORY_PRIVATE_SERVICE_AUDIENCE = "factory-private-service";
+/** The audience of the host token the supervisor presents on an installation's guest-broker route. */
+export const FACTORY_GUEST_BROKER_AUDIENCE = "factory-guest-broker";
 export const FACTORY_HOST_KEY_ID = "host-key-1";
 const MESH_TOKEN_LIFETIME_SECONDS = 30 * 24 * 60 * 60;
 

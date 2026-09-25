@@ -100,6 +100,8 @@ export function factoryFleetHostPaths(fleetId: string, roots: { readonly secrets
 export interface FactoryFleetHostFacts extends FactoryFleetHostIdentity {
   readonly caCertificatePath: string;
   readonly hostPublicKeyPath: string;
+  /** The public half of the host's token key: installations verify the supervisor's guest-broker token with it. */
+  readonly tokenPublicKeyPath: string;
   readonly poolReadinessDirectory: string;
   readonly supervisorReadinessDirectory: string;
 }
@@ -191,6 +193,7 @@ export class FactoryFleetHost {
       ...this.identity,
       caCertificatePath: factoryPrivatePath(this.paths.context.secretDirectory, FACTORY_HOST_FILES.caCertificate),
       hostPublicKeyPath: factoryPrivatePath(this.paths.context.secretDirectory, FACTORY_HOST_FILES.hostPublicKey),
+      tokenPublicKeyPath: factoryPrivatePath(this.paths.context.secretDirectory, FACTORY_HOST_FILES.tokenPublicKey),
       poolReadinessDirectory: resolve(this.paths.readinessDirectory, "pool"),
       supervisorReadinessDirectory: resolve(this.paths.readinessDirectory, "supervisor"),
     });

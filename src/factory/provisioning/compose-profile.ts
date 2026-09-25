@@ -110,6 +110,7 @@ export function factoryComposeEnvironment(bundle: FactoryInstallationBundle, opt
     EZCORP_FACTORY_GATEWAY_PORT: String(ports.gateway),
     EZCORP_FACTORY_HARNESS_PORT: String(ports.harness),
     EZCORP_FACTORY_PRIVATE_SERVICE_PORT: String(ports.privateService),
+    EZCORP_FACTORY_GUEST_BROKER_PORT: String(ports.guestBroker),
     EZCORP_FACTORY_GATEWAY_NETWORK: factoryPastaNetwork([options.databasePort]),
     EZCORP_FACTORY_HARNESS_NETWORK: factoryPastaNetwork([options.databasePort, ...options.storagePorts, host.ports.pool, ports.gateway, host.ports.supervisor, options.temporalHttpPort]),
     EZCORP_FACTORY_ORCHESTRATOR_NETWORK: factoryPastaNetwork([options.temporalPort, ports.privateService]),

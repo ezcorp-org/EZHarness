@@ -32,7 +32,7 @@ import { factoryDeliveryDirectory, type FactoryInstallationContext, type Factory
 import { FACTORY_BOOTSTRAP_INVITATION_FILE } from "./invitation";
 import { FACTORY_INGRESS_PROOF_FILE } from "./ingress";
 import { FACTORY_HOST_FILES, type FactoryFleetHost, type FactoryFleetHostFacts } from "./host";
-import { FACTORY_HOST_KEY_ID, FACTORY_MESH_FILES, FACTORY_MESH_TOKEN_KEY_ID, FACTORY_PRIVATE_SERVICE_AUDIENCE, ensureFactoryMesh, factoryMeshIdentities, rotateFactoryMesh } from "./mesh";
+import { FACTORY_HOST_KEY_ID, FACTORY_MESH_FILES, FACTORY_GUEST_BROKER_AUDIENCE, FACTORY_MESH_TOKEN_KEY_ID, FACTORY_PRIVATE_SERVICE_AUDIENCE, ensureFactoryMesh, factoryMeshIdentities, rotateFactoryMesh } from "./mesh";
 import { FACTORY_APPLICATION_SECRET_FILES, FACTORY_KEY_FILES, factoryMasterKeyId } from "./secrets";
 import { factoryPrivatePath, openFactoryPrivateDirectory, readFactoryPrivateBytes, readFactoryPrivateJson, removeFactoryPrivateDirectory, removeFactoryPrivateFile, replaceFactoryPrivateFile } from "./secret-files";
 import { readdir } from "node:fs/promises";
@@ -58,6 +58,8 @@ export interface FactoryInstallationPorts {
   readonly harness: number;
   readonly privateService: number;
   readonly gateway: number;
+  /** W01g's guest-broker route, bound by the harness; the fleet host carries staging frames to it. */
+  readonly guestBroker: number;
 }
 
 /** How services reach the fleet's shared infrastructure, as seen from inside a service. */
@@ -168,7 +170,7 @@ export function factoryInstallationPorts(tenantId: string, portBase: number): Fa
   const match = TENANT_NUMBER.exec(tenantId);
   if (!match || !Number.isSafeInteger(portBase) || portBase < 1_024 || portBase + 100 * 10 > 65_535) throw new FactoryProvisioningError("deployment_ports_invalid", "Installation ports cannot be derived.");
   const base = portBase + Number(match[1]) * 10;
-  return Object.freeze({ harness: base, privateService: base + 1, gateway: base + 2 });
+  return Object.freeze({ harness: base, privateService: base + 1, gateway: base + 2, guestBroker: base + 3 });
 }
 
 function databaseUrl(network: FactoryDeploymentNetwork, database: string, credential: FactoryDatabaseCredential): string {
@@ -229,6 +231,17 @@ export async function renderFactoryInstallationBundle(installation: FactoryInsta
       attemptTokenSecretPath: secretPath(FACTORY_MESH_FILES.attemptTokenSecret),
       tls: { ...hostTls, serviceTokenPath: secretPath(FACTORY_MESH_FILES.harnessPoolToken) },
     },
+    // W01g's guest-broker route: the fleet host's supervisor (its client
+    // certificate names `host.supervisor`) forwards a guest's staging frames
+    // here. The route verifies the peer against the host authority, the host
+    // token against the host token key, and the attempt token with the host
+    // launch secret above. Path, scope, and body cap are W01g's contract.
+    guestBroker: {
+      hostname: "0.0.0.0", port: ports.guestBroker,
+      hosts: { [host.supervisor]: host.hostId },
+      tls: { caPath: secretPath(FACTORY_HOST_FILES.caCertificate), certificatePath: secretPath(FACTORY_MESH_FILES.serverCertificate), privateKeyPath: secretPath(FACTORY_MESH_FILES.serverKey) },
+      tokens: { issuer: host.issuer, audience: FACTORY_GUEST_BROKER_AUDIENCE, publicKeyPaths: { [FACTORY_MESH_TOKEN_KEY_ID]: secretPath(FACTORY_HOST_FILES.tokenPublicKey) } },
+    },
     hostStopKeys: [{ hostId: host.hostId, hostKeyId: FACTORY_HOST_KEY_ID, publicKeyPath: secretPath(FACTORY_HOST_FILES.hostPublicKey) }],
     runnerProfiles: settings.runnerProfiles,
     storage: {
@@ -288,6 +301,7 @@ export async function renderFactoryInstallationBundle(installation: FactoryInsta
       // The host's public material: its authority, for the shared pool and supervisor, and its stop-receipt key.
       [FACTORY_HOST_FILES.caCertificate]: { source: host.caCertificatePath },
       [FACTORY_HOST_FILES.hostPublicKey]: { source: host.hostPublicKeyPath },
+      [FACTORY_HOST_FILES.tokenPublicKey]: { source: host.tokenPublicKeyPath },
       // Created by steps 6 and 7, which publish them into this delivery themselves.
       [FACTORY_BOOTSTRAP_INVITATION_FILE]: { ...source(FACTORY_BOOTSTRAP_INVITATION_FILE), optional: true },
       [FACTORY_INGRESS_PROOF_FILE]: { ...source(FACTORY_INGRESS_PROOF_FILE), optional: true },

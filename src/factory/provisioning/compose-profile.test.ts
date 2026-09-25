@@ -156,6 +156,8 @@ describe("factoryComposeEnvironment", () => {
       EZCORP_FACTORY_UID: "1001",
       EZCORP_FACTORY_TENANT: "tenant-01",
       EZCORP_FACTORY_HARNESS_PORT: "40010",
+      // W01g's guest-broker route, published on loopback for the fleet host's supervisor.
+      EZCORP_FACTORY_GUEST_BROKER_PORT: "40013",
       EZCORP_FACTORY_GATEWAY_NETWORK: "pasta:-T,55432",
       // The harness reaches its gateway, the database, both stores, the fleet host's shared pool and supervisor, and the gateway's read-only Temporal HTTP route.
       EZCORP_FACTORY_HARNESS_NETWORK: "pasta:-T,40012,-T,41002,-T,41003,-T,55432,-T,57244,-T,59000,-T,59001",

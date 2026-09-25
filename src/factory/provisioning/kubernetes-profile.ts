@@ -117,7 +117,7 @@ export function renderFactoryKubernetesInstallation(bundle: FactoryInstallationB
       ...(service === "harness" ? [{ name: "harness-data", mountPath: FACTORY_CONTAINER_PATHS.data }, { name: "harness-data", mountPath: "/app/.ezcorp", subPath: "app-state" }] : []),
     ],
     ...(service === "harness" ? {
-      ports: [{ name: "http", containerPort: bundle.ports.harness }],
+      ports: [{ name: "http", containerPort: bundle.ports.harness }, { name: "guest-broker", containerPort: bundle.ports.guestBroker }],
       readinessProbe: { httpGet: { path: "/api/ready", port: bundle.ports.harness }, periodSeconds: 5, failureThreshold: 3 },
       livenessProbe: { httpGet: { path: "/api/health", port: bundle.ports.harness }, periodSeconds: 10, failureThreshold: 6, initialDelaySeconds: 30 },
     } : {
@@ -161,7 +161,7 @@ export function renderFactoryKubernetesInstallation(bundle: FactoryInstallationB
         },
       },
     },
-    { apiVersion: "v1", kind: "Service", metadata: metadata("harness"), spec: { selector: { "ezcorp.io/installation": bundle.installation.installationId }, ports: [{ name: "http", port: 80, targetPort: bundle.ports.harness }] } },
+    { apiVersion: "v1", kind: "Service", metadata: metadata("harness"), spec: { selector: { "ezcorp.io/installation": bundle.installation.installationId }, ports: [{ name: "http", port: 80, targetPort: bundle.ports.harness }, { name: "guest-broker", port: bundle.ports.guestBroker, targetPort: bundle.ports.guestBroker }] } },
     {
       apiVersion: "networking.k8s.io/v1", kind: "Ingress", metadata: { ...metadata("installation"), annotations: { "nginx.ingress.kubernetes.io/configuration-snippet": `more_clear_input_headers "X-EZCorp-Installation"; proxy_set_header X-EZCorp-Installation "${bundle.installation.installationId}";` } },
       spec: { ingressClassName: settings.ingressClassName, tls: [{ hosts: [bundle.installation.hostname], secretName: "installation-tls" }], rules: [{ host: bundle.installation.hostname, http: { paths: [{ path: "/", pathType: "Prefix", backend: { service: { name: "harness", port: { number: 80 } } } }] } }] },
@@ -171,7 +171,11 @@ export function renderFactoryKubernetesInstallation(bundle: FactoryInstallationB
       apiVersion: "networking.k8s.io/v1", kind: "NetworkPolicy", metadata: metadata("installation"),
       spec: {
         podSelector: { matchLabels: { "ezcorp.io/installation": bundle.installation.installationId } }, policyTypes: ["Ingress", "Egress"],
-        ingress: [{ from: [{ namespaceSelector: { matchLabels: { "kubernetes.io/metadata.name": settings.ingressNamespace } } }], ports: [{ protocol: "TCP", port: bundle.ports.harness }] }],
+        ingress: [
+          { from: [{ namespaceSelector: { matchLabels: { "kubernetes.io/metadata.name": settings.ingressNamespace } } }], ports: [{ protocol: "TCP", port: bundle.ports.harness }] },
+          // W01g's guest-broker route: only the fleet host's supervisor, in the system namespace, reaches it.
+          { from: [{ namespaceSelector: { matchLabels: { "kubernetes.io/metadata.name": settings.systemNamespace } } }], ports: [{ protocol: "TCP", port: bundle.ports.guestBroker }] },
+        ],
         egress: [
           { to: [{ namespaceSelector: {}, podSelector: { matchLabels: { "k8s-app": "kube-dns" } } }], ports: [{ protocol: "UDP", port: 53 }, { protocol: "TCP", port: 53 }] },
           { to: settings.egressCidrs.map((cidr) => ({ ipBlock: { cidr } })), ports: settings.egressPorts.map((port) => ({ protocol: "TCP", port })) },

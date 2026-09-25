@@ -65,6 +65,8 @@ services:
     ports:
       - "127.0.0.1:${EZCORP_FACTORY_HARNESS_PORT:?}:${EZCORP_FACTORY_HARNESS_PORT:?}"
       - "127.0.0.1:${EZCORP_FACTORY_PRIVATE_SERVICE_PORT:?}:${EZCORP_FACTORY_PRIVATE_SERVICE_PORT:?}"
+      # W01g's guest-broker route; only the fleet host's supervisor reaches it, on loopback.
+      - "127.0.0.1:${EZCORP_FACTORY_GUEST_BROKER_PORT:?}:${EZCORP_FACTORY_GUEST_BROKER_PORT:?}"
     command: ["bun", "src/factory/provisioning/secret-env.ts", "/run/ezcorp/secrets/secret-env.json", "--", "bun", "web/build/index.js"]
     env_file: ["${EZCORP_FACTORY_HARNESS_ENV:?}"]
     depends_on:

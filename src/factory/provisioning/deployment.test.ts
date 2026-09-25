@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { chmod, mkdir, readdir, readFile, rm, stat } from "node:fs/promises";
+import { randomBytes } from "node:crypto";
+import { chmod, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   FACTORY_TEST_IMAGE,
@@ -32,9 +33,11 @@ import {
 import type { FactoryInstallationBuilds } from "./fleet-upgrade";
 import type { FactoryInstallationContext } from "./installation";
 import { FACTORY_INGRESS_PROOF_FILE } from "./ingress";
-import { FACTORY_HOST_FILES } from "./host";
+import { FACTORY_HOST_FILES, factoryFleetHostIdentity } from "./host";
+import { composeFactoryGuestBroker } from "../guest-broker-composition";
+import { certificates } from "../../__tests__/helpers/factory-certificates";
 import { FACTORY_BOOTSTRAP_INVITATION_FILE } from "./invitation";
-import { FACTORY_MESH_FILES, FACTORY_MESH_OPERATOR_FILES } from "./mesh";
+import { FACTORY_GUEST_BROKER_AUDIENCE, FACTORY_MESH_FILES, FACTORY_MESH_OPERATOR_FILES, FACTORY_MESH_TOKEN_KEY_ID } from "./mesh";
 import { FACTORY_APPLICATION_SECRET_FILES, FACTORY_KEY_FILES } from "./secrets";
 import { factoryTemporalOwnerMarker } from "./temporal";
 
@@ -70,8 +73,10 @@ async function filesIn(directory: string): Promise<Record<string, string>> {
 const mode = async (path: string) => (await stat(path)).mode & 0o777;
 
 describe("factoryInstallationPorts", () => {
-  test("derives three consecutive ports ten apart per tenant number", () => {
-    expect(factoryInstallationPorts("tenant-01", 40_000)).toEqual({ harness: 40_010, privateService: 40_011, gateway: 40_012 });
+  test("derives four consecutive ports ten apart per tenant number", () => {
+    expect(factoryInstallationPorts("tenant-01", 40_000)).toEqual({ harness: 40_010, privateService: 40_011, gateway: 40_012, guestBroker: 40_013 });
+    // The highest tenant's guest-broker port stays below the fleet host's pool port (base + 1002).
+    expect(factoryInstallationPorts("tenant-99", 40_000).guestBroker).toBeLessThan(factoryFleetHostIdentity("fleet-a", 40_000).ports.pool);
     expect(factoryInstallationPorts("tenant-00", 1_024).harness).toBe(1_024);
     expect(factoryInstallationPorts("tenant-99", 64_535).gateway).toBe(64_535 + 990 + 2);
     expect(Object.isFrozen(factoryInstallationPorts("tenant-02", 40_000))).toBe(true);
@@ -185,7 +190,7 @@ describe("renderFactoryInstallationBundle", () => {
     const paths = (value: FactoryInstallationBundle) => Object.values(value.deliveries).flatMap((delivery) => [delivery.directory, ...Object.values(delivery.files).flatMap((entry) => "source" in entry ? [entry.source] : [])]);
     const firstPaths = new Set(paths(bundle));
     // Only the fleet host's public material is common to both.
-    expect(paths(second).filter((path) => firstPaths.has(path)).sort()).toEqual([bundle.host.caCertificatePath, bundle.host.hostPublicKeyPath].sort());
+    expect(paths(second).filter((path) => firstPaths.has(path)).sort()).toEqual([bundle.host.caCertificatePath, bundle.host.hostPublicKeyPath, bundle.host.tokenPublicKeyPath].sort());
     expect(second.ports.harness).toBe(40_020);
   });
 
@@ -254,7 +259,11 @@ describe("every rendered startup document declares the recovery sections W15's b
       bundles.set(tenantId, bundle);
     }
   });
-  afterAll(async () => { await removeFactoryPrivateRoot(root); });
+  const scratch: string[] = [];
+  afterAll(async () => {
+    await removeFactoryPrivateRoot(root);
+    await Promise.all(scratch.map((path) => rm(path, { recursive: true, force: true })));
+  });
 
   const harnessOf = (tenantId: string) => bundles.get(tenantId)!.deliveries.harness;
   /** The document as the harness reads it: the written file, through the process parser. */
@@ -312,6 +321,47 @@ describe("every rendered startup document declares the recovery sections W15's b
 
     test(`${tenantId}: keyManagement declares the operator master key`, async () => {
       expect((await startupOf(tenantId)).keyManagement).toEqual({ kind: "operator-master-key" });
+    });
+
+    test(`${tenantId}: guestBroker declares W01g's route for the fleet host's supervisor, and W01g's composer binds it`, async () => {
+      const startup = await startupOf(tenantId);
+      const bundle = bundles.get(tenantId)!;
+      expect(startup.guestBroker).toEqual({
+        hostname: "0.0.0.0", port: bundle.ports.guestBroker,
+        // The supervisor's client certificate names `host.supervisor`; it forwards for the fleet's one host.
+        hosts: { [bundle.host.supervisor]: bundle.host.hostId },
+        tls: { caPath: secret(FACTORY_HOST_FILES.caCertificate), certificatePath: secret(FACTORY_MESH_FILES.serverCertificate), privateKeyPath: secret(FACTORY_MESH_FILES.serverKey) },
+        tokens: { issuer: bundle.host.issuer, audience: FACTORY_GUEST_BROKER_AUDIENCE, publicKeyPaths: { [FACTORY_MESH_TOKEN_KEY_ID]: secret(FACTORY_HOST_FILES.tokenPublicKey) } },
+      });
+      const route = startup.guestBroker!;
+      // The route verifies attempt tokens with the host launch secret, which the parser requires beside it.
+      await expectDelivered(tenantId, [route.tls.caPath, route.tls.certificatePath, route.tls.privateKeyPath, ...Object.values(route.tokens.publicKeyPaths), startup.hostLaunch!.attemptTokenSecretPath]);
+      expect(harnessOf(tenantId).files[FACTORY_HOST_FILES.tokenPublicKey]).toEqual({ source: bundle.host.tokenPublicKeyPath });
+
+      // W01g's own composer, over the delivered files at the rendered paths.
+      // The fixture seeds markers, so real material replaces the four files
+      // the route reads at bind time: the host authority, the server pair,
+      // and the attempt-token secret.
+      const real = await certificates(scratch, bundle.host.supervisor);
+      for (const [path, text] of [[route.tls.caPath, real.ca], [route.tls.certificatePath, real.serverCert], [route.tls.privateKeyPath, real.serverKey], [startup.hostLaunch!.attemptTokenSecretPath, `${randomBytes(32).toString("hex")}\n`]] as const) {
+        await writeFile(delivered(tenantId, path), text, { mode: 0o600 });
+      }
+      const reports: unknown[] = [];
+      // Binding reads no row: the stand-ins only satisfy the material store's
+      // check that the artifacts share the route's database.
+      const database = {} as never;
+      const composed = await composeFactoryGuestBroker({
+        database, application: { artifacts: { database } as never, journal: {} as never }, blobs: {} as never,
+        report: (_role, error) => { reports.push(error); },
+        config: {
+          ...startup,
+          hostLaunch: { ...startup.hostLaunch!, attemptTokenSecretPath: delivered(tenantId, startup.hostLaunch!.attemptTokenSecretPath) },
+          // Port 0: the rendered port may be taken on a test host; every path is the rendered one.
+          guestBroker: { ...route, hostname: "127.0.0.1", port: 0, tls: { caPath: delivered(tenantId, route.tls.caPath), certificatePath: delivered(tenantId, route.tls.certificatePath), privateKeyPath: delivered(tenantId, route.tls.privateKeyPath) } },
+        },
+      });
+      try { expect({ readiness: composed.readiness, reports }).toEqual({ readiness: { state: "bound" }, reports: [] }); }
+      finally { composed.listener?.stop(); }
     });
   }
 });

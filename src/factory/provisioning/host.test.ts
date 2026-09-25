@@ -131,6 +131,7 @@ describe("identity and paths", () => {
       ...host.identity,
       caCertificatePath: join(root, "secrets", "host", FACTORY_HOST_FILES.caCertificate),
       hostPublicKeyPath: join(root, "secrets", "host", FACTORY_HOST_FILES.hostPublicKey),
+      tokenPublicKeyPath: join(root, "secrets", "host", FACTORY_HOST_FILES.tokenPublicKey),
       poolReadinessDirectory: join(root, "runtime", "host", "readiness", "pool"),
       supervisorReadinessDirectory: join(root, "runtime", "host", "readiness", "supervisor"),
     });

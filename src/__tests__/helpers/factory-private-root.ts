@@ -83,18 +83,20 @@ export function makeFactoryTestHostFacts(runtimeRoot: string, portBase = 40_000)
     ...factoryFleetHostIdentity("fleet-a", portBase),
     caCertificatePath: join(paths.context.secretDirectory, FACTORY_HOST_FILES.caCertificate),
     hostPublicKeyPath: join(paths.context.secretDirectory, FACTORY_HOST_FILES.hostPublicKey),
+    tokenPublicKeyPath: join(paths.context.secretDirectory, FACTORY_HOST_FILES.tokenPublicKey),
     poolReadinessDirectory: join(paths.readinessDirectory, "pool"),
     supervisorReadinessDirectory: join(paths.readinessDirectory, "supervisor"),
   });
 }
 
-/** Write the host's authority and stop-receipt public key where `facts` names them, as private marker files. */
+/** Write the host's authority, stop-receipt public key, and token public key where `facts` names them, as private marker files. */
 export async function writeFactoryTestHostMaterial(facts: FactoryFleetHostFacts): Promise<void> {
   const directory = dirname(facts.caCertificatePath);
   await mkdir(directory, { recursive: true, mode: 0o700 });
   await chmod(directory, 0o700);
   await writeModeFile(facts.caCertificatePath, `marker:${FACTORY_HOST_FILES.caCertificate}\n`);
   await writeModeFile(facts.hostPublicKeyPath, `marker:${FACTORY_HOST_FILES.hostPublicKey}\n`);
+  await writeModeFile(facts.tokenPublicKeyPath, `marker:${FACTORY_HOST_FILES.tokenPublicKey}\n`);
 }
 
 export function makeFactoryTestDeploymentSettings(runtimeRoot: string, overrides: Partial<FactoryDeploymentSettings> = {}): FactoryDeploymentSettings {
