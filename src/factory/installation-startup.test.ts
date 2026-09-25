@@ -15,6 +15,7 @@ import { createFactoryPoolReadinessWriter } from "./pool/readiness";
 import { createFactoryServiceReadinessWriter, factorySupervisorReadinessOptions } from "./service-readiness";
 import { FACTORY_STARTUP_CONFIG_SCHEMA } from "./startup-config";
 import { FactoryReleaseApplication } from "./release-application";
+import { FactoryAssuranceCommands } from "./assurance-commands";
 import {
   FACTORY_CHILD_SETTLEMENT_TRANSIENT_CODES,
   factoryChildSettlementDisposition,
@@ -828,6 +829,8 @@ describe("the roles this installation assembles", () => {
     // The public release routes compose with the store even so: a contract is
     // approved before anything publishes.
     expect(startup.runtime.application.releaseOperations?.tenantId).toBe("tenant-01");
+    // So do the inbox's approval decisions: a human answers an approval node through them.
+    expect(startup.runtime.application.commandApprovals?.tenantId).toBe("tenant-01");
   });
 
   test("a release store that did not compose holds the role on the store, not on the provider", async () => {
@@ -844,6 +847,7 @@ describe("the roles this installation assembles", () => {
     expect(held.get("release-outcome")).toContain("release-store role");
     // No store, no release routes: they answer factory_release_application_unavailable.
     expect(startup.runtime.application.releaseOperations).toBeUndefined();
+    expect(startup.runtime.application.commandApprovals).toBeUndefined();
   });
 
   test("a declared destination registers release-outcome from the document alone", async () => {
@@ -880,6 +884,11 @@ describe("the roles this installation assembles", () => {
     expect(getFactoryApplication()).toBe(startup.runtime.application);
     expect(getFactoryApplication()?.releaseOperations).toBeInstanceOf(FactoryReleaseApplication);
     expect(getFactoryApplication()?.releaseOperations?.tenantId).toBe("tenant-01");
+    // The approval decisions are the real command store: a decision is judged by its rules, not refused as unavailable.
+    const approvals = getFactoryApplication()?.commandApprovals;
+    expect(approvals).toBeInstanceOf(FactoryAssuranceCommands);
+    await expect(approvals!.decide({ kind: "user", id: "owner-1", authentication: "session" }, "project-1", "run-1", "approval-1", "0".repeat(64), "approve", 1, "decide-1"))
+      .rejects.toMatchObject({ code: "factory_command_approval_invalid" });
   });
 
   test("a declared destination whose credential file anyone can read holds the release store by name", async () => {

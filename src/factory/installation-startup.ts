@@ -66,6 +66,7 @@ import { factoryPageDriver, type FactoryItemDisposition } from "./role-drivers";
 import type { FactoryRuntimeWorkerCollaborators } from "./runtime-workers";
 import type { FactoryApplication, FactoryApplicationOptions } from "./application";
 import type { TrustedFactoryServiceIdentity } from "./trusted-command-gateway";
+import { FactoryAssuranceCommands } from "./assurance-commands";
 import type { FactoryRoleDriver } from "./runtime-seams";
 import type { FactoryStartedListener } from "./runtime-composition";
 import { composeFactoryGuestBroker, type FactoryGuestBrokerReadiness } from "./guest-broker-composition";
@@ -317,6 +318,25 @@ export function factoryReleaseOperations(
     },
   };
   return (context) => new FactoryReleaseApplication(tenantId, context.grants, release.assurance, release.releases, providers);
+}
+
+/**
+ * The inbox's approval decisions, over the stores the private service's approval command writes.
+ *
+ * The private service runs `execute` when the kernel asks a human, and `POST
+ * .../runs/{runId}/approvals/{approvalId}` answered `factory_command_approval_unavailable`
+ * because nothing supplied `decide`. Built over the same command authority, inbox and
+ * release store (which delivers the approval notification), a decision written here is
+ * the one the kernel reads.
+ */
+export function factoryCommandApprovals(
+  database: FactoryInstallationHost["database"],
+  tenantId: string,
+  stores: Pick<FactoryInstallationStores, "authority" | "inbox">,
+  releases: FactoryReleases,
+  service: TrustedFactoryServiceIdentity,
+): NonNullable<FactoryApplicationOptions["createCommandApprovals"]> {
+  return (context) => new FactoryAssuranceCommands(database, tenantId, context.grants, stores.authority, stores.inbox, releases, service);
 }
 
 /**
@@ -614,7 +634,7 @@ export async function startFactoryInstallation(options: FactoryInstallationStart
       availableResourceClasses: host.availableResourceClasses,
       // A human signs a restore report in the console (W14); W15's restore records it.
       restoreSigner: () => composeFactoryInstallationRestore({ config, host, fence: FACTORY_SIGN_ONLY_FENCE }),
-      // The public release routes, over the release store composed above.
+      // The public release routes and the inbox's approval decisions, over the release store composed above.
       ...composed?.application,
     },
     // The private worker API, and only that. The pool, the supervisor, and the
@@ -717,7 +737,7 @@ async function installationCollaborators(
   readonly workers: FactoryRuntimeDependencies["workers"];
   readonly seams: FactoryRuntimeDependencies["seams"];
   readonly listeners: readonly FactoryStartedListener[];
-  readonly application: Pick<FactoryApplicationOptions, "createReleaseOperations">;
+  readonly application: Pick<FactoryApplicationOptions, "createReleaseOperations" | "createCommandApprovals">;
   readonly guestBroker: FactoryGuestBrokerReadiness;
 }> {
   const { createFactoryApplication } = await import("./application");
@@ -843,7 +863,10 @@ async function installationCollaborators(
       ...(privateService === undefined ? [] : [privateService]),
       ...(guestBroker.listener === undefined ? [] : [guestBroker.listener]),
     ],
-    application: release === undefined ? {} : { createReleaseOperations: factoryReleaseOperations(config.tenantId, release, resolver) },
+    application: release === undefined ? {} : {
+      createReleaseOperations: factoryReleaseOperations(config.tenantId, release, resolver),
+      createCommandApprovals: factoryCommandApprovals(host.database, config.tenantId, stores, release.releases, service),
+    },
     guestBroker: guestBroker.readiness,
   };
 }
