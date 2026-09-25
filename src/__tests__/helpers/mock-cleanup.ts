@@ -553,6 +553,27 @@ export function webLibModule(libPath: string, overrides: Record<string, unknown>
   return { ...require(`../../../web/src/lib/${libPath}`), ...overrides };
 }
 
+/**
+ * The real backend `src/<relPath>` module with `overrides` on top —
+ * webLibModule()'s counterpart for `$server/*` and plain-relative mocks of a
+ * real `src/` module (`db/queries/extensions`, `providers/local-model-check`,
+ * …). Same rule, same reason: a partial factory freezes the module's export
+ * NAMES for the rest of the process (W18-hygiene item D reproduction,
+ * 2026-09-24 — "Export named 'listExtensions'/'listModels' not found").
+ *
+ * Compute this ONCE, before any mock.module() registration for the same
+ * resolved module (never lazily from inside such a factory): `web/`'s
+ * generated tsconfig maps both `$lib/*` and `$server/*` to a REALLY
+ * resolvable path, so a lazy call from a factory already registered for that
+ * path self-recurses to a stub carrying only the override (see
+ * webLibModule()'s history and tasks/factory/w18-hygiene-GATES.md GA4/GA5 —
+ * the repo root has neither alias for real, but the fix must be safe in
+ * both contexts, and precompute-once is the one shape that is).
+ */
+export function serverModule(relPath: string, overrides: Record<string, unknown>): Record<string, unknown> {
+  return { ...require(`../../${relPath}`), ...overrides };
+}
+
 export function restoreModuleMocks() {
   for (const [path, exports] of snapshots) {
     try {
