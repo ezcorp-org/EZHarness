@@ -1,7 +1,8 @@
 import type { TransactionalDb } from "../db/migrations/types";
 import type { FactoryCheckpointTemporalSource } from "./checkpoint-barrier";
 import { loadFactoryStopHostKeys } from "./dispatch-composition";
-import { composeFactoryDataKeyWrapper, loadFactoryInstallationDataKey, type FactoryKeyCompositionDependencies } from "./key-composition";
+import { loadFactoryDataKeyFromFiles } from "./file-key-wraps";
+import type { FactoryKeyCompositionDependencies } from "./key-composition";
 import { createPoolAdmissionClient, createPoolCheckpointClient, type PoolAdmissionClient, type PoolCheckpointClient } from "./pool/client";
 import { readPrivatePath } from "./private-files";
 import { factoryClientRestorePoolLedger, factoryTemporalPositionsFromConfig } from "./recovery-composition";
@@ -68,7 +69,7 @@ export async function composeFactoryRestore(input: FactoryRestoreCompositionInpu
     database: input.database, tenantId: config.tenantId, installationId: config.installationId,
     archive: new S3FactoryRecoveryArchive(archiveOptions),
     releaseArchive: new S3FactoryReleaseArchive({ ...archiveOptions, credentials: { ...archiveOptions.credentials } }),
-    loadDataKey: async () => loadFactoryInstallationDataKey(config, await composeFactoryDataKeyWrapper(config, input.keys)),
+    loadDataKey: () => loadFactoryDataKeyFromFiles({ installationId: config.installationId, ...config.keys, ...(config.keyManagement === undefined ? {} : { keyManagement: config.keyManagement }) }, input.keys),
     objects: new S3FactoryObjectVersionProbe({ endpoint: config.storage.ordinary.endpoint, bucket: config.storage.ordinary.bucket, prefix: config.storage.ordinary.prefix, credentials: { ...ordinaryCredentials } }),
     fence: input.fence,
     // The host stop client carries the stop command's fields as they are; see `factoryHostStopper`.

@@ -1,0 +1,24 @@
+=== heavy batch 2026-09-24T21:10:43Z
+HEAD 7b21a17cb7810faf619dad0f24cd35b645fb1bc2 MERGE_HEAD b011e3ab74c8095e11915aaddf5fc832a555f448 index-tree f5864d95a145e8f9f233c260ceaff3b4e713d7df umask 0077
+df: /dev/nvme0n1p2  1.8T  1.6T  153G  92% /
+--- START pg-factory-archive-writer 2026-09-24T21:10:43Z
+--- END   pg-factory-archive-writer 2026-09-24T21:11:35Z exit=0  10 pass 0 fail 
+--- START pg-factory-release-authority 2026-09-24T21:11:35Z
+--- END   pg-factory-release-authority 2026-09-24T21:11:41Z exit=0  14 pass 0 fail 
+--- START pg-factory-release-declare-race 2026-09-24T21:11:41Z
+--- END   pg-factory-release-declare-race 2026-09-24T21:12:02Z exit=0  4 pass 0 fail 
+--- START pg-factory-restore 2026-09-24T21:12:02Z
+--- END   pg-factory-restore 2026-09-24T21:12:30Z exit=0  13 pass 0 fail 
+--- START pg-factory-run-lifecycle-s3 2026-09-24T21:12:30Z
+--- END   pg-factory-run-lifecycle-s3 2026-09-24T21:13:18Z exit=0  73 pass 0 fail 
+--- START pg-factory-run-lifecycle 2026-09-24T21:13:18Z
+--- END   pg-factory-run-lifecycle 2026-09-24T21:13:54Z exit=0  73 pass 0 fail 
+--- START pg-factory-s3-publication 2026-09-24T21:13:54Z
+--- END   pg-factory-s3-publication 2026-09-24T21:15:37Z exit=0  18 pass 0 fail 
+--- START pg-factory-boot 2026-09-24T21:15:37Z
+--- END   pg-factory-boot 2026-09-24T21:15:44Z exit=0  1 pass 0 fail 
+--- START pg-factory-private-service 2026-09-24T21:15:44Z
+--- END   pg-factory-private-service 2026-09-24T21:15:54Z exit=0  5 pass 0 fail 
+--- START orchestrator-test 2026-09-24T21:15:54Z
+--- END   orchestrator-test 2026-09-24T21:17:37Z exit=0 
+BATCH DONE status=0 2026-09-24T21:17:37Z

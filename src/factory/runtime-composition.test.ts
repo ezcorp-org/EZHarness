@@ -7,7 +7,8 @@ import { getReadiness, resetReadiness } from "../readiness";
 import { configureFactoryApplication, getFactoryApplication } from "./application";
 import { FactoryBootError, type FactoryBootConfig } from "./boot";
 import { createFactoryPoolReadinessWriter } from "./pool/readiness";
-import { FACTORY_STARTUP_CONFIG_SCHEMA, FactoryStartupConfigError } from "./startup-config";
+import { FACTORY_STARTUP_CONFIG_SCHEMA, FactoryStartupConfigError, parseFactoryStartupConfig } from "./startup-config";
+import { composeFactoryRecoveryRoles } from "./recovery-composition";
 import { FactoryDisabledError, factoryRuntimeWait, startFactoryRuntime, type FactoryRuntimeDependencies, type FactoryStartedListener } from "./runtime-composition";
 
 const roots: string[] = [];
@@ -275,6 +276,26 @@ describe("startFactoryRuntime opens admission only after the probes pass", () =>
     expect(runtime.report().admissionOpen).toBe(true);
     expect(getReadiness()).toMatchObject({ state: "degraded", reason: "factory-checkpoint-barrier-held" });
     expect((getReadiness().detail as { factory: { held: { role: string }[] } }).factory.held.map((held) => held.role)).toContain("checkpoint-barrier");
+  });
+
+  test("a startup document with no recovery sections holds the barrier under its own typed reason", async () => {
+    const root = await privateRoot();
+    await writeReadyRecords(root);
+    // A minimal undeclared installation: this suite's document has no temporalHttp, and its archive
+    // credential set does not exist, so recovery is both undeclared and uncomposable; undeclared wins.
+    const recovery = await composeFactoryRecoveryRoles({ config: parseFactoryStartupConfig(document(root)), database: {} as never, report: () => {} });
+    expect(recovery.undeclared).toEqual(["temporalHttp"]);
+    const runtime = await start(root, {
+      workers: {
+        compute: { dispatchNext: async () => ({ status: "idle" }), pollNext: async () => ({ status: "idle" }) },
+        attempts: { dispatchOne: async () => ({ kind: "idle" }) },
+        projections: { projectPending: async () => ({ runs: [] }) },
+        recovery,
+      },
+    });
+    expect(runtime.report().admissionOpen).toBe(true);
+    expect(getReadiness()).toMatchObject({ state: "degraded", reason: "factory-recovery-not-declared" });
+    expect((getReadiness().detail as { factory: { recoveryNotDeclared: string[] } }).factory.recoveryNotDeclared).toEqual(["temporalHttp"]);
   });
 
   test("drives its registered roles against the real durable primitives", async () => {

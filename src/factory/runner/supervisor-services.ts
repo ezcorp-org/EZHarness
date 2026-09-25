@@ -14,19 +14,19 @@
  * split rather than two listeners because two listeners would be two ports,
  * two certificates, and two readiness facts for one process.
  *
- * **The guest's reverse capability refuses, and that is the correct answer.**
- * `createFactoryHostLaunchSupervisor` takes a {@link FactoryGuestBroker} so a
- * guest can ask for a model call. What a guest sends is now defined — a
- * `FactoryGuestModelRequest`, served product-side by
- * `createFactoryOneHopProvider` — but the transport back is not: this process
- * holds the container runner and the host signing key and no tenant credential,
- * the provider it would need lives in the product process, and nothing defines
- * a route from a host back to it. Handing the supervisor a broker that answered
- * from here would be answering a model call with no model, so this one refuses
- * by name: a guest that calls the broker gets
- * `factory_host_broker_unavailable`, which a reader can act on, instead of a
- * plausible reply it cannot distinguish from a real one. A deployment that
- * grows that route supplies its own broker through `FactoryHostServiceOptions`.
+ * **The guest's reverse capability is forwarded or refused, never answered
+ * here.** `createFactoryHostLaunchSupervisor` takes a {@link FactoryGuestBroker}
+ * so a guest can stage an output or ask for a model call. This process holds
+ * the container runner and the host signing key and no tenant credential; the
+ * material service and the provider live in the product process. Answering
+ * from here would be answering a model call with no model.
+ *
+ * A supervisor whose configuration names `services.guestBroker` passes the
+ * forwarding client from `guest-broker-client.ts` as `broker`: it carries a
+ * staging frame or a `FactoryGuestModelRequest` to the product route under the
+ * guest's own attempt token. Everything else, and every call on a host with no
+ * such section, gets `factory_host_broker_unavailable`, which a reader can act
+ * on, instead of a plausible reply it cannot distinguish from a real one.
  */
 import type { Runner } from "@ezcorp/extension-contract";
 import { startFactoryPrivateHttps, type FactoryPrivateRequest, type FactoryPrivateResponse } from "../private-https";
@@ -55,8 +55,8 @@ const MAX_HOST_SERVICE_BODY_BYTES = 4 * 1024 * 1024;
 
 export class FactoryHostBrokerUnavailableError extends Error {
   readonly code = "factory_host_broker_unavailable";
-  constructor() {
-    super("This host cannot serve a guest broker call: no contract defines the request or the stream it returns.");
+  constructor(message = "This host cannot serve a guest broker call: no contract defines the request or the stream it returns.") {
+    super(message);
     this.name = "FactoryHostBrokerUnavailableError";
   }
 }

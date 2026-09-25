@@ -20,94 +20,17 @@
  */
 import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
-import { dirname, relative, resolve } from "node:path";
+import { resolve } from "node:path";
 import ts from "typescript";
 import { signFactoryAttemptToken, verifyFactoryAttemptToken } from "../factory/attempt-token";
 import type { FactoryAttemptAuthority } from "../factory/executions";
 import type { FactoryRunnerSupervisorOptions } from "../factory/runner/supervisor";
+import { runtimeImportClosure as runtimeClosure, type RuntimeClosure as Closure } from "../../scripts/check-factory-boundaries";
 
 const REPO_ROOT = resolve(import.meta.dir, "../..");
 
-interface ModuleImports {
-  readonly local: readonly string[];
-  readonly bare: readonly string[];
-}
-
 function parse(file: string): ts.SourceFile {
   return ts.createSourceFile(file, readFileSync(file, "utf8"), ts.ScriptTarget.ES2022, true);
-}
-
-/** True when the whole declaration is erased at compile time. */
-function typeOnly(statement: ts.ImportDeclaration): boolean {
-  const clause = statement.importClause;
-  if (!clause) return false;
-  if (clause.isTypeOnly) return true;
-  // `import { type A, type B } from "x"` also erases entirely.
-  const named = clause.namedBindings;
-  if (clause.name === undefined && named !== undefined && ts.isNamedImports(named)) {
-    return named.elements.length > 0 && named.elements.every((element) => element.isTypeOnly);
-  }
-  return false;
-}
-
-function resolveLocal(from: string, specifier: string): string | undefined {
-  if (!specifier.startsWith(".")) return undefined;
-  const base = resolve(dirname(from), specifier.replace(/\.js$/, ""));
-  for (const candidate of [base.endsWith(".ts") ? base : `${base}.ts`, `${base}/index.ts`, base]) {
-    if (candidate.endsWith(".ts") && existsSync(candidate)) return candidate;
-  }
-  return undefined;
-}
-
-/** Every runtime import of one module: local files and bare package specifiers. */
-function runtimeImports(file: string): ModuleImports {
-  const source = parse(file);
-  const local: string[] = [];
-  const bare: string[] = [];
-  const visit = (node: ts.Node): void => {
-    if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier) && !typeOnly(node)) {
-      const specifier = node.moduleSpecifier.text;
-      const resolved = resolveLocal(file, specifier);
-      if (resolved) local.push(resolved);
-      else bare.push(specifier);
-    }
-    // A dynamic import is always a runtime link.
-    if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword
-      && node.arguments.length > 0 && ts.isStringLiteral(node.arguments[0]!)) {
-      const specifier = node.arguments[0]!.text;
-      const resolved = resolveLocal(file, specifier);
-      if (resolved) local.push(resolved);
-      else bare.push(specifier);
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(source);
-  return { local, bare };
-}
-
-interface Closure {
-  readonly files: readonly string[];
-  /** Bare specifier to the repo-relative files that import it. */
-  readonly bare: ReadonlyMap<string, readonly string[]>;
-}
-
-function runtimeClosure(roots: readonly string[]): Closure {
-  const seen = new Set<string>();
-  const bare = new Map<string, string[]>();
-  const pending = roots.map((root) => resolve(REPO_ROOT, root));
-  while (pending.length > 0) {
-    const file = pending.pop()!;
-    if (seen.has(file) || !existsSync(file)) continue;
-    seen.add(file);
-    const imports = runtimeImports(file);
-    for (const specifier of imports.bare) {
-      const importers = bare.get(specifier) ?? [];
-      importers.push(relative(REPO_ROOT, file));
-      bare.set(specifier, importers);
-    }
-    pending.push(...imports.local);
-  }
-  return { files: [...seen].map((file) => relative(REPO_ROOT, file)).sort(), bare };
 }
 
 function sourceFiles(root: string): string[] {
@@ -189,8 +112,18 @@ const CREDENTIAL_PACKAGES = [
   "bun",              // Bun.sql, Bun.file — the Node process uses none of it
 ] as const;
 
+/**
+ * The key service is not a product store. C02 puts the tenant payload codec in
+ * the Node process, and C06 lets an installation open that codec's data key
+ * through a cloud KMS instead of the operator key file (W15b R1). The KMS
+ * client reaches the key service only: it holds no object-store, database, or
+ * provider credential, so it is the one `@aws-sdk/` client this closure may link.
+ */
+const KEY_SERVICE_PACKAGES = ["@aws-sdk/client-kms"] as const;
+
 function credentialPackages(closure: Closure): string[] {
   return [...closure.bare.keys()]
+    .filter((specifier) => !(KEY_SERVICE_PACKAGES as readonly string[]).includes(specifier))
     .filter((specifier) => CREDENTIAL_PACKAGES.some((name) => specifier === name || specifier.startsWith(name)))
     .sort();
 }
@@ -227,6 +160,31 @@ describe("C02.1 the Node orchestration process holds no product credential", () 
     const closure = runtimeClosure(NODE_ORCHESTRATION_ROOTS);
     expect(closure.files).toContain("src/factory/file-key-wraps.ts");
     expect(closure.files).toContain("src/factory/encryption.ts");
+    // The key service it opens that key through, and nothing else from the AWS SDK.
+    expect(closure.files).toContain("src/factory/key-composition.ts");
+    expect(closure.files).toContain("src/factory/key-management.ts");
+    expect([...closure.bare.keys()].filter((specifier) => specifier.startsWith("@aws-sdk/")).sort()).toEqual([...KEY_SERVICE_PACKAGES]);
+  });
+
+  test("the key-service exemption is exact: the object-store client is still a credential", () => {
+    expect(credentialPackages(runtimeClosure(["src/extensions/v4/blobs.ts"])).some((name) => name.startsWith("@aws-sdk/client-s3"))).toBe(true);
+  });
+});
+
+/** The pool service is a Node process: it must never link the product's Bun database driver. */
+const POOL_SERVICE_ENTRY = "src/factory/pool/service-server.ts";
+
+describe("C12 the pool service process runs on Node", () => {
+  test("its entry bundles for the Node target", async () => {
+    const result = await Bun.build({ entrypoints: [resolve(REPO_ROOT, POOL_SERVICE_ENTRY)], target: "node", format: "esm", throw: false });
+    expect(result.logs.filter((log) => log.level === "error").map(String)).toEqual([]);
+    expect(result.success).toBe(true);
+  });
+
+  test("it shares the checkpoint limits, not the barrier that links the product database", () => {
+    const closure = runtimeClosure([POOL_SERVICE_ENTRY]);
+    expect(closure.files).toContain("src/factory/checkpoint-limits.ts");
+    expect(closure.files.filter((file) => file === "src/factory/checkpoint-barrier.ts" || file === "src/db/connection.ts" || file.startsWith("src/db/queries/"))).toEqual([]);
   });
 });
 

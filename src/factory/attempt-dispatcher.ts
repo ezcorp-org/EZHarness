@@ -4,6 +4,7 @@ import { canonicalJson } from "@ezcorp/extension-contract";
 import type { TransactionalDb } from "../db/migrations/types";
 import { factoryAttemptAuthority, FactoryAttemptQueueError, type ClaimedFactoryAttempt, type FactoryAttemptQueue } from "./attempt-queue";
 import { FACTORY_ATTEMPT_TOKEN_MAX_SECONDS, signFactoryAttemptToken } from "./attempt-token";
+import { FactoryPackageBlockedError } from "./package-preparation";
 import type { FactoryTaskCompletionReceipt, FactoryTaskCompletions } from "./task-completions";
 import type { FactoryTaskOutcomeReceipt, FactoryTaskOutcomes } from "./task-outcomes";
 import type { TrustedFactoryRunner, TrustedFactoryServiceIdentity } from "./trusted-command-gateway";
@@ -90,8 +91,11 @@ export class FactoryAttemptDispatcher {
       await this.readiness.assertDispatchReady(snapshot({ authority: claim.request.authority, runner: claim.request.runner }));
     } catch (error) {
       const disposition = this.readinessDisposition(error);
-      await this.queue.settle(claim, disposition === "retry" ? "retry" : "cancelled", disposition === "retry" ? "runner_package_not_ready" : "runner_package_denied");
-      return { kind: disposition === "retry" ? "retry" : "cancelled", attemptId: claim.delivery.id };
+      // A quarantined or revoked package is refused by name. The typed error,
+      // which carries the trust revision that blocked it, rides along as the cause.
+      const blocked = error instanceof FactoryPackageBlockedError ? error : undefined;
+      await this.queue.settle(claim, disposition === "retry" ? "retry" : "cancelled", disposition === "retry" ? "runner_package_not_ready" : blocked?.code ?? "runner_package_denied");
+      return { kind: disposition === "retry" ? "retry" : "cancelled", attemptId: claim.delivery.id, ...(blocked ? { cause: blocked } : {}) };
     }
 
     let attemptToken: string;

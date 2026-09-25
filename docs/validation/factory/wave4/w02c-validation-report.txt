@@ -1,0 +1,157 @@
+W02c validation: the package quarantine fence
+=============================================
+Validator: independent validator, 2026-09-23
+Head validated: wp/w02c-quarantine daf5203cc. The tree is clean, and integ/w00 39a7189e0 is merged.
+Product code equals 3695f8351; later commits change only docs/ and tasks/.
+Evidence: /tmp/factory-platform-evidence/w02c-validation/ (proof/, sweep-final/, logs/, repro*/; the first,
+aborted batch is kept in attempts/)
+
+VERDICT: ACCEPT
+
+The fence is read at admission, preflight, and launch, and it stops live work through W03's
+unchanged stop path. My base reproduction shows the defect. My three passes at the claimed head
+hold 9 of 9. The whole sweep, with the backend pool and both coverage gates, is green at daf5203cc.
+The two open items belong to other owners. W02c reports them correctly, though one cause statement
+is out of date (F1).
+
+
+1. MY RERUNS (scratch worktrees w02c-val-head at daf5203cc and w02c-val-base at 578692e8a,
+   under /home/dev/work/EZCorp/EZHarness/.worktrees/, both removed afterwards; the worker's harness is copied
+   with evidence paths redirected; one heavy-lock hold, 17:31 to 18:19 local)
+
+| Producer                                             | Exit | Result                                   |
+|------------------------------------------------------|------|------------------------------------------|
+| base reproduction at 578692e8a (repro-base harness)  | 0    | outcome failed, 3 of 9: the defect shows  |
+| pass-1 at daf5203cc (repro-v2 harness)               | 0    | passed, 9 of 9                           |
+| pass-2 at daf5203cc                                  | 0    | passed, 9 of 9                           |
+| pass-3 at daf5203cc                                  | 0    | passed, 9 of 9                           |
+| focused suites with coverage, 10 files               | 0    | 208 pass, 2096 assertions                |
+| real PostgreSQL, 5 files with the fence suite        | 0    | 118 pass, 4604 assertions                |
+| PostgreSQL with S3, package preparation              | 0    | 22 pass                                  |
+| backend pool (bun run test), once                    | 0    | 28183 pass, 0 fail, 1900 files           |
+| typecheck, lint, boundaries, gate-integrity          | 0    |                                          |
+| new-file coverage, BASE_REF=integ/w00                | 0    | PASSED, 2 files                          |
+| patch coverage, BASE_REF=integ/w00                   | 0    | PASSED, 10 files                         |
+| W03 stop suite, factory-task-stops, base vs head     | 0    | 18 pass, 146 assertions at both          |
+| fence suite alone on real PostgreSQL                 | 0    | 16 pass, 115 assertions (19:08 to 19:10)  |
+
+Base facts, at 578692e8a: run A was quarantined mid-attempt and got no cancel, no stop, and no
+record. Run B was not refused by name. The product server's SIGKILL and restart held.
+Pass facts, at daf5203cc:
+- Run A was cancelled once with factory_package_quarantined, and its guest was stopped through
+  W03's stop path before it returned. The stop survived a SIGKILL of the product server. Run A is
+  in the affected-run record with the typed reason.
+- Run B was refused admission by name (FactoryPackageBlockedError: factory_package_quarantined).
+- Run C was admitted and launched after the lift, and run A stayed stopped.
+
+
+2. CODE READING
+- Admission: FactoryNativeRunnerPolicy.resolveInTransaction calls readActiveInTransaction under the
+  command authority's scope lock (native-runner-policy.ts:133). Production supplies the store at
+  private-service-composition.ts:262.
+- Preflight: attempt-preflight.ts:107 calls assertDispatchReady, then assertPreparedInTransaction,
+  then readActiveInTransaction.
+- Launch: attempt-dispatcher.ts:91 makes the same call and settles the queue with the typed code
+  (attempt-dispatcher.ts:94-98).
+- All three raise FactoryPackageBlockedError, with the code, trustRevision, and
+  installationGeneration (package-preparation.ts:200).
+- Quarantine takes the installation write lock (package-preparation.ts:144) and runs
+  FactoryPackageFence.fenceAttempts in the same transaction. A quarantine and a launch therefore
+  serialize. A launch that passed its read before the quarantine is still live, so the fence
+  cancels its run. Tests cover both races (package-fence suite :179 and :206).
+- The stop path is consumed, not changed. task-stops.ts is untouched. The fence calls the
+  operator's cancel, requestFactoryRunCancellationInTransaction (run-lifecycle.ts), which was
+  extracted with the same behavior. The W03 stop suite has the same count and assertions at base
+  and head, and its diff edits no assertion.
+- Fails closed: a trust store with no fence refuses quarantine and revoke with
+  factory_package_fence_unavailable before writing anything.
+
+
+3. INTERFACE NOTES (judged)
+- Host stop receipt reads "cancelled", while the typed reason lives on the run: ACCEPTABLE. Freeze
+  section 3 suggested a W03-owned second authority path with lease-revoked. Section 12 and the
+  brief say W03's stop path is to be consumed, not changed. Reusing the operator cancel honors
+  that. The typed reason is on the cancel event, the audit entry, the run error, and the sealed
+  affected-run record. The coordinator should record this as a dated deviation from the section 3
+  suggestion.
+- W14 must switch to createFactoryPackageTrusts: CORRECT and REQUIRED at integration. W14's
+  src/factory/console.ts:78 builds FactoryPackageTrusts without a fence. After this merges, W14's
+  quarantine refuses factory_package_fence_unavailable. That is fail-closed by design, and nothing
+  else in this tree calls quarantine. Merge W02c first, or land W14's switch in the same wave.
+
+
+4. OPEN ITEMS (judged; both owned elsewhere)
+- Usage reconciliation never settles a stopped attempt with no operations: CONFIRMED, owner W03.
+  In every pass run A stays "cancelling". The reconciliation role logs
+  "factory_usage_hold_unresolved: no-operation-receipt" on every pass. An operator's cancel of a
+  running attempt ends the same way. So the brief's "the run ... ends with the typed reason" is
+  UNPROVEN until W03 adds a settlement rule. The fence part (cancel, stop, and record) is proven.
+- A refused admission ends the workflow: CONFIRMED that run B never ends, but the stated cause is out
+  of date (F1).
+
+
+5. FINDINGS
+F1 MEDIUM (stale evidence and cause).
+   - The worker's three passes ran at 1d06a7394. That commit lacks W09d round 3, which reached the
+     branch in the 3695f8351 merge. The report says "since 3695f8351 only docs changed", but the
+     passes predate that merge. My passes at daf5203cc close this gap, and the result is the same.
+   - At the head, run B's refusal is raised on the private service's executions route
+     (PUT /internal/factory/v1/executions/<run>:work:dispatch-node:4). The orchestrator receives an
+     opaque HTTP 500 ("request_failed"; see proof/pass-1-process-orchestrator.log).
+   - W09d's named-refusal wrapper covers only the effects map, so the name
+     factory_package_quarantined never reaches the run. Run B stays "running".
+   - Owner: the effect protocol (W09/W09d follow-up). The executions route needs the same named
+     answer, and a refused dispatch needs an explicit end.
+F2 LOW (ownership). The branch changes files owned by others: run-lifecycle.ts (W06),
+   attempt-dispatcher.ts and native-runner-policy.ts (W01), and factory-task-stops-suite.ts (W03
+   tests). They are disclosed in the gate file, but no coordinator ruling is recorded. Each change is
+   small, and I verified each keeps its behavior.
+F3 LOW. FactoryNativeRunnerPolicy's admission fence is optional (`packages?`). A future composition
+   that omits it would silently skip the admission read. Preflight and launch would still refuse.
+   Production supplies it.
+No gate weakening was found: no skip, only, or todo, no sleeps, no empty catch, no EXCLUDES, and no
+lowered thresholds. The new files are at 100. The PostgreSQL suite is registered in db-postgres.yml.
+The boundary row for package-fence.ts is present. The negative paths the brief requires are all in
+the fence suite: concurrent quarantine against admission and against launch, a lost response, a
+crash mid-fence and mid-stop, a stale revision, cross-tenant access, tampering, and revoke.
+
+
+6. INCIDENTS DURING VALIDATION
+- My first batch, at 14:33, failed at once for two reasons. The ordinary S3 store had been
+  OOM-killed at 14:31:45; the coordinator restarted it. And my scratch worktrees had been relocated.
+  Its sweep leg started in its launch directory, the w00-integration worktree, and ran focused
+  tests there for about 30 seconds before I killed it. It never reached the pool, the coverage
+  merge, or any removal. coverage/lcov.info there is unchanged. The scripts now refuse to run when
+  a worktree is missing, and they run from the evidence directory. The first attempt is kept in
+  attempts/.
+- Fence suite alone on real PostgreSQL: 16 pass, 0 fail at daf5203cc (logs/fence-pg.log).
+
+
+7. F3 DELTA RE-CHECK (head 383bd60ff; code c17ea2aa9; tree clean)
+- Type: FactoryNativeRunnerPolicy's `packages: FactoryPackageAdmissionFence` is now required
+  (native-runner-policy.ts:99-103). The constructor refuses a missing or malformed fence with
+  factory_native_policy_invalid (:106). The admission read is unconditional (:136).
+- Callers: production uses private-service-composition.ts:262, which passes FactoryPackageTrusts.
+  Every test caller passes a fence: the shared fixture's own parameter, the lifecycle suite's
+  packagesTrustedForTest, or the fence suite's store. The only four-argument call left is the
+  @ts-expect-error case.
+- New test (factory-package-fence-suite.ts:370-376): omission is a type error, `{}` is refused at
+  runtime, and a real store is accepted. Typecheck passing proves the @ts-expect-error still fires.
+- packagesTrustedForTest lives in src/__tests__/helpers/factory-live-attempt-world.ts. Nothing in
+  production imports a test path today.
+  NOT ENFORCED: scripts/check-boundaries.ts exempts test paths only for packages/@ezcorp
+  (isTestPath at :86, used only at :142). Biome's noRestrictedImports lists packages only. So no gate stops
+  src/** production code from importing src/__tests__/**. The only indirect guard is that
+  .dockerignore drops **/__tests__ from the production image, so an image build would fail.
+  Finding F4 LOW: add a check-boundaries rule, "a non-test file may not import a test path",
+  with a test. The team lead asked for this point explicitly.
+- Gate file: records F2, the dated section 3 deviation, and the console.ts:78 note.
+- My reruns at 383bd60ff:
+  - bun run typecheck: exit 0
+  - bun run lint: exit 0
+  - PGlite fence, lifecycle, task-stops, and private-service-composition suites: 120 pass, 0 fail,
+    1446 assertions
+  - Real PostgreSQL, fence and lifecycle suites: 83 pass, 0 fail, 1198 assertions, exit 0
+    (22:34 to 22:36; delta/postgres.log). This matches the worker's receipt.
+- DELTA VERDICT: ACCEPT at 383bd60ff. F4 is LOW and does not block. It can be fixed at the
+  boundary gate by its owner.

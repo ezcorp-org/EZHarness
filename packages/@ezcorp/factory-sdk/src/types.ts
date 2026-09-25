@@ -572,6 +572,166 @@ export type FactoryGuestModelResponse =
     readonly refusal: { readonly code: FactoryGuestModelRefusal; readonly message: string };
   };
 
+/**
+ * What a guest may stage over the one reverse control frame, and why it is small.
+ *
+ * `FramedExecution` counts every byte a guest writes for the whole life of the
+ * worker and refuses past `min(limits.outputBytes, 1 MiB)`
+ * (`extension-runner/src/protocol.ts`, `podman.ts`). That is a lifetime budget,
+ * not a per-frame one, so chunking buys nothing beyond the frame bound and the
+ * total is what has to fit. These numbers are that budget, less the room the
+ * terminal result frame and any model calls still need:
+ * `maxTotalBytes` of raw bytes becomes 4/3 as much base64.
+ *
+ * The auxiliary material service itself bounds a material at 256 MiB
+ * (`FACTORY_MATERIAL_LIMITS`). A runner that reaches the gateway over private
+ * HTTPS may use all of it; a sandboxed guest on `--network=none` has only this
+ * channel, so it gets these bounds instead. The difference is the transport,
+ * not the contract.
+ */
+export const FACTORY_GUEST_MATERIAL_LIMITS = Object.freeze({
+  /**
+   * Exactly `FACTORY_PAGE_BYTES_LIMIT`, so a chunk IS one bounded page and the
+   * repository's existing canonical base64 codec carries it. The equality is
+   * asserted in `page-bytes.test.ts`; this module stays import-free.
+   */
+  maxChunkBytes: 32 * 1024,
+  maxChunks: 64,
+  maxTotalBytes: 512 * 1024,
+  maxNameLength: 512,
+  maxMediaTypeLength: 127,
+});
+
+export const FACTORY_GUEST_MATERIAL_BEGIN_SCHEMA_VERSION = "factory.guest-material-begin.v1";
+export const FACTORY_GUEST_MATERIAL_CHUNK_SCHEMA_VERSION = "factory.guest-material-chunk.v1";
+export const FACTORY_GUEST_MATERIAL_SEAL_SCHEMA_VERSION = "factory.guest-material-seal.v1";
+export const FACTORY_GUEST_MATERIAL_OUTPUT_SCHEMA_VERSION = "factory.guest-material-output.v1";
+export const FACTORY_GUEST_MATERIAL_RESPONSE_SCHEMA_VERSION = "factory.guest-material-response.v1";
+
+/**
+ * Which material a frame is about.
+ *
+ * It names no tenant, project, run, or attempt. The attempt token the runner
+ * request already carries is the only authority a frame has, and the host reads
+ * every scope field from the verified attempt rather than from the frame, so a
+ * guest cannot address another attempt's material by asking for it.
+ */
+export interface FactoryGuestMaterialIdentity {
+  /** The journalled operation this material belongs to. */
+  readonly operationId: string;
+  readonly operationIndex: number;
+  /** Author-chosen, stable within the operation. */
+  readonly objectName: string;
+  /** Monotonic per (operation, objectName). Starts at 1. */
+  readonly version: number;
+}
+
+/** Declares a material before any byte of it is sent. */
+export interface FactoryGuestMaterialBegin extends FactoryGuestMaterialIdentity {
+  readonly schemaVersion: "factory.guest-material-begin.v1";
+  readonly mediaType: string;
+  readonly totalBytes: number;
+  readonly chunkCount: number;
+}
+
+/** One chunk of a declared material, carried as base64 inside the frame. */
+export interface FactoryGuestMaterialChunk extends FactoryGuestMaterialIdentity {
+  readonly schemaVersion: "factory.guest-material-chunk.v1";
+  /** 0-based and contiguous. */
+  readonly index: number;
+  /** `sha256:` + 64 hex over this chunk's raw bytes. */
+  readonly digest: string;
+  readonly encodedBytes: number;
+  readonly contentBase64: string;
+}
+
+/** Closes a material. The host verifies the assembled digest before it answers. */
+export interface FactoryGuestMaterialSeal extends FactoryGuestMaterialIdentity {
+  readonly schemaVersion: "factory.guest-material-seal.v1";
+  /** `sha256:` + 64 hex over the assembled bytes. */
+  readonly digest: string;
+}
+
+/**
+ * Promotes one sealed material to this attempt's candidate output.
+ *
+ * The bytes are not resent. The host reads the sealed material back through the
+ * scoped reader, re-verifies its digest, requires canonical I-JSON, and stages
+ * it as a `candidate_output` artifact bound to the attempt's own node instance
+ * and candidate generation — both taken from the verified attempt, never from
+ * this frame. That artifact is what a COMPLETED runner result must carry, and
+ * what the validators and the release path read.
+ */
+export interface FactoryGuestMaterialOutput extends FactoryGuestMaterialIdentity {
+  readonly schemaVersion: "factory.guest-material-output.v1";
+  /** The sealed material's digest, repeated so a promotion cannot name another version's bytes. */
+  readonly digest: string;
+}
+
+export type FactoryGuestMaterialRequest =
+  | FactoryGuestMaterialBegin
+  | FactoryGuestMaterialChunk
+  | FactoryGuestMaterialSeal
+  | FactoryGuestMaterialOutput;
+
+/**
+ * Why a staging frame was refused. A refusal is never a quiet substitution.
+ *
+ * `unknown_attempt`: no such attempt was admitted in this scope.
+ * `stale_epoch`: the attempt exists and its liveness fence moved — run epoch,
+ * execution epoch, cancellation epoch, reservation generation, grant revision,
+ * or a status that no longer admits effects. The journal checks them together,
+ * so the code does not say which one moved. Stop; the attempt is superseded.
+ * `unavailable`: a fault in the product's database or object store, not a
+ * decision about this attempt. Frames are idempotent, so resending the same
+ * frame is safe.
+ */
+export type FactoryGuestMaterialRefusal =
+  | "invalid_request"
+  | "unknown_attempt"
+  | "unknown_material"
+  | "deadline_expired"
+  | "stale_epoch"
+  | "oversize"
+  | "digest_mismatch"
+  | "chunk_out_of_order"
+  | "sealed"
+  | "conflict"
+  | "operation_full"
+  | "output_not_canonical_json"
+  | "unavailable";
+
+interface FactoryGuestMaterialAnswer extends FactoryGuestMaterialIdentity {
+  readonly schemaVersion: "factory.guest-material-response.v1";
+}
+
+export type FactoryGuestMaterialResponse =
+  | (FactoryGuestMaterialAnswer & {
+    readonly status: "begun";
+    readonly totalBytes: number;
+    readonly chunkCount: number;
+  })
+  | (FactoryGuestMaterialAnswer & {
+    readonly status: "stored";
+    readonly index: number;
+    readonly digest: string;
+  })
+  | (FactoryGuestMaterialAnswer & {
+    readonly status: "sealed";
+    readonly material: FactoryArtifactReference;
+  })
+  | (FactoryGuestMaterialAnswer & {
+    readonly status: "output";
+    /** The candidate output a COMPLETED result names. */
+    readonly output: FactoryArtifactReference;
+    /** The bare 64-hex digest the result's `resultDigest` must equal. */
+    readonly resultDigest: string;
+  })
+  | (FactoryGuestMaterialAnswer & {
+    readonly status: "refused";
+    readonly refusal: { readonly code: FactoryGuestMaterialRefusal; readonly message: string };
+  });
+
 export interface FactoryMeasuredUsage {
   readonly kind: "measured";
   readonly inputTokens: number;
@@ -1200,6 +1360,12 @@ export interface FactoryGrantResource {
   /** @minimum 1 @maximum 9007199254740991 */
   readonly expiresAtMs: number | null;
   readonly revoked: boolean;
+  /**
+   * The grantee's display name, or the stated placeholder "Unnamed principal".
+   * Never the raw principal id.
+   * @minLength 1 @maxLength 256
+   */
+  readonly displayName: string;
 }
 
 export interface FactoryServiceCredentialResource {

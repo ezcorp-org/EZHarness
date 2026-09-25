@@ -464,6 +464,26 @@ export class FactoryProtectedCommandEffects {
     return { reference, commandDigest: context.commandDigest, acceptanceReference, resolution: snapshot(resolution), profileKey: key, requester: snapshot(context.initiator) };
   }
 
+  /**
+   * The verified command behind one release operation, read inside the caller's transaction.
+   *
+   * Read-only. It returns the reference of the one `request-release` receipt in the operation's
+   * own run whose operation id and request digest both match, or `undefined` when none does. Every
+   * candidate is read through `readReceipt`, so a doctored row is refused as corrupt, and the
+   * reference is built from the operation's own tenant, project and run, so it can never name
+   * another run. Coordinator ruling 2026-09-22: approved for W09c; W05 inherits it.
+   */
+  async readReleaseCommandInTransaction(transaction: MigrationDb, operation: Pick<FactoryReleaseOperation, "tenantId" | "projectId" | "runId" | "operationId" | "requestDigest">): Promise<TrustedFactoryCommandReference | undefined> {
+    if (operation.tenantId !== this.tenantId) throw new FactoryProtectedCommandEffectError("factory_protected_effect_scope");
+    const candidates = rows<{ interpreter_id: string; command_id: string }>(await transaction.execute(sql`SELECT interpreter_id,command_id FROM factory_protected_command_effects WHERE tenant_id=${this.tenantId} AND project_id=${operation.projectId} AND run_id=${operation.runId} AND kind='request-release' ORDER BY interpreter_id,command_id`));
+    for (const row of candidates) {
+      const reference: TrustedFactoryCommandReference = { tenantId: this.tenantId, projectId: operation.projectId, logicalRunId: operation.runId, interpreterId: row.interpreter_id, commandId: row.command_id };
+      const receipt = await this.readReceipt(transaction, reference, "request-release");
+      if (receipt && !isAcceptanceOnlyReceipt(receipt) && (receipt as ReleaseReceipt).operationId === operation.operationId && (receipt as ReleaseReceipt).requestDigest === operation.requestDigest) return reference;
+    }
+    return undefined;
+  }
+
   private capture(serviceValue: TrustedFactoryServiceIdentity, referenceValue: TrustedFactoryCommandReference): { service: TrustedFactoryServiceIdentity; reference: TrustedFactoryCommandReference } {
     const captured = snapshot({ service: serviceValue, reference: referenceValue });
     this.authority.assertService(captured.service);

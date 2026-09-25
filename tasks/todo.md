@@ -3545,6 +3545,115 @@ it as an inline UNIQUE, so the database calls it
 `factory_release_operations_tenant_id_project_id_run_id_node_key`. A live probe confirms two unique
 arbiters and only two.
 
+## W09c — compose the release profile set from the declaration (branch `wp/w09c-profiles`)
+
+Worktree `.worktrees/w09c-profiles` from `integ/w00` at `260855e57`. Gate file
+`tasks/factory/w09c-GATES.md`, receipts `/tmp/factory-platform-evidence/w09c/`.
+
+- [x] Reproduced at the base. With only the new lifecycle cases added, the declared S3 profile
+      composed to `[]` and `requestRelease` refused with `factory_protected_effect_untrusted`
+      (0 pass, 3 fail).
+- [x] Each declared profile is built over its destination. An `s3` destination gets
+      `S3FactoryManifestReleaseProfile` over `FactoryVerifiedAttemptMaterials` at the declared
+      cost. A `github` destination gets a W07 publication request lifted through
+      `factorySynchronousReleaseProfile`. Any other kind is refused with
+      `factory_release_profile_unbuildable`.
+- [x] The composed set reaches `FactoryProtectedCommandEffects` through the existing startup path,
+      and the startup composition now hands it the verified materials reader.
+- [x] Proof in the lifecycle suite on PGlite and on real PostgreSQL with the real ordinary store.
+      `requestRelease` prepares an operation. The running `release-outcome` role claims it on an
+      approval written through W05's writers, and the attempt's sealed members publish.
+- [x] Negative controls. A foreign account is refused at prepare with no operation. A revoked
+      policy fails the claim with reason `policy_revoked`. A rejected approval fails it with
+      reason `approval_not_approved`.
+- [x] Coverage, typecheck, lint, boundaries, and gate integrity are green, with no new source file.
+- [ ] A published release through the real started application. Blocked upstream, see Review.
+
+Review (W09c): the composition itself was small. W08b had already made the S3 profile buildable,
+and W09b had already routed the profile set to the private service. The work was mostly proof.
+The real application cannot yet reach a release node, for two reasons, and both were reported to
+the coordinator. First, acceptance is not composed: no validator runtime, no material
+registration, and no validator scheduler. W09d now owns that. Second, nothing delivers a settled
+release back to orchestration. So the end-to-end publishing proof runs in the lifecycle suite
+against real PostgreSQL and the real object store, and the three real-application passes record
+where the run stops. The S3 profile could not be lifted through `factorySynchronousReleaseProfile`,
+because listing sealed materials is I/O. It keeps W08's `resolve`, and its required `build`
+refuses by name. That is recorded as an interface note rather than changed.
+## W01g — guest material staging over the broker (Terra runtime)
+
+Branch `wp/w01g-staging` from `integ/w00` at `850ffaa54`. Gate file:
+`tasks/factory/w01g-GATES.md`. Evidence: `/tmp/factory-platform-evidence/w01g/`.
+
+- [x] Reproduce the failure first: a real run at the base ends `failed` because the guest returns
+      `cancelled` and has no staging path.
+- [x] Frame contract: `FactoryGuestMaterialBegin/Chunk/Seal` plus an `Output` promotion frame and
+      one typed response union, in the SDK beside the model frames, with generated JSON schemas
+      and Bun/Python parity over the shared conformance fixtures.
+- [x] Host adapter: every frame forwarded to `FactoryAttemptMaterials` under the attempt's
+      verified authority; durable idempotency for a repeated frame; cancellation and the deadline
+      honoured mid-upload; every refusal named.
+- [x] Guest SDK, Bun and Python: `stageOutput(name, bytes | stream)` chunks, seals, and returns
+      the sealed material; `stageResult` and `stageCheckpoint` build what a COMPLETED result
+      carries.
+- [x] Runner result path: the promotion stages the attempt's candidate output through W04's own
+      writer, so the completed result is validated, recorded and projected by the existing path;
+      `NativeFactoryArtifacts` gets its production implementation over the same two writers.
+- [x] Proof on the real started application: a real sandboxed guest stages one output and the run
+      reaches terminal `succeeded` through the completed path.
+- [x] Three consecutive clean passes and the negative control, from this branch at `179674cbf`
+      on a clean tree (`proof-1.json` to `proof-3.json`, `negative-control.json`).
+- [x] The host mounts the route from `services.guestBroker` in its own configuration document
+      (`994deebe8`); the proof-only commit and the file-beside-the-key client are gone.
+- [x] The product runtime binds the route itself from `guestBroker` in its startup document
+      (G14, delegated by the coordinator); the harness only observes.
+- [x] Final sweep on a clean tree after `git merge integ/w00`.
+
+### Review
+
+The gap W09b recorded was not one missing function but a missing route. A guest runs on
+`--network=none`, so W04's material service — which is HTTPS — is unreachable from inside it, and
+the reverse control frame is the only byte path it has. That frame carried exactly one payload,
+the model request. So the work was: define the staging frames, answer them on the host under the
+attempt's own authority, and carry them from the host process that runs the container to the
+product process that holds the tenant database, because W09b's own comment recorded that no route
+between those two existed and that a guest's broker call therefore refused by name.
+
+Three things the first end-to-end run taught, each of which had passed a unit test:
+
+A sealed material has TWO digests. The handle covers the chunk manifest the scoped reader
+resolves; the content digest covers the bytes. Confusing them is silent — both are `sha256:` and
+64 hex — so `stageOutput` now returns both rather than the handle alone, and a promotion names the
+content.
+
+A COMPLETED result cannot name a material. `verifyCompletedEvidence` loads the output as kind
+`candidate_output`, bound to the attempt's own node instance and generation, and re-parses it as
+canonical I-JSON. So the promotion reads the sealed bytes back through the scoped reader and
+stages them through W04's `stageCandidateOutputInTransaction`, whose coordinate makes a repeat
+after a lost response return the same reference and different bytes conflict. Nothing in W03's
+verifier changed.
+
+A completed result also needs a workspace checkpoint whose cursor equals its own, and an attempt
+that settled no operation has cursor -1 — which W04's checkpoint writer refuses, because its names
+are operation indexes. The guest names that one `workspace/attempt.json` and stages a real sealed
+material, so the reference points at bytes rather than at nothing.
+
+Round 2 (2026-09-22). The branch had merged `integ/w00` at `bcd97df48`, not at the W09b merge,
+so W09b's supervisor was not yet on it; the merge at `5c9729734` brought it. The host half of the
+mount is now product code: an optional `services.guestBroker` section in the supervisor document,
+in the pool section's exact shape and validated by the same function. The host builds the client
+before its listener binds, and a model request keeps `factory_host_broker_unavailable`. The
+declared client that read a file beside the host key is removed, and the SDK now owns the
+"is this a staging frame" predicate, so a runner host routes a frame without loading product
+modules. The three passes ran from this worktree, with the section written into W09b's unedited
+harness document by a pass-through bun wrapper. The product half, the listener in the product
+runtime, is still bound by the harness process and stays open as G14 for the coordinator.
+
+Round 3 (2026-09-22). The coordinator delegated the product mount. The startup document has an
+optional `guestBroker` section, and `installation-startup.ts` binds the route in its own W01g
+region beside the private service. Readiness carries `guestBroker` as bound, unconfigured, or
+unavailable with a code. The three passes ran with the web server binding the route and the
+harness only observing.
+
 ## W09d — compose validators into the installation (branch `wp/w09d-validators`)
 
 Brief: `/tmp/factory-platform-evidence/w00/briefs/w09d.md`. Evidence: `/tmp/factory-platform-evidence/w09d/`. Gates: `tasks/factory/w09d-GATES.md`. Report: `/tmp/factory-platform-evidence/w09d/report.txt`.
@@ -3680,6 +3789,44 @@ load; the socket paths were already short. Each cause is pinned by a test that f
 code. At `2d33f46d7` the full backend pool reports 0 fail, and every static and coverage gate passes.
 Two findings are left open outside scope: the ai-kit installer ignores its postinstall exit code, and
 `inspectProductionRunner` keeps a fixed 5-second default for verification commands.
+
+## W15b — Runtime key management and migration follow-ups (branch `wp/w15b-runtime-kms`)
+
+Brief: `/tmp/factory-platform-evidence/w00/briefs/w15b.md`. Gate file: `tasks/factory/w15b-GATES.md`.
+
+- [x] R1 one key-service unit for the orchestrator codec and the restore; each non-file kind proven at runtime (Node launcher and full stack); mismatches refuse typed; the manifest names the kind.
+- [x] R2 the retention kind constraint is replaced by name; proven on the old table shape under PGlite and PostgreSQL.
+- [x] R3 the effect-claims comment corrected.
+- [x] R4 unchanged by design.
+- [x] Gates, receipts, report.
+- [x] Round 2: the pool bundles for Node again (checkpoint limits in a leaf); gate integrity green against `integ/w00` (key service back in `key-composition.ts`); final legs rerun at `5f341bf01`.
+- [x] Round 3 (post-W15c): merged `integ/w00` `b9de6910c`; one copy of the C12 block, the coverage key, and the lesson; N1 gate text; N5 an aborted restore stops without a pool finding; all legs rerun at `9f1391d18`.
+- [ ] Follow-up N2 (owner W15): the checkpoint manifest does not tie the checkpoint to its key wrap (`keys.service` echoes config; the wrap fields are null).
+- [ ] Follow-up N3 (hygiene): skip the retention kind constraint change when `pg_constraint` already holds the same definition.
+- [ ] Follow-up N4 (defence in depth): a keyed report digest, so an edit that also rewrites `report_digest` is caught.
+
+Review (W15b): The orchestrator's payload codec and the restore now open the data key through one unit,
+so a startup document that selects a cloud KMS or a transit engine works at runtime, not only in the
+restore. The Node process may link the KMS client, and the boundary test says exactly that. A wrap
+made under another service, or a service that cannot open it, refuses with `FactoryEncryptionError`.
+The retention kind constraint is replaced by name on every boot. The first backend-pool run failed
+because the batch leaked the PostgreSQL environment into it; the batch now uses subshells.
+Round 2: the W15 merge made the pool service import the checkpoint barrier, which links the Bun
+database driver, so the Node pool bundle failed. The limits now live in a leaf module the barrier
+re-exports. Gate integrity had refused round 1's move of `key-composition.ts`; the selection is back
+in that file. Every final leg exits 0 at `5f341bf01`, including the backend pool.
+Round 3: W15c's gate replaced W15b's copy of the pool checks. A restore cancelled during a pool call
+now stops with its abort and records nothing for that call; before, it recorded a pool refusal first.
+
+### W18 hygiene backlog: load-sensitive suites outside W15b (recorded by W15b, 2026-09-24)
+
+- [ ] `src/__tests__/production-image-lifecycle-launch.integration.test.ts`: under the full backend pool
+  on the shared host, "launcher cancellation reaps its verifier and runner before streams drain" failed
+  (5517 ms); alone it passes 5/0. Evidence: `/tmp/factory-platform-evidence/w15b/logs/pool-flake-alone.log`.
+- [ ] `src/__tests__/substack-pilot-installer.test.ts`: under the full pool, "Substack source seals settings
+  and checksums, then publishes only its exact human-approved release" hit its 120 s timeout and two
+  credential-broker cases failed after it; alone it passes 3/0. Evidence: `.../w15b/logs/pool-flake-alone-2.log`.
+
 ## W18a-2 — second complexity pass and the three coverage-key gaps (branch `wp/w18a2-quality`)
 
 Brief: `/tmp/factory-platform-evidence/w00/briefs/w18a2.md`. Gates: `tasks/factory/w18a2-GATES.md`.
@@ -3753,9 +3900,64 @@ file this package changed. G6 is rerun after W15b lands.
 
 - Every startup document declares the recovery sections; an installation without them stays degraded (factory-checkpoint-barrier-held) and never reports ready.
 
+## W15c — Pool service leaf (branch `wp/w15c-pool-leaf`)
+
+Gate file: `tasks/factory/w15c-GATES.md`. Evidence: `/tmp/factory-platform-evidence/w15c/`.
+
+- [x] The checkpoint limits and pool-facing types move to the leaf `checkpoint-limits.ts`; the barrier re-exports them.
+- [x] The Node build of the pool service passes with no `bun` import; the pool mTLS suite passes under PostgreSQL.
+- [x] `check-factory-boundaries.ts` rejects a pool service graph that reaches `src/db/connection.ts`; a deliberate violation is tested.
+- [ ] Backend pool: 3 Podman guest suites fail because the host lost their pinned images at about 16:50Z.
+
+Review (W15c): The W15 merge put the checkpoint barrier into the pool service's import graph, and the
+barrier reaches the Bun SQL driver, so the pool could not bundle for Node. The pool now reads a leaf
+module. The factory boundary checker owns the runtime import walker and fails the build if the pool
+graph reaches the database connection again. Every gate passes except the backend pool, which fails
+only in three guest suites whose images were removed from the host.
+
 ## W18 test-hygiene backlog (coordinator)
 
 - compose.factory-storage.local.yml: declare restart: on-failure for both SeaweedFS services and the proof PostgreSQL so a recreated store keeps the policy the coordinator set by hand on 2026-09-23 after the OOM kill; document it in docs/factory-local-storage.md.
+
+## W19a — graph proof: deterministic tasks and a model task, end to end (branch `wp/w19a-graph-proof`)
+
+Brief: `/tmp/factory-platform-evidence/w00/briefs/w19a-graph-proof.md`. Gates: `tasks/factory/w19a-GATES.md`.
+Receipts: `/tmp/factory-platform-evidence/w19a/`. Base: `integ/w00` at `6c8ec29c5`, plus `wp/w01g-staging` at `f0aafe3a0`.
+
+Finding before the plan: at the base a guest's model call cannot reach a model in the real application. The host
+refuses it with `factory_host_broker_unavailable`, the product guest-broker route serves staging frames only, and the
+product composes its provider broker for readiness and never calls it. The runner profiles in the startup document
+cannot declare a model pin, and the provider broker resolves an Ollama model without its registered base URL.
+
+- [x] Host: forward a guest model request over the existing guest-broker route (one broker, one channel).
+- [x] Product: answer a model request on that route through `createFactoryGuestModelBroker`, the durable journal,
+      W04's workspace checkpoints, and the installation's pinned provider, resolved per call.
+- [x] Provider: resolve a pinned model the way the chat router does (catalog, discovered, registered custom model,
+      the test-surface mock); readiness accepts a registered local model; temperature and seed reach the request.
+- [x] Startup document: a runner profile may declare a model pin; boot refuses a pin that disagrees with its runner
+      or with the installation's `modelProvider`.
+- [x] Mock provider for CI: a prompt-digest mode in the in-process mock LLM (fixed answer per prompt digest).
+- [x] Harness in `scripts/factory-graph-proof/`: the W09b/W01g/W15b real-server stack, a three-export guest, the graph
+      A prepare -> B infer -> C combine, modes (a) Ollama and (b) mock, and four negative controls.
+- [x] Proofs: three passes per mode on fresh databases, controls refused by name, determinism recorded.
+- [x] Runbook `docs/factory-graph-proof.md`, followed literally.
+- [x] Gates: coverage of new files and changed lines, PostgreSQL suites registered, typecheck, lint, boundaries,
+      gate-integrity, no credential value, dangling images pruned.
+
+### Review
+
+The graph works end to end on the real application in both modes, three of three each, on fresh
+databases, at `452f0bc62`. A deterministic task feeds a model task, whose answer and the first task's
+count feed a third deterministic task. Each node reads its inputs from the store under the scope that
+sealed them, and the model task's journal holds exactly one completed model operation with the pinned
+provider, model and measured tokens. It did not work at the base: the host refused every model call,
+the product route served staging frames only, and nothing called the provider. This package wired
+that path without a new channel or a contract change, proved the guest's journal mirroring in-process
+on PGlite and PostgreSQL, and added a prompt-digest mock so CI needs no Ollama. The campaigns found
+two defects outside this package's files, both fixed with a test that fails on the old code: a
+gateway timeout that never settled under Bun, and a 500 in place of a named 422. They also found one
+contract gap that needs a ruling: a provider error leaves the run held forever on an unknown cost.
+Gates, receipts and findings: `tasks/factory/w19a-GATES.md`.
 - W09b harness: an empty EZCORP_FACTORY_STORAGE_SECRETS_DIR resolves to a relative 'ordinary.json' and fails with ENOENT deep in setup. Refuse at start with a typed message that names the variable.
 - W09b harness: a run that fails before cleanup leaves ~/.w09b-stack-<id> with test keys and tokens (one from 2026-09-22 exists). Make cleanup unconditional (finally).
 - Pre-commit hook: it skips its PostgreSQL and staged suites when more than 12 test files map to the commit (36 at the W15 merge, 74 at the origin/main 96e7ee58c merge 9ba704f4f). A gate must not skip silently: run all, or fail and name the cap.
@@ -3764,6 +3966,9 @@ file this package changed. G6 is rerun after W15b lands.
 - Main-origin ordered leak, owner W18a-3 (ruling 2026-09-24): src/__tests__/security/h1-local-provider-ssrf.test.ts passes alone (148/0) but fails with "Export named 'requireAdmin' not found in module '$lib/server/security/api-keys'" when it runs after security/cross-tenant-deletion-projects-kb-modes.test.ts or after mentions-search-symlink-integration.test.ts. Reproduced on pure main 96e7ee58c and on integ 6c8ec29c5. Cause: both earlier files mock the api-keys alias with only requireScope. Fix: spread the real module into those partial mocks. Prove with the pair matrix.
 - Main-origin ordered leak, owner W18a-3 (ruling 2026-09-24): mentions-search-workflow-branch then mentions-search-symlink-integration gives 25 pass 6 fail (reverse order 31/0), on pure main 96e7ee58c too. main's mentions route imports $server/runtime/workspace/target and only the symlink test mocks it. Fix: mock it in workflow-branch too, or use claim-and-revert. Prove with the pair matrix.
 - BLOCKER for the wave4f combined run: (1) pool-coverage is red since the W15 merge (the node bundle of src/factory/pool/service-server.ts pulls drizzle-orm/bun-sql through checkpoint-barrier -> db/queries/extension-releases -> db/connection); W15b (wp/w15b-runtime-kms c39c039b9) fixes it. (2) the W18a-3 fixes for F3, F4 and the two ordered leaks above.
+- W01g follow-ups from its round-4 validation (coordinator ruling 2026-09-24; hygiene backlog, N3 also for W19 measurement): N1 src/factory/executions.ts:186, the class doc comment ("Durable C02 journal; ...") sits above the new type's doc comment and no longer documents the class; N2 the W01g harness observer (repro/guest-broker-observer.ts) stops polling silently on any query failure after one good poll, which could hide a real mid-run fault; N3 readFactoryAttemptLaunchFacts takes FOR UPDATE on the launch row for every guest frame (attempt-runtime.ts:181), contending with the dispatcher, and a corrupt row throws launch_corrupt without a named route status.
+- Flake, owner W18a-3 (seen at the W01g merge attempt, 2026-09-24): src/factory/runner/supervisor-process.test.ts "runConfiguredFactorySupervisor > bounds the probe and names a timeout as its own failure" failed once in 14 runs (5/5 pass in staging and 8/8 at W01g f0aafe3a0 afterwards). Make the probe-timeout test await the observed operation instead of a timer turn.
+- Pre-commit hook, owner W18a-3 (coordinator ruling 2026-09-24): scripts/lib/hook-lib.sh run_staged_tests runs every staged backend test with `bun test`, including packages/@ezcorp/factory-orchestrator/test/*.test.ts, which must run only through that package's own node --test script. At the W09d-2 merge it ran temporal-replay.test.ts under Bun: 12 pass, 15 fail (Temporal workflow timeouts), while `bun run test` in the package passed 88/88. Route those files to the package script.
 - Renamed the root instruction file to `AGENTS.md` and updated all live root-file references. Nested, scope-specific `CLAUDE.md` files remain unchanged.
 - Added tested rootless Podman commands for the Linux development stack and the Linux/macOS production stack. Renamed the production override to `compose.podman-prod.yml`.
 - Proved the uid/gid and bind-mount contract with executable tests, rendered Compose output, the production image user, and real rootless Podman write tests.
@@ -4451,3 +4656,63 @@ uses explicit portable empty-variable syntax and preserves its literal rebuild c
 tests pass 132 tests and 315 assertions. The repaired full backend pool passes 26,273 tests across
 1,676 files. Lint over 4,680 files, full typecheck, Svelte check, dependency boundaries, gate
 integrity, Actionlint, Bash syntax, ShellCheck, the production build, and `git diff --check` pass.
+
+## W02c — the package quarantine fence (branch `wp/w02c-quarantine`)
+
+Base `integ/w00` `578692e8a`; merged `943b9fa0c` at `43d224900` and `8cea0f638` at `3695f8351`. Passes at `1d06a7394`, sweep at `3695f8351`. Receipts: `/tmp/factory-platform-evidence/w02c/`. Gates: `tasks/factory/w02c-GATES.md`.
+
+- [x] Reproduce at base in the real application (W09b's stack, a guest that waits): quarantine mid-attempt, then start a second run.
+- [x] Typed refusal: `factory_package_quarantined` / `factory_package_revoked` carry the trust revision that set the state and the installation generation it was decided against.
+- [x] Admission fence: the production runner policy reads current trust before it admits an attempt.
+- [x] Preflight and launch fences: the existing readiness reads refuse with the typed error; the dispatcher records the typed code.
+- [x] Live work: a production `FactoryPackageQuarantineFence` cancels every run with a live attempt on the package, with the typed reason, through the ordinary kernel cancel and so through W03's stop path; one shared in-transaction cancel for operator and fence.
+- [x] Affected-run record: a sealed table written in the quarantine transaction, idempotent; a scoped reader for W14 and a preview that uses the same query.
+- [x] Fail closed: quarantine and revoke refuse by name when no fence is composed.
+- [x] Lift: a later publish re-admits new attempts only; stopped runs stay cancelled with their reason.
+- [x] Tests: success, concurrent quarantine and admission or launch (one winner), lost response, crash mid-fence and mid-stop, stale revision and generation, cross-tenant, corruption, fail-closed; restart suite; PostgreSQL parity and suite registration.
+- [x] Real-server proof, three passes (9/9 each, `proof/receipt-v2-pass-*.json`). Two blockers outside W02c are reported in the gate file's Open section.
+- [x] Gate file, review, sweep.
+
+**Review.** The fence existed as a seam with nothing behind it. The real application quarantined a package
+and kept running its attempt, admitted new attempts, and kept no record. The base run measured all of that.
+W02c puts a production fence behind the seam. In the decision's own transaction it cancels each affected run
+through the operator's cancel, which W03's stop path then settles unchanged. It writes one sealed record per
+attempt and refuses admission, preflight and launch with a typed error naming the generation. The real server
+shows the fence's own promises holding in three passes: the guest was stopped mid-attempt, the stop survived a
+killed product server, the run was recorded, a new run was refused by name, and a run after the lift launched.
+Two things the fence consumes still stop a run from ending. W03's usage reconciliation leaves a stopped
+zero-operation attempt's hold unresolved, so run A stays `cancelling`. The orchestrator runs each effect once,
+so a refused admission kills the run's workflow. Both are reported as interface questions, not worked around.
+
+## W09d-2 — named refusals on the executions route (branch `wp/w09d2-named-refusals`)
+
+Base `wp/w02c-quarantine` `daf5203cc`. Evidence: `/tmp/factory-platform-evidence/w09d2/`. Gates: `tasks/factory/w09d2-GATES.md`.
+
+- [x] Reproduce at the base: W02c's run B stays `running` (red).
+- [x] One named-refusal answer in the router, on the executions route and the effects; the W09d wrapper is moved, not copied.
+- [x] Measure that the name alone does not end run B, and find why (cancel refused as stale, run held in `stopping`).
+- [x] Atomic "nothing queued" in `FactoryTaskExecutionAdmission.dispatch` (savepoint, same locked transaction), per the coordinator's safety condition.
+- [x] The kernel ends a running task node in place on `admission_denied`; every other dispatch failure keeps the cancel.
+- [x] Real server at the head: run B ends `failed` with `factory_package_quarantined` (10/10).
+- [x] Unit, route, real-store, kernel, and Temporal replay tests; W09d and W02c suites; coverage and static gates.
+- [x] Measure and disclose the leftover compute lease and budget hold (W02, W03).
+
+### Review
+
+The executions route now answers a typed refusal by name, from the same one place as the effects. That was not enough. The kernel answers a failed dispatch with a cancel, the stop path refused that cancel because nothing was ever queued, and the run waited in `stopping` for ever. The product now decides "refused, and nothing queued" inside the refusal's own locked transaction under a savepoint. Only then does it tell the kernel `admission_denied`, and the kernel fails the task node in place with the refusal's name. Every uncertain case keeps the cancel. On the real server, run B went from `running` at the base to `failed` with `factory_package_quarantined` at the head. One gap is left, measured and assigned: the admitted compute lease and budget hold of a refused dispatch are released by nothing (W02, W03).
+
+## W04b — re-grant after revoke, and grantee display names (branch `wp/w04b-regrant`)
+
+Base `integ/w00` `d5ee52309`. Receipts: `/tmp/factory-platform-evidence/w04b/`. Gates: `tasks/factory/w04b-GATES.md`.
+
+- [x] Reproduce at base: grant, revoke, grant again fails with `factory_artifact_grant_conflict`.
+- [x] One row per grant (`grant_revision`); the revoked row stays; the new grant is a new active row; a partial unique index covers active grants only; an active grant still conflicts.
+- [x] Migration proven on the old shape holding a revoked row, rerunnable with unchanged oids; restart case; parity index.
+- [x] Grant records and the grant API name the grantee (`displayName`), with the placeholder `Unnamed principal` for no name.
+- [x] Tests on PGlite, real PostgreSQL, and Vitest; sweep green.
+
+**Review.** The share table was keyed by the share, so its first row, even once revoked, owned the key forever.
+Numbering grants turns revoke-then-grant into history rather than a conflict. A partial index keeps the rule
+that matters: one active grant per target. First grants keep their old seal, so every existing row still
+verifies. The display name is read from the user or service-account record only. It is resolved outside the
+authorization path, and it can never fall back to the raw id.

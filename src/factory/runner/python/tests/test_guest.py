@@ -18,7 +18,7 @@ from guest import (
     Guest,
     GuestError,
     _execute_from_tmp,
-    _optional_guest_model_schemas,
+    _optional_schema_pair,
     load_schema,
     main,
     read_control,
@@ -101,18 +101,30 @@ class VerdictTest(unittest.TestCase):
         it for a model verdict is an error rather than an answer from a default
         the Bun runtime never agreed to."""
         bare = Guest(REQUEST_SCHEMA, RESULT_SCHEMA)
-        for kind in ("guest-model-request", "guest-model-response"):
+        for kind in (
+            "guest-model-request",
+            "guest-model-response",
+            "guest-material-request",
+            "guest-material-response",
+        ):
             with self.assertRaises(GuestError):
                 bare.verdict(kind, guest_model_request())
 
     def test_the_optional_pair_is_loaded_when_staged_and_absent_otherwise(self) -> None:
-        self.assertEqual(_optional_guest_model_schemas(Path(tempfile.gettempdir()) / "absent"), (None, None))
-        asked, answered = _optional_guest_model_schemas(schema_path("factory-guest-model-request.schema.json").parent)
+        model_names = ("factory-guest-model-request.schema.json", "factory-guest-model-response.schema.json")
+        material_names = ("factory-guest-material-request.schema.json", "factory-guest-material-response.schema.json")
+        self.assertEqual(_optional_schema_pair(Path(tempfile.gettempdir()) / "absent", model_names), (None, None))
+        directory = schema_path("factory-guest-model-request.schema.json").parent
+        asked, answered = _optional_schema_pair(directory, model_names)
         self.assertIsNotNone(asked)
         self.assertIsNotNone(answered)
         assert asked is not None and answered is not None
         self.assertEqual(asked["$id"], "urn:ezcorp:factory:guest-model-request:v1")
         self.assertEqual(answered["$id"], "urn:ezcorp:factory:guest-model-response:v1")
+        staged, replied = _optional_schema_pair(directory, material_names)
+        assert staged is not None and replied is not None
+        self.assertEqual(staged["$id"], "urn:ezcorp:factory:guest-material-request:v1")
+        self.assertEqual(replied["$id"], "urn:ezcorp:factory:guest-material-response:v1")
 
 
 class RunExportTest(unittest.TestCase):
@@ -150,7 +162,10 @@ class RunExportTest(unittest.TestCase):
 class DispatchTest(unittest.TestCase):
     def test_discovery_returns_the_declared_manifest(self) -> None:
         self.assertEqual(guest().dispatch("extension/discover", None), MANIFEST)
-        self.assertEqual([tool["name"] for tool in MANIFEST["tools"]], ["validate", "run", "controls", "hostile"])
+        self.assertEqual(
+            [tool["name"] for tool in MANIFEST["tools"]],
+            ["validate", "run", "stage", "controls", "hostile"],
+        )
 
     def test_cancel_is_acknowledged(self) -> None:
         self.assertEqual(guest().dispatch("extension/cancel", None), {"cancelled": True})

@@ -95,7 +95,15 @@ function createTransport(
           response.on("end", () => resolve({ statusCode: response.statusCode ?? 0, headers: response.headers, body: Buffer.concat(chunks) }));
           response.on("error", reject);
         });
-        const deadline = setTimeout(() => request.destroy(new Error("factory gateway request timed out")), timeoutMs);
+        const deadline = setTimeout(() => {
+          const error = new Error("factory gateway request timed out");
+          // Settled here, not left to the `error` event: Bun destroys the
+          // request and emits only `close`, so a request whose peer never
+          // answered would otherwise stay pending forever. Node emits `error`
+          // as well, and the second rejection is a no-op.
+          reject(error);
+          request.destroy(error);
+        }, timeoutMs);
         request.once("close", () => clearTimeout(deadline));
         request.on("error", reject);
         if (body) request.write(body);

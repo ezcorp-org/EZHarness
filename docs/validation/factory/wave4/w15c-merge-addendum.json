@@ -1,0 +1,36 @@
+{
+ "package": "w15c",
+ "addendumTo": "w15c-merge.json (merge 943501e4e67c2039085e2a6239a0b4a73f141c6f)",
+ "reason": "coordinator 2026-09-24: name each disclosed backend-pool red with its count and the W18a-3 reference; w15c-merge.json named them only as a class",
+ "mergeTimePoolLeg": "the integrator's heavy leg at the merge ran the combined runner's pool PRODUCER (scripts/factory-pool-coverage.sh), which exited 0 with no failure; it is not the backend test pool",
+ "backendPool": {
+  "source": "the W15c worker's backend pool at proof merge 2836a5a4ead54cb055d313c04dfbcdef1a3f8167 (ref proof/w15c-w12c-guests = integ/w00 6964dec93 + W15c), command 'timeout 3600 bun run test', exit 1",
+  "totals": "28801 pass, 14 fail, 1943 files",
+  "logSha256": "f6efb9e794ad34a3ee4adacef3a88f6e0e8375613141f0999a1cef2212c524ff",
+  "log": "w15c-backend-pool.log",
+  "reds": [
+   {
+    "suite": "src/__tests__/podman-compose-wrapper.test.ts",
+    "fail": 10,
+    "item": "F4 (main-origin), owner W18a-3"
+   },
+   {
+    "suite": "src/__tests__/local-sandbox-startup.test.ts",
+    "fail": 2,
+    "item": "F3 umask 077 (main-origin), owner W18a-3"
+   },
+   {
+    "suite": "src/__tests__/setup-podman.test.ts",
+    "fail": 1,
+    "item": "F3 umask 077 (main-origin), owner W18a-3"
+   },
+   {
+    "suite": "src/__tests__/dev-image-provenance.test.ts",
+    "fail": 1,
+    "item": "F3 umask 077 (main-origin), owner W18a-3"
+   }
+  ],
+  "outsideList": 0,
+  "ruling": "exactly the 14 known F3/F4 reds (umask x4, podman-compose-wrapper x10), the same as plain integ/w00 6964dec93 without W15c; not W15c failures; red on every head until W18a-3 lands"
+ }
+}

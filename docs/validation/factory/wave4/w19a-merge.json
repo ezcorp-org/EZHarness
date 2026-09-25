@@ -1,0 +1,1435 @@
+{
+ "package": "w19a",
+ "branch": "wp/w19a-graph-proof",
+ "head": "a31ad49979e84e16d786487c64079f71b9d783c1",
+ "branchBase": "bfa74c11fe275d00cf8c6f5b5f692362dad24c0d",
+ "validatorVerdict": "ACCEPT at a31ad4997 (validator-2; verdict filed by the coordinator; copied as w19a-validation.txt)",
+ "workerReport": "the gate file tasks/factory/w19a-GATES.md (copied as w19a-worker-report.txt)",
+ "mergeSha": "dd5cbe8c905ba6e6963b5b78907771b17c790b20",
+ "tree": "8aef5b06a35398c3c95ce27c034ca4938a8191e2",
+ "parents": [
+  "2b2e1255049d390f65b33f1850aa435d8ee8e707",
+  "a31ad49979e84e16d786487c64079f71b9d783c1"
+ ],
+ "conflicts": {
+  "tasks/lessons.md": "union",
+  "source": "none"
+ },
+ "integrationFix": [],
+ "graphProof": {
+  "harness": "scripts/factory-graph-proof/run.sh all (runbook docs/factory-graph-proof.md), W19A_OUT under w00/w19a-merge; the PostgreSQL URL is built inside the script",
+  "run1": {
+   "when": "lock queued 23:29:51Z, ended 2026-09-25T00:54:10Z",
+   "exit": 1,
+   "result": "7 of 8 passes green; control-no-pin failed",
+   "failure": "control-no-pin: node A prepare settled runner_outcome_unknown on attempt 1 of 3 (launch 'launched', no execution terminal row); the run stayed 'running', never retried or failed, B was never dispatched, so the refusal was never observed. The supervisor and pool log tails were empty.",
+   "defect": "OPEN DEFECT runner-outcome-unknown-stuck-run (coordinator ruling 2026-09-25: not a flake; runner/supervisor path, W01g code on integ/w00, not W19a's; the empty supervisor log tail is a second defect in its diagnostics; investigation assigned to w01g-fix as a new package)",
+   "defectEvidence": "/tmp/factory-platform-evidence/w00/w19a-merge/defect-runner-outcome-unknown/ (SUMMARY.json indexes it; receipts copy w19a-merge-defect-summary.json and w19a-merge-defect-db-rows.json); the retained database w19a_product_1790296712064_7c9b39 was dumped read-only and then dropped",
+   "passes": [
+    {
+     "label": "control-missing-model",
+     "mode": "ollama",
+     "control": "missing-model",
+     "outcome": "passed",
+     "failure": null,
+     "runTimeline": [
+      "queued",
+      "running"
+     ],
+     "inferOperations": 1,
+     "inputTokens": null,
+     "outputTokens": null,
+     "answer": null,
+     "checks": [
+      {
+       "check": "C never ran",
+       "ok": true
+      },
+      {
+       "check": "B was refused provider_unavailable",
+       "ok": true
+      },
+      {
+       "check": "the refusal carries Ollama's own missing-model message",
+       "ok": true
+      },
+      {
+       "check": "the provider error is journaled as B's one failed model operation",
+       "ok": true
+      }
+     ]
+    },
+    {
+     "label": "control-no-pin",
+     "mode": "mock",
+     "control": "no-pin",
+     "outcome": "failed",
+     "failure": "checks failed: the run ended failed; B ran with no model pin; B was refused model_pin_mismatch by the broker",
+     "runTimeline": [
+      "queued",
+      "running"
+     ],
+     "inferOperations": 0,
+     "inputTokens": null,
+     "outputTokens": null,
+     "answer": null,
+     "checks": [
+      {
+       "check": "C never ran",
+       "ok": true
+      },
+      {
+       "check": "the run ended failed",
+       "ok": false
+      },
+      {
+       "check": "B ran with no model pin",
+       "ok": false
+      },
+      {
+       "check": "B was refused model_pin_mismatch by the broker",
+       "ok": false
+      },
+      {
+       "check": "nothing was claimed or journaled for B",
+       "ok": true
+      },
+      {
+       "check": "the compiler refused the missing port by name, BINDING_PORT",
+       "ok": true
+      },
+      {
+       "check": "the invalid draft is unavailable, and publishing it is refused 422 factory_definition_invalid naming BINDING_PORT",
+       "ok": true
+      }
+     ]
+    },
+    {
+     "label": "mock-1",
+     "mode": "mock",
+     "control": "none",
+     "outcome": "passed",
+     "failure": null,
+     "runTimeline": [
+      "queued",
+      "running",
+      "succeeded"
+     ],
+     "inferOperations": 1,
+     "inputTokens": 10,
+     "outputTokens": 3,
+     "answer": "prompt-digest answer 95a14d196e84db4a",
+     "checks": [
+      {
+       "check": "the run projected succeeded",
+       "ok": true
+      },
+      {
+       "check": "every node ran once",
+       "ok": true
+      },
+      {
+       "check": "C.summary equals the value computed from A.count and B.answer, all read from the store",
+       "ok": true
+      },
+      {
+       "check": "C was dispatched with exactly A.count and B.answer",
+       "ok": true
+      },
+      {
+       "check": "B was dispatched with exactly A.text",
+       "ok": true
+      },
+      {
+       "check": "each completion carried the bytes the store holds",
+       "ok": true
+      },
+      {
+       "check": "B's journal shows exactly one model operation, completed",
+       "ok": true
+      },
+      {
+       "check": "B's operation carries measured usage with tokens",
+       "ok": true
+      },
+      {
+       "check": "B ran under the pinned provider and model",
+       "ok": true
+      },
+      {
+       "check": "A and C settled no operation",
+       "ok": true
+      },
+      {
+       "check": "B's staged usage is the journal's usage",
+       "ok": true
+      }
+     ]
+    },
+    {
+     "label": "mock-2",
+     "mode": "mock",
+     "control": "none",
+     "outcome": "passed",
+     "failure": null,
+     "runTimeline": [
+      "queued",
+      "running",
+      "succeeded"
+     ],
+     "inferOperations": 1,
+     "inputTokens": 10,
+     "outputTokens": 3,
+     "answer": "prompt-digest answer 95a14d196e84db4a",
+     "checks": [
+      {
+       "check": "the run projected succeeded",
+       "ok": true
+      },
+      {
+       "check": "every node ran once",
+       "ok": true
+      },
+      {
+       "check": "C.summary equals the value computed from A.count and B.answer, all read from the store",
+       "ok": true
+      },
+      {
+       "check": "C was dispatched with exactly A.count and B.answer",
+       "ok": true
+      },
+      {
+       "check": "B was dispatched with exactly A.text",
+       "ok": true
+      },
+      {
+       "check": "each completion carried the bytes the store holds",
+       "ok": true
+      },
+      {
+       "check": "B's journal shows exactly one model operation, completed",
+       "ok": true
+      },
+      {
+       "check": "B's operation carries measured usage with tokens",
+       "ok": true
+      },
+      {
+       "check": "B ran under the pinned provider and model",
+       "ok": true
+      },
+      {
+       "check": "A and C settled no operation",
+       "ok": true
+      },
+      {
+       "check": "B's staged usage is the journal's usage",
+       "ok": true
+      }
+     ]
+    },
+    {
+     "label": "mock-3",
+     "mode": "mock",
+     "control": "none",
+     "outcome": "passed",
+     "failure": null,
+     "runTimeline": [
+      "queued",
+      "running",
+      "succeeded"
+     ],
+     "inferOperations": 1,
+     "inputTokens": 10,
+     "outputTokens": 3,
+     "answer": "prompt-digest answer 95a14d196e84db4a",
+     "checks": [
+      {
+       "check": "the run projected succeeded",
+       "ok": true
+      },
+      {
+       "check": "every node ran once",
+       "ok": true
+      },
+      {
+       "check": "C.summary equals the value computed from A.count and B.answer, all read from the store",
+       "ok": true
+      },
+      {
+       "check": "C was dispatched with exactly A.count and B.answer",
+       "ok": true
+      },
+      {
+       "check": "B was dispatched with exactly A.text",
+       "ok": true
+      },
+      {
+       "check": "each completion carried the bytes the store holds",
+       "ok": true
+      },
+      {
+       "check": "B's journal shows exactly one model operation, completed",
+       "ok": true
+      },
+      {
+       "check": "B's operation carries measured usage with tokens",
+       "ok": true
+      },
+      {
+       "check": "B ran under the pinned provider and model",
+       "ok": true
+      },
+      {
+       "check": "A and C settled no operation",
+       "ok": true
+      },
+      {
+       "check": "B's staged usage is the journal's usage",
+       "ok": true
+      }
+     ]
+    },
+    {
+     "label": "ollama-1",
+     "mode": "ollama",
+     "control": "none",
+     "outcome": "passed",
+     "failure": null,
+     "runTimeline": [
+      "queued",
+      "running",
+      "succeeded"
+     ],
+     "inferOperations": 1,
+     "inputTokens": 32,
+     "outputTokens": 14,
+     "answer": "The primary colors of light are red, blue, and yellow.",
+     "checks": [
+      {
+       "check": "the run projected succeeded",
+       "ok": true
+      },
+      {
+       "check": "every node ran once",
+       "ok": true
+      },
+      {
+       "check": "C.summary equals the value computed from A.count and B.answer, all read from the store",
+       "ok": true
+      },
+      {
+       "check": "C was dispatched with exactly A.count and B.answer",
+       "ok": true
+      },
+      {
+       "check": "B was dispatched with exactly A.text",
+       "ok": true
+      },
+      {
+       "check": "each completion carried the bytes the store holds",
+       "ok": true
+      },
+      {
+       "check": "B's journal shows exactly one model operation, completed",
+       "ok": true
+      },
+      {
+       "check": "B's operation carries measured usage with tokens",
+       "ok": true
+      },
+      {
+       "check": "B ran under the pinned provider and model",
+       "ok": true
+      },
+      {
+       "check": "A and C settled no operation",
+       "ok": true
+      },
+      {
+       "check": "B's staged usage is the journal's usage",
+       "ok": true
+      }
+     ]
+    },
+    {
+     "label": "ollama-2",
+     "mode": "ollama",
+     "control": "none",
+     "outcome": "passed",
+     "failure": null,
+     "runTimeline": [
+      "queued",
+      "running",
+      "succeeded"
+     ],
+     "inferOperations": 1,
+     "inputTokens": 32,
+     "outputTokens": 14,
+     "answer": "The primary colors of light are red, blue, and yellow.",
+     "checks": [
+      {
+       "check": "the run projected succeeded",
+       "ok": true
+      },
+      {
+       "check": "every node ran once",
+       "ok": true
+      },
+      {
+       "check": "C.summary equals the value computed from A.count and B.answer, all read from the store",
+       "ok": true
+      },
+      {
+       "check": "C was dispatched with exactly A.count and B.answer",
+       "ok": true
+      },
+      {
+       "check": "B was dispatched with exactly A.text",
+       "ok": true
+      },
+      {
+       "check": "each completion carried the bytes the store holds",
+       "ok": true
+      },
+      {
+       "check": "B's journal shows exactly one model operation, completed",
+       "ok": true
+      },
+      {
+       "check": "B's operation carries measured usage with tokens",
+       "ok": true
+      },
+      {
+       "check": "B ran under the pinned provider and model",
+       "ok": true
+      },
+      {
+       "check": "A and C settled no operation",
+       "ok": true
+      },
+      {
+       "check": "B's staged usage is the journal's usage",
+       "ok": true
+      }
+     ]
+    },
+    {
+     "label": "ollama-3",
+     "mode": "ollama",
+     "control": "none",
+     "outcome": "passed",
+     "failure": null,
+     "runTimeline": [
+      "queued",
+      "running",
+      "succeeded"
+     ],
+     "inferOperations": 1,
+     "inputTokens": 32,
+     "outputTokens": 14,
+     "answer": "The primary colors of light are red, blue, and yellow.",
+     "checks": [
+      {
+       "check": "the run projected succeeded",
+       "ok": true
+      },
+      {
+       "check": "every node ran once",
+       "ok": true
+      },
+      {
+       "check": "C.summary equals the value computed from A.count and B.answer, all read from the store",
+       "ok": true
+      },
+      {
+       "check": "C was dispatched with exactly A.count and B.answer",
+       "ok": true
+      },
+      {
+       "check": "B was dispatched with exactly A.text",
+       "ok": true
+      },
+      {
+       "check": "each completion carried the bytes the store holds",
+       "ok": true
+      },
+      {
+       "check": "B's journal shows exactly one model operation, completed",
+       "ok": true
+      },
+      {
+       "check": "B's operation carries measured usage with tokens",
+       "ok": true
+      },
+      {
+       "check": "B ran under the pinned provider and model",
+       "ok": true
+      },
+      {
+       "check": "A and C settled no operation",
+       "ok": true
+      },
+      {
+       "check": "B's staged usage is the journal's usage",
+       "ok": true
+      }
+     ]
+    }
+   ],
+   "defectReceiptRedaction": "the first receipts attempt was stopped by the pinned gitleaks (2 x generic-api-key on the dump's lease_token and allocation_token values); the receipt copy w19a-merge-defect-db-rows.json replaces every *_token value with REDACTED:sha256:<12 hex> (2 values); the unredacted dump stays in the evidence folder; the copied files and SHA256SUMS were reverted before the rerun, and no gate or allowlist was changed"
+  },
+  "run2": {
+   "when": "gated: lock acquired 2026-09-25T06:10:55Z with 127G free; ended 06:16:17Z",
+   "exit": 0,
+   "verdict": "passed",
+   "passes": [
+    {
+     "label": "control-missing-model",
+     "mode": "ollama",
+     "control": "missing-model",
+     "outcome": "passed",
+     "failure": null,
+     "runTimeline": [
+      "queued",
+      "running"
+     ],
+     "inferOperations": 1,
+     "inputTokens": null,
+     "outputTokens": null,
+     "answer": null,
+     "checks": [
+      {
+       "check": "C never ran",
+       "ok": true
+      },
+      {
+       "check": "B was refused provider_unavailable",
+       "ok": true
+      },
+      {
+       "check": "the refusal carries Ollama's own missing-model message",
+       "ok": true
+      },
+      {
+       "check": "the provider error is journaled as B's one failed model operation",
+       "ok": true
+      }
+     ]
+    },
+    {
+     "label": "control-no-pin",
+     "mode": "mock",
+     "control": "no-pin",
+     "outcome": "passed",
+     "failure": null,
+     "runTimeline": [
+      "queued",
+      "running",
+      "failed"
+     ],
+     "inferOperations": 0,
+     "inputTokens": null,
+     "outputTokens": null,
+     "answer": null,
+     "checks": [
+      {
+       "check": "C never ran",
+       "ok": true
+      },
+      {
+       "check": "the run ended failed",
+       "ok": true
+      },
+      {
+       "check": "B ran with no model pin",
+       "ok": true
+      },
+      {
+       "check": "B was refused model_pin_mismatch by the broker",
+       "ok": true
+      },
+      {
+       "check": "nothing was claimed or journaled for B",
+       "ok": true
+      },
+      {
+       "check": "the compiler refused the missing port by name, BINDING_PORT",
+       "ok": true
+      },
+      {
+       "check": "the invalid draft is unavailable, and publishing it is refused 422 factory_definition_invalid naming BINDING_PORT",
+       "ok": true
+      }
+     ]
+    },
+    {
+     "label": "mock-1",
+     "mode": "mock",
+     "control": "none",
+     "outcome": "passed",
+     "failure": null,
+     "runTimeline": [
+      "queued",
+      "running",
+      "succeeded"
+     ],
+     "inferOperations": 1,
+     "inputTokens": 10,
+     "outputTokens": 3,
+     "answer": "prompt-digest answer 95a14d196e84db4a",
+     "checks": [
+      {
+       "check": "the run projected succeeded",
+       "ok": true
+      },
+      {
+       "check": "every node ran once",
+       "ok": true
+      },
+      {
+       "check": "C.summary equals the value computed from A.count and B.answer, all read from the store",
+       "ok": true
+      },
+      {
+       "check": "C was dispatched with exactly A.count and B.answer",
+       "ok": true
+      },
+      {
+       "check": "B was dispatched with exactly A.text",
+       "ok": true
+      },
+      {
+       "check": "each completion carried the bytes the store holds",
+       "ok": true
+      },
+      {
+       "check": "B's journal shows exactly one model operation, completed",
+       "ok": true
+      },
+      {
+       "check": "B's operation carries measured usage with tokens",
+       "ok": true
+      },
+      {
+       "check": "B ran under the pinned provider and model",
+       "ok": true
+      },
+      {
+       "check": "A and C settled no operation",
+       "ok": true
+      },
+      {
+       "check": "B's staged usage is the journal's usage",
+       "ok": true
+      }
+     ]
+    },
+    {
+     "label": "mock-2",
+     "mode": "mock",
+     "control": "none",
+     "outcome": "passed",
+     "failure": null,
+     "runTimeline": [
+      "queued",
+      "running",
+      "succeeded"
+     ],
+     "inferOperations": 1,
+     "inputTokens": 10,
+     "outputTokens": 3,
+     "answer": "prompt-digest answer 95a14d196e84db4a",
+     "checks": [
+      {
+       "check": "the run projected succeeded",
+       "ok": true
+      },
+      {
+       "check": "every node ran once",
+       "ok": true
+      },
+      {
+       "check": "C.summary equals the value computed from A.count and B.answer, all read from the store",
+       "ok": true
+      },
+      {
+       "check": "C was dispatched with exactly A.count and B.answer",
+       "ok": true
+      },
+      {
+       "check": "B was dispatched with exactly A.text",
+       "ok": true
+      },
+      {
+       "check": "each completion carried the bytes the store holds",
+       "ok": true
+      },
+      {
+       "check": "B's journal shows exactly one model operation, completed",
+       "ok": true
+      },
+      {
+       "check": "B's operation carries measured usage with tokens",
+       "ok": true
+      },
+      {
+       "check": "B ran under the pinned provider and model",
+       "ok": true
+      },
+      {
+       "check": "A and C settled no operation",
+       "ok": true
+      },
+      {
+       "check": "B's staged usage is the journal's usage",
+       "ok": true
+      }
+     ]
+    },
+    {
+     "label": "mock-3",
+     "mode": "mock",
+     "control": "none",
+     "outcome": "passed",
+     "failure": null,
+     "runTimeline": [
+      "queued",
+      "running",
+      "succeeded"
+     ],
+     "inferOperations": 1,
+     "inputTokens": 10,
+     "outputTokens": 3,
+     "answer": "prompt-digest answer 95a14d196e84db4a",
+     "checks": [
+      {
+       "check": "the run projected succeeded",
+       "ok": true
+      },
+      {
+       "check": "every node ran once",
+       "ok": true
+      },
+      {
+       "check": "C.summary equals the value computed from A.count and B.answer, all read from the store",
+       "ok": true
+      },
+      {
+       "check": "C was dispatched with exactly A.count and B.answer",
+       "ok": true
+      },
+      {
+       "check": "B was dispatched with exactly A.text",
+       "ok": true
+      },
+      {
+       "check": "each completion carried the bytes the store holds",
+       "ok": true
+      },
+      {
+       "check": "B's journal shows exactly one model operation, completed",
+       "ok": true
+      },
+      {
+       "check": "B's operation carries measured usage with tokens",
+       "ok": true
+      },
+      {
+       "check": "B ran under the pinned provider and model",
+       "ok": true
+      },
+      {
+       "check": "A and C settled no operation",
+       "ok": true
+      },
+      {
+       "check": "B's staged usage is the journal's usage",
+       "ok": true
+      }
+     ]
+    },
+    {
+     "label": "ollama-1",
+     "mode": "ollama",
+     "control": "none",
+     "outcome": "passed",
+     "failure": null,
+     "runTimeline": [
+      "queued",
+      "running",
+      "succeeded"
+     ],
+     "inferOperations": 1,
+     "inputTokens": 32,
+     "outputTokens": 14,
+     "answer": "The primary colors of light are red, blue, and yellow.",
+     "checks": [
+      {
+       "check": "the run projected succeeded",
+       "ok": true
+      },
+      {
+       "check": "every node ran once",
+       "ok": true
+      },
+      {
+       "check": "C.summary equals the value computed from A.count and B.answer, all read from the store",
+       "ok": true
+      },
+      {
+       "check": "C was dispatched with exactly A.count and B.answer",
+       "ok": true
+      },
+      {
+       "check": "B was dispatched with exactly A.text",
+       "ok": true
+      },
+      {
+       "check": "each completion carried the bytes the store holds",
+       "ok": true
+      },
+      {
+       "check": "B's journal shows exactly one model operation, completed",
+       "ok": true
+      },
+      {
+       "check": "B's operation carries measured usage with tokens",
+       "ok": true
+      },
+      {
+       "check": "B ran under the pinned provider and model",
+       "ok": true
+      },
+      {
+       "check": "A and C settled no operation",
+       "ok": true
+      },
+      {
+       "check": "B's staged usage is the journal's usage",
+       "ok": true
+      }
+     ]
+    },
+    {
+     "label": "ollama-2",
+     "mode": "ollama",
+     "control": "none",
+     "outcome": "passed",
+     "failure": null,
+     "runTimeline": [
+      "queued",
+      "running",
+      "succeeded"
+     ],
+     "inferOperations": 1,
+     "inputTokens": 32,
+     "outputTokens": 14,
+     "answer": "The primary colors of light are red, blue, and yellow.",
+     "checks": [
+      {
+       "check": "the run projected succeeded",
+       "ok": true
+      },
+      {
+       "check": "every node ran once",
+       "ok": true
+      },
+      {
+       "check": "C.summary equals the value computed from A.count and B.answer, all read from the store",
+       "ok": true
+      },
+      {
+       "check": "C was dispatched with exactly A.count and B.answer",
+       "ok": true
+      },
+      {
+       "check": "B was dispatched with exactly A.text",
+       "ok": true
+      },
+      {
+       "check": "each completion carried the bytes the store holds",
+       "ok": true
+      },
+      {
+       "check": "B's journal shows exactly one model operation, completed",
+       "ok": true
+      },
+      {
+       "check": "B's operation carries measured usage with tokens",
+       "ok": true
+      },
+      {
+       "check": "B ran under the pinned provider and model",
+       "ok": true
+      },
+      {
+       "check": "A and C settled no operation",
+       "ok": true
+      },
+      {
+       "check": "B's staged usage is the journal's usage",
+       "ok": true
+      }
+     ]
+    },
+    {
+     "label": "ollama-3",
+     "mode": "ollama",
+     "control": "none",
+     "outcome": "passed",
+     "failure": null,
+     "runTimeline": [
+      "queued",
+      "running",
+      "succeeded"
+     ],
+     "inferOperations": 1,
+     "inputTokens": 32,
+     "outputTokens": 14,
+     "answer": "The primary colors of light are red, blue, and yellow.",
+     "checks": [
+      {
+       "check": "the run projected succeeded",
+       "ok": true
+      },
+      {
+       "check": "every node ran once",
+       "ok": true
+      },
+      {
+       "check": "C.summary equals the value computed from A.count and B.answer, all read from the store",
+       "ok": true
+      },
+      {
+       "check": "C was dispatched with exactly A.count and B.answer",
+       "ok": true
+      },
+      {
+       "check": "B was dispatched with exactly A.text",
+       "ok": true
+      },
+      {
+       "check": "each completion carried the bytes the store holds",
+       "ok": true
+      },
+      {
+       "check": "B's journal shows exactly one model operation, completed",
+       "ok": true
+      },
+      {
+       "check": "B's operation carries measured usage with tokens",
+       "ok": true
+      },
+      {
+       "check": "B ran under the pinned provider and model",
+       "ok": true
+      },
+      {
+       "check": "A and C settled no operation",
+       "ok": true
+      },
+      {
+       "check": "B's staged usage is the journal's usage",
+       "ok": true
+      }
+     ]
+    }
+   ],
+   "summary": "w19a-merge-proof-2-summary.json",
+   "noUnknownOutcome": "no outcome_unknown / runner_outcome_unknown in any run-2 record or log"
+  },
+  "controlRerunOnly": "a queued control-only rerun was stopped while still waiting for the lock (never ran); the coordinator required one complete run instead",
+  "disclosedFollowUp": "W03f: the provider-error settlement; after provider_unavailable (control-missing-model) the run stays held with factory_usage_hold_unresolved: no-operation-receipt"
+ },
+ "coverage": {
+  "proofCommit": "proof/w19a-merge-staged 54d24366a639365436c1bb3b6e27dc035b05a430 (tree 8aef5b06a = the merge tree, parents 2b2e12550 and a31ad4997)",
+  "baseRef": "2b2e12550",
+  "newFile": "PASSED: 2 new source files gated (w19a-merge-new-file-coverage.log)",
+  "patch": "PASSED: all changed executable lines covered, 18 files (w19a-merge-patch-coverage.log)",
+  "producers": [
+   {
+    "producer": "focused (16 suites, bun --coverage)",
+    "result": "279/0",
+    "why": "the fast set named by the coordinator"
+   },
+   {
+    "producer": "web bun leg (mock-llm-route, mock-llm-store)",
+    "result": "53/0",
+    "why": "W19a changed those web/ files"
+   },
+   {
+    "producer": "web vitest (factories.server)",
+    "result": "26/26",
+    "why": "W19a changed that route test; SF paths re-rooted at web/ as in the combined runner"
+   },
+   {
+    "producer": "runner integration (guest-broker-transport, guest-model-route, guest-material-broker .integration)",
+    "result": "52/0",
+    "why": "first patch run red: guest-model-route.ts 28 lines, guest-broker-client.ts 9, guest-broker-composition.ts 8, guest-broker-service.ts 1 had no data (w19a-merge-patch-coverage-round1.log)"
+   },
+   {
+    "producer": "lifecycle (src/__tests__/factory-run-lifecycle.test.ts)",
+    "result": "73/0",
+    "why": "second patch run red: native-runner-policy.ts:159 (the model-pin refusal) uncovered (w19a-merge-patch-coverage-round2.log)"
+   },
+   {
+    "producer": "node leg (scripts/factory-orchestrator-coverage.sh, run in staging on the identical staged tree)",
+    "result": "exit 0",
+    "why": "second patch run: packages/@ezcorp/factory-transport/src/index.ts had no lcov (its bun tests load the built dist)"
+   }
+  ],
+  "noExclusion": "no file excluded, no threshold lowered",
+  "byteIdentity": {
+   "reason": "why a focused rerun suffices: the W19a files on the merged tree are the bytes validator-2 measured at a31ad4997",
+   "identical": 49,
+   "differ": [
+    {
+     "path": "scripts/coverage-thresholds.json",
+     "a31ad4997": "229a2f6fdf703168720f08c048dc0857f9c1b6e8",
+     "merged": "20681c2114e8ee9d1728d43fb40a4d1004774f0b"
+    },
+    {
+     "path": "tasks/lessons.md",
+     "a31ad4997": "30c36c7c0a56d0cd7f9bca7bd4c83a6aa92f2585",
+     "merged": "540fb07acbbb958bb5b0b060f09ad213c12cbedf"
+    },
+    {
+     "path": "tasks/todo.md",
+     "a31ad4997": "d08e25bc92bdda815f4167f9ef1cfd10101049e9",
+     "merged": "b1cd56d8d0577d73c9d012ee1642f395a4f2c12e"
+    }
+   ],
+   "identicalFiles": [
+    {
+     "path": ".github/workflows/db-postgres.yml",
+     "blob": "924e6c6eee28c63160eddbefa41f116768d27fae"
+    },
+    {
+     "path": "docs/factory-graph-proof.md",
+     "blob": "a26a298eff0aa03f60d22be5e3a229cab08c16d3"
+    },
+    {
+     "path": "packages/@ezcorp/factory-transport/src/index.ts",
+     "blob": "1378d44a962bfcd3d9b35ed7fb2ef42d2a853f6e"
+    },
+    {
+     "path": "scripts/factory-graph-proof/graph.ts",
+     "blob": "e9d24d5cdafdebf66b03bca0e7479542cfd84512"
+    },
+    {
+     "path": "scripts/factory-graph-proof/guest-package.ts",
+     "blob": "4c41c55837c8f5adfd6ef17d0f709dfa93f2aeca"
+    },
+    {
+     "path": "scripts/factory-graph-proof/guest/graph-guest.ts",
+     "blob": "86f06b416c44f58e7d10c073697599e0de0b21e3"
+    },
+    {
+     "path": "scripts/factory-graph-proof/processes/gateway-listener.ts",
+     "blob": "9e45f0b012bf31005b4fc7eef8ce7476c05e4979"
+    },
+    {
+     "path": "scripts/factory-graph-proof/processes/orchestrator-runner.sh",
+     "blob": "1bf7534b5f3206f7ef64a58fc5fc15fbed41e939"
+    },
+    {
+     "path": "scripts/factory-graph-proof/processes/tls-terminator.mjs",
+     "blob": "80d1e7adbbc6b9c61175ddf00c63d4ef3a3753b8"
+    },
+    {
+     "path": "scripts/factory-graph-proof/proof.ts",
+     "blob": "dac6acfd0fdef375e2f20d99263b34c36fd7762e"
+    },
+    {
+     "path": "scripts/factory-graph-proof/run.sh",
+     "blob": "e1663aaff764fcad2dd3488525590aede0cfefc9"
+    },
+    {
+     "path": "scripts/factory-graph-proof/stack.ts",
+     "blob": "13f95e25d9a9b223d7535b12bbb323b779040977"
+    },
+    {
+     "path": "scripts/factory-graph-proof/summarize.ts",
+     "blob": "29ad894e7ff89c16c4cd9c3da6980c4196688447"
+    },
+    {
+     "path": "src/__tests__/factory-private-client.test.ts",
+     "blob": "2247c2ccb581833a9d376b3e42df918505c2a0d4"
+    },
+    {
+     "path": "src/__tests__/helpers/factory-guest-model-route-suite.ts",
+     "blob": "1b477710f7666c409447aece7ffb087125d82fb3"
+    },
+    {
+     "path": "src/__tests__/helpers/factory-run-lifecycle-suite.ts",
+     "blob": "2d99c5c78ccbaa00e54ee3c456a4c2a3503b85e0"
+    },
+    {
+     "path": "src/__tests__/model-router.test.ts",
+     "blob": "a8482267957bd12436a8a2ab46bc7749b2f7a09e"
+    },
+    {
+     "path": "src/factory/graph-proof-definition.test.ts",
+     "blob": "0b8d09036559f2ff1a6614b28c39362228a75579"
+    },
+    {
+     "path": "src/factory/guest-broker-composition.test.ts",
+     "blob": "2dc408c50ff4a5f9c52ff5f0df1b52b96d8ad4be"
+    },
+    {
+     "path": "src/factory/guest-broker-composition.ts",
+     "blob": "bcda17f74ff2507e6ca9fb776ab6ec192672ca69"
+    },
+    {
+     "path": "src/factory/model-configuration.test.ts",
+     "blob": "fe21773d6720fa8971e8b010a86bac79451895e1"
+    },
+    {
+     "path": "src/factory/model-configuration.ts",
+     "blob": "0ec12aa5b6a7255a4d64decc54e17483e1bd834e"
+    },
+    {
+     "path": "src/factory/native-runner-policy.ts",
+     "blob": "a46d5bea300ef890a48a41c19f24ddebd0a1c543"
+    },
+    {
+     "path": "src/factory/private-service-composition.test.ts",
+     "blob": "00d031ebd3defb8713ca5a60811ff0f44ced1af4"
+    },
+    {
+     "path": "src/factory/private-service-composition.ts",
+     "blob": "6eab5b8eadc3900ce0ef6900ef70732141837d8b"
+    },
+    {
+     "path": "src/factory/runner/guest-broker-client.ts",
+     "blob": "2910d42dea8db543721758c4b7b78a2ecf36f7cc"
+    },
+    {
+     "path": "src/factory/runner/guest-broker-service.ts",
+     "blob": "9b5a1031f82e2cb763749ed4018b5c8c14f36d77"
+    },
+    {
+     "path": "src/factory/runner/guest-broker-transport.integration.test.ts",
+     "blob": "d21dc38baa0c0a8ead7f99b9e23af406988144c7"
+    },
+    {
+     "path": "src/factory/runner/guest-model-broker.ts",
+     "blob": "fa59f0a363ecac301f73dc1889440cba0828e9d4"
+    },
+    {
+     "path": "src/factory/runner/guest-model-route.integration.test.ts",
+     "blob": "548c643ef759a1811f74f46b8f39d662e5c262a4"
+    },
+    {
+     "path": "src/factory/runner/guest-model-route.ts",
+     "blob": "ae6ed14ba0adb6fdedb93fe25e2a53b512bf3737"
+    },
+    {
+     "path": "src/factory/runner/provider-one-hop.test.ts",
+     "blob": "5e3a780f5147cc33e3d4573e1bb0409483f3ed75"
+    },
+    {
+     "path": "src/factory/runner/provider-one-hop.ts",
+     "blob": "f895dc1ee3fc4b87bd838e47113906c46f006b90"
+    },
+    {
+     "path": "src/factory/runner/supervisor-process.test.ts",
+     "blob": "ed02b087b3a0853af1b116fb44bc25d503d9d69a"
+    },
+    {
+     "path": "src/factory/runner/supervisor-process.ts",
+     "blob": "4d59fd696f29c9be318a5496a24b5ffec47e4e04"
+    },
+    {
+     "path": "src/factory/runner/supervisor-services.ts",
+     "blob": "c98ef571c40a592bb4a2b3175c784e72cf1f5e07"
+    },
+    {
+     "path": "src/factory/startup-config.test.ts",
+     "blob": "b9d3312acfd25da9bf10e1b7265c0afedaca9761"
+    },
+    {
+     "path": "src/factory/startup-config.ts",
+     "blob": "687507e8ed37c9b288a663357cf0a3d5cb402961"
+    },
+    {
+     "path": "src/providers/factory-broker.test.ts",
+     "blob": "1a4ac973d8a4d60874bac3c1d1ce14b1fe114a4f"
+    },
+    {
+     "path": "src/providers/factory-broker.ts",
+     "blob": "0f17da4b54377d9e9b5539acc32f42057534d5c4"
+    },
+    {
+     "path": "src/providers/router.ts",
+     "blob": "416cd6ca83adb2987a1bd9d16390e61e5fa3b90c"
+    },
+    {
+     "path": "tasks/factory/w19a-GATES.md",
+     "blob": "065ac16255b74de95420046a77133ef7fa060acc"
+    },
+    {
+     "path": "tests/postgres/factory-guest-model-route.test.ts",
+     "blob": "8d7d509a57efc39259b78e0a9abe7b10dd672e63"
+    },
+    {
+     "path": "web/src/__tests__/mock-llm-route.test.ts",
+     "blob": "399f0b036f74949f4e9b176f7d196b66710bc08c"
+    },
+    {
+     "path": "web/src/__tests__/mock-llm-store.test.ts",
+     "blob": "60ebc1fc7712e6e904a7a0c5e7bd3d517bfd72b3"
+    },
+    {
+     "path": "web/src/lib/server/factory/route-kit.ts",
+     "blob": "93bb5802c5e55c673c32b68420f012b357b58c74"
+    },
+    {
+     "path": "web/src/lib/server/mock-llm.ts",
+     "blob": "78a220bbf43b3db59d42fa0cac3dd2fb85fd35ee"
+    },
+    {
+     "path": "web/src/routes/api/__test/mock-llm/v1/chat/completions/+server.ts",
+     "blob": "c44a9960d620c5be5c8f574c2e77277f7c283f61"
+    },
+    {
+     "path": "web/src/routes/api/factories/factories.server.test.ts",
+     "blob": "0daacefe15998d8a22e12b7293b78482b488a7b9"
+    }
+   ]
+  },
+  "validatorAtHead": "validator-2 at a31ad4997 (BASE_REF=bfa74c11f): new-file 2 files pass, patch 18 files pass"
+ },
+ "checks": [
+  {
+   "name": "registration",
+   "exitCode": 0,
+   "start": "2026-09-24T23:27:41Z",
+   "end": "2026-09-24T23:27:41Z",
+   "command": "bun test --timeout 30000 ./scripts/factory-postgres-suite-registration.test.ts ./src/__tests__/factory-ci-registration.test.ts ./scripts/check-required-checks.test.ts",
+   "logSha256": "c2d6085face21ba31c5bc4d6668ee1d65c866639656c70cab1bf63d7b2a900d7"
+  },
+  {
+   "name": "typecheck",
+   "exitCode": 0,
+   "start": "2026-09-24T23:27:41Z",
+   "end": "2026-09-24T23:28:31Z",
+   "command": "bun run typecheck",
+   "logSha256": "abee6673591083f062b05df629cdb20dfa1b5965b07e17482cee7cbc8720e265"
+  },
+  {
+   "name": "lint",
+   "exitCode": 0,
+   "start": "2026-09-24T23:28:31Z",
+   "end": "2026-09-24T23:28:32Z",
+   "command": "bun run lint",
+   "logSha256": "72df819eb972549d0a644f43ed02116e0fe4823bfa98ad2309e0936d85710087"
+  },
+  {
+   "name": "gate-integrity",
+   "exitCode": 0,
+   "start": "2026-09-24T23:28:32Z",
+   "end": "2026-09-24T23:28:35Z",
+   "command": "bun scripts/gate-integrity.ts",
+   "logSha256": "b1a0297506aab4a182c44b23c41d861c6f4ae88da68848497d810bb39bff6bda"
+  },
+  {
+   "name": "boundaries",
+   "exitCode": 0,
+   "start": "2026-09-24T23:28:35Z",
+   "end": "2026-09-24T23:28:36Z",
+   "command": "bun scripts/check-factory-boundaries.ts",
+   "logSha256": "a701e3a2106adf5e27905c6b5ba03385c3e8490562ff4d2e98236c0403caaf83"
+  },
+  {
+   "name": "schema-drift",
+   "exitCode": 0,
+   "start": "2026-09-24T23:28:36Z",
+   "end": "2026-09-24T23:28:40Z",
+   "command": "bun scripts/check-schema-generate-drift.ts",
+   "logSha256": "58e4fb0d5102f899bd14326e7b9fcbaee5ad91491dec01c137198838c9b29f15"
+  },
+  {
+   "name": "focused-scripts-check-factory-boundaries-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-24T23:28:40Z",
+   "end": "2026-09-24T23:28:43Z",
+   "command": "bun test --timeout 60000 ./scripts/check-factory-boundaries.test.ts",
+   "logSha256": "90566de9c657fd9685cffdb35d5b2d037647c43273ec65f90118727779e01cee"
+  },
+  {
+   "name": "focused-src-factory-graph-proof-definition-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-24T23:28:43Z",
+   "end": "2026-09-24T23:28:43Z",
+   "command": "bun test --timeout 60000 ./src/factory/graph-proof-definition.test.ts",
+   "logSha256": "0dfeec56c0ccd732c11b6fb2b99a920af821e37f1d20f9f60c3b1a7003fd1f57"
+  },
+  {
+   "name": "focused-src-factory-guest-broker-composition-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-24T23:28:43Z",
+   "end": "2026-09-24T23:28:47Z",
+   "command": "bun test --timeout 60000 ./src/factory/guest-broker-composition.test.ts",
+   "logSha256": "1f569ef7048e81500b0d8ef74e688546f9b48544a962700c0b6aa8bbed0846f7"
+  },
+  {
+   "name": "focused-src-factory-model-configuration-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-24T23:28:47Z",
+   "end": "2026-09-24T23:28:47Z",
+   "command": "bun test --timeout 60000 ./src/factory/model-configuration.test.ts",
+   "logSha256": "32ffb9bc5d43b2fc61bf2f28d3a6551de0f554f4718ca71beffd5b35c519a36e"
+  },
+  {
+   "name": "focused-src-factory-private-service-composition-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-24T23:28:47Z",
+   "end": "2026-09-24T23:28:51Z",
+   "command": "bun test --timeout 60000 ./src/factory/private-service-composition.test.ts",
+   "logSha256": "3587530df41ad2ccb957fe723544ec251becb26cb52a4b347ca06c6523a0579e"
+  },
+  {
+   "name": "focused-src-factory-reference-data-guest-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-24T23:28:51Z",
+   "end": "2026-09-24T23:28:52Z",
+   "command": "bun test --timeout 60000 ./src/factory/reference-data/guest.test.ts",
+   "logSha256": "86c215251e985393a727cf83421f805754730e154b81f7cc2114b241f1d75277"
+  },
+  {
+   "name": "focused-src-factory-runner-guest-model-broker-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-24T23:28:52Z",
+   "end": "2026-09-24T23:28:52Z",
+   "command": "bun test --timeout 60000 ./src/factory/runner/guest-model-broker.test.ts",
+   "logSha256": "4d7aff2fbb054e8470d5e345f7b7ddf43295b995c9b01b9f8b31c4b9d76b2128"
+  },
+  {
+   "name": "focused-src-factory-runner-provider-one-hop-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-24T23:28:52Z",
+   "end": "2026-09-24T23:28:53Z",
+   "command": "bun test --timeout 60000 ./src/factory/runner/provider-one-hop.test.ts",
+   "logSha256": "e8f1eddf6e69ccdeb6fabd89f331ab94db6e4c98db8920457da832f00ffa29ce"
+  },
+  {
+   "name": "focused-src-factory-runner-python-guest-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-24T23:28:53Z",
+   "end": "2026-09-24T23:28:54Z",
+   "command": "bun test --timeout 60000 ./src/factory/runner/python-guest.test.ts",
+   "logSha256": "8df1db39637e70f553884cc2d84c2f8529a8213d75404494db772ef643a36771"
+  },
+  {
+   "name": "focused-src-factory-runner-supervisor-process-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-24T23:28:54Z",
+   "end": "2026-09-24T23:28:55Z",
+   "command": "bun test --timeout 60000 ./src/factory/runner/supervisor-process.test.ts",
+   "logSha256": "0a1073eab2a37ac8463edf044a84acc3e23ca8848021e5f05b9fd23cfb3ad7c3"
+  },
+  {
+   "name": "focused-src-factory-runner-supervisor-services-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-24T23:28:55Z",
+   "end": "2026-09-24T23:29:07Z",
+   "command": "bun test --timeout 60000 ./src/factory/runner/supervisor-services.test.ts",
+   "logSha256": "e9de852322f85b1a72280cd33c5dc56a4a2061c3f753121ff97074f18802b72b"
+  },
+  {
+   "name": "focused-src-factory-startup-config-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-24T23:29:07Z",
+   "end": "2026-09-24T23:29:08Z",
+   "command": "bun test --timeout 60000 ./src/factory/startup-config.test.ts",
+   "logSha256": "9883168afe2c4d41807f2a8f429a3ca8df0c30ca3198daa5416691cae40a6eb2"
+  },
+  {
+   "name": "focused-src-providers-factory-broker-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-24T23:29:08Z",
+   "end": "2026-09-24T23:29:09Z",
+   "command": "bun test --timeout 60000 ./src/providers/factory-broker.test.ts",
+   "logSha256": "8097f386c219791ad7cb44060166c73c01081545f505bc40fa5caeaf3a1c32ac"
+  },
+  {
+   "name": "focused-src-__tests__-factory-private-client-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-24T23:29:09Z",
+   "end": "2026-09-24T23:29:10Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/factory-private-client.test.ts",
+   "logSha256": "dfefdbc92974ac161369acadd477684d1bbae502f9e2bf69b6da43f9910ab029"
+  },
+  {
+   "name": "focused-src-__tests__-factory-process-boundaries-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-24T23:29:10Z",
+   "end": "2026-09-24T23:29:14Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/factory-process-boundaries.test.ts",
+   "logSha256": "6ced4c4e06b515d9bce7b7a8a547fe08c52d49a823fb031e67931ef9ae391dfb"
+  },
+  {
+   "name": "focused-src-__tests__-model-router-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-24T23:29:14Z",
+   "end": "2026-09-24T23:29:14Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/model-router.test.ts",
+   "logSha256": "645425c84218c103aa08f83545816d747ca8a96bb5a36045d0f4207b7814958a"
+  },
+  {
+   "name": "web-vitest factories.server",
+   "exitCode": 0,
+   "command": "cd web && bunx vitest run <3 files; only factories.server is in the vitest include>",
+   "logSha256": "0d3091d7196100f55f23351eab6bfa9baff324787bdd3d053b0a6a36ac961071"
+  },
+  {
+   "name": "web-bun mock-llm-route + mock-llm-store",
+   "exitCode": 0,
+   "command": "cd web && bun test --timeout 30000 ./src/__tests__/mock-llm-route.test.ts ./src/__tests__/mock-llm-store.test.ts",
+   "logSha256": "91aa82f0bf30b39206bc7f9f112089cfead57320190825455365d6e2f1b903c3"
+  }
+ ],
+ "heavy": {
+  "script": "w00/merge-heavy-batch.sh",
+  "summary": [
+   "=== heavy batch 2026-09-25T01:29:35Z",
+   "HEAD 2b2e1255049d390f65b33f1850aa435d8ee8e707 MERGE_HEAD a31ad49979e84e16d786487c64079f71b9d783c1 index-tree 8aef5b06a35398c3c95ce27c034ca4938a8191e2 umask 0077",
+   "df: /dev/nvme0n1p2  1.8T  1.6T  123G  93% /",
+   "--- START pg-factory-guest-material-broker 2026-09-25T01:29:35Z",
+   "--- END   pg-factory-guest-material-broker 2026-09-25T01:33:18Z exit=0  23 pass 0 fail ",
+   "--- START pg-factory-guest-model-journal 2026-09-25T01:33:18Z",
+   "--- END   pg-factory-guest-model-journal 2026-09-25T01:33:31Z exit=0  2 pass 0 fail ",
+   "--- START pg-factory-guest-model-route 2026-09-25T01:33:31Z",
+   "--- END   pg-factory-guest-model-route 2026-09-25T01:33:43Z exit=0  17 pass 0 fail ",
+   "--- START pg-factory-package-fence 2026-09-25T01:33:43Z",
+   "--- END   pg-factory-package-fence 2026-09-25T01:36:31Z exit=0  17 pass 0 fail ",
+   "--- START pg-factory-restore 2026-09-25T01:36:31Z",
+   "--- END   pg-factory-restore 2026-09-25T01:37:22Z exit=0  13 pass 0 fail ",
+   "--- START pg-factory-run-lifecycle-s3 2026-09-25T01:37:22Z",
+   "--- END   pg-factory-run-lifecycle-s3 2026-09-25T01:38:27Z exit=0  73 pass 0 fail ",
+   "--- START pg-factory-run-lifecycle 2026-09-25T01:38:27Z",
+   "--- END   pg-factory-run-lifecycle 2026-09-25T01:39:12Z exit=0  73 pass 0 fail ",
+   "--- START podman-journey.integration 2026-09-25T01:39:12Z",
+   "--- END   podman-journey.integration 2026-09-25T01:40:26Z exit=0  11 pass 0 fail ",
+   "--- START podman-applied-controls.integration 2026-09-25T01:40:26Z",
+   "--- END   podman-applied-controls.integration 2026-09-25T01:40:54Z exit=0  5 pass 0 fail ",
+   "--- START podman-guest-broker-transport.integration 2026-09-25T01:40:54Z",
+   "--- END   podman-guest-broker-transport.integration 2026-09-25T01:41:08Z exit=0  12 pass 0 fail ",
+   "--- START podman-guest-material-broker.integration 2026-09-25T01:41:08Z",
+   "--- END   podman-guest-material-broker.integration 2026-09-25T01:41:18Z exit=0  23 pass 0 fail ",
+   "--- START podman-guest-model-route.integration 2026-09-25T01:41:18Z",
+   "--- END   podman-guest-model-route.integration 2026-09-25T01:41:22Z exit=0  17 pass 0 fail ",
+   "--- START podman-python-guest.integration 2026-09-25T01:41:22Z",
+   "--- END   podman-python-guest.integration 2026-09-25T01:42:28Z exit=0  12 pass 0 fail ",
+   "--- START podman-supervisor.podman.integration 2026-09-25T01:42:28Z",
+   "--- END   podman-supervisor.podman.integration 2026-09-25T01:42:43Z exit=0  2 pass 0 fail ",
+   "--- START podman-supervisor-process.podman.integration 2026-09-25T01:42:43Z",
+   "--- END   podman-supervisor-process.podman.integration 2026-09-25T01:42:46Z exit=0  3 pass 0 fail "
+  ],
+  "scriptBug": "the batch's final line reads status 1 and has no 'BATCH DONE': the extras edit made for W15c read ${4#--} under set -u, so with no 4th argument the script stopped after the last leg. Every leg's own exit is 0 (above). Fixed as EXTRAS=${4:-}. The W15c batch passed a 4th argument and was not affected."
+ },
+ "commitHook": "the pre-commit hook skipped its staged tests (19 test files map to the commit, above its cap of 12); the checks above cover them",
+ "standingSteps": "df 129G at merge start, 128G before the heavy steps, 118G after, 127G at the gated proof and at commit"
+}

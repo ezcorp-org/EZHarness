@@ -290,8 +290,11 @@ export function registerFactoryRuntimeWorkers(collaborators: FactoryRuntimeWorke
   // of an absent role under its own name.
   role("retention-gc", collaborators.recovery?.retention, "recovery-composition", "W15",
     "the recovery archive or the ordinary store's credentials did not compose, so nothing can be archived before expiry and nothing is collected");
+  const undeclared = collaborators.recovery?.undeclared ?? [];
   role("checkpoint-barrier", collaborators.recovery?.checkpoint, "recovery-composition", "W15",
-    "the recovery archive or the pool checkpoint client did not compose, so no compatible checkpoint is sealed and the freshness rule stays off");
+    undeclared.length > 0
+      ? `recovery is not declared: the startup document has no ${undeclared.join(", ")}, so no checkpoint is sealed and effect claims stay closed`
+      : "the recovery archive or the pool checkpoint client did not compose, so no compatible checkpoint is sealed and effect claims stay closed");
 
   return Object.freeze({ workers, held: Object.freeze(held) });
 }

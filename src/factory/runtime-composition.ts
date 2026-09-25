@@ -29,6 +29,7 @@ import { setReadiness } from "../readiness";
 import type { TransactionalDb } from "../db/migrations/types";
 import { assertFactoryBootConfiguration, assertFactoryBootReadiness, assertFactoryOrphanDetectionBound, factoryBootConfig, FactoryBootError, type FactoryBootConfig, type FactoryService } from "./boot";
 import { configureFactoryApplication, createFactoryApplication, type FactoryApplication, type FactoryApplicationOptions } from "./application";
+import type { FactoryGuestBrokerReadiness } from "./guest-broker-composition";
 import { parseFactoryStartupConfig, type FactoryStartupConfig } from "./startup-config";
 import {
   availableFactoryServices,
@@ -50,6 +51,9 @@ import {
 import { factoryRuntimeSeams, factorySeamStates, type FactoryRuntimeSeamInputs, type FactoryRuntimeSeams, type FactorySeamState } from "./runtime-seams";
 import { registerFactoryRuntimeWorkers, type FactoryHeldWorker, type FactoryRuntimeWorkerCollaborators } from "./runtime-workers";
 import type { FactoryBackgroundWorkers, FactoryBackgroundWorkerState } from "./background-workers";
+
+/** Why a held checkpoint barrier keeps readiness degraded. */
+export type FactoryRecoveryReadinessReason = "factory-recovery-not-declared" | "factory-checkpoint-barrier-held";
 
 /**
  * A real timer that releases on abort, so a stop never waits out a window.
@@ -109,6 +113,12 @@ export interface FactoryRuntimeDependencies {
    * required would fail a correct deployment.
    */
   readonly providerReadiness?: Record<string, unknown>;
+  /**
+   * Whether this process bound the guest-broker route, or the named reason it
+   * did not. Optional and off the required list for the same reason as the
+   * model pin: an installation whose guests stage nothing needs no route.
+   */
+  readonly guestBrokerReadiness?: FactoryGuestBrokerReadiness;
   /**
    * How long to keep probing before giving up on an unavailable service.
    *
@@ -344,17 +354,23 @@ export async function startFactoryRuntime(
     // checkpoint, so the database keeps release claims and attempt launches
     // closed (C06 fails closed), and readiness says why instead of hiding it.
     const barrierHeld = workerSet.held.some((worker) => worker.role === "checkpoint-barrier");
+    // Undeclared recovery and declared-but-not-composed recovery are both
+    // degraded, under different typed reasons, because they need different fixes.
+    const undeclared = dependencies.workers.recovery?.undeclared ?? [];
+    const reason: FactoryRecoveryReadinessReason = undeclared.length > 0 ? "factory-recovery-not-declared" : "factory-checkpoint-barrier-held";
     setReadiness({
       state: barrierHeld ? "degraded" : "ready",
-      ...(barrierHeld ? { reason: "factory-checkpoint-barrier-held" } : {}),
+      ...(barrierHeld ? { reason } : {}),
       detail: {
         factory: {
           tenantId: config.tenantId,
+          ...(barrierHeld && undeclared.length > 0 ? { recoveryNotDeclared: [...undeclared] } : {}),
           running: workerSet.workers.names(),
           // The reason travels too: "held" alone cannot tell an operator whether
           // to declare something, repair something, or wait for a package.
           held: workerSet.held.map((worker) => ({ role: worker.role, workPackage: worker.workPackage, reason: worker.reason })),
           ...(dependencies.providerReadiness === undefined ? {} : { providerReadiness: dependencies.providerReadiness }),
+          ...(dependencies.guestBrokerReadiness === undefined ? {} : { guestBroker: dependencies.guestBrokerReadiness }),
         },
       },
     });

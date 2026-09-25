@@ -1,11 +1,19 @@
 import { canonicalizeJson, isUnsignedDecimal, jsonEqual, unicodeLength, validateIJson } from "./canonical.js";
 import { validateFactoryApiPayloadDigest } from "./api.js";
 import { validateExpression } from "./expressions.js";
-import { isCompiledExecutionManifest, isCompiledFactory, isCompiledPartitionArtifact, isFactoryApiRequest, isFactoryApiResponse, isFactoryRunnerRequest, isFactoryGuestModelRequest, isFactoryGuestModelResponse, isFactoryRunnerResult, isFactoryValidatorClaimReport, isFactoryValidatorReport } from "./schema.js";
+import { isCompiledExecutionManifest, isCompiledFactory, isCompiledPartitionArtifact, isFactoryApiRequest, isFactoryApiResponse, isFactoryRunnerRequest, isFactoryGuestMaterialRequest, isFactoryGuestMaterialResponse, isFactoryGuestModelRequest, isFactoryGuestModelResponse, isFactoryRunnerResult, isFactoryValidatorClaimReport, isFactoryValidatorReport } from "./schema.js";
 import {
   FACTORY_LAZY_INPUT_SCHEMA_VERSION,
+  FACTORY_GUEST_MATERIAL_BEGIN_SCHEMA_VERSION,
+  FACTORY_GUEST_MATERIAL_CHUNK_SCHEMA_VERSION,
+  FACTORY_GUEST_MATERIAL_LIMITS,
+  FACTORY_GUEST_MATERIAL_OUTPUT_SCHEMA_VERSION,
+  FACTORY_GUEST_MATERIAL_SEAL_SCHEMA_VERSION,
   FACTORY_GUEST_MODEL_LIMITS,
   FACTORY_LIMITS,
+  type FactoryGuestMaterialIdentity,
+  type FactoryGuestMaterialRequest,
+  type FactoryGuestMaterialResponse,
   type FactoryGuestModelRequest,
   type FactoryGuestModelResponse,
   type CompiledExecutionManifest,
@@ -955,6 +963,151 @@ export function validateFactoryGuestModelResponse(value: unknown): ValidationRes
   // would make the row unsettleable or the attempt uncompletable. Coordinator ruling 2026-09-20.
   if (!validDigest(response.providerReceiptDigest, false)) return issue("GUEST_MODEL_RECEIPT", "A completed model call carries its provider receipt digest as bare 64-character hex.", ["providerReceiptDigest"]);
   return validateUsage(response.usage, ["usage"]);
+}
+
+/** `type/subtype` in the grammar every factory artifact media type already uses. */
+function mediaTypeToken(value: string): boolean {
+  if (value.length < 1 || value.length > 64) return false;
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index] as string;
+    const alphanumeric = (character >= "a" && character <= "z") || (character >= "0" && character <= "9");
+    if (index === 0 ? !alphanumeric : !(alphanumeric || "!#$&^_.+-".includes(character))) return false;
+  }
+  return true;
+}
+
+function validMediaType(value: string): boolean {
+  if (value.length > FACTORY_GUEST_MATERIAL_LIMITS.maxMediaTypeLength) return false;
+  const separator = value.indexOf("/");
+  return separator > 0 && value.indexOf("/", separator + 1) === -1
+    && mediaTypeToken(value.slice(0, separator)) && mediaTypeToken(value.slice(separator + 1));
+}
+
+/**
+ * A bounded relative path, the same shape the material service requires of an
+ * object name so a stored tree can never carry an entry outside its root.
+ */
+function validObjectName(value: string): boolean {
+  if (value.length < 1 || value.length > FACTORY_GUEST_MATERIAL_LIMITS.maxNameLength) return false;
+  if (value.startsWith("/") || value.includes("\\") || value.includes(":")) return false;
+  for (const character of value) {
+    const code = character.charCodeAt(0);
+    if (code < 32 || code === 127) return false;
+  }
+  return value.split("/").every((part) => part !== "" && part !== "." && part !== "..");
+}
+
+/** Base64 with padding, and nothing outside its alphabet. Length decides the byte count. */
+function base64Bytes(value: string): number {
+  if (value.length === 0 || value.length % 4 !== 0) return -1;
+  let padding = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index] as string;
+    if (character === "=") {
+      padding += 1;
+      if (padding > 2 || index < value.length - 2) return -1;
+      continue;
+    }
+    if (padding > 0) return -1;
+    const member = (character >= "A" && character <= "Z") || (character >= "a" && character <= "z")
+      || (character >= "0" && character <= "9") || character === "+" || character === "/";
+    if (!member) return -1;
+  }
+  return (value.length / 4) * 3 - padding;
+}
+
+function validMaterialIdentity(value: FactoryGuestMaterialIdentity): ValidationResult {
+  if (!boundedText(value.operationId, 1_024) || !value.operationId.endsWith(`:${value.operationIndex}`) || !safeCounter(value.operationIndex)) {
+    return issue("GUEST_MATERIAL_OPERATION", "A guest material frame must name its own journalled operation.", ["operationId"]);
+  }
+  if (!validObjectName(value.objectName)) return issue("GUEST_MATERIAL_NAME", "A material object name is a bounded relative path.", ["objectName"]);
+  if (!safeCounter(value.version, 1)) return issue("GUEST_MATERIAL_VERSION", "A material version starts at 1 and counts up.", ["version"]);
+  return { ok: true };
+}
+
+const GUEST_MATERIAL_FRAME_VERSIONS: ReadonlySet<string> = new Set([
+  FACTORY_GUEST_MATERIAL_BEGIN_SCHEMA_VERSION,
+  FACTORY_GUEST_MATERIAL_CHUNK_SCHEMA_VERSION,
+  FACTORY_GUEST_MATERIAL_SEAL_SCHEMA_VERSION,
+  FACTORY_GUEST_MATERIAL_OUTPUT_SCHEMA_VERSION,
+]);
+
+/**
+ * True when a reverse payload names one of the four staging frames.
+ *
+ * This routes a payload; it does not accept one. A payload it selects is still
+ * checked by {@link validateFactoryGuestMaterialRequest}. It lives beside that
+ * validator so a runner host can route a frame without loading any product
+ * module.
+ */
+export function isFactoryGuestMaterialFrame(payload: unknown): boolean {
+  return typeof payload === "object" && payload !== null && !Array.isArray(payload)
+    && GUEST_MATERIAL_FRAME_VERSIONS.has((payload as { schemaVersion?: unknown }).schemaVersion as string);
+}
+
+/**
+ * One staging frame, bounded so the whole material fits the guest's lifetime
+ * output budget.
+ *
+ * Nothing here decides authority. The scope a frame writes into comes from the
+ * verified attempt on the host side; this step only refuses a payload that is
+ * not a staging frame, or one whose own numbers cannot be honoured.
+ */
+export function validateFactoryGuestMaterialRequest(value: unknown): ValidationResult {
+  if (!isFactoryGuestMaterialRequest(value)) return issue("GUEST_MATERIAL_SCHEMA", "Value does not match the generated FactoryGuestMaterialRequest schema.", []);
+  const request = value as FactoryGuestMaterialRequest;
+  const identity = validMaterialIdentity(request);
+  if (!identity.ok) return identity;
+  if (request.schemaVersion === "factory.guest-material-begin.v1") {
+    if (!validMediaType(request.mediaType)) return issue("GUEST_MATERIAL_MEDIA_TYPE", "A material media type is `type/subtype` in the shared artifact grammar.", ["mediaType"]);
+    if (!safeCounter(request.totalBytes, 1) || request.totalBytes > FACTORY_GUEST_MATERIAL_LIMITS.maxTotalBytes) {
+      return issue("GUEST_MATERIAL_BYTES", `A guest may stage at most ${FACTORY_GUEST_MATERIAL_LIMITS.maxTotalBytes} bytes in one material.`, ["totalBytes"]);
+    }
+    if (!safeCounter(request.chunkCount, 1) || request.chunkCount > FACTORY_GUEST_MATERIAL_LIMITS.maxChunks) {
+      return issue("GUEST_MATERIAL_CHUNK_COUNT", `A material carries 1 to ${FACTORY_GUEST_MATERIAL_LIMITS.maxChunks} chunks.`, ["chunkCount"]);
+    }
+    if (request.chunkCount > request.totalBytes || request.chunkCount * FACTORY_GUEST_MATERIAL_LIMITS.maxChunkBytes < request.totalBytes) {
+      return issue("GUEST_MATERIAL_CHUNK_COUNT", "The declared chunk count cannot carry the declared byte count.", ["chunkCount"]);
+    }
+    return { ok: true };
+  }
+  if (request.schemaVersion === "factory.guest-material-chunk.v1") {
+    if (!safeCounter(request.index) || request.index >= FACTORY_GUEST_MATERIAL_LIMITS.maxChunks) return issue("GUEST_MATERIAL_CHUNK_INDEX", "A chunk index is 0-based and inside the material's chunk bound.", ["index"]);
+    if (!validDigest(request.digest, true)) return issue("GUEST_MATERIAL_DIGEST", "A chunk digest is `sha256:` and 64 lowercase hex characters.", ["digest"]);
+    if (!safeCounter(request.encodedBytes, 1) || request.encodedBytes > FACTORY_GUEST_MATERIAL_LIMITS.maxChunkBytes) {
+      return issue("GUEST_MATERIAL_CHUNK_BYTES", `A chunk carries 1 to ${FACTORY_GUEST_MATERIAL_LIMITS.maxChunkBytes} bytes.`, ["encodedBytes"]);
+    }
+    if (base64Bytes(request.contentBase64) !== request.encodedBytes) return issue("GUEST_MATERIAL_CHUNK_CONTENT", "A chunk's base64 content must decode to exactly its declared byte count.", ["contentBase64"]);
+    return { ok: true };
+  }
+  if (!validDigest(request.digest, true)) return issue("GUEST_MATERIAL_DIGEST", "A material digest is `sha256:` and 64 lowercase hex characters.", ["digest"]);
+  return { ok: true };
+}
+
+/** The host's single answer to one staging frame. A refusal names itself. */
+export function validateFactoryGuestMaterialResponse(value: unknown): ValidationResult {
+  if (!isFactoryGuestMaterialResponse(value)) return issue("GUEST_MATERIAL_SCHEMA", "Value does not match the generated FactoryGuestMaterialResponse schema.", []);
+  const response = value as FactoryGuestMaterialResponse;
+  const identity = validMaterialIdentity(response);
+  if (!identity.ok) return identity;
+  if (response.status === "refused") {
+    return boundedText(response.refusal.message, 4_096) ? { ok: true } : issue("GUEST_MATERIAL_REFUSAL", "A refusal needs a bounded message.", ["refusal", "message"]);
+  }
+  if (response.status === "begun") {
+    return safeCounter(response.totalBytes, 1) && safeCounter(response.chunkCount, 1)
+      ? { ok: true }
+      : issue("GUEST_MATERIAL_BYTES", "An accepted plan reports the byte and chunk counts it admitted.", ["totalBytes"]);
+  }
+  if (response.status === "stored") {
+    if (!safeCounter(response.index)) return issue("GUEST_MATERIAL_CHUNK_INDEX", "A stored chunk reports its index.", ["index"]);
+    return validDigest(response.digest, true) ? { ok: true } : issue("GUEST_MATERIAL_DIGEST", "A stored chunk reports its `sha256:` digest.", ["digest"]);
+  }
+  if (response.status === "sealed") return validateArtifactReference(response.material, ["material"]);
+  const output = validateArtifactReference(response.output, ["output"]);
+  if (!output.ok) return output;
+  // BARE 64-hex: a COMPLETED runner result's `resultDigest` carries this exact
+  // value and `validateFactoryRunnerResult` requires the unprefixed form there.
+  return validDigest(response.resultDigest, false) ? { ok: true } : issue("GUEST_MATERIAL_DIGEST", "A promoted output reports its result digest as bare 64-character hex.", ["resultDigest"]);
 }
 
 export function validateFactoryRunnerResult(value: unknown): ValidationResult {

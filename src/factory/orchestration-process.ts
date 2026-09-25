@@ -10,6 +10,7 @@ import {
 import type { GatewayTransportOptions } from "../../packages/@ezcorp/factory-transport/src/index.ts";
 import type { TemporalPayloadCodec as PayloadCodec } from "./encryption.ts";
 import { loadFactoryTemporalPayloadCodec, type FactoryTemporalPayloadCodecFileConfig } from "./file-key-wraps.ts";
+import { wellFormedFactoryKeyManagement } from "./key-composition.ts";
 import { createFactoryOrchestrationReadinessWriter } from "./orchestration-readiness-writer.ts";
 import { privateDirectory, readPrivateBounded } from "./private-files.ts";
 
@@ -92,8 +93,13 @@ function validGateway(gateway: unknown): boolean {
     && Object.values(gateway.tls).every((item) => text(item));
 }
 
+/**
+ * `keyManagement` selects the service that opens the data key, exactly as the
+ * startup document's section does; absent, the operator master key file.
+ */
 function validCodec(codec: unknown): boolean {
-  return record(codec) && exact(codec, ["wrappedKeyFilePath", "masterKeyFilePath", "masterKeyId", "grantableRoots"])
+  return record(codec) && optionalKeys(codec, ["wrappedKeyFilePath", "masterKeyFilePath", "masterKeyId", "grantableRoots"], ["keyManagement"])
+    && (codec.keyManagement === undefined || wellFormedFactoryKeyManagement(codec.keyManagement))
     && text(codec.wrappedKeyFilePath) && text(codec.masterKeyFilePath) && text(codec.masterKeyId)
     && Array.isArray(codec.grantableRoots) && codec.grantableRoots.length >= 1 && codec.grantableRoots.length <= 32
     && codec.grantableRoots.every((item) => text(item));

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { compileFactory } from "./compiler";
-import { FACTORY_COMMAND_FAILED_DETAIL_LIMIT, FactoryKernelError, advanceKernel, createKernelState, factoryCommandFailedEvent } from "./kernel";
+import { FACTORY_COMMAND_FAILED_DETAIL_LIMIT, FactoryKernelError, advanceKernel, createKernelState, factoryAdmissionRefusedEvent, factoryCommandFailedEvent } from "./kernel";
 import { referenceCodeV1 } from "./references.js";
 import { FACTORY_LAZY_INPUT_SCHEMA_VERSION } from "./types";
 import type { CompiledFactory, FactoryDefinition, FactoryNode, JsonValue } from "./types";
@@ -231,6 +231,42 @@ describe("factory kernel", () => {
     expect(built).toEqual({ kind: "command-failed", id: "run:release:request-release:7:command-failed", atMs: 9, commandId: "run:release:request-release:7", error: "FACTORY_COMMAND_FAILED: request-release run:release:request-release:7: factory_protected_effect_untrusted" });
     const long = factoryCommandFailedEvent({ id: "c", kind: "k" }, "x".repeat(FACTORY_COMMAND_FAILED_DETAIL_LIMIT + 10), 1);
     expect(long.error).toBe(`FACTORY_COMMAND_FAILED: k c: ${"x".repeat(FACTORY_COMMAND_FAILED_DETAIL_LIMIT)}`);
+  });
+
+  test("a dispatch the product refused before anything was queued fails its task node in place with the refusal's name, with no cancel", () => {
+    const graph = compiled([{ id: "work", kind: "task", runner, outputPorts: {} }], {});
+    const state = advanceKernel(graph, createKernelState(graph, "run-admission-refused", {}, 0), event("start", { kind: "start" })).nextState;
+    const admission = state.nodes.work!.attempts.at(-1)!;
+    const admitted = advanceKernel(graph, state, event("admit", { kind: "admission-result", nodeId: "work", commandId: admission.commandId, candidateGeneration: 0, granted: true }));
+    const dispatch = admitted.commands.find((command) => command.kind === "dispatch-node")!;
+    const refused = factoryAdmissionRefusedEvent(dispatch, "factory_package_quarantined", 2);
+    expect(refused).toEqual({ kind: "node-failed", id: `${dispatch.id}:admission-refused`, atMs: 2, nodeId: "work", commandId: dispatch.id, candidateGeneration: 0, attempt: dispatch.attempt, error: "factory_package_quarantined", failureKind: "admission_denied" });
+    const failed = advanceKernel(graph, admitted.nextState, refused);
+    expect(failed.commands.some((command) => command.kind === "cancel-node" || command.kind === "dispatch-node")).toBe(false);
+    expect(failed.commands.filter((command) => command.kind === "fail-run")).toEqual([expect.objectContaining({ kind: "fail-run", error: "factory_package_quarantined" })]);
+    expect(failed.nextState.status).toBe("failed");
+    expect(failed.nextState.nodes.work).toMatchObject({ status: "failed", error: "factory_package_quarantined" });
+    expect(failed.nextState.nodes.work!.attempts.every((attempt) => attempt.stopped)).toBe(true);
+    // The same failure any other way keeps the ordinary stop, because a lost response can hide a launch.
+    const lost = advanceKernel(graph, admitted.nextState, factoryCommandFailedEvent(dispatch, "factory gateway returned HTTP 500", 2));
+    expect(lost.commands.map((command) => command.kind)).toEqual(["cancel-node"]);
+    const execution = advanceKernel(graph, admitted.nextState, event("crash", { kind: "node-failed", nodeId: "work", commandId: dispatch.id, candidateGeneration: 0, attempt: dispatch.attempt, error: "boom", failureKind: "execution" }));
+    expect(execution.commands.map((command) => command.kind)).toEqual(["cancel-node"]);
+  });
+
+  test("admission_denied is only an in-place end for a running task: an acceptance node keeps its own path", () => {
+    const graph = compiled([
+      { id: "candidate", kind: "task", runner, outputPorts: { candidate: { type: "string" } } },
+      { id: "accept", kind: "acceptance", dependsOn: ["candidate"], contract: referenceCodeV1.acceptance.id, candidate: { kind: "ref", root: "node", name: "candidate", path: ["candidate"] }, evidence: { kind: "literal", value: [] }, outputPorts: { acceptedCandidate: { type: "string" } } },
+    ], {});
+    const state = advanceKernel(graph, createKernelState(graph, "run-admission-denied-acceptance", {}, 0), event("start", { kind: "start" })).nextState;
+    const admission = state.nodes.candidate!.attempts.at(-1)!;
+    const admitted = advanceKernel(graph, state, event("admit", { kind: "admission-result", nodeId: "candidate", commandId: admission.commandId, candidateGeneration: 0, granted: true }));
+    const dispatch = admitted.commands.find((command) => command.kind === "dispatch-node")!;
+    const done = advanceKernel(graph, admitted.nextState, event("done", { kind: "node-result", nodeId: "candidate", commandId: dispatch.id, candidateGeneration: 0, attempt: 1, output: { candidate: "tree" } }));
+    const acceptance = done.commands.find((command) => command.kind === "request-acceptance")!;
+    const failed = advanceKernel(graph, done.nextState, event("denied", { kind: "node-failed", nodeId: "accept", commandId: acceptance.id, candidateGeneration: 0, attempt: 1, error: "factory_x", failureKind: "admission_denied" }));
+    expect(failed.nextState.nodes.accept).toMatchObject({ status: "failed", error: "factory_x" });
   });
 
   test("a failed release effect fails the run at once: the release's attempt is the effect, so nothing is left to stop", () => {

@@ -204,6 +204,94 @@ function resolveMockModel(model: string): { provider: string; model: string; piM
   };
 }
 
+/**
+ * Where an explicit provider + model pin resolved from.
+ *
+ * `stand-in` is the one answer that serves nothing: no catalog lists the id, no
+ * refresh discovered it, and no operator registered it with an endpoint, so
+ * `resolveModelObject` synthesized a model object. A caller that must refuse
+ * rather than substitute (the factory provider broker, C10) reads this.
+ */
+export type PinnedModelSource = "mock" | "discovered" | "custom" | "catalog" | "stand-in";
+
+export interface PinnedModelResolution {
+  provider: string;
+  model: string;
+  piModel: AnyModel;
+  source: PinnedModelSource;
+}
+
+/**
+ * The explicit-pin passthrough, and the one place a pin meets the operator's
+ * registrations: the test-surface mock, a discovered model, and a
+ * `provider:customModels` row (the "add a local provider" path, which is how a
+ * host's Ollama is registered) with its `baseUrl`. `resolveModel`'s Level 1 and
+ * the factory provider broker both resolve through here, so a pinned Ollama
+ * model reaches the same endpoint from a conversation and from a factory guest.
+ */
+export async function resolvePinnedModel(provider: string, modelId: string): Promise<PinnedModelResolution> {
+  // Deterministic mock provider for the remote-test harness. The baseUrl
+  // is injected SERVER-SIDE here (never via user `provider:customModels`),
+  // so the admin-only, DNS-pinned SSRF validation for user-supplied
+  // baseUrls is not in play. Gated: with the test surface off this
+  // provider does not resolve and falls through to normal lookup (which
+  // has no `ezcorp-mock` models → custom openai-completions w/ default
+  // OpenAI baseUrl, requiring credentials it won't have → clean failure).
+  if (provider === MOCK_PROVIDER && isTestSurfaceEnabled()) {
+    return { ...resolveMockModel(modelId), source: "mock" };
+  }
+  // Prefer a model discovered via /api/providers/:provider/refresh-models — it carries
+  // the correct api + baseUrl for provider-native calls (e.g. openai-responses for gpt-5.x).
+  const discovered = await resolveDiscoveredModel(provider, modelId);
+  if (discovered) {
+    return { provider, model: modelId, piModel: discovered, source: "discovered" };
+  }
+  // Look up custom model's baseUrl so resolveModelObject can set the correct endpoint
+  // Raw stored rows, not `CustomModelEntry`: this reads the setting straight
+  // rather than through `parseCustomModelEntries`, so it must tolerate both
+  // the `id` and the legacy `modelId` spelling — which is the only reason
+  // the shape is stated here instead of imported.
+  const customModels = (await getSetting("provider:customModels")) as
+    | Array<{
+        id?: string;
+        modelId?: string;
+        provider?: string;
+        baseUrl?: string;
+        contextWindow?: number;
+      }>
+    | undefined;
+  const custom = customModels?.find(
+    (m) => (m.id ?? m.modelId) === modelId && m.provider === provider,
+  );
+  // NAME A RETIRED PIN. This is the branch that honours an explicit
+  // provider+model pin, so it is the one place where a user's saved model
+  // choice meets the installed catalog. A pi-ai upgrade can retire an id
+  // (0.80.6 → 0.83.0 retired 18 across the four providers EZCorp ships) and
+  // the failure is SILENT: resolveModelObject synthesizes a stand-in with a
+  // guessed 128k window and an all-zero rate table, so the thread is
+  // compacted harder and spend reports as unmeasured, with no error until
+  // the provider itself rejects the id — if it rejects it at all.
+  //
+  // Deliberately a log and not a throw: a retired catalog id is frequently
+  // still servable, and hard-failing here would break working
+  // conversations to make a bookkeeping point. Deduped per process by
+  // `warnCatalogGapOnce`, because a pinned conversation resolves its model
+  // on every single turn.
+  const gapMessage = reportCatalogGapOnce(
+    { provider, modelId, source: "conversation pin" },
+    isKnownCatalogModel,
+    reportedCatalogGaps,
+    !!custom?.baseUrl,
+  );
+  if (gapMessage) log.warn(gapMessage, { provider, modelId });
+  return {
+    provider,
+    model: modelId,
+    piModel: resolveModelObject(provider, modelId, custom?.baseUrl, custom?.contextWindow),
+    source: custom?.baseUrl ? "custom" : isKnownCatalogModel(provider, modelId) ? "catalog" : "stand-in",
+  };
+}
+
 export async function resolveModel(
   rawProvider?: string,
   rawModelId?: string,
@@ -267,65 +355,8 @@ export async function resolveModel(
 
   // Level 1: Explicit provider + model -- passthrough
   if (provider && modelId) {
-    // Deterministic mock provider for the remote-test harness. The baseUrl
-    // is injected SERVER-SIDE here (never via user `provider:customModels`),
-    // so the admin-only, DNS-pinned SSRF validation for user-supplied
-    // baseUrls is not in play. Gated: with the test surface off this
-    // provider does not resolve and falls through to normal lookup (which
-    // has no `ezcorp-mock` models → custom openai-completions w/ default
-    // OpenAI baseUrl, requiring credentials it won't have → clean failure).
-    if (provider === MOCK_PROVIDER && isTestSurfaceEnabled()) {
-      return resolveMockModel(modelId);
-    }
-    // Prefer a model discovered via /api/providers/:provider/refresh-models — it carries
-    // the correct api + baseUrl for provider-native calls (e.g. openai-responses for gpt-5.x).
-    const discovered = await resolveDiscoveredModel(provider, modelId);
-    if (discovered) {
-      return { provider, model: modelId, piModel: discovered };
-    }
-    // Look up custom model's baseUrl so resolveModelObject can set the correct endpoint
-    // Raw stored rows, not `CustomModelEntry`: this reads the setting straight
-    // rather than through `parseCustomModelEntries`, so it must tolerate both
-    // the `id` and the legacy `modelId` spelling — which is the only reason
-    // the shape is stated here instead of imported.
-    const customModels = (await getSetting("provider:customModels")) as
-      | Array<{
-          id?: string;
-          modelId?: string;
-          provider?: string;
-          baseUrl?: string;
-          contextWindow?: number;
-        }>
-      | undefined;
-    const custom = customModels?.find(
-      (m) => (m.id ?? m.modelId) === modelId && m.provider === provider,
-    );
-    // NAME A RETIRED PIN. This is the branch that honours an explicit
-    // provider+model pin, so it is the one place where a user's saved model
-    // choice meets the installed catalog. A pi-ai upgrade can retire an id
-    // (0.80.6 → 0.83.0 retired 18 across the four providers EZCorp ships) and
-    // the failure is SILENT: resolveModelObject synthesizes a stand-in with a
-    // guessed 128k window and an all-zero rate table, so the thread is
-    // compacted harder and spend reports as unmeasured, with no error until
-    // the provider itself rejects the id — if it rejects it at all.
-    //
-    // Deliberately a log and not a throw: a retired catalog id is frequently
-    // still servable, and hard-failing here would break working
-    // conversations to make a bookkeeping point. Deduped per process by
-    // `warnCatalogGapOnce`, because a pinned conversation resolves its model
-    // on every single turn.
-    const gapMessage = reportCatalogGapOnce(
-      { provider, modelId, source: "conversation pin" },
-      isKnownCatalogModel,
-      reportedCatalogGaps,
-      !!custom?.baseUrl,
-    );
-    if (gapMessage) log.warn(gapMessage, { provider, modelId });
-    return {
-      provider,
-      model: modelId,
-      piModel: resolveModelObject(provider, modelId, custom?.baseUrl, custom?.contextWindow),
-    };
+    const { source: _source, ...pinned } = await resolvePinnedModel(provider, modelId);
+    return pinned;
   }
 
   // Past the pinned-passthrough level, every remaining branch picks a model

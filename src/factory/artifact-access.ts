@@ -34,7 +34,10 @@ type GrantRecord = {
   readonly issuer_grant_revision: string | number;
   readonly protected_digest: string;
   readonly revoked_at: unknown;
+  readonly grant_revision: string | number;
 };
+/** Every column `asGrant` decodes, for a reader that selects the grant row alone. */
+const GRANT_COLUMNS = sql`source_project_id, source_run_id, source_artifact_id, target_project_id, artifact_digest, artifact_bytes, artifact_kind, storage_version, media_type, issuer_id, issuer_grant_revision, protected_digest, revoked_at, grant_revision`;
 type SharedGrantRecord = GrantRecord & {
   readonly host_object_id: string;
   readonly host_project_id: string;
@@ -70,6 +73,11 @@ export interface FactoryArtifactReadGrant extends FactoryArtifactReadGrantInput 
   readonly storageVersion: string;
   readonly protectedDigest: string;
   readonly revoked: boolean;
+  /**
+   * Which grant of this share this is, from 1. A revoked grant keeps its row and
+   * its number; granting again writes the next number rather than reviving it.
+   */
+  readonly grantRevision: number;
 }
 
 export interface FactorySharedArtifact {
@@ -86,13 +94,18 @@ function reference(value: FactoryArtifactReference): FactoryArtifactReference {
   try { return assertFactoryArtifactReference(value, FACTORY_ARTIFACT_SHARED_MAX_BYTES); }
   catch { throw new FactoryArtifactAccessError("factory_artifact_reference_invalid"); }
 }
+/**
+ * The grant's seal. A first grant is sealed exactly as before W04b, so every row
+ * written earlier still verifies; a later grant also seals its number, so two
+ * grants with otherwise identical facts never share a seal or an audit id.
+ */
 function sealed(tenantId: string, input: Omit<FactoryArtifactReadGrant, "protectedDigest" | "revoked">): string {
-  return `sha256:${digestObject({ tenantId, sourceProjectId: input.sourceProjectId, sourceRunId: input.sourceRunId, targetProjectId: input.targetProjectId, artifact: input.artifact, artifactKind: input.artifactKind, mediaType: input.mediaType, issuerId: input.issuerId, issuerGrantRevision: input.issuerGrantRevision, storageVersion: input.storageVersion })}`;
+  return `sha256:${digestObject({ tenantId, sourceProjectId: input.sourceProjectId, sourceRunId: input.sourceRunId, targetProjectId: input.targetProjectId, artifact: input.artifact, artifactKind: input.artifactKind, mediaType: input.mediaType, issuerId: input.issuerId, issuerGrantRevision: input.issuerGrantRevision, storageVersion: input.storageVersion, ...(input.grantRevision === 1 ? {} : { grantRevision: input.grantRevision }) })}`;
 }
 function asGrant(tenantId: string, row: GrantRecord): FactoryArtifactReadGrant {
   const artifact = reference({ artifactId: row.source_artifact_id, digest: row.artifact_digest, encodedBytes: Number(row.artifact_bytes) });
-  const value: Omit<FactoryArtifactReadGrant, "protectedDigest" | "revoked"> = { sourceProjectId: row.source_project_id, sourceRunId: row.source_run_id, targetProjectId: row.target_project_id, artifact, artifactKind: row.artifact_kind, mediaType: row.media_type, issuerId: row.issuer_id, issuerGrantRevision: Number(row.issuer_grant_revision), storageVersion: row.storage_version };
-  if (!isFactoryArtifactMediaType(value.mediaType) || !value.artifactKind || value.artifactKind.length > 128 || !Number.isSafeInteger(value.issuerGrantRevision) || value.issuerGrantRevision < 1 || row.protected_digest !== sealed(tenantId, value)) unavailable();
+  const value: Omit<FactoryArtifactReadGrant, "protectedDigest" | "revoked"> = { sourceProjectId: row.source_project_id, sourceRunId: row.source_run_id, targetProjectId: row.target_project_id, artifact, artifactKind: row.artifact_kind, mediaType: row.media_type, issuerId: row.issuer_id, issuerGrantRevision: Number(row.issuer_grant_revision), storageVersion: row.storage_version, grantRevision: Number(row.grant_revision) };
+  if (!isFactoryArtifactMediaType(value.mediaType) || !value.artifactKind || value.artifactKind.length > 128 || !Number.isSafeInteger(value.issuerGrantRevision) || value.issuerGrantRevision < 1 || !Number.isSafeInteger(value.grantRevision) || value.grantRevision < 1 || row.protected_digest !== sealed(tenantId, value)) unavailable();
   return { ...value, protectedDigest: row.protected_digest, revoked: row.revoked_at !== null };
 }
 
@@ -137,7 +150,7 @@ export class FactoryArtifactAccess {
       if (!isFactoryArtifactMediaType(mediaType)) unavailable();
     } catch { unavailable(); }
     const found = rows<SharedGrantRecord>(await transaction.execute(sql`SELECT share.source_project_id, share.source_run_id, share.source_artifact_id, share.target_project_id,
-      share.artifact_digest, share.artifact_bytes, share.artifact_kind, share.storage_version, share.media_type, share.issuer_id, share.issuer_grant_revision, share.protected_digest, share.revoked_at,
+      share.artifact_digest, share.artifact_bytes, share.artifact_kind, share.storage_version, share.media_type, share.issuer_id, share.issuer_grant_revision, share.protected_digest, share.revoked_at, share.grant_revision,
       artifact.object_id AS host_object_id, artifact.project_id AS host_project_id, artifact.run_id AS host_run_id, artifact.kind AS host_kind, artifact.digest AS host_digest, artifact.encoded_bytes AS host_encoded_bytes, artifact.storage_version AS host_storage_version
       FROM factory_artifact_read_grants AS share JOIN factory_artifacts AS artifact
         ON artifact.tenant_id=share.tenant_id AND artifact.project_id=share.source_project_id AND artifact.object_id=share.source_artifact_id
@@ -161,26 +174,36 @@ export class FactoryArtifactAccess {
       WHERE tenant_id=${this.tenantId} AND project_id=${input.sourceProjectId} AND run_id=${input.sourceRunId} AND object_id=${input.artifact.artifactId} FOR SHARE`))[0];
     const target = rows(await transaction.execute(sql`SELECT project_id FROM factory_projects WHERE tenant_id=${this.tenantId} AND project_id=${input.targetProjectId} FOR SHARE`))[0];
     if (!source || !target || source.digest !== input.artifact.digest || Number(source.encoded_bytes) !== input.artifact.encodedBytes) throw new FactoryArtifactAccessError("factory_artifact_not_found");
-    const value: Omit<FactoryArtifactReadGrant, "protectedDigest" | "revoked"> = { ...input, artifact: input.artifact, artifactKind: source.kind, mediaType: input.mediaType, issuerId: actor.id, issuerGrantRevision: authorization.revision, storageVersion: source.storage_version };
+    // Every grant of this share, locked: a re-grant after a revoke serializes on
+    // the revoked row. Only an active grant conflicts; a revoked one stays for audit.
+    const history = rows<Pick<GrantRecord, "grant_revision" | "revoked_at">>(await transaction.execute(sql`SELECT grant_revision, revoked_at FROM factory_artifact_read_grants
+      WHERE tenant_id=${this.tenantId} AND source_project_id=${input.sourceProjectId} AND source_artifact_id=${input.artifact.artifactId} AND target_project_id=${input.targetProjectId} FOR UPDATE`));
+    if (history.some(row => row.revoked_at === null)) throw new FactoryArtifactAccessError("factory_artifact_grant_conflict");
+    const grantRevision = history.reduce((highest, row) => Math.max(highest, Number(row.grant_revision)), 0) + 1;
+    const value: Omit<FactoryArtifactReadGrant, "protectedDigest" | "revoked"> = { ...input, artifact: input.artifact, artifactKind: source.kind, mediaType: input.mediaType, issuerId: actor.id, issuerGrantRevision: authorization.revision, storageVersion: source.storage_version, grantRevision };
     const protectedDigest = sealed(this.tenantId, value);
-    const existing = rows<GrantRecord>(await transaction.execute(sql`SELECT source_project_id, source_run_id, source_artifact_id, target_project_id, artifact_digest, artifact_bytes, artifact_kind, storage_version, media_type, issuer_id, issuer_grant_revision, protected_digest, revoked_at
-      FROM factory_artifact_read_grants WHERE tenant_id=${this.tenantId} AND source_project_id=${input.sourceProjectId} AND source_artifact_id=${input.artifact.artifactId} AND target_project_id=${input.targetProjectId} FOR UPDATE`))[0];
-    if (existing) throw new FactoryArtifactAccessError("factory_artifact_grant_conflict");
-    await transaction.execute(sql`INSERT INTO factory_artifact_read_grants
-      (tenant_id, source_project_id, source_run_id, source_artifact_id, target_project_id, artifact_digest, artifact_bytes, artifact_kind, storage_version, media_type, issuer_id, issuer_grant_revision, protected_digest)
-      VALUES (${this.tenantId}, ${input.sourceProjectId}, ${input.sourceRunId}, ${input.artifact.artifactId}, ${input.targetProjectId}, ${input.artifact.digest}, ${input.artifact.encodedBytes}, ${source.kind}, ${source.storage_version}, ${input.mediaType}, ${actor.id}, ${authorization.revision}, ${protectedDigest})`);
-    await insertTransactionalAuditEntry(transaction, `factory-artifact-read:${protectedDigest}`, actor.id, "factory.artifact.read.granted", input.artifact.artifactId, { tenantId: this.tenantId, sourceProjectId: input.sourceProjectId, targetProjectId: input.targetProjectId, digest: input.artifact.digest, mediaType: input.mediaType });
+    // A first grant has no row to lock, so two of them can race to the same key.
+    // The loser inserts nothing and is refused by name, not by a driver error.
+    const inserted = rows(await transaction.execute(sql`INSERT INTO factory_artifact_read_grants
+      (tenant_id, source_project_id, source_run_id, source_artifact_id, target_project_id, artifact_digest, artifact_bytes, artifact_kind, storage_version, media_type, issuer_id, issuer_grant_revision, protected_digest, grant_revision)
+      VALUES (${this.tenantId}, ${input.sourceProjectId}, ${input.sourceRunId}, ${input.artifact.artifactId}, ${input.targetProjectId}, ${input.artifact.digest}, ${input.artifact.encodedBytes}, ${source.kind}, ${source.storage_version}, ${input.mediaType}, ${actor.id}, ${authorization.revision}, ${protectedDigest}, ${grantRevision})
+      ON CONFLICT DO NOTHING RETURNING grant_revision`));
+    if (inserted.length !== 1) throw new FactoryArtifactAccessError("factory_artifact_grant_conflict");
+    await insertTransactionalAuditEntry(transaction, `factory-artifact-read:${protectedDigest}`, actor.id, "factory.artifact.read.granted", input.artifact.artifactId, { tenantId: this.tenantId, sourceProjectId: input.sourceProjectId, targetProjectId: input.targetProjectId, digest: input.artifact.digest, mediaType: input.mediaType, grantRevision });
     return { ...value, protectedDigest, revoked: false };
   }
 
   private async revokeInTransaction(transaction: MigrationDb, actor: FactoryPrincipal, input: Pick<FactoryArtifactReadGrantInput, "sourceProjectId" | "targetProjectId" | "artifact">): Promise<FactoryArtifactReadGrant> {
-    const row = rows<GrantRecord>(await transaction.execute(sql`SELECT source_project_id, source_run_id, source_artifact_id, target_project_id, artifact_digest, artifact_bytes, artifact_kind, storage_version, media_type, issuer_id, issuer_grant_revision, protected_digest, revoked_at
-      FROM factory_artifact_read_grants WHERE tenant_id=${this.tenantId} AND source_project_id=${input.sourceProjectId} AND source_artifact_id=${input.artifact.artifactId} AND target_project_id=${input.targetProjectId} FOR UPDATE`))[0];
+    // The active grant if there is one, otherwise the latest revoked grant, so a
+    // repeated revoke answers with what it revoked and writes nothing.
+    const row = rows<GrantRecord>(await transaction.execute(sql`SELECT ${GRANT_COLUMNS}
+      FROM factory_artifact_read_grants WHERE tenant_id=${this.tenantId} AND source_project_id=${input.sourceProjectId} AND source_artifact_id=${input.artifact.artifactId} AND target_project_id=${input.targetProjectId}
+      ORDER BY (revoked_at IS NULL) DESC, grant_revision DESC FOR UPDATE`))[0];
     if (!row) throw new FactoryArtifactAccessError("factory_artifact_grant_not_found");
     const grant = asGrant(this.tenantId, row);
     if (grant.artifact.digest !== input.artifact.digest || grant.artifact.encodedBytes !== input.artifact.encodedBytes) throw new FactoryArtifactAccessError("factory_artifact_grant_conflict");
     if (!grant.revoked) {
-      await transaction.execute(sql`UPDATE factory_artifact_read_grants SET revoked_at=NOW() WHERE tenant_id=${this.tenantId} AND source_project_id=${input.sourceProjectId} AND source_artifact_id=${input.artifact.artifactId} AND target_project_id=${input.targetProjectId}`);
+      await transaction.execute(sql`UPDATE factory_artifact_read_grants SET revoked_at=NOW() WHERE tenant_id=${this.tenantId} AND source_project_id=${input.sourceProjectId} AND source_artifact_id=${input.artifact.artifactId} AND target_project_id=${input.targetProjectId} AND grant_revision=${grant.grantRevision}`);
       await insertTransactionalAuditEntry(transaction, `factory-artifact-read-revoke:${grant.protectedDigest}`, actor.id, "factory.artifact.read.revoked", input.artifact.artifactId, { tenantId: this.tenantId, sourceProjectId: input.sourceProjectId, targetProjectId: input.targetProjectId, digest: input.artifact.digest });
     }
     return { ...grant, revoked: true };

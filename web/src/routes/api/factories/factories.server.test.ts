@@ -36,7 +36,7 @@ const definitions = {
   listVersions: vi.fn(),
 };
 const runs = { start: vi.fn(), read: vi.fn(), list: vi.fn(), cancel: vi.fn(), readCommand: vi.fn() };
-const grants = { list: vi.fn(), set: vi.fn(), revoke: vi.fn() };
+const grants = { list: vi.fn(), set: vi.fn(), revoke: vi.fn(), displayNameOf: vi.fn() };
 const credentials = { issue: vi.fn(), revoke: vi.fn(), authenticate: vi.fn() };
 const releaseAuthority = { publishTrust: vi.fn(), revokeTrust: vi.fn(), setReleaseEnabled: vi.fn() };
 const releaseOperations = { putContract: vi.fn(), prepare: vi.fn(), inspect: vi.fn(), requestApproval: vi.fn(), decideApproval: vi.fn(), listNotifications: vi.fn(), putPolicy: vi.fn(), deletePolicy: vi.fn(), reconcile: vi.fn() };
@@ -52,7 +52,7 @@ const compiledBlobDigest = createHash("sha256").update(compiledText).digest("hex
 const metadata = { projectId: "project-1", factoryId: referenceCodeV1.id, revision: 1, sourceDigest, archived: false, updatedAtMs: 1, requiredResourceClasses: [], requirementsComplete: true, validationDiagnosticCount: 0 };
 const draft = { ...metadata, source: referenceCodeV1 };
 const version = { projectId: "project-1", factoryId: referenceCodeV1.id, version: referenceCodeV1.version, draftRevision: 1, definitionDigest: compiled.digest, compiledBlobDigest, compiledBytes: new TextEncoder().encode(compiledText).byteLength, publishedAtMs: 2 };
-const grant = { projectId: "project-1", principalKind: "user" as const, principalId: "member-1", action: "factory.author" as const, revision: 1, expiresAtMs: null, revoked: false, issuerId: "admin-1", updatedAtMs: 3 };
+const grant = { projectId: "project-1", principalKind: "user" as const, principalId: "member-1", action: "factory.author" as const, revision: 1, expiresAtMs: null, revoked: false, issuerId: "admin-1", updatedAtMs: 3, displayName: "Member One" };
 
 const collection = await import("./projects/[projectId]/definitions/+server");
 const importRoute = await import("./projects/[projectId]/definitions/import/+server");
@@ -117,6 +117,7 @@ beforeEach(() => {
   grants.list.mockResolvedValue({ items: [grant], nextCursor: null });
   grants.set.mockResolvedValue({ revision: 1, expiresAtMs: null });
   grants.revoke.mockResolvedValue({ revision: 2, expiresAtMs: null });
+  grants.displayNameOf.mockResolvedValue("Member One");
   const issuedAtMs = Math.floor(Date.now() / 1_000) * 1_000;
   credentials.issue.mockResolvedValue({ projectId: "project-1", serviceAccountId: "service-1", credentialId: "credential-1", scopes: ["read"], revision: 1, issuedByUserId: "member-1", issuedAtMs, expiresAtMs: issuedAtMs + 60_000, revoked: false });
   credentials.revoke.mockResolvedValue({ projectId: "project-1", serviceAccountId: "service-1", credentialId: "credential-1", scopes: ["read"], revision: 2, issuedByUserId: "member-1", issuedAtMs, expiresAtMs: issuedAtMs + 60_000, revoked: true });
@@ -284,7 +285,12 @@ describe("factory definition and grant routes", () => {
     expect((await json(responses[8]!)).kind).toBe("version.page");
     expect((await json(responses[9]!)).kind).toBe("version.summary");
     expect((await json(responses[10]!)).kind).toBe("version.details");
-    expect((await json(responses[11]!)).kind).toBe("grant.page");
+    const grantPage = await json(responses[11]!);
+    expect(grantPage.kind).toBe("grant.page");
+    // W04b: the grantee's display name rides beside its id, in the page and in each mutation's resource.
+    expect((grantPage as Extract<FactoryApiResponse, { kind: "grant.page" }>).page.items[0]).toMatchObject({ principalId: "member-1", displayName: "Member One" });
+    expect((await json(responses[12]!) as Extract<FactoryApiResponse, { kind: "grant.resource" }>).resource).toMatchObject({ principalId: "member-1", displayName: "Member One" });
+    expect(grants.displayNameOf).toHaveBeenCalledWith(expect.objectContaining({ kind: "user", id: "member-1" }));
     expect((await json(responses[13]!)).kind).toBe("grant.resource");
     expect(definitions.publish).toHaveBeenCalledWith(expect.objectContaining({ authentication: "session" }), resource, 1, "publish", "1.0.0");
     expect(grants.set).toHaveBeenCalledWith(expect.objectContaining({ authentication: "session" }), expect.objectContaining({ expectedRevision: 0 }), "grant");
@@ -395,6 +401,16 @@ describe("factory definition and grant routes", () => {
     }
     definitions.read.mockRejectedValueOnce(new FactoryDefinitionError("factory_definition_invalid", [{ code: "BROKEN", message: "Broken", path: [] }]));
     expect((await item.GET(event("GET", "/api/factories/projects/project-1/definitions/reference.code.v1", { params }))).status).toBe(422);
+    // A compiler diagnostic that names its node is still a named 422, carried in the issue shape.
+    definitions.read.mockRejectedValueOnce(new FactoryDefinitionError("factory_definition_invalid", [{ code: "BINDING_PORT", message: "Node references must start with a declared output port.", path: ["graph", "nodes", 2, "bindings", "answer"], nodeId: "infer" }]));
+    const refused = await item.GET(event("GET", "/api/factories/projects/project-1/definitions/reference.code.v1", { params }));
+    expect(refused.status).toBe(422);
+    expect(await json(refused)).toEqual({ schemaVersion: "factory.api.response.v1", kind: "error", error: { code: "factory_definition_invalid", message: "The factory definition is not publishable.", retryable: false, issues: [{ code: "BINDING_PORT", message: "Node references must start with a declared output port.", path: ["graph", "nodes", 2, "bindings", "answer"] }] } });
+    // Raised without its diagnostics, it is still the named 422, not an unnamed 500.
+    definitions.read.mockRejectedValueOnce(new FactoryDefinitionError("factory_definition_invalid"));
+    const bare = await item.GET(event("GET", "/api/factories/projects/project-1/definitions/reference.code.v1", { params }));
+    expect(bare.status).toBe(422);
+    expect(await json(bare)).toEqual({ schemaVersion: "factory.api.response.v1", kind: "error", error: { code: "factory_definition_invalid", message: "The factory definition is not publishable.", retryable: false } });
     for (const [code, status] of [["factory_grant_conflict", 412], ["factory_grant_not_found", 404], ["factory_forbidden", 403], ["factory_grant_invalid", 400], ["factory_grant_corrupt", 500]] as const) {
       grants.list.mockRejectedValueOnce(new FactoryGrantError(code));
       expect((await grantList.GET(event("GET", "/api/factories/projects/project-1/grants", { params }))).status).toBe(status);

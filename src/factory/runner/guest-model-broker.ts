@@ -81,9 +81,17 @@ export interface FactoryGuestModelBrokerOptions {
   readonly delegate?: FactoryGuestBroker;
 }
 
-function refusal(operationId: string, code: FactoryGuestModelRefusal, message: string): FactoryGuestModelResponse {
+/** A typed refusal. Shared by every answer a guest's model request can get. */
+export function factoryGuestModelRefusal(operationId: string, code: FactoryGuestModelRefusal, message: string): FactoryGuestModelResponse {
   return Object.freeze({ schemaVersion: "factory.guest-model-response.v1" as const, status: "refused" as const, operationId, refusal: Object.freeze({ code, message }) });
 }
+
+/** The operation a payload names, or `unknown` when it names none a refusal could echo. */
+export function factoryGuestModelOperationIdOf(payload: unknown): string {
+  const operationId = (payload as { operationId?: unknown } | null)?.operationId;
+  return typeof operationId === "string" ? operationId : "unknown";
+}
+
 
 /** The pin must match the attempt's own, field for field, or the call is refused. */
 function pinned(attempt: FactoryRunnerRequest, asked: FactoryModelPin): boolean {
@@ -117,19 +125,19 @@ export function createFactoryGuestModelBroker(options: FactoryGuestModelBrokerOp
   const call = async (attempt: FactoryRunnerRequest, payload: unknown): Promise<FactoryGuestModelResponse> => {
     const validation = validateFactoryGuestModelRequest(payload);
     if (!validation.ok) {
-      const operationId = typeof (payload as { operationId?: unknown })?.operationId === "string" ? (payload as { operationId: string }).operationId : "unknown";
+      const operationId = factoryGuestModelOperationIdOf(payload);
       const code: FactoryGuestModelRefusal = validation.issues[0]?.code === "GUEST_MODEL_INPUT_BYTES" || validation.issues[0]?.code === "GUEST_MODEL_MESSAGES" ? "input_too_large" : "invalid_request";
-      return refusal(operationId, code, validation.issues[0]?.message ?? "Guest model request is invalid.");
+      return factoryGuestModelRefusal(operationId, code, validation.issues[0]?.message ?? "Guest model request is invalid.");
     }
     const request = payload as FactoryGuestModelRequest;
 
-    if (!pinned(attempt, request.model)) return refusal(request.operationId, "model_pin_mismatch", "A guest may only call the model its attempt pinned.");
+    if (!pinned(attempt, request.model)) return factoryGuestModelRefusal(request.operationId, "model_pin_mismatch", "A guest may only call the model its attempt pinned.");
 
     const claim = await options.journal.claim(attempt, request);
     if (!claim.claimed) {
       return claim.reason === "settled"
-        ? refusal(request.operationId, "operation_settled", "That operation already settled and cannot call a model again.")
-        : refusal(request.operationId, "operation_busy", "That operation already has a model call in flight.");
+        ? factoryGuestModelRefusal(request.operationId, "operation_settled", "That operation already settled and cannot call a model again.")
+        : factoryGuestModelRefusal(request.operationId, "operation_busy", "That operation already has a model call in flight.");
     }
 
     let completion: FactoryModelCompletion;
@@ -142,7 +150,7 @@ export function createFactoryGuestModelBroker(options: FactoryGuestModelBrokerOp
       // A failed release is reported to the guest as the same refusal; the
       // operation then stays dispatched for `reconcileLate` to settle.
       await options.journal.fail(attempt, request, message).catch(() => undefined);
-      return refusal(request.operationId, "provider_unavailable", message);
+      return factoryGuestModelRefusal(request.operationId, "provider_unavailable", message);
     }
 
     try {
@@ -159,7 +167,7 @@ export function createFactoryGuestModelBroker(options: FactoryGuestModelBrokerOp
       const message = held === undefined
         ? `${reason(error)} (the cost was held as uncertain for reconciliation)`
         : `${reason(error)} (the cost could not be held: ${held})`;
-      return refusal(request.operationId, "provider_unavailable", message);
+      return factoryGuestModelRefusal(request.operationId, "provider_unavailable", message);
     }
 
     const response = Object.freeze({
@@ -174,7 +182,7 @@ export function createFactoryGuestModelBroker(options: FactoryGuestModelBrokerOp
     // frame still cost what it cost. Truncating it here would be a silent
     // substitution, so the guest is refused and the receipt stays settled.
     const carried = validateFactoryGuestModelResponse(response);
-    if (!carried.ok) return refusal(request.operationId, "provider_unavailable", carried.issues[0]?.message ?? "The provider answer does not fit the guest frame.");
+    if (!carried.ok) return factoryGuestModelRefusal(request.operationId, "provider_unavailable", carried.issues[0]?.message ?? "The provider answer does not fit the guest frame.");
     return response;
   };
 

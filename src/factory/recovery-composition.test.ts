@@ -138,12 +138,19 @@ describe("composition from the startup document", () => {
     expect(partial).toEqual(["retention-gc", "checkpoint-barrier"]);
   });
 
-  test("with no Temporal endpoint the barrier role holds: no checkpoint may omit Temporal positions", async () => {
-    const reports: { role: string; message: string }[] = [];
-    const roles = await composeFactoryRecoveryRoles({ config: config("archive.json", "ordinary.json", null), database, report: (role, error) => reports.push({ role, message: (error as Error).message }), poolClient: async () => pool });
+  test("with no Temporal endpoint recovery is not declared: the barrier holds by that name, and nothing reports a failure to compose", async () => {
+    const reports: string[] = [];
+    const roles = await composeFactoryRecoveryRoles({ config: config("archive.json", "ordinary.json", null), database, report: role => reports.push(role), poolClient: async () => pool });
     expect(typeof roles.retention).toBe("function");
     expect(roles.checkpoint).toBeUndefined();
-    expect(reports).toEqual([{ role: "checkpoint-barrier", message: "the startup document declares no temporalHttp endpoint, so no checkpoint could record Temporal positions" }]);
+    expect(roles.undeclared).toEqual(["temporalHttp"]);
+    expect(reports).toEqual([]);
+    // Undeclared is reported even when the archive cannot compose either.
+    const bare = await composeFactoryRecoveryRoles({ config: config("absent.json", "ordinary.json", null), database, report: role => reports.push(role) });
+    expect(bare).toEqual({ undeclared: ["temporalHttp"] });
+    expect(reports).toEqual(["recovery-archive"]);
+    // A declared document names nothing undeclared.
+    expect((await composeFactoryRecoveryRoles({ config: config(), database, report: () => {}, poolClient: async () => pool })).undeclared).toBeUndefined();
   });
 
   test("the Temporal reader carries the namespace and the client TLS read by reference", async () => {
