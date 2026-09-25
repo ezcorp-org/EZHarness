@@ -46,7 +46,7 @@ test.describe("Agents List Page", () => {
 
 		await expect(page.getByText("chat-agent")).toBeVisible();
 		await expect(page.getByText("Config", { exact: true })).toBeVisible();
-		await expect(page.getByRole("button", { name: "Chat" })).toBeVisible();
+		await expect(page.getByRole("button", { name: "Chat", exact: true })).toBeVisible();
 		await expect(page.getByRole("link", { name: "Run" })).toBeVisible();
 	});
 
@@ -60,7 +60,7 @@ test.describe("Agents List Page", () => {
 
 		await expect(page.getByText("file-agent")).toBeVisible();
 		await expect(page.getByText("File", { exact: true })).toBeVisible();
-		await expect(page.getByRole("button", { name: "Chat" })).not.toBeVisible();
+		await expect(page.getByRole("button", { name: "Chat", exact: true })).not.toBeVisible();
 		await expect(page.getByRole("link", { name: "Run" })).toBeVisible();
 	});
 
@@ -211,19 +211,22 @@ test.describe("Agents List Page", () => {
 
 			const chatUrl = `/project/${journey.project.id}/chat/new-conv`;
 			await expect(page).toHaveURL(chatUrl);
-			await expect(page.getByRole("navigation", { name: "Conversations" }).getByText("New Conversation", { exact: true })).toBeVisible();
+			// Listed in the sidebar's Chat section (the conversation column is gone).
+			await expect(page.getByTestId("chat-nav-section").first().getByTestId("chat-nav-thread").filter({ hasText: "New Conversation" })).toBeVisible();
 			await expect(page.getByRole("group", { name: "Chat input with file drop zone" })).toBeVisible();
 
 			await page.reload();
 			await expect(page).toHaveURL(chatUrl);
-			await expect(page.getByRole("navigation", { name: "Conversations" }).getByText("New Conversation", { exact: true })).toBeVisible();
+			// Listed in the sidebar's Chat section (the conversation column is gone).
+			await expect(page.getByTestId("chat-nav-section").first().getByTestId("chat-nav-thread").filter({ hasText: "New Conversation" })).toBeVisible();
 			await expect(page.getByRole("group", { name: "Chat input with file drop zone" })).toBeVisible();
 
 			if (journey.name === "agent") {
 				const secondCreated = page.waitForResponse((response) =>
 					new URL(response.url()).pathname === "/api/conversations" && response.request().method() === "POST",
 				);
-				await page.getByRole("navigation", { name: "Conversations" }).getByRole("button", { name: "New Chat" }).click();
+				// New chats start from the sidebar's Chat section now.
+				await page.getByTestId("chat-nav-section").first().getByTestId("chat-nav-new").click();
 				expect(await (await secondCreated).json()).toMatchObject({
 					id: "new-conv-2",
 					projectId: journey.project.id,
@@ -240,7 +243,7 @@ test.describe("Agents List Page", () => {
 					expect.arrayContaining(["new-conv", "new-conv-2"]),
 				);
 				await expect(page).toHaveURL(secondChatUrl);
-				await expect(page.getByRole("navigation", { name: "Conversations" }).getByText("New Conversation", { exact: true })).toHaveCount(2);
+				await expect(page.getByTestId("chat-nav-section").first().getByTestId("chat-nav-thread").filter({ hasText: "New Conversation" })).toHaveCount(2);
 				await expect(page.getByRole("group", { name: "Chat input with file drop zone" })).toBeVisible();
 			}
 		});

@@ -44,7 +44,11 @@ test.describe("Conversation list sidebar — nav landmark", () => {
 			],
 		});
 
-		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
+		// Desktop: the full list lives on the all-chats page now (the conversation
+		// page has no list column). Mobile: unchanged, the conversation's drawer.
+		await page.goto(
+			testInfo.project.name === "mobile-chromium" ? `/project/${proj.id}/chat/${conv.id}` : `/project/${proj.id}/chat?all=1`,
+		);
 
 		// The desktop sidebar renders unconditionally; the mobile one lives in
 		// a closed-by-default SwipeDrawer, opened via the header's hamburger
@@ -89,7 +93,11 @@ test.describe("Conversation list sidebar — nav landmark", () => {
 			conversations: [conv, other],
 		});
 
-		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
+		// Desktop: the full list lives on the all-chats page now (the conversation
+		// page has no list column). Mobile: unchanged, the conversation's drawer.
+		await page.goto(
+			testInfo.project.name === "mobile-chromium" ? `/project/${proj.id}/chat/${conv.id}` : `/project/${proj.id}/chat?all=1`,
+		);
 
 		if (mobile) {
 			await page.getByRole("button", { name: "Open conversations" }).click();
@@ -174,7 +182,11 @@ test.describe("Conversation list sidebar — nav landmark", () => {
 			},
 		});
 
-		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
+		// Desktop: the full list lives on the all-chats page now (the conversation
+		// page has no list column). Mobile: unchanged, the conversation's drawer.
+		await page.goto(
+			testInfo.project.name === "mobile-chromium" ? `/project/${proj.id}/chat/${conv.id}` : `/project/${proj.id}/chat?all=1`,
+		);
 
 		const mobile = testInfo.project.name === "mobile-chromium";
 		if (mobile) {
@@ -185,7 +197,7 @@ test.describe("Conversation list sidebar — nav landmark", () => {
 		// instance are mounted, so an unscoped testid would be ambiguous.
 		const sidebar = mobile
 			? page.getByTestId("swipe-drawer").locator(".flex.h-full.w-full")
-			: page.locator(".flex.h-full.w-full").first();
+			: page.getByRole("navigation", { name: "Conversations" });
 
 		await sidebar.locator('[title="Search conversations"]').click();
 		await sidebar.locator('input[placeholder="Search..."]').fill("roadmap");

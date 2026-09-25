@@ -33,14 +33,20 @@ function isMobile(page: Page): boolean {
 function sidebar(page: Page) {
 	return isMobile(page)
 		? page.getByTestId("swipe-drawer").locator(".flex.h-full.w-full")
-		: page.locator(".flex.h-full.w-full").first();
+		: page.getByRole("navigation", { name: "Conversations" });
 }
+
 
 /** Open the conversation search box (opening the mobile drawer first if needed). */
 async function openSearch(page: Page) {
 	if (isMobile(page)) {
 		await page.getByRole("button", { name: "Open conversations" }).click();
 		await expect(page.getByTestId("swipe-drawer")).toBeVisible({ timeout: 3000 });
+	} else {
+		// Desktop: the conversation page has no list column any more. Search
+		// lives on the all-chats page, reached from the sidebar's Chat section.
+		await page.getByTestId("chat-nav-section").first().getByTestId("chat-nav-show-all").click();
+		await expect(page).toHaveURL(/\/chat\?all=1$/);
 	}
 	await sidebar(page).locator('[title="Search conversations"]').click();
 	await sidebar(page).locator('input[placeholder="Search..."]').fill("match");
@@ -349,9 +355,11 @@ test.describe("Sidebar search deep-link (UI-03)", () => {
 		await expect(sb.getByTestId("message-hit")).toHaveCount(1, { timeout: 3000 });
 		await sb.getByText("Target Conversation").click();
 
-		// Still on the host conversation; no deep-link navigation occurred.
+		// No deep-link navigation occurred: still wherever the search was opened —
+		// the host conversation's drawer on mobile, the all-chats page on desktop
+		// (the conversation page has no list column there any more).
 		await page.waitForTimeout(400);
-		await expect(page).toHaveURL(/\/project\/proj-1\/chat\/host/);
+		await expect(page).toHaveURL(isMobile(page) ? /\/project\/proj-1\/chat\/host/ : /\/project\/proj-1\/chat\?all=1$/);
 		await expect(page).not.toHaveURL(/[?&]m=/);
 	});
 });

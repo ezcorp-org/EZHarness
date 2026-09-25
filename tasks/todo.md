@@ -949,6 +949,43 @@ Plan review: Both failures stopped after about five seconds while waiting for a 
 
 Review: The helper now reads nonempty readiness content until it appears or the producer exits. One new test proves that a producer exit fails immediately. The exact lifecycle suite passed 5/5 on pinned Bun 1.3.14; Biome and full typecheck passed. The failed hosted job cannot be rerun while its workflow is active (GitHub HTTP 403), so the change needs a new CI run after push.
 
+## PR #319 review and repair
+
+- [x] Read hosted browser failures and inspect the chat sidebar change.
+- [x] Fix stale project rows, missing new-chat refresh, empty All chats access, and fork/agent markers.
+- [x] Update old browser journeys to use the new Chat section.
+- [x] Complete focused browser, type, lint, and coverage checks.
+- [x] Commit the reviewed changes and report exact results.
+
+Review: Hosted full mock browser lane failed 16 journeys; browser route coverage and per-file coverage then lacked a required producer. All 117 affected Chromium journeys pass after the fixes. Component checks pass 31/31 and show 100% line and branch coverage for ChatNavSection. Web production build, full typecheck, lint, and whitespace check pass. The hosted full browser and coverage lanes still need a new run after the branch is pushed by the parent agent.
+
+### Hosted CI follow-up at `12f9bb64b`
+
+- [x] Reproduce the two mobile drawer failures with Chromium Playwright.
+- [x] Scope the Chat link assertions to the exact navigation item.
+- [x] Run the affected browser test and exact `mock-full` CI lane.
+- [x] Commit the follow-up fix and report the result.
+
+Review: The hosted full mock lane reported two strict selector collisions in `mobile-tab-bar.spec.ts`: both the Chat nav link and All chats link matched the broad `Chat` locator. Downstream browser route coverage and per-file coverage gates failed because their browser producer failed. The two affected Chromium journeys failed before the fix and passed 2/2 after it. The full lane is pending.
+
+### Hosted patch coverage follow-up at `444e4b488`
+
+- [x] Reproduce hosted patch-coverage misses locally at the exact head.
+- [x] Add a list/store integration test for scoped and unscoped refresh events.
+- [x] Add a layout integration test for the mobile Chat section path.
+- [x] Run focused tests, local coverage, typecheck, and lint.
+- [x] Commit the coverage repair and report the result.
+
+Review: Hosted global and new-file coverage passed. Patch coverage missed `ConversationList.svelte:237`, `stores.svelte.ts:372`, and `(app)/+layout.svelte:609`. The new integration tests pass 20/20. Targeted V8 coverage now records 3, 3, and 1 hit on those lines. Full typecheck and lint pass. The exact-head browser receipt and full coverage gate remain to run after the other agent's shared test slot clears. No gate configuration changed.
+
+### Merged-layout coverage follow-up at `9c8aaa303`
+
+- [x] Compare targeted and merged LCOV for layout line 609.
+- [x] Trace the canonical Vitest source include and browser ownership filter.
+- [x] Add narrow dual measurement for the app layout and guard it with a test.
+- [ ] Run focused, full, patch, new-file, and gate-integrity checks at the new head.
+
+Review: The exact-head browser lanes and full host coverage passed, but the separate patch gate found layout line 609 at zero hits. Browser V8 source maps leave that prop line at zero; targeted Node V8 measured the mounted mobile drawer test at one hit. The canonical Node producer did not include the layout and its filter excluded scripted routes. Exactly this layout is now dual-measured: the sanctioned Vitest leg passed 596 files and 7,517 tests, retained layout line 609 with one hit, and its LCOV merged with the browser receipt covers 205/219 layout lines (93.61%, above 80%). The guard suite, lint, typecheck, and gate-integrity checks pass. Exact-head full receipt and coverage checks remain. No threshold or exclusion changed.
 ## PR #320 watchdog sleep reason review — 2026-09-24
 
 - [x] Read the PR, runtime contract, relevant lessons, and failed hosted job.

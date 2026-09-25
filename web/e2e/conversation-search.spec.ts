@@ -28,7 +28,19 @@ function isMobile(page: Page): boolean {
 function sidebar(page: Page) {
 	return isMobile(page)
 		? page.getByTestId("swipe-drawer").locator(".flex.h-full.w-full")
-		: page.locator(".flex.h-full.w-full").first();
+		: page.getByRole("navigation", { name: "Conversations" });
+}
+
+/**
+ * Where the full conversation list lives now. On desktop the threads moved
+ * into the sidebar's Chat section and the full list (search, rename, delete,
+ * paging) moved to the all-chats page, `?all=1`; the conversation page has no
+ * list column any more. On mobile nothing changed — the list is still the
+ * conversation page's swipe-in drawer — so mobile keeps the original route.
+ */
+async function gotoChat(page: Page, conversationPath: string) {
+	const allChats = conversationPath.replace(/\/chat\/[^/?]+$/, "/chat?all=1");
+	await page.goto(isMobile(page) ? conversationPath : allChats);
 }
 
 /** Open the conversation search box, opening the mobile drawer first if needed. */
@@ -62,7 +74,7 @@ test.describe("Conversation Search", () => {
 			projects: [proj],
 			conversations: [convAlpha, convBeta, convGamma],
 		});
-		await page.goto(`/project/proj-1/chat/conv-alpha`);
+		await gotoChat(page, `/project/proj-1/chat/conv-alpha`);
 
 		if (isMobile(page)) {
 			await page.getByRole("button", { name: "Open conversations" }).click();
@@ -78,7 +90,7 @@ test.describe("Conversation Search", () => {
 			projects: [proj],
 			conversations: [convAlpha, convBeta, convGamma],
 		});
-		await page.goto(`/project/proj-1/chat/conv-alpha`);
+		await gotoChat(page, `/project/proj-1/chat/conv-alpha`);
 
 		await openSearch(page);
 
@@ -90,7 +102,7 @@ test.describe("Conversation Search", () => {
 			projects: [proj],
 			conversations: [convAlpha, convBeta, convGamma],
 		});
-		await page.goto(`/project/proj-1/chat/conv-alpha`);
+		await gotoChat(page, `/project/proj-1/chat/conv-alpha`);
 
 		await openSearch(page);
 
@@ -102,7 +114,7 @@ test.describe("Conversation Search", () => {
 			projects: [proj],
 			conversations: [convAlpha, convBeta, convGamma],
 		});
-		await page.goto(`/project/proj-1/chat/conv-alpha`);
+		await gotoChat(page, `/project/proj-1/chat/conv-alpha`);
 
 		// Open search and type 2+ chars to trigger filtering
 		await openSearch(page);
@@ -119,7 +131,7 @@ test.describe("Conversation Search", () => {
 			projects: [proj],
 			conversations: [convAlpha, convBeta],
 		});
-		await page.goto(`/project/proj-1/chat/conv-alpha`);
+		await gotoChat(page, `/project/proj-1/chat/conv-alpha`);
 
 		await openSearch(page);
 		// Type something that matches no conversation titles AND no message hits
@@ -134,7 +146,7 @@ test.describe("Conversation Search", () => {
 			projects: [proj],
 			conversations: [convAlpha, convBeta],
 		});
-		await page.goto(`/project/proj-1/chat/conv-alpha`);
+		await gotoChat(page, `/project/proj-1/chat/conv-alpha`);
 
 		await openSearch(page);
 		const input = searchInput(page);
@@ -150,7 +162,7 @@ test.describe("Conversation Search", () => {
 			projects: [proj],
 			conversations: [convAlpha, convBeta],
 		});
-		await page.goto(`/project/proj-1/chat/conv-alpha`);
+		await gotoChat(page, `/project/proj-1/chat/conv-alpha`);
 
 		await openSearch(page);
 		const input = searchInput(page);
@@ -167,7 +179,7 @@ test.describe("Conversation Search", () => {
 			projects: [proj],
 			conversations: [convAlpha, convBeta, convGamma],
 		});
-		await page.goto(`/project/proj-1/chat/conv-alpha`);
+		await gotoChat(page, `/project/proj-1/chat/conv-alpha`);
 
 		// Open search and type a filter
 		await openSearch(page);
@@ -192,7 +204,7 @@ test.describe("Conversation Search", () => {
 			},
 		});
 
-		await page.goto(`/project/proj-1/chat/conv-alpha`);
+		await gotoChat(page, `/project/proj-1/chat/conv-alpha`);
 		await openSearch(page);
 		// Type 2+ chars to trigger the debounced API search
 		await searchInput(page).fill("Al");
@@ -218,7 +230,7 @@ test.describe("Conversation Search", () => {
 			projects: [proj],
 			conversations: [convAlpha, convBeta, convGamma],
 		});
-		await page.goto(`/project/proj-1/chat/conv-alpha`);
+		await gotoChat(page, `/project/proj-1/chat/conv-alpha`);
 
 		await openSearch(page);
 
@@ -239,7 +251,7 @@ test.describe("Conversation Search", () => {
 			projects: [proj],
 			conversations: [convAlpha, convBeta, convGamma],
 		});
-		await page.goto(`/project/proj-1/chat/conv-alpha`);
+		await gotoChat(page, `/project/proj-1/chat/conv-alpha`);
 
 		// Open search → switch to Keyword.
 		await openSearch(page);
@@ -286,7 +298,7 @@ test.describe("Conversation Search", () => {
 				],
 			},
 		});
-		await page.goto(`/project/proj-1/chat/conv-alpha`);
+		await gotoChat(page, `/project/proj-1/chat/conv-alpha`);
 
 		await openSearch(page);
 		// "Alpha" matches the Alpha Discussion title (instant client filter) AND
@@ -325,7 +337,7 @@ test.describe("Conversation Search", () => {
 				},
 			},
 		});
-		await page.goto(`/project/proj-1/chat/conv-alpha`);
+		await gotoChat(page, `/project/proj-1/chat/conv-alpha`);
 
 		await openSearch(page);
 		// Single char — below the 2-char threshold.
@@ -356,7 +368,7 @@ test.describe("Conversation Search", () => {
 				],
 			},
 		});
-		await page.goto(`/project/proj-1/chat/conv-alpha`);
+		await gotoChat(page, `/project/proj-1/chat/conv-alpha`);
 
 		await openSearch(page);
 		// Select Semantic, then run a query that the server degrades.
@@ -383,7 +395,7 @@ test.describe("Conversation Search", () => {
 			conversations: [convAlpha, convBeta],
 			// Default searchMessages omitted → empty hits, not degraded.
 		});
-		await page.goto(`/project/proj-1/chat/conv-alpha`);
+		await gotoChat(page, `/project/proj-1/chat/conv-alpha`);
 
 		await openSearch(page);
 		// A query that matches no title AND returns no message hits.

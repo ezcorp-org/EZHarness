@@ -61,6 +61,15 @@ test("assigns scripted routes to browser coverage while node omissions still fai
   expect(missingIfNodeOwned).toEqual([previewRoute]);
 });
 
+test("dual-measures the app layout for mobile Chat while other scripted routes remain browser-owned", async () => {
+  const layout = "web/src/routes/(app)/+layout.svelte";
+  const previewRoute = "web/src/routes/(app)/extensions/[id]/preview/+page.svelte";
+  expect(scriptedRouteFiles()).toContain(layout);
+  const measured = await canonicalWebVitestSources();
+  expect(measured).toContain(layout);
+  expect(measured).not.toContain(previewRoute);
+});
+
 test("removes every browser-canonical shared UI source from the Node/V8 manifest", async () => {
   const manifest = await Bun.file(resolve(REPO_ROOT, "scripts/web-vitest-coverage-includes.sh")).text();
   const configured = configuredWebVitestSources(webVitestIncludePatterns(manifest));

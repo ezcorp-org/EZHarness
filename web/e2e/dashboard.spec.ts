@@ -15,7 +15,7 @@ async function visitEmptyChat(page: Page, mockApi: MockApi, entry: DashboardEntr
 	await page.goto(entry.path);
 	await expect(page).toHaveURL(`/project/${entry.projectId}/chat`);
 	await expect(page.getByRole("heading", { name: "No conversations yet" })).toBeVisible();
-	await expect(page.locator("aside").getByRole("link", { name: "Chat", exact: true })).toHaveAttribute("aria-current", "page");
+	await expect(page.locator("aside").getByTestId("chat-nav-section").first().locator(".deck-row").first()).toHaveAttribute("aria-current", "page");
 	await expect(page.getByRole("button", { name: "New Conversation", exact: true })).toBeVisible();
 }
 

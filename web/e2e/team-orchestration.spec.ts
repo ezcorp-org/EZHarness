@@ -963,7 +963,7 @@ test.describe("team edit page", () => {
 		await page.goto("/agents/Writing Team");
 
 		await expect(page.getByRole("heading", { name: "Edit Team: Writing Team" })).toBeVisible({ timeout: 5000 });
-		await expect(page.getByRole("button", { name: "Chat" })).toBeVisible();
+		await expect(page.getByRole("button", { name: "Chat", exact: true })).toBeVisible();
 	});
 
 	test("team page does NOT show Run Agent or Run History", async ({ page, mockApi }) => {
