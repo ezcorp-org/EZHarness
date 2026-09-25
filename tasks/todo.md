@@ -11,11 +11,13 @@ Validated increments: bundle-mode regression tests pass (12); corrected bundle v
 
 Current source: latest main's chat sidebar is merged. Both coverage keys and task histories are preserved; typecheck, lint, the eight coverage guard tests, and 72 affected component tests pass. The capacity panel has ten passing tests and 100% measured lines. The Incus chat route correction is integrated and independently reviewed; 70 route tests include a composed native-tool check with a real AMD canary and a fake guest. This is not live Incus tool evidence.
 
-Recovery build `fc59035d1` passes strict inventory verification and non-root HTTP 200. Test the saved database in isolation, then install it to finish the existing guest smoke while final UI fixes continue. The final management build must include the later chat correction and the page's safe retry/cleanup behavior.
+Candidate `8213297a0` includes the management page, native chat routing, and expired START/STOP/DESTROY receipt recovery. Its 76,138-file bundle passes strict inventory verification and non-root HTTP 200. Manifest SHA-256: `e6295213f653cb89a33881f1f609c97f93255e4305e0db8c05e28738c927d6b6`. The next live gate is fresh detached-database startup, then guarded replacement of the isolated app. No later guest effect is authorized by a build result alone.
+
+PR #303 head `752447f8d` is pushed. Full local typecheck, lint, Svelte checks, web Bun tests (3,645), and Vitest tests (7,579) pass. The two stale backend coverage-inventory assertions were reproduced and fixed; their suite now passes 15 tests. The full five-lane browser capture is running on source-identical tree `1f6a43b9bc2f858514568e9b05d218f7fcc9ef28`. Hosted coverage shard 7 and web shard 1 failures are assigned for diagnosis. Final coverage and hosted CI are still open gates.
 
 Live status: the corrected `fc59035d1` bundle is installed. The original CREATE reconciled to `SUCCEEDED`, with the same guest and provider receipt; no duplicate CREATE was sent. START then reached Incus and the guest is running, but its native operation expired before controller inspection. START remains `OUTCOME_UNKNOWN` because only CREATE currently has expired-operation recovery. The saved START tag, generation 2, desired state, and guest binding match. Do not repeat START or continue the workload until host-authorized readback safely settles it. The team is extending this recovery for power operations while preserving the frozen public schema. See the exact live receipts in the validation workstream.
 
-Review: The guard caught unsafe dependency file permissions before stopping the app. The current guest is unchanged. The UX audit found that Incus feature APIs are not connected to the local sandbox panel; this is implementation work, not only testing.
+Review: The management page now connects reviewed environment, capacity, qualification, project creation, start/stop, status recovery, Chat, and disposal. Component and mocked browser checks support those paths. Real guest tools, retention, disposal, and final browser coverage still need measured proof.
 
 # Current Incus live completion
 
