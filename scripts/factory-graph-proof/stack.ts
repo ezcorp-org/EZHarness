@@ -10,7 +10,7 @@
  *   - the pool admission process, on its own fresh database, with RS256
  *     service tokens over mutual TLS;
  *   - the host supervisor, owning the one PodmanRunner, its launch and stop
- *     services, and `services.guestBroker`, the route it carries a guest's
+ *     services, and `services.guestBrokers`, the per-tenant routes it carries a guest's
  *     staging frames and model requests back over;
  *   - a Temporal dev server behind a mutual-TLS terminator, and the Node
  *     orchestrator under a restart loop;
@@ -33,6 +33,7 @@ import { connect as netConnect } from "node:net";
 import { setTimeout as sleep } from "node:timers/promises";
 import { SQL } from "bun";
 import type { JsonValue } from "@ezcorp/factory-sdk";
+import { FACTORY_GUEST_BROKER_AUDIENCE } from "../../src/factory/runner/guest-broker-contract";
 
 export const TENANT = "tenant-01";
 export const INSTALLATION = "installation-w19a";
@@ -42,7 +43,6 @@ const NAMESPACE = "tenant-01.factory";
 const SUPERVISOR_SUBJECT = "supervisor-w19a";
 const TEMPORAL_CLI = process.env.W19A_TEMPORAL_CLI ?? "/tmp/factory-tools/temporal-cli/temporal";
 const GUEST_BROKER_ISSUER = "w19a-proof";
-const GUEST_BROKER_AUDIENCE = "factory-guest-broker";
 
 export interface StackOptions {
   readonly repo: string;
@@ -222,7 +222,7 @@ export async function startStack(options: StackOptions): Promise<Stack> {
   await privateWrite(join(secrets, "attempt-token"), randomBytes(32).toString("hex"));
   // The guest-broker route's host token: the supervisor presents it, the product verifies it.
   const brokerKeys = generateKeyPairSync("rsa", { modulusLength: 2048 });
-  await privateWrite(join(secrets, "guest-broker-host.token"), rs256(brokerKeys.privateKey, "w19a", { sub: SUPERVISOR_SUBJECT, iss: GUEST_BROKER_ISSUER, aud: GUEST_BROKER_AUDIENCE, exp: Math.floor(Date.now() / 1_000) + 7_200, scope: ["factory:guest-broker"] }));
+  await privateWrite(join(secrets, "guest-broker-host.token"), rs256(brokerKeys.privateKey, "w19a", { sub: SUPERVISOR_SUBJECT, iss: GUEST_BROKER_ISSUER, aud: FACTORY_GUEST_BROKER_AUDIENCE, exp: Math.floor(Date.now() / 1_000) + 7_200, scope: ["factory:guest-broker"] }));
   await privateWrite(join(secrets, "guest-broker-host-token.pem"), brokerKeys.publicKey.export({ type: "spki", format: "pem" }).toString());
 
   // Storage credentials copied to 0600, as a real provisioner does.
@@ -285,7 +285,7 @@ export async function startStack(options: StackOptions): Promise<Stack> {
   }));
   start("pool", bun, [join(repo, "src/factory/pool/process.ts"), join(secrets, "pool.json")]);
 
-  // ── Host supervisor, carrying guest frames back over services.guestBroker ──
+  // ── Host supervisor, carrying guest frames back over services.guestBrokers ──
   const { privateKey: hostKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
   await privateWrite(join(secrets, "host.key"), hostKey.export({ type: "pkcs8", format: "pem" }).toString());
   await privateWrite(join(secrets, "host.kid"), "host-key-1");
@@ -346,7 +346,7 @@ export async function startStack(options: StackOptions): Promise<Stack> {
     hostStopKeys: [{ hostId: HOST_ID, hostKeyId: "host-key-1", publicKeyPath: join(secrets, "host.pub") }],
     guestBroker: {
       hostname: "127.0.0.1", port: guestBrokerPort, hosts: { [SUPERVISOR_SUBJECT]: HOST_ID }, tls: serverTls,
-      tokens: { issuer: GUEST_BROKER_ISSUER, audience: GUEST_BROKER_AUDIENCE, publicKeyPaths: { w19a: join(secrets, "guest-broker-host-token.pem") } },
+      tokens: { issuer: GUEST_BROKER_ISSUER, audience: FACTORY_GUEST_BROKER_AUDIENCE, publicKeyPaths: { w19a: join(secrets, "guest-broker-host-token.pem") } },
     },
     runnerProfiles: options.runnerProfiles(guestBuild),
     ...(options.modelProvider === undefined ? {} : { modelProvider: options.modelProvider }),

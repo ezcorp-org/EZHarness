@@ -2,7 +2,7 @@ import type { FactoryPrivateRequest, FactoryPrivateResponse } from "../private-h
 import { verifyFactoryAttemptToken } from "../attempt-token";
 import type { FactoryAttemptAuthority } from "../executions";
 import { verifyPoolToken, type PoolTokenVerifierOptions } from "../pool/service-token";
-import { FACTORY_GUEST_BROKER_MAX_BODY_BYTES, FACTORY_GUEST_BROKER_PATH, FACTORY_GUEST_BROKER_SCOPE } from "./guest-broker-contract";
+import { FACTORY_GUEST_BROKER_AUDIENCE, FACTORY_GUEST_BROKER_MAX_BODY_BYTES, FACTORY_GUEST_BROKER_PATH, FACTORY_GUEST_BROKER_SCOPE } from "./guest-broker-contract";
 import type { FactoryGuestMaterialFrameBroker } from "./guest-material-broker";
 import { isFactoryGuestModelPayload } from "./guest-model-broker";
 import type { FactoryGuestModelFrameBroker } from "./guest-model-route";
@@ -39,7 +39,10 @@ import type { FactoryGuestModelFrameBroker } from "./guest-model-route";
 export interface FactoryGuestBrokerServiceOptions {
   /** Each host that may forward a guest frame: its mTLS peer identity, and the host id it runs as. */
   readonly hosts: Readonly<Record<string, string>>;
-  /** The issuer, audience, and public keys a host's bearer token verifies against. Read per request. */
+  /**
+   * The issuer and public keys a host's bearer token verifies against. Read per
+   * request. The audience is always {@link FACTORY_GUEST_BROKER_AUDIENCE}.
+   */
   tokens(): Promise<PoolTokenVerifierOptions>;
   /** The host that holds this attempt's lease, or undefined when no launch records one. */
   leaseHost(authority: FactoryAttemptAuthority): Promise<string | undefined>;
@@ -74,7 +77,10 @@ export function createFactoryGuestBrokerRouteHandler(options: FactoryGuestBroker
     if (request.method !== "POST") return json(405, { error: "method_not_allowed" });
     const hostId = hosts.get(request.peerIdentity);
     if (hostId === undefined) return json(403, { error: "forbidden" });
-    if (!await hostTokenVerifies(request, options)) return json(401, { error: "unauthorized" });
+    const host = await hostTokenVerifies(request, options);
+    // A token this host's key signed for another route (a pool token) is named, so an operator can tell it from a forged one.
+    if (host === "audience") return json(401, { error: "token_audience_refused" });
+    if (host !== "verified") return json(401, { error: "unauthorized" });
     if (request.body.byteLength > FACTORY_GUEST_BROKER_MAX_BODY_BYTES) return json(413, { error: "request_too_large" });
 
     let body: { attemptToken?: unknown; payload?: unknown };
@@ -94,13 +100,32 @@ export function createFactoryGuestBrokerRouteHandler(options: FactoryGuestBroker
   };
 }
 
-/** The host's bearer token verifies, names the peer that sent it, and carries the route's scope. */
-async function hostTokenVerifies(request: FactoryPrivateRequest, options: FactoryGuestBrokerServiceOptions): Promise<boolean> {
+/**
+ * The host's bearer token verifies for THIS route's audience, names the peer
+ * that sent it, and carries the route's scope. `audience` is a token that
+ * verifies in every other respect but names another audience.
+ */
+async function hostTokenVerifies(request: FactoryPrivateRequest, options: FactoryGuestBrokerServiceOptions): Promise<"verified" | "audience" | "refused"> {
   const bearer = request.headers.authorization;
-  if (!bearer?.startsWith("Bearer ")) return false;
+  if (!bearer?.startsWith("Bearer ")) return "refused";
+  const token = bearer.slice(7);
+  const verifier = { ...await options.tokens(), audience: FACTORY_GUEST_BROKER_AUDIENCE };
   try {
-    const claims = verifyPoolToken(bearer.slice(7), await options.tokens());
-    return claims.sub === request.peerIdentity && claims.scope.includes(FACTORY_GUEST_BROKER_SCOPE);
+    const claims = verifyPoolToken(token, verifier);
+    return claims.sub === request.peerIdentity && claims.scope.includes(FACTORY_GUEST_BROKER_SCOPE) ? "verified" : "refused";
+  } catch {
+    return otherAudience(token, verifier) ? "audience" : "refused";
+  }
+}
+
+/** Whether `token` verifies (key, issuer, expiry) under its own audience, which is not this route's. */
+function otherAudience(token: string, verifier: PoolTokenVerifierOptions): boolean {
+  try {
+    const payload = JSON.parse(Buffer.from(token.split(".")[1] ?? "", "base64url").toString("utf8")) as { aud?: unknown };
+    const audience = typeof payload.aud === "string" ? payload.aud : undefined;
+    if (audience === undefined || audience === FACTORY_GUEST_BROKER_AUDIENCE) return false;
+    verifyPoolToken(token, { ...verifier, audience });
+    return true;
   } catch {
     return false;
   }

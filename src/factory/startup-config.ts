@@ -21,6 +21,7 @@ import { factoryModelSamplingOptions } from "./model-configuration";
 import { factoryModelPinMatchesRunner } from "./native-runner-policy";
 import { isPlainRecord } from "./plain-values";
 import { readPrivatePath } from "./private-files";
+import { FACTORY_GUEST_BROKER_AUDIENCE } from "./runner/guest-broker-contract";
 
 export const FACTORY_STARTUP_CONFIG_SCHEMA = "factory.startup.v1";
 const MAX_CONFIG_BYTES = 64 * 1024;
@@ -788,6 +789,10 @@ const checkGuestBroker: StartupCheck = (value, { missing, invalid }) => {
   if (hosts.present && !wellFormedHostMap(hosts.value)) invalid.push("guestBroker.hosts");
   const brokerKeys = read(value, "guestBroker.tokens.publicKeyPaths");
   if (brokerKeys.present && !wellFormedKeyPaths(brokerKeys.value)) invalid.push("guestBroker.tokens.publicKeyPaths");
+  // Kept for compatibility, pinned to the route contract: the route enforces
+  // that audience whatever this says, so any other value is a document error.
+  const audience = read(value, "guestBroker.tokens.audience");
+  if (audience.present && audience.value !== FACTORY_GUEST_BROKER_AUDIENCE) invalid.push("guestBroker.tokens.audience");
 };
 
 // Host PUBLIC keys, by reference. Each entry names a host, a key id, and a

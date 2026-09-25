@@ -17,7 +17,7 @@ import { FactoryExecutionJournal } from "../executions";
 import { startFactoryPrivateHttps } from "../private-https";
 import { factoryRunnerRequestAuthority } from "./attempt-authority";
 import { FACTORY_GUEST_MODEL_REQUEST_TIMEOUT_MS, createFactoryGuestBrokerClient } from "./guest-broker-client";
-import { FACTORY_GUEST_BROKER_PATH, FACTORY_GUEST_BROKER_SCOPE } from "./guest-broker-contract";
+import { FACTORY_GUEST_BROKER_AUDIENCE, FACTORY_GUEST_BROKER_PATH, FACTORY_GUEST_BROKER_SCOPE } from "./guest-broker-contract";
 import { createFactoryGuestBrokerRouteHandler } from "./guest-broker-service";
 import { factoryAttemptInvocationId, factoryAttemptWorkerId } from "./attempt-wire";
 import { createFactoryGuestMaterialFrameBroker, createFactoryGuestMaterialServices } from "./guest-material-broker";
@@ -44,7 +44,6 @@ const INSTALLATION = "installation-a";
 /** The host id the client certificate's host runs as. */
 const HOST = "host-a";
 const TOKEN_ISSUER = "factory-test";
-const TOKEN_AUDIENCE = "factory-guest-broker";
 
 const directories: string[] = [];
 const closing: Array<() => Promise<void>> = [];
@@ -121,7 +120,7 @@ async function clientSecrets(root: string, certs: Certificates, hostToken: strin
   return paths;
 }
 
-async function setup(options: { readonly model?: FactoryModelPin; readonly provider?: () => Promise<FactoryOneHopProvider> } = {}) {
+async function setup(options: { readonly model?: FactoryModelPin; readonly provider?: () => Promise<FactoryOneHopProvider>; readonly configuredAudience?: string } = {}) {
   const { db } = await setupTestDb();
   const root = await mkdtemp(join(tmpdir(), "factory-guest-broker-transport-"));
   directories.push(root);
@@ -152,7 +151,7 @@ async function setup(options: { readonly model?: FactoryModelPin; readonly provi
   const hostKeys = generateKeyPairSync("rsa", { modulusLength: 2048 });
   const hostPublicKey = hostKeys.publicKey.export({ type: "spki", format: "pem" }).toString();
   const hostToken = (claims: Record<string, unknown> = {}, key = hostKeys.privateKey) => signedServiceToken(key, {
-    sub: TENANT, iss: TOKEN_ISSUER, aud: TOKEN_AUDIENCE, exp: Math.floor(Date.now() / 1_000) + 600, scope: [FACTORY_GUEST_BROKER_SCOPE], ...claims,
+    sub: TENANT, iss: TOKEN_ISSUER, aud: FACTORY_GUEST_BROKER_AUDIENCE, exp: Math.floor(Date.now() / 1_000) + 600, scope: [FACTORY_GUEST_BROKER_SCOPE], ...claims,
   });
   // Which host holds the attempt's lease. The route asks; a test moves it.
   let lease: string | undefined = HOST;
@@ -160,7 +159,7 @@ async function setup(options: { readonly model?: FactoryModelPin; readonly provi
     tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca },
     handle: createFactoryGuestBrokerRouteHandler({
       hosts: { [TENANT]: HOST },
-      tokens: async () => ({ issuer: TOKEN_ISSUER, audience: TOKEN_AUDIENCE, publicKeys: { test: hostPublicKey } }),
+      tokens: async () => ({ issuer: TOKEN_ISSUER, audience: options.configuredAudience ?? FACTORY_GUEST_BROKER_AUDIENCE, publicKeys: { test: hostPublicKey } }),
       leaseHost: async () => lease,
       broker, model, jwtSecret: SECRET, installationId: INSTALLATION,
     }),
@@ -275,6 +274,11 @@ test("the route authenticates the host and the attempt separately, and refuses e
     expect(JSON.parse(refused.body.toString("utf8"))).toEqual({ error: "unauthorized" });
   }
 
+  // A token the same host key and issuer signed for the pool: every claim right
+  // but the audience. Refused with its own name, not taken as a host token.
+  const poolToken = await call({ method: "POST", body: { attemptToken: token, payload: frame }, token: fixture.hostToken({ aud: "factory-pool" }), headers: { "x-ezcorp-factory-version": "1" } });
+  expect({ status: poolToken.status, body: JSON.parse(poolToken.body.toString("utf8")) }).toEqual({ status: 401, body: { error: "token_audience_refused" } });
+
   // The right host, an attempt token that is not this installation's.
   const wrongToken = await call({ method: "POST", body: { attemptToken: "not-a-signed-attempt-token", payload: frame }, headers: { "x-ezcorp-factory-version": "1" } });
   expect(wrongToken.status).toBe(401);
@@ -309,6 +313,19 @@ test("the route authenticates the host and the attempt separately, and refuses e
   const accepted = await call({ method: "POST", body: { attemptToken: token, payload: frame }, headers: { "x-ezcorp-factory-version": "1" } });
   expect(accepted.status).toBe(200);
   expect(JSON.parse(accepted.body.toString("utf8"))).toMatchObject({ status: "begun", objectName: "probe.bin" });
+}, 120_000);
+
+test("a route configured with the pool's audience still accepts only the guest-broker audience", async () => {
+  // Defence in depth: the startup parser refuses such a document, and the route
+  // does not trust its configuration for the audience either.
+  const fixture = await setup({ configuredAudience: "factory-pool" });
+  const frame = { schemaVersion: "factory.guest-material-begin.v1", operationId: fixture.operationId, operationIndex: 0, objectName: "probe.bin", version: 1, mediaType: "application/octet-stream", totalBytes: 4, chunkCount: 1 };
+  const url = `${fixture.service.url}${FACTORY_GUEST_BROKER_PATH}`;
+  const post = (bearer: string) => nodeHttpsRequest(url, fixture.certs, { method: "POST", token: bearer, body: { attemptToken: fixture.request.broker.attemptToken, payload: frame }, headers: { "x-ezcorp-factory-version": "1" } });
+  const pool = await post(fixture.hostToken({ aud: "factory-pool" }));
+  expect({ status: pool.status, body: JSON.parse(pool.body.toString("utf8")) }).toEqual({ status: 401, body: { error: "token_audience_refused" } });
+  const route = await post(fixture.hostToken());
+  expect(route.status).toBe(200);
 }, 120_000);
 
 test("an answer the product could not have produced is refused rather than handed to the guest", async () => {
@@ -415,7 +432,7 @@ async function composedRoute(fixture: Awaited<ReturnType<typeof setup>>, overrid
     guestBroker: {
       hostname: "127.0.0.1", port, hosts: { [TENANT]: HOST },
       tls: { caPath: files.ca, certificatePath: files.cert, privateKeyPath: files.key },
-      tokens: { issuer: TOKEN_ISSUER, audience: TOKEN_AUDIENCE, publicKeyPaths: { test: tokenKey } },
+      tokens: { issuer: TOKEN_ISSUER, audience: FACTORY_GUEST_BROKER_AUDIENCE, publicKeyPaths: { test: tokenKey } },
     },
     ...(overrides.modelProvider === undefined ? {} : { modelProvider: { provider: PIN.provider, model: PIN.model } }),
   } as unknown as FactoryStartupConfig;
