@@ -12,6 +12,7 @@ import { FACTORY_ARTIFACT_MAX_BYTES, FactoryArtifactError, artifactJson } from "
 import type { FactoryArtifacts } from "./artifacts";
 import { FactoryInbox } from "./inbox";
 import { assertFactoryIdentity, encodeFactoryPayload, FactoryRecords, type FactoryAuditBatch } from "./records";
+import { advanceFactoryRunCancellationEpochInTransaction } from "./run-cancellation-epoch";
 
 function eventDigest(event: unknown): string { return `sha256:${digestBytes(artifactJson.canonical(event))}`; }
 
@@ -139,6 +140,11 @@ export class FactoryTransitionArtifacts {
     const records = new FactoryRecords(this.artifacts.database, snapshot.tenantId);
     const inbox = new FactoryInbox(this.artifacts.database, snapshot.tenantId);
     await this.artifacts.database.transaction(async transaction => {
+      // The durable epoch is written by the transition that raises it (defect 2),
+      // first, so this transaction takes the run's lifecycle row before its inbox rows.
+      // A state with no epoch raises nothing; a present one must be valid.
+      const raised = (transition.nextState as { readonly cancellationEpoch?: unknown }).cancellationEpoch;
+      if (raised !== undefined) await advanceFactoryRunCancellationEpochInTransaction(transaction, { tenantId: snapshot.tenantId, projectId: snapshot.projectId, runId: snapshot.logicalRunId }, raised as number);
       const prior = snapshot.sourceSequence === 1 ? null : await records.readAuditBatchInTransaction(transaction, { projectId: snapshot.projectId, runId: snapshot.logicalRunId, interpreterId: snapshot.interpreterId }, snapshot.sourceSequence - 1);
       await inbox.commitTransitionInTransaction(transaction, { projectId: snapshot.projectId, runId: snapshot.logicalRunId, interpreterId: snapshot.interpreterId, sourceSequence: snapshot.sourceSequence, predecessorDigest: prior?.digest ?? null, payload: { kind: "factory.transition", eventId: snapshot.eventId, eventHash: snapshot.eventHash, ...(snapshot.inboxSequence === undefined ? {} : { inboxSequence: snapshot.inboxSequence }), artifactManifest: snapshot.artifactManifest } });
       for (const command of commands) await this.indexCommand(transaction, snapshot, command);

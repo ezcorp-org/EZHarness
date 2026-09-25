@@ -135,3 +135,31 @@ test("protected effect comparison rejects state that can no longer resolve its s
   expect(currentEffectCommandMatches(factory, started.nextState, command)).toBe(true);
   expect(currentEffectCommandMatches(factory, { ...started.nextState, input: {} }, command)).toBe(false);
 });
+
+test("a node that fails for good while a sibling runs stops the run once: one epoch step, and the sibling's cancel carries it", () => {
+  // Defect 2 (W01h): the product's run fence follows exactly this epoch, so the
+  // sibling's cancel-node must carry the value the stopping transition raised.
+  const definition = structuredClone(taskFactory().definition);
+  definition.graph.nodes = definition.graph.nodes.map(node => node.id === "candidate" ? { ...node, retry: { maxAttempts: 1, initialDelayMs: 1_000, maximumDelayMs: 2_000 } } : node);
+  const factory = compiled(definition);
+  let current = start(factory, "sibling-failure");
+  for (const nodeId of ["candidate", "hold"]) {
+    const admission = current.commands.find(command => command.kind === "request-admission" && command.nodeId === nodeId)!;
+    const admitted = advanceKernel(factory, current.state, { kind: "admission-result", id: `admitted-${nodeId}`, atMs: 1, nodeId, commandId: admission.id, candidateGeneration: 0, granted: true });
+    current = { state: admitted.nextState, commands: [...current.commands, ...admitted.commands] };
+  }
+  const dispatch = (nodeId: string) => current.commands.find((command): command is Extract<KernelCommand, { kind: "dispatch-node" }> => command.kind === "dispatch-node" && command.nodeId === nodeId)!;
+  expect(current.state.cancellationEpoch).toBe(0);
+  const failed = advanceKernel(factory, current.state, { kind: "node-failed", id: "candidate-failed", atMs: 2, nodeId: "candidate", commandId: dispatch("candidate").id, candidateGeneration: 0, attempt: 1, error: "RUNNER_CONTAINER_EXIT", failureKind: "execution" });
+  // Stopping one failed attempt is not a run stop: the epoch stays.
+  expect(failed.nextState.cancellationEpoch).toBe(0);
+  const cancelOwn = failed.commands.find(command => command.kind === "cancel-node")!;
+  const exhausted = advanceKernel(factory, failed.nextState, { kind: "attempt-stopped", id: "candidate-stopped", atMs: 3, nodeId: "candidate", commandId: dispatch("candidate").id, candidateGeneration: 0, attempt: 1 });
+  expect(cancelOwn).toMatchObject({ cancellationEpoch: 0 });
+  // The node failed for good, so the run stops: one step, and the sibling is cancelled at the new epoch.
+  expect(exhausted.nextState).toMatchObject({ status: "stopping", cancellationEpoch: 1 });
+  expect(exhausted.commands).toContainEqual(expect.objectContaining({ kind: "cancel-node", nodeId: "hold", attemptCommandId: dispatch("hold").id, cancellationEpoch: 1 }));
+  const settled = advanceKernel(factory, exhausted.nextState, { kind: "attempt-stopped", id: "hold-stopped", atMs: 4, nodeId: "hold", commandId: dispatch("hold").id, candidateGeneration: 0, attempt: 1 });
+  expect(settled.nextState.cancellationEpoch).toBe(1);
+  expect(settled.commands).toContainEqual(expect.objectContaining({ kind: "fail-run" }));
+});

@@ -130,7 +130,7 @@ export interface FactoryLiveAttemptWorld {
   /** A trusted pool that settles exactly the generations and host it is shown. */
   settlingPool(overrides?: Partial<PoolLeaseStatus>, onCall?: () => void): FactoryPoolStopAcknowledger;
   countingStopper(sign: (request: FactoryTaskStopRequest) => Promise<FactoryPhysicalStopReceipt>, calls?: { count: number }): FactoryPhysicalStopper;
-  stopHarness(attempt: FactoryDispatchableRun, physical: FactoryPhysicalStopper, pool: FactoryPoolStopAcknowledger, keys?: readonly FactoryStopHostKey[], timeoutMs?: number): FactoryStopHarness;
+  stopHarness(attempt: FactoryDispatchableRun, physical: FactoryPhysicalStopper, pool: FactoryPoolStopAcknowledger, keys?: readonly FactoryStopHostKey[], timeoutMs?: number, clock?: () => number): FactoryStopHarness;
 }
 
 export async function createFactoryLiveAttemptWorld(fixture: { readonly db: TransactionalDb; readonly blobs?: BlobStore }, options: FactoryLiveAttemptWorldOptions): Promise<FactoryLiveAttemptWorld> {
@@ -263,11 +263,11 @@ export async function createFactoryLiveAttemptWorld(fixture: { readonly db: Tran
   function countingStopper(sign: (request: FactoryTaskStopRequest) => Promise<FactoryPhysicalStopReceipt>, calls?: { count: number }): FactoryPhysicalStopper {
     return { async stop(request) { if (calls) calls.count++; return sign(request); } };
   }
-  function stopHarness(attempt: FactoryDispatchableRun, physical: FactoryPhysicalStopper, pool: FactoryPoolStopAcknowledger, keys: readonly FactoryStopHostKey[] = [{ hostId, hostKeyId, publicKey: options.hostKeys.publicKey }], timeoutMs = 20_000): FactoryStopHarness {
-    const inbox = new FactoryInbox(fixture.db, tenantId, () => now);
-    const settlements = new FactoryUsageSettlements(fixture.db, tenantId, inbox, () => now);
-    const outcomes = new FactoryTaskOutcomes(fixture.db, attempt.authority, attempt.admissions, attempt.journal, attempt.queue, lifecycle.budgets, inbox, () => now);
-    const stops = new FactoryTaskStops(fixture.db, attempt.authority, attempt.admissions, attempt.journal, outcomes, attempt.queue, lifecycle.budgets, inbox, settlements, physical, pool, keys, () => now, timeoutMs);
+  function stopHarness(attempt: FactoryDispatchableRun, physical: FactoryPhysicalStopper, pool: FactoryPoolStopAcknowledger, keys: readonly FactoryStopHostKey[] = [{ hostId, hostKeyId, publicKey: options.hostKeys.publicKey }], timeoutMs = 20_000, clock: () => number = () => now): FactoryStopHarness {
+    const inbox = new FactoryInbox(fixture.db, tenantId, clock);
+    const settlements = new FactoryUsageSettlements(fixture.db, tenantId, inbox, clock);
+    const outcomes = new FactoryTaskOutcomes(fixture.db, attempt.authority, attempt.admissions, attempt.journal, attempt.queue, lifecycle.budgets, inbox, clock);
+    const stops = new FactoryTaskStops(fixture.db, attempt.authority, attempt.admissions, attempt.journal, outcomes, attempt.queue, lifecycle.budgets, inbox, settlements, physical, pool, keys, clock, timeoutMs);
     return { stops, settlements, journal: attempt.journal };
   }
 

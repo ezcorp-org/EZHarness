@@ -424,6 +424,10 @@ describe("partition-local factory kernel", () => {
     const stopped = advanceKernel(factory, releasing.nextState, invalidationEvent(invalidation));
     expect(stopped.nextState).toEqual(expect.objectContaining({ status: "stopping", stopReason: "PARTITION_SOURCE_INVALIDATED_AFTER_RELEASE" }));
     expect(command(stopped.commands, "cancel-node", "zz")).toBeDefined();
+    // Defect 2 (W01h): the invalidation stop is one epoch step, and its cancel carries the raised epoch,
+    // which is the value the product writes to the run fence with this transition.
+    expect(stopped.nextState.cancellationEpoch).toBe(releasing.nextState.cancellationEpoch + 1);
+    expect(command(stopped.commands, "cancel-node", "zz")).toMatchObject({ cancellationEpoch: stopped.nextState.cancellationEpoch });
   });
 
   test("repairs a running local descendant when an external generation advances", () => {

@@ -18,6 +18,7 @@ import { FactoryMutations } from "./mutations";
 import { FactoryInbox } from "./inbox";
 import { FactoryCommandOutbox } from "./outbox";
 import { assertFactoryIdentity, encodeFactoryPayload, FactoryRecords, type FactoryRunKey } from "./records";
+import { FACTORY_STOPPED_CANCELLATION_EPOCH, advanceFactoryRunCancellationEpochInTransaction } from "./run-cancellation-epoch";
 
 interface ChildAncestorRow { parent_run_id: string; parent_execution_epoch: number | string; parent_cancellation_epoch: number | string; parent_grant_revision: number | string; binding_digest: string; }
 interface LifecycleRow { factory_id: string; factory_version: string; definition_digest: string; grant_revision: string | number; revision: string | number; cancellation_epoch: string | number; status: FactoryRunDetails["status"]; deadline_ms: string | number; parameters_json: string; parameters_digest: string; output_json: string | null; error_json: string | null; created_ms: string | number; updated_ms: string | number }
@@ -397,9 +398,15 @@ export async function requestFactoryRunCancellationInTransaction(
   if (input.expectedRevision !== undefined && Number(row.revision) !== input.expectedRevision) throw new FactoryRunLifecycleError("factory_revision_conflict");
   if (row.status === "succeeded" || row.status === "failed") throw new FactoryRunLifecycleError("factory_run_terminal");
   if (row.status === "cancelled" || row.status === "cancelling") return { eventId: cancellationEventId(scope.tenantId, key, Number(row.cancellation_epoch)), requested: false };
-  const epoch = Number(row.cancellation_epoch) + 1;
-  if (!Number.isSafeInteger(epoch)) throw new FactoryRunLifecycleError("factory_epoch_invalid");
-  await transaction.execute(sql`UPDATE factory_run_lifecycle SET status='cancelling', revision=${Number(row.revision) + 1}, cancellation_epoch=${epoch}, updated_at=NOW() WHERE tenant_id=${scope.tenantId} AND project_id=${key.projectId} AND run_id=${key.runId}`);
+  // The epoch a stopping run holds, written through the one function every stop
+  // uses: a kernel that already began stopping by itself holds it too, so a user
+  // cancel that follows it neither increments twice nor strands its commands.
+  // No stop ever raises the durable epoch past the stopped one, so a higher value is corrupt.
+  const current = Number(row.cancellation_epoch);
+  if (!Number.isSafeInteger(current) || current < 0 || current > FACTORY_STOPPED_CANCELLATION_EPOCH) throw new FactoryRunLifecycleError("factory_epoch_invalid");
+  const epoch = FACTORY_STOPPED_CANCELLATION_EPOCH;
+  await transaction.execute(sql`UPDATE factory_run_lifecycle SET status='cancelling', revision=${Number(row.revision) + 1}, updated_at=NOW() WHERE tenant_id=${scope.tenantId} AND project_id=${key.projectId} AND run_id=${key.runId}`);
+  await advanceFactoryRunCancellationEpochInTransaction(transaction, { tenantId: scope.tenantId, projectId: key.projectId, runId: key.runId }, epoch);
   const eventId = cancellationEventId(scope.tenantId, key, epoch);
   await scope.inbox.enqueueInTransaction(transaction, { ...key, interpreterId: "root" }, { kind: "cancel", id: eventId, atMs: scope.now(), reason: input.reason });
   await insertTransactionalAuditEntry(transaction, eventId, input.principal.kind === "user" ? input.principal.id : null, "factory.run.cancel.requested", key.runId, { tenantId: scope.tenantId, projectId: key.projectId, cancellationEpoch: epoch, reason: input.reason, principalId: input.principal.id, principalKind: input.principal.kind });
