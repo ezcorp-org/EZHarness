@@ -2,7 +2,7 @@ import { test, expect, describe, beforeAll, afterAll, beforeEach, mock } from "b
 import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { restoreModuleMocks } from "./helpers/mock-cleanup";
+import { restoreModuleMocks, webLibModule } from "./helpers/mock-cleanup";
 import { setupTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglite";
 import { mockServerAlias, createMockEvent, ADMIN_USER, MEMBER_USER } from "./helpers/mock-request";
 
@@ -24,7 +24,7 @@ mock.module("$server/auth/middleware", () => ({
     return locals.user;
   },
 }));
-mock.module("$lib/server/security/api-keys", () => ({
+mock.module("$lib/server/security/api-keys", () => webLibModule("server/security/api-keys", {
   requireScope: () => null,
 }));
 

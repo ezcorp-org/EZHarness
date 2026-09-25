@@ -159,3 +159,76 @@ test("the real entry prints the cause before it sets the exit code", () => {
   assert.equal(second.length, 1);
   assert.match(String(second[0]?.[1]), /factory-configuration-invalid/);
 });
+
+// W15b R1: the running orchestration process opens its data key through the
+// key service the document selects. Each non-file kind runs against the same
+// local key-service double the restore tests use, through the real launcher
+// and the real codec loader, and a Temporal payload round-trips.
+test("the launcher opens the payload codec through each selected key service, and a mismatch fails closed typed", async () => {
+  const { startFactoryKeyServiceDouble } = await import("../../../../src/__tests__/helpers/factory-key-service-double.ts");
+  const { MemoryWraps } = await import("../../../../src/__tests__/helpers/factory-kms-doubles.ts");
+  const { InstallationDataKey } = await import("../../../../src/factory/encryption.ts");
+  const { composeFactoryDataKeyWrapper } = await import("../../../../src/factory/key-composition.ts");
+  const { loadFactoryTemporalPayloadCodec } = await import("../../../../src/factory/file-key-wraps.ts");
+  const { defaultPayloadConverter } = await import("@temporalio/common");
+  const directory = await mkdtemp(join(runtimeRoot, "factory-process-kms-"));
+  await chmod(directory, 0o700);
+  const service = await startFactoryKeyServiceDouble({ transitToken: "transit-token" });
+  try {
+    const base = config(directory);
+    await Promise.all([
+      privateFile(base.temporal.caPath, "ca"), privateFile(base.temporal.certificatePath, "certificate"),
+      privateFile(base.temporal.privateKeyPath, "private-key"), privateFile(base.temporal.apiKeyPath, "token"),
+      privateFile(join(directory, "kms.json"), JSON.stringify({ accessKeyId: "AKIDTEST", secretAccessKey: "test-secret" })),
+      privateFile(join(directory, "transit.token"), "transit-token"),
+    ]);
+    const kinds = {
+      "cloud-kms": { kind: "cloud-kms", keyId: "arn:aws:kms:eu-west-1:111122223333:key/tenant-1", region: "eu-west-1", credentialsPath: join(directory, "kms.json"), endpoint: service.endpoint },
+      transit: { kind: "transit", endpoint: service.endpoint, keyName: "factory-data-key", tokenPath: join(directory, "transit.token") },
+    } as const;
+    const wrapsFor = async (keyManagement: (typeof kinds)[keyof typeof kinds], file: string): Promise<string> => {
+      const wraps = new MemoryWraps();
+      await InstallationDataKey.loadOrCreate("installation-1", wraps, await composeFactoryDataKeyWrapper({ masterKeyFilePath: "/unused", masterKeyId: "unused", grantableRoots: [] }, keyManagement));
+      const path = join(directory, file);
+      await privateFile(path, JSON.stringify({ schemaVersion: "factory.key-wraps.v1", installationId: "installation-1", wraps: wraps.rows.map((row) => ({ ...row, wrappedDataKey: Buffer.from(row.wrappedDataKey).toString("base64") })) }));
+      return path;
+    };
+    const launch = async (codec: Record<string, unknown>): Promise<TemporalPayloadCodec> => {
+      const configPath = join(directory, "process.json");
+      await privateFile(configPath, JSON.stringify({ ...base, codec }));
+      let payloadCodec: TemporalPayloadCodec | undefined;
+      await runConfiguredFactoryOrchestrator(configPath, new AbortController().signal, {
+        loadCodec: loadFactoryTemporalPayloadCodec,
+        run: async (options) => { payloadCodec = options.payloadCodec; },
+      });
+      return payloadCodec!;
+    };
+    const wrapped: Record<string, string> = {};
+    for (const [kind, keyManagement] of Object.entries(kinds)) {
+      wrapped[kind] = await wrapsFor(keyManagement, `${kind}-wraps.json`);
+      const before = service.calls.length;
+      const codec = await launch({ ...base.codec, wrappedKeyFilePath: wrapped[kind], keyManagement });
+      // The launcher reached the selected service to open the key, and only it.
+      assert.ok(service.calls.slice(before).length > 0);
+      assert.ok(service.calls.slice(before).every((call) => call.startsWith(kind === "transit" ? "transit:decrypt:" : "kms:decrypt:")));
+      const context = { type: "workflow" as const, namespace: "tenant-1", workflowId: "tenant-1/run-a" };
+      const payload = defaultPayloadConverter.toPayload({ command: "resume", kind }, context);
+      const encoded = await codec.encode([payload], context);
+      assert.notDeepEqual(encoded[0]!.data, payload.data);
+      assert.deepEqual(defaultPayloadConverter.fromPayload((await codec.decode(encoded, context))[0]!, context), { command: "resume", kind });
+    }
+    // Mismatches refuse with the typed error: wraps made under the cloud KMS opened with transit, and the reverse.
+    await assert.rejects(launch({ ...base.codec, wrappedKeyFilePath: wrapped["cloud-kms"], keyManagement: kinds.transit }), { name: "FactoryEncryptionError", code: "factory_key_invalid" });
+    await assert.rejects(launch({ ...base.codec, wrappedKeyFilePath: wrapped.transit, keyManagement: kinds["cloud-kms"] }), { name: "FactoryEncryptionError", code: "factory_key_invalid" });
+    // The right key id at a service that never wrapped it: the service refuses, typed.
+    const other = await startFactoryKeyServiceDouble({ transitToken: "transit-token" });
+    try {
+      await assert.rejects(launch({ ...base.codec, wrappedKeyFilePath: wrapped.transit, keyManagement: { ...kinds.transit, endpoint: other.endpoint } }), { name: "FactoryEncryptionError", code: "factory_key_missing" });
+    } finally { await other.stop(); }
+    // A malformed selection is refused by the strict config parser before any key is read.
+    await assert.rejects(launch({ ...base.codec, keyManagement: { kind: "hsm" } }), /config is invalid/);
+  } finally {
+    await service.stop();
+    await rm(directory, { recursive: true, force: true });
+  }
+});

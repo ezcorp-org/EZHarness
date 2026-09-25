@@ -1,0 +1,66 @@
+W12d: reproducible factory data image build. Final report.
+
+FINAL HEAD: c0da6425c on wp/w12d-reproducible-image. Its code head is 0c62f68e8, and the last commit changes docs only.
+
+COMMITS (from 7821e5d7c)
+- 55f58739f fix(factory): build the data image reproducibly and fail on a pin it does not reproduce
+- 3d7c6d590 test(factory): refuse each broken data image pin through the real reader
+- ee1cb47f4 Merge commit '2b2e12550' into wp/w12d-reproducible-image
+- 0c62f68e8 fix(factory): a failed data image check removes only what it built; claim same-toolchain reproduction only
+- c0da6425c docs(factory): W12d gates, review, and the receipt-runner lesson; close W12c G8
+
+CAUSE
+Two no-cache builds of the old Containerfile with --timestamp 0 differed only in 8 .pyc files.
+The final import check wrote them. Without a fixed timestamp, the created time, the history and the file times also differ.
+
+FIX
+- The build step writes no bytecode.
+- The build uses --no-cache --timestamp 0 --identity-label=false.
+- The script checks the pin and fails unless --repin is passed.
+- The build lands under a candidate tag. A failed check removes only that tag.
+
+CLAIM
+The build reproduces on the same toolchain, Podman 5.8.2 on this host.
+Across Podman versions, layer tar ordering and compression are not proven.
+The Containerfile comment is left as is, because the Containerfile is a tag input. tasks/factory/w12d-GATES.md states this exception.
+
+PROOF
+- Binding: build 3, receipts/build-3-reproduce-after-removal.json. It ran at 55f58739f on a clean tree, after the image was removed (logs/remove-image.log). It exited 0 with sha256:f9cc747722e79b54e59fafd32d29da39f5352ffca3a835d31fcac982bc9d9e8c, equal to the pin.
+- Pre-commit only: build 1 (exit 1, the stale pin was refused) and build 2 (--repin, f9cc7477…) ran on a dirty tree.
+  Their dirtyFiles map omits the build script because of a runner defect. run-leg.py stripped the git status output and lost the first path. The runner is fixed, and the defect is recorded in tasks/lessons.md.
+
+FINAL PASS: every leg ran at 0c62f68e8 on a clean tree and exited 0. There are 16 receipts in receipts/final-*.json.
+- build-4, check at the head: reproduced f9cc7477…
+- control, failed check: 12 of 12 PASS (logs/final-control-failed-check.log).
+  - Case A, changed inputs: exit 1. The built digest acb13fdb… and its candidate tag no longer exist. The pinned image and the W12c image are present.
+  - Case B, wrong digest in the pin: exit 1. The build gave f9cc7477…, and the candidate tag is gone. The real tag still names f9cc7477…, and the W12c image is present.
+- build-5, positive check after the control: reproduced f9cc7477…
+- guest unit: 7 pass, 0 fail, 41 assertions
+- Podman journey: 11 pass, 0 fail, 62 assertions
+- Podman applied-controls: 5 pass, 0 fail, 137 assertions
+- Podman python-guest: 12 pass, 0 fail, 235 assertions
+- process boundaries (C05), check-factory-boundaries test, reference-image closure: 62 pass, 0 fail, 108 assertions
+- typecheck, lint, boundaries, gate integrity, schema drift (15 schemas): exit 0 each
+- merge-lcov: 640 files
+- new-file coverage gate (BASE_REF=2b2e12550): passed, no new source files
+- patch coverage gate (BASE_REF=2b2e12550): passed, all changed executable lines covered (1 file)
+- Free disk before every heavy leg: 123 GB (logs/final-df.log).
+
+MERGE
+integ/w00 at 2b2e12550 merged with no conflicts. Git merged two hunks automatically, both from the W01g merge 97809fd85:
+- guest.ts adds factory_materials.py to SHARED_GUEST_MODULES.
+- guest.test.ts adds that module to the file-list test and adds a test that every imported factory_* module is sealed.
+Neither hunk overlaps W12d. uv.lock, the Containerfile and the pin are unchanged by the merge.
+
+KNOWN LOW ITEM
+In case B the failure message says "The built image was removed", but only the candidate tag was removed, because the real tag still names that image.
+The behavior is correct; only the wording overstates it. I left it, because a script change would void the final receipts.
+
+HOST IMAGES
+Two images are kept until the coordinator confirms the merge:
+- localhost/ezcorp-factory-python-data:a8034aa9676cedc3706aefa3ef4e7939 (W12c, 1bf456b7…)
+- localhost/ezcorp-factory-python-data:5f02158652f81805fc6b0e7fb74bb317 (W12d, f9cc7477…)
+No dangling images from W12d remain; control.sh ran `podman image prune -f`.
+
+GATES: tasks/factory/w12d-GATES.md, G1 to G9, all checked. W12c G8 is closed and points to W12d.
+No credential is in any file. The PostgreSQL URL was only built inside commit-with-postgres.sh and never placed on argv.

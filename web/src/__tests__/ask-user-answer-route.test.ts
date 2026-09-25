@@ -19,14 +19,16 @@
  */
 
 import { test, expect, describe, beforeEach, mock } from "bun:test";
+import { webLibModule, contextModule } from "../../../src/__tests__/helpers/mock-cleanup";
 import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 // ── Mock auth + scope middleware ──────────────────────────────────
 
 let mockScopeResponse: Response | null = null;
-mock.module("$lib/server/security/api-keys", () => ({
+const apiKeysExports = webLibModule("server/security/api-keys", {
   requireScope: () => mockScopeResponse,
-}));
+});
+mock.module("$lib/server/security/api-keys", () => apiKeysExports);
 
 mock.module("$server/auth/middleware", () => ({
   requireAuth: () => ({
@@ -41,9 +43,10 @@ mock.module("$server/auth/middleware", () => ({
 
 const mockBusEmit = mock((..._args: unknown[]) => {});
 const mockBus = { emit: mockBusEmit };
-mock.module("$lib/server/context", () => ({
+const contextExports = contextModule({
   getBus: () => mockBus,
-}));
+});
+mock.module("$lib/server/context", () => contextExports);
 
 import { LifecycleError } from "$server/extensions/v4/types";
 let admissionFailure: Error | undefined;

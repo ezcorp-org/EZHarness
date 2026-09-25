@@ -79,7 +79,6 @@ export async function up(database: MigrationDb): Promise<void> {
     tombstoned_at_ms BIGINT, collected_at_ms BIGINT, last_refusal TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT factory_retention_records_pkey PRIMARY KEY (tenant_id, subject_kind, subject_id),
-    CONSTRAINT factory_retention_records_kind_check CHECK (subject_kind IN (${quoted(FACTORY_RETENTION_SUBJECT_KINDS)})),
     CONSTRAINT factory_retention_records_class_check CHECK (retention_class IN (${quoted(FACTORY_RETENTION_CLASSES)})),
     CONSTRAINT factory_retention_records_state_check CHECK (state IN ('retained','tombstoned','collected')),
     CONSTRAINT factory_retention_records_anchor_check CHECK (anchored_at_ms >= 0),
@@ -90,6 +89,12 @@ export async function up(database: MigrationDb): Promise<void> {
     CONSTRAINT factory_retention_records_archive_digest_check CHECK (archive_digest IS NULL OR archive_digest ~ '^sha256:[0-9a-f]{64}$')
   )`));
   await database.execute(sql`CREATE INDEX IF NOT EXISTS idx_factory_retention_due ON factory_retention_records (tenant_id, state, retain_until_ms)`);
+  // The subject kinds grew after the table first shipped (W15 round 2 added
+  // accepted_evidence, approval, and receipt). `CREATE TABLE IF NOT EXISTS`
+  // never touches an existing table, so the kind constraint is replaced by name
+  // on every boot: a database that already holds the table gets the current set.
+  await database.execute(sql.raw(`ALTER TABLE factory_retention_records DROP CONSTRAINT IF EXISTS factory_retention_records_kind_check`));
+  await database.execute(sql.raw(`ALTER TABLE factory_retention_records ADD CONSTRAINT factory_retention_records_kind_check CHECK (subject_kind IN (${quoted(FACTORY_RETENTION_SUBJECT_KINDS)}))`));
 
   await database.execute(sql`CREATE TABLE IF NOT EXISTS factory_checkpoint_gate (
     tenant_id TEXT NOT NULL, paused BOOLEAN NOT NULL DEFAULT FALSE, checkpoint_id TEXT,

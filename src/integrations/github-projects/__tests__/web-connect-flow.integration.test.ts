@@ -16,7 +16,7 @@
  * DB.
  */
 import { test, expect, describe, beforeEach, afterAll, mock } from "bun:test";
-import { restoreModuleMocks } from "../../../__tests__/helpers/mock-cleanup";
+import { restoreModuleMocks, webLibModule } from "../../../__tests__/helpers/mock-cleanup";
 import {
   setupTestDb,
   closeTestDb,
@@ -69,7 +69,7 @@ mock.module("$lib/server/http-errors", () => ({
       headers: { "Content-Type": "application/json" },
     }),
 }));
-mock.module("$lib/server/security/api-keys", () => ({
+mock.module("$lib/server/security/api-keys", () => webLibModule("server/security/api-keys", {
   requireScope: () => null, // cookie-style: allow
 }));
 mock.module("$server/auth/middleware", () => require("../../../auth/middleware"));

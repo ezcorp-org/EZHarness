@@ -1,4 +1,4 @@
-import { FactoryEncryptionError, type FactoryDataKeyWrapBinding, type FactoryDataKeyWrapper } from "./encryption";
+import { FactoryEncryptionError, type FactoryDataKeyWrapBinding, type FactoryDataKeyWrapper } from "./encryption.ts";
 import { readPrivatePath } from "./private-files.ts";
 
 /**
@@ -40,7 +40,9 @@ function dataKey(value: Uint8Array | undefined): Uint8Array {
 
 /** Hosted: a cloud KMS key. Wrap ids are the KMS key ids; a wrap under another key id is not this wrapper's. */
 export class FactoryCloudKmsWrapper implements FactoryDataKeyWrapper {
-  constructor(private readonly options: { readonly keyId: string; readonly retainedKeyIds?: readonly string[]; readonly client: FactoryCloudKmsClient }) {
+  private readonly options: { readonly keyId: string; readonly retainedKeyIds?: readonly string[]; readonly client: FactoryCloudKmsClient };
+  constructor(options: { readonly keyId: string; readonly retainedKeyIds?: readonly string[]; readonly client: FactoryCloudKmsClient }) {
+    this.options = options;
     if (!options.keyId) throw new FactoryEncryptionError("factory_key_invalid");
   }
 
@@ -82,7 +84,9 @@ export interface FactoryTransitKmsOptions {
 export class FactoryTransitKmsWrapper implements FactoryDataKeyWrapper {
   private readonly keyId: string;
   private readonly mount: string;
-  constructor(private readonly options: FactoryTransitKmsOptions) {
+  private readonly options: FactoryTransitKmsOptions;
+  constructor(options: FactoryTransitKmsOptions) {
+    this.options = options;
     if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(options.keyName) || !/^[A-Za-z0-9][A-Za-z0-9_/-]{0,127}$/.test(options.mount ?? "transit")) throw new FactoryEncryptionError("factory_key_invalid");
     this.mount = options.mount ?? "transit";
     this.keyId = `${TRANSIT_PREFIX}${this.mount}/${options.keyName}`;

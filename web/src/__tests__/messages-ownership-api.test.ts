@@ -27,6 +27,7 @@
 
 import { test, expect, describe, beforeEach, mock } from "bun:test";
 
+import { webLibModule, contextModule } from "../../../src/__tests__/helpers/mock-cleanup";
 // ── Conversation graph ─────────────────────────────────────────────────
 //
 //   root-conv  (userId = rootOwner.id, parent = null)
@@ -159,10 +160,12 @@ mock.module("$server/auth/middleware", () => ({
   },
   isInteractiveSession,
 }));
-mock.module("$lib/server/security/api-keys", () => ({ requireScope: () => null }));
-mock.module("$lib/server/security/resource-quotas", () => ({
+const apiKeysExports = webLibModule("server/security/api-keys", { requireScope: () => null });
+mock.module("$lib/server/security/api-keys", () => apiKeysExports);
+const resourceQuotasExports = webLibModule("server/security/resource-quotas", {
   checkTokenBudget: mock(async () => mockBudget),
-}));
+});
+mock.module("$lib/server/security/resource-quotas", () => resourceQuotasExports);
 
 // Captured at the module boundary so the self-scope test below can
 // assert exactly which { model, provider } reached the executor. The
@@ -172,7 +175,7 @@ const settled = Promise.resolve();
 const mockStreamChat = mock(
   (_cid: string, _content: string, _opts: { model?: string; provider?: string }) => settled,
 );
-mock.module("$lib/server/context", () => ({
+const contextExports = contextModule({
   getExecutor: () => ({ streamChat: mockStreamChat }),
   getBus: () => ({ emit: mock(() => {}) }),
   // The messages POST handler now imports `getGoalHost` and calls it to
@@ -181,7 +184,8 @@ mock.module("$lib/server/context", () => ({
   // context.ts:getGoalHost), so the optional rehydrate block is skipped and
   // ownership/streamChat behaviour under test is unchanged.
   getGoalHost: () => null,
-}));
+});
+mock.module("$lib/server/context", () => contextExports);
 mock.module("$lib/server/command-resolver", () => ({ buildCommandResolver: () => async () => null }));
 mock.module("$server/providers/model-capabilities", () => ({
   getCapabilitiesWithExtensions: () => ({ maxFilesPerMessage: 0 }),

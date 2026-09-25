@@ -24,7 +24,7 @@ import { test, expect, describe, afterAll, beforeAll, afterEach, mock } from "bu
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync, realpathSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { restoreModuleMocks } from "../helpers/mock-cleanup";
+import { restoreModuleMocks, webLibModule } from "../helpers/mock-cleanup";
 import {
   mockServerAlias,
   createMockEvent,
@@ -57,9 +57,9 @@ const authMiddleware = () => ({
 });
 mock.module("$server/auth/middleware", authMiddleware);
 mock.module("../../auth/middleware", authMiddleware);
-const apiKeysStub = () => ({ requireScope: () => null });
-mock.module("$lib/server/security/api-keys", apiKeysStub);
-mock.module("../../../web/src/lib/server/security/api-keys", apiKeysStub);
+const apiKeysStub = webLibModule("server/security/api-keys", { requireScope: () => null });
+mock.module("$lib/server/security/api-keys", () => apiKeysStub);
+mock.module("../../../web/src/lib/server/security/api-keys", () => apiKeysStub);
 
 // Handler import AFTER mocks.
 import { GET } from "../../../web/src/routes/api/fs/list/+server";

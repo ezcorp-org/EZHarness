@@ -16,8 +16,15 @@ COPY locked-requirements.txt /tmp/locked-requirements.txt
 
 # `--require-hashes` refuses any artifact whose bytes are not in the lock.
 # `--only-binary` refuses a source distribution, which would run arbitrary build
-# code. `--no-compile` keeps the layer byte-identical across builds.
-RUN pip install --no-cache-dir --no-compile --only-binary=:all: --require-hashes \
+# code.
+#
+# The layer must be byte-identical across builds, so the committed pin is
+# reproducible (the build script also fixes every timestamp). Nothing in this
+# step may write bytecode: `--no-compile` covers the install, and
+# PYTHONDONTWRITEBYTECODE covers pip itself and the import check, whose `.pyc`
+# files would otherwise differ from build to build.
+RUN export PYTHONDONTWRITEBYTECODE=1 PIP_DISABLE_PIP_VERSION_CHECK=1 \
+ && pip install --no-cache-dir --no-compile --only-binary=:all: --require-hashes \
       -r /tmp/locked-requirements.txt \
  && rm -f /tmp/locked-requirements.txt \
  && python -c "import pyarrow, pyarrow.parquet; print(pyarrow.__version__)"

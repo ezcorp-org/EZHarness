@@ -83,6 +83,20 @@ describe("the operator's restore command", () => {
   });
 });
 
+describe("a refusal the restore cannot turn into a finding", () => {
+  test("prints one typed line and exits 1, never a stack", async () => {
+    for (const [thrown, code] of [[Object.assign(new Error("factory gateway returned HTTP 403"), { code: "factory_pool_refused" }), "factory_pool_refused"], ["not an error object", "factory_restore_failed"]] as const) {
+      const { io, lines } = harness();
+      const failing = { ...(io as object), compose: async () => { throw thrown; } } as never;
+      expect(await runFactoryRestoreCommand(["begin", "--restore-id", "restore-1", "--fence", join(directory, "fence.json")], failing)).toBe(1);
+      expect(lines).toHaveLength(1);
+      const printed = JSON.parse(lines[0]!);
+      expect(printed).toMatchObject({ restoreId: "restore-1", error: code });
+      expect(lines[0]).not.toContain("    at ");
+    }
+  });
+});
+
 describe("the attested fence", () => {
   test("returns each statement only for its own restore, and refuses a missing one", async () => {
     const path = join(directory, "fence.json");

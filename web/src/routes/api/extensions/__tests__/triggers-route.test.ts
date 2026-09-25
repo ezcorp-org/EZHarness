@@ -11,7 +11,7 @@
  *     through the shown-once rotate route.
  */
 import { test, expect, describe, beforeEach, afterAll, mock } from "bun:test";
-import { restoreModuleMocks } from "../../../../../../src/__tests__/helpers/mock-cleanup";
+import { restoreModuleMocks, webLibModule, serverModule } from "../../../../../../src/__tests__/helpers/mock-cleanup";
 import {
   mockServerAlias,
   MEMBER_USER,
@@ -30,17 +30,19 @@ import * as httpErrorsActual from "../../../../lib/server/http-errors";
 mock.module("$lib/server/http-errors", () => httpErrorsActual);
 
 let scopeResponse: Response | null = null;
-mock.module("$lib/server/security/api-keys", () => ({
+const apiKeysExports = webLibModule("server/security/api-keys", {
   requireScope: () => scopeResponse,
-}));
+});
+mock.module("$lib/server/security/api-keys", () => apiKeysExports);
 
 import * as middlewareActual from "../../../../../../src/auth/middleware";
 mock.module("$server/auth/middleware", () => middlewareActual);
 
 let extensionsById: Record<string, { id: string; name: string }> = {};
-mock.module("$server/db/queries/extensions", () => ({
+const dbExtensionsExports = serverModule("db/queries/extensions", {
   getExtension: async (id: string) => extensionsById[id] ?? null,
-}));
+});
+mock.module("$server/db/queries/extensions", () => dbExtensionsExports);
 
 let crons: unknown[] = [];
 let hooks: unknown[] = [];

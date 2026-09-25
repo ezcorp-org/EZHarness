@@ -1,5 +1,6 @@
 import { test, expect, describe, beforeEach, mock } from "bun:test";
 
+import { webLibModule, serverModule } from "../../../src/__tests__/helpers/mock-cleanup";
 // ── Mutable auth/scope state swapped by individual tests ─────────────────
 // `authUser` drives requireAuth/requireRole. `apiKeyScopes` drives
 // requireScope (undefined == cookie auth; arrays == API-key request).
@@ -84,9 +85,10 @@ mock.module("$server/auth/middleware", () => ({
 	checkRole: mockCheckRole,
 }));
 
-mock.module("$lib/server/security/api-keys", () => ({
+const apiKeysExports = webLibModule("server/security/api-keys", {
 	requireScope: mockRequireScope,
-}));
+});
+mock.module("$lib/server/security/api-keys", () => apiKeysExports);
 
 // ── DB/query mocks ───────────────────────────────────────────────────────
 const extensionFixture = {
@@ -129,7 +131,7 @@ const mockListExtensions = mock(async () => listedExtensions ?? (extensionStore 
 const mockDeleteExtension = mock(async (_id: string) => true);
 const mockGetExtensionByName = mock(async (_name: string) => nameLookup);
 
-mock.module("$server/db/queries/extensions", () => ({
+const dbExtensionsExports = serverModule("db/queries/extensions", {
 	getExtension: mockGetExtension,
 	// The GET route resolves its route param as a REFERENCE (id OR manifest
 	// name) so the post-install `/extensions/<name>` deep-link renders. This
@@ -172,7 +174,8 @@ mock.module("$server/db/queries/extensions", () => ({
 			},
 		};
 	},
-}));
+});
+mock.module("$server/db/queries/extensions", () => dbExtensionsExports);
 
 // ── Installer mocks ──────────────────────────────────────────────────────
 const installedRecord = (overrides: Partial<any> = {}) => ({

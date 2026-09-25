@@ -1,0 +1,206 @@
+{
+ "package": "w18-hygiene A+B",
+ "branch": "wp/w18-hygiene",
+ "head": "b8a1c55a8afb300867786b8b5d359a1d60456f55",
+ "branchBase": "2b2e12550",
+ "validatorVerdict": "ACCEPT-WITH-FIXES at b7349ba8c, fix round ACCEPT at b8a1c55a8 (validator-3; M1 and L1 closed); copied as w18h-validation.txt (the same file carries item D's verdict)",
+ "workerReport": "w18-hygiene/report.txt (copied as w18h-worker-report.txt) and receipts/MANIFEST.json (copied as w18h-manifest.json)",
+ "mergeSha": "ed98a75ab657dbc1646e870fad1ea486e39d66f2",
+ "tree": "798f89cfd16352acb4ca8008a351978341eae58d",
+ "parents": [
+  "15410e421cfc69c22c96f9879612ccee5c0f456c",
+  "b8a1c55a8afb300867786b8b5d359a1d60456f55"
+ ],
+ "conflicts": "none",
+ "integrationFix": [],
+ "scope": "67 files: tests, test helpers, tasks, docs; outside those only .githooks/pre-commit and scripts/lib/hook-lib.sh; no production file",
+ "commitHook": {
+  "ruling": "coordinator 2026-09-25: the merge exceeds the 12-suite cap; EZ_SKIP_HOOK_TESTS=1 by ruling, the hook's printed list recorded verbatim, the listed suites run in the batch; from this merge on the same rule applies to every merge commit above the cap",
+  "hookOutputVerbatim": [
+   "Checked 63 files in 35ms. No fixes applied.",
+   "\u2500\u2500 Tests (staged) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500",
+   "  62 test files map to this commit (cap 12) \u2014 NOT running:",
+   "    src/integrations/github-projects/__tests__/web-connect-flow.integration.test.ts",
+   "    src/__tests__/admin-analytics-api-routes.test.ts",
+   "    src/__tests__/admin-session-api-routes.test.ts",
+   "    src/__tests__/attachments-admin-audit.test.ts",
+   "    src/__tests__/attachments-cross-user-security.test.ts",
+   "    src/__tests__/attachments-gc.test.ts",
+   "    src/__tests__/attachments-serve-route.test.ts",
+   "    src/__tests__/conversations-clone-turns-api.test.ts",
+   "    src/__tests__/extension-event-end-to-end.test.ts",
+   "    src/__tests__/extensions-delete-route-policy.test.ts",
+   "    src/__tests__/extensions-patch-route.test.ts",
+   "    src/__tests__/extension-toggle-agent-gating.test.ts",
+   "    src/__tests__/ext-files-route.test.ts",
+   "    src/__tests__/feature-endpoints.test.ts",
+   "    src/__tests__/git-hooks.test.ts",
+   "    src/__tests__/local-model-test-endpoint.test.ts",
+   "    src/__tests__/memory-list-derived-owner.integration.test.ts",
+   "    src/__tests__/messages-multipart-route.test.ts",
+   "    src/__tests__/messages-patch-content.test.ts",
+   "    src/__tests__/messages-permission-mode-ceiling-route.test.ts",
+   "    src/__tests__/mock-cleanup-coverage.test.ts",
+   "    src/__tests__/modes-api.test.ts",
+   "    src/__tests__/seam-auth-chat-integration.test.ts",
+   "    src/__tests__/security/c1-settings-api.test.ts",
+   "    src/__tests__/security/c2-session-revocation.test.ts",
+   "    src/__tests__/security/c3-confirm-endpoint.test.ts",
+   "    src/__tests__/security/c3-extension-install.test.ts",
+   "    src/__tests__/security/c5-provider-keys-admin-gate.test.ts",
+   "    src/__tests__/security/h1-local-provider-ssrf.test.ts",
+   "    src/__tests__/security/h2-tool-call-ownership.test.ts",
+   "    src/__tests__/security/h3b-conversation-subroutes-idor.test.ts",
+   "    src/__tests__/security/h3-conversations-memories-idor.test.ts",
+   "    src/__tests__/security/kb-file-sharing-api.test.ts",
+   "    src/__tests__/security/kb-ownerless-rows-are-shared.test.ts",
+   "    src/__tests__/security/kb-retrieval-is-user-scoped.test.ts",
+   "    src/__tests__/security/m3-fs-list-sandbox.test.ts",
+   "    src/__tests__/security/project-members-api.test.ts",
+   "    src/__tests__/security/project-permission-mode-authz.test.ts",
+   "    web/src/routes/api/conversations/[id]/extension-toolbar/__tests__/list.test.ts",
+   "    web/src/routes/api/extensions/[name]/uploads/__tests__/upload.test.ts",
+   "    web/src/routes/api/extensions/__tests__/secrets-route.test.ts",
+   "    web/src/routes/api/extensions/__tests__/triggers-route.test.ts",
+   "    web/src/routes/api/hub/pages/[id]/__tests__/run-variant-route.test.ts",
+   "    web/src/routes/api/import/__tests__/commit.test.ts",
+   "    web/src/routes/api/import/__tests__/preview.test.ts",
+   "    web/src/routes/api/integrations/github-projects/__tests__/handlers.test.ts",
+   "    web/src/__tests__/agent-chat-api.test.ts",
+   "    web/src/__tests__/ask-user-answer-route.test.ts",
+   "    web/src/__tests__/extension-browser-isolation.test.ts",
+   "    web/src/__tests__/extensions-api.test.ts",
+   "    web/src/__tests__/extensions-data-route.test.ts",
+   "    web/src/__tests__/extensions-events-route.test.ts",
+   "    web/src/__tests__/memories-api-post.test.ts",
+   "    web/src/__tests__/mention-search-cmd-api.test.ts",
+   "    web/src/__tests__/mention-search-file-api.test.ts",
+   "    web/src/__tests__/messages-ownership-api.test.ts",
+   "    web/src/__tests__/messages-ownership-baseline-api.test.ts",
+   "    web/src/__tests__/security/bearer-auth.test.ts",
+   "    web/src/__tests__/tasks-api.test.ts",
+   "    web/src/__tests__/tasks-assignment-api.test.ts",
+   "    web/src/__tests__/tasks-stop-retry-api.test.ts",
+   "    web/src/__tests__/team-panel-refresh-flow.test.ts",
+   "  EZ_SKIP_HOOK_TESTS=1 set \u2014 skipping the 62 file(s) above; continuing with lint."
+  ]
+ },
+ "listedSuitesRun": {
+  "how": "scripts/lib/hook-lib.sh run_staged_tests over the staged files with EZ_PRECOMMIT_TEST_MAX=1000 in staging (the hook's own runner choice: backend one per process with --timeout 30000, web by test-file-sets)",
+  "result": "exit 0",
+  "files": 62,
+  "runners": {
+   "bun": 62,
+   "vitest": 0
+  },
+  "postgresSuites": 0,
+  "log": "w18h-merge-real-invocation.log"
+ },
+ "checks": [
+  {
+   "name": "registration",
+   "exitCode": 0,
+   "start": "2026-09-25T09:03:47Z",
+   "end": "2026-09-25T09:03:47Z",
+   "command": "bun test --timeout 30000 ./scripts/factory-postgres-suite-registration.test.ts ./src/__tests__/factory-ci-registration.test.ts ./scripts/check-required-checks.test.ts",
+   "logSha256": "01124b2cb1929eab5590259b7dd045d1dfb2826ac08684d0da0cc554a5cb548c"
+  },
+  {
+   "name": "typecheck",
+   "exitCode": 0,
+   "start": "2026-09-25T09:03:47Z",
+   "end": "2026-09-25T09:04:29Z",
+   "command": "bun run typecheck",
+   "logSha256": "acbb709cf35bd8e0d6de73381bb2b45b07f908bc595a17f7bfdfe9814783823b"
+  },
+  {
+   "name": "lint",
+   "exitCode": 0,
+   "start": "2026-09-25T09:04:29Z",
+   "end": "2026-09-25T09:04:31Z",
+   "command": "bun run lint",
+   "logSha256": "4a1c820c33c805be9035fb4a64f9f73220c59c3a59f482c0c5c263871637ff85"
+  },
+  {
+   "name": "gate-integrity",
+   "exitCode": 0,
+   "start": "2026-09-25T09:04:31Z",
+   "end": "2026-09-25T09:04:33Z",
+   "command": "bun scripts/gate-integrity.ts",
+   "logSha256": "b1a0297506aab4a182c44b23c41d861c6f4ae88da68848497d810bb39bff6bda"
+  },
+  {
+   "name": "boundaries",
+   "exitCode": 0,
+   "start": "2026-09-25T09:04:33Z",
+   "end": "2026-09-25T09:04:34Z",
+   "command": "bun scripts/check-factory-boundaries.ts",
+   "logSha256": "a701e3a2106adf5e27905c6b5ba03385c3e8490562ff4d2e98236c0403caaf83"
+  },
+  {
+   "name": "schema-drift",
+   "exitCode": 0,
+   "start": "2026-09-25T09:04:34Z",
+   "end": "2026-09-25T09:04:38Z",
+   "command": "bun scripts/check-schema-generate-drift.ts",
+   "logSha256": "58e4fb0d5102f899bd14326e7b9fcbaee5ad91491dec01c137198838c9b29f15"
+  },
+  {
+   "name": "focused-src-__tests__-git-hooks-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T09:04:38Z",
+   "end": "2026-09-25T09:04:42Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/git-hooks.test.ts",
+   "logSha256": "a8c94bdb0b728f6e36233a2f1d96a2c7ac1da832599eebd8e23eb99b5363673c"
+  },
+  {
+   "name": "focused-src-__tests__-gate-scripts-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T09:04:42Z",
+   "end": "2026-09-25T09:04:46Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/gate-scripts.test.ts",
+   "logSha256": "2268775b754503dd283dfc47d9649b0e9fe808b3d21e07e86573fb8ec74bf4e3"
+  },
+  {
+   "name": "focused-src-__tests__-mock-cleanup-coverage-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T09:04:46Z",
+   "end": "2026-09-25T09:04:46Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/mock-cleanup-coverage.test.ts",
+   "logSha256": "1ed34d308e0407700657b8b67d5b7a57a1648907b7154561b7a63f059620f70d"
+  },
+  {
+   "name": "focused-src-__tests__-factory-process-boundaries-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T09:04:46Z",
+   "end": "2026-09-25T09:04:50Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/factory-process-boundaries.test.ts",
+   "logSha256": "99645d8eaf91842cf59e03c6b73a9e6c2f3b704db10266c0bb55dfc5af104242"
+  },
+  {
+   "name": "focused-scripts-check-factory-boundaries-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T09:04:50Z",
+   "end": "2026-09-25T09:04:52Z",
+   "command": "bun test --timeout 60000 ./scripts/check-factory-boundaries.test.ts",
+   "logSha256": "5fc714335326262947474869e09bccbcebd3cc7623f1902ea5afebb00e639c64"
+  },
+  {
+   "name": "check-boundaries",
+   "exitCode": 0,
+   "result": "Dependency boundaries OK \u2014 5721 source files, 0 violations."
+  }
+ ],
+ "coverage": {
+  "proofCommit": "proof/w18h-ab-merge-staged 696199a5475697d5724bce08375e49055e5fdba1 (tree 798f89cfd = the merge tree)",
+  "baseRef": "15410e421",
+  "producer": "mock-cleanup-coverage + git-hooks with coverage, 43/0",
+  "newFile": "PASSED: no new source files",
+  "patch": "PASSED: 0 gated files (tests, helpers and shell only)"
+ },
+ "sharedGitConfig": "sha256 prefix 44962525f1ca1a8b before and after the git-hooks and gate-scripts runs (unchanged; matches the validator's)",
+ "followUps": {
+  "L2": "into item C on wp/w18-hygiene-2 when W18a-3 lands: name the withheld orchestrator package run in the over-cap list; the empty-list message; remove the guard's by-name exemption for W18a-3's four files"
+ },
+ "standingSteps": "df 151G at merge start and at commit"
+}

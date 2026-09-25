@@ -1,4 +1,5 @@
 import { test, expect, describe, beforeEach, mock } from "bun:test";
+import { webLibModule, contextModule } from "../../../src/__tests__/helpers/mock-cleanup";
 import { taskSnapshotPort, taskAssignmentPort } from "./helpers/task-state-port";
 import type {
   TaskSnapshot,
@@ -117,9 +118,10 @@ mock.module("$server/auth/middleware", () => ({
   requireAuth: (locals: any) => locals?.user ?? mockUser,
 }));
 
-mock.module("$lib/server/security/api-keys", () => ({
+const apiKeysExports = webLibModule("server/security/api-keys", {
   requireScope: () => mockScopeResponse,
-}));
+});
+mock.module("$lib/server/security/api-keys", () => apiKeysExports);
 
 // ── Mock event bus ──────────────────────────────────────────────────
 
@@ -135,7 +137,7 @@ const mockStreamChat = mock(async (..._args: any[]) => ({}));
 // executor before streamChat (Wave-5 steer P4 guard) — the mock must accept it.
 const mockExecutor = { streamChat: mockStreamChat, registerRunMode: () => {} };
 
-mock.module("$lib/server/context", () => ({
+const contextExports = contextModule({
   getBus: () => mockBus,
   getExecutor: () => mockExecutor,
   getCommandRegistry: () => ({
@@ -143,7 +145,8 @@ mock.module("$lib/server/context", () => ({
     findCommand: async () => null,
     invalidate: () => {},
   }),
-}));
+});
+mock.module("$lib/server/context", () => contextExports);
 
 mock.module("$lib/server/command-resolver", () => ({
   buildCommandResolver: () => async () => null,

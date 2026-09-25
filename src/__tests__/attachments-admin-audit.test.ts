@@ -9,7 +9,7 @@ import { test, expect, describe, beforeAll, afterAll, mock } from "bun:test";
 import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { restoreModuleMocks } from "./helpers/mock-cleanup";
+import { restoreModuleMocks, webLibModule } from "./helpers/mock-cleanup";
 import { setupTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglite";
 import { mockServerAlias, createMockEvent } from "./helpers/mock-request";
 
@@ -25,7 +25,7 @@ mock.module("$server/auth/middleware", () => ({
     return locals.user;
   },
 }));
-mock.module("$lib/server/security/api-keys", () => ({ requireScope: () => null }));
+mock.module("$lib/server/security/api-keys", () => webLibModule("server/security/api-keys", { requireScope: () => null }));
 
 mockDbConnection();
 mock.module("../db/queries/settings", () => {
