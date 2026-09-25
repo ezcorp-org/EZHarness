@@ -124,10 +124,10 @@ Coordinator ruling 2026-09-22: approved for W16; the owner's package inherits it
   EXPECT: all green
   EVIDENCE: `/tmp/factory-platform-evidence/w16/receipts/f3/` at a1ba5d95b (integ/w00 merged at 70def1355 from 2b2e12550): builds, unit and PG producers with lcov, merge, new-file (36 files) and patch (52 files) coverage with BASE_REF=2b2e12550, typecheck, lint, boundaries, deployment locks, gate integrity, schema drift, all exit 0
 
-- [x] G15: Final hold at the final code head after the 2b2e12550 merge: PostgreSQL producers first, then the Podman suites the diff touches, the Temporal route proof, the live Compose fleet and lifecycle, Kubernetes, the boundary suites, and the fast and coverage legs with `BASE_REF=2b2e12550`.
+- [ ] G15: Final hold at the final code head after the 2b2e12550 merge: PostgreSQL producers first, then the Podman suites the diff touches, the Temporal route proof, the live Compose fleet and lifecycle, Kubernetes, the boundary suites, and the fast and coverage legs with `BASE_REF=2b2e12550`.
   CHECK: `flock --close /tmp/ezcorp-validation-heavy.lock timeout 14400 bash /tmp/factory-platform-evidence/w16/repro/final-hold.sh <label>`
   EXPECT: every leg exit 0; one receipt per leg
-  EVIDENCE: hold f3 at a1ba5d95b, 06:16Z-06:48Z, `/tmp/factory-platform-evidence/w16/receipts/f3/` (32 receipts, all exit 0, all clean at start). PostgreSQL first: provisioning+gateway 64, bootstrap 17, pool 8, grants 13, schema 2, grants importers 16, restore 13. Podman: supervisor-process 3, guest-broker-transport 8, package-preparation 1. Route proof 8/8 as expected. Live: self-hosted 42/42, lifecycle 27/27. Kubernetes 19 valid, kind admission as labelled. Unit 951/0, boundary suites 46/0 (factory-process-boundaries and check-factory-boundaries), web 19. New-file 36 files, patch 52 files. Earlier holds f1 (b09f210b0: every non-live leg green, candidate builder anchor defect) and f2 (b09f210b0: live found the gateway probe defect fixed in a1ba5d95b) are kept as evidence under `receipts/f1`, `receipts/f2`
+  EVIDENCE: PENDING the rerun at the head that renders guestBroker (after the W19a merge hash). Prior record, hold f3 at a1ba5d95b, 06:16Z-06:48Z, `/tmp/factory-platform-evidence/w16/receipts/f3/` (32 receipts, all exit 0, all clean at start). PostgreSQL first: provisioning+gateway 64, bootstrap 17, pool 8, grants 13, schema 2, grants importers 16, restore 13. Podman: supervisor-process 3, guest-broker-transport 8, package-preparation 1. Route proof 8/8 as expected. Live: self-hosted 42/42, lifecycle 27/27. Kubernetes 19 valid, kind admission as labelled. Unit 951/0, boundary suites 46/0 (factory-process-boundaries and check-factory-boundaries), web 19. New-file 36 files, patch 52 files. Earlier holds f1 (b09f210b0: every non-live leg green, candidate builder anchor defect) and f2 (b09f210b0: live found the gateway probe defect fixed in a1ba5d95b) are kept as evidence under `receipts/f1`, `receipts/f2`
 
 ## Named readiness rows that stay open on this host
 
@@ -143,7 +143,7 @@ Coordinator ruling 2026-09-22: approved for W16; the owner's package inherits it
 | `hosted-host-identity-shared` | The Kubernetes supervisor DaemonSet holds one fleet-wide host identity (as the Compose fleet host now does too) |
 | `gpu-profile-lease-consumer` | Disclosed structural gap, owner W02; W02d builds it after W16 lands (coordinator ruling). The pool validates GPU declarations but does not yet authorize devices from them: `factoryHeldAllocationDevices` in `runner/attempt-wire.ts` has no production caller |
 | `restore-lifecycle-step` | Named follow-up, owner W16 (coordinator ruling 2026-09-24): the restore-to-checkpoint lifecycle step, a W16 package after this round (from W14's restore proof against W15). An in-place restore blocks on `database_position_mismatch`, because nothing restores the installation's database to the checkpoint first: the provisioner has no restore lifecycle step (point-in-time recovery to the checkpoint, then the pool restore import) |
-| `guest-broker-route-unrendered` | W01g added the optional `guestBroker` section to the installation startup document and `services.guestBroker` to the supervisor document. The provisioner renders neither yet, so a guest's staging frame is refused by name (`FactoryHostBrokerUnavailableError`). Readiness reports the missing route by name and does not degrade, so no installation is held. Owner: W16 follow-up with `restore-lifecycle-step` |
+| `guest-broker-route-unrendered` | DEFECT, not a disclosed gap (coordinator ruling 2026-09-25): a provisioned installation has no guest staging route. Blocked on a design ruling: W01g's supervisor takes ONE `services.guestBroker` endpoint, and the fleet runs ONE shared supervisor for every installation (options sent to the coordinator: keyed endpoints per tenant, a fleet router, or per-installation supervisors) |
 | `orchestrator-build-id-versioning` | The orchestrator does not implement Temporal worker build-ID versioning; builds are retained at the image and release level |
 | Production GPU, eight rows | `FACTORY_PRODUCTION_GPU_CRITERIA`, all unmet with the verdicts in `docs/factory-local-gpu.md` |
 
@@ -228,16 +228,31 @@ liveness probe accepted only a route-less 404 (the M2 fix, 0509650be, made
 after the last live pass). The execution gateway answers a route-less request
 with 401 `{"error":"unauthorized"}`, so every installation stayed degraded on
 `execution_gateway_unhealthy` and its orchestrator looped on TLS disconnects
-(hold f2). The probe now accepts that exact refusal or a success; the test
-starts the real gateway and is red with the 404-only rule
-(`/tmp/factory-platform-evidence/w16/logs/gateway-probe-red.log`).
+(hold f2). The probe now accepts exactly the gateway's own refusal (status 401 and a body
+that is exactly `{"error":"unauthorized"}`, as `execution-gateway.ts` builds it
+for a request with no route), or a success. A 404, a 5xx, a 403, or a 401 with
+any other body (a foreign service on the port) reports the gateway down.
+
+M2 wording, corrected: "only the gateway's route-less refusal, 401
+`{"error":"unauthorized"}` exactly, or a success, proves it live". The
+earlier "route-less 404" was never true of this gateway.
+
+Why the unit test missed it: the M2 test started a fake `Bun.serve` listener
+that answered whatever status the test chose, so it proved the probe's own
+rule and never the gateway's real answer. The test now starts the real
+`startFactoryExecutionGateway`, and it is red with the 404-only rule
+(`/tmp/factory-platform-evidence/w16/logs/gateway-probe-red.log`). An
+extra-key body case is red with a looser check
+(`logs/gateway-probe-exact-red.log`).
 
 Proof-harness defects fixed (evidence scripts, not in the branch): the route
-proof now pulls its pinned Envoy image when a host prune removed it, and
-counts a harness error as a wrong verdict (before, every red case "failed"
+proof's pinned Envoy image (by digest) had been removed from the host by an
+image prune, so Envoy never started; the proof now pulls that digest when it
+is absent, and counts a harness error as a wrong verdict (before, every red case "failed"
 because Envoy never started); the red script exits non-zero on any wrong
 verdict; the candidate builder inserts its migration before the recovery
-migration; the image prune reads the final-hold logs.
+migration; the image prune reads the final-hold logs; the driver refuses an empty or
+missing test file list before it reaches `bun test` (`repro/btest.sh`).
 
 ## Pre-commit hook skip (disclosed)
 

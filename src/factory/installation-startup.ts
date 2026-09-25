@@ -183,8 +183,13 @@ export function factoryStorageProbeTarget(blobs: BlobStore): FactoryStorageProbe
  */
 function isGatewayRouteRefusal(response: { readonly statusCode: number; readonly body: Uint8Array }): boolean {
   if (response.statusCode !== 401) return false;
-  try { return (JSON.parse(new TextDecoder().decode(response.body)) as { error?: unknown } | null)?.error === "unauthorized"; }
-  catch { return false; }
+  // Exactly the gateway's body: one `error` key, "unauthorized". Parsed, not
+  // byte-compared, so a byte-level whitespace change in the gateway does not break it.
+  try {
+    const body = JSON.parse(new TextDecoder().decode(response.body)) as unknown;
+    return typeof body === "object" && body !== null && !Array.isArray(body)
+      && Object.keys(body).length === 1 && (body as { error?: unknown }).error === "unauthorized";
+  } catch { return false; }
 }
 
 /** The gateway is live when its own listener terminates TLS and answers with its route-less refusal. */

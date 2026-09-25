@@ -269,7 +269,7 @@ describe("factoryGatewayProbeTarget", () => {
   });
 
   test("a failing gateway's 5xx, any other status, or another server's 401 reports it down", async () => {
-    for (const [status, body] of [[503, null], [500, null], [403, null], [404, null], [401, null], [401, "not json"], [401, '{"error":"forbidden"}'], [401, "null"]] as const) {
+    for (const [status, body] of [[503, null], [500, null], [403, null], [404, null], [401, null], [401, "not json"], [401, '{"error":"forbidden"}'], [401, "null"], [401, '["unauthorized"]'], [401, '{"error":"unauthorized","detail":"x"}']] as const) {
       const { target, stop } = await listener(status, body);
       try { expect({ status, body, live: await target.health(new AbortController().signal) }).toEqual({ status, body, live: false }); }
       finally { stop(); }
