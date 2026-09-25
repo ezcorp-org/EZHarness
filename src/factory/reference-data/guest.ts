@@ -105,16 +105,19 @@ function imageContext(): string {
  *
  * A locally built image has no registry identity until W16 publishes one, so
  * the build records the manifest digest it produced and the repository carries
- * it. A `pip install` is not byte-reproducible across machines, which means
- * this digest pins THIS deployment's image and not the world's. What pins the
- * image's MEANING anywhere is `FACTORY_REFERENCE_DATA_DISTRIBUTIONS`: the
- * runner's build lane reads the closure back out of a live guest and refuses to
- * seal an artifact when it differs.
+ * it. The build reproduces on the same toolchain (W12d): on one Podman version
+ * the same lock and Containerfile give the same digest, and the build script
+ * fails when they do not. Across Podman versions this is not proven. The runner's
+ * build lane also reads the closure back out of a live guest and refuses to
+ * seal an artifact when it differs from `FACTORY_REFERENCE_DATA_DISTRIBUTIONS`.
+ *
+ * `context` is the folder that holds `pinned.json`. Production reads the
+ * committed image folder; a test passes a folder with a broken pin.
  */
-export async function factoryReferenceDataImageLock(): Promise<FactoryReferenceDataImageLock> {
-  const recorded = JSON.parse(await readFile(join(imageContext(), "pinned.json"), "utf8")) as Partial<FactoryReferenceDataImageLock>;
+export async function factoryReferenceDataImageLock(context = imageContext()): Promise<FactoryReferenceDataImageLock> {
+  const recorded = JSON.parse(await readFile(join(context, "pinned.json"), "utf8")) as Partial<FactoryReferenceDataImageLock>;
   const { repository, tag, image, base, lockDigest } = recorded;
-  if (!repository || !tag || !image || !base || !lockDigest) throw new Error("The reference data image lock is incomplete; rebuild it with scripts/build-factory-data-image.sh.");
+  if (!repository || !tag || !image || !base || !lockDigest) throw new Error("The reference data image lock is incomplete; rebuild it with scripts/build-factory-data-image.sh --repin.");
   if (!/@sha256:[a-f0-9]{64}$/.test(image)) throw new Error("The reference data image lock does not pin an immutable digest.");
   return Object.freeze({ repository, tag, image, base, lockDigest });
 }
@@ -165,11 +168,11 @@ export async function factoryReferenceDataImageTag(): Promise<string> {
  * was built from. A lock that no longer matches its inputs is a readiness
  * failure, not a substitute image.
  */
-export async function factoryReferenceDataImage(): Promise<string> {
-  const lock = await factoryReferenceDataImageLock();
+export async function factoryReferenceDataImage(context = imageContext()): Promise<string> {
+  const lock = await factoryReferenceDataImageLock(context);
   const expected = await factoryReferenceDataImageTag();
-  if (lock.tag !== expected) throw new Error(`The reference data image lock names tag ${lock.tag}, but the committed lock and Containerfile derive ${expected}. Rebuild with scripts/build-factory-data-image.sh.`);
-  if (lock.lockDigest !== (await pythonLockDigest(join(pythonProject(), "uv.lock")))) throw new Error("The reference data image lock names a different uv.lock than the committed one. Rebuild with scripts/build-factory-data-image.sh.");
+  if (lock.tag !== expected) throw new Error(`The reference data image lock names tag ${lock.tag}, but the committed lock and Containerfile derive ${expected}. Rebuild with scripts/build-factory-data-image.sh --repin.`);
+  if (lock.lockDigest !== (await pythonLockDigest(join(pythonProject(), "uv.lock")))) throw new Error("The reference data image lock names a different uv.lock than the committed one. Rebuild with scripts/build-factory-data-image.sh --repin.");
   return lock.image;
 }
 

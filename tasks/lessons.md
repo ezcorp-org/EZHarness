@@ -1593,3 +1593,9 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 - Read what the branch actually exports before you port a harness from another branch. The W15b
   harness used a function that exists only on the unmerged W15b branch. The failure also showed that a
   start which creates shared databases needs its cleanup in place before the first create.
+
+## 2026-09-25 — A receipt runner must not strip git status output (W12d)
+
+- Never `.strip()` the output of `git status --porcelain`. The first line's leading space is part of
+  the status code, so stripping it shifts the path by one character, and the file drops out of the
+  receipt's dirty-file map. Strip only the trailing newline, and parse each line as `XY path`.
