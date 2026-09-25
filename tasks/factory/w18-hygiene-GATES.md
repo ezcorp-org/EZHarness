@@ -114,6 +114,107 @@ Pass for item B: the silent skip is gone; a wide commit is loud and, by default,
 escape hatch is visible in both directions it applies (over and under the cap); no other hook behavior
 changed (the three original `repoWithPreCommit()` tests and `EZ_SKIP_HOOKS=1` bypass are unaffected).
 
+## Item D — the other pre-existing partial-mock pollution (coordinator ruling on finding 2)
+
+Base for the reproduction: `b7349ba8c` (items A+B, validated). Branch `wp/w18-hygiene-2`. Four named
+modules: `$lib/server/context`, `$server/db/queries/extensions`, `$server/providers/local-model-check`,
+`$lib/server/security/resource-quotas`.
+
+- [x] GD1: reproduced on the base, before any item-D fix — running the 36 F1 files together throws
+  exactly the class the F1 disclosure predicted, for these four modules (not api-keys, which item A
+  already closed).
+  CHECK: `bun test --timeout 30000 <36 F1 src files> ./src/__tests__/mock-cleanup-coverage.test.ts`
+  EXPECT (before): `SyntaxError: Export named 'getCommandRegistry'/'ensureInitialized' not found in
+  module '$lib/server/context'`; `'listExtensions' not found ... db/queries/extensions`;
+  `'listModels' not found ... providers/local-model-check`; `'checkStorageQuota' not found ...
+  security/resource-quotas`
+  EVIDENCE: `f1-src-batch.log` (captured incidentally while finishing item A, before item D existed;
+  quoted verbatim in the item-D commit message) names all four.
+
+- [x] GD2: every file that partially mocks one of the four modules is found and converted, repo-wide
+  (not just the files that happened to collide in the GD1 batch).
+  CHECK: a repo-wide scan (src + web) for `mock.module()` calls matching each module's `$lib`/`$server`/
+  relative specifier forms, classified complete (spreads the real module, or resolves via a
+  `serverModule`/`webLibModule`/`contextModule`-bound const) vs partial
+  EXPECT: zero partial after the fix
+  EVIDENCE: 26 files (10 src, 16 web), all touched in commit `69d04ed70`. Re-scan after the commit:
+  zero partial instances remain for any of the four modules (script output recorded in this session;
+  reproducible via the same regex-based scan described in the commit message).
+
+- [x] GD3: `db/queries/extensions`, `providers/local-model-check`, `security/resource-quotas` use
+  `serverModule()`/`webLibModule()` — proven shallow enough to spread safely (unlike `context`, GD4).
+  CHECK: standalone Bun reproduction requiring each module directly (see item A's GA4/GA5 for the
+  precompute-once requirement, which applies here too); each of the resulting 20 (of 26) files
+  individually with `--coverage`
+  EXPECT: full real export set, no cascade, 0 failures
+  EVIDENCE: sanity checks in this session (not committed) confirmed `db/queries/extensions` (22 real
+  exports) and `providers/local-model-check` (6) resolve cleanly with no side effects; all 20 files
+  pass individually — see GD6.
+
+- [x] GD4: `$lib/server/context` cannot use `webLibModule()` — it is the app's central wiring module.
+  CHECK: attempted the same fix as GD3; ran each affected file individually and in combination with
+  its siblings after each attempted fix
+  EXPECT (if webLibModule were safe): 0 failures
+  ACTUAL: an unbounded cascade — completing `context` via `webLibModule()` transitively required
+  `db/queries/agent-configs`, `db/queries/conversations`, `db/queries/user-commands`, `db/connection`,
+  `runtime/pending-messages` in turn, each already mocked, partially, by the very file whose context
+  mock was being completed, for a reason unrelated to context. Each fix revealed the next layer.
+  RULING: do not spread `context.ts` for real. `completeFactory()` + `contextModule()`
+  (`helpers/mock-cleanup.ts`, commit `7bb15980f`) build a facade with the real 9-function export
+  surface (`CONTEXT_EXPORT_NAMES`) always present — overrides where given, a function that THROWS on
+  call (never on link) everywhere else. This fixes the "Export named X not found" link-time bug (the
+  actual defect) without ever requiring the real module, so no transitive graph is pulled in.
+  EVIDENCE: the cascade reproduction is not preserved (reverted between attempts, per this session's
+  transcript); the final, working `contextModule()` design and its 13 call sites are in commit
+  `69d04ed70`.
+
+- [x] GD5: a companion bug in the "every mock.module target is snapshotted or exempt" meta-test —
+  `serverModule()`/`webLibModule()`-bound `$server/*` factories were misclassified as REDIRECTS
+  (fail-closed), not recognized as shims, because `collectModuleBindings()` only recognized
+  `require(...)`/`import * as` bindings.
+  CHECK: `bun test --timeout 30000 ./src/__tests__/mock-cleanup-coverage.test.ts`
+  EXPECT: 0 fail
+  EVIDENCE: commit `1645390fc`. Before: 6 false-positive "missing from MODULE_PATHS" reports for
+  `$server/db/queries/extensions` / `$server/providers/local-model-check` across 4 files. After: 23/23.
+
+- [x] GD6: every one of the 26 touched files passes individually, at its real invocation; the batch
+  reproduction (GD1) no longer shows ANY "Export named X not found" for the four target modules.
+  CHECK: `d-src-isolated-results.txt` (10 files, each isolated, `--coverage`), `d-web-isolated-results.txt`
+  (16 files; 13 via `cd web && bun test`, 3 — ask-user-answer-route, extensions-data-route,
+  extensions-events-route — via the repo-root invocation `passfail_files` actually uses, same pattern
+  as item A's GA6); `d-src-batch-after2.log` (the GD1 batch, post-fix) grepped for the four modules'
+  "not found" text: zero matches.
+  EXPECT: exit 0 for all 26; zero matches
+  EVIDENCE: all files `exit=0`; grep confirmed zero.
+
+- [x] GD7: a bonus, single-file fix found while closing a residual failure: `extension-event-end-to-end
+  .test.ts` also had a partial `$server/auth/middleware` mock (2 of 9 real exports). Fixed with
+  `serverModule()` (lazy form — this file only ever runs from the repo root, where `$server` is
+  virtual, so the precompute-once requirement does not apply; see GA5).
+  EVIDENCE: part of commit `69d04ed70`.
+
+- [ ] GD8 — DISCLOSED, NOT FIXED: a residual pollution, unrelated to the four named modules, previously
+  masked by the crash GD1 fixed. `extension-event-end-to-end.test.ts` also partially mocks
+  `$server/db/queries/conversations` (and very likely `db/queries/tool-calls`, same file, not
+  individually confirmed) — when combined with `messages-multipart-route.test.ts` and
+  `messages-permission-mode-ceiling-route.test.ts` in one process, 5 tests in those two files fail on
+  assertion mismatches (`convQueries.getLatestLeaf is not a function`, and downstream body-shape
+  mismatches), not link-time crashes. Each of the three files passes alone and in every pairing that
+  excludes `extension-event-end-to-end.test.ts`'s db/queries/conversations mock specifically.
+  RULING (this session, matching the coordinator's own F1 scope decision): out of scope for item D,
+  which named four specific modules. Not fixed. Two much larger surveys, found while enumerating GD2,
+  are also disclosed here rather than undertaken: 83 files across the tree still partially mock
+  `db/queries/extensions` via the PLAIN relative specifier outside this item's 26-file set (item D only
+  touched the ones needed for the GD1 reproduction), and roughly 39 files partially mock `$server/
+  auth/middleware` (only `extension-event-end-to-end.test.ts`'s instance, GD7, was fixed, because it
+  directly blocked this item's own reproduction). Recommend a follow-up package if the coordinator
+  wants these closed; do not fold into item D's already-large diff.
+
+Pass for item D: the four named modules are fully closed everywhere they were partially mocked, proven
+by direct reproduction before and after; the harder finding (context.ts cannot be spread) is fixed with
+a purpose-built, non-cascading helper instead of forcing the F1 pattern where it does not fit; every
+touched file passes at its real invocation; what's left undone is named, not hidden.
+
 ## Item C — F2: the 27 bare git-init tests
 
 - [ ] GC1: BLOCKED on the integ/w00 hash containing W18a-3 (for `src/__tests__/helpers/scratch-git.ts`),

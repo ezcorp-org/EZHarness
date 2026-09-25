@@ -4657,6 +4657,44 @@ the bar (a wide commit still does not run its tests locally — CI does), it mak
 ACT the developer takes knowingly, every time, with the exact file list in front of them, rather than
 something that happens to them silently past a threshold they may not know exists.
 
+### Item D — the other pre-existing partial-mock pollution (coordinator ruling on finding 2, branch
+`wp/w18-hygiene-2` from `b7349ba8c`)
+
+- [x] Reproduced on the base before fixing anything: the 36 F1 files run together throw "Export named
+  X not found" for `$lib/server/context`, `$server/db/queries/extensions`, `$server/providers/
+  local-model-check`, `$lib/server/security/resource-quotas` — exactly the class F1 predicted, for
+  the modules F1 didn't touch.
+- [x] Found and converted every file (26, repo-wide) that partially mocks one of the four modules.
+- [x] Three of the four (`db/queries/extensions`, `local-model-check`, `resource-quotas`) use the same
+  `serverModule()`/`webLibModule()` pattern as F1.
+- [x] `$lib/server/context` needed a different fix: it's the app's central wiring module, and spreading
+  it for real cascades through an unbounded chain of the SAME test files' own unrelated partial mocks
+  of its transitive dependencies (agent-configs, conversations, user-commands, db/connection,
+  pending-messages — each layer found by direct reproduction, one at a time). Built
+  `completeFactory()`/`contextModule()`: a facade with the real export surface always present,
+  throwing stubs where not overridden, never requiring the real module.
+- [x] Found and fixed a companion false positive this surfaced in the "mock.module target is
+  snapshotted or exempt" meta-test: it didn't recognize a `serverModule()`/`webLibModule()`-bound
+  const as a valid `$server/*` shim.
+- [x] Bonus: a partial `$server/auth/middleware` mock in `extension-event-end-to-end.test.ts`, found
+  while chasing a residual failure.
+- [x] All 26 files pass individually at their real invocation; typecheck, lint, boundaries,
+  gate-integrity, `factory-process-boundaries.test.ts` all green.
+- [ ] Disclosed, not fixed: a residual, unrelated pollution (`extension-event-end-to-end.test.ts`'s own
+  partial `db/queries/conversations` mock, not one of the four named modules) still fails 5 tests in
+  two other files when all three run together — previously masked by the crash this item fixed.
+  Two much larger surveys (83 files still partially mock `db/queries/extensions` elsewhere in the
+  tree; ~39 partially mock `auth/middleware`) are also disclosed, not undertaken.
+
+**Review.** The three "shallow" modules confirmed F1's method generalizes cleanly. `$lib/server/context`
+did not: it's the one module in this set whose real implementation IS the app boot sequence, so
+"spread the real module" — the exact fix that worked everywhere else — recursively demands every OTHER
+module its own callers have their own reasons to stub. The right fix turned out to be narrower than F1's:
+guarantee the export NAMES (so a route's static import always links, which is the actual bug), and let a
+genuine behavioral gap fail loud and local instead of masquerading as every OTHER test's problem. Left
+one honest gap open rather than chase an unbounded cascade to zero, and named the two much bigger
+surveys this touched but did not take on.
+
 ### Item C — F2 (27 bare git-init tests)
 
 Blocked on the integ/w00 hash containing W18a-3 (needs `src/__tests__/helpers/scratch-git.ts`). Not
