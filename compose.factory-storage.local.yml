@@ -1,5 +1,13 @@
 # Local-only factory storage profile. This does not prove independent replication
 # or failure domains because both services run on the same host.
+#
+# Memory (W15d, measured 2026-09-25 from each container's cgroup, sampled every second):
+# under the PostgreSQL checkpoint and restore suites, one W19a mock pass, and the
+# db-postgres.yml storage step at once, the ordinary store peaked at 1263 MiB
+# (739 MiB anonymous, the rest page cache) and the archive store at 247 MiB
+# (225 MiB anonymous); neither container had an OOM kill. 2g stays. The OOM kills of
+# Sep 23 (ordinary) and Sep 25 (archive) were host-wide, not these limits: see
+# docs/factory-local-storage.md, "Memory and the host OOM killer".
 services:
   factory-storage-ordinary:
     profiles: ["factory-storage"]
@@ -7,7 +15,11 @@ services:
     cpus: 1
     pids_limit: 256
     image: docker.io/chrislusf/seaweedfs@sha256:08d516132314207d10c8e37cbffc1f32b147d870169688734cc61c6231625b62
-    command: ["server", "-dir=/data", "-ip.bind=0.0.0.0", "-master.telemetry=false", "-master.volumeSizeLimitMB=64", "-volume.max=400", "-s3", "-s3.config=/config/ordinary.json"]
+    # -volume.max=600 (W15d): 600 x 64 MiB = 37.5 GiB at most. On 2026-09-25 the store held
+    # 308 of 400 volumes (16.95 GiB, every key a proof run's leftover); at 400 every upload
+    # fails with "failed to find writable volumes". The raise adds at most 18.25 GiB on a
+    # host with 145 GB free and a 100 GB floor. Proof runs now remove their own objects.
+    command: ["server", "-dir=/data", "-ip.bind=0.0.0.0", "-master.telemetry=false", "-master.volumeSizeLimitMB=64", "-volume.max=600", "-s3", "-s3.config=/config/ordinary.json"]
     ports:
       - "${EZCORP_FACTORY_STORAGE_BIND_IP:-127.0.0.1}:${EZCORP_FACTORY_STORAGE_ORDINARY_S3_PORT:-18333}:8333"
       - "${EZCORP_FACTORY_STORAGE_BIND_IP:-127.0.0.1}:${EZCORP_FACTORY_STORAGE_ORDINARY_ADMIN_PORT:-19333}:9333"

@@ -6,5 +6,5 @@ import { setupFactoryPostgres } from "./helpers/factory-test-database";
 factoryLegacyWorkflowConformance(async () => {
   const database = await setupFactoryPostgres();
   const storage = await createFactoryOrdinaryStorage(`ordinary/factory-legacy-workflow/${randomUUID()}`);
-  return { db: database.db, blobs: storage.blobs, close: async () => { storage.close(); await database.close(); } };
+  return { db: database.db, blobs: storage.blobs, close: async () => { try { await storage.close(); } finally { await database.close(); } } };
 });

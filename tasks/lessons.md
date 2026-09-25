@@ -1599,3 +1599,14 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 - Never `.strip()` the output of `git status --porcelain`. The first line's leading space is part of
   the status code, so stripping it shifts the path by one character, and the file drops out of the
   receipt's dirty-file map. Strip only the trailing newline, and parse each line as `XY path`.
+
+## 2026-09-25 — Search for a prior decision before building a destructive tool (W15d)
+
+- Before writing a delete or prune tool, search the repository for an existing one and its history. I
+  drafted a prefix-and-age prune for the shared store, then found `scripts/prune-factory-storage-manifest.ts`
+  and `tasks/factory/w07-GATES.md`: a window deleter had removed another package's evidence, and the
+  project replaced it with a manifest-only tool. A run may delete only what it wrote, under its own
+  unique prefix; anything older needs a reviewed manifest.
+- A kernel OOM record names its constraint. `CONSTRAINT_MEMCG` is the container limit; `CONSTRAINT_NONE`
+  with `global_oom` is the host. Read it before raising a container limit.
+

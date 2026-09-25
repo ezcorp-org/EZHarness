@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { S3Client } from "@aws-sdk/client-s3";
+import { DeleteObjectCommand, ListObjectVersionsCommand, S3Client } from "@aws-sdk/client-s3";
 import { S3BlobStore, s3ObjectKey } from "../../../src/extensions/v4/blobs";
 import { S3FactoryArchiveInventory, type FactoryArchiveInventory } from "../../../src/factory/archive-writer";
 import { S3FactoryReleaseArchive } from "../../../src/factory/release-adapters";
@@ -17,7 +17,12 @@ export interface FactoryOrdinaryStorage {
   readonly client: S3Client;
   readonly bucket: string;
   readonly prefix: string;
-  close(): void;
+  /**
+   * Permanently removes every version and delete marker the run left under its
+   * prefix and the prefixes it owns, then destroys the client. The buckets keep
+   * every version, so a run that only deletes keys still leaves its bytes (W15d).
+   */
+  close(): Promise<void>;
 }
 
 export interface FactoryArchiveStorage extends FactoryReleaseArchive, FactoryArchiveInventory {
@@ -49,13 +54,77 @@ export function factoryStorageEndpoint(kind: FactoryStorageKind): string { retur
 
 function normalizedPrefix(prefix: string): string { return s3ObjectKey(prefix, "0".repeat(64)).slice(0, -65); }
 
-/** Opens one tenant-scoped ordinary S3 client from the test environment. */
-export async function createFactoryOrdinaryStorage(prefix: string, tenant = "tenant-01"): Promise<FactoryOrdinaryStorage> {
+/** One stored version or delete marker. */
+export interface FactoryStoredVersion { readonly key: string; readonly versionId: string }
+
+/** The narrow S3 surface the run cleanup sends through. */
+export interface FactoryRunCleanupClient { send(command: ListObjectVersionsCommand | DeleteObjectCommand): Promise<unknown> }
+
+interface VersionPage {
+  Versions?: { Key?: string; VersionId?: string }[];
+  DeleteMarkers?: { Key?: string; VersionId?: string }[];
+  IsTruncated?: boolean;
+  NextKeyMarker?: string;
+  NextVersionIdMarker?: string;
+}
+
+/**
+ * The `a/b/` form of a prefix a run owns. It must name at least two path
+ * segments, so a cleanup can never reach a bucket root or the shared `ordinary/`
+ * root that installations write to; the caller's prefix is run-unique (a UUID).
+ */
+export function factoryRunPrefix(prefix: string): string {
+  const segments = prefix.split("/").filter(segment => segment.length > 0);
+  if (segments.length < 2 || segments.some(segment => segment === "." || segment === "..")) {
+    throw new Error(`refusing to clean "${prefix}": a run prefix needs at least two path segments`);
+  }
+  return `${segments.join("/")}/`;
+}
+
+/** Every version and delete marker under the run's prefix, across every page. */
+export async function listFactoryRunVersions(client: FactoryRunCleanupClient, bucket: string, prefix: string): Promise<FactoryStoredVersion[]> {
+  const owned = factoryRunPrefix(prefix);
+  const all: FactoryStoredVersion[] = [];
+  let marker: { KeyMarker: string; VersionIdMarker: string } | undefined;
+  do {
+    const page = await client.send(new ListObjectVersionsCommand({ Bucket: bucket, Prefix: owned, MaxKeys: 1_000, ...marker })) as VersionPage;
+    for (const item of [...(page.Versions ?? []), ...(page.DeleteMarkers ?? [])]) {
+      if (item.Key?.startsWith(owned) && item.VersionId) all.push({ key: item.Key, versionId: item.VersionId });
+    }
+    marker = undefined;
+    if (page.IsTruncated) {
+      // A truncated page without a continuation would end the listing early and leave objects behind silently.
+      if (page.NextKeyMarker === undefined || page.NextVersionIdMarker === undefined) throw new Error(`the store truncated the version listing of ${bucket}/${owned} without a continuation marker`);
+      marker = { KeyMarker: page.NextKeyMarker, VersionIdMarker: page.NextVersionIdMarker };
+    }
+  } while (marker !== undefined);
+  return all;
+}
+
+/** Permanently removes every version and delete marker under the run's prefix; returns how many. */
+export async function removeFactoryRunObjects(client: FactoryRunCleanupClient, bucket: string, prefix: string): Promise<number> {
+  const versions = await listFactoryRunVersions(client, bucket, prefix);
+  for (const version of versions) await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: version.key, VersionId: version.versionId }));
+  return versions.length;
+}
+
+/**
+ * Opens one tenant-scoped ordinary S3 client from the test environment.
+ * `owns` names further run-unique prefixes the run writes to (a publication
+ * destination, for example); `close()` removes those too.
+ */
+export async function createFactoryOrdinaryStorage(prefix: string, tenant = "tenant-01", owns: readonly string[] = []): Promise<FactoryOrdinaryStorage> {
   const normalized = normalizedPrefix(prefix);
   const storage = config("ordinary");
   const credentials = await factoryStorageCredentials("ordinary", tenant);
   const client = new S3Client({ endpoint: storage.endpoint, region: "us-east-1", forcePathStyle: true, credentials });
-  return { blobs: new S3BlobStore({ endpoint: storage.endpoint, bucket: tenant, prefix: normalized, credentials, client }), client, bucket: tenant, prefix: normalized, close: () => client.destroy() };
+  return {
+    blobs: new S3BlobStore({ endpoint: storage.endpoint, bucket: tenant, prefix: normalized, credentials, client }), client, bucket: tenant, prefix: normalized,
+    async close() {
+      try { for (const owned of [normalized, ...owns.map(normalizedPrefix)]) await removeFactoryRunObjects(client, tenant, owned); }
+      finally { client.destroy(); }
+    },
+  };
 }
 
 /**
