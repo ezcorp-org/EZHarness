@@ -328,12 +328,14 @@ export function setActiveProjectId(id: string | null) {
 	}
 }
 
-export function refreshProjects() {
-	fetchProjects()
-		.then((data) => {
-			store.projects = data;
-		})
-		.catch(() => {});
+export async function refreshProjects(): Promise<boolean> {
+	try {
+		store.projects = await fetchProjects();
+		return true;
+	} catch {
+		// Keep the last known project list when refresh fails.
+		return false;
+	}
 }
 
 function refreshSettings() {

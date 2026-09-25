@@ -188,6 +188,45 @@ function harness() {
   return { process, token, starts, reverse, start: (callback: typeof onStart) => { onStart = callback; }, snapshot: () => snapshot, mutate: (change: (value: ActiveExtensionRelease) => void) => change(snapshot), setSnapshot: (value: ActiveExtensionRelease) => { snapshot = value; }, invoke: (callback: typeof onInvoke) => { onInvoke = callback; }, discover: (callback: typeof onDiscover) => { onDiscover = callback; }, closed: () => closed, cleanup: () => { process.kill(); releaseCallProvenance(token); } };
 }
 
+test("sensitive runtime methods never start a worker or expose their result through normal dispatch", async () => {
+  const fixture = harness();
+  const canary = "sensitive-result-canary";
+  fixture.mutate(snapshot => {
+    snapshot.release.manifest.methods = [{
+      name: "credential/resolve",
+      sensitivity: "sensitive",
+      inputSchema: { type: "object" },
+      outputSchema: { type: "string" },
+    }];
+  });
+  fixture.invoke(async () => canary);
+  try {
+    const error = await fixture.process.call("credential/resolve", { _meta: { ezCallId: fixture.token } }).then(() => null, value => value);
+    expect(error).toMatchObject({ code: "SENSITIVE_METHOD_REQUIRES_BROKER" });
+    expect(String(error)).not.toContain(canary);
+    expect(JSON.stringify(fixture.starts)).not.toContain(canary);
+    expect(fixture.starts).toHaveLength(0);
+    expect(fixture.closed()).toBe(0);
+  } finally { fixture.cleanup(); }
+});
+
+test("ordinary runtime method aliases still use normal release dispatch", async () => {
+  const fixture = harness();
+  fixture.mutate(snapshot => {
+    snapshot.release.manifest.methods = [{
+      name: "provider/inspect",
+      sensitivity: "ordinary",
+      inputSchema: { type: "object", additionalProperties: false },
+      outputSchema: { type: "object", required: ["state"], properties: { state: { type: "string" } }, additionalProperties: false },
+    }];
+  });
+  fixture.invoke(async () => ({ state: "ready" }));
+  try {
+    await expect(fixture.process.call("provider/inspect", { _meta: { ezCallId: fixture.token } })).resolves.toMatchObject({ result: { state: "ready" } });
+    expect(fixture.starts).toHaveLength(1);
+  } finally { fixture.cleanup(); }
+});
+
 test("pre-cancelled calls do not start workers", async () => {
   const fixture = harness();
   try {

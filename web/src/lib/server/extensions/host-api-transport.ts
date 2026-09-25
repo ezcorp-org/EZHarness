@@ -8,14 +8,14 @@ export function createHostApiTransport(baseUrl: string, fetcher: (input: string 
   const base = new URL(baseUrl);
   if (base.protocol !== "http:" || base.hostname !== "127.0.0.1" || base.username || base.password || base.pathname !== "/" || base.search || base.hash) throw new Error("The extension API broker requires the direct loopback HTTP origin.");
 
-  async function withResponse<Result>(userId: string, path: string, init: RequestInit, consume: (response: Response, signal: AbortSignal) => Promise<Result>, timeoutMs: number): Promise<Result> {
+  async function withResponse<Result>(userId: string, path: string, init: RequestInit, consume: (response: Response, signal: AbortSignal) => Promise<Result>, timeoutMs: number, brokerHeaders: Record<string, string> = {}): Promise<Result> {
     const keyName = `extension-broker:${crypto.randomUUID()}`;
     const { raw } = provisionInternalKey(keyName, ["read", "write", "chat", "extensions"], userId);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     let response: Response | undefined;
     try {
-      response = await fetcher(new URL(path, base), { ...init, redirect: "error", signal: controller.signal, headers: { Authorization: `Bearer ${raw}`, "Content-Type": "application/json" } });
+      response = await fetcher(new URL(path, base), { ...init, redirect: "error", signal: controller.signal, headers: { Authorization: `Bearer ${raw}`, "Content-Type": "application/json", ...brokerHeaders } });
       return await consume(response, controller.signal);
     } finally {
       clearTimeout(timeout);
@@ -26,7 +26,7 @@ export function createHostApiTransport(baseUrl: string, fetcher: (input: string 
   }
 
   return {
-    request(userId, input) {
+    request(userId, input, extensionId) {
       const body = input.body === undefined ? undefined : JSON.stringify(input.body);
       if (body && new TextEncoder().encode(body).byteLength > RESPONSE_LIMIT) return Promise.reject(new Error("API request exceeds the broker size limit."));
       return withResponse(userId, input.path, { method: input.method, body }, async (response) => {
@@ -45,7 +45,7 @@ export function createHostApiTransport(baseUrl: string, fetcher: (input: string 
           text += decoder.decode();
           return { status: response.status, body: text, headers: { "content-type": response.headers.get("content-type") ?? "application/json" } };
         } finally { await reader?.cancel().catch(() => {}); reader?.releaseLock(); }
-      }, 30000);
+      }, 30000, { "X-EZHarness-Extension-Id": extensionId });
     },
     events(userId, input) {
       const query = new URLSearchParams();

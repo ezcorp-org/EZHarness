@@ -291,6 +291,41 @@ jobs:
         shell: bash
         run: scripts/setup-factory-storage.sh down
 
+  dev-image-provenance:
+    name: Dev image provenance
+    runs-on: ubuntu-latest
+    # A lockfile change invalidates both frozen installs and the image-wide
+    # ownership layer. Keep the first uncached proof from timing out while
+    # ordinary runs continue to use the Buildx GHA cache.
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Create an untracked empty Docker-context directory
+        run: |
+          mkdir .dev-image-empty-context-probe
+          test "$(bash scripts/resolve-dev-image-source-state.sh)" = dirty
+      - name: Build development image with provenance metadata
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: Dockerfile.dev
+          load: true
+          tags: ezcorp:verify-dev-provenance
+          build-args: |
+            EZCORP_BUILD_COMMIT=${{ github.sha }}
+            EZCORP_BUILD_SOURCE_STATE=dirty
+          cache-from: type=gha,scope=dev-image-provenance
+          cache-to: type=gha,mode=max,scope=dev-image-provenance
+      - name: Inspect OCI labels and runtime environment
+        env:
+          EZCORP_CONTAINER_ENGINE: docker
+          VERIFY_DEV_PROVENANCE_REVISION: ${{ github.sha }}
+          VERIFY_DEV_PROVENANCE_SOURCE_STATE: dirty
+          VERIFY_DEV_PROVENANCE_CONTEXT_DIR: .dev-image-empty-context-probe
+        run: bash scripts/verify-dev-image-provenance.sh --no-build
+
   typecheck:
     name: Typecheck
     runs-on: ubuntu-latest
@@ -930,6 +965,23 @@ jobs:
             ghcr.io/gitleaks/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f \
             dir . --no-banner --config .gitleaks.toml --redact --exit-code 1
 
+  # This setup path promises compatibility with the Bash macOS ships. Linux
+  # syntax checks cannot establish that promise: Ubuntu currently supplies
+  # Bash 5. Run the complete behavior suite with Apple's real /bin/bash and
+  # fail if the runner image ever stops providing the expected 3.2 runtime.
+  setup-podman-bash32:
+    name: Podman setup (Apple Bash 3.2)
+    runs-on: macos-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+      - name: Run setup behavior under Apple Bash 3.2
+        env:
+          EZ_SETUP_TEST_BASH: /bin/bash
+          EZ_SETUP_REQUIRE_BASH_32: "1"
+        run: bun test --timeout 30000 ./src/__tests__/setup-podman.test.ts
+
   manifest-lock:
     name: Manifest lockfile drift check
     runs-on: ubuntu-latest
@@ -1134,7 +1186,7 @@ jobs:
     name: Backend tests
     runs-on: ubuntu-latest
     timeout-minutes: 3
-    needs: [cov-shard, residual-tests, external-postgres]
+    needs: [cov-shard, residual-tests, external-postgres, setup-podman-bash32]
     if: always()
     steps:
       - name: Aggregate shard results
@@ -1142,9 +1194,11 @@ jobs:
           echo "cov-shard:       ${{ needs.cov-shard.result }}"
           echo "residual-tests:  ${{ needs.residual-tests.result }}"
           echo "external-postgres: ${{ needs.external-postgres.result }}"
+          echo "setup-podman-bash32: ${{ needs.setup-podman-bash32.result }}"
           if [ "${{ needs.cov-shard.result }}" != "success" ] || \
              [ "${{ needs.residual-tests.result }}" != "success" ] || \
-             [ "${{ needs.external-postgres.result }}" != "success" ]; then
+             [ "${{ needs.external-postgres.result }}" != "success" ] || \
+             [ "${{ needs.setup-podman-bash32.result }}" != "success" ]; then
             echo "::error::A backend shard failed — a pass/fail-set (P) test failure that survived the isolated retry, or an infrastructure failure. See the failing shard's log."
             exit 1
           fi
@@ -1228,19 +1282,32 @@ jobs:
       - name: Global coverage floor
         run: bun scripts/check-global-coverage.ts
       # Scored against the functions this PR TOUCHED, not the whole tree — the
-      # full-repo CRAP ratchet runs nightly (mutation-nightly.yml).
+      # full-repo CRAP ratchet is the main-push-only step right below.
       - name: CRAP gate (touched functions)
         env:
           BASE_REF: origin/main
         run: bun scripts/crap-score.ts --changed
+      # Full-repo CRAP RATCHET — pushes to main only, so it never gates a PR.
+      # It needs the merged coverage/lcov.info, and this job is the one place
+      # that file exists: mutation-nightly.yml used to rebuild it standalone
+      # and never could, because the browser-route coverage receipt comes from
+      # this pipeline's e2e jobs. Runs after the touched-functions gate so that
+      # on main, crap.json (and the summary below) carry the full-repo verdict.
+      # The violation count may fall, never rise — crap.maxFullRepoViolations
+      # in scripts/quality-gates.json.
+      - name: CRAP ratchet (full repo, main only)
+        if: github.event_name == 'push'
+        run: bun scripts/crap-score.ts
       # Runs even when a gate above FAILED — that is when the summary is most
       # useful. But it must not run when the job never got a bun: the
       # producers-check step above sits BEFORE setup-bun, so on a producer
       # cascade a bare always() fired with no interpreter and added a bogus
       # `bun: command not found` (exit 127) on top of the real failure.
+      # --expect names the gates this job ran; one that wrote no report makes
+      # the summary FAIL with a finding, never a silent PASS.
       - name: Quality summary
         if: always() && steps.bun.outcome == 'success'
-        run: bun scripts/quality-report.ts --text
+        run: bun scripts/quality-report.ts --text --expect coverage,crap
       - name: Upload quality reports
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -1308,9 +1375,11 @@ jobs:
         env:
           BASE_REF: origin/main
         run: bun scripts/mutation.ts --changed --report-only
+      # --expect mutation: the summary must FAIL, not pass, if the step above
+      # left no mutation.json (or no skipped-diff receipt) behind.
       - name: Quality summary
         if: always() && steps.bun.outcome == 'success'
-        run: bun scripts/quality-report.ts --text
+        run: bun scripts/quality-report.ts --text --expect mutation
       - name: Upload mutation report
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

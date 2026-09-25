@@ -4,7 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setupTestDb } from "../__tests__/helpers/test-pglite";
-import { digestBytes, FileBlobStore } from "../extensions/v4/blobs";
+import { digestBytes, digestObject, FileBlobStore } from "../extensions/v4/blobs";
 import { FactoryArtifactAccess, type FactoryArtifactTransactionReader } from "./artifact-access";
 import { FactoryArtifacts } from "./artifacts";
 import { FactoryGrants, type FactoryPrincipal } from "./grants";
@@ -44,12 +44,23 @@ beforeAll(async () => {
 });
 afterAll(async () => { await fixture?.pglite.close(); await Promise.all(directories.splice(0).map(directory => rm(directory, { recursive: true, force: true }))); });
 
+/**
+ * The seal exactly as `artifact-access.ts` computed it before W04b (at d5ee52309), written out here
+ * rather than imported, so a change to the product's formula cannot also change this pin.
+ */
+function preW04bSeal(input: { sourceProjectId: string; sourceRunId: string; targetProjectId: string; artifact: typeof artifact; artifactKind: string; mediaType: string; issuerId: string; issuerGrantRevision: number; storageVersion: string }): string {
+  return `sha256:${digestObject({ tenantId, sourceProjectId: input.sourceProjectId, sourceRunId: input.sourceRunId, targetProjectId: input.targetProjectId, artifact: input.artifact, artifactKind: input.artifactKind, mediaType: input.mediaType, issuerId: input.issuerId, issuerGrantRevision: input.issuerGrantRevision, storageVersion: input.storageVersion })}`;
+}
+
 function access() { return new FactoryArtifactAccess(fixture.db, tenantId, new FactoryGrants(fixture.db, tenantId), reader); }
 function read() { return fixture.db.transaction(transaction => access().loadSharedInTransaction(transaction, targetProjectId, artifact, "application/json")); }
 
 test("human-issued exact share verifies media, storage version, digest and bytes", async () => {
   const granted = await access().grant(actor, { sourceProjectId, sourceRunId, targetProjectId, artifact, mediaType: "application/json" }, "access-grant-1");
-  expect(granted).toMatchObject({ artifact, artifactKind: "execution_manifest", mediaType: "application/json", storageVersion: "version-1", revoked: false });
+  expect(granted).toMatchObject({ artifact, artifactKind: "execution_manifest", mediaType: "application/json", storageVersion: "version-1", revoked: false, grantRevision: 1 });
+  // W04b: a first grant seals exactly as before, so every row written before the upgrade still verifies.
+  const pinned = preW04bSeal({ sourceProjectId, sourceRunId, targetProjectId, artifact, artifactKind: "execution_manifest", mediaType: "application/json", issuerId: actor.id, issuerGrantRevision: 1, storageVersion: "version-1" });
+  expect(granted.protectedDigest).toBe(pinned);
   expect(await read()).toEqual({ artifact, mediaType: "application/json", storageVersion: "version-1", content });
   await expect(fixture.db.transaction(transaction => access().loadSharedInTransaction(transaction, "foreign-target", artifact, "application/json"))).rejects.toMatchObject({ code: "factory_artifact_unavailable" });
   await expect(fixture.db.transaction(transaction => access().loadSharedInTransaction(transaction, targetProjectId, artifact, "text/plain"))).rejects.toMatchObject({ code: "factory_artifact_unavailable" });
@@ -86,4 +97,43 @@ test("source human revocation is transactional and does not transfer release aut
   await expect(read()).rejects.toMatchObject({ code: "factory_artifact_unavailable" });
   expect(() => access().grant({ kind: "service", id: "service", authentication: "service" }, { sourceProjectId, sourceRunId, targetProjectId, artifact, mediaType: "application/json" }, "service-grant")).toThrow("factory_human_required");
   expect(() => access().grant({ ...actor, authentication: "api-key" }, { sourceProjectId, sourceRunId, targetProjectId, artifact, mediaType: "application/json" }, "api-key-grant")).toThrow("factory_human_required");
+});
+
+const grantRows = async () => (await fixture.db.execute(sql`SELECT grant_revision, revoked_at IS NOT NULL AS revoked, protected_digest FROM factory_artifact_read_grants
+  WHERE tenant_id=${tenantId} AND source_project_id=${sourceProjectId} AND source_artifact_id=${artifact.artifactId} AND target_project_id=${targetProjectId} ORDER BY grant_revision`) as unknown as { rows: Array<{ grant_revision: number | string; revoked: boolean; protected_digest: string }> }).rows
+  .map(row => ({ grantRevision: Number(row.grant_revision), revoked: row.revoked, protectedDigest: row.protected_digest }));
+const auditActions = async () => (await fixture.db.execute(sql`SELECT id, action FROM audit_log WHERE target=${artifact.artifactId} AND action LIKE 'factory.artifact.read.%' ORDER BY created_at, id`) as unknown as { rows: Array<{ id: string; action: string }> }).rows;
+
+test("a revoked share can be granted again as a new active row, and the revoked row stays for audit", async () => {
+  // The share was revoked by the previous case.
+  const again = await access().grant(actor, { sourceProjectId, sourceRunId, targetProjectId, artifact, mediaType: "application/json" }, "access-regrant-1");
+  expect(again).toMatchObject({ artifact, revoked: false });
+  expect(await read()).toEqual({ artifact, mediaType: "application/json", storageVersion: "version-1", content });
+  const rowsAfter = await grantRows();
+  expect(rowsAfter.map(row => [row.grantRevision, row.revoked])).toEqual([[1, true], [2, false]]);
+  // The new grant is its own sealed row, never the old one reactivated.
+  expect(rowsAfter[1]!.protectedDigest).not.toBe(rowsAfter[0]!.protectedDigest);
+  expect(again.protectedDigest).toBe(rowsAfter[1]!.protectedDigest);
+  expect((await auditActions()).map(entry => entry.action)).toEqual(["factory.artifact.read.granted", "factory.artifact.read.revoked", "factory.artifact.read.granted"]);
+});
+
+test("a share that is still active conflicts, and a revoke reaches only the active row", async () => {
+  await expect(access().grant(actor, { sourceProjectId, sourceRunId, targetProjectId, artifact, mediaType: "application/json" }, "access-regrant-while-active")).rejects.toMatchObject({ code: "factory_artifact_grant_conflict" });
+  expect((await access().revoke(actor, { sourceProjectId, targetProjectId, artifact }, "access-revoke-2")).revoked).toBe(true);
+  expect((await grantRows()).map(row => [row.grantRevision, row.revoked])).toEqual([[1, true], [2, true]]);
+  // A second revoke finds no active row and answers with the latest revoked grant, writing nothing.
+  const audited = (await auditActions()).length;
+  expect(await access().revoke(actor, { sourceProjectId, targetProjectId, artifact }, "access-revoke-3")).toMatchObject({ revoked: true, protectedDigest: (await grantRows())[1]!.protectedDigest });
+  expect((await auditActions()).length).toBe(audited);
+  await expect(read()).rejects.toMatchObject({ code: "factory_artifact_unavailable" });
+});
+
+test("two re-grants racing after a revoke produce one active row and one typed conflict", async () => {
+  const results = await Promise.allSettled([
+    access().grant(actor, { sourceProjectId, sourceRunId, targetProjectId, artifact, mediaType: "application/json" }, "access-race-a"),
+    access().grant(actor, { sourceProjectId, sourceRunId, targetProjectId, artifact, mediaType: "application/json" }, "access-race-b"),
+  ]);
+  expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
+  expect(results.find(result => result.status === "rejected")).toMatchObject({ reason: { code: "factory_artifact_grant_conflict" } });
+  expect((await grantRows()).map(row => [row.grantRevision, row.revoked])).toEqual([[1, true], [2, true], [3, false]]);
 });

@@ -1,0 +1,21 @@
+diff --git a/src/__tests__/helpers/factory-run-lifecycle-suite.ts b/src/__tests__/helpers/factory-run-lifecycle-suite.ts
+index 18d319613..b322fdbf0 100644
+--- a/src/__tests__/helpers/factory-run-lifecycle-suite.ts
++++ b/src/__tests__/helpers/factory-run-lifecycle-suite.ts
+@@ -71,6 +71,7 @@ import { FaultInjectingArchive, MemoryFactoryReleaseArchive } from "./factory-ar
+ import { FactoryArchiveWriter, factoryArchiveFailureDomain } from "../../factory/archive-writer";
+ import { FactoryPublicationOutputReader } from "../../factory/release-publication-set";
+ import { persistTransition } from "../../../packages/@ezcorp/factory-orchestrator/src/transition-pages";
++import { openFactoryEffectClaimsForTest } from "./factory-effect-claims";
+ 
+ /**
+  * A real object store a producer lends the publishing cases.
+@@ -846,6 +847,8 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
+     });
+     if (composed === undefined) throw new Error("a declared destination must compose");
+     const effects = new FactoryProtectedCommandEffects(fixture.db, tenantId, world.completed.task.authority, world.completed.completions, world.releaseAuthority, world.assurance, releases, composed.profiles);
++    // A release claim passes the C06 checkpoint gate (W15); this world is not about freshness.
++    await openFactoryEffectClaimsForTest(fixture.db, tenantId);
+     const { releaseReference, acceptedAdvanced } = await acceptedRelease(world);
+     const reports: Array<{ role: string; code: unknown; reason: unknown }> = [];
+     const report = (role: string, error: unknown) => {

@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
-import { generateKeyPairSync, type KeyPairKeyObjectResult } from "node:crypto";
+import { generateKeyPairSync } from "node:crypto";
 import { chmod, copyFile, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { certificates } from "../../__tests__/helpers/factory-certificates";
@@ -12,8 +12,9 @@ afterEach(async () => { await Promise.all(directories.splice(0).map(path => rm(p
 // Key generation is the slow part of a fixture, and a fixture only reads these, so one set serves the file.
 const shared: string[] = [];
 let certs: Awaited<ReturnType<typeof certificates>>;
-let keys: KeyPairKeyObjectResult;
-beforeAll(async () => { certs = await certificates(shared); keys = generateKeyPairSync("rsa", { modulusLength: 2048 }); });
+const rsaKeys = () => generateKeyPairSync("rsa", { modulusLength: 2048 });
+let keys: ReturnType<typeof rsaKeys>;
+beforeAll(async () => { certs = await certificates(shared); keys = rsaKeys(); });
 afterAll(async () => { await Promise.all(shared.map(path => rm(path, { recursive: true, force: true }))); });
 
 async function fixture(overrides: Record<string, unknown> = {}) {

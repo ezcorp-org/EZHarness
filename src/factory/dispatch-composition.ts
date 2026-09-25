@@ -23,6 +23,7 @@ import type { FactoryBudgets, FactoryUncertainHold } from "./budgets";
 import { FactoryUsageReconciliation } from "./usage-settlement";
 import type { FactoryClaimableRelease, FactoryReleaseConsentAbsence, FactoryReleaseOperation, FactoryReleaseProvider, FactoryReleases } from "./releases";
 import type { FactoryReleaseProviderResolver } from "./release-application";
+import type { FactoryReleaseOutcomeDelivery, FactoryUndeliveredReleaseOutcome } from "./release-outcome-delivery";
 import type { FactoryRunLifecycle } from "./run-lifecycle";
 import { createFactoryHostStopClient } from "./host-stop-client";
 import { privateDirectory, readPrivateBounded } from "./private-files";
@@ -238,6 +239,11 @@ export function factoryReleaseOutcomeDisposition(error: unknown): FactoryItemDis
   return typeof code === "string" && FACTORY_RELEASE_OUTCOME_TRANSIENT_CODES.includes(code) ? "transient" : "fault";
 }
 
+/** A settled operation the driver still owes its run an event for. */
+export interface FactoryPendingReleaseDelivery extends FactoryUndeliveredReleaseOutcome {
+  readonly deliverOnly: true;
+}
+
 /**
  * Claim and dispatch the next claimable release, across the tenant's projects.
  *
@@ -271,6 +277,12 @@ export function factoryReleaseOutcomeDisposition(error: unknown): FactoryItemDis
  * destination reservation and the consent itself there. So the read half
  * mutates nothing and the mutating half is exactly one transaction: a failure
  * anywhere between them leaves the operation untouched rather than half done.
+ *
+ * **A settled release goes back to its run.** With `delivery`, a claim that
+ * settles is delivered in the same pass, and when nothing is claimable the
+ * page is the settled operations whose event is still missing. That second
+ * source is what makes delivery survive a crash between settlement and
+ * enqueue: the operation is found again and delivered once.
  */
 export function factoryReleaseOutcomeDriver(
   database: TransactionalDb,
@@ -280,17 +292,23 @@ export function factoryReleaseOutcomeDriver(
   providers: FactoryReleaseProviderResolver,
   report: (role: string, error: unknown) => void,
   limit?: number,
+  delivery?: Pick<FactoryReleaseOutcomeDelivery, "deliver" | "undelivered">,
 ): FactoryRoleDriver {
-  return factoryPageDriver<FactoryClaimableRelease>({
+  return factoryPageDriver<FactoryClaimableRelease | FactoryPendingReleaseDelivery>({
     async page(_signal) {
       for (const projectId of await projectIds()) {
         const claimable = await database.transaction((transaction: MigrationDb) =>
           releases.listClaimableInTransaction(transaction, projectId, limit));
         if (claimable.length > 0) return claimable;
       }
-      return [];
+      return delivery === undefined ? [] : (await delivery.undelivered()).map((item) => ({ ...item, deliverOnly: true as const }));
     },
-    settle: async (claimable, _signal) => {
+    settle: async (item, _signal) => {
+      if ("deliverOnly" in item) {
+        await delivery!.deliver(item.projectId, item.operationId);
+        return;
+      }
+      const claimable = item;
       // The operation the consent is read against. `readConsentInTransaction`
       // re-validates every byte of it and `claim` re-reads it under a lock, so
       // an operation that moved between the scan and here costs a refusal by
@@ -306,7 +324,8 @@ export function factoryReleaseOutcomeDriver(
       // A claim IS the operation (`FactoryReleaseClaim extends
       // FactoryReleaseOperation`), so the destination the resolver reads is the
       // one already persisted against this release.
-      await releases.dispatch(claim, await providers.resolve(claim));
+      const settled = await releases.dispatch(claim, await providers.resolve(claim));
+      if (delivery !== undefined) await delivery.deliver(settled.projectId, settled.operationId);
     },
     classify: factoryReleaseOutcomeDisposition,
     report: (claimable, error, disposition) => { report(`release-outcome:${disposition}:${claimable.operationId}`, error); },

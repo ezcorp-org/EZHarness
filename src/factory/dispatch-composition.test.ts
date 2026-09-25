@@ -252,7 +252,10 @@ describe("the release-outcome step", () => {
         calls.claims.push([requester, projectId, operationId, granted]);
         return (options.claim ?? (() => ({ operationId, destination: { provider: "s3" } })))();
       },
-      async dispatch(claim: unknown, chosen: unknown) { calls.dispatches.push([claim, chosen]); return {} as never; },
+      async dispatch(claim: unknown, chosen: unknown) {
+        calls.dispatches.push([claim, chosen]);
+        return { projectId: "project-1", operationId: (claim as { operationId: string }).operationId } as never;
+      },
     };
     return { releases: releases as never, calls };
   }
@@ -286,6 +289,49 @@ describe("the release-outcome step", () => {
     // the initiator the lifecycle returned.
     expect(calls.inspected).toEqual(["project-1/op-1"]);
     expect(calls.consents[0]![1]).toBe(INITIATOR);
+  });
+
+  /** A delivery that records what it was asked to deliver, and owes what the test names. */
+  function delivery(owed: readonly { projectId: string; operationId: string }[] = []) {
+    const delivered: string[] = [];
+    return {
+      delivered,
+      value: {
+        async undelivered() { return owed; },
+        async deliver(projectId: string, operationId: string) { delivered.push(`${projectId}/${operationId}`); return null; },
+      },
+    };
+  }
+
+  test("a claim that settles is delivered back to its run in the same pass", async () => {
+    const { releases, calls } = store({});
+    const owed = delivery([{ projectId: "project-9", operationId: "op-never-scanned" }]);
+    const driver = factoryReleaseOutcomeDriver(database(), releases, runs(), async () => ["project-1"], factoryReleaseProviderResolver({ s3: {} as never }), () => {}, undefined, owed.value);
+
+    expect(await driver.step(SIGNAL)).toBe(true);
+    expect(calls.dispatches).toHaveLength(1);
+    // The settled operation, and only it: the owed list is read only when nothing is claimable.
+    expect(owed.delivered).toEqual(["project-1/op-1"]);
+  });
+
+  test("with nothing claimable, the page is the settled operations still owed an event", async () => {
+    const { releases, calls } = store({ claimables: () => [] });
+    const owed = delivery([{ projectId: "project-2", operationId: "op-7" }, { projectId: "project-3", operationId: "op-8" }]);
+    const reported: unknown[][] = [];
+    const driver = factoryReleaseOutcomeDriver(database(), releases, runs(), async () => ["project-1"], factoryReleaseProviderResolver({ s3: {} as never }), (role, error) => { reported.push([role, error]); }, undefined, owed.value);
+
+    expect(await driver.step(SIGNAL)).toBe(true);
+    expect(owed.delivered).toEqual(["project-2/op-7", "project-3/op-8"]);
+    // Delivering claims nothing and dispatches nothing.
+    expect(calls.claims).toEqual([]);
+    expect(calls.dispatches).toEqual([]);
+    expect(reported).toEqual([]);
+  });
+
+  test("without a delivery, an empty page stays empty", async () => {
+    const { releases } = store({ claimables: () => [] });
+    const driver = factoryReleaseOutcomeDriver(database(), releases, runs(), async () => ["project-1"], factoryReleaseProviderResolver({ s3: {} as never }), () => {});
+    expect(await driver.step(SIGNAL)).toBe(false);
   });
 
   test("the initiator and the consent are read in ONE transaction", async () => {

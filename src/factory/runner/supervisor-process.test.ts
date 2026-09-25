@@ -6,6 +6,7 @@ import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { readFactoryServiceReadiness, factorySupervisorReadinessOptions } from "../service-readiness";
 import {
+  createFactoryConfiguredGuestBroker,
   loadFactoryHostKey,
   factorySupervisorRecord,
   FACTORY_SUPERVISOR_FACT_STALENESS_HEARTBEATS,
@@ -553,29 +554,34 @@ describe("the host services this supervisor publishes", () => {
     }
   });
 
-  test("the pool section is optional, complete, or refused", async () => {
+  test("the pool and guest broker sections are each optional, complete, or refused", async () => {
     const root = await privateRoot();
     const complete = services(root);
-    const pool = {
+    const endpoint = {
       baseUrl: "https://127.0.0.1:8700",
       serviceTokenPath: join(root, "pool.token"),
       tls: { caPath: join(root, "ca.pem"), certificatePath: join(root, "client.pem"), privateKeyPath: join(root, "client.key") },
     };
     // With a pool this host can tell C03 that a process group is gone, which is
-    // the only way the product's own confirmation ever settles.
-    expect(parseFactorySupervisorProcessConfig(config(root, { services: { ...complete, pool } } as never)).services?.pool).toEqual(pool as never);
-    // Without one it still signs; the product reports its own refusal by name.
-    expect(parseFactorySupervisorProcessConfig(config(root, { services: complete } as never)).services?.pool).toBeUndefined();
+    // the only way the product's own confirmation ever settles. With a guest
+    // broker a sandboxed guest can stage an output, which is the only way it
+    // can return COMPLETED.
+    for (const section of ["pool", "guestBroker"] as const) {
+      expect(parseFactorySupervisorProcessConfig(config(root, { services: { ...complete, [section]: endpoint } } as never)).services?.[section]).toEqual(endpoint as never);
+      // Without one the host still starts, and each missing route is refused
+      // by name where it is needed.
+      expect(parseFactorySupervisorProcessConfig(config(root, { services: complete } as never)).services?.[section]).toBeUndefined();
 
-    for (const broken of [
-      { ...pool, baseUrl: "" },
-      { ...pool, serviceTokenPath: "" },
-      { ...pool, tls: { caPath: "a", certificatePath: "b" } },
-      { ...pool, tls: { ...pool.tls, extra: "x" } },
-      { ...pool, extra: "x" },
-      "not a record",
-    ]) {
-      expect(() => parseFactorySupervisorProcessConfig(config(root, { services: { ...complete, pool: broken } } as never))).toThrow("factory supervisor config is invalid");
+      for (const broken of [
+        { ...endpoint, baseUrl: "" },
+        { ...endpoint, serviceTokenPath: "" },
+        { ...endpoint, tls: { caPath: "a", certificatePath: "b" } },
+        { ...endpoint, tls: { ...endpoint.tls, extra: "x" } },
+        { ...endpoint, extra: "x" },
+        "not a record",
+      ]) {
+        expect(() => parseFactorySupervisorProcessConfig(config(root, { services: { ...complete, [section]: broken } } as never))).toThrow("factory supervisor config is invalid");
+      }
     }
   });
 
@@ -592,8 +598,16 @@ describe("the host services this supervisor publishes", () => {
     await runConfiguredFactorySupervisor(path, abortController.signal, dependencies({
       createRunnerProbe: () => ({ probe: async () => {}, instance: () => runner, close: async () => {} }),
       startServices: async () => { started += 1; return { stop: () => { stopped += 1; } }; },
-      createReadiness: () => ({ write: async (update) => { published.push({ lifecycle: update.lifecycle, hostServicesReady: update.facts.hostServicesReady! }); return { ...update } as never; } }),
-    }, 5));
+      // Stop on the fact under test, not on a heartbeat count: the observer does
+      // real file I/O and the publisher does not, so a count shared by both
+      // loops can run out before the observer has bound anything. Three ready
+      // records span several heartbeats of the bound listener.
+      createReadiness: () => ({ write: async (update) => {
+        published.push({ lifecycle: update.lifecycle, hostServicesReady: update.facts.hostServicesReady! });
+        if (published.filter((entry) => entry.lifecycle === "ready" && entry.hostServicesReady).length === 3) abortController?.abort();
+        return { ...update } as never;
+      } }),
+    }, 1_000));
 
     // Bound ONCE across several heartbeats: rebinding each beat would drop live
     // connections, and the listener is released before the process says stopped.
@@ -619,17 +633,12 @@ describe("the host services this supervisor publishes", () => {
         if (attempts === 1) throw new Error("address in use");
         return { stop: () => {} };
       },
-      // The observer and the publisher share the heartbeat wait, so a count of
-      // waits says nothing about which loop has run: stop on the publication the
-      // test is about instead — `ready` after the degradation it recovers from.
-      createReadiness: () => ({
-        write: async (update) => {
-          published.push(`${update.lifecycle}:${update.errorCode ?? ""}`);
-          if (update.lifecycle === "ready" && published.includes("degraded:host_services_unavailable")) abortController?.abort();
-          return { ...update } as never;
-        },
-      }),
-      // A fail-safe only: code that never recovers ends here and fails the assertions below instead of hanging.
+      // Stop once the retried bind is published ready (see the test above).
+      createReadiness: () => ({ write: async (update) => {
+        published.push(`${update.lifecycle}:${update.errorCode ?? ""}`);
+        if (update.lifecycle === "ready") abortController?.abort();
+        return { ...update } as never;
+      } }),
     }, 1_000));
 
     expect(attempts).toBeGreaterThan(1);
@@ -681,6 +690,15 @@ describe("the host services this supervisor publishes", () => {
       .toEqual({ lifecycle: "ready", facts });
   });
 
+  test("a host whose document names no services.guestBroker refuses a staging frame by name", async () => {
+    const broker = await createFactoryConfiguredGuestBroker(undefined);
+    const frame = { schemaVersion: "factory.guest-material-begin.v1", operationId: "run:node:0:0", operationIndex: 0, objectName: "result.json", version: 1, mediaType: "application/json", totalBytes: 2, chunkCount: 1 };
+    // The guest can tell "this host carries no staging" from "the broker said no".
+    await expect(broker.invoke({} as never, frame)).rejects.toMatchObject({ code: "factory_host_broker_unavailable", message: expect.stringContaining("services.guestBroker") });
+    // A model request keeps the host's general refusal, with its own message.
+    await expect(broker.invoke({} as never, { schemaVersion: "factory.guest-model-request.v1" })).rejects.toMatchObject({ code: "factory_host_broker_unavailable", message: expect.stringContaining("no contract defines") });
+  });
+
   test("startFactoryConfiguredHostServices refuses when the section is absent", async () => {
     const root = await privateRoot();
     await expect(startFactoryConfiguredHostServices(parseFactorySupervisorProcessConfig(config(root)), {} as never))
@@ -710,7 +728,7 @@ describe("the host services this supervisor publishes", () => {
     }
   });
 
-  test("a configured pool becomes the client the stop route presents to", async () => {
+  test("a configured pool and guest broker become the clients the host routes use", async () => {
     const root = await privateRoot();
     const certs = await certificates(certificateRoots, "tenant-a");
     for (const [name, value] of [["ca.pem", certs.ca], ["server.pem", certs.serverCert], ["server.key", certs.serverKey], ["client.pem", certs.clientCert], ["client.key", certs.clientKey]] as const) {
@@ -724,14 +742,21 @@ describe("the host services this supervisor publishes", () => {
     const probe = Bun.listen({ hostname: "127.0.0.1", port: 0, socket: { data() {} } });
     const port = probe.port;
     probe.stop(true);
-    // Built before the listener binds. The pool is not reached here — building
-    // the client reads its secrets and nothing else — so this asserts the
-    // configured material composes, not that a pool answered.
+    // Built before the listener binds. Neither endpoint is reached here —
+    // building a client reads its secrets and nothing else — so this asserts
+    // the configured material composes, not that either answered. The guest
+    // broker's forwarding is proven over a real route in
+    // `guest-broker-transport.integration.test.ts`.
     const parsed = parseFactorySupervisorProcessConfig(config(root, {
       services: {
         ...services(root), port,
         pool: {
           baseUrl: "https://127.0.0.1:1",
+          serviceTokenPath: join(root, "pool.token"),
+          tls: { caPath: join(root, "ca.pem"), certificatePath: join(root, "client.pem"), privateKeyPath: join(root, "client.key") },
+        },
+        guestBroker: {
+          baseUrl: "https://127.0.0.1:2",
           serviceTokenPath: join(root, "pool.token"),
           tls: { caPath: join(root, "ca.pem"), certificatePath: join(root, "client.pem"), privateKeyPath: join(root, "client.key") },
         },

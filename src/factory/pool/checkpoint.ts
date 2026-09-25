@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { FACTORY_CHECKPOINT_LIMITS, type FactoryCheckpointPoolSnapshot, type FactoryCheckpointPoolSource, type FactoryCheckpointSlotSource } from "../checkpoint-barrier";
+import { FACTORY_CHECKPOINT_LIMITS, type FactoryCheckpointPoolSnapshot, type FactoryCheckpointPoolSource, type FactoryCheckpointSlotSource } from "../checkpoint-limits";
 import type { FactoryRestorePoolLedger } from "../restore";
 import type { FactoryPoolLedger } from "./ledger";
 import { normalizePoolResourceVector, POOL_RESOURCE_CLASSES, POOL_SCHEDULER_LOCK_SQL, poolRows as rows, type PoolResourceVector, type PoolSql } from "./ledger";

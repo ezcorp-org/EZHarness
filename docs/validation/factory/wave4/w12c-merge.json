@@ -1,0 +1,99 @@
+{
+ "package": "w12c",
+ "branch": "wp/w12c-data-image-repin",
+ "head": "7821e5d7c95b24a2576a824d4f33cb0f804ba831",
+ "fixCommit": "9df13f57a",
+ "branchBase": "7a87aed5e",
+ "validatorVerdict": "ACCEPT (validator-2, 2026-09-24 ~20:40Z, on 7821e5d7c; verdict copied as w12c-validation-report.txt, record as w12c-validation-results.jsonl)",
+ "workerReport": "the gate file tasks/factory/w12c-GATES.md (copied as w12c-worker-report.txt); no separate report",
+ "mergeSha": "f1753cd040e0b931c8284a14c78b94e70cc89da4",
+ "tree": "4096753e64125b1fa49512348b9712c4f9429d19",
+ "parents": [
+  "8692ca900a200b2534f5bb2d81ac59a9190b3d2f",
+  "7821e5d7c95b24a2576a824d4f33cb0f804ba831"
+ ],
+ "conflicts": "none",
+ "integrationFix": [],
+ "change": "src/factory/reference-data/image/pinned.json image field only: localhost/ezcorp-factory-python-data@sha256:21a7134763a591a10e2460b860ef62bbae650e8db90496f70410caf073cdb1b0 -> @sha256:1bf456b746c349c960a1abc43fd69c66ab990c6a46dc2125f32defc1b6da1cee; tag, base and lockDigest unchanged",
+ "rulings": {
+  "environmentalCause": "at 16:50Z on 2026-09-24 a host-wide podman image removal outside this team deleted the pinned Python base and the factory data image. The coordinator re-pulled the base by digest and rebuilt the data image; the rebuild had a different digest than the committed pin, so the three guest suites (reference-data journey, runner/applied-controls, runner/python-guest) failed with 'image not known' at every head until this re-pin. Those failures in any pool leg between 16:50Z and this merge are this incident, not package failures.",
+  "nonReproducibleBuild": "finding: the same uv.lock, Containerfile and base digest gave a different image. Old pin sha256:21a7134763a591a10e2460b860ef62bbae650e8db90496f70410caf073cdb1b0; rebuild sha256:1bf456b746c349c960a1abc43fd69c66ab990c6a46dc2125f32defc1b6da1cee (local image Id 4410e52ac41e).",
+  "G8": "make the data-image build reproducible (or fail when the digest differs from the pin): follow-up W12d, in flight"
+ },
+ "hostCheck": "integrator, read-only: podman image inspect of localhost/ezcorp-factory-python-data:a8034aa9676cedc3706aefa3ef4e7939 gives Id 4410e52ac41e and digest sha256:1bf456b7...; the pinned Python base digest is present",
+ "checks": [
+  {
+   "name": "registration",
+   "exitCode": 0,
+   "start": "2026-09-24T19:19:32Z",
+   "end": "2026-09-24T19:19:33Z",
+   "command": "bun test --timeout 30000 ./scripts/factory-postgres-suite-registration.test.ts ./src/__tests__/factory-ci-registration.test.ts ./scripts/check-required-checks.test.ts",
+   "logSha256": "5e1ee0edb345e1e7d93f1a173644dbae5ce3ec17a30b052f2eb33dac9a8a3488"
+  },
+  {
+   "name": "typecheck",
+   "exitCode": 0,
+   "start": "2026-09-24T19:19:33Z",
+   "end": "2026-09-24T19:20:19Z",
+   "command": "bun run typecheck",
+   "logSha256": "91fb1f5793b4e9f660dc8843c1ba084620d7b9a2a94a18f0c77e0b97fda1267b"
+  },
+  {
+   "name": "lint",
+   "exitCode": 0,
+   "start": "2026-09-24T19:20:19Z",
+   "end": "2026-09-24T19:20:21Z",
+   "command": "bun run lint",
+   "logSha256": "5bdcbfa5d38866f1932a957ae7df659f84fd15a857d06dbdce4b21431a7bd76a"
+  },
+  {
+   "name": "gate-integrity",
+   "exitCode": 0,
+   "start": "2026-09-24T19:20:21Z",
+   "end": "2026-09-24T19:20:23Z",
+   "command": "bun scripts/gate-integrity.ts",
+   "logSha256": "b1a0297506aab4a182c44b23c41d861c6f4ae88da68848497d810bb39bff6bda"
+  },
+  {
+   "name": "boundaries",
+   "exitCode": 0,
+   "start": "2026-09-24T19:20:23Z",
+   "end": "2026-09-24T19:20:24Z",
+   "command": "bun scripts/check-factory-boundaries.ts",
+   "logSha256": "7bc27ebaae7b275fdd2403a02dc60c70eb94d07e269401e006b56590502d16e7"
+  },
+  {
+   "name": "schema-drift",
+   "exitCode": 0,
+   "start": "2026-09-24T19:20:24Z",
+   "end": "2026-09-24T19:20:28Z",
+   "command": "bun scripts/check-schema-generate-drift.ts",
+   "logSha256": "bf54d71df4bb820ddd5c50188d70a55f86e50dcea637f3af20599f18a8d2dabc"
+  },
+  {
+   "name": "focused-src-factory-reference-data-guest-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-24T19:20:28Z",
+   "end": "2026-09-24T19:20:28Z",
+   "command": "bun test --timeout 60000 ./src/factory/reference-data/guest.test.ts",
+   "logSha256": "0ac880bf871ac3d32495c9afc6754adbe98796dc9f22cc03d7fc667420785f82"
+  }
+ ],
+ "heavy": {
+  "script": "w00/merge-heavy-batch.sh",
+  "summary": [
+   "=== heavy batch 2026-09-24T19:44:49Z",
+   "HEAD 8692ca900a200b2534f5bb2d81ac59a9190b3d2f MERGE_HEAD 7821e5d7c95b24a2576a824d4f33cb0f804ba831 index-tree 4096753e64125b1fa49512348b9712c4f9429d19 umask 0077",
+   "df: /dev/nvme0n1p2  1.8T  1.6T  191G  89% /",
+   "--- START podman-journey.integration 2026-09-24T19:44:49Z",
+   "--- END   podman-journey.integration 2026-09-24T19:45:47Z exit=0  11 pass 0 fail ",
+   "--- START podman-applied-controls.integration 2026-09-24T19:45:47Z",
+   "--- END   podman-applied-controls.integration 2026-09-24T19:46:10Z exit=0  5 pass 0 fail ",
+   "--- START podman-python-guest.integration 2026-09-24T19:46:10Z",
+   "--- END   podman-python-guest.integration 2026-09-24T19:46:49Z exit=0  12 pass 0 fail ",
+   "BATCH DONE status=0 2026-09-24T19:46:49Z"
+  ]
+ },
+ "commitHook": "no test file maps to the staged changes; lint passed (w00/w12c-merge/commit.log)",
+ "standingSteps": "df 192G before the heavy batch, 191G at commit"
+}

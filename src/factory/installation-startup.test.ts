@@ -8,12 +8,13 @@ import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
 import type { FactorySettleableChild } from "./child-runs";
 import type { TrustedFactoryServiceIdentity } from "./trusted-command-gateway";
 import type { BlobStore } from "../extensions/v4/types";
-import { resetReadiness } from "../readiness";
+import { getReadiness, resetReadiness } from "../readiness";
 import { configureFactoryApplication, getFactoryApplication } from "./application";
 import type { FactoryBootConfig } from "./boot";
 import { createFactoryPoolReadinessWriter } from "./pool/readiness";
 import { createFactoryServiceReadinessWriter, factorySupervisorReadinessOptions } from "./service-readiness";
 import { FACTORY_STARTUP_CONFIG_SCHEMA } from "./startup-config";
+import { FactoryReleaseApplication } from "./release-application";
 import {
   FACTORY_CHILD_SETTLEMENT_TRANSIENT_CODES,
   factoryChildSettlementDisposition,
@@ -24,6 +25,7 @@ import {
   factoryStartupConfigPath,
   factoryStorageProbeTarget,
   startFactoryInstallation,
+  factoryReleaseOperations,
   type FactoryInstallationHost,
   type FactoryInstallationStartupError,
 } from "./installation-startup";
@@ -690,6 +692,11 @@ describe("the release store, and the role it unblocks", () => {
     expect(report.heldWorkers.map((worker) => worker.role)).not.toContain("notification-inbox-delivery");
     // Nothing reported a release-store failure on this path.
     expect(reported.slice(before).filter((entry) => entry.role === "release-store")).toEqual([]);
+    // This document declares no guest-broker route, so none is bound, and
+    // readiness says so by name rather than by absence.
+    expect((getReadiness().detail as { factory: Record<string, unknown> }).factory.guestBroker)
+      .toEqual({ state: "unconfigured", code: "factory_guest_broker_unconfigured" });
+    expect(reported.slice(before).filter((entry) => entry.role === "guest-broker")).toEqual([]);
   });
 
   test("holds the role and names the cause when a credential set is unreadable", async () => {
@@ -846,6 +853,9 @@ describe("the roles this installation assembles", () => {
     expect(held.get("release-outcome")).toContain("declares no release destination");
     expect(held.get("release-outcome")).toContain("release.destinations");
     expect(held.get("release-outcome")).not.toContain("consent");
+    // The public release routes compose with the store even so: a contract is
+    // approved before anything publishes.
+    expect(startup.runtime.application.releaseOperations?.tenantId).toBe("tenant-01");
   });
 
   test("a release store that did not compose holds the role on the store, not on the provider", async () => {
@@ -860,6 +870,8 @@ describe("the roles this installation assembles", () => {
     const held = new Map(report.heldWorkers.map((worker) => [worker.role, worker.reason]));
     expect(held.get("release-outcome")).toContain("release store itself");
     expect(held.get("release-outcome")).toContain("release-store role");
+    // No store, no release routes: they answer factory_release_application_unavailable.
+    expect(startup.runtime.application.releaseOperations).toBeUndefined();
   });
 
   test("a declared destination registers release-outcome from the document alone", async () => {
@@ -891,6 +903,11 @@ describe("the roles this installation assembles", () => {
     // The store composed too, so the same declaration also reached the private
     // service's trusted profile set.
     expect(report.workers.map((worker) => worker.name)).toContain("notification-inbox-delivery");
+    // The public release routes are composed onto the configured application,
+    // which is the one `PUT .../release/contracts/{id}` reaches.
+    expect(getFactoryApplication()).toBe(startup.runtime.application);
+    expect(getFactoryApplication()?.releaseOperations).toBeInstanceOf(FactoryReleaseApplication);
+    expect(getFactoryApplication()?.releaseOperations?.tenantId).toBe("tenant-01");
   });
 
   test("a declared destination whose credential file anyone can read holds the release store by name", async () => {
@@ -1087,3 +1104,32 @@ describe("the roles this installation assembles", () => {
   });
 });
 
+describe("factoryReleaseOperations", () => {
+  const tenant = { tenantId: "tenant-01" };
+  const operation = { projectId: "project-1", operationId: "op-1", destination: { provider: "s3", account: "tenant-01", object: "x" } };
+  const operator = { kind: "user" as const, id: "operator", authentication: "session" as const };
+  const release = (reconciled: unknown[]) => ({
+    assurance: tenant as never,
+    releases: { ...tenant, async inspect() { return operation; }, async reconcile(...args: unknown[]) { reconciled.push(args); return operation; } } as never,
+  });
+  const context = { grants: { ...tenant, async authorize() { return undefined; } } } as never;
+
+  test("builds the public release surface over the store and assurance it is given", async () => {
+    const reconciled: unknown[] = [];
+    const provider = { name: "declared" };
+    const application = factoryReleaseOperations("tenant-01", release(reconciled), { resolve: () => provider as never })(context);
+    expect(application).toBeInstanceOf(FactoryReleaseApplication);
+    expect(application.tenantId).toBe("tenant-01");
+    await application.reconcile(operator, "project-1", "op-1", { action: "keep_uncertain", reason: "r", providerEvidence: {} } as never, 1, "key-1");
+    expect((reconciled[0] as unknown[])[2]).toBe(1);
+    expect((reconciled[0] as unknown[])[3]).toBe(provider);
+  });
+
+  test("with no declared destination, the one step that needs a provider refuses by name", async () => {
+    const reconciled: unknown[] = [];
+    const application = factoryReleaseOperations("tenant-01", release(reconciled), undefined)(context);
+    await expect(application.reconcile(operator, "project-1", "op-1", { action: "keep_uncertain", reason: "r", providerEvidence: {} } as never, 1, "key-1"))
+      .rejects.toMatchObject({ code: "factory_release_destination_unknown" });
+    expect(reconciled).toEqual([]);
+  });
+});

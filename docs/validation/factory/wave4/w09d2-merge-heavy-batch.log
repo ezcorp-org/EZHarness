@@ -1,0 +1,8 @@
+=== heavy batch 2026-09-24T19:13:33Z
+HEAD 7771476dbfc7a01bfec1d237f8db51cd87ea5bad MERGE_HEAD f2bc7040c097a5b2e9462305a717e4892f670bff index-tree 1f006e3e5f25c1a33984d99d00cb830c1f846b32 umask 0077
+df: /dev/nvme0n1p2  1.8T  1.6T  195G  89% /
+--- START pg-factory-run-lifecycle-s3 2026-09-24T19:13:33Z
+--- END   pg-factory-run-lifecycle-s3 2026-09-24T19:14:21Z exit=0  66 pass 0 fail 
+--- START pg-factory-run-lifecycle 2026-09-24T19:14:21Z
+--- END   pg-factory-run-lifecycle 2026-09-24T19:14:48Z exit=0  66 pass 0 fail 
+BATCH DONE status=0 2026-09-24T19:14:48Z

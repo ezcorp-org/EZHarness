@@ -3027,6 +3027,10 @@ export async function migrate(db: MigrateDb): Promise<void> {
   await addExtensionRuntimeLocks(db);
   const { up: addExtensionBrowserRequests } = await import("./migrations/add-extension-browser-requests");
   await addExtensionBrowserRequests(db);
+  const { up: addProjectWorkspaceBindings } = await import("./migrations/add-project-workspace-bindings");
+  await addProjectWorkspaceBindings(db);
+  const { up: addSandboxControl } = await import("./migrations/add-sandbox-control");
+  await addSandboxControl(db);
   const { up: addWorkflowDelegationRelease } = await import("./migrations/add-workflow-delegation-release");
   await addWorkflowDelegationRelease(db);
   const { up: addFactoryRecords } = await import("./migrations/add-factory-records");
@@ -3129,6 +3133,14 @@ export async function migrate(db: MigrateDb): Promise<void> {
   await addFactoryLegacyWorkflowAdapters(db);
   const { up: addFactoryInstallationBootstrap } = await import("./migrations/add-factory-installation-bootstrap");
   await addFactoryInstallationBootstrap(db);
+  // W02c: the package fence's affected-run record. Depends only on the package
+  // trust revisions and the execution journal, both created above.
+  const { up: addFactoryPackageFenceRuns } = await import("./migrations/add-factory-package-fence-runs");
+  await addFactoryPackageFenceRuns(db);
+  // W04b: a revoked artifact share no longer blocks a new grant. Depends only on
+  // add-factory-artifact-read-grants, registered above.
+  const { up: allowFactoryArtifactRegrant } = await import("./migrations/allow-factory-artifact-regrant");
+  await allowFactoryArtifactRegrant(db);
   // Last on purpose: the checkpoint barrier gate attaches to every factory table that exists.
   const { up: addFactoryRecovery } = await import("./migrations/add-factory-recovery");
   await addFactoryRecovery(db);
