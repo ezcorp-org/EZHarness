@@ -32,7 +32,11 @@ import { factoryDeliveryDirectory, type FactoryInstallationContext, type Factory
 import { FACTORY_BOOTSTRAP_INVITATION_FILE } from "./invitation";
 import { FACTORY_INGRESS_PROOF_FILE } from "./ingress";
 import { FACTORY_HOST_FILES, type FactoryFleetHost, type FactoryFleetHostFacts } from "./host";
-import { FACTORY_HOST_KEY_ID, FACTORY_MESH_FILES, FACTORY_GUEST_BROKER_AUDIENCE, FACTORY_MESH_TOKEN_KEY_ID, FACTORY_PRIVATE_SERVICE_AUDIENCE, ensureFactoryMesh, factoryMeshIdentities, rotateFactoryMesh } from "./mesh";
+import { factoryInstallationPorts, type FactoryInstallationPorts } from "./ports";
+// Re-exported: the port derivation lives in a leaf so the fleet host can use it without importing this module.
+export { factoryInstallationPorts, type FactoryInstallationPorts } from "./ports";
+import { FACTORY_HOST_KEY_ID, FACTORY_MESH_FILES, FACTORY_MESH_TOKEN_KEY_ID, FACTORY_PRIVATE_SERVICE_AUDIENCE, ensureFactoryMesh, factoryMeshIdentities, rotateFactoryMesh } from "./mesh";
+import { FACTORY_GUEST_BROKER_AUDIENCE } from "../runner/guest-broker-contract";
 import { FACTORY_APPLICATION_SECRET_FILES, FACTORY_KEY_FILES, factoryMasterKeyId } from "./secrets";
 import { factoryPrivatePath, openFactoryPrivateDirectory, readFactoryPrivateBytes, readFactoryPrivateJson, removeFactoryPrivateDirectory, removeFactoryPrivateFile, replaceFactoryPrivateFile } from "./secret-files";
 import { readdir } from "node:fs/promises";
@@ -53,14 +57,6 @@ export const FACTORY_CONTAINER_PATHS = Object.freeze({
 });
 
 export const FACTORY_DEFAULT_DATABASE_POOL_MAX = Object.freeze({ harness: 4, gateway: 2 });
-
-export interface FactoryInstallationPorts {
-  readonly harness: number;
-  readonly privateService: number;
-  readonly gateway: number;
-  /** W01g's guest-broker route, bound by the harness; the fleet host carries staging frames to it. */
-  readonly guestBroker: number;
-}
 
 /** How services reach the fleet's shared infrastructure, as seen from inside a service. */
 export interface FactoryDeploymentNetwork {
@@ -162,15 +158,6 @@ export interface FactoryDeploymentTarget {
   /** Stop and remove every service this installation runs. Idempotent. Needs no credential. Data is kept until `purge`. */
   remove(handle: FactoryDeploymentHandle): Promise<void>;
   purge(handle: FactoryDeploymentHandle): Promise<void>;
-}
-
-const TENANT_NUMBER = /^tenant-(\d{2})$/;
-
-export function factoryInstallationPorts(tenantId: string, portBase: number): FactoryInstallationPorts {
-  const match = TENANT_NUMBER.exec(tenantId);
-  if (!match || !Number.isSafeInteger(portBase) || portBase < 1_024 || portBase + 100 * 10 > 65_535) throw new FactoryProvisioningError("deployment_ports_invalid", "Installation ports cannot be derived.");
-  const base = portBase + Number(match[1]) * 10;
-  return Object.freeze({ harness: base, privateService: base + 1, gateway: base + 2, guestBroker: base + 3 });
 }
 
 function databaseUrl(network: FactoryDeploymentNetwork, database: string, credential: FactoryDatabaseCredential): string {

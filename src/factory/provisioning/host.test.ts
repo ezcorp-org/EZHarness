@@ -16,7 +16,9 @@ import {
   type FactoryFleetHostRuntime,
 } from "./host";
 import type { FactoryInstallationContext, FactoryStepResources } from "./installation";
+import { FACTORY_GUEST_BROKER_AUDIENCE, FACTORY_GUEST_BROKER_SCOPE } from "../runner/guest-broker-contract";
 import { FACTORY_HOST_KEY_ID, FACTORY_MESH_FILES, FACTORY_POOL_AUDIENCE } from "./mesh";
+import { factoryInstallationPorts } from "./ports";
 import { FactoryProvisioningError } from "./steps";
 
 const SLOW = 60_000;
@@ -157,6 +159,10 @@ describe("ensureMaterial", () => {
     const supervisorToken = await text(hostSecret(FACTORY_HOST_FILES.supervisorPoolToken));
     expect(verifies(await text(hostSecret(FACTORY_HOST_FILES.tokenPublicKey)), supervisorToken)).toBe(true);
     expect(claims(supervisorToken)).toMatchObject({ sub: "supervisor.w16", iss: "factory-host:w16", aud: FACTORY_POOL_AUDIENCE, scope: ["pool:supervisor:supervisor.w16"], iat: NOW_MS / 1_000 });
+    // The supervisor's token on every installation's guest-broker route: W01g's route checks its subject against the supervisor certificate and requires the route scope.
+    const brokerToken = await text(hostSecret(FACTORY_HOST_FILES.supervisorGuestBrokerToken));
+    expect(verifies(await text(hostSecret(FACTORY_HOST_FILES.tokenPublicKey)), brokerToken)).toBe(true);
+    expect(claims(brokerToken)).toMatchObject({ sub: "supervisor.w16", iss: "factory-host:w16", aud: FACTORY_GUEST_BROKER_AUDIENCE, scope: [FACTORY_GUEST_BROKER_SCOPE], iat: NOW_MS / 1_000 });
     expect((await readdir(host.paths.context.operatorDirectory)).sort()).toEqual(Object.values(FACTORY_HOST_OPERATOR_FILES).sort());
     for (const directory of [host.paths.context.secretDirectory, host.paths.context.operatorDirectory]) {
       for (const name of await readdir(directory)) expect((await stat(join(directory, name))).mode & 0o777).toBe(0o600);
@@ -226,6 +232,17 @@ describe("admission", () => {
     expect(supervisor.hostId).toBe("host.w16");
     expect(supervisor.services.allowedPeers).toEqual(["harness.tenant-01", "harness.tenant-02"]);
     expect(supervisor.services.port).toBe(32_003);
+    // One guest-broker route per admitted installation, keyed by its tenant, at its own port; the trust bundle holds each installation's authority.
+    const brokerEndpoint = (port: number) => ({
+      baseUrl: `https://127.0.0.1:${port}`, serviceTokenPath: join(host.paths.supervisorDelivery, FACTORY_HOST_FILES.supervisorGuestBrokerToken),
+      tls: { caPath: join(host.paths.supervisorDelivery, FACTORY_HOST_FILES.trustBundle), certificatePath: join(host.paths.supervisorDelivery, FACTORY_HOST_FILES.supervisorCertificate), privateKeyPath: join(host.paths.supervisorDelivery, FACTORY_HOST_FILES.supervisorKey) },
+    });
+    expect((bundle.supervisor as { services: { guestBrokers?: unknown } }).services.guestBrokers).toEqual({
+      "tenant-01": brokerEndpoint(factoryInstallationPorts("tenant-01", 31_000).guestBroker),
+      "tenant-02": brokerEndpoint(factoryInstallationPorts("tenant-02", 31_000).guestBroker),
+    });
+    expect(await readdir(host.paths.supervisorDelivery)).toContain(FACTORY_HOST_FILES.supervisorGuestBrokerToken);
+    expect(await readdir(host.paths.poolDelivery)).not.toContain(FACTORY_HOST_FILES.supervisorGuestBrokerToken);
     for (const [tenant, context] of [["tenant-01", one], ["tenant-02", two]] as const) {
       expect((claims(await text(join(context.secretDirectory, FACTORY_MESH_FILES.harnessPoolToken))).scope as string[]).every((scope) => scope.endsWith(tenant) || scope.includes(`:${tenant}:`))).toBe(true);
     }
@@ -285,6 +302,8 @@ describe("admission", () => {
     await host.release(two);
     expect(runtime.calls).toEqual([`apply:tenant-01:${BUILD.image.slice(-4)}`, "ready:1"]);
     expect((runtime.bundles.at(-1)!.supervisor as { services: { allowedPeers: string[] } }).services.allowedPeers).toEqual(["harness.tenant-01"]);
+    // A released installation's guest-broker route leaves the supervisor with it.
+    expect(Object.keys((runtime.bundles.at(-1)!.supervisor as { services: { guestBrokers: Record<string, unknown> } }).services.guestBrokers)).toEqual(["tenant-01"]);
     await host.release(one);
     expect(runtime.calls.at(-1)).toBe("remove:host");
     expect(await host.admitted()).toEqual([]);

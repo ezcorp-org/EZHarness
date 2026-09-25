@@ -342,13 +342,18 @@ document) on `portBase + 10*n + 3`. A sandboxed guest has no network, so the
 fleet host's supervisor carries the guest's staging frames to this route. The
 route admits only a client certificate from the host authority (the
 supervisor's `host-supervisor.crt`), a host token signed by the host token key
-(`host-token.pub`, delivered to the harness, audience `factory-guest-broker`,
-subject `supervisor.<fleet>`), and an attempt token that verifies with the
-installation's attempt-token secret. `/api/ready` names the route's state
-under `detail.factory.guestBroker`.
+(`host-token.pub`, delivered to the harness), and an attempt token that
+verifies with the installation's attempt-token secret. The token's audience
+and scope are W01g's route contract (`runner/guest-broker-contract.ts`); a pool
+token from the same key is refused as `token_audience_refused`. `/api/ready`
+names the route's state under `detail.factory.guestBroker`.
 
-Open: the supervisor side. W01g's supervisor document names ONE
-`services.guestBroker` endpoint, and a fleet runs one supervisor for every
-installation, so the host cannot yet reach each installation's route. The
-design is with the coordinator; until it lands, a guest that stages material
-is refused by name on a provisioned fleet.
+The supervisor document names one route per admitted installation in
+`services.guestBrokers`, keyed by tenant, each at that installation's port and
+trusted through the host trust bundle. The supervisor presents
+`host-supervisor-guest-broker.token` (subject `supervisor.<fleet>`), which only
+its own delivery holds. A frame goes only to its own attempt's tenant; a
+tenant with no entry is refused on the host as
+`factory_host_broker_tenant_unconfigured`. Admitting or releasing an
+installation re-renders the supervisor document and restarts it onto the new
+set.

@@ -37,7 +37,8 @@ import { FACTORY_HOST_FILES, factoryFleetHostIdentity } from "./host";
 import { composeFactoryGuestBroker } from "../guest-broker-composition";
 import { certificates } from "../../__tests__/helpers/factory-certificates";
 import { FACTORY_BOOTSTRAP_INVITATION_FILE } from "./invitation";
-import { FACTORY_GUEST_BROKER_AUDIENCE, FACTORY_MESH_FILES, FACTORY_MESH_OPERATOR_FILES, FACTORY_MESH_TOKEN_KEY_ID } from "./mesh";
+import { FACTORY_MESH_FILES, FACTORY_MESH_OPERATOR_FILES, FACTORY_MESH_TOKEN_KEY_ID } from "./mesh";
+import { FACTORY_GUEST_BROKER_AUDIENCE } from "../runner/guest-broker-contract";
 import { FACTORY_APPLICATION_SECRET_FILES, FACTORY_KEY_FILES } from "./secrets";
 import { factoryTemporalOwnerMarker } from "./temporal";
 

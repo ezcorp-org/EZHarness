@@ -129,10 +129,10 @@ Coordinator ruling 2026-09-22: approved for W16; the owner's package inherits it
   EXPECT: every leg exit 0; one receipt per leg
   EVIDENCE: PENDING the rerun at the head that renders guestBroker (after the W19a merge hash). Prior record, hold f3 at a1ba5d95b, 06:16Z-06:48Z, `/tmp/factory-platform-evidence/w16/receipts/f3/` (32 receipts, all exit 0, all clean at start). PostgreSQL first: provisioning+gateway 64, bootstrap 17, pool 8, grants 13, schema 2, grants importers 16, restore 13. Podman: supervisor-process 3, guest-broker-transport 8, package-preparation 1. Route proof 8/8 as expected. Live: self-hosted 42/42, lifecycle 27/27. Kubernetes 19 valid, kind admission as labelled. Unit 951/0, boundary suites 46/0 (factory-process-boundaries and check-factory-boundaries), web 19. New-file 36 files, patch 52 files. Earlier holds f1 (b09f210b0: every non-live leg green, candidate builder anchor defect) and f2 (b09f210b0: live found the gateway probe defect fixed in a1ba5d95b) are kept as evidence under `receipts/f1`, `receipts/f2`
 
-- [ ] G16: Every installation binds W01g's guest-broker route: the rendered startup document declares `guestBroker` (host authority, fleet supervisor identity, host token key, port `+3`), the product parser accepts it, and W01g's own composer binds it; live readiness names it `bound`, and only the fleet supervisor's certificate completes its TLS.
-  CHECK: `bun test --timeout 60000 ./src/factory/provisioning/deployment.test.ts`; the live self-hosted proof
-  EXPECT: exit 0; red without the section; live checks pass on all ten
-  EVIDENCE: unit at d77d70cc8: deployment.test.ts 47/0, red without the section 0/2 (`/tmp/factory-platform-evidence/w16/logs/guest-broker-render-red.log`); W16 unit set 999/0. Live: PENDING the next hold. The host side is open (`guest-broker-host-side`)
+- [ ] G16: Every installation binds W01g's guest-broker route and the fleet supervisor reaches each one: the rendered startup document declares `guestBroker` (host authority, fleet supervisor identity, host token key, port `+3`; audience and scope from the contract leaf), the product parser accepts it, and W01g's own composer binds it; the supervisor document names one `services.guestBrokers` entry per admitted installation (W16b), trusted through the host trust bundle, with a host-minted guest-broker token that only the supervisor's delivery holds; live readiness names each route `bound`; only the fleet supervisor's certificate completes its TLS; the supervisor's broker token passes the host checks and its pool token is refused; a frame for tenant N reaches N's route; the same frame signed by another installation is refused there; a frame for an unlisted tenant is refused on the host.
+  CHECK: `bun test --timeout 60000 ./src/factory/provisioning/deployment.test.ts ./src/factory/provisioning/host.test.ts`; the live self-hosted proof
+  EXPECT: exit 0; red without the section; every live check passes on all ten
+  EVIDENCE: unit: deployment.test.ts red without the section 0/2 (`/tmp/factory-platform-evidence/w16/logs/guest-broker-render-red.log`); host.test.ts checks the token claims, one entry per admitted tenant, and the entry removed on release. Live: PENDING the final hold
 
 ## Named readiness rows that stay open on this host
 
@@ -148,7 +148,6 @@ Coordinator ruling 2026-09-22: approved for W16; the owner's package inherits it
 | `hosted-host-identity-shared` | The Kubernetes supervisor DaemonSet holds one fleet-wide host identity (as the Compose fleet host now does too) |
 | `gpu-profile-lease-consumer` | Disclosed structural gap, owner W02; W02d builds it after W16 lands (coordinator ruling). The pool validates GPU declarations but does not yet authorize devices from them: `factoryHeldAllocationDevices` in `runner/attempt-wire.ts` has no production caller |
 | `restore-lifecycle-step` | Named follow-up, owner W16 (coordinator ruling 2026-09-24): the restore-to-checkpoint lifecycle step, a W16 package after this round (from W14's restore proof against W15). An in-place restore blocks on `database_position_mismatch`, because nothing restores the installation's database to the checkpoint first: the provisioner has no restore lifecycle step (point-in-time recovery to the checkpoint, then the pool restore import) |
-| `guest-broker-host-side` | DEFECT in progress (coordinator ruling 2026-09-25). The installation side is rendered and bound (G16). The host side is blocked on a design ruling: W01g's supervisor takes ONE `services.guestBroker` endpoint, and the fleet runs ONE shared supervisor for every installation (options sent to the coordinator: keyed endpoints per tenant, a fleet router, or per-installation supervisors). Until then a staging guest is refused by name on a provisioned fleet |
 | `W01i (assigned)` | Launch-peer gap from the W16b review: any allowed peer can launch a guest attributed to another tenant. Package W01i, owned by w01g-fix after W01h, lands before the combined run. If W16 has not merged when W01i lands, the live proof adds: a launch from installation N naming tenant M is refused. Also in W01i (coordinator ruling 2026-09-25, from w01g-fix's review of the W16b audience change): (1) the guest-broker route requires a single string `aud`, so a token listing both `factory-pool` and `factory-guest-broker` is refused (a few lines in `runner/guest-broker-service.ts` plus a test); (2) an array `aud` without this route's audience answers `token_audience_refused`, not plain `unauthorized`. Fleet hosts sign one string audience per token today, so neither is open in practice |
 | `orchestrator-build-id-versioning` | The orchestrator does not implement Temporal worker build-ID versioning; builds are retained at the image and release level |
 | Production GPU, eight rows | `FACTORY_PRODUCTION_GPU_CRITERIA`, all unmet with the verdicts in `docs/factory-local-gpu.md` |
@@ -259,6 +258,28 @@ because Envoy never started); the red script exits non-zero on any wrong
 verdict; the candidate builder inserts its migration before the recovery
 migration; the image prune reads the final-hold logs; the driver refuses an empty or
 missing test file list before it reaches `bun test` (`repro/btest.sh`).
+
+## After integ/w00 03538e909 (merged at 9d5db6e85)
+
+The merge brings W15b, the two W18 hygiene packages, W12d, W19b, and W16b
+(merge a7962f8e0). Conflict: `tasks/lessons.md`, one hunk, both sides kept.
+Auto-merged: `.github/workflows/db-postgres.yml`, `scripts/coverage-thresholds.json`,
+`src/factory/runner/supervisor-process.ts`, `src/factory/runner/supervisor-process.test.ts`,
+`src/factory/runtime-composition.test.ts`, `tasks/todo.md`. No commit since W16's
+base touched `src/factory/provisioning`. W19b moved the harness documents into
+`stack-documents.ts` builders; W16's changes do not touch the harness.
+
+The merge commit skipped the hook's tests under the coordinator's ruling of
+2026-09-25: 96 test files map to it (cap 12). The list is recorded verbatim in
+`/tmp/factory-platform-evidence/w16/merge-03538e909/hook-list.log`, and every
+listed suite runs outside the hook in the final hold (git variables cleared,
+PostgreSQL ones under the lock), one receipt each.
+
+After the merge: the supervisor renders one `guestBrokers` entry per admitted
+installation; the audience comes from `runner/guest-broker-contract.ts` and the
+copy in `provisioning/mesh.ts` is gone; the port derivation lives in the leaf
+`provisioning/ports.ts` (threshold 100), re-exported from `deployment.ts`,
+because the host may not import the renderer.
 
 ## Pre-commit hook skip (disclosed)
 

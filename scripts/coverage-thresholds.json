@@ -1161,6 +1161,7 @@
   "src/factory/provisioning/scram.ts": 100,
   "src/factory/provisioning/temporal-namespace.ts": 100,
   "src/factory/provisioning/host.ts": 100,
+  "src/factory/provisioning/ports.ts": 100,
   "src/factory/provisioning/secret-env.ts": 100,
   "src/factory/provisioning/secret-files.ts": 100,
   "src/factory/provisioning/secrets.ts": 100,

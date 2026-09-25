@@ -35,7 +35,9 @@ import { createFactoryCertificateAuthority, issueFactoryCertificate, type Factor
 import type { FactoryDatabaseCredential, FactoryDatabaseStep } from "./database";
 import { factoryDatabasePairs } from "./database";
 import { factoryFleetResourceName, type FactoryInstallationContext, type FactoryStepResources } from "./installation";
+import { FACTORY_GUEST_BROKER_AUDIENCE, FACTORY_GUEST_BROKER_SCOPE } from "../runner/guest-broker-contract";
 import { FACTORY_HOST_KEY_ID, FACTORY_MESH_FILES, FACTORY_MESH_TOKEN_KEY_ID, FACTORY_POOL_AUDIENCE, factoryMeshIdentities, factoryMeshToken, factoryMeshTokenExpiry } from "./mesh";
+import { factoryInstallationPorts } from "./ports";
 import { ensureFactoryPrivateCertificatePair, ensureFactoryPrivateFile, factoryPrivatePath, openFactoryPrivateDirectory, readFactoryPrivateJson, readFactoryPrivatePath, readFactoryPrivateText, removeFactoryPrivateDirectory, replaceFactoryPrivateFile } from "./secret-files";
 import { FactoryProvisioningError } from "./steps";
 
@@ -46,6 +48,8 @@ export const FACTORY_HOST_FILES = Object.freeze({
   supervisorCertificate: "host-supervisor.crt", supervisorKey: "host-supervisor.key",
   tokenPublicKey: "host-token.pub",
   supervisorPoolToken: "host-supervisor-pool.token",
+  /** The supervisor's token on every installation's guest-broker route: subject the supervisor, scope W01g's route scope. */
+  supervisorGuestBrokerToken: "host-supervisor-guest-broker.token",
   trustBundle: "host-trust.crt",
   hostKey: "host-signing.key", hostPublicKey: "host-signing.pub", hostKeyId: "host-signing.kid",
   state: "host-state.json",
@@ -240,11 +244,13 @@ export class FactoryFleetHost {
       await ensureFactoryPrivateFile(secrets, FACTORY_HOST_FILES.hostPublicKey, () => createPublicKey(createPrivateKey(hostKey)).export({ type: "spki", format: "pem" }).toString());
       await ensureFactoryPrivateFile(secrets, FACTORY_HOST_FILES.hostKeyId, () => FACTORY_HOST_KEY_ID);
       await this.refreshToken(factoryPrivatePath(context.secretDirectory, FACTORY_HOST_FILES.supervisorPoolToken), tokenKey, this.identity.supervisor, [`pool:supervisor:${this.identity.supervisor}`]);
+      // W01g's route checks the token's subject against the supervisor's certificate and requires its scope.
+      await this.refreshToken(factoryPrivatePath(context.secretDirectory, FACTORY_HOST_FILES.supervisorGuestBrokerToken), tokenKey, this.identity.supervisor, [FACTORY_GUEST_BROKER_SCOPE], false, FACTORY_GUEST_BROKER_AUDIENCE);
     } finally { await operator.close(); await secrets.close(); }
   }
 
   /** Write `path` with a fresh token unless the one there has more than a week left. */
-  private async refreshToken(path: string, keyPem: string, subject: string, scope: readonly string[], force = false): Promise<void> {
+  private async refreshToken(path: string, keyPem: string, subject: string, scope: readonly string[], force = false, audience = FACTORY_POOL_AUDIENCE): Promise<void> {
     if (!force) {
       const current = await readFactoryPrivatePath(path).then((bytes) => new TextDecoder().decode(bytes), (error: unknown) => {
         if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
@@ -253,7 +259,7 @@ export class FactoryFleetHost {
       const expiry = current === undefined ? undefined : factoryMeshTokenExpiry(current);
       if (expiry !== undefined && expiry - this.now() > TOKEN_REFRESH_MS) return;
     }
-    await replaceFactoryPrivateFile(path, `${factoryMeshToken({ subject, issuer: this.identity.issuer, audience: FACTORY_POOL_AUDIENCE, scope, keyPem, nowSeconds: Math.floor(this.now() / 1_000) })}\n`);
+    await replaceFactoryPrivateFile(path, `${factoryMeshToken({ subject, issuer: this.identity.issuer, audience, scope, keyPem, nowSeconds: Math.floor(this.now() / 1_000) })}\n`);
   }
 
   /**
@@ -369,6 +375,17 @@ export class FactoryFleetHost {
           baseUrl: `https://127.0.0.1:${this.identity.ports.pool}`, serviceTokenPath: hostSecret(FACTORY_HOST_FILES.supervisorPoolToken),
           tls: { caPath: hostSecret(FACTORY_HOST_FILES.caCertificate), certificatePath: hostSecret(FACTORY_HOST_FILES.supervisorCertificate), privateKeyPath: hostSecret(FACTORY_HOST_FILES.supervisorKey) },
         },
+        // W01g's guest-broker route of every admitted installation, keyed by its
+        // tenant (W16b): the supervisor carries an attempt's frames to its own
+        // tenant's route only. The trust bundle holds each installation's
+        // authority, which signs its route's server certificate.
+        ...(admitted.length === 0 ? {} : {
+          guestBrokers: Object.fromEntries(admitted.map((entry) => [entry.tenantId, {
+            baseUrl: `https://127.0.0.1:${factoryInstallationPorts(entry.tenantId, this.options.settings.portBase).guestBroker}`,
+            serviceTokenPath: hostSecret(FACTORY_HOST_FILES.supervisorGuestBrokerToken),
+            tls: { caPath: hostSecret(FACTORY_HOST_FILES.trustBundle), certificatePath: hostSecret(FACTORY_HOST_FILES.supervisorCertificate), privateKeyPath: hostSecret(FACTORY_HOST_FILES.supervisorKey) },
+          }])),
+        }),
       },
     });
     const source = (name: string) => factoryPrivatePath(this.paths.context.secretDirectory, name);
@@ -380,6 +397,7 @@ export class FactoryFleetHost {
           [FACTORY_HOST_FILES.caCertificate]: source(FACTORY_HOST_FILES.caCertificate), [FACTORY_HOST_FILES.serverCertificate]: source(FACTORY_HOST_FILES.serverCertificate), [FACTORY_HOST_FILES.serverKey]: source(FACTORY_HOST_FILES.serverKey),
           [FACTORY_HOST_FILES.supervisorCertificate]: source(FACTORY_HOST_FILES.supervisorCertificate), [FACTORY_HOST_FILES.supervisorKey]: source(FACTORY_HOST_FILES.supervisorKey),
           [FACTORY_HOST_FILES.supervisorPoolToken]: source(FACTORY_HOST_FILES.supervisorPoolToken),
+          [FACTORY_HOST_FILES.supervisorGuestBrokerToken]: source(FACTORY_HOST_FILES.supervisorGuestBrokerToken),
           [FACTORY_HOST_FILES.hostKey]: source(FACTORY_HOST_FILES.hostKey), [FACTORY_HOST_FILES.hostKeyId]: source(FACTORY_HOST_FILES.hostKeyId),
         },
       },

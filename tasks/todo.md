@@ -3572,7 +3572,7 @@ Base: `260855e57` (W09b merged). Assumptions are stated in the gate file.
 - [x] P20 Gateway probe accepts the execution gateway's own route-less 401 (a1ba5d95b), found by the live fleet; the test runs the real gateway.
 - [x] P21 Final hold f3 at a1ba5d95b: PostgreSQL producers first, Podman suites, route proof, live Compose fleet and lifecycle, Kubernetes, boundary suites, coverage vs 2b2e12550; all 32 legs exit 0 (G15).
 - [x] P22 Render W01g's guestBroker route for every installation (ruled a defect): installation side at d77d70cc8 (G16 unit proof; live pending).
-- [ ] P22b The host side of the guest-broker route: blocked on the shared-supervisor endpoint design ruling.
+- [x] P22b The host side of the guest-broker route: W16b (keyed services.guestBrokers) merged; the supervisor renders one entry per admitted installation.
 - [ ] P23 Final hold at the head that renders guestBroker (after the W19a merge hash).
 - [ ] P24 Disclosed follow-up owned by W16: the restore-to-checkpoint lifecycle step.
 
