@@ -15,8 +15,9 @@
  *   1. the TLS terminator in front of Temporal, which terminates no TLS itself;
  *   2. the first-run administrator setup and two projects, over real HTTP;
  *   3. the v4 installation record of the guest release (the v4 install step);
- *   4. the package PREPARATION, once the console has bound and trusted the
- *      package, because no product route or role prepares a package yet;
+ *   4. the package PREPARATION of the guest and of its validator reference,
+ *      once the console has bound and trusted each, because no product route
+ *      or role prepares a package yet;
  *   5. on a journey's request, one draft's stored source rewritten as a newer
  *      server would write it (schema version `factory.v9`): no server of this
  *      version can produce one, and the console must still show and export it.
@@ -34,7 +35,7 @@
  * stops on SIGTERM, SIGINT, the stop file, or the hold deadline. Stopping drops
  * the pool database, and the product database too unless the stack failed.
  */
-import { createPublicKey, createSign, generateKeyPairSync, randomBytes } from "node:crypto";
+import { createHash, createPublicKey, createSign, generateKeyPairSync, randomBytes } from "node:crypto";
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -94,6 +95,7 @@ async function writePrivate(name: string, content: string | Uint8Array): Promise
 let stopping: Promise<void> | null = null;
 let failed = false;
 let dropDatabases: () => Promise<void> = async () => {};
+let removePublished: () => Promise<void> = async () => {};
 
 async function stop(reason: string): Promise<void> {
 	stopping ??= (async () => {
@@ -103,6 +105,7 @@ async function stop(reason: string): Promise<void> {
 		processes.stopAll("SIGKILL");
 		await Promise.all(processes.children.map(entry => Bun.write(join(logs, `${entry.name}.log`), entry.log.join(""))));
 		await dropDatabases().catch(error => console.error("[factory-services] database cleanup failed:", error));
+		await removePublished().catch(error => console.error("[factory-services] release cleanup failed:", error));
 		await rm(root, { recursive: true, force: true });
 	})();
 	return stopping;
@@ -128,8 +131,8 @@ for (const [store, port] of Object.entries(STORE_PORTS)) {
 // ── Keys and certificates ─────────────────────────────────────────────
 const tokenKeys = generateKeyPairSync("rsa", { modulusLength: 2048 });
 const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
-function serviceToken(subject: string, scopes: readonly string[]): string {
-	const input = `${encode({ alg: "RS256", kid: "stack" })}.${encode({ sub: subject, iss: "factory-services", aud: "factory-pool", exp: Math.floor(Date.now() / 1_000) + 7_200, scope: scopes })}`;
+function serviceToken(subject: string, scopes: readonly string[], audience = "factory-pool"): string {
+	const input = `${encode({ alg: "RS256", kid: "stack" })}.${encode({ sub: subject, iss: "factory-services", aud: audience, exp: Math.floor(Date.now() / 1_000) + 7_200, scope: scopes })}`;
 	const signer = createSign("RSA-SHA256");
 	signer.update(input);
 	signer.end();
@@ -160,6 +163,8 @@ const tokenPublicKey = await writePrivate("pool-token.pem", tokenKeys.publicKey.
 const tenantToken = await writePrivate("tenant.token", serviceToken(TENANT, [`pool:tenant:${TENANT}`, `pool:grant:${TENANT}:factory`]));
 const supervisorToken = await writePrivate("supervisor.token", serviceToken(SUPERVISOR, [`pool:supervisor:${SUPERVISOR}`]));
 const orchestratorToken = await writePrivate("orchestrator.token", serviceToken("tenant-a", ["factory:orchestrate"]));
+// W01g: the supervisor forwards a guest's staging frames to the web server's guest broker under this token.
+const guestBrokerToken = await writePrivate("guest-broker.token", serviceToken(SUPERVISOR, ["factory:guest-broker"], "factory-guest-broker"));
 const attemptTokenSecret = await writePrivate("attempt-token", randomBytes(32).toString("hex"));
 // Storage credentials are copied private, as a real installation's provisioner does.
 for (const kind of ["ordinary", "archive"]) await writePrivate(`${kind}-storage.json`, await readFile(join(STORAGE_SECRETS, `${kind}.json`)));
@@ -179,6 +184,20 @@ dropDatabases = async () => {
 		else await admin.unsafe(`DROP DATABASE IF EXISTS "${productDatabase}" WITH (FORCE)`);
 	} finally {
 		await admin.close();
+	}
+};
+// Everything a release publishes lands under this run's own prefix; stopping removes exactly those versions.
+removePublished = async () => {
+	const { ListObjectVersionsCommand, DeleteObjectCommand } = await import(join(REPO, "node_modules/@aws-sdk/client-s3/dist-cjs/index.js"));
+	const { createFactoryOrdinaryStorage } = await import(join(REPO, "tests/postgres/helpers/factory-storage.ts"));
+	const storage = await createFactoryOrdinaryStorage("ordinary/factory-services-cleanup", TENANT);
+	try {
+		const listed = await storage.client.send(new ListObjectVersionsCommand({ Bucket: storage.bucket, Prefix: `ordinary/factory-services-release/${suffix}/` }));
+		const versions = [...listed.Versions ?? [], ...listed.DeleteMarkers ?? []] as Array<{ Key: string; VersionId: string }>;
+		for (const version of versions) await storage.client.send(new DeleteObjectCommand({ Bucket: storage.bucket, Key: version.Key, VersionId: version.VersionId }));
+		console.log(`[factory-services] removed ${versions.length} published object version(s) under this run's release prefix`);
+	} finally {
+		storage.close();
 	}
 };
 const databaseUrl = (name: string) => { const url = new URL(POSTGRES_URL); url.pathname = `/${name}`; return url; };
@@ -204,6 +223,18 @@ const wrappedKeys = await writePrivate("wraps.json", JSON.stringify({
 // ── The guest package, built before the supervisor leases its store ───
 const guest = await buildFactoryGuest(REPO, join(root, "runner"), "factory-services-guest-supervisor-store");
 
+// ── W09d: the declared validator runtime ──────────────────────────────
+// The claim's validator is the same built package pinned with a configuration
+// digest, so it is a second runner reference the project binds and trusts.
+const validatorConfigurationDigest = `sha256:${createHash("sha256").update("factory-services-validator-configuration-v1").digest("hex")}`;
+const validatorReference = { ...guest.reference, configurationDigest: validatorConfigurationDigest };
+const validatorMaterialPath = await writePrivate("validator-runtime.json", JSON.stringify({
+	schemaVersion: "factory.validator-runtime.v1", kind: "podman-guest", runner: validatorReference,
+	resources: { resourceClass: "cpu", memoryBytes: 268_435_456, maxComputeMs: 120_000, maxCostMicros: "1000", maxTokens: 0 },
+	brokerAudience: "factory-gateway", environmentDigest: `sha256:${guest.artifactDigest}`, configurationDigest: validatorConfigurationDigest, maxEvidenceAgeMs: 3_600_000,
+}));
+const validatorMaterialDigest = `sha256:${createHash("sha256").update(await readFile(validatorMaterialPath)).digest("hex")}`;
+
 // ── Pool admission ────────────────────────────────────────────────────
 const poolPort = freePort();
 const poolConfig = await writePrivate("pool.json", JSON.stringify({
@@ -227,6 +258,8 @@ const hostKeyPath = await writePrivate("host.key", hostKey.export({ type: "pkcs8
 const hostKeyIdPath = await writePrivate("host.kid", "host-key-1");
 const hostPublicKey = await writePrivate("host.pub", createPublicKey(hostKey).export({ type: "spki", format: "pem" }) as string);
 const hostServicePort = freePort();
+// The web server binds the guest broker from its startup document; the supervisor needs the port first.
+const guestBrokerPort = freePort();
 const supervisorConfig = await writePrivate("supervisor.json", JSON.stringify({
 	schemaVersion: "factory.supervisor-process.v1", installationId: INSTALLATION, hostId: HOST,
 	hostKeyPath, hostKeyId: "host-key-1", runnerRoot: join(root, "runner"),
@@ -234,6 +267,7 @@ const supervisorConfig = await writePrivate("supervisor.json", JSON.stringify({
 	services: {
 		hostname: "127.0.0.1", port: hostServicePort, allowedPeers: ["tenant-a"], hostKeyIdPath, tls: serverTls,
 		pool: { baseUrl: `https://127.0.0.1:${poolPort}`, serviceTokenPath: supervisorToken, tls: supervisorTls },
+		guestBroker: { baseUrl: `https://127.0.0.1:${guestBrokerPort}`, serviceTokenPath: guestBrokerToken, tls: supervisorTls },
 	},
 }));
 processes.start("supervisor", BUN, [join(REPO, "src/factory/runner/supervisor-process.ts"), supervisorConfig], { cwd: REPO });
@@ -298,6 +332,13 @@ const startupPath = await writePrivate("factory-startup.json", JSON.stringify({
 		destinations: [{ name: "ordinary", kind: "s3", endpoint: `http://127.0.0.1:${STORE_PORTS.ordinary}`, bucket: TENANT, account: TENANT, prefix: `ordinary/factory-services-release/${suffix}`, credentialsPath: secret("ordinary-storage.json") }],
 		profiles: [{ adapter: releaseAdapter, action: "factory.release.publish", destination: "ordinary", estimatedSpendMicros: 1_000 }],
 	},
+	// W01g: the route a runner host forwards a guest's staging frames to.
+	guestBroker: {
+		hostname: "127.0.0.1", port: guestBrokerPort, hosts: { [SUPERVISOR]: HOST }, tls: serverTls,
+		tokens: { issuer: "factory-services", audience: "factory-guest-broker", publicKeyPaths: { stack: tokenPublicKey } },
+	},
+	// W09d: the one validator runtime the acceptance claim names.
+	validators: { runtimes: [{ name: "factory-services-claim", kind: "podman-guest", runner: validatorReference, materialPath: validatorMaterialPath, materialDigest: validatorMaterialDigest }] },
 	workers: { idleDelayMs: 200, batch: 4 },
 }));
 
@@ -381,31 +422,55 @@ await repository.create({
 	workspaces: {}, revisions: {}, operations: {}, releases: { [release.id]: guest.release }, approvals: {},
 });
 
+// The guest produces a candidate, a protected acceptance judges it through the declared validator,
+// and a release node publishes it once a human approves (W01g, W09d, W09c).
 const consoleFactoryId = "factory-services.console.v1";
+const contractId = "factory-services.contract";
+const releaseObject = `releases/${suffix}`;
 const definitionPath = join(root, "console-definition.json");
+const object = { type: "object", additionalProperties: true };
 await writeFile(definitionPath, JSON.stringify({
 	schemaVersion: "factory.v1", id: consoleFactoryId, version: "1.0.0", interpreterCompatibility: "factory-kernel.v1",
-	inputPorts: { message: { type: "string" } }, outputPorts: {},
+	inputPorts: { message: { type: "string" } }, outputPorts: { receipt: object },
 	graph: {
-		nodes: [{
-			id: "work", kind: "task", runner: guest.reference,
-			inputPorts: { message: { type: "string" } },
-			bindings: { message: { kind: "ref", root: "input", name: "message" } },
-			retry: { maxAttempts: 1, initialDelayMs: 1_000, maximumDelayMs: 2_000 },
-			resources: { resourceClass: "cpu" },
-		}],
-		outputs: {},
+		nodes: [
+			{
+				id: "work", kind: "task", runner: guest.reference,
+				inputPorts: { message: { type: "string" } },
+				bindings: { message: { kind: "ref", root: "input", name: "message" } },
+				outputPorts: { candidate: object },
+				retry: { maxAttempts: 1, initialDelayMs: 1_000, maximumDelayMs: 2_000 },
+				resources: { resourceClass: "cpu" },
+			},
+			{
+				id: "accept", kind: "acceptance", dependsOn: ["work"], contract: contractId,
+				candidate: { kind: "ref", root: "node", name: "work", path: ["candidate"] },
+				evidence: { kind: "literal", value: [] },
+				outputPorts: { acceptedCandidate: object },
+			},
+			{
+				id: "release", kind: "release", dependsOn: ["accept"], adapter: releaseAdapter,
+				acceptedCandidate: { kind: "ref", root: "node", name: "accept", path: ["acceptedCandidate"] },
+				destination: { kind: "literal", value: { provider: "s3", account: TENANT, object: releaseObject } },
+				effects: ["publish"], outputPorts: { receipt: object },
+			},
+		],
+		outputs: { receipt: { kind: "ref", root: "node", name: "release", path: ["receipt"] } },
 	},
-	acceptance: { id: "factory-services.contract", version: "1", claims: [{ id: "claim", validator: guest.reference, required: true, protected: true }] },
-	packages: [{ name: guest.reference.package, version: guest.reference.version, digest: guest.reference.digest }],
-	capabilities: [], effects: ["none"],
-	bounds: { maxExpandedNodes: 10, maxScopeDepth: 16, runDeadlineMs: 600_000 },
+	acceptance: { id: contractId, version: "1", claims: [{ id: "claim", validator: validatorReference, required: true, protected: true }] },
+	packages: [
+		{ name: guest.reference.package, version: guest.reference.version, digest: guest.reference.digest },
+		{ name: releaseAdapter.package, version: releaseAdapter.version, digest: releaseAdapter.digest },
+	],
+	capabilities: [], effects: ["none", "publish"],
+	bounds: { maxExpandedNodes: 10, maxScopeDepth: 16, runDeadlineMs: 900_000 },
 }, null, 2), { mode: 0o600 });
 
 const state: { -readonly [K in keyof FactoryServicesState]: FactoryServicesState[K] } = {
 	baseURL, admin: adminCredentials, adminId, tenantId: TENANT, installationId: INSTALLATION,
 	projectId, readerProjectId, consoleFactoryId, definitionPath,
 	guest: { reference: guest.reference, installationId: release.installationId, releaseId: release.id },
+	validatorReference, contractId, releaseObject,
 	prepared: false,
 };
 await writeFile(FACTORY_SERVICES_STATE_PATH, JSON.stringify(state, null, 2), { mode: 0o600 });
@@ -423,6 +488,7 @@ const { provisionToolchain } = await import(join(REPO, "packages/@ezcorp/extensi
 const { canonicalJson } = await import(join(REPO, "node_modules/@ezcorp/extension-contract/src/index.ts"));
 const { digestObject } = await import(join(REPO, "src/extensions/v4/blobs.ts"));
 const heldUntil = Date.now() + HOLD_MS;
+const preparedReferences = new Set<object>();
 
 /** Rewrites one draft's stored source as a newer server would, keeping its digest consistent. */
 async function writeFutureDraft(factoryId: string): Promise<void> {
@@ -478,26 +544,33 @@ while (!stopping && Date.now() < heldUntil && !await Bun.file(STOP_FILE).exists(
 		await writeFutureDraft((await readFile(FACTORY_SERVICES_FUTURE_DRAFT_REQUEST_PATH, "utf8")).trim());
 	}
 	if (!state.prepared) {
-		const trust = await productSql.unsafe(
-			`SELECT r.state FROM factory_runner_package_trust_current c JOIN factory_runner_package_trust_revisions r ON r.tenant_id = c.tenant_id AND r.project_id = c.project_id AND r.reference_digest = c.reference_digest AND r.revision = c.revision WHERE c.tenant_id = $1 AND c.project_id = $2 AND c.package_digest = $3`,
-			[TENANT, projectId, guest.reference.digest],
-		) as Array<{ state: string }>;
-		if (trust[0]?.state === "active") {
+		// Each reference is prepared once the console has trusted it; `prepared` means both are.
+		for (const reference of [guest.reference, validatorReference].filter(item => !preparedReferences.has(item))) {
+			const trust = await productSql.unsafe(
+				`SELECT r.state FROM factory_runner_package_bindings b JOIN factory_runner_package_trust_current c ON c.tenant_id = b.tenant_id AND c.project_id = b.project_id AND c.reference_digest = b.reference_digest
+				 JOIN factory_runner_package_trust_revisions r ON r.tenant_id = c.tenant_id AND r.project_id = c.project_id AND r.reference_digest = c.reference_digest AND r.revision = c.revision
+				 WHERE b.tenant_id = $1 AND b.project_id = $2 AND b.reference_json::jsonb = $3::jsonb`,
+				[TENANT, projectId, JSON.stringify(reference)],
+			) as Array<{ state: string }>;
+			if (trust[0]?.state !== "active") continue;
 			const runner = new PodmanRunner({ root: join(root, "prepare"), ...await provisionToolchain({ sdkEntrypoint: process.env.EZ_RUNNER_SDK_ENTRY }) });
 			try {
 				const grants = new FactoryGrants(productDb, TENANT);
 				const trusts = new FactoryPackageTrusts(productDb, TENANT, grants);
 				await new FactoryPackagePreparations(productDb, TENANT, grants, trusts,
 					new FactoryV4PackageCatalog(repository, new FileBlobStore(join(root, "runner", "release-blobs"))), runner, buildLimits,
-				).prepare(projectId, guest.reference);
-				state.prepared = true;
-				await writeFile(FACTORY_SERVICES_STATE_PATH, JSON.stringify(state, null, 2), { mode: 0o600 });
-				console.log("[factory-services] package prepared");
+				).prepare(projectId, reference);
+				preparedReferences.add(reference);
+				console.log(`[factory-services] package prepared: ${JSON.stringify(reference)}`);
 			} catch (error) {
 				console.error("[factory-services] preparation failed; retrying:", error);
 			} finally {
 				await runner.close();
 			}
+		}
+		if (preparedReferences.size === 2) {
+			state.prepared = true;
+			await writeFile(FACTORY_SERVICES_STATE_PATH, JSON.stringify(state, null, 2), { mode: 0o600 });
 		}
 	}
 	await sleep(2_000);

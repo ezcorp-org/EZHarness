@@ -148,6 +148,23 @@ describe("FactoryAdministration", () => {
 		expect(screen.queryByRole("form", { name: "Install runner package" })).toBeNull();
 	});
 
+	test("a pinned model and configuration are bound when given and name the package's row", async () => {
+		const configured = { ...pkg("validator", "active", 1), referenceId: "d".repeat(64), reference: { ...pkg("validator").reference, model: "judge-small", configurationDigest: `sha256:${"c".repeat(64)}` } };
+		const service = api({ listPackages: vi.fn(async () => ({ items: [pkg("validator", "active", 1), configured], nextCursor: null })) });
+		mount(service);
+		// Two pins of one package: each row, and each row's actions, is told apart by what it pins.
+		expect(await screen.findByRole("group", { name: "Trust actions for @ezcorp/validator model judge-small configuration cccccccccccc" })).toBeVisible();
+		expect(screen.getByRole("group", { name: "Trust actions for @ezcorp/validator" })).toBeVisible();
+		expect(screen.getByText(/run · model judge-small · sha256:[0-9a-f]{12}… · configuration sha256:cccccccccccc… · trust revision 1/)).toBeVisible();
+		await fireEvent.click(screen.getByRole("button", { name: /Install/ }));
+		const form = screen.getByRole("form", { name: "Install runner package" });
+		for (const [label, value] of [["Package", "@ezcorp/validator"], ["Manifest name", "validator"], ["Version", "1.0.0"], ["Export", "run"], ["Digest", digest], ["Model (optional)", " judge-small "], ["Configuration digest (optional)", ` sha256:${"c".repeat(64)} `], ["Installation", "inst"], ["Release", "rel"]] as const) {
+			await fireEvent.input(within(form).getByLabelText(label), { target: { value } });
+		}
+		await fireEvent.submit(form);
+		await waitFor(() => expect(service.installPackage).toHaveBeenCalledWith("project-1", { reference: { package: "@ezcorp/validator", manifestName: "validator", version: "1.0.0", digest, export: "run", model: "judge-small", configurationDigest: `sha256:${"c".repeat(64)}` }, installationId: "inst", releaseId: "rel" }));
+	});
+
 	test("grants: a new one starts at revision 0, an existing one at its revision, and a revoke names its revision", async () => {
 		const service = api();
 		mount(service);

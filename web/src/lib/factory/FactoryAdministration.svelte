@@ -41,6 +41,13 @@
 		return subjectId;
 	}
 
+	/** A reference's name, told apart from another pin of the same package by its model and configuration. */
+	function referenceLabel(reference: FactoryPackageResource["reference"]): string {
+		const model = reference.model ? ` model ${reference.model}` : "";
+		const configuration = reference.configurationDigest ? ` configuration ${reference.configurationDigest.slice(7, 19)}` : "";
+		return `${reference.package}${model}${configuration}`;
+	}
+
 	function transitionLabel(item: Pick<FactoryPackageResource, "state">, transition: FactoryPackageTransition): string {
 		if (transition === "quarantine") return "Quarantine";
 		if (transition === "revoke") return "Revoke";
@@ -58,7 +65,7 @@
 	let errorMessage = $state("");
 	let busy = $state(false);
 	let installOpen = $state(false);
-	let install = $state({ package: "", manifestName: "", version: "", digest: "", export: "", installationId: "", releaseId: "" });
+	let install = $state({ package: "", manifestName: "", version: "", digest: "", export: "", model: "", configurationDigest: "", installationId: "", releaseId: "" });
 	let grantForm = $state({ principalKind: "user" as FactoryPrincipalKind, principalId: "", action: "factory.run" as FactoryAction, expires: "" });
 	let purgeReason = $state("");
 	let purgeConfirm = $state("");
@@ -155,7 +162,11 @@
 	};
 
 	function submitInstall(): Promise<void> {
-		const reference = { package: install.package.trim(), manifestName: install.manifestName.trim(), version: install.version.trim(), digest: install.digest.trim(), export: install.export.trim() };
+		const model = install.model.trim(), configurationDigest = install.configurationDigest.trim();
+		const reference = {
+			package: install.package.trim(), manifestName: install.manifestName.trim(), version: install.version.trim(), digest: install.digest.trim(), export: install.export.trim(),
+			...(model ? { model } : {}), ...(configurationDigest ? { configurationDigest } : {}),
+		};
 		return run(async () => {
 			const bound = await api.installPackage(projectId, { reference, installationId: install.installationId.trim(), releaseId: install.releaseId.trim() });
 			installOpen = false;
@@ -229,6 +240,8 @@
 					<label>Version<input bind:value={install.version} placeholder="1.0.0" required /></label>
 					<label>Export<input bind:value={install.export} placeholder="run" required /></label>
 					<label class="span">Digest<input bind:value={install.digest} placeholder="sha256:…" required /></label>
+					<label>Model (optional)<input bind:value={install.model} /></label>
+					<label>Configuration digest (optional)<input bind:value={install.configurationDigest} placeholder="sha256:…" /></label>
 					<label>Installation<input bind:value={install.installationId} required /></label>
 					<label>Release<input bind:value={install.releaseId} required /></label>
 					<div class="span form-actions"><button class="button-primary" type="submit" disabled={busy}>Bind package</button></div>
@@ -241,13 +254,13 @@
 						<Package size={15} />
 						<span class="row-copy">
 							<strong title={item.reference.package}>{item.reference.package}@{item.reference.version}</strong>
-							<small title={item.reference.digest}>{item.reference.export} · {item.reference.digest.slice(0, 19)}… · trust revision {item.revision}</small>
+							<small title={item.reference.digest}>{item.reference.export}{item.reference.model ? ` · model ${item.reference.model}` : ""} · {item.reference.digest.slice(0, 19)}…{item.reference.configurationDigest ? ` · configuration ${item.reference.configurationDigest.slice(0, 19)}…` : ""} · trust revision {item.revision}</small>
 						</span>
 						<span class="chip" data-state={item.state ?? "none"}>{item.state ?? "untrusted"}</span>
 						{#if item.state === "revoked"}
 							<small class="terminal-note">Revoked for good. A replacement needs a new pinned reference.</small>
 						{:else}
-							<span class="row-actions" role="group" aria-label={`Trust actions for ${item.reference.package}`}>
+							<span class="row-actions" role="group" aria-label={`Trust actions for ${referenceLabel(item.reference)}`}>
 								{#each TRANSITIONS as transition (transition)}
 									<button class="button-secondary" disabled={!administrator || busy} onclick={() => openReview(item, transition)}>{transitionLabel(item, transition)}</button>
 								{/each}

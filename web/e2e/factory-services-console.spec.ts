@@ -11,13 +11,17 @@
  *   2. binds the built guest release, reviews, and trusts it;
  *   3. imports and publishes a definition that runs that guest, then races a
  *      save against a publish and replays an idempotency key;
- *   4. starts a run from the version list and watches it live to a terminal
- *      status: attempts, costs, acceptance, artifacts, and a safe preview;
+ *   4. starts a run from the version list and watches it live: the guest
+ *      stages its candidate and completes (W01g), the declared validator
+ *      accepts it (W09d), the approver consents in the inbox, and the running
+ *      release-outcome role publishes (W09c); attempts, costs, acceptance,
+ *      artifacts, and a safe preview;
  *   5. proves the scoped API: a read-only key, a service credential, a
  *      cross-project artifact share, and download headers;
- *   6. previews a quarantine's reach, and records a purge request;
+ *   6. quarantines the package under a live attempt, shows what the fence
+ *      stopped (W02c), lifts it, and records a purge request;
  *   7. round 2: a run waiting on an approval streams live, a service reader's
- *      stream closes as revoked, and the approval is decided in the inbox;
+ *      stream closes as revoked, and the approval is denied in the inbox;
  *      grant expiry and revocation; a download ticket rechecked; a shared
  *      artifact carries no authority on its source; a draft a newer server
  *      wrote is read-only and exports; long labels and a large map at 1440
@@ -34,6 +38,7 @@ import type { APIRequestContext, Browser, Page } from "@playwright/test";
 import { expect, test } from "./fixtures/hydration.js";
 import { captureEvidence } from "./fixtures/evidence.js";
 import { factoryGraphProblems, factoryLayoutOverflow } from "./fixtures/factory-layout.js";
+import { GUEST_HOLD_MESSAGE } from "./factory-services/guest.js";
 import { FACTORY_SERVICES_CURSOR_TTL_MS, FACTORY_SERVICES_FUTURE_DRAFT_REQUEST_PATH, FACTORY_SERVICES_RESTORE_REQUEST_PATH, FACTORY_SERVICES_STATE_PATH, readFactoryServicesState, type FactoryServicesState } from "./factory-services/state.js";
 
 test.describe.configure({ mode: "serial" });
@@ -127,7 +132,7 @@ test("the console binds the built guest release and trusts it after reviewing it
 	await form.getByLabel("Release").fill(state.guest.releaseId);
 	await form.getByRole("button", { name: "Bind package" }).click();
 	await expect(admin.getByRole("status")).toContainText(`${reference.package}@${reference.version} is bound.`);
-	const actions = admin.getByRole("group", { name: `Trust actions for ${reference.package}` });
+	const actions = admin.getByRole("group", { name: `Trust actions for ${reference.package}`, exact: true });
 	await actions.getByRole("button", { name: "Trust", exact: true }).click();
 	const review = page.getByRole("dialog", { name: `Trust ${reference.package}` });
 	await expect(review).toContainText("No live run uses this package.");
@@ -135,6 +140,23 @@ test("the console binds the built guest release and trusts it after reviewing it
 	await review.getByRole("button", { name: "Commit at revision 0" }).click();
 	await expect(admin.getByRole("status")).toContainText(`${reference.package} is active at trust revision 1. The change is in the audit log.`);
 	await expect(actions.getByRole("button", { name: "Re-trust" })).toBeVisible();
+
+	// The acceptance claim's validator is the same release pinned with a configuration digest:
+	// a second reference, bound and trusted the same way, and told apart in the list.
+	const validator = state.validatorReference;
+	await admin.getByRole("button", { name: "Install" }).click();
+	for (const [label, value] of [["Package", validator.package], ["Manifest name", validator.manifestName], ["Version", validator.version], ["Export", validator.export], ["Digest", validator.digest],
+		["Configuration digest (optional)", validator.configurationDigest], ["Installation", state.guest.installationId], ["Release", state.guest.releaseId]] as const) {
+		await form.getByLabel(label).fill(value);
+	}
+	await form.getByRole("button", { name: "Bind package" }).click();
+	await expect(admin.getByRole("status")).toContainText(`${validator.package}@${validator.version} is bound.`);
+	const validatorActions = admin.getByRole("group", { name: `Trust actions for ${validator.package} configuration ${validator.configurationDigest.slice(7, 19)}`, exact: true });
+	await validatorActions.getByRole("button", { name: "Trust", exact: true }).click();
+	await page.getByRole("dialog", { name: `Trust ${validator.package}` }).getByRole("button", { name: "Commit at revision 0" }).click();
+	await expect(admin.getByRole("status")).toContainText(`${validator.package} is active at trust revision 1.`);
+	await expect(validatorActions.getByRole("button", { name: "Re-trust" })).toBeVisible();
+	expect(await factoryLayoutOverflow(page)).toEqual([]);
 	await captureEvidence(page, testInfo, "factory-services-administration");
 	await waitForPreparation();
 });
@@ -216,9 +238,6 @@ test("a run started from the version list is watched live to a terminal status w
 	await expect(queued).toContainText("is queued. Acceptance is not the same as a started run.");
 	await captureEvidence(page, testInfo, "factory-services-run-start");
 	runId = (await queued.locator("code").textContent())!.trim();
-	// A cursor from the first snapshot, to catch up from after the run ends.
-	const early = await (await page.request.get(`${project()}/runs/${runId}/inspection`)).json() as { resource: { cursor: { token: string; sequence: number } } };
-	earlyCursor = { ...early.resource.cursor, takenAtMs: Date.now() };
 	await start.getByRole("button", { name: "Watch in Runs" }).click();
 	await expect(page).toHaveURL(new RegExp(`view=runs.*run=${runId}`));
 	const inspector = page.getByTestId("factory-run-inspector");
@@ -226,20 +245,53 @@ test("a run started from the version list is watched live to a terminal status w
 	const badge = page.getByTestId("factory-stream-state");
 	await expect(badge).toBeVisible();
 	await captureEvidence(page, testInfo, "factory-services-run-live");
-	// The run reaches a terminal status through the real guest; the stream says Finished once drained.
+
+	// The guest stages its candidate and completes (W01g), the declared validator accepts it (W09d),
+	// and the release node prepares its operation (W09c). It waits for a human's consent.
+	const inspection = `${project()}/runs/${runId}/inspection`;
+	let release = { operationId: "", dispatchGeneration: 0 };
+	await expect.poll(async () => {
+		const read = await (await page.request.get(inspection)).json() as { resource: { releases: Array<{ operationId: string; dispatchGeneration: number }> } };
+		release = read.resource.releases[0] ?? release;
+		return release.operationId;
+	}, { timeout: 420_000, intervals: [2_000] }).not.toBe("");
+	await expect(inspector.getByRole("region", { name: "Acceptance" })).toContainText("accepted");
+	// An operation is approvable once its recovery archive is written; until then the request is refused.
+	await expect.poll(async () => (await mutate(page.request, "POST", `${project()}/releases/${encodeURIComponent(release.operationId)}/approvals`, release.dispatchGeneration, { expiresAtMs: Date.now() + 300_000 })).status(),
+		{ timeout: 120_000, intervals: [2_000] }).toBe(200);
+	// A cursor from before the consent, to catch up from once the run has finished.
+	const early = await (await page.request.get(inspection)).json() as { resource: { cursor: { token: string; sequence: number } } };
+	earlyCursor = { ...early.resource.cursor, takenAtMs: Date.now() };
+
+	// The approver decides in the console inbox, and the running release-outcome role publishes.
+	await selectProject(page, "inbox");
+	const request = page.getByTestId("factory-release-inbox").locator("article").filter({ hasText: release.operationId });
+	await expect(request).toContainText("Release approval requested");
+	expect(await factoryLayoutOverflow(page)).toEqual([]);
+	await captureEvidence(page, testInfo, "factory-services-release-approval");
+	await request.getByRole("button", { name: "Approve" }).click();
+	// A recorded decision leaves the inbox; a refused one would stay with its alert.
+	await expect(request).toHaveCount(0);
+	await page.goto(`/factories?view=runs&run=${encodeURIComponent(runId)}`);
+	await page.getByLabel("Factory project").selectOption(state.projectId);
 	await expect(badge).toContainText("Finished", { timeout: 240_000 });
-	// Expected today, and disclosed: the guest has no gateway mount until W01g's result path lands, so
-	// its only valid result is `cancelled`, and the run fails with the typed RUNNER_CANCELLED reason.
-	await expect(inspector.getByText("Run · failed", { exact: true })).toBeVisible();
-	await expect(inspector.locator(".notice-error").filter({ hasText: "FACTORY_RUN_FAILED" })).toContainText("RUNNER_CANCELLED");
-	const finished = await (await page.request.get(`${project()}/runs/${runId}`)).json() as { resource: { status: string; error?: { code: string; message: string } } };
-	expect(finished.resource).toMatchObject({ status: "failed", error: { code: "FACTORY_RUN_FAILED", message: "RUNNER_CANCELLED" } });
+	await expect(inspector.getByText("Run · succeeded", { exact: true })).toBeVisible();
+	const finished = await (await page.request.get(`${project()}/runs/${runId}`)).json() as { resource: { status: string } };
+	expect(finished.resource.status).toBe("succeeded");
+	await expect(inspector.getByRole("region", { name: "Releases" })).toContainText("succeeded");
+
+	// Catch-up: the cursor from before the consent resumes with every later event, contiguous, and a reconnect with it repeats none.
+	const events = `${project()}/runs/${runId}/events?cursor=${encodeURIComponent(earlyCursor.token)}`;
+	const firstRead = streamSequences(await (await page.request.get(events)).text());
+	expect(firstRead.length).toBeGreaterThan(0);
+	expect(firstRead).toEqual(firstRead.map((_, index) => earlyCursor.sequence + 1 + index));
+	expect(streamSequences(await (await page.request.get(events)).text())).toEqual(firstRead);
+
 	await expect(inspector.getByRole("heading", { name: /Attempts/ })).not.toContainText(/^Attempts 0$/);
 	await expect(inspector.locator("table.attempts tbody tr").first()).toBeVisible();
 	await expect(inspector.getByRole("heading", { name: "Cost" })).toBeVisible();
 	// The list row follows the finished snapshot; it never keeps an older status.
-	const finalStatus = ((await inspector.getByText(/^Run · /).textContent()) ?? "").replace("Run · ", "").trim();
-	await expect(inspector.getByRole("button", { name: new RegExp(runId) })).toContainText(finalStatus);
+	await expect(inspector.getByRole("button", { name: new RegExp(runId) })).toContainText("succeeded");
 	expect(await factoryLayoutOverflow(page)).toEqual([]);
 	await captureEvidence(page, testInfo, "factory-services-run-finished");
 	await page.setViewportSize({ width: 390, height: 844 });
@@ -264,12 +316,6 @@ test("a run started from the version list is watched live to a terminal status w
 	await page.keyboard.press("Escape");
 	await expect(preview).toBeFocused();
 
-	// Catch-up: the early cursor resumes with every later event, contiguous, and a reconnect with it repeats none.
-	const events = `${project()}/runs/${runId}/events?cursor=${encodeURIComponent(earlyCursor.token)}`;
-	const firstRead = streamSequences(await (await page.request.get(events)).text());
-	expect(firstRead.length).toBeGreaterThan(0);
-	expect(firstRead).toEqual(firstRead.map((_, index) => earlyCursor.sequence + 1 + index));
-	expect(streamSequences(await (await page.request.get(events)).text())).toEqual(firstRead);
 	// The same cursor past its lifetime is 410, and the client takes a new snapshot.
 	await page.waitForTimeout(Math.max(0, earlyCursor.takenAtMs + FACTORY_SERVICES_CURSOR_TTL_MS + 1_000 - Date.now()));
 	const expired = await page.request.get(events);
@@ -299,10 +345,13 @@ test("the scoped API: tickets, download headers, a read-only key, a service cred
 	expect(forged.status()).toBe(400);
 	expect(((await forged.json()) as { error: { code: string } }).error.code).toBe("factory_cursor_invalid");
 
-	// The registered validator material of a version: read authority, a named query, a plain 404 when
-	// none is registered. (No production path registers material yet; the gate file records it.)
+	// The registered validator material of a version: the contract the release approval pinned, read
+	// with read authority; a plain 404 for a version that registered none; a named 400 for a bad query.
 	const materials = `${base}/validator-materials`;
-	const noMaterial = await page.request.get(`${materials}?factoryId=${encodeURIComponent(state.consoleFactoryId)}&factoryVersion=1.0.0`);
+	const material = await page.request.get(`${materials}?factoryId=${encodeURIComponent(state.consoleFactoryId)}&factoryVersion=1.0.0`);
+	expect(material.status()).toBe(200);
+	expect((await material.json() as { resource: Record<string, unknown> }).resource).toMatchObject({ factoryId: state.consoleFactoryId, factoryVersion: "1.0.0", contractId: state.contractId });
+	const noMaterial = await page.request.get(`${materials}?factoryId=${encodeURIComponent(state.consoleFactoryId)}&factoryVersion=9.9.9`);
 	expect(noMaterial.status()).toBe(404);
 	expect((await noMaterial.json() as { error: { code: string } }).error.code).toBe("factory_material_not_found");
 	const badQuery = await page.request.get(`${materials}?factoryId=${encodeURIComponent(state.consoleFactoryId)}`);
@@ -383,15 +432,46 @@ test("the scoped API: tickets, download headers, a read-only key, a service cred
 	expect((await page.request.get(`${readerBase}/shared-artifacts/${encodeURIComponent(artifact.artifactId)}?digest=${encodeURIComponent(artifact.digest)}&encodedBytes=${artifact.encodedBytes}&mediaType=application%2Fjson`)).status()).toBe(404);
 });
 
-test("the console previews a quarantine's reach and records a purge request without deleting anything @evidence", async ({ page }, testInfo) => {
+test("the console quarantines a package under a live attempt, shows what the fence stopped, lifts it, and records a purge request that deletes nothing @evidence", async ({ page }, testInfo) => {
+	// A run whose guest holds its attempt live, so the quarantine has live work to fence (W02c).
+	const published = (await (await page.request.get(`${project()}/definitions/${encodeURIComponent(state.consoleFactoryId)}/versions/1.0.0`)).json() as { resource: { version: string; definitionDigest: string } }).resource;
+	const started = await mutate(page.request, "POST", `${project()}/definitions/${encodeURIComponent(state.consoleFactoryId)}/runs`, 0, {
+		factoryVersion: published.version, definitionDigest: published.definitionDigest, grantRevision: await runGrantRevision(page),
+		parameters: { message: { kind: "inline", value: GUEST_HOLD_MESSAGE } },
+	});
+	expect(started.status(), await started.text()).toBe(202);
+	const heldRun = (await started.json() as { receipt: { resourceId: string } }).receipt.resourceId;
+	const heldInspection = `${project()}/runs/${heldRun}/inspection`;
+	await expect.poll(async () => (await (await page.request.get(heldInspection)).json() as { resource: { attempts: { items: Array<{ status: string }> } } }).resource.attempts.items.map(item => item.status),
+		{ timeout: 300_000, intervals: [2_000] }).toContain("running");
+
 	await selectProject(page, "admin");
 	const admin = page.getByTestId("factory-administration");
 	const reference = state.guest.reference;
-	await admin.getByRole("group", { name: `Trust actions for ${reference.package}` }).getByRole("button", { name: "Quarantine", exact: true }).click();
+	const actions = admin.getByRole("group", { name: `Trust actions for ${reference.package}`, exact: true });
+	await actions.getByRole("button", { name: "Quarantine", exact: true }).click();
 	const review = page.getByRole("dialog", { name: `Quarantine ${reference.package}` });
-	await expect(review).toContainText(/live run|No live run/);
-	await expect(review.getByRole("button", { name: "Commit at revision 1" })).toBeEnabled();
-	await review.getByRole("button", { name: "Cancel" }).click();
+	await expect(review.getByRole("listitem").filter({ hasText: heldRun })).toContainText("1 live attempt");
+	await captureEvidence(page, testInfo, "factory-services-quarantine-review");
+	await review.getByRole("button", { name: "Commit at revision 1" }).click();
+	await expect(admin.getByRole("status")).toContainText(`${reference.package} is quarantined at trust revision 2. The fence reached 1 run.`);
+	const record = admin.getByRole("region", { name: "Fence record" });
+	await expect(record.getByRole("listitem")).toHaveCount(1);
+	await expect(record.getByRole("listitem")).toContainText(heldRun);
+	await expect(record.getByRole("listitem")).toContainText("cancel requested");
+	expect(await factoryLayoutOverflow(page)).toEqual([]);
+	await captureEvidence(page, testInfo, "factory-services-fence-record");
+	// The scoped API serves the same sealed record, and the run leaves `running` with the typed reason.
+	const listed = await (await page.request.get(`${project()}/packages?limit=200`)).json() as { page: { items: Array<{ referenceId: string; reference: { configurationDigest?: string } }> } };
+	const referenceId = listed.page.items.find(item => item.reference.configurationDigest === undefined)!.referenceId;
+	const fenced = await (await page.request.get(`${project()}/packages/${referenceId}/affected-runs?trustRevision=2`)).json() as { page: { items: Array<Record<string, unknown>> } };
+	expect(fenced.page.items).toEqual([expect.objectContaining({ runId: heldRun, trustRevision: 2, state: "quarantined", reason: "factory_package_quarantined", disposition: "cancel-requested" })]);
+	await expect.poll(async () => (await (await page.request.get(`${project()}/runs/${heldRun}`)).json() as { resource: { status: string } }).resource.status, { timeout: 120_000, intervals: [1_000] }).not.toBe("running");
+
+	// Lifting the quarantine is a later publish at the next revision.
+	await actions.getByRole("button", { name: "Lift quarantine", exact: true }).click();
+	await page.getByRole("dialog", { name: `Lift quarantine ${reference.package}` }).getByRole("button", { name: "Commit at revision 2" }).click();
+	await expect(admin.getByRole("status")).toContainText(`${reference.package} is active at trust revision 3. The change is in the audit log.`);
 
 	const purge = admin.getByRole("region", { name: "Tenant purge request" });
 	await expect(purge.getByRole("table")).toContainText("Runs that are queued, running, waiting, or cancelling");
@@ -429,7 +509,8 @@ test("a run waiting on an approval streams live, shows the approval blocker, and
 			...definition, id: "factory-services.approval.v1",
 			graph: { ...graph, nodes: [
 				{ id: "gate", kind: "approval", choices: ["approve", "deny"], context: { kind: "ref", root: "input", name: "message" }, actorScope: "operator", expiresInMs: 3_600_000, onDenied: "fail", onExpired: "fail" },
-				...graph.nodes.map(node => ({ ...node, dependsOn: ["gate"] })),
+				// The first node waits on the gate; the others keep their own order after it.
+				...graph.nodes.map(node => ({ ...node, dependsOn: (node.dependsOn as string[] | undefined) ?? ["gate"] })),
 			] },
 		};
 	});
@@ -481,8 +562,17 @@ test("a run waiting on an approval streams live, shows the approval blocker, and
 		await readerContext.close();
 	}
 
-	// The decision itself waits on W09c: the product web process composes no release operations or
-	// command approvals yet, so the inbox answers "Release services are not ready." (gate file, Open).
+	// The approver answers in the console inbox, through the command approvals the web process composes.
+	// Denying ends the run at once, by the definition's own onDenied rule.
+	await selectProject(page, "inbox");
+	const asked = page.getByTestId("factory-release-inbox").locator("article").filter({ hasText: "Factory approval requested" });
+	await expect(asked).toHaveCount(1);
+	await expect(asked).toContainText("approve this candidate");
+	await captureEvidence(page, testInfo, "factory-services-command-approval");
+	await asked.getByRole("button", { name: "deny", exact: true }).click();
+	await expect(asked).toHaveCount(0);
+	await expect.poll(async () => (await (await page.request.get(`${project()}/runs/${waitingRun}`)).json() as { resource: { status: string } }).resource.status, { timeout: 120_000, intervals: [1_000] }).toBe("failed");
+	await expect.poll(async () => (await (await page.request.get(inspection)).json() as { resource: { blockers: Array<{ kind: string }> } }).resource.blockers.map(item => item.kind), { timeout: 30_000 }).not.toContain("approval");
 });
 
 test("grant expiry and revocation take effect on the next request, and a download ticket rechecks them", async ({ page, playwright }) => {
@@ -548,7 +638,8 @@ test("long labels and a large map read cleanly at 1440 and 390 px, in light and 
 		const graph = definition.graph as { nodes: Array<Record<string, unknown>> };
 		const template = graph.nodes[0]!;
 		const nodes = Array.from({ length: 40 }, (_, index) => ({ ...template, id: `stage-${String(index).padStart(2, "0")}-${"with-a-long-node-label-".repeat(2)}${index}`, ...(index === 0 ? {} : { dependsOn: [`stage-${String(index - 1).padStart(2, "0")}-${"with-a-long-node-label-".repeat(2)}${index - 1}`] }) }));
-		return { ...definition, id: longId, graph: { ...graph, nodes }, bounds: { ...(definition.bounds as object), maxExpandedNodes: 100 } };
+		// Forty task stages and nothing else: no acceptance or release node, so no run output.
+		return { ...definition, id: longId, outputPorts: {}, effects: ["none"], graph: { ...graph, nodes, outputs: {} }, bounds: { ...(definition.bounds as object), maxExpandedNodes: 100 } };
 	});
 	for (const [theme, width, height] of [["light", 1440, 900], ["dark", 1440, 900], ["light", 390, 844], ["dark", 390, 844]] as const) {
 		await page.addInitScript(value => localStorage.setItem("ezcorp-theme", value), theme);

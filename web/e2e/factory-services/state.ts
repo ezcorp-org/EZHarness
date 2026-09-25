@@ -23,6 +23,13 @@ export interface FactoryServicesState {
 		readonly installationId: string;
 		readonly releaseId: string;
 	};
+	/** The acceptance claim's validator: the guest reference pinned with its configuration digest. */
+	readonly validatorReference: FactoryServicesState["guest"]["reference"] & { readonly configurationDigest: string };
+	/** The console definition's acceptance contract. */
+	readonly contractId: string;
+	/** Where the console definition's release node publishes, under the declared destination's prefix. */
+	readonly releaseObject: string;
+	/** True once the guest and its validator reference are both prepared. */
 	readonly prepared: boolean;
 	/** Set once the stack has rewritten the draft a journey asked for. */
 	readonly futureDraftId?: string;
@@ -44,7 +51,7 @@ export const FACTORY_SERVICES_STATE_PATH = process.env.FACTORY_SERVICES_STATE
  */
 export const FACTORY_SERVICES_FUTURE_DRAFT_REQUEST_PATH = `${FACTORY_SERVICES_STATE_PATH}.future-draft-request`;
 /** The event cursor lifetime the stack gives the application, so the lane can observe a 410. */
-export const FACTORY_SERVICES_CURSOR_TTL_MS = 60_000;
+export const FACTORY_SERVICES_CURSOR_TTL_MS = 120_000;
 /** A journey creates this file to ask the stack to run one restore through the operator command. */
 export const FACTORY_SERVICES_RESTORE_REQUEST_PATH = `${FACTORY_SERVICES_STATE_PATH}.restore-request`;
 export const FACTORY_SERVICES_AUTH_PATH = join(dirname(fileURLToPath(import.meta.url)), "..", ".factory-services-auth.json");
