@@ -102,6 +102,14 @@ async function selectProject(page: Page, view: "authoring" | "runs" | "inbox" | 
 	await expect(page.getByRole("tab", { name: view === "admin" ? "Administration" : view[0]!.toUpperCase() + view.slice(1) })).toHaveAttribute("aria-selected", "true");
 }
 
+/** Whether the inbox's delivery role has delivered a notification of `kind` naming `text`; a refused read says its status. */
+async function notified(page: Page, kind: string, text: string): Promise<string> {
+	const response = await page.request.get(`${project()}/release/notifications?limit=200`);
+	if (!response.ok()) return `refused ${response.status()}: ${await response.text()}`;
+	const items = (await response.json() as { page: { items: Array<Record<string, unknown>> } }).page.items;
+	return items.some(item => item.kind === kind && JSON.stringify(item).includes(text)) ? "delivered" : "not yet";
+}
+
 async function waitForPreparation(): Promise<void> {
 	await expect.poll(() => (JSON.parse(readFileSync(FACTORY_SERVICES_STATE_PATH, "utf8")) as { prepared?: boolean }).prepared, { timeout: 600_000, intervals: [2_000] }).toBe(true);
 }
@@ -281,9 +289,7 @@ test("a run started from the version list is watched live to a terminal status w
 	earlyCursor = { ...early.resource.cursor, takenAtMs: Date.now() };
 
 	// The approver decides in the console inbox, once the delivery role has put the request there.
-	const pending = async (kind: string, text: string) => ((await (await page.request.get(`${project()}/release/notifications?limit=200`)).json()) as { page: { items: Array<Record<string, unknown>> } })
-		.page.items.some(item => item.kind === kind && JSON.stringify(item).includes(text));
-	await expect.poll(() => pending("approval_requested", release.operationId), { timeout: 120_000, intervals: [2_000] }).toBe(true);
+	await expect.poll(() => notified(page, "approval_requested", release.operationId), { timeout: 120_000, intervals: [2_000] }).toBe("delivered");
 	await selectProject(page, "inbox");
 	const request = page.getByTestId("factory-release-inbox").locator("article").filter({ hasText: release.operationId });
 	await expect(request).toContainText("Release approval requested");
@@ -588,8 +594,7 @@ test("a run waiting on an approval streams live, shows the approval blocker, and
 
 	// The approver answers in the console inbox, through the command approvals the web process composes.
 	// Denying ends the run at once, by the definition's own onDenied rule.
-	await expect.poll(async () => ((await (await page.request.get(`${project()}/release/notifications?limit=200`)).json()) as { page: { items: Array<{ kind: string }> } })
-		.page.items.some(item => item.kind === "command_approval_requested"), { timeout: 120_000, intervals: [2_000] }).toBe(true);
+	await expect.poll(() => notified(page, "command_approval_requested", "approve this candidate"), { timeout: 120_000, intervals: [2_000] }).toBe("delivered");
 	await selectProject(page, "inbox");
 	const asked = page.getByTestId("factory-release-inbox").locator("article").filter({ hasText: "Factory approval requested" });
 	await expect(asked).toHaveCount(1);
