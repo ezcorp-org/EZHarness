@@ -113,8 +113,9 @@ export class FactoryAttemptDispatcher {
     let result: FactoryRunnerResult;
     try {
       result = snapshot(await this.runner.run(request));
-    } catch {
-      return this.markUnknown(claim, "runner_outcome_unknown");
+    } catch (error) {
+      // The runner's own error is the only account of why; it rides along as the cause.
+      return this.markUnknown(claim, "runner_outcome_unknown", "outcome_unknown", error);
     }
     if (!validateFactoryRunnerResult(result).ok) return this.markUnknown(claim, "runner_result_invalid");
     if (result.status !== "completed") return this.persistOutcome(claim, result);

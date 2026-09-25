@@ -39,7 +39,8 @@ import { signFactoryAttemptToken } from "./attempt-token";
 import type { FactoryAttemptQueue } from "./attempt-queue";
 import type { FactoryComputeAdmissions } from "./compute-admissions";
 import type { FactoryGrants } from "./grants";
-import { createFactoryHostLaunchClient } from "./host-launch-client";
+import type { FactoryExecutionJournal } from "./executions";
+import { FACTORY_HOST_CLIENT_TIMEOUT_MS, createFactoryHostLaunchClient } from "./host-launch-client";
 import type { FactoryPhysicalStopExpectation } from "./journal-validation";
 import { FactoryPackagePreparations, FactoryPackageTrusts, FactoryV4PackageCatalog, type FactoryRunnerDispatchReadiness } from "./package-preparation";
 import { readPrivateText } from "./private-files";
@@ -47,6 +48,7 @@ import type { PoolAdmissionClient } from "./pool/client";
 import { createFactoryAttemptDispatchDriver, type FactoryAttemptDispatchDriver } from "./runner/attempt-dispatch-driver";
 import { FactoryDatabaseAttemptLaunchStore, type FactoryAttemptLaunchIntent, type FactoryPhysicalStopReason, type FactoryPhysicalStopReceipt } from "./runner/attempt-runtime";
 import { factoryAttemptPreflight } from "./runner/attempt-preflight";
+import { nativeFactoryJournal } from "./runner/native";
 import { FactoryRemoteAttemptRuntime } from "./runner/remote-attempt-runtime";
 import type { FactoryStartupConfig } from "./startup-config";
 import type { FactoryTaskCompletions } from "./task-completions";
@@ -186,6 +188,10 @@ export interface FactoryAttemptDispatchCompositionOptions {
   readonly readiness: FactoryRunnerDispatchReadiness;
   readonly pool: Pick<PoolAdmissionClient, "acknowledgeStart">;
   readonly stopper: FactoryHostPhysicalStopper;
+  /** The execution journal a result recorded without its guest must repeat. */
+  readonly journal: FactoryExecutionJournal;
+  /** Where the runtime says why an attempt ended without its guest's answer. */
+  readonly report: (source: string, error: unknown) => void;
 }
 
 /**
@@ -202,6 +208,7 @@ export async function composeFactoryAttemptDispatch(
 ): Promise<FactoryAttemptDispatchDriver> {
   const { config } = options;
   const transport = await createFactoryHostLaunchClient({
+    requestTimeoutMs: FACTORY_HOST_CLIENT_TIMEOUT_MS,
     baseUrl: config.hostLaunch.baseUrl,
     serverName: config.hostLaunch.serverName,
     hostId: config.hostId,
@@ -230,6 +237,8 @@ export async function composeFactoryAttemptDispatch(
       mintAttemptToken: factoryAttemptTokenMinter(attemptTokenSecret, config.installationId),
       pool: options.pool,
       stop: factoryIntentPhysicalStop(options.stopper, config.hostId),
+      journal: nativeFactoryJournal(options.journal),
+      report: options.report,
     }),
     preflight: factoryAttemptPreflight({
       database: options.database,

@@ -230,6 +230,8 @@ describe("composeFactoryAttemptDispatch", () => {
         readiness: { assertDispatchReady: async () => factoryLaunchPackage(request) },
         pool: { acknowledgeStart: async () => ({}) as never },
         stopper: async () => ({}) as unknown as FactoryPhysicalStopReceipt,
+        journal,
+        report: () => {},
       });
 
       // Nothing is queued, so the composed dispatcher claims nothing. That is
@@ -259,6 +261,8 @@ describe("composeFactoryAttemptDispatch", () => {
         readiness: { assertDispatchReady: async () => factoryLaunchPackage(factoryLaunchRequest()) },
         pool: { acknowledgeStart: async () => ({}) as never },
         stopper: async () => ({}) as unknown as FactoryPhysicalStopReceipt,
+        journal,
+        report: () => {},
       })).rejects.toBeDefined();
     } finally {
       await fixture.close();

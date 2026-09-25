@@ -6,7 +6,7 @@ import { DeleteObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
 import { sql } from "drizzle-orm";
 import { referenceCodeV1, validateFactoryApiResponse, createKernelState, createPartitionKernelState, advanceKernel, factoryRunnerRequestDigest, FACTORY_LAZY_INPUT_SCHEMA_VERSION, type FactoryDefinition, type FactoryRunnerRequest, type FactoryRunnerResult, type FactoryRunStartBody, type JsonValue } from "@ezcorp/factory-sdk";
 import type { TransactionalDb } from "../../db/migrations/types";
-import type { KernelEvent } from "@ezcorp/factory-sdk/kernel-types";
+import type { KernelCommand, KernelEvent } from "@ezcorp/factory-sdk/kernel-types";
 import { releaseRows as rows } from "../../db/queries/extension-releases";
 import type { BlobStore } from "../../extensions/v4/types";
 import { digestBytes, digestObject } from "../../extensions/v4/blobs";
@@ -32,6 +32,8 @@ import { FactoryTaskExecutionAdmission } from "../../factory/task-execution-admi
 import { FactoryNativeRunnerPolicy, type FactoryNativeRunnerProfile } from "../../factory/native-runner-policy";
 import { packagesTrustedForTest } from "./factory-live-attempt-world";
 import { FactoryAttemptDispatcher } from "../../factory/attempt-dispatcher";
+import { failedFactoryRunnerResult, nativeFactoryJournal } from "../../factory/runner/native";
+import { FACTORY_LOST_RESULT_CODES } from "../../factory/runner/remote-attempt-runtime";
 import { verifyFactoryAttemptToken } from "../../factory/attempt-token";
 import { FactoryInbox } from "../../factory/inbox";
 import type { PoolAdmissionClient } from "../../factory/pool/client";
@@ -1641,19 +1643,71 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
         async completeInTransaction(): Promise<never> { throw new Error("completion store unavailable"); },
       } : completions;
       const dispatcher = new FactoryAttemptDispatcher(fixture.db, task.queue, runner, completionStore, outcomes, dispatchReady, dispatchReadinessDisposition, { service: task.service, installationId: "dispatcher-installation", attemptTokenSecret: "dispatcher-secret" });
-      // The cause rides along on the outcome the PRODUCT refused to record,
-      // and only on that one. Before it, the reason existed only inside a
-      // `catch {}`. A runner that threw or answered nonsense is already named
-      // by its own failure code, so it carries no cause and must not grow one
-      // silently.
+      // The cause rides along whenever there is one to carry: the outcome the
+      // product refused to record, and the runner's own error (W01h: that
+      // error used to die in a `catch {}`, which left an operator with a
+      // failure code and no account of it). A runner that answered nonsense
+      // threw nothing, so its failure code is all there is.
       const refused = await dispatcher.dispatchOne();
-      expect(refused).toEqual(mode === "completion"
-        ? { kind: "outcome_unknown", attemptId: task.dispatch.id, cause: expect.anything() }
-        : { kind: "outcome_unknown", attemptId: task.dispatch.id });
-      if (mode === "completion") expect(String((refused as { cause: unknown }).cause)).toContain("completion store unavailable");
+      expect(refused).toEqual(mode === "invalid"
+        ? { kind: "outcome_unknown", attemptId: task.dispatch.id }
+        : { kind: "outcome_unknown", attemptId: task.dispatch.id, cause: expect.anything() });
+      if (mode !== "invalid") expect(String((refused as { cause: unknown }).cause)).toContain(mode === "completion" ? "completion store unavailable" : "connection outcome lost");
       expect(await task.queue.read(projectId, task.dispatch.id)).toMatchObject({ state: "outcome_unknown" });
       await new FactoryRunTransitionProjector(fixture.db, tenantId, task.transitions, lifecycle).project(runKey(task.run.runId));
     }
+  });
+
+  test("a result the host lost becomes a typed failed outcome that the kernel retries, and that fails the run once attempts run out", async () => {
+    const { task, completions, outcomes } = await completedTask();
+    const reason = "extension runner process exited with code 137; state failed";
+    // The remote runtime's own record of a lost result: the journal's facts and the reason by name.
+    const lostResult = async (request: FactoryRunnerRequest) => failedFactoryRunnerResult(await nativeFactoryJournal(task.journal).snapshot(request), { code: FACTORY_LOST_RESULT_CODES.container_exit, message: reason, retryable: true });
+    const dispatcher = new FactoryAttemptDispatcher(fixture.db, task.queue, { run: lostResult }, completions, outcomes, dispatchReady, dispatchReadinessDisposition, { service: task.service, installationId: "dispatcher-installation", attemptTokenSecret: "dispatcher-secret" });
+    const dispatched = await dispatcher.dispatchOne();
+    if (dispatched.kind !== "failed" || !("receipt" in dispatched)) throw new Error(`expected a failed outcome, got ${dispatched.kind}`);
+    // Durable and delivered: nothing is left for a later pass to guess at.
+    expect(await task.queue.read(projectId, task.dispatch.id)).toMatchObject({ state: "delivered" });
+    expect(dispatched.receipt.event).toMatchObject({ kind: "node-failed", nodeId: task.dispatch.nodeId, commandId: task.dispatch.id, attempt: task.dispatch.attempt, error: "RUNNER_CONTAINER_EXIT", failureKind: "execution" });
+    expect(await fixture.db.transaction(tx => outcomes.readInTransaction(tx, task.service, task.dispatchReference))).toEqual(dispatched.receipt);
+
+    // The kernel's answer, attempt by attempt: stop the attempt, and once the stop
+    // is confirmed, retry the node; after the last attempt, fail the run by name.
+    const nodeId = task.dispatch.nodeId;
+    const taskNode = task.compiled.indexes.nodeById[nodeId];
+    if (taskNode?.kind !== "task") throw new Error("fixture dispatch task is missing");
+    const maxAttempts = taskNode.retry?.maxAttempts ?? 1;
+    expect(maxAttempts).toBeGreaterThan(1);
+    let state = task.next.nextState;
+    let dispatch: Extract<KernelCommand, { kind: "dispatch-node" }> = task.dispatch;
+    let at = now + 10;
+    const attempts: number[] = [];
+    for (;;) {
+      attempts.push(dispatch.attempt);
+      const failure = attempts.length === 1 ? dispatched.receipt.event : { ...dispatched.receipt.event, id: `${dispatch.id}:failed`, commandId: dispatch.id, attempt: dispatch.attempt, atMs: at };
+      const stopping = advanceKernel(task.compiled, state, failure);
+      expect(stopping.commands).toContainEqual(expect.objectContaining({ kind: "cancel-node", attemptCommandId: dispatch.id }));
+      const stopped = advanceKernel(task.compiled, stopping.nextState, { kind: "attempt-stopped", id: `${dispatch.id}:stopped`, atMs: at + 1, nodeId, commandId: dispatch.id, candidateGeneration: dispatch.candidateGeneration, attempt: dispatch.attempt, uncertain: false });
+      const timer = stopped.commands.find(command => command.kind === "start-timer");
+      if (timer?.kind !== "start-timer") {
+        expect(stopped.nextState.nodes[nodeId]).toMatchObject({ status: "failed", error: "RUNNER_CONTAINER_EXIT" });
+        expect(stopped.commands).toContainEqual(expect.objectContaining({ kind: "fail-run", error: expect.stringContaining("RUNNER_CONTAINER_EXIT") }));
+        break;
+      }
+      expect(stopped.nextState.nodes[nodeId]).toMatchObject({ status: "retry_wait" });
+      let next = advanceKernel(task.compiled, stopped.nextState, { kind: "timer-expired", id: `${timer.id}:expired`, atMs: timer.deadlineAtMs, nodeId, commandId: timer.id });
+      const admission = next.commands.find(command => command.kind === "request-admission");
+      if (admission?.kind === "request-admission") next = advanceKernel(task.compiled, next.nextState, { kind: "admission-result", id: `${admission.id}:admitted`, atMs: timer.deadlineAtMs + 1, nodeId, commandId: admission.id, candidateGeneration: dispatch.candidateGeneration, granted: true });
+      const retried = next.commands.find(command => command.kind === "dispatch-node" && command.nodeId === nodeId);
+      if (retried?.kind !== "dispatch-node") throw new Error("the kernel did not dispatch the next attempt");
+      expect(retried.attempt).toBe(dispatch.attempt + 1);
+      state = next.nextState;
+      dispatch = retried;
+      at = timer.deadlineAtMs + 10;
+    }
+    expect(attempts).toEqual(Array.from({ length: maxAttempts }, (_, index) => task.dispatch.attempt + index));
+    // Leave no run pending for the projector, as every dispatcher case here does.
+    await new FactoryRunTransitionProjector(fixture.db, tenantId, task.transitions, lifecycle).project(runKey(task.run.runId));
   });
 
   test("non-success outcome commit rolls back with its queue acknowledgement and detects corrupt recovery", async () => {
