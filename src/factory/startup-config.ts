@@ -16,6 +16,9 @@
  * credential value, matching `parseFactoryOrchestratorProcessConfig`.
  */
 import { resolve } from "node:path";
+import type { FactoryModelPin } from "@ezcorp/factory-sdk";
+import { factoryModelSamplingOptions } from "./model-configuration";
+import { factoryModelPinMatchesRunner } from "./native-runner-policy";
 import { isPlainRecord } from "./plain-values";
 import { readPrivatePath } from "./private-files";
 
@@ -336,6 +339,9 @@ export interface FactoryStartupRunnerProfile {
     readonly version: string;
     readonly digest: string;
     readonly export: string;
+    /** Present exactly when the profile pins a model, and equal to the pin's. */
+    readonly model?: string;
+    readonly configurationDigest?: string;
   };
   readonly resourceClass: string;
   readonly allocation: {
@@ -344,6 +350,15 @@ export interface FactoryStartupRunnerProfile {
     readonly budget: { readonly costMicros: string; readonly tokens: number; readonly computeMs: number };
   };
   readonly allowedCapabilities: readonly string[];
+  /**
+   * The model a guest run under this profile may call, and the only one.
+   *
+   * Absent, the attempt carries no pin and the broker refuses every model call
+   * from it. Present, it must match the runner reference field for field and
+   * name the installation's own `modelProvider`, which is the provider this
+   * process can actually reach.
+   */
+  readonly model?: FactoryModelPin;
 }
 
 export interface FactoryWorkerTuning {
@@ -510,9 +525,23 @@ function wellFormedRunner(runner: unknown, keys: readonly string[] = RUNNER_KEYS
     && SHA256_DIGEST.test(runner.digest as string);
 }
 
+/**
+ * A model pin, whole: its provider and model, a configuration this process can
+ * honour, a policy, and the two digests over them. The runner must name the
+ * same model and configuration digest.
+ */
+function wellFormedProfileModel(runner: Record<string, string>, model: unknown): boolean {
+  if (!isPlainRecord(model) || !exactKeys(model, ["provider", "model", "configurationDigest", "configuration", "policyDigest", "policy"])) return false;
+  if (!wellFormed("identity", model.provider) || !wellFormed("identity", model.model) || !isPlainRecord(model.configuration) || !isPlainRecord(model.policy)) return false;
+  try { factoryModelSamplingOptions(model.configuration); } catch { return false; }
+  return factoryModelPinMatchesRunner(runner, model as unknown as FactoryModelPin);
+}
+
 function wellFormedRunnerProfile(value: unknown): boolean {
-  if (!isPlainRecord(value) || !exactKeys(value, ["runner", "resourceClass", "allocation", "allowedCapabilities"])) return false;
-  if (!wellFormedRunner(value.runner)) return false;
+  const pinned = isPlainRecord(value) && Object.hasOwn(value, "model");
+  if (!isPlainRecord(value) || !exactKeys(value, pinned ? ["runner", "resourceClass", "allocation", "allowedCapabilities", "model"] : ["runner", "resourceClass", "allocation", "allowedCapabilities"])) return false;
+  if (!wellFormedRunner(value.runner, pinned ? [...RUNNER_KEYS, "configurationDigest", "model"] : RUNNER_KEYS)) return false;
+  if (pinned && (!SHA256_DIGEST.test(value.runner.configurationDigest!) || !wellFormedProfileModel(value.runner, value.model))) return false;
   if (!wellFormed("identity", value.resourceClass)) return false;
   if (!Array.isArray(value.allowedCapabilities) || value.allowedCapabilities.length > 64
     || value.allowedCapabilities.some((capability) => !wellFormed("identity", capability))
@@ -812,8 +841,14 @@ const checkRunnerProfiles: StartupCheck = (value, { invalid }) => {
     invalid.push("runnerProfiles");
     return;
   }
+  // A pinned profile names the installation's own provider and model. The
+  // provider broker refuses every other pin, so a profile that disagreed would
+  // boot and then refuse its first model call as `model_pin_mismatch`.
+  const installationPin = read(value, "modelProvider").value as { provider?: unknown; model?: unknown } | undefined;
   for (const [index, profile] of section.profiles.entries()) {
-    if (!wellFormedRunnerProfile(profile)) invalid.push(`runnerProfiles.profiles[${index}]`);
+    if (!wellFormedRunnerProfile(profile)) { invalid.push(`runnerProfiles.profiles[${index}]`); continue; }
+    const pin = (profile as { model?: FactoryModelPin }).model;
+    if (pin !== undefined && (installationPin?.provider !== pin.provider || installationPin?.model !== pin.model)) invalid.push(`runnerProfiles.profiles[${index}].model`);
   }
   // A resource class named twice would make the admission profile map
   // depend on declaration order, which is not a fact an operator states.

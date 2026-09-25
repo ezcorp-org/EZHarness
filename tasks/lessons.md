@@ -1569,3 +1569,20 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 - A Node service may import only leaf modules from the product. `src/db/queries/*` and anything that
   reaches them (records, auth) pull in `db/connection` and the Bun SQL driver. Put shared constants and
   types in a leaf, and let `check-factory-boundaries.ts` (`NODE_SERVICE_BOUNDARIES`) guard the entry.
+## 2026-09-24 — W19a graph proof
+
+- Under Bun, `ClientRequest.destroy(error)` emits `close` and never `error`. A promise that waits on
+  the `error` event after a timeout stays pending forever. Settle the promise from the timer itself,
+  then destroy the request. Probe the runtime before trusting a Node idiom in code that runs on Bun.
+- Bun's `mock.module` leaks across files in one process. A coverage leg that mixes a file that mocks
+  the settings module with a file that writes real settings measures the wrong code. Give each
+  mocking file its own leg.
+- Rows from a real PostgreSQL driver are not plain objects, and an object matcher compares
+  prototypes. A suite that passes on PGlite can fail on PostgreSQL with identical fields. Copy rows
+  into plain objects before matching.
+- Ollama 0.21 with `qwen3:1.7b` thinks by default, even with `/no_think` in the prompt. Two
+  identical seeded calls at temperature 0 gave different reasoning text. `reasoning_effort: "none"`
+  gave the same answer on repeated calls. Measure a provider's determinism before promising it.
+- Read what the branch actually exports before you port a harness from another branch. The W15b
+  harness used a function that exists only on the unmerged W15b branch. The failure also showed that a
+  start which creates shared databases needs its cleanup in place before the first create.

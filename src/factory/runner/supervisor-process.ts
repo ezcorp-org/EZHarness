@@ -52,7 +52,7 @@ import type { Runner } from "@ezcorp/extension-contract";
 import { isFactoryGuestMaterialFrame, type FactoryRunnerRequest } from "@ezcorp/factory-sdk";
 import { readPrivatePath } from "../private-files";
 import { createFactoryGuestBrokerClient } from "./guest-broker-client";
-import type { FactoryGuestBroker } from "./guest-model-broker";
+import { isFactoryGuestModelPayload, type FactoryGuestBroker } from "./guest-model-broker";
 import { FactoryHostBrokerUnavailableError, factoryHostBrokerUnavailable, startFactoryHostServices } from "./supervisor-services";
 import { createFactorySupervisorPoolClient } from "./supervisor-pool-client";
 import {
@@ -125,15 +125,15 @@ export interface FactorySupervisorProcessConfig {
      */
     readonly pool?: FactorySupervisorEndpoint;
     /**
-     * The product route that answers a guest's staging frames.
+     * The product route that answers a guest's staging frames and model calls.
      *
      * A sandboxed guest runs on `--network=none`, so its reverse frame is its
-     * only byte path, and this host holds no database and no material service.
-     * It carries each staging frame to this endpoint under the guest's own
-     * attempt token. The host's certificate and token name the HOST, never a
-     * tenant. Optional: without it a guest's broker call refuses by name with
-     * `factory_host_broker_unavailable`, and a guest that stages nothing is
-     * unaffected.
+     * only byte path, and this host holds no database, no material service, and
+     * no provider. It carries each staging frame and model request to this
+     * endpoint under the guest's own attempt token. The host's certificate and
+     * token name the HOST, never a tenant. Optional: without it a guest's
+     * broker call refuses by name with `factory_host_broker_unavailable`, and a
+     * guest that neither stages nor calls a model is unaffected.
      */
     readonly guestBroker?: FactorySupervisorEndpoint;
   };
@@ -352,21 +352,20 @@ export async function startFactoryConfiguredHostServices(
   });
 }
 
-/** What a host with no `services.guestBroker` answers a guest's staging frame. */
+/** What a host with no `services.guestBroker` answers a guest's staging frame or model request. */
 const factoryHostGuestBrokerUnconfigured: FactoryGuestBroker = Object.freeze({
   async invoke(request: FactoryRunnerRequest, payload: unknown): Promise<unknown> {
-    if (!isFactoryGuestMaterialFrame(payload)) return factoryHostBrokerUnavailable.invoke(request, payload);
-    throw new FactoryHostBrokerUnavailableError("This host's supervisor document names no services.guestBroker, so it cannot carry a staging frame.");
+    if (!isFactoryGuestMaterialFrame(payload) && !isFactoryGuestModelPayload(payload)) return factoryHostBrokerUnavailable.invoke(request, payload);
+    throw new FactoryHostBrokerUnavailableError("This host's supervisor document names no services.guestBroker, so it cannot carry a staging frame or a model request.");
   },
 });
 
 /**
  * The broker a host hands its guests.
  *
- * Staging frames go to the declared product route. With no route declared they
- * are refused by name, and the message names the missing section. A model
- * request is not a staging frame and no route serves it yet, so it keeps the
- * default refusal either way.
+ * Staging frames and model requests go to the declared product route. With no
+ * route declared they are refused by name, and the message names the missing
+ * section. Any other payload keeps the default refusal either way.
  */
 export async function createFactoryConfiguredGuestBroker(endpoint: FactorySupervisorEndpoint | undefined): Promise<FactoryGuestBroker> {
   if (endpoint === undefined) return factoryHostGuestBrokerUnconfigured;

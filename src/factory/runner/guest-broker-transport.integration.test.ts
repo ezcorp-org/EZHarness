@@ -4,23 +4,28 @@ import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sql } from "drizzle-orm";
-import { canonicalizeJson, sha256Hex, type FactoryRunnerRequest, type JsonValue } from "@ezcorp/factory-sdk";
+import { createAssistantMessageEventStream, type Api, type AssistantMessage, type Model } from "@earendil-works/pi-ai";
+import { canonicalizeJson, sha256Hex, type FactoryModelPin, type FactoryRunnerRequest, type JsonValue } from "@ezcorp/factory-sdk";
 import { createFactoryGuestStaging, FactoryGuestMaterialError } from "@ezcorp/factory-sdk/guest-materials";
 import { closeTestDb, setupTestDb } from "../../__tests__/helpers/test-pglite";
 import { certificates, nodeHttpsRequest, signedServiceToken, type Certificates } from "../../__tests__/helpers/factory-certificates";
-import { FileBlobStore } from "../../extensions/v4/blobs";
+import { digestObject, FileBlobStore } from "../../extensions/v4/blobs";
+import { FactoryWorkspaceCheckpoints } from "../artifact-materials";
 import { FactoryArtifacts } from "../artifacts";
 import { signFactoryAttemptToken } from "../attempt-token";
 import { FactoryExecutionJournal } from "../executions";
 import { startFactoryPrivateHttps } from "../private-https";
 import { factoryRunnerRequestAuthority } from "./attempt-authority";
-import { createFactoryGuestBrokerClient } from "./guest-broker-client";
+import { FACTORY_GUEST_MODEL_REQUEST_TIMEOUT_MS, createFactoryGuestBrokerClient } from "./guest-broker-client";
 import { FACTORY_GUEST_BROKER_PATH, FACTORY_GUEST_BROKER_SCOPE } from "./guest-broker-contract";
 import { createFactoryGuestBrokerRouteHandler } from "./guest-broker-service";
 import { factoryAttemptInvocationId, factoryAttemptWorkerId } from "./attempt-wire";
 import { createFactoryGuestMaterialFrameBroker, createFactoryGuestMaterialServices } from "./guest-material-broker";
+import type { FactoryOneHopProvider } from "./guest-model-broker";
+import { createFactoryGuestModelFrameBroker } from "./guest-model-route";
+import { createFactoryOneHopProvider } from "./provider-one-hop";
 import { createFactoryConfiguredGuestBroker } from "./supervisor-process";
-import { FACTORY_GUEST_BROKER_UNCONFIGURED, composeFactoryGuestBroker } from "../guest-broker-composition";
+import { FACTORY_GUEST_BROKER_UNCONFIGURED, FACTORY_PROVIDER_NOT_CONFIGURED, composeFactoryGuestBroker, factoryUnpinnedModelProvider } from "../guest-broker-composition";
 import type { FactoryStartupConfig } from "../startup-config";
 
 /**
@@ -51,17 +56,55 @@ afterAll(async () => {
   await Promise.all(directories.splice(0).map(directory => rm(directory, { recursive: true, force: true })));
 });
 
-function runnerRequest(attemptId: string, projectId: string, runId: string, deadlineAtMs: number): FactoryRunnerRequest {
+const PIN_CONFIGURATION = { temperature: 0 };
+/** The pin a model-calling attempt is admitted with. */
+const PIN: FactoryModelPin = {
+  provider: "ollama", model: "qwen3:1.7b",
+  configuration: PIN_CONFIGURATION, configurationDigest: `sha256:${digestObject(PIN_CONFIGURATION)}`,
+  policy: {}, policyDigest: `sha256:${digestObject({})}`,
+};
+
+/** A provider that answers every call with `text`, and counts the calls. */
+function answering(text: string): { readonly provider: FactoryOneHopProvider; readonly calls: () => number } {
+  let calls = 0;
+  const provider = createFactoryOneHopProvider({
+    broker: {
+      async stream() {
+        calls += 1;
+        const message = {
+          role: "assistant", content: [{ type: "text", text }], api: "openai-completions", provider: PIN.provider, model: PIN.model,
+          usage: { input: 3, output: 2, cacheRead: 0, cacheWrite: 0, totalTokens: 5, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+          stopReason: "stop", timestamp: 0,
+        } as unknown as AssistantMessage;
+        const stream = createAssistantMessageEventStream();
+        stream.push({ type: "start", partial: message });
+        stream.end(message);
+        return stream;
+      },
+    },
+    resolveModel: (pin) => ({ id: pin.model, provider: pin.provider, api: "openai-completions" }) as Model<Api>,
+    now: () => 0,
+  });
+  return { provider, calls: () => calls };
+}
+
+/** A model request for the fixture's operation 0, under `model`. */
+function modelRequest(operationId: string, model: FactoryModelPin = PIN): JsonValue {
+  return { schemaVersion: "factory.guest-model-request.v1", operationId, operationIndex: 0, model, messages: [{ role: "user", text: "across the boundary" }], maxOutputTokens: 16 } as unknown as JsonValue;
+}
+
+function runnerRequest(attemptId: string, projectId: string, runId: string, deadlineAtMs: number, model?: FactoryModelPin): FactoryRunnerRequest {
   return {
     schemaVersion: "factory.runner.request.v1",
     authority: {
       attemptId, tenantId: TENANT, projectId, runId, nodeInstanceId: "node-a", candidateGeneration: 0, attemptNumber: 1,
       grantRevision: 1, reservationGeneration: 1, executionEpoch: 6, cancellationEpoch: 0, deadlineAtMs, nextOperationIndex: 0,
     },
-    runner: { package: "@example/runner", manifestName: "runner", version: "1.0.0", digest: `sha256:${"a".repeat(64)}`, export: "run" },
+    runner: { package: "@example/runner", manifestName: "runner", version: "1.0.0", digest: `sha256:${"a".repeat(64)}`, export: "run", ...(model === undefined ? {} : { model: model.model, configurationDigest: model.configurationDigest }) },
     input: { kind: "inline", value: { prompt: "stage" } },
     grants: [],
     resources: { maxCostMicros: "1000", maxTokens: 200, maxComputeMs: 30_000, memoryBytes: 1024, resourceClass: "cpu.small" },
+    ...(model === undefined ? {} : { model }),
     tools: [],
     broker: { attemptToken: "unset", audience: INSTALLATION },
   } as FactoryRunnerRequest;
@@ -78,7 +121,7 @@ async function clientSecrets(root: string, certs: Certificates, hostToken: strin
   return paths;
 }
 
-async function setup() {
+async function setup(options: { readonly model?: FactoryModelPin; readonly provider?: () => Promise<FactoryOneHopProvider> } = {}) {
   const { db } = await setupTestDb();
   const root = await mkdtemp(join(tmpdir(), "factory-guest-broker-transport-"));
   directories.push(root);
@@ -91,15 +134,18 @@ async function setup() {
   await db.execute(sql`INSERT INTO factory_projects(tenant_id, project_id) VALUES (${TENANT}, ${projectId})`);
   await db.execute(sql`INSERT INTO factory_runs(tenant_id, project_id, run_id, definition_digest, interpreter_build, execution_epoch, request_digest, request_payload) VALUES (${TENANT}, ${projectId}, ${runId}, ${`sha256:${"a".repeat(64)}`}, 'test', 6, 'request', '{}')`);
 
-  const request = runnerRequest(attemptId, projectId, runId, Date.now() + 600_000);
+  const request = runnerRequest(attemptId, projectId, runId, Date.now() + 600_000, options.model);
   const authority = factoryRunnerRequestAuthority(request);
-  await db.execute(sql`INSERT INTO factory_executions(attempt_id,tenant_id,project_id,run_id,node_instance_id,candidate_generation,attempt_number,grant_revision,reservation_generation,execution_epoch,cancellation_epoch,deadline_at,request_hash,request_json,status)
-    VALUES (${attemptId},${TENANT},${projectId},${runId},'node-a',0,1,1,1,6,0,${authority.deadlineAt},${authority.requestDigest},'{}'::jsonb,'admitted')`);
+  // Admitted the way the dispatcher admits it, so the model half can read the
+  // committed request back and the staging half fences on the same row.
+  const journal = new FactoryExecutionJournal(db, async () => {});
+  await journal.admit({ ...authority, request });
 
   const blobs = new FileBlobStore(join(root, "blobs"));
   const artifacts = new FactoryArtifacts(db, blobs, TENANT);
-  const journal = new FactoryExecutionJournal(db, async () => {});
-  const broker = createFactoryGuestMaterialFrameBroker({ services: createFactoryGuestMaterialServices({ database: db, artifacts, blobs, journal }) });
+  const stores = { database: db, artifacts, blobs, journal };
+  const broker = createFactoryGuestMaterialFrameBroker({ services: createFactoryGuestMaterialServices(stores) });
+  const model = createFactoryGuestModelFrameBroker({ journal, workspace: new FactoryWorkspaceCheckpoints(stores), provider: options.provider ?? factoryUnpinnedModelProvider });
 
   const certs = await certificates(directories, TENANT);
   // The host's bearer-token key pair, and a token minted for the host.
@@ -116,7 +162,7 @@ async function setup() {
       hosts: { [TENANT]: HOST },
       tokens: async () => ({ issuer: TOKEN_ISSUER, audience: TOKEN_AUDIENCE, publicKeys: { test: hostPublicKey } }),
       leaseHost: async () => lease,
-      broker, jwtSecret: SECRET, installationId: INSTALLATION,
+      broker, model, jwtSecret: SECRET, installationId: INSTALLATION,
     }),
   });
   closing.push(async () => { service.stop(); });
@@ -169,15 +215,44 @@ test("a refusal crosses the boundary as a refusal, not as a transport failure", 
   expect((failure as FactoryGuestMaterialError).code).toBe("stale_epoch");
 }, 120_000);
 
-test("a payload that is not a staging frame never crosses, and is delegated or refused here", async () => {
+test("a payload that is neither a staging frame nor a model request never crosses, and is delegated or refused here", async () => {
   const fixture = await setup();
   const seen: unknown[] = [];
   const delegating = await createFactoryGuestBrokerClient({ baseUrl: fixture.service.url, tls: fixture.paths, serverName: "localhost", delegate: { invoke: async (_request: FactoryRunnerRequest, payload: unknown) => { seen.push(payload); return { accepted: true }; } } });
-  expect(await delegating.invoke(fixture.request, { schemaVersion: "factory.guest-model-request.v1" })).toEqual({ accepted: true });
+  expect(await delegating.invoke(fixture.request, { kind: "guest-model-report" })).toEqual({ accepted: true });
   expect(seen).toHaveLength(1);
 
   const alone = await createFactoryGuestBrokerClient({ baseUrl: fixture.service.url, tls: fixture.paths, serverName: "localhost" });
-  await expect(alone.invoke(fixture.request, { schemaVersion: "factory.guest-model-request.v1" })).rejects.toThrow("has no other route");
+  await expect(alone.invoke(fixture.request, { kind: "guest-model-report" })).rejects.toThrow("has no other route");
+}, 120_000);
+
+test("a model request crosses the host boundary and is answered by the product's model broker, never by the host", async () => {
+  const answered = answering("from the product");
+  const fixture = await setup({ model: PIN, provider: async () => answered.provider });
+  const seen: unknown[] = [];
+  const host = await createFactoryGuestBrokerClient({ baseUrl: fixture.service.url, tls: fixture.paths, serverName: "localhost", delegate: { invoke: async (_request: FactoryRunnerRequest, payload: unknown) => { seen.push(payload); return null; } } });
+  expect(await host.invoke(fixture.request, modelRequest(fixture.operationId))).toMatchObject({ status: "completed", operationId: fixture.operationId, text: "from the product", usage: { kind: "measured", inputTokens: 3, outputTokens: 2 } });
+  // The delegate never saw it, and the provider was called once.
+  expect(seen).toEqual([]);
+  expect(answered.calls()).toBe(1);
+  // The cost is on the attempt's journal, settled before the guest was told.
+  expect(await fixture.journal.operations(fixture.authority)).toMatchObject([{ operationId: fixture.operationId, kind: "model", state: "completed" }]);
+  // A repeat is a typed refusal that crossed back, not a transport error.
+  expect(await host.invoke(fixture.request, modelRequest(fixture.operationId))).toMatchObject({ status: "refused", refusal: { code: "operation_settled" } });
+}, 120_000);
+
+test("a product that pins no provider refuses a model request by name, and the attempt with no pin may call none", async () => {
+  const unpinnedProduct = await setup({ model: PIN });
+  const host = await createFactoryGuestBrokerClient({ baseUrl: unpinnedProduct.service.url, tls: unpinnedProduct.paths, serverName: "localhost" });
+  const refused = await host.invoke(unpinnedProduct.request, modelRequest(unpinnedProduct.operationId)) as { status: string; refusal: { code: string; message: string } };
+  expect(refused).toMatchObject({ status: "refused", refusal: { code: "provider_unavailable" } });
+  expect(refused.refusal.message).toStartWith(FACTORY_PROVIDER_NOT_CONFIGURED);
+
+  const answered = answering("never");
+  const unpinnedAttempt = await setup({ provider: async () => answered.provider });
+  const other = await createFactoryGuestBrokerClient({ baseUrl: unpinnedAttempt.service.url, tls: unpinnedAttempt.paths, serverName: "localhost" });
+  expect(await other.invoke(unpinnedAttempt.request, modelRequest(unpinnedAttempt.operationId))).toMatchObject({ status: "refused", refusal: { code: "model_pin_mismatch" } });
+  expect(answered.calls()).toBe(0);
 }, 120_000);
 
 test("the route authenticates the host and the attempt separately, and refuses each alone", async () => {
@@ -245,7 +320,9 @@ test("an answer the product could not have produced is refused rather than hande
   closing.push(async () => { lying.stop(); });
   const host = await createFactoryGuestBrokerClient({ baseUrl: lying.url, tls: fixture.paths, serverName: "localhost" });
   const frame = { schemaVersion: "factory.guest-material-seal.v1", operationId: fixture.operationId, operationIndex: 0, objectName: "probe.bin", version: 1, digest: `sha256:${"a".repeat(64)}` };
-  await expect(host.invoke(fixture.request, frame)).rejects.toThrow("not a staging response");
+  await expect(host.invoke(fixture.request, frame)).rejects.toThrow("answered a staging frame with a value its response contract refuses");
+  // A staging answer to a model request is refused by the model contract.
+  await expect(host.invoke(fixture.request, modelRequest(fixture.operationId))).rejects.toThrow("answered a model request with a value its response contract refuses");
 
   const garbled = startFactoryPrivateHttps({
     tls: { key: fixture.certs.serverKey, cert: fixture.certs.serverCert, ca: fixture.certs.ca },
@@ -253,19 +330,49 @@ test("an answer the product could not have produced is refused rather than hande
   });
   closing.push(async () => { garbled.stop(); });
   const other = await createFactoryGuestBrokerClient({ baseUrl: garbled.url, tls: fixture.paths, serverName: "localhost" });
-  await expect(other.invoke(fixture.request, frame)).rejects.toThrow("not JSON");
+  await expect(other.invoke(fixture.request, frame)).rejects.toThrow("answered a staging frame with something that is not JSON");
+  await expect(other.invoke(fixture.request, modelRequest(fixture.operationId))).rejects.toThrow("answered a model request with something that is not JSON");
 }, 120_000);
 
-test("a supervisor configured with a guest broker forwards staging frames and still refuses a model call by name", async () => {
+test("a staging frame keeps the ordinary request timeout while a model request waits on its own", async () => {
   const fixture = await setup();
+  // A product that has received both requests and answers neither.
+  let arrivals = 0;
+  let bothArrived: () => void = () => {};
+  const received = new Promise<void>((resolve) => { bothArrived = resolve; });
+  const silent = startFactoryPrivateHttps({
+    tls: { key: fixture.certs.serverKey, cert: fixture.certs.serverCert, ca: fixture.certs.ca },
+    handle: () => { arrivals += 1; if (arrivals === 2) bothArrived(); return new Promise(() => {}); },
+  });
+  closing.push(async () => { silent.stop(); });
+  // The ordinary timeout is the transport's `requestTimeoutMs` (30 s unless
+  // set); the model request's is `modelRequestTimeoutMs` (five minutes unless set).
+  const host = await createFactoryGuestBrokerClient({ baseUrl: silent.url, tls: fixture.paths, serverName: "localhost", requestTimeoutMs: 200, modelRequestTimeoutMs: 5_000 });
+  let modelSettled = false;
+  const model = host.invoke(fixture.request, modelRequest(fixture.operationId)).finally(() => { modelSettled = true; });
+  const frame = { schemaVersion: "factory.guest-material-begin.v1", operationId: fixture.operationId, operationIndex: 0, objectName: "slow.bin", version: 1, mediaType: "application/octet-stream", totalBytes: 1, chunkCount: 1 };
+  const staging = host.invoke(fixture.request, frame);
+  await received;
+  await expect(staging).rejects.toThrow("factory gateway request timed out");
+  // The staging frame gave up on its own timeout; the model request is still waiting on its longer one.
+  expect(modelSettled).toBe(false);
+  await expect(model).rejects.toThrow("factory gateway request timed out");
+  expect(FACTORY_GUEST_MODEL_REQUEST_TIMEOUT_MS).toBe(300_000);
+}, 120_000);
+
+test("a supervisor configured with a guest broker forwards staging frames and model requests, and refuses anything else by name", async () => {
+  const answered = answering("through the supervisor");
+  const fixture = await setup({ model: PIN, provider: async () => answered.provider });
   const { caPath, certificatePath, privateKeyPath, serviceTokenPath } = fixture.paths;
   // Exactly the section a supervisor document carries: a base URL and paths.
   const host = await createFactoryConfiguredGuestBroker({ baseUrl: fixture.service.url, serviceTokenPath, tls: { caPath, certificatePath, privateKeyPath } });
   const frame = { schemaVersion: "factory.guest-material-begin.v1", operationId: fixture.operationId, operationIndex: 0, objectName: "configured.bin", version: 1, mediaType: "application/octet-stream", totalBytes: 4, chunkCount: 1 };
   expect(await host.invoke(fixture.request, frame)).toMatchObject({ status: "begun", objectName: "configured.bin" });
-  // No route serves a model request yet, so it keeps the host's default answer
-  // rather than reaching a route that would not know it.
-  await expect(host.invoke(fixture.request, { schemaVersion: "factory.guest-model-request.v1" })).rejects.toMatchObject({ code: "factory_host_broker_unavailable" });
+  // A model request takes the same route and is answered by the product.
+  expect(await host.invoke(fixture.request, modelRequest(fixture.operationId))).toMatchObject({ status: "completed", text: "through the supervisor" });
+  // Anything else keeps the host's default answer rather than reaching a route
+  // that would not know it.
+  await expect(host.invoke(fixture.request, { kind: "guest-model-report" })).rejects.toMatchObject({ code: "factory_host_broker_unavailable" });
   // A section whose credential file is missing fails when the host composes,
   // before its listener binds, not on a guest's first frame.
   await expect(createFactoryConfiguredGuestBroker({ baseUrl: fixture.service.url, serviceTokenPath: `${serviceTokenPath}.missing`, tls: { caPath, certificatePath, privateKeyPath } }))
@@ -278,7 +385,14 @@ test("a supervisor configured with a guest broker forwards staging frames and st
  * The files sit in a private directory under HOME because the private reader
  * refuses a world-writable ancestor such as /tmp.
  */
-async function composedRoute(fixture: Awaited<ReturnType<typeof setup>>, overrides: { readonly secret?: string; readonly missingKey?: boolean } = {}) {
+/** The launch record the dispatcher writes, naming the host that holds the lease. */
+async function recordLaunch(fixture: Awaited<ReturnType<typeof setup>>): Promise<void> {
+  const receipt = JSON.stringify({ projectId: fixture.projectId, artifactDigest: "b".repeat(64) });
+  await fixture.db.execute(sql`INSERT INTO factory_attempt_launches(attempt_id,tenant_id,project_id,run_id,request_digest,request_json,reservation_id,grant_revision,allocation_generation,holder_generation,allocation_token,host_id,package_receipt_digest,package_receipt_json,artifact_digest,worker_id,invocation_id,state)
+    VALUES (${fixture.attemptId},${TENANT},${fixture.projectId},${fixture.runId},${"c".repeat(64)},'{}','reservation-a',1,1,1,'allocation-a',${HOST},${`sha256:${"d".repeat(64)}`},${receipt}::jsonb,${"b".repeat(64)},${factoryAttemptWorkerId(fixture.attemptId)},${factoryAttemptInvocationId(fixture.attemptId, 0, 1)},'launched')`);
+}
+
+async function composedRoute(fixture: Awaited<ReturnType<typeof setup>>, overrides: { readonly secret?: string; readonly missingKey?: boolean; readonly modelProvider?: FactoryOneHopProvider } = {}) {
   const root = await mkdtemp(join(process.env.HOME!, ".w01g-guest-broker-"));
   directories.push(root);
   await chmod(root, 0o700);
@@ -303,15 +417,18 @@ async function composedRoute(fixture: Awaited<ReturnType<typeof setup>>, overrid
       tls: { caPath: files.ca, certificatePath: files.cert, privateKeyPath: files.key },
       tokens: { issuer: TOKEN_ISSUER, audience: TOKEN_AUDIENCE, publicKeyPaths: { test: tokenKey } },
     },
+    ...(overrides.modelProvider === undefined ? {} : { modelProvider: { provider: PIN.provider, model: PIN.model } }),
   } as unknown as FactoryStartupConfig;
   const reported: Array<{ role: string; error: unknown }> = [];
+  const pinsAsked: unknown[] = [];
   const composed = await composeFactoryGuestBroker({
     database: fixture.db, config, blobs: fixture.blobs,
     application: { artifacts: fixture.artifacts, journal: fixture.journal },
     report: (role, error) => { reported.push({ role, error }); },
+    ...(overrides.modelProvider === undefined ? {} : { modelProvider: async (pin) => { pinsAsked.push(pin); return overrides.modelProvider!; } }),
   });
   if (composed.listener) closing.push(async () => { composed.listener!.stop(); });
-  return { composed, reported, secret, port };
+  return { composed, reported, secret, port, pinsAsked };
 }
 
 test("the product binds the guest-broker route from its startup document, and a host's frame reaches it", async () => {
@@ -319,11 +436,8 @@ test("the product binds the guest-broker route from its startup document, and a 
   const { composed, reported, secret } = await composedRoute(fixture);
   expect(composed.readiness).toEqual({ state: "bound" });
   expect(reported).toEqual([]);
-  // The launch record the dispatcher writes, naming the host that holds the
-  // lease. The route reads it through the runtime's own launch reader.
-  const receipt = JSON.stringify({ projectId: fixture.projectId, artifactDigest: "b".repeat(64) });
-  await fixture.db.execute(sql`INSERT INTO factory_attempt_launches(attempt_id,tenant_id,project_id,run_id,request_digest,request_json,reservation_id,grant_revision,allocation_generation,holder_generation,allocation_token,host_id,package_receipt_digest,package_receipt_json,artifact_digest,worker_id,invocation_id,state)
-    VALUES (${fixture.attemptId},${TENANT},${fixture.projectId},${fixture.runId},${"c".repeat(64)},'{}','reservation-a',1,1,1,'allocation-a',${HOST},${`sha256:${"d".repeat(64)}`},${receipt}::jsonb,${"b".repeat(64)},${factoryAttemptWorkerId(fixture.attemptId)},${factoryAttemptInvocationId(fixture.attemptId, 0, 1)},'launched')`);
+  // The route reads the lease through the runtime's own launch reader.
+  await recordLaunch(fixture);
 
   // The token verifies with the dispatcher's own secret file, not a copy.
   const token = await signFactoryAttemptToken(fixture.authority, secret, INSTALLATION, 600);
@@ -347,6 +461,30 @@ test("the product binds the guest-broker route from its startup document, and a 
   const moved = await host.invoke(request, probe).then(() => undefined, (error: unknown) => error as { response: { statusCode: number; body: Buffer } });
   expect(moved?.response.statusCode).toBe(403);
   expect(JSON.parse(moved!.response.body.toString("utf8"))).toEqual({ error: "forbidden_host" });
+}, 120_000);
+
+test("the composed route answers a model request with the installation's pinned provider, and names a missing pin", async () => {
+  const answered = answering("composed");
+  const fixture = await setup({ model: PIN });
+  await recordLaunch(fixture);
+  const pinned = await composedRoute(fixture, { modelProvider: answered.provider });
+  const token = await signFactoryAttemptToken(fixture.authority, pinned.secret, INSTALLATION, 600);
+  const request = { ...fixture.request, broker: { ...fixture.request.broker, attemptToken: token } } as FactoryRunnerRequest;
+  const { caPath, certificatePath, privateKeyPath, serviceTokenPath } = fixture.paths;
+  const host = await createFactoryConfiguredGuestBroker({ baseUrl: pinned.composed.listener!.url, serviceTokenPath, tls: { caPath, certificatePath, privateKeyPath } });
+  expect(await host.invoke(request, modelRequest(fixture.operationId))).toMatchObject({ status: "completed", text: "composed" });
+  // The provider was asked for the installation's own pin, from its startup document.
+  expect(pinned.pinsAsked).toEqual([{ provider: PIN.provider, model: PIN.model }]);
+
+  // The same attempt against a route whose document pins no provider: the
+  // next operation is refused by name, and the failure is on the journal.
+  const unpinned = await composedRoute(fixture);
+  const bare = await createFactoryConfiguredGuestBroker({ baseUrl: unpinned.composed.listener!.url, serviceTokenPath, tls: { caPath, certificatePath, privateKeyPath } });
+  const next = { ...(modelRequest(`${fixture.runId}:node-a:0:1`) as Record<string, JsonValue>), operationIndex: 1 } as JsonValue;
+  const refused = await bare.invoke({ ...request, broker: { ...request.broker, attemptToken: await signFactoryAttemptToken(fixture.authority, unpinned.secret, INSTALLATION, 600) } }, next) as { refusal: { code: string; message: string } };
+  expect(refused.refusal.code).toBe("provider_unavailable");
+  expect(refused.refusal.message).toStartWith(FACTORY_PROVIDER_NOT_CONFIGURED);
+  expect((await fixture.journal.operations(fixture.authority)).map(operation => operation.state)).toEqual(["completed", "failed"]);
 }, 120_000);
 
 test("an undeclared route is named in readiness, and a declared one that cannot bind is reported and named", async () => {

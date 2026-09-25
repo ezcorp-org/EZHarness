@@ -2,7 +2,7 @@ import { streamSimple } from "@earendil-works/pi-ai/compat";
 import type { Api, AssistantMessageEventStream, Model } from "@earendil-works/pi-ai";
 import type { FactoryBroker, FactoryBrokerRequest } from "../runtime/factory-execution";
 import { tryGetCredential, type ProviderCredential } from "./credentials";
-import { isKnownCatalogModel, resolveModelObject } from "./registry";
+import { resolvePinnedModel, type PinnedModelResolution } from "./router";
 
 /**
  * The host side of the factory provider transport.
@@ -53,8 +53,26 @@ export class FactoryProviderReadinessError extends Error {
 
 export interface FactoryProviderReadinessOptions {
   readonly resolveCredential?: (provider: string) => Promise<ProviderCredential | null>;
-  readonly isAvailableModel?: (provider: string, model: string) => boolean;
+  readonly isAvailableModel?: (provider: string, model: string) => boolean | Promise<boolean>;
   readonly now?: () => number;
+}
+
+/**
+ * Whether the deployment can serve this pin without inventing a model.
+ *
+ * A catalog model is servable, and so is one the operator registered with an
+ * endpoint (`provider:customModels`, the "add a local provider" path a host's
+ * Ollama takes), one a refresh discovered, and the test-surface mock. The one
+ * answer that is NOT servable is the synthesized stand-in, which would send the
+ * call to a default endpoint that never heard of the model.
+ */
+export async function isFactoryServableModel(provider: string, model: string): Promise<boolean> {
+  return isServableResolution(await resolvePinnedModel(provider, model));
+}
+
+/** The same verdict for a resolution already in hand, so a caller never resolves twice. */
+export function isServableResolution(resolution: PinnedModelResolution): boolean {
+  return resolution.source !== "stand-in";
 }
 
 /**
@@ -68,10 +86,10 @@ export async function factoryProviderReadiness(
   options: FactoryProviderReadinessOptions = {},
 ): Promise<FactoryProviderReadiness> {
   const now = options.now ?? Date.now;
-  const available = options.isAvailableModel ?? isKnownCatalogModel;
+  const available = options.isAvailableModel ?? isFactoryServableModel;
   const resolve = options.resolveCredential ?? tryGetCredential;
   const failures: FactoryProviderReadinessFailure[] = [];
-  if (!available(pin.provider, pin.model)) failures.push("model_not_available");
+  if (!await available(pin.provider, pin.model)) failures.push("model_not_available");
   const credential = await resolve(pin.provider);
   if (credential === null) failures.push("provider_not_configured");
   return {
@@ -83,6 +101,19 @@ export async function factoryProviderReadiness(
     failures,
     checkedAtMs: now(),
   };
+}
+
+/** A request for a model other than the pin: refused by name, never served by the pin instead. */
+export function factoryModelPinMismatch(provider: string, model: string): FactoryProviderReadinessError {
+  return new FactoryProviderReadinessError({
+    schemaVersion: FACTORY_PROVIDER_READINESS_SCHEMA_VERSION,
+    provider,
+    model,
+    ready: false,
+    credentialKind: null,
+    failures: ["model_pin_mismatch"],
+    checkedAtMs: Date.now(),
+  });
 }
 
 /** The readiness record with nothing secret in it, for an evidence file. */
@@ -102,7 +133,7 @@ export interface FactoryProviderBrokerOptions extends FactoryProviderReadinessOp
   readonly pin: FactoryProviderPin;
   /** Injected only by tests that must drive the stream without a network. */
   readonly stream?: typeof streamSimple;
-  readonly resolveModel?: (provider: string, model: string) => Model<Api>;
+  readonly resolveModel?: (provider: string, model: string) => Model<Api> | Promise<Model<Api>>;
 }
 
 /**
@@ -114,20 +145,14 @@ export interface FactoryProviderBrokerOptions extends FactoryProviderReadinessOp
  */
 export function createFactoryProviderBroker(options: FactoryProviderBrokerOptions): FactoryBroker {
   const resolveCredential = options.resolveCredential ?? tryGetCredential;
-  const resolveModel = options.resolveModel ?? ((provider, model) => resolveModelObject(provider, model) as Model<Api>);
+  // The same resolution a pinned conversation gets, so a registered local model
+  // is called at its registered endpoint rather than at a default one.
+  const resolveModel = options.resolveModel ?? (async (provider: string, model: string) => (await resolvePinnedModel(provider, model)).piModel as Model<Api>);
   const send = options.stream ?? streamSimple;
   return {
     async stream(request: FactoryBrokerRequest): Promise<AssistantMessageEventStream> {
       if (request.model.provider !== options.pin.provider || request.model.id !== options.pin.model) {
-        throw new FactoryProviderReadinessError({
-          schemaVersion: FACTORY_PROVIDER_READINESS_SCHEMA_VERSION,
-          provider: request.model.provider,
-          model: request.model.id,
-          ready: false,
-          credentialKind: null,
-          failures: ["model_pin_mismatch"],
-          checkedAtMs: Date.now(),
-        });
+        throw factoryModelPinMismatch(request.model.provider, request.model.id);
       }
       const readiness = await factoryProviderReadiness(options.pin, options);
       if (!readiness.ready) throw new FactoryProviderReadinessError(readiness);
@@ -135,7 +160,7 @@ export function createFactoryProviderBroker(options: FactoryProviderBrokerOption
       // `readiness` already resolved one; a credential that vanished in between is a failure, not
       // a reason to proceed without authentication.
       if (credential === null) throw new FactoryProviderReadinessError({ ...readiness, ready: false, credentialKind: null, failures: ["provider_not_configured"] });
-      return send(resolveModel(options.pin.provider, options.pin.model), request.context, { ...request.options, apiKey: credential.token });
+      return send(await resolveModel(options.pin.provider, options.pin.model), request.context, { ...request.options, apiKey: credential.token });
     },
   };
 }

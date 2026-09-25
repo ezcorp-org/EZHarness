@@ -160,6 +160,9 @@ export function factoryRunnerProfiles(config: FactoryStartupConfig): {
       resourceClass: profile.resourceClass,
       allocation: allocation(profile),
       allowedCapabilities: Object.freeze([...profile.allowedCapabilities]),
+      // The pin the policy compares with the node's runner and hands to the
+      // attempt. Without it an attempt carries no model and may call none.
+      ...(profile.model === undefined ? {} : { model: profile.model }),
       tools: Object.freeze([]),
     }))),
   });
