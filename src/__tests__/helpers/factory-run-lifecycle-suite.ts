@@ -1727,6 +1727,21 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     }
   });
 
+  test("a guest that outlives the dispatcher's queue lease still has its completion or its failure recorded", async () => {
+    // The W19a fault pass: a 70 s guest outlived the 60 s queue lease and its outcome was rolled back.
+    for (const status of ["completed", "failed"] as const) {
+      const { task, completions, outcomes, result } = await completedTask();
+      const failed: FactoryRunnerResult = { schemaVersion: result.schemaVersion, status: "failed", journalCursor: result.journalCursor, operations: result.operations, resultDigest: "7".repeat(64), error: { code: "RUNNER_CONTAINER_EXIT", message: "stopped at its deadline", retryable: true }, usage: result.usage, workspaceCheckpoint: result.workspaceCheckpoint };
+      const dispatcher = new FactoryAttemptDispatcher(fixture.db, task.queue, { async run() {
+        now += 2_000; // past the 1 s queue lease; nobody else claimed it
+        return status === "completed" ? result : failed;
+      } }, completions, outcomes, dispatchReady, dispatchReadinessDisposition, { service: task.service, installationId: "dispatcher-installation", attemptTokenSecret: "dispatcher-secret", leaseMs: 1_000 });
+      expect(await dispatcher.dispatchOne()).toMatchObject({ kind: status, attemptId: task.dispatch.id, recovered: false });
+      expect(await task.queue.read(projectId, task.dispatch.id)).toMatchObject({ state: "delivered" });
+      await new FactoryRunTransitionProjector(fixture.db, tenantId, task.transitions, lifecycle).project(runKey(task.run.runId));
+    }
+  });
+
   test("the sealed attempt deadline is the node command's, not the first pool lease's", async () => {
     const { task, authority, completions, outcomes, result } = await completedTask();
     // The pool granted a lease one second long; the attempt keeps the node's own deadline and renews the lease instead.
