@@ -84,7 +84,7 @@ answer for each prompt digest.
 ## Run the whole proof
 
 This builds the web server from the worktree. Then it runs three passes in
-mode `ollama`, three passes in mode `mock`, the two negative controls, and the
+mode `ollama`, three passes in mode `mock`, the three controls, and the
 summary. Every pass boots a fresh installation on new, empty pool and product
 databases. The command holds the shared heavy lock, with the timeout inside
 the lock.
@@ -139,7 +139,8 @@ All paths are under `W19A_OUT`. The default is
 | --- | --- |
 | `<label>.json` | one pass: every HTTP step, the run timeline, each node's evidence, the checks, and the verdict |
 | `<label>.log` | the pass's own output; the last line is its verdict |
-| `<label>.server.log` | the web server's full log for that pass |
+| `<label>.process-<name>.log` | each process's full output, streamed as it arrived: `pool`, `supervisor`, `temporal`, `temporal-tls`, `gateway-stub`, `web`, `orchestrator` |
+| `<label>.stack/` | a failed pass only: the stack's `readiness/*.json` and any `*.log`, copied out before the stack directory is deleted |
 | `summary.json` | the cross-pass verdict |
 | `web-build.log` | the web build |
 
@@ -190,6 +191,7 @@ happened.
 | A binding to a port that does not exist | part of the `no-pin` pass | `POST .../definitions/<id>/validate` answers `valid: false` with the diagnostic `BINDING_PORT`; the draft is stored as `unavailable`; publishing it answers 422 `factory_definition_invalid` with the issue `BINDING_PORT` |
 | `infer` with no model pin | `run.sh pass mock no-pin control-no-pin` | `infer` fails with `model_pin_mismatch`; the journal holds no operation for it; `combine` never runs; the run ends `failed` |
 | A model Ollama does not have | `run.sh pass ollama missing-model control-missing-model` | `infer` fails with `provider_unavailable`, carrying `model 'qwen3:w19a-missing' not found`; the journal holds one failed model operation with that message; `combine` never runs |
+| A failed pass keeps its diagnostics | `run.sh pass mock forced-failure control-forced-failure`, then `bun scripts/factory-graph-proof/verify-diagnostics.ts <W19A_OUT> control-forced-failure` | the pass runs the whole mock proof, then fails by the named check `forced failure: the diagnostics control fails this pass on purpose`; every `control-forced-failure.process-<name>.log` exists, is non-empty, and ends with its exit line; `control-forced-failure.stack/readiness/` holds `pool.json`, `supervisor.json` and `orchestration.json`; the check is written to `control-forced-failure.diagnostics-check.json` |
 
 The missing-model control shows one more fact, and the record keeps it in
 `heldRunFinding`. The run does not end. The failed model operation carries no
@@ -211,7 +213,18 @@ guard accept those two names when the container's `/etc/hosts` maps them.
 ## If a pass fails
 
 - Read `failure` and `checks` in the record. Each failed check carries its detail.
+- Read the processes' own words in `<label>.process-<name>.log`. Each file starts
+  with a `[w19-harness]` line naming the command and pid and ends with one naming
+  the exit code or signal. The pool and the supervisor print little; their own
+  last word is in `<label>.stack/readiness/pool.json` and `supervisor.json`
+  (`lifecycle`, and `errorCode` when degraded).
 - A pass that could not reach `/api/ready` records `orchestration` and
-  `hostProcesses`, and the last lines of every process log in `processLogTails`.
-- The product database of a failed pass is kept. Its name is in
-  `retainedProductDatabase`. Drop it when you are done.
+  `hostProcesses`; the same files hold the rest.
+- Nothing in these files carries a secret. Every value under the stack's
+  `secrets/`, the database password, and the web server's own secrets are
+  collected first. A streamed log has each one replaced by `[redacted]`; a stack
+  file that carries one is refused, not copied. The record lists both under
+  `diagnostics` (`redactions`, and `stack.refused`), with `stack.copied`,
+  `stack.oversize` and `stack.unreadable`. `secrets/` is never copied.
+- The product database of a failed pass is kept, except for the forced-failure
+  control. Its name is in `retainedProductDatabase`. Drop it when you are done.

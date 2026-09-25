@@ -50,6 +50,16 @@ for (const label of ["control-no-pin", "control-missing-model"]) {
   criteria.push({ criterion: `${label}: every refusal named`, ok: record?.outcome === "passed", detail: record?.checks ?? record?.failure ?? "absent" });
   controls[label] = { outcome: record?.outcome ?? "absent", timeline: record?.run?.timeline ?? null, checks: record?.checks ?? null };
 }
+{
+  // The forced-failure control: the pass must fail by its own named check, and
+  // what it left behind must hold (verify-diagnostics.ts).
+  const record = await load("control-forced-failure");
+  const file = Bun.file(join(dir, "control-forced-failure.diagnostics-check.json"));
+  const check = await file.exists() ? await file.json() as { ok?: boolean; problems?: string[] } : undefined;
+  const forced = record?.outcome === "failed" && String(record.failure ?? "").includes("forced failure: the diagnostics control fails this pass on purpose");
+  criteria.push({ criterion: "control-forced-failure: the pass failed on purpose and left every process log and readiness file", ok: forced && check?.ok === true, detail: { outcome: record?.outcome ?? "absent", problems: check?.problems ?? "no check" } });
+  controls["control-forced-failure"] = { outcome: record?.outcome ?? "absent", diagnostics: check ?? null };
+}
 const summary = {
   generatedAt: new Date().toISOString(),
   verdict: criteria.every((entry) => entry.ok) ? "passed" : "failed",

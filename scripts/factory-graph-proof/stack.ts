@@ -33,6 +33,7 @@ import { connect as netConnect } from "node:net";
 import { setTimeout as sleep } from "node:timers/promises";
 import { SQL } from "bun";
 import type { JsonValue } from "@ezcorp/factory-sdk";
+import { collectSecretValues, openProcessLog, preserveStackDiagnostics, redactStreamedLogs, type PassDiagnostics, type ProcessLog } from "./diagnostics";
 
 export const TENANT = "tenant-01";
 export const INSTALLATION = "installation-w19a";
@@ -57,9 +58,11 @@ export interface StackOptions {
   /** Extra environment for the web server only (the mock mode opens the test surface). */
   readonly webEnv?: Readonly<Record<string, string>>;
   readonly record: Record<string, unknown>;
+  /** Where each process's output streams as it arrives, and where a failed pass's stack files are kept. */
+  readonly diagnostics: PassDiagnostics;
 }
 
-interface Child { readonly name: string; child: ReturnType<typeof spawn>; log: string[] }
+interface Child { readonly name: string; child: ReturnType<typeof spawn>; log: string[]; readonly file: ProcessLog; readonly closed: Promise<void> }
 
 export interface Stack {
   readonly root: string;
@@ -69,8 +72,13 @@ export interface Stack {
   readonly runnerRoot: string;
   readonly session: ReturnType<typeof session>;
   readonly children: readonly Child[];
-  /** Stop every child, write the logs, and drop the databases (the product one only if `keepProduct` is false). */
-  stop(keepProduct: boolean): Promise<void>;
+  /**
+   * Stop every child, redact and close the streamed logs, and drop the
+   * databases (the product one only if `keepProduct` is false). With
+   * `keepDiagnostics`, the stack's readiness files and logs are copied out
+   * first; it defaults to `keepProduct`, so a failed pass keeps both.
+   */
+  stop(keepProduct: boolean, keepDiagnostics?: boolean): Promise<void>;
 }
 
 function freePort(): number {
@@ -154,9 +162,17 @@ export async function startStack(options: StackOptions): Promise<Stack> {
   const start = (name: string, command: string, args: string[], extra: { cwd?: string; env?: Record<string, string> } = {}) => {
     const child = spawn(command, args, { cwd: extra.cwd ?? repo, env: { ...process.env, ...extra.env }, stdio: ["ignore", "pipe", "pipe"], detached: true });
     const log: string[] = [];
-    child.stdout.on("data", (bytes) => log.push(String(bytes)));
-    child.stderr.on("data", (bytes) => log.push(String(bytes)));
-    const entry = { name, child, log };
+    // Streamed to the pass's output directory as it arrives, so a pass that
+    // dies or deletes its stack still leaves every process's own words.
+    const file = openProcessLog(options.diagnostics, name, command, args, child.pid);
+    const take = (bytes: Buffer) => { log.push(String(bytes)); file.write(bytes); };
+    child.stdout.on("data", take);
+    child.stderr.on("data", take);
+    const closed = new Promise<void>((resolve) => {
+      child.once("close", (code, signal) => { void file.close({ code, signal }).then(resolve, resolve); });
+      child.once("error", () => { void file.close({ code: null, signal: "spawn-error" }).then(resolve, resolve); });
+    });
+    const entry = { name, child, log, file, closed };
     children.push(entry);
     return entry;
   };
@@ -167,12 +183,16 @@ export async function startStack(options: StackOptions): Promise<Stack> {
   const secrets = join(root, "secrets");
   const directories = [root];
   const created: string[] = [];
+  // Secrets that live only in a process environment, never in a file: the
+  // redaction and the copy scan must know them too.
+  const webSecrets = { jwt: `w19a-jwt-${randomBytes(12).toString("hex")}`, encryption: `w19a-enc-${randomBytes(12).toString("hex")}` };
+  const secretsInEnvironment = [webSecrets.jwt, webSecrets.encryption];
   let admin: SQL | undefined;
   let productDatabase = "";
   let web: Child | undefined;
   let stopped = false;
   /** Takes down everything this stack made, whatever point it reached. */
-  const stop = async (keepProduct: boolean) => {
+  const stop = async (keepProduct: boolean, keepDiagnostics = keepProduct) => {
     if (stopped) return;
     stopped = true;
     if (web !== undefined) {
@@ -180,7 +200,20 @@ export async function startStack(options: StackOptions): Promise<Stack> {
       await Promise.race([new Promise((settle) => web!.child.once("exit", settle)), sleep(30_000)]);
     }
     for (const entry of children) stopGroup(entry.child.pid, "SIGKILL");
-    await sleep(500);
+    // Every exit line on disk before anything is scanned or copied.
+    await Promise.race([Promise.all(children.map((entry) => entry.closed)), sleep(10_000)]);
+    await Promise.all(children.map((entry) => entry.file.close({ code: null, signal: "harness-stopped" })));
+    try {
+      const secretValues = await collectSecretValues(join(root, "secrets"), [...secretsInEnvironment, process.env.FACTORY_TEST_POSTGRES_URL ?? ""]);
+      const redactions = await redactStreamedLogs(children.map((entry) => entry.file.path), secretValues);
+      record.diagnostics = {
+        processLogs: children.map((entry) => entry.file.path),
+        redactions,
+        ...(keepDiagnostics ? { stack: await preserveStackDiagnostics(root, options.diagnostics, secretValues) } : {}),
+      };
+    } catch (error) {
+      record.diagnostics = { error: String(error) };
+    }
     try {
       for (const database of created) {
         if (keepProduct && database === productDatabase) { record.retainedProductDatabase = database; continue; }
@@ -392,8 +425,8 @@ export async function startStack(options: StackOptions): Promise<Stack> {
       EZCORP_PERM_SWEEP_INTERVAL_MS: "30000",
       EZCORP_SECRETS_DIR: secrets, EZCORP_PROJECT_ROOT: join(root, "project"),
       DATABASE_URL: productUrl.toString(),
-      EZCORP_JWT_SECRET: `w19a-jwt-${randomBytes(12).toString("hex")}`,
-      EZCORP_ENCRYPTION_SECRET: `w19a-enc-${randomBytes(12).toString("hex")}`,
+      EZCORP_JWT_SECRET: webSecrets.jwt,
+      EZCORP_ENCRYPTION_SECRET: webSecrets.encryption,
       EZCORP_FACTORY_STORAGE_SECRETS_DIR: process.env.EZCORP_FACTORY_STORAGE_SECRETS_DIR!,
       ...options.webEnv,
     },
@@ -419,15 +452,12 @@ export async function startStack(options: StackOptions): Promise<Stack> {
   }
   record.ready = ready;
 
-  if (ready === null) {
-    record.processLogs = Object.fromEntries(children.map((entry) => [entry.name, entry.log.join("").slice(-6_000)]));
-  }
   return { root, port, productUrl: productUrl.toString(), productDatabase, runnerRoot, session: api, children, stop };
   } catch (error) {
     // Nothing a failed start made may outlive it: not a child, not a
     // database on the shared server, not a private directory.
-    record.processLogs = Object.fromEntries(children.map((entry) => [entry.name, entry.log.join("").slice(-6_000)]));
-    await stop(false);
+    // A start that failed is a failed pass: its diagnostics are kept.
+    await stop(false, true);
     throw error;
   }
 }
