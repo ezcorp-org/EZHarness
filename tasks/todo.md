@@ -4601,3 +4601,48 @@ Numbering grants turns revoke-then-grant into history rather than a conflict. A 
 that matters: one active grant per target. First grants keep their old seal, so every existing row still
 verifies. The display name is read from the user or service-account record only. It is resolved outside the
 authorization path, and it can never fall back to the raw id.
+
+## W18 hygiene — 60 partial api-keys mocks, hook cap, 27 bare git-init tests (branch `wp/w18-hygiene`)
+
+Base `integ/w00` `2b2e12550`. Receipts: `/tmp/factory-platform-evidence/w18-hygiene/receipts/`. Gates:
+`tasks/factory/w18-hygiene-GATES.md`. Item lists (F1 = 60 files, F2 = 27 files) are W18a-3's, copied
+verbatim from `tasks/factory/w18a3-GATES.md`.
+
+### Item A — F1
+
+- [x] Add `webLibModule()` to `src/__tests__/helpers/mock-cleanup.ts`, identical to W18a-3's (found on
+  their unmerged branch `wp/w18a3-quality-r2`; not yet on this package's base).
+- [x] Convert all 60 listed suites' partial `$lib/server/security/api-keys` mock to `webLibModule(...)`.
+- [x] Find and fix a self-recursion hazard: the 14 dual-specifier files (`$lib/...` + the resolved
+  relative path, same factory) and, separately, ALL 24 web-side files (because `web/`'s generated
+  tsconfig maps `$lib/*` to a really-resolvable path, unlike the virtual-only repo root) drop every
+  export but the override if `webLibModule()` is called lazily inside a factory also registered for the
+  same resolved module. Fixed by computing the merged object once, before either registration.
+- [x] Verify all 60 pass at their REAL invocation (some web files are only correctly gated from the repo
+  root, per `scripts/lib/test-file-sets.sh`'s `passfail_files`, not from `web/`).
+- [x] Add a guard test rejecting a partial `$lib/*` factory (general detector, pinned by fixtures;
+  enforced repo-wide for the api-keys module this item completed, with four named exemptions for files
+  W18a-3 is fixing on its own unmerged branch).
+- [x] typecheck, lint, boundaries, gate-integrity, `factory-process-boundaries.test.ts` all green.
+
+**Review.** The 60 suites' mocks were correct for the ONE key each test used, and silently wrong for
+every OTHER key any later test in the same process needed — a raw object literal freezes Bun's
+mock.module() export list forever, and neither a second registration nor restoreModuleMocks() can add a
+name back. Reproduced the base failure directly: running the 36 src-side files together in one batch
+(the F1 disclosure's own words — "any of them run before a route that imports requireAdmin fails to
+link") throws exactly that SyntaxError on the base, and the api-keys-specific instances of it are gone
+after the fix (unrelated pre-existing pollution from OTHER $lib modules, present on the base too, is
+disclosed and left alone — out of scope for this item). The harder finding was that `webLibModule()`
+itself needs to run BEFORE its own mock.module() registration when the specifier it targets and the
+plain relative path to the real file can resolve to the same module record — proven with a standalone
+repro, and this affects every web-side file, not only the already-known dual-specifier ones, because
+`$lib` genuinely resolves there.
+
+### Item B — pre-commit hook cap
+
+Not started this session. See report to team-lead.
+
+### Item C — F2 (27 bare git-init tests)
+
+Blocked on the integ/w00 hash containing W18a-3 (needs `src/__tests__/helpers/scratch-git.ts`). Not
+started.
