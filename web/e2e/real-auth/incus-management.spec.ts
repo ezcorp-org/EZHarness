@@ -44,10 +44,12 @@ function feature(state: string, operation: { id: string; kind: string; state: st
 	};
 }
 
+type FeatureFixture = ReturnType<typeof feature> & { tombstonedAt?: string | null; cleanupConfirmedAt?: string | null };
+
 async function mockManagement(page: Page, options: { initiallyQualified?: boolean; initialFeature?: ReturnType<typeof feature>; loseFirstCreateResponse?: boolean; rejectFirstCreate?: boolean; holdApply?: boolean } = {}) {
 	let qualified = options.initiallyQualified ?? false;
 	let qualificationRunId: string | null = null;
-	let currentFeature = options.initialFeature ?? null;
+	let currentFeature: FeatureFixture | null = options.initialFeature ?? null;
 	let firstCreateLost = false;
 	let preparedProject = false;
 	const createKeys = new Set<string>();
@@ -168,7 +170,7 @@ test("qualifies an environment, creates a project sandbox, and manages its lifec
 	await expect(page.getByTestId("qualification-workflow").getByText("Operator fixtures are ready", { exact: true })).toBeVisible();
 	await page.getByRole("checkbox", { name: /host is ready for a live sandbox qualification/ }).check();
 	await page.getByRole("button", { name: "Run live qualification" }).click();
-	await expect(page.getByRole("status")).toContainText("Qualification started");
+	await expect(page.locator(".management-shell > .alert.notice")).toContainText("Qualification started");
 	await expect(page.getByText("Qualified", { exact: true })).toBeVisible();
 	await expect(page.getByRole("button", { name: "Create project sandbox" })).toBeEnabled();
 	await page.getByRole("textbox", { name: "New project name" }).fill(project.name);
