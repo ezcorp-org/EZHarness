@@ -1,4 +1,5 @@
 import { test, expect, describe, beforeAll, afterAll, beforeEach, mock } from "bun:test";
+import { webLibModule } from "../../../src/__tests__/helpers/mock-cleanup";
 import { mkdtemp, mkdir, writeFile, symlink, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -19,9 +20,10 @@ mock.module("$server/auth/middleware", () => ({
 	requireAuth: () => ({ id: "test-user", role: "admin" }),
 }));
 
-mock.module("$lib/server/security/api-keys", () => ({
+const apiKeysExports = webLibModule("server/security/api-keys", {
 	requireScope: () => null,
-}));
+});
+mock.module("$lib/server/security/api-keys", () => apiKeysExports);
 
 mock.module("$lib/server/workflow-access", () => ({
 	listVisibleWorkflows: async () => [],

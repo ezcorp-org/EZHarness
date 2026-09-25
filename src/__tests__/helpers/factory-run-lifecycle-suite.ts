@@ -410,6 +410,9 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
       const modeled = new FactoryNativeRunnerPolicy(tenantId, grants, [modeledProfile], "factory-broker", packagesTrustedForTest);
       const modeledResolution = await modeled.resolveInTransaction(transaction, { ...policyInput, context: modeledContext });
       expect(modeledResolution).toMatchObject({ model });
+      // A pin that names another model than its runner is refused by name, never substituted.
+      const mismatched = new FactoryNativeRunnerPolicy(tenantId, grants, [{ ...modeledProfile, model: { ...model, model: "another-model" } }], "factory-broker", packagesTrustedForTest);
+      await expect(mismatched.resolveInTransaction(transaction, { ...policyInput, context: modeledContext })).rejects.toMatchObject({ code: "factory_native_model_denied" });
       const modeledSnapshot = encodeFactoryPayload(modeledResolution);
       expect(() => { (modeledResolution.model!.policy as Record<string, JsonValue>).retries = 1; }).toThrow();
       expect(() => { (modeledResolution.tools[0]!.inputSchema as { type?: string }).type = "string"; }).toThrow();

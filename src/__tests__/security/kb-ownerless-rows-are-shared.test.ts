@@ -69,7 +69,7 @@
 import { test, expect, describe, afterAll, beforeEach, mock } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { restoreModuleMocks } from "../helpers/mock-cleanup";
+import { restoreModuleMocks, webLibModule } from "../helpers/mock-cleanup";
 import { mockServerAlias, createMockEvent, ADMIN_USER } from "../helpers/mock-request";
 
 // ── Module-level mocks (BEFORE handler imports) ──────────────────
@@ -82,9 +82,9 @@ mock.module("../../../web/src/routes/api/knowledge-base/[id]/$types", () => ({})
 // The scope axis (`requireScope`) is a SEPARATE concern with its own suites
 // (web/src/__tests__/api-knowledge-base*.server.test.ts). Neutralised here so a
 // scope failure can never masquerade as an ownership result.
-const apiKeysMock = () => ({ requireScope: () => null });
-mock.module("$lib/server/security/api-keys", apiKeysMock);
-mock.module("../../../web/src/lib/server/security/api-keys", apiKeysMock);
+const apiKeysMock = webLibModule("server/security/api-keys", { requireScope: () => null });
+mock.module("$lib/server/security/api-keys", () => apiKeysMock);
+mock.module("../../../web/src/lib/server/security/api-keys", () => apiKeysMock);
 
 const authMiddlewareMock = () => ({
   requireAuth: (locals: any) => {
@@ -112,13 +112,13 @@ const embeddingsMock = () => ({
 mock.module("$server/memory/embeddings", embeddingsMock);
 mock.module("../../memory/embeddings", embeddingsMock);
 
-const quotaMock = () => ({
+const quotaMock = webLibModule("server/security/resource-quotas", {
   checkStorageQuota: async () => ({ allowed: true }),
   checkTokenBudget: async () => ({ allowed: true }),
   recordTokenUsage: async () => {},
 });
-mock.module("$lib/server/security/resource-quotas", quotaMock);
-mock.module("../../../web/src/lib/server/security/resource-quotas", quotaMock);
+mock.module("$lib/server/security/resource-quotas", () => quotaMock);
+mock.module("../../../web/src/lib/server/security/resource-quotas", () => quotaMock);
 
 // The real chunker — cheap, pure, and the upload probe below should exercise
 // the genuine `isAllowedFile` gate rather than a stub of it.

@@ -52,6 +52,9 @@ import { factoryRuntimeSeams, factorySeamStates, type FactoryRuntimeSeamInputs, 
 import { registerFactoryRuntimeWorkers, type FactoryHeldWorker, type FactoryRuntimeWorkerCollaborators } from "./runtime-workers";
 import type { FactoryBackgroundWorkers, FactoryBackgroundWorkerState } from "./background-workers";
 
+/** Why a held checkpoint barrier keeps readiness degraded. */
+export type FactoryRecoveryReadinessReason = "factory-recovery-not-declared" | "factory-checkpoint-barrier-held";
+
 /**
  * A real timer that releases on abort, so a stop never waits out a window.
  *
@@ -351,12 +354,17 @@ export async function startFactoryRuntime(
     // checkpoint, so the database keeps release claims and attempt launches
     // closed (C06 fails closed), and readiness says why instead of hiding it.
     const barrierHeld = workerSet.held.some((worker) => worker.role === "checkpoint-barrier");
+    // Undeclared recovery and declared-but-not-composed recovery are both
+    // degraded, under different typed reasons, because they need different fixes.
+    const undeclared = dependencies.workers.recovery?.undeclared ?? [];
+    const reason: FactoryRecoveryReadinessReason = undeclared.length > 0 ? "factory-recovery-not-declared" : "factory-checkpoint-barrier-held";
     setReadiness({
       state: barrierHeld ? "degraded" : "ready",
-      ...(barrierHeld ? { reason: "factory-checkpoint-barrier-held" } : {}),
+      ...(barrierHeld ? { reason } : {}),
       detail: {
         factory: {
           tenantId: config.tenantId,
+          ...(barrierHeld && undeclared.length > 0 ? { recoveryNotDeclared: [...undeclared] } : {}),
           running: workerSet.workers.names(),
           // The reason travels too: "held" alone cannot tell an operator whether
           // to declare something, repair something, or wait for a package.

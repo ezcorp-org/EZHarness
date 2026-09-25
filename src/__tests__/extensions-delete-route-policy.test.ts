@@ -17,7 +17,7 @@
  */
 
 import { test, expect, describe, afterAll, beforeEach, mock } from "bun:test";
-import { restoreModuleMocks } from "./helpers/mock-cleanup";
+import { restoreModuleMocks, webLibModule, serverModule } from "./helpers/mock-cleanup";
 import type { LifecycleActor } from "../extensions/v4/types";
 import {
   mockServerAlias,
@@ -30,9 +30,9 @@ mockServerAlias();
 
 mock.module("../../web/src/routes/api/extensions/[id]/$types", () => ({}));
 
-const apiKeysMock = () => ({ requireScope: () => null });
-mock.module("$lib/server/security/api-keys", apiKeysMock);
-mock.module("../../web/src/lib/server/security/api-keys", apiKeysMock);
+const apiKeysMock = webLibModule("server/security/api-keys", { requireScope: () => null });
+mock.module("$lib/server/security/api-keys", () => apiKeysMock);
+mock.module("../../web/src/lib/server/security/api-keys", () => apiKeysMock);
 
 // ── The row under test ───────────────────────────────────────────────
 let isBundled = false;
@@ -61,13 +61,13 @@ const fakeExtensionRow = async (id: string) => ({
   updatedAt: new Date(),
 });
 
-const extensionsQueriesMock = () => ({
+const extensionsQueriesMock = serverModule("db/queries/extensions", {
   getExtension: fakeExtensionRow,
   getExtensionByRef: fakeExtensionRow,
   updateExtension: async (id: string, data: Record<string, unknown>) => ({ id, ...data }),
 });
-mock.module("$server/db/queries/extensions", extensionsQueriesMock);
-mock.module("../db/queries/extensions", extensionsQueriesMock);
+mock.module("$server/db/queries/extensions", () => extensionsQueriesMock);
+mock.module("../db/queries/extensions", () => extensionsQueriesMock);
 
 const uninstallCalls: Array<{ actor: LifecycleActor; installationId: string }> = [];
 const lifecycleMock = () => ({

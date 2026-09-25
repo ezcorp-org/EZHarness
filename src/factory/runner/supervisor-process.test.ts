@@ -566,7 +566,7 @@ describe("the host services this supervisor publishes", () => {
     // the only way the product's own confirmation ever settles. With a guest
     // broker a sandboxed guest can stage an output, which is the only way it
     // can return COMPLETED.
-    for (const section of ["pool", "guestBroker"] as const) {
+    for (const section of ["pool"] as const) {
       expect(parseFactorySupervisorProcessConfig(config(root, { services: { ...complete, [section]: endpoint } } as never)).services?.[section]).toEqual(endpoint as never);
       // Without one the host still starts, and each missing route is refused
       // by name where it is needed.
@@ -582,6 +582,26 @@ describe("the host services this supervisor publishes", () => {
       ]) {
         expect(() => parseFactorySupervisorProcessConfig(config(root, { services: { ...complete, [section]: broken } } as never))).toThrow("factory supervisor config is invalid");
       }
+    }
+
+    // One guest-broker route per tenant: this host serves every installation of its fleet.
+    const brokers = { "tenant-01": endpoint, "tenant-02": { ...endpoint, baseUrl: "https://127.0.0.1:8701" } };
+    expect(parseFactorySupervisorProcessConfig(config(root, { services: { ...complete, guestBrokers: brokers } } as never)).services?.guestBrokers).toEqual(brokers);
+    expect(parseFactorySupervisorProcessConfig(config(root, { services: complete } as never)).services?.guestBrokers).toBeUndefined();
+    const refused = (services: Record<string, unknown>) => expect(() => parseFactorySupervisorProcessConfig(config(root, { services: { ...complete, ...services } } as never))).toThrow("factory supervisor config is invalid");
+    // The single host-wide form is gone, alone or beside the keyed one.
+    refused({ guestBroker: endpoint });
+    refused({ guestBroker: endpoint, guestBrokers: brokers });
+    // An entry without a tenant, a padded tenant, no entries, too many, or not a map.
+    refused({ guestBrokers: { "": endpoint } });
+    refused({ guestBrokers: { " tenant-01": endpoint } });
+    refused({ guestBrokers: {} });
+    refused({ guestBrokers: Object.fromEntries(Array.from({ length: 65 }, (_, index) => [`tenant-${index}`, endpoint])) });
+    refused({ guestBrokers: [endpoint] });
+    refused({ guestBrokers: "not a record" });
+    // Every entry is an exact endpoint.
+    for (const broken of [{ ...endpoint, baseUrl: "" }, { ...endpoint, serviceTokenPath: "" }, { ...endpoint, tls: { caPath: "a", certificatePath: "b" } }, { ...endpoint, extra: "x" }, "not a record"]) {
+      refused({ guestBrokers: { ...brokers, "tenant-03": broken } });
     }
   });
 
@@ -690,13 +710,63 @@ describe("the host services this supervisor publishes", () => {
       .toEqual({ lifecycle: "ready", facts });
   });
 
-  test("a host whose document names no services.guestBroker refuses a staging frame by name", async () => {
+  test("a host whose document names no services.guestBrokers refuses a staging frame and a model request by name", async () => {
     const broker = await createFactoryConfiguredGuestBroker(undefined);
     const frame = { schemaVersion: "factory.guest-material-begin.v1", operationId: "run:node:0:0", operationIndex: 0, objectName: "result.json", version: 1, mediaType: "application/json", totalBytes: 2, chunkCount: 1 };
-    // The guest can tell "this host carries no staging" from "the broker said no".
-    await expect(broker.invoke({} as never, frame)).rejects.toMatchObject({ code: "factory_host_broker_unavailable", message: expect.stringContaining("services.guestBroker") });
-    // A model request keeps the host's general refusal, with its own message.
-    await expect(broker.invoke({} as never, { schemaVersion: "factory.guest-model-request.v1" })).rejects.toMatchObject({ code: "factory_host_broker_unavailable", message: expect.stringContaining("no contract defines") });
+    // The guest can tell "this host carries nothing" from "the broker said no".
+    await expect(broker.invoke({} as never, frame)).rejects.toMatchObject({ code: "factory_host_broker_unavailable", message: expect.stringContaining("services.guestBrokers") });
+    // A model request travels the same route, so its refusal names the same missing section.
+    await expect(broker.invoke({} as never, { schemaVersion: "factory.guest-model-request.v1" })).rejects.toMatchObject({ code: "factory_host_broker_unavailable", message: expect.stringContaining("services.guestBrokers") });
+    // Any other payload keeps the host's general refusal, with its own message.
+    await expect(broker.invoke({} as never, { kind: "validator-report" })).rejects.toMatchObject({ code: "factory_host_broker_unavailable", message: expect.stringContaining("no contract defines") });
+  });
+
+  /** Two real mutual-TLS product routes, one per tenant, each counting what reaches it. */
+  async function tenantRoutes() {
+    const root = await privateRoot();
+    const certs = await certificates(certificateRoots, "host-01");
+    for (const [name, value] of [["ca.pem", certs.ca], ["client.pem", certs.clientCert], ["client.key", certs.clientKey], ["host.token", "host-token"]] as const) {
+      await writeFile(join(root, name), value, { mode: 0o600 });
+      await chmod(join(root, name), 0o600);
+    }
+    const hits = { "tenant-01": 0, "tenant-02": 0 };
+    // Each route answers 503, so the client raises the route's own status: the
+    // assertion reads which route answered, not what it said.
+    const servers = (["tenant-01", "tenant-02"] as const).map((tenantId) => Bun.serve({
+      hostname: "127.0.0.1", port: 0,
+      tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca, requestCert: true },
+      fetch: () => { hits[tenantId] += 1; return new Response(null, { status: 503 }); },
+    }));
+    const endpoint = (port: number) => ({ baseUrl: `https://127.0.0.1:${port}`, serviceTokenPath: join(root, "host.token"), tls: { caPath: join(root, "ca.pem"), certificatePath: join(root, "client.pem"), privateKeyPath: join(root, "client.key") } });
+    const broker = await createFactoryConfiguredGuestBroker({ "tenant-01": endpoint(servers[0]!.port!), "tenant-02": endpoint(servers[1]!.port!) });
+    return { broker, hits, stop: () => { for (const server of servers) server.stop(true); } };
+  }
+  const stagingFrame = { schemaVersion: "factory.guest-material-begin.v1", operationId: "run:node:0:0", operationIndex: 0, objectName: "result.json", version: 1, mediaType: "application/json", totalBytes: 2, chunkCount: 1 };
+  const attemptOf = (tenantId: string) => ({ authority: { tenantId }, broker: { attemptToken: "attempt-token", audience: "installation" } }) as never;
+
+  test("each attempt's frame goes to its own tenant's route and to no other", async () => {
+    const { broker, hits, stop } = await tenantRoutes();
+    try {
+      await expect(broker.invoke(attemptOf("tenant-01"), stagingFrame)).rejects.toMatchObject({ name: "GatewayStatusError" });
+      expect(hits).toEqual({ "tenant-01": 1, "tenant-02": 0 });
+      await expect(broker.invoke(attemptOf("tenant-02"), { schemaVersion: "factory.guest-model-request.v1" })).rejects.toMatchObject({ name: "GatewayStatusError" });
+      expect(hits).toEqual({ "tenant-01": 1, "tenant-02": 1 });
+      // Concurrent attempts of both tenants still land on their own routes.
+      await Promise.allSettled([...Array.from({ length: 4 }, () => broker.invoke(attemptOf("tenant-01"), stagingFrame)), ...Array.from({ length: 3 }, () => broker.invoke(attemptOf("tenant-02"), stagingFrame))]);
+      expect(hits).toEqual({ "tenant-01": 5, "tenant-02": 4 });
+    } finally { stop(); }
+  });
+
+  test("a frame for a tenant with no route is refused by name and reaches no route", async () => {
+    const { broker, hits, stop } = await tenantRoutes();
+    try {
+      for (const tenantId of ["tenant-03", "", "TENANT-01", "tenant-01 "]) {
+        await expect(broker.invoke(attemptOf(tenantId), stagingFrame)).rejects.toMatchObject({ code: "factory_host_broker_tenant_unconfigured", name: "FactoryHostBrokerTenantUnconfiguredError", tenantId });
+      }
+      // Refused before anything else is decided: even a payload no route answers.
+      await expect(broker.invoke(attemptOf("tenant-03"), { kind: "validator-report" })).rejects.toMatchObject({ code: "factory_host_broker_tenant_unconfigured" });
+      expect(hits).toEqual({ "tenant-01": 0, "tenant-02": 0 });
+    } finally { stop(); }
   });
 
   test("startFactoryConfiguredHostServices refuses when the section is absent", async () => {
@@ -755,10 +825,12 @@ describe("the host services this supervisor publishes", () => {
           serviceTokenPath: join(root, "pool.token"),
           tls: { caPath: join(root, "ca.pem"), certificatePath: join(root, "client.pem"), privateKeyPath: join(root, "client.key") },
         },
-        guestBroker: {
-          baseUrl: "https://127.0.0.1:2",
-          serviceTokenPath: join(root, "pool.token"),
-          tls: { caPath: join(root, "ca.pem"), certificatePath: join(root, "client.pem"), privateKeyPath: join(root, "client.key") },
+        guestBrokers: {
+          "tenant-a": {
+            baseUrl: "https://127.0.0.1:2",
+            serviceTokenPath: join(root, "pool.token"),
+            tls: { caPath: join(root, "ca.pem"), certificatePath: join(root, "client.pem"), privateKeyPath: join(root, "client.key") },
+          },
         },
       },
     } as never));

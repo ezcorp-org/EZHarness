@@ -2,7 +2,7 @@ import { test, expect, describe, beforeAll, afterAll, beforeEach, mock } from "b
 import { mkdtemp, rm, access } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { restoreModuleMocks } from "./helpers/mock-cleanup";
+import { restoreModuleMocks, webLibModule, contextModule } from "./helpers/mock-cleanup";
 import { setupTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglite";
 import { mockServerAlias, ADMIN_USER } from "./helpers/mock-request";
 
@@ -32,7 +32,7 @@ mock.module("$server/auth/middleware", () => ({
   requireAuth: (_locals: any) => ADMIN_USER,
 }));
 const streamChatCalls: any[] = [];
-mock.module("$lib/server/context", () => ({
+const contextExports = contextModule({
   getExecutor: () => ({
     streamChat: async (...args: any[]) => {
       streamChatCalls.push(args);
@@ -43,14 +43,16 @@ mock.module("$lib/server/context", () => ({
   getCommandRegistry: () => ({ listCommands: async () => [] }),
   getGoalHost: () => null,
   ensureInitialized: async () => {},
-}));
+});
+mock.module("$lib/server/context", () => contextExports);
 mock.module("$lib/server/security/validation", () => ({
   validationError: (err: any) => new Response(JSON.stringify({ error: err.issues ?? String(err) }), { status: 400 }),
 }));
-mock.module("$lib/server/security/resource-quotas", () => ({
+const resourceQuotasExports = webLibModule("server/security/resource-quotas", {
   checkTokenBudget: async () => ({ allowed: true, resetsAt: null }),
-}));
-mock.module("$lib/server/security/api-keys", () => ({
+});
+mock.module("$lib/server/security/resource-quotas", () => resourceQuotasExports);
+mock.module("$lib/server/security/api-keys", () => webLibModule("server/security/api-keys", {
   requireScope: () => null,
 }));
 

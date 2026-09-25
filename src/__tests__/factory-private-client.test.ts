@@ -32,3 +32,23 @@ test("the Bun client uses the shared mTLS transport against the production priva
     await expect(client.request("POST", "/v1/pool/requests", {})).rejects.toThrow("HTTP 403");
   } finally { server.stop(); }
 });
+
+test("a request its peer never answers fails at its timeout rather than hanging", async () => {
+  const certs = await certificates(directories);
+  const directory = directories.at(-1)!;
+  const tokenPath = join(directory, "service-token");
+  await writeFile(tokenPath, "fixture-service-token", { mode: 0o600 });
+  let arrived: () => void = () => {};
+  const received = new Promise<void>((resolve) => { arrived = resolve; });
+  const silent = startFactoryPrivateHttps({
+    tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca },
+    handle: () => { arrived(); return new Promise(() => {}); },
+  });
+  try {
+    const tls = { caPath: join(directory, "ca.pem"), certificatePath: join(directory, "client.pem"), privateKeyPath: join(directory, "client.key"), serviceTokenPath: tokenPath };
+    const client = await createGatewayTransport({ baseUrl: silent.url, tls, serverName: "localhost", requestTimeoutMs: 200 });
+    const waiting = client.request("POST", "/v1/pool/requests", {});
+    await received;
+    await expect(waiting).rejects.toThrow("factory gateway request timed out");
+  } finally { silent.stop(); }
+});

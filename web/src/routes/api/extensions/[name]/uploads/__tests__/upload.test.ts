@@ -7,15 +7,16 @@
 // upstream tests in their own modules.
 
 import { test, expect, describe, beforeEach, afterAll, mock } from "bun:test";
-import { restoreModuleMocks } from "../../../../../../../../src/__tests__/helpers/mock-cleanup";
+import { restoreModuleMocks, webLibModule, serverModule } from "../../../../../../../../src/__tests__/helpers/mock-cleanup";
 import { mockServerAlias, MEMBER_USER } from "../../../../../../../../src/__tests__/helpers/mock-request";
 
 mockServerAlias();
 
 mock.module("../../../../../../../../web/src/routes/api/extensions/[name]/uploads/$types", () => ({}));
-mock.module("$lib/server/security/api-keys", () => ({
+const apiKeysExports = webLibModule("server/security/api-keys", {
   requireScope: () => null,
-}));
+});
+mock.module("$lib/server/security/api-keys", () => apiKeysExports);
 // Real implementation passes through — the route file calls errorJson with
 // concrete status + message arguments and we want the actual Response object
 // shape to come out for the assertions.
@@ -43,9 +44,10 @@ const convQueriesMock = () => ({
 });
 mock.module("$server/db/queries/conversations", convQueriesMock);
 
-mock.module("$server/db/queries/extensions", () => ({
+const dbExtensionsExports = serverModule("db/queries/extensions", {
   getExtensionByName: async (name: string) => (mockExt && mockExt.name === name ? mockExt : null),
-}));
+});
+mock.module("$server/db/queries/extensions", () => dbExtensionsExports);
 
 mock.module("$server/db/queries/conversation-extensions", () => ({
   getConversationExtensionIds: async () => mockWiredExtIds,

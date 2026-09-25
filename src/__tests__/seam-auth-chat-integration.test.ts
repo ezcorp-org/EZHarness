@@ -22,7 +22,7 @@
 // without checking the cookie").
 
 import { test, expect, describe, beforeAll, afterAll, beforeEach, mock } from "bun:test";
-import { restoreModuleMocks } from "./helpers/mock-cleanup";
+import { restoreModuleMocks, webLibModule } from "./helpers/mock-cleanup";
 import { setupTestDb, closeTestDb, getTestDb, mockDbConnection, mockRealSettings } from "./helpers/test-pglite";
 import { mockServerAlias, createMockEvent, jsonFromResponse } from "./helpers/mock-request";
 
@@ -36,11 +36,11 @@ mockServerAlias();
 // not covered by mockServerAlias. Use the dual-specifier pattern and return
 // a passthrough `requireScope` since cookie auth (no apiKeyScopes) is what
 // the seam is testing.
-const apiKeysMock = () => ({
+const apiKeysMock = webLibModule("server/security/api-keys", {
   requireScope: () => null,
 });
-mock.module("$lib/server/security/api-keys", apiKeysMock);
-mock.module("../../web/src/lib/server/security/api-keys", apiKeysMock);
+mock.module("$lib/server/security/api-keys", () => apiKeysMock);
+mock.module("../../web/src/lib/server/security/api-keys", () => apiKeysMock);
 
 // $types stubs (SvelteKit codegen artifacts).
 mock.module("../../web/src/routes/api/auth/login/$types", () => ({}));

@@ -56,6 +56,7 @@ const GITIGNORE = join(REPO_ROOT, ".gitignore");
 const NODE_MODULES = join(REPO_ROOT, "node_modules");
 const CHECK_BUN_VERSION_TS = join(REPO_ROOT, "scripts/check-bun-version.ts");
 const BUN_VERSION_CHECK_SH = join(REPO_ROOT, "scripts/lib/bun-version-check.sh");
+const HOOK_LIB = join(REPO_ROOT, "scripts/lib/hook-lib.sh");
 
 /**
  * Drop every `GIT_*` variable. Git exports GIT_DIR, GIT_INDEX_FILE, GIT_PREFIX
@@ -125,6 +126,22 @@ function repoWithPreCommit(): string {
   copyFileSync(GITIGNORE, join(dir, ".gitignore"));
   symlinkSync(NODE_MODULES, join(dir, "node_modules"));
   sh(["git", "config", "core.hooksPath", ".githooks"], { cwd: dir });
+  return dir;
+}
+
+/**
+ * `repoWithPreCommit()` plus the real `scripts/lib/hook-lib.sh`, so the
+ * hook's "Unit tests covering the staged files" step actually runs
+ * (`run_staged_tests`) instead of no-op'ing on the `-r` guard. Every staged
+ * `*.test.ts` self-maps (`staged_test_targets`), so `count` staged files of
+ * literally any content is enough to drive the cap — no real test runner
+ * ever needs to start for the over-cap branch, which is the one these tests
+ * exercise.
+ */
+function repoWithHookLib(): string {
+  const dir = repoWithPreCommit();
+  mkdirSync(join(dir, "scripts/lib"), { recursive: true });
+  copyFileSync(HOOK_LIB, join(dir, "scripts/lib/hook-lib.sh"));
   return dir;
 }
 
@@ -219,6 +236,115 @@ describe("pre-commit hook", () => {
     expect(res.out).not.toContain("pre-commit:");
     const log = sh(["git", "log", "--oneline"], { cwd: dir });
     expect(log.out).toContain("skip hooks");
+  });
+});
+
+// Ruling 2026-09-24 (W18 hygiene item B): the pre-commit hook used to skip
+// its staged-test step SILENTLY once more than EZ_PRECOMMIT_TEST_MAX (12)
+// test files mapped to a commit — no file list, no reason, exit 0. Both a
+// 74-file main merge and this package's own 36/24-file commits hit exactly
+// that path. Above the cap the hook must now name every file it is not
+// running and, by default, BLOCK; EZ_SKIP_HOOK_TESTS=1 is the one
+// acknowledged escape hatch, and it must still print the list.
+describe("pre-commit hook > staged-test cap (no silent skip)", () => {
+  /** `count` empty self-mapping `*.test.ts` files, staged. Their CONTENT
+   *  never matters for the over-cap branch: the hook counts and names them
+   *  before it would ever try to run one. */
+  function stageManyTestFiles(dir: string, count: number): string[] {
+    const names: string[] = [];
+    for (let i = 0; i < count; i++) {
+      const name = `staged-${i}.test.ts`;
+      writeFileSync(join(dir, name), "// intentionally empty\n");
+      names.push(name);
+    }
+    sh(["git", "add", ...names], { cwd: dir });
+    return names;
+  }
+
+  test("above the cap: BLOCKS the commit and names every file it will not run", () => {
+    const dir = repoWithHookLib();
+    const names = stageManyTestFiles(dir, 3);
+
+    const res = sh(["git", "commit", "-m", "wide commit"], {
+      cwd: dir,
+      env: { ...baseEnv, EZ_PRECOMMIT_TEST_MAX: "2" },
+    });
+
+    expect(res.exitCode).not.toBe(0);
+    expect(res.out).toContain("3 test files map to this commit (cap 2)");
+    for (const n of names) expect(res.out).toContain(n);
+    expect(res.out.toLowerCase()).toContain("ez_skip_hook_tests");
+    // Commit must NOT have landed — this is the "no silent skip" behavior
+    // change: the old hook returned 0 here and the commit went through.
+    const log = sh(["git", "log", "--oneline"], { cwd: dir });
+    expect(log.out).not.toContain("wide commit");
+  });
+
+  test("above the cap with EZ_SKIP_HOOK_TESTS=1: prints the list, skips, commit lands", () => {
+    const dir = repoWithHookLib();
+    const names = stageManyTestFiles(dir, 3);
+
+    const res = sh(["git", "commit", "-m", "wide commit, acknowledged"], {
+      cwd: dir,
+      env: { ...baseEnv, EZ_PRECOMMIT_TEST_MAX: "2", EZ_SKIP_HOOK_TESTS: "1" },
+    });
+
+    expect(res.exitCode).toBe(0);
+    // Visible, not the old zero-output skip: the file list and the reason
+    // both still print even though the commit is allowed through.
+    expect(res.out).toContain("3 test files map to this commit (cap 2)");
+    for (const n of names) expect(res.out).toContain(n);
+    expect(res.out).toContain("EZ_SKIP_HOOK_TESTS=1 set");
+    const log = sh(["git", "log", "--oneline"], { cwd: dir });
+    expect(log.out).toContain("wide commit, acknowledged");
+  });
+
+  test("at or under the cap: runs normally (unaffected by the cap logic)", () => {
+    const dir = repoWithHookLib();
+    stageManyTestFiles(dir, 2);
+
+    const res = sh(["git", "commit", "-m", "narrow commit"], {
+      cwd: dir,
+      env: { ...baseEnv, EZ_PRECOMMIT_TEST_MAX: "2" },
+    });
+
+    // Both staged files are empty modules with no test{} blocks — bun exits
+    // 0 for "0 pass, 0 fail". The point of this test is that the cap
+    // messaging is ABSENT, not the exit code.
+    expect(res.out).not.toContain("cap 2");
+    expect(res.out).not.toContain("EZ_SKIP_HOOK_TESTS");
+    const log = sh(["git", "log", "--oneline"], { cwd: dir });
+    expect(log.out).toContain("narrow commit");
+  }, BIOME_TIMEOUT_MS);
+
+  // validator-3 L1: the fourth branch — at or under the cap, WITH
+  // EZ_SKIP_HOOK_TESTS=1 set. Before this item, that combination reached
+  // zero code in run_staged_tests() at all: .githooks/pre-commit pre-filtered
+  // EZ_SKIP_HOOK_TESTS=1 and never called the function, so the "under cap"
+  // skip was ALSO silent (no header, no file list, nothing) — the exact same
+  // defect as the over-cap case, just never reproduced because nobody staged
+  // a narrow, acknowledged-skip commit and looked at the output. The fix
+  // (this item, hook-lib.sh) makes run_staged_tests() itself the one place
+  // that reads EZ_SKIP_HOOK_TESTS, so both branches share one code path and
+  // one visible message.
+  test("at or under the cap WITH EZ_SKIP_HOOK_TESTS=1: prints the list, skips, commit lands", () => {
+    const dir = repoWithHookLib();
+    const names = stageManyTestFiles(dir, 2);
+
+    const res = sh(["git", "commit", "-m", "narrow commit, acknowledged"], {
+      cwd: dir,
+      env: { ...baseEnv, EZ_PRECOMMIT_TEST_MAX: "2", EZ_SKIP_HOOK_TESTS: "1" },
+    });
+
+    expect(res.exitCode).toBe(0);
+    // No cap messaging (2 is AT the cap, not over it) — but the skip is
+    // still named and visible, never the old silent no-op.
+    expect(res.out).not.toContain("cap 2");
+    expect(res.out).toContain("EZ_SKIP_HOOK_TESTS=1 set");
+    expect(res.out).toContain(`skipping the ${names.length} staged test file(s)`);
+    for (const n of names) expect(res.out).toContain(n);
+    const log = sh(["git", "log", "--oneline"], { cwd: dir });
+    expect(log.out).toContain("narrow commit, acknowledged");
   });
 });
 
@@ -361,8 +487,6 @@ describe("setup-git-hooks.sh", () => {
 });
 
 describe("hook-lib > staged_test_targets", () => {
-  const HOOK_LIB = join(REPO_ROOT, "scripts/lib/hook-lib.sh");
-
   /** Resolve staged paths through the REAL helper, sourced as the hooks source it. */
   function targets(...staged: string[]): string[] {
     const res = sh(["bash", "-c", `source "${HOOK_LIB}" && staged_test_targets "$@"`, "_", ...staged], {

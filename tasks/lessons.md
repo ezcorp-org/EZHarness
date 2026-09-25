@@ -1511,6 +1511,13 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 - A "hard expiry" date in code is a scheduled behaviour change with no deploy. Once the date passes, retire the dead branch rather than keep a clock comparison that only looks alive. Source-regex gates that match indentation broke silently on a refactor; pin the behaviour on the real handler instead.
 - A project-root walk must accept only a real repository marker. `existsSync(".git")` also matched a stray empty `/tmp/.git`, which git itself rejects. Ask "what does git say?" and plant the stray marker inside the test's own tree so the case holds whatever the host's /tmp contains.
 - A git hook exports `GIT_DIR` and `GIT_INDEX_FILE`. Any `git` a test or tool spawns from inside a hook acts on the hook's repository, so `rev-parse` reports "inside a repository" everywhere and `git init <dir>` targets the wrong place. Drop the caller's `GIT_*` variables when git must discover from a directory.
+- W15b: A batch script must source a database environment inside a subshell. Sourcing it into the
+  batch shell leaked `DATABASE_URL` into the backend pool and failed eleven tests that expect none.
+- W15b: Node's type stripping rejects TypeScript parameter properties. A module the Node
+  orchestrator loads declares its fields explicitly and imports with `.ts` extensions.
+- W15b: Gate integrity treats a moved test file or coverage key as a deleted gate. To merge two
+  modules, keep the gated file's name as the home of the moved code. Search dynamic imports
+  (`import("...")`) and evidence scripts too when a module's exports move.
 ## 2026-09-22 — A measured list is stale after a merge (W18a-2)
 
 - Recompute a complexity or CRAP list on the tree you will hand over. Do not trust the list in the brief. The brief
@@ -1582,3 +1589,26 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
   committed, but the rule is absolute: no `--no-verify` on any git command, in any worktree. If a hook
   is in the way, the scratch tree is the wrong tool; merge without the flag and resolve, or do the work
   on the real branch after the ruling that allows it.
+## 2026-09-24 — W19a graph proof
+
+- Under Bun, `ClientRequest.destroy(error)` emits `close` and never `error`. A promise that waits on
+  the `error` event after a timeout stays pending forever. Settle the promise from the timer itself,
+  then destroy the request. Probe the runtime before trusting a Node idiom in code that runs on Bun.
+- Bun's `mock.module` leaks across files in one process. A coverage leg that mixes a file that mocks
+  the settings module with a file that writes real settings measures the wrong code. Give each
+  mocking file its own leg.
+- Rows from a real PostgreSQL driver are not plain objects, and an object matcher compares
+  prototypes. A suite that passes on PGlite can fail on PostgreSQL with identical fields. Copy rows
+  into plain objects before matching.
+- Ollama 0.21 with `qwen3:1.7b` thinks by default, even with `/no_think` in the prompt. Two
+  identical seeded calls at temperature 0 gave different reasoning text. `reasoning_effort: "none"`
+  gave the same answer on repeated calls. Measure a provider's determinism before promising it.
+- Read what the branch actually exports before you port a harness from another branch. The W15b
+  harness used a function that exists only on the unmerged W15b branch. The failure also showed that a
+  start which creates shared databases needs its cleanup in place before the first create.
+
+## 2026-09-25 — A receipt runner must not strip git status output (W12d)
+
+- Never `.strip()` the output of `git status --porcelain`. The first line's leading space is part of
+  the status code, so stripping it shifts the path by one character, and the file drops out of the
+  receipt's dirty-file map. Strip only the trailing newline, and parse each line as `XY path`.

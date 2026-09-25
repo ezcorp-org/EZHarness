@@ -276,6 +276,9 @@ describe("the compatible checkpoint barrier", () => {
     try {
       expect((await coordinator(storage.archive).run()).kind).toBe("sealed");
       expect((await latestFactoryCheckpoint(storage.archive, tenantId))!.manifest.keys).toEqual({ installationId, wrapVersion: null, masterKeyId: null, wrappedDigest: null });
+      // The production barrier names the key service the installation selected.
+      expect((await new FactoryCheckpointCoordinator({ database: fixture.db, tenantId, installationId, archive: storage.archive, keyService: "transit" }).run()).kind).toBe("sealed");
+      expect((await latestFactoryCheckpoint(storage.archive, tenantId))!.manifest.keys).toEqual({ installationId, wrapVersion: null, masterKeyId: null, wrappedDigest: null, service: "transit" });
     } finally {
       for (const wrap of wraps) await fixture.db.execute(sql`INSERT INTO factory_installation_key_wraps (installation_id, wrap_version, master_key_id, wrapped_data_key) VALUES (${wrap.installation_id}, ${wrap.wrap_version}, ${wrap.master_key_id}, ${Buffer.from(wrap.wrapped_data_key)})`);
     }

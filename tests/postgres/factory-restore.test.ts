@@ -17,7 +17,8 @@ import { FactoryPoolCheckpointSource, factoryDirectRestorePoolLedger } from "../
 import { FactoryPoolLedger, setupFactoryPoolLedger, type PoolSql } from "../../src/factory/pool/ledger";
 import { FactoryRecords } from "../../src/factory/records";
 import { readFactoryRunAudit } from "../../src/factory/audit-archive";
-import { FactoryRestore, factoryRestoreReportDigest, runFactoryClusterRestore, S3FactoryObjectVersionProbe, type FactoryRestoreFence, type FactoryRestoreReport } from "../../src/factory/restore";
+import { FactoryRestore, factoryRestoreReportDigest, runFactoryClusterRestore, S3FactoryObjectVersionProbe, type FactoryRestoreFence, type FactoryRestorePoolLedger, type FactoryRestoreReport } from "../../src/factory/restore";
+import { GatewayStatusError } from "@ezcorp/factory-transport";
 import { FactoryRetention, factoryRetentionSubjectId } from "../../src/factory/retention";
 import { S3FactoryRecoveryArchive } from "../../src/factory/recovery-archive";
 import { factoryArchiveRoot, factoryArchiveSegment, S3FactoryReleaseArchive, writeFactoryArchiveImmutable } from "../../src/factory/release-adapters";
@@ -79,7 +80,7 @@ async function lifecycle(db: FactoryOpenDatabase["db"], runId: string, status: s
 /** A live namespace that has not moved since the checkpoint: every live workflow still running on its recorded run. */
 const stillNamespace: FactoryCheckpointTemporalSource = { namespace: "restore", positions: async ids => ids.map(workflowId => ({ workflowId, runId: "t", status: "WORKFLOW_EXECUTION_STATUS_RUNNING", historyLength: null })) };
 
-function restoreFor(db: FactoryOpenDatabase["db"], options: { masters?: MasterKey[]; temporal?: FactoryCheckpointTemporalSource | null; poolSql?: PoolSql; poolLedger?: FactoryPoolLedger; tenant?: string; archive?: Pick<typeof storage, "archive" | "releaseArchive"> } = {}): FactoryRestore {
+function restoreFor(db: FactoryOpenDatabase["db"], options: { masters?: MasterKey[]; temporal?: FactoryCheckpointTemporalSource | null; poolSql?: PoolSql; poolLedger?: FactoryPoolLedger; tenant?: string; archive?: Pick<typeof storage, "archive" | "releaseArchive">; poolRestore?: FactoryRestorePoolLedger } = {}): FactoryRestore {
   const poolSql = options.poolSql ?? pool.client as unknown as PoolSql;
   const poolLedger = options.poolLedger ?? ledger;
   return new FactoryRestore({
@@ -89,7 +90,7 @@ function restoreFor(db: FactoryOpenDatabase["db"], options: { masters?: MasterKe
     objects: new S3FactoryObjectVersionProbe({ endpoint: "unused", bucket: storage.tenant, prefix: storage.ordinaryPrefix, credentials: { accessKeyId: "unused", secretAccessKey: "unused" }, client: storage.ordinaryClient }),
     fence, workers: supervisor, hostKeys: supervisor.hostKeys,
     poolStops: { confirmStopped: async input => poolLedger.confirmStopped(input) },
-    pool: factoryDirectRestorePoolLedger(poolSql, poolLedger),
+    pool: options.poolRestore ?? factoryDirectRestorePoolLedger(poolSql, poolLedger),
     ...(options.temporal === null ? {} : { temporal: options.temporal ?? stillNamespace }),
     providers: () => world.provider,
     // The run view, rebuilt by replay before service resumes: the projector's
@@ -498,6 +499,50 @@ describe("restore into a new execution epoch", () => {
       await restored.close();
       await rm(directory, { recursive: true, force: true });
     }
+  }, 120_000);
+
+  test.each(["importLost", "liveRows", "revoke"] as const)("an abort during the pool's %s call stops the restore with the abort, and records no pool finding", async (step) => {
+    // Each case restores its own copy: an aborted restore leaves its epoch open, which refuses a second restore.
+    const restored = await restoredCopy(`aborted-${step.toLowerCase()}`);
+    try {
+      const controller = new AbortController();
+      const reason = new Error(`restore cancelled during ${step}`);
+      // The call fails because the restore was cancelled while it waited, not because the pool refused.
+      const cancelled = (): never => { controller.abort(reason); throw new Error("the operation was aborted"); };
+      const pool: FactoryRestorePoolLedger = {
+        importLost: async () => step === "importLost" ? cancelled() : { present: [], imported: [], overcommitted: [] },
+        liveRows: async () => step === "liveRows" ? cancelled() : [{ reservation_id: "reservation-after-checkpoint", allocation_generation: 1, host_id: "host-1" }],
+        revoke: async () => cancelled(),
+      };
+      const restoreId = `restore-aborted-${step.toLowerCase()}`;
+      await expect(restoreFor(restored.db, { poolRestore: pool }).begin({ restoreId, mode: "tenant" }, controller.signal)).rejects.toBe(reason);
+      const recorded = rows<{ reason: string }>(await restored.db.execute(sql`SELECT reason FROM factory_restore_findings WHERE tenant_id = ${tenantId} AND restore_id = ${restoreId}`));
+      expect(recorded.filter(row => row.reason === "pool_refused" || row.reason === "post_checkpoint_worker_unrevoked")).toEqual([]);
+      expect(rows<{ report_digest: string | null }>(await restored.db.execute(sql`SELECT report_digest FROM factory_restore_epochs WHERE restore_id = ${restoreId}`))[0]?.report_digest ?? null).toBeNull();
+    } finally {
+      await restored.close();
+    }
+  }, 120_000);
+
+  test("a pool that refuses the restore token is a blocking finding, and sign refuses a report edited after it was written", async () => {
+    const restored = await restoredCopy("refused");
+    try {
+      // The restore token lacks pool:restore:<tenant>: the pool answers 403 to every call.
+      const forbidden = () => { throw new GatewayStatusError({ statusCode: 403, headers: {}, body: Buffer.from(JSON.stringify({ error: "forbidden" })) }); };
+      const refusing: FactoryRestorePoolLedger = { importLost: async () => forbidden(), liveRows: async () => forbidden(), revoke: async () => forbidden() };
+      const restore = restoreFor(restored.db, { poolRestore: refusing });
+      const report = await restore.begin({ restoreId: "restore-refused", mode: "tenant" });
+      expect(finding(report, "pool", "ledger")).toMatchObject({ disposition: "blocked", reason: "pool_refused", detail: { status: 403, error: "factory gateway returned HTTP 403" } });
+      expect(finding(report, "pool", "live-reservations")).toMatchObject({ disposition: "blocked", reason: "pool_refused", detail: { status: 403 } });
+      expect(report.blockedChecks).toEqual(expect.arrayContaining(["pool:ledger:pool_refused", "pool:live-reservations:pool_refused"]));
+      // A report edited in the database after it was written: its stored digest no longer matches it.
+      const stored = rows<{ report_json: string; report_digest: string }>(await restored.db.execute(sql`SELECT report_json, report_digest FROM factory_restore_epochs WHERE restore_id = 'restore-refused'`))[0]!;
+      const edited = { ...JSON.parse(stored.report_json), blockedChecks: [], blockedRuns: [] };
+      await restored.db.execute(sql`UPDATE factory_restore_epochs SET report_json = ${JSON.stringify(edited)} WHERE restore_id = 'restore-refused'`);
+      await expect(restore.sign("restore-refused", admin, stored.report_digest)).rejects.toMatchObject({ code: "factory_restore_report_tampered" });
+      await restored.db.execute(sql`UPDATE factory_restore_epochs SET report_json = 'not json' WHERE restore_id = 'restore-refused'`);
+      await expect(restore.sign("restore-refused", admin, stored.report_digest)).rejects.toMatchObject({ code: "factory_restore_report_tampered" });
+    } finally { await restored.close(); }
   }, 120_000);
 
   test("a missing object version blocks the restore", async () => {

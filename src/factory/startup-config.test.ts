@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtemp, writeFile, chmod, mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
+import { digestObject } from "../extensions/v4/blobs";
+import { FACTORY_GUEST_BROKER_AUDIENCE } from "./runner/guest-broker-contract";
 import {
   FACTORY_RELEASE_ENTITLED_S3_ROOT,
   FACTORY_STARTUP_CONFIG_SCHEMA,
@@ -322,6 +324,61 @@ describe("the runner profiles this installation dispatches to", () => {
   });
 });
 
+describe("a runner profile that pins a model", () => {
+  const configuration = { temperature: 0, seed: 42, reasoningEffort: "none" };
+  const policy = { tools: false };
+  const pin = {
+    provider: "ollama", model: "qwen3:1.7b",
+    configuration, configurationDigest: `sha256:${digestObject(configuration)}`,
+    policy, policyDigest: `sha256:${digestObject(policy)}`,
+  };
+  const profile = {
+    runner: { package: "@ezcorp/graph", manifestName: "graph", version: "1.0.0", digest: `sha256:${"a".repeat(64)}`, export: "infer", model: pin.model, configurationDigest: pin.configurationDigest },
+    resourceClass: "cpu-model",
+    allocation: { resources: { cpu: 1 }, memoryBytes: 1_073_741_824, budget: { costMicros: "1000000", tokens: 1_000, computeMs: 600_000 } },
+    allowedCapabilities: [],
+    model: pin,
+  };
+  /** `null` declares no installation pin at all. */
+  const pinned = (profiles: unknown[], modelProvider: unknown = { provider: pin.provider, model: pin.model }) =>
+    valid({ runnerProfiles: { brokerAudience: "factory-gateway", profiles }, ...(modelProvider === null ? {} : { modelProvider }) });
+
+  test("accepts a pin that matches its runner and names the installation's provider, and keeps it", () => {
+    expect(parseFactoryStartupConfig(pinned([profile])).runnerProfiles?.profiles[0]?.model).toEqual(pin);
+  });
+
+  test("names the profile whose pin is not the installation's provider or model, or has no installation pin at all", () => {
+    expect(reject(pinned([profile], { provider: "ollama", model: "qwen3:8b" })).invalid).toContain("runnerProfiles.profiles[0].model");
+    expect(reject(pinned([profile], { provider: "openai", model: pin.model })).invalid).toContain("runnerProfiles.profiles[0].model");
+    expect(reject(pinned([profile], null)).invalid).toContain("runnerProfiles.profiles[0].model");
+  });
+
+  test("refuses a pin that disagrees with its runner, digests other bytes, or names a configuration this process cannot honour", () => {
+    const odd = { temperature: 0, topK: 4 };
+    for (const broken of [
+      { ...profile, runner: { ...profile.runner, model: "qwen3:8b" } },
+      { ...profile, runner: { ...profile.runner, configurationDigest: `sha256:${"b".repeat(64)}` } },
+      { ...profile, runner: { ...profile.runner, configurationDigest: "not-a-digest" } },
+      { ...profile, runner: { package: profile.runner.package, manifestName: "graph", version: "1.0.0", digest: profile.runner.digest, export: "infer" } },
+      { ...profile, model: { ...pin, configurationDigest: `sha256:${"c".repeat(64)}` } },
+      { ...profile, model: { ...pin, policyDigest: `sha256:${"c".repeat(64)}` } },
+      { ...profile, model: { ...pin, configuration: odd, configurationDigest: `sha256:${digestObject(odd)}` }, runner: { ...profile.runner, configurationDigest: `sha256:${digestObject(odd)}` } },
+      { ...profile, model: { ...pin, provider: "" } },
+      { ...profile, model: { ...pin, configuration: "hot" } },
+      { ...profile, model: { ...pin, policy: [] } },
+      { ...profile, model: { ...pin, extra: 1 } },
+      { ...profile, model: "qwen3:1.7b" },
+    ]) {
+      expect(reject(pinned([broken])).invalid).toContain("runnerProfiles.profiles[0]");
+    }
+  });
+
+  test("a runner that names a model with no pin beside it is refused, so an attempt never runs half-pinned", () => {
+    const { model: _model, ...unpinned } = profile;
+    expect(reject(pinned([unpinned])).invalid).toContain("runnerProfiles.profiles[0]");
+  });
+});
+
 describe("where a release may publish", () => {
   const s3 = { name: "ordinary", kind: "s3", endpoint: "https://127.0.0.1:8443/ordinary", bucket: "tenant-01-published", account: "tenant-01", prefix: "ordinary/releases", credentialsPath: "/run/secrets/publish.json" };
   const github = { name: "upstream", kind: "github", repository: "ezcorp-org/factory-platform-publication-tests", tokenPath: "/run/secrets/github.token" };
@@ -454,7 +511,7 @@ describe("the guest-broker route", () => {
     port: 9446,
     hosts: { "supervisor-01": "host-01" },
     tls: { caPath: "/run/tls/ca.pem", certificatePath: "/run/tls/cert.pem", privateKeyPath: "/run/tls/key.pem" },
-    tokens: { issuer: "factory-hosts", audience: "factory-guest-broker", publicKeyPaths: { hosts: "/run/secrets/host-token.pem" } },
+    tokens: { issuer: "factory-hosts", audience: FACTORY_GUEST_BROKER_AUDIENCE, publicKeyPaths: { hosts: "/run/secrets/host-token.pem" } },
   };
 
   test("is optional, and a complete section is kept exactly", () => {
@@ -483,6 +540,10 @@ describe("the guest-broker route", () => {
     }
     // A field the section does not define is refused rather than ignored.
     expect(reject(valid({ hostLaunch, guestBroker: { ...guestBroker, audience: "x" } })).invalid).toContain("guestBroker.audience");
+    // The audience is the route contract's, never configurable: a pool audience, or anything else, is refused.
+    for (const audience of ["factory-pool", "x", `${FACTORY_GUEST_BROKER_AUDIENCE} `]) {
+      expect(reject(valid({ hostLaunch, guestBroker: { ...guestBroker, tokens: { ...guestBroker.tokens, audience } } })).invalid).toContain("guestBroker.tokens.audience");
+    }
   });
 });
 

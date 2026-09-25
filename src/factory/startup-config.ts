@@ -16,8 +16,14 @@
  * credential value, matching `parseFactoryOrchestratorProcessConfig`.
  */
 import { resolve } from "node:path";
+import type { FactoryModelPin } from "@ezcorp/factory-sdk";
+import { factoryModelSamplingOptions } from "./model-configuration";
+import { factoryModelPinMatchesRunner } from "./native-runner-policy";
+import { wellFormedFactoryKeyManagement, type FactoryKeyManagement } from "./key-composition";
 import { isPlainRecord } from "./plain-values";
 import { readPrivatePath } from "./private-files";
+import { exactKeys, httpsUrl, wellFormed, type FieldKind } from "./startup-values";
+import { FACTORY_GUEST_BROKER_AUDIENCE } from "./runner/guest-broker-contract";
 
 export const FACTORY_STARTUP_CONFIG_SCHEMA = "factory.startup.v1";
 const MAX_CONFIG_BYTES = 64 * 1024;
@@ -252,29 +258,8 @@ export interface FactoryStartupValidatorRuntime {
   readonly materialDigest: string;
 }
 
-/** The data-key wrapping service: the operator's own master key file, a hosted cloud KMS key, or a self-hosted transit engine. */
-export type FactoryStartupKeyManagement =
-  | { readonly kind: "operator-master-key" }
-  | {
-      readonly kind: "cloud-kms";
-      /** The KMS key id or ARN new wraps use. */
-      readonly keyId: string;
-      readonly region: string;
-      /** A private JSON file with `accessKeyId` and `secretAccessKey`. */
-      readonly credentialsPath: string;
-      readonly endpoint?: string;
-    }
-  | {
-      readonly kind: "transit";
-      /** A Vault or OpenBao server. */
-      readonly endpoint: string;
-      readonly keyName: string;
-      /** A private file holding the transit token, read for every call. */
-      readonly tokenPath: string;
-      readonly mount?: string;
-      /** The server's CA certificate, when it is not publicly trusted. */
-      readonly caPath?: string;
-    };
+/** The data-key wrapping service. Owned by `key-composition.ts`. */
+export type FactoryStartupKeyManagement = FactoryKeyManagement;
 
 /**
  * One place a release may publish, named so a profile can point at it.
@@ -336,6 +321,9 @@ export interface FactoryStartupRunnerProfile {
     readonly version: string;
     readonly digest: string;
     readonly export: string;
+    /** Present exactly when the profile pins a model, and equal to the pin's. */
+    readonly model?: string;
+    readonly configurationDigest?: string;
   };
   readonly resourceClass: string;
   readonly allocation: {
@@ -344,6 +332,15 @@ export interface FactoryStartupRunnerProfile {
     readonly budget: { readonly costMicros: string; readonly tokens: number; readonly computeMs: number };
   };
   readonly allowedCapabilities: readonly string[];
+  /**
+   * The model a guest run under this profile may call, and the only one.
+   *
+   * Absent, the attempt carries no pin and the broker refuses every model call
+   * from it. Present, it must match the runner reference field for field and
+   * name the installation's own `modelProvider`, which is the provider this
+   * process can actually reach.
+   */
+  readonly model?: FactoryModelPin;
 }
 
 export interface FactoryWorkerTuning {
@@ -361,7 +358,6 @@ export class FactoryStartupConfigError extends Error {
   }
 }
 
-type FieldKind = "identity" | "path" | "port" | "interval" | "url" | "roots" | "statement" | "count";
 
 interface FieldSpec {
   readonly field: string;
@@ -451,37 +447,7 @@ function read(root: Record<string, unknown>, field: string): { readonly present:
   return { present: current !== undefined, value: current };
 }
 
-function wellFormed(kind: FieldKind, value: unknown): boolean {
-  switch (kind) {
-    case "identity":
-      return typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/.test(value);
-    case "path":
-      return typeof value === "string" && value.length > 0 && value.length <= 4_096 && !value.includes("\0");
-    case "port":
-      return Number.isSafeInteger(value) && (value as number) >= 1 && (value as number) <= 65_535;
-    case "interval":
-      return Number.isSafeInteger(value) && (value as number) >= 10 && (value as number) <= 600_000;
-    case "count":
-      return Number.isSafeInteger(value) && (value as number) >= 1 && (value as number) <= 1_024;
-    case "statement":
-      return typeof value === "string" && value.length >= 1 && value.length <= 512 && !value.includes("\0");
-    case "roots":
-      return Array.isArray(value) && value.length >= 1 && value.length <= 32
-        && value.every((item) => typeof item === "string" && item.length > 0 && item.length <= 4_096 && !item.includes("\0"));
-    default:
-      return httpsUrl(value);
-  }
-}
 
-function httpsUrl(value: unknown): boolean {
-  if (typeof value !== "string" || value.length === 0 || value.length > 2_048) return false;
-  try {
-    const url = new URL(value);
-    return (url.protocol === "https:" || url.protocol === "http:") && url.hostname.length > 0;
-  } catch {
-    return false;
-  }
-}
 
 /** A signing key map: one key id to one file, at least one entry. */
 function wellFormedKeyPaths(value: unknown): boolean {
@@ -510,9 +476,23 @@ function wellFormedRunner(runner: unknown, keys: readonly string[] = RUNNER_KEYS
     && SHA256_DIGEST.test(runner.digest as string);
 }
 
+/**
+ * A model pin, whole: its provider and model, a configuration this process can
+ * honour, a policy, and the two digests over them. The runner must name the
+ * same model and configuration digest.
+ */
+function wellFormedProfileModel(runner: Record<string, string>, model: unknown): boolean {
+  if (!isPlainRecord(model) || !exactKeys(model, ["provider", "model", "configurationDigest", "configuration", "policyDigest", "policy"])) return false;
+  if (!wellFormed("identity", model.provider) || !wellFormed("identity", model.model) || !isPlainRecord(model.configuration) || !isPlainRecord(model.policy)) return false;
+  try { factoryModelSamplingOptions(model.configuration); } catch { return false; }
+  return factoryModelPinMatchesRunner(runner, model as unknown as FactoryModelPin);
+}
+
 function wellFormedRunnerProfile(value: unknown): boolean {
-  if (!isPlainRecord(value) || !exactKeys(value, ["runner", "resourceClass", "allocation", "allowedCapabilities"])) return false;
-  if (!wellFormedRunner(value.runner)) return false;
+  const pinned = isPlainRecord(value) && Object.hasOwn(value, "model");
+  if (!isPlainRecord(value) || !exactKeys(value, pinned ? ["runner", "resourceClass", "allocation", "allowedCapabilities", "model"] : ["runner", "resourceClass", "allocation", "allowedCapabilities"])) return false;
+  if (!wellFormedRunner(value.runner, pinned ? [...RUNNER_KEYS, "configurationDigest", "model"] : RUNNER_KEYS)) return false;
+  if (pinned && (!SHA256_DIGEST.test(value.runner.configurationDigest!) || !wellFormedProfileModel(value.runner, value.model))) return false;
   if (!wellFormed("identity", value.resourceClass)) return false;
   if (!Array.isArray(value.allowedCapabilities) || value.allowedCapabilities.length > 64
     || value.allowedCapabilities.some((capability) => !wellFormed("identity", capability))
@@ -582,24 +562,6 @@ function wellFormedReleaseDestination(value: unknown): boolean {
   return false;
 }
 
-/** One data-key wrapping service, by kind, with only that kind's fields. */
-function wellFormedKeyManagement(value: unknown): boolean {
-  if (!isPlainRecord(value)) return false;
-  if (value.kind === "operator-master-key") return exactKeys(value, ["kind"]);
-  if (value.kind === "cloud-kms") {
-    const required = ["kind", "keyId", "region", "credentialsPath"];
-    if (!exactKeys(value, required) && !exactKeys(value, [...required, "endpoint"])) return false;
-    return wellFormed("statement", value.keyId) && wellFormed("identity", value.region) && wellFormed("path", value.credentialsPath)
-      && (value.endpoint === undefined || httpsUrl(value.endpoint));
-  }
-  if (value.kind === "transit") {
-    const optional = ["mount", "caPath"].filter((key) => Object.hasOwn(value, key));
-    if (!exactKeys(value, ["kind", "endpoint", "keyName", "tokenPath", ...optional])) return false;
-    return httpsUrl(value.endpoint) && wellFormed("identity", value.keyName) && wellFormed("path", value.tokenPath)
-      && (value.mount === undefined || wellFormed("identity", value.mount)) && (value.caPath === undefined || wellFormed("path", value.caPath));
-  }
-  return false;
-}
 
 /**
  * W15's two recovery sections. Temporal client TLS is all three paths or none,
@@ -614,7 +576,7 @@ function recoverySectionProblems(value: Record<string, unknown>, missing: string
   }
   if (temporalTlsPresent.length > 0 && !read(value, "temporalHttp.endpoint").present) missing.push("temporalHttp.endpoint");
   const keyManagement = read(value, "keyManagement");
-  if (keyManagement.present && !wellFormedKeyManagement(keyManagement.value)) invalid.push("keyManagement");
+  if (keyManagement.present && !wellFormedFactoryKeyManagement(keyManagement.value)) invalid.push("keyManagement");
 }
 
 /** One adapter reference, its action, its destination, and its cost. */
@@ -681,11 +643,6 @@ function canonicalAdapter(value: unknown): string {
   return JSON.stringify(Object.keys(value).sort().map((key) => [key, value[key]]));
 }
 
-/** Exactly these keys, no more and no fewer. */
-function exactKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
-  const present = Object.keys(value);
-  return present.length === keys.length && keys.every((key) => present.includes(key));
-}
 
 function leaves(value: unknown, prefix = ""): string[] {
   if (!isPlainRecord(value)) return [prefix];
@@ -759,6 +716,10 @@ const checkGuestBroker: StartupCheck = (value, { missing, invalid }) => {
   if (hosts.present && !wellFormedHostMap(hosts.value)) invalid.push("guestBroker.hosts");
   const brokerKeys = read(value, "guestBroker.tokens.publicKeyPaths");
   if (brokerKeys.present && !wellFormedKeyPaths(brokerKeys.value)) invalid.push("guestBroker.tokens.publicKeyPaths");
+  // Kept for compatibility, pinned to the route contract: the route enforces
+  // that audience whatever this says, so any other value is a document error.
+  const audience = read(value, "guestBroker.tokens.audience");
+  if (audience.present && audience.value !== FACTORY_GUEST_BROKER_AUDIENCE) invalid.push("guestBroker.tokens.audience");
 };
 
 // Host PUBLIC keys, by reference. Each entry names a host, a key id, and a
@@ -812,8 +773,14 @@ const checkRunnerProfiles: StartupCheck = (value, { invalid }) => {
     invalid.push("runnerProfiles");
     return;
   }
+  // A pinned profile names the installation's own provider and model. The
+  // provider broker refuses every other pin, so a profile that disagreed would
+  // boot and then refuse its first model call as `model_pin_mismatch`.
+  const installationPin = read(value, "modelProvider").value as { provider?: unknown; model?: unknown } | undefined;
   for (const [index, profile] of section.profiles.entries()) {
-    if (!wellFormedRunnerProfile(profile)) invalid.push(`runnerProfiles.profiles[${index}]`);
+    if (!wellFormedRunnerProfile(profile)) { invalid.push(`runnerProfiles.profiles[${index}]`); continue; }
+    const pin = (profile as { model?: FactoryModelPin }).model;
+    if (pin !== undefined && (installationPin?.provider !== pin.provider || installationPin?.model !== pin.model)) invalid.push(`runnerProfiles.profiles[${index}].model`);
   }
   // A resource class named twice would make the admission profile map
   // depend on declaration order, which is not a fact an operator states.

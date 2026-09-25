@@ -3843,6 +3843,44 @@ load; the socket paths were already short. Each cause is pinned by a test that f
 code. At `2d33f46d7` the full backend pool reports 0 fail, and every static and coverage gate passes.
 Two findings are left open outside scope: the ai-kit installer ignores its postinstall exit code, and
 `inspectProductionRunner` keeps a fixed 5-second default for verification commands.
+
+## W15b — Runtime key management and migration follow-ups (branch `wp/w15b-runtime-kms`)
+
+Brief: `/tmp/factory-platform-evidence/w00/briefs/w15b.md`. Gate file: `tasks/factory/w15b-GATES.md`.
+
+- [x] R1 one key-service unit for the orchestrator codec and the restore; each non-file kind proven at runtime (Node launcher and full stack); mismatches refuse typed; the manifest names the kind.
+- [x] R2 the retention kind constraint is replaced by name; proven on the old table shape under PGlite and PostgreSQL.
+- [x] R3 the effect-claims comment corrected.
+- [x] R4 unchanged by design.
+- [x] Gates, receipts, report.
+- [x] Round 2: the pool bundles for Node again (checkpoint limits in a leaf); gate integrity green against `integ/w00` (key service back in `key-composition.ts`); final legs rerun at `5f341bf01`.
+- [x] Round 3 (post-W15c): merged `integ/w00` `b9de6910c`; one copy of the C12 block, the coverage key, and the lesson; N1 gate text; N5 an aborted restore stops without a pool finding; all legs rerun at `9f1391d18`.
+- [ ] Follow-up N2 (owner W15): the checkpoint manifest does not tie the checkpoint to its key wrap (`keys.service` echoes config; the wrap fields are null).
+- [ ] Follow-up N3 (hygiene): skip the retention kind constraint change when `pg_constraint` already holds the same definition.
+- [ ] Follow-up N4 (defence in depth): a keyed report digest, so an edit that also rewrites `report_digest` is caught.
+
+Review (W15b): The orchestrator's payload codec and the restore now open the data key through one unit,
+so a startup document that selects a cloud KMS or a transit engine works at runtime, not only in the
+restore. The Node process may link the KMS client, and the boundary test says exactly that. A wrap
+made under another service, or a service that cannot open it, refuses with `FactoryEncryptionError`.
+The retention kind constraint is replaced by name on every boot. The first backend-pool run failed
+because the batch leaked the PostgreSQL environment into it; the batch now uses subshells.
+Round 2: the W15 merge made the pool service import the checkpoint barrier, which links the Bun
+database driver, so the Node pool bundle failed. The limits now live in a leaf module the barrier
+re-exports. Gate integrity had refused round 1's move of `key-composition.ts`; the selection is back
+in that file. Every final leg exits 0 at `5f341bf01`, including the backend pool.
+Round 3: W15c's gate replaced W15b's copy of the pool checks. A restore cancelled during a pool call
+now stops with its abort and records nothing for that call; before, it recorded a pool refusal first.
+
+### W18 hygiene backlog: load-sensitive suites outside W15b (recorded by W15b, 2026-09-24)
+
+- [ ] `src/__tests__/production-image-lifecycle-launch.integration.test.ts`: under the full backend pool
+  on the shared host, "launcher cancellation reaps its verifier and runner before streams drain" failed
+  (5517 ms); alone it passes 5/0. Evidence: `/tmp/factory-platform-evidence/w15b/logs/pool-flake-alone.log`.
+- [ ] `src/__tests__/substack-pilot-installer.test.ts`: under the full pool, "Substack source seals settings
+  and checksums, then publishes only its exact human-approved release" hit its 120 s timeout and two
+  credential-broker cases failed after it; alone it passes 3/0. Evidence: `.../w15b/logs/pool-flake-alone-2.log`.
+
 ## W18a-2 — second complexity pass and the three coverage-key gaps (branch `wp/w18a2-quality`)
 
 Brief: `/tmp/factory-platform-evidence/w00/briefs/w18a2.md`. Gates: `tasks/factory/w18a2-GATES.md`.
@@ -3897,6 +3935,46 @@ only in three guest suites whose images were removed from the host.
 ## W18 test-hygiene backlog (coordinator)
 
 - compose.factory-storage.local.yml: declare restart: on-failure for both SeaweedFS services and the proof PostgreSQL so a recreated store keeps the policy the coordinator set by hand on 2026-09-23 after the OOM kill; document it in docs/factory-local-storage.md.
+
+## W19a — graph proof: deterministic tasks and a model task, end to end (branch `wp/w19a-graph-proof`)
+
+Brief: `/tmp/factory-platform-evidence/w00/briefs/w19a-graph-proof.md`. Gates: `tasks/factory/w19a-GATES.md`.
+Receipts: `/tmp/factory-platform-evidence/w19a/`. Base: `integ/w00` at `6c8ec29c5`, plus `wp/w01g-staging` at `f0aafe3a0`.
+
+Finding before the plan: at the base a guest's model call cannot reach a model in the real application. The host
+refuses it with `factory_host_broker_unavailable`, the product guest-broker route serves staging frames only, and the
+product composes its provider broker for readiness and never calls it. The runner profiles in the startup document
+cannot declare a model pin, and the provider broker resolves an Ollama model without its registered base URL.
+
+- [x] Host: forward a guest model request over the existing guest-broker route (one broker, one channel).
+- [x] Product: answer a model request on that route through `createFactoryGuestModelBroker`, the durable journal,
+      W04's workspace checkpoints, and the installation's pinned provider, resolved per call.
+- [x] Provider: resolve a pinned model the way the chat router does (catalog, discovered, registered custom model,
+      the test-surface mock); readiness accepts a registered local model; temperature and seed reach the request.
+- [x] Startup document: a runner profile may declare a model pin; boot refuses a pin that disagrees with its runner
+      or with the installation's `modelProvider`.
+- [x] Mock provider for CI: a prompt-digest mode in the in-process mock LLM (fixed answer per prompt digest).
+- [x] Harness in `scripts/factory-graph-proof/`: the W09b/W01g/W15b real-server stack, a three-export guest, the graph
+      A prepare -> B infer -> C combine, modes (a) Ollama and (b) mock, and four negative controls.
+- [x] Proofs: three passes per mode on fresh databases, controls refused by name, determinism recorded.
+- [x] Runbook `docs/factory-graph-proof.md`, followed literally.
+- [x] Gates: coverage of new files and changed lines, PostgreSQL suites registered, typecheck, lint, boundaries,
+      gate-integrity, no credential value, dangling images pruned.
+
+### Review
+
+The graph works end to end on the real application in both modes, three of three each, on fresh
+databases, at `452f0bc62`. A deterministic task feeds a model task, whose answer and the first task's
+count feed a third deterministic task. Each node reads its inputs from the store under the scope that
+sealed them, and the model task's journal holds exactly one completed model operation with the pinned
+provider, model and measured tokens. It did not work at the base: the host refused every model call,
+the product route served staging frames only, and nothing called the provider. This package wired
+that path without a new channel or a contract change, proved the guest's journal mirroring in-process
+on PGlite and PostgreSQL, and added a prompt-digest mock so CI needs no Ollama. The campaigns found
+two defects outside this package's files, both fixed with a test that fails on the old code: a
+gateway timeout that never settled under Bun, and a 500 in place of a named 422. They also found one
+contract gap that needs a ruling: a provider error leaves the run held forever on an unknown cost.
+Gates, receipts and findings: `tasks/factory/w19a-GATES.md`.
 - W09b harness: an empty EZCORP_FACTORY_STORAGE_SECRETS_DIR resolves to a relative 'ordinary.json' and fails with ENOENT deep in setup. Refuse at start with a typed message that names the variable.
 - W09b harness: a run that fails before cleanup leaves ~/.w09b-stack-<id> with test keys and tokens (one from 2026-09-22 exists). Make cleanup unconditional (finally).
 - Pre-commit hook: it skips its PostgreSQL and staged suites when more than 12 test files map to the commit (36 at the W15 merge, 74 at the origin/main 96e7ee58c merge 9ba704f4f). A gate must not skip silently: run all, or fail and name the cap.
@@ -4655,3 +4733,195 @@ Numbering grants turns revoke-then-grant into history rather than a conflict. A 
 that matters: one active grant per target. First grants keep their old seal, so every existing row still
 verifies. The display name is read from the user or service-account record only. It is resolved outside the
 authorization path, and it can never fall back to the raw id.
+
+## W18 hygiene — 60 partial api-keys mocks, hook cap, 27 bare git-init tests (branch `wp/w18-hygiene`)
+
+Base `integ/w00` `2b2e12550`. Receipts: `/tmp/factory-platform-evidence/w18-hygiene/receipts/`. Gates:
+`tasks/factory/w18-hygiene-GATES.md`. Item lists (F1 = 60 files, F2 = 27 files) are W18a-3's, copied
+verbatim from `tasks/factory/w18a3-GATES.md`.
+
+### Item A — F1
+
+- [x] Add `webLibModule()` to `src/__tests__/helpers/mock-cleanup.ts`, identical to W18a-3's (found on
+  their unmerged branch `wp/w18a3-quality-r2`; not yet on this package's base).
+- [x] Convert all 60 listed suites' partial `$lib/server/security/api-keys` mock to `webLibModule(...)`.
+- [x] Find and fix a self-recursion hazard: the 14 dual-specifier files (`$lib/...` + the resolved
+  relative path, same factory) and, separately, ALL 24 web-side files (because `web/`'s generated
+  tsconfig maps `$lib/*` to a really-resolvable path, unlike the virtual-only repo root) drop every
+  export but the override if `webLibModule()` is called lazily inside a factory also registered for the
+  same resolved module. Fixed by computing the merged object once, before either registration.
+- [x] Verify all 60 pass at their REAL invocation (some web files are only correctly gated from the repo
+  root, per `scripts/lib/test-file-sets.sh`'s `passfail_files`, not from `web/`).
+- [x] Add a guard test rejecting a partial `$lib/*` factory (general detector, pinned by fixtures;
+  enforced repo-wide for the api-keys module this item completed, with four named exemptions for files
+  W18a-3 is fixing on its own unmerged branch).
+- [x] typecheck, lint, boundaries, gate-integrity, `factory-process-boundaries.test.ts` all green.
+
+**Review.** The 60 suites' mocks were correct for the ONE key each test used, and silently wrong for
+every OTHER key any later test in the same process needed — a raw object literal freezes Bun's
+mock.module() export list forever, and neither a second registration nor restoreModuleMocks() can add a
+name back. Reproduced the base failure directly: running the 36 src-side files together in one batch
+(the F1 disclosure's own words — "any of them run before a route that imports requireAdmin fails to
+link") throws exactly that SyntaxError on the base, and the api-keys-specific instances of it are gone
+after the fix (unrelated pre-existing pollution from OTHER $lib modules, present on the base too, is
+disclosed and left alone — out of scope for this item). The harder finding was that `webLibModule()`
+itself needs to run BEFORE its own mock.module() registration when the specifier it targets and the
+plain relative path to the real file can resolve to the same module record — proven with a standalone
+repro, and this affects every web-side file, not only the already-known dual-specifier ones, because
+`$lib` genuinely resolves there.
+
+### Item B — pre-commit hook cap
+
+- [x] `run_staged_tests()` names every staged test file above the cap and, by default, exits non-zero
+  (blocks the commit) instead of skipping silently.
+- [x] `EZ_SKIP_HOOK_TESTS=1` moved from a pre-filter in `.githooks/pre-commit` into `run_staged_tests()`
+  itself, so it is honoured — visibly — for both the over-cap and the pre-existing under-cap skip.
+- [x] Four tests in `src/__tests__/git-hooks.test.ts` (a new `repoWithHookLib()` fixture): blocked over
+  cap, skipped-and-visible over cap with the env var, unaffected at the cap, and (validator-3 L1, added
+  in the fix round) skipped-and-visible AT the cap with the env var — the fourth combination, which
+  before this item never even reached `run_staged_tests()` (the caller pre-filtered the env var), so it
+  was silent too.
+- [x] typecheck, lint, boundaries, gate-integrity, `factory-process-boundaries.test.ts`,
+  `gate-scripts.test.ts` all green.
+
+**Review.** Reproduced the bug directly, twice, on this package's own commits: staging the 36-file and
+then the 24-file api-keys conversion each hit the cap and the hook printed one line ("N test files map
+to this commit (cap 12) — skipping.") and exited 0 — the commit landed with zero tests run and no file
+named. That is the same shape as the coordinator's 74-file main-merge incident. The fix does not lower
+the bar (a wide commit still does not run its tests locally — CI does), it makes the decision to skip an
+ACT the developer takes knowingly, every time, with the exact file list in front of them, rather than
+something that happens to them silently past a threshold they may not know exists.
+
+**Validator-3 fix round (M1, L1).** M1: the receipts had no producing commit, exit code, or timestamp
+named, and three files were missing from `SHA256SUMS.txt`. Added `receipts/MANIFEST.json` and cited
+every commit in the gates file; evidence-only, no code change. One correction surfaced while building
+it: `f1-src-batch.log`'s exit code is 1 (the four-module pollution item D closes), not 0 as the gates
+file previously implied by omission. L1: added the missing fourth test above. New head `344b11efc`. L2
+(the withheld-factory-orchestrator name; the empty-list guard for an orchestrator-only stage; removing
+the F1-guard's W18a-3 exemption once those files land) is item C's scope on `wp/w18-hygiene-2`.
+
+### Item D — the other pre-existing partial-mock pollution (coordinator ruling on finding 2, branch
+`wp/w18-hygiene-2` from `b7349ba8c`)
+
+- [x] Reproduced on the base before fixing anything: the 36 F1 files run together throw "Export named
+  X not found" for `$lib/server/context`, `$server/db/queries/extensions`, `$server/providers/
+  local-model-check`, `$lib/server/security/resource-quotas` — exactly the class F1 predicted, for
+  the modules F1 didn't touch.
+- [x] Found and converted every file (26, repo-wide) that partially mocks one of the four modules.
+- [x] Three of the four (`db/queries/extensions`, `local-model-check`, `resource-quotas`) use the same
+  `serverModule()`/`webLibModule()` pattern as F1.
+- [x] `$lib/server/context` needed a different fix: it's the app's central wiring module, and spreading
+  it for real cascades through an unbounded chain of the SAME test files' own unrelated partial mocks
+  of its transitive dependencies (agent-configs, conversations, user-commands, db/connection,
+  pending-messages — each layer found by direct reproduction, one at a time). Built
+  `completeFactory()`/`contextModule()`: a facade with the real export surface always present,
+  throwing stubs where not overridden, never requiring the real module.
+- [x] Found and fixed a companion false positive this surfaced in the "mock.module target is
+  snapshotted or exempt" meta-test: it didn't recognize a `serverModule()`/`webLibModule()`-bound
+  const as a valid `$server/*` shim.
+- [x] Bonus: a partial `$server/auth/middleware` mock in `extension-event-end-to-end.test.ts`, found
+  while chasing a residual failure.
+- [x] All 26 files pass individually at their real invocation; typecheck, lint, boundaries,
+  gate-integrity, `factory-process-boundaries.test.ts` all green.
+- [x] Coordinator-ruled fix: the residual pollution turned out to be THREE more partial mocks, not one
+  — `db/queries/conversations` and `db/queries/tool-calls` (same fix as the rest of item D), and a
+  THIRD, different bug class: `$lib/server/http-errors` had the right export name but a narrower
+  hand-rolled body that dropped the real signature's `details` param, which the guard test cannot
+  catch (it only checks for a missing export, not a behaviorally-incomplete one). A near-identical
+  instance was independently found in a second file while re-verifying against the full batch.
+  Reproduction batch now 682 pass / 0 fail (was 677/5).
+- [x] Validator-3 pre-review fixes P1 (completeFactory() has its own tests), P2 (CONTEXT_EXPORT_NAMES
+  pinned against context.ts's real export list, parsed from source, never imported), P3 (fixed a
+  companion classification bug the P1/GD5 meta-test fix introduced: an override-bearing
+  serverModule()/webLibModule() binding was wrongly treated as an unconditional shim; now only an
+  EMPTY-overrides binding is, and a non-empty one correctly falls through to the served/skipped check
+  instead of getting a free pass).
+- [x] Two much larger surveys (83 files still partially mock `db/queries/extensions` elsewhere in the
+  tree; ~39 partially mock `auth/middleware`) become item E, a later package on its own branch after
+  item C, per the coordinator's ruling — not undertaken here.
+
+**Review.** The three "shallow" modules confirmed F1's method generalizes cleanly. `$lib/server/context`
+did not: it's the one module in this set whose real implementation IS the app boot sequence, so
+"spread the real module" — the exact fix that worked everywhere else — recursively demands every OTHER
+module its own callers have their own reasons to stub. The right fix turned out to be narrower than F1's:
+guarantee the export NAMES (so a route's static import always links, which is the actual bug), and let a
+genuine behavioral gap fail loud and local instead of masquerading as every OTHER test's problem. The
+residual pollution taught the same lesson twice over: completing an export LIST is not the same
+guarantee as matching the real BEHAVIOR of an export that's already present, and the guard test that
+catches the first kind cannot see the second — a narrower reimplementation with the right name sails
+through silently until two files' tests happen to run in the same process and one needs the part the
+other dropped.
+
+### Item C — F2 (27 bare git-init tests)
+
+Blocked on the integ/w00 hash containing W18a-3 (needs `src/__tests__/helpers/scratch-git.ts`). Not
+started.
+## W12d — reproducible data image build (branch `wp/w12d-reproducible-image`)
+
+Base `wp/w12c-data-image-repin` `7821e5d7c`, merged with `integ/w00` `2b2e12550`. Receipts:
+`/tmp/factory-platform-evidence/w12d/`. Gates: `tasks/factory/w12d-GATES.md`.
+
+- [x] Find the cause: the import check wrote `.pyc` files that differ between builds; the timestamp was also unfixed.
+- [x] Fix: no bytecode in the build step; `--no-cache --timestamp 0 --identity-label=false`; the script checks the pin and fails without `--repin`.
+- [x] A failed check removes only its candidate tag; the pinned image is never touched (control cases A and B).
+- [x] Binding proof: a rebuild after removal gives the pin (build 3, clean at `55f58739f`).
+- [x] Guest unit, three Podman guest suites, boundary and closure suites, static gates, coverage gates at `0c62f68e8`.
+
+**Review.** Two clean builds differed only in eight `.pyc` files that the import check wrote. With
+bytecode off, every timestamp fixed and no build cache, the build reproduces the pin on this host's
+Podman version. Other Podman versions are not proven. The script now refuses a pin it does not
+reproduce and removes what it built. A deliberate change needs `--repin`.
+## W19b — the graph proof keeps a failed pass's diagnostics (branch `wp/w19b-harness-logs`)
+
+Gates: `tasks/factory/w19b-GATES.md`. Receipts: `/tmp/factory-platform-evidence/w19b/`.
+
+- [x] Stream the pool, supervisor, Temporal, TLS terminator, gateway stub, web and orchestrator logs to the pass output directory.
+- [x] On a failed pass, copy the stack's readiness files and logs out before the stack is deleted; never copy `secrets/`.
+- [x] Scan before copy and redact streamed logs; record refusals and redactions.
+- [x] Forced-failure control in mock mode, with `verify-diagnostics.ts`, in `run.sh all` and the summary.
+- [x] Runbook says where the files are.
+
+### Review
+
+A failed pass now leaves every process's own output and the pool's and supervisor's readiness files,
+and nothing it leaves carries a credential. The first campaign showed that treating every string in a
+configuration document as a secret refuses exactly the files a reader needs; only credentials are
+secrets now. The proof itself is unchanged: both modes passed three of three, and every control passed.
+
+### Fix round (validator-3's three low notes)
+
+- [x] L1: the secret rule fails closed. Every string in a JSON file under `secrets/` is a secret except
+  the values of `CONFIGURATION_KEYS`. The stack's documents come from `stack-documents.ts`, and a test
+  classifies every string leaf of every one, so a new field fails until it is classified.
+- [x] L2: a binary file under `secrets/` yields its hex and base64 forms; each form planted in a stack
+  file is refused and redacted.
+- [x] L3: streamed logs are redacted every 2 seconds while the pass runs, not only at the end; the
+  runbook states the window left when the harness itself dies.
+- [x] Heavy leg: the mock forced-failure control alone, under the lock, timeout 1800.
+
+### Second fix round (validator-3's F1 to F3)
+
+- [x] F1: the inline-document guard reads each `privateWrite(...)` call whole, marks anything but a named builder `"inline"`, compares with `toStrictEqual`, and is tested on fixtures, one line and split.
+- [x] F2: `receipt.sh` names every log and receipt per attempt; the first heavy attempt's receipt points at its preserved log and says the original was overwritten.
+- [x] F3: a URL's password is collected from every JSON string, whatever its key.
+## W16b — tenant-keyed guest-broker routes (branch `wp/w16b-guest-brokers-keyed`)
+
+Coordinator ruling 2026-09-25 (option A). Gate file `tasks/factory/w16b-GATES.md`,
+evidence `/tmp/factory-platform-evidence/w16b/`.
+
+- [x] services.guestBroker becomes services.guestBrokers (tenant to endpoint); the parser refuses the old form and malformed maps.
+- [x] The host picks the attempt's own tenant's route; an unknown tenant is refused by name before any byte leaves the host.
+- [x] Producers updated: supervisor tests, W01g transport suite, W19a graph-proof stack.
+- [x] Hold b1 at 61bc3428b: every leg exit 0.
+- [x] W01 owner review (w01g-fix) at 61bc3428b; the audience change sent for the same review.
+- [x] The route accepts only the contract's audience; a pool token is refused by name (ca92306c5). Hold b2 at fb3a990ee: every leg exit 0.
+- [ ] Validation (validator-2), then merge before W16 and W01h.
+
+### Review
+
+A fleet host serves every installation, so it now holds one guest-broker route
+per tenant and forwards each guest frame only to its own attempt's tenant.
+There is no fallback: an unknown tenant is refused by name. The lease carries
+no tenant, so the tenant comes from the launch intent, and the chosen route's
+attempt-token check still stops a launch that names the wrong tenant.
+
