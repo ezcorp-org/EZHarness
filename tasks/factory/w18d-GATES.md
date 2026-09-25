@@ -57,11 +57,20 @@ Evidence:
   picks the separator by Vitest version, provides it to its setup file, and builds test ids,
   results and the filter with it. A frozen `bun install --cwd web`, as CI runs it, applies the
   patch. `web/stryker.config.json` documents why the patch exists and when to drop it.
+  - Upstream: issue 6210 (https://github.com/stryker-mutator/stryker-js/issues/6210) and the
+    open fixes PR 6214 and PR 6220.
+  - Removal condition: remove the patch and its `patchedDependencies` entry when a released
+    `@stryker-mutator/vitest-runner` contains the fix. Bump the runner to that release in the
+    same commit, then rerun the run-format.ts control to prove the score holds. If a runner bump
+    drops the patch before the fix is released, the zero-tests check below fails the run.
 - `7c1811611`: `mutationExitCode()` fails the run when any mutant is Survived with
   `testsCompleted: 0`, even under `--report-only` and even on a clean Stryker exit. Such a
-  mutant was never tested, so the result is a toolchain failure and not a score. A Timeout
-  mutant cannot be checked this way, because a real timeout also completes no test. The mode and
-  the threshold are unchanged. This commit is separable if the coordinator rules against it.
+  mutant was never tested, so the result is a measurement failure and not a score. Failing the
+  run on it is fail-closed, in the same class as a run that wrote no report. It is not a mode
+  change, because `--report-only` still suppresses the threshold verdict and nothing else. It
+  is not a threshold change, because the break score stays 80. The coordinator approved this
+  commit on 2026-09-25. A Timeout
+  mutant cannot be checked this way, because a real timeout also completes no test.
 
 ## Proof
 
@@ -85,6 +94,9 @@ is kept as `proof/w18d-w14-mutation-r1`. It has the same patch commit.
 - On the unpatched head, the check fails the report-only gate, naming 1 279 mutants that
   "survived" with zero tests.
 - `origin/main` was `84ee6f0ad` for every gate run.
+- Every Stryker run mutated only named targets: `--mutate <file>` for the controls, and the
+  CI command's own changed-file scope for the gate rows. The `core.bare` override and the archy
+  identity are set with `--worktree` in every worktree used (`git config --show-origin`).
 
 ## Gate policy (coordinator's call; nothing changed here)
 
