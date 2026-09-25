@@ -216,7 +216,18 @@ integ's general `factoryPackageRelease(runner, …)` replaced W14's narrower hel
   authority; without it one approval-node notification made `GET …/release/notifications` refuse
   for everyone (reproduced in `journeys-22`, fixed in `c5b14cb49`). Real journey 5 approves a release
   in the console inbox; real journey 8 denies an approval node there.
-  EVIDENCE: `receipts/bun-installation-startup.json`, `receipts/real-lane.json`.
+  Before `b89833ba8` an approval-node decision in the web process refused with
+  `factory_command_approval_unavailable`: nothing composed `createCommandApprovals`. The startup test
+  "a declared destination registers release-outcome from the document alone" proves the composition
+  (the application's `commandApprovals` is a `FactoryAssuranceCommands` that judges a decision by its
+  rules, not refused as unavailable).
+  Fast tests for `c5b14cb49`: the same startup test checks that the composed release store holds the
+  installation's command authority and service identity; the lifecycle suite's "a release store without
+  the command authority cannot list an approval node's request; with it the request is listed" shows
+  the refusal on a genuine approval. Negative control: with the composition line reverted, the startup
+  suite is 50 pass, 1 fail; restored, 51 pass, 0 fail.
+  EVIDENCE: `receipts/bun-installation-startup.json`, `receipts/real-lane.json`,
+  `fix-round/negative-control-startup.log`, `fix-round/with-fix-startup.log`.
 - [x] G-R3b-4: W01g and W09d. The lane guest stages its bytes with the shipped staging client and
   completes; the declared validator (the same release pinned with a configuration digest, bound and
   trusted in the console) answers PASS. Real journey 5: the run is accepted, the approver consents in
@@ -228,6 +239,12 @@ integ's general `factoryPackageRelease(runner, …)` replaced W14's narrower hel
   sleep with fake timers. EVIDENCE: `receipts/web-vitest.json`. The mutation score cannot be measured
   on this toolchain (finding below).
 - [x] G-R3b-6: Final passes at the code head, every leg a receipt. EVIDENCE: `receipts/*.json`.
+- [x] G-R3b-7: W15 purge preconditions (fix round, by ruling). A purge refuses with `open-restore`
+  while a restore is fenced or awaiting its signature, and with `unsealed-checkpoint` while a
+  checkpoint barrier holds claims; it is queued otherwise. Three console-suite cases (each refusal and
+  the pass) on PGlite and PostgreSQL. Negative control: without the two conditions the three cases fail
+  (22 pass, 3 fail); with them, 25 pass.
+  EVIDENCE: `fix-round/negative-control-purge.log`, `fix-round/with-fix-purge.log`, the fix-round receipts.
 
 Console changes found by the real captures and fixed: a pin's configuration no longer hides its trust
 revision; two pins of one package are told apart in the row and its actions; the install form binds an
@@ -287,9 +304,16 @@ fence record wraps at 390 px; a grant's revoke button stays on its row at 390 px
   names the secret. Nothing was provisioned.
 - **Package preparation is a stated deployment fact.** No product route or role prepares a trusted
   package. The stack prepares it with the product's own classes after the console trusts it.
-- **Quarantine does not fence live attempts.** W02 constructs no quarantine fence, so the preview
-  counts live attempts and the transition records the state; it stops nothing.
-- **Purge preconditions are closing-work checks only.** W15 and W16 are not on this branch.
+- **Quarantine fences live attempts (superseded 2026-09-25).** Before W02c the console's trust store
+  had no fence, and a quarantine stopped nothing. Since `89f1cb256` the console composes
+  `createFactoryPackageTrusts`: a quarantine or revocation cancels every run with a live attempt on the
+  package in the decision's transaction, and records each attempt (real journey 7; "Round 3, part 2").
+- **Purge preconditions include W15; W16 waits.** W15 is on the branch (the restore port `46237000f`
+  and integ/w00 `2b2e12550`). Besides the seven closing-work checks, a purge now refuses by name while
+  a restore is open (`open-restore`) or a checkpoint barrier has not sealed (`unsealed-checkpoint`).
+  Both read W15's own gate function, `factory_effect_claims_closed_reason`, the one the effect-claim
+  trigger uses; a stale checkpoint is freshness, not a barrier, and does not refuse a purge. The
+  console's purge table lists them with the other conditions. The W16 checks wait for W16.
 - **Two installations are proven at the service level.** One database holds one installation, so
   the proof uses two isolated databases, not two HTTP servers.
 - **W02 audit action fixed.** Trust transitions recorded `factory.package.trust.publishd`; they
