@@ -79,7 +79,7 @@ export async function run(input: unknown, context: GuestContext): Promise<Record
   const validator = (request?.input as { kind?: string } | undefined)?.kind === 'artifact';
   let value: Parameters<typeof staging.stageResult>[1];
   if (validator) {
-    value = { schemaVersion: 'factory.validator-claims.v1', claims: [{ id: ${JSON.stringify(GUEST_CLAIM_ID)}, verdict: 'PASS', decisive: true, summary: 'factory-services validator guest', reasonCode: 'factory_services_pass' }] };
+    value = { schemaVersion: 'factory.validator-claims.v1', claims: [{ id: ${JSON.stringify(GUEST_CLAIM_ID)}, verdict: 'PASS', decisive: true, summary: 'factory-services validator guest', reasonCode: 'pass', evidence: [], measuredAtMs: Date.now() }] };
   } else {
     if (JSON.stringify(request?.input ?? null).includes(${JSON.stringify(GUEST_HOLD_MESSAGE)})) await new Promise(resolve => setTimeout(resolve, ${GUEST_HOLD_MS}));
     const encoder = new TextEncoder();
