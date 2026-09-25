@@ -1,4 +1,5 @@
 import { json } from "@sveltejs/kit";
+import { ContractError } from "@ezcorp/extension-contract";
 import { sql } from "drizzle-orm";
 import { requireAdminSession } from "$server/auth/middleware";
 import { getDb } from "$server/db/connection";
@@ -46,7 +47,11 @@ export const GET: RequestHandler = async ({ locals }) => {
     for (const connection of connections.slice(0, pageSize)) {
       let active: Awaited<ReturnType<typeof resolveActiveRelease>>;
       try { active = await resolveActiveRelease(connection.installationId, getReleaseRuntime()); }
-      catch { continue; } // Inactive releases cannot admit a new sandbox; their existing bindings remain visible.
+      catch (error) {
+        // An inactive release is expected. A runtime or integrity failure must remain visible.
+        if (error instanceof ContractError && error.code === "RELEASE_NOT_ACTIVE") continue;
+        throw error;
+      }
       if (active.release.id !== connection.releaseId) continue;
       const provider = active.release.manifest.sandboxProviders?.find(item => item.id === "incus" && item.kind === "sandbox");
       if (provider?.protocolMajor !== 1) continue;
@@ -63,7 +68,7 @@ export const GET: RequestHandler = async ({ locals }) => {
           && new Date(run.deadlineAt).getTime() > Date.now();
         const failed = run && run.state !== "COMPLETED" && !running;
         environments.push({ ...connection, releaseGeneration: active.installation.generation,
-          presetId: preset.id, label: `${connection.label} · ${preset.id}`, profile: preset.profile,
+          presetId: preset.id, label: `${connection.label} · ${preset.id}`, profile: preset.profile, limits: preset.limits,
           qualified: qualification !== null && !running, qualificationValidUntil: qualification?.validUntil ?? null,
           qualificationState: running ? "running" : qualification ? "qualified" : failed ? "failed" : "not_qualified",
           qualificationRunId: run?.runId ?? null,

@@ -1,4 +1,5 @@
 import { beforeEach, expect, mock, test } from "bun:test";
+import { ContractError } from "@ezcorp/extension-contract";
 
 let rows: unknown[][];
 let queries = 0;
@@ -6,14 +7,16 @@ let fail = false;
 let qualification: { validUntil: string } | null;
 let active: Record<string, unknown>;
 const connection = { installationId: "installation", releaseId: "release", connectionId: "connection", connectionRevision: 1, label: "Development" };
-const preset = { id: "compose", profile: "persistent-web-compose.v1" };
+const preset = { id: "compose", profile: "persistent-web-compose.v1", limits: { memoryBytes: 4294967296, cpuMillis: 2000, diskBytes: 21474836480, pids: 1024 } };
 const run = { runId: "run", state: "AWAITING_RESTART", deadlineAt: "2999-01-01T00:00:00Z" };
 mock.module("$server/auth/middleware", () => ({ requireAdminSession: (locals: { user?: { role: string }; authMethod?: string }) =>
   locals.user?.role === "admin" && locals.authMethod === "session" ? locals.user : Response.json({}, { status: locals.user ? 403 : 401 }) }));
 mock.module("$server/db/connection", () => ({ getDb: () => ({ execute: async () => { queries++; if (fail) throw new Error("SECRET"); return rows.shift() ?? []; } }) }));
 mock.module("$server/extensions/extension-lifecycle-service", () => ({ getExtensionLifecycle: async () => undefined }));
 mock.module("$server/extensions/release-process", () => ({ getReleaseRuntime: () => ({}), resolveActiveRelease: async (id: string) => {
-  if (id === "inactive") throw new Error("SECRET"); return active;
+  if (id === "inactive") throw new ContractError("RELEASE_NOT_ACTIVE", "SECRET");
+  if (id === "broken") throw new Error("SECRET-integrity-failure");
+  return active;
 } }));
 mock.module("$server/infrastructure/incus-qualification", () => ({ IncusQualificationStore: class { async load() { return qualification; } } }));
 const { GET } = await import("./+server");
@@ -37,7 +40,7 @@ test("lists current environments with explicit missing qualification and no cach
   const response = await request();
   expect(response.headers.get("cache-control")).toBe("no-store");
   expect(await response.json()).toEqual({ environments: [{ ...connection, label: "Development · compose", releaseGeneration: 3,
-    presetId: "compose", profile: preset.profile, qualified: false, qualificationValidUntil: null,
+    presetId: "compose", profile: preset.profile, limits: preset.limits, qualified: false, qualificationValidUntil: null,
     qualificationState: "not_qualified", qualificationRunId: null, blockedReason: "Run qualification before creating a sandbox." }],
     projects: [{ id: "project", name: "Project" }], features: [], truncated: false });
 });
@@ -85,4 +88,9 @@ test("sanitizes failures without leaking database diagnostics", async () => {
   const response = await request();
   expect(response.status).toBe(503);
   expect(await response.json()).toEqual({ code: "management_unavailable", message: "Sandbox status is unavailable. Try refreshing." });
+  fail = false;
+  rows = [[{ ...connection, installationId: "broken" }], [], []];
+  const broken = await request();
+  expect(broken.status).toBe(503);
+  expect(await broken.text()).not.toContain("SECRET");
 });
