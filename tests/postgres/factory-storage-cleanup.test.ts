@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { DeleteObjectCommand, GetObjectCommand, ListObjectVersionsCommand, PutObjectCommand } from "@aws-sdk/client-s3";
 import { s3ObjectKey } from "../../src/extensions/v4/blobs";
-import { createFactoryOrdinaryStorage, factoryRunPrefix, listFactoryRunVersions, removeFactoryRunObjects, type FactoryRunCleanupClient } from "./helpers/factory-storage";
+import { createFactoryOrdinaryStorage, FACTORY_RUN_DELETE_BATCH, factoryRunPrefix, listFactoryRunVersions, removeFactoryRunObjects, type FactoryRunCleanupClient } from "./helpers/factory-storage";
 
 /**
  * W15d: a proof run removes what it wrote. The local buckets keep every version,
@@ -12,17 +12,28 @@ import { createFactoryOrdinaryStorage, factoryRunPrefix, listFactoryRunVersions,
  * own (a UUID), so the cleanup never reaches another run's objects.
  */
 
-/** A scripted listing: each call returns the next page, and records what it was asked. */
-function scriptedClient(pages: readonly Record<string, unknown>[]): FactoryRunCleanupClient & { readonly asked: Record<string, unknown>[] } {
+/** A scripted listing: each call returns the next page, and records what it was asked. Deletes answer `deleteAnswer`. */
+function scriptedClient(pages: readonly Record<string, unknown>[], deleteAnswer: Record<string, unknown> = {}): FactoryRunCleanupClient & { readonly asked: Record<string, unknown>[] } {
   const asked: Record<string, unknown>[] = [];
   let index = 0;
   return {
     asked,
     async send(command) {
       asked.push({ name: command.constructor.name, ...command.input });
-      return command instanceof ListObjectVersionsCommand ? pages[index++] : {};
+      return command instanceof ListObjectVersionsCommand ? pages[index++] : deleteAnswer;
     },
   };
+}
+
+/** `count` versions under ordinary/s/r, split into listing pages of 1000. */
+function listing(count: number): Record<string, unknown>[] {
+  const keys = Array.from({ length: count }, (_value, index) => ({ Key: `ordinary/s/r/k${String(index).padStart(5, "0")}`, VersionId: `v${index}` }));
+  const pages: Record<string, unknown>[] = [];
+  for (let start = 0; start < count; start += 1_000) {
+    const last = start + 1_000 >= count;
+    pages.push({ Versions: keys.slice(start, start + 1_000), IsTruncated: !last, ...(last ? {} : { NextKeyMarker: keys[start + 999]!.Key, NextVersionIdMarker: keys[start + 999]!.VersionId }) });
+  }
+  return pages;
 }
 
 describe("run prefixes", () => {
@@ -52,13 +63,35 @@ describe("run prefixes", () => {
     }
   });
 
-  test("removal deletes each listed version by id and nothing else", async () => {
+  test("removal names each listed version by id, a thousand per call, with the last batch partial", async () => {
+    const client = scriptedClient(listing(2_345));
+    expect(await removeFactoryRunObjects(client, "tenant-01", "ordinary/s/r")).toBe(2_345);
+    const deletes = client.asked.filter(call => call.name === "DeleteObjectsCommand") as { Bucket: string; Delete: { Objects: { Key: string; VersionId: string }[]; Quiet: boolean } }[];
+    expect(FACTORY_RUN_DELETE_BATCH).toBe(1_000);
+    expect(deletes.map(call => call.Delete.Objects.length)).toEqual([1_000, 1_000, 345]);
+    expect(deletes.every(call => call.Bucket === "tenant-01" && call.Delete.Quiet)).toBe(true);
+    const named = deletes.flatMap(call => call.Delete.Objects);
+    expect(named.length).toBe(2_345);
+    expect(new Set(named.map(object => `${object.Key}@${object.VersionId}`)).size).toBe(2_345);
+    expect(named.at(-1)).toEqual({ Key: "ordinary/s/r/k02344", VersionId: "v2344" });
+  });
+
+  test("a version and its delete marker go in one call; an empty run sends no delete", async () => {
     const client = scriptedClient([{ Versions: [{ Key: "ordinary/s/r/a", VersionId: "1" }], DeleteMarkers: [{ Key: "ordinary/s/r/a", VersionId: "2" }] }]);
     expect(await removeFactoryRunObjects(client, "tenant-01", "ordinary/s/r")).toBe(2);
-    expect(client.asked.filter(call => call.name === "DeleteObjectCommand")).toEqual([
-      { name: "DeleteObjectCommand", Bucket: "tenant-01", Key: "ordinary/s/r/a", VersionId: "1" },
-      { name: "DeleteObjectCommand", Bucket: "tenant-01", Key: "ordinary/s/r/a", VersionId: "2" },
+    expect(client.asked.filter(call => call.name === "DeleteObjectsCommand")).toEqual([
+      { name: "DeleteObjectsCommand", Bucket: "tenant-01", Delete: { Objects: [{ Key: "ordinary/s/r/a", VersionId: "1" }, { Key: "ordinary/s/r/a", VersionId: "2" }], Quiet: true } },
     ]);
+    const empty = scriptedClient([{}]);
+    expect(await removeFactoryRunObjects(empty, "tenant-01", "ordinary/s/r")).toBe(0);
+    expect(empty.asked.map(call => call.name)).toEqual(["ListObjectVersionsCommand"]);
+  });
+
+  test("a delete the store refuses for any key fails the cleanup, naming the first refusal", async () => {
+    const page = { Versions: [{ Key: "ordinary/s/r/a", VersionId: "1" }, { Key: "ordinary/s/r/b", VersionId: "2" }] };
+    await expect(removeFactoryRunObjects(scriptedClient([page], { Errors: [{ Key: "ordinary/s/r/b", Code: "AccessDenied" }] }), "tenant-01", "ordinary/s/r"))
+      .rejects.toThrow("the store refused 1 of 2 deletes under tenant-01/ordinary/s/r/ (first: AccessDenied ordinary/s/r/b)");
+    await expect(removeFactoryRunObjects(scriptedClient([page], { Errors: [{}] }), "tenant-01", "ordinary/s/r")).rejects.toThrow("(first: unknown )");
   });
 });
 

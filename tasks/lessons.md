@@ -1607,6 +1607,12 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
   and `tasks/factory/w07-GATES.md`: a window deleter had removed another package's evidence, and the
   project replaced it with a manifest-only tool. A run may delete only what it wrote, under its own
   unique prefix; anything older needs a reviewed manifest.
+- Never raise `EZ_PRECOMMIT_TEST_MAX`, even to run more suites. A staged suite that spawns git inherits
+  the hook's `GIT_DIR`, which re-initialised the shared repository twice. Above the cap, ask the
+  coordinator for the skip ruling and run the listed suites yourself with `GIT_DIR`, `GIT_INDEX_FILE`,
+  and `GIT_WORK_TREE` cleared.
+- A resource ceiling must keep the host above its disk floor at recreate time, counting what is already
+  stored. Measure free space against the full ceiling, not the growth you expect.
 - A kernel OOM record names its constraint. `CONSTRAINT_MEMCG` is the container limit; `CONSTRAINT_NONE`
   with `global_oom` is the host. Read it before raising a container limit.
 

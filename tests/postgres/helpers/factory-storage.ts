@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { DeleteObjectCommand, ListObjectVersionsCommand, S3Client } from "@aws-sdk/client-s3";
+import { DeleteObjectsCommand, ListObjectVersionsCommand, S3Client } from "@aws-sdk/client-s3";
 import { S3BlobStore, s3ObjectKey } from "../../../src/extensions/v4/blobs";
 import { S3FactoryArchiveInventory, type FactoryArchiveInventory } from "../../../src/factory/archive-writer";
 import { S3FactoryReleaseArchive } from "../../../src/factory/release-adapters";
@@ -58,7 +58,10 @@ function normalizedPrefix(prefix: string): string { return s3ObjectKey(prefix, "
 export interface FactoryStoredVersion { readonly key: string; readonly versionId: string }
 
 /** The narrow S3 surface the run cleanup sends through. */
-export interface FactoryRunCleanupClient { send(command: ListObjectVersionsCommand | DeleteObjectCommand): Promise<unknown> }
+export interface FactoryRunCleanupClient { send(command: ListObjectVersionsCommand | DeleteObjectsCommand): Promise<unknown> }
+
+/** The most versions one DeleteObjects call may name (the S3 limit). */
+export const FACTORY_RUN_DELETE_BATCH = 1_000;
 
 interface VersionPage {
   Versions?: { Key?: string; VersionId?: string }[];
@@ -101,10 +104,19 @@ export async function listFactoryRunVersions(client: FactoryRunCleanupClient, bu
   return all;
 }
 
-/** Permanently removes every version and delete marker under the run's prefix; returns how many. */
+/**
+ * Permanently removes every version and delete marker under the run's prefix;
+ * returns how many. One DeleteObjects call per thousand versions, so a close()
+ * inside an afterEach stays short under load; any per-key refusal fails it.
+ */
 export async function removeFactoryRunObjects(client: FactoryRunCleanupClient, bucket: string, prefix: string): Promise<number> {
   const versions = await listFactoryRunVersions(client, bucket, prefix);
-  for (const version of versions) await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: version.key, VersionId: version.versionId }));
+  for (let start = 0; start < versions.length; start += FACTORY_RUN_DELETE_BATCH) {
+    const batch = versions.slice(start, start + FACTORY_RUN_DELETE_BATCH);
+    const result = await client.send(new DeleteObjectsCommand({ Bucket: bucket, Delete: { Objects: batch.map(version => ({ Key: version.key, VersionId: version.versionId })), Quiet: true } })) as { Errors?: { Key?: string; Code?: string }[] };
+    const refused = result.Errors ?? [];
+    if (refused.length > 0) throw new Error(`the store refused ${refused.length} of ${batch.length} deletes under ${bucket}/${factoryRunPrefix(prefix)} (first: ${refused[0]!.Code ?? "unknown"} ${refused[0]!.Key ?? ""})`);
+  }
   return versions.length;
 }
 

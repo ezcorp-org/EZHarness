@@ -69,17 +69,18 @@ host can show; without the flag, the receipt's `ordinaryStoreLoss` records
 `bun scripts/verify-factory-archive-writer.ts --help` prints the exact
 wording.
 
-The ordinary server allows up to 600 volumes of 64 MiB (37.5 GiB) and the
-archive server up to 400 (25 GiB). The first limit of 100 volumes was exhausted
-during the ten-tenant campaign because every tenant collection grows seven
+Each SeaweedFS server allows up to 400 volumes of 64 MiB (25 GiB). The
+first limit of 100 volumes was exhausted during the ten-tenant campaign because every tenant collection grows seven
 volumes at a time; the master then reported "failed to find writable volumes"
-and every upload failed. On 2026-09-25 the ordinary store held 308 of its then
+and every upload failed. On 2026-09-25 the ordinary store held 308 of its
 400 volumes: 16.95 GiB in 59,888 live keys, of which only three had ever been
 deleted. Two suites held most of it: `ordinary/s3-publication` and
 `ordinary/s3-published` (8.3 GiB each, from a 256 MiB multipart export per
-run). The raise to 600 adds at most 18.25 GiB, on a host that had 145 GB free
-against its 100 GB floor. Raising the limit only changes the server command;
-the named data volumes and credential files are kept.
+run). The ceiling must keep the host above its 100 GB disk floor at recreate
+time, so it rises only after the reviewed-manifest prune of that backlog lands,
+with the free space measured then; a raise to 600 volumes (37.5 GiB) would have
+taken the host from 106 GB free to about 86 GB. Raising the limit only changes
+the server command; the named data volumes and credential files are kept.
 
 The buckets are versioned, so deleting a key only adds a delete marker and the
 bytes stay. A proof run must remove every version it wrote. The PostgreSQL

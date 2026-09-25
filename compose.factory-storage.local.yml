@@ -15,11 +15,13 @@ services:
     cpus: 1
     pids_limit: 256
     image: docker.io/chrislusf/seaweedfs@sha256:08d516132314207d10c8e37cbffc1f32b147d870169688734cc61c6231625b62
-    # -volume.max=600 (W15d): 600 x 64 MiB = 37.5 GiB at most. On 2026-09-25 the store held
+    # -volume.max=400 (W15d): 400 x 64 MiB = 25 GiB at most. On 2026-09-25 the store held
     # 308 of 400 volumes (16.95 GiB, every key a proof run's leftover); at 400 every upload
-    # fails with "failed to find writable volumes". The raise adds at most 18.25 GiB on a
-    # host with 145 GB free and a 100 GB floor. Proof runs now remove their own objects.
-    command: ["server", "-dir=/data", "-ip.bind=0.0.0.0", "-master.telemetry=false", "-master.volumeSizeLimitMB=64", "-volume.max=600", "-s3", "-s3.config=/config/ordinary.json"]
+    # fails with "failed to find writable volumes". Proof runs now remove their own objects.
+    # The ceiling must keep the host above its 100 GB disk floor at recreate time, so it is
+    # raised only after the reviewed-manifest prune of the backlog lands, with the free space
+    # measured then. A raise to 600 (37.5 GiB) would have taken the host from 106 GB to about 86 GB.
+    command: ["server", "-dir=/data", "-ip.bind=0.0.0.0", "-master.telemetry=false", "-master.volumeSizeLimitMB=64", "-volume.max=400", "-s3", "-s3.config=/config/ordinary.json"]
     ports:
       - "${EZCORP_FACTORY_STORAGE_BIND_IP:-127.0.0.1}:${EZCORP_FACTORY_STORAGE_ORDINARY_S3_PORT:-18333}:8333"
       - "${EZCORP_FACTORY_STORAGE_BIND_IP:-127.0.0.1}:${EZCORP_FACTORY_STORAGE_ORDINARY_ADMIN_PORT:-19333}:9333"
