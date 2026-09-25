@@ -64,6 +64,7 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "POST", path: "/api/infrastructure/incus/setup", description: "Plan, apply, or probe Incus server setup from an admin human session", category: "extensions", scope: "session" },
   { method: "GET", path: "/api/infrastructure/incus/capacity", description: "Read the saved Incus host capacity receipt from an admin human session", category: "extensions", scope: "session" },
   { method: "POST", path: "/api/infrastructure/incus/capacity", description: "Review and apply the exact verified Incus host capacity from an admin human session", category: "extensions", scope: "session" },
+  { method: "GET", path: "/api/infrastructure/incus/management", description: "List approved Incus environments and project sandbox state for an admin human session", category: "extensions", scope: "session" },
   { method: "POST", path: "/api/infrastructure/incus/features", description: "Prepare, control, inspect, or reconcile an admitted Incus feature sandbox from an admin human session", category: "extensions", scope: "session" },
   { method: "POST", path: "/api/infrastructure/incus/qualification", description: "Create, inspect, power, destroy, or qualify an exact Incus integration fixture from an admin human session", category: "extensions", scope: "session" },
   { method: "POST", path: "/api/infrastructure/incus/smoke", description: "Run fixed Incus guest smoke steps through an exact durable fixture from an admin human session", category: "extensions", scope: "session" },

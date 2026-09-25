@@ -65,6 +65,7 @@
   "src/sandboxes/incus-dispatcher.ts": 100,
   "web/src/routes/(app)/extensions/incus-setup/+page.server.ts": 100,
   "web/src/routes/api/infrastructure/incus/capacity/+server.ts": 100,
+  "web/src/routes/api/infrastructure/incus/management/+server.ts": 100,
   "web/src/routes/api/infrastructure/incus/features/+server.ts": 100,
   "web/src/routes/api/infrastructure/incus/qualification/+server.ts": 100,
   "web/src/routes/api/infrastructure/incus/probe-fixtures/+server.ts": 100,
