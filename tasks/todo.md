@@ -4641,3 +4641,23 @@ Numbering grants turns revoke-then-grant into history rather than a conflict. A 
 that matters: one active grant per target. First grants keep their old seal, so every existing row still
 verifies. The display name is read from the user or service-account record only. It is resolved outside the
 authorization path, and it can never fall back to the raw id.
+
+## W16b — tenant-keyed guest-broker routes (branch `wp/w16b-guest-brokers-keyed`)
+
+Coordinator ruling 2026-09-25 (option A). Gate file `tasks/factory/w16b-GATES.md`,
+evidence `/tmp/factory-platform-evidence/w16b/`.
+
+- [x] services.guestBroker becomes services.guestBrokers (tenant to endpoint); the parser refuses the old form and malformed maps.
+- [x] The host picks the attempt's own tenant's route; an unknown tenant is refused by name before any byte leaves the host.
+- [x] Producers updated: supervisor tests, W01g transport suite, W19a graph-proof stack.
+- [x] Hold b1 at 61bc3428b: every leg exit 0.
+- [ ] W01 owner review (w01g-fix), then validation, then merge before W16 and W01h.
+
+### Review
+
+A fleet host serves every installation, so it now holds one guest-broker route
+per tenant and forwards each guest frame only to its own attempt's tenant.
+There is no fallback: an unknown tenant is refused by name. The lease carries
+no tenant, so the tenant comes from the launch intent, and the chosen route's
+attempt-token check still stops a launch that names the wrong tenant.
+
