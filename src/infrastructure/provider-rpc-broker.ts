@@ -199,6 +199,23 @@ function lifecycleReadbackKind(scope: PreparedIncusProbe, command: IncusTranspor
   throw new IncusTransportError("permission", "Incus power journal has no desired state");
 }
 
+async function journalBoundTransportCommand(db: Database, scope: PreparedIncusAction,
+  binding: SandboxBinding | undefined, command: IncusTransportRequest): Promise<IncusTransportRequest> {
+  const providerOperationId = command.action === "operation.inspect"
+    && command.payload && typeof command.payload === "object" && !Array.isArray(command.payload)
+    ? command.payload.operationId : null;
+  const kind = lifecycleReadbackKind(scope, command, binding, providerOperationId);
+  if (!kind) return command;
+  const journal = binding ? await lifecycleReadbackJournal(db, scope, binding,
+    providerOperationId as string, kind) : null;
+  if (!journal) throw new IncusTransportError("permission", "Incus lifecycle journal is unavailable");
+  return { ...command,
+    idempotency: { requestId: journal.id, key: journal.id },
+    ...(kind === "CREATE" ? {} : { payload: { ...command.payload as Record<string, JsonValue>,
+      readback: { expectedGeneration: journal.generation, desiredState: journal.desiredState } } }),
+  };
+}
+
 /** Only ReleaseProcess calls this broker. No generic extension capability exposes it. */
 export class ProviderRpcBroker {
   private readonly dispatchedMutations = new WeakMap<PreparedIncusAction, Promise<JsonValue>>();
@@ -409,21 +426,8 @@ export class ProviderRpcBroker {
       const reviewedScope = !isAction(scope)
         ? { ...scope, approvedPreflight: await this.reviewedPreflight(scope, command) }
         : scope;
-      const providerOperationId = command.action === "operation.inspect"
-        && command.payload && typeof command.payload === "object" && !Array.isArray(command.payload)
-        ? command.payload.operationId : null;
-      const readbackKind = lifecycleReadbackKind(scope, command, binding, providerOperationId);
-      let transportCommand = command;
-      if (readbackKind && isAction(scope)) {
-        const journal = binding ? await lifecycleReadbackJournal(this.database, scope, binding,
-          providerOperationId as string, readbackKind) : null;
-        if (!journal) throw new IncusTransportError("permission", "Incus lifecycle journal is unavailable");
-        transportCommand = { ...command,
-          idempotency: { requestId: journal.id, key: journal.id },
-          ...(readbackKind === "CREATE" ? {} : { payload: { ...command.payload as Record<string, JsonValue>,
-            readback: { expectedGeneration: journal.generation, desiredState: journal.desiredState } } }),
-        };
-      }
+      const transportCommand = isAction(scope)
+        ? await journalBoundTransportCommand(this.database, scope, binding, command) : command;
       const transport = isAction(scope)
         ? this.actionTransportFactory(scope, signal)
         : this.transportFactory(reviewedScope, signal);
