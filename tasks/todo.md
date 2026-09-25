@@ -15,7 +15,8 @@
 - [x] Obtain exact approval of the guarded AMD activation and conditional second-CREATE recovery in the v3 packet.
 - [x] Activate and verify the corrected AMD generation under its rollback timer.
 - [x] Stop the v3 second-CREATE recovery before signing when the server timer margin fails; restore the exact cert and policy, and record the unresolved host rollback.
-- [ ] Recover sandbox-server host control through the reviewed console procedure; prove thaw, old generation, SSH, original trust/policy, and inventory before releasing AMD fences.
+- [x] Recover sandbox-server host control after the pending switch settled; prove thaw, old generation, SSH, original trust/policy, and inventory, then restore AMD configs and runner while keeping the TCP hold.
+- [ ] Review and authorize a corrected v4 second-CREATE recovery packet with a measured timer-margin gate and thaw-first rollback; no v4 live action yet.
 - [ ] Run a complete EZHarness-owned guest fixture, the live qualification cases, feature workflow, and cleanup.
 - [ ] Remove the temporary `/var/empty/.config` workaround after the corrected NixOS setup gate is active.
 - [ ] Finish the source fixes, pass the CRAP gate and all hosted checks on the final PR head, and publish the measured live evidence.
@@ -29,6 +30,8 @@ The approved second recovery attempt stopped after the first restricted observer
 The revised attempt then stopped before runner or server changes because systemd did not remove the base-unit `Requires=runner` from a temporary drop-in. Its [receipt](../docs/validation/2026-09-24-second-unknown-create-revised-attempt.md) records restored baseline. PR #13 now changes the generated NixOS unit instead; its full AMD candidate built with exact live pins, focused generated-unit and activation-command tests pass, and the read-only live preflight passes. The [v3 packet](../docs/validation/2026-09-24-second-unknown-create-recovery-v3-review.md) combines guarded activation with conditional recovery. PR #303's pushed source head `8d3e1c495` passed all 51 hosted checks; pending local evidence docs will require a final push and check.
 
 The approved v3 AMD activation passed. The second-CREATE recovery obtained two exact no-effect observations, but the final `frozen-until` gate rejected the unsigned request because the server rollback timer lacked its 120-second margin. The exact old cert and policy were restored. Manual old-generation switch hung while the dev slice remained frozen, and fresh host SSH is denied. The server responds to Tailscale and Incus HTTPS, but host rollback is unverified. Keep AMD runner and ingress fenced and CREATE unknown. See the [v3 attempt](../docs/validation/2026-09-24-second-unknown-create-recovery-v3-attempt.md) and [console packet](../docs/validation/2026-09-24-second-unknown-create-console-recovery-review.md).
+
+The pending server switch later completed. Fresh dev SSH, old running/profile generation, thawed dev slice, original cert and policy, zero project instances/operations, and host services passed readback. AMD observer/fence files and runner were restored; app health passed, with the TCP ingress hold retained. A stopped-app database copy confirms the second CREATE is still `OUTCOME_UNKNOWN` with no provider operation ID. The console packet remains a record of the access contingency; a new v4 packet is under review before another signed recovery attempt.
 
 # Wire `trusted-local` — the explicit, per-release-approved unsandboxed extension mode
 

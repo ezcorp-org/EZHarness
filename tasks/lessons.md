@@ -443,3 +443,4 @@
 - Keep a rollback timer for temporary server access changes and prove the old route works before cancelling it. A failed independent read must leave the unknown operation unchanged.
 - Check the full recovery request deadline plus the required server timer margin before revoking a certificate. A valid no-effect observation is not enough if the authority fence will expire before the signed request can finish.
 - Thaw a frozen user slice before switching NixOS generations. A switch can hang while reloading frozen user units and remove a temporary root SSH key before normal access returns. Keep an independent console path for guarded host access changes.
+- Recheck a temporarily denied SSH route after a pending generation switch settles. Treat loss of access as unverified host state, not permanent failure; a later successful login needs full generation, thaw, trust, and inventory readbacks before releasing local fences.

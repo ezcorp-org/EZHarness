@@ -1,6 +1,6 @@
 # Server console recovery after the v3 no-effect stop
 
-Status: **review packet only; not executed**. This packet repairs the server host-control state left unresolved in the [v3 attempt](2026-09-24-second-unknown-create-recovery-v3-attempt.md). It does not authorize another no-effect request, sandbox CREATE, certificate rotation, new SSH route, or release of the AMD runner and TCP ingress hold. The saved CREATE `016f7e51-60a6-4e19-aa32-77d44b745053` remains `OUTCOME_UNKNOWN` until a separate durable read proves otherwise.
+Status: **superseded without execution**. Personal-key `dev` SSH returned; the old-generation switch settled, and the [v3 receipt](2026-09-24-second-unknown-create-recovery-v3-attempt.md) records the completed rollback. This packet remains a record of the proposed console route. It does not authorize another no-effect request or sandbox CREATE. The saved CREATE `016f7e51-60a6-4e19-aa32-77d44b745053` remains `OUTCOME_UNKNOWN`.
 
 ## Why console access is required
 
