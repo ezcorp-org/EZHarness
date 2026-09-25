@@ -1,0 +1,771 @@
+{
+  "startedAt": "2026-09-25T07:49:42.085Z",
+  "simulatedInputs": [],
+  "harnessSuppliedDeploymentFacts": [
+    "a TLS-terminating sidecar in front of the Temporal server: the orchestrator's own mutual TLS is unrelaxed and verified at the terminator, which is the topology a deployment uses for a namespace endpoint that terminates no TLS itself",
+    "the runner package installation (bind, trust, prepare): no product route owns it yet (W02), so the harness performs it with the product's own classes and a real container build"
+  ],
+  "sharedStores": {
+    "statuses": [
+      {
+        "store": "ordinary",
+        "port": 18333,
+        "reachable": true,
+        "detail": "http 403"
+      },
+      {
+        "store": "archive",
+        "port": 18334,
+        "reachable": true,
+        "detail": "http 403"
+      }
+    ],
+    "unreachable": []
+  },
+  "keyService": {
+    "kind": "cloud-kms",
+    "orchestratorCalls": 2,
+    "calls": [
+      "kms:decrypt:arn:aws:kms:eu-west-1:111122223333:key/installation-w09b"
+    ]
+  },
+  "guestPackage": {
+    "reference": {
+      "package": "@ezcorp/w09b-guest",
+      "manifestName": "w09b-guest",
+      "version": "1.0.0",
+      "digest": "sha256:93d4a14716f269067603e46d556b336dbc0f3b1c7421f1c3fe42e4c43449b44a",
+      "export": "run"
+    },
+    "artifactDigest": "93d4a14716f269067603e46d556b336dbc0f3b1c7421f1c3fe42e4c43449b44a",
+    "sourceDigest": "cf8c739fdf0251175cc4f59db64d751bc288a0b5851d84118cf376df388d496c",
+    "buildMs": 3779
+  },
+  "temporal": {
+    "port": 42169,
+    "tlsPort": 46329,
+    "reachable": true
+  },
+  "hostProcesses": {
+    "pool": {
+      "schemaVersion": "factory.pool-readiness.v1",
+      "installationId": "installation-w09b",
+      "poolId": "pool-w09b",
+      "observedAtMs": 1790322588657,
+      "lifecycle": "ready",
+      "databaseReady": true,
+      "schemaReady": true,
+      "listenerReady": true
+    },
+    "supervisor": {
+      "schemaVersion": "factory.supervisor-readiness.v1",
+      "service": "host-supervisor",
+      "installationId": "installation-w09b",
+      "instanceId": "host-w09b",
+      "lifecycle": "ready",
+      "observedAtMs": 1790322588390,
+      "facts": {
+        "hostKeyReady": true,
+        "runnerReady": true,
+        "hostServicesReady": true
+      }
+    }
+  },
+  "privateService": {
+    "port": 33743,
+    "accepting": true
+  },
+  "orchestration": {
+    "schemaVersion": "factory.orchestrator-readiness.v1",
+    "installationId": "installation-w09b",
+    "tenantId": "tenant-01",
+    "namespace": "tenant-01.factory",
+    "taskQueue": "factory-orchestrator",
+    "lifecycle": "ready",
+    "observedAtMs": 1790322595999,
+    "workerPolling": true,
+    "dispatcherLive": true,
+    "credentialGeneration": 1
+  },
+  "readinessTimeline": [
+    {
+      "path": "/api/ready",
+      "status": 200,
+      "body": {
+        "state": "ready",
+        "detail": {
+          "factory": {
+            "tenantId": "tenant-01",
+            "running": [
+              "compute-admission-dispatch",
+              "compute-admission-poll",
+              "attempt-dispatch",
+              "run-projection",
+              "notification-inbox-delivery",
+              "child-settlement",
+              "release-outcome",
+              "usage-reconciliation",
+              "stop-settlement",
+              "retention-gc",
+              "checkpoint-barrier"
+            ],
+            "held": [
+              {
+                "role": "notification-send",
+                "workPackage": "W17",
+                "reason": "a notification is not delivered until a sender confirms it left this host"
+              },
+              {
+                "role": "validator-material-registration",
+                "workPackage": "W09d",
+                "reason": "the startup document declares no validator runtime under `validators.runtimes`, so no protected claim can be judged and no acceptance can pass"
+              },
+              {
+                "role": "validator-scheduling",
+                "workPackage": "W09d",
+                "reason": "the startup document declares no validator runtime under `validators.runtimes`, so no protected claim can be judged and no acceptance can pass"
+              }
+            ],
+            "guestBroker": {
+              "state": "unconfigured",
+              "code": "factory_guest_broker_unconfigured"
+            }
+          }
+        },
+        "since": "2026-09-25T07:49:56.561Z"
+      }
+    }
+  ],
+  "ready": {
+    "path": "/api/ready",
+    "status": 200,
+    "body": {
+      "state": "ready",
+      "detail": {
+        "factory": {
+          "tenantId": "tenant-01",
+          "running": [
+            "compute-admission-dispatch",
+            "compute-admission-poll",
+            "attempt-dispatch",
+            "run-projection",
+            "notification-inbox-delivery",
+            "child-settlement",
+            "release-outcome",
+            "usage-reconciliation",
+            "stop-settlement",
+            "retention-gc",
+            "checkpoint-barrier"
+          ],
+          "held": [
+            {
+              "role": "notification-send",
+              "workPackage": "W17",
+              "reason": "a notification is not delivered until a sender confirms it left this host"
+            },
+            {
+              "role": "validator-material-registration",
+              "workPackage": "W09d",
+              "reason": "the startup document declares no validator runtime under `validators.runtimes`, so no protected claim can be judged and no acceptance can pass"
+            },
+            {
+              "role": "validator-scheduling",
+              "workPackage": "W09d",
+              "reason": "the startup document declares no validator runtime under `validators.runtimes`, so no protected claim can be judged and no acceptance can pass"
+            }
+          ],
+          "guestBroker": {
+            "state": "unconfigured",
+            "code": "factory_guest_broker_unconfigured"
+          }
+        }
+      },
+      "since": "2026-09-25T07:49:56.561Z"
+    }
+  },
+  "supervisorHeartbeats": [
+    {
+      "observedAtMs": 1790322596449,
+      "lifecycle": "ready",
+      "leases": 1
+    },
+    {
+      "observedAtMs": 1790322598462,
+      "lifecycle": "ready",
+      "leases": 1
+    },
+    {
+      "observedAtMs": 1790322600475,
+      "lifecycle": "ready",
+      "leases": 1
+    },
+    {
+      "observedAtMs": 1790322602487,
+      "lifecycle": "ready",
+      "leases": 1
+    },
+    {
+      "observedAtMs": 1790322604500,
+      "lifecycle": "ready",
+      "leases": 1
+    }
+  ],
+  "repeatedProbesHeld": true,
+  "readyAfterHeartbeats": {
+    "path": "/api/ready",
+    "status": 200,
+    "body": {
+      "state": "ready",
+      "detail": {
+        "factory": {
+          "tenantId": "tenant-01",
+          "running": [
+            "compute-admission-dispatch",
+            "compute-admission-poll",
+            "attempt-dispatch",
+            "run-projection",
+            "notification-inbox-delivery",
+            "child-settlement",
+            "release-outcome",
+            "usage-reconciliation",
+            "stop-settlement",
+            "retention-gc",
+            "checkpoint-barrier"
+          ],
+          "held": [
+            {
+              "role": "notification-send",
+              "workPackage": "W17",
+              "reason": "a notification is not delivered until a sender confirms it left this host"
+            },
+            {
+              "role": "validator-material-registration",
+              "workPackage": "W09d",
+              "reason": "the startup document declares no validator runtime under `validators.runtimes`, so no protected claim can be judged and no acceptance can pass"
+            },
+            {
+              "role": "validator-scheduling",
+              "workPackage": "W09d",
+              "reason": "the startup document declares no validator runtime under `validators.runtimes`, so no protected claim can be judged and no acceptance can pass"
+            }
+          ],
+          "guestBroker": {
+            "state": "unconfigured",
+            "code": "factory_guest_broker_unconfigured"
+          }
+        }
+      },
+      "since": "2026-09-25T07:49:56.561Z"
+    }
+  },
+  "factoryRoute": {
+    "path": "/api/factories/projects/project-1/definitions",
+    "status": 401,
+    "body": {
+      "error": "Setup required"
+    }
+  },
+  "compositionLog": [
+    "[factory] composed {"
+  ],
+  "packageInstall": {
+    "attempted": true,
+    "ok": true,
+    "ms": 3527,
+    "trustRevision": 1,
+    "receipt": {
+      "projectId": "8f809d16-7e3b-414d-a340-ed79a7ef31b2",
+      "reference": {
+        "digest": "sha256:93d4a14716f269067603e46d556b336dbc0f3b1c7421f1c3fe42e4c43449b44a",
+        "export": "run",
+        "manifestName": "w09b-guest",
+        "package": "@ezcorp/w09b-guest",
+        "version": "1.0.0"
+      },
+      "trustRevision": 1,
+      "packageTrustDigest": "sha256:95bce98945b100c3bd8c2ab70c17c9e750c7bd45f57f3ad296fdc056464f7ffc",
+      "releaseDigest": "a264123e2f14ec1896ca985db6077e046116a8cccc21b663ae458233737cf198",
+      "sourceDigest": "cf8c739fdf0251175cc4f59db64d751bc288a0b5851d84118cf376df388d496c",
+      "artifactDigest": "93d4a14716f269067603e46d556b336dbc0f3b1c7421f1c3fe42e4c43449b44a",
+      "imageDigest": "docker.io/oven/bun@sha256:e10577f0db68676a7024391c6e5cb4b879ebd17188ab750cf10024a6d700e5c4",
+      "manifestDigest": "442188b556c39c13062eef2ff2db5c5060f58cf033157c8868a3736d00fbd308",
+      "evidenceDigest": "fc986d7962165c192770d13b8f8cf4d7c14f5c35ca0b68e84914fb50780ae79c",
+      "buildIdentity": "factory-package-e3712b7e3ad46f6ba4b8193cc775844a9d93e66e8deee6d1fe3cd09fb625919c",
+      "receiptDigest": "sha256:3c11278875c48e6874d92802dced9c4cfdf01da277b9b8ba9aa8dae3e7d6d7c7"
+    }
+  },
+  "roleFailures": [],
+  "durableRun": {
+    "steps": [
+      {
+        "label": "auth.setup",
+        "status": 201,
+        "body": {
+          "user": {
+            "id": "86a3f295-ab83-49fe-9f99-04971c978ef2",
+            "name": "W09b Proof",
+            "email": "w09b-proof@example.invalid",
+            "role": "admin"
+          }
+        }
+      },
+      {
+        "label": "projects.create",
+        "status": 201,
+        "body": {
+          "id": "8f809d16-7e3b-414d-a340-ed79a7ef31b2",
+          "name": "w09b-proof",
+          "path": "/home/dev/.w09b-stack-D9LOgj/project",
+          "icon": null,
+          "variables": {},
+          "createdAt": "2026-09-25T07:50:06.574Z",
+          "updatedAt": "2026-09-25T07:50:06.574Z"
+        }
+      },
+      {
+        "label": "auth.me",
+        "status": 200,
+        "body": {
+          "user": {
+            "id": "86a3f295-ab83-49fe-9f99-04971c978ef2",
+            "email": "w09b-proof@example.invalid",
+            "name": "W09b Proof",
+            "role": "admin"
+          },
+          "extensionRunner": "isolated"
+        }
+      },
+      {
+        "label": "factory.draft.create",
+        "status": 200,
+        "body": {
+          "schemaVersion": "factory.api.response.v1",
+          "kind": "draft.summary",
+          "resource": {
+            "factoryId": "w09b.minimal.v1",
+            "revision": 1,
+            "archived": false,
+            "sourceDigest": "b624e0002876de3bf77c2accdc1c873ced3f8eec75759c934fe24518d0c48a77",
+            "updatedAtMs": 1790322610128,
+            "availability": "available"
+          }
+        }
+      },
+      {
+        "label": "factory.version.publish",
+        "status": 200,
+        "body": {
+          "schemaVersion": "factory.api.response.v1",
+          "kind": "version.summary",
+          "resource": {
+            "compiledBlobDigest": "a198413d0fea9d609fa772577d78759162b2381660956114b6a6ef5cff9f2cd1",
+            "compiledBytes": 2741,
+            "definitionDigest": "sha256:350efbe3065b571d6b4f233b6cc67c9209123b06ba21dfdc3a728377c19db1c7",
+            "draftRevision": 1,
+            "factoryId": "w09b.minimal.v1",
+            "publishedAtMs": 1790322610138,
+            "version": "1.0.0"
+          }
+        }
+      },
+      {
+        "label": "factory.grants.list",
+        "status": 200,
+        "body": {
+          "schemaVersion": "factory.api.response.v1",
+          "kind": "grant.page",
+          "page": {
+            "items": [
+              {
+                "principalKind": "user",
+                "principalId": "86a3f295-ab83-49fe-9f99-04971c978ef2",
+                "action": "factory.author",
+                "revision": 1,
+                "expiresAtMs": null,
+                "revoked": false,
+                "displayName": "W09b Proof"
+              },
+              {
+                "principalKind": "user",
+                "principalId": "86a3f295-ab83-49fe-9f99-04971c978ef2",
+                "action": "factory.operate",
+                "revision": 1,
+                "expiresAtMs": null,
+                "revoked": false,
+                "displayName": "W09b Proof"
+              },
+              {
+                "principalKind": "user",
+                "principalId": "86a3f295-ab83-49fe-9f99-04971c978ef2",
+                "action": "factory.publish",
+                "revision": 1,
+                "expiresAtMs": null,
+                "revoked": false,
+                "displayName": "W09b Proof"
+              },
+              {
+                "principalKind": "user",
+                "principalId": "86a3f295-ab83-49fe-9f99-04971c978ef2",
+                "action": "factory.run",
+                "revision": 1,
+                "expiresAtMs": null,
+                "revoked": false,
+                "displayName": "W09b Proof"
+              },
+              {
+                "principalKind": "user",
+                "principalId": "86a3f295-ab83-49fe-9f99-04971c978ef2",
+                "action": "factory.trust",
+                "revision": 1,
+                "expiresAtMs": null,
+                "revoked": false,
+                "displayName": "W09b Proof"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "label": "factory.run.start",
+        "status": 202,
+        "body": {
+          "schemaVersion": "factory.api.response.v1",
+          "kind": "mutation.accepted",
+          "receipt": {
+            "commandId": "factory-command:bedd09b06f15546a0885ec9d7ae66a92e91aa32bca6c6ab110b7875f1e9959a6",
+            "resourceId": "c79bcced-40db-4f83-8a03-37c1b0bdae56",
+            "statusUrl": "/api/factories/projects/8f809d16-7e3b-414d-a340-ed79a7ef31b2/runs/c79bcced-40db-4f83-8a03-37c1b0bdae56/commands/factory-command%3Abedd09b06f15546a0885ec9d7ae66a92e91aa32bca6c6ab110b7875f1e9959a6"
+          }
+        }
+      },
+      {
+        "label": "factory.run.read",
+        "status": 200,
+        "body": {
+          "schemaVersion": "factory.api.response.v1",
+          "kind": "run.details",
+          "resource": {
+            "runId": "c79bcced-40db-4f83-8a03-37c1b0bdae56",
+            "factoryId": "w09b.minimal.v1",
+            "factoryVersion": "1.0.0",
+            "definitionDigest": "sha256:350efbe3065b571d6b4f233b6cc67c9209123b06ba21dfdc3a728377c19db1c7",
+            "grantRevision": 1,
+            "revision": 1,
+            "status": "queued",
+            "createdAtMs": 1790322610160,
+            "updatedAtMs": 1790322610160,
+            "parameters": {
+              "message": {
+                "kind": "inline",
+                "value": "W09b real-server proof run"
+              }
+            }
+          }
+        }
+      },
+      {
+        "label": "factory.run.read.after-restart",
+        "status": 200,
+        "body": {
+          "schemaVersion": "factory.api.response.v1",
+          "kind": "run.details",
+          "resource": {
+            "runId": "c79bcced-40db-4f83-8a03-37c1b0bdae56",
+            "factoryId": "w09b.minimal.v1",
+            "factoryVersion": "1.0.0",
+            "definitionDigest": "sha256:350efbe3065b571d6b4f233b6cc67c9209123b06ba21dfdc3a728377c19db1c7",
+            "grantRevision": 1,
+            "revision": 1,
+            "status": "failed",
+            "createdAtMs": 1790322610160,
+            "updatedAtMs": 1790322616206,
+            "parameters": {
+              "message": {
+                "kind": "inline",
+                "value": "W09b real-server proof run"
+              }
+            },
+            "error": {
+              "code": "FACTORY_RUN_FAILED",
+              "message": "RUNNER_CANCELLED"
+            }
+          }
+        }
+      }
+    ],
+    "projectId": "8f809d16-7e3b-414d-a340-ed79a7ef31b2",
+    "factoryId": "w09b.minimal.v1",
+    "version": "1.0.0",
+    "runId": "c79bcced-40db-4f83-8a03-37c1b0bdae56",
+    "startedStatus": 202,
+    "readBackStatus": 200,
+    "readBackStatusValue": "queued",
+    "statusTimeline": [
+      "queued",
+      "running",
+      "failed"
+    ],
+    "terminal": {
+      "status": "failed",
+      "at": 6
+    },
+    "guestExpectedResult": {
+      "schemaVersion": "factory.runner.result.v1",
+      "status": "cancelled",
+      "usage": {
+        "kind": "measured",
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "computeMs": 0,
+        "costMicros": "0"
+      },
+      "journalCursor": -1,
+      "operations": []
+    },
+    "durableAttempts": {
+      "launches": [
+        {
+          "attemptId": "c79bcced-40db-4f83-8a03-37c1b0bdae56:work:dispatch-node:4",
+          "state": "terminal",
+          "hasResult": true,
+          "result": {
+            "usage": {
+              "kind": "measured",
+              "computeMs": 0,
+              "costMicros": "0",
+              "inputTokens": 0,
+              "outputTokens": 0
+            },
+            "status": "cancelled",
+            "operations": [],
+            "journalCursor": -1,
+            "schemaVersion": "factory.runner.result.v1"
+          }
+        }
+      ],
+      "executions": [
+        {
+          "attempt_id": "c79bcced-40db-4f83-8a03-37c1b0bdae56:work:dispatch-node:4",
+          "status": "stopped"
+        }
+      ],
+      "queue": [
+        {
+          "attempt_id": "c79bcced-40db-4f83-8a03-37c1b0bdae56:work:dispatch-node:4",
+          "state": "delivered",
+          "failure_code": null
+        }
+      ],
+      "stops": [
+        {
+          "cancel_command_id": "c79bcced-40db-4f83-8a03-37c1b0bdae56:work:cancel-node:5",
+          "state": "stopped",
+          "uncertain_event_json": null,
+          "has_receipt": true
+        }
+      ],
+      "holds": [
+        {
+          "reservation_id": "factory-reservation:71e8cb1c9669f185150436d309cf7e5e9703e00c7d39b1be09d33356d",
+          "state": "settled"
+        }
+      ],
+      "events": [
+        {
+          "sequence": "1",
+          "kind": "decision",
+          "applied": true,
+          "head": "{\"atMs\":1790322612781,\"candidateGeneration\":0,\"commandId\":\"c79bcced-40db-4f83-8a03-37c1b0bdae56:work:request-admission:2"
+        },
+        {
+          "sequence": "2",
+          "kind": "decision",
+          "applied": true,
+          "head": "{\"atMs\":1790322614581,\"attempt\":1,\"candidateGeneration\":0,\"commandId\":\"c79bcced-40db-4f83-8a03-37c1b0bdae56:work:dispatc"
+        },
+        {
+          "sequence": "3",
+          "kind": "decision",
+          "applied": false,
+          "head": "{\"atMs\":1790322615485,\"attempt\":1,\"candidateGeneration\":0,\"commandId\":\"c79bcced-40db-4f83-8a03-37c1b0bdae56:work:dispatc"
+        },
+        {
+          "sequence": "4",
+          "kind": "decision",
+          "applied": false,
+          "head": "{\"atMs\":1790322615487,\"attempt\":1,\"candidateGeneration\":0,\"commandId\":\"c79bcced-40db-4f83-8a03-37c1b0bdae56:work:dispatc"
+        }
+      ],
+      "cursors": [
+        {
+          "interpreter_id": "root",
+          "next_sequence": "5"
+        }
+      ],
+      "batches": [
+        {
+          "source_sequence": "1",
+          "payload": "{\"artifactManifest\":{\"digest\":\"sha256:471098cac528e7c782a9bd37c76dfa2d4956921dcb46f3043402b0e9df4b1ecc\",\"encodedBytes\":573,\"objectId\":\"facto"
+        },
+        {
+          "source_sequence": "2",
+          "payload": "{\"artifactManifest\":{\"digest\":\"sha256:bfb57165d6f2e30f518d9559ab7bcfd4b33bc1b4a52cbfa733f4e0945d2e9a18\",\"encodedBytes\":613,\"objectId\":\"facto"
+        },
+        {
+          "source_sequence": "3",
+          "payload": "{\"artifactManifest\":{\"digest\":\"sha256:5f708c179e1e345249e62fba6f36f4d82f7b3f91712fe28467066b51bf841f5b\",\"encodedBytes\":595,\"objectId\":\"facto"
+        },
+        {
+          "source_sequence": "4",
+          "payload": "{\"artifactManifest\":{\"digest\":\"sha256:4a55b0dce946c201c59eaf817afa9325cec9621f73eef6b7929aff6fb91864ee\",\"encodedBytes\":594,\"objectId\":\"facto"
+        }
+      ],
+      "projections": [
+        {
+          "consumer_id": "factory-run-status.v1",
+          "sequence": "4",
+          "payload": "{\"digest\":\"d266602d90b6a636da7ffa5988f30bfa841b1e039194e61e146f824a5376f1f4\",\"sourceSequence\":4,\"status\":\"failed\"}"
+        }
+      ],
+      "commands": [
+        {
+          "command_id": "c79bcced-40db-4f83-8a03-37c1b0bdae56:run:start-timer:1",
+          "source_sequence": "1"
+        },
+        {
+          "command_id": "c79bcced-40db-4f83-8a03-37c1b0bdae56:work:request-admission:2",
+          "source_sequence": "1"
+        },
+        {
+          "command_id": "c79bcced-40db-4f83-8a03-37c1b0bdae56:work:start-timer:3",
+          "source_sequence": "1"
+        },
+        {
+          "command_id": "c79bcced-40db-4f83-8a03-37c1b0bdae56:work:dispatch-node:4",
+          "source_sequence": "2"
+        },
+        {
+          "command_id": "c79bcced-40db-4f83-8a03-37c1b0bdae56:work:cancel-node:5",
+          "source_sequence": "3"
+        },
+        {
+          "command_id": "c79bcced-40db-4f83-8a03-37c1b0bdae56:run:fail-run:6",
+          "source_sequence": "4"
+        }
+      ]
+    },
+    "restart": {
+      "readyState": "ready",
+      "runStatus": "failed",
+      "runId": "c79bcced-40db-4f83-8a03-37c1b0bdae56",
+      "firstExit": {
+        "code": 0,
+        "signal": null
+      }
+    }
+  },
+  "recovery": {
+    "checkpoints": [
+      {
+        "checkpoint_id": "5a39ac9e-c5b0-4469-8839-3a9e63264323",
+        "state": "sealed",
+        "duration_ms": 37,
+        "abort_code": null,
+        "product_lsn": "22/2FE2038",
+        "key_wrap_version": null,
+        "sealed_at": "2026-09-25T07:49:56.618Z"
+      }
+    ],
+    "policy": [
+      {
+        "enforce_freshness": true,
+        "max_age_seconds": 900
+      }
+    ],
+    "effectClaimsClosedReason": null,
+    "gate": [
+      {
+        "paused": false,
+        "claims_paused_until": null
+      }
+    ],
+    "retention": [],
+    "ungatedTables": [],
+    "archivedCheckpoint": {
+      "checkpointId": "5a39ac9e-c5b0-4469-8839-3a9e63264323",
+      "sealedAtMs": 1790322596612,
+      "durationMs": 37,
+      "lsn": "22/2FE2038",
+      "state": {
+        "attemptsDigest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "holdsDigest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "objectCount": 0,
+        "objectsDigest": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "releasesDigest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "runCount": 0,
+        "runsDigest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stateDigest": "sha256:37e46d2b46075254382ee28065a27e20a9c2b1d85e9a541886bddf31238ea84f",
+        "stopsDigest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "liveRuns": 0,
+      "pool": {
+        "captured": true,
+        "rows": 0
+      },
+      "temporal": {
+        "captured": true,
+        "namespace": "tenant-01.factory",
+        "workflows": 0
+      },
+      "keys": {
+        "installationId": "installation-w09b",
+        "masterKeyId": null,
+        "service": "cloud-kms",
+        "wrapVersion": null,
+        "wrappedDigest": null
+      },
+      "fenced": {
+        "outbox": 0,
+        "releases": 0,
+        "attempts": 0
+      }
+    },
+    "sealedInDatabase": true,
+    "sealMatchesDatabase": true,
+    "roleLines": []
+  },
+  "shutdown": {
+    "exited": {
+      "code": 0,
+      "signal": null
+    },
+    "childrenAtRun": 0,
+    "survivors": [],
+    "portAfterStop": "refused",
+    "teardownLog": [
+      "{\"ts\":\"2026-09-25T07:50:20.522Z\",\"level\":\"info\",\"msg\":\"graceful shutdown begin\",\"subsystem\":\"shutdown\",\"reason\":\"SIGTERM\",\"teardownCount\":14}",
+      "{\"ts\":\"2026-09-25T07:50:20.525Z\",\"level\":\"info\",\"msg\":\"teardown ok\",\"subsystem\":\"shutdown\",\"name\":\"factory-runtime\",\"ms\":0}",
+      "{\"ts\":\"2026-09-25T07:50:20.526Z\",\"level\":\"info\",\"msg\":\"graceful shutdown complete\",\"subsystem\":\"shutdown\",\"reason\":\"SIGTERM\"}"
+    ]
+  },
+  "processLogs": {
+    "pool": "",
+    "supervisor": "",
+    "temporal": "Temporal CLI 1.9.1 (Server 1.32.0, UI 2.54.1)\n\nTemporal Server:      localhost:42169\nTemporal Persistence: /home/dev/.w09b-stack-D9LOgj/temporal.sqlite\nTemporal HTTP:        localhost:42797\nTemporal Metrics:     http://localhost:40435/metrics\n",
+    "temporal-tls": "tls-terminator 46329 -> 42169\n",
+    "gateway-stub": "",
+    "web": " human approval\",\"subsystem\":\"ext.bundled.bootstrap\",\"name\":\"openai-image-gen-2\",\"installationId\":\"93ba9ca5-11ca-42c0-a28f-bcd51d130bf8\",\"operationId\":\"032c518e-a39c-4ac5-9d7a-9531b44aca35\",\"status\":\"queued\"}\n{\"ts\":\"2026-09-25T07:50:06.176Z\",\"level\":\"info\",\"msg\":\"Bundled source staged; verified releases require human approval\",\"subsystem\":\"ext.bundled.bootstrap\",\"name\":\"claude-design\",\"installationId\":\"46b9981a-273a-47e0-a82d-dc7f38428960\",\"operationId\":\"419f947c-55ed-446d-ab46-3a3f1918caff\",\"status\":\"queued\"}\n{\"ts\":\"2026-09-25T07:50:06.213Z\",\"level\":\"info\",\"msg\":\"Bundled source staged; verified releases require human approval\",\"subsystem\":\"ext.bundled.bootstrap\",\"name\":\"price-chart\",\"installationId\":\"62aba5a2-7fe0-4a0b-a512-ad2c5d4364ad\",\"operationId\":\"df6d3e47-bdd1-4054-a330-143c41b474f0\",\"status\":\"queued\"}\n{\"ts\":\"2026-09-25T07:50:06.246Z\",\"level\":\"info\",\"msg\":\"Bundled source staged; verified releases require human approval\",\"subsystem\":\"ext.bundled.bootstrap\",\"name\":\"city-conditions\",\"installationId\":\"60002142-1cd1-468b-ad65-e4963f662643\",\"operationId\":\"9b54d0fd-f25e-4a15-8481-48272c51f535\",\"status\":\"queued\"}\n{\"ts\":\"2026-09-25T07:50:06.279Z\",\"level\":\"info\",\"msg\":\"Bundled source staged; verified releases require human approval\",\"subsystem\":\"ext.bundled.bootstrap\",\"name\":\"kokoro-tts\",\"installationId\":\"3f53ff8c-3a6e-42e8-a320-124b495adb46\",\"operationId\":\"cedc1789-ed7a-4193-ae23-6f0585d0eadd\",\"status\":\"queued\"}\n{\"ts\":\"2026-09-25T07:50:06.310Z\",\"level\":\"info\",\"msg\":\"Bundled source staged; verified releases require human approval\",\"subsystem\":\"ext.bundled.bootstrap\",\"name\":\"lessons-distiller\",\"installationId\":\"ab782f1b-b483-4084-af2d-da4d57bf3fad\",\"operationId\":\"abb4b0ee-b33b-4a54-833f-3c341ef39f68\",\"status\":\"queued\"}\n{\"ts\":\"2026-09-25T07:50:06.341Z\",\"level\":\"info\",\"msg\":\"Bundled source staged; verified releases require human approval\",\"subsystem\":\"ext.bundled.bootstrap\",\"name\":\"extension-author\",\"installationId\":\"90ff4c6c-0969-493f-a0a5-cf2ff7027865\",\"operationId\":\"b1cacac9-c46f-478e-ace3-c2a269d16e11\",\"status\":\"queued\"}\n{\"ts\":\"2026-09-25T07:50:06.380Z\",\"level\":\"info\",\"msg\":\"Bundled source staged; verified releases require human approval\",\"subsystem\":\"ext.bundled.bootstrap\",\"name\":\"memory-extractor\",\"installationId\":\"3627c60b-a1fa-417d-ab79-cc7ba39b2c42\",\"operationId\":\"1421a185-2aa3-4371-a267-37095227cb91\",\"status\":\"queued\"}\n{\"ts\":\"2026-09-25T07:50:06.411Z\",\"level\":\"info\",\"msg\":\"Bundled source staged; verified releases require human approval\",\"subsystem\":\"ext.bundled.bootstrap\",\"name\":\"ez-code\",\"installationId\":\"bf3fe48b-27cf-4fdc-ab38-9016f787e199\",\"operationId\":\"c00e0e6e-a4ba-4a5d-b512-635d1fa0e35f\",\"status\":\"queued\"}\n{\"ts\":\"2026-09-25T07:50:06.453Z\",\"level\":\"info\",\"msg\":\"Bundled source staged; verified releases require human approval\",\"subsystem\":\"ext.bundled.bootstrap\",\"name\":\"file-organizer\",\"installationId\":\"2ec94e2e-d284-4e96-a0e7-b45854c03857\",\"operationId\":\"0dca2bab-5136-4975-89d5-aeb1a08562ba\",\"status\":\"queued\"}\n{\"ts\":\"2026-09-25T07:50:06.488Z\",\"level\":\"info\",\"msg\":\"Bundled source staged; verified releases require human approval\",\"subsystem\":\"ext.bundled.bootstrap\",\"name\":\"ping-loop\",\"installationId\":\"b0bd3d5d-7e2d-441d-a9ab-394ffc137afe\",\"operationId\":\"9a9fe6d5-ffbb-43bd-80d0-0425e9cfff86\",\"status\":\"queued\"}\n{\"ts\":\"2026-09-25T07:50:06.519Z\",\"level\":\"info\",\"msg\":\"Bundled source staged; verified releases require human approval\",\"subsystem\":\"ext.bundled.bootstrap\",\"name\":\"github-projects\",\"installationId\":\"3ab35572-c66d-4523-a550-142f77d8f025\",\"operationId\":\"616f55be-69f7-4544-b38d-0f699ea0411a\",\"status\":\"queued\"}\n{\"ts\":\"2026-09-25T07:50:06.568Z\",\"level\":\"info\",\"msg\":\"Bundled source staged; verified releases require human approval\",\"subsystem\":\"ext.bundled.bootstrap\",\"name\":\"ez-factory\",\"installationId\":\"3952acdf-45d1-429a-aead-53266ad62993\",\"operationId\":\"6ffd799e-3076-4cf1-a521-cbd7718a52e7\",\"status\":\"queued\"}\n{\"ts\":\"2026-09-25T07:50:16.428Z\",\"level\":\"info\",\"msg\":\"graceful shutdown begin\",\"subsystem\":\"shutdown\",\"reason\":\"SIGTERM\",\"teardownCount\":14}\nStopping server...\nStopped server\n{\"ts\":\"2026-09-25T07:50:16.430Z\",\"level\":\"info\",\"msg\":\"teardown ok\",\"subsystem\":\"shutdown\",\"name\":\"background-timers\",\"ms\":2}\n{\"ts\":\"2026-09-25T07:50:16.430Z\",\"level\":\"info\",\"msg\":\"teardown ok\",\"subsystem\":\"shutdown\",\"name\":\"factory-runtime\",\"ms\":0}\n{\"ts\":\"2026-09-25T07:50:16.430Z\",\"level\":\"info\",\"msg\":\"teardown ok\",\"subsystem\":\"shutdown\",\"name\":\"extension-workflow-reload\",\"ms\":0}\n{\"ts\":\"2026-09-25T07:50:16.430Z\",\"level\":\"info\",\"msg\":\"teardown ok\",\"subsystem\":\"shutdown\",\"name\":\"goal-host\",\"ms\":0}\n{\"ts\":\"2026-09-25T07:50:16.430Z\",\"level\":\"info\",\"msg\":\"teardown ok\",\"subsystem\":\"shutdown\",\"name\":\"extension-delivery-runtime\",\"ms\":0}\n{\"ts\":\"2026-09-25T07:50:16.430Z\",\"level\":\"info\",\"msg\":\"teardown ok\",\"subsystem\":\"shutdown\",\"name\":\"event-subscription-dispatcher\",\"ms\":0}\n{\"ts\":\"2026-09-25T07:50:16.430Z\",\"level\":\"info\",\"msg\":\"teardown ok\",\"subsystem\":\"shutdown\",\"name\":\"extension-contribution-reload\",\"ms\":0}\n{\"ts\":\"2026-09-25T07:50:16.430Z\",\"level\":\"info\",\"msg\":\"teardown ok\",\"subsystem\":\"shutdown\",\"name\":\"lifecycle-dispatcher\",\"ms\":0}\n{\"ts\":\"2026-09-25T07:50:16.430Z\",\"level\":\"info\",\"msg\":\"teardown ok\",\"subsystem\":\"shutdown\",\"name\":\"extension-registry-kill-all\",\"ms\":0}\n{\"ts\":\"2026-09-25T07:50:16.430Z\",\"level\":\"info\",\"msg\":\"teardown ok\",\"subsystem\":\"shutdown\",\"name\":\"executor-destroy\",\"ms\":0}\n{\"ts\":\"2026-09-25T07:50:16.430Z\",\"level\":\"info\",\"msg\":\"teardown ok\",\"subsystem\":\"shutdown\",\"name\":\"extension-factory-agents\",\"ms\":0}\n{\"ts\":\"2026-09-25T07:50:16.430Z\",\"level\":\"info\",\"msg\":\"teardown ok\",\"subsystem\":\"shutdown\",\"name\":\"backups\",\"ms\":0}\n{\"ts\":\"2026-09-25T07:50:16.430Z\",\"level\":\"info\",\"msg\":\"teardown ok\",\"subsystem\":\"shutdown\",\"name\":\"permission-audit-coalescer\",\"ms\":0}\n{\"ts\":\"2026-09-25T07:50:16.431Z\",\"level\":\"info\",\"msg\":\"teardown ok\",\"subsystem\":\"shutdown\",\"name\":\"pglite-close\",\"ms\":1}\n{\"ts\":\"2026-09-25T07:50:16.431Z\",\"level\":\"info\",\"msg\":\"graceful shutdown complete\",\"subsystem\":\"shutdown\",\"reason\":\"SIGTERM\"}\n",
+    "orchestrator": "/node_modules/@tempor...(truncated) 223 KiB 29 modules\n  modules by path ./node_modules/.bun/nexus-rpc@0.0.3/node_modules/nexus-rpc/lib/ 22.3 KiB 13 modules\n  ./node_modules/.bun/long@5.3.2/node_modules/long/umd/index.js 49.8 KiB [built] [code generated]\n  ./node_modules/.bun/ms@3.0.0-canary.1/node_modules/ms/dist/index.cjs 3.41 KiB [built] [code generated]\nmodules by path ./packages/@ezcorp/ 487 KiB\n  modules by path ./packages/@ezcorp/factory-sdk/dist/ 432 KiB 24 modules\n  modules by path ./packages/@ezcorp/factory-orchestrator/src/ 55.2 KiB\n    ./packages/@ezcorp/factory-orchestrator/src/workflow-autogenerated-...(truncated) 593 bytes [built] [code generated]\n    + 7 modules\noptional modules 30 bytes [optional]\n  __temporal_custom_payload_converter (ignored) 15 bytes [optional] [built] [code generated]\n  __temporal_custom_failure_converter (ignored) 15 bytes [optional] [built] [code generated]\nwebpack 5.111.1 compiled successfully in 396 ms\n2026-09-25T07:49:55.673Z [INFO] Workflow bundle created { size: '2.59MB' }\n2026-09-25T07:49:55.829Z [INFO] Worker state changed {\n  sdkComponent: 'worker',\n  taskQueue: 'factory-orchestrator',\n  state: 'RUNNING'\n}\n2026-09-25T07:49:55.830Z [INFO] No Nexus services registered, not polling for Nexus tasks { sdkComponent: 'worker', taskQueue: 'factory-orchestrator' }\n2026-09-25T07:50:16.493Z [INFO] Worker state changed {\n  sdkComponent: 'worker',\n  taskQueue: 'factory-orchestrator',\n  state: 'STOPPING'\n}\n2026-09-25T07:50:16.493Z [INFO] Worker state changed {\n  sdkComponent: 'worker',\n  taskQueue: 'factory-orchestrator',\n  state: 'DRAINING'\n}\n2026-09-25T07:50:16.494Z [INFO] Worker state changed {\n  sdkComponent: 'worker',\n  taskQueue: 'factory-orchestrator',\n  state: 'DRAINED'\n}\n2026-09-25T07:50:16.494Z [INFO] Worker state changed {\n  sdkComponent: 'worker',\n  taskQueue: 'factory-orchestrator',\n  state: 'STOPPED'\n}\n[factory-orchestrator] failed to start: Error: factory orchestrator process failed\n    at Object.runFactoryOrchestratorProcess [as run] (file:///home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-orchestrator/src/process.ts:251:13)\n    at async Object.runConfiguredFactoryOrchestrator [as runConfigured] (file:///home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/src/factory/orchestration-process.ts:149:3)\n    at async runFactoryOrchestratorMain (file:///home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/src/factory/orchestration-process.ts:188:9)\n[factory-orchestrator] caused by: Error: connect ECONNREFUSED 127.0.0.1:33743\n    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1645:16)\n[orchestrator-runner] the orchestrator exited; restarting in 2s\n2026-09-25T07:50:19.484Z [INFO] asset workflow-bundle-24162560e90a75ad9354.js 2.59 MiB [emitted] [immutable] (name: main)\nruntime modules 883 bytes 4 modules\nmodules by path ./node_modules/.bun/ 463 KiB\n  modules by path ./node_modules/.bun/@temporalio+common@1.23.0/node_modules/@temporal...(truncated) 164 KiB 36 modules\n  modules by path ./node_modules/.bun/@temporalio+workflow@1.23.0/node_modules/@tempor...(truncated) 223 KiB 29 modules\n  modules by path ./node_modules/.bun/nexus-rpc@0.0.3/node_modules/nexus-rpc/lib/ 22.3 KiB 13 modules\n  ./node_modules/.bun/long@5.3.2/node_modules/long/umd/index.js 49.8 KiB [built] [code generated]\n  ./node_modules/.bun/ms@3.0.0-canary.1/node_modules/ms/dist/index.cjs 3.41 KiB [built] [code generated]\nmodules by path ./packages/@ezcorp/ 487 KiB\n  modules by path ./packages/@ezcorp/factory-sdk/dist/ 432 KiB 24 modules\n  modules by path ./packages/@ezcorp/factory-orchestrator/src/ 55.2 KiB\n    ./packages/@ezcorp/factory-orchestrator/src/workflow-autogenerated-...(truncated) 593 bytes [built] [code generated]\n    + 7 modules\noptional modules 30 bytes [optional]\n  __temporal_custom_payload_converter (ignored) 15 bytes [optional] [built] [code generated]\n  __temporal_custom_failure_converter (ignored) 15 bytes [optional] [built] [code generated]\nwebpack 5.111.1 compiled successfully in 402 ms\n2026-09-25T07:50:19.488Z [INFO] Workflow bundle created { size: '2.59MB' }\n2026-09-25T07:50:19.642Z [INFO] Worker state changed {\n  sdkComponent: 'worker',\n  taskQueue: 'factory-orchestrator',\n  state: 'RUNNING'\n}\n2026-09-25T07:50:19.643Z [INFO] No Nexus services registered, not polling for Nexus tasks { sdkComponent: 'worker', taskQueue: 'factory-orchestrator' }\n2026-09-25T07:50:20.611Z [INFO] Worker state changed {\n  sdkComponent: 'worker',\n  taskQueue: 'factory-orchestrator',\n  state: 'STOPPING'\n}\n2026-09-25T07:50:20.611Z [INFO] Worker state changed {\n  sdkComponent: 'worker',\n  taskQueue: 'factory-orchestrator',\n  state: 'DRAINING'\n}\n2026-09-25T07:50:20.612Z [INFO] Worker state changed {\n  sdkComponent: 'worker',\n  taskQueue: 'factory-orchestrator',\n  state: 'DRAINED'\n}\n2026-09-25T07:50:20.612Z [INFO] Worker state changed {\n  sdkComponent: 'worker',\n  taskQueue: 'factory-orchestrator',\n  state: 'STOPPED'\n}\n[factory-orchestrator] failed to start: Error: factory orchestrator process failed\n    at Object.runFactoryOrchestratorProcess [as run] (file:///home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-orchestrator/src/process.ts:251:13)\n    at async Object.runConfiguredFactoryOrchestrator [as runConfigured] (file:///home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/src/factory/orchestration-process.ts:149:3)\n    at async runFactoryOrchestratorMain (file:///home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/src/factory/orchestration-process.ts:188:9)\n[factory-orchestrator] caused by: Error: connect ECONNREFUSED 127.0.0.1:33743\n    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1645:16)\n[orchestrator-runner] the orchestrator exited; restarting in 2s\n",
+    "web-restarted": "7d-ab79-cc7ba39b2c42\",\"operationId\":\"1421a185-2aa3-4371-a267-37095227cb91\",\"status\":\"failed\"}\n{\"ts\":\"2026-09-25T07:50:17.708Z\",\"level\":\"info\",\"msg\":\"Bundled source staged; verified releases require human approval\",\"subsystem\":\"ext.bundled.bootstrap\",\"name\":\"ez-code\",\"installationId\":\"bf3fe48b-27cf-4fdc-ab38-9016f787e199\",\"operationId\":\"c00e0e6e-a4ba-4a5d-b512-635d1fa0e35f\",\"status\":\"failed\"}\n{\"ts\":\"2026-09-25T07:50:17.721Z\",\"level\":\"info\",\"msg\":\"Bundled source staged; verified releases require human approval\",\"subsystem\":\"ext.bundled.bootstrap\",\"name\":\"file-organizer\",\"installationId\":\"2ec94e2e-d284-4e96-a0e7-b45854c03857\",\"operationId\":\"0dca2bab-5136-4975-89d5-aeb1a08562ba\",\"status\":\"failed\"}\n{\"ts\":\"2026-09-25T07:50:17.732Z\",\"level\":\"info\",\"msg\":\"Bundled source staged; verified releases require human approval\",\"subsystem\":\"ext.bundled.bootstrap\",\"name\":\"ping-loop\",\"installationId\":\"b0bd3d5d-7e2d-441d-a9ab-394ffc137afe\",\"operationId\":\"9a9fe6d5-ffbb-43bd-80d0-0425e9cfff86\",\"status\":\"failed\"}\n{\"ts\":\"2026-09-25T07:50:17.744Z\",\"level\":\"info\",\"msg\":\"Bundled source staged; verified releases require human approval\",\"subsystem\":\"ext.bundled.bootstrap\",\"name\":\"github-projects\",\"installationId\":\"3ab35572-c66d-4523-a550-142f77d8f025\",\"operationId\":\"616f55be-69f7-4544-b38d-0f699ea0411a\",\"status\":\"failed\"}\n{\"ts\":\"2026-09-25T07:50:17.762Z\",\"level\":\"info\",\"msg\":\"Bundled source staged; verified releases require human approval\",\"subsystem\":\"ext.bundled.bootstrap\",\"name\":\"ez-factory\",\"installationId\":\"3952acdf-45d1-429a-aead-53266ad62993\",\"operationId\":\"6ffd799e-3076-4cf1-a521-cbd7718a52e7\",\"status\":\"failed\"}\n{\"ts\":\"2026-09-25T07:50:17.823Z\",\"level\":\"info\",\"msg\":\"goal-host: boot sweep complete\",\"subsystem\":\"goal-host\",\"count\":0}\n[factory] composed {\n  tenantId: \"tenant-01\",\n  running: [],\n  held: [ \"notification-send\", \"validator-material-registration\", \"validator-scheduling\" ],\n}\n{\"ts\":\"2026-09-25T07:50:17.904Z\",\"level\":\"info\",\"msg\":\"Embedding warmup kicked\",\"subsystem\":\"startup.timers\"}\n{\"ts\":\"2026-09-25T07:50:17.904Z\",\"level\":\"info\",\"msg\":\"Decay sweep started\",\"subsystem\":\"startup.timers\",\"intervalHours\":1}\n{\"ts\":\"2026-09-25T07:50:17.904Z\",\"level\":\"info\",\"msg\":\"Audit-log retention sweep started\",\"subsystem\":\"startup.timers\",\"retentionDays\":180}\n{\"ts\":\"2026-09-25T07:50:18.071Z\",\"level\":\"info\",\"msg\":\"Compaction started\",\"subsystem\":\"startup.timers\",\"intervalHours\":6}\n{\"ts\":\"2026-09-25T07:50:18.076Z\",\"level\":\"info\",\"msg\":\"ScheduleDaemon started\",\"subsystem\":\"startup.timers\"}\n{\"ts\":\"2026-09-25T07:50:18.076Z\",\"level\":\"info\",\"msg\":\"WorkflowRunner started\",\"subsystem\":\"startup.timers\"}\n{\"ts\":\"2026-09-25T07:50:18.077Z\",\"level\":\"info\",\"msg\":\"WebhookDeliveryDaemon started\",\"subsystem\":\"startup.timers\"}\n{\"ts\":\"2026-09-25T07:50:18.080Z\",\"level\":\"info\",\"msg\":\"BriefingDaemon started\",\"subsystem\":\"startup.timers\"}\n{\"ts\":\"2026-09-25T07:50:18.080Z\",\"level\":\"info\",\"msg\":\"HostMaintenanceDaemon started\",\"subsystem\":\"startup.timers\"}\n{\"ts\":\"2026-09-25T07:50:18.081Z\",\"level\":\"info\",\"msg\":\"EmbedWorker started\",\"subsystem\":\"startup.timers\"}\n{\"ts\":\"2026-09-25T07:50:18.083Z\",\"level\":\"info\",\"msg\":\"github-projects daemon wake loop armed\",\"subsystem\":\"ext.github-projects.daemon\",\"wakeMs\":30000}\n{\"ts\":\"2026-09-25T07:50:18.083Z\",\"level\":\"info\",\"msg\":\"GithubProjectsDaemon started\",\"subsystem\":\"startup.timers\"}\n{\"ts\":\"2026-09-25T07:50:18.085Z\",\"level\":\"info\",\"msg\":\"preview data-dir locked down to 0700, app-uid-owned (keystone)\",\"subsystem\":\"preview.uid-pool\",\"path\":\"/home/dev/.w09b-stack-D9LOgj/project/.ezcorp/data\"}\n{\"ts\":\"2026-09-25T07:50:18.085Z\",\"level\":\"info\",\"msg\":\"PreviewPortWatcher source selected by capability mode\",\"subsystem\":\"startup.timers\",\"mode\":\"static\",\"source\":\"NetnsPortSource\",\"dataDirLocked\":true}\n{\"ts\":\"2026-09-25T07:50:18.085Z\",\"level\":\"info\",\"msg\":\"PreviewPortWatcher started\",\"subsystem\":\"startup.timers\"}\nListening on http://127.0.0.1:32917/ \n{\"ts\":\"2026-09-25T07:50:20.522Z\",\"level\":\"info\",\"msg\":\"graceful shutdown begin\",\"subsystem\":\"shutdown\",\"reason\":\"SIGTERM\",\"teardownCount\":14}\nStopping server...\nStopped server\n{\"ts\":\"2026-09-25T07:50:20.525Z\",\"level\":\"info\",\"msg\":\"teardown ok\",\"subsystem\":\"shutdown\",\"name\":\"background-timers\",\"ms\":3}\n{\"ts\":\"2026-09-25T07:50:20.525Z\",\"level\":\"info\",\"msg\":\"teardown ok\",\"subsystem\":\"shutdown\",\"name\":\"factory-runtime\",\"ms\":0}\n{\"ts\":\"2026-09-25T07:50:20.525Z\",\"level\":\"info\",\"msg\":\"teardown ok\",\"subsystem\":\"shutdown\",\"name\":\"extension-workflow-reload\",\"ms\":0}\n{\"ts\":\"2026-09-25T07:50:20.525Z\",\"level\":\"info\",\"msg\":\"teardown ok\",\"subsystem\":\"shutdown\",\"name\":\"goal-host\",\"ms\":0}\n{\"ts\":\"2026-09-25T07:50:20.525Z\",\"level\":\"info\",\"msg\":\"teardown ok\",\"subsystem\":\"shutdown\",\"name\":\"extension-delivery-runtime\",\"ms\":0}\n{\"ts\":\"2026-09-25T07:50:20.525Z\",\"level\":\"info\",\"msg\":\"teardown ok\",\"subsystem\":\"shutdown\",\"name\":\"event-subscription-dispatcher\",\"ms\":0}\n{\"ts\":\"2026-09-25T07:50:20.525Z\",\"level\":\"info\",\"msg\":\"teardown ok\",\"subsystem\":\"shutdown\",\"name\":\"extension-contribution-reload\",\"ms\":0}\n{\"ts\":\"2026-09-25T07:50:20.525Z\",\"level\":\"info\",\"msg\":\"teardown ok\",\"subsystem\":\"shutdown\",\"name\":\"lifecycle-dispatcher\",\"ms\":0}\n{\"ts\":\"2026-09-25T07:50:20.525Z\",\"level\":\"info\",\"msg\":\"teardown ok\",\"subsystem\":\"shutdown\",\"name\":\"extension-registry-kill-all\",\"ms\":0}\n{\"ts\":\"2026-09-25T07:50:20.525Z\",\"level\":\"info\",\"msg\":\"teardown ok\",\"subsystem\":\"shutdown\",\"name\":\"executor-destroy\",\"ms\":0}\n{\"ts\":\"2026-09-25T07:50:20.525Z\",\"level\":\"info\",\"msg\":\"teardown ok\",\"subsystem\":\"shutdown\",\"name\":\"extension-factory-agents\",\"ms\":0}\n{\"ts\":\"2026-09-25T07:50:20.525Z\",\"level\":\"info\",\"msg\":\"teardown ok\",\"subsystem\":\"shutdown\",\"name\":\"backups\",\"ms\":0}\n{\"ts\":\"2026-09-25T07:50:20.525Z\",\"level\":\"info\",\"msg\":\"teardown ok\",\"subsystem\":\"shutdown\",\"name\":\"permission-audit-coalescer\",\"ms\":0}\n{\"ts\":\"2026-09-25T07:50:20.526Z\",\"level\":\"info\",\"msg\":\"teardown ok\",\"subsystem\":\"shutdown\",\"name\":\"pglite-close\",\"ms\":1}\n{\"ts\":\"2026-09-25T07:50:20.526Z\",\"level\":\"info\",\"msg\":\"graceful shutdown complete\",\"subsystem\":\"shutdown\",\"reason\":\"SIGTERM\"}\n"
+  },
+  "factoryLines": [
+    "[factory] composed {"
+  ],
+  "notProven": [
+    "a COMPLETED runner result: the completed variant carries a staged output artifact, and staging one needs the auxiliary material service a minimal guest has no mount for (W01c/W04). The guest here returns the canonical `cancelled` result — the one member of the union that needs no staged artifact — which the dispatcher records and the projector projects.",
+    "a PUBLISHED release: `release-outcome` runs here and its scan finds nothing, because this guest's definition carries no release node and no approval or policy was written. What is proved is that the role composes from the declared destination and runs; what is not is a claimable operation being claimed and published, which needs a release node in the definition plus an approval or policy through W05's production writers. The declared destination itself is proved to reach the real store by the s3-destination-proof receipt.",
+    "notification-send: W17, as planned."
+  ],
+  "outcome": "passed",
+  "finishedAt": "2026-09-25T07:50:22.068Z"
+}

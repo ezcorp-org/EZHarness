@@ -1,0 +1,7 @@
+Patch coverage gate FAILED (4 file(s) with uncovered changes):
+  src/factory/checkpoint-barrier.ts: 1 changed line(s) uncovered: 437
+  src/factory/file-key-wraps.ts: changed source file has NO lcov data — no test loads it under coverage. Add/extend a test that exercises it (or, if it genuinely can't be measured, add an EXCLUDES entry in scripts/coverage-config.ts with justification).
+  src/factory/orchestration-process.ts: changed source file has NO lcov data — no test loads it under coverage. Add/extend a test that exercises it (or, if it genuinely can't be measured, add an EXCLUDES entry in scripts/coverage-config.ts with justification).
+  src/factory/restore.ts: 17 changed line(s) uncovered: 56,275,322,323,324,325,395,398,399,400,575,576,577,578,587,601,602
+
+Add tests covering the changed lines above, then re-run the coverage pipeline.
