@@ -3610,13 +3610,16 @@ W02c, W09c, W01g, and W16 items wait for their integ/w00 hashes.
 - [x] Read the lane and sweep queued at `46237000f`: `journeys-14` 12 of 12, `sweep-11` every leg exit 0.
 - [x] Author check: every branch commit is archy's; `754d7b29b` (fixture identity) was rewritten to `5ea00bea8` (same tree) by the 04:02 reset-author rebase.
 - [x] Merge integ/w00 `2b2e12550` (W02c, W01g, W09c, W09d-2, W04b, W12c, W15, W15c).
-- [ ] W02c: the console builds its trusts with `createFactoryPackageTrusts`; the preview counts live attempts with the fence's own query; the console shows the affected-run record; the real lane commits a quarantine and lifts it.
-- [ ] W04b: the grants panel names each grantee by display name.
-- [ ] W09c: the web process composes command approvals beside release operations; the real lane decides an approval in the inbox.
-- [ ] W01g: the lane guest stages its output and completes; the run journey asserts the completed run.
-- [ ] `run-stream.ts`: mutants that die only by timeout die by assertion.
-- [ ] Final passes at the final head, one receipt per leg; gate file and review.
+- [x] W02c: the console builds its trusts with `createFactoryPackageTrusts`; the preview counts live attempts with the fence's own query; the console shows the affected-run record; the real lane commits a quarantine and lifts it.
+- [x] W04b: the grants panel names each grantee by display name.
+- [x] W09c: the web process composes command approvals beside release operations; the installation's release store can list an approval node's request; the real lane approves a release and denies an approval node in the inbox.
+- [x] W01g: the lane guest stages its output and completes; with W09d's declared validator the run is accepted, released, and `succeeded`.
+- [x] `run-stream.ts`: strict harness and exact assertions. The score is not measurable on the Vitest 5 toolchain (finding in the gate file).
+- [x] Final passes at `4b96f6f77`, one receipt per leg; gate file and review.
 - W16 items (two HTTP installations, W16 purge preconditions) wait until W16 lands.
+- Follow-ups, disclosed: repair, replan, and a real uncertain release need a rejected candidate or an uncertain provider outcome, which the lane cannot produce; they stay proven in components and the mock tier. Findings for other owners: the mutation tooling since Vitest 5 (main), a denied approval that never ends its run (W03 stop path), and the quarantined live attempt that stays cancelling (W02c/W03, known).
+
+Review update (W14, round 3 part 2, code head `4b96f6f77`): the items that waited on W02c, W04b, W09c and W01g are done through the real application. The real lane passes 12 of 12 (`journeys-26`). A run now completes, is accepted by the declared validator, is approved in the console inbox, and is published by the running release-outcome role. A quarantine is committed under a live attempt, and the console shows what the fence stopped. Two product defects surfaced on the real stack and are fixed: the web process composed no command approvals, and one approval-node notification made the whole inbox refuse. Every final leg exits 0 at a clean head, with 100 percent of changed lines covered against `2b2e12550`. The mutation score is not measurable on the current toolchain; that is reported, not fixed here.
 
 ## W09c — compose the release profile set from the declaration (branch `wp/w09c-profiles`)
 

@@ -181,6 +181,104 @@ Housekeeping: `podman image prune -f` runs after every lane build; the lane tags
 restore proof, `factory_services_product_1790204490942_e8f74f`, remains on the shared PostgreSQL:
 the permission layer refused my drop, and the coordinator surfaced it to the user.
 
+## Round 3, part 2 (worker w14-continue, 2026-09-25)
+
+Base: branch at `46237000f` (round 3 part 1 plus the restore port). Merged integ/w00 `2b2e12550` as
+`2252e5a39`. Final code head `4b96f6f77`; the documents follow it. Evidence:
+`/tmp/factory-platform-evidence/w14/` (`receipts/` holds one JSON receipt per leg at the code head).
+
+Carried over: `journeys-14` (12 of 12) and `sweep-11` (every leg exit 0) at `46237000f`, both clean.
+Author check: every branch commit after integ/w00 is archy's. `754d7b29b` (fixture identity) was
+rewritten by the 2026-09-24 04:02 reset-author rebase to `5ea00bea8`, and `ba47466e0` to `dabed0733`;
+both pairs have identical trees (`4aba010`, `60b6847`).
+
+Merge hunks (`2252e5a39`), each keeping both sides: the SDK export lists (W14 console types and W01g
+guest-material names); `installation-startup.ts` application (W14 `restoreSigner` and W09c's composed
+release routes); `evidence-covers.json`; `tasks/todo.md`; and the package-preparation suite, where
+integ's general `factoryPackageRelease(runner, …)` replaced W14's narrower helper. W04b made
+`displayName` required on a grant resource, so W14's grant fixtures name one.
+
+- [x] G-R3b-1: W02c. The console composes `createFactoryPackageTrusts`, so a quarantine or revocation
+  cancels every run with a live attempt on the package in the decision's transaction. The preview
+  counts live attempts with the fence's own query and lists a run the fence reaches even when its lock
+  does not name the package. `GET …/packages/{referenceId}/affected-runs` serves the sealed record
+  (read scope, keyset pages, trust-revision filter, authority before the cursor), and the
+  administration panel shows it after a commit.
+  CHECK: console suite on PGlite and PostgreSQL; route and component tests; real journey 7.
+  EXPECT: suites pass; real journey 7 commits a quarantine under a held live attempt, shows one
+  "cancel requested" row, reads the same record over the API, and lifts it at revision 3.
+  EVIDENCE: `receipts/bun-console-integration.json`, `receipts/bun-pg-console.json`,
+  `receipts/web-vitest.json`, `receipts/real-lane.json` (`journeys-26.json`).
+- [x] G-R3b-2: W04b. The grants panel names each grantee by display name, with the kind and
+  identifier on their own line. EVIDENCE: `receipts/web-vitest.json`, real captures.
+- [x] G-R3b-3: W09c. The web process composes command approvals beside W09c's release operations
+  (`factoryCommandApprovals`). The installation's release store now carries the command-approval
+  authority; without it one approval-node notification made `GET …/release/notifications` refuse
+  for everyone (reproduced in `journeys-22`, fixed in `c5b14cb49`). Real journey 5 approves a release
+  in the console inbox; real journey 8 denies an approval node there.
+  EVIDENCE: `receipts/bun-installation-startup.json`, `receipts/real-lane.json`.
+- [x] G-R3b-4: W01g and W09d. The lane guest stages its bytes with the shipped staging client and
+  completes; the declared validator (the same release pinned with a configuration digest, bound and
+  trusted in the console) answers PASS. Real journey 5: the run is accepted, the approver consents in
+  the inbox, the running release-outcome role publishes, and the run ends `succeeded`. The stack
+  removes every object version the release published under its per-run prefix when it stops.
+  EVIDENCE: `receipts/real-lane.json`.
+- [x] G-R3b-5: `run-stream.ts`. A strict harness (scripted snapshots and opens, violation on a read
+  past the end, a two-second deadline) with exact state, cursor, sleep and lock assertions; the default
+  sleep with fake timers. EVIDENCE: `receipts/web-vitest.json`. The mutation score cannot be measured
+  on this toolchain (finding below).
+- [x] G-R3b-6: Final passes at the code head, every leg a receipt. EVIDENCE: `receipts/*.json`.
+
+Console changes found by the real captures and fixed: a pin's configuration no longer hides its trust
+revision; two pins of one package are told apart in the row and its actions; the install form binds an
+optional model and configuration digest; an approval node's declared choices are neutral buttons; the
+fence record wraps at 390 px; a grant's revoke button stays on its row at 390 px.
+
+### Final passes at `4b96f6f77` (clean; `final-13/`, receipts in `receipts/`)
+
+| Leg | Result |
+| --- | --- |
+| Builds (six packages), lint, typecheck, factory boundaries, gate integrity, schema drift | exit 0 |
+| SDK tests | 226 pass |
+| Console suite, PGlite and PostgreSQL | 22 and 22 pass; console unit 3 |
+| Package fence, PGlite and PostgreSQL | 17 and 17 pass |
+| Package preparation, PGlite and PostgreSQL | 22 and 22 pass |
+| Installation startup; startup config | 51; 45 pass |
+| Run lifecycle, PGlite and PostgreSQL | 73 and 73 pass |
+| Definitions, PGlite and PostgreSQL; PostgreSQL restore | 11 and 12; 13 pass |
+| Validator materials, PGlite and PostgreSQL | 10 and 10 pass |
+| Process boundaries (`factory-process-boundaries.test.ts`); boundaries script test | 15; 31 pass |
+| Application, attempt composition, keyset cursor, tenant administrator, grants, service credentials, scope, session scope, API docs, OpenAPI, route contract, lanes, evidence map, C13 inventory | all pass |
+| Svelte check; web Vitest pool under coverage; its coverage check | 0 errors; 7741 pass; pass |
+| Factory mock browser specs under Chromium coverage | 24 pass |
+| Real `factory-services` lane | 12 of 12 (`journeys-26`) |
+| New-file coverage and patch coverage, BASE_REF=`2b2e12550` | pass (no uncovered changed line) |
+| Mutation, report-only | 11.49% (tooling finding below) |
+
+### Findings for other owners
+- **Mutation tooling (main).** Since `96e7ee58c` (Vitest 4.1.11 to 5.0.0) Stryker runs almost no tests
+  per mutant. The control pass on `run-format.ts` scored 97.98% at `46237000f` (97 killed, 2
+  survived) and 64.65% on the merged tree (9 killed, 55 timeouts, 35 survivors). The sweep's
+  report-only gate under the heavy lock scored 11.49% with 0.16 tests per mutant. CI's report-only
+  mode hides this. Evidence: `logs/mutation-run-format-control.log`, `final-13/mutation.log`.
+- **Denied approval never ends the run (W03 stop path).** After the console's denial the approval
+  blocker clears and projection lag is 0, but the run stays `running`. Replaying the definition through
+  the kernel: a denial moves the run to `stopping` with a `cancel-node` for the gate, and the stop of a
+  control node, which has no attempt, does not settle in the real stack. Evidence:
+  `logs/kernel-definitions-check.log`, `journeys-24.json`.
+- **Quarantined live attempt stays cancelling (W02c/W03, known).** The fenced run's usage hold stays
+  unresolved (`factory_usage_hold_unresolved: no-operation-receipt`) and the host refuses the stop
+  (HTTP 500 `stop_failed`), as W02c disclosed.
+
+### Open
+- **W16.** Two HTTP installations and the W16 purge preconditions wait until W16 lands in integ/w00.
+- **Repair, replan, and a real uncertain release.** They need a rejected candidate or an uncertain
+  provider outcome; the lane has no fault hook for either. They stay proven in components and the mock
+  tier.
+- **User decisions.** Two databases a failed stack kept for diagnosis remain on the shared
+  PostgreSQL: `factory_services_product_1790204490942_e8f74f` (round 3) and
+  `factory_services_product_1790299766758_3b88ee` (`journeys-15`). The permission layer refused the drop.
+
 ## Decisions and assumptions
 
 - **The lane needs the Temporal CLI dev server.** The Java test server cannot report task-queue
@@ -244,19 +342,7 @@ lines W14 changed count as W14's.
 
 ## Open
 
-- **W15.** Restore signing, its console action, the restore findings wrap, L4, and M3 wait for W15
-  in integ/w00 (prototype at `refs/w14/restore-prototype`). Purge preconditions for W15 and W16 too.
-- **W02c.** After `af25914d3` lands: `createFactoryPackageTrusts` in `console.ts`,
-  `FactoryPackageFence` for previews, and a real quarantine commit in the real lane.
-- **W09c.** The web process composes neither command approvals nor release operations, so the web
-  inbox answers 503 "Release services are not ready". Approval decisions and release reconciliation
-  are proven in components and the mock tier until then.
-- **W01g.** No real run yet produces a completed candidate. The run journey asserts the disclosed
-  `failed` / `RUNNER_CANCELLED` state; repair, replan, and a real uncertain release follow W01g.
-- **W16.** Two installations are proven at the service level on two databases, by ruling.
-- **Findings for other owners.** No production path registers validator material (only tests do).
-  A revoked artifact share cannot be granted again (`factory_artifact_grant_conflict`, W04). No
-  product route or role prepares a trusted package; the stack prepares it as a stated deployment
-  fact. The grants panel names users by identifier, because the grant API returns no display name.
+Round 3 part 2 closed the W15, W02c, W09c, and W01g items that were open here. What remains is listed
+under "Round 3, part 2" above: W16, repair and replan with a real rejected candidate, a real uncertain
+release, and the findings for other owners.
 - The lane needs `FACTORY_TEMPORAL_CLI` on the `factory-real` runner; nothing was provisioned.
-- The integ/w00-based patch gate flags four W18a-2 files whose producers are W18a-2's.
