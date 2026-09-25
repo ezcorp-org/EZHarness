@@ -3859,6 +3859,43 @@ The global floor (73.88 percent), the per-file thresholds, and the origin/main n
 files that only CI's repository-wide shards or the browser receipt measure. None of those files is one this
 package changed.
 
+## W18a-3 — hook context, initPglite/loadExisting, compute-admissions order, test-path imports, main-origin leaks
+
+Package branch: `wp/w18a3-quality-r2` (all items; the leak commits were cherry-picked from `wp/w18a3-leaks` after the merge of integ/w00 7a87aed5e).
+Gates: `tasks/factory/w18a3-GATES.md`. Receipts: `/tmp/factory-platform-evidence/w18a3/` and its `continue/`.
+
+- [x] Re-author the three fixture-authored commits as archy, trees unchanged (new branch; see Review).
+- [x] The hook runs staged tests without GIT_* (48da9c886); scratch repositories in gate-scripts and git-hooks use
+  no caller git context and a scratch HOME, with a guard test (d2c025a29).
+- [x] initPglite: the gap was a staged-merge artifact (G1). loadExisting: shares one wrap opener with loadOrCreate (G2).
+- [x] compute-admissions order dependence fixed on one test clock (d6914c53b, G3).
+- [x] check-boundaries: a non-test file may not import a test path (48ad53775, G4).
+- [x] Leaks: workflow-branch then symlink, and four suites then h1 or cross-tenant (2c03e3625, 17e2e8a63, G7).
+- [x] umask 077: setup-podman, dev-image-provenance, local-sandbox-startup x2 (9e14d178c, 0ae26f4b0, G8).
+- [x] podman-compose-wrapper 10 of 63 "dirty" (0ae26f4b0, G9).
+- [x] Consolidate on -r2: merge integ/w00 7a87aed5e, cherry-pick the leak commits, rerun the matrices and static gates (G7–G10).
+- [x] A Playwright `.pw.` spec counts as a test path (380588398, G11); scratch repositories set GIT_CONFIG_NOSYSTEM=1 (9dc2ba9fb).
+- [x] Final gates green over the fullest lcov at the merge of integ/w00 15410e421 (G6): 17 producers, backend pool 28983/0 at umask 022, CRAP and integ coverage gates exit 0.
+- [x] ~~Move the pool-service import walker into the boundary script (G12)~~: withdrawn; W15c carries the rule.
+- [x] The hook runs staged factory-orchestrator files through the package's node test script (7f4d27042, G13).
+
+### Review
+
+The re-author kept every tree byte-identical (commit-tree, same parents). The coordinator made `wp/w18a3-quality-r2`
+the package branch; `wp/w18a3-quality` stays at f7d79e629, and `backup/w18a3-quality-fixture-authored` keeps it until
+the merge lands.
+
+Every leak was a fixture fault, not a product fault. Two mock-lifetime rules explain the ordered leaks: a
+`$server/*` alias registration cannot reach a route that another suite linked first, and a partial `$lib/*`
+factory freezes the module's export names for the rest of the process. The umask and wrapper faults were fixture
+files whose modes followed the runner's umask or the checkout's own modes; the resolver is right to count a
+permission change as a Docker build-context change. 60 more suites still register a partial api-keys module, and 27
+test files run a bare `git init`; both are disclosed follow-ups F1 and F2 in the gates file (owner W18 hygiene).
+
+At the final head, every producer except pool-coverage exits 0. pool-coverage fails on the W15 bundle defect
+(the node bundle reaches the "bun" builtin), so the CRAP gate reads 7 pool functions as uncovered. No red gate names a
+file this package changed. G6 is rerun after W15b lands.
+
 ## Product rules (coordinator)
 
 - Every startup document declares the recovery sections; an installation without them stays degraded (factory-checkpoint-barrier-held) and never reports ready.
@@ -3929,6 +3966,7 @@ Gates, receipts and findings: `tasks/factory/w19a-GATES.md`.
 - Main-origin ordered leak, owner W18a-3 (ruling 2026-09-24): src/__tests__/security/h1-local-provider-ssrf.test.ts passes alone (148/0) but fails with "Export named 'requireAdmin' not found in module '$lib/server/security/api-keys'" when it runs after security/cross-tenant-deletion-projects-kb-modes.test.ts or after mentions-search-symlink-integration.test.ts. Reproduced on pure main 96e7ee58c and on integ 6c8ec29c5. Cause: both earlier files mock the api-keys alias with only requireScope. Fix: spread the real module into those partial mocks. Prove with the pair matrix.
 - Main-origin ordered leak, owner W18a-3 (ruling 2026-09-24): mentions-search-workflow-branch then mentions-search-symlink-integration gives 25 pass 6 fail (reverse order 31/0), on pure main 96e7ee58c too. main's mentions route imports $server/runtime/workspace/target and only the symlink test mocks it. Fix: mock it in workflow-branch too, or use claim-and-revert. Prove with the pair matrix.
 - BLOCKER for the wave4f combined run: (1) pool-coverage is red since the W15 merge (the node bundle of src/factory/pool/service-server.ts pulls drizzle-orm/bun-sql through checkpoint-barrier -> db/queries/extension-releases -> db/connection); W15b (wp/w15b-runtime-kms c39c039b9) fixes it. (2) the W18a-3 fixes for F3, F4 and the two ordered leaks above.
+- OPEN, W18 hygiene item C, required (coordinator ruling 2026-09-25 at the W18a-3 merge; item C is accepted only with the focused producer green): (1) src/__tests__/extensions-patch-route.test.ts leaves state that fails src/__tests__/phase-2b-e2e.test.ts 6/6 when it runs first in one process; (2) src/__tests__/extensions-delete-route-policy.test.ts fails phase-2b-e2e 5 the same way, and the same new-file set fails src/__tests__/installer-idempotent-local.test.ts 3; both reproduce with their pre-hygiene versions from 2b2e12550, so they are pre-existing ordered leaks; (3) src/__tests__/workflow-run-persistence.test.ts "terminalizeOrphanedWorkflowRuns sweeps rows a dead process left running" drained 0 (line 720) once in three focused runs of the same tree and order, passes alone 3/3: make the liveness window deterministic by injecting the clock or threshold, never by widening a timeout. Evidence: docs/validation/factory/wave4/w18a3-merge.json.
 - W01g follow-ups from its round-4 validation (coordinator ruling 2026-09-24; hygiene backlog, N3 also for W19 measurement): N1 src/factory/executions.ts:186, the class doc comment ("Durable C02 journal; ...") sits above the new type's doc comment and no longer documents the class; N2 the W01g harness observer (repro/guest-broker-observer.ts) stops polling silently on any query failure after one good poll, which could hide a real mid-run fault; N3 readFactoryAttemptLaunchFacts takes FOR UPDATE on the launch row for every guest frame (attempt-runtime.ts:181), contending with the dispatcher, and a corrupt row throws launch_corrupt without a named route status.
 - Flake, owner W18a-3 (seen at the W01g merge attempt, 2026-09-24): src/factory/runner/supervisor-process.test.ts "runConfiguredFactorySupervisor > bounds the probe and names a timeout as its own failure" failed once in 14 runs (5/5 pass in staging and 8/8 at W01g f0aafe3a0 afterwards). Make the probe-timeout test await the observed operation instead of a timer turn.
 - Pre-commit hook, owner W18a-3 (coordinator ruling 2026-09-24): scripts/lib/hook-lib.sh run_staged_tests runs every staged backend test with `bun test`, including packages/@ezcorp/factory-orchestrator/test/*.test.ts, which must run only through that package's own node --test script. At the W09d-2 merge it ran temporal-replay.test.ts under Bun: 12 pass, 15 fail (Temporal workflow timeouts), while `bun run test` in the package passed 88/88. Route those files to the package script.

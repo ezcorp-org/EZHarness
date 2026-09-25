@@ -65,7 +65,12 @@ let closePool: () => Promise<void>;
 let server: Awaited<ReturnType<typeof startBunPoolAdmissionHttps>>;
 let poolClient: PoolAdmissionClient;
 let authority: ProductAuthority;
-let now: number;
+// One test clock for the whole file. It starts at the wall clock and moves only
+// when a test moves it, so which delivery or admission is due never depends on
+// how long the host took between two steps. A retried delivery comes due one
+// second after it was settled, and a wall clock sampled per case made that
+// second elapse under load, so dispatchNext served an earlier case's retry.
+let now = Date.now();
 let directory: string;
 
 beforeAll(async () => {
@@ -103,7 +108,6 @@ afterAll(async () => {
 
 async function enlisted(label: string, client: PoolAdmissionClient = poolClient) {
   const runId = `compute-http-${label}-${randomUUID()}`;
-  now = Date.now();
   const records = new FactoryRecords(product.db, tenantId);
   await records.createRun({ projectId, runId, definitionDigest: `sha256:${"a".repeat(64)}`, interpreterBuild: "compute-http-build", executionEpoch: 1, principalId: "compute-http-user", input: {} }, async () => {});
   const fence = { tenantId, projectId, runId, executionEpoch: 1, cancellationEpoch: 0, grantRevision: 1, revision: 1, deadlineAtMs: now + 120_000, definitionDigest: `sha256:${"a".repeat(64)}`, status: "queued" } as const;
@@ -138,10 +142,14 @@ test("product dispatcher recovers exact pool HTTPS leases across queueing, lost 
   const lost = await enlisted("lost", lossy);
   expect(await lost.admissions.dispatchNext(serviceIdentity)).toMatchObject({ status: "retry" });
   now += 1_001;
-  expect(await lost.admissions.recover(serviceIdentity, { projectId, runId: lost.runId, reservationId: lost.reservationId })).toMatchObject({ status: "admitted", receipt: { lease: { reservationId: lost.reservationId, allocationToken: expect.any(String) } } });
+  const lostAdmitted = await lost.admissions.recover(serviceIdentity, { projectId, runId: lost.runId, reservationId: lost.reservationId });
+  expect(lostAdmitted).toMatchObject({ status: "admitted", receipt: { lease: { reservationId: lost.reservationId, allocationToken: expect.any(String) } } });
+  // The lost response left its delivery scheduled for retry, and it is due now.
+  // The redelivery answers the sealed admission instead of asking the pool again.
+  expect(await lost.admissions.dispatchNext(serviceIdentity)).toEqual(lostAdmitted);
 
   const raced = await enlisted("raced");
-  expect(await raced.admissions.dispatchNext(serviceIdentity)).toMatchObject({ status: "queued" });
+  expect(await raced.admissions.dispatchNext(serviceIdentity)).toMatchObject({ status: "queued", reservationId: raced.reservationId });
   now += 1_001;
   const competing = await Promise.all([raced.admissions.pollNext(serviceIdentity), raced.admissions.pollNext(serviceIdentity)]);
   expect(competing.filter(result => result.status === "admitted")).toHaveLength(1);
@@ -150,7 +158,7 @@ test("product dispatcher recovers exact pool HTTPS leases across queueing, lost 
   let revokeCommand = "";
   const revoking = { ...poolClient, async request(input: FactoryComputeAdmissionRequest["request"], signal?: AbortSignal) { const result = await poolClient.request(input, signal); if (result.status === "admitted") authority.inactive.add(revokeCommand); return result; } };
   const revoked = await enlisted("revoked", revoking); revokeCommand = revoked.commandId;
-  expect(await revoked.admissions.dispatchNext(serviceIdentity)).toMatchObject({ status: "queued" });
+  expect(await revoked.admissions.dispatchNext(serviceIdentity)).toMatchObject({ status: "queued", reservationId: revoked.reservationId });
   now += 1_001;
   expect(await revoked.admissions.pollNext(serviceIdentity)).toMatchObject({ status: "cancelling", reservationId: revoked.reservationId });
   expect(await poolClient.status(revoked.reservationId)).toMatchObject({ state: "revoking" });
@@ -163,7 +171,6 @@ test("product dispatcher recovers exact pool HTTPS leases across queueing, lost 
 
 test("a protected validator reaches a real pool lease through its acceptance command and tells no kernel node", async () => {
   const runId = `compute-http-validator-${randomUUID()}`;
-  now = Date.now();
   const records = new FactoryRecords(product.db, tenantId);
   await records.createRun({ projectId, runId, definitionDigest: `sha256:${"a".repeat(64)}`, interpreterBuild: "compute-http-build", executionEpoch: 1, principalId: "compute-http-user", input: {} }, async () => {});
   const fence = { tenantId, projectId, runId, executionEpoch: 1, cancellationEpoch: 0, grantRevision: 1, revision: 1, deadlineAtMs: now + 120_000, definitionDigest: `sha256:${"a".repeat(64)}`, status: "queued" } as const;

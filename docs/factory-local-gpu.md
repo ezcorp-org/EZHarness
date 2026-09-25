@@ -7,14 +7,14 @@ neither reimages anything.
 
 ```
 bash scripts/verify-factory-local-gpu.sh          # real ROCm computation
-bun scripts/verify-factory-attempt-gpu.ts         # the per-attempt device grant
+bun scripts/__tests__/live/verify-factory-attempt-gpu.ts         # the per-attempt device grant
 ```
 
 `verify-factory-local-gpu.sh` runs ten seeded matrix calculations in ten fresh
 rootless Podman containers from a digest-pinned image. A final container has no
 devices and must fail with `GPU_REQUIRED`.
 
-`verify-factory-attempt-gpu.ts` drives the factory's own launch path through the
+`scripts/__tests__/live/verify-factory-attempt-gpu.ts` drives the factory's own launch path through the
 shared Podman runner. The host runner is configured with the full local device
 list, which is exactly the host-global list a factory start must never inherit,
 and each case then states what its held allocation authorized and observes what

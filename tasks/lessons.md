@@ -1599,6 +1599,10 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 - Never `.strip()` the output of `git status --porcelain`. The first line's leading space is part of
   the status code, so stripping it shifts the path by one character, and the file drops out of the
   receipt's dirty-file map. Strip only the trailing newline, and parse each line as `XY path`.
+- A temporary worktree for a producer run needs a real `bun install --frozen-lockfile` at the root and in web/; symlinking node_modules misses the workspace packages' own node_modules (integrator, W18a-3 merge, 2026-09-25: six producers failed on "cannot find zod / @temporalio").
+- The backend pool (`bash scripts/test.sh`) runs WITHOUT DATABASE_URL and FACTORY_TEST_POSTGRES_URL; exporting them fails the db-connection and EZCORP_DB_PATH tests (integrator, W18a-3 merge, 2026-09-25).
+- A background job's completion notification can be missed; set a timed check on its exit file instead of waiting (integrator, W18a-3 merge, 2026-09-25: a finished rerun sat unread for hours).
+
 
 
 ## 2026-09-25 — W01h runner outcome unknown

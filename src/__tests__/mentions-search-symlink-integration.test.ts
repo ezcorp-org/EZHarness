@@ -18,7 +18,7 @@
  */
 
 import { test, expect, describe, beforeAll, afterAll, mock } from "bun:test";
-import { restoreModuleMocks, unavailableWorkflowAccess } from "./helpers/mock-cleanup";
+import { restoreModuleMocks, unavailableWorkflowAccess, webLibModule } from "./helpers/mock-cleanup";
 import { serverContextStub } from "./helpers/mock-request";
 import { mkdtemp, mkdir, writeFile, symlink, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -56,9 +56,7 @@ mock.module("$server/auth/middleware", () => ({
   requireAuth: (locals: unknown) => (stubRequireAuth ? { id: "test-user", role: "admin" } : require("../auth/middleware").requireAuth(locals)),
 }));
 
-mock.module("$lib/server/security/api-keys", () => ({
-  requireScope: () => null,
-}));
+mock.module("$lib/server/security/api-keys", () => webLibModule("server/security/api-keys", { requireScope: () => null }));
 
 mock.module("$lib/server/workflow-access", () => ({
   listVisibleWorkflows: async () => [],
@@ -102,7 +100,15 @@ mock.module("../db/connection", () => ({
 // Path mentions exercise the direct local-workspace branch. The persisted
 // sandbox policy is covered by its own runtime tests; keep this filesystem
 // boundary fixture independent from database startup.
-mock.module("$server/runtime/workspace/target", () => ({
+// Mocked on the RELATIVE path for the same reason as `../db/connection`: the
+// route may already be linked by an earlier suite (mentions-search-workflow-
+// branch loads it without this stub), and only the natively resolved record
+// is shared with that link. A `$server/*` registration made now would never
+// reach it, and the real function would run against the stub database above.
+// Spread the real module so the export set stays whole; afterAll restores it.
+const realWorkspaceTarget = require("../runtime/workspace/target");
+mock.module("../runtime/workspace/target", () => ({
+  ...realWorkspaceTarget,
   projectRequiresSandbox: async () => false,
 }));
 
@@ -129,6 +135,7 @@ afterAll(() => {
   // empty `extensions` table reaching a later suite's real drizzle query is a
   // TypeError inside `orderSelectedFields`, not a test failure it can read.
   mock.module("$server/db/queries/projects", () => realProjects);
+  mock.module("../runtime/workspace/target", () => realWorkspaceTarget);
   // Puts the relative `../db/connection` stub back. No suite in this pool
   // claims that alias, so the route reaches the stub natively and the real
   // module can be restored the ordinary way.

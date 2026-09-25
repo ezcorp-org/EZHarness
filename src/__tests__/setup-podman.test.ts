@@ -15,6 +15,7 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { UNSANDBOXED_ACK_SENTENCE, UNSANDBOXED_ACK_VARIABLE } from "../extensions/runner-mode";
+import { writeFileWithMode } from "./helpers/exact-mode";
 
 /**
  * Drives `scripts/setup-podman.sh` — the one-command install — against a
@@ -484,7 +485,8 @@ describe("setup-podman.sh — the env file", () => {
   test("refuses an existing env file with group or other access and changes nothing", () => {
     const env = scratch("Darwin");
     const original = "EZCORP_ENCRYPTION_SECRET=keep-this-secret\n";
-    writeFileSync(env.EZ_SETUP_ENV_FILE, original, { mode: 0o644 });
+    // Exact mode: a umask-masked 0644 came out private on a 077 runner.
+    writeFileWithMode(env.EZ_SETUP_ENV_FILE, original, 0o644);
 
     const r = run(["--no-start", "--accept-unsandboxed-extensions"], env);
 
