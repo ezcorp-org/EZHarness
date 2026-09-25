@@ -85,11 +85,14 @@ repin, and void build 3 as the proof, so the comment is left unchanged. The scri
 Every `final-*` receipt is at `0c62f68e8` on a clean tree. The free-disk log is `logs/final-df.log`,
 with 123 GB before every heavy leg.
 
-## Known low item
+## Known low item (fixed after acceptance)
 
-In case B the failure message says "The built image was removed", but only the candidate tag went,
-because the real tag still names that image. The behavior is correct. Only the message overstates
-it. It is left as is, because changing the script would void the final receipts.
+At `0c62f68e8`, in case B the failure message said "The built image was removed", but only the
+candidate tag went, because the real tag still names that image. The behavior was correct; only the
+message overstated it. The coordinator ruled a one-line fix after acceptance, with no rerun: the
+message now says "The candidate tag was removed; the image stays while another tag names it". The
+final receipts above are at `0c62f68e8` and show the old wording. The integrator's merge batch runs
+the check build, `control.sh` and the positive check on the merged tree.
 
 ## Merge with integ/w00
 

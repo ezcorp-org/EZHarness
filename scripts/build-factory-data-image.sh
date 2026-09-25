@@ -112,7 +112,7 @@ else
   # the image unless another tag still names the same image.
   discard
   COMMITTED=$(grep -o '"image": "[^"]*"' "$CONTEXT/pinned.json" 2>/dev/null | cut -d'"' -f4)
-  fail "the build did not reproduce the committed pin: built localhost/ezcorp-factory-python-data@$DIGEST, pinned ${COMMITTED:-nothing}. The built image was removed. Pass --repin only if the lock or the Containerfile changed on purpose."
+  fail "the build did not reproduce the committed pin: built localhost/ezcorp-factory-python-data@$DIGEST, pinned ${COMMITTED:-nothing}. The candidate tag was removed; the image stays while another tag names it. Pass --repin only if the lock or the Containerfile changed on purpose."
 fi
 podman tag "$CANDIDATE" "$IMAGE" || { discard; fail "could not tag the built image as $IMAGE"; }
 discard
