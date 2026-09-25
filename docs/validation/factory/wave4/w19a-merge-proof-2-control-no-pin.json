@@ -1,0 +1,982 @@
+{
+  "label": "control-no-pin",
+  "mode": "mock",
+  "control": "no-pin",
+  "startedAt": "2026-09-25T06:15:09.047Z",
+  "harnessSuppliedDeploymentFacts": [
+    "a TLS-terminating sidecar in front of the Temporal dev server; the orchestrator's own mutual TLS is unrelaxed",
+    "the runner package installation (bind, trust, prepare) through the product's own classes, because no product route owns it yet (W02)"
+  ],
+  "steps": [
+    {
+      "label": "auth.setup",
+      "status": 201,
+      "body": {
+        "user": {
+          "id": "a49b40e0-679d-4009-84e9-90a3b16ba26e",
+          "name": "W19a Proof",
+          "email": "w19a-proof@example.invalid",
+          "role": "admin"
+        }
+      }
+    },
+    {
+      "label": "projects.create",
+      "status": 201,
+      "body": {
+        "id": "d428903a-874e-4f0c-a172-9769895d8acd",
+        "name": "w19a-proof",
+        "path": "/home/dev/.w19a-stack-M9tNZ6/project",
+        "icon": null,
+        "variables": {},
+        "createdAt": "2026-09-25T06:15:27.251Z",
+        "updatedAt": "2026-09-25T06:15:27.251Z"
+      }
+    },
+    {
+      "label": "auth.me",
+      "status": 200,
+      "body": {
+        "user": {
+          "id": "a49b40e0-679d-4009-84e9-90a3b16ba26e",
+          "email": "w19a-proof@example.invalid",
+          "name": "W19a Proof",
+          "role": "admin"
+        },
+        "extensionRunner": "isolated"
+      }
+    },
+    {
+      "label": "control.bad-port.validate",
+      "status": 200,
+      "body": {
+        "schemaVersion": "factory.api.response.v1",
+        "kind": "draft.validation",
+        "valid": false,
+        "diagnostics": [
+          {
+            "code": "BINDING_PORT",
+            "message": "Node references must start with a declared output port.",
+            "path": [
+              "graph",
+              "nodes",
+              2,
+              "bindings",
+              "answer"
+            ],
+            "nodeId": "infer"
+          }
+        ]
+      }
+    },
+    {
+      "label": "control.bad-port.draft",
+      "status": 200,
+      "body": {
+        "schemaVersion": "factory.api.response.v1",
+        "kind": "draft.summary",
+        "resource": {
+          "factoryId": "w19a.graph.bad-port.v1",
+          "revision": 1,
+          "archived": false,
+          "sourceDigest": "a3b5a3f18182cfa6380bf9ebcd84ab2e8818d643ea67f9136010a2973be0e895",
+          "updatedAtMs": 1790316932027,
+          "availability": "unavailable",
+          "availabilityReason": "Definition validation failed with 1 diagnostic."
+        }
+      }
+    },
+    {
+      "label": "control.bad-port.publish",
+      "status": 422,
+      "body": {
+        "schemaVersion": "factory.api.response.v1",
+        "kind": "error",
+        "error": {
+          "code": "factory_definition_invalid",
+          "message": "The factory definition is not publishable.",
+          "retryable": false,
+          "issues": [
+            {
+              "code": "BINDING_PORT",
+              "message": "Node references must start with a declared output port.",
+              "path": [
+                "graph",
+                "nodes",
+                2,
+                "bindings",
+                "answer"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "label": "factory.draft.create",
+      "status": 200,
+      "body": {
+        "schemaVersion": "factory.api.response.v1",
+        "kind": "draft.summary",
+        "resource": {
+          "factoryId": "w19a.graph.v1",
+          "revision": 1,
+          "archived": false,
+          "sourceDigest": "1c459c4ab26c7d3b30b10a32a7333132c374d8be8ff7b89f4daf5de193992c5d",
+          "updatedAtMs": 1790316932045,
+          "availability": "available"
+        }
+      }
+    },
+    {
+      "label": "factory.version.publish",
+      "status": 200,
+      "body": {
+        "schemaVersion": "factory.api.response.v1",
+        "kind": "version.summary",
+        "resource": {
+          "compiledBlobDigest": "1c1b86c5e0f70da4d31390c526ff59199fba7cca0523df639e17d36c8ac829b0",
+          "compiledBytes": 6212,
+          "definitionDigest": "sha256:2489760520ab56e141d3b5ace862a74968d09f996e85b700f611314618eef7b6",
+          "draftRevision": 1,
+          "factoryId": "w19a.graph.v1",
+          "publishedAtMs": 1790316932054,
+          "version": "1.0.0"
+        }
+      }
+    },
+    {
+      "label": "factory.grants.list",
+      "status": 200,
+      "body": {
+        "schemaVersion": "factory.api.response.v1",
+        "kind": "grant.page",
+        "page": {
+          "items": [
+            {
+              "principalKind": "user",
+              "principalId": "a49b40e0-679d-4009-84e9-90a3b16ba26e",
+              "action": "factory.author",
+              "revision": 1,
+              "expiresAtMs": null,
+              "revoked": false,
+              "displayName": "W19a Proof"
+            },
+            {
+              "principalKind": "user",
+              "principalId": "a49b40e0-679d-4009-84e9-90a3b16ba26e",
+              "action": "factory.operate",
+              "revision": 1,
+              "expiresAtMs": null,
+              "revoked": false,
+              "displayName": "W19a Proof"
+            },
+            {
+              "principalKind": "user",
+              "principalId": "a49b40e0-679d-4009-84e9-90a3b16ba26e",
+              "action": "factory.publish",
+              "revision": 1,
+              "expiresAtMs": null,
+              "revoked": false,
+              "displayName": "W19a Proof"
+            },
+            {
+              "principalKind": "user",
+              "principalId": "a49b40e0-679d-4009-84e9-90a3b16ba26e",
+              "action": "factory.run",
+              "revision": 1,
+              "expiresAtMs": null,
+              "revoked": false,
+              "displayName": "W19a Proof"
+            },
+            {
+              "principalKind": "user",
+              "principalId": "a49b40e0-679d-4009-84e9-90a3b16ba26e",
+              "action": "factory.trust",
+              "revision": 1,
+              "expiresAtMs": null,
+              "revoked": false,
+              "displayName": "W19a Proof"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "label": "factory.run.start",
+      "status": 202,
+      "body": {
+        "schemaVersion": "factory.api.response.v1",
+        "kind": "mutation.accepted",
+        "receipt": {
+          "commandId": "factory-command:3698e4134377496cfa6549b4b0e87effe956372883ee262d681e95fb46ce4977",
+          "resourceId": "8d2a6884-ac7e-45cc-9c52-818cb8d4dc09",
+          "statusUrl": "/api/factories/projects/d428903a-874e-4f0c-a172-9769895d8acd/runs/8d2a6884-ac7e-45cc-9c52-818cb8d4dc09/commands/factory-command%3A3698e4134377496cfa6549b4b0e87effe956372883ee262d681e95fb46ce4977"
+        }
+      }
+    }
+  ],
+  "pin": null,
+  "installationModelProvider": {
+    "provider": "ezcorp-mock",
+    "model": "prompt-digest:w19a"
+  },
+  "sharedStores": [
+    {
+      "store": "ordinary",
+      "port": 18333,
+      "reachable": true,
+      "detail": "http 403"
+    },
+    {
+      "store": "archive",
+      "port": 18334,
+      "reachable": true,
+      "detail": "http 403"
+    }
+  ],
+  "databases": {
+    "pool": "w19a_pool_1790316909464_e5c8c5",
+    "product": "w19a_product_1790316909464_e5c8c5"
+  },
+  "guestBuild": {
+    "guest": {
+      "package": "@ezcorp/w19a-graph-guest",
+      "manifestName": "w19a-graph-guest",
+      "version": "1.0.0",
+      "digest": "sha256:bdd384ea2703e67d50eff14a3a1b0dcff650ed1ce2f0c342f1cf2663b7bf7ae9"
+    },
+    "sourceDigest": "8763abc9b388d502ce51ab26bcc3c006a557f0e85ee2c82264185d6a8520ddd7"
+  },
+  "startupDocument": {
+    "runnerProfiles": {
+      "brokerAudience": "factory-gateway",
+      "profiles": [
+        {
+          "runner": {
+            "package": "@ezcorp/w19a-graph-guest",
+            "manifestName": "w19a-graph-guest",
+            "version": "1.0.0",
+            "digest": "sha256:bdd384ea2703e67d50eff14a3a1b0dcff650ed1ce2f0c342f1cf2663b7bf7ae9",
+            "export": "prepare"
+          },
+          "resourceClass": "cpu",
+          "allocation": {
+            "resources": {
+              "cpu": 1
+            },
+            "memoryBytes": 1073741824,
+            "budget": {
+              "costMicros": "1000000",
+              "tokens": 10000,
+              "computeMs": 600000
+            }
+          },
+          "allowedCapabilities": []
+        },
+        {
+          "runner": {
+            "package": "@ezcorp/w19a-graph-guest",
+            "manifestName": "w19a-graph-guest",
+            "version": "1.0.0",
+            "digest": "sha256:bdd384ea2703e67d50eff14a3a1b0dcff650ed1ce2f0c342f1cf2663b7bf7ae9",
+            "export": "infer"
+          },
+          "resourceClass": "cpu-infer",
+          "allocation": {
+            "resources": {
+              "cpu": 1
+            },
+            "memoryBytes": 1073741824,
+            "budget": {
+              "costMicros": "1000000",
+              "tokens": 10000,
+              "computeMs": 600000
+            }
+          },
+          "allowedCapabilities": []
+        },
+        {
+          "runner": {
+            "package": "@ezcorp/w19a-graph-guest",
+            "manifestName": "w19a-graph-guest",
+            "version": "1.0.0",
+            "digest": "sha256:bdd384ea2703e67d50eff14a3a1b0dcff650ed1ce2f0c342f1cf2663b7bf7ae9",
+            "export": "combine"
+          },
+          "resourceClass": "cpu-combine",
+          "allocation": {
+            "resources": {
+              "cpu": 1
+            },
+            "memoryBytes": 1073741824,
+            "budget": {
+              "costMicros": "1000000",
+              "tokens": 10000,
+              "computeMs": 600000
+            }
+          },
+          "allowedCapabilities": []
+        }
+      ]
+    },
+    "modelProvider": {
+      "provider": "ezcorp-mock",
+      "model": "prompt-digest:w19a"
+    },
+    "guestBroker": {
+      "port": 38239,
+      "hosts": {
+        "supervisor-w19a": "host-w19a"
+      }
+    }
+  },
+  "hostProcesses": {
+    "pool": "ready",
+    "supervisor": "ready"
+  },
+  "orchestration": "ready",
+  "ready": {
+    "method": "GET",
+    "path": "/api/ready",
+    "status": 200,
+    "body": {
+      "state": "ready",
+      "detail": {
+        "factory": {
+          "tenantId": "tenant-01",
+          "running": [
+            "compute-admission-dispatch",
+            "compute-admission-poll",
+            "attempt-dispatch",
+            "run-projection",
+            "notification-inbox-delivery",
+            "child-settlement",
+            "usage-reconciliation",
+            "stop-settlement",
+            "retention-gc",
+            "checkpoint-barrier"
+          ],
+          "held": [
+            {
+              "role": "release-outcome",
+              "workPackage": "W07/W08",
+              "reason": "the startup document declares no release destination, so there is nowhere to publish; declare one under `release.destinations` and `release.profiles` and this process composes the providers, the resolver and the profile set"
+            },
+            {
+              "role": "notification-send",
+              "workPackage": "W17",
+              "reason": "a notification is not delivered until a sender confirms it left this host"
+            },
+            {
+              "role": "validator-material-registration",
+              "workPackage": "W09d",
+              "reason": "the startup document declares no validator runtime under `validators.runtimes`, so no protected claim can be judged and no acceptance can pass"
+            },
+            {
+              "role": "validator-scheduling",
+              "workPackage": "W09d",
+              "reason": "the startup document declares no validator runtime under `validators.runtimes`, so no protected claim can be judged and no acceptance can pass"
+            }
+          ],
+          "providerReadiness": {
+            "schemaVersion": "factory.provider-readiness.v1",
+            "provider": "ezcorp-mock",
+            "model": "prompt-digest:w19a",
+            "ready": true,
+            "credentialKind": "apikey",
+            "failures": [],
+            "checkedAt": "2026-09-25T06:15:23.689Z"
+          },
+          "guestBroker": {
+            "state": "bound"
+          }
+        }
+      },
+      "since": "2026-09-25T06:15:25.748Z"
+    }
+  },
+  "packageInstall": [
+    {
+      "reference": {
+        "package": "@ezcorp/w19a-graph-guest",
+        "manifestName": "w19a-graph-guest",
+        "version": "1.0.0",
+        "digest": "sha256:bdd384ea2703e67d50eff14a3a1b0dcff650ed1ce2f0c342f1cf2663b7bf7ae9",
+        "export": "prepare"
+      },
+      "trustRevision": 1,
+      "receiptDigest": "sha256:8358641cad53e3fbe3edd3e5e5c00e216f473a72eb66d7e799d8b307c5acc306"
+    },
+    {
+      "reference": {
+        "package": "@ezcorp/w19a-graph-guest",
+        "manifestName": "w19a-graph-guest",
+        "version": "1.0.0",
+        "digest": "sha256:bdd384ea2703e67d50eff14a3a1b0dcff650ed1ce2f0c342f1cf2663b7bf7ae9",
+        "export": "infer"
+      },
+      "trustRevision": 1,
+      "receiptDigest": "sha256:e2b9f8a2c2213b4246d46083a7f50b8d1fe57f337a26958b45a787d335d04149"
+    },
+    {
+      "reference": {
+        "package": "@ezcorp/w19a-graph-guest",
+        "manifestName": "w19a-graph-guest",
+        "version": "1.0.0",
+        "digest": "sha256:bdd384ea2703e67d50eff14a3a1b0dcff650ed1ce2f0c342f1cf2663b7bf7ae9",
+        "export": "combine"
+      },
+      "trustRevision": 1,
+      "receiptDigest": "sha256:453cfdb2a4387fb7a82bb7cedafa68583a8169996ff258ff0b2baa57d8beebaa"
+    }
+  ],
+  "compileControl": {
+    "validateStatus": 200,
+    "valid": false,
+    "diagnosticCodes": [
+      "BINDING_PORT"
+    ],
+    "draft": {
+      "factoryId": "w19a.graph.bad-port.v1",
+      "revision": 1,
+      "archived": false,
+      "sourceDigest": "a3b5a3f18182cfa6380bf9ebcd84ab2e8818d643ea67f9136010a2973be0e895",
+      "updatedAtMs": 1790316932027,
+      "availability": "unavailable",
+      "availabilityReason": "Definition validation failed with 1 diagnostic."
+    },
+    "publishStatus": 422,
+    "publishBody": {
+      "schemaVersion": "factory.api.response.v1",
+      "kind": "error",
+      "error": {
+        "code": "factory_definition_invalid",
+        "message": "The factory definition is not publishable.",
+        "retryable": false,
+        "issues": [
+          {
+            "code": "BINDING_PORT",
+            "message": "Node references must start with a declared output port.",
+            "path": [
+              "graph",
+              "nodes",
+              2,
+              "bindings",
+              "answer"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "definition": {
+    "schemaVersion": "factory.v1",
+    "id": "w19a.graph.v1",
+    "version": "1.0.0",
+    "interpreterCompatibility": "factory-kernel.v1",
+    "inputPorts": {
+      "topic": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 512
+      }
+    },
+    "outputPorts": {
+      "summary": {
+        "type": "string"
+      }
+    },
+    "graph": {
+      "nodes": [
+        {
+          "id": "prepare",
+          "kind": "task",
+          "runner": {
+            "package": "@ezcorp/w19a-graph-guest",
+            "manifestName": "w19a-graph-guest",
+            "version": "1.0.0",
+            "digest": "sha256:bdd384ea2703e67d50eff14a3a1b0dcff650ed1ce2f0c342f1cf2663b7bf7ae9",
+            "export": "prepare"
+          },
+          "inputPorts": {
+            "topic": {
+              "type": "string"
+            }
+          },
+          "outputPorts": {
+            "text": {
+              "type": "string"
+            },
+            "count": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "bindings": {
+            "topic": {
+              "kind": "ref",
+              "root": "input",
+              "name": "topic"
+            }
+          },
+          "retry": {
+            "maxAttempts": 1,
+            "initialDelayMs": 1000,
+            "maximumDelayMs": 2000
+          },
+          "resources": {
+            "resourceClass": "cpu"
+          }
+        },
+        {
+          "id": "infer",
+          "kind": "task",
+          "runner": {
+            "package": "@ezcorp/w19a-graph-guest",
+            "manifestName": "w19a-graph-guest",
+            "version": "1.0.0",
+            "digest": "sha256:bdd384ea2703e67d50eff14a3a1b0dcff650ed1ce2f0c342f1cf2663b7bf7ae9",
+            "export": "infer"
+          },
+          "inputPorts": {
+            "text": {
+              "type": "string"
+            }
+          },
+          "outputPorts": {
+            "answer": {
+              "type": "string"
+            },
+            "usage": {
+              "type": "object",
+              "properties": {
+                "inputTokens": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "outputTokens": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "inputTokens",
+                "outputTokens"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "bindings": {
+            "text": {
+              "kind": "ref",
+              "root": "node",
+              "name": "prepare",
+              "path": [
+                "text"
+              ]
+            }
+          },
+          "dependsOn": [
+            "prepare"
+          ],
+          "retry": {
+            "maxAttempts": 1,
+            "initialDelayMs": 1000,
+            "maximumDelayMs": 2000
+          },
+          "resources": {
+            "resourceClass": "cpu-infer"
+          }
+        },
+        {
+          "id": "combine",
+          "kind": "task",
+          "runner": {
+            "package": "@ezcorp/w19a-graph-guest",
+            "manifestName": "w19a-graph-guest",
+            "version": "1.0.0",
+            "digest": "sha256:bdd384ea2703e67d50eff14a3a1b0dcff650ed1ce2f0c342f1cf2663b7bf7ae9",
+            "export": "combine"
+          },
+          "inputPorts": {
+            "count": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "answer": {
+              "type": "string"
+            }
+          },
+          "outputPorts": {
+            "summary": {
+              "type": "string"
+            }
+          },
+          "bindings": {
+            "count": {
+              "kind": "ref",
+              "root": "node",
+              "name": "prepare",
+              "path": [
+                "count"
+              ]
+            },
+            "answer": {
+              "kind": "ref",
+              "root": "node",
+              "name": "infer",
+              "path": [
+                "answer"
+              ]
+            }
+          },
+          "dependsOn": [
+            "prepare",
+            "infer"
+          ],
+          "retry": {
+            "maxAttempts": 1,
+            "initialDelayMs": 1000,
+            "maximumDelayMs": 2000
+          },
+          "resources": {
+            "resourceClass": "cpu-combine"
+          }
+        }
+      ],
+      "outputs": {
+        "summary": {
+          "kind": "ref",
+          "root": "node",
+          "name": "combine",
+          "path": [
+            "summary"
+          ]
+        }
+      }
+    },
+    "acceptance": {
+      "id": "w19a.graph.v1.contract",
+      "version": "1",
+      "claims": [
+        {
+          "id": "claim",
+          "validator": {
+            "package": "@ezcorp/w19a-graph-guest",
+            "manifestName": "w19a-graph-guest",
+            "version": "1.0.0",
+            "digest": "sha256:bdd384ea2703e67d50eff14a3a1b0dcff650ed1ce2f0c342f1cf2663b7bf7ae9",
+            "export": "prepare"
+          },
+          "required": true,
+          "protected": true
+        }
+      ]
+    },
+    "packages": [
+      {
+        "name": "@ezcorp/w19a-graph-guest",
+        "version": "1.0.0",
+        "digest": "sha256:bdd384ea2703e67d50eff14a3a1b0dcff650ed1ce2f0c342f1cf2663b7bf7ae9"
+      }
+    ],
+    "capabilities": [],
+    "effects": [
+      "none"
+    ],
+    "bounds": {
+      "maxExpandedNodes": 10,
+      "maxScopeDepth": 16,
+      "runDeadlineMs": 600000
+    }
+  },
+  "run": {
+    "runId": "8d2a6884-ac7e-45cc-9c52-818cb8d4dc09",
+    "timeline": [
+      "queued",
+      "running",
+      "failed"
+    ],
+    "terminal": "failed",
+    "heldBy": null,
+    "resource": {
+      "runId": "8d2a6884-ac7e-45cc-9c52-818cb8d4dc09",
+      "factoryId": "w19a.graph.v1",
+      "factoryVersion": "1.0.0",
+      "definitionDigest": "sha256:2489760520ab56e141d3b5ace862a74968d09f996e85b700f611314618eef7b6",
+      "grantRevision": 1,
+      "revision": 1,
+      "status": "failed",
+      "createdAtMs": 1790316932088,
+      "updatedAtMs": 1790316942619,
+      "parameters": {
+        "topic": {
+          "kind": "inline",
+          "value": "the primary colours of light"
+        }
+      },
+      "error": {
+        "code": "FACTORY_RUN_FAILED",
+        "message": "model_pin_mismatch"
+      }
+    }
+  },
+  "evidence": {
+    "nodes": {
+      "prepare": {
+        "ran": true,
+        "attemptId": "8d2a6884-ac7e-45cc-9c52-818cb8d4dc09:prepare:dispatch-node:4",
+        "nodeInstanceId": "prepare",
+        "executionStatus": "completed",
+        "journalCursor": -1,
+        "runner": {
+          "digest": "sha256:bdd384ea2703e67d50eff14a3a1b0dcff650ed1ce2f0c342f1cf2663b7bf7ae9",
+          "export": "prepare",
+          "manifestName": "w19a-graph-guest",
+          "package": "@ezcorp/w19a-graph-guest",
+          "version": "1.0.0"
+        },
+        "model": null,
+        "input": {
+          "kind": "inline",
+          "value": {
+            "topic": "the primary colours of light"
+          }
+        },
+        "launchState": "terminal",
+        "result": {
+          "usage": {
+            "kind": "measured",
+            "computeMs": 0,
+            "costMicros": "0",
+            "inputTokens": 0,
+            "outputTokens": 0
+          },
+          "output": {
+            "digest": "sha256:673b856a9ecb76c6f3ca1dd4b4c12659e1e3aecf2350c28a6968ea48758d7eb0",
+            "artifactId": "factory-artifact-5b8edd0a-a9ca-44ea-a759-4d35f9f199c0",
+            "encodedBytes": 49
+          },
+          "status": "completed",
+          "operations": [],
+          "resultDigest": "673b856a9ecb76c6f3ca1dd4b4c12659e1e3aecf2350c28a6968ea48758d7eb0",
+          "journalCursor": -1,
+          "schemaVersion": "factory.runner.result.v1",
+          "workspaceCheckpoint": {
+            "digest": "sha256:6411dd8e9ecd314bc2948469ed98474fcdf8c2e4f63aecace3d8211d211f8e15",
+            "artifactId": "factory-artifact-0e676f39-8331-431b-9458-1bf18872985b",
+            "encodedBytes": 613,
+            "journalCursor": -1
+          }
+        },
+        "candidateOutput": {
+          "artifactId": "factory-artifact-5b8edd0a-a9ca-44ea-a759-4d35f9f199c0",
+          "digest": "sha256:673b856a9ecb76c6f3ca1dd4b4c12659e1e3aecf2350c28a6968ea48758d7eb0",
+          "encodedBytes": 49,
+          "runId": "8d2a6884-ac7e-45cc-9c52-818cb8d4dc09",
+          "candidateNodeInstanceId": "prepare",
+          "candidateGeneration": 0,
+          "objectName": "result.json"
+        },
+        "stored": {
+          "count": 5,
+          "text": "the primary colours of light"
+        },
+        "completionEventOutput": {
+          "count": 5,
+          "text": "the primary colours of light"
+        },
+        "outcomeResult": null,
+        "operations": []
+      },
+      "infer": {
+        "ran": true,
+        "attemptId": "8d2a6884-ac7e-45cc-9c52-818cb8d4dc09:infer:dispatch-node:7",
+        "nodeInstanceId": "infer",
+        "executionStatus": "stopped",
+        "journalCursor": -1,
+        "runner": {
+          "digest": "sha256:bdd384ea2703e67d50eff14a3a1b0dcff650ed1ce2f0c342f1cf2663b7bf7ae9",
+          "export": "infer",
+          "manifestName": "w19a-graph-guest",
+          "package": "@ezcorp/w19a-graph-guest",
+          "version": "1.0.0"
+        },
+        "model": null,
+        "input": {
+          "kind": "inline",
+          "value": {
+            "text": "the primary colours of light"
+          }
+        },
+        "launchState": "terminal",
+        "result": {
+          "error": {
+            "code": "model_pin_mismatch",
+            "message": "A guest may only call the model its attempt pinned.",
+            "retryable": false
+          },
+          "usage": {
+            "kind": "measured",
+            "computeMs": 0,
+            "costMicros": "0",
+            "inputTokens": 0,
+            "outputTokens": 0
+          },
+          "status": "failed",
+          "operations": [],
+          "resultDigest": "0f75e70f4387d218a615808bf4ae6aaf20698c8e9df712497442d4055cdd27e0",
+          "journalCursor": -1,
+          "schemaVersion": "factory.runner.result.v1"
+        },
+        "candidateOutput": null,
+        "stored": null,
+        "completionEventOutput": null,
+        "outcomeResult": {
+          "error": {
+            "code": "model_pin_mismatch",
+            "message": "A guest may only call the model its attempt pinned.",
+            "retryable": false
+          },
+          "journalCursor": -1,
+          "operations": [],
+          "resultDigest": "0f75e70f4387d218a615808bf4ae6aaf20698c8e9df712497442d4055cdd27e0",
+          "schemaVersion": "factory.runner.result.v1",
+          "status": "failed",
+          "usage": {
+            "computeMs": 0,
+            "costMicros": "0",
+            "inputTokens": 0,
+            "kind": "measured",
+            "outputTokens": 0
+          }
+        },
+        "operations": []
+      },
+      "combine": {
+        "ran": false
+      }
+    },
+    "queue": [
+      {
+        "attempt_id": "8d2a6884-ac7e-45cc-9c52-818cb8d4dc09:infer:dispatch-node:7",
+        "state": "delivered",
+        "failure_code": null
+      },
+      {
+        "attempt_id": "8d2a6884-ac7e-45cc-9c52-818cb8d4dc09:prepare:dispatch-node:4",
+        "state": "delivered",
+        "failure_code": null
+      }
+    ],
+    "commands": [
+      "8d2a6884-ac7e-45cc-9c52-818cb8d4dc09:prepare:request-admission:2",
+      "8d2a6884-ac7e-45cc-9c52-818cb8d4dc09:prepare:start-timer:3",
+      "8d2a6884-ac7e-45cc-9c52-818cb8d4dc09:run:start-timer:1",
+      "8d2a6884-ac7e-45cc-9c52-818cb8d4dc09:prepare:dispatch-node:4",
+      "8d2a6884-ac7e-45cc-9c52-818cb8d4dc09:infer:request-admission:5",
+      "8d2a6884-ac7e-45cc-9c52-818cb8d4dc09:infer:start-timer:6",
+      "8d2a6884-ac7e-45cc-9c52-818cb8d4dc09:infer:dispatch-node:7",
+      "8d2a6884-ac7e-45cc-9c52-818cb8d4dc09:infer:cancel-node:8",
+      "8d2a6884-ac7e-45cc-9c52-818cb8d4dc09:run:fail-run:9"
+    ],
+    "projections": [
+      {
+        "consumer": "factory-run-status.v1",
+        "sequence": 6,
+        "payload": "{\"digest\":\"2d161d699b569662018db2b143bd452cb5a98a9d7070db078278250d0898d36b\",\"sourceSequence\":6,\"status\":\"failed\"}"
+      }
+    ]
+  },
+  "readiness": {
+    "tenantId": "tenant-01",
+    "running": [
+      "compute-admission-dispatch",
+      "compute-admission-poll",
+      "attempt-dispatch",
+      "run-projection",
+      "notification-inbox-delivery",
+      "child-settlement",
+      "usage-reconciliation",
+      "stop-settlement",
+      "retention-gc",
+      "checkpoint-barrier"
+    ],
+    "held": [
+      {
+        "role": "release-outcome",
+        "workPackage": "W07/W08",
+        "reason": "the startup document declares no release destination, so there is nowhere to publish; declare one under `release.destinations` and `release.profiles` and this process composes the providers, the resolver and the profile set"
+      },
+      {
+        "role": "notification-send",
+        "workPackage": "W17",
+        "reason": "a notification is not delivered until a sender confirms it left this host"
+      },
+      {
+        "role": "validator-material-registration",
+        "workPackage": "W09d",
+        "reason": "the startup document declares no validator runtime under `validators.runtimes`, so no protected claim can be judged and no acceptance can pass"
+      },
+      {
+        "role": "validator-scheduling",
+        "workPackage": "W09d",
+        "reason": "the startup document declares no validator runtime under `validators.runtimes`, so no protected claim can be judged and no acceptance can pass"
+      }
+    ],
+    "providerReadiness": {
+      "schemaVersion": "factory.provider-readiness.v1",
+      "provider": "ezcorp-mock",
+      "model": "prompt-digest:w19a",
+      "ready": true,
+      "credentialKind": "apikey",
+      "failures": [],
+      "checkedAt": "2026-09-25T06:15:23.689Z"
+    },
+    "guestBroker": {
+      "state": "bound"
+    }
+  },
+  "checks": [
+    {
+      "check": "C never ran",
+      "ok": true
+    },
+    {
+      "check": "the run ended failed",
+      "ok": true
+    },
+    {
+      "check": "B ran with no model pin",
+      "ok": true
+    },
+    {
+      "check": "B was refused model_pin_mismatch by the broker",
+      "ok": true
+    },
+    {
+      "check": "nothing was claimed or journaled for B",
+      "ok": true
+    },
+    {
+      "check": "the compiler refused the missing port by name, BINDING_PORT",
+      "ok": true
+    },
+    {
+      "check": "the invalid draft is unavailable, and publishing it is refused 422 factory_definition_invalid naming BINDING_PORT",
+      "ok": true
+    }
+  ],
+  "outcome": "passed",
+  "finishedAt": "2026-09-25T06:15:43.252Z",
+  "processLogTails": {
+    "pool": "",
+    "supervisor": "",
+    "temporal": "Temporal CLI 1.9.1 (Server 1.32.0, UI 2.54.1)\n\nTemporal Server:      localhost:37175\nTemporal Persistence: /home/dev/.w19a-stack-M9tNZ6/temporal.sqlite\nTemporal HTTP:        localhost:34183\nTemporal Metrics:     http://localhost:41497/metrics\n",
+    "temporal-tls": "tls-terminator 39421 -> 37175\n",
+    "gateway-stub": "",
+    "web": "eued\"}\n{\"ts\":\"2026-09-25T06:15:26.732Z\",\"level\":\"info\",\"msg\":\"Bundled source staged; verified releases require human approval\",\"subsystem\":\"ext.bundled.bootstrap\",\"name\":\"openai-image-gen-2\",\"installationId\":\"93ba9ca5-11ca-42c0-a28f-bcd51d130bf8\",\"operationId\":\"5cb419b6-caaf-4931-97a8-d14391692a10\",\"status\":\"queued\"}\n{\"ts\":\"2026-09-25T06:15:26.775Z\",\"level\":\"info\",\"msg\":\"Bundled source staged; verified releases require human approval\",\"subsystem\":\"ext.bundled.bootstrap\",\"name\":\"claude-design\",\"installationId\":\"46b9981a-273a-47e0-a82d-dc7f38428960\",\"operationId\":\"0bc00b12-6737-4b91-ae3e-106adf308824\",\"status\":\"queued\"}\n{\"ts\":\"2026-09-25T06:15:26.809Z\",\"level\":\"info\",\"msg\":\"Bundled source staged; verified releases require human approval\",\"subsystem\":\"ext.bundled.bootstrap\",\"name\":\"price-chart\",\"installationId\":\"62aba5a2-7fe0-4a0b-a512-ad2c5d4364ad\",\"operationId\":\"b3d9d995-80e5-40e2-b9a9-ada96f7b600b\",\"status\":\"queued\"}\n{\"ts\":\"2026-09-25T06:15:26.870Z\",\"level\":\"info\",\"msg\":\"Bundled source staged; verified releases require human approval\",\"subsystem\":\"ext.bundled.bootstrap\",\"name\":\"city-conditions\",\"installationId\":\"60002142-1cd1-468b-ad65-e4963f662643\",\"operationId\":\"a58febc4-2c1c-4590-988e-6e0c63bf13fe\",\"status\":\"queued\"}\n{\"ts\":\"2026-09-25T06:15:26.901Z\",\"level\":\"info\",\"msg\":\"Bundled source staged; verified releases require human approval\",\"subsystem\":\"ext.bundled.bootstrap\",\"name\":\"kokoro-tts\",\"installationId\":\"3f53ff8c-3a6e-42e8-a320-124b495adb46\",\"operationId\":\"d287a25d-a463-4e1d-851e-54f225e42779\",\"status\":\"queued\"}\n{\"ts\":\"2026-09-25T06:15:26.943Z\",\"level\":\"info\",\"msg\":\"Bundled source staged; verified releases require human approval\",\"subsystem\":\"ext.bundled.bootstrap\",\"name\":\"lessons-distiller\",\"installationId\":\"ab782f1b-b483-4084-af2d-da4d57bf3fad\",\"operationId\":\"61adc01c-8131-405e-b744-59b6ac4e48c1\",\"status\":\"queued\"}\n{\"ts\":\"2026-09-25T06:15:26.996Z\",\"level\":\"info\",\"msg\":\"Bundled source staged; verified releases require human approval\",\"subsystem\":\"ext.bundled.bootstrap\",\"name\":\"extension-author\",\"installationId\":\"90ff4c6c-0969-493f-a0a5-cf2ff7027865\",\"operationId\":\"ab601b44-7059-4591-8ded-2fad92bde679\",\"status\":\"queued\"}\n{\"ts\":\"2026-09-25T06:15:27.042Z\",\"level\":\"info\",\"msg\":\"Bundled source staged; verified releases require human approval\",\"subsystem\":\"ext.bundled.bootstrap\",\"name\":\"memory-extractor\",\"installationId\":\"3627c60b-a1fa-417d-ab79-cc7ba39b2c42\",\"operationId\":\"113b1f06-942e-443d-85cb-f5ea2ae574d1\",\"status\":\"queued\"}\n{\"ts\":\"2026-09-25T06:15:27.074Z\",\"level\":\"info\",\"msg\":\"Bundled source staged; verified releases require human approval\",\"subsystem\":\"ext.bundled.bootstrap\",\"name\":\"ez-code\",\"installationId\":\"bf3fe48b-27cf-4fdc-ab38-9016f787e199\",\"operationId\":\"96f07874-8401-4cb0-b1be-476f308601f6\",\"status\":\"queued\"}\n{\"ts\":\"2026-09-25T06:15:27.116Z\",\"level\":\"info\",\"msg\":\"Bundled source staged; verified releases require human approval\",\"subsystem\":\"ext.bundled.bootstrap\",\"name\":\"file-organizer\",\"installationId\":\"2ec94e2e-d284-4e96-a0e7-b45854c03857\",\"operationId\":\"9a695501-ea6a-4591-9e3c-9675742e2979\",\"status\":\"queued\"}\n{\"ts\":\"2026-09-25T06:15:27.170Z\",\"level\":\"info\",\"msg\":\"Bundled source staged; verified releases require human approval\",\"subsystem\":\"ext.bundled.bootstrap\",\"name\":\"ping-loop\",\"installationId\":\"b0bd3d5d-7e2d-441d-a9ab-394ffc137afe\",\"operationId\":\"8e37f1c8-77d8-4c8c-8095-17240ee1ee49\",\"status\":\"queued\"}\n{\"ts\":\"2026-09-25T06:15:27.202Z\",\"level\":\"info\",\"msg\":\"Bundled source staged; verified releases require human approval\",\"subsystem\":\"ext.bundled.bootstrap\",\"name\":\"github-projects\",\"installationId\":\"3ab35572-c66d-4523-a550-142f77d8f025\",\"operationId\":\"978fdf2a-c46d-486a-98ae-8a0e4973dc64\",\"status\":\"queued\"}\n{\"ts\":\"2026-09-25T06:15:27.246Z\",\"level\":\"info\",\"msg\":\"Bundled source staged; verified releases require human approval\",\"subsystem\":\"ext.bundled.bootstrap\",\"name\":\"ez-factory\",\"installationId\":\"3952acdf-45d1-429a-aead-53266ad62993\",\"operationId\":\"f67ba8b4-b171-4263-a9e4-fbfe05893dc4\",\"status\":\"queued\"}\n",
+    "orchestrator": "2026-09-25T06:15:24.794Z [INFO] asset workflow-bundle-24162560e90a75ad9354.js 2.59 MiB [emitted] [immutable] (name: main)\nruntime modules 883 bytes 4 modules\nmodules by path ./node_modules/.bun/ 463 KiB\n  modules by path ./node_modules/.bun/@temporalio+common@1.23.0/node_modules/@temporal...(truncated) 164 KiB 36 modules\n  modules by path ./node_modules/.bun/@temporalio+workflow@1.23.0/node_modules/@tempor...(truncated) 223 KiB 29 modules\n  modules by path ./node_modules/.bun/nexus-rpc@0.0.3/node_modules/nexus-rpc/lib/ 22.3 KiB 13 modules\n  ./node_modules/.bun/long@5.3.2/node_modules/long/umd/index.js 49.8 KiB [built] [code generated]\n  ./node_modules/.bun/ms@3.0.0-canary.1/node_modules/ms/dist/index.cjs 3.41 KiB [built] [code generated]\nmodules by path ./packages/@ezcorp/ 487 KiB\n  modules by path ./packages/@ezcorp/factory-sdk/dist/ 432 KiB 24 modules\n  modules by path ./packages/@ezcorp/factory-orchestrator/src/ 55.2 KiB\n    ./packages/@ezcorp/factory-orchestrator/src/workflow-autogenerated-...(truncated) 593 bytes [built] [code generated]\n    + 7 modules\noptional modules 30 bytes [optional]\n  __temporal_custom_payload_converter (ignored) 15 bytes [optional] [built] [code generated]\n  __temporal_custom_failure_converter (ignored) 15 bytes [optional] [built] [code generated]\nwebpack 5.111.1 compiled successfully in 374 ms\n2026-09-25T06:15:24.798Z [INFO] Workflow bundle created { size: '2.59MB' }\n2026-09-25T06:15:24.938Z [INFO] Worker state changed {\n  sdkComponent: 'worker',\n  taskQueue: 'factory-orchestrator',\n  state: 'RUNNING'\n}\n2026-09-25T06:15:24.939Z [INFO] No Nexus services registered, not polling for Nexus tasks { sdkComponent: 'worker', taskQueue: 'factory-orchestrator' }\n"
+  }
+}

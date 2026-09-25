@@ -1,0 +1,15 @@
+W19a FINAL verdict: ACCEPT at a31ad4997 (wp/w19a-graph-proof; merge d088621a1 of integ/w00 bfa74c11f into 7a804461d, plus one gates-file commit).
+Filed by the coordinator on behalf of validator-2 (replacement validators cannot write report files). Verbatim summary of validator-2's report, 2026-09-25 ~04:10Z:
+
+Merge: git show --remerge-diff d088621a1 holds exactly the named hunks and nothing else. Three conflicts: guest-broker-composition.ts (leaf import for the body cap + FactoryWorkspaceCheckpoints import); guest-broker-client.ts (leaf import for path and body cap, SDK import keeping validateFactoryGuestModelResponse, W01g's FactoryGuestMaterialResponse type dropped); guest-broker-transport.integration.test.ts (leaf import + FACTORY_GUEST_MODEL_REQUEST_TIMEOUT_MS). Two non-conflict edits: route suite's path and scope from the leaf; lifecycle suite's fifth policy argument. tasks/lessons.md and tasks/todo.md: union. a31ad4997 changes only tasks/factory/w19a-GATES.md. Lint 0 at the head, so no unused import.
+
+Runbook from a fresh worktree .worktrees/val-w19a-final at a31ad4997: steps 1-5 as written (only change since the last walk: the line-buffered grep). Full command (flock --close ... run.sh all, W19A_OUT set) exit 0 in 6 minutes: ollama 3/3, mock 3/3, control-no-pin and control-missing-model passed, summary passed. Disk 136 -> 137 GB; image count 20 unchanged. No w19a databases left; no evidence file holds the password.
+
+Records per pass: summary equals the value computed from the stored count and answer, both inputs from the store. infer has exactly 1 completed operation with measured usage: ollama/qwen3:1.7b 32 in / 14 out every pass, identical answer ("red, blue, and yellow"); ezcorp-mock/prompt-digest:w19a 10 in / 3 out, identical answer. control-no-pin 7/7 checks (BINDING_PORT at validate, 422 factory_definition_invalid at publish, model_pin_mismatch on infer, no journal row, combine never ran, run failed). control-missing-model 4/4 (provider_unavailable with Ollama's not-found text, journaled once, combine never ran); held run factory_usage_hold_unresolved: no-operation-receipt = disclosed W03f gap.
+
+Rerun batch at a31ad4997 under the lock, BASE_REF=bfa74c11f (w19a-final-validation/results.jsonl): typecheck, lint, boundaries, gate-integrity, lanes 0. factory-process-boundaries.test.ts 14/0 incl. C05. Legs: runner 392/0 + boundary file 14/0 (= worker's 406/0), sdk 36/0, router 52/0, broker 12/0, composition 5/0, web 53/0, postgres 78/0; route-kit vitest, node, python legs 0. Coverage gates: new-file 2 files pass, patch 18 files pass. Tree clean.
+
+Worker receipts (campaign-4, cov-*, gate-*, final-*) name d088621a1 or a31ad4997, exit 0, dirty-at-start 0, matching log hashes.
+
+Coordinator checks: wp/w19a-graph-proof contains bfa74c11f; the import line of guest-broker-client.ts at a31ad4997 carries no FactoryGuestMaterialResponse.
+Disposition: mergeable into integ/w00 (head 2b2e12550) by integrator-2. Disclosed follow-up: W03f (provider-error settlement; held run after provider_unavailable).
