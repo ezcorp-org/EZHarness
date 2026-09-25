@@ -316,6 +316,36 @@ describe("pre-commit hook > staged-test cap (no silent skip)", () => {
     const log = sh(["git", "log", "--oneline"], { cwd: dir });
     expect(log.out).toContain("narrow commit");
   }, BIOME_TIMEOUT_MS);
+
+  // validator-3 L1: the fourth branch — at or under the cap, WITH
+  // EZ_SKIP_HOOK_TESTS=1 set. Before this item, that combination reached
+  // zero code in run_staged_tests() at all: .githooks/pre-commit pre-filtered
+  // EZ_SKIP_HOOK_TESTS=1 and never called the function, so the "under cap"
+  // skip was ALSO silent (no header, no file list, nothing) — the exact same
+  // defect as the over-cap case, just never reproduced because nobody staged
+  // a narrow, acknowledged-skip commit and looked at the output. The fix
+  // (this item, hook-lib.sh) makes run_staged_tests() itself the one place
+  // that reads EZ_SKIP_HOOK_TESTS, so both branches share one code path and
+  // one visible message.
+  test("at or under the cap WITH EZ_SKIP_HOOK_TESTS=1: prints the list, skips, commit lands", () => {
+    const dir = repoWithHookLib();
+    const names = stageManyTestFiles(dir, 2);
+
+    const res = sh(["git", "commit", "-m", "narrow commit, acknowledged"], {
+      cwd: dir,
+      env: { ...baseEnv, EZ_PRECOMMIT_TEST_MAX: "2", EZ_SKIP_HOOK_TESTS: "1" },
+    });
+
+    expect(res.exitCode).toBe(0);
+    // No cap messaging (2 is AT the cap, not over it) — but the skip is
+    // still named and visible, never the old silent no-op.
+    expect(res.out).not.toContain("cap 2");
+    expect(res.out).toContain("EZ_SKIP_HOOK_TESTS=1 set");
+    expect(res.out).toContain(`skipping the ${names.length} staged test file(s)`);
+    for (const n of names) expect(res.out).toContain(n);
+    const log = sh(["git", "log", "--oneline"], { cwd: dir });
+    expect(log.out).toContain("narrow commit, acknowledged");
+  });
 });
 
 // PR #240 regression coverage: the plain repoWithPreCommit() tests above have
