@@ -688,13 +688,15 @@ describe("the host services this supervisor publishes", () => {
       .toEqual({ lifecycle: "ready", facts });
   });
 
-  test("a host whose document names no services.guestBroker refuses a staging frame by name", async () => {
+  test("a host whose document names no services.guestBroker refuses a staging frame and a model request by name", async () => {
     const broker = await createFactoryConfiguredGuestBroker(undefined);
     const frame = { schemaVersion: "factory.guest-material-begin.v1", operationId: "run:node:0:0", operationIndex: 0, objectName: "result.json", version: 1, mediaType: "application/json", totalBytes: 2, chunkCount: 1 };
-    // The guest can tell "this host carries no staging" from "the broker said no".
+    // The guest can tell "this host carries nothing" from "the broker said no".
     await expect(broker.invoke({} as never, frame)).rejects.toMatchObject({ code: "factory_host_broker_unavailable", message: expect.stringContaining("services.guestBroker") });
-    // A model request keeps the host's general refusal, with its own message.
-    await expect(broker.invoke({} as never, { schemaVersion: "factory.guest-model-request.v1" })).rejects.toMatchObject({ code: "factory_host_broker_unavailable", message: expect.stringContaining("no contract defines") });
+    // A model request travels the same route, so its refusal names the same missing section.
+    await expect(broker.invoke({} as never, { schemaVersion: "factory.guest-model-request.v1" })).rejects.toMatchObject({ code: "factory_host_broker_unavailable", message: expect.stringContaining("services.guestBroker") });
+    // Any other payload keeps the host's general refusal, with its own message.
+    await expect(broker.invoke({} as never, { kind: "validator-report" })).rejects.toMatchObject({ code: "factory_host_broker_unavailable", message: expect.stringContaining("no contract defines") });
   });
 
   test("startFactoryConfiguredHostServices refuses when the section is absent", async () => {

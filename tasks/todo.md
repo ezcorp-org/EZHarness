@@ -3843,6 +3843,46 @@ only in three guest suites whose images were removed from the host.
 ## W18 test-hygiene backlog (coordinator)
 
 - compose.factory-storage.local.yml: declare restart: on-failure for both SeaweedFS services and the proof PostgreSQL so a recreated store keeps the policy the coordinator set by hand on 2026-09-23 after the OOM kill; document it in docs/factory-local-storage.md.
+
+## W19a — graph proof: deterministic tasks and a model task, end to end (branch `wp/w19a-graph-proof`)
+
+Brief: `/tmp/factory-platform-evidence/w00/briefs/w19a-graph-proof.md`. Gates: `tasks/factory/w19a-GATES.md`.
+Receipts: `/tmp/factory-platform-evidence/w19a/`. Base: `integ/w00` at `6c8ec29c5`, plus `wp/w01g-staging` at `f0aafe3a0`.
+
+Finding before the plan: at the base a guest's model call cannot reach a model in the real application. The host
+refuses it with `factory_host_broker_unavailable`, the product guest-broker route serves staging frames only, and the
+product composes its provider broker for readiness and never calls it. The runner profiles in the startup document
+cannot declare a model pin, and the provider broker resolves an Ollama model without its registered base URL.
+
+- [x] Host: forward a guest model request over the existing guest-broker route (one broker, one channel).
+- [x] Product: answer a model request on that route through `createFactoryGuestModelBroker`, the durable journal,
+      W04's workspace checkpoints, and the installation's pinned provider, resolved per call.
+- [x] Provider: resolve a pinned model the way the chat router does (catalog, discovered, registered custom model,
+      the test-surface mock); readiness accepts a registered local model; temperature and seed reach the request.
+- [x] Startup document: a runner profile may declare a model pin; boot refuses a pin that disagrees with its runner
+      or with the installation's `modelProvider`.
+- [x] Mock provider for CI: a prompt-digest mode in the in-process mock LLM (fixed answer per prompt digest).
+- [x] Harness in `scripts/factory-graph-proof/`: the W09b/W01g/W15b real-server stack, a three-export guest, the graph
+      A prepare -> B infer -> C combine, modes (a) Ollama and (b) mock, and four negative controls.
+- [x] Proofs: three passes per mode on fresh databases, controls refused by name, determinism recorded.
+- [x] Runbook `docs/factory-graph-proof.md`, followed literally.
+- [x] Gates: coverage of new files and changed lines, PostgreSQL suites registered, typecheck, lint, boundaries,
+      gate-integrity, no credential value, dangling images pruned.
+
+### Review
+
+The graph works end to end on the real application in both modes, three of three each, on fresh
+databases, at `452f0bc62`. A deterministic task feeds a model task, whose answer and the first task's
+count feed a third deterministic task. Each node reads its inputs from the store under the scope that
+sealed them, and the model task's journal holds exactly one completed model operation with the pinned
+provider, model and measured tokens. It did not work at the base: the host refused every model call,
+the product route served staging frames only, and nothing called the provider. This package wired
+that path without a new channel or a contract change, proved the guest's journal mirroring in-process
+on PGlite and PostgreSQL, and added a prompt-digest mock so CI needs no Ollama. The campaigns found
+two defects outside this package's files, both fixed with a test that fails on the old code: a
+gateway timeout that never settled under Bun, and a 500 in place of a named 422. They also found one
+contract gap that needs a ruling: a provider error leaves the run held forever on an unknown cost.
+Gates, receipts and findings: `tasks/factory/w19a-GATES.md`.
 - W09b harness: an empty EZCORP_FACTORY_STORAGE_SECRETS_DIR resolves to a relative 'ordinary.json' and fails with ENOENT deep in setup. Refuse at start with a typed message that names the variable.
 - W09b harness: a run that fails before cleanup leaves ~/.w09b-stack-<id> with test keys and tokens (one from 2026-09-22 exists). Make cleanup unconditional (finally).
 - Pre-commit hook: it skips its PostgreSQL and staged suites when more than 12 test files map to the commit (36 at the W15 merge, 74 at the origin/main 96e7ee58c merge 9ba704f4f). A gate must not skip silently: run all, or fail and name the cap.

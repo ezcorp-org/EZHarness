@@ -1,0 +1,33 @@
+=== heavy batch 2026-09-25T01:29:35Z
+HEAD 2b2e1255049d390f65b33f1850aa435d8ee8e707 MERGE_HEAD a31ad49979e84e16d786487c64079f71b9d783c1 index-tree 8aef5b06a35398c3c95ce27c034ca4938a8191e2 umask 0077
+df: /dev/nvme0n1p2  1.8T  1.6T  123G  93% /
+--- START pg-factory-guest-material-broker 2026-09-25T01:29:35Z
+--- END   pg-factory-guest-material-broker 2026-09-25T01:33:18Z exit=0  23 pass 0 fail 
+--- START pg-factory-guest-model-journal 2026-09-25T01:33:18Z
+--- END   pg-factory-guest-model-journal 2026-09-25T01:33:31Z exit=0  2 pass 0 fail 
+--- START pg-factory-guest-model-route 2026-09-25T01:33:31Z
+--- END   pg-factory-guest-model-route 2026-09-25T01:33:43Z exit=0  17 pass 0 fail 
+--- START pg-factory-package-fence 2026-09-25T01:33:43Z
+--- END   pg-factory-package-fence 2026-09-25T01:36:31Z exit=0  17 pass 0 fail 
+--- START pg-factory-restore 2026-09-25T01:36:31Z
+--- END   pg-factory-restore 2026-09-25T01:37:22Z exit=0  13 pass 0 fail 
+--- START pg-factory-run-lifecycle-s3 2026-09-25T01:37:22Z
+--- END   pg-factory-run-lifecycle-s3 2026-09-25T01:38:27Z exit=0  73 pass 0 fail 
+--- START pg-factory-run-lifecycle 2026-09-25T01:38:27Z
+--- END   pg-factory-run-lifecycle 2026-09-25T01:39:12Z exit=0  73 pass 0 fail 
+--- START podman-journey.integration 2026-09-25T01:39:12Z
+--- END   podman-journey.integration 2026-09-25T01:40:26Z exit=0  11 pass 0 fail 
+--- START podman-applied-controls.integration 2026-09-25T01:40:26Z
+--- END   podman-applied-controls.integration 2026-09-25T01:40:54Z exit=0  5 pass 0 fail 
+--- START podman-guest-broker-transport.integration 2026-09-25T01:40:54Z
+--- END   podman-guest-broker-transport.integration 2026-09-25T01:41:08Z exit=0  12 pass 0 fail 
+--- START podman-guest-material-broker.integration 2026-09-25T01:41:08Z
+--- END   podman-guest-material-broker.integration 2026-09-25T01:41:18Z exit=0  23 pass 0 fail 
+--- START podman-guest-model-route.integration 2026-09-25T01:41:18Z
+--- END   podman-guest-model-route.integration 2026-09-25T01:41:22Z exit=0  17 pass 0 fail 
+--- START podman-python-guest.integration 2026-09-25T01:41:22Z
+--- END   podman-python-guest.integration 2026-09-25T01:42:28Z exit=0  12 pass 0 fail 
+--- START podman-supervisor.podman.integration 2026-09-25T01:42:28Z
+--- END   podman-supervisor.podman.integration 2026-09-25T01:42:43Z exit=0  2 pass 0 fail 
+--- START podman-supervisor-process.podman.integration 2026-09-25T01:42:43Z
+--- END   podman-supervisor-process.podman.integration 2026-09-25T01:42:46Z exit=0  3 pass 0 fail 

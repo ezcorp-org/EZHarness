@@ -1,4 +1,9 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
+import { closeTestDb, mockDbConnection, setupTestDb } from "../__tests__/helpers/test-pglite";
+
+// The default model check reads the operator's registrations from settings.
+mockDbConnection();
+
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 import type { Api, AssistantMessage, Model } from "@earendil-works/pi-ai";
 import type { FactoryBrokerRequest } from "../runtime/factory-execution";
@@ -8,9 +13,19 @@ import {
   factoryProviderReadinessRecord,
   FactoryProviderReadinessError,
   FACTORY_PROVIDER_READINESS_SCHEMA_VERSION,
+  isFactoryServableModel,
   type FactoryProviderPin,
 } from "./factory-broker";
 import type { ProviderCredential } from "./credentials";
+import { deleteSetting, upsertSetting } from "../db/queries/settings";
+
+beforeAll(async () => { await setupTestDb(); });
+afterAll(async () => { await closeTestDb(); });
+beforeEach(async () => { await deleteSetting("provider:customModels"); });
+
+const OLLAMA: FactoryProviderPin = { provider: "ollama", model: "qwen3:1.7b" };
+/** Exactly the row the settings page writes when an operator adds a local Ollama model. */
+const registerOllama = () => upsertSetting("provider:customModels", [{ modelId: OLLAMA.model, provider: OLLAMA.provider, tier: "balanced", baseUrl: "http://127.0.0.1:11434" }]);
 
 const PIN: FactoryProviderPin = { provider: "anthropic", model: "claude-haiku-4-5-20251001" };
 const NOW = Date.parse("2026-09-14T00:00:00.000Z");
@@ -148,5 +163,36 @@ describe("the factory provider broker", () => {
     expect(error).toBeInstanceOf(FactoryProviderReadinessError);
     expect((error as FactoryProviderReadinessError).readiness.failures).toEqual(["provider_not_configured"]);
     expect((error as FactoryProviderReadinessError).name).toBe("FactoryProviderReadinessError");
+  });
+});
+
+describe("a local model the operator registered", () => {
+  test("is servable once registered with an endpoint, and not before", async () => {
+    expect(await isFactoryServableModel(OLLAMA.provider, OLLAMA.model)).toBe(false);
+    await registerOllama();
+    expect(await isFactoryServableModel(OLLAMA.provider, OLLAMA.model)).toBe(true);
+    // Another model on the same local provider is not registered by this row.
+    expect(await isFactoryServableModel(OLLAMA.provider, "qwen3:8b")).toBe(false);
+  });
+
+  test("makes the pin ready through the application's own credential path, which needs no key for a local endpoint", async () => {
+    const before = await factoryProviderReadiness(OLLAMA, { now: () => NOW });
+    expect(before.failures).toEqual(["model_not_available", "provider_not_configured"]);
+    await registerOllama();
+    const after = await factoryProviderReadiness(OLLAMA, { now: () => NOW });
+    expect(after).toMatchObject({ ready: true, failures: [], credentialKind: "apikey" });
+  });
+
+  test("is called at its registered endpoint, never at a default one", async () => {
+    await registerOllama();
+    const sent: Model<Api>[] = [];
+    const broker = createFactoryProviderBroker({
+      pin: OLLAMA,
+      resolveCredential: async () => KEY,
+      stream: ((resolved: Model<Api>, context: unknown, options: unknown) => { sent.push(resolved); return (answering("local") as unknown as (...args: unknown[]) => unknown)(resolved, context, options); }) as never,
+    });
+    const answered = await (await broker.stream(request({ model: model(OLLAMA.provider, OLLAMA.model) }))).result();
+    expect((answered.content[0] as { text: string }).text).toBe(`local:${KEY.token}`);
+    expect(sent[0]).toMatchObject({ id: OLLAMA.model, provider: OLLAMA.provider, api: "openai-completions", baseUrl: "http://127.0.0.1:11434/v1" });
   });
 });

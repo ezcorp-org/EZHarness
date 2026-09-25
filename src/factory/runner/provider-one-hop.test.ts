@@ -113,3 +113,18 @@ test("two different provider answers never share one receipt digest", () => {
   delete (minimal as { responseId?: string }).responseId;
   expect(factoryProviderReceiptDigest(minimal)).not.toBe(base);
 });
+
+test("the pin's temperature, seed and reasoning effort reach the provider request exactly as the pin says", async () => {
+  const configured: FactoryModelPin = { ...pin, configuration: { temperature: 0, seed: 42, reasoningEffort: "none" } };
+  const { broker, seen } = brokerReturning(message());
+  const provider = createFactoryOneHopProvider({ broker, resolveModel: () => model, now: () => 0 });
+  await provider.complete(request({ model: configured, maxOutputTokens: 64 }), attempt());
+  expect(seen[0]?.options).toEqual({ temperature: 0, samplingParams: { seed: 42, reasoning_effort: "none" }, maxTokens: 64 });
+});
+
+test("a pin whose configuration cannot be honoured is refused before the provider is reached", async () => {
+  const { broker, seen } = brokerReturning(message());
+  const provider = createFactoryOneHopProvider({ broker, resolveModel: () => model, now: () => 0 });
+  await expect(provider.complete(request({ model: { ...pin, configuration: { topP: 0.9 } } }), attempt())).rejects.toMatchObject({ code: "factory_model_configuration_unsupported", key: "topP" });
+  expect(seen).toHaveLength(0);
+});

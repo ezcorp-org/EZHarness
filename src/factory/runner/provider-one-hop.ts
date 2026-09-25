@@ -3,6 +3,7 @@ import type { Api, AssistantMessage, Context, Message, Model } from "@earendil-w
 import { canonicalJson } from "@ezcorp/extension-contract";
 import type { FactoryGuestModelMessage, FactoryGuestModelRequest, FactoryMeasuredUsage, FactoryModelPin, FactoryRunnerRequest } from "@ezcorp/factory-sdk";
 import type { FactoryBroker } from "../../runtime/factory-execution";
+import { factoryModelSamplingOptions } from "../model-configuration";
 import type { FactoryModelCompletion, FactoryOneHopProvider } from "./guest-model-broker";
 import { factoryGuestModelOperation } from "./guest-model-journal";
 
@@ -97,6 +98,10 @@ export function createFactoryOneHopProvider(options: FactoryOneHopProviderOption
   return Object.freeze({
     async complete(request: FactoryGuestModelRequest, attempt: FactoryRunnerRequest): Promise<FactoryModelCompletion> {
       const model = options.resolveModel(request.model);
+      // Before the clock starts and before the provider is reached: a pin whose
+      // configuration this installation cannot honour is refused, never sent
+      // with the unknown key quietly dropped.
+      const sampling = factoryModelSamplingOptions(request.model.configuration);
       const prompt = promptOf(request.messages);
       const context: Context = { ...(prompt === undefined ? {} : { systemPrompt: prompt }), messages: turnsOf(request.messages, model) };
       const startedAtMs = now();
@@ -108,7 +113,7 @@ export function createFactoryOneHopProvider(options: FactoryOneHopProviderOption
         operation: { ...factoryGuestModelOperation(request), state: "prepared" },
         model,
         context,
-        options: { maxTokens: request.maxOutputTokens },
+        options: { ...sampling, maxTokens: request.maxOutputTokens },
       });
       const message = await stream.result();
       // C10: a failed or aborted provider answer is a readiness failure, not a
