@@ -167,7 +167,7 @@ export async function verifyFactoryHostLaunchEndToEnd(source?: FactoryLaunchFixt
  * answers, and attempt 3 sleeps past both the host's result window and the
  * product's call timeout, which are shortened for this case only.
  */
-export async function verifyFactoryHostLaunchLostResult(): Promise<void> {
+export async function verifyFactoryHostLaunchLostResult(): Promise<{ readonly exited: string | undefined; readonly retried: string | undefined; readonly slow: string | undefined }> {
   const world = await hostLaunchWorld("if(input.authority.attemptNumber===1)process.exit(137);if(input.authority.attemptNumber===3)await new Promise(resolve=>setTimeout(resolve,6000))", undefined, { clientMs: 3_000, windowMs: 1_000 });
   try {
     // Attempt 1: the container exits. The product records it failed, by name,
@@ -200,6 +200,12 @@ export async function verifyFactoryHostLaunchLostResult(): Promise<void> {
     expect(world.hostLog).toHaveLength(1);
 
     expect(await world.driver.dispatchOne()).toEqual({ kind: "idle" });
+    // What each attempt's durable terminal row says, for the caller to assert.
+    const code = async (attemptId: string) => {
+      const row = await world.terminal(attemptId);
+      return row?.status === "failed" ? row.error.code : row?.status;
+    };
+    return { exited: await code("attempt-exits"), retried: await code("attempt-retry"), slow: await code("attempt-slow") };
   } finally {
     await world.close();
   }
