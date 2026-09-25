@@ -32,11 +32,13 @@ afterAll(() => {
 
 let cwd = "";
 const EXT = "openai-image-gen-2";
-// Stable location to chdir back to in teardown so sibling test files
-// running after this one don't find process.cwd() pointing at a deleted
-// tmp dir (the failure mode is node crashing inside any subsequent
-// `process.cwd()` or relative-path resolve).
-const SAFE_CWD = tmpdir();
+// The directory the process started in, restored in teardown so sibling test
+// files running after this one neither find process.cwd() pointing at a
+// deleted tmp dir (node crashing inside any later `process.cwd()` or relative
+// resolve) nor inherit the tmp dir as their project root (factory-boot,
+// import-parity and friends resolve paths from cwd; integration fix at the
+// W18a-3 merge, 2026-09-25).
+const ORIGINAL_CWD = process.cwd();
 
 beforeEach(() => {
   cwd = mkdtempSync(join(tmpdir(), "extfiles-"));
@@ -48,7 +50,7 @@ beforeEach(() => {
 });
 
 afterAll(() => {
-  process.chdir(SAFE_CWD);
+  process.chdir(ORIGINAL_CWD);
   if (cwd) {
     try { rmSync(cwd, { recursive: true, force: true }); } catch {}
   }

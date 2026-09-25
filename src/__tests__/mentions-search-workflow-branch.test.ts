@@ -26,7 +26,7 @@
  */
 
 import { test, expect, describe, afterAll, mock } from "bun:test";
-import { restoreModuleMocks, unavailableWorkflowAccess } from "./helpers/mock-cleanup";
+import { restoreModuleMocks, unavailableWorkflowAccess, webLibModule } from "./helpers/mock-cleanup";
 import { serverContextStub } from "./helpers/mock-request";
 
 // ── Mock the SvelteKit aliases the +server.ts route imports ─────────
@@ -62,9 +62,7 @@ mock.module("$server/auth/middleware", () => ({
   requireAuth: (locals: unknown) => (stubRequireAuth ? { id: "test-user", role: "admin" } : require("../auth/middleware").requireAuth(locals)),
 }));
 
-mock.module("$lib/server/security/api-keys", () => ({
-  requireScope: () => null,
-}));
+mock.module("$lib/server/security/api-keys", () => webLibModule("server/security/api-keys", { requireScope: () => null }));
 
 mock.module("$lib/server/workflow-access", () => ({
   listVisibleWorkflows: async () => workflowFixtures,

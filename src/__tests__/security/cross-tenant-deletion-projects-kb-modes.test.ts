@@ -95,7 +95,7 @@
 import { test, expect, describe, afterAll, beforeEach, mock } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { restoreModuleMocks } from "../helpers/mock-cleanup";
+import { restoreModuleMocks, webLibModule } from "../helpers/mock-cleanup";
 import {
   mockServerAlias,
   createMockEvent,
@@ -116,7 +116,7 @@ mock.module("../../../web/src/routes/api/modes/[id]/$types", () => ({}));
 // Scope check = noop allow. These tests are about the OWNERSHIP axis; the
 // scope axis (`requireScope(locals, "read")`) is deliberately left exactly
 // as-is by this change and is covered by its own suites.
-const apiKeysMock = () => ({ requireScope: () => null });
+const apiKeysMock = () => webLibModule("server/security/api-keys", { requireScope: () => null });
 mock.module("$lib/server/security/api-keys", apiKeysMock);
 mock.module("../../../web/src/lib/server/security/api-keys", apiKeysMock);
 // Project mutation authorization is the subject here. The persisted

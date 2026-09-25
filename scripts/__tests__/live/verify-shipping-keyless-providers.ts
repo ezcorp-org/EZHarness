@@ -1,8 +1,8 @@
 /** Explicit live-provider replay. Uses built releases, real DNS and host egress. */
 import { strict as assert } from "node:assert";
-import { buildFirstPartyRelease } from "../src/__tests__/helpers/first-party-release";
-import { closeTestDb, mockDbConnection, setupTestDb } from "../src/__tests__/helpers/test-pglite";
-import { defaultResolveHost } from "../src/search/egress";
+import { buildFirstPartyRelease } from "../../../src/__tests__/helpers/first-party-release";
+import { closeTestDb, mockDbConnection, setupTestDb } from "../../../src/__tests__/helpers/test-pglite";
+import { defaultResolveHost } from "../../../src/search/egress";
 
 mockDbConnection();
 type Output = Record<string, unknown>;

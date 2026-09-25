@@ -35,7 +35,7 @@
  *     `findCommand` on whatever registry it is handed.
  */
 import { test, expect, describe, beforeAll, afterAll, beforeEach, mock } from "bun:test";
-import { restoreModuleMocks } from "./helpers/mock-cleanup";
+import { restoreModuleMocks, webLibModule } from "./helpers/mock-cleanup";
 import { setupTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglite";
 import { mockServerAlias, ADMIN_USER } from "./helpers/mock-request";
 
@@ -76,16 +76,16 @@ mock.module("$server/auth/middleware", () => ({
 }));
 
 // Security middleware — pass-through no-ops.
-mock.module("$lib/server/security/validation", () => ({
+// Whole modules under the overrides (webLibModule): a partial factory froze
+// these modules' export names for every later suite in the process.
+mock.module("$lib/server/security/validation", () => webLibModule("server/security/validation", {
   validationError: (err: any) =>
     new Response(JSON.stringify({ error: err.issues ?? String(err) }), { status: 400 }),
 }));
-mock.module("$lib/server/security/resource-quotas", () => ({
+mock.module("$lib/server/security/resource-quotas", () => webLibModule("server/security/resource-quotas", {
   checkTokenBudget: async () => ({ allowed: true, resetsAt: null }),
 }));
-mock.module("$lib/server/security/api-keys", () => ({
-  requireScope: () => null,
-}));
+mock.module("$lib/server/security/api-keys", () => webLibModule("server/security/api-keys", { requireScope: () => null }));
 
 // ── Command registry stub ───────────────────────────────────────────
 // Maps command name → { body, frontmatter }. Per-test mutation lets

@@ -10,7 +10,7 @@
  * end-to-end verification in the plan, not here.
  */
 import { test, expect, describe } from "bun:test";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -76,6 +76,7 @@ import {
   WORKER_ALLOWED_PREFIXES,
   WORKER_FORBIDDEN_SUBSYSTEMS,
 } from "../../scripts/check-boundaries.ts";
+import { scratchGitEnv, scratchRepository, withoutGitContext } from "./helpers/scratch-git.ts";
 
 // ── gate-integrity: isolated parser dependency ─────────────────────────────
 describe("gate-integrity: isolated parser dependency", () => {
@@ -83,8 +84,9 @@ describe("gate-integrity: isolated parser dependency", () => {
 
   test("fails closed without TypeScript, then parses asserted and vacuous changed tests", () => {
     const fixtureRoot = mkdtempSync(join(tmpdir(), "gate-integrity-parser-"));
-    const fixture = join(fixtureRoot, "repo");
     try {
+      const repo = scratchRepository(fixtureRoot, { name: "Gate fixture", email: "gate-fixture@example.test" });
+      const { dir: fixture, git } = repo;
       mkdirSync(join(fixture, ".github/gate-integrity-deps"), { recursive: true });
       mkdirSync(join(fixture, "scripts"), { recursive: true });
       mkdirSync(join(fixture, "src/__tests__"), { recursive: true });
@@ -104,13 +106,6 @@ describe("gate-integrity: isolated parser dependency", () => {
       const testPath = join(fixture, "src/__tests__/fixture.test.ts");
       writeFileSync(testPath, 'import { expect, test } from "bun:test";\ntest("base", () => expect(true).toBe(true));\n');
 
-      const git = (...args: string[]) => {
-        const proc = Bun.spawnSync(["git", ...args], { cwd: fixture, stdout: "pipe", stderr: "pipe" });
-        expect(proc.exitCode).toBe(0);
-      };
-      git("init", "--quiet");
-      git("config", "user.email", "gate-fixture@example.test");
-      git("config", "user.name", "Gate fixture");
       git("add", ".");
       git("commit", "--quiet", "-m", "base");
       git("branch", "gate-base");
@@ -127,7 +122,7 @@ describe("gate-integrity: isolated parser dependency", () => {
       expect(existsSync(join(fixture, "node_modules"))).toBe(false);
       const runGate = (nodePath?: string) => Bun.spawnSync([process.execPath, "scripts/gate-integrity.ts"], {
         cwd: fixture,
-        env: { ...process.env, BASE_REF: "gate-base", NODE_PATH: nodePath ?? "" },
+        env: { ...repo.env, BASE_REF: "gate-base", NODE_PATH: nodePath ?? "" },
         stdout: "pipe",
         stderr: "pipe",
       });
@@ -136,6 +131,7 @@ describe("gate-integrity: isolated parser dependency", () => {
       expect(missingParser.exitCode).toBe(1);
       expect(missingParser.stderr.toString()).toContain("TypeScript AST parser is unavailable");
 
+      // The real HOME keeps bun's package cache; only the git context is dropped.
       const install = Bun.spawnSync([
         process.execPath,
         "install",
@@ -143,7 +139,7 @@ describe("gate-integrity: isolated parser dependency", () => {
         ".github/gate-integrity-deps",
         "--frozen-lockfile",
         "--ignore-scripts",
-      ], { cwd: fixture, stdout: "pipe", stderr: "pipe" });
+      ], { cwd: fixture, env: withoutGitContext(process.env), stdout: "pipe", stderr: "pipe" });
       expect(install.exitCode).toBe(0);
       expect(existsSync(join(fixture, "node_modules"))).toBe(false);
 
@@ -171,13 +167,103 @@ describe("gate-integrity: isolated parser dependency", () => {
   }, 30_000);
 });
 
+// ── scratch repositories: the caller's git context is never used ───────────
+describe("scratch repositories: the caller's git context is never used", () => {
+  test("a scratch repository leaves the repository named by GIT_* and HOME untouched", () => {
+    const root = mkdtempSync(join(tmpdir(), "scratch-git-guard-"));
+    try {
+      // The dummy stands in for the real repository a pre-commit hook exports.
+      const dummy = scratchRepository(join(root, "dummy"), { name: "Dummy owner", email: "dummy@example.test" });
+      writeFileSync(join(dummy.dir, "owned.txt"), "owned\n");
+      dummy.git("add", "owned.txt");
+      dummy.git("commit", "--quiet", "-m", "owned");
+      const dummyGit = join(dummy.dir, ".git");
+      const callerHome = join(root, "caller-home");
+      mkdirSync(callerHome);
+      writeFileSync(join(callerHome, ".gitconfig"), "[user]\n\tname = Leaked global\n");
+      const snapshot = () => ({
+        config: readFileSync(join(dummyGit, "config"), "utf8"),
+        index: readFileSync(join(dummyGit, "index")).toString("base64"),
+        refs: dummy.git("for-each-ref", "--format=%(refname) %(objectname)"),
+        objects: dummy.git("count-objects", "-v"),
+        head: readFileSync(join(dummyGit, "HEAD"), "utf8"),
+      });
+      const before = snapshot();
+      const poisoned = {
+        ...process.env,
+        HOME: callerHome,
+        GIT_DIR: dummyGit,
+        GIT_INDEX_FILE: join(dummyGit, "index"),
+        GIT_WORK_TREE: dummy.dir,
+        GIT_COMMON_DIR: dummyGit,
+        GIT_OBJECT_DIRECTORY: join(dummyGit, "objects"),
+        GIT_PREFIX: "",
+      };
+
+      const scratch = scratchRepository(join(root, "scratch"), { name: "Scratch", email: "scratch@example.test" }, poisoned);
+      writeFileSync(join(scratch.dir, "change.txt"), "scratch\n");
+      scratch.git("add", "change.txt");
+      scratch.git("commit", "--quiet", "-m", "scratch");
+      scratch.git("branch", "scratch-base");
+
+      expect(snapshot()).toEqual(before);
+      expect(realpathSync(scratch.git("rev-parse", "--absolute-git-dir").trim())).toBe(realpathSync(join(scratch.dir, ".git")));
+      expect(scratch.git("log", "-1", "--format=%an <%ae>").trim()).toBe("Scratch <scratch@example.test>");
+      expect(Object.keys(scratch.env).filter((name) => name.startsWith("GIT_"))).toEqual(["GIT_CONFIG_NOSYSTEM"]);
+      expect(scratch.env.GIT_CONFIG_NOSYSTEM).toBe("1");
+      expect(scratch.env.HOME).toBe(join(root, "scratch", "home"));
+      const globalName = Bun.spawnSync(["git", "config", "--global", "user.name"], { cwd: scratch.dir, env: scratch.env, stdout: "pipe" });
+      expect(globalName.exitCode).toBe(1);
+      expect(globalName.stdout.toString()).toBe("");
+
+      // Control: the same environment without the helper writes into the dummy.
+      const leak = Bun.spawnSync(["git", "config", "user.email", "leaked@example.test"], {
+        cwd: mkdtempSync(join(root, "unprotected-")),
+        env: poisoned,
+        stderr: "pipe",
+      });
+      expect(leak.exitCode).toBe(0);
+      expect(snapshot().config).toContain("leaked@example.test");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("scratchGitEnv drops the caller's GIT_* variables and XDG_CONFIG_HOME, sets HOME, and ignores the system config", () => {
+    expect(scratchGitEnv("/scratch/home", {
+      GIT_DIR: "/real/.git",
+      GIT_INDEX_FILE: "/real/.git/index",
+      GIT_WORK_TREE: "/real",
+      GIT_COMMON_DIR: "/real/.git",
+      GIT_OBJECT_DIRECTORY: "/real/.git/objects",
+      GIT_PREFIX: "",
+      XDG_CONFIG_HOME: "/real/config",
+      HOME: "/real/home",
+      PATH: "/bin",
+      UNSET: undefined,
+      GIT_CONFIG_NOSYSTEM: "0",
+    })).toEqual({ HOME: "/scratch/home", PATH: "/bin", GIT_CONFIG_NOSYSTEM: "1" });
+  });
+
+  test("scratchRepository names the failing git command and its stderr", () => {
+    const root = mkdtempSync(join(tmpdir(), "scratch-git-error-"));
+    try {
+      const repo = scratchRepository(root, { name: "Scratch", email: "scratch@example.test" });
+      expect(() => repo.git("rev-parse", "--verify", "no-such-ref")).toThrow(/git rev-parse --verify no-such-ref exited 128: fatal/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("coverage diff gates: dependency-free Git controls", () => {
   const repoRoot = join(import.meta.dir, "..", "..");
 
   test("cover changes, reject missing measurements, and fail closed on an absent base", () => {
     const fixtureRoot = mkdtempSync(join(tmpdir(), "patch-coverage-parser-"));
-    const fixture = join(fixtureRoot, "repo");
     try {
+      const repo = scratchRepository(fixtureRoot, { name: "Patch fixture", email: "patch-fixture@example.test" });
+      const { dir: fixture, git } = repo;
       mkdirSync(join(fixture, "scripts"), { recursive: true });
       mkdirSync(join(fixture, "src"), { recursive: true });
       mkdirSync(join(fixture, "coverage"), { recursive: true });
@@ -195,13 +281,6 @@ describe("coverage diff gates: dependency-free Git controls", () => {
       writeFileSync(sourcePath, "export const value = 1;\n");
       writeFileSync(join(fixture, "scripts/coverage-thresholds.json"), '{ "src/new.ts": 100 }\n');
 
-      const git = (...args: string[]) => {
-        const proc = Bun.spawnSync(["git", ...args], { cwd: fixture, stdout: "pipe", stderr: "pipe" });
-        expect(proc.exitCode).toBe(0);
-      };
-      git("init", "--quiet");
-      git("config", "user.email", "patch-fixture@example.test");
-      git("config", "user.name", "Patch fixture");
       git("add", ".");
       git("commit", "--quiet", "-m", "base");
       git("branch", "patch-base");
@@ -223,7 +302,7 @@ describe("coverage diff gates: dependency-free Git controls", () => {
       expect(existsSync(join(fixture, "node_modules"))).toBe(false);
       const runGate = (script: string, base: string) => Bun.spawnSync([process.execPath, script], {
         cwd: fixture,
-        env: { ...process.env, BASE_REF: base, NODE_PATH: "" },
+        env: { ...repo.env, BASE_REF: base, NODE_PATH: "" },
         stdout: "pipe",
         stderr: "pipe",
       });
@@ -2354,6 +2433,41 @@ describe("check-boundaries: the worker runtime allowlist", () => {
   });
 });
 
+describe("check-boundaries: only a test may import test code", () => {
+  test("a deliberate violation from each production tree is rejected", () => {
+    const cases: [string, string, string][] = [
+      ["src/factory/boot.ts", "../__tests__/helpers/test-pglite", "src/__tests__/helpers/test-pglite"],
+      ["src/factory/boot.ts", "./boot.test", "src/factory/boot.test"],
+      ["web/src/lib/server/factory/route-kit.ts", "$server/__tests__/helpers/test-pglite", "src/__tests__/helpers/test-pglite"],
+      ["web/src/routes/api/factories/_shared.ts", "../../../../e2e/fixtures/api-mocks", "web/e2e/fixtures/api-mocks"],
+      ["scripts/check-boundaries.ts", "../tests/postgres/helpers/factory-test-database", "tests/postgres/helpers/factory-test-database"],
+      ["packages/@ezcorp/extension-runner/src/podman.ts", "../tests/helpers", "packages/@ezcorp/extension-runner/tests/helpers"],
+      ["packages/@ezcorp/sdk/src/index.ts", "../test/fixtures", "packages/@ezcorp/sdk/test/fixtures"],
+    ];
+    for (const [from, spec, target] of cases) {
+      expect(checkEdge(from, spec), `${from} -> ${spec}`).toMatchObject({ rule: "no-test-imports-outside-tests", target });
+    }
+    expect(checkSource("src/factory/boot.ts", `import { setupTestDb } from "../__tests__/helpers/test-pglite";`)).toHaveLength(1);
+  });
+
+  test("tests may import test code, and anyone may read test data", () => {
+    expect(checkEdge("src/__tests__/factory-boot.test.ts", "./helpers/test-pglite")).toBeNull();
+    expect(checkEdge("tests/postgres/factory-boot.test.ts", "./helpers/factory-test-database")).toBeNull();
+    expect(checkEdge("scripts/__tests__/live/verify-shipping-keyless-providers.ts", "../../../src/__tests__/helpers/test-pglite")).toBeNull();
+    expect(checkEdge("packages/@ezcorp/extension-runner/tests/podman.integration.test.ts", "./helpers")).toBeNull();
+    expect(checkEdge("scripts/e2e-lane-args.ts", "../web/e2e/lanes.json")).toBeNull();
+  });
+
+  test("the definition of a test path covers each test tree and nothing in production", () => {
+    for (const p of ["src/__tests__/x.ts", "a/b.test.ts", "a/b.spec.ts", "a/b.test", "tests/postgres/helpers/x.ts", "packages/@ezcorp/x/tests/h.ts", "packages/@ezcorp/x/test/h.ts", "web/e2e/fixtures/m.ts", "web/qualification/local-sandbox/local-mvp.pw.ts"]) {
+      expect(isTestPath(p), p).toBe(true);
+    }
+    for (const p of ["src/factory/boot.ts", "web/src/lib/server/factory/route-kit.ts", "scripts/check-boundaries.ts", "packages/@ezcorp/x/src/testing.ts", "src/contests/x.ts", "web/src/routes/e2e/x.ts", "web/src/routes/api/providers/local/test/+server.ts", "src/lib/tests/x.ts", "web/qualification/local-sandbox/playwright.config.ts", "src/pwd.ts"]) {
+      expect(isTestPath(p), p).toBe(false);
+    }
+  });
+});
+
 describe("check-boundaries: source scanning", () => {
   test("extractSpecifiers finds every import form the repo uses", () => {
     const src = [
@@ -2383,6 +2497,7 @@ describe("check-boundaries: source scanning", () => {
     // violating import, this fails here before CI.
     const proc = Bun.spawnSync(["git", "ls-files"], {
       cwd: join(import.meta.dir, "..", ".."),
+      env: withoutGitContext(process.env), // this checkout, whatever git context the caller exports
       stdout: "pipe",
     });
     const files = proc.stdout
