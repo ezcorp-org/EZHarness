@@ -28,9 +28,23 @@ async function body(request: IncomingMessage): Promise<Buffer> {
   return Buffer.concat(chunks);
 }
 
-function peerIdentity(request: IncomingMessage): string {
-  const value = (request.socket as TLSSocket).getPeerCertificate()?.subject?.CN;
+/**
+ * The client certificate's CN, only when the handshake verified it.
+ *
+ * Node refuses an unverified client certificate in this handshake
+ * (`rejectUnauthorized`), so an unauthorized socket should never reach here;
+ * the identity is still read only from an authorized one, so it can never be
+ * the name of a certificate that did not verify (W01k). An empty identity is
+ * refused by the route handler.
+ */
+export function poolPeerIdentity(socket: { readonly authorized?: boolean; readonly getPeerCertificate?: TLSSocket["getPeerCertificate"] }): string {
+  if (socket.authorized !== true || typeof socket.getPeerCertificate !== "function") return "";
+  const value = socket.getPeerCertificate()?.subject?.CN;
   return typeof value === "string" ? value : "";
+}
+
+function peerIdentity(request: IncomingMessage): string {
+  return poolPeerIdentity(request.socket as TLSSocket);
 }
 
 function headers(request: IncomingMessage): Readonly<Record<string, string>> {

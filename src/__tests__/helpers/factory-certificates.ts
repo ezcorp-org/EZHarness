@@ -5,24 +5,51 @@ import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-export type Certificates = { ca: string; serverKey: string; serverCert: string; clientKey: string; clientCert: string; foreignKey: string; foreignCert: string };
+/** Client certificates a verifying listener must refuse: each names the trusted client subject. */
+export type UntrustedClients = Readonly<Record<"expired" | "notYetValid" | "serverAuthOnly" | "selfSigned", { readonly cert: string; readonly key: string }>>;
+
+export type Certificates = { ca: string; serverKey: string; serverCert: string; clientKey: string; clientCert: string; foreignKey: string; foreignCert: string; untrusted?: UntrustedClients };
 
 async function command(args: string[]): Promise<void> {
   const child = Bun.spawn(["openssl", ...args], { stdout: "ignore", stderr: "pipe" });
   expect(await child.exited, await new Response(child.stderr).text()).toBe(0);
 }
 
-export async function certificates(directories: string[], clientSubject = "tenant-a"): Promise<Certificates> {
+/**
+ * `untrustedClients` adds, for the client subject: a certificate from this
+ * authority whose validity ended in 2020, one valid only from 2099, one with
+ * serverAuth only, and a self-signed one.
+ */
+export async function certificates(directories: string[], clientSubject = "tenant-a", options: { readonly untrustedClients?: boolean } = {}): Promise<Certificates> {
   const root = await mkdtemp(join(tmpdir(), "factory-gateway-"));
   directories.push(root);
   await command(["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", join(root, "ca.key"), "-out", join(root, "ca.pem"), "-days", "1", "-subj", "/CN=factory-test-ca"]);
-  for (const [name, subject, extension] of [["server", "localhost", "subjectAltName=DNS:localhost,IP:127.0.0.1\nextendedKeyUsage=serverAuth"], ["client", clientSubject, "extendedKeyUsage=clientAuth"], ["foreign", "tenant-b", "extendedKeyUsage=clientAuth"]] as const) {
+  const clientAuth = "extendedKeyUsage=clientAuth";
+  // [file name, subject, extensions, validity arguments]
+  const leaves: [string, string, string, string[]][] = [
+    ["server", "localhost", "subjectAltName=DNS:localhost,IP:127.0.0.1\nextendedKeyUsage=serverAuth", ["-days", "1"]],
+    ["client", clientSubject, clientAuth, ["-days", "1"]],
+    ["foreign", "tenant-b", clientAuth, ["-days", "1"]],
+  ];
+  if (options.untrustedClients) {
+    leaves.push(
+      ["expired", clientSubject, clientAuth, ["-not_before", "20200101000000Z", "-not_after", "20200102000000Z"]],
+      ["not-yet-valid", clientSubject, clientAuth, ["-not_before", "20990101000000Z", "-not_after", "20990102000000Z"]],
+      ["server-auth-only", clientSubject, "extendedKeyUsage=serverAuth", ["-days", "1"]],
+    );
+    await command(["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", join(root, "self-signed.key"), "-out", join(root, "self-signed.pem"), "-days", "1", "-subj", `/CN=${clientSubject}`, "-addext", clientAuth]);
+  }
+  for (const [name, subject, extension, validity] of leaves) {
     await command(["req", "-newkey", "rsa:2048", "-nodes", "-keyout", join(root, `${name}.key`), "-out", join(root, `${name}.csr`), "-subj", `/CN=${subject}`]);
     await Bun.write(join(root, `${name}.ext`), extension);
-    await command(["x509", "-req", "-in", join(root, `${name}.csr`), "-CA", join(root, "ca.pem"), "-CAkey", join(root, "ca.key"), "-CAcreateserial", "-out", join(root, `${name}.pem`), "-days", "1", "-extfile", join(root, `${name}.ext`)]);
+    await command(["x509", "-req", "-in", join(root, `${name}.csr`), "-CA", join(root, "ca.pem"), "-CAkey", join(root, "ca.key"), "-CAcreateserial", "-out", join(root, `${name}.pem`), ...validity, "-extfile", join(root, `${name}.ext`)]);
   }
   const get = (name: string) => readFile(join(root, name), "utf8");
-  return { ca: await get("ca.pem"), serverKey: await get("server.key"), serverCert: await get("server.pem"), clientKey: await get("client.key"), clientCert: await get("client.pem"), foreignKey: await get("foreign.key"), foreignCert: await get("foreign.pem") };
+  const pair = async (name: string) => ({ cert: await get(`${name}.pem`), key: await get(`${name}.key`) });
+  return {
+    ca: await get("ca.pem"), serverKey: await get("server.key"), serverCert: await get("server.pem"), clientKey: await get("client.key"), clientCert: await get("client.pem"), foreignKey: await get("foreign.key"), foreignCert: await get("foreign.pem"),
+    ...(options.untrustedClients ? { untrusted: { expired: await pair("expired"), notYetValid: await pair("not-yet-valid"), serverAuthOnly: await pair("server-auth-only"), selfSigned: await pair("self-signed") } } : {}),
+  };
 }
 
 export function signedServiceToken(privateKey: KeyObject, claims: Readonly<Record<string, unknown>>): string {
