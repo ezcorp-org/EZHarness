@@ -1934,3 +1934,25 @@ The server and AMD host generations are active. A consistent detached PGlite cop
 ### Review
 
 The old certificate remains revoked, the isolated app remains behind the local TCP hold, and the runner is stopped behind a tested systemd assertion gate. The saved CREATE is still `OUTCOME_UNKNOWN`; no signed recovery request was submitted. The first temporary server generation was fully rolled back after the observer exposed two integration defects: the Incus CLI could not write under immutable `/var/empty`, and the NixOS observer's store copy of `sudo` lacked setuid permission. Direct Incus reads and direct observer script invocation passed after a temporary CLI-home test, but the forced SSH path did not. The temporary CLI files were removed and `/var/empty` is immutable again. No guest has been created by EZHarness.
+
+## PR #320 watchdog sleep reason review — 2026-09-24
+
+- [x] Read the PR, runtime contract, relevant lessons, and failed hosted job.
+- [x] Reproduce the first-tick sleep failure through the watchdog and persisted error path.
+- [x] Fix first-tick detection, progress-before-tick attribution, and the code quality complexity failure.
+- [x] Run focused watchdog tests, typecheck, lint, and browser SSE/reload proof.
+- [ ] Verify the CRAP quality gate on merged coverage, then push and review hosted CI.
+
+Plan review: The hosted Per-file coverage job passed line coverage but failed the touched-function CRAP limit: tick() scored 31 over its limit of 30. The PR also missed a sleep before the first tick and progress just before a delayed tick. Keep kill thresholds unchanged. Move sleep accounting and reason text into small helpers, and prove visible and persisted wording through browser SSE and reload.
+
+Review: A new frozen-clock test failed at the original head when the host slept before the first timer callback. The fix initializes observation time on start and resets it on real progress. A tool timeout that expired during sleep also lost the sleep note; the selected tool reason now keeps precedence and gains the note. The text says sleep *may* have happened, since timer delay alone cannot prove it. Six focused suspension tests, the watchdog file suite, typecheck, lint, and six Chromium browser cases passed. Browser cases show both sleep error forms after SSE and page reload. Exact quality gate and hosted CI remain for the integrating agent.
+
+## Merge current main into PR #303 — 2026-09-24
+
+- [x] Merge fetched `origin/main` and preserve both branches' changes.
+- [x] Resolve conflicts, run affected tests, typecheck, and lint.
+- [x] Commit the verified merge and report its receipt; leave push to the parent agent.
+
+Plan review: The worktree was clean and pinned Bun 1.3.14 was available. Incoming main had one watchdog commit. This task did not touch a live host.
+
+Review: The task journal retains the PR #303 history and incoming PR #320 record. Pinned Bun 1.3.14 passed 64 tests in four affected backend suites, full typecheck, lint across 4,883 files, and six Chromium cases in the changed browser spec. The browser used free port 4174 because another process held 4173. No live host was touched.

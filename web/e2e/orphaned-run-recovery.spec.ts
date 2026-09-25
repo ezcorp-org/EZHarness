@@ -91,7 +91,21 @@ test.describe("Orphaned Run Recovery", () => {
 		await expect(page.getByText("Resuming...")).not.toBeVisible();
 	});
 
-	test("run:error SSE clears the resumed skeleton and restores the persisted error", async ({ page, mockApi, emitSse }) => {
+	const sleepNote = " — the computer may have been asleep or suspended for about 10 min during this run, which can interrupt the model connection. Send your message again to retry.";
+	for (const scenario of [
+		{ name: "connection error", persisted: "Error: connection timeout", visible: "connection timeout" },
+		{
+			name: "sleep-related watchdog error",
+			persisted: `Error: Watchdog: no activity for 600s${sleepNote}`,
+			visible: "may have been asleep or suspended for about 10 min",
+		},
+		{
+			name: "sleep-related tool timeout",
+			persisted: `Error: Tool shell exceeded its 90000ms call timeout${sleepNote}`,
+			visible: "Tool shell exceeded its 90000ms call timeout — the computer may have been asleep or suspended",
+		},
+	]) {
+	test(`run:error SSE clears the resumed skeleton and restores the persisted ${scenario.name}`, async ({ page, mockApi, emitSse }) => {
 		const userMsg = makeMessage({
 			id: "m1",
 			conversationId: "conv-1",
@@ -102,7 +116,7 @@ test.describe("Orphaned Run Recovery", () => {
 			id: "m2",
 			conversationId: "conv-1",
 			role: "assistant",
-			content: "Error: connection timeout",
+			content: scenario.persisted,
 			parentMessageId: "m1",
 			runId: "run-live-err",
 			createdAt: "2026-01-01T00:01:00.000Z",
@@ -134,15 +148,16 @@ test.describe("Orphaned Run Recovery", () => {
 		await emitSse({
 			type: "run:error",
 			data: {
-				run: { id: "run-live-err", status: "error", error: "Connection timeout" },
+				run: { id: "run-live-err", status: "error", error: scenario.persisted.slice("Error: ".length) },
 			},
 		});
 
 		// Skeleton should disappear
 		await expect(page.getByText("Thinking...")).not.toBeVisible({ timeout: 5000 });
-		await expect(page.locator('[data-message-id="m2"]')).toContainText("connection timeout");
+		await expect(page.locator('[data-message-id="m2"]')).toContainText(scenario.visible);
 		await page.reload();
-		await expect(page.locator('[data-message-id="m2"]')).toContainText("connection timeout");
+		await expect(page.locator('[data-message-id="m2"]')).toContainText(scenario.visible);
 		await expect(page.getByTestId("streaming-skeleton")).toHaveCount(0);
 	});
+	}
 });
