@@ -12,7 +12,10 @@
 - [x] Prepare the exact second-target server observer policy in NixOS PR #12 and test its denial cases; test and reject the ineffective temporary AMD override proposed in PR #13.
 - [x] Stop the revised attempt at the live AMD dependency gate; record rollback and reject the ineffective temporary override.
 - [x] Build and test the corrected NixOS-generated AMD supervisor unit; review its guarded activation packet in PR #13.
-- [ ] Obtain one exact approval of the guarded AMD activation and conditional second-CREATE recovery in the v3 packet.
+- [x] Obtain exact approval of the guarded AMD activation and conditional second-CREATE recovery in the v3 packet.
+- [x] Activate and verify the corrected AMD generation under its rollback timer.
+- [x] Stop the v3 second-CREATE recovery before signing when the server timer margin fails; restore the exact cert and policy, and record the unresolved host rollback.
+- [ ] Recover sandbox-server host control through the reviewed console procedure; prove thaw, old generation, SSH, original trust/policy, and inventory before releasing AMD fences.
 - [ ] Run a complete EZHarness-owned guest fixture, the live qualification cases, feature workflow, and cleanup.
 - [ ] Remove the temporary `/var/empty/.config` workaround after the corrected NixOS setup gate is active.
 - [ ] Finish the source fixes, pass the CRAP gate and all hosted checks on the final PR head, and publish the measured live evidence.
@@ -24,6 +27,8 @@ Second recovery preparation is recorded in `docs/validation/2026-09-24-second-un
 The approved second recovery attempt stopped after the first restricted observer response named the first instance. No signed request was sent. The exact old certificate, server generation, local configs, app, and runner were restored; CREATE remains `OUTCOME_UNKNOWN`. The new [revised review](../docs/validation/2026-09-24-second-unknown-create-recovery-revised-review.md) requires a second-target server policy swap and a temporary supervisor dependency override before another attempt. The traffic hold remains active.
 
 The revised attempt then stopped before runner or server changes because systemd did not remove the base-unit `Requires=runner` from a temporary drop-in. Its [receipt](../docs/validation/2026-09-24-second-unknown-create-revised-attempt.md) records restored baseline. PR #13 now changes the generated NixOS unit instead; its full AMD candidate built with exact live pins, focused generated-unit and activation-command tests pass, and the read-only live preflight passes. The [v3 packet](../docs/validation/2026-09-24-second-unknown-create-recovery-v3-review.md) combines guarded activation with conditional recovery. PR #303's pushed source head `8d3e1c495` passed all 51 hosted checks; pending local evidence docs will require a final push and check.
+
+The approved v3 AMD activation passed. The second-CREATE recovery obtained two exact no-effect observations, but the final `frozen-until` gate rejected the unsigned request because the server rollback timer lacked its 120-second margin. The exact old cert and policy were restored. Manual old-generation switch hung while the dev slice remained frozen, and fresh host SSH is denied. The server responds to Tailscale and Incus HTTPS, but host rollback is unverified. Keep AMD runner and ingress fenced and CREATE unknown. See the [v3 attempt](../docs/validation/2026-09-24-second-unknown-create-recovery-v3-attempt.md) and [console packet](../docs/validation/2026-09-24-second-unknown-create-console-recovery-review.md).
 
 # Wire `trusted-local` — the explicit, per-release-approved unsandboxed extension mode
 
