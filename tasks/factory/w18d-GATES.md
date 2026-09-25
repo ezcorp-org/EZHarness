@@ -69,8 +69,35 @@ Evidence:
   run on it is fail-closed, in the same class as a run that wrote no report. It is not a mode
   change, because `--report-only` still suppresses the threshold verdict and nothing else. It
   is not a threshold change, because the break score stays 80. The coordinator approved this
-  commit on 2026-09-25. A Timeout
-  mutant cannot be checked this way, because a real timeout also completes no test.
+  commit on 2026-09-25. Zero-test Timeouts are deliberately left out; see the next section.
+
+## Why the check does not cover zero-test Timeouts (validator-3's question)
+
+At CI concurrency, the unpatched runs turned most zero-test mutants into Timeouts (52 in the
+run-format.ts control, 175 in run-stream.ts). Stryker counts a Timeout as detected. So a broken
+filter that produced only Timeouts would not fire the check. I looked for a report field that
+separates such a Timeout from a genuine one. There is none, so the check does not cover
+Timeouts:
+
+- Stryker's reporter writes a Timeout with only `statusReason`
+  (`@stryker-mutator/core/dist/src/reporters/mutation-test-report-helper.js`,
+  `case MutantRunStatus.Timeout`). It writes `testsCompleted` for Survived and Killed only, and it
+  never records which test ran or hung. No Timeout in any receipt has `testsCompleted` or
+  `killedBy`.
+- `statusReason` is set only for a hit-limit timeout ("Hit limit reached (n/limit)"), which
+  needs the mutant's code to have run. A wall-clock timeout, where the runner is killed after
+  `timeoutMS`, has no reason.
+- Every broken-filter Timeout has the wall-clock shape: `static: false`, `coveredBy` non-empty,
+  no `statusReason` (`control-runformat-vitest5`, `runstream-vitest5`).
+- The patched gate on the proof merge (`gate-proof-w14-fixed`) has five genuine wall-clock
+  Timeouts with exactly that shape: `client.ts:66`, `run-stream.ts:175` (two mutants),
+  `run-stream.ts:229` and `model.ts:67`. Any rule that flags the broken ones also flags these
+  five, which are real detections.
+
+A red/green proof is therefore impossible without false positives, and no Timeout case is added.
+The remaining signal is that a broken filter leaves zero-test Survivors in any realistic run.
+Every broken receipt had them: 38 in the control, 130 in run-stream.ts, 1 279 in the CI gate.
+Only a run where every covered mutant timed out would slip through.
 
 ## Proof
 
