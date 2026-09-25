@@ -116,7 +116,7 @@ export class FactoryTaskOutcomes {
         const expectedReservation = factoryTaskReservationId(reference, context);
         if (!stored || stored.delivery.reference.reservationId !== expectedReservation || stored.delivery.reference.nodeInstanceId !== context.command.nodeId || stored.delivery.reference.candidateGeneration !== context.command.candidateGeneration || stored.delivery.reference.attemptNumber !== context.command.attempt) throw new FactoryTaskOutcomeError("factory_task_outcome_stale");
         const compute = await this.compute.readAdmittedInTransaction(locked, { projectId: reference.projectId, runId: reference.logicalRunId, reservationId: stored.delivery.reference.reservationId });
-        if (stored.request.authority.reservationGeneration !== compute.receipt.lease.allocationGeneration || stored.request.authority.deadlineAtMs !== compute.receipt.lease.deadlineAt.getTime()) throw new FactoryTaskOutcomeError("factory_task_outcome_stale");
+        if (stored.request.authority.reservationGeneration !== compute.receipt.lease.allocationGeneration || stored.request.authority.deadlineAtMs !== context.command.deadlineAtMs) throw new FactoryTaskOutcomeError("factory_task_outcome_stale");
         const attempt = factoryAttemptAuthority(stored.delivery.reference);
         const evidence = await this.journal.verifyRunnerResultInTransaction(locked, attempt, nonSuccess);
         const atMs = this.now();

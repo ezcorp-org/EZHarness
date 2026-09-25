@@ -84,8 +84,13 @@ function authorityInput(context: FactoryAuthorizedCommand, request: FactoryRunne
 function durableRequest(context: FactoryAuthorizedCommand, compute: FactoryComputeAdmissionMaterial, resolution: FactoryTaskRunnerResolution, nextOperationIndex: number, now: number): { readonly request: FactoryRunnerRequestIdentity; readonly digest: string } {
   if (context.command.kind !== "dispatch-node") throw new FactoryTaskExecutionAdmissionError("factory_task_execution_forbidden");
   const lease = compute.receipt.lease;
-  const deadlineAtMs = lease.deadlineAt.getTime();
-  if (lease.tenantId !== context.fence.tenantId || lease.grantRevision !== context.fence.grantRevision || lease.reservationId !== compute.request.request.reservationId || !Number.isSafeInteger(lease.allocationGeneration) || lease.allocationGeneration < 1 || !Number.isSafeInteger(deadlineAtMs) || deadlineAtMs <= now || deadlineAtMs > context.command.deadlineAtMs || !Number.isSafeInteger(nextOperationIndex) || nextOperationIndex < 0) throw new FactoryTaskExecutionAdmissionError("factory_task_execution_stale");
+  // The attempt's deadline is the node command's, not the first pool lease's.
+  // The lease is liveness: the runtime renews it while the guest lives, so a
+  // guest slower than one lease period is not killed for it (option 2, W01h).
+  // Admission still requires a live lease that the command deadline outlasts.
+  const leaseDeadlineAtMs = lease.deadlineAt.getTime();
+  const deadlineAtMs = context.command.deadlineAtMs;
+  if (lease.tenantId !== context.fence.tenantId || lease.grantRevision !== context.fence.grantRevision || lease.reservationId !== compute.request.request.reservationId || !Number.isSafeInteger(lease.allocationGeneration) || lease.allocationGeneration < 1 || !Number.isSafeInteger(leaseDeadlineAtMs) || leaseDeadlineAtMs <= now || leaseDeadlineAtMs > deadlineAtMs || !Number.isSafeInteger(deadlineAtMs) || deadlineAtMs <= now || !Number.isSafeInteger(nextOperationIndex) || nextOperationIndex < 0) throw new FactoryTaskExecutionAdmissionError("factory_task_execution_stale");
   const declaredGrants = context.node.capabilities ?? [];
   if (!exactCapabilities(declaredGrants, resolution.grants) || !resolution.brokerAudience || resolution.brokerAudience.length > 512) throw new FactoryTaskExecutionAdmissionError("factory_task_execution_policy_invalid");
   const input: FactoryRunnerRequest = {
