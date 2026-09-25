@@ -4601,3 +4601,19 @@ Numbering grants turns revoke-then-grant into history rather than a conflict. A 
 that matters: one active grant per target. First grants keep their old seal, so every existing row still
 verifies. The display name is read from the user or service-account record only. It is resolved outside the
 authorization path, and it can never fall back to the raw id.
+
+## W12d — reproducible data image build (branch `wp/w12d-reproducible-image`)
+
+Base `wp/w12c-data-image-repin` `7821e5d7c`, merged with `integ/w00` `2b2e12550`. Receipts:
+`/tmp/factory-platform-evidence/w12d/`. Gates: `tasks/factory/w12d-GATES.md`.
+
+- [x] Find the cause: the import check wrote `.pyc` files that differ between builds; the timestamp was also unfixed.
+- [x] Fix: no bytecode in the build step; `--no-cache --timestamp 0 --identity-label=false`; the script checks the pin and fails without `--repin`.
+- [x] A failed check removes only its candidate tag; the pinned image is never touched (control cases A and B).
+- [x] Binding proof: a rebuild after removal gives the pin (build 3, clean at `55f58739f`).
+- [x] Guest unit, three Podman guest suites, boundary and closure suites, static gates, coverage gates at `0c62f68e8`.
+
+**Review.** Two clean builds differed only in eight `.pyc` files that the import check wrote. With
+bytecode off, every timestamp fixed and no build cache, the build reproduces the pin on this host's
+Podman version. Other Podman versions are not proven. The script now refuses a pin it does not
+reproduce and removes what it built. A deliberate change needs `--repin`.

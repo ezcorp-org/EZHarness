@@ -1569,3 +1569,9 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 - A Node service may import only leaf modules from the product. `src/db/queries/*` and anything that
   reaches them (records, auth) pull in `db/connection` and the Bun SQL driver. Put shared constants and
   types in a leaf, and let `check-factory-boundaries.ts` (`NODE_SERVICE_BOUNDARIES`) guard the entry.
+
+## 2026-09-25 — A receipt runner must not strip git status output (W12d)
+
+- Never `.strip()` the output of `git status --porcelain`. The first line's leading space is part of
+  the status code, so stripping it shifts the path by one character, and the file drops out of the
+  receipt's dirty-file map. Strip only the trailing newline, and parse each line as `XY path`.
