@@ -4691,20 +4691,34 @@ the F1-guard's W18a-3 exemption once those files land) is item C's scope on `wp/
   while chasing a residual failure.
 - [x] All 26 files pass individually at their real invocation; typecheck, lint, boundaries,
   gate-integrity, `factory-process-boundaries.test.ts` all green.
-- [ ] Disclosed, not fixed: a residual, unrelated pollution (`extension-event-end-to-end.test.ts`'s own
-  partial `db/queries/conversations` mock, not one of the four named modules) still fails 5 tests in
-  two other files when all three run together — previously masked by the crash this item fixed.
-  Two much larger surveys (83 files still partially mock `db/queries/extensions` elsewhere in the
-  tree; ~39 partially mock `auth/middleware`) are also disclosed, not undertaken.
+- [x] Coordinator-ruled fix: the residual pollution turned out to be THREE more partial mocks, not one
+  — `db/queries/conversations` and `db/queries/tool-calls` (same fix as the rest of item D), and a
+  THIRD, different bug class: `$lib/server/http-errors` had the right export name but a narrower
+  hand-rolled body that dropped the real signature's `details` param, which the guard test cannot
+  catch (it only checks for a missing export, not a behaviorally-incomplete one). A near-identical
+  instance was independently found in a second file while re-verifying against the full batch.
+  Reproduction batch now 682 pass / 0 fail (was 677/5).
+- [x] Validator-3 pre-review fixes P1 (completeFactory() has its own tests), P2 (CONTEXT_EXPORT_NAMES
+  pinned against context.ts's real export list, parsed from source, never imported), P3 (fixed a
+  companion classification bug the P1/GD5 meta-test fix introduced: an override-bearing
+  serverModule()/webLibModule() binding was wrongly treated as an unconditional shim; now only an
+  EMPTY-overrides binding is, and a non-empty one correctly falls through to the served/skipped check
+  instead of getting a free pass).
+- [x] Two much larger surveys (83 files still partially mock `db/queries/extensions` elsewhere in the
+  tree; ~39 partially mock `auth/middleware`) become item E, a later package on its own branch after
+  item C, per the coordinator's ruling — not undertaken here.
 
 **Review.** The three "shallow" modules confirmed F1's method generalizes cleanly. `$lib/server/context`
 did not: it's the one module in this set whose real implementation IS the app boot sequence, so
 "spread the real module" — the exact fix that worked everywhere else — recursively demands every OTHER
 module its own callers have their own reasons to stub. The right fix turned out to be narrower than F1's:
 guarantee the export NAMES (so a route's static import always links, which is the actual bug), and let a
-genuine behavioral gap fail loud and local instead of masquerading as every OTHER test's problem. Left
-one honest gap open rather than chase an unbounded cascade to zero, and named the two much bigger
-surveys this touched but did not take on.
+genuine behavioral gap fail loud and local instead of masquerading as every OTHER test's problem. The
+residual pollution taught the same lesson twice over: completing an export LIST is not the same
+guarantee as matching the real BEHAVIOR of an export that's already present, and the guard test that
+catches the first kind cannot see the second — a narrower reimplementation with the right name sails
+through silently until two files' tests happen to run in the same process and one needs the part the
+other dropped.
 
 ### Item C — F2 (27 bare git-init tests)
 

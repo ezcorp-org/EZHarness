@@ -242,27 +242,82 @@ modules: `$lib/server/context`, `$server/db/queries/extensions`, `$server/provid
   virtual, so the precompute-once requirement does not apply; see GA5).
   EVIDENCE: part of commit `69d04ed70`.
 
-- [ ] GD8 — DISCLOSED, NOT FIXED: a residual pollution, unrelated to the four named modules, previously
-  masked by the crash GD1 fixed. `extension-event-end-to-end.test.ts` also partially mocks
-  `$server/db/queries/conversations` (and very likely `db/queries/tool-calls`, same file, not
-  individually confirmed) — when combined with `messages-multipart-route.test.ts` and
-  `messages-permission-mode-ceiling-route.test.ts` in one process, 5 tests in those two files fail on
-  assertion mismatches (`convQueries.getLatestLeaf is not a function`, and downstream body-shape
-  mismatches), not link-time crashes. Each of the three files passes alone and in every pairing that
-  excludes `extension-event-end-to-end.test.ts`'s db/queries/conversations mock specifically.
-  RULING (this session, matching the coordinator's own F1 scope decision): out of scope for item D,
-  which named four specific modules. Not fixed. Two much larger surveys, found while enumerating GD2,
-  are also disclosed here rather than undertaken: 83 files across the tree still partially mock
-  `db/queries/extensions` via the PLAIN relative specifier outside this item's 26-file set (item D only
-  touched the ones needed for the GD1 reproduction), and roughly 39 files partially mock `$server/
-  auth/middleware` (only `extension-event-end-to-end.test.ts`'s instance, GD7, was fixed, because it
-  directly blocked this item's own reproduction). Recommend a follow-up package if the coordinator
-  wants these closed; do not fold into item D's already-large diff.
+- [x] GD8 (coordinator ruling, fixed): the residual pollution disclosed above is closed.
+  `extension-event-end-to-end.test.ts` had THREE more partial mocks, not one:
+  `$server/db/queries/conversations` (2 of 34 real exports), `$server/db/queries/tool-calls` (1 of 5),
+  both converted with `serverModule()`. The third was a different bug class entirely and the one that
+  actually explained the failure: `$lib/server/http-errors` had the right export NAME (`errorJson`)
+  but a hand-rolled 2-arg body that silently dropped the real 4-arg signature's `details`/
+  `extraHeaders` (`web/src/lib/server/http-errors.ts` spreads `details` into the response body).
+  `mock-cleanup-coverage.test.ts`'s guard only checks for a missing export, never a narrower
+  reimplementation of a present one, so nothing caught it. `messages-permission-mode-ceiling-
+  route.test.ts`'s route imports `errorJson` statically; bun test loads every given file's top-level
+  code (every top-level `mock.module()` and top-level `await import()`) before running ANY file's
+  tests, so that route captured the stale 2-arg override at import time — before
+  `extension-event-end-to-end.test.ts`'s own tests, and therefore its `afterAll`'s
+  `restoreModuleMocks()`, had run. A near-identical hand-rolled `errorJson` was independently found and
+  fixed in `memory-list-derived-owner.integration.test.ts` while re-running the full batch after the
+  first fix and finding it still red.
+  CHECK: `bun test --timeout 30000 <36 F1 src files> ./src/__tests__/mock-cleanup-coverage.test.ts`
+  (the exact GD1 reproduction)
+  EXPECT: 0 fail
+  EVIDENCE: commit `fc2148e3c`. `d-src-batch-final2.log`: 682 pass, 0 fail (was 677/5 before this
+  commit). Both files individually: `extension-event-end-to-end.test.ts` 12/12,
+  `memory-list-derived-owner.integration.test.ts` 8/8.
 
-Pass for item D: the four named modules are fully closed everywhere they were partially mocked, proven
-by direct reproduction before and after; the harder finding (context.ts cannot be spread) is fixed with
-a purpose-built, non-cascading helper instead of forcing the F1 pattern where it does not fit; every
-touched file passes at its real invocation; what's left undone is named, not hidden.
+The two much larger surveys found while enumerating GD2 (83 files partially mocking
+`db/queries/extensions` via a plain relative specifier elsewhere in the tree; ~39 partially mocking
+`$server/auth/middleware`) are coordinator ruling: item E, a later package on its own branch after item
+C. Not undertaken here; kept as a named record only.
+
+Pass for item D: the four named modules, plus the residual pollution the coordinator ruled to fix, are
+fully closed everywhere they were partially mocked, proven by direct reproduction before and after; the
+harder finding (context.ts cannot be spread) is fixed with a purpose-built, non-cascading helper instead
+of forcing the F1 pattern where it does not fit; every touched file passes at its real invocation; the
+two remaining surveys are named, not hidden, and deferred to item E by ruling.
+
+## Validator-3 pre-review fixes (P1, P2, P3) — required for item D's final head
+
+- [x] P1: `completeFactory()` has its own tests, independent of `contextModule()`'s specific 9-name
+  surface — a missing name exists on the object (so linking a route's static import never sees
+  "Export named X not found") but throws only when actually CALLED; the thrown error names the export;
+  a given override always wins over the throwing default and does not affect sibling names; a
+  non-function override value is accepted verbatim (the factory does not inspect it).
+  CHECK: `bun test --timeout 30000 ./src/__tests__/mock-cleanup-coverage.test.ts`
+  EXPECT: the 4 new tests in "completeFactory() (the contextModule() fix for a too-heavy module)" pass
+  EVIDENCE: commit `94167e2b2`.
+
+- [x] P2: `CONTEXT_EXPORT_NAMES` is pinned against `web/src/lib/server/context.ts`'s real export list,
+  parsed from source (never imported — the entire point of `contextModule()`, GD4, is to avoid pulling
+  in that module's graph).
+  CHECK: `bun test --timeout 30000 ./src/__tests__/mock-cleanup-coverage.test.ts`
+  EXPECT: "CONTEXT_EXPORT_NAMES stays in sync with context.ts's real export list" passes (2 tests: the
+  parser itself against a synthetic fixture, then the real pin)
+  EVIDENCE: commit `94167e2b2`.
+
+- [x] P3: `1645390fc` (GD5's fix) made ANY `serverModule()`/`webLibModule()`-bound `$server/*` factory
+  count as a covered shim unconditionally — wrong for an override-bearing binding, which REPLACES
+  exports exactly like the raw-object-literal factories this file exists to catch, and needs the alias
+  to be `served`/`skipped` like any other stub. `collectHelperBindings()` (new) tracks the binding's
+  target plus whether `overrides` is empty; an empty-overrides binding at a matching alias is still a
+  true shim (nothing to restore, identical to a `require()` passthrough); a non-empty one records NO
+  verdict and falls through to the served/skipped check; a target MISMATCH is a redirect regardless of
+  overrides.
+  CHECK: `bun test --timeout 30000 ./src/__tests__/mock-cleanup-coverage.test.ts`; the real 26-file item
+  D conversions re-classified under the fixed rule (no regression)
+  EXPECT: 5 new fixtures pass (unserved override-bearing binding still fails; served override-bearing
+  binding passes via rule 3, not rule 2; empty-overrides binding is a true shim; target-mismatch
+  binding is a redirect either way; the P2-adjacent source-parser sanity test); the 37-file src
+  reproduction batch stays 0 fail
+  EVIDENCE: commit `94167e2b2`. `mock-cleanup-coverage.test.ts` 33/33 (was 23 pre-item-D, 29 after
+  P1/P2, 33 after P3). `d-src-batch-p123.log`: 692 pass, 0 fail — the real item-D conversions are still
+  correctly classified after the fix (validator-3's own probe of "nothing real is exempted today" is
+  now also a standing regression test, not just a one-time check).
+
+Full item D verification on the final head (`94167e2b2`): all 28 touched files (26 from GD2 + the 2
+residual-fix files) pass individually at their real invocation (`d-src-isolated-final.txt`,
+`d-web-isolated-final.txt`, all `exit=0`); typecheck, lint, boundaries, gate-integrity,
+`factory-process-boundaries.test.ts` (15/15) all green.
 
 ## Item C — F2: the 27 bare git-init tests
 
