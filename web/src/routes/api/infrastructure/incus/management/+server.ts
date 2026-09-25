@@ -32,7 +32,8 @@ export const GET: RequestHandler = async ({ locals }) => {
     // Explicit columns keep configuration, certificates, journals and secret data out of the response.
     const features = releaseRows(await db.execute(sql`SELECT b.project_id AS "projectId", p.name AS "projectName",
       b.id AS "bindingId", b.provider_installation_id AS "installationId", b.provider_release_id AS "releaseId",
-      b.connection_id AS "connectionId", b.preset_id AS "presetId", b.desired_state AS "desiredState",
+      b.connection_id AS "connectionId", b.connection_revision AS "connectionRevision", b.generation,
+      b.preset_id AS "presetId", b.desired_state AS "desiredState",
       b.observed_state AS "observedState", b.tombstoned_at AS "tombstonedAt", b.cleanup_confirmed_at AS "cleanupConfirmedAt",
       CASE WHEN o.id IS NULL THEN NULL ELSE jsonb_build_object('id', o.id, 'kind', o.kind, 'state', o.state,
         'errorCode', o.error_code, 'createdAt', o.created_at, 'updatedAt', o.updated_at) END AS operation

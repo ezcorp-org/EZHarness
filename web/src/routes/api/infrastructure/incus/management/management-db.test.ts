@@ -25,7 +25,7 @@ test("real migrated database lists user bindings and excludes fixture projects a
   for (const purpose of ["user", "incus-qualification"] as const) {
     await db.insert(projects).values({ id: purpose, name: purpose, path: `/SECRET/${purpose}`, purpose });
     await db.insert(sandboxBindings).values({ id: `binding-${purpose}`, projectId: purpose,
-      providerInstallationId: "installation", providerReleaseId: "release", connectionId: "connection",
+      providerInstallationId: "installation", providerReleaseId: "release", connectionId: "connection", connectionRevision: 1,
       desiredState: "STOPPED", observedState: "UNKNOWN", presetId: "compose", currentOperationId: `operation-${purpose}` });
     await db.insert(sandboxOperations).values({ id: `operation-${purpose}`, bindingId: `binding-${purpose}`, kind: "CREATE",
       generation: 1, idempotencyScope: "test", idempotencyKey: purpose, payloadHash: "hash", requestPayload: { secret: "SECRET-payload" },
@@ -37,7 +37,7 @@ test("real migrated database lists user bindings and excludes fixture projects a
   expect(result.projects).toContainEqual({ id: "user", name: "user" });
   expect(result.projects.some((project: { id: string }) => project.id === "incus-qualification")).toBe(false);
   expect(result.features).toHaveLength(1);
-  expect(result.features[0]).toMatchObject({ projectId: "user", bindingId: "binding-user", observedState: "UNKNOWN",
+  expect(result.features[0]).toMatchObject({ projectId: "user", bindingId: "binding-user", observedState: "UNKNOWN", connectionRevision: 1, generation: 1,
     operation: { id: "operation-user", kind: "CREATE", state: "OUTCOME_UNKNOWN" } });
   expect(result.environments[0]).toMatchObject({ connectionId: "connection", qualified: false });
   expect(JSON.stringify(result)).not.toContain("SECRET");
