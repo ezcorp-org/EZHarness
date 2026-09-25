@@ -184,17 +184,18 @@ export async function verifyFactoryHostLaunchLostResult(): Promise<void> {
     expect(world.brokerCalls).toEqual([]);
 
     // Attempt 2, the retry the kernel issues for that failure: the same host
-    // runs it, and its answer is the terminal row.
+    // runs it, and the guest's own answer (the suite's canonical result) is the
+    // terminal row, settled through the outcome path like any other.
     await world.enqueue("attempt-retry", 2);
-    expect(await world.driver.dispatchOne()).toMatchObject({ kind: "completed", attemptId: "attempt-retry" });
+    expect(await world.driver.dispatchOne()).toMatchObject({ kind: canonical.status, attemptId: "attempt-retry" });
     expect(await world.terminal("attempt-retry")).toEqual(canonical);
-    expect(world.settled).toContain("completed:attempt-retry");
+    expect(world.settled).toContain("outcome:attempt-retry");
     expect(world.brokerCalls).toEqual([{ kind: "model", operation: "e2e" }]);
 
     // Attempt 3: a guest slower than one window and one call. It is collected
     // across windows, never lost, and it is not an error in either log.
     await world.enqueue("attempt-slow", 3);
-    expect(await world.driver.dispatchOne()).toMatchObject({ kind: "completed", attemptId: "attempt-slow" });
+    expect(await world.driver.dispatchOne()).toMatchObject({ kind: canonical.status, attemptId: "attempt-slow" });
     expect(await world.terminal("attempt-slow")).toEqual(canonical);
     expect(world.hostLog).toHaveLength(1);
 
