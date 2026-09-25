@@ -62,6 +62,6 @@ one of them.
   EXPECT: exit 0; one match, in the contract leaf; each negative control red
   EVIDENCE: controls at ca92306c5: route trusting its configured audience red (`/tmp/factory-platform-evidence/w16b/logs/audience-route-red.log`); parser pin removed red (`logs/audience-parser-red.log`). Hold b2 at fb3a990ee: `/tmp/factory-platform-evidence/w16b/receipts/b2/` (14 receipts, all exit 0, clean at start): PostgreSQL guest-model route 17/0, Podman supervisor 3/0, focused with lcov 140/0 (supervisor, transport, supervisor-services, startup-config, guest-model route), boundary suites 46/0, patch coverage 6 files vs 27d957531, typecheck, lint, boundaries, gate integrity
 
-## Follow-up (recorded, not in W16b)
+## W01i (assigned)
 
-- `launch-peer-tenant-binding` (from w01g-fix's review): the host launch route authorizes by peer only, so an allowed peer can start a guest attributed to another tenant on capacity leased to someone else. Data stays isolated, because that tenant's route verifies the attempt token with its own secret. Proposed: a peer-to-tenant map in the supervisor document, checked by the launch route against `intent.request.authority.tenantId`. Pre-existing, not introduced by W16b.
+- Launch-peer gap from the W16b review: the host launch route authorizes by peer only, so an allowed peer can launch a guest attributed to another tenant on capacity leased to someone else. Data stays isolated (that tenant's route verifies the attempt token with its own secret), but the launch itself is not bound to the peer's tenant. Coordinator ruling 2026-09-25: package W01i, owned by w01g-fix right after W01h, lands before the combined run. Not in W16b.
