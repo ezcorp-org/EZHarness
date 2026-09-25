@@ -1,5 +1,7 @@
 # Lessons
 
+- When moving an approved release to a separate runner identity or store, verify that the runner has the exact referenced artifact digest before admitting a provider effect. A database release record alone does not prove its worker artifact is available. Missing pre-worker artifacts must have a distinct error from uncertain external effects.
+
 - Inspect an existing top-level gate ledger before applying a skill's default filename. Preserve historical gates and use the active task's scoped gate file.
 - Treat a PGlite readback as a writer of cache files. Run it on a detached copy or as the app UID; if a root readback must touch a stopped live database, check every file owner before app restart.
 - Before moving a mutable app into a frozen release, inventory both its writable runtime tree and every database-referenced blob. Mount persistent state outside the release and migrate only verified referenced blobs before first start.
@@ -432,3 +434,6 @@
 - Never promote a test fixture ID or synthetic CREATE UUID into a live recovery fact. Read the actual durable row and scope before building server policy or treating an HTTP 409 as proof that a fixture is absent.
 - Before stopping a live test app, prove the restart launcher carries every required runtime library path from the current process environment. The isolated app's launcher omitted `LD_LIBRARY_PATH`, so its first restart returned HTTP 500 until the pinned GCC library path was supplied.
 - Test the exact process-group signal command on the target host. NixOS `kill` rejected the negative group argument in the recovery runbook; Python `os.killpg` worked after verifying the group identity.
+- Treat `systemctl mask` success as a request, not proof. On NixOS, a runtime mask did not override the linked `/etc` service. Check `LoadState`, test a real start denial, and verify the service and user processes remain absent.
+- Test a forced SSH command end to end under its actual Unix account. Direct gate-script tests missed that Incus needs a writable client config directory and that the Nix store copy of `sudo` is not the NixOS setuid wrapper.
+- Keep a rollback timer for temporary server access changes and prove the old route works before cancelling it. A failed independent read must leave the unknown operation unchanged.

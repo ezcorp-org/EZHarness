@@ -78,7 +78,7 @@ class RecoveryFenceTest(unittest.TestCase):
                 FENCE.app_and_runner_absent(config(), old, [process])
         FENCE.app_and_runner_absent(config(), old, [(999, 1001, 900, "999")])
 
-    def test_runner_must_be_masked_stopped_and_have_empty_cgroup(self):
+    def test_runner_must_be_stopped_and_have_empty_cgroup(self):
         base = b"LoadState=masked\nActiveState=inactive\nSubState=dead\nMainPID=0\n"
         unit = config()["runnerUnit"]
         with tempfile.TemporaryDirectory() as temporary:
@@ -86,16 +86,99 @@ class RecoveryFenceTest(unittest.TestCase):
             cgroup.mkdir(parents=True)
             (cgroup / "cgroup.procs").write_text("")
             good = subprocess.CompletedProcess([], 0, base +
-                f"ControlGroup=/system.slice/{unit}\nUnitFileState=masked-runtime\n".encode())
+                f"ControlGroup=/system.slice/{unit}\nUnitFileState=masked-runtime\n".encode() +
+                b"DropInPaths=\nNeedDaemonReload=no\n")
             with mock.patch.object(FENCE.subprocess, "run", return_value=good):
                 FENCE.runner_unit_quiesced(unit, pathlib.Path(temporary))
                 (cgroup / "cgroup.procs").write_text("100\n")
                 with self.assertRaisesRegex(ValueError, "still has clients"):
                     FENCE.runner_unit_quiesced(unit, pathlib.Path(temporary))
-            unmasked = subprocess.CompletedProcess([], 0, base.replace(b"LoadState=masked", b"LoadState=loaded") +
-                b"ControlGroup=\nUnitFileState=enabled\n")
-            with mock.patch.object(FENCE.subprocess, "run", return_value=unmasked):
-                with self.assertRaisesRegex(ValueError, "not masked and stopped"):
+            active = subprocess.CompletedProcess([], 0, base.replace(b"ActiveState=inactive", b"ActiveState=active") +
+                b"ControlGroup=\nUnitFileState=masked-runtime\nDropInPaths=\nNeedDaemonReload=no\n")
+            with mock.patch.object(FENCE.subprocess, "run", return_value=active):
+                with self.assertRaisesRegex(ValueError, "not stopped"):
+                    FENCE.runner_unit_quiesced(unit, pathlib.Path(temporary))
+
+    def test_runtime_assertion_must_be_loaded_exact_and_block_start(self):
+        unit = config()["runnerUnit"]
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            gate = root / (unit + ".d") / "hold.conf"
+            gate.parent.mkdir()
+            gate.write_bytes(FENCE.RUNTIME_ASSERT_CONTENT)
+            allow = root / "allow-start"
+            state = {"DropInPaths": str(gate), "NeedDaemonReload": "no"}
+            original_fstat = os.fstat
+            original_lstat = pathlib.Path.lstat
+
+            def root_file(fd):
+                entry = original_fstat(fd)
+                return types.SimpleNamespace(st_mode=entry.st_mode, st_uid=0,
+                                             st_size=entry.st_size)
+
+            def root_parent(path):
+                entry = original_lstat(path)
+                if path == allow:
+                    return entry
+                return types.SimpleNamespace(st_mode=stat.S_IFDIR | 0o755, st_uid=0)
+
+            with mock.patch.object(FENCE.os, "fstat", side_effect=root_file), \
+                 mock.patch.object(FENCE.Path, "lstat", autospec=True,
+                                   side_effect=root_parent):
+                FENCE.runtime_assert_gate(unit, state, root, allow)
+                allow.write_text("")
+                with self.assertRaisesRegex(ValueError, "start permission path exists"):
+                    FENCE.runtime_assert_gate(unit, state, root, allow)
+                allow.unlink()
+                for changed in ({"DropInPaths": str(gate) + " /run/override.conf"},
+                                {"NeedDaemonReload": "yes"}):
+                    with self.subTest(changed=changed), \
+                         self.assertRaisesRegex(ValueError, "not the loaded"):
+                        FENCE.runtime_assert_gate(unit, {**state, **changed}, root, allow)
+                gate.write_text("[Unit]\nAssertPathExists=/wrong\n")
+                with self.assertRaisesRegex(ValueError, "differs from reviewed"):
+                    FENCE.runtime_assert_gate(unit, state, root, allow)
+            gate.write_bytes(FENCE.RUNTIME_ASSERT_CONTENT)
+            with mock.patch.object(FENCE.Path, "lstat", autospec=True,
+                                   side_effect=root_parent):
+                with self.assertRaisesRegex(ValueError, "differs from reviewed"):
+                    FENCE.runtime_assert_gate(unit, state, root, allow)
+
+            def mutable_parent(path):
+                if path == gate.parent:
+                    return types.SimpleNamespace(st_mode=stat.S_IFDIR | 0o777, st_uid=0)
+                return root_parent(path)
+
+            with mock.patch.object(FENCE.Path, "lstat", autospec=True,
+                                   side_effect=mutable_parent):
+                with self.assertRaisesRegex(ValueError, "parent is mutable"):
+                    FENCE.runtime_assert_gate(unit, state, root, allow)
+            gate.unlink()
+            gate.symlink_to(root / "other.conf")
+            with mock.patch.object(FENCE.Path, "lstat", autospec=True,
+                                   side_effect=root_parent):
+                with self.assertRaises(OSError):
+                    FENCE.runtime_assert_gate(unit, state, root, allow)
+
+    def test_loaded_runner_requires_exact_runtime_assertion(self):
+        unit = config()["runnerUnit"]
+        base = (b"LoadState=loaded\nActiveState=inactive\nSubState=dead\nMainPID=0\n"
+                b"ControlGroup=\nUnitFileState=enabled-runtime\n"
+                b"DropInPaths=/run/systemd/system/ezharness-qual-runner.service.d/hold.conf\n"
+                b"NeedDaemonReload=no\n")
+        result = subprocess.CompletedProcess([], 0, base)
+        with tempfile.TemporaryDirectory() as temporary, \
+             mock.patch.object(FENCE.subprocess, "run", return_value=result), \
+             mock.patch.object(FENCE, "runtime_assert_gate") as assertion:
+            FENCE.runner_unit_quiesced(unit, pathlib.Path(temporary))
+            assertion.assert_called_once()
+            assertion.reset_mock()
+            stale = subprocess.CompletedProcess([], 0, base.replace(
+                b"NeedDaemonReload=no", b"NeedDaemonReload=yes"))
+            with mock.patch.object(FENCE.subprocess, "run", return_value=stale):
+                # The integration call must delegate validation; a stale unit is rejected there.
+                assertion.side_effect = ValueError("runner assertion is not the loaded unit configuration")
+                with self.assertRaisesRegex(ValueError, "not the loaded"):
                     FENCE.runner_unit_quiesced(unit, pathlib.Path(temporary))
 
     def test_positive_local_fence_returns_only_supervisor_contract(self):

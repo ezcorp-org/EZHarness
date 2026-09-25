@@ -296,6 +296,141 @@ function assertProbeCommand(command: Readonly<IncusTransportRequest>): void {
     }
 }
 
+type ProbeGet = (path: string) => Promise<Record<string, unknown>>;
+
+function pinnedProbeConnection(connection: ResolvedIncusConnection, command: Readonly<IncusTransportRequest>) {
+  if (connection.project !== command.pins.project) {
+    throw new IncusTransportError("permission", "Incus project pin does not match");
+  }
+  const certificate = pinnedCertificate(connection.serverCertificatePem);
+  const fingerprint = createHash("sha256").update(certificate.raw).digest("hex");
+  if (fingerprint !== command.pins.serverCertificateSha256) {
+    throw new IncusTransportError("permission", "Incus server certificate pin does not match");
+  }
+  const origin = pinnedOrigin(connection.endpoint);
+  const hostname = origin.hostname.replace(/^\[|\]$/g, "");
+  const matchesEndpoint = isIP(hostname) ? certificate.checkIP(hostname) : certificate.checkHost(hostname);
+  if (!matchesEndpoint) {
+    throw new IncusTransportError("permission", "Incus server certificate does not match the endpoint");
+  }
+  return { origin, fingerprint };
+}
+
+function pinnedProbeTls(connection: ResolvedIncusConnection, fingerprint: string): Parameters<PinnedFetch>[1]["tls"] {
+  return {
+    cert: connection.clientCertificatePem,
+    key: connection.privateKeyPem,
+    ca: connection.serverCertificatePem,
+    rejectUnauthorized: true,
+    checkServerIdentity: (hostname: string, peer: PeerCertificate): Error | undefined => {
+      const nameError = checkServerIdentity(hostname, peer);
+      if (nameError) return new Error("Incus server identity was rejected");
+      if (!peer.raw || createHash("sha256").update(peer.raw).digest("hex") !== fingerprint) {
+        return new Error("Incus server certificate pin does not match");
+      }
+      return undefined;
+    },
+  };
+}
+
+function fixedProbeGet(http: PinnedFetch, origin: URL, tls: Parameters<PinnedFetch>[1]["tls"],
+  signal: AbortSignal, deadline: Promise<never>): ProbeGet {
+  return async path => {
+    const url = new URL(path, origin);
+    const response = await Promise.race([
+      http(url.href, { method: "GET", redirect: "manual", proxy: false, decompress: false, signal, tls }),
+      deadline,
+    ]);
+    return metadata(await Promise.race([boundedJson(response), deadline]));
+  };
+}
+
+function exactSettings(actual: Record<string, unknown>, expected: Record<string, unknown>): boolean {
+  return Object.keys(expected).every(key => actual[key] === expected[key]);
+}
+
+async function reviewedProbeControls(approved: NonNullable<HostConnectionScope["approvedPreflight"]>,
+  command: Readonly<IncusTransportRequest>, connection: ResolvedIncusConnection,
+  projectConfig: Record<string, unknown>, profile: Record<string, unknown>, get: ProbeGet) {
+  const recipe = approved.recipe;
+  const imageAlias = assertReviewedBinding(approved, command, connection);
+  assertReviewedProject(projectConfig, recipe);
+  const { profileConfig, nic } = reviewedProfileControls(profile, recipe);
+  const pool = await get(`/1.0/storage-pools/${encodeURIComponent(recipe.storage.name)}?project=${encodeURIComponent(connection.project)}`);
+  const imageRow = await get(`/1.0/images/${approved.imageFingerprint}?project=${encodeURIComponent(connection.project)}`);
+  assertReviewedStorageImage(pool, imageRow, approved, recipe, imageAlias);
+  return {
+    storageDriver: pool.driver as string,
+    unprivileged: profileConfig["security.privileged"] === "false"
+      && profileConfig["security.idmap.isolated"] === "true",
+    projectLimits: reviewedProjectLimits(projectConfig, recipe),
+    privateNetwork: projectConfig["restricted.networks.access"] === recipe.network.name
+      && nic.network === recipe.network.name && nic["security.port_isolation"] === "true",
+  };
+}
+
+function assertReviewedBinding(approved: NonNullable<HostConnectionScope["approvedPreflight"]>,
+  command: Readonly<IncusTransportRequest>, connection: ResolvedIncusConnection): string {
+  const { recipe } = approved;
+  const image = recipe.guestImage;
+  if (!image || ![
+    image.fingerprint === approved.imageFingerprint,
+    image.helperSha256 === approved.helperSha256,
+    image.user === command.pins.guestUser,
+    recipe.profile.name === command.pins.profile,
+    recipe.project.name === connection.project,
+  ].every(Boolean)) {
+    throw new IncusTransportError("permission", "Incus reviewed setup or guest image changed");
+  }
+  return image.alias;
+}
+
+function assertReviewedProject(projectConfig: Record<string, unknown>, recipe: IncusSetupRecipe): void {
+  const projectExpected = { ...recipe.project.config, "restricted.images.servers": "," };
+  if (![
+    exactSettings(projectConfig, projectExpected),
+    projectConfig.restricted === "true",
+    projectConfig["features.images"] === "false",
+  ].every(Boolean)) {
+    throw new IncusTransportError("permission", "Incus reviewed project controls changed");
+  }
+}
+
+function reviewedProjectLimits(projectConfig: Record<string, unknown>, recipe: IncusSetupRecipe): boolean {
+  const expected = recipe.project.config;
+  const disk = `limits.disk.pool.${recipe.storage.name}`;
+  return ["limits.memory", "limits.cpu", "limits.processes", disk]
+    .every(key => projectConfig[key] === expected[key]);
+}
+
+function reviewedProfileControls(profile: Record<string, unknown>, recipe: IncusSetupRecipe) {
+  const profileConfig = object(profile.config);
+  const profileDevices = object(profile.devices);
+  const root = object(profileDevices.root);
+  const nic = object(profileDevices.eth0);
+  const expectedRoot = recipe.profile.devices.root;
+  const expectedNic = recipe.profile.devices.eth0;
+  if (!expectedRoot || !expectedNic || ![
+    exactSettings(profileConfig, recipe.profile.config),
+    Object.keys(profileDevices).sort().join(",") === "eth0,root",
+    exactSettings(root, expectedRoot),
+    exactSettings(nic, expectedNic),
+  ].every(Boolean)) {
+    throw new IncusTransportError("permission", "Incus reviewed profile controls changed");
+  }
+  return { profileConfig, nic };
+}
+
+function assertReviewedStorageImage(pool: Record<string, unknown>, imageRow: Record<string, unknown>,
+  approved: NonNullable<HostConnectionScope["approvedPreflight"]>, recipe: IncusSetupRecipe, imageAlias: string): void {
+  const aliases = imageRow.aliases;
+  if (pool.name !== recipe.storage.name || pool.driver !== recipe.storage.driver
+    || imageRow.fingerprint !== approved.imageFingerprint || imageRow.type !== "container"
+    || !Array.isArray(aliases) || !aliases.some(value => object(value).name === imageAlias)) {
+    throw new IncusTransportError("permission", "Incus reviewed storage or image changed");
+  }
+}
+
 /** A host-only read probe. Unsupported actions cannot resolve credentials or issue HTTP. */
 export class HostIncusProbeTransport implements IncusTransport {
   constructor(
@@ -321,42 +456,8 @@ export class HostIncusProbeTransport implements IncusTransport {
           .catch(() => { throw new IncusTransportError("not_found", "Incus connection is unavailable"); }),
         deadline,
       ]);
-      if (connection.project !== command.pins.project) {
-        throw new IncusTransportError("permission", "Incus project pin does not match");
-      }
-      const certificate = pinnedCertificate(connection.serverCertificatePem);
-      const actualFingerprint = createHash("sha256").update(certificate.raw).digest("hex");
-      if (actualFingerprint !== command.pins.serverCertificateSha256) {
-        throw new IncusTransportError("permission", "Incus server certificate pin does not match");
-      }
-      const origin = pinnedOrigin(connection.endpoint);
-      const hostname = origin.hostname.replace(/^\[|\]$/g, "");
-      const matchesEndpoint = isIP(hostname) ? certificate.checkIP(hostname) : certificate.checkHost(hostname);
-      if (!matchesEndpoint) {
-        throw new IncusTransportError("permission", "Incus server certificate does not match the endpoint");
-      }
-      const tls = {
-        cert: connection.clientCertificatePem,
-        key: connection.privateKeyPem,
-        ca: connection.serverCertificatePem,
-        rejectUnauthorized: true as const,
-        checkServerIdentity: (hostname: string, peer: PeerCertificate): Error | undefined => {
-          const nameError = checkServerIdentity(hostname, peer);
-          if (nameError) return new Error("Incus server identity was rejected");
-          if (!peer.raw || createHash("sha256").update(peer.raw).digest("hex") !== actualFingerprint) {
-            return new Error("Incus server certificate pin does not match");
-          }
-          return undefined;
-        },
-      };
-      const get = async (path: string): Promise<Record<string, unknown>> => {
-        const url = new URL(path, origin);
-        const response = await Promise.race([
-          this.http(url.href, { method: "GET", redirect: "manual", proxy: false, decompress: false, signal: controller.signal, tls }),
-          deadline,
-        ]);
-        return metadata(await Promise.race([boundedJson(response), deadline]));
-      };
+      const { origin, fingerprint: actualFingerprint } = pinnedProbeConnection(connection, command);
+      const get = fixedProbeGet(this.http, origin, pinnedProbeTls(connection, actualFingerprint), controller.signal, deadline);
       const server = await get(`/1.0?project=${encodeURIComponent(connection.project)}`);
       const project = await get(`/1.0/projects/${encodeURIComponent(connection.project)}`);
       const profile = await get(`/1.0/profiles/${encodeURIComponent(command.pins.profile)}?project=${encodeURIComponent(connection.project)}`);
@@ -383,50 +484,9 @@ export class HostIncusProbeTransport implements IncusTransport {
       let backendControls = { unprivileged: false, projectLimits: false, privateNetwork: false };
       let reviewedGuest = false;
       if (approved) {
-        const recipe = approved.recipe;
-        const image = recipe.guestImage;
-        if (!image || image.fingerprint !== approved.imageFingerprint
-          || image.helperSha256 !== approved.helperSha256 || image.user !== command.pins.guestUser
-          || recipe.profile.name !== command.pins.profile || recipe.project.name !== connection.project) {
-          throw new IncusTransportError("permission", "Incus reviewed setup or guest image changed");
-        }
-        const exact = (actual: Record<string, unknown>, expected: Record<string, unknown>) =>
-          Object.keys(expected).every(key => actual[key] === expected[key]);
-        const projectExpected = { ...recipe.project.config, "restricted.images.servers": "," };
-        if (!exact(projectConfig, projectExpected) || projectConfig.restricted !== "true"
-          || projectConfig["features.images"] !== "false") {
-          throw new IncusTransportError("permission", "Incus reviewed project controls changed");
-        }
-        const profileConfig = object(profile.config);
-        const profileDevices = object(profile.devices);
-        const root = object(profileDevices.root);
-        const nic = object(profileDevices.eth0);
-        if (!exact(profileConfig, recipe.profile.config)
-          || Object.keys(profileDevices).sort().join(",") !== "eth0,root"
-          || !recipe.profile.devices.root || !recipe.profile.devices.eth0
-          || !exact(root, recipe.profile.devices.root)
-          || !exact(nic, recipe.profile.devices.eth0)) {
-          throw new IncusTransportError("permission", "Incus reviewed profile controls changed");
-        }
-        const pool = await get(`/1.0/storage-pools/${encodeURIComponent(recipe.storage.name)}?project=${encodeURIComponent(connection.project)}`);
-        const imageRow = await get(`/1.0/images/${approved.imageFingerprint}?project=${encodeURIComponent(connection.project)}`);
-        const aliases = imageRow.aliases;
-        if (pool.name !== recipe.storage.name || pool.driver !== recipe.storage.driver
-          || imageRow.fingerprint !== approved.imageFingerprint || imageRow.type !== "container"
-          || !Array.isArray(aliases) || !aliases.some(value => object(value).name === image.alias)) {
-          throw new IncusTransportError("permission", "Incus reviewed storage or image changed");
-        }
-        storageDriver = pool.driver as string;
-        backendControls = {
-          unprivileged: profileConfig["security.privileged"] === "false"
-            && profileConfig["security.idmap.isolated"] === "true",
-          projectLimits: projectConfig["limits.memory"] === recipe.project.config["limits.memory"]
-            && projectConfig["limits.cpu"] === recipe.project.config["limits.cpu"]
-            && projectConfig["limits.processes"] === recipe.project.config["limits.processes"]
-            && projectConfig[`limits.disk.pool.${recipe.storage.name}`] === recipe.project.config[`limits.disk.pool.${recipe.storage.name}`],
-          privateNetwork: projectConfig["restricted.networks.access"] === recipe.network.name
-            && nic.network === recipe.network.name && nic["security.port_isolation"] === "true",
-        };
+        const controls = await reviewedProbeControls(approved, command, connection, projectConfig, profile, get);
+        storageDriver = controls.storageDriver;
+        backendControls = controls;
         reviewedGuest = true;
       }
       // The guest controls below require both the pinned image/helper and a

@@ -1,6 +1,7 @@
 import { afterEach, expect, mock, test } from "bun:test";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
+import { RunnerError } from "@ezcorp/extension-runner";
 import * as schema from "../db/schema";
 import { up as addSandboxController } from "../db/migrations/add-sandbox-controller";
 import type { IncusDispatchScope } from "../sandboxes/incus-dispatcher";
@@ -11,6 +12,7 @@ let activeRelease: { installation: { generation: number }; release: { id: string
 const calls: { operation: string; input: Record<string, unknown> }[] = [];
 const retiredCalls: string[] = [];
 let settled = false;
+let releaseError: unknown;
 mock.module("../db/connection", () => ({ getDb: () => database }));
 mock.module("../extensions/release-process", () => ({
   getReleaseRuntime: () => ({}),
@@ -19,6 +21,7 @@ mock.module("../extensions/release-process", () => ({
     constructor(readonly installationId: string) {}
     async callIncusSandboxOperation(_bindingId: string, operation: string, input: Record<string, unknown>) {
       calls.push({ operation, input });
+      if (releaseError) throw releaseError;
       return { result: { ok: true, operation } };
     }
     kill() {}
@@ -43,6 +46,7 @@ async function fixture(kind: "CREATE" | "START" | "STOP" | "DESTROY" = "CREATE")
   calls.length = 0;
   retiredCalls.length = 0;
   settled = false;
+  releaseError = undefined;
   activeRelease = { installation: { generation: 1 }, release: { id: "release" } };
   const client = new PGlite();
   databases.push(client);
@@ -73,6 +77,21 @@ test("a durable create receipt reaches the active release and settles its call",
   expect(await caller.call(scope, "incus/lifecycle/create", create)).toEqual({ ok: true, operation: "lifecycle.create" });
   expect(calls).toEqual([{ operation: "lifecycle.create", input: create }]);
   expect(settled).toBe(true);
+}, DB_TEST_TIMEOUT_MS);
+
+test("only a missing runner artifact is a definitive pre-start dispatch failure", async () => {
+  const caller = await fixture();
+  releaseError = new RunnerError("artifact_missing", "Pinned worker artifact is missing");
+  await expect(caller.call(scope, "incus/lifecycle/create", create))
+    .rejects.toMatchObject({ code: "ARTIFACT_UNAVAILABLE" });
+  expect(settled).toBe(true);
+
+  for (const error of [new RunnerError("artifact_unavailable", "Unproven artifact failure"),
+    new RunnerError("runner_unavailable", "Runner disconnected"),
+    new Error("Reply lost after start")]) {
+    releaseError = error;
+    await expect(caller.call(scope, "incus/lifecycle/create", create)).rejects.toBe(error);
+  }
 }, DB_TEST_TIMEOUT_MS);
 
 test("method caller denies unapproved methods and forged scope before any effect", async () => {

@@ -334,6 +334,18 @@ class Supervisor:
                 "fenced": True, "evidence": request["fenceEvidence"]}:
             raise ValueError("independent runner client fence verification failed")
 
+    def preflight_recovery_config(self):
+        path = os.environ.get("EZCORP_INCUS_NOEFFECT_CONFIG")
+        if not path or not Path(path).is_absolute():
+            raise ValueError("operator recovery config requires an absolute path")
+        try:
+            file = Path(path).lstat()
+        except OSError as error:
+            raise ValueError("operator recovery config is unavailable") from error
+        if not stat.S_ISREG(file.st_mode) or file.st_uid != os.geteuid() \
+                or file.st_mode & 0o077 or not 0 < file.st_size <= 128 * 1024:
+            raise ValueError("operator recovery config must be a private operator-owned regular file")
+
     def recover_noeffect(self, request):
         validate_recovery(request)
         if not self.recovery_command or not self.recovery_fence_command \
@@ -341,6 +353,7 @@ class Supervisor:
                 or self.child is None:
             raise ValueError("operator recovery unavailable, replayed, or held for operator review")
         self.assert_exclusive_app_uid()
+        self.preflight_recovery_config()
         self.used_recoveries.add(request["nonce"])
         self.set_recovery_hold(request)
         old_process = self.stop_child()

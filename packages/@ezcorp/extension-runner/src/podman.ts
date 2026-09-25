@@ -248,7 +248,16 @@ export class PodmanRunner implements Runner {
     if (this.operations.get(id)?.state !== "building") throw new RunnerError("cancelled", "Build was cancelled");
   }
   async collectArtifacts(artifactDigest: string): Promise<WorkspaceFiles> {
-    const files = JSON.parse(await readFile(join(this.root, "artifacts", digest(artifactDigest)), "utf8"));
+    let stored: string;
+    try {
+      stored = await readFile(join(this.root, "artifacts", digest(artifactDigest)), "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        throw new RunnerError("artifact_missing", "Runner artifact is missing from its local store");
+      }
+      throw error;
+    }
+    const files = JSON.parse(stored);
     validateFiles(files, 160 * 1024 ** 2, 4000);
     if (filesDigest(files) !== artifactDigest) throw new RunnerError("artifact_corrupt", "Stored artifact digest mismatch");
     return files;
@@ -311,7 +320,15 @@ export class PodmanRunner implements Runner {
         if (!this.containers.has(input.workerId)) await rm(stage, { recursive: true, force: true });
       }).catch(cleanupFailed);
       return execution;
-    } catch (error) { this.activeExecutions--; this.operations.set(input.workerId, { id: input.workerId, state: "failed", diagnostics: [new RunnerError("worker_start_failed", "Worker could not start").diagnostic()] }); if (staged) await rm(staged, { recursive: true, force: true }); throw error; }
+    } catch (error) {
+      this.activeExecutions--;
+      const diagnostic = error instanceof RunnerError && error.code === "artifact_missing"
+        ? error.diagnostic()
+        : new RunnerError("worker_start_failed", "Worker could not start").diagnostic();
+      this.operations.set(input.workerId, { id: input.workerId, state: "failed", diagnostics: [diagnostic] });
+      if (staged) await rm(staged, { recursive: true, force: true });
+      throw error;
+    }
   }
   async cancel(id: string): Promise<void> {
     identifier(id);

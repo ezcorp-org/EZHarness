@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm";
+import { RunnerError } from "@ezcorp/extension-runner";
 import { getDb } from "../db/connection";
 import { sandboxBindings, sandboxOperations, type SandboxBinding, type SandboxOperation } from "../db/schema";
 import { getReleaseRuntime, ReleaseProcess, resolveActiveRelease } from "../extensions/release-process";
@@ -103,6 +104,13 @@ export class IncusMethodCaller implements HostAuthorizedIncusMethodCaller {
     try {
       const response = await process.callIncusSandboxOperation(scope.bindingId, operation, input);
       return response.result;
+    } catch (error) {
+      // This runner error is raised only when the pinned worker artifact is
+      // missing before any provider worker can start or admit an Incus effect.
+      if (error instanceof RunnerError && error.code === "artifact_missing") {
+        throw new IncusDispatchAuthorizationError("ARTIFACT_UNAVAILABLE");
+      }
+      throw error;
     } finally {
       // A lost reply may hide an admitted Incus effect. The controller keeps
       // those errors UNKNOWN until provider readback proves the outcome.

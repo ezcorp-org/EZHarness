@@ -32,9 +32,9 @@ export interface HostAuthorizedIncusMethodCaller {
   call(scope: IncusDispatchScope, method: LifecycleMethod, input: Record<string, unknown>): Promise<unknown>;
 }
 
-/** Only proven pre-dispatch authorization denials may be marked failed. */
+/** Only proven failures before any provider effect may be marked failed. */
 export class IncusDispatchAuthorizationError extends Error {
-  constructor(readonly code: "RELEASE_REVOKED" | "RELEASE_CHANGED" | "CONNECTION_REVOKED" | "CONNECTION_CHANGED" | "SCOPE_INVALID") {
+  constructor(readonly code: "RELEASE_REVOKED" | "RELEASE_CHANGED" | "CONNECTION_REVOKED" | "CONNECTION_CHANGED" | "SCOPE_INVALID" | "ARTIFACT_UNAVAILABLE") {
     super(code);
     this.name = "IncusDispatchAuthorizationError";
   }

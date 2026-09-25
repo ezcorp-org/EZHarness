@@ -1,6 +1,8 @@
 import importlib.util
 import os
 import pathlib
+import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -187,6 +189,54 @@ class NoEffectObservationGateTest(unittest.TestCase):
                        {"instances": [{"unexpected": True}]}):
             with self.subTest(kwargs=kwargs), self.assertRaises(gate.Denied):
                 self.observe(**kwargs)
+
+
+class ExecuteEnvironmentTest(unittest.TestCase):
+    def test_read_only_incus_call_uses_private_config_and_removes_it(self):
+        argv = ["incus", "query", "/1.0/projects/ezharness"]
+        self.assertTrue(gate.is_read_only_argv(argv))
+        real_popen = subprocess.Popen
+        observed = {}
+
+        def launch(_argv, **kwargs):
+            env = kwargs["env"]
+            config = pathlib.Path(env["INCUS_CONF"])
+            observed["config"] = config
+            self.assertTrue(config.is_dir())
+            self.assertEqual(config.stat().st_mode & 0o777, 0o700)
+            self.assertEqual(config.parent, pathlib.Path("/tmp"))
+            self.assertEqual(env["HOME"], "/var/empty")
+            self.assertEqual(set(env), {"PATH", "HOME", "LC_ALL", "INCUS_CONF"})
+            return real_popen([sys.executable, "-c",
+                "import os, pathlib; pathlib.Path(os.environ['INCUS_CONF'], 'client').write_text('ok'); print('[]')"],
+                **kwargs)
+
+        with patch.object(gate.subprocess, "Popen", side_effect=launch):
+            code, stdout, stderr = gate.execute(argv, b"", timeout=5)
+        self.assertEqual((code, stdout, stderr), (0, b"[]\n", b""))
+        self.assertFalse(observed["config"].exists())
+
+    def test_incus_config_is_removed_if_process_cannot_start(self):
+        observed = {}
+
+        def fail(_argv, **kwargs):
+            observed["config"] = pathlib.Path(kwargs["env"]["INCUS_CONF"])
+            self.assertTrue(observed["config"].is_dir())
+            raise OSError("cannot start")
+
+        with patch.object(gate.subprocess, "Popen", side_effect=fail):
+            with self.assertRaisesRegex(OSError, "cannot start"):
+                gate.execute(["incus", "version"], b"")
+        self.assertFalse(observed["config"].exists())
+
+    def test_non_incus_call_has_no_client_config(self):
+        def fail(_argv, **kwargs):
+            self.assertNotIn("INCUS_CONF", kwargs["env"])
+            raise OSError("cannot start")
+
+        with patch.object(gate.subprocess, "Popen", side_effect=fail):
+            with self.assertRaisesRegex(OSError, "cannot start"):
+                gate.execute(["uname", "-m"], b"")
 
 
 if __name__ == "__main__":

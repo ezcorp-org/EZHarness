@@ -1,3 +1,21 @@
+# Current Incus live completion
+
+- [x] Recover the first unknown CREATE with a signed no-effect receipt and restore the scoped client certificate.
+- [x] Apply and verify the release 0.1.2 Incus setup for connection `540e2032-532f-4d8f-9a4e-df50c8e9f43a`.
+- [x] Apply the reviewed 32 GiB capacity plan for that connection.
+- [x] Find and install the exact approved provider artifact in the dedicated runner store; a direct worker probe now starts and reaches the expected helper qualification gate.
+- [x] Prove the sandbox server is reachable, Incus is active, and a direct disposable canary creates and deletes with the same pinned TLS transport.
+- [x] Make a missing runner artifact a definite pre-worker failure; prove the code survives the Unix runner API and the Incus dispatcher does not retry unknown errors.
+- [x] Run focused recovery, transport, preview, runner, dispatcher, and SSH-gate tests; full typecheck, lint, and production build pass on this worktree.
+- [ ] Recover the second unknown CREATE `016f7e51-60a6-4e19-aa32-77d44b745053` with the independent fence and signed no-effect procedure before another EZHarness CREATE.
+- [ ] Run a complete EZHarness-owned guest fixture, the live qualification cases, feature workflow, and cleanup.
+- [ ] Remove the temporary `/var/empty/.config` workaround after the corrected NixOS setup gate is active.
+- [ ] Finish the source fixes, pass the CRAP gate and all hosted checks on the final PR head, and publish the measured live evidence.
+
+Review: The server is up. Setup `97edb3a1-80e4-4305-baac-1325930b868d` is verified, and capacity digest `a4124441943808b4311afe333aa59d2b43a52b6623bb39a5a17de8719238ce43` applied. The first provider worker call failed because the new runner store held zero artifacts; the exact approved artifact digest `2fc8d4c91d0b8ec779451cc6ff0f8fc93e17ddec9085e0d632d65d9bde7008d5` has now been copied and SHA-256 checked. A new read-only worker probe reaches Incus and stops at the helper qualification gate, which needs live guest evidence. The second CREATE is still `OUTCOME_UNKNOWN`; the expected instance is absent, but that alone is not a no-effect proof. A separate direct canary was created and deleted, showing the pinned Incus transport works. PR #303's prior head has one failing CRAP gate; focused refactors and tests are in progress. See `docs/validation/2026-09-24-post-recovery-incus-setup-review.md`.
+
+Second recovery preparation is recorded in `docs/validation/2026-09-24-second-unknown-create-recovery-review.md`. It has target-specific staged files and exact hashes, but no server fence or recovery request has run. On the current source tree, the focused tests, full typecheck, lint, and production build pass. Hosted coverage and CRAP gates still need the final pushed head.
+
 # Wire `trusted-local` — the explicit, per-release-approved unsandboxed extension mode
 
 ## First EZHarness-owned Incus sandbox — live completion (24 September 2026)
@@ -1900,3 +1918,19 @@ service or sandbox has been activated by these steps.
 ### Review
 
 The server and AMD host generations are active. A consistent detached PGlite copy confirmed CREATE `62633686-a1bc-4b93-b87a-54fdbc96c2fd` is truly `OUTCOME_UNKNOWN`, with fixture `live-fixture-20260924`, binding `incus-qual-binding-55cd3694c953ba5c7f5213e70a779ef1939c5fbc31ee8963622a4fe146a2a8fe`, and derived instance `ezh-6b3b9dde8ce9a4cc358f04db0d5cbde1`. The first restart lacked a needed `LD_LIBRARY_PATH` and returned 500; the parent stopped only that failed app group and relaunched with the pinned GCC library path. Health, readiness, and authenticated status then returned 200 and confirmed the same CREATE. The separate runner remained running. The observer module is merged into still-open NixOS PR #4 but inactive on the server. The intermediate `bfebe35e7` bundle passed full inventory verification and an HTTP 200 smoke as UID 62040; it has not been installed. Dedicated cutover, independent recovery, and an EZHarness-owned guest remain open.
+
+## 2026-09-24 — Recovery gate live attempt
+
+- [x] Prove the NixOS runner service ignores a runtime mask; install and test an exact assertion drop-in that rejects a real start request.
+- [x] Extend the local recovery fence to validate the loaded assertion gate, absent allow path, stopped runner, and empty cgroup; pass focused tests and a live local check.
+- [x] Activate the temporary server access gate under a rollback timer; verify root access, denied new dev/setup SSH, and completed dev-slice freeze.
+- [x] Save and verify the exact old Incus client certificate, revoke only its pinned fingerprint, and confirm empty project instance/operation/trust inventories.
+- [x] Reproduce the observer failure in the actual forced-command path; restore the old server generation, cancel the rollback timer, and remove temporary CLI files.
+- [ ] Fix the observer's Incus CLI config directory and NixOS sudo wrapper; test the complete forced command before another certificate or database action.
+- [ ] Rebuild and activate the corrected temporary server generation with rollback; repeat the independent observer reads at least 65 seconds apart.
+- [ ] Apply one signed no-effect recovery request and prove the durable CREATE, binding, and cleanup receipt.
+- [ ] Restore the reviewed provider connection and runner, run a real EZHarness-owned sandbox lifecycle, then verify final PR head and CI.
+
+### Review
+
+The old certificate remains revoked, the isolated app remains behind the local TCP hold, and the runner is stopped behind a tested systemd assertion gate. The saved CREATE is still `OUTCOME_UNKNOWN`; no signed recovery request was submitted. The first temporary server generation was fully rolled back after the observer exposed two integration defects: the Incus CLI could not write under immutable `/var/empty`, and the NixOS observer's store copy of `sudo` lacked setuid permission. Direct Incus reads and direct observer script invocation passed after a temporary CLI-home test, but the forced SSH path did not. The temporary CLI files were removed and `/var/empty` is immutable again. No guest has been created by EZHarness.

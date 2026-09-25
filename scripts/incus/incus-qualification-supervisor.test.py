@@ -220,6 +220,9 @@ print(json.dumps({'snapshot':{'alive':alive}}))
             supervisor = MODULE.Supervisor(str(root / "control.sock"), ["true"],
                 os.getuid(), os.getgid(), key, ["true"], ["true"],
                 enforce_distinct_uid=False)
+            config = root / "noeffect.json"
+            config.write_text("{}")
+            config.chmod(0o600)
             supervisor.recovery_command = ["verifier"]
             with self.assertRaisesRegex(ValueError, "independent runner client fence verifier"):
                 supervisor.verify_recovery_fence({"fenceEvidence": "evidence",
@@ -272,7 +275,8 @@ print(json.dumps({'snapshot':{'alive':alive}}))
             supervisor.recovery_stage = stage
             supervisor.sign_payload = lambda payload: events.append("sign") or {
                 "payload": payload, "signature": "signed"}
-            with mock.patch.object(MODULE.time, "sleep", lambda _seconds: None):
+            with mock.patch.dict(os.environ, {"EZCORP_INCUS_NOEFFECT_CONFIG": str(config)}), \
+                 mock.patch.object(MODULE.time, "sleep", lambda _seconds: None):
                 # The test clock must advance across the required quiet windows.
                 with mock.patch.object(MODULE.time, "time",
                         side_effect=[1000, 1000, 1066, 1066, 1072]), \
@@ -293,7 +297,8 @@ print(json.dumps({'snapshot':{'alive':alive}}))
                 if events.count("fence") == 2:
                     raise ValueError("runner restarted")
             supervisor.verify_recovery_fence = late_fence
-            with mock.patch.object(MODULE.time, "sleep", lambda _seconds: None), \
+            with mock.patch.dict(os.environ, {"EZCORP_INCUS_NOEFFECT_CONFIG": str(config)}), \
+                 mock.patch.object(MODULE.time, "sleep", lambda _seconds: None), \
                  mock.patch.object(MODULE.subprocess, "run", return_value=subprocess.CompletedProcess(
                      [], 0, stdout=b"public key")):
                 with self.assertRaisesRegex(ValueError, "runner restarted"):
@@ -309,6 +314,51 @@ print(json.dumps({'snapshot':{'alive':alive}}))
             with self.assertRaisesRegex(ValueError, "invalid operator recovery"):
                 supervisor.recover_noeffect(altered)
 
+    def test_missing_recovery_config_keeps_managed_app_running(self):
+        with tempfile.TemporaryDirectory(prefix="incus-supervisor-", dir="/tmp") as directory:
+            root = Path(directory)
+            key = root / "key.pem"
+            key.write_text("private test key")
+            key.chmod(0o600)
+            supervisor = MODULE.Supervisor(str(root / "control.sock"),
+                [sys.executable, "-c", "import time; time.sleep(60)"],
+                os.getuid(), os.getgid(), key, ["true"], ["true"],
+                enforce_distinct_uid=False)
+            supervisor.recovery_command = ["verifier"]
+            supervisor.recovery_fence_command = ["checker"]
+            supervisor.start_child()
+            child = supervisor.child
+            request = {"version": 1, "action": "recover-noeffect", "nonce": "nonce",
+                "reviewId": "review", "scope": {"installationId": "installation",
+                    "releaseId": "release", "connectionId": "connection", "presetId": "preset"},
+                "fixtureOperationId": "fixture", "bindingId": "binding",
+                "operationId": "unknown-create", "generation": 1, "connectionRevision": 1,
+                "allClientsFenced": True, "fenceEvidence": "reviewed stopped clients",
+                "deadlineMs": int(time.time() * 1000) + 160000}
+            try:
+                with mock.patch.dict(os.environ, {"EZCORP_INCUS_NOEFFECT_CONFIG": ""}):
+                    with self.assertRaisesRegex(ValueError, "config requires an absolute path"):
+                        supervisor.recover_noeffect(request)
+                config = root / "noeffect.json"
+                config.write_text("{}")
+                config.chmod(0o644)
+                with mock.patch.dict(os.environ, {"EZCORP_INCUS_NOEFFECT_CONFIG": str(config)}):
+                    with self.assertRaisesRegex(ValueError, "private operator-owned regular file"):
+                        supervisor.recover_noeffect(request)
+                config.chmod(0o600)
+                alias = root / "noeffect-link.json"
+                alias.symlink_to(config)
+                with mock.patch.dict(os.environ, {"EZCORP_INCUS_NOEFFECT_CONFIG": str(alias)}):
+                    with self.assertRaisesRegex(ValueError, "private operator-owned regular file"):
+                        supervisor.recover_noeffect(request)
+                self.assertIs(supervisor.child, child)
+                self.assertIsNone(child.poll())
+                self.assertFalse(supervisor.recovery_hold_path.exists())
+                self.assertNotIn(request["nonce"], supervisor.used_recoveries)
+            finally:
+                os.killpg(child.pid, signal.SIGKILL)
+                child.wait(timeout=5)
+
     def test_real_failed_operator_fence_keeps_managed_app_stopped(self):
         with tempfile.TemporaryDirectory(prefix="incus-supervisor-", dir="/tmp") as directory:
             root = Path(directory)
@@ -316,6 +366,9 @@ print(json.dumps({'snapshot':{'alive':alive}}))
             subprocess.run(["openssl", "genpkey", "-algorithm", "Ed25519", "-out", str(key)],
                            check=True, capture_output=True)
             key.chmod(0o600)
+            config = root / "noeffect.json"
+            config.write_text("{}")
+            config.chmod(0o600)
             socket_path = root / "control.sock"
             operator_path = root / "operator.sock"
             app_pids = root / "app-pids"
@@ -331,7 +384,8 @@ supervisor.recovery_fence_command=[sys.executable,'-c','raise SystemExit(1)']
 supervisor.serve()
 """, str(SOURCE), str(socket_path), str(operator_path), str(key), child_code,
                 str(app_pids)]
-            runner = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            runner = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                env={**os.environ, "EZCORP_INCUS_NOEFFECT_CONFIG": str(config)})
             try:
                 for _ in range(100):
                     if operator_path.exists() and app_pids.exists(): break
@@ -366,7 +420,8 @@ supervisor.serve()
                 runner.terminate()
                 runner.wait(timeout=5)
                 runner.stdout.close(); runner.stderr.close()
-                runner = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                runner = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                    env={**os.environ, "EZCORP_INCUS_NOEFFECT_CONFIG": str(config)})
                 for _ in range(100):
                     if operator_path.exists(): break
                     time.sleep(0.05)

@@ -11,6 +11,7 @@ import signal
 import stat
 import subprocess
 import sys
+import tempfile
 import time
 
 ORIGINAL_COMMAND = "ezh-incus-operator-v1"
@@ -165,6 +166,16 @@ def authorize(policy, original, payload, now=None):
 
 def execute(argv, input_bytes, timeout=TIMEOUT):
     env = {"PATH": "/run/current-system/sw/bin", "HOME": "/var/empty", "LC_ALL": "C"}
+    if argv[0] == "incus":
+        # Incus writes client configuration even for local, read-only queries.
+        # Give each call its own private directory and remove it on every exit.
+        with tempfile.TemporaryDirectory(prefix="ezh-incus-conf-", dir="/tmp") as incus_conf:
+            env["INCUS_CONF"] = incus_conf
+            return _execute_bounded(argv, input_bytes, timeout, env)
+    return _execute_bounded(argv, input_bytes, timeout, env)
+
+
+def _execute_bounded(argv, input_bytes, timeout, env):
     executable = "/run/current-system/sw/bin/" + argv[0]
     proc = subprocess.Popen([executable, *argv[1:]], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE, env=env, start_new_session=True, close_fds=True)

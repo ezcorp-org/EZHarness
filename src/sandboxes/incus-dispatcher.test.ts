@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
+import { RunnerError } from "@ezcorp/extension-runner";
 import { up as addSandboxController } from "../db/migrations/add-sandbox-controller";
 import * as schema from "../db/schema";
 import { SandboxController } from "./controller";
@@ -161,6 +162,27 @@ test("lost response stays unknown and never retries mutation", async () => {
   await controller.reconcile();
   expect((await controller.getOperation(unknown.id))?.state).toBe("OUTCOME_UNKNOWN");
   expect(calls).toHaveLength(1);
+});
+
+test("missing worker artifact is failed; other runner errors preserve unknown outcome", async () => {
+  const missing = await setup();
+  missing.setRespond(() => { throw new IncusDispatchAuthorizationError("ARTIFACT_UNAVAILABLE"); });
+  const failed = await missing.controller.requestAndDispatch({
+    bindingId: "binding", kind: "START", generation: 1,
+    idempotencyScope: "lifecycle", idempotencyKey: "missing-artifact", payload: { expectedGeneration: 1 },
+  });
+  expect(failed).toMatchObject({ state: "FAILED", errorCode: "ARTIFACT_UNAVAILABLE" });
+  expect((await missing.controller.reconcile()).examined).toBe(0);
+  expect(missing.calls).toHaveLength(1);
+
+  const uncertain = await setup();
+  uncertain.setRespond(() => { throw new RunnerError("runner_unavailable", "Runner disconnected"); });
+  const unknown = await uncertain.controller.requestAndDispatch({
+    bindingId: "binding", kind: "START", generation: 1,
+    idempotencyScope: "lifecycle", idempotencyKey: "runner-disconnected", payload: { expectedGeneration: 1 },
+  });
+  expect(unknown.state).toBe("OUTCOME_UNKNOWN");
+  expect(uncertain.calls).toHaveLength(1);
 });
 
 test("stable unknown provider ID is inspected, and revoked readback preserves uncertainty", async () => {

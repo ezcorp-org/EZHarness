@@ -23,6 +23,9 @@ SCOPE_KEYS = {"installationId", "releaseId", "connectionId", "presetId"}
 CONFIG_KEYS = {"target", "appUid", "runnerUid", "runnerUnit", "observerConfig",
                "project", "instance", "oldCertificateSha256"}
 IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}\Z")
+RUNTIME_RUNNER_UNIT = "ezharness-qual-runner.service"
+RUNNER_ALLOW_START = Path("/run/ezharness-qual-runner-allow-start")
+RUNTIME_ASSERT_CONTENT = b"[Unit]\nAssertPathExists=/run/ezharness-qual-runner-allow-start\n"
 
 
 def require(ok, reason):
@@ -124,22 +127,55 @@ def app_and_runner_absent(config, old_process, processes=None):
                 f"old app process group or dedicated client remains: {pid}")
 
 
-def runner_unit_quiesced(unit, cgroup_root=Path("/sys/fs/cgroup")):
+def runtime_assert_gate(unit, state, systemd_root=Path("/run/systemd/system"),
+                        allow_start=RUNNER_ALLOW_START):
+    """Accept only the loaded, root-owned NixOS gate for this runner unit."""
+    require(unit == RUNTIME_RUNNER_UNIT, "runtime gate is for the dedicated runner only")
+    gate = systemd_root / (unit + ".d") / "hold.conf"
+    require(state["DropInPaths"] == str(gate) and state["NeedDaemonReload"] == "no",
+            "runner assertion is not the loaded unit configuration")
+    for parent in gate.parents:
+        entry = parent.lstat()
+        require(stat.S_ISDIR(entry.st_mode) and entry.st_uid == 0
+                and not entry.st_mode & 0o022,
+                f"runner assertion parent is mutable: {parent}")
+    fd = os.open(gate, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        entry = os.fstat(fd)
+        require(stat.S_ISREG(entry.st_mode) and entry.st_uid == 0
+                and not entry.st_mode & 0o022
+                and entry.st_size == len(RUNTIME_ASSERT_CONTENT)
+                and os.read(fd, len(RUNTIME_ASSERT_CONTENT) + 1) == RUNTIME_ASSERT_CONTENT,
+                "runner assertion file differs from reviewed gate")
+    finally:
+        os.close(fd)
+    try:
+        allow_start.lstat()
+    except FileNotFoundError:
+        return
+    raise ValueError("runner start permission path exists")
+
+
+def runner_unit_quiesced(unit, cgroup_root=Path("/sys/fs/cgroup"),
+                         systemd_root=Path("/run/systemd/system"),
+                         allow_start=RUNNER_ALLOW_START):
     result = subprocess.run(["systemctl", "show", unit,
-                             "--property=LoadState,ActiveState,SubState,MainPID,ControlGroup,UnitFileState",
+                             "--property=LoadState,ActiveState,SubState,MainPID,ControlGroup,UnitFileState,DropInPaths,NeedDaemonReload",
                              "--no-pager"], capture_output=True, timeout=3, check=False)
     require(result.returncode == 0, "cannot inspect runner service")
     lines = result.stdout.decode().splitlines()
-    require(len(lines) == 6 and all("=" in line for line in lines),
+    require(len(lines) == 8 and all("=" in line for line in lines),
             "runner service state unavailable")
     state = dict(line.split("=", 1) for line in lines)
     require(set(state) == {"LoadState", "ActiveState", "SubState", "MainPID",
-                           "ControlGroup", "UnitFileState"}
-            and state["LoadState"] == "masked"
+                           "ControlGroup", "UnitFileState", "DropInPaths", "NeedDaemonReload"}
             and state["ActiveState"] == "inactive" and state["SubState"] == "dead"
-            and state["MainPID"] == "0"
-            and state["UnitFileState"] in ("masked", "masked-runtime"),
-            "runner service is not masked and stopped")
+            and state["MainPID"] == "0", "runner service is not stopped")
+    masked = (state["LoadState"] == "masked"
+              and state["UnitFileState"] in ("masked", "masked-runtime"))
+    if not masked:
+        require(state["LoadState"] == "loaded", "runner service state is unsafe")
+        runtime_assert_gate(unit, state, systemd_root, allow_start)
     expected = "/system.slice/" + unit
     require(state["ControlGroup"] in ("", expected),
             "runner service cgroup differs from reviewed unit")
