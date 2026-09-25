@@ -24,6 +24,8 @@ export interface FactoryRemoteAttemptRuntimeOptions {
   readonly delay?: (ms: number) => Promise<void>;
   /** How long the host may stay silent before it counts as lost. */
   readonly supervisorSilenceMs?: number;
+  /** How long a lost attempt's journal may keep an operation in flight before the record gives up. */
+  readonly journalSettleMs?: number;
 }
 
 /** Why an attempt ended without its guest's answer. Each is the `error.code` of the recorded result. */
@@ -41,6 +43,15 @@ export type FactoryLostResultReason = keyof typeof FACTORY_LOST_RESULT_CODES;
 export const FACTORY_RESULT_DEADLINE_GRACE_MS = 30_000;
 /** How long a host may leave every result request unanswered before it counts as lost. */
 export const FACTORY_SUPERVISOR_SILENCE_MS = 120_000;
+/**
+ * How long a lost attempt waits for its journal to settle.
+ *
+ * A guest that dies mid-call leaves the call itself running in this process:
+ * the broker still settles it when the provider answers, bounded by the model
+ * request's own timeout. A result must repeat settled operations exactly, so
+ * the record waits for them, as long as that timeout and no longer.
+ */
+export const FACTORY_JOURNAL_SETTLE_MS = 300_000;
 const RESULT_RETRY_DELAY_MS = 1_000;
 
 function describe(error: unknown): string {
@@ -60,11 +71,13 @@ export class FactoryRemoteAttemptRuntime implements FactoryAttemptRuntime {
   private readonly now: () => number;
   private readonly delay: (ms: number) => Promise<void>;
   private readonly silenceMs: number;
+  private readonly journalSettleMs: number;
 
   constructor(private readonly options: FactoryRemoteAttemptRuntimeOptions) {
     this.now = options.now ?? Date.now;
     this.delay = options.delay ?? (ms => new Promise(resolve => setTimeout(resolve, ms)));
     this.silenceMs = options.supervisorSilenceMs ?? FACTORY_SUPERVISOR_SILENCE_MS;
+    this.journalSettleMs = options.journalSettleMs ?? FACTORY_JOURNAL_SETTLE_MS;
   }
 
   async open(request: FactoryRunnerRequest, lease: FactoryAttemptLease, preparedPackage: FactoryPreparedPackageReceipt, devices?: FactoryAttemptDeviceAuthorization): Promise<FactoryAttemptOpen> {
@@ -207,8 +220,21 @@ export class FactoryRemoteAttemptRuntime implements FactoryAttemptRuntime {
     const message = `Factory attempt ended without its guest's answer (${reason}): ${detail}`.slice(0, 4_096);
     this.options.report(`attempt-result-lost:${attemptId}`, new FactoryAttemptRuntimeError("launch_uncertain", message));
     await this.options.stop(intent, "failed").catch(error => { this.options.report(`attempt-stop-unconfirmed:${attemptId}`, error); });
-    const result = failedFactoryRunnerResult(await this.options.journal.snapshot(intent.request), { code: FACTORY_LOST_RESULT_CODES[reason], message, retryable: true });
+    const result = failedFactoryRunnerResult(await this.settledJournal(intent), { code: FACTORY_LOST_RESULT_CODES[reason], message, retryable: true });
     return this.options.launches.recordTerminal(attemptId, result);
+  }
+
+  /** The journal's facts once no operation is in flight, or its own error once the settle bound has passed. */
+  private async settledJournal(intent: FactoryAttemptLaunchIntent): ReturnType<NativeFactoryJournal["snapshot"]> {
+    const giveUpAt = this.now() + this.journalSettleMs;
+    for (;;) {
+      try { return await this.options.journal.snapshot(intent.request); }
+      catch (error) {
+        if (this.now() >= giveUpAt) throw error;
+        this.options.report(`attempt-journal-unsettled:${intent.request.authority.attemptId}`, error);
+        await this.delay(RESULT_RETRY_DELAY_MS);
+      }
+    }
   }
 
   private settled(intent: FactoryAttemptLaunchIntent, disposition: FactoryAttemptOpen["disposition"], wait: () => Promise<FactoryRunnerResult>): FactoryAttemptOpen {

@@ -16,7 +16,7 @@ import { FactoryExecutionJournal } from "../executions";
 import { FactoryHostLaunchRefusal, type FactoryHostLaunchTransport } from "../host-launch-client";
 import { FactoryAttemptRuntimeError, FactoryDatabaseAttemptLaunchStore, type FactoryAttemptLaunchIntent, type FactoryPhysicalStopReason, type FactoryPhysicalStopReceipt } from "./attempt-runtime";
 import { nativeFactoryJournal, type NativeFactoryJournal } from "./native";
-import { FACTORY_LOST_RESULT_CODES, FACTORY_RESULT_DEADLINE_GRACE_MS, FACTORY_SUPERVISOR_SILENCE_MS, FactoryRemoteAttemptRuntime } from "./remote-attempt-runtime";
+import { FACTORY_JOURNAL_SETTLE_MS, FACTORY_LOST_RESULT_CODES, FACTORY_RESULT_DEADLINE_GRACE_MS, FACTORY_SUPERVISOR_SILENCE_MS, FactoryRemoteAttemptRuntime } from "./remote-attempt-runtime";
 
 const completed = factoryLaunchCompletedResult("remote-runtime");
 const fixtures: FactoryLaunchFixture[] = [];
@@ -30,7 +30,7 @@ function refusal(statusCode: number, error: string, detail?: string): FactoryHos
 type Step = FactoryRunnerResult | Error;
 
 /** Everything one case observes: what the host was asked, what was stopped and reported, and the clock. */
-async function world(attemptId: string, steps: Step[], overrides: { launch?: FactoryHostLaunchTransport["launch"]; attach?: FactoryHostLaunchTransport["attach"]; stop?: (reason: FactoryPhysicalStopReason) => Promise<void>; journal?: NativeFactoryJournal; clockStepMs?: number; startAtMs?: number } = {}) {
+async function world(attemptId: string, steps: Step[], overrides: { launch?: FactoryHostLaunchTransport["launch"]; attach?: FactoryHostLaunchTransport["attach"]; stop?: (reason: FactoryPhysicalStopReason) => Promise<void>; journal?: NativeFactoryJournal; clockStepMs?: number; startAtMs?: number; delayAdvancesMs?: number } = {}) {
   const request = factoryLaunchRequest({ attemptId });
   const fixture = await createFactoryLaunchFixture(request);
   fixtures.push(fixture);
@@ -62,7 +62,7 @@ async function world(attemptId: string, steps: Step[], overrides: { launch?: Fac
     journal: overrides.journal ?? nativeFactoryJournal(new FactoryExecutionJournal(fixture.db, async () => {})),
     report: (source, error) => { reported.push({ source, error: String(error) }); },
     now: () => clock,
-    delay: async (ms) => { delays.push(ms); },
+    delay: async (ms) => { delays.push(ms); clock += overrides.delayAdvancesMs ?? 0; },
   });
   const open = () => runtime.open(request, factoryLaunchLease, factoryLaunchPackage(request));
   const row = async () => (await store.claimStart(attemptId)).intent.state;
@@ -137,10 +137,20 @@ describe("an attempt whose answer will never arrive ends failed, with the reason
     ]);
   });
 
-  test("a journal that cannot yet be read keeps the attempt open rather than inventing its facts", async () => {
-    const w = await world("attempt-journal", [refusal(409, "attempt_uncertain")], { journal: { snapshot: async () => { throw new Error("Durable runner operations is invalid: RUNNER_OPERATION."); } } });
+  test("a journal with an operation still in flight is waited for, then repeated exactly", async () => {
+    let reads = 0;
+    const journal: NativeFactoryJournal = { snapshot: async () => { reads += 1; if (reads < 3) throw new Error("Durable runner operations is invalid: RUNNER_OPERATION."); return { operations: [], journalCursor: -1 }; } };
+    const w = await world("attempt-journal-settles", [refusal(409, "attempt_uncertain")], { journal });
+    expect(await (await w.open()).wait()).toMatchObject({ status: "failed", error: { code: FACTORY_LOST_RESULT_CODES.supervisor_lost } });
+    expect(reads).toBe(3);
+    expect(w.reported.map(entry => entry.source)).toEqual(["attempt-result-lost:attempt-journal-settles", "attempt-journal-unsettled:attempt-journal-settles", "attempt-journal-unsettled:attempt-journal-settles"]);
+  });
+
+  test("a journal that never settles within its bound keeps the attempt open rather than inventing its facts", async () => {
+    const w = await world("attempt-journal", [refusal(409, "attempt_uncertain")], { journal: { snapshot: async () => { throw new Error("Durable runner operations is invalid: RUNNER_OPERATION."); } }, delayAdvancesMs: FACTORY_JOURNAL_SETTLE_MS / 2 });
     await expect((await w.open()).wait()).rejects.toThrow("Durable runner operations is invalid");
     expect(await w.store.terminalResult("attempt-journal")).toBeUndefined();
+    expect(w.delays).toEqual([1_000, 1_000]);
   });
 });
 
