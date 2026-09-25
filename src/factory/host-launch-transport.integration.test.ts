@@ -12,7 +12,7 @@ import { createFactoryHostLaunchSupervisor } from "./runner/host-launch-supervis
 import { FactoryRemoteAttemptRuntime } from "./runner/remote-attempt-runtime";
 import { FactoryDatabaseAttemptLaunchStore, type FactoryAttemptLaunchIntent, type FactoryPhysicalStopReceipt } from "./runner/attempt-runtime";
 import { certificates, type Certificates } from "../__tests__/helpers/factory-certificates";
-import { createFactoryLaunchFixture, factoryLaunchCompletedResult, factoryLaunchLease, factoryLaunchPackage, factoryLaunchRequest } from "../__tests__/helpers/factory-attempt-launch-fixture";
+import { createFactoryLaunchFixture, factoryLaunchCompletedResult, factoryLaunchLease, factoryLaunchPackage, factoryLaunchRequest, factoryLaunchPool } from "../__tests__/helpers/factory-attempt-launch-fixture";
 import { privateHttpsCall } from "../__tests__/helpers/factory-private-https-client";
 
 const directories: string[] = [];
@@ -98,7 +98,7 @@ test("an attempt launches, runs, and settles across a real mutual-TLS host bound
       launches: store, transport: over,
       readiness: { assertDispatchReady: async () => factoryLaunchPackage(request) },
       mintAttemptToken: async () => "minted-transport-token",
-      pool: { acknowledgeStart: async () => ({}) as never },
+      pool: factoryLaunchPool(),
       stop: async (intent) => { stops.push(intent.request.authority.attemptId); return stopReceipt(intent); },
       ...runtimeRecords(fixture),
     });
@@ -143,7 +143,7 @@ test("a gateway that restarts mid-launch rejoins the running attempt instead of 
       launches: store, transport,
       readiness: { assertDispatchReady: async () => factoryLaunchPackage(request) },
       mintAttemptToken: async () => "minted-rejoin-token",
-      pool: { acknowledgeStart: async () => ({}) as never },
+      pool: factoryLaunchPool(),
       stop: async (intent) => stopReceipt(intent),
       ...runtimeRecords(fixture),
     });
@@ -198,7 +198,7 @@ test("a lost launch response reconnects instead of starting a second guest, and 
       launches: store, transport: lossy,
       readiness: { assertDispatchReady: async () => factoryLaunchPackage(request) },
       mintAttemptToken: async () => "minted-lost-token",
-      pool: { acknowledgeStart: async () => ({}) as never },
+      pool: factoryLaunchPool(),
       stop: async (intent) => stopReceipt(intent),
       ...runtimeRecords(fixture),
     });
@@ -254,7 +254,7 @@ for (const disposition of ["terminal", "uncertain"] as const) {
         launches: store, transport: emptied,
         readiness: { assertDispatchReady: async () => factoryLaunchPackage(request) },
         mintAttemptToken: async () => "minted-double-restart-token",
-        pool: { acknowledgeStart: async () => ({}) as never },
+        pool: factoryLaunchPool(),
         stop: async (intent) => { stopped.push(intent.workerId); return stopReceipt(intent); },
         ...runtimeRecords(fixture),
       });

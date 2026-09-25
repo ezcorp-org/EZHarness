@@ -30,7 +30,8 @@ import type { FactoryGuestBroker } from "./guest-model-broker";
  * product store. Importers of this module are unaffected.
  */
 /** The isolated runtime renews its pool lease on this cadence. */
-const RENEW_INTERVAL_MS = 5_000;
+/** How often a runtime renews the pool lease of a guest it is running: well inside one 30 s lease. */
+export const FACTORY_ATTEMPT_LEASE_RENEW_INTERVAL_MS = 5_000;
 
 export * from "./attempt-wire";
 import {
@@ -370,7 +371,7 @@ export class IsolatedFactoryAttemptRuntime implements FactoryAttemptRuntime {
           await this.stop(intent, "lease-revoked").catch(() => undefined);
         }
       });
-    }, RENEW_INTERVAL_MS);
+    }, FACTORY_ATTEMPT_LEASE_RENEW_INTERVAL_MS);
     try {
       const value = await execution.request("extension/invoke", { name: intent.request.runner.export, input: guestRequest, context });
       if (renewalFailure) throw new FactoryAttemptRuntimeError("lease_revoked", renewalFailure.message);

@@ -18,7 +18,7 @@ import { FactoryAttemptQueue } from "../../factory/attempt-queue";
 import { FactoryExecutionJournal, type FactoryAttemptAuthority } from "../../factory/executions";
 import type { TrustedFactoryCommandReference, TrustedFactoryServiceIdentity } from "../../factory/trusted-command-gateway";
 import { certificates, type Certificates } from "./factory-certificates";
-import { createFactoryLaunchFixture, factoryLaunchLease, factoryLaunchPackage, factoryLaunchRequest, type FactoryLaunchFixtureSource } from "./factory-attempt-launch-fixture";
+import { createFactoryLaunchFixture, factoryLaunchLease, factoryLaunchPackage, factoryLaunchRequest, type FactoryLaunchFixtureSource, factoryLaunchPool } from "./factory-attempt-launch-fixture";
 import { provision } from "../../../packages/@ezcorp/extension-runner/tests/helpers";
 
 const directories: string[] = [];
@@ -101,7 +101,7 @@ async function hostLaunchWorld(guestBody: string, source?: FactoryLaunchFixtureS
         transport,
         readiness: { assertDispatchReady: async () => prepared },
         mintAttemptToken: async () => "minted-e2e-token",
-        pool: { acknowledgeStart: async () => ({}) as never },
+        pool: factoryLaunchPool(),
         stop: async (intent, reason) => { stops.push(`${intent.request.authority.attemptId}:${reason}`); return stopReceipt(intent); },
         journal: nativeFactoryJournal(journal),
         report: () => {},

@@ -15,7 +15,7 @@ import type { TransactionalDb } from "../db/migrations/types";
 import type { FactoryPhysicalStopExpectation } from "./journal-validation";
 import type { FactoryAttemptLaunchIntent, FactoryPhysicalStopReceipt } from "./runner/attempt-runtime";
 import { certificates } from "../__tests__/helpers/factory-certificates";
-import { createFactoryLaunchFixture, factoryLaunchLease, factoryLaunchPackage, factoryLaunchRequest } from "../__tests__/helpers/factory-attempt-launch-fixture";
+import { createFactoryLaunchFixture, factoryLaunchLease, factoryLaunchPackage, factoryLaunchRequest, factoryLaunchPool } from "../__tests__/helpers/factory-attempt-launch-fixture";
 import {
   FACTORY_ATTEMPT_TOKEN_LIFETIME_SECONDS,
   composeFactoryAttemptDispatch,
@@ -228,7 +228,7 @@ describe("composeFactoryAttemptDispatch", () => {
         outcomes: { recordInTransaction: async () => ({} as never), readInTransaction: async (_t: MigrationDb) => undefined } as never,
         admissions: { readRetainedAdmittedInTransaction: async () => { throw new Error("no admitted reservation in this test"); } } as never,
         readiness: { assertDispatchReady: async () => factoryLaunchPackage(request) },
-        pool: { acknowledgeStart: async () => ({}) as never },
+        pool: factoryLaunchPool(),
         stopper: async () => ({}) as unknown as FactoryPhysicalStopReceipt,
         journal,
         report: () => {},
@@ -259,7 +259,7 @@ describe("composeFactoryAttemptDispatch", () => {
         outcomes: {} as never,
         admissions: {} as never,
         readiness: { assertDispatchReady: async () => factoryLaunchPackage(factoryLaunchRequest()) },
-        pool: { acknowledgeStart: async () => ({}) as never },
+        pool: factoryLaunchPool(),
         stopper: async () => ({}) as unknown as FactoryPhysicalStopReceipt,
         journal,
         report: () => {},

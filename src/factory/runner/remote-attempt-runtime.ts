@@ -4,7 +4,7 @@ import { FactoryHostLaunchRefusal, type FactoryHostLaunchTransport } from "../ho
 import type { FactoryPreparedPackageReceipt, FactoryRunnerDispatchReadiness } from "../package-preparation";
 import type { PoolAdmissionClient } from "../pool/client";
 import { failedFactoryRunnerResult, type NativeFactoryJournal } from "./native";
-import { FactoryAttemptRuntimeError, type FactoryAttemptDeviceAuthorization, type FactoryAttemptLaunchIntent, type FactoryAttemptLaunchStore, type FactoryAttemptLease, type FactoryAttemptOpen, type FactoryAttemptRuntime, type FactoryPhysicalStopReason, type FactoryPhysicalStopReceipt } from "./attempt-runtime";
+import { FACTORY_ATTEMPT_LEASE_RENEW_INTERVAL_MS, FactoryAttemptRuntimeError, type FactoryAttemptDeviceAuthorization, type FactoryAttemptLaunchIntent, type FactoryAttemptLaunchStore, type FactoryAttemptLease, type FactoryAttemptOpen, type FactoryAttemptRuntime, type FactoryPhysicalStopReason, type FactoryPhysicalStopReceipt } from "./attempt-runtime";
 
 export interface FactoryRemoteAttemptRuntimeOptions {
   /** Every durable record stays here, in the product process. */
@@ -13,7 +13,8 @@ export interface FactoryRemoteAttemptRuntimeOptions {
   readonly transport: FactoryHostLaunchTransport;
   readonly readiness: FactoryRunnerDispatchReadiness;
   readonly mintAttemptToken: (request: FactoryRunnerRequest) => Promise<string>;
-  readonly pool: Pick<PoolAdmissionClient, "acknowledgeStart">;
+  /** `renew` keeps the lease alive while the guest lives; the lease is liveness, not the task's timeout. */
+  readonly pool: Pick<PoolAdmissionClient, "acknowledgeStart" | "renew">;
   /** W03's signed physical stop. The product never signs a host observation itself. */
   readonly stop: (intent: FactoryAttemptLaunchIntent, reason: FactoryPhysicalStopReason) => Promise<FactoryPhysicalStopReceipt>;
   /** The attempt's own durable journal, which a result recorded without the guest must repeat. */
@@ -26,6 +27,10 @@ export interface FactoryRemoteAttemptRuntimeOptions {
   readonly supervisorSilenceMs?: number;
   /** How long a lost attempt's journal may keep an operation in flight before the record gives up. */
   readonly journalSettleMs?: number;
+  /** How often the pool lease is renewed while the guest lives. */
+  readonly leaseRenewIntervalMs?: number;
+  /** Runs `task` after `ms` and returns its cancel. Replaceable so a test drives renewals itself. */
+  readonly schedule?: (task: () => void, ms: number) => () => void;
 }
 
 /** Why an attempt ended without its guest's answer. Each is the `error.code` of the recorded result. */
@@ -36,6 +41,8 @@ export const FACTORY_LOST_RESULT_CODES = Object.freeze({
   container_exit: "RUNNER_CONTAINER_EXIT",
   /** The host holds no record of the attempt, or has not answered for too long. */
   supervisor_lost: "RUNNER_SUPERVISOR_LOST",
+  /** The pool lease that holds the guest's capacity could not be kept alive. */
+  lease_lost: "RUNNER_LEASE_LOST",
 } as const);
 export type FactoryLostResultReason = keyof typeof FACTORY_LOST_RESULT_CODES;
 
@@ -74,12 +81,16 @@ export class FactoryRemoteAttemptRuntime implements FactoryAttemptRuntime {
   private readonly delay: (ms: number) => Promise<void>;
   private readonly silenceMs: number;
   private readonly journalSettleMs: number;
+  private readonly renewIntervalMs: number;
+  private readonly schedule: (task: () => void, ms: number) => () => void;
 
   constructor(private readonly options: FactoryRemoteAttemptRuntimeOptions) {
     this.now = options.now ?? Date.now;
     this.delay = options.delay ?? (ms => new Promise(resolve => setTimeout(resolve, ms)));
     this.silenceMs = options.supervisorSilenceMs ?? FACTORY_SUPERVISOR_SILENCE_MS;
     this.journalSettleMs = options.journalSettleMs ?? FACTORY_JOURNAL_SETTLE_MS;
+    this.renewIntervalMs = options.leaseRenewIntervalMs ?? FACTORY_ATTEMPT_LEASE_RENEW_INTERVAL_MS;
+    this.schedule = options.schedule ?? ((task, ms) => { const timer = setTimeout(task, ms); return () => clearTimeout(timer); });
   }
 
   async open(request: FactoryRunnerRequest, lease: FactoryAttemptLease, preparedPackage: FactoryPreparedPackageReceipt, devices?: FactoryAttemptDeviceAuthorization): Promise<FactoryAttemptOpen> {
@@ -183,14 +194,54 @@ export class FactoryRemoteAttemptRuntime implements FactoryAttemptRuntime {
   private async collect(intent: FactoryAttemptLaunchIntent): Promise<FactoryRunnerResult> {
     const recorded = await this.options.launches.terminalResult(intent.request.authority.attemptId);
     if (recorded) return recorded;
+    const lease = this.keepLeaseAlive(intent);
+    try { return await this.collectWhileLeased(intent, lease); }
+    finally { lease.stop(); }
+  }
+
+  /**
+   * Renews the pool lease while the guest lives (option 2, W01h).
+   *
+   * The attempt's deadline is the node command's; the pool lease is only the
+   * proof that this runtime is still there, so it is renewed now and then on
+   * every interval, and stops with the collection. A renewal that fails is
+   * tolerated while the last renewed deadline still holds; once it has passed,
+   * the lease is lost and the read in flight is ended so the loop can say so.
+   */
+  private keepLeaseAlive(intent: FactoryAttemptLaunchIntent): { readonly signal: AbortSignal; lost(): string | undefined; stop(): void } {
+    const controller = new AbortController();
+    const fence = { reservationId: intent.lease.reservationId, grantRevision: intent.lease.grantRevision, allocationGeneration: intent.lease.allocationGeneration, allocationToken: intent.lease.allocationToken };
+    let validUntil = this.now() + this.renewIntervalMs;
+    let lostDetail: string | undefined;
+    let cancel: () => void = () => {};
+    let stopped = false;
+    const renew = async () => {
+      try { validUntil = Math.max(validUntil, (await this.options.pool.renew(fence)).deadlineAt.getTime()); }
+      catch (error) {
+        this.options.report(`attempt-lease-renewal-failed:${intent.request.authority.attemptId}`, error);
+        if (this.now() >= validUntil) {
+          lostDetail = `the pool lease could not be renewed: ${describe(error)}`;
+          controller.abort(new Error(lostDetail));
+        }
+      }
+      if (!stopped && lostDetail === undefined) cancel = this.schedule(() => { void renew(); }, this.renewIntervalMs);
+    };
+    void renew();
+    return { signal: controller.signal, lost: () => lostDetail, stop: () => { stopped = true; cancel(); } };
+  }
+
+  private async collectWhileLeased(intent: FactoryAttemptLaunchIntent, lease: { readonly signal: AbortSignal; lost(): string | undefined }): Promise<FactoryRunnerResult> {
     const deadline = intent.request.authority.deadlineAtMs + FACTORY_RESULT_DEADLINE_GRACE_MS;
     let silentSince: number | undefined;
     for (;;) {
+      const leaseLost = lease.lost();
+      if (leaseLost !== undefined) return this.lost(intent, "lease_lost", leaseLost);
       if (this.now() >= deadline) return this.lost(intent, "timeout", "the attempt deadline passed before the host answered");
       let result: FactoryRunnerResult;
       try {
-        result = await this.options.transport.result(intent);
+        result = await this.options.transport.result(intent, lease.signal);
       } catch (error) {
+        if (lease.lost() !== undefined) continue;
         if (error instanceof FactoryHostLaunchRefusal && error.code === "host_timeout") { silentSince = undefined; continue; }
         if (error instanceof FactoryHostLaunchRefusal && error.code === "guest_exited") return this.lost(intent, "container_exit", error.detail);
         if (error instanceof FactoryHostLaunchRefusal && error.code === "attempt_uncertain") return this.lost(intent, "supervisor_lost", "the host holds no record of this attempt");

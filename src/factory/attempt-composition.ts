@@ -186,7 +186,7 @@ export interface FactoryAttemptDispatchCompositionOptions {
   readonly outcomes: Pick<FactoryTaskOutcomes, "recordInTransaction" | "readInTransaction">;
   readonly admissions: Pick<FactoryComputeAdmissions, "readRetainedAdmittedInTransaction">;
   readonly readiness: FactoryRunnerDispatchReadiness;
-  readonly pool: Pick<PoolAdmissionClient, "acknowledgeStart">;
+  readonly pool: Pick<PoolAdmissionClient, "acknowledgeStart" | "renew">;
   readonly stopper: FactoryHostPhysicalStopper;
   /** The execution journal a result recorded without its guest must repeat. */
   readonly journal: FactoryExecutionJournal;

@@ -16,7 +16,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Runner, RunnerExecution, RunnerInspection, StartRequest } from "@ezcorp/extension-contract";
 import { certificates, type Certificates } from "../__tests__/helpers/factory-certificates";
-import { createFactoryLaunchFixture, factoryLaunchCompletedResult, factoryLaunchLease, factoryLaunchPackage, factoryLaunchRequest } from "../__tests__/helpers/factory-attempt-launch-fixture";
+import { createFactoryLaunchFixture, factoryLaunchCompletedResult, factoryLaunchLease, factoryLaunchPackage, factoryLaunchRequest, factoryLaunchPool } from "../__tests__/helpers/factory-attempt-launch-fixture";
 import { FactoryExecutionJournal } from "./executions";
 import { createFactoryHostLaunchClient } from "./host-launch-client";
 import { startFactoryPrivateHttps } from "./private-https";
@@ -88,7 +88,7 @@ async function boundary(attemptId: string, runner: Runner, timeouts: { clientMs:
     launches: store, transport,
     readiness: { assertDispatchReady: async () => factoryLaunchPackage(request) },
     mintAttemptToken: async () => "minted-token",
-    pool: { acknowledgeStart: async () => ({}) as never },
+    pool: factoryLaunchPool(),
     stop: async (intent: FactoryAttemptLaunchIntent, reason) => { stops.push(reason); return { workerId: intent.workerId } as unknown as FactoryPhysicalStopReceipt; },
     journal: nativeFactoryJournal(new FactoryExecutionJournal(fixture.db, async () => {})),
     report: (source) => { productLog.push(source); },

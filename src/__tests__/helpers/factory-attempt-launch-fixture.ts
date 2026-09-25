@@ -106,3 +106,11 @@ export function factoryLaunchCompletedResult(seed = "recovery"): import("@ezcorp
     workspaceCheckpoint: checkpoint,
   };
 }
+
+/** A pool for a remote runtime under test: it acknowledges every start and renews every lease for 30 s. */
+export function factoryLaunchPool(): { acknowledgeStart(): Promise<never>; renew(): Promise<never> } {
+  return {
+    acknowledgeStart: async () => ({}) as never,
+    renew: async () => ({ deadlineAt: new Date(Date.now() + 30_000) }) as never,
+  };
+}
