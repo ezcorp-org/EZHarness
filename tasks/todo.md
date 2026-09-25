@@ -3875,7 +3875,7 @@ Gates: `tasks/factory/w18a3-GATES.md`. Receipts: `/tmp/factory-platform-evidence
 - [x] podman-compose-wrapper 10 of 63 "dirty" (0ae26f4b0, G9).
 - [x] Consolidate on -r2: merge integ/w00 7a87aed5e, cherry-pick the leak commits, rerun the matrices and static gates (G7–G10).
 - [x] A Playwright `.pw.` spec counts as a test path (380588398, G11); scratch repositories set GIT_CONFIG_NOSYSTEM=1 (9dc2ba9fb).
-- [ ] Final gates green over the fullest lcov (G6): open until W15b lands in integ/w00.
+- [x] Final gates green over the fullest lcov at the merge of integ/w00 15410e421 (G6): 17 producers, backend pool 28983/0 at umask 022, CRAP and integ coverage gates exit 0.
 - [x] ~~Move the pool-service import walker into the boundary script (G12)~~: withdrawn; W15c carries the rule.
 - [x] The hook runs staged factory-orchestrator files through the package's node test script (7f4d27042, G13).
 

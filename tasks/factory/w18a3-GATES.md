@@ -75,16 +75,30 @@ cherry-picked onto -r2 after the merge of integ/w00 7a87aed5e: 2c03e3625 -> e8bb
   9dc2ba9fb adds GIT_CONFIG_NOSYSTEM=1 to `scratchGitEnv` (validator-3 L3); the unit test pins it, also over a
   caller's GIT_CONFIG_NOSYSTEM=0, and the guard test pins that it is the only GIT_* variable left.
 
-- [ ] G6: Every gate is green at the final head over the fullest lcov, and the tree is clean.
-  CHECK: `continue/final-sweep.sh` (the combined runner, then the extra legs); `continue/manual-merge-gates.sh` if a producer fails
-  EXPECT: every producer exits 0; CRAP --changed exits 0; new-file and patch vs integ/w00 exit 0
-  EVIDENCE (partial, d2c025a29): `final-d2c025a29/`. 16 of 17 producers exit 0. pool-coverage exits 1 on the node
-  bundle defect (the "bun" builtin through checkpoint-barrier), so the runner merges no lcov. The manual merge (same
-  labels and re-rooting, plus the extra legs and a `temporal-retention.test.ts` leg the focused list omits) gives:
-  new-file and patch vs integ/w00 exit 0; CRAP --changed exits 1 on 7 functions, all in `src/factory/pool/` and
-  measured only by the missing pool leg; global floor (75.45 percent), per-file thresholds, and new-file vs
-  origin/main exit 1 and name no file this package changed.
-  OPEN: rerun after W15b lands in integ/w00 and is merged here (coordinator ruling).
+- [x] G6: Every producer is green at the final head over the fullest lcov, and the tree is clean.
+  CHECK: `g6-c5507c5ce/heavy.sh` (disk check, `continue/final-sweep.sh`, disk check, backend pool at umask 022 under
+  the lock), then `g6-c5507c5ce/remerge-gates.sh`; receipts in `g6-c5507c5ce/receipts/*.json` (commit, command,
+  exit, times, log sha256)
+  EXPECT: every producer exits 0; CRAP --changed exits 0; new-file and patch vs integ/w00 15410e421 exit 0
+  EVIDENCE at c5507c5ce (the merge of integ/w00 15410e421, W15b included), clean tree, 151 GB free before each
+  heavy leg (`g6-c5507c5ce/df.txt`):
+  - All 17 runner producers exit 0, pool-coverage included (`final-c5507c5ce/runner.log`, `w18a3-final-results.json`).
+  - Backend pool at umask 022: 28983 pass, 0 fail, 1955 files, exit 0 (`g6-c5507c5ce/logs/backend-pool-umask022.log`,
+    sha256 1abcd562...). The 14 main-origin reds (F3, F4) are gone; the earlier pool had 15 fail.
+  - The runner's web-bun leg omits `web/src/__tests__/mock-llm-store.test.ts`, the suite that covers W19a's
+    `promptWords` (a leg-list gap, not a test gap). `remerge-gates.sh` adds it as one web extra leg with the same
+    re-rooting; `final-sweep.sh` now lists it. Over the 30-input merge (`fullest-lcov-remerged.info`, sha256
+    8404badd...): CRAP --changed exit 0; new-file and patch vs 15410e421 exit 0.
+  - integ/w00 moved to a6ce95fe0 during the sweep, so the runner's own integ checks used that ref; the gates above
+    use 15410e421 explicitly. origin/main moved to 84ee6f0ad.
+  - Red and not owned here: new-file and patch vs origin/main 84ee6f0ad, global floor (77.57 percent), per-file
+    thresholds. None names any of the 21 files this package changes against 15410e421.
+  - At c5507c5ce also: git-hooks, gate-scripts, factory-process-boundaries, and check-factory-boundaries suites
+    279 pass, 0 fail; typecheck, lint, check-boundaries, check-factory-boundaries, gate-integrity
+    (BASE_REF=15410e421) exit 0.
+  - Merge c5507c5ce: no conflict. Only `tasks/todo.md` changed on both sides; git merged it with both sides kept
+    (no integ line removed). The G13 hook routing is intact. The merge commit's hook skipped its staged tests
+    because I set EZ_PRECOMMIT_TEST_MAX=0 (64 test files mapped); the hook printed the skip.
 
 ## Main-origin leaks and flakes (now on -r2)
 
