@@ -301,7 +301,8 @@ export async function startStack(options: StackOptions): Promise<Stack> {
       hostname: "127.0.0.1", port: hostServicePort, allowedPeers: ["tenant-a"], hostKeyIdPath: join(secrets, "host.kid"),
       tls: { caPath: join(secrets, "ca.pem"), certificatePath: join(secrets, "server.pem"), privateKeyPath: join(secrets, "server.key") },
       pool: { baseUrl: `https://127.0.0.1:${poolPort}`, serviceTokenPath: join(secrets, "supervisor.token"), tls: supervisorTls },
-      guestBroker: { baseUrl: `https://127.0.0.1:${guestBrokerPort}`, serviceTokenPath: join(secrets, "guest-broker-host.token"), tls: supervisorTls },
+      // One route per tenant; this stack runs one tenant.
+      guestBrokers: { [TENANT]: { baseUrl: `https://127.0.0.1:${guestBrokerPort}`, serviceTokenPath: join(secrets, "guest-broker-host.token"), tls: supervisorTls } },
     },
   }));
   start("supervisor", bun, [join(repo, "src/factory/runner/supervisor-process.ts"), join(secrets, "supervisor.json")]);

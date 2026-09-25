@@ -364,8 +364,8 @@ test("a supervisor configured with a guest broker forwards staging frames and mo
   const answered = answering("through the supervisor");
   const fixture = await setup({ model: PIN, provider: async () => answered.provider });
   const { caPath, certificatePath, privateKeyPath, serviceTokenPath } = fixture.paths;
-  // Exactly the section a supervisor document carries: a base URL and paths.
-  const host = await createFactoryConfiguredGuestBroker({ baseUrl: fixture.service.url, serviceTokenPath, tls: { caPath, certificatePath, privateKeyPath } });
+  // Exactly the section a supervisor document carries: per tenant, a base URL and paths.
+  const host = await createFactoryConfiguredGuestBroker({ [TENANT]: { baseUrl: fixture.service.url, serviceTokenPath, tls: { caPath, certificatePath, privateKeyPath } } });
   const frame = { schemaVersion: "factory.guest-material-begin.v1", operationId: fixture.operationId, operationIndex: 0, objectName: "configured.bin", version: 1, mediaType: "application/octet-stream", totalBytes: 4, chunkCount: 1 };
   expect(await host.invoke(fixture.request, frame)).toMatchObject({ status: "begun", objectName: "configured.bin" });
   // A model request takes the same route and is answered by the product.
@@ -375,7 +375,7 @@ test("a supervisor configured with a guest broker forwards staging frames and mo
   await expect(host.invoke(fixture.request, { kind: "guest-model-report" })).rejects.toMatchObject({ code: "factory_host_broker_unavailable" });
   // A section whose credential file is missing fails when the host composes,
   // before its listener binds, not on a guest's first frame.
-  await expect(createFactoryConfiguredGuestBroker({ baseUrl: fixture.service.url, serviceTokenPath: `${serviceTokenPath}.missing`, tls: { caPath, certificatePath, privateKeyPath } }))
+  await expect(createFactoryConfiguredGuestBroker({ [TENANT]: { baseUrl: fixture.service.url, serviceTokenPath: `${serviceTokenPath}.missing`, tls: { caPath, certificatePath, privateKeyPath } } }))
     .rejects.toThrow();
 }, 120_000);
 
@@ -443,7 +443,7 @@ test("the product binds the guest-broker route from its startup document, and a 
   const token = await signFactoryAttemptToken(fixture.authority, secret, INSTALLATION, 600);
   const request = { ...fixture.request, broker: { ...fixture.request.broker, attemptToken: token } } as FactoryRunnerRequest;
   const { caPath, certificatePath, privateKeyPath, serviceTokenPath } = fixture.paths;
-  const host = await createFactoryConfiguredGuestBroker({ baseUrl: composed.listener!.url, serviceTokenPath, tls: { caPath, certificatePath, privateKeyPath } });
+  const host = await createFactoryConfiguredGuestBroker({ [TENANT]: { baseUrl: composed.listener!.url, serviceTokenPath, tls: { caPath, certificatePath, privateKeyPath } } });
   const client = createFactoryGuestStaging({ call: async payload => host.invoke(request, payload), operationId: fixture.operationId, operationIndex: 0 });
   // Two chunks, so more than one frame crosses the listener the product bound.
   const bytes = new Uint8Array(40_000).map((_, index) => index % 251);
@@ -471,7 +471,7 @@ test("the composed route answers a model request with the installation's pinned 
   const token = await signFactoryAttemptToken(fixture.authority, pinned.secret, INSTALLATION, 600);
   const request = { ...fixture.request, broker: { ...fixture.request.broker, attemptToken: token } } as FactoryRunnerRequest;
   const { caPath, certificatePath, privateKeyPath, serviceTokenPath } = fixture.paths;
-  const host = await createFactoryConfiguredGuestBroker({ baseUrl: pinned.composed.listener!.url, serviceTokenPath, tls: { caPath, certificatePath, privateKeyPath } });
+  const host = await createFactoryConfiguredGuestBroker({ [TENANT]: { baseUrl: pinned.composed.listener!.url, serviceTokenPath, tls: { caPath, certificatePath, privateKeyPath } } });
   expect(await host.invoke(request, modelRequest(fixture.operationId))).toMatchObject({ status: "completed", text: "composed" });
   // The provider was asked for the installation's own pin, from its startup document.
   expect(pinned.pinsAsked).toEqual([{ provider: PIN.provider, model: PIN.model }]);
@@ -479,7 +479,7 @@ test("the composed route answers a model request with the installation's pinned 
   // The same attempt against a route whose document pins no provider: the
   // next operation is refused by name, and the failure is on the journal.
   const unpinned = await composedRoute(fixture);
-  const bare = await createFactoryConfiguredGuestBroker({ baseUrl: unpinned.composed.listener!.url, serviceTokenPath, tls: { caPath, certificatePath, privateKeyPath } });
+  const bare = await createFactoryConfiguredGuestBroker({ [TENANT]: { baseUrl: unpinned.composed.listener!.url, serviceTokenPath, tls: { caPath, certificatePath, privateKeyPath } } });
   const next = { ...(modelRequest(`${fixture.runId}:node-a:0:1`) as Record<string, JsonValue>), operationIndex: 1 } as JsonValue;
   const refused = await bare.invoke({ ...request, broker: { ...request.broker, attemptToken: await signFactoryAttemptToken(fixture.authority, unpinned.secret, INSTALLATION, 600) } }, next) as { refusal: { code: string; message: string } };
   expect(refused.refusal.code).toBe("provider_unavailable");
