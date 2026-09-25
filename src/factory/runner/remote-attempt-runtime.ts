@@ -60,8 +60,6 @@ export const FACTORY_SUPERVISOR_SILENCE_MS = 120_000;
  */
 export const FACTORY_JOURNAL_SETTLE_MS = 300_000;
 const RESULT_RETRY_DELAY_MS = 1_000;
-/** The usage of an attempt whose journal holds no operation: measured, and zero in every dimension. */
-const FACTORY_NO_OPERATION_USAGE = Object.freeze({ kind: "measured" as const, inputTokens: 0, outputTokens: 0, computeMs: 0, costMicros: "0" });
 
 function describe(error: unknown): string {
   return error instanceof Error ? `${error.name}: ${error.message}` : String(error);
@@ -273,12 +271,7 @@ export class FactoryRemoteAttemptRuntime implements FactoryAttemptRuntime {
     const message = `Factory attempt ended without its guest's answer (${reason}): ${detail}`.slice(0, 4_096);
     this.options.report(`attempt-result-lost:${attemptId}`, new FactoryAttemptRuntimeError("launch_uncertain", message));
     await this.options.stop(intent, "failed").catch(error => { this.options.report(`attempt-stop-unconfirmed:${attemptId}`, error); });
-    const journal = await this.settledJournal(intent);
-    // A guest that settled no operation spent exactly nothing the journal can
-    // see, and saying so as a measured zero is what lets its stop settle: an
-    // absent usage would leave the stop uncertain and the node unresolved.
-    const measured = journal.usage ?? (journal.operations.length === 0 ? FACTORY_NO_OPERATION_USAGE : undefined);
-    const result = failedFactoryRunnerResult({ ...journal, ...(measured ? { usage: measured } : {}) }, { code: FACTORY_LOST_RESULT_CODES[reason], message, retryable: true });
+    const result = failedFactoryRunnerResult(await this.settledJournal(intent), { code: FACTORY_LOST_RESULT_CODES[reason], message, retryable: true });
     return this.options.launches.recordTerminal(attemptId, result);
   }
 
