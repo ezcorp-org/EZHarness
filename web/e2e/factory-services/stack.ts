@@ -296,7 +296,8 @@ startFactoryPrivateHttps({
 
 // ── The factory startup document ──────────────────────────────────────
 const privateServicePort = freePort();
-const releaseAdapter = { package: guest.reference.package, manifestName: guest.reference.manifestName, version: guest.reference.version, digest: `sha256:${"d".repeat(64)}`, export: "publish" };
+// The release adapter the declared profile names: its own package, since a definition pins each package once.
+const releaseAdapter = { package: "@ezcorp/factory-services-release", manifestName: "factory-services-release", version: "1.0.0", digest: `sha256:${"d".repeat(64)}`, export: "publish" };
 const startupPath = await writePrivate("factory-startup.json", JSON.stringify({
 	schemaVersion: "factory.startup.v1", installationId: INSTALLATION, tenantId: TENANT, poolId: POOL, hostId: HOST, temporalNamespace: NAMESPACE,
 	temporalHttp: { endpoint: `http://127.0.0.1:${temporalHttpPort}` },
@@ -482,7 +483,7 @@ console.log(`[factory-services] held at ${baseURL}; logs in ${logs}`);
 // ── Hold, and prepare the package once the console has trusted it ─────
 const { FileBlobStore } = await import(join(REPO, "src/extensions/v4/blobs.ts"));
 const { FactoryGrants } = await import(join(REPO, "src/factory/grants.ts"));
-const { FactoryPackagePreparations, FactoryPackageTrusts, FactoryV4PackageCatalog } = await import(join(REPO, "src/factory/package-preparation.ts"));
+const { FactoryPackagePreparations, FactoryPackageTrusts, FactoryV4PackageCatalog, factoryRunnerPackageKey } = await import(join(REPO, "src/factory/package-preparation.ts"));
 const { PodmanRunner, buildLimits } = await import(join(REPO, "packages/@ezcorp/extension-runner/src/index.ts"));
 const { provisionToolchain } = await import(join(REPO, "packages/@ezcorp/extension-runner/src/provision.ts"));
 const { canonicalJson } = await import(join(REPO, "node_modules/@ezcorp/extension-contract/src/index.ts"));
@@ -546,11 +547,12 @@ while (!stopping && Date.now() < heldUntil && !await Bun.file(STOP_FILE).exists(
 	if (!state.prepared) {
 		// Each reference is prepared once the console has trusted it; `prepared` means both are.
 		for (const reference of [guest.reference, validatorReference].filter(item => !preparedReferences.has(item))) {
+			// The product's own key for the exact pin: two references of one package differ in their digest here.
+			const referenceDigest = (factoryRunnerPackageKey(reference) as readonly string[])[4];
 			const trust = await productSql.unsafe(
-				`SELECT r.state FROM factory_runner_package_bindings b JOIN factory_runner_package_trust_current c ON c.tenant_id = b.tenant_id AND c.project_id = b.project_id AND c.reference_digest = b.reference_digest
-				 JOIN factory_runner_package_trust_revisions r ON r.tenant_id = c.tenant_id AND r.project_id = c.project_id AND r.reference_digest = c.reference_digest AND r.revision = c.revision
-				 WHERE b.tenant_id = $1 AND b.project_id = $2 AND b.reference_json::jsonb = $3::jsonb`,
-				[TENANT, projectId, JSON.stringify(reference)],
+				`SELECT r.state FROM factory_runner_package_trust_current c JOIN factory_runner_package_trust_revisions r ON r.tenant_id = c.tenant_id AND r.project_id = c.project_id AND r.reference_digest = c.reference_digest AND r.revision = c.revision
+				 WHERE c.tenant_id = $1 AND c.project_id = $2 AND c.reference_digest = $3`,
+				[TENANT, projectId, referenceDigest],
 			) as Array<{ state: string }>;
 			if (trust[0]?.state !== "active") continue;
 			const runner = new PodmanRunner({ root: join(root, "prepare"), ...await provisionToolchain({ sdkEntrypoint: process.env.EZ_RUNNER_SDK_ENTRY }) });
