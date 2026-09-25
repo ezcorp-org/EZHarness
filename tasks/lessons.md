@@ -1569,3 +1569,12 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 - A Node service may import only leaf modules from the product. `src/db/queries/*` and anything that
   reaches them (records, auth) pull in `db/connection` and the Bun SQL driver. Put shared constants and
   types in a leaf, and let `check-factory-boundaries.ts` (`NODE_SERVICE_BOUNDARIES`) guard the entry.
+
+## 2026-09-25 — W01h runner outcome unknown
+
+- Under Bun 1.3.14, `node:https` `request.destroy(error)` and an aborted `signal` emit only `close`, never `error`. A promise that rejects only from `error` then never settles. Settle explicitly on the deadline, on abort, and on a `close` that arrives before a response. Node emits `error` in all three cases, so a Node-only test cannot see this.
+- A long result wait over one HTTP call is fragile. Use a bounded long poll: the server answers inside its own window (for example 504 `host_timeout`), keeps a settled answer until it is collected, and the client asks again until the attempt deadline.
+- Never delete a result in the handler that returns it. The caller may already be gone, and the result is then lost for good.
+- An unknown outcome with no durable record stops a run for good: the kernel only moves on `node-failed`. Record a typed `failed` result over the journal's own facts, and let the kernel's `cancel-node` decide the retry.
+- The pre-commit hook runs every staged test file, including `*.podman.integration.test.ts`, without the heavy lock. Commit a Podman test on its own, inside `flock --close /tmp/ezcorp-validation-heavy.lock`.
+- The durable run fence epoch (`factory_run_lifecycle.cancellation_epoch`) moves only on a user cancel. A stop the kernel begins itself (run deadline) makes every later `cancel-node` stale. Check a kernel-initiated stop path end to end before you trust it.

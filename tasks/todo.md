@@ -4601,3 +4601,24 @@ Numbering grants turns revoke-then-grant into history rather than a conflict. A 
 that matters: one active grant per target. First grants keep their old seal, so every existing row still
 verifies. The display name is read from the user or service-account record only. It is resolved outside the
 authorization path, and it can never fall back to the raw id.
+
+## W01h — runner_outcome_unknown leaves a run stuck (branch `wp/w01h-runner-outcome`)
+
+Gate file `tasks/factory/w01h-GATES.md`; evidence `/tmp/factory-platform-evidence/w01h/`.
+
+- [x] Reproduce first: unit reproduction of three mechanisms on the base; the incident reproduced on W19a's harness (`proof/w01h-base-fault`)
+- [x] Transport settles under Bun (deadline, abort, early close, oversize) — `1812495b6`
+- [x] Host keeps answers until collected, typed refusals, every refusal in the supervisor log — `760cf1810`
+- [x] Every lost answer ends in a typed failed terminal row; dispatcher keeps the cause — `4cd3f76b4`, `41b1d8a02`
+- [x] Kernel retries or fails the run on the typed failure (lifecycle case) and the Podman fault-injection case — `4dbe4a1b2`
+- [x] W19a runbook green with the fix (`proof/w01h-fix-w19a`)
+- [ ] The incident path itself (guest dies AT its 30 s attempt deadline) ends the run — blocked on a coordinator ruling (C02 fence refuses any report after the deadline; patch proposed)
+- [ ] Run-deadline stop refused `factory_command_stale` (kernel epoch moves, durable fence does not) — reported, owner ruling pending
+
+### Review
+
+The run hung because nothing ever wrote what happened to an attempt whose guest answer was lost: the host dropped
+the answer, the product swallowed the error, and the kernel heard nothing until its own 10-minute deadline, whose
+stop was then refused as stale. W01h makes every lost answer a durable, typed failure the kernel acts on, and gives
+both processes a log line that names it. Two causes remain outside this package: the 30 s sealed attempt deadline
+(pool lease, never renewed by the remote runtime), after which C02 refuses any report, and the run-deadline epoch.
