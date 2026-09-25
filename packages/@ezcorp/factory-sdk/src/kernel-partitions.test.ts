@@ -247,10 +247,13 @@ describe("partition-local factory kernel", () => {
     expect(advanceKernel(factory, targetStarted.nextState, invalidationEvent({ ...invalidation, sourceNodeId: "unrelated" }, "unrelated-source")).nextState.partition).toEqual(targetStarted.nextState.partition);
     expect(() => advanceKernel(factory, targetStarted.nextState, invalidationEvent({ ...invalidation, candidateGeneration: 0 }, "invalid-generation"))).toThrow("positive safe integer");
     const targetInvalidated = advanceKernel(factory, targetStarted.nextState, invalidationEvent(invalidation));
-    const cancelApproval = command(targetInvalidated.commands, "cancel-node", "z");
+    // A waiting approval has nothing physical to stop (W01h): no cancel-node, and the repair
+    // completes in the same transition, so the target waits for the replaced source at once.
+    expect(targetInvalidated.commands.some((candidate) => candidate.kind === "cancel-node")).toBe(false);
     expect(targetInvalidated.nextState.partition?.externalOutputs.a).toBeUndefined();
     expect(targetInvalidated.nextState.partition?.completedEdges).toEqual({});
-    expect(targetInvalidated.nextState.pendingRepair?.nodeIds).toContain("z");
+    expect(targetInvalidated.nextState.pendingRepair).toBeUndefined();
+    expect(targetInvalidated.nextState.nodes.z).toEqual(expect.objectContaining({ status: "blocked", candidateGeneration: 1 }));
     const replayable = { ...targetInvalidated.nextState, appliedEventIds: targetInvalidated.nextState.appliedEventIds.filter((id) => id !== invalidation.id) };
     expect(advanceKernel(factory, replayable, invalidationEvent(invalidation)).commands).toEqual([]);
     expect(() => advanceKernel(factory, replayable, invalidationEvent({ ...invalidation, id: "conflicting-invalidation" }))).toThrow("recorded source fence");
@@ -258,11 +261,9 @@ describe("partition-local factory kernel", () => {
     const ahead = { ...replayable, partition: { ...replayable.partition!, invalidatedEdges: { [edgeKey]: { candidateGeneration: 2, eventId: "generation-two" } } } };
     expect(advanceKernel(factory, ahead, invalidationEvent({ ...invalidation, id: "stale-invalidation" })).nextState).toEqual(expect.objectContaining({ partition: ahead.partition }));
 
-    const oldDecision = advanceKernel(factory, targetInvalidated.nextState, { kind: "approval-decided", id: "old-approval", atMs: 6, nodeId: "z", commandId: oldApproval.id, choice: "approve" });
-    expect(oldDecision.nextState.nodes.z?.status).toBe("stopping");
-    const stopped = advanceKernel(factory, oldDecision.nextState, { kind: "attempt-stopped", id: "old-approval-stopped", atMs: 7, nodeId: "z", commandId: cancelApproval.attemptCommandId, candidateGeneration: cancelApproval.candidateGeneration, attempt: cancelApproval.attempt });
+    const stopped = advanceKernel(factory, targetInvalidated.nextState, { kind: "approval-decided", id: "old-approval", atMs: 6, nodeId: "z", commandId: oldApproval.id, choice: "approve" });
     expect(stopped.nextState.nodes.z).toEqual(expect.objectContaining({ status: "blocked", candidateGeneration: 1 }));
-    expect(stopped.commands.some((candidate) => candidate.kind === "request-approval")).toBe(false);
+    expect(stopped.commands).toEqual([]);
 
     const replacementDone = completeTask(factory, sourceRepair.nextState, "a", { value: 2 });
     const replacement = command(replacementDone.commands, "notify-partition", "z");
@@ -343,22 +344,15 @@ describe("partition-local factory kernel", () => {
     const middleInvalidated = advanceKernel(factory, middleDone.nextState, invalidationEvent(sourceInvalidation));
     const transitiveInvalidation = command(middleInvalidated.commands, "invalidate-partition", "z");
     const targetInvalidated = advanceKernel(factory, targetStarted.nextState, invalidationEvent(transitiveInvalidation));
-    expect(targetInvalidated.nextState.nodes.z).toEqual(expect.objectContaining({ status: "stopping" }));
+    expect(targetInvalidated.nextState.nodes.z).toEqual(expect.objectContaining({ status: "blocked", candidateGeneration: 1 }));
+    expect(targetInvalidated.commands.some((candidate) => candidate.kind === "cancel-node")).toBe(false);
     expect(targetInvalidated.nextState.partition?.externalOutputs.m).toBeUndefined();
   });
 
   test("retains a second incoming edge fence while the first invalidation is stopping the target", () => {
-    const factory = partitionedFactory({
-      id: "z",
-      kind: "approval",
-      dependsOn: ["a", "slow-000"],
-      choices: ["approve"],
-      context: { kind: "literal", value: null },
-      actorScope: "owner",
-      expiresInMs: 60_000,
-      onDenied: "fail",
-      onExpired: "fail",
-    });
+    // The target must hold a physical attempt, so the first invalidation's stop stays open. An
+    // approval settles in place (W01h), so a task whose admission request is in flight stands in.
+    const factory = partitionedFactory({ id: "z", kind: "task", runner, dependsOn: ["a", "slow-000"] });
     const sourcePartition = factory.partitions.find((partition) => partition.nodeIds.includes("a"))!;
     const targetPartition = factory.partitions.find((partition) => partition.nodeIds.includes("z"))!;
     let source = start(factory, sourcePartition.id, "repair-two-inputs").nextState;
@@ -368,8 +362,8 @@ describe("partition-local factory kernel", () => {
     const completions = [...firstDone.commands, ...secondDone.commands].filter((candidate): candidate is Extract<KernelCommand, { kind: "notify-partition" }> => candidate.kind === "notify-partition" && candidate.nodeId === "z");
     let target = start(factory, targetPartition.id, "repair-two-inputs").nextState;
     for (const completion of completions) target = advanceKernel(factory, target, completionEvent(completion)).nextState;
-    const approval = target.nodes.z?.attempts.at(-1);
-    expect(approval).toBeDefined();
+    const admission = target.nodes.z?.attempts.at(-1);
+    expect(admission).toBeDefined();
 
     const firstEdge = targetPartition.inbound.find((edge) => edge.fromNodeId === "a")!;
     const secondEdge = targetPartition.inbound.find((edge) => edge.fromNodeId === "slow-000")!;
