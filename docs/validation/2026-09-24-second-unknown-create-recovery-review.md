@@ -1,6 +1,6 @@
 # Second Incus CREATE: recovery review packet
 
-Status: **prepared, not approved or executed**. This packet applies only to the second isolated fixture below. The first recovery in [the earlier execution packet](2026-09-24-unknown-create-recovery-execution.md) used different IDs and cannot authorize this one. No server write, app stop, certificate revocation, or recovery request was made while preparing this packet.
+Status: **superseded for execution**. The exact approval led to one guarded attempt, recorded in [the attempt receipt](2026-09-24-second-unknown-create-recovery-attempt.md). It stopped before any signed recovery request because the server observer still named the first instance. The server and local services were restored. The revised controls are in [the next review packet](2026-09-24-second-unknown-create-recovery-revised-review.md). This document remains the original scope and preparation record.
 
 | Field | Pinned value |
 | --- | --- |

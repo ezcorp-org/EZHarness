@@ -1,5 +1,9 @@
 # Lessons
 
+- Before an exact no-effect recovery, verify every independent observer policy on the **server** names the target instance; updating only the AMD observer context does not change the server forced command's policy. Test the exact restricted SSH response before certificate revocation.
+- Before stopping a fenced service, inspect reverse systemd dependencies and test which other units stop. The recovery supervisor must survive the runner stop with the same PID and socket before a no-effect request can be signed.
+- A systemd drop-in cannot remove dependencies declared in the base unit. Test the loaded unit's effective `Requires`, not just drop-in syntax or generated source text. A zero-match `rg -c` check emits no count; use an explicit negative match with checked command status.
+
 - When moving an approved release to a separate runner identity or store, verify that the runner has the exact referenced artifact digest before admitting a provider effect. A database release record alone does not prove its worker artifact is available. Missing pre-worker artifacts must have a distinct error from uncertain external effects.
 
 - Inspect an existing top-level gate ledger before applying a skill's default filename. Preserve historical gates and use the active task's scoped gate file.

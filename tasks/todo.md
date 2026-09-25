@@ -8,13 +8,22 @@
 - [x] Make a missing runner artifact a definite pre-worker failure; prove the code survives the Unix runner API and the Incus dispatcher does not retry unknown errors.
 - [x] Run focused recovery, transport, preview, runner, dispatcher, and SSH-gate tests; full typecheck, lint, and production build pass on this worktree.
 - [ ] Recover the second unknown CREATE `016f7e51-60a6-4e19-aa32-77d44b745053` with the independent fence and signed no-effect procedure before another EZHarness CREATE.
+- [x] Record the first guarded second-CREATE recovery attempt and complete rollback; no signed request was sent.
+- [x] Prepare the exact second-target server observer policy in NixOS PR #12 and test its denial cases; test and reject the ineffective temporary AMD override proposed in PR #13.
+- [x] Stop the revised attempt at the live AMD dependency gate; record rollback and reject the ineffective temporary override.
+- [x] Build and test the corrected NixOS-generated AMD supervisor unit; review its guarded activation packet in PR #13.
+- [ ] Obtain one exact approval of the guarded AMD activation and conditional second-CREATE recovery in the v3 packet.
 - [ ] Run a complete EZHarness-owned guest fixture, the live qualification cases, feature workflow, and cleanup.
 - [ ] Remove the temporary `/var/empty/.config` workaround after the corrected NixOS setup gate is active.
 - [ ] Finish the source fixes, pass the CRAP gate and all hosted checks on the final PR head, and publish the measured live evidence.
 
 Review: The server is up. Setup `97edb3a1-80e4-4305-baac-1325930b868d` is verified, and capacity digest `a4124441943808b4311afe333aa59d2b43a52b6623bb39a5a17de8719238ce43` applied. The first provider worker call failed because the new runner store held zero artifacts; the exact approved artifact digest `2fc8d4c91d0b8ec779451cc6ff0f8fc93e17ddec9085e0d632d65d9bde7008d5` has now been copied and SHA-256 checked. A new read-only worker probe reaches Incus and stops at the helper qualification gate, which needs live guest evidence. The second CREATE is still `OUTCOME_UNKNOWN`; the expected instance is absent, but that alone is not a no-effect proof. A separate direct canary was created and deleted, showing the pinned Incus transport works. PR #303's prior head has one failing CRAP gate; focused refactors and tests are in progress. See `docs/validation/2026-09-24-post-recovery-incus-setup-review.md`.
 
-Second recovery preparation is recorded in `docs/validation/2026-09-24-second-unknown-create-recovery-review.md`. It has target-specific staged files and exact hashes, but no server fence or recovery request has run. On the current source tree, the focused tests, full typecheck, lint, and production build pass. Hosted coverage and CRAP gates still need the final pushed head.
+Second recovery preparation is recorded in `docs/validation/2026-09-24-second-unknown-create-recovery-review.md`. It had target-specific staged files and exact hashes before the first attempt. On the current source tree, the focused tests, full typecheck, lint, and production build passed. Hosted coverage and CRAP gates still need the final pushed head.
+
+The approved second recovery attempt stopped after the first restricted observer response named the first instance. No signed request was sent. The exact old certificate, server generation, local configs, app, and runner were restored; CREATE remains `OUTCOME_UNKNOWN`. The new [revised review](../docs/validation/2026-09-24-second-unknown-create-recovery-revised-review.md) requires a second-target server policy swap and a temporary supervisor dependency override before another attempt. The traffic hold remains active.
+
+The revised attempt then stopped before runner or server changes because systemd did not remove the base-unit `Requires=runner` from a temporary drop-in. Its [receipt](../docs/validation/2026-09-24-second-unknown-create-revised-attempt.md) records restored baseline. PR #13 now changes the generated NixOS unit instead; its full AMD candidate built with exact live pins, focused generated-unit and activation-command tests pass, and the read-only live preflight passes. The [v3 packet](../docs/validation/2026-09-24-second-unknown-create-recovery-v3-review.md) combines guarded activation with conditional recovery. PR #303's pushed source head `8d3e1c495` passed all 51 hosted checks; pending local evidence docs will require a final push and check.
 
 # Wire `trusted-local` — the explicit, per-release-approved unsandboxed extension mode
 
