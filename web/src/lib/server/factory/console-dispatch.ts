@@ -41,6 +41,8 @@ export async function dispatchFactoryConsoleRequest(application: FactoryApplicat
       return { schemaVersion: VERSION, kind: "package.resource", resource: await (await application.console()).packages.transition(principal, request.path.projectId, request.path.referenceId, request.body.transition, request.preconditions.expectedRevision, request.preconditions.idempotencyKey) };
     case "package.impact":
       return { schemaVersion: VERSION, kind: "package.impact", resource: await (await application.console()).packages.impact(principal, request.path.projectId, request.path.referenceId, request.query.transition) };
+    case "package.affected-runs":
+      return { schemaVersion: VERSION, kind: "package.affected-runs", page: await (await application.console()).packages.affectedRuns(principal, request.path.projectId, request.path.referenceId, request.query) };
     case "purge.preview":
       return { schemaVersion: VERSION, kind: "purge.preview", resource: await (await application.console()).purge.preview(principal, request.path.tenantId) };
     case "purge.request":

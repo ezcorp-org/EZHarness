@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/svelte";
 import { describe, expect, test, vi } from "vitest";
-import type { FactoryGrantResource, FactoryPackageImpact, FactoryPackageResource, FactoryPackageTransition, FactoryRestoreResource } from "@ezcorp/factory-sdk/types";
+import type { FactoryGrantResource, FactoryPackageAffectedAttempt, FactoryPackageImpact, FactoryPackageResource, FactoryPackageTransition, FactoryRestoreResource } from "@ezcorp/factory-sdk/types";
 import FactoryAdministration from "./FactoryAdministration.svelte";
 import { FactoryApiClientError, type FactoryAdministrationApi } from "./client";
 
@@ -10,6 +10,10 @@ const pkg = (name: string, state?: FactoryPackageResource["state"], revision = 1
 	revision, ...(state ? { state } : {}), installationId: "i-1", releaseId: "r-1", boundAtMs: 1,
 });
 const grant = (principalId: string, overrides: Partial<FactoryGrantResource> = {}): FactoryGrantResource => ({ principalKind: "user", principalId, action: "factory.run", revision: 2, expiresAtMs: null, revoked: false, displayName: `Name of ${principalId}`, ...overrides });
+const fencedAttempt = (runId: string, attemptId: string, disposition: FactoryPackageAffectedAttempt["disposition"]): FactoryPackageAffectedAttempt => ({
+	runId, attemptId, ...(disposition === "run-terminal" ? { attemptStatus: "admitted", launchState: null } : { attemptStatus: "running", launchState: "launched" }), trustRevision: 3, state: "quarantined", reason: "factory_package_quarantined", disposition,
+	...(disposition === "run-terminal" ? {} : { cancellationEventId: `cancel-${runId}` }), recordedAtMs: 5,
+});
 const preview = { tenantId: "tenant-1", ready: false, auditRowsLost: 1, preconditions: [{ id: "live-runs", satisfied: false, count: 2, detail: "Runs still running" }, { id: "uncertain-usage", satisfied: true, count: 0, detail: "Uncertain usage" }] };
 
 const reportDigest = `sha256:${"b".repeat(64)}`;
@@ -26,6 +30,7 @@ function api(overrides: Partial<FactoryAdministrationApi> = {}): FactoryAdminist
 		installPackage: vi.fn(async (_project, body) => ({ ...pkg("new"), reference: body.reference })),
 		packageImpact: vi.fn(async (_p: string, _r: string, transition: FactoryPackageTransition): Promise<FactoryPackageImpact> => ({ transition, currentRevision: 2, allowed: true, runs: [{ runId: "run-1", factoryId: "f", status: "running", liveAttempts: 1 }, { runId: "run-2", factoryId: "g", status: "waiting", liveAttempts: 2 }], truncated: true })),
 		transitionPackage: vi.fn(async () => ({ ...pkg("active", "quarantined", 3) })),
+		packageAffectedRuns: vi.fn(async () => ({ items: [fencedAttempt("run-1", "a-1", "cancel-requested"), fencedAttempt("run-1", "a-2", "already-cancelling"), fencedAttempt("run-2", "a-3", "run-terminal")], nextCursor: null })),
 		listGrants: vi.fn(async () => ({ items: [grant("member-1", { expiresAtMs: Date.UTC(2031, 0, 2, 3, 4) }), grant("old", { revoked: true, action: "factory.operate" }), grant("svc", { principalKind: "service" })], nextCursor: null })),
 		setGrant: vi.fn(async (_p, principalKind, principalId, action, revision) => grant(principalId, { principalKind, action, revision: revision + 1 })),
 		revokeGrant: vi.fn(async (_p, principalKind, principalId, action) => grant(principalId, { principalKind, action, revoked: true })),
@@ -58,8 +63,46 @@ describe("FactoryAdministration", () => {
 		expect(review).toHaveTextContent("2 live attempts");
 		await fireEvent.click(within(review).getByRole("button", { name: "Commit at revision 2" }));
 		await waitFor(() => expect(service.transitionPackage).toHaveBeenCalledWith("project-1", pkg("active").referenceId, "quarantine", 2));
-		expect(await screen.findByRole("status")).toHaveTextContent("@ezcorp/active is quarantined at trust revision 3. The change is in the audit log.");
+		expect(await screen.findByRole("status")).toHaveTextContent("@ezcorp/active is quarantined at trust revision 3. The fence reached 2 runs. The change is in the audit log.");
+		expect(service.packageAffectedRuns).toHaveBeenCalledWith("project-1", pkg("active").referenceId, { trustRevision: 3, limit: 200 });
 		expect(service.listPackages).toHaveBeenCalledTimes(2);
+		// The fence's own record of the decision, one row per attempt, each with what the fence did.
+		const record = screen.getByRole("region", { name: "Fence record" });
+		expect(within(record).getByRole("heading")).toHaveTextContent("Fence record · @ezcorp/active@1.0.0 · trust revision 3");
+		expect(within(record).getAllByRole("listitem").map(row => row.textContent?.replace(/\s+/g, " ").trim())).toEqual([
+			"run-1attempt a-1 · was running · launchedcancel requested",
+			"run-1attempt a-2 · was running · launchedalready cancelling",
+			"run-2attempt a-3 · was admitted · not launchedalready finished",
+		]);
+		expect(within(record).queryByText(/Only the first/)).toBeNull();
+	});
+
+	test("a publish reads no fence record; an empty or longer record says so; another project clears it", async () => {
+		const service = api({
+			packageAffectedRuns: vi.fn(async () => ({ items: [], nextCursor: null })),
+			transitionPackage: vi.fn(async (_p: string, _r: string, transition: FactoryPackageTransition) => ({ ...pkg("active", transition === "publish" ? "active" : "revoked", 4) })),
+		});
+		const view = mount(service);
+		const active = await screen.findByRole("group", { name: "Trust actions for @ezcorp/active" });
+		await fireEvent.click(within(active).getByRole("button", { name: "Re-trust" }));
+		await fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Commit at revision 2" }));
+		expect(await screen.findByRole("status")).toHaveTextContent("@ezcorp/active is active at trust revision 4. The change is in the audit log.");
+		expect(service.packageAffectedRuns).not.toHaveBeenCalled();
+		expect(screen.queryByRole("region", { name: "Fence record" })).toBeNull();
+
+		await fireEvent.click(within(await screen.findByRole("group", { name: "Trust actions for @ezcorp/active" })).getByRole("button", { name: "Revoke" }));
+		await fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Commit at revision 2" }));
+		expect(await screen.findByRole("status")).toHaveTextContent("@ezcorp/active is revoked at trust revision 4. The fence reached 0 runs.");
+		expect(screen.getByRole("region", { name: "Fence record" })).toHaveTextContent("No live attempt used this package, so the fence stopped nothing.");
+
+		service.packageAffectedRuns = vi.fn(async () => ({ items: [fencedAttempt("run-9", "a-9", "cancel-requested")], nextCursor: "next" }));
+		await fireEvent.click(within(await screen.findByRole("group", { name: "Trust actions for @ezcorp/active" })).getByRole("button", { name: "Quarantine" }));
+		await fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Commit at revision 2" }));
+		expect(await screen.findByRole("status")).toHaveTextContent("The fence reached 1+ run. The change is in the audit log.");
+		expect(screen.getByRole("region", { name: "Fence record" })).toHaveTextContent("Only the first 1 attempts are shown.");
+
+		await view.rerender({ projectId: "project-2", tenantId: "tenant-1", administrator: true, api: service });
+		await waitFor(() => expect(screen.queryByRole("region", { name: "Fence record" })).toBeNull());
 	});
 
 	test("a refused review cannot be committed, a publish review names its scope, and cancel closes it", async () => {
@@ -108,7 +151,11 @@ describe("FactoryAdministration", () => {
 	test("grants: a new one starts at revision 0, an existing one at its revision, and a revoke names its revision", async () => {
 		const service = api();
 		mount(service);
-		expect(await screen.findByText("factory.run · revision 2 · expires 2031-01-02 03:04 UTC")).toBeVisible();
+		// Each grantee reads by name; the kind and exact identifier stay beside it.
+		expect(await screen.findByText("Name of member-1")).toBeVisible();
+		expect(screen.getByText("user · member-1")).toBeVisible();
+		expect(screen.getByText("service · svc")).toBeVisible();
+		expect(screen.getByText("factory.run · revision 2 · expires 2031-01-02 03:04 UTC")).toBeVisible();
 		expect(screen.getByText("factory.operate · revision 2 · revoked")).toBeVisible();
 		expect(screen.getAllByText("factory.run · revision 2 · no expiry")).toHaveLength(1);
 		const form = screen.getByRole("form", { name: "Grant factory authority" });

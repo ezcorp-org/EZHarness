@@ -33,6 +33,8 @@ import type {
 	FactoryArtifactShareResource,
 	FactoryPackageResource,
 	FactoryPackageImpact,
+	FactoryPackageAffectedAttempt,
+	FactoryPackageAffectedRunsQuery,
 	FactoryPackageInstallBody,
 	FactoryPackageTransition,
 	FactoryPurgePreview,
@@ -375,6 +377,12 @@ export class FactoryApiClient {
 		return expectKind(await this.read(this.packages(projectId) + "/" + encoded(referenceId) + "/impact" + queryString({ transition })), "package.impact").resource;
 	}
 
+	/** What the fence recorded: every attempt a quarantine or revocation of this package reached, oldest decision first. */
+	async packageAffectedRuns(projectId: string, referenceId: string, query: FactoryPackageAffectedRunsQuery = {}): Promise<{ readonly items: readonly FactoryPackageAffectedAttempt[]; readonly nextCursor: string | null }> {
+		const response = expectKind(await this.read(this.packages(projectId) + "/" + encoded(referenceId) + "/affected-runs" + queryString({ trustRevision: query.trustRevision, limit: query.limit, cursor: query.cursor })), "package.affected-runs");
+		return { items: response.page.items, nextCursor: response.page.nextCursor ?? null };
+	}
+
 	async transitionPackage(projectId: string, referenceId: string, transition: FactoryPackageTransition, revision: number): Promise<FactoryPackageResource> {
 		const path = this.packages(projectId) + "/" + encoded(referenceId) + "/trust";
 		return expectKind(await this.read(path, this.mutationInit("package-" + transition + ":" + referenceId + ":" + revision, revision, { transition })), "package.resource").resource;
@@ -451,7 +459,7 @@ export type FactoryRunControlApi = Pick<FactoryApiClient, "listRuns" | "getRun" 
 export type FactoryRunInspectorApi = Pick<FactoryApiClient, "listRuns" | "inspectRun" | "inspectRunSection" | "openRunEvents" | "artifactTicket" | "artifactBytes">;
 
 export type FactoryAdministrationApi = Pick<FactoryApiClient,
-	"listPackages" | "installPackage" | "packageImpact" | "transitionPackage" | "listGrants" | "setGrant" | "revokeGrant" | "purgePreview" | "requestPurge" | "listRestores" | "signRestore"
+	"listPackages" | "installPackage" | "packageImpact" | "packageAffectedRuns" | "transitionPackage" | "listGrants" | "setGrant" | "revokeGrant" | "purgePreview" | "requestPurge" | "listRestores" | "signRestore"
 >;
 
 export function blankFactory(factoryId: string): FactoryDefinition {

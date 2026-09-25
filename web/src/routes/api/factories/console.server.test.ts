@@ -21,7 +21,7 @@ const services = {
   tenantId: "tenant-1",
   inspections: { inspect: vi.fn(), material: vi.fn() },
   events: { read: vi.fn() },
-  packages: { list: vi.fn(), install: vi.fn(), transition: vi.fn(), impact: vi.fn() },
+  packages: { list: vi.fn(), install: vi.fn(), transition: vi.fn(), impact: vi.fn(), affectedRuns: vi.fn() },
   purge: { preview: vi.fn(), request: vi.fn() },
   restores: { list: vi.fn(), sign: vi.fn() },
   tickets: { issue: vi.fn(), download: vi.fn(), share: vi.fn(), unshare: vi.fn(), readShared: vi.fn() },
@@ -42,6 +42,7 @@ const sharedRead = await import("./projects/[projectId]/shared-artifacts/[artifa
 const packages = await import("./projects/[projectId]/packages/+server");
 const trust = await import("./projects/[projectId]/packages/[referenceId]/trust/+server");
 const impact = await import("./projects/[projectId]/packages/[referenceId]/impact/+server");
+const affectedRuns = await import("./projects/[projectId]/packages/[referenceId]/affected-runs/+server");
 const purgePreview = await import("./tenants/[tenantId]/purge-preview/+server");
 const purgeRequests = await import("./tenants/[tenantId]/purge-requests/+server");
 const materials = await import("./projects/[projectId]/validator-materials/+server");
@@ -231,6 +232,20 @@ describe("console routes", () => {
     const previewed = await impact.GET(event("GET", `${base}/packages/${referenceId}/impact?transition=quarantine`, { params: { projectId: "project-1", referenceId } }));
     expect(await json(previewed)).toMatchObject({ kind: "package.impact", resource: { allowed: true } });
     expect((await impact.GET(event("GET", `${base}/packages/${referenceId}/impact`, { params: { projectId: "project-1", referenceId } }))).status).toBe(400);
+    // The fence's record: numbers in the query are numbers, and a malformed one never reaches the service.
+    const recorded = { runId: "run-1", attemptId: "attempt-1", attemptStatus: "running", launchState: "launched", trustRevision: 2, state: "quarantined", reason: "factory_package_quarantined", disposition: "cancel-requested", cancellationEventId: "cancel-1", recordedAtMs: 7 };
+    services.packages.affectedRuns.mockResolvedValueOnce({ items: [recorded], nextCursor: "next" });
+    const record = await affectedRuns.GET(event("GET", `${base}/packages/${referenceId}/affected-runs?trustRevision=2&limit=5&cursor=c1`, { params: { projectId: "project-1", referenceId } }));
+    expect(await json(record)).toEqual({ schemaVersion: "factory.api.response.v1", kind: "package.affected-runs", page: { items: [recorded], nextCursor: "next" } });
+    expect(services.packages.affectedRuns).toHaveBeenLastCalledWith(session, "project-1", referenceId, { trustRevision: 2, limit: 5, cursor: "c1" });
+    services.packages.affectedRuns.mockResolvedValueOnce({ items: [] });
+    expect(await json(await affectedRuns.GET(event("GET", `${base}/packages/${referenceId}/affected-runs`, { params: { projectId: "project-1", referenceId } })))).toMatchObject({ page: { items: [] } });
+    expect(services.packages.affectedRuns).toHaveBeenLastCalledWith(session, "project-1", referenceId, {});
+    const calls = services.packages.affectedRuns.mock.calls.length;
+    expect((await affectedRuns.GET(event("GET", `${base}/packages/${referenceId}/affected-runs?trustRevision=zero`, { params: { projectId: "project-1", referenceId } }))).status).toBe(400);
+    expect(services.packages.affectedRuns.mock.calls.length).toBe(calls);
+    services.packages.affectedRuns.mockRejectedValueOnce(new FactoryConsoleError("factory_page_invalid"));
+    expect((await json(await affectedRuns.GET(event("GET", `${base}/packages/${referenceId}/affected-runs?cursor=bad`, { params: { projectId: "project-1", referenceId } })))).error?.code).toBe("factory_page_invalid");
   });
 
   test("the purge request is administrator-session only and records rather than deletes", async () => {

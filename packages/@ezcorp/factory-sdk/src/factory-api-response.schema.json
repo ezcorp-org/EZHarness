@@ -791,6 +791,27 @@
       ],
       "type": "object"
     },
+    "FactoryApiPage<FactoryPackageAffectedAttempt>": {
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/definitions/FactoryPackageAffectedAttempt"
+          },
+          "maxItems": 200,
+          "type": "array"
+        },
+        "nextCursor": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "items"
+      ],
+      "type": "object"
+    },
     "FactoryApiPage<FactoryPackageResource>": {
       "additionalProperties": false,
       "properties": {
@@ -1598,6 +1619,28 @@
             "schemaVersion",
             "kind",
             "resource"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "package.affected-runs",
+              "type": "string"
+            },
+            "page": {
+              "$ref": "#/definitions/FactoryApiPage%3CFactoryPackageAffectedAttempt%3E"
+            },
+            "schemaVersion": {
+              "const": "factory.api.response.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "page"
           ],
           "type": "object"
         },
@@ -2626,6 +2669,95 @@
           "$ref": "#/definitions/ReleaseNode"
         }
       ]
+    },
+    "FactoryPackageAffectedAttempt": {
+      "additionalProperties": false,
+      "description": "One attempt a quarantine or revocation reached, and what the fence did about it: W02c's sealed affected-run record, written in the decision's transaction.",
+      "properties": {
+        "attemptId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "attemptStatus": {
+          "enum": [
+            "admitted",
+            "running"
+          ],
+          "type": "string"
+        },
+        "cancellationEventId": {
+          "description": "The run's cancel event; absent only when the run had already finished.",
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "disposition": {
+          "enum": [
+            "cancel-requested",
+            "already-cancelling",
+            "run-terminal"
+          ],
+          "type": "string"
+        },
+        "launchState": {
+          "description": "Null when no dispatcher had claimed the attempt yet.",
+          "enum": [
+            "prepared",
+            "launching",
+            "launched",
+            "terminal",
+            "uncertain",
+            null
+          ],
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reason": {
+          "enum": [
+            "factory_package_quarantined",
+            "factory_package_revoked"
+          ],
+          "type": "string"
+        },
+        "recordedAtMs": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "number"
+        },
+        "runId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "quarantined",
+            "revoked"
+          ],
+          "type": "string"
+        },
+        "trustRevision": {
+          "description": "The trust revision of the decision.",
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "type": "number"
+        }
+      },
+      "required": [
+        "runId",
+        "attemptId",
+        "attemptStatus",
+        "launchState",
+        "trustRevision",
+        "state",
+        "reason",
+        "disposition",
+        "recordedAtMs"
+      ],
+      "type": "object"
     },
     "FactoryPackageImpact": {
       "additionalProperties": false,

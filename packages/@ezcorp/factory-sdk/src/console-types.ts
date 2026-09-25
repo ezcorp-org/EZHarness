@@ -293,6 +293,38 @@ export interface FactoryPackageImpactQuery {
   readonly transition: FactoryPackageTransition;
 }
 
+/**
+ * One attempt a quarantine or revocation reached, and what the fence did about
+ * it: W02c's sealed affected-run record, written in the decision's transaction.
+ */
+export interface FactoryPackageAffectedAttempt {
+  /** @minLength 1 @maxLength 512 */
+  readonly runId: string;
+  /** @minLength 1 @maxLength 512 */
+  readonly attemptId: string;
+  readonly attemptStatus: "admitted" | "running";
+  /** Null when no dispatcher had claimed the attempt yet. */
+  readonly launchState: "prepared" | "launching" | "launched" | "terminal" | "uncertain" | null;
+  /** The trust revision of the decision. @minimum 1 @maximum 9007199254740991 */
+  readonly trustRevision: number;
+  readonly state: "quarantined" | "revoked";
+  readonly reason: "factory_package_quarantined" | "factory_package_revoked";
+  readonly disposition: "cancel-requested" | "already-cancelling" | "run-terminal";
+  /** The run's cancel event; absent only when the run had already finished. @minLength 1 @maxLength 512 */
+  readonly cancellationEventId?: string;
+  /** @minimum 0 @maximum 9007199254740991 */
+  readonly recordedAtMs: number;
+}
+
+export interface FactoryPackageAffectedRunsQuery {
+  /** Only the attempts one decision reached. @minimum 1 @maximum 9007199254740991 */
+  readonly trustRevision?: number;
+  /** @minimum 1 @maximum 200 */
+  readonly limit?: number;
+  /** @minLength 1 @maxLength 2048 */
+  readonly cursor?: string;
+}
+
 export interface FactoryPurgePrecondition {
   /** @minLength 1 @maxLength 128 */
   readonly id: string;

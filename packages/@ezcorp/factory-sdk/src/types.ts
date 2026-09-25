@@ -1,5 +1,5 @@
 import type {
-  FactoryArtifactPath, FactoryArtifactTicket, FactoryEventQuery, FactoryInspectionPage, FactoryInspectionQuery, FactoryPackageImpact, FactoryPackageImpactQuery,
+  FactoryArtifactPath, FactoryArtifactTicket, FactoryEventQuery, FactoryInspectionPage, FactoryInspectionQuery, FactoryPackageImpact, FactoryPackageImpactQuery, FactoryPackageAffectedAttempt, FactoryPackageAffectedRunsQuery,
   FactoryPackageInstallBody, FactoryPackagePath, FactoryPackageResource, FactoryPackageTrustBody, FactoryPurgePreview, FactoryPurgeRequestBody, FactoryValidatorMaterialQuery, FactoryValidatorMaterialResource, FactoryRestorePath, FactoryRestoreResource, FactoryRestoreSignBody, FactoryRestoreSignatureResource,
   FactoryPurgeRequestResource, FactoryRunInspection, FactoryTenantPath, FactoryArtifactShareBody, FactoryArtifactSharePath, FactoryArtifactShareResource,
   FactorySharedArtifactPath, FactorySharedArtifactQuery,
@@ -1263,6 +1263,7 @@ export type FactoryApiRequest =
   | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "package.install"; readonly path: FactoryProjectPath; readonly preconditions: FactoryMutationPreconditions; readonly body: FactoryPackageInstallBody }
   | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "package.trust"; readonly path: FactoryPackagePath; readonly preconditions: FactoryMutationPreconditions; readonly body: FactoryPackageTrustBody }
   | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "package.impact"; readonly path: FactoryPackagePath; readonly query: FactoryPackageImpactQuery }
+  | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "package.affected-runs"; readonly path: FactoryPackagePath; readonly query: FactoryPackageAffectedRunsQuery }
   | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "purge.preview"; readonly path: FactoryTenantPath }
   | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "purge.request"; readonly path: FactoryTenantPath; readonly preconditions: FactoryMutationPreconditions; readonly body: FactoryPurgeRequestBody }
   | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "artifact.share"; readonly path: FactoryArtifactPath; readonly preconditions: FactoryMutationPreconditions; readonly body: FactoryArtifactShareBody }
@@ -1591,6 +1592,7 @@ export type FactoryApiResponse =
   | { readonly schemaVersion: "factory.api.response.v1"; readonly kind: "package.resource"; readonly resource: FactoryPackageResource }
   | { readonly schemaVersion: "factory.api.response.v1"; readonly kind: "package.page"; readonly page: FactoryApiPage<FactoryPackageResource> }
   | { readonly schemaVersion: "factory.api.response.v1"; readonly kind: "package.impact"; readonly resource: FactoryPackageImpact }
+  | { readonly schemaVersion: "factory.api.response.v1"; readonly kind: "package.affected-runs"; readonly page: FactoryApiPage<FactoryPackageAffectedAttempt> }
   | { readonly schemaVersion: "factory.api.response.v1"; readonly kind: "purge.preview"; readonly resource: FactoryPurgePreview }
   | { readonly schemaVersion: "factory.api.response.v1"; readonly kind: "validator.material"; readonly resource: FactoryValidatorMaterialResource }
   | { readonly schemaVersion: "factory.api.response.v1"; readonly kind: "restore.page"; readonly page: FactoryApiPage<FactoryRestoreResource> }

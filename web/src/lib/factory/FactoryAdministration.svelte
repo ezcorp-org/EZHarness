@@ -3,6 +3,7 @@
 	import type {
 		FactoryAction,
 		FactoryGrantResource,
+		FactoryPackageAffectedAttempt,
 		FactoryPackageImpact,
 		FactoryPackageResource,
 		FactoryPackageTransition,
@@ -51,6 +52,8 @@
 	let preview = $state<FactoryPurgePreview | null>(null);
 	let purgeResult = $state<FactoryPurgeRequestResource | null>(null);
 	let review = $state<{ readonly item: FactoryPackageResource; readonly transition: FactoryPackageTransition; readonly impact: FactoryPackageImpact } | null>(null);
+	/** What the fence recorded for the last quarantine or revocation committed here. */
+	let fenced = $state<{ readonly label: string; readonly revision: number; readonly items: readonly FactoryPackageAffectedAttempt[]; readonly more: boolean } | null>(null);
 	let message = $state("");
 	let errorMessage = $state("");
 	let busy = $state(false);
@@ -68,6 +71,7 @@
 		message = "";
 		errorMessage = "";
 		review = null;
+		fenced = null;
 		if (current) void refresh(current, version);
 	});
 
@@ -131,11 +135,24 @@
 		const current = review;
 		if (!current) return Promise.resolve();
 		review = null;
+		fenced = null;
 		return run(async () => {
 			const updated = await api.transitionPackage(projectId, current.item.referenceId, current.transition, current.impact.currentRevision);
-			return `${current.item.reference.package} is ${updated.state ?? "bound"} at trust revision ${updated.revision}. The change is in the audit log.`;
+			const committed = `${current.item.reference.package} is ${updated.state ?? "bound"} at trust revision ${updated.revision}.`;
+			if (current.transition === "publish") return `${committed} The change is in the audit log.`;
+			// The fence stopped live work in the decision's own transaction; show exactly what it recorded.
+			const record = await api.packageAffectedRuns(projectId, current.item.referenceId, { trustRevision: updated.revision, limit: 200 });
+			fenced = { label: `${current.item.reference.package}@${current.item.reference.version}`, revision: updated.revision, items: record.items, more: record.nextCursor !== null };
+			const runs = new Set(record.items.map(item => item.runId)).size;
+			return `${committed} The fence reached ${runs}${fenced.more ? "+" : ""} run${runs === 1 ? "" : "s"}. The change is in the audit log.`;
 		});
 	}
+
+	const DISPOSITIONS: Readonly<Record<FactoryPackageAffectedAttempt["disposition"], string>> = {
+		"cancel-requested": "cancel requested",
+		"already-cancelling": "already cancelling",
+		"run-terminal": "already finished",
+	};
 
 	function submitInstall(): Promise<void> {
 		const reference = { package: install.package.trim(), manifestName: install.manifestName.trim(), version: install.version.trim(), digest: install.digest.trim(), export: install.export.trim() };
@@ -239,6 +256,21 @@
 					</li>
 				{/each}
 			</ul>
+			{#if fenced}
+				<section class="fence-record" aria-label="Fence record">
+					<h3>Fence record · {fenced.label} · trust revision {fenced.revision}</h3>
+					{#if fenced.items.length === 0}
+						<p class="empty-copy">No live attempt used this package, so the fence stopped nothing.</p>
+					{:else}
+						<ul class="rows">
+							{#each fenced.items as item (item.attemptId)}
+								<li><ShieldOff size={14} /><span class="row-copy"><strong title={item.runId}>{item.runId}</strong><small>attempt {item.attemptId} · was {item.attemptStatus} · {item.launchState ?? "not launched"}</small></span><span class="chip" data-state={item.state}>{DISPOSITIONS[item.disposition]}</span></li>
+							{/each}
+						</ul>
+						{#if fenced.more}<p class="empty-copy">Only the first {fenced.items.length} attempts are shown.</p>{/if}
+					{/if}
+				</section>
+			{/if}
 		</section>
 
 		<section class="panel" aria-labelledby="grants-title">
@@ -255,9 +287,9 @@
 			{#if grants.length === 0}<p class="empty-copy">No grant is recorded for this project.</p>{/if}
 			<ul class="rows">
 				{#each grants as item (item.principalKind + item.principalId + item.action)}
-					<li class:revoked={item.revoked}>
+					<li class="grant" class:revoked={item.revoked}>
 						<KeyRound size={14} />
-						<span class="row-copy"><strong title={item.principalId}>{item.principalKind} · {item.principalId}</strong><small>{item.action} · revision {item.revision} · {item.revoked ? "revoked" : expiry(item.expiresAtMs)}</small></span>
+						<span class="row-copy"><strong title={item.displayName}>{item.displayName}</strong><small title={item.principalId}>{item.principalKind} · {item.principalId}</small><small>{item.action} · revision {item.revision} · {item.revoked ? "revoked" : expiry(item.expiresAtMs)}</small></span>
 						{#if !item.revoked}<button class="icon-button" aria-label={`Revoke ${item.action} for ${item.principalId}`} title="Revoke" disabled={!administrator || busy} onclick={() => revokeGrant(item)}><ShieldOff size={14} /></button>{/if}
 					</li>
 				{/each}
@@ -383,6 +415,8 @@
 	/* A long restore id keeps its line; the state chip moves below it rather than squeezing it. */
 	.restore header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 	.restore h3 { min-width: 0; flex: 1 1 14rem; margin: 0; font-size: 13px; overflow-wrap: anywhere; }
+	.fence-record { border-top: 1px solid var(--color-border); }
+	.fence-record h3 { margin: 0; padding: 12px 14px 4px; font-size: 13px; overflow-wrap: anywhere; }
 	.restore-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 12px; margin: 10px 0 0; font-size: 12px; }
 	.restore-facts .wide { grid-column: 1 / -1; }
 	.restore-facts dt { color: var(--color-text-muted); font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
@@ -469,6 +503,9 @@
 		.form-grid { grid-template-columns: 1fr; }
 		.rows li { grid-template-columns: auto minmax(0, 1fr); }
 		.rows li .chip { justify-self: start; grid-column: 2; }
+		/* A grant's revoke button stays on its row; detail lines wrap rather than hide the action or revision. */
+		.rows li.grant { grid-template-columns: auto minmax(0, 1fr) auto; }
+		.row-copy small { white-space: normal; overflow-wrap: anywhere; }
 		.review-dialog footer { flex-direction: column-reverse; align-items: stretch; }
 		/* Narrow findings read as short cards: the subject on its own line, then the result and reason. */
 		.preconditions.findings, .preconditions.findings tbody, .preconditions.findings tr { display: block; }

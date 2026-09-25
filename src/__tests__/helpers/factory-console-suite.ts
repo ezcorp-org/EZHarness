@@ -392,13 +392,58 @@ export function factoryConsoleConformance(create: () => Promise<FactoryConsoleFi
       await expect(a.console.packages.transition(OWNER, PROJECT, bound.referenceId, "quarantine", 0, "trust-zero")).rejects.toMatchObject({ code: "factory_package_trust_invalid" });
       await expect(a.console.packages.transition(OWNER, PROJECT, bound.referenceId, "quarantine", 5, "trust-stale")).rejects.toMatchObject({ code: "factory_package_trust_conflict" });
       await expect(a.console.packages.transition(MEMBER, PROJECT, bound.referenceId, "quarantine", 1, "trust-member")).rejects.toMatchObject({ code: "factory_forbidden" });
+      // Live attempts on the package: two in the packaged run, and one in a run whose lock does not pin it.
+      // The preview counts them with the fence's own query, so it names every run the fence will reach.
+      const unpinned = (await a.application.definitions.readVersion(OWNER, { projectId: PROJECT, factoryId: FACTORY }, "1.0.0")).version;
+      const unpinnedRun = (await a.application.runs.start(OWNER, { projectId: PROJECT, factoryId: FACTORY }, { factoryVersion: unpinned.version, definitionDigest: unpinned.definitionDigest, grantRevision: 1, parameters: {} }, 0, "unpinned-start")).run.runId;
+      for (const [attemptId, runId, number, status] of [["pkg-1", packagedRun, 1, "running"], ["pkg-2", packagedRun, 2, "admitted"], ["pkg-3", unpinnedRun, 1, "running"]] as const) {
+        await a.fixture.db.execute(sql`INSERT INTO factory_executions (attempt_id,tenant_id,project_id,run_id,node_instance_id,candidate_generation,attempt_number,grant_revision,reservation_generation,execution_epoch,cancellation_epoch,deadline_at,request_hash,request_json,status)
+          VALUES (${`${a.tenantId}-${attemptId}`},${a.tenantId},${PROJECT},${runId},'node-pkg',0,${number},1,1,1,0,NOW(),${hex(attemptId)},${JSON.stringify({ runner: packageReference })}::jsonb,${status})`);
+      }
       const preview = await a.console.packages.impact(OWNER, PROJECT, bound.referenceId, "quarantine");
       expect(preview).toMatchObject({ transition: "quarantine", allowed: true, currentRevision: 1 });
       expect(preview.refusal).toBeUndefined();
+      expect(preview.runs).toEqual([
+        { runId: packagedRun, factoryId: "console-packaged", status: "queued", liveAttempts: 2 },
+        { runId: unpinnedRun, factoryId: FACTORY, status: "queued", liveAttempts: 1 },
+      ].sort((left, right) => left.runId.localeCompare(right.runId)));
+      // Nothing is recorded before a decision.
+      expect(await a.console.packages.affectedRuns(OWNER, PROJECT, bound.referenceId)).toEqual({ items: [] });
       const quarantined = await a.console.packages.transition(OWNER, PROJECT, bound.referenceId, "quarantine", 1, "trust-quarantine");
       expect(quarantined).toMatchObject({ revision: 2, state: "quarantined" });
+      // The console composes W02c's fence: the decision cancelled both runs in its own transaction and recorded each attempt.
+      const statuses = rows<{ run_id: string; status: string }>(await a.fixture.db.execute(sql`SELECT run_id, status FROM factory_run_lifecycle WHERE tenant_id=${a.tenantId} AND run_id IN (${packagedRun}, ${unpinnedRun})`));
+      expect(statuses.map(row => row.status).every(status => status === "cancelling" || status === "cancelled")).toBe(true);
+      expect(statuses).toHaveLength(2);
+      const record = await a.console.packages.affectedRuns(OWNER, PROJECT, bound.referenceId, { trustRevision: 2 });
+      expect(record.nextCursor).toBeUndefined();
+      expect(record.items.map(item => [item.attemptId, item.runId, item.attemptStatus, item.state, item.reason, item.disposition, item.trustRevision])).toEqual([
+        [`${a.tenantId}-pkg-1`, packagedRun, "running", "quarantined", "factory_package_quarantined", "cancel-requested", 2],
+        [`${a.tenantId}-pkg-2`, packagedRun, "admitted", "quarantined", "factory_package_quarantined", "cancel-requested", 2],
+        [`${a.tenantId}-pkg-3`, unpinnedRun, "running", "quarantined", "factory_package_quarantined", "cancel-requested", 2],
+      ]);
+      expect(record.items.every(item => item.launchState === null && typeof item.cancellationEventId === "string" && item.recordedAtMs === a.clock.now)).toBe(true);
+      // The record is served without its seal, project, or reference: the path already names those.
+      expect(Object.keys(record.items[0]!).sort()).toEqual(["attemptId", "attemptStatus", "cancellationEventId", "disposition", "launchState", "reason", "recordedAtMs", "runId", "state", "trustRevision"]);
+      // Keyset pages: contiguous, no repeat, and the cursor is refused unless it is the canonical one.
+      const first = await a.console.packages.affectedRuns(OWNER, PROJECT, bound.referenceId, { limit: 2 });
+      expect(first.items.map(item => item.attemptId)).toEqual([`${a.tenantId}-pkg-1`, `${a.tenantId}-pkg-2`]);
+      const second = await a.console.packages.affectedRuns(OWNER, PROJECT, bound.referenceId, { limit: 2, cursor: first.nextCursor! });
+      expect(second).toEqual({ items: [record.items[2]] });
+      for (const query of [{ cursor: "not-a-cursor" }, { cursor: Buffer.from(JSON.stringify(["2", "x"])).toString("base64url") }, { cursor: Buffer.from(JSON.stringify([2])).toString("base64url") }, { limit: 0 }, { limit: 201 }, { trustRevision: 0 }, { trustRevision: 1.5 }]) {
+        await expect(a.console.packages.affectedRuns(OWNER, PROJECT, bound.referenceId, query)).rejects.toMatchObject({ code: "factory_page_invalid" });
+      }
+      // Authority first: a stranger learns nothing, not even whether the cursor was well formed; another installation has no such package.
+      await expect(a.console.packages.affectedRuns(OUTSIDER, PROJECT, bound.referenceId, { cursor: "not-a-cursor" })).rejects.toMatchObject({ code: "factory_forbidden" });
+      await expect(a.console.packages.affectedRuns(OWNER, PROJECT, "f".repeat(64))).rejects.toMatchObject({ code: "factory_package_not_found" });
+      await expect(b.console.packages.affectedRuns(OWNER, PROJECT, bound.referenceId)).rejects.toMatchObject({ code: "factory_package_not_found" });
       const revoked = await a.console.packages.transition(OWNER, PROJECT, bound.referenceId, "revoke", 2, "trust-revoke");
       expect(revoked).toMatchObject({ revision: 3, state: "revoked" });
+      // The revocation reaches the same attempts again under its own revision; the runs are already stopping.
+      const revocation = await a.console.packages.affectedRuns(OWNER, PROJECT, bound.referenceId, { trustRevision: 3 });
+      expect(revocation.items.map(item => [item.attemptId, item.state, item.reason])).toEqual([1, 2, 3].map(n => [`${a.tenantId}-pkg-${n}`, "revoked", "factory_package_revoked"]));
+      expect(revocation.items.every(item => item.disposition !== "cancel-requested")).toBe(true);
+      expect((await a.console.packages.affectedRuns(OWNER, PROJECT, bound.referenceId)).items.map(item => item.trustRevision)).toEqual([2, 2, 2, 3, 3, 3]);
       expect(await a.console.packages.impact(OWNER, PROJECT, bound.referenceId, "publish")).toMatchObject({ allowed: false, refusal: expect.stringContaining("revoked") });
       await expect(a.console.packages.transition(OWNER, PROJECT, bound.referenceId, "publish", 3, "trust-reopen")).rejects.toMatchObject({ code: "factory_package_trust_conflict" });
       const audit = rows<{ action: string }>(await a.fixture.db.execute(sql`SELECT action FROM audit_log WHERE action LIKE 'factory.package.trust.%' ORDER BY created_at`));

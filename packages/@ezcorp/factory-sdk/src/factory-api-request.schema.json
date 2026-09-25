@@ -1641,6 +1641,32 @@
           "additionalProperties": false,
           "properties": {
             "kind": {
+              "const": "package.affected-runs",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryPackagePath"
+            },
+            "query": {
+              "$ref": "#/definitions/FactoryPackageAffectedRunsQuery"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path",
+            "query"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
               "const": "purge.preview",
               "type": "string"
             },
@@ -2458,6 +2484,28 @@
           "$ref": "#/definitions/ReleaseNode"
         }
       ]
+    },
+    "FactoryPackageAffectedRunsQuery": {
+      "additionalProperties": false,
+      "properties": {
+        "cursor": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "type": "string"
+        },
+        "limit": {
+          "maximum": 200,
+          "minimum": 1,
+          "type": "number"
+        },
+        "trustRevision": {
+          "description": "Only the attempts one decision reached.",
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "type": "number"
+        }
+      },
+      "type": "object"
     },
     "FactoryPackageImpactQuery": {
       "additionalProperties": false,

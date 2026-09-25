@@ -153,6 +153,10 @@ async function routeConsole(page: Page, scenario: Scenario = {}) {
 			const allowed = transition === "quarantine" ? item.state === "active" : transition === "revoke" ? item.state !== undefined && item.state !== "revoked" : item.state !== "revoked";
 			return json(envelope({ kind: "package.impact", resource: { transition, currentRevision: item.revision, allowed, ...(allowed ? {} : { refusal: `The ${item.state ?? "untrusted"} package cannot take the ${transition} transition.` }), runs: allowed && transition !== "publish" ? [{ runId: "run-live-catalog", factoryId: longFactory, status: "running", liveAttempts: 2 }] : [], truncated: false } }));
 		}
+		if (/\/packages\/[^/]+\/affected-runs$/.test(path)) {
+			const attempt = (runId: string, attemptId: string, disposition: string) => ({ runId, attemptId, attemptStatus: "running", launchState: "launched", trustRevision: Number(url.searchParams.get("trustRevision")), state: "quarantined", reason: "factory_package_quarantined", disposition, ...(disposition === "run-terminal" ? {} : { cancellationEventId: `cancel-${runId}` }), recordedAtMs: 1_900_000_000_000 });
+			return json(envelope({ kind: "package.affected-runs", page: { items: [attempt("run-live-7f3a", "attempt-live-7f3a-1", "cancel-requested"), attempt("run-live-7f3a", "attempt-live-7f3a-2", "cancel-requested"), attempt("run-finished-c21", "attempt-finished-c21-1", "run-terminal")] } }));
+		}
 		const trust = /\/packages\/([^/]+)\/trust$/.exec(path);
 		if (trust) {
 			const item = PACKAGES.find(candidate => candidate.referenceId === trust[1])!;
@@ -161,7 +165,7 @@ async function routeConsole(page: Page, scenario: Scenario = {}) {
 		}
 		if (path.endsWith("/grants") && method === "GET") {
 			return json(envelope({ kind: "grant.page", page: { items: [
-				{ principalKind: "user", principalId: "reviewer-with-a-very-long-member-identifier@example.com", action: "factory.approve", revision: 2, expiresAtMs: 1_900_000_000_000, revoked: false },
+				{ principalKind: "user", principalId: "reviewer-with-a-very-long-member-identifier@example.com", action: "factory.approve", revision: 2, expiresAtMs: 1_900_000_000_000, revoked: false, displayName: "Reviewer with a very long display name from the operations team" },
 				{ principalKind: "service", principalId: "nightly-scheduler", action: "factory.run", revision: 1, expiresAtMs: 1_900_000_000_000, revoked: false, displayName: "Nightly scheduler" },
 				{ principalKind: "user", principalId: "former-operator", action: "factory.operate", revision: 3, expiresAtMs: null, revoked: true, displayName: "Former operator" },
 			] } }));
@@ -291,7 +295,18 @@ test.describe("factory live console", () => {
 		await expect(review).toContainText("2 live attempts");
 		await captureEvidence(page, testInfo, "factory-package-quarantine-review");
 		await review.getByRole("button", { name: "Commit at revision 2" }).click();
-		await expect(admin.getByRole("status")).toContainText("quarantined at trust revision 3");
+		await expect(admin.getByRole("status")).toContainText("quarantined at trust revision 3. The fence reached 2 runs.");
+		const fenceRecord = admin.getByRole("region", { name: "Fence record" });
+		await expect(fenceRecord.getByRole("listitem")).toHaveCount(3);
+		await expect(fenceRecord).toContainText("already finished");
+		expect(mocked.requests.find(item => item.path.endsWith("/affected-runs"))?.path).toBeTruthy();
+		expect(await factoryLayoutOverflow(page)).toEqual([]);
+		await captureEvidence(page, testInfo, "factory-package-fence-record");
+		await page.setViewportSize({ width: 390, height: 844 });
+		await fenceRecord.scrollIntoViewIfNeeded();
+		expect(await factoryLayoutOverflow(page)).toEqual([]);
+		await captureEvidence(page, testInfo, "factory-package-fence-record-390");
+		await page.setViewportSize({ width: 1440, height: 1200 });
 		const trust = mocked.requests.find(item => item.path.endsWith("/trust"));
 		expect(trust?.headers["if-match"]).toBe("2");
 		expect(trust?.headers["idempotency-key"]).toMatch(/^factory-console:package-quarantine:/);

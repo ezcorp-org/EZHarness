@@ -1,12 +1,15 @@
 import { sql } from "drizzle-orm";
 import { canonicalJson } from "@ezcorp/extension-contract";
 import type {
-  FactoryAffectedRun, FactoryApiPage, FactoryListQuery, FactoryPackageImpact, FactoryPackageInstallBody, FactoryPackageResource, FactoryPackageTransition, FactoryRunStatus, RunnerReference,
+  FactoryAffectedRun, FactoryApiPage, FactoryListQuery, FactoryPackageAffectedAttempt, FactoryPackageAffectedRunsQuery, FactoryPackageImpact, FactoryPackageInstallBody, FactoryPackageResource,
+  FactoryPackageTransition, FactoryRunStatus, RunnerReference,
 } from "@ezcorp/factory-sdk";
 import type { TransactionalDb } from "../db/migrations/types";
 import { releaseRows as rows } from "../db/queries/extension-releases";
 import { FactoryConsoleError } from "./console-tokens";
 import type { FactoryGrants, FactoryPrincipal } from "./grants";
+import { decodeFactoryKeyset, encodeFactoryKeyset } from "./keyset-cursor";
+import type { FactoryPackageFence, FactoryPackageFenceRecord } from "./package-fence";
 import { TRUST_TRANSITIONS, type FactoryPackagePreparations, type FactoryPackageTrusts, type FactoryRunnerPackageTrustRecord } from "./package-preparation";
 import { assertFactoryIdentity, encodeFactoryPayload } from "./records";
 
@@ -26,6 +29,15 @@ function storedDigest(referenceId: string): string {
   return `sha256:${referenceId}`;
 }
 
+/** The record as the API serves it: the project and reference are the path's, and the seal stays inside. */
+function affectedAttempt(record: FactoryPackageFenceRecord): FactoryPackageAffectedAttempt {
+  return {
+    runId: record.runId, attemptId: record.attemptId, attemptStatus: record.attemptStatus, launchState: record.launchState,
+    trustRevision: record.trustRevision, state: record.state, reason: record.reason, disposition: record.disposition,
+    ...(record.cancellationEventId === undefined ? {} : { cancellationEventId: record.cancellationEventId }), recordedAtMs: record.recordedAtMs,
+  };
+}
+
 function resource(row: BindingRow): FactoryPackageResource {
   return {
     referenceId: factoryPackageReferenceId(row.reference_digest), reference: JSON.parse(row.reference_json) as RunnerReference,
@@ -41,7 +53,9 @@ function resource(row: BindingRow): FactoryPackageResource {
  * through W02's `FactoryPackagePreparations` and `FactoryPackageTrusts`, which
  * require a human session holding `factory.trust`, write the transactional
  * audit, and fence live attempts in the same commit. This class only finds the
- * pinned reference behind a path and previews which runs a transition reaches.
+ * pinned reference behind a path, previews which runs a transition reaches, and
+ * reads what the fence recorded. The live-attempt counts come from the fence's
+ * own query, so a preview and the decision cannot disagree.
  */
 export class FactoryPackageAdmin {
   constructor(
@@ -50,9 +64,10 @@ export class FactoryPackageAdmin {
     private readonly grants: FactoryGrants,
     private readonly preparations: Pick<FactoryPackagePreparations, "bind" | "tenantId">,
     private readonly trusts: Pick<FactoryPackageTrusts, "publish" | "quarantine" | "revoke" | "tenantId">,
+    private readonly fence: Pick<FactoryPackageFence, "preview" | "affectedRuns" | "tenantId">,
   ) {
     assertFactoryIdentity(tenantId);
-    if (grants.tenantId !== tenantId || preparations.tenantId !== tenantId || trusts.tenantId !== tenantId) throw new Error("factory_scope_mismatch");
+    if (grants.tenantId !== tenantId || preparations.tenantId !== tenantId || trusts.tenantId !== tenantId || fence.tenantId !== tenantId) throw new Error("factory_scope_mismatch");
   }
 
   async list(principal: FactoryPrincipal, projectId: string, query: FactoryListQuery = {}): Promise<FactoryApiPage<FactoryPackageResource>> {
@@ -106,22 +121,43 @@ export class FactoryPackageAdmin {
     const current = await this.read(principal, projectId, referenceId);
     const rule = TRUST_TRANSITIONS[transition];
     const allowed = rule.from.includes(current.state ?? "none");
+    // The attempts a quarantine or revocation would fence, read with the fence's own query.
+    const live = new Map<string, number>();
+    for (const attempt of await this.fence.preview(principal, projectId, current.reference)) live.set(attempt.runId, (live.get(attempt.runId) ?? 0) + 1);
     // A version lock is canonical JSON, so the exact entry that pins this package appears verbatim.
     // Matching the digest alone is not enough: two packages in one lock can share placeholder bytes.
     const lockEntry = canonicalJson({ digest: current.reference.digest, name: current.reference.package, version: current.reference.version });
-    const digestNeedle = JSON.stringify(current.reference.digest);
-    const found = rows<{ run_id: string; factory_id: string; status: string; live: string | number }>(await this.database.execute(sql`SELECT l.run_id, l.factory_id, l.status,
-        (SELECT COUNT(*) FROM factory_executions e WHERE e.tenant_id=l.tenant_id AND e.project_id=l.project_id AND e.run_id=l.run_id AND e.status IN ('admitted','running') AND strpos(e.request_json::text, ${digestNeedle}) > 0) AS live
+    const fenced = live.size === 0 ? sql`` : sql` OR l.run_id IN (${sql.join([...live.keys()].map(runId => sql`${runId}`), sql`, `)})`;
+    const found = rows<{ run_id: string; factory_id: string; status: string }>(await this.database.execute(sql`SELECT l.run_id, l.factory_id, l.status
       FROM factory_run_lifecycle l JOIN factory_versions v ON v.tenant_id=l.tenant_id AND v.project_id=l.project_id AND v.factory_id=l.factory_id AND v.version=l.factory_version
-      WHERE l.tenant_id=${this.tenantId} AND l.project_id=${projectId} AND l.status IN (${sql.join(LIVE_RUNS.map(status => sql`${status}`), sql`, `)}) AND strpos(v.lock_json, ${lockEntry}) > 0
+      WHERE l.tenant_id=${this.tenantId} AND l.project_id=${projectId} AND ((l.status IN (${sql.join(LIVE_RUNS.map(status => sql`${status}`), sql`, `)}) AND strpos(v.lock_json, ${lockEntry}) > 0)${fenced})
       ORDER BY l.run_id LIMIT ${IMPACT_CAP + 1}`));
-    const runs: FactoryAffectedRun[] = found.slice(0, IMPACT_CAP).map(row => ({ runId: row.run_id, factoryId: row.factory_id, status: row.status as FactoryRunStatus, liveAttempts: Number(row.live) }));
+    const runs: FactoryAffectedRun[] = found.slice(0, IMPACT_CAP).map(row => ({ runId: row.run_id, factoryId: row.factory_id, status: row.status as FactoryRunStatus, liveAttempts: live.get(row.run_id) ?? 0 }));
     return {
       transition, currentRevision: current.revision, allowed,
       ...(allowed ? {} : { refusal: `The ${current.state ?? "untrusted"} package cannot take the ${transition} transition.` }),
       // Publishing blocks nothing; the preview still lists who will use the package.
       runs, truncated: found.length > IMPACT_CAP,
     };
+  }
+
+  /**
+   * What the fence recorded for this package: every attempt a quarantine or
+   * revocation reached and what it did, oldest decision first.
+   */
+  async affectedRuns(principal: FactoryPrincipal, projectId: string, referenceId: string, query: FactoryPackageAffectedRunsQuery = {}): Promise<FactoryApiPage<FactoryPackageAffectedAttempt>> {
+    const current = await this.read(principal, projectId, referenceId);
+    const limit = query.limit ?? DEFAULT_LIMIT;
+    const after = query.cursor === undefined ? undefined : decodeFactoryKeyset(query.cursor, 2);
+    const revision = query.trustRevision;
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > IMPACT_CAP || after === null || (after !== undefined && (typeof after[0] !== "number" || typeof after[1] !== "string"))
+      || (revision !== undefined && (!Number.isSafeInteger(revision) || revision < 1))) throw new FactoryConsoleError("factory_page_invalid");
+    const page = await this.fence.affectedRuns(principal, projectId, current.reference, {
+      limit, ...(revision === undefined ? {} : { trustRevision: revision }),
+      ...(after === undefined ? {} : { after: { trustRevision: after[0] as number, attemptId: after[1] as string } }),
+    });
+    const items = page.items.map(affectedAttempt);
+    return page.nextCursor ? { items, nextCursor: encodeFactoryKeyset([page.nextCursor.trustRevision, page.nextCursor.attemptId]) } : { items };
   }
 
   private bindingSelect(projectId: string) {

@@ -10,7 +10,7 @@ import { FACTORY_CURSOR_TTL_MS, FactoryConsoleSigner, FactoryEventCursors } from
 import type { BoundBlobStore } from "./encryption";
 import type { FactoryGrants } from "./grants";
 import { FactoryPackageAdmin } from "./package-admin";
-import { FactoryPackageTrusts } from "./package-preparation";
+import { createFactoryPackageTrusts, FactoryPackageFence } from "./package-fence";
 import { FactoryPurgeRequests } from "./purge-requests";
 import { FactoryRestoreReports, type FactoryRestoreSigner } from "./restore-console";
 import { FactoryRunEvents } from "./run-events";
@@ -79,13 +79,14 @@ export function createFactoryConsole(options: FactoryConsoleOptions): FactoryCon
   const now = options.now ?? Date.now;
   const cursors = new FactoryEventCursors(signer, now, options.cursorTtlMs ?? factoryConsoleCursorTtlMs());
   const preparations = factoryPackageReadiness(options.database, options.tenantId, options.grants, plainBlobStore(options.blobs));
-  const trusts = new FactoryPackageTrusts(options.database, options.tenantId, options.grants);
+  const trusts = createFactoryPackageTrusts(options.database, options.tenantId, options.grants, now);
   const sharing = new FactoryArtifactAccess(options.database, options.tenantId, options.grants, options.artifacts);
   return Object.freeze({
     tenantId: options.tenantId,
     inspections: new FactoryRunInspections(options.database, options.tenantId, options.grants, options.runs, cursors),
     events: new FactoryRunEvents(options.database, options.tenantId, options.grants, cursors),
-    packages: new FactoryPackageAdmin(options.database, options.tenantId, options.grants, preparations, trusts),
+    // W02c: the trusts fence live attempts on quarantine and revoke; the admin reads the same fence's preview and record.
+    packages: new FactoryPackageAdmin(options.database, options.tenantId, options.grants, preparations, trusts, new FactoryPackageFence(options.database, options.tenantId, options.grants, now)),
     purge: new FactoryPurgeRequests(options.database, options.tenantId, now),
     restores: new FactoryRestoreReports(options.database, options.tenantId, options.restoreSigner),
     tickets: new FactoryArtifactTickets(options.database, options.tenantId, options.grants, options.artifacts, signer, sharing, now),
