@@ -21,6 +21,7 @@
 	} from "$lib/extensions/extension-sort";
 
 	interface PageData {
+		canSetUpIncus: boolean;
 		bundledExtensions: ExtensionRecord[];
 		installedExtensions: ExtensionRecord[];
 	}
@@ -412,6 +413,7 @@
 	<div class="flex items-center justify-between">
 		<h2 class="text-xl font-semibold text-[var(--color-text-primary)]">Extensions</h2>
 		<div class="flex items-center gap-3">
+			{#if data.canSetUpIncus}<a href="/extensions/incus-setup" class="text-sm text-blue-400 hover:text-blue-300 transition-colors">Set up Incus</a><a href="/extensions/incus-management" class="text-sm text-blue-400 hover:text-blue-300 transition-colors">Manage sandboxes</a>{/if}
 			<a href="/extensions/import-source" class="text-sm text-blue-400 hover:text-blue-300 transition-colors">Import source</a>
 			<a
 				href="/import"

@@ -23,7 +23,7 @@ const { createUser } = await import("../db/queries/users");
 const { createProject } = await import("../db/queries/projects");
 const { createConversation } = await import("../db/queries/conversations");
 const { getDb } = await import("../db/connection");
-const { previewSessions, settings } = await import("../db/schema");
+const { previewSessions, settings, projects, projectWorkspaceBindings } = await import("../db/schema");
 const { eq } = await import("drizzle-orm");
 const { redeemOneTimeCode, _resetCodeStoreForTests } = await import("../runtime/preview/preview-token");
 const consent = await import("../runtime/preview/preview-consent");
@@ -102,6 +102,43 @@ describe("exposeDetectedPort", () => {
     await expect(
       consent.exposeDetectedPort({ userId: userA, conversationId: "", port: 5173 }),
     ).rejects.toThrow(/conversationId/);
+  });
+
+  test("rejects missing and foreign conversations without creating a preview", async () => {
+    await expect(consent.exposeDetectedPort({
+      userId: userA, conversationId: crypto.randomUUID(), port: 5173,
+    })).rejects.toThrow("conversation is not owned");
+    await expect(consent.exposeDetectedPort({
+      userId: userB, conversationId: convA, port: 5173,
+    })).rejects.toThrow("conversation is not owned");
+    expect(await getDb().select().from(previewSessions)).toHaveLength(0);
+  });
+
+  test("rejects a conversation whose project has no usable workspace path", async () => {
+    const unavailable = await createProject({ name: "Unavailable preview workspace", path: "" });
+    const conversation = await createConversation(unavailable.id, { userId: userA });
+    await expect(consent.exposeDetectedPort({
+      userId: userA, conversationId: conversation.id, port: 5173,
+    })).rejects.toThrow("project workspace is unavailable");
+    expect(await getDb().select().from(previewSessions)).toHaveLength(0);
+  });
+
+  test("rejects a hidden project or a sandbox route that has no current backend", async () => {
+    const hidden = await createProject({ name: "Hidden preview workspace", path: "/tmp/hidden-preview" });
+    const hiddenConversation = await createConversation(hidden.id, { userId: userA });
+    await getDb().update(projects).set({ purpose: "incus-qualification" }).where(eq(projects.id, hidden.id));
+    await expect(consent.exposeDetectedPort({ userId: userA,
+      conversationId: hiddenConversation.id, port: 5173 }))
+      .rejects.toThrow("project workspace is unavailable");
+
+    const sandbox = await createProject({ name: "Unavailable sandbox preview", path: "/tmp/sandbox-preview" });
+    const sandboxConversation = await createConversation(sandbox.id, { userId: userA });
+    await getDb().insert(projectWorkspaceBindings).values({ projectId: sandbox.id,
+      kind: "sandbox", bindingId: "absent", revision: 1, state: "unknown" });
+    await expect(consent.exposeDetectedPort({ userId: userA,
+      conversationId: sandboxConversation.id, port: 5173 }))
+      .rejects.toThrow("Sandbox workspace route for preview open is unavailable");
+    expect(await getDb().select().from(previewSessions)).toHaveLength(0);
   });
 });
 

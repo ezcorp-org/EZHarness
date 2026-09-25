@@ -12,6 +12,7 @@ import type { AttachmentCapabilities } from "../../providers/model-capabilities"
 import { classifyMimeWithCaps, isMimeAccepted } from "../../providers/model-capabilities";
 import { readAttachmentBytes } from "./storage";
 import { extractPdfText } from "./pdf-extract";
+import type { WorkspaceTarget } from "../../runtime/workspaces/target";
 
 export interface StagedAttachment {
   /** message_attachments row id. Used as the payload of the
@@ -61,6 +62,7 @@ export async function buildUserContent(
   text: string,
   attachments: StagedAttachment[],
   caps: AttachmentCapabilities,
+  workspaceTarget: WorkspaceTarget,
 ): Promise<PiContentPart[] | string> {
   if (attachments.length === 0) return text;
 
@@ -84,7 +86,7 @@ export async function buildUserContent(
     if (!strategy) throw new UnsupportedAttachmentError(att.filename, att.mimeType);
 
     if (strategy === "native-image") {
-      const bytes = await readAttachmentBytes(att.storagePath);
+      const bytes = await readAttachmentBytes(workspaceTarget, att.storagePath);
       parts.push({ type: "image", data: toBase64(bytes), mimeType: att.mimeType });
       imageRefs.push({
         filename: att.filename,
@@ -92,11 +94,11 @@ export async function buildUserContent(
         handle: attachmentHandle(att.id),
       });
     } else if (strategy === "text-inline") {
-      const bytes = await readAttachmentBytes(att.storagePath);
+      const bytes = await readAttachmentBytes(workspaceTarget, att.storagePath);
       const body = new TextDecoder("utf-8").decode(bytes);
       parts.push({ type: "text", text: fileWrapper(att.filename, att.mimeType, body) });
     } else if (strategy === "pdf-text-extract") {
-      const bytes = await readAttachmentBytes(att.storagePath);
+      const bytes = await readAttachmentBytes(workspaceTarget, att.storagePath);
       const { text: extracted } = await extractPdfText(bytes);
       parts.push({ type: "text", text: fileWrapper(att.filename, att.mimeType, extracted) });
     } else if (strategy === "extension-handle-only") {

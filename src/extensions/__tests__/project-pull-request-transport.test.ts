@@ -5,6 +5,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { up } from "../../db/migrations/add-extension-project-authority";
+import { up as addSandboxController } from "../../db/migrations/add-sandbox-controller";
+import { up as addProjectWorkspaceBindings } from "../../db/migrations/add-project-workspace-bindings";
 import { registerCallProvenance, releaseCallProvenance } from "../call-provenance";
 import { restoreModuleMocks } from "../../__tests__/helpers/mock-cleanup";
 import type { RpcHandlerDeps } from "../tool-executor/rpc-handlers";
@@ -13,7 +15,10 @@ const database = new PGlite();
 const driver = drizzle(database);
 const root = await mkdtemp(join(tmpdir(), "ez-project-api-"));
 await database.exec("CREATE TABLE extension_release_installations(id TEXT PRIMARY KEY); INSERT INTO extension_release_installations VALUES('installation')");
+await database.exec("CREATE TABLE projects(id TEXT PRIMARY KEY); INSERT INTO projects VALUES('project')");
 await up(driver);
+await addProjectWorkspaceBindings(driver);
+await addSandboxController(driver);
 let bound = true;
 let origin: string | null = "https://github.com/owner/repository";
 let credential = true;
@@ -23,7 +28,8 @@ const binding = { id: "binding", projectId: "project", ownerId: "owner", writePa
 mock.module("../../db/connection", () => ({ getDb: () => driver }));
 mock.module("../project-binding", () => ({ getExtensionProjectBinding: async () => bound ? binding : null }));
 mock.module("../project-access", () => ({ authorizeProjectOperation: async () => ({ project: { id: "project", path: root } }) }));
-mock.module("../project-git-broker", () => ({ readProjectGit: async () => origin }));
+const readGit = mock(async () => origin);
+mock.module("../project-git-broker", () => ({ readProjectGit: readGit }));
 mock.module("../project-root", () => ({ getProjectRoot: () => tmpdir() }));
 mock.module("../permission-engine", () => ({ getPermissionEngine: () => ({}) }));
 mock.module("../secrets-store", () => ({ getSecret: async () => credential ? "host-only-token" : null }));
@@ -35,7 +41,7 @@ const fetcher = mock(async (_url: string, _init: RequestInit, options: { authori
 mock.module("../../search/egress", () => ({ guardedFetch: fetcher }));
 const { getProjectPullRequests, handleProjectPullRequestReview } = await import("../project-pull-request-broker");
 const deps = { engine: {} } as RpcHandlerDeps;
-beforeEach(async () => { bound = credential = true; origin = "https://github.com/owner/repository"; httpStatus = 200; graphError = false; fetcher.mockClear(); await database.exec("DELETE FROM extension_project_decisions"); });
+beforeEach(async () => { bound = credential = true; origin = "https://github.com/owner/repository"; httpStatus = 200; graphError = false; fetcher.mockClear(); readGit.mockClear(); await database.exec("DELETE FROM extension_project_decisions; DELETE FROM sandbox_bindings"); });
 afterAll(async () => { await database.close(); await rm(root, { recursive: true, force: true }); restoreModuleMocks(); });
 async function invoke(input: Record<string, unknown>, actor = "installation", bindingId = "binding") {
   const token = registerCallProvenance({ actorExtensionId: "installation", onBehalfOf: "owner", conversationId: null, runId: null, parentCallId: null, kind: "event", ownerless: false, projectId: "project", projectBindingId: bindingId });
@@ -55,6 +61,21 @@ test("RPC reads and proposals use exact GitHub transport with host-only credenti
   expect(options).toMatchObject({ maxRedirects: 0, retryConnectionFailures: false, maxBodyBytes: 2097152, timeoutMs: 15000, allowedHosts: ["api.github.com"] });
   expect(JSON.stringify(proposed)).not.toContain("host-only-token");
   expect(getProjectPullRequests()).toBeDefined();
+});
+
+test("durably sandbox-bound review without target cannot read host Git origin", async () => {
+  await database.exec(`INSERT INTO sandbox_bindings (
+    id, project_id, provider_installation_id, provider_release_id, connection_id,
+    resource_key, desired_state, observed_state
+  ) VALUES ('durable-binding', 'project', 'provider', 'release', 'connection',
+    'workspace', 'RUNNING', 'RUNNING')`);
+
+  const result = await invoke({ action: "files", number: 42 });
+
+  expect(result.result).toBeUndefined();
+  expect(result.error?.message).toBe("GitHub project operation failed.");
+  expect(readGit).not.toHaveBeenCalled();
+  expect(fetcher).not.toHaveBeenCalled();
 });
 
 test("RPC rejects forged caller stale binding unknown methods and foreign origins", async () => {

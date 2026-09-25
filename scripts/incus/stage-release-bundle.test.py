@@ -1,0 +1,302 @@
+"""Focused release inventory and staging boundary tests."""
+
+import importlib.util
+import json
+import os
+import subprocess
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+
+SCRIPT = Path(__file__).with_name("stage-release-bundle.py")
+SPEC = importlib.util.spec_from_file_location("release_bundle", SCRIPT)
+MODULE = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(MODULE)
+
+
+class ReleaseBundleTests(unittest.TestCase):
+    def release_fixture(self, root):
+        for relative in MODULE.REQUIRED:
+            path = root / relative
+            if relative.startswith(("node_modules/", "web/node_modules/")):
+                path.mkdir(parents=True, exist_ok=True)
+            else:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(b"reviewed release file")
+        (root / "bin").mkdir(exist_ok=True)
+        (root / "bin/bun").write_bytes(b"pinned bun")
+        (root / "bun.lock").write_bytes(b"root lock")
+        (root / "web/bun.lock").write_bytes(b"web lock")
+        (root / MODULE.RUNTIME_DIR).mkdir(mode=0o755)
+
+    def seal_fixture(self, root):
+        manifest = {"schema": 1, "gitSha": "a" * 40, "bunVersion": "1.3.14",
+                    "bunSha256": MODULE.sha256(root / "bin/bun"),
+                    "locks": {name: MODULE.sha256(root / name)
+                              for name in ("bun.lock", "web/bun.lock")},
+                    "files": MODULE.inventory(root)}
+        (root / MODULE.MANIFEST).write_text(json.dumps(manifest))
+
+    def smoke_fixture(self, root, leave_file=False):
+        self.release_fixture(root)
+        executable = root / "bin/bun"
+        executable.write_text(f'''#!/usr/bin/env python3
+import os
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
+
+runtime = Path(os.environ["EZCORP_PROJECT_ROOT"]) / ".ezcorp/data"
+runtime.mkdir(mode=0o700)
+if {leave_file!r}:
+    (runtime / "state.txt").write_text("retain me")
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+    def log_message(self, *_args):
+        pass
+HTTPServer(("127.0.0.1", int(os.environ["PORT"])), Handler).serve_forever()
+''')
+        os.chmod(executable, 0o755)
+        self.seal_fixture(root)
+
+    def test_verify_excludes_only_top_level_runtime_directory(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as directory:
+            root = Path(directory)
+            self.release_fixture(root)
+            self.seal_fixture(root)
+            MODULE.verify(root)
+            (root / ".ezcorp/cache").mkdir(parents=True)
+            (root / ".ezcorp/cache/session.json").write_text('{"runtime":true}')
+            MODULE.verify(root)
+            (root / "web/.ezcorp").mkdir()
+            (root / "web/.ezcorp/session.json").write_text('{"runtime":true}')
+            with self.assertRaisesRegex(ValueError, "release file inventory changed"):
+                MODULE.verify(root)
+            (root / "web/.ezcorp/session.json").unlink()
+            (root / "web/.ezcorp").rmdir()
+            (root / "web/build/index.js").write_bytes(b"changed code")
+            with self.assertRaisesRegex(ValueError, "release file inventory changed"):
+                MODULE.verify(root)
+
+    def test_verify_rejects_top_level_runtime_symlink_even_inside_release(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as directory:
+            root = Path(directory)
+            self.release_fixture(root)
+            (root / "runtime").mkdir()
+            self.seal_fixture(root)
+            (root / ".ezcorp").rmdir()
+            (root / ".ezcorp").symlink_to("runtime")
+            with self.assertRaisesRegex(ValueError, "runtime directory must not be a symlink"):
+                MODULE.verify(root)
+
+    def test_verify_requires_real_mode_0755_runtime_placeholder(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as directory:
+            root = Path(directory)
+            self.release_fixture(root)
+            self.seal_fixture(root)
+            MODULE.verify(root)
+            os.chmod(root / MODULE.RUNTIME_DIR, 0o700)
+            with self.assertRaisesRegex(ValueError, "runtime directory must have mode 0755"):
+                MODULE.verify(root)
+            os.chmod(root / MODULE.RUNTIME_DIR, 0o755)
+            (root / MODULE.RUNTIME_DIR).rmdir()
+            with self.assertRaisesRegex(ValueError, "runtime directory is absent"):
+                MODULE.verify(root)
+
+    def test_smoke_restores_empty_runtime_placeholder_after_real_http_health(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as directory:
+            root = Path(directory)
+            self.smoke_fixture(root)
+            self.assertEqual(MODULE.smoke(root)["healthStatus"], 200)
+            self.assertEqual(list((root / MODULE.RUNTIME_DIR).iterdir()), [])
+            MODULE.verify(root)
+
+    def test_smoke_rejects_runtime_files_without_deleting_them(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as directory:
+            root = Path(directory)
+            self.smoke_fixture(root, leave_file=True)
+            with self.assertRaisesRegex(ValueError, "runtime placeholder must be empty"):
+                MODULE.smoke(root)
+            self.assertEqual((root / ".ezcorp/data/state.txt").read_text(), "retain me")
+            MODULE.verify(root)  # Deployed runtime state remains outside the immutable inventory.
+
+    def test_smoke_rejects_preexisting_runtime_state_before_starting_app(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as directory:
+            root = Path(directory)
+            self.smoke_fixture(root)
+            (root / ".ezcorp/data").mkdir(mode=0o700)
+            MODULE.verify(root)
+            with patch.object(MODULE.subprocess, "Popen") as start:
+                with self.assertRaisesRegex(ValueError, "runtime placeholder must be empty"):
+                    MODULE.smoke(root)
+                start.assert_not_called()
+            self.assertTrue((root / ".ezcorp/data").is_dir())
+
+    def test_stage_creates_empty_runtime_placeholder_outside_inventory(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as directory:
+            source = Path(directory) / "source"
+            source.mkdir()
+            bun = source / "bun"
+            bun.write_bytes(b"fake bun")
+            output = Path(directory) / "release"
+
+            def fake_run(_argv, *, cwd, env):
+                if cwd.name == "release" and not (cwd / "bun.lock").exists():
+                    self.release_fixture(cwd)
+                    (cwd / "bin/bun").write_bytes(bun.read_bytes())
+                    (cwd / MODULE.RUNTIME_DIR).rmdir()
+
+            with patch.object(MODULE, "git_head", return_value="a" * 40), \
+                 patch.object(MODULE, "extract_head"), \
+                 patch.object(MODULE, "run", side_effect=fake_run), \
+                 patch.object(MODULE.subprocess, "check_output", return_value="1.3.14\n"):
+                MODULE.stage(source, output, bun, MODULE.sha256(bun))
+            placeholder = output / MODULE.RUNTIME_DIR
+            self.assertTrue(placeholder.is_dir())
+            self.assertEqual(placeholder.stat().st_mode & 0o777, 0o755)
+            self.assertEqual(list(placeholder.iterdir()), [])
+            self.assertFalse(any(item["path"].startswith(".ezcorp/")
+                                 for item in MODULE.verify(output)["files"]))
+
+    def test_stage_normalizes_dependency_modes_without_changing_hardlinked_source(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as directory:
+            source = Path(directory) / "source"
+            source.mkdir()
+            bun = source / "bun"
+            bun.write_bytes(b"fake bun")
+            output = Path(directory) / "release"
+            cached = source / "cached-license"
+            cached.write_bytes(b"license")
+            os.chmod(cached, 0o666)
+
+            def fake_run(_argv, *, cwd, env):
+                if cwd.name == "release" and not (cwd / "bun.lock").exists():
+                    self.release_fixture(cwd)
+                    (cwd / "bin/bun").write_bytes(bun.read_bytes())
+                    (cwd / MODULE.RUNTIME_DIR).rmdir()
+                    package = cwd / "web/node_modules/fast-uri"
+                    package.mkdir(mode=0o777)
+                    os.chmod(package, 0o777)
+                    os.link(cached, package / "LICENSE")
+                    (package / "LICENSE.link").symlink_to("LICENSE")
+                    executable = package / "tool"
+                    executable.write_bytes(b"tool")
+                    os.chmod(executable, 0o777)
+
+            with patch.object(MODULE, "git_head", return_value="a" * 40), \
+                 patch.object(MODULE, "extract_head"), \
+                 patch.object(MODULE, "run", side_effect=fake_run), \
+                 patch.object(MODULE.subprocess, "check_output", return_value="1.3.14\n"):
+                MODULE.stage(source, output, bun, MODULE.sha256(bun))
+            package = output / "web/node_modules/fast-uri"
+            self.assertEqual((package / "LICENSE").stat().st_mode & 0o777, 0o644)
+            self.assertEqual((package / "tool").stat().st_mode & 0o777, 0o755)
+            self.assertEqual(package.stat().st_mode & 0o777, 0o755)
+            self.assertEqual(cached.stat().st_mode & 0o777, 0o666)
+            self.assertNotEqual((package / "LICENSE").stat().st_ino, cached.stat().st_ino)
+            self.assertTrue((package / "LICENSE.link").is_symlink())
+            MODULE.verify(output)
+
+    def test_verify_rejects_writable_file_and_directory_with_matching_manifest(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as directory:
+            root = Path(directory)
+            self.release_fixture(root)
+            dependency = root / "web/node_modules/fast-uri"
+            dependency.mkdir()
+            license_file = dependency / "LICENSE"
+            license_file.write_bytes(b"license")
+            os.chmod(license_file, 0o666)
+            self.seal_fixture(root)
+            with self.assertRaisesRegex(ValueError, "writable release file"):
+                MODULE.verify(root)
+            os.chmod(license_file, 0o644)
+            os.chmod(dependency, 0o777)
+            self.seal_fixture(root)
+            with self.assertRaisesRegex(ValueError, "writable release directory"):
+                MODULE.verify(root)
+
+    def test_archive_rejects_tracked_runtime_directory(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as directory:
+            source = Path(directory) / "source"
+            source.mkdir()
+            subprocess.run(["git", "init", "-q", str(source)], check=True)
+            (source / ".ezcorp").mkdir()
+            (source / ".ezcorp/state").write_text("tracked runtime data")
+            subprocess.run(["git", "-C", str(source), "add", ".ezcorp/state"], check=True)
+            subprocess.run(["git", "-C", str(source), "-c", "user.name=Test",
+                            "-c", "user.email=test@example.invalid", "commit", "-qm", "fixture"], check=True)
+            target = Path(directory) / "target"
+            target.mkdir()
+            with self.assertRaisesRegex(ValueError, "tracked reserved runtime path"):
+                MODULE.extract_head(source, target)
+            self.assertEqual(list(target.iterdir()), [])
+
+    def test_inventory_rejects_a_link_outside_release(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as directory:
+            root = Path(directory) / "release"
+            root.mkdir()
+            (root / "outside").symlink_to("/etc/passwd")
+            with self.assertRaisesRegex(ValueError, "escapes release"):
+                MODULE.inventory(root)
+
+    def test_inventory_accepts_an_internal_dependency_directory_link(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as directory:
+            root = Path(directory) / "release"
+            (root / "packages/example").mkdir(parents=True)
+            (root / "node_modules").mkdir()
+            (root / "node_modules/example").symlink_to("../packages/example")
+            entries = MODULE.inventory(root)
+            self.assertIn({"path": "node_modules/example", "mode": 0o777,
+                           "type": "link", "target": "../packages/example"}, entries)
+
+    def test_inventory_has_stable_order_hashes_modes_and_links(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as directory:
+            root = Path(directory) / "release"
+            root.mkdir()
+            (root / "b").write_bytes(b"b")
+            (root / "a").write_bytes(b"a")
+            os.chmod(root / "a", 0o644)
+            (root / "link").symlink_to("a")
+            entries = MODULE.inventory(root)
+            self.assertEqual([item["path"] for item in entries], ["a", "b", "link"])
+            self.assertEqual(entries[0]["sha256"], MODULE.sha256(root / "a"))
+            self.assertEqual(entries[0]["mode"], 0o644)
+            self.assertEqual(entries[2], {"path": "link", "mode": 0o777,
+                                          "type": "link", "target": "a"})
+
+    def test_verify_rejects_tampering_and_missing_runtime_closure(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as directory:
+            root = Path(directory)
+            (root / "bin").mkdir()
+            (root / "bin/bun").write_bytes(b"bun")
+            (root / "bun.lock").write_bytes(b"root")
+            (root / "web").mkdir()
+            (root / "web/bun.lock").write_bytes(b"web")
+            (root / MODULE.RUNTIME_DIR).mkdir(mode=0o755)
+            manifest = {"schema": 1, "gitSha": "a" * 40, "bunVersion": "1.3.14",
+                        "bunSha256": MODULE.sha256(root / "bin/bun"),
+                        "locks": {name: MODULE.sha256(root / name)
+                                  for name in ("bun.lock", "web/bun.lock")},
+                        "files": MODULE.inventory(root)}
+            (root / MODULE.MANIFEST).write_text(json.dumps(manifest))
+            with self.assertRaisesRegex(ValueError, "required release file"):
+                MODULE.verify(root)
+            (root / "bin/bun").write_bytes(b"changed")
+            with self.assertRaisesRegex(ValueError, "Bun digest changed"):
+                MODULE.verify(root)
+
+    def test_stage_rejects_live_destination_before_running_build(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as directory:
+            source = Path(directory)
+            bun = source / "bun"
+            bun.write_bytes(b"fake")
+            with self.assertRaisesRegex(ValueError, "must be under /tmp or /var/tmp"):
+                MODULE.stage(source, Path("/opt/ezh-bundle-test-invalid-destination"), bun,
+                             MODULE.sha256(bun))
+
+
+if __name__ == "__main__":
+    unittest.main()

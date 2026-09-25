@@ -1,0 +1,14 @@
+{
+  "name": "@ezcorp/infisical-secrets",
+  "version": "0.1.0",
+  "description": "Infisical static-secret provider adapter",
+  "private": true,
+  "type": "module",
+  "main": "./extension.ts",
+  "scripts": {
+    "test": "bun test",
+    "build": "bun build ./extension.ts --target=bun --outdir=/tmp/ez-infisical-build",
+    "typecheck": "bun x tsc --noEmit -p tsconfig.json",
+    "lint": "bun x biome check ."
+  }
+}

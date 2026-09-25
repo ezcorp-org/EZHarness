@@ -3,6 +3,20 @@ import { registerCallProvenance, releaseCallProvenance } from "../call-provenanc
 import { restoreModuleMocks } from "../../__tests__/helpers/mock-cleanup";
 import type { RpcHandlerDeps } from "../tool-executor/rpc-handlers";
 import type { JsonRpcRequest } from "../types";
+import { sandboxWorkspaceTarget, type WorkspaceTarget } from "../../runtime/workspaces/target";
+import { PGlite } from "@electric-sql/pglite";
+import { drizzle } from "drizzle-orm/pglite";
+import { eq } from "drizzle-orm";
+import { up as addSandboxController } from "../../db/migrations/add-sandbox-controller";
+import * as schema from "../../db/schema";
+
+const database = new PGlite();
+await database.waitReady;
+await database.exec("CREATE TABLE projects (id TEXT PRIMARY KEY)");
+await database.exec("INSERT INTO projects (id) VALUES ('project')");
+const driver = drizzle(database, { schema });
+await addSandboxController(driver);
+mock.module("../../db/connection", () => ({ getDb: () => driver }));
 
 let active = true;
 let owned = true;
@@ -24,20 +38,50 @@ const { handleProjectPullRequest } = await import("../project-pr-broker");
 const authorize = mock(async () => ({ decision: allowed ? "allow" : "prompt" }));
 const deps = { engine: { authorize } } as unknown as RpcHandlerDeps;
 
-beforeEach(() => {
+beforeEach(async () => {
   active = owned = member = local = credential = allowed = true;
   failure = false;
   open.mockClear(); secret.mockClear(); authorize.mockClear();
+  await driver.delete(schema.sandboxBindings).where(eq(schema.sandboxBindings.projectId, "project"));
 });
-afterAll(() => restoreModuleMocks());
+afterAll(async () => { await database.close(); restoreModuleMocks(); });
 
-async function invoke(input: unknown = { runId: "run", title: "Title", body: "Body" }, conversationId: string | null = "conversation", actor = "extension") {
-  const token = registerCallProvenance({ actorExtensionId: "extension", onBehalfOf: "user", conversationId, runId: null, parentCallId: null, kind: "tool", ownerless: false });
+async function invoke(input: unknown = { runId: "run", title: "Title", body: "Body" }, conversationId: string | null = "conversation", actor = "extension", workspaceTarget?: WorkspaceTarget) {
+  const token = registerCallProvenance({ actorExtensionId: "extension", onBehalfOf: "user", conversationId, runId: null, parentCallId: null, kind: "tool", ownerless: false, ...(workspaceTarget ? { workspaceTarget } : {}) });
   try {
     const request: JsonRpcRequest = { jsonrpc: "2.0", id: "request", method: "ezcorp/project.openPr", params: { ...(input as Record<string, unknown>), _meta: { ezCallId: token } } };
     return await handleProjectPullRequest(deps, actor, request);
   } finally { releaseCallProvenance(token); }
 }
+
+test("sandbox PR creation denies host fallback before credentials or AMD Git", async () => {
+  const target = sandboxWorkspaceTarget({
+    projectId: "project", workspaceId: "workspace", connectionId: "connection",
+    providerId: "incus", generation: 7, presetId: "small", releaseDigest: "a".repeat(64),
+    presetDigest: "b".repeat(64), effectiveSettingsDigest: "c".repeat(64),
+  }, null);
+
+  const result = await invoke(undefined, "conversation", "extension", target);
+
+  expect(result.error?.message).toBe("Project pull request failed.");
+  expect(secret).not.toHaveBeenCalled();
+  expect(open).not.toHaveBeenCalled();
+});
+
+test("durably sandbox-bound PR without provenance target cannot use host Git", async () => {
+  await driver.insert(schema.sandboxBindings).values({
+    id: "durable-binding", projectId: "project", providerInstallationId: "provider",
+    providerReleaseId: "release", connectionId: "connection", resourceKey: "workspace",
+    desiredState: "RUNNING", observedState: "RUNNING",
+  });
+
+  const result = await invoke();
+
+  expect(result.result).toBeUndefined();
+  expect(result.error?.message).toBe("Project pull request failed.");
+  expect(secret).not.toHaveBeenCalled();
+  expect(open).not.toHaveBeenCalled();
+});
 
 test("project PR uses the owned project and keeps its credential inside the host", async () => {
   const result = await invoke();

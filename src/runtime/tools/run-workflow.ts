@@ -40,6 +40,7 @@ import { getWorkflowRuntime } from "../workflow/runtime-registry";
 import { canRunWorkflow } from "../workflow-authz";
 import { getUserById } from "../../db/queries/users";
 import { getToolOutputLimit, truncateText } from "./output-limits";
+import type { WorkspaceTarget } from "../workspaces/target";
 
 export const RUN_WORKFLOW_TOOL_NAME = "run_workflow";
 
@@ -98,6 +99,8 @@ export interface RunWorkflowToolContext {
   conversationId: string;
   /** RBAC/project coordinate, derived server-side from the conversation. */
   projectId?: string;
+  /** Exact host-selected route inherited by every workflow step. */
+  workspaceTarget?: WorkspaceTarget;
   /** Watchdog visibility for a parked consent card — see
    *  {@link PendingPermissionGate}. */
   pendingPermissions?: PendingPermissionGate;
@@ -254,6 +257,7 @@ export function createRunWorkflowTool(ctx: RunWorkflowToolContext): BuiltinToolD
           signal,
           {
             conversationId: ctx.conversationId,
+            ...(ctx.workspaceTarget ? { workspaceTarget: ctx.workspaceTarget } : {}),
             ...(ctx.pendingPermissions ? { pendingPermissions: ctx.pendingPermissions } : {}),
           },
         );

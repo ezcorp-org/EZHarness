@@ -60,6 +60,11 @@ import { WatchdogManager } from "./executor-watchdog";
 import { createPiLlmAdapter, persistErrorMessage, resolveFailoverAttempt, type PiLlmAdapter } from "./executor-helpers";
 import { workflowScopeKey } from "./workflow-scope-key";
 import { isServiceInvocation } from "../extensions/service-invocation";
+import {
+  createSandboxAgentProviders,
+  type WorkspaceTarget,
+} from "./workspaces/target";
+import { resolveProjectWorkspaceTarget } from "./workspaces/project-target";
 
 export interface ExecutorOptions {
   shell?: ShellProvider;
@@ -71,6 +76,8 @@ export interface AgentExecutionControl {
   serviceInvocation?: import("../extensions/service-invocation").ServiceInvocation;
   signal?: AbortSignal;
   invocationGuard?: InvocationGuard;
+  /** Host-selected workspace inherited by workflow and nested agent runs. */
+  workspaceTarget?: WorkspaceTarget;
 }
 
 /**
@@ -255,6 +262,10 @@ export class AgentExecutor {
    *  tokens (the "Stop doesn't stop the work" P1). In-memory only — no DB
    *  migration; entries self-clean on each run's terminal bus event. */
   private childRuns = new Map<string, Set<string>>();
+  /** Exact host-selected target for each live run. Kept separate from the
+   * public AgentRun payload because a sandbox backend is an in-process handle,
+   * not serializable run data. */
+  private workspaceTargets = new Map<string, WorkspaceTarget>();
   /** Unsubscribe handles for the terminal-event listeners that keep
    *  {@link childRuns} bounded. Detached in {@link destroy}. */
   private childRunUnsubs: Array<() => void> = [];
@@ -415,6 +426,7 @@ export class AgentExecutor {
    */
   private deregisterRun(runId: string): void {
     this.childRuns.delete(runId);
+    this.workspaceTargets.delete(runId);
     for (const [parentId, set] of this.childRuns) {
       if (set.delete(runId) && set.size === 0) this.childRuns.delete(parentId);
     }
@@ -427,14 +439,41 @@ export class AgentExecutor {
     return [...(this.childRuns.get(parentRunId) ?? [])];
   }
 
+  bindWorkspaceTarget(runId: string, target: WorkspaceTarget): void {
+    this.workspaceTargets.set(runId, target);
+  }
+
+  getWorkspaceTarget(runId: string): WorkspaceTarget | undefined {
+    return this.workspaceTargets.get(runId);
+  }
+
+  private async resolveExecutionWorkspaceTarget(
+    projectId: string | undefined,
+    operation: string,
+    requestedTarget?: WorkspaceTarget,
+    workingDir?: string,
+  ): Promise<WorkspaceTarget | undefined> {
+    if (!projectId) return requestedTarget;
+    if (this.persist && await (await import("./workspace/target")).projectRequiresSandbox(projectId)) {
+      if (requestedTarget?.kind === "sandbox") throw new Error("Conflicting sandbox workspace bindings");
+      return undefined;
+    }
+    const project = await getProject(projectId);
+    if (!project) throw new Error(`Project workspace is unavailable for ${operation}`);
+    return resolveProjectWorkspaceTarget(project, operation, requestedTarget, workingDir);
+  }
+
   async resolveInput(
     input: Record<string, unknown>,
     projectId?: string,
+    workspaceTarget?: WorkspaceTarget,
   ): Promise<Record<string, unknown>> {
     const accountDefaults = this.persist ? await getAllSettings() : {};
     const project = projectId && this.persist ? await getProject(projectId) : undefined;
     const projectVars = (project?.variables as Record<string, unknown>) ?? {};
-    const projectPath = project?.path ? { cwd: project.path } : {};
+    const projectPath = project?.path && workspaceTarget?.kind !== "sandbox"
+      ? { cwd: project.path }
+      : {};
     return { ...accountDefaults, ...projectPath, ...projectVars, ...input };
   }
 
@@ -448,15 +487,18 @@ export class AgentExecutor {
       control?.signal?.throwIfAborted();
     };
     await assertActive();
-    const sandboxBound = this.persist && !serviceInvocation && await (await import("./workspace/target")).projectRequiresSandbox(projectId);
+    const workspaceTarget = await this.resolveExecutionWorkspaceTarget(projectId, "agent run", control?.workspaceTarget);
+    const persistedSandboxBound = this.persist && !serviceInvocation && await (await import("./workspace/target")).projectRequiresSandbox(projectId);
+    if (persistedSandboxBound && workspaceTarget?.kind === "sandbox") throw new Error("Conflicting sandbox workspace bindings");
+    const sandboxBound = persistedSandboxBound || workspaceTarget?.kind === "sandbox";
     const agent = this.agents.get(name);
     if (!agent) throw new Error(`Agent not found: ${name}`);
-    const resolvedInput = serviceInvocation ? { ...input } : await this.resolveInput(input, projectId);
+    const resolvedInput = serviceInvocation ? { ...input } : await this.resolveInput(input, projectId, workspaceTarget);
     await assertActive();
-    return { serviceInvocation, assertActive, sandboxBound, agent, resolvedInput };
+    return { serviceInvocation, assertActive, sandboxBound, agent, resolvedInput, workspaceTarget };
   }
 
-  private createAgentContext({ resolvedInput, projectId, userId, modelOverride, control, controller, serviceInvocation, sandboxBound, assertActive, appendLog }: {
+  private createAgentContext({ resolvedInput, projectId, userId, modelOverride, control, controller, serviceInvocation, sandboxBound, workspaceTarget, assertActive, appendLog }: {
     resolvedInput: Record<string, unknown>;
     projectId: string | undefined;
     userId: string | undefined;
@@ -465,6 +507,7 @@ export class AgentExecutor {
     controller: AbortController;
     serviceInvocation?: import("../extensions/service-invocation").ServiceInvocation;
     sandboxBound: boolean;
+    workspaceTarget?: WorkspaceTarget;
     assertActive: () => Promise<void>;
     appendLog: (message: string, level?: LogLevel) => void;
   }): { ctx: AgentContext; piLlm: PiLlmAdapter } {
@@ -477,8 +520,13 @@ export class AgentExecutor {
       controller.signal.throwIfAborted();
       return effect();
     };
-    const shell: ShellProvider = serviceInvocation ? { run: denyServiceAdapter } : sandboxBound ? { run: denySandboxHostAdapter } : control ? { run: (...args) => guarded(() => this.shell.run(...args)) } : this.shell;
-    const file: FileProvider = serviceInvocation ? { read: denyServiceAdapter, write: denyServiceAdapter, exists: denyServiceAdapter } : sandboxBound ? { read: denySandboxHostAdapter, write: denySandboxHostAdapter, exists: denySandboxHostAdapter } : control ? {
+    const sandboxProviders = workspaceTarget?.kind === "sandbox" ? createSandboxAgentProviders(workspaceTarget) : undefined;
+    const shell: ShellProvider = serviceInvocation ? { run: denyServiceAdapter } : sandboxProviders ? { run: (...args) => guarded(() => sandboxProviders.shell.run(...args)) } : sandboxBound ? { run: denySandboxHostAdapter } : control ? { run: (...args) => guarded(() => this.shell.run(...args)) } : this.shell;
+    const file: FileProvider = serviceInvocation ? { read: denyServiceAdapter, write: denyServiceAdapter, exists: denyServiceAdapter } : sandboxProviders ? {
+      read: (...args) => guarded(() => sandboxProviders.file.read(...args)),
+      write: (...args) => guarded(() => sandboxProviders.file.write(...args)),
+      exists: (...args) => guarded(() => sandboxProviders.file.exists(...args)),
+    } : sandboxBound ? { read: denySandboxHostAdapter, write: denySandboxHostAdapter, exists: denySandboxHostAdapter } : control ? {
       read: (...args) => guarded(() => this.file.read(...args)),
       write: (...args) => guarded(() => this.file.write(...args)),
       exists: (...args) => guarded(() => this.file.exists(...args)),
@@ -492,14 +540,15 @@ export class AgentExecutor {
       log: appendLog,
       signal: controller.signal,
       run: async (agentName, childInput) => {
-        const childRun = await this.runAgent(agentName, childInput, projectId, userId, undefined, control ? { ...control, signal: controller.signal } : undefined);
+        const childRun = await this.runAgent(agentName, childInput, projectId, userId, undefined,
+          control || workspaceTarget ? { ...control, signal: controller.signal, ...(workspaceTarget ? { workspaceTarget } : {}) } : undefined);
         return childRun.result ?? { success: false, output: null, error: "No result" };
       },
     };
     return { ctx, piLlm };
   }
 
-  private async wireAgentTools(input: Record<string, unknown>, userId: string | undefined, control: AgentExecutionControl | undefined, run: AgentRun, controller: AbortController, ctx: AgentContext): Promise<void> {
+  private async wireAgentTools(input: Record<string, unknown>, userId: string | undefined, control: AgentExecutionControl | undefined, run: AgentRun, controller: AbortController, ctx: AgentContext, workspaceTarget?: WorkspaceTarget): Promise<void> {
     const agentConfigId = input.agentConfigId as string | undefined;
     if (!agentConfigId || control?.serviceInvocation?.kind === "host") return;
     try {
@@ -508,6 +557,7 @@ export class AgentExecutor {
       if (extTools.length === 0) return;
       const engine = getPermissionEngine({ registry, bus: this.bus, db: { _token: "executor" } });
       const toolExec = new ToolExecutor(registry, engine, { bus: this.bus });
+      if (workspaceTarget) toolExec.setWorkspaceTarget(workspaceTarget);
       if (userId) toolExec.setCurrentUserId(userId);
       if (this._stateMediator) toolExec.setStateMediator(this._stateMediator);
       const conversationId = control?.serviceInvocation ? workflowScopeKey(control.serviceInvocation.workflowRunId) : run.id;
@@ -554,7 +604,7 @@ export class AgentExecutor {
     control?: AgentExecutionControl,
   ): Promise<AgentRun> {
     const prepared = await this.prepareAgentInvocation(name, input, projectId, userId, control);
-    const { serviceInvocation, assertActive, sandboxBound, agent, resolvedInput } = prepared;
+    const { serviceInvocation, assertActive, sandboxBound, agent, resolvedInput, workspaceTarget } = prepared;
 
     const run: AgentRun = {
       id: crypto.randomUUID(),
@@ -568,6 +618,7 @@ export class AgentExecutor {
     const controller = new AbortController();
     this.controllers.set(run.id, controller);
     this.storeRun(run);
+    if (workspaceTarget) this.bindWorkspaceTarget(run.id, workspaceTarget);
 
     if (this.persist) {
       // Thread the initiating user so an agent/CLI run is attributable for
@@ -589,8 +640,8 @@ export class AgentExecutor {
       }
     };
 
-    const { ctx, piLlm } = this.createAgentContext({ resolvedInput, projectId, userId, modelOverride, control, controller, serviceInvocation, sandboxBound, assertActive, appendLog });
-    await this.wireAgentTools(input, userId, control, run, controller, ctx);
+    const { ctx, piLlm } = this.createAgentContext({ resolvedInput, projectId, userId, modelOverride, control, controller, serviceInvocation, sandboxBound, workspaceTarget, assertActive, appendLog });
+    await this.wireAgentTools(input, userId, control, run, controller, ctx, workspaceTarget);
 
     const onAbort = () => { this.cancelRun(run.id); };
     control?.signal?.addEventListener("abort", onAbort, { once: true });
@@ -990,7 +1041,7 @@ export class AgentExecutor {
   async streamChat(
     conversationId: string,
     userMessage: string,
-    options: { projectId?: string; workingDir?: string; provider?: string; model?: string; tier?: import("./tier-classifier").RoutingTier; system?: string; runId?: string; parentMessageId?: string; agentConfigId?: string; permissionMode?: import("./tools/types").PermissionMode; thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh"; modeId?: string; orchestrationDepth?: number; toolRestriction?: "all" | "read-only" | "none"; allowedTools?: string[]; deniedTools?: string[]; readOnlyAllowedTools?: string[]; memberOverrides?: Map<string, import("../types").TeamMemberOverrides>; subAgentMembers?: import("../types").TeamMember[]; attachments?: import("../chat/attachments/content-builder").StagedAttachment[]; commandResolver?: import("./mention-wiring").CommandResolver;
+    options: { projectId?: string; workingDir?: string; workspaceTarget?: import("./workspaces/target").WorkspaceTarget; provider?: string; model?: string; tier?: import("./tier-classifier").RoutingTier; system?: string; runId?: string; parentMessageId?: string; agentConfigId?: string; permissionMode?: import("./tools/types").PermissionMode; thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh"; modeId?: string; orchestrationDepth?: number; toolRestriction?: "all" | "read-only" | "none"; allowedTools?: string[]; deniedTools?: string[]; readOnlyAllowedTools?: string[]; memberOverrides?: Map<string, import("../types").TeamMemberOverrides>; subAgentMembers?: import("../types").TeamMember[]; attachments?: import("../chat/attachments/content-builder").StagedAttachment[]; commandResolver?: import("./mention-wiring").CommandResolver;
       /**
        * ── Per-API-key tool policy (Boundary 3) ──────────────────────────
        * Two scalars, BOTH defaulting to undefined so that a cookie session
@@ -1009,6 +1060,16 @@ export class AgentExecutor {
        *  a mid-turn `invoke_agent`, because it issues no HTTP request. */
       forceDenyOrchestration?: boolean },
   ): Promise<AgentRun> {
+    const persistedConversation = await getConversation(conversationId);
+    if (!persistedConversation) throw new Error("Conversation workspace is unavailable for chat run");
+    if (options.projectId && options.projectId !== persistedConversation.projectId) {
+      throw new Error("Chat run project does not match its conversation");
+    }
+    const projectId = persistedConversation.projectId;
+    const workspaceTarget = await this.resolveExecutionWorkspaceTarget(
+      projectId, "chat run", options.workspaceTarget, options.workingDir,
+    );
+    options = { ...options, projectId, workspaceTarget };
     const run: AgentRun = {
       id: options.runId ?? crypto.randomUUID(),
       agentName: "chat",
@@ -1021,6 +1082,7 @@ export class AgentExecutor {
     const controller = new AbortController();
     this.controllers.set(run.id, controller);
     this.storeRun(run);
+    if (options.workspaceTarget) this.bindWorkspaceTarget(run.id, options.workspaceTarget);
     this.runConversations.set(run.id, conversationId);
 
     // Per-call context bundle. Closures below capture `ctx` (one ref) instead
@@ -1078,7 +1140,7 @@ export class AgentExecutor {
     const { history, allPastAttachments } = await loadHistory(ctx, conversationId, options);
 
     // ── Credential context: sub-conversations inherit parent's credentials ──
-    const convRecord = await getConversation(conversationId);
+    const convRecord = persistedConversation;
     const credentialConversationId = convRecord?.parentConversationId ?? conversationId;
 
     const resolvedModel = await setupTools(
@@ -1442,6 +1504,7 @@ export class AgentExecutor {
       for (const [id, r] of this.runs) {
         if (r.status !== "running") {
           this.runs.delete(id);
+          this.workspaceTargets.delete(id);
           break;
         }
       }
@@ -1473,6 +1536,7 @@ export class AgentExecutor {
     for (const unsub of this.childRunUnsubs) unsub();
     this.childRunUnsubs = [];
     this.childRuns.clear();
+    this.workspaceTargets.clear();
     for (const ctrl of this.controllers.values()) {
       if (!ctrl.signal.aborted) ctrl.abort();
     }

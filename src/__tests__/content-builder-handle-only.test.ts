@@ -3,28 +3,37 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  buildUserContent,
+  buildUserContent as buildUserContentWithTarget,
   ATTACHMENT_HANDLE_SCHEME,
   attachmentHandle,
   type StagedAttachment,
 } from "../chat/attachments/content-builder";
 import {
-  buildAttachmentHandleResolver,
+  buildAttachmentHandleResolver as buildAttachmentHandleResolverWithTarget,
   toResolvableAttachments,
 } from "../chat/attachments/handle-resolver";
 import { writeAttachment } from "../chat/attachments/storage";
 import { getCapabilitiesWithExtensions } from "../providers/model-capabilities";
+import { localWorkspaceTarget } from "../runtime/workspaces/target";
 
 const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
 let root: string;
 let xlsxPath: string;
 const SYNTH_BYTES = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0xde, 0xad, 0xbe, 0xef]); // ZIP magic + filler
+const buildUserContent = (
+  text: Parameters<typeof buildUserContentWithTarget>[0],
+  attachments: Parameters<typeof buildUserContentWithTarget>[1],
+  caps: Parameters<typeof buildUserContentWithTarget>[2],
+) => buildUserContentWithTarget(text, attachments, caps, localWorkspaceTarget(root));
+const buildAttachmentHandleResolver = (
+  attachments: Parameters<typeof buildAttachmentHandleResolverWithTarget>[0],
+) => buildAttachmentHandleResolverWithTarget(attachments, localWorkspaceTarget(root));
 
 beforeAll(async () => {
   root = await mkdtemp(join(tmpdir(), "ezcorp-cb-handle-"));
   xlsxPath = (await writeAttachment({
-    projectRoot: root,
+    workspaceTarget: localWorkspaceTarget(root),
     conversationId: "c",
     messageId: "m",
     filename: "report.xlsx",

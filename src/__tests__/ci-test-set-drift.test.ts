@@ -256,6 +256,25 @@ describe("web/src pass/fail gating", () => {
     expect(bashLines(`source ${SETS_LIB}; web_bunleg_files`)).not.toContain(file);
   });
 
+  test("threshold-gated Incus routes have one Bun coverage and pass/fail home", () => {
+    const host = new Set(bashLines(`source ${SETS_LIB}; web_host_files`));
+    const orphaned = new Set(bashLines(`source ${SETS_LIB}; web_bunleg_files`));
+    const utility = new Set(bashLines(`source ${SETS_LIB}; web_utility_coverage_files`));
+    for (const [route, suite] of [
+      ["probe-fixtures", "probe-fixtures"],
+      ["qualification", "qualification"],
+      ["capacity", "route"],
+      ["smoke", "smoke"],
+    ]) {
+      const file = `web/src/routes/api/infrastructure/incus/${route}/${suite}.test.ts`;
+      expect(host.has(file), `${file} must emit LCOV in the host pool`).toBe(true);
+      expect(inP.has(file), `${file} must gate failed assertions`).toBe(true);
+      expect(coverageFiles).toContain(file);
+      expect(orphaned.has(file), `${file} must run only once`).toBe(false);
+      expect(utility.has(file), `${file} must have one coverage producer`).toBe(false);
+    }
+  });
+
   test("direct Bun utility producers run in their coverage leg once", () => {
     const utility = new Set(bashLines(`source ${SETS_LIB}; web_utility_coverage_files`));
     const residual = new Set(bashLines(`source ${SETS_LIB}; residual_passfail_files`));

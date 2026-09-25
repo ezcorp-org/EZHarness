@@ -179,4 +179,61 @@ describe("reapPreviewConversation — default (live) revoke seam", () => {
     expect(res.previewsRevoked).toBe(0);
     expect(res.uidReleased).toBe(true);
   });
+
+  test("live reaping closes only the current sandbox preview before revoking its row", async () => {
+    const { createUser } = await import("../db/queries/users");
+    const { createProject } = await import("../db/queries/projects");
+    const { createConversation } = await import("../db/queries/conversations");
+    const { createPreviewSession, getPreviewByIdRaw } = await import("../db/queries/preview-sessions");
+    const { getDb } = await import("../db/connection");
+    const { sandboxBindings, previewSessions } = await import("../db/schema");
+    const { eq } = await import("drizzle-orm");
+    const { setSandboxWorkspaceTargetResolver } = await import("../runtime/workspaces/project-target");
+    const { sandboxWorkspaceTarget } = await import("../runtime/workspaces/target");
+    const user = await createUser({ email: "reaper-sandbox@test.com", passwordHash: "h", name: "Reaper" });
+    const project = await createProject({ name: "Reaper sandbox", path: "/tmp/reaper-sandbox" });
+    const conversation = await createConversation(project.id, { userId: user.id });
+    const bindingId = crypto.randomUUID();
+    await getDb().insert(sandboxBindings).values({ id: bindingId, projectId: project.id,
+      providerInstallationId: "installation", providerReleaseId: "release", connectionId: "connection",
+      connectionRevision: 1, resourceKey: bindingId, profile: "persistent-web-compose.v1",
+      presetId: "compose", presetDigest: "a".repeat(64), effectiveSettingsDigest: "b".repeat(64),
+      desiredState: "RUNNING", observedState: "RUNNING" });
+    const binding = { projectId: project.id, workspaceId: bindingId, connectionId: "connection",
+      providerId: "incus", generation: 1, presetId: "compose", releaseDigest: "c".repeat(64),
+      presetDigest: "a".repeat(64), effectiveSettingsDigest: "b".repeat(64) };
+    const closed: string[] = [];
+    const target = sandboxWorkspaceTarget(binding, { async execute() { return { content: [], details: {} }; },
+      previews: { async open() {}, async serve() { return new Response("ok"); },
+        async close(request) { closed.push(request.previewId); } } });
+    setSandboxWorkspaceTargetResolver(async () => target);
+    try {
+      const row = await createPreviewSession({ userId: user.id, conversationId: conversation.id,
+        kind: "dynamic", targetPort: 4173, workspaceTarget: target });
+      const deps = { killProcesses: async () => ({ killed: 0, unconfirmed: 0 }),
+        reapUid: () => true, reapNetns: () => false };
+      const result = await reapPreviewConversation(conversation.id, deps);
+      expect(closed).toEqual([row.id]);
+      expect(result.previewsRevoked).toBe(1);
+      expect((await getPreviewByIdRaw(row.id))?.status).toBe("revoked");
+
+      const stale = await createPreviewSession({ userId: user.id, conversationId: conversation.id,
+        kind: "dynamic", targetPort: 4174, workspaceTarget: target });
+      setSandboxWorkspaceTargetResolver(null);
+      const denied = await reapPreviewConversation(conversation.id, deps);
+      expect(denied.previewsRevoked).toBe(0);
+      expect(closed).toEqual([row.id]);
+      expect((await getPreviewByIdRaw(stale.id))?.status).toBe("active");
+
+      const otherUser = await createUser({ email: "reaper-other@test.com", passwordHash: "h", name: "Other" });
+      await getDb().update(previewSessions).set({ userId: otherUser.id })
+        .where(eq(previewSessions.id, stale.id));
+      const reassigned = await reapPreviewConversation(conversation.id, deps);
+      expect(reassigned.previewsRevoked).toBe(0);
+      expect(closed).toEqual([row.id]);
+      expect((await getPreviewByIdRaw(stale.id))?.status).toBe("active");
+    } finally {
+      setSandboxWorkspaceTargetResolver(null);
+    }
+  });
 });

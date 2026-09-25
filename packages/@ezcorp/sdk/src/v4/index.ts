@@ -2,6 +2,7 @@ import { ContractError, assertJson, compileValueSchema, validateInvocationContex
 import type { ExtensionManifestV4, InvocationContext, ValueSchema } from "@ezcorp/extension-contract";
 import { withExtensionContext } from "./context";
 import { withInvocationChannel } from "./invocation-channel";
+import { SENSITIVE_PROVIDER_METHOD, type ProviderCredentialInput } from "./provider-credentials";
 
 export * from "@ezcorp/extension-contract";
 export { serve, createSession } from "./serve";
@@ -9,6 +10,7 @@ export type { ServeOptions, Session } from "./serve";
 export { getInvocationContext, getInvocationSignal, getGrantedEnv, readGrantedCredential } from "./context";
 export { createMcpExtension, readMcpCatalog } from "./mcp";
 export { createRuntimeExtension, defineRuntimeManifest, unwrapToolResponse, TOOL_RESULT_SCHEMA } from "./runtime";
+export type { ProviderCredentialInput } from "./provider-credentials";
 
 export interface ExtensionContext {
   readonly invocation: Readonly<InvocationContext>;
@@ -16,6 +18,7 @@ export interface ExtensionContext {
   call(method: string, input: unknown): Promise<unknown>;
 }
 export type ExtensionHandler = (input: unknown, context: ExtensionContext) => unknown | Promise<unknown>;
+export type ProviderCredentialHandler = (input: ProviderCredentialInput, context: ExtensionContext) => string | null | Promise<string | null>;
 export interface MethodHandler {
   inputSchema: ValueSchema;
   outputSchema: ValueSchema;
@@ -25,15 +28,18 @@ export interface ExtensionDefinition {
   manifest: ExtensionManifestV4;
   tools?: Record<string, ExtensionHandler>;
   methods?: Record<string, MethodHandler>;
+  providerCredentials?: ProviderCredentialHandler;
 }
 export interface DefinedExtension {
   readonly manifest: ExtensionManifestV4;
   invoke(name: string, input: unknown, context: ExtensionContext): Promise<unknown>;
   dispatch(method: string, input: unknown, context: ExtensionContext): Promise<unknown>;
+  resolveProviderCredential?(input: ProviderCredentialInput, context: ExtensionContext): Promise<string | null>;
 }
 
 export function defineExtension(definition: ExtensionDefinition): DefinedExtension {
   const manifest = structuredClone(validateManifest(definition.manifest));
+  if (manifest.tools?.some(tool => tool.name === SENSITIVE_PROVIDER_METHOD) || manifest.methods?.some(method => method.name === SENSITIVE_PROVIDER_METHOD)) throw new ContractError("RESERVED_METHOD", "Sensitive provider credentials cannot be declared as an ordinary contribution");
   const tools = new Map<string, MethodHandler>();
   for (const tool of manifest.tools ?? []) {
     const handler = definition.tools?.[tool.name];
@@ -66,6 +72,14 @@ export function defineExtension(definition: ExtensionDefinition): DefinedExtensi
     methods.set(metadata.name, { ...metadata, handle: handler.handle });
   }
   const methodHandlers = prepare(methods);
+  const resolveProviderCredential = definition.providerCredentials ? async (input: ProviderCredentialInput, context: ExtensionContext): Promise<string | null> => {
+    validateInvocationContext(context.invocation);
+    context.signal.throwIfAborted();
+    const output = await withInvocationChannel(manifest.name, context, undefined, invocationContext =>
+      withExtensionContext(invocationContext, () => definition.providerCredentials!(input, invocationContext)));
+    context.signal.throwIfAborted();
+    return output;
+  } : undefined;
   function freeze(value: unknown): void {
     if (value && typeof value === "object") {
       for (const child of Object.values(value)) freeze(child);
@@ -79,6 +93,11 @@ export function defineExtension(definition: ExtensionDefinition): DefinedExtensi
     if (!handler) throw new ContractError("METHOD_NOT_FOUND", "Unknown extension contribution");
     return handler(input, context);
   }
-  const extension: DefinedExtension = { manifest, invoke: (name, input, context) => run(toolHandlers, name, input, context), dispatch: (name, input, context) => run(methodHandlers, name, input, context) };
+  const extension: DefinedExtension = {
+    manifest,
+    invoke: (name, input, context) => run(toolHandlers, name, input, context),
+    dispatch: (name, input, context) => run(methodHandlers, name, input, context),
+    ...(resolveProviderCredential ? { resolveProviderCredential } : {}),
+  };
   return Object.freeze(extension);
 }

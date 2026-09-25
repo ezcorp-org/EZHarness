@@ -74,6 +74,9 @@ mockDbConnection();
 import * as convQueries from "../db/queries/conversations";
 import { createProject } from "../db/queries/projects";
 import { upsertSetting, deleteSetting } from "../db/queries/settings";
+import { getDb } from "../db/connection";
+import { sandboxBindings } from "../db/schema";
+import { sandboxBindingRow } from "./helpers/sandbox-binding-row";
 
 type PermissionMode = "ask" | "auto-edit" | "yolo";
 type Intake = "json" | "multipart";
@@ -228,4 +231,20 @@ describe("both intake paths are gated by the SAME check", () => {
     expect(jsonRes.status).toBe(formRes.status);
     expect(await jsonRes.json()).toEqual(await formRes.json());
   });
+});
+
+test("bound sandbox project denies a message before persisting it or starting a stream", async () => {
+  const project = await createProject({ name: "Bound message test", path: projectRoot });
+  const conv = await convQueries.createConversation(project.id, {
+    title: "bound", provider: "anthropic", model: "claude-sonnet-4-5",
+  });
+  await getDb().insert(sandboxBindings).values(sandboxBindingRow(project.id));
+  const request = new Request(`http://localhost/api/conversations/${conv.id}/messages`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ content: "AMD_CANARY" }),
+  });
+  const response = await POST({ request, params: { id: conv.id }, locals: SESSION_LOCALS });
+  expect(response.status).toBe(503);
+  expect(await convQueries.getMessages(conv.id)).toHaveLength(0);
+  expect(streamChatCalls).toHaveLength(0);
 });

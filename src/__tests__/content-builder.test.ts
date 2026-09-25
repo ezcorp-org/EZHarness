@@ -3,12 +3,13 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  buildUserContent,
+  buildUserContent as buildUserContentWithTarget,
   UnsupportedAttachmentError,
   type StagedAttachment,
 } from "../chat/attachments/content-builder";
 import { writeAttachment } from "../chat/attachments/storage";
 import { getCapabilities } from "../providers/model-capabilities";
+import { localWorkspaceTarget } from "../runtime/workspaces/target";
 
 const PNG_1x1 = new Uint8Array([
   0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
@@ -47,19 +48,27 @@ let pngPath: string;
 let txtPath: string;
 let pdfPath: string;
 
+function buildUserContent(
+  text: string,
+  attachments: StagedAttachment[],
+  caps: ReturnType<typeof getCapabilities>,
+) {
+  return buildUserContentWithTarget(text, attachments, caps, localWorkspaceTarget(root));
+}
+
 beforeAll(async () => {
   root = await mkdtemp(join(tmpdir(), "ezcorp-cb-"));
   pngPath = (await writeAttachment({
-    projectRoot: root, conversationId: "c", messageId: "m",
+    workspaceTarget: localWorkspaceTarget(root), conversationId: "c", messageId: "m",
     filename: "cat.png", mimeType: "image/png", bytes: PNG_1x1,
   })).storagePath;
   txtPath = (await writeAttachment({
-    projectRoot: root, conversationId: "c", messageId: "m",
+    workspaceTarget: localWorkspaceTarget(root), conversationId: "c", messageId: "m",
     filename: "readme.txt", mimeType: "text/plain",
     bytes: new TextEncoder().encode("hello file"),
   })).storagePath;
   pdfPath = (await writeAttachment({
-    projectRoot: root, conversationId: "c", messageId: "m",
+    workspaceTarget: localWorkspaceTarget(root), conversationId: "c", messageId: "m",
     filename: "doc.pdf", mimeType: "application/pdf",
     bytes: buildMinimalPdf("PDF body"),
   })).storagePath;

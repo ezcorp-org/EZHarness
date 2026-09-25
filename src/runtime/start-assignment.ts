@@ -142,6 +142,10 @@ export interface StartAssignmentOpts {
    *  streamChat (initial run, auto-continue, autonomous, schema re-prompt) so
    *  a later cycle never silently falls back to the shared project checkout. */
   workingDir?: string;
+  /** Exact host-selected workspace for the parent turn. This value is
+   *  authoritative when present; `parentRunId` is only a lifecycle link and
+   *  must not be allowed to select a workspace. */
+  workspaceTarget?: import("./workspaces/target").WorkspaceTarget;
   agentConfig: StartAssignmentAgentConfig;
   /** Fallback model from the parent conversation (used for CURRENT_MODEL_SENTINEL). */
   parentModel?: string;
@@ -290,11 +294,19 @@ async function emitAssignmentUpdate(
 export async function startAssignment(opts: StartAssignmentOpts): Promise<StartAssignmentResult> {
   const {
     executor, bus, conversationId, taskId, assignment, task, snapshot,
-    projectId, workingDir, agentConfig, parentModel, parentProvider,
+    projectId, workingDir, workspaceTarget: explicitWorkspaceTarget, agentConfig, parentModel, parentProvider,
     reuseSubConversationId, parentMessageId, overrides, teamToolScope,
     orchestrationDepth, autonomousContinuation, parentRunId,
     onCycleRunIdChange, outputSchema, notifyParentOnTerminal, detached,
   } = opts;
+  // Resolve once, before any cycle starts. The parent's terminal event clears
+  // its in-memory run context, but detached and autonomous child cycles must
+  // keep the exact target selected for the original assignment.
+  const workspaceTarget = explicitWorkspaceTarget ?? (
+    parentRunId && typeof executor.getWorkspaceTarget === "function"
+      ? executor.getWorkspaceTarget(parentRunId)
+      : undefined
+  );
 
   // Master kill-switch (Advanced Settings → "Agent goal pinning &
   // autonomous continuation"). Default-true: absent / null / non-boolean
@@ -590,6 +602,7 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
     const streamPromise = executor.streamChat(subConversationId, message, {
       projectId,
       ...(workingDir ? { workingDir } : {}),
+      ...(workspaceTarget ? { workspaceTarget } : {}),
       agentConfigId: assignment.agentConfigId,
       runId,
       model: resolveModel() ?? undefined,

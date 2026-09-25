@@ -1,5 +1,28 @@
 # Lessons
 
+- Before deploying a host protocol change, load the exact retained provider manifest through the production startup validator. Worker input validation alone does not prove that an approved release can still load. Keep host journal metadata outside public provider wire schemas when the host can derive it from its own bindings.
+- A release smoke test must leave the staged runtime placeholder empty. Validate the actual service startup requirements, including mounts and readiness, as well as the standalone HTTP health check.
+
+- On this NixOS host, `bun` resolves to system 1.4.2 unless `/home/dev/.bun/bin` is first in `PATH`; this repository pins 1.3.14. Use the pinned path for local checks and for Git commit/push hooks, then report only pinned-version results.
+- Reach the first real end-to-end guest early. Contract tests and direct Incus probes did not expose an expiring daemon operation receipt. Report completed and missing live gates plainly instead of treating each setup step as near completion.
+- A short-lived provider operation UUID cannot be the only durable proof of a CREATE. Persist a stable request identity, then reconcile an expired operation through exact, host-authorized resource tags before any retry or state transition. Test this in a live E2E flow.
+
+- Before an exact no-effect recovery, verify every independent observer policy on the **server** names the target instance; updating only the AMD observer context does not change the server forced command's policy. Test the exact restricted SSH response before certificate revocation.
+- Before stopping a fenced service, inspect reverse systemd dependencies and test which other units stop. The recovery supervisor must survive the runner stop with the same PID and socket before a no-effect request can be signed.
+- A systemd drop-in cannot remove dependencies declared in the base unit. Test the loaded unit's effective `Requires`, not just drop-in syntax or generated source text. A zero-match `rg -c` check emits no count; use an explicit negative match with checked command status.
+
+- When moving an approved release to a separate runner identity or store, verify that the runner has the exact referenced artifact digest before admitting a provider effect. A database release record alone does not prove its worker artifact is available. Missing pre-worker artifacts must have a distinct error from uncertain external effects.
+
+- Inspect an existing top-level gate ledger before applying a skill's default filename. Preserve historical gates and use the active task's scoped gate file.
+- Treat a PGlite readback as a writer of cache files. Run it on a detached copy or as the app UID; if a root readback must touch a stopped live database, check every file owner before app restart.
+- Before moving a mutable app into a frozen release, inventory both its writable runtime tree and every database-referenced blob. Mount persistent state outside the release and migrate only verified referenced blobs before first start.
+- A no-effect recovery fence must cover every live route that can repeat the external write, including administrator SSH and local daemon sockets. An observer alone only reports point-in-time state.
+
+- Before a guarded NixOS activation, verify that the target accepts the candidate closure's signatures. If `nix copy` rejects an unsigned path, keep the old generation active and build the pinned derivation on the target; do not disable signature checks to save time.
+- Pin the old Incus client identity from the live trust entry's certificate DER digest. A release digest or a copied value from another review packet is not an authority fingerprint.
+
+- Before a dedicated-UID cutover, inspect the actual isolated app process tree and source parent. A dev-owned `/tmp` parent cannot hold a root-only quarantine; move the stopped database into a root-owned private parent before making copies, and require a loaded unit for the old app and runner.
+
 - When infrastructure is not provisioned, separate locally verifiable contract work from later network qualification. Do not infer AMD, Xeon, Incus, Infisical, or credential availability from a delivery plan.
 
 - Describe a raw entrypoint subprocess as a process, not an installed immutable release.
@@ -9,6 +32,8 @@
 
 ## Validation discipline
 
+- Check every planned Incus project key against the actual server's API extensions and version before seeking approval. A local dry run proves plan shape, but it does not prove the server accepts a key. On an approved Apply failure, capture a sanitized exact-command error, inspect live state, and issue a new digest for any changed command.
+- When a guest is expected to fail reaching a control target, prove the target still works from the host after the guest attempt. Bind a challenge to the exact target across both host checks; an expired listener or replaced challenge can create a false isolation pass.
 - A new CI job that selects several backend Bun test files must run each file in a separate Bun process. The root pool requires process isolation because cross-file mocks can contaminate or deadlock a combined run; an explicit multi-file command is not an exception.
 
 - Select gpt-5.6-sol explicitly with fresh bounded briefs when the user requests a Sol team. Use distinct ownership and worktrees.
@@ -378,4 +403,52 @@
 - A summary reporter must be told which gates ran. Absence of a report is a failure, never an omission; there is no safe default for the expected set.
 - A PR in conflict with its base gets no pull_request workflow runs at all; GitHub cannot build the merge ref. When checks are silently absent, check `mergeable` before suspecting the workflow. Merge or rebase, then reinstall dependencies before the pre-push typecheck when the base moved a lockfile.
 - Budget a hosted-runner job against the 360-minute cap with a measured rate, not a guess. When one job cannot finish, shard the work and merge with an exact-count check so a missing slice fails instead of shrinking the denominator.
+
+- When a storage API starts requiring an explicit workspace target, run direct-call history and route suites as well as the new routing tests. Resolve missing targets from the conversation's persisted project through the binding guard; do not silently drop attachments or derive a local root from cwd. In mocked route tests, mock the target selector and assert bound-project denial before any write.
+
+- Before stating that a requested agent model is unavailable, check the current collaboration model list. If the list changes, use the exact requested model for replacement agents and preserve each unfinished task's file ownership and state.
+
+- When several executable paths and version outputs appear together, label each path in the command output. Never infer which unlabeled version belongs to which binary.
+
+- Start substantial multiagent feature work in a dedicated Git worktree before any agent edits. A shared filesystem lets agents collaborate inside that worktree; it is not a reason to mix feature changes with the user's active checkout. Verify every agent's working directory in its task brief.
+
+## 2026-09-22 — Setup code versus Harness integration
+
+- When describing infrastructure setup, trace the complete product path from UI/API through host-owned connection and transport to the server. A deterministic CLI and an offline provider adapter do not mean EZHarness can configure or use the server. State exactly which parts are wired and which remain standalone.
+
+## 2026-09-23 — Stop verification loops before the live outcome
+
+- Keep one visible next acceptance result: an EZHarness-created sandbox on the real server. Once code CI is green, stop editing for incidental documentation or repeat checks and complete the missing operator setup and live workflow.
+- Treat direct Incus guests and a built image as image evidence only. Never report them as an EZHarness provider connection or feature sandbox.
+- Prepare one complete, reviewable server setup plan with pinned recipe and generated client identity before requesting its Apply approval. Split server writes only when a real dependency requires it, and state the remaining path after each stage.
+- Before requesting approval of an Incus setup digest, check that the active provider release pins the exact published image and helper and can pass live qualification. A ready server plan for an unusable release causes another approval loop; make this a fail-closed planning test.
+- Candidate contract evidence and live host qualification have different lifetimes. Approval should require a current candidate result; an already activated immutable release should retain integrity validation while new feature admission requires fresh live evidence. Test these states after the candidate deadline, not only just after build.
+- Register each new `/api/*` route in `src/api-registry.ts` with its actual session or API-key scope, then run `web/src/__tests__/route-contract.test.ts` and `src/__tests__/session-scope-surface.test.ts`. The isolated route test alone misses the product-wide registry gate.
+- Authenticate and bind operator authority before writing a cleanup intent or a dispatchable destroy journal. A rejected fault arm after journaling can still let reconciliation perform the destroy.
+- When a timed operator arm precedes a durable journal, reserve the exact operation ID first and recheck the arm and deadline immediately before journal publication. A late failure must leave no executable operation; retain and report any cleanup intent that was already written.
+- Agents in one worktree share the Git index. Before each commit, stage explicit owned paths and inspect `git diff --cached --name-only`; do not assume another agent's staged files are isolated.
 - When hosted CI times out on fixture readiness, fix the test's synchronization even if the PR did not change that fixture. Wait for the producer's observable output or exit; do not treat a passing focused rerun as proof that a wall-clock deadline is safe.
+
+## 2026-09-24 — Offline Incus effect fences
+
+- Bound a no-effect wait by the longest worker and provider request policy, not only the innermost transport deadline. A 30-second transport timeout did not cover a 60-second v4 worker. Require an independent check for detached or remote clients before accepting backend absence.
+- Check a dedicated app UID and process-group ownership before stopping the managed app. A shared development UID must reject recovery while the app is still running; do not turn an invalid repair request into an avoidable outage.
+
+## 2026-09-24 — Finish the live outcome after approved gates
+
+- Report host setup, provider activation, and direct Incus tests as prerequisites, not as a working EZHarness sandbox. The acceptance result is an engine-owned create, process run, reconnect, and cleanup on the real server.
+- After an exact plan is approved, execute and verify it before preparing another review packet. State the one next dependency and its owner after each step.
+- Parallelize independent read-only audits and documentation. Keep app cutover, unknown-effect repair, provider setup, and sandbox creation in one ordered live sequence so agents do not race on shared state.
+- Before treating an unknown-effect repair as ready, prove the observation credential stays usable after every credential that could repeat the effect is fenced. A readback with the old write-capable client certificate is not independent evidence.
+- Keep a recovery fence scoped to the clients and credentials that can repeat the saved effect. Idle operator access is not itself an active client. Do not replace a missing live hold with a static `trafficHeld` field or add a new signer unless the proof actually needs it; verify the hold remains effective throughout the observation and database repair.
+- Recheck a PR's current state and base branch when the user reports a merge. A PR merged into another open feature branch is not on `main`, and neither merge is an active server generation. Verify the running system and exact policy before treating the observer as installed.
+- Never promote a test fixture ID or synthetic CREATE UUID into a live recovery fact. Read the actual durable row and scope before building server policy or treating an HTTP 409 as proof that a fixture is absent.
+- Before stopping a live test app, prove the restart launcher carries every required runtime library path from the current process environment. The isolated app's launcher omitted `LD_LIBRARY_PATH`, so its first restart returned HTTP 500 until the pinned GCC library path was supplied.
+- Test the exact process-group signal command on the target host. NixOS `kill` rejected the negative group argument in the recovery runbook; Python `os.killpg` worked after verifying the group identity.
+- Treat `systemctl mask` success as a request, not proof. On NixOS, a runtime mask did not override the linked `/etc` service. Check `LoadState`, test a real start denial, and verify the service and user processes remain absent.
+- Test a forced SSH command end to end under its actual Unix account. Direct gate-script tests missed that Incus needs a writable client config directory and that the Nix store copy of `sudo` is not the NixOS setuid wrapper.
+- Keep a rollback timer for temporary server access changes and prove the old route works before cancelling it. A failed independent read must leave the unknown operation unchanged.
+- Check the full recovery request deadline plus the required server timer margin before revoking a certificate. A valid no-effect observation is not enough if the authority fence will expire before the signed request can finish.
+- Thaw a frozen user slice before switching NixOS generations. A switch can hang while reloading frozen user units and remove a temporary root SSH key before normal access returns. Keep an independent console path for guarded host access changes.
+- Recheck a temporarily denied SSH route after a pending generation switch settles. Treat loss of access as unverified host state, not permanent failure; a later successful login needs full generation, thaw, trust, and inventory readbacks before releasing local fences.
+- Create a short-deadline recovery request only after all observations and status updates are complete. Submit it immediately after fresh timer and fence checks; an expired local candidate must be recorded as never submitted and replaced with a new nonce before the one permitted supervisor call.

@@ -85,7 +85,19 @@ test("rejects links in every source ancestor rather than following an approved-r
   const { root, extension } = await fixture();
   await symlink(extension, join(root, "alias"));
   await expect(snapshotExtensionSource(root, { name: "candidate", directory: "alias", entrypoint: "extension.ts" })).rejects.toThrow();
+  await expect(snapshotExtensionSource(root, { name: "candidate", directory: "alias/src", entrypoint: "extension.ts" })).rejects.toThrow();
   await expect(snapshotExtensionSource(root, { name: "candidate", directory: "../outside", entrypoint: "extension.ts" })).rejects.toThrow("escaped");
+});
+
+test("snapshots through a searchable ancestor that cannot be listed", async () => {
+  const { root } = await fixture();
+  await chmod(root, 0o111);
+  try {
+    const result = await snapshotFirstPartyExtension(root, "candidate");
+    expect(result.files["extension.ts"]).toContain("version = 4");
+  } finally {
+    await chmod(root, 0o700);
+  }
 });
 
 test("bounds directory depth even when empty directories consume no file bytes", async () => {

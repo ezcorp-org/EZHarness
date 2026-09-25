@@ -152,6 +152,9 @@ export async function decideWebSocketUpgrade(
 
   const row = await deps.getServable(previewId, claims.userId);
   if (!row || row.userId !== claims.userId) return { accept: false, reason: "not servable" };
+  if (row.workspaceTarget?.kind === "sandbox") {
+    return { accept: false, reason: "sandbox websocket transport unavailable" };
+  }
   if (row.kind !== "dynamic") return { accept: false, reason: "not dynamic" };
   if (!Number.isInteger(row.targetPort) || (row.targetPort ?? 0) <= 0) {
     return { accept: false, reason: "no target port" };

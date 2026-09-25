@@ -1,4 +1,4 @@
-Current pluggable infrastructure work: [docs/plans/pluggable-infrastructure-execution.md](docs/plans/pluggable-infrastructure-execution.md). Prior project records follow unchanged.
+Current Incus live completion: [docs/validation/2026-09-24-incus-live-completion-plan.md](docs/validation/2026-09-24-incus-live-completion-plan.md). Broader pluggable infrastructure work: [docs/plans/pluggable-infrastructure-execution.md](docs/plans/pluggable-infrastructure-execution.md). Prior project records follow unchanged.
 
 # Extension v4 implementation
 

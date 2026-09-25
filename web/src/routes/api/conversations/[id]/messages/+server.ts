@@ -30,6 +30,7 @@ import type { StagedAttachment } from "$server/chat/attachments/content-builder"
 import type { AttachmentSummary } from "$server/db/queries/conversations";
 import { buildCommandResolver } from "$lib/server/command-resolver";
 import type { RequestHandler } from "./$types";
+import { resolveProjectWorkspaceTarget } from "$server/runtime/workspaces/project-target";
 
 const log = logger.child("api.messages");
 
@@ -209,6 +210,18 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
     return errorJson(403, policyDenial.message, { field: policyDenial.field });
   }
 
+  // Select the durable project route before writing a message or starting a
+  // stream. A sandbox binding cannot fall through to the AMD project path.
+  const streamProject = await getProject(conv.projectId);
+  let streamWorkspaceTarget: Awaited<ReturnType<typeof resolveProjectWorkspaceTarget>> | undefined;
+  if (streamProject) {
+    try {
+      streamWorkspaceTarget = await resolveProjectWorkspaceTarget(streamProject, "conversation workspace");
+    } catch {
+      return errorJson(503, "Sandbox workspace is unavailable");
+    }
+  }
+
   const goalHost = getGoalHost();
   if (goalHost) {
     try {
@@ -220,34 +233,39 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
     }
   }
 
-  let parentMessageId = body.parentMessageId;
-  // When a rerun/edit forks a NEW user row (editOf points at a USER message),
-  // that fork REPLACES the original on the active branch — so it must inherit
-  // the original's attachments or the image vanishes (and the model loses it
-  // via loadPastAttachments). A regenerate (editOf points at an ASSISTANT
-  // message) leaves the original user turn ON the path, so it still shows its
-  // own image and must NOT inherit — inheriting would render it twice.
-  let editInheritSourceId: string | undefined;
-  if (body.editOf) {
-    const allMessages = await convQueries.getMessages(conversationId);
-    const editedMsg = allMessages.find((m) => m.id === body.editOf);
-    if (editedMsg) {
-      parentMessageId = editedMsg.parentMessageId ?? undefined;
-      if (editedMsg.role === "user") editInheritSourceId = editedMsg.id;
+  async function resolveMessageParent() {
+    let parentMessageId = body.parentMessageId;
+    // When a rerun/edit forks a NEW user row (editOf points at a USER message),
+    // that fork REPLACES the original on the active branch — so it must inherit
+    // the original's attachments or the image vanishes (and the model loses it
+    // via loadPastAttachments). A regenerate (editOf points at an ASSISTANT
+    // message) leaves the original user turn ON the path, so it still shows its
+    // own image and must NOT inherit — inheriting would render it twice.
+    let editInheritSourceId: string | undefined;
+    if (body.editOf) {
+      const allMessages = await convQueries.getMessages(conversationId);
+      const editedMsg = allMessages.find((m) => m.id === body.editOf);
+      if (editedMsg) {
+        parentMessageId = editedMsg.parentMessageId ?? undefined;
+        if (editedMsg.role === "user") editInheritSourceId = editedMsg.id;
+      }
+    } else if (parentMessageId === undefined) {
+      // No explicit parent and not an edit → continue the conversation's
+      // main thread. Anchoring to the latest real leaf (instead of leaving
+      // it null → a root-level branch) closes the race where the composer
+      // re-enables the instant a stream ends but `activeLeafId` still
+      // points at the soon-to-be-replaced `streaming-<runId>` placeholder:
+      // a fast follow-up used to fork a spurious side thread. The first
+      // message in a conversation has no leaf → stays root, as before.
+      const leaf = await convQueries.getLatestLeaf(conversationId, {
+        excludeCapabilityEvents: true,
+      });
+      if (leaf) parentMessageId = leaf.id;
     }
-  } else if (parentMessageId === undefined) {
-    // No explicit parent and not an edit → continue the conversation's
-    // main thread. Anchoring to the latest real leaf (instead of leaving
-    // it null → a root-level branch) closes the race where the composer
-    // re-enables the instant a stream ends but `activeLeafId` still
-    // points at the soon-to-be-replaced `streaming-<runId>` placeholder:
-    // a fast follow-up used to fork a spurious side thread. The first
-    // message in a conversation has no leaf → stays root, as before.
-    const leaf = await convQueries.getLatestLeaf(conversationId, {
-      excludeCapabilityEvents: true,
-    });
-    if (leaf) parentMessageId = leaf.id;
+
+    return { parentMessageId, editInheritSourceId };
   }
+  const { parentMessageId, editInheritSourceId } = await resolveMessageParent();
 
   // Resolve the effective provider/model early so we can validate files
   // against the model we're about to actually call.
@@ -259,145 +277,154 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
   // which keeps today's fallback exactly (API/harness compat). After the
   // routed turn is served, the route-once block below pins the SERVED
   // identity onto the conversation so subsequent turns are cache-stable.
-  const autoRouting = body.model === null;
-  const provider = autoRouting ? undefined : body.provider ?? conv.provider ?? undefined;
-  const model = autoRouting ? undefined : body.model ?? conv.model ?? undefined;
+  function resolveModelSelection() {
+    const autoRouting = body.model === null;
+    const provider = autoRouting ? undefined : body.provider ?? conv.provider ?? undefined;
+    const model = autoRouting ? undefined : body.model ?? conv.model ?? undefined;
+
+    return { autoRouting, provider, model };
+  }
+  const { autoRouting, provider, model } = resolveModelSelection();
 
   // ── Attachment pipeline ──────────────────────────────────────────
   const stagedAttachments: StagedAttachment[] = [];
   const attachmentSummaries: AttachmentSummary[] = [];
-  let userMessage: Awaited<ReturnType<typeof convQueries.createMessage>> | null = null;
 
-  if (body.files.length > 0) {
-    if (!provider || !model) {
-      return errorJson(400, "provider and model are required when attaching files");
-    }
-    // Two MIME sources: extensions ALREADY wired to the conversation, plus
-    // any `!ext:NAME` mentions in this message's draft text (which will be
-    // wired server-side later in the same request lifecycle but aren't yet
-    // in `conversation_extensions`). Without the second source, the very
-    // first message that wires an extension can't carry an attachment for
-    // it — even though the picker accepted the file.
-    const mimeSet = new Set<string>();
-    try {
-      for (const m of await getConversationExtensionMimes(conversationId)) mimeSet.add(m);
-    } catch { /* non-fatal: fall back to static caps */ }
-    const pendingExtNames = parseMentions(body.content)
-      .filter((m) => m.kind === "ext")
-      .map((m) => m.name);
-    if (pendingExtNames.length > 0) {
-      try {
-        for (const m of getExtensionMimesByNames(pendingExtNames)) mimeSet.add(m);
-      } catch { /* non-fatal */ }
-    }
-    const caps = getCapabilitiesWithExtensions(provider, model, [...mimeSet]);
-    if (body.files.length > caps.maxFilesPerMessage) {
-      return errorJson(400, `Too many files (max ${caps.maxFilesPerMessage})`, { code: "TOO_MANY_FILES" });
-    }
-
-    const project = await getProject(conv.projectId);
-    if (!project?.path) {
-      return errorJson(500, "Project path not resolvable for attachment storage");
-    }
-
-    // Pre-validate all files before writing anything to disk or DB. A single
-    // bad file rejects the whole batch — no partial state.
-    const validated: Array<{ bytes: Uint8Array; canonicalMime: string; file: File }> = [];
-    for (const file of body.files) {
-      const bytes = new Uint8Array(await file.arrayBuffer());
-      // FormData sometimes reports MIME with charset (e.g. "text/plain;charset=utf-8");
-      // strip parameters so the whitelist check works on the bare type.
-      const claimedMime = (file.type || "application/octet-stream").split(";")[0]!.trim();
-      const res = await validateAttachment(bytes, claimedMime, caps);
-      if (!res.ok) {
-        const status = res.code === "TOO_LARGE" ? 413 : 400;
-        return errorJson(status, `File "${file.name}" rejected: ${res.code}`, { code: res.code, file: file.name, detail: res });
+  async function persistUserMessage(): Promise<Response | Awaited<ReturnType<typeof convQueries.createMessage>>> {
+    if (body.files.length > 0) {
+      if (!provider || !model) {
+        return errorJson(400, "provider and model are required when attaching files");
       }
-      validated.push({ bytes, canonicalMime: res.canonicalMime, file });
-    }
-
-    // All validated — persist user message row, then attachments.
-    userMessage = await convQueries.createMessage(conversationId, {
-      role: "user",
-      content: body.content,
-      parentMessageId,
-    });
-
-    try {
-      for (const v of validated) {
-        const kind = classifyMimeWithCaps(caps, v.canonicalMime);
-        if (!kind) throw new Error(`Unclassifiable MIME ${v.canonicalMime} after validation`);
-        const written = await writeAttachment({
-          projectRoot: project.path,
-          conversationId,
-          messageId: userMessage.id,
-          filename: v.file.name,
-          mimeType: v.canonicalMime,
-          bytes: v.bytes,
-        });
-        const row = await attachmentsDb.insertAttachment({
-          messageId: userMessage.id,
-          conversationId,
-          filename: v.file.name,
-          mimeType: v.canonicalMime,
-          sizeBytes: written.sizeBytes,
-          storagePath: written.storagePath,
-          kind,
-        });
-        stagedAttachments.push({
-          id: row.id,
-          filename: v.file.name,
-          mimeType: v.canonicalMime,
-          storagePath: written.storagePath,
-        });
-        attachmentSummaries.push({
-          id: row.id,
-          filename: row.filename,
-          mimeType: row.mimeType,
-          sizeBytes: row.sizeBytes,
-          kind: row.kind,
-        });
-      }
-    } catch (err) {
-      // Best-effort rollback: remove disk files + attachment rows for this msg.
-      await deleteForMessage({ projectRoot: project.path, conversationId, messageId: userMessage.id }).catch(() => {});
-      await attachmentsDb.deleteAttachmentsForMessage(userMessage.id).catch(() => {});
-      return errorJson(500, "Failed to persist attachments", { detail: String(err) });
-    }
-  } else {
-    userMessage = await convQueries.createMessage(conversationId, {
-      role: "user",
-      content: body.content,
-      parentMessageId,
-    });
-    // Fork inheritance: a rerun/edit re-sends without re-uploading the File
-    // bytes, so copy the source user turn's attachments onto this forked row.
-    // Best-effort — a plain no-files send needs no project path, so a missing
-    // path or storage hiccup degrades to today's behavior (no image inherited)
-    // rather than failing the turn.
-    if (editInheritSourceId) {
+      // Two MIME sources: extensions ALREADY wired to the conversation, plus
+      // any `!ext:NAME` mentions in this message's draft text (which will be
+      // wired server-side later in the same request lifecycle but aren't yet
+      // in `conversation_extensions`). Without the second source, the very
+      // first message that wires an extension can't carry an attachment for
+      // it — even though the picker accepted the file.
+      const mimeSet = new Set<string>();
       try {
-        const project = await getProject(conv.projectId);
-        if (project?.path) {
-          const cloned = await cloneAttachmentsForFork({
-            projectRoot: project.path,
+        for (const m of await getConversationExtensionMimes(conversationId)) mimeSet.add(m);
+      } catch { /* non-fatal: fall back to static caps */ }
+      const pendingExtNames = parseMentions(body.content)
+        .filter((m) => m.kind === "ext")
+        .map((m) => m.name);
+      if (pendingExtNames.length > 0) {
+        try {
+          for (const m of getExtensionMimesByNames(pendingExtNames)) mimeSet.add(m);
+        } catch { /* non-fatal */ }
+      }
+      const caps = getCapabilitiesWithExtensions(provider, model, [...mimeSet]);
+      if (body.files.length > caps.maxFilesPerMessage) {
+        return errorJson(400, `Too many files (max ${caps.maxFilesPerMessage})`, { code: "TOO_MANY_FILES" });
+      }
+
+      if (!streamWorkspaceTarget) {
+        return errorJson(500, "Project path not resolvable for attachment storage");
+      }
+      const attachmentTarget = streamWorkspaceTarget;
+
+      // Pre-validate all files before writing anything to disk or DB. A single
+      // bad file rejects the whole batch — no partial state.
+      const validated: Array<{ bytes: Uint8Array; canonicalMime: string; file: File }> = [];
+      for (const file of body.files) {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        // FormData sometimes reports MIME with charset (e.g. "text/plain;charset=utf-8");
+        // strip parameters so the whitelist check works on the bare type.
+        const claimedMime = (file.type || "application/octet-stream").split(";")[0]!.trim();
+        const res = await validateAttachment(bytes, claimedMime, caps);
+        if (!res.ok) {
+          const status = res.code === "TOO_LARGE" ? 413 : 400;
+          return errorJson(status, `File "${file.name}" rejected: ${res.code}`, { code: res.code, file: file.name, detail: res });
+        }
+        validated.push({ bytes, canonicalMime: res.canonicalMime, file });
+      }
+
+      // All validated — persist user message row, then attachments.
+      const userMessage = await convQueries.createMessage(conversationId, {
+        role: "user",
+        content: body.content,
+        parentMessageId,
+      });
+
+      try {
+        for (const v of validated) {
+          const kind = classifyMimeWithCaps(caps, v.canonicalMime);
+          if (!kind) throw new Error(`Unclassifiable MIME ${v.canonicalMime} after validation`);
+          const written = await writeAttachment({
+            workspaceTarget: attachmentTarget,
             conversationId,
-            sourceMessageId: editInheritSourceId,
-            targetMessageId: userMessage.id,
+            messageId: userMessage.id,
+            filename: v.file.name,
+            mimeType: v.canonicalMime,
+            bytes: v.bytes,
           });
-          stagedAttachments.push(...cloned.staged);
-          attachmentSummaries.push(...cloned.summaries);
+          const row = await attachmentsDb.insertAttachment({
+            messageId: userMessage.id,
+            conversationId,
+            filename: v.file.name,
+            mimeType: v.canonicalMime,
+            sizeBytes: written.sizeBytes,
+            storagePath: written.storagePath,
+            kind,
+          });
+          stagedAttachments.push({
+            id: row.id,
+            filename: v.file.name,
+            mimeType: v.canonicalMime,
+            storagePath: written.storagePath,
+          });
+          attachmentSummaries.push({
+            id: row.id,
+            filename: row.filename,
+            mimeType: row.mimeType,
+            sizeBytes: row.sizeBytes,
+            kind: row.kind,
+          });
         }
       } catch (err) {
-        log.warn("fork attachment inheritance failed (continuing without image)", {
-          conversationId,
-          sourceMessageId: editInheritSourceId,
-          error: err instanceof Error ? err.message : String(err),
-        });
+        // Best-effort rollback: remove disk files + attachment rows for this msg.
+        await deleteForMessage({ workspaceTarget: attachmentTarget, conversationId, messageId: userMessage.id }).catch(() => {});
+        await attachmentsDb.deleteAttachmentsForMessage(userMessage.id).catch(() => {});
+        return errorJson(500, "Failed to persist attachments", { detail: String(err) });
       }
+      return userMessage;
+    } else {
+      const userMessage = await convQueries.createMessage(conversationId, {
+        role: "user",
+        content: body.content,
+        parentMessageId,
+      });
+      // Fork inheritance: a rerun/edit re-sends without re-uploading the File
+      // bytes, so copy the source user turn's attachments onto this forked row.
+      // Best-effort — a plain no-files send needs no project path, so a missing
+      // path or storage hiccup degrades to today's behavior (no image inherited)
+      // rather than failing the turn.
+      if (editInheritSourceId) {
+        try {
+          if (streamWorkspaceTarget) {
+            const cloned = await cloneAttachmentsForFork({
+              workspaceTarget: streamWorkspaceTarget,
+              conversationId,
+              sourceMessageId: editInheritSourceId,
+              targetMessageId: userMessage.id,
+            });
+            stagedAttachments.push(...cloned.staged);
+            attachmentSummaries.push(...cloned.summaries);
+          }
+        } catch (err) {
+          log.warn("fork attachment inheritance failed (continuing without image)", {
+            conversationId,
+            sourceMessageId: editInheritSourceId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+      return userMessage;
     }
   }
-
+  const persisted = await persistUserMessage();
+  if (persisted instanceof Response) return persisted;
+  const userMessage = persisted;
   // ── /goal slash-prefix interceptor (PRD §7.2.1, FR-1/2) ───────────
   //
   // NEW non-nullary mechanism. NOT an EZ-action (`stripEzActionTokens`
@@ -423,62 +450,68 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
   // does NOT match). FR-13b's `ensureGoalRecordRehydrated` already
   // ran above (~line 145) so the in-memory record is in sync with
   // `metadata.goal` before we dispatch.
-  const goalResultMessages: Array<{ id: string; role: string; content: string }> = [];
-  if (goalIsCmd) {
-    const parsed = parseGoalCommand(body.content);
-    if (!goalHost) {
-      // EZCORP_GOAL_ENABLED off OR init raced. Surface the same
-      // disabled-card the goal-host's `handleGoalCommand` would have
-      // returned — keep the route forgiving rather than crashing chat,
-      // and keep ONE source of truth for the disabled message body.
-      const disabledCard: EzActionResult = buildDisabledCard();
-      const row = await convQueries.createMessage(conversationId, {
-        role: "ez-action-result",
-        content: JSON.stringify(disabledCard),
-        parentMessageId: userMessage.id,
+  async function dispatchGoalCommand(): Promise<Response | null> {
+    const goalResultMessages: Array<{ id: string; role: string; content: string }> = [];
+    if (goalIsCmd) {
+      const parsed = parseGoalCommand(body.content);
+      if (!goalHost) {
+        // EZCORP_GOAL_ENABLED off OR init raced. Surface the same
+        // disabled-card the goal-host's `handleGoalCommand` would have
+        // returned — keep the route forgiving rather than crashing chat,
+        // and keep ONE source of truth for the disabled message body.
+        const disabledCard: EzActionResult = buildDisabledCard();
+        const row = await convQueries.createMessage(conversationId, {
+          role: "ez-action-result",
+          content: JSON.stringify(disabledCard),
+          parentMessageId: userMessage.id,
+        });
+        return json({
+          userMessage: attachmentSummaries.length > 0
+            ? { ...userMessage, attachments: attachmentSummaries }
+            : userMessage,
+          runId: null,
+          attachments: attachmentSummaries,
+          ezActionResults: [{ id: row.id, role: row.role, content: row.content }],
+        });
+      }
+      const dispatch = await goalHost.handleGoalCommand({
+        subcommand: parsed.subcommand,
+        ...(parsed.condition !== undefined ? { condition: parsed.condition } : {}),
+        conversationId,
+        userId: user.id,
+        projectId: conv.projectId,
+        userMessageId: userMessage.id,
       });
-      return json({
-        userMessage: attachmentSummaries.length > 0
-          ? { ...userMessage, attachments: attachmentSummaries }
-          : userMessage,
-        runId: null,
-        attachments: attachmentSummaries,
-        ezActionResults: [{ id: row.id, role: row.role, content: row.content }],
-      });
+      if (dispatch.kind === "card") {
+        // The goal-host returns the persisted row metadata directly
+        // (status/clear/reject persist; disabled doesn't — `row:null`).
+        // When persist failed mid-call the route surfaces the card
+        // inline with a synthetic id so the SSE/UI handlers see a
+        // consistent shape.
+        const echo = dispatch.row ?? {
+          id: crypto.randomUUID(),
+          role: "ez-action-result",
+          content: JSON.stringify(dispatch.result),
+        };
+        goalResultMessages.push(echo);
+        return json({
+          userMessage: attachmentSummaries.length > 0
+            ? { ...userMessage, attachments: attachmentSummaries }
+            : userMessage,
+          runId: null,
+          attachments: attachmentSummaries,
+          ezActionResults: goalResultMessages,
+        });
+      }
+      // kind === "start-turn" → fall through to the normal streamChat
+      // path below; the persisted user row already carries the literal
+      // `/goal <condition>` text for history fidelity (FR-2-RET).
     }
-    const dispatch = await goalHost.handleGoalCommand({
-      subcommand: parsed.subcommand,
-      ...(parsed.condition !== undefined ? { condition: parsed.condition } : {}),
-      conversationId,
-      userId: user.id,
-      projectId: conv.projectId,
-      userMessageId: userMessage.id,
-    });
-    if (dispatch.kind === "card") {
-      // The goal-host returns the persisted row metadata directly
-      // (status/clear/reject persist; disabled doesn't — `row:null`).
-      // When persist failed mid-call the route surfaces the card
-      // inline with a synthetic id so the SSE/UI handlers see a
-      // consistent shape.
-      const echo = dispatch.row ?? {
-        id: crypto.randomUUID(),
-        role: "ez-action-result",
-        content: JSON.stringify(dispatch.result),
-      };
-      goalResultMessages.push(echo);
-      return json({
-        userMessage: attachmentSummaries.length > 0
-          ? { ...userMessage, attachments: attachmentSummaries }
-          : userMessage,
-        runId: null,
-        attachments: attachmentSummaries,
-        ezActionResults: goalResultMessages,
-      });
-    }
-    // kind === "start-turn" → fall through to the normal streamChat
-    // path below; the persisted user row already carries the literal
-    // `/goal <condition>` text for history fidelity (FR-2-RET).
+
+      return null;
   }
+  const goalResponse = await dispatchGoalCommand();
+  if (goalResponse) return goalResponse;
 
   // ── EZ Actions dispatch (Phase 3.3) ────────────────────────────
   // Scan for `![EZ:*]` tokens, fire each action's handler in-process,
@@ -495,73 +528,79 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
   // name and passes the conversation context. Unknown action names
   // are silent no-ops (no error message persisted) — mirrors how
   // `applyCommandExpansion` handles unknown slash commands.
-  const ezStrip = stripEzActionTokens(body.content);
-  const ezResultMessages: Array<{
-    id: string;
-    role: string;
-    content: string;
-  }> = [];
-  for (const ref of ezStrip.actions) {
-    const action = getEzAction(ref.name);
-    if (!action) continue; // silent strip; matches command/feature behavior
-    let result: EzActionResult;
-    try {
-      result = await action.handler({
-        conversationId,
-        userId: user.id,
-        projectId: conv.projectId,
+  async function dispatchEzActions(): Promise<{ response: Response | null; results: Array<{ id: string; role: string; content: string }> }> {
+    const ezStrip = stripEzActionTokens(body.content);
+    const ezResultMessages: Array<{
+      id: string;
+      role: string;
+      content: string;
+    }> = [];
+    for (const ref of ezStrip.actions) {
+      const action = getEzAction(ref.name);
+      if (!action) continue; // silent strip; matches command/feature behavior
+      let result: EzActionResult;
+      try {
+        result = await action.handler({
+          conversationId,
+          userId: user.id,
+          projectId: conv.projectId,
+        });
+      } catch (err) {
+        // A handler that throws (rather than returning an `error`
+        // result) is a bug; capture it as an error result so the user
+        // still sees a card and the conversation history shows what
+        // happened.
+        log.error("EZ action handler threw", { name: ref.name, error: String(err) });
+        result = {
+          kind: "error",
+          card: {
+            title: "Action failed",
+            body: `The "${ref.name}" action threw an unexpected error.`,
+            variant: "error",
+          },
+        };
+      }
+      const persisted = await convQueries.createMessage(conversationId, {
+        role: "ez-action-result",
+        content: JSON.stringify(result),
+        parentMessageId: userMessage.id,
       });
-    } catch (err) {
-      // A handler that throws (rather than returning an `error`
-      // result) is a bug; capture it as an error result so the user
-      // still sees a card and the conversation history shows what
-      // happened.
-      log.error("EZ action handler threw", { name: ref.name, error: String(err) });
-      result = {
-        kind: "error",
-        card: {
-          title: "Action failed",
-          body: `The "${ref.name}" action threw an unexpected error.`,
-          variant: "error",
-        },
-      };
+      ezResultMessages.push({
+        id: persisted.id,
+        role: persisted.role,
+        content: persisted.content,
+      });
     }
-    const persisted = await convQueries.createMessage(conversationId, {
-      role: "ez-action-result",
-      content: JSON.stringify(result),
-      parentMessageId: userMessage.id,
-    });
-    ezResultMessages.push({
-      id: persisted.id,
-      role: persisted.role,
-      content: persisted.content,
-    });
-  }
 
-  // No-LLM mode: action-only message → return without streamChat. The
-  // user message is already persisted (with the original tokens for
-  // history fidelity); the action results are in `ezResultMessages`;
-  // no assistant turn is created so the UI never shows a "Thinking..."
-  // skeleton.
-  if (ezStrip.actions.length > 0 && ezStrip.stripped.trim().length === 0) {
-    log.debug("EZ action-only message — skipping LLM call", {
-      actions: ezStrip.actions.map((a) => a.name),
-    });
-    const userMessageWithAttachmentsAo =
-      attachmentSummaries.length > 0
-        ? { ...userMessage, attachments: attachmentSummaries }
-        : userMessage;
-    return json({
-      userMessage: userMessageWithAttachmentsAo,
-      runId: null,
-      attachments: attachmentSummaries,
-      ezActionResults: ezResultMessages,
-    });
+    // No-LLM mode: action-only message → return without streamChat. The
+    // user message is already persisted (with the original tokens for
+    // history fidelity); the action results are in `ezResultMessages`;
+    // no assistant turn is created so the UI never shows a "Thinking..."
+    // skeleton.
+    if (ezStrip.actions.length > 0 && ezStrip.stripped.trim().length === 0) {
+      log.debug("EZ action-only message — skipping LLM call", {
+        actions: ezStrip.actions.map((a) => a.name),
+      });
+      const userMessageWithAttachmentsAo =
+        attachmentSummaries.length > 0
+          ? { ...userMessage, attachments: attachmentSummaries }
+          : userMessage;
+      return { response: json({
+        userMessage: userMessageWithAttachmentsAo,
+        runId: null,
+        attachments: attachmentSummaries,
+        ezActionResults: ezResultMessages,
+      }), results: ezResultMessages };
+    }
+
+      return { response: null, results: ezResultMessages };
   }
+  const ezActions = await dispatchEzActions();
+  if (ezActions.response) return ezActions.response;
+  const ezResultMessages = ezActions.results;
 
   const executor = getExecutor();
   const runId = crypto.randomUUID();
-
   log.debug("streamChat starting", {
     content: body.content.slice(0, 120),
     attachments: stagedAttachments.length,
@@ -571,6 +610,9 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
 
   const streamPromise = executor.streamChat(conversationId, body.content, {
     projectId: conv.projectId,
+    ...(streamWorkspaceTarget
+      ? { workspaceTarget: streamWorkspaceTarget }
+      : {}),
     provider,
     model,
     runId,

@@ -13,6 +13,8 @@ const baseURL = isDocker
 	? process.env.DOCKER_TEST_URL ?? "http://localhost:3000"
 	: process.env.PI_E2E_MOCK_BASE_URL ?? "http://localhost:4173";
 const previewPort = new URL(baseURL).port || "4173";
+const previewReadyURL = `http://127.0.0.1:${previewPort}/_app/version.json`;
+const previewCommand = `EZCORP_PREVIEW_APP_HOST=localhost PI_SKIP_INIT=1 bun ./node_modules/vite/bin/vite.js preview --host 127.0.0.1 --port ${previewPort} --strictPort`;
 
 // Visual-evidence mode (opt-in via `EZCORP_E2E_EVIDENCE=1`). When set, the
 // `captureEvidence` helper owns screenshotting and attaches PNGs to each
@@ -105,15 +107,15 @@ export default defineConfig({
 			// are unaffected — dispatch only fires for the preview subdomain
 			// shape. The DB-free access-denied + bad-code paths are asserted in
 			// plain preview; the full seeded handoff is Docker-gated.
-			command: browserCoverage
-				? `EZCORP_PREVIEW_APP_HOST=localhost PI_SKIP_INIT=1 bun run preview -- --port ${previewPort} --strictPort`
-				: `PI_SKIP_INIT=1 bun run build && EZCORP_PREVIEW_APP_HOST=localhost PI_SKIP_INIT=1 bun run preview -- --port ${previewPort} --strictPort`,
-			url: baseURL,
-			// The command runs a full production `bun run build` before `preview`
-			// can bind the port. On the constrained CI runner that build alone
-			// exceeds Playwright's 60s default, so the webServer is reported as
-			// timed-out before it is ever ready. Give build+preview real headroom
-			// (this is server BOOT time, not a test retry — `retries` stays 0).
+			command: browserCoverage ? previewCommand : `PI_SKIP_INIT=1 bun run build && ${previewCommand}`,
+			// The mapped build always contains this static Vite asset. Probe the
+			// bound IPv4 listener directly so app-route/DB behavior and localhost
+			// name resolution cannot block server startup. Browser pages still use
+			// baseURL and exercise their own app-route behavior.
+			url: previewReadyURL,
+			// Without the mapped browser build, local runs build before preview.
+			// That build exceeds Playwright's 60s server-start default on CI-sized
+			// hosts. Keep this as a startup bound; test retries stay disabled.
 			timeout: 180_000,
 			reuseExistingServer: false,
 			// Bun 1.3.14 can retain a compiled server module's prior environment

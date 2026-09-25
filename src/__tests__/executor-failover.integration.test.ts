@@ -217,8 +217,8 @@ describe("AgentExecutor.streamChat — pre-stream provider failover", () => {
     expect(assistant.usage?.failover).toBe(true);
     expect(assistant.usage?.requestedProvider).toBeNull();
     expect(assistant.usage?.requestedModel).toBeNull();
-    // Unpinned short tool-less turn → the classifier routed "fast".
-    expect(assistant.usage?.routedTier).toBe("fast");
+    // The built-in file and shell tools make this an agentic turn.
+    expect(assistant.usage?.routedTier).toBe("powerful");
   });
 
   test("single-provider / no fallback → clean ProviderUnavailableError payload, no crash", async () => {
@@ -261,10 +261,10 @@ describe("AgentExecutor.streamChat — pre-stream provider failover", () => {
     expect(assistant.provider).toBe("prov-ok");
     expect(assistant.model).toBe("prov-ok-model");
     // Provenance: provider hint recorded, no model pin (routed turn), the
-    // classifier's tier (short tool-less prompt → "fast"), no failover.
+    // classifier's tier (built-in tools → "powerful"), no failover.
     expect(assistant.usage?.requestedProvider).toBe("prov-ok");
     expect(assistant.usage?.requestedModel).toBeNull();
-    expect(assistant.usage?.routedTier).toBe("fast");
+    expect(assistant.usage?.routedTier).toBe("powerful");
     expect(assistant.usage?.failover).toBe(false);
 
     // WS5: the routing provenance round-trips through the REAL write path
@@ -279,11 +279,11 @@ describe("AgentExecutor.streamChat — pre-stream provider failover", () => {
       hasToolMessages: false,
       systemChars: 0,
       attachmentCount: 0,
-      toolCount: 0,
-      hasComplexTools: false,
+      toolCount: 1,
+      hasComplexTools: true,
       estTokens: Math.ceil("hello".length / 4),
-      tier: "fast",
-      reason: "short-turn",
+      tier: "powerful",
+      reason: "complex-tools",
     });
     // The effective config is read from the REAL settings table (unset here →
     // the empty-order hash) and stamped alongside the signals.

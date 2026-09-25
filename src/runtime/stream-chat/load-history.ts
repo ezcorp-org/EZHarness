@@ -3,7 +3,9 @@ import type {
   Message,
   UserMessage,
 } from "../../types";
-import { getConversationPath, getLatestLeaf, resolveSystemPrompt } from "../../db/queries/conversations";
+import { getConversation, getConversationPath, getLatestLeaf, resolveSystemPrompt } from "../../db/queries/conversations";
+import { getProject } from "../../db/queries/projects";
+import { resolveLocalProjectTarget } from "../workspaces/project-target";
 import { computeSessionBranch, isSessionHistoryProducerEnabled } from "../../db/session-sync";
 import type { HistoryUserRow } from "../../chat/attachments/history-rehydrate";
 import { logger } from "../../logger";
@@ -172,6 +174,7 @@ export interface LoadHistoryOptions {
   modeId?: string;
   provider?: string;
   model?: string;
+  workspaceTarget?: import("../workspaces/target").WorkspaceTarget;
 }
 
 export interface LoadHistoryResult {
@@ -294,6 +297,19 @@ export async function loadHistory(
   const { byMessage: pastByMessage, all: allPastAttachments } = pastCaps
     ? await loadPastAttachments(branchMessages).catch(() => ({ byMessage: new Map(), all: [] }))
     : { byMessage: new Map(), all: [] };
+  let attachmentTarget = options.workspaceTarget;
+  if (allPastAttachments.length > 0 && attachmentTarget?.kind !== "sandbox") {
+    // Direct callers still need a host-selected route. Check the persisted
+    // project even if a local target was passed: a stale local target cannot
+    // bypass a newly-created sandbox binding. Preserve a valid caller's
+    // pinned local root when the project remains local.
+    const conversation = await getConversation(conversationId);
+    if (!conversation) throw new Error("Conversation workspace is unavailable for attachment history");
+    const project = await getProject(conversation.projectId);
+    if (!project) throw new Error("Project workspace is unavailable for attachment history");
+    const selectedLocal = await resolveLocalProjectTarget(project, "attachment history read");
+    attachmentTarget ??= selectedLocal;
+  }
 
   // Tool-generated images persisted to `/api/ext-files/…` URLs in prior
   // assistant text need their bytes replayed on subsequent turns so the
@@ -362,8 +378,8 @@ export async function loadHistory(
     }
     const attsForMsg = pastByMessage.get(m.id) ?? [];
     const injected = injectedImages.get(idx) ?? [];
-    let content: string | import("../../chat/attachments/content-builder").PiContentPart[] = pastCaps
-      ? await rehydrateUserMessageContent(m.content, attsForMsg, pastCaps)
+    let content: string | import("../../chat/attachments/content-builder").PiContentPart[] = pastCaps && attachmentTarget
+      ? await rehydrateUserMessageContent(m.content, attsForMsg, pastCaps, attachmentTarget)
       : m.content;
     if (injected.length > 0) {
       // Lift plain-string content into a parts array so we can append the

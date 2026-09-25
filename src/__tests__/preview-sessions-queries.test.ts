@@ -19,6 +19,11 @@ import { realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setupTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglite";
+import type {
+  SandboxPreviewCloseRequest,
+  SandboxPreviewOpenRequest,
+} from "../runtime/workspaces/target";
+import { sandboxBindingRow } from "./helpers/sandbox-binding-row";
 
 mockDbConnection();
 
@@ -27,8 +32,9 @@ const { createProject } = await import("../db/queries/projects");
 const { createConversation } = await import("../db/queries/conversations");
 const preview = await import("../db/queries/preview-sessions");
 const { getDb } = await import("../db/connection");
-const { previewSessions } = await import("../db/schema");
+const { previewSessions, sandboxBindings } = await import("../db/schema");
 const { eq } = await import("drizzle-orm");
+const { localWorkspaceTarget, sandboxWorkspaceTarget } = await import("../runtime/workspaces/target");
 
 let userA: string;
 let userB: string;
@@ -52,6 +58,7 @@ async function mkStatic(over: Partial<Parameters<typeof preview.createPreviewSes
     kind: "static",
     staticPath: VALID_STATIC,
     projectRoot: PROJECT_ROOT,
+    workspaceTarget: localWorkspaceTarget(PROJECT_ROOT),
     ...over,
   });
 }
@@ -134,6 +141,7 @@ describe("createPreviewSession", () => {
       kind: "dynamic",
       targetPort: 5173,
       netnsId: "ns-abc",
+      workspaceTarget: localWorkspaceTarget(PROJECT_ROOT),
     });
     expect(row.kind).toBe("dynamic");
     expect(row.targetPort).toBe(5173);
@@ -142,14 +150,14 @@ describe("createPreviewSession", () => {
   });
 
   test("rejects missing userId / conversationId", async () => {
-    await expect(preview.createPreviewSession({ userId: "", conversationId: convA, kind: "static", staticPath: "/x" })).rejects.toThrow(/userId/);
-    await expect(preview.createPreviewSession({ userId: userA, conversationId: "", kind: "static", staticPath: "/x" })).rejects.toThrow(/conversationId/);
+    await expect(preview.createPreviewSession({ userId: "", conversationId: convA, kind: "static", staticPath: "/x", workspaceTarget: localWorkspaceTarget(PROJECT_ROOT) })).rejects.toThrow(/userId/);
+    await expect(preview.createPreviewSession({ userId: userA, conversationId: "", kind: "static", staticPath: "/x", workspaceTarget: localWorkspaceTarget(PROJECT_ROOT) })).rejects.toThrow(/conversationId/);
   });
 
   test("rejects static without staticPath and dynamic without a valid port", async () => {
-    await expect(preview.createPreviewSession({ userId: userA, conversationId: convA, kind: "static" })).rejects.toThrow(/staticPath/);
-    await expect(preview.createPreviewSession({ userId: userA, conversationId: convA, kind: "dynamic" })).rejects.toThrow(/targetPort/);
-    await expect(preview.createPreviewSession({ userId: userA, conversationId: convA, kind: "dynamic", targetPort: 0 })).rejects.toThrow(/targetPort/);
+    await expect(preview.createPreviewSession({ userId: userA, conversationId: convA, kind: "static", workspaceTarget: localWorkspaceTarget(PROJECT_ROOT) })).rejects.toThrow(/staticPath/);
+    await expect(preview.createPreviewSession({ userId: userA, conversationId: convA, kind: "dynamic", workspaceTarget: localWorkspaceTarget(PROJECT_ROOT) })).rejects.toThrow(/targetPort/);
+    await expect(preview.createPreviewSession({ userId: userA, conversationId: convA, kind: "dynamic", targetPort: 0, workspaceTarget: localWorkspaceTarget(PROJECT_ROOT) })).rejects.toThrow(/targetPort/);
   });
 
   test("rejects a staticPath OUTSIDE the sites root (trust boundary)", async () => {
@@ -183,8 +191,162 @@ describe("createPreviewSession", () => {
       kind: "dynamic",
       targetPort: 4321,
       projectRoot: "/nonexistent-root-should-be-ignored",
+      workspaceTarget: localWorkspaceTarget(PROJECT_ROOT),
     });
     expect(row.kind).toBe("dynamic");
+  });
+
+  test("sandbox open and close keep the complete binding and deny a forged generation", async () => {
+    const calls: Array<{ kind: string; request: Record<string, unknown> }> = [];
+    const binding = {
+      projectId: "sandbox-project",
+      workspaceId: "sandbox-workspace",
+      connectionId: "sandbox-connection",
+      providerId: "incus",
+      generation: 11,
+      presetId: "isolated-feature",
+      releaseDigest: "a".repeat(64),
+      presetDigest: "b".repeat(64),
+      effectiveSettingsDigest: "c".repeat(64),
+    };
+    const backend = {
+      async execute() { return { content: [{ type: "text" as const, text: "unused" }], details: {} }; },
+      previews: {
+        async open(request: SandboxPreviewOpenRequest) {
+          calls.push({ kind: "open", request: request as unknown as Record<string, unknown> });
+        },
+        async serve() { return new Response("sandbox"); },
+        async close(request: SandboxPreviewCloseRequest) {
+          calls.push({ kind: "close", request: request as unknown as Record<string, unknown> });
+        },
+      },
+    };
+    const target = sandboxWorkspaceTarget(binding, backend);
+    const row = await preview.createPreviewSession({
+      userId: userA,
+      conversationId: convA,
+      kind: "dynamic",
+      targetPort: 4173,
+      workspaceTarget: target,
+      ttlMs: 60_000,
+    });
+    expect(row.workspaceTarget).toEqual({ kind: "sandbox", binding });
+    expect(calls[0]).toMatchObject({
+      kind: "open",
+      request: { binding, previewId: row.id, userId: userA, conversationId: convA, targetPort: 4173 },
+    });
+    await expect(preview.reapPreviewIdsForConversation(convA))
+      .rejects.toThrow("Local workspace fallback was denied");
+
+    const forged = sandboxWorkspaceTarget({ ...binding, generation: 12 }, backend);
+    await expect(preview.revokePreview(row.id, userA, new Date(), forged))
+      .rejects.toThrow("Local workspace fallback was denied");
+    expect(calls).toHaveLength(1);
+    expect((await preview.getPreviewByIdRaw(row.id))?.status).toBe("active");
+
+    await preview.revokePreview(row.id, userA, new Date(), target);
+    expect(calls[1]).toMatchObject({
+      kind: "close",
+      request: { binding, previewId: row.id, userId: userA, targetPort: 4173 },
+    });
+    expect((await preview.getPreviewByIdRaw(row.id))?.status).toBe("revoked");
+
+    const second = await preview.createPreviewSession({ userId: userA, conversationId: convA,
+      kind: "dynamic", targetPort: 4174, workspaceTarget: target, ttlMs: 60_000 });
+    await expect(preview.reapPreviewIdsForConversation(convA, new Date(), async () => {
+      throw new Error("current binding is unavailable");
+    })).rejects.toThrow("current binding is unavailable");
+    expect((await preview.getPreviewByIdRaw(second.id))?.status).toBe("active");
+    const reaped = await preview.reapPreviewIdsForConversation(convA, new Date(), async current => {
+      if (current.id === second.id) await backend.previews.close({ binding, previewId: current.id,
+        userId: userA, targetPort: current.targetPort });
+    });
+    expect(reaped).toContain(second.id);
+    expect((await preview.getPreviewByIdRaw(second.id))?.status).toBe("revoked");
+  });
+
+  test("sandbox open without a preview capability fails before a registry row is created", async () => {
+    const before = await preview.listPreviewsForUser(userA);
+    const target = sandboxWorkspaceTarget({
+      projectId: "sandbox-project",
+      workspaceId: "sandbox-workspace",
+      connectionId: "sandbox-connection",
+      providerId: "incus",
+      generation: 12,
+      presetId: "isolated-feature",
+      releaseDigest: "a".repeat(64),
+      presetDigest: "b".repeat(64),
+      effectiveSettingsDigest: "c".repeat(64),
+    }, {
+      async execute() { return { content: [{ type: "text" as const, text: "unused" }], details: {} }; },
+    });
+    await expect(preview.createPreviewSession({
+      userId: userA,
+      conversationId: convA,
+      kind: "dynamic",
+      targetPort: 4173,
+      workspaceTarget: target,
+    })).rejects.toThrow("Local workspace fallback was denied");
+    expect(await preview.listPreviewsForUser(userA)).toHaveLength(before.length);
+  });
+
+  test("failed sandbox open revokes its inserted row before it can be served", async () => {
+    let attemptedId: string | undefined;
+    const target = sandboxWorkspaceTarget({
+      projectId: "failed-open-project", workspaceId: "failed-open-workspace",
+      connectionId: "failed-open-connection", providerId: "incus", generation: 1,
+      presetId: "isolated-feature", releaseDigest: "a".repeat(64),
+      presetDigest: "b".repeat(64), effectiveSettingsDigest: "c".repeat(64),
+    }, {
+      async execute() { return { content: [], details: {} }; },
+      previews: {
+        async open(request: SandboxPreviewOpenRequest) {
+          attemptedId = request.previewId;
+          throw new Error("provider open failed");
+        },
+        async serve() { return new Response("must not serve"); },
+        async close() {},
+      },
+    });
+    await expect(preview.createPreviewSession({
+      userId: userA, conversationId: convA, kind: "dynamic", targetPort: 4173,
+      workspaceTarget: target,
+    })).rejects.toThrow("provider open failed");
+    expect(attemptedId).toBeDefined();
+    const row = await preview.getPreviewByIdRaw(attemptedId!);
+    expect(row?.status).toBe("revoked");
+    expect(row?.revokedAt).toBeInstanceOf(Date);
+    expect(await preview.getServablePreview(attemptedId!, userA)).toBeUndefined();
+  });
+
+  test("sandbox static preview stores no AMD path and opens through its capability", async () => {
+    const opened: SandboxPreviewOpenRequest[] = [];
+    const binding = {
+      projectId: "static-project", workspaceId: "static-workspace",
+      connectionId: "static-connection", providerId: "incus", generation: 1,
+      presetId: "isolated-feature", releaseDigest: "a".repeat(64),
+      presetDigest: "b".repeat(64), effectiveSettingsDigest: "c".repeat(64),
+    };
+    const target = sandboxWorkspaceTarget(binding, {
+      async execute() { return { content: [], details: {} }; },
+      previews: {
+        async open(request: SandboxPreviewOpenRequest) { opened.push(request); },
+        async serve() { return new Response("sandbox static"); },
+        async close() {},
+      },
+    });
+    await expect(preview.createPreviewSession({
+      userId: userA, conversationId: convA, kind: "static",
+      staticPath: VALID_STATIC, workspaceTarget: target,
+    })).rejects.toThrow("cannot register an AMD host path");
+
+    const row = await preview.createPreviewSession({
+      userId: userA, conversationId: convA, kind: "static", workspaceTarget: target,
+    });
+    expect(row.staticPath).toBeNull();
+    expect(row.workspaceTarget).toEqual({ kind: "sandbox", binding });
+    expect(opened).toMatchObject([{ binding, previewId: row.id, targetPort: null }]);
+    await preview.revokePreview(row.id, userA, new Date(), target);
   });
 });
 
@@ -231,6 +393,16 @@ describe("getServablePreview (requester-only access gate)", () => {
   test("returns undefined once revoked", async () => {
     const row = await mkStatic();
     await preview.revokePreview(row.id, userA);
+    expect(await preview.getServablePreview(row.id, userA)).toBeUndefined();
+  });
+
+  test("stops serving a local preview after its project receives a sandbox binding", async () => {
+    const project = await createProject({ name: "Preview transition", path: PROJECT_ROOT });
+    const conversation = await createConversation(project.id, { userId: userA });
+    const row = await mkStatic({ conversationId: conversation.id });
+    expect((await preview.getServablePreview(row.id, userA))?.id).toBe(row.id);
+
+    await getDb().insert(sandboxBindings).values(sandboxBindingRow(project.id));
     expect(await preview.getServablePreview(row.id, userA)).toBeUndefined();
   });
 });

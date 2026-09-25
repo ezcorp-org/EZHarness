@@ -2,6 +2,7 @@ import { ContractError, MAX_FRAME_BYTES, assertJson, parseJson, validateInvocati
 import type { InvocationContext } from "@ezcorp/extension-contract";
 import type { DefinedExtension, ExtensionContext } from "./index";
 import { installNetworkShim } from "./network";
+import { encodeProviderCredential, parseProviderCredentialRequest, SENSITIVE_PROVIDER_METHOD } from "./provider-credentials";
 
 type Envelope = Record<string, unknown>;
 type Writer = (frame: string) => void | Promise<void>;
@@ -60,10 +61,12 @@ export function createSession(extension: DefinedExtension, write: Writer, option
       active.get(payload.invocationId)?.abort(new ContractError("CANCELLED", "Invocation cancelled"));
       return { cancelled: active.has(payload.invocationId) };
     }
-    if (method !== "extension/invoke" && method !== "extension/dispatch") throw new ContractError("METHOD_NOT_FOUND", "Unknown protocol method");
+    const sensitive = method === SENSITIVE_PROVIDER_METHOD;
+    if (!sensitive && method !== "extension/invoke" && method !== "extension/dispatch") throw new ContractError("METHOD_NOT_FOUND", "Unknown protocol method");
     const nameKey = method === "extension/invoke" ? "name" : "method";
-    if (typeof payload[nameKey] !== "string" || !Object.hasOwn(payload, "input") || Object.keys(payload).some(key => ![nameKey, "input", "context"].includes(key))) throw new ContractError("INVALID_REQUEST", "Invalid invocation envelope");
-    const invocation = Object.freeze({ ...validateInvocationContext(payload.context) });
+    const parsedSensitive = sensitive ? parseProviderCredentialRequest(payload) : undefined;
+    if (!sensitive && (typeof payload[nameKey] !== "string" || !Object.hasOwn(payload, "input") || Object.keys(payload).some(key => ![nameKey, "input", "context"].includes(key)))) throw new ContractError("INVALID_REQUEST", "Invalid invocation envelope");
+    const invocation = Object.freeze({ ...(parsedSensitive?.context ?? validateInvocationContext(payload.context)) });
     if (invocation.deadline <= Date.now()) throw new ContractError("DEADLINE_EXCEEDED", "Invocation deadline has passed");
     if (invocation.deadline - Date.now() > 24 * 60 * 60 * 1000) throw new ContractError("INVALID_CONTEXT", "Invocation deadline exceeds one day");
     if (principal && ["workerId", "releaseId", "principalId", "scopeId"].some(key => principal![key as keyof typeof principal] !== invocation[key as keyof typeof principal])) throw new ContractError("CONTEXT_MISMATCH", "Worker cannot change its security context");
@@ -104,7 +107,9 @@ export function createSession(extension: DefinedExtension, write: Writer, option
       },
     });
     try {
-      const result = method === "extension/invoke" ? extension.invoke(payload.name as string, payload.input, context) : extension.dispatch(payload.method as string, payload.input, context);
+      const result = sensitive
+        ? extension.resolveProviderCredential?.(parsedSensitive!.input, context) ?? Promise.reject(new ContractError("METHOD_NOT_FOUND", "Sensitive provider handler is unavailable"))
+        : method === "extension/invoke" ? extension.invoke(payload.name as string, payload.input, context) : extension.dispatch(payload.method as string, payload.input, context);
       return await Promise.race([result, cancelled]);
     } finally {
       clearTimeout(timer);
@@ -135,7 +140,8 @@ export function createSession(extension: DefinedExtension, write: Writer, option
       }
       return;
     }
-    if (typeof message.method !== "string" || Object.keys(message).some(key => !["jsonrpc", "id", "method", "params"].includes(key))) throw new ContractError("INVALID_REQUEST", "Invalid request envelope");
+    const sensitive = message.method === SENSITIVE_PROVIDER_METHOD;
+    if (typeof message.method !== "string" || Object.keys(message).some(key => !["jsonrpc", "id", "method", "params", ...(sensitive ? ["sensitive"] : [])].includes(key)) || (sensitive && message.sensitive !== true)) throw new ContractError("INVALID_REQUEST", "Invalid request envelope");
     const id = message.id;
     if (id === undefined) {
       if (message.method !== "extension/cancel") throw new ContractError("INVALID_REQUEST", "Only cancellation can be a notification");
@@ -146,8 +152,13 @@ export function createSession(extension: DefinedExtension, write: Writer, option
     requests.add(id as string | number);
     try {
       const result = await invoke(message.method, message.params);
-      await send({ jsonrpc: "2.0", id, result });
+      if (sensitive) await send({ jsonrpc: "2.0", id, sensitive: encodeProviderCredential(result) });
+      else await send({ jsonrpc: "2.0", id, result });
     } catch (error) {
+      if (sensitive) {
+        await send({ jsonrpc: "2.0", id, error: { code: -32000, message: "Sensitive provider request failed" } });
+        return;
+      }
       const code = error instanceof ContractError ? error.code : "HANDLER_FAILED";
       await send({ jsonrpc: "2.0", id, error: { code: -32000, message: error instanceof ContractError ? error.message : "Extension handler failed", data: { code, retryable: false } } });
     } finally {
