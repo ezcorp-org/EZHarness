@@ -29,12 +29,11 @@ const config: IncusConnectionConfig = {
 const scope = { providerId: "incus", connectionId, sandboxId, rpcDeadlineMs };
 const mutation = { ...scope, requestId: "request-1", idempotencyKey: "idempotency-1" };
 
-test("operation inspection carries the original journal identity only when supplied", () => {
-  const input = { ...scope, operationId: "incus-create-uuid", requestId: "journal-1", idempotencyKey: "journal-1" };
-  expect(createIncusTransportCommand("lifecycle.inspectOperation", input, config).idempotency)
-    .toEqual({ requestId: "journal-1", key: "journal-1" });
-  expect(createIncusTransportCommand("lifecycle.inspectOperation", { ...scope, operationId: input.operationId }, config).idempotency)
-    .toBeUndefined();
+test("operation inspection keeps journal identity outside the provider wire input", () => {
+  const input = { ...scope, operationId: "incus-create-uuid" };
+  const command = createIncusTransportCommand("lifecycle.inspectOperation", input, config);
+  expect(command.idempotency).toBeUndefined();
+  expect(command.payload).toEqual({ operationId: input.operationId });
 });
 const sandbox = {
   sandboxId,

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { ReleaseProcess, configureReleaseRuntime, getReleaseRuntime, releaseBinding, resolveActiveRelease } from "../release-process";
-import { CANDIDATE_SANDBOX_QUALIFICATION_CASES, sandboxPresetDigest, sha256, type CandidateVerificationReport } from "@ezcorp/extension-contract";
+import { CANDIDATE_SANDBOX_QUALIFICATION_CASES, sandboxPresetDigest, sha256, validateManifest, type CandidateVerificationReport } from "@ezcorp/extension-contract";
 import type { ActiveExtensionRelease, ReleaseRuntimeDependencies } from "../release-process";
 import { registerCallProvenance, releaseCallProvenance } from "../call-provenance";
 import type { InvocationContext, ReverseRpc, Runner, StartRequest } from "@ezcorp/extension-contract";
@@ -51,6 +51,25 @@ test("runtime resolution denies unqualified sandbox releases before worker start
     process.kill();
     releaseCallProvenance(token);
   }
+});
+
+test("host resolves the retained Incus 0.1.2 manifest with its original inspection schema", async () => {
+  // Exact saved inspection input from the retained 0.1.2 release. The f77
+  // public-schema extension made this valid archived release fail at startup.
+  const archived = structuredClone(incusManifest);
+  const inspection = archived.methods!.find(method => method.name === "incus/lifecycle/inspectOperation")!;
+  const archivedInput = { type: "object", additionalProperties: false,
+    properties: { connectionId: { type: "string" }, operationId: { type: "string" },
+      providerId: { type: "string" }, rpcDeadlineMs: { type: "number" }, sandboxId: { type: "string" } },
+    required: ["connectionId", "operationId", "providerId", "rpcDeadlineMs", "sandboxId"] };
+  inspection.inputSchema = archivedInput;
+  const fixture = releaseRuntimeFixture("incus-retained-installation", archived);
+  await qualifySandboxRuntime(fixture.snapshot);
+  const runtime: ReleaseRuntimeDependencies = { runner: async () => fixture.runner, resolve: async () => fixture.snapshot };
+  await expect(resolveActiveRelease(fixture.snapshot.installation.id, runtime)).resolves.toBe(fixture.snapshot);
+  inspection.inputSchema = { ...archivedInput,
+    properties: { ...archivedInput.properties, requestId: { type: "string" } } };
+  expect(() => validateManifest(archived)).toThrow("canonical wire schemas");
 });
 
 test("runtime resolves an activated sandbox release after candidate expiry but still checks integrity", async () => {

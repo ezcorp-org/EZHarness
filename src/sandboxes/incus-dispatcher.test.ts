@@ -100,6 +100,22 @@ test("approved binding scope and durable identity reach the exact Incus method",
   expect(calls).toHaveLength(1);
 });
 
+test("CREATE readback sends the retained provider's frozen five-field input", async () => {
+  const { controller, calls, setRespond } = await setup();
+  setRespond((call) => accepted(call));
+  const pending = await controller.requestAndDispatch({ bindingId: "binding", kind: "CREATE", generation: 1,
+    idempotencyScope: "lifecycle", idempotencyKey: "create-readback",
+    payload: { profile: "linux-exec.v1", presetId: "incus-linux-exec-v1",
+      presetDigest: "a".repeat(64), effectiveSettingsDigest: "b".repeat(64) } });
+  expect(pending.state).toBe("PROVIDER_PENDING");
+  setRespond(call => inspected(call, "stopped"));
+  await controller.reconcile();
+  expect(calls[1]?.method).toBe("incus/lifecycle/inspectOperation");
+  expect(calls[1]?.input).toEqual({ providerId: "incus", connectionId: "connection", sandboxId: "binding",
+    rpcDeadlineMs: deadline, operationId: "provider-operation" });
+  expect((await controller.getOperation(pending.id))?.state).toBe("SUCCEEDED");
+});
+
 test("reconcile inspects the saved provider operation and updates observed state", async () => {
   const { controller, calls, setRespond } = await setup();
   setRespond((call) => accepted(call));

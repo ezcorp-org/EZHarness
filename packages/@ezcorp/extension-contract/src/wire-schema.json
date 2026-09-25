@@ -5677,17 +5677,10 @@
         "connectionId": {
           "type": "string"
         },
-        "idempotencyKey": {
-          "type": "string"
-        },
         "operationId": {
           "type": "string"
         },
         "providerId": {
-          "type": "string"
-        },
-        "requestId": {
-          "description": "Original journal identity, required for durable readback of a CREATE.",
           "type": "string"
         },
         "rpcDeadlineMs": {

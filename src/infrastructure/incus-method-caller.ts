@@ -54,7 +54,9 @@ function assertJournalIntent(
     if (input.operationId !== receipt.providerOperationId) {
       throw new IncusDispatchAuthorizationError("SCOPE_INVALID");
     }
-    if (receipt.kind === "CREATE" && (input.requestId !== scope.operationId || input.idempotencyKey !== scope.operationId)) {
+    if (receipt.kind === "CREATE" && (current.currentOperationId !== receipt.id
+      || current.generation !== receipt.generation || Object.hasOwn(input, "requestId")
+      || Object.hasOwn(input, "idempotencyKey"))) {
       throw new IncusDispatchAuthorizationError("SCOPE_INVALID");
     }
   } else {
@@ -105,14 +107,9 @@ export class IncusMethodCaller implements HostAuthorizedIncusMethodCaller {
     const runtime = getReleaseRuntime();
     const process = new ReleaseProcess(scope.installationId, runtime);
     try {
-      // Retained v0.1.2 workers accept only the original inspection fields.
-      // The host broker binds this legacy read to the saved CREATE journal.
-      const workerInput = { ...input };
-      if (operation === "lifecycle.inspectOperation" && receipt.kind === "CREATE") {
-        delete workerInput.requestId;
-        delete workerInput.idempotencyKey;
-      }
-      const response = await process.callIncusSandboxOperation(scope.bindingId, operation, workerInput);
+      // The public inspection request remains the original frozen wire shape.
+      // The host broker adds CREATE journal identity only to its own transport call.
+      const response = await process.callIncusSandboxOperation(scope.bindingId, operation, input);
       return response.result;
     } catch (error) {
       // This runner error is raised only when the pinned worker artifact is

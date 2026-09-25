@@ -242,7 +242,7 @@ export function createIncusTransportCommand(
       ...(sandboxId ? { sandboxId } : {}),
     },
     ...(sandboxId ? { sandboxName: sandboxResourceName(connectionId, sandboxId) } : {}),
-    ...(mutationOperations.has(operation) || (operation === "lifecycle.inspectOperation" && input.requestId !== undefined && input.idempotencyKey !== undefined)
+    ...(mutationOperations.has(operation)
       ? {
           idempotency: {
             requestId: input.requestId as string,

@@ -1015,14 +1015,7 @@ function validateSandboxLifecycleValue(operation: SandboxProtocolOperation, dire
   } else if (operation === "lifecycle.inspect" && direction === "result") validateSandboxInspection(record.sandbox as Record<string, unknown>);
   else if ((operation === "lifecycle.setPower" || operation === "lifecycle.destroy") && direction === "input") requireSafeInteger(record.expectedGeneration, "expected generation", 1);
   else if (operation === "lifecycle.inspectOperation") {
-    if (direction === "input") {
-      requireStableId(record.operationId, "operationId");
-      if ((record.requestId === undefined) !== (record.idempotencyKey === undefined)) {
-        throw new ContractError("INVALID_PROVIDER_VALUE", "Operation inspection requires both journal identity fields");
-      }
-      if (record.requestId !== undefined) requireStableId(record.requestId, "requestId");
-      if (record.idempotencyKey !== undefined) requireStableId(record.idempotencyKey, "idempotencyKey");
-    }
+    if (direction === "input") requireStableId(record.operationId, "operationId");
     else {
       const inspected = record.operation as Record<string, unknown>;
       requireStableId(inspected.operationId, "operationId");

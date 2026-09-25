@@ -180,12 +180,12 @@ describe("sandbox.provider.v1 canonical protocol", () => {
       ok: true,
       operation: { operationId: "operation-1", kind: "create", sandboxId: scope.sandboxId, state: "outcome_unknown", desiredState: "running", observedState: "unknown", resourceId: null, startedAt: "2026-09-22T12:00:00Z", finishedAt: "2026-09-22T12:00:01Z", error: unknown.error },
     })).toBeTruthy();
-    expect(validateSandboxProviderMethodValue("lifecycle.inspectOperation", "input", {
-      ...scope, operationId: "operation-1", requestId: "journal-1", idempotencyKey: "journal-1",
-    })).toBeTruthy();
     expect(() => validateSandboxProviderMethodValue("lifecycle.inspectOperation", "input", {
       ...scope, operationId: "operation-1", requestId: "journal-1",
-    })).toThrow("journal identity");
+    })).toThrow();
+    expect(() => validateSandboxProviderMethodValue("lifecycle.inspectOperation", "input", {
+      ...scope, operationId: "operation-1", requestId: "journal-1", idempotencyKey: "journal-1",
+    })).toThrow();
     expect(() => validateSandboxProviderMethodValue("lifecycle.create", "result", { ...unknown, error: { ...unknown.error, retryable: true } })).toThrow("blind retry");
     expect(() => validateSandboxProviderMethodValue("lifecycle.create", "result", { ok: false, error: { code: "OUTCOME_UNKNOWN", message: "unknown", retryable: false } })).toThrow("stable operation");
     expect(() => validateSandboxProviderMethodValue("lifecycle.inspect", "result", unknown)).toThrow("mutating");
