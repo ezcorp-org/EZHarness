@@ -125,17 +125,23 @@ export interface FactorySupervisorProcessConfig {
      */
     readonly pool?: FactorySupervisorEndpoint;
     /**
-     * The product route that answers a guest's staging frames and model calls.
+     * The product routes that answer a guest's staging frames and model calls,
+     * one per tenant this host runs attempts for.
      *
      * A sandboxed guest runs on `--network=none`, so its reverse frame is its
      * only byte path, and this host holds no database, no material service, and
-     * no provider. It carries each staging frame and model request to this
-     * endpoint under the guest's own attempt token. The host's certificate and
-     * token name the HOST, never a tenant. Optional: without it a guest's
-     * broker call refuses by name with `factory_host_broker_unavailable`, and a
-     * guest that neither stages nor calls a model is unaffected.
+     * no provider. It carries each staging frame and model request to the
+     * route of the attempt's own tenant — the tenant of the launch intent it
+     * holds — under the guest's own attempt token. One host serves every
+     * installation of its fleet, so there is one route per tenant, never one
+     * for the host. A frame for a tenant with no entry is refused by name
+     * (`factory_host_broker_tenant_unconfigured`) and never sent to another
+     * tenant's route. The host's certificate and token name the HOST, never a
+     * tenant. Optional: without it a guest's broker call refuses by name with
+     * `factory_host_broker_unavailable`, and a guest that neither stages nor
+     * calls a model is unaffected.
      */
-    readonly guestBroker?: FactorySupervisorEndpoint;
+    readonly guestBrokers?: Readonly<Record<string, FactorySupervisorEndpoint>>;
   };
 }
 
@@ -189,12 +195,14 @@ function integer(value: unknown, minimum: number, maximum: number): boolean {
 function serviceSection(value: unknown): boolean {
   if (!record(value)) return false;
   const required = ["hostname", "port", "allowedPeers", "hostKeyIdPath", "tls"];
-  const allowed = [...required, "pool", "guestBroker"];
+  // The single host-wide `guestBroker` form is gone: it is an unknown key, so a
+  // document that still carries it, alone or beside `guestBrokers`, is refused.
+  const allowed = [...required, "pool", "guestBrokers"];
   if (required.some((key) => !Object.hasOwn(value, key)) || Object.keys(value).some((key) => !allowed.includes(key))) return false;
   if (!text(value.hostname) || !integer(value.port, 1, 65_535) || !text(value.hostKeyIdPath)) return false;
   if (!Array.isArray(value.allowedPeers) || value.allowedPeers.length < 1 || value.allowedPeers.length > 64
     || value.allowedPeers.some((peer) => !text(peer))) return false;
-  if ((value.pool !== undefined && !endpointSection(value.pool)) || (value.guestBroker !== undefined && !endpointSection(value.guestBroker))) return false;
+  if ((value.pool !== undefined && !endpointSection(value.pool)) || (value.guestBrokers !== undefined && !guestBrokersSection(value.guestBrokers))) return false;
   return tlsSection(value.tls);
 }
 
@@ -202,6 +210,13 @@ const TLS_KEYS = ["caPath", "certificatePath", "privateKeyPath"];
 
 function tlsSection(value: unknown): boolean {
   return record(value) && TLS_KEYS.every((key) => text(value[key])) && Object.keys(value).every((key) => TLS_KEYS.includes(key));
+}
+
+/** Tenant to endpoint: at least one, at most 64, every key a tenant and every value an exact endpoint. */
+function guestBrokersSection(value: unknown): boolean {
+  if (!record(value)) return false;
+  const entries = Object.entries(value);
+  return entries.length >= 1 && entries.length <= 64 && entries.every(([tenantId, endpoint]) => text(tenantId) && tenantId.trim() === tenantId && endpointSection(endpoint));
 }
 
 /** A {@link FactorySupervisorEndpoint}, exactly complete. */
@@ -338,7 +353,7 @@ export async function startFactoryConfiguredHostServices(
   const pool = services.pool === undefined ? undefined
     : await createFactorySupervisorPoolClient({ hostId: config.hostId, ...endpointTransport(services.pool) });
   // Built before the listener binds for the same reason.
-  const broker = await createFactoryConfiguredGuestBroker(services.guestBroker);
+  const broker = await createFactoryConfiguredGuestBroker(services.guestBrokers);
   return startFactoryHostServices({
     hostId: config.hostId,
     allowedPeers: services.allowedPeers,
@@ -352,24 +367,54 @@ export async function startFactoryConfiguredHostServices(
   });
 }
 
-/** What a host with no `services.guestBroker` answers a guest's staging frame or model request. */
+/** What a host with no `services.guestBrokers` answers a guest's staging frame or model request. */
 const factoryHostGuestBrokerUnconfigured: FactoryGuestBroker = Object.freeze({
   async invoke(request: FactoryRunnerRequest, payload: unknown): Promise<unknown> {
     if (!isFactoryGuestMaterialFrame(payload) && !isFactoryGuestModelPayload(payload)) return factoryHostBrokerUnavailable.invoke(request, payload);
-    throw new FactoryHostBrokerUnavailableError("This host's supervisor document names no services.guestBroker, so it cannot carry a staging frame or a model request.");
+    throw new FactoryHostBrokerUnavailableError("This host's supervisor document names no services.guestBrokers, so it cannot carry a staging frame or a model request.");
   },
 });
+
+/** A guest's frame for a tenant this host has no route for. It is never sent anywhere. */
+export class FactoryHostBrokerTenantUnconfiguredError extends Error {
+  readonly code = "factory_host_broker_tenant_unconfigured";
+  // An explicit field, not a parameter property, so Node's type stripping can run this file.
+  readonly tenantId: string;
+  constructor(tenantId: string) {
+    super(`This host's supervisor document names no services.guestBrokers entry for tenant ${JSON.stringify(tenantId)}, so it cannot carry that attempt's staging frame or model request.`);
+    this.name = "FactoryHostBrokerTenantUnconfiguredError";
+    this.tenantId = tenantId;
+  }
+}
 
 /**
  * The broker a host hands its guests.
  *
- * Staging frames and model requests go to the declared product route. With no
- * route declared they are refused by name, and the message names the missing
- * section. Any other payload keeps the default refusal either way.
+ * Staging frames and model requests go to the product route of the attempt's
+ * own tenant, read from the launch intent the host holds
+ * (`request.authority.tenantId`). A tenant with no entry is refused with
+ * {@link FactoryHostBrokerTenantUnconfiguredError} before any byte leaves the
+ * host: there is no fallback route, so a frame can never reach another
+ * tenant's product. That tenant's route then verifies the attempt token with
+ * its own secret, so a launch that names a tenant it does not belong to fails
+ * there too. With no routes declared, frames are refused by name, and the
+ * message names the missing section. Any other payload keeps the default
+ * refusal either way.
  */
-export async function createFactoryConfiguredGuestBroker(endpoint: FactorySupervisorEndpoint | undefined): Promise<FactoryGuestBroker> {
-  if (endpoint === undefined) return factoryHostGuestBrokerUnconfigured;
-  return createFactoryGuestBrokerClient({ ...endpointTransport(endpoint), delegate: factoryHostBrokerUnavailable });
+export async function createFactoryConfiguredGuestBroker(endpoints: Readonly<Record<string, FactorySupervisorEndpoint>> | undefined): Promise<FactoryGuestBroker> {
+  if (endpoints === undefined) return factoryHostGuestBrokerUnconfigured;
+  const clients = new Map<string, FactoryGuestBroker>();
+  for (const [tenantId, endpoint] of Object.entries(endpoints)) {
+    clients.set(tenantId, await createFactoryGuestBrokerClient({ ...endpointTransport(endpoint), delegate: factoryHostBrokerUnavailable }));
+  }
+  return Object.freeze({
+    async invoke(request: FactoryRunnerRequest, payload: unknown): Promise<unknown> {
+      const tenantId = request.authority.tenantId;
+      const client = clients.get(tenantId);
+      if (client === undefined) throw new FactoryHostBrokerTenantUnconfiguredError(tenantId);
+      return client.invoke(request, payload);
+    },
+  });
 }
 
 function endpointTransport(endpoint: FactorySupervisorEndpoint) {

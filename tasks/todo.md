@@ -4850,3 +4850,24 @@ secrets now. The proof itself is unchanged: both modes passed three of three, an
 - [x] F1: the inline-document guard reads each `privateWrite(...)` call whole, marks anything but a named builder `"inline"`, compares with `toStrictEqual`, and is tested on fixtures, one line and split.
 - [x] F2: `receipt.sh` names every log and receipt per attempt; the first heavy attempt's receipt points at its preserved log and says the original was overwritten.
 - [x] F3: a URL's password is collected from every JSON string, whatever its key.
+## W16b — tenant-keyed guest-broker routes (branch `wp/w16b-guest-brokers-keyed`)
+
+Coordinator ruling 2026-09-25 (option A). Gate file `tasks/factory/w16b-GATES.md`,
+evidence `/tmp/factory-platform-evidence/w16b/`.
+
+- [x] services.guestBroker becomes services.guestBrokers (tenant to endpoint); the parser refuses the old form and malformed maps.
+- [x] The host picks the attempt's own tenant's route; an unknown tenant is refused by name before any byte leaves the host.
+- [x] Producers updated: supervisor tests, W01g transport suite, W19a graph-proof stack.
+- [x] Hold b1 at 61bc3428b: every leg exit 0.
+- [x] W01 owner review (w01g-fix) at 61bc3428b; the audience change sent for the same review.
+- [x] The route accepts only the contract's audience; a pool token is refused by name (ca92306c5). Hold b2 at fb3a990ee: every leg exit 0.
+- [ ] Validation (validator-2), then merge before W16 and W01h.
+
+### Review
+
+A fleet host serves every installation, so it now holds one guest-broker route
+per tenant and forwards each guest frame only to its own attempt's tenant.
+There is no fallback: an unknown tenant is refused by name. The lease carries
+no tenant, so the tenant comes from the launch intent, and the chosen route's
+attempt-token check still stops a launch that names the wrong tenant.
+

@@ -10,7 +10,7 @@
  *   - the pool admission process, on its own fresh database, with RS256
  *     service tokens over mutual TLS;
  *   - the host supervisor, owning the one PodmanRunner, its launch and stop
- *     services, and `services.guestBroker`, the route it carries a guest's
+ *     services, and `services.guestBrokers`, the per-tenant routes it carries a guest's
  *     staging frames and model requests back over;
  *   - a Temporal dev server behind a mutual-TLS terminator, and the Node
  *     orchestrator under a restart loop;
@@ -34,7 +34,8 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { SQL } from "bun";
 import type { JsonValue } from "@ezcorp/factory-sdk";
 import { collectSecretValues, openProcessLog, preserveStackDiagnostics, redactStreamedLogs, type PassDiagnostics, type ProcessLog } from "./diagnostics";
-import { GUEST_BROKER_AUDIENCE, GUEST_BROKER_ISSUER, INSTALLATION, MASTER_KEY_ID, NAMESPACE, SUPERVISOR_SUBJECT, TENANT, orchestratorDocument, poolDatabaseDocument, poolDocument, startupDocument, supervisorDocument, wrapsDocument, type StackLayout } from "./stack-documents";
+import { GUEST_BROKER_ISSUER, INSTALLATION, MASTER_KEY_ID, NAMESPACE, SUPERVISOR_SUBJECT, TENANT, orchestratorDocument, poolDatabaseDocument, poolDocument, startupDocument, supervisorDocument, wrapsDocument, type StackLayout } from "./stack-documents";
+import { FACTORY_GUEST_BROKER_AUDIENCE } from "../../src/factory/runner/guest-broker-contract";
 
 export { HOST_ID, INSTALLATION, TENANT } from "./stack-documents";
 /** How often the streamed logs are redacted while a pass runs. */
@@ -261,7 +262,7 @@ export async function startStack(options: StackOptions): Promise<Stack> {
   await privateWrite(join(secrets, "attempt-token"), randomBytes(32).toString("hex"));
   // The guest-broker route's host token: the supervisor presents it, the product verifies it.
   const brokerKeys = generateKeyPairSync("rsa", { modulusLength: 2048 });
-  await privateWrite(join(secrets, "guest-broker-host.token"), rs256(brokerKeys.privateKey, "w19a", { sub: SUPERVISOR_SUBJECT, iss: GUEST_BROKER_ISSUER, aud: GUEST_BROKER_AUDIENCE, exp: Math.floor(Date.now() / 1_000) + 7_200, scope: ["factory:guest-broker"] }));
+  await privateWrite(join(secrets, "guest-broker-host.token"), rs256(brokerKeys.privateKey, "w19a", { sub: SUPERVISOR_SUBJECT, iss: GUEST_BROKER_ISSUER, aud: FACTORY_GUEST_BROKER_AUDIENCE, exp: Math.floor(Date.now() / 1_000) + 7_200, scope: ["factory:guest-broker"] }));
   await privateWrite(join(secrets, "guest-broker-host-token.pem"), brokerKeys.publicKey.export({ type: "spki", format: "pem" }).toString());
 
   // Storage credentials copied to 0600, as a real provisioner does.
@@ -317,7 +318,7 @@ export async function startStack(options: StackOptions): Promise<Stack> {
   await privateWrite(join(secrets, "pool.json"), JSON.stringify(poolDocument(layout)));
   start("pool", bun, [join(repo, "src/factory/pool/process.ts"), join(secrets, "pool.json")]);
 
-  // ── Host supervisor, carrying guest frames back over services.guestBroker ──
+  // ── Host supervisor, carrying guest frames back over services.guestBrokers ──
   const { privateKey: hostKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
   await privateWrite(join(secrets, "host.key"), hostKey.export({ type: "pkcs8", format: "pem" }).toString());
   await privateWrite(join(secrets, "host.kid"), "host-key-1");

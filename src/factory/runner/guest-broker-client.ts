@@ -20,9 +20,10 @@ import { isFactoryGuestModelPayload, type FactoryGuestBroker } from "./guest-mod
  * dead product process. The exception is a transport fault, which is exactly
  * what it looks like and is raised.
  *
- * `factoryHostBrokerUnavailable` stays the default. A supervisor whose
- * configuration names `services.guestBroker` builds this client; one that does
- * not still refuses by name.
+ * `factoryHostBrokerUnavailable` stays the default. A supervisor builds one of
+ * these clients per `services.guestBrokers` entry and picks the attempt's own
+ * tenant's; a tenant with no entry, or a host with no section, still refuses by
+ * name.
  */
 
 /**

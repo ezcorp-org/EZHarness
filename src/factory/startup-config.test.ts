@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtemp, writeFile, chmod, mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { digestObject } from "../extensions/v4/blobs";
+import { FACTORY_GUEST_BROKER_AUDIENCE } from "./runner/guest-broker-contract";
 import {
   FACTORY_RELEASE_ENTITLED_S3_ROOT,
   FACTORY_STARTUP_CONFIG_SCHEMA,
@@ -510,7 +511,7 @@ describe("the guest-broker route", () => {
     port: 9446,
     hosts: { "supervisor-01": "host-01" },
     tls: { caPath: "/run/tls/ca.pem", certificatePath: "/run/tls/cert.pem", privateKeyPath: "/run/tls/key.pem" },
-    tokens: { issuer: "factory-hosts", audience: "factory-guest-broker", publicKeyPaths: { hosts: "/run/secrets/host-token.pem" } },
+    tokens: { issuer: "factory-hosts", audience: FACTORY_GUEST_BROKER_AUDIENCE, publicKeyPaths: { hosts: "/run/secrets/host-token.pem" } },
   };
 
   test("is optional, and a complete section is kept exactly", () => {
@@ -539,6 +540,10 @@ describe("the guest-broker route", () => {
     }
     // A field the section does not define is refused rather than ignored.
     expect(reject(valid({ hostLaunch, guestBroker: { ...guestBroker, audience: "x" } })).invalid).toContain("guestBroker.audience");
+    // The audience is the route contract's, never configurable: a pool audience, or anything else, is refused.
+    for (const audience of ["factory-pool", "x", `${FACTORY_GUEST_BROKER_AUDIENCE} `]) {
+      expect(reject(valid({ hostLaunch, guestBroker: { ...guestBroker, tokens: { ...guestBroker.tokens, audience } } })).invalid).toContain("guestBroker.tokens.audience");
+    }
   });
 });
 
