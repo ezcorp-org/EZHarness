@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { eq } from "drizzle-orm";
 
 import {
   closeTestDb,
@@ -55,6 +56,21 @@ describe("resolveLocalProjectTarget", () => {
       desiredState: "RUNNING", observedState: "STOPPED", generation: 1,
     });
     await expect(resolveProjectWorkspaceTarget(project, "agent run"))
+      .rejects.toThrow("Local workspace fallback was denied");
+  });
+
+  test("a newly prepared or destroyed Incus binding never falls back to a host path", async () => {
+    const project = await createProject({ name: "Incus target", path: "/__incus_workspace_unavailable__/test" });
+    const id = crypto.randomUUID();
+    await getTestDb().insert(sandboxBindings).values({ id, projectId: project.id,
+      providerInstallationId: "incus-provider", providerReleaseId: "release-1",
+      connectionId: "connection-1", resourceKey: id,
+      desiredState: "STOPPED", observedState: "UNKNOWN", generation: 1 });
+    await expect(resolveProjectWorkspaceTarget(project, "built-in tools"))
+      .rejects.toThrow("Local workspace fallback was denied");
+    await getTestDb().update(sandboxBindings).set({ desiredState: "ABSENT", observedState: "ABSENT",
+      tombstonedAt: new Date() }).where(eq(sandboxBindings.id, id));
+    await expect(resolveProjectWorkspaceTarget(project, "built-in tools"))
       .rejects.toThrow("Local workspace fallback was denied");
   });
 

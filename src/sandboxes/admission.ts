@@ -387,9 +387,9 @@ export class SandboxAdmissionStore {
     else await this.db.transaction(write);
   }
 
-  async configureProjectQuota(input: SandboxProjectQuotaInput): Promise<void> {
+  async configureProjectQuota(input: SandboxProjectQuotaInput, existingTransaction?: DbTransaction): Promise<void> {
     assertQuotaInput(input);
-    await this.db.transaction(async (transaction: DbTransaction) => {
+    const write = async (transaction: DbTransaction) => {
       const host = await lockHost(transaction, input.providerInstallationId, input.connectionId);
       if (!host) throw new SandboxAdmissionError("INVALID_PROJECT_QUOTA", "Host capacity must be configured first");
       const usable = usableCapacity(host);
@@ -416,7 +416,9 @@ export class SandboxAdmissionStore {
           updatedAt: new Date(),
         },
       });
-    });
+    };
+    if (existingTransaction) await write(existingTransaction);
+    else await this.db.transaction(write);
   }
 
   async requestAdmission(input: SandboxAdmissionInput): Promise<SandboxAdmissionRequest> {

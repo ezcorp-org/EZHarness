@@ -3,15 +3,16 @@ import { desc, eq } from "drizzle-orm";
 import { checkProjectRole, requireAdminSession } from "$server/auth/middleware";
 import { getDb } from "$server/db/connection";
 import { projects, sandboxBindings, sandboxOperations } from "$server/db/schema";
-import { IncusFeatureService } from "$server/infrastructure/incus-feature-service";
+import { IncusFeatureService, validIncusProjectName } from "$server/infrastructure/incus-feature-service";
 import { IncusQualificationStore } from "$server/infrastructure/incus-qualification";
 import type { RequestHandler } from "./$types";
 
 const identifier = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
 
-type Action = "prepare" | "create" | "start" | "stop" | "destroy" | "destroyRetired" | "status" | "reconcile";
+type Action = "prepare" | "prepareProject" | "create" | "start" | "stop" | "destroy" | "destroyRetired" | "status" | "reconcile";
 const fields: Record<Action, readonly string[]> = {
   prepare: ["action", "projectId", "installationId", "connectionId", "presetId"],
+  prepareProject: ["action", "name", "installationId", "connectionId", "presetId", "idempotencyKey"],
   create: ["action", "projectId", "bindingId", "idempotencyScope", "idempotencyKey"],
   start: ["action", "projectId", "bindingId", "idempotencyScope", "idempotencyKey"],
   stop: ["action", "projectId", "bindingId", "idempotencyScope", "idempotencyKey"],
@@ -37,6 +38,10 @@ function parse(value: unknown): Record<string, unknown> | null {
   if (actual.sort().join(",") !== [...allowed].sort().join(",")) return null;
   for (const field of expected) {
     if (field === "action" || field === "limit") continue;
+    if (field === "name") {
+      if (!validIncusProjectName(input.name)) return null;
+      continue;
+    }
     if (typeof input[field] !== "string" || !identifier.test(input[field])) return null;
   }
   if (action === "reconcile" && Object.hasOwn(input, "limit") && (!Number.isSafeInteger(input.limit) || (input.limit as number) < 1 || (input.limit as number) > 100)) return null;
@@ -83,6 +88,13 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   const action = input.action as Action;
   try {
     if (action === "reconcile") return json({ result: await service().reconcile(input.limit as number | undefined) });
+    if (action === "prepareProject") {
+      const result = await service().prepareProject({ name: input.name as string,
+        ownerUserId: admin.id, idempotencyKey: input.idempotencyKey as string,
+        installationId: input.installationId as string, connectionId: input.connectionId as string,
+        presetId: input.presetId as string });
+      return json(result);
+    }
     const projectId = input.projectId as string;
     const denied = await authorizeProject(locals, projectId);
     if (denied) return denied;

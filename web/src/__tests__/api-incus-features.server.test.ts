@@ -39,6 +39,8 @@ vi.mock("$server/infrastructure/incus-qualification", () => ({
 	IncusQualificationStore: class { async load() { calls.push("qualification"); return qualified ? { ready: true } : null; } },
 }));
 vi.mock("$server/infrastructure/incus-feature-service", () => ({
+	validIncusProjectName: (value: unknown) => typeof value === "string" && value.trim().length > 0
+		&& value.trim() === value && value.length <= 128,
 	IncusFeatureService: class {
 		constructor(private readonly deps: { loadQualification: () => Promise<unknown> }) {}
 		async prepare(input: { projectId: string }) {

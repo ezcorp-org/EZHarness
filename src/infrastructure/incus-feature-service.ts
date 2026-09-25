@@ -7,7 +7,7 @@ import {
   type SandboxPreset,
 } from "@ezcorp/extension-contract";
 import { getDb, type Database, type DbTransaction } from "../db/connection";
-import { incusQualificationFixtures, projects, sandboxBindings, sandboxOperations, sandboxReservations, type SandboxBinding, type SandboxOperation } from "../db/schema";
+import { incusQualificationFixtures, projectMembers, projects, sandboxBindings, sandboxOperations, sandboxReservations, type SandboxBinding, type SandboxOperation } from "../db/schema";
 import { getReleaseRuntime, ReleaseProcess, resolveActiveRelease, type ActiveExtensionRelease } from "../extensions/release-process";
 import { assertSandboxPresetReady } from "../extensions/v4/sandbox-preset-qualification";
 import { SandboxAdmissionStore, type SandboxResourceVector } from "../sandboxes/admission";
@@ -39,6 +39,18 @@ export interface PrepareIncusFeatureInput {
   installationId: string;
   connectionId: string;
   presetId: string;
+}
+
+export interface PrepareIncusProjectInput extends Omit<PrepareIncusFeatureInput, "projectId"> {
+  name: string;
+  ownerUserId: string;
+  idempotencyKey: string;
+}
+
+export function validIncusProjectName(value: unknown): value is string {
+  return typeof value === "string" && value.length >= 1 && value.length <= 128
+    && value.trim().length > 0 && value.trim() === value
+    && !Array.from(value).some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127);
 }
 
 export interface IncusFeatureRequest {
@@ -259,24 +271,69 @@ export class IncusFeatureService {
       return existing;
     }
     if (!approved.qualification) throw new Error("Live Incus preset qualification is unavailable");
-    const id = randomUUID();
     return this.db.transaction(async (transaction: DbTransaction) => {
-      await this.assertCurrentScope({ connectionId: input.connectionId,
-        providerInstallationId: input.installationId,
-        providerReleaseId: approved.snapshot.release.id,
-        releaseDigest: approved.snapshot.release.releaseDigest,
-        generation: approved.snapshot.installation.generation,
-        revision: approved.connection.revision }, transaction);
-      return this.controller.createBinding({
-        id, projectId: input.projectId, providerInstallationId: input.installationId,
-        providerReleaseId: approved.snapshot.release.id, connectionId: input.connectionId,
-        connectionRevision: approved.connection.revision, resourceKey: id,
-        profile: approved.preset.profile, presetId: approved.preset.id,
-        presetDigest: approved.presetDigest,
-        effectiveSettingsDigest: approved.effectiveSettingsDigest,
-        desiredState: "STOPPED", observedState: "UNKNOWN",
-      }, transaction);
+      return this.createApprovedBinding(input, approved, transaction);
     });
+  }
+
+  private async createApprovedBinding(input: PrepareIncusFeatureInput, approved: {
+    snapshot: ActiveExtensionRelease; connection: ProviderConnectionCredentials; preset: SandboxPreset;
+    presetDigest: string; effectiveSettingsDigest: string;
+  }, transaction: DbTransaction): Promise<SandboxBinding> {
+    await this.assertCurrentScope({ connectionId: input.connectionId,
+      providerInstallationId: input.installationId,
+      providerReleaseId: approved.snapshot.release.id,
+      releaseDigest: approved.snapshot.release.releaseDigest,
+      generation: approved.snapshot.installation.generation,
+      revision: approved.connection.revision }, transaction);
+    const id = randomUUID();
+    return this.controller.createBinding({ id, projectId: input.projectId,
+      providerInstallationId: input.installationId, providerReleaseId: approved.snapshot.release.id,
+      connectionId: input.connectionId, connectionRevision: approved.connection.revision,
+      resourceKey: id, profile: approved.preset.profile, presetId: approved.preset.id,
+      presetDigest: approved.presetDigest,
+      effectiveSettingsDigest: approved.effectiveSettingsDigest,
+      desiredState: "STOPPED", observedState: "UNKNOWN" }, transaction);
+  }
+
+  /** Publish a user project only after its sandbox route and quota exist in
+   * the same transaction. An unbound project would otherwise select a host path. */
+  async prepareProject(input: PrepareIncusProjectInput): Promise<{
+    project: typeof projects.$inferSelect; binding: SandboxBinding;
+  }> {
+    if (!validIncusProjectName(input.name)
+      || !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(input.idempotencyKey)
+      || !input.ownerUserId) throw new Error("Invalid Incus project request");
+    const name = input.name;
+    const hash = createHash("sha256").update(JSON.stringify([input.ownerUserId, input.idempotencyKey])).digest("hex");
+    const projectId = `incus-project-${hash.slice(0, 48)}`;
+    const path = `/__incus_workspace_unavailable__/${projectId}`;
+    const [existing] = await this.db.select().from(projects).where(eq(projects.id, projectId)).limit(1);
+    if (existing) {
+      if (existing.purpose !== "user" || existing.name !== name || existing.path !== path) {
+        throw new Error("Incus project idempotency key changed request");
+      }
+      const [member] = await this.db.select().from(projectMembers).where(and(
+        eq(projectMembers.projectId, projectId), eq(projectMembers.userId, input.ownerUserId))).limit(1);
+      if (member?.role !== "owner") throw new Error("Incus project owner is unavailable");
+      const { existing: binding } = await this.checkedPreparation({ ...input, projectId });
+      if (!binding) throw new Error("Incus project binding is unavailable");
+      return { project: existing, binding };
+    }
+    const approved = await this.approved({ ...input, projectId });
+    if (!approved.qualification) throw new Error("Live Incus preset qualification is unavailable");
+    const created = await this.db.transaction(async (transaction: DbTransaction) => {
+      const [project] = await transaction.insert(projects).values({ id: projectId, name, path,
+        purpose: "user" }).onConflictDoNothing().returning();
+      if (!project) return null;
+      await transaction.insert(projectMembers).values({ projectId, userId: input.ownerUserId, role: "owner" });
+      await this.admission.configureProjectQuota({ projectId,
+        providerInstallationId: input.installationId, connectionId: input.connectionId,
+        limit: resources(approved.preset) }, transaction);
+      const binding = await this.createApprovedBinding({ ...input, projectId }, approved, transaction);
+      return { project, binding };
+    });
+    return created ?? this.prepareProject(input);
   }
 
   private async assertUserBinding(id: string): Promise<void> {

@@ -23,9 +23,13 @@ const database = {
 
 mock.module("$server/db/connection", () => ({ getDb: () => database }));
 mock.module("$server/infrastructure/incus-qualification", () => ({ IncusQualificationStore: class { async load() { calls.push("qualification.load"); return null; } } }));
-mock.module("$server/infrastructure/incus-feature-service", () => ({ IncusFeatureService: class {
+mock.module("$server/infrastructure/incus-feature-service", () => ({
+validIncusProjectName: (value: unknown) => typeof value === "string" && value.trim().length > 0
+  && value.trim() === value && value.length <= 128 && !Array.from(value).some(c => c.charCodeAt(0) < 32),
+IncusFeatureService: class {
   constructor(private readonly deps: { loadQualification: (scope: unknown) => Promise<unknown> }) {}
   async prepare(input: Record<string, unknown>) { calls.push(`prepare:${input.projectId}`); if (!await this.deps.loadQualification({})) throw new Error("Live Incus preset qualification is unavailable"); return binding; }
+  async prepareProject(input: Record<string, unknown>) { calls.push(`prepareProject:${input.ownerUserId}:${input.idempotencyKey}`); return { project: { id: "guest-project", name: input.name }, binding }; }
   async create(input: Record<string, unknown>) { calls.push(`create:${input.bindingId}`); return input.idempotencyKey === "denied" ? { state: "REJECTED", reason: "capacity", operation: null } : { state: "DISPATCHED", operation }; }
   async start(input: Record<string, unknown>) { calls.push(`start:${input.bindingId}`); return { state: "QUEUED", reason: "capacity", operation: null }; }
   async stop(input: Record<string, unknown>) { calls.push(`stop:${input.bindingId}`); return operation; }
@@ -77,6 +81,19 @@ test("prepare refuses provisioning when host qualification is absent", async () 
   expect(response.status).toBe(409);
   expect(await response.json()).toMatchObject({ code: "feature_unavailable" });
   expect(calls).toEqual(["prepare:project-a", "qualification.load"]);
+});
+
+test("prepareProject uses the session owner and rejects caller supplied project authority", async () => {
+  calls.length = 0;
+  const input = { action: "prepareProject", name: "Guest project", installationId: "install-a",
+    connectionId: "connection-a", presetId: "preset-a", idempotencyKey: "new-project" };
+  expect((await POST(event(admin, { ...input, projectId: "project-a" }))).status).toBe(400);
+  expect((await POST(event(admin, { ...input, name: " Guest project" }))).status).toBe(400);
+  const response = await POST(event(admin, input));
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({ project: { id: "guest-project", name: "Guest project" },
+    binding: { id: "binding-a" } });
+  expect(calls).toEqual(["prepareProject:admin:new-project"]);
 });
 
 test("binding actions require matching project and preserve idempotency", async () => {

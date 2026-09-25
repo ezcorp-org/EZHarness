@@ -24,6 +24,9 @@ async function fixture() {
   databases.push(pglite);
   await pglite.waitReady;
   await pglite.exec("CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, path TEXT NOT NULL, icon TEXT, variables JSONB NOT NULL DEFAULT '{}', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())");
+  await pglite.exec("CREATE TABLE users (id TEXT PRIMARY KEY)");
+  await pglite.exec("INSERT INTO users (id) VALUES ('admin')");
+  await pglite.exec("CREATE TABLE project_members (id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id), user_id TEXT NOT NULL REFERENCES users(id), role TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), UNIQUE(project_id, user_id))");
   const db = drizzle(pglite, { schema });
   await addSandboxController(db);
   await addQualificationFixtures(db);
@@ -115,6 +118,76 @@ test("read-only readiness uses the prepare gate without creating a binding", asy
   await expect(service.checkReadiness({ ...input, projectId: "qual-project" }))
     .rejects.toThrow("feature project is unavailable");
   expect(await db.select().from(schema.sandboxBindings)).toEqual([]);
+}, DB_TEST_TIMEOUT_MS);
+
+test("new Incus project rolls back its local fallback and membership when host capacity is absent", async () => {
+  const { db, service, preset } = await fixture();
+  const input = { name: "Guest project", ownerUserId: "admin", idempotencyKey: "new-project",
+    installationId: "installation", connectionId: "connection", presetId: preset.id };
+  await expect(service.prepareProject(input)).rejects.toMatchObject({ code: "INVALID_PROJECT_QUOTA" });
+  expect(await db.select().from(schema.projects)).toHaveLength(1);
+  expect(await db.select().from(schema.projectMembers)).toEqual([]);
+  expect(await db.select().from(schema.sandboxProjectQuotas)).toEqual([]);
+  expect(await db.select().from(schema.sandboxBindings)).toEqual([]);
+}, DB_TEST_TIMEOUT_MS);
+
+test("new Incus project rejects malformed names and idempotency inputs before any row", async () => {
+  const { db, service, preset } = await fixture();
+  const input = { name: "Guest project", ownerUserId: "admin", idempotencyKey: "new-project",
+    installationId: "installation", connectionId: "connection", presetId: preset.id };
+  for (const changed of [{ name: "" }, { name: " " }, { name: " Guest" },
+    { name: "a".repeat(129) }, { name: "bad\nname" }, { idempotencyKey: "bad key" },
+    { ownerUserId: "" }]) {
+    await expect(service.prepareProject({ ...input, ...changed })).rejects.toThrow("Invalid Incus project request");
+  }
+  expect(await db.select().from(schema.projects)).toHaveLength(1);
+  expect(await db.select().from(schema.sandboxBindings)).toEqual([]);
+}, DB_TEST_TIMEOUT_MS);
+
+test("new Incus project atomically receives its owner, exact quota, and guest binding", async () => {
+  const { db, service, admission, preset, connection, setQualification } = await fixture();
+  const input = { name: "Guest project", ownerUserId: "admin", idempotencyKey: "new-project",
+    installationId: "installation", connectionId: "connection", presetId: preset.id };
+  await admission.configureHostCapacity({ providerInstallationId: "installation", connectionId: "connection",
+    allocatable: { memoryBytes: 2 * preset.limits.memoryBytes, cpuMillicores: 2 * preset.limits.cpuMillis,
+      pids: 2 * preset.limits.pids, diskBytes: 2 * preset.limits.diskBytes, executionSlots: 2 },
+    safetyMargin: { memoryBytes: 0, cpuMillicores: 0, pids: 0, diskBytes: 0, executionSlots: 0 } });
+  const result = await service.prepareProject(input);
+  expect(result.project).toMatchObject({ name: input.name, purpose: "user" });
+  expect(result.project.path.startsWith("/__incus_workspace_unavailable__/incus-project-")).toBe(true);
+  expect(result.binding).toMatchObject({ projectId: result.project.id,
+    resourceKey: result.binding.id, desiredState: "STOPPED", observedState: "UNKNOWN" });
+  expect(await db.select().from(schema.projectMembers)).toEqual([expect.objectContaining({
+    projectId: result.project.id, userId: "admin", role: "owner" })]);
+  expect(await db.select().from(schema.sandboxProjectQuotas)).toEqual([expect.objectContaining({
+    projectId: result.project.id, memoryBytes: preset.limits.memoryBytes,
+    cpuMillicores: preset.limits.cpuMillis, diskBytes: preset.limits.diskBytes, executionSlots: 1 })]);
+  expect((await service.prepareProject(input)).binding.id).toBe(result.binding.id);
+  await expect(service.prepareProject({ ...input, name: "Changed" })).rejects.toThrow("idempotency key changed");
+  await expect(service.prepareProject({ ...input, connectionId: "changed-connection" })).rejects.toThrow();
+  expect(await db.select().from(schema.projects)).toHaveLength(2);
+  setQualification(false);
+  await expect(service.prepareProject({ ...input, idempotencyKey: "new-project-2" })).rejects.toThrow("qualification is unavailable");
+  connection.revokedAt = new Date();
+  await expect(service.prepareProject({ ...input, idempotencyKey: "new-project-3" })).rejects.toThrow("connection changed");
+  expect(await db.select().from(schema.projects)).toHaveLength(2);
+}, DB_TEST_TIMEOUT_MS);
+
+test("concurrent prepareProject calls with one key publish only one bound project", async () => {
+  const { db, service, admission, preset } = await fixture();
+  await admission.configureHostCapacity({ providerInstallationId: "installation", connectionId: "connection",
+    allocatable: { memoryBytes: preset.limits.memoryBytes, cpuMillicores: preset.limits.cpuMillis,
+      pids: preset.limits.pids, diskBytes: preset.limits.diskBytes, executionSlots: 1 },
+    safetyMargin: { memoryBytes: 0, cpuMillicores: 0, pids: 0, diskBytes: 0, executionSlots: 0 } });
+  const input = { name: "Concurrent guest", ownerUserId: "admin", idempotencyKey: "concurrent",
+    installationId: "installation", connectionId: "connection", presetId: preset.id };
+  const [first, second] = await Promise.all([service.prepareProject(input), service.prepareProject(input)]);
+  expect(second.project.id).toBe(first.project.id);
+  expect(second.binding.id).toBe(first.binding.id);
+  expect(await db.select().from(schema.projects)).toHaveLength(2);
+  expect(await db.select().from(schema.projectMembers)).toHaveLength(1);
+  expect(await db.select().from(schema.sandboxProjectQuotas)).toHaveLength(1);
+  expect(await db.select().from(schema.sandboxBindings)).toHaveLength(1);
 }, DB_TEST_TIMEOUT_MS);
 
 test("prepare, create, start, stop and destroy use durable admission and provider receipts", async () => {
