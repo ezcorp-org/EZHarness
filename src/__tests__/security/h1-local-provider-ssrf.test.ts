@@ -31,7 +31,7 @@
 // Tests fix(sec-H1): f1af9df
 
 import { test, expect, describe, afterAll, beforeEach, mock } from "bun:test";
-import { restoreModuleMocks, webLibModule } from "../helpers/mock-cleanup";
+import { restoreModuleMocks, webLibModule, serverModule } from "../helpers/mock-cleanup";
 import {
   mockServerAlias,
   createMockEvent,
@@ -110,7 +110,7 @@ mock.module("../../../web/src/lib/server/security/api-keys", () => ({
 let checkCalls: Array<{ baseUrl: string; modelId: string }> = [];
 let listCalls: Array<{ baseUrl: string }> = [];
 
-const localCheckMock = () => ({
+const localCheckMock = serverModule("providers/local-model-check", {
   checkLocalModel: async (baseUrl: string, modelId: string) => {
     checkCalls.push({ baseUrl, modelId });
     return {
@@ -129,8 +129,8 @@ const localCheckMock = () => ({
     };
   },
 });
-mock.module("$server/providers/local-model-check", localCheckMock);
-mock.module("../../providers/local-model-check", localCheckMock);
+mock.module("$server/providers/local-model-check", () => localCheckMock);
+mock.module("../../providers/local-model-check", () => localCheckMock);
 
 // ── Handler imports (AFTER mocks) ────────────────────────────────
 import { POST as POST_TEST } from "../../../web/src/routes/api/providers/local/test/+server";

@@ -4746,6 +4746,58 @@ file previously implied by omission. L1: added the missing fourth test above. Ne
 (the withheld-factory-orchestrator name; the empty-list guard for an orchestrator-only stage; removing
 the F1-guard's W18a-3 exemption once those files land) is item C's scope on `wp/w18-hygiene-2`.
 
+### Item D — the other pre-existing partial-mock pollution (coordinator ruling on finding 2, branch
+`wp/w18-hygiene-2` from `b7349ba8c`)
+
+- [x] Reproduced on the base before fixing anything: the 36 F1 files run together throw "Export named
+  X not found" for `$lib/server/context`, `$server/db/queries/extensions`, `$server/providers/
+  local-model-check`, `$lib/server/security/resource-quotas` — exactly the class F1 predicted, for
+  the modules F1 didn't touch.
+- [x] Found and converted every file (26, repo-wide) that partially mocks one of the four modules.
+- [x] Three of the four (`db/queries/extensions`, `local-model-check`, `resource-quotas`) use the same
+  `serverModule()`/`webLibModule()` pattern as F1.
+- [x] `$lib/server/context` needed a different fix: it's the app's central wiring module, and spreading
+  it for real cascades through an unbounded chain of the SAME test files' own unrelated partial mocks
+  of its transitive dependencies (agent-configs, conversations, user-commands, db/connection,
+  pending-messages — each layer found by direct reproduction, one at a time). Built
+  `completeFactory()`/`contextModule()`: a facade with the real export surface always present,
+  throwing stubs where not overridden, never requiring the real module.
+- [x] Found and fixed a companion false positive this surfaced in the "mock.module target is
+  snapshotted or exempt" meta-test: it didn't recognize a `serverModule()`/`webLibModule()`-bound
+  const as a valid `$server/*` shim.
+- [x] Bonus: a partial `$server/auth/middleware` mock in `extension-event-end-to-end.test.ts`, found
+  while chasing a residual failure.
+- [x] All 26 files pass individually at their real invocation; typecheck, lint, boundaries,
+  gate-integrity, `factory-process-boundaries.test.ts` all green.
+- [x] Coordinator-ruled fix: the residual pollution turned out to be THREE more partial mocks, not one
+  — `db/queries/conversations` and `db/queries/tool-calls` (same fix as the rest of item D), and a
+  THIRD, different bug class: `$lib/server/http-errors` had the right export name but a narrower
+  hand-rolled body that dropped the real signature's `details` param, which the guard test cannot
+  catch (it only checks for a missing export, not a behaviorally-incomplete one). A near-identical
+  instance was independently found in a second file while re-verifying against the full batch.
+  Reproduction batch now 682 pass / 0 fail (was 677/5).
+- [x] Validator-3 pre-review fixes P1 (completeFactory() has its own tests), P2 (CONTEXT_EXPORT_NAMES
+  pinned against context.ts's real export list, parsed from source, never imported), P3 (fixed a
+  companion classification bug the P1/GD5 meta-test fix introduced: an override-bearing
+  serverModule()/webLibModule() binding was wrongly treated as an unconditional shim; now only an
+  EMPTY-overrides binding is, and a non-empty one correctly falls through to the served/skipped check
+  instead of getting a free pass).
+- [x] Two much larger surveys (83 files still partially mock `db/queries/extensions` elsewhere in the
+  tree; ~39 partially mock `auth/middleware`) become item E, a later package on its own branch after
+  item C, per the coordinator's ruling — not undertaken here.
+
+**Review.** The three "shallow" modules confirmed F1's method generalizes cleanly. `$lib/server/context`
+did not: it's the one module in this set whose real implementation IS the app boot sequence, so
+"spread the real module" — the exact fix that worked everywhere else — recursively demands every OTHER
+module its own callers have their own reasons to stub. The right fix turned out to be narrower than F1's:
+guarantee the export NAMES (so a route's static import always links, which is the actual bug), and let a
+genuine behavioral gap fail loud and local instead of masquerading as every OTHER test's problem. The
+residual pollution taught the same lesson twice over: completing an export LIST is not the same
+guarantee as matching the real BEHAVIOR of an export that's already present, and the guard test that
+catches the first kind cannot see the second — a narrower reimplementation with the right name sails
+through silently until two files' tests happen to run in the same process and one needs the part the
+other dropped.
+
 ### Item C — F2 (27 bare git-init tests)
 
 Blocked on the integ/w00 hash containing W18a-3 (needs `src/__tests__/helpers/scratch-git.ts`). Not

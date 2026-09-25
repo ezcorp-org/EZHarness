@@ -7,7 +7,7 @@
 // laser-focused on the union/clamp logic.
 
 import { test, expect, describe, beforeEach, afterAll, mock } from "bun:test";
-import { restoreModuleMocks, webLibModule } from "../../../../../../../../src/__tests__/helpers/mock-cleanup";
+import { restoreModuleMocks, webLibModule, serverModule } from "../../../../../../../../src/__tests__/helpers/mock-cleanup";
 import { mockServerAlias, MEMBER_USER } from "../../../../../../../../src/__tests__/helpers/mock-request";
 
 mockServerAlias();
@@ -41,10 +41,11 @@ mock.module("$server/db/queries/conversations", () => ({
 // Route now uses `listExtensions(true)` to enumerate every enabled
 // extension. The wiring-derived shape (conversation_extensions +
 // ExtensionRegistry) is gone — toolbar contributions are global UI.
-mock.module("$server/db/queries/extensions", () => ({
+const dbExtensionsExports = serverModule("db/queries/extensions", {
   listExtensions: async (enabledOnly?: boolean) =>
     enabledOnly ? mockInstalled.filter((e) => e.enabled) : mockInstalled,
-}));
+});
+mock.module("$server/db/queries/extensions", () => dbExtensionsExports);
 
 const { GET } = await import(
   "../../../../../../../../web/src/routes/api/conversations/[id]/extension-toolbar/+server"

@@ -24,7 +24,7 @@
  */
 
 import { afterAll, beforeEach, afterEach, describe, expect, mock, spyOn, test } from "bun:test";
-import { restoreModuleMocks, webLibModule } from "./helpers/mock-cleanup";
+import { restoreModuleMocks, webLibModule, contextModule, serverModule } from "./helpers/mock-cleanup";
 
 // ── Real SSE-filter and real EventBus — load FIRST so every other
 // mock can pull symbols from them.
@@ -49,7 +49,13 @@ afterEach(() => admissionSpy.mockRestore());
 let mockConv: { id: string; userId: string | null } | null = null;
 let mockToolCall: { id: string; conversationId: string | null } | null = null;
 const conversationCalls: string[] = [];
-mock.module("$server/db/queries/conversations", () => ({
+// D residual fix: was a partial factory (getConversation,
+// getOrCreateExtServiceConversation only) — the same class as GD1-GD7,
+// masked until now by the $lib/server/context crash this item already
+// fixed. A sibling file needing e.g. getLatestLeaf got a mock.module()
+// registration that lacked it once this file's context fix made both
+// files' full test bodies actually run together.
+mock.module("$server/db/queries/conversations", () => serverModule("db/queries/conversations", {
   getConversation: async (id: string) => {
     conversationCalls.push(id);
     return mockConv;
@@ -60,7 +66,7 @@ mock.module("$server/db/queries/conversations", () => ({
   // exactly the pre-P2 behavior these cases assert.
   getOrCreateExtServiceConversation: async () => null,
 }));
-mock.module("$server/db/queries/tool-calls", () => ({
+mock.module("$server/db/queries/tool-calls", () => serverModule("db/queries/tool-calls", {
   getToolCallConversationById: async (_id: string) => mockToolCall,
 }));
 
@@ -68,7 +74,12 @@ mock.module("$server/db/queries/tool-calls", () => ({
 mock.module("$lib/server/security/api-keys", () => webLibModule("server/security/api-keys", {
   requireScope: () => null,
 }));
-mock.module("$server/auth/middleware", () => ({
+// F2: was a partial factory (checkProjectRole, requireAuth only) — the
+// same class of W18-hygiene item D bug, found while fixing this file's
+// $lib/server/context mock: a sibling test needing requireRole (or any
+// of the other 7 real exports) got a mock.module() registration that
+// lacked it, and Bun's "Export named X not found" persists across files.
+mock.module("$server/auth/middleware", () => serverModule("auth/middleware", {
   checkProjectRole: async () => true,
   requireAuth: () => ({
     id: "user-1",
@@ -78,22 +89,32 @@ mock.module("$server/auth/middleware", () => ({
   }),
 }));
 
-// ── http-errors helper (same shape as the real module so the route's
-// error-construction matches what callers see in prod).
-mock.module("$lib/server/http-errors", () => ({
-  errorJson: (status: number, message: string) =>
-    new Response(JSON.stringify({ error: message }), {
-      status,
-      headers: { "Content-Type": "application/json" },
-    }),
-}));
+// D residual fix: this used to hand-roll a 2-arg errorJson(status, message)
+// that silently dropped the real 4-arg signature's `details`/`extraHeaders`
+// (web/src/lib/server/http-errors.ts: `errorJson(status, message, details?,
+// extraHeaders?)`, which spreads `details` into the body). The comment
+// here always said "same shape as the real module" — that was the intent,
+// not a deliberate narrowing — so this is now the real module verbatim,
+// with no override at all. This was NOT a missing-export (link-time) bug
+// like the rest of item D: the narrower function still had the right
+// NAME, so mock-cleanup-coverage.test.ts's guard didn't catch it, and
+// completing the mock's export LIST (the fix for every other module in
+// this item) alone did not fix it. It surfaced as a wrong-shaped body in a
+// sibling file (messages-permission-mode-ceiling-route.test.ts's `body.field`
+// missing) whose route imports errorJson statically: bun test loads every
+// given file's top-level code (registering describe/test, running every
+// top-level `mock.module()` and top-level `await import()`) before running
+// ANY file's tests, so the sibling's route captured THIS file's stale
+// 2-arg override at import time, before this file's own tests — and
+// therefore its afterAll's restoreModuleMocks() — had run.
+mock.module("$lib/server/http-errors", () => webLibModule("server/http-errors", {}));
 
 // ── Stand up a real bus and inject it into `$lib/server/context` so
 // the route's `getBus()` returns the same instance the dispatcher
 // listens on. We don't import `web/src/lib/server/context` directly
 // (it pulls in the full server boot) — we mock the public surface.
 const bus = new EventBus<AgentEvents>();
-mock.module("$lib/server/context", () => ({
+const contextExports = contextModule({
   getBus: () => bus,
   // The route's spawn-path re-wire also imports getExecutor; a partial mock
   // that omits it fails EVERY import from the module at load. Throwing
@@ -101,7 +122,8 @@ mock.module("$lib/server/context", () => ({
   getExecutor: () => {
     throw new Error("executor not booted (test context)");
   },
-}));
+});
+mock.module("$lib/server/context", () => contextExports);
 
 afterAll(() => {
   unregisterExtensionEvent("fake", "ping");

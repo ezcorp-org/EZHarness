@@ -17,7 +17,7 @@
  */
 
 import { test, expect, describe, afterAll, beforeEach, mock } from "bun:test";
-import { restoreModuleMocks, webLibModule } from "./helpers/mock-cleanup";
+import { restoreModuleMocks, webLibModule, serverModule } from "./helpers/mock-cleanup";
 import type { LifecycleActor } from "../extensions/v4/types";
 import {
   mockServerAlias,
@@ -61,13 +61,13 @@ const fakeExtensionRow = async (id: string) => ({
   updatedAt: new Date(),
 });
 
-const extensionsQueriesMock = () => ({
+const extensionsQueriesMock = serverModule("db/queries/extensions", {
   getExtension: fakeExtensionRow,
   getExtensionByRef: fakeExtensionRow,
   updateExtension: async (id: string, data: Record<string, unknown>) => ({ id, ...data }),
 });
-mock.module("$server/db/queries/extensions", extensionsQueriesMock);
-mock.module("../db/queries/extensions", extensionsQueriesMock);
+mock.module("$server/db/queries/extensions", () => extensionsQueriesMock);
+mock.module("../db/queries/extensions", () => extensionsQueriesMock);
 
 const uninstallCalls: Array<{ actor: LifecycleActor; installationId: string }> = [];
 const lifecycleMock = () => ({

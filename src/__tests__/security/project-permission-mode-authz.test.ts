@@ -62,7 +62,7 @@
 import { test, expect, describe, afterAll, beforeEach, mock } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { restoreModuleMocks, webLibModule } from "../helpers/mock-cleanup";
+import { restoreModuleMocks, webLibModule, contextModule } from "../helpers/mock-cleanup";
 import { mockServerAlias, createMockEvent, jsonFromResponse, ADMIN_USER } from "../helpers/mock-request";
 
 // ── Module-level mocks (BEFORE handler imports) ──────────────────
@@ -122,15 +122,15 @@ mock.module("../../db/queries/conversations", conversationsMock);
 // Both spellings, as with the api-keys mock above: bun resolves the `$lib`
 // alias to the real file, so a mock keyed only on the alias string is not
 // consulted and the route reaches the uninitialised singleton.
-const contextMock = () => ({
+const contextMock = contextModule({
   getBus: () => ({
     emit: (type: string, data: unknown) => {
       emitted.push({ type, data });
     },
   }),
 });
-mock.module("$lib/server/context", contextMock);
-mock.module("../../../web/src/lib/server/context", contextMock);
+mock.module("$lib/server/context", () => contextMock);
+mock.module("../../../web/src/lib/server/context", () => contextMock);
 
 // ── Handler imports (AFTER mocks) ────────────────────────────────
 

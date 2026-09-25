@@ -1,5 +1,5 @@
 import { test, expect, describe, beforeEach, mock } from "bun:test";
-import { webLibModule } from "../../../src/__tests__/helpers/mock-cleanup";
+import { webLibModule, contextModule } from "../../../src/__tests__/helpers/mock-cleanup";
 import { taskSnapshotPort, taskAssignmentPort } from "./helpers/task-state-port";
 import type {
   TaskSnapshot,
@@ -112,7 +112,7 @@ const mockCancelRun = mock((_runId: string) => true);
 const mockStreamChat = mock(async (..._args: any[]) => ({}));
 const mockExecutor = { cancelRun: mockCancelRun, streamChat: mockStreamChat };
 
-mock.module("$lib/server/context", () => ({
+const contextExports = contextModule({
   getBus: () => mockBus,
   getExecutor: () => mockExecutor,
   getCommandRegistry: () => ({
@@ -120,7 +120,8 @@ mock.module("$lib/server/context", () => ({
     findCommand: async () => null,
     invalidate: () => {},
   }),
-}));
+});
+mock.module("$lib/server/context", () => contextExports);
 
 // ── Mock task-tracking-host ────────────────────────────────────────
 

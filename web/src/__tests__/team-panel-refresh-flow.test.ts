@@ -17,7 +17,7 @@
  */
 import { test, expect, describe, beforeEach, mock } from "bun:test";
 
-import { webLibModule } from "../../../src/__tests__/helpers/mock-cleanup";
+import { webLibModule, contextModule } from "../../../src/__tests__/helpers/mock-cleanup";
 // ── Conversation graph (mirrors the team structure) ────────────────
 //
 //   main-conv         (user-owned, the user's chat page)
@@ -108,7 +108,7 @@ const mockExecutor = {
   getActiveRunForConversation: () => null,
 };
 
-mock.module("$lib/server/context", () => ({
+const contextExports = contextModule({
   getBus: () => mockBus,
   getExecutor: () => mockExecutor,
   getCommandRegistry: () => ({
@@ -116,7 +116,8 @@ mock.module("$lib/server/context", () => ({
     findCommand: async () => null,
     invalidate: () => {},
   }),
-}));
+});
+mock.module("$lib/server/context", () => contextExports);
 
 mock.module("$server/db/queries/projects", () => ({
   getProject: async () => null,

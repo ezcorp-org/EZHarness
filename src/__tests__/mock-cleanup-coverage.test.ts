@@ -16,6 +16,7 @@
 import { describe, test, expect } from "bun:test";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
+import { completeFactory, CONTEXT_EXPORT_NAMES } from "./helpers/mock-cleanup";
 
 // Allow-list: paths that appear in `mock.module(...)` calls but are
 // intentionally NOT cached (e.g. SvelteKit `./$types` stubs which have
@@ -258,6 +259,18 @@ function isExempt(path: string): boolean {
  * A name rebound to a DIFFERENT specifier is dropped: fail closed rather than
  * guess which binding a factory closed over.
  */
+/**
+ * Whole-module bindings a test file introduces via `require()`/`import *`,
+ * name → specifier. Both forms count, because both are in use: `const
+ * realLogger = require("../logger")` (briefing-api, hub-api,
+ * hub-render-pull) and `import * as realLogger from "../logger"`
+ * (extension-events-hub-branch, which documents the top-level import as
+ * the ORDER-SAFE choice for a module nothing mocks). Either form IS the
+ * real module, unmodified — always a genuine shim, nothing to restore.
+ *
+ * A name rebound to a DIFFERENT specifier is dropped: fail closed rather than
+ * guess which binding a factory closed over.
+ */
 function collectModuleBindings(source: string): Map<string, string> {
   const bindings = new Map<string, string>();
   const re =
@@ -271,30 +284,99 @@ function collectModuleBindings(source: string): Map<string, string> {
   return bindings;
 }
 
+/**
+ * validator-3 P3: `const NAME = serverModule("relPath", overrides)` /
+ * `webLibModule("libPath", overrides)` bindings, name → the module they
+ * target plus whether `overrides` is non-empty.
+ *
+ * Deliberately separate from collectModuleBindings(): a require()/import*
+ * binding is unconditionally a shim (it IS the real module — nothing to
+ * restore), but a serverModule()/webLibModule() binding is a shim only
+ * when `overrides` is `{}` (a pure passthrough, functionally identical to
+ * require()). Any non-empty `overrides` REPLACES exports on the real
+ * module, exactly like the raw-object-literal factories this whole file
+ * exists to catch (see the "TWO PROPERTIES" note above) — it needs the
+ * alias to be `served` or `skipped` by restoreModuleMocks() like any other
+ * stub, not a free pass. Treating every helper call as an unconditional
+ * shim (the original P3 bug, landed in 1645390fc) meant an override-
+ * bearing helper mock at an alias restoreModuleMocks() never touches would
+ * have passed silently; the regression fixture below pins the fix.
+ */
+function collectHelperBindings(source: string): Map<string, { target: string; hasOverrides: boolean }> {
+  const bindings = new Map<string, { target: string; hasOverrides: boolean }>();
+  const re = /(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(serverModule|webLibModule)\(/g;
+  for (const m of source.matchAll(re)) {
+    const name = m[1]!;
+    const helper = m[2]!;
+    const openParen = source.indexOf("(", m.index + m[0].length - 1);
+    const closeParen = matchingParenIndex(source, openParen);
+    if (closeParen === -1) continue;
+    const args = splitTopLevelArgs(source.slice(openParen + 1, closeParen));
+    if (args.length < 2) continue;
+    const pathArg = args[0]!.match(/"([^"]+)"/);
+    if (!pathArg) continue;
+    const target = helper === "serverModule" ? `../../${pathArg[1]}` : `../../../web/src/lib/${pathArg[1]}`;
+    const overridesText = args.slice(1).join(",").trim();
+    const hasOverrides = overridesText !== "{}" && overridesText !== "{ }";
+    const existing = bindings.get(name);
+    if (!existing) bindings.set(name, { target, hasOverrides });
+    else if (existing.target !== target || existing.hasOverrides !== hasOverrides) {
+      // Ambiguous rebind: fail closed downstream by pointing nowhere real.
+      bindings.set(name, { target: "", hasOverrides: true });
+    }
+  }
+  return bindings;
+}
+
 function classifyServerAliasFactories(
   source: string,
   testFile: string,
 ): Map<string, "shim" | "redirect"> {
   const stripped = stripCommentLines(source);
   const bindings = collectModuleBindings(stripped);
+  const helperBindings = collectHelperBindings(stripped);
   const byAlias = new Map<string, "shim" | "redirect">();
 
   const record = (alias: string, specifier: string | undefined) => {
     const tail = stripJsTsExt(alias.slice("$server/".length));
-    const verdict =
-      specifier && canonicalize(specifier, testFile) === `../../${tail}` ? "shim" : "redirect";
+    const target = `../../${tail}`;
+    const resolved = specifier ? canonicalize(specifier, testFile) : undefined;
+    const verdict = resolved === target ? "shim" : "redirect";
     // Fail closed: one redirect for an alias condemns it even if another
     // registration in the same file is well-formed.
     if (verdict === "redirect" || !byAlias.has(alias)) byAlias.set(alias, verdict);
+  };
+
+  // A serverModule()/webLibModule() binding: shim only when target matches
+  // AND overrides is empty; a target mismatch is a redirect regardless of
+  // overrides; a matching target WITH overrides records no verdict here,
+  // deliberately, so isServerPrefixed() falls through to the served/
+  // skipped check below — never silently exempted, never wrongly
+  // condemned by a rule that was never designed to judge an override.
+  const recordHelper = (alias: string, binding: { target: string; hasOverrides: boolean }) => {
+    const tail = stripJsTsExt(alias.slice("$server/".length));
+    const target = `../../${tail}`;
+    if (binding.target !== target) {
+      byAlias.set(alias, "redirect");
+      return;
+    }
+    if (!binding.hasOverrides && !byAlias.has(alias)) byAlias.set(alias, "shim");
   };
 
   // `() => require("<specifier>")`
   const inline = /mock\.module\(\s*"(\$server\/[^"]+)"\s*,\s*\(\)\s*=>\s*require\(\s*"([^"]+)"\s*\)\s*,?\s*\)/g;
   for (const m of stripped.matchAll(inline)) record(m[1]!, m[2]!);
 
-  // `() => <module binding>`
+  // `() => <module binding>` — resolve NAME through whichever binding kind
+  // recognizes it; an unrecognized name is a genuine unknown, fail closed.
   const viaBinding = /mock\.module\(\s*"(\$server\/[^"]+)"\s*,\s*\(\)\s*=>\s*([A-Za-z_$][\w$]*)\s*,?\s*\)/g;
-  for (const m of stripped.matchAll(viaBinding)) record(m[1]!, bindings.get(m[2]!) || undefined);
+  for (const m of stripped.matchAll(viaBinding)) {
+    const alias = m[1]!;
+    const name = m[2]!;
+    if (bindings.has(name)) record(alias, bindings.get(name));
+    else if (helperBindings.has(name)) recordHelper(alias, helperBindings.get(name)!);
+    else record(alias, undefined);
+  }
 
   return byAlias;
 }
@@ -575,6 +657,73 @@ describe("mock-cleanup coverage (meta-test)", () => {
     ].join("\n");
 
     expect(covered(src, "$server/memory/chunking")).toBe(false);
+  });
+
+  // validator-3 P3 regression fixture: an override-bearing serverModule()/
+  // webLibModule() binding is NOT a free-pass shim (1645390fc's bug — every
+  // helper-bound alias was covered unconditionally, so this exact shape
+  // would have passed silently). The fix records no verdict for it and
+  // falls through to the served/skipped check; for an alias
+  // restoreModuleMocks() never touches, that check must still say
+  // uncovered.
+  test("an override-bearing serverModule() binding at an UNSERVED alias still fails", () => {
+    const src = [
+      `const notReallyAShimExports = serverModule(${Q}some/unserved/module${Q}, { checkThing: () => true });`,
+      `mock.module(${Q}$server/some/unserved/module${Q}, () => notReallyAShimExports);`,
+    ].join("\n");
+
+    expect([...extractServerAliasShims(src, FAKE)]).toEqual([]);
+    // Not served, not skipped: uncovered, exactly like a raw partial stub
+    // at the same alias would be.
+    expect(covered(src, "$server/some/unserved/module")).toBe(false);
+  });
+
+  test("an override-bearing serverModule() binding at a SERVED alias is covered via rule 3, not the shim rule", () => {
+    // Same shape as the fixture above, but for an alias restoreModuleMocks()
+    // actually re-registers. This is the "nothing real is exempted today"
+    // case validator-3 confirmed by probing rule 3 — pinned here so the
+    // distinction (shim vs served) cannot silently collapse back into one
+    // unconditional "helper binding = covered" rule.
+    const src = [
+      `const dbExtensionsExports = serverModule(${Q}db/queries/extensions${Q}, { getExtension: async () => null });`,
+      `mock.module(${Q}$server/db/queries/extensions${Q}, () => dbExtensionsExports);`,
+    ].join("\n");
+
+    expect([...extractServerAliasShims(src, FAKE)]).toEqual([]);
+    expect(covered(src, "$server/db/queries/extensions")).toBe(false);
+    expect(covered(src, "$server/db/queries/extensions", ["$server/db/queries/extensions"])).toBe(true);
+  });
+
+  test("an EMPTY-overrides serverModule() binding is a true shim, no served/skipped needed", () => {
+    // webLibModule() has no equivalent fixture here: it targets
+    // `web/src/lib/*` (a `$lib/*` shape, checked separately by
+    // isLibAliasCovered — see that function's own tests), so its target
+    // form can never equal a `$server/*` alias's tail-derived target
+    // regardless of overrides. serverModule() is the one of the two
+    // helpers that legitimately binds a `$server/*` alias.
+    const src = [
+      `const dbExtensionsExports = serverModule(${Q}db/queries/extensions${Q}, {});`,
+      `mock.module(${Q}$server/db/queries/extensions${Q}, () => dbExtensionsExports);`,
+    ].join("\n");
+    const withSpace = src.replace("{}", "{ }");
+
+    for (const s of [src, withSpace]) {
+      expect([...extractServerAliasShims(s, FAKE)]).toEqual(["$server/db/queries/extensions"]);
+      expect(covered(s, "$server/db/queries/extensions")).toBe(true);
+    }
+  });
+
+  test("a serverModule() binding whose target does NOT match the alias tail is a redirect, overrides or not", () => {
+    const src = [
+      `const wrongExports = serverModule(${Q}db/queries/extensions${Q}, {});`,
+      // Alias names a DIFFERENT module than the one bound — a genuine
+      // substitution risk, must fail closed regardless of overrides.
+      `mock.module(${Q}$server/auth/middleware${Q}, () => wrongExports);`,
+    ].join("\n");
+
+    expect([...extractServerAliasShims(src, FAKE)]).toEqual([]);
+    expect(covered(src, "$server/auth/middleware")).toBe(false);
+    expect(covered(src, "$server/auth/middleware", ["$server/auth/middleware"])).toBe(false);
   });
 
   test("a $server STUB is not a shim — the wire-gate offender still fails", () => {
@@ -955,5 +1104,86 @@ describe("F1 guard: every $lib/server/security/api-keys mock is complete (W18 hy
       );
     }
     expect(offenders).toEqual([]);
+  });
+});
+
+// validator-3 P1: completeFactory() itself — the fix for a module too heavy
+// to spread for real (see its doc comment and W18-hygiene item D's GD4).
+// Three properties make it safe to use in place of webLibModule()/
+// serverModule() for such a module: a missing name throws only when
+// CALLED (never when a route merely links it — the actual bug this whole
+// item fixes), the thrown error names the export so a real gap is easy to
+// diagnose, and a given override always wins over the throwing default.
+describe("completeFactory() (the contextModule() fix for a too-heavy module)", () => {
+  const NAMES = ["a", "b", "c"] as const;
+
+  test("a name with no override exists on the object but throws only when CALLED", () => {
+    const f = completeFactory<Record<(typeof NAMES)[number], () => unknown>>(NAMES, {});
+    // Linking: the property exists and is a function — a route's static
+    // `import { b } from "..."` finds a binding, so it never sees
+    // "Export named 'b' not found".
+    expect(Object.keys(f).sort()).toEqual([...NAMES].sort());
+    expect(typeof f.b).toBe("function");
+    // Calling: THIS is where an unstubbed gap surfaces — loud, and only in
+    // the test that actually exercises the path nothing overrode.
+    expect(() => f.b()).toThrow();
+  });
+
+  test("the thrown error names the export that was not stubbed", () => {
+    const f = completeFactory<Record<(typeof NAMES)[number], () => unknown>>(NAMES, {});
+    expect(() => f.c()).toThrow(/c/);
+  });
+
+  test("a given override always wins over the throwing default", () => {
+    const sentinel = () => "REAL VALUE";
+    const f = completeFactory<Record<(typeof NAMES)[number], () => unknown>>(NAMES, { a: sentinel });
+    expect(f.a).toBe(sentinel);
+    expect(f.a()).toBe("REAL VALUE");
+    // The other two names are still present and still throw-on-call —
+    // an override for one name must not accidentally satisfy another.
+    expect(() => f.b()).toThrow();
+    expect(() => f.c()).toThrow();
+  });
+
+  test("an override need not be a function — completeFactory does not inspect the value", () => {
+    const f = completeFactory<Record<(typeof NAMES)[number], unknown>>(NAMES, { a: 42, b: null });
+    expect(f.a).toBe(42);
+    expect(f.b).toBeNull();
+  });
+});
+
+// validator-3 P2: CONTEXT_EXPORT_NAMES is a hand-kept list (contextModule()
+// cannot import the real module to derive it — that is the whole point of
+// GD4). If web/src/lib/server/context.ts gains, removes, or renames an
+// export and nobody updates CONTEXT_EXPORT_NAMES, every contextModule()
+// call site silently goes back to being a partial factory — the exact bug
+// this item fixes, reintroduced by drift instead of by a raw object
+// literal. Parses the SOURCE FILE with a regex, not `import`/`require`, so
+// this pin test itself never pulls in context.ts's own heavy graph.
+describe("CONTEXT_EXPORT_NAMES stays in sync with context.ts's real export list", () => {
+  const CONTEXT_TS = join(import.meta.dir, "..", "..", "web", "src", "lib", "server", "context.ts");
+
+  function parseExportedFunctionNames(source: string): string[] {
+    const names: string[] = [];
+    const re = /^export\s+(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(/gm;
+    for (const m of stripCommentLines(source).matchAll(re)) names.push(m[1]!);
+    return names;
+  }
+
+  test("parseExportedFunctionNames finds every top-level `export function`", () => {
+    const src = [
+      "export function a(): void {}",
+      "// export function commentedOut(): void {}",
+      "export async function b(): Promise<void> {}",
+      "function notExported(): void {}",
+      "export const c = () => {};", // not a `function` declaration — deliberately not matched
+    ].join("\n");
+    expect(parseExportedFunctionNames(src)).toEqual(["a", "b"]);
+  });
+
+  test("CONTEXT_EXPORT_NAMES equals context.ts's real exported-function names, exactly", () => {
+    const real = parseExportedFunctionNames(readFileSync(CONTEXT_TS, "utf8"));
+    const pinned: string[] = [...CONTEXT_EXPORT_NAMES];
+    expect(pinned.sort()).toEqual(real.sort());
   });
 });

@@ -11,7 +11,7 @@
  *   - auth + `extensions` scope are both enforced.
  */
 import { test, expect, describe, beforeEach, afterAll, mock } from "bun:test";
-import { restoreModuleMocks, webLibModule } from "../../../../../../src/__tests__/helpers/mock-cleanup";
+import { restoreModuleMocks, webLibModule, serverModule } from "../../../../../../src/__tests__/helpers/mock-cleanup";
 import {
   mockServerAlias,
   MEMBER_USER,
@@ -88,9 +88,10 @@ const deleteSecretCalls: Array<{
   opts: unknown;
 }> = [];
 
-mock.module("$server/db/queries/extensions", () => ({
+const dbExtensionsExports = serverModule("db/queries/extensions", {
   getExtension: async (id: string) => extensionsById[id] ?? null,
-}));
+});
+mock.module("$server/db/queries/extensions", () => dbExtensionsExports);
 
 mock.module("$server/db/queries/projects", () => ({
   getProject: async (id: string) => projectsById[id] ?? undefined,

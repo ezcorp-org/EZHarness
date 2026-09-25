@@ -1,5 +1,5 @@
 import { test, expect, describe, beforeEach, afterAll, mock } from "bun:test";
-import { restoreModuleMocks, webLibModule } from "./helpers/mock-cleanup";
+import { restoreModuleMocks, webLibModule, serverModule } from "./helpers/mock-cleanup";
 import { mockServerAlias, createMockEvent, jsonFromResponse, ADMIN_USER, MEMBER_USER } from "./helpers/mock-request";
 
 // ── Module-level mocks (BEFORE handler imports) ──────────────────
@@ -32,9 +32,10 @@ mock.module("../auth/middleware", () => ({
   requireRole: mockRequireRole,
 }));
 
-mock.module("../providers/local-model-check", () => ({
+const localModelExports = serverModule("providers/local-model-check", {
   checkLocalModel: mockCheckLocalModel,
-}));
+});
+mock.module("../providers/local-model-check", () => localModelExports);
 
 // Register $server aliases
 mockServerAlias();
@@ -44,9 +45,7 @@ mock.module("$server/auth/middleware", () => ({
   requireAuth: mockRequireAuth,
   requireRole: mockRequireRole,
 }));
-mock.module("$server/providers/local-model-check", () => ({
-  checkLocalModel: mockCheckLocalModel,
-}));
+mock.module("$server/providers/local-model-check", () => localModelExports);
 
 // F2: the REAL `requireScope` — not a `() => null` stub — so the scope axis is
 // genuinely under test. Cookie principals (no `apiKeyScopes`) still pass it,

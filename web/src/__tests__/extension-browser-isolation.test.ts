@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "@playwright/test";
 import { SANDBOX_FLAGS_STRICT } from "../lib/components/tool-cards/iframe-card-logic";
-import { restoreModuleMocks, webLibModule } from "../../../src/__tests__/helpers/mock-cleanup";
+import { restoreModuleMocks, webLibModule, serverModule } from "../../../src/__tests__/helpers/mock-cleanup";
 
 const directory = await mkdtemp(join(tmpdir(), "ez-browser-boundary-"));
 const rateLimiterExports = await import("../lib/server/security/rate-limiter");
@@ -14,7 +14,8 @@ const apiKeysExports = webLibModule("server/security/api-keys", { requireScope: 
 mock.module("$lib/server/security/api-keys", () => apiKeysExports);
 mock.module("$lib/server/http-errors", () => ({ errorJson: (status: number, error: string) => Response.json({ error }, { status }) }));
 mock.module("$server/chat/attachments/ext-files-resolver", () => ({ extensionDataRoot: () => directory }));
-mock.module("$server/db/queries/extensions", () => ({ getExtensionByName: async () => ({ enabled: true }) }));
+const dbExtensionsExports = serverModule("db/queries/extensions", { getExtensionByName: async () => ({ enabled: true }) });
+mock.module("$server/db/queries/extensions", () => dbExtensionsExports);
 mock.module("$lib/server/security/rate-limiter", () => rateLimiterExports);
 const { GET } = await import("../routes/api/extensions/[name]/data/[...path]/+server");
 afterAll(async () => { restoreModuleMocks(); await rm(directory, { recursive: true, force: true }); });

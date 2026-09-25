@@ -7,7 +7,7 @@
 // upstream tests in their own modules.
 
 import { test, expect, describe, beforeEach, afterAll, mock } from "bun:test";
-import { restoreModuleMocks, webLibModule } from "../../../../../../../../src/__tests__/helpers/mock-cleanup";
+import { restoreModuleMocks, webLibModule, serverModule } from "../../../../../../../../src/__tests__/helpers/mock-cleanup";
 import { mockServerAlias, MEMBER_USER } from "../../../../../../../../src/__tests__/helpers/mock-request";
 
 mockServerAlias();
@@ -44,9 +44,10 @@ const convQueriesMock = () => ({
 });
 mock.module("$server/db/queries/conversations", convQueriesMock);
 
-mock.module("$server/db/queries/extensions", () => ({
+const dbExtensionsExports = serverModule("db/queries/extensions", {
   getExtensionByName: async (name: string) => (mockExt && mockExt.name === name ? mockExt : null),
-}));
+});
+mock.module("$server/db/queries/extensions", () => dbExtensionsExports);
 
 mock.module("$server/db/queries/conversation-extensions", () => ({
   getConversationExtensionIds: async () => mockWiredExtIds,
