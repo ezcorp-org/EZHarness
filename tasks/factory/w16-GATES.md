@@ -124,6 +124,11 @@ Coordinator ruling 2026-09-22: approved for W16; the owner's package inherits it
   EXPECT: all green
   EVIDENCE: `/tmp/factory-platform-evidence/w16/logs/sweep-14.log` at db8acda26 (integ/w00 merged at 39d9b744f; no newer integ commit): SDK builds, unit and PG producers with lcov, merge, new-file and patch coverage, typecheck, lint, boundaries, deployment locks, gate integrity, all exit 0
 
+- [ ] G15: Final hold at the final code head after the 2b2e12550 merge: PostgreSQL producers first, then the Podman suites the diff touches, the Temporal route proof, the live Compose fleet and lifecycle, Kubernetes, the boundary suites, and the fast and coverage legs with `BASE_REF=2b2e12550`.
+  CHECK: `flock --close /tmp/ezcorp-validation-heavy.lock timeout 14400 bash /tmp/factory-platform-evidence/w16/repro/final-hold.sh <label>`
+  EXPECT: every leg exit 0; one receipt per leg
+  EVIDENCE: pending
+
 ## Named readiness rows that stay open on this host
 
 | Row | Why it is open |
@@ -137,7 +142,8 @@ Coordinator ruling 2026-09-22: approved for W16; the owner's package inherits it
 | `hosted-ingress-snippet` | ingress-nginx 1.9+ disables the `configuration-snippet` annotation that sets the installation header |
 | `hosted-host-identity-shared` | The Kubernetes supervisor DaemonSet holds one fleet-wide host identity (as the Compose fleet host now does too) |
 | `gpu-profile-lease-consumer` | Disclosed structural gap, owner W02; W02d builds it after W16 lands (coordinator ruling). The pool validates GPU declarations but does not yet authorize devices from them: `factoryHeldAllocationDevices` in `runner/attempt-wire.ts` has no production caller |
-| `restore-lifecycle-step` | Disclosed structural gap, owner W16, a follow-up package after this round (from W14's restore proof against W15). An in-place restore blocks on `database_position_mismatch`, because nothing restores the installation's database to the checkpoint first: the provisioner has no restore lifecycle step (point-in-time recovery to the checkpoint, then the pool restore import) |
+| `restore-lifecycle-step` | Named follow-up, owner W16 (coordinator ruling 2026-09-24): the restore-to-checkpoint lifecycle step, a W16 package after this round (from W14's restore proof against W15). An in-place restore blocks on `database_position_mismatch`, because nothing restores the installation's database to the checkpoint first: the provisioner has no restore lifecycle step (point-in-time recovery to the checkpoint, then the pool restore import) |
+| `guest-broker-route-unrendered` | W01g added the optional `guestBroker` section to the installation startup document and `services.guestBroker` to the supervisor document. The provisioner renders neither yet, so a guest's staging frame is refused by name (`FactoryHostBrokerUnavailableError`). Readiness reports the missing route by name and does not degrade, so no installation is held. Owner: W16 follow-up with `restore-lifecycle-step` |
 | `orchestrator-build-id-versioning` | The orchestrator does not implement Temporal worker build-ID versioning; builds are retained at the image and release level |
 | Production GPU, eight rows | `FACTORY_PRODUCTION_GPU_CRITERIA`, all unmet with the verdicts in `docs/factory-local-gpu.md` |
 
@@ -189,6 +195,33 @@ Follow-up `orchestrator-key-management` (W15b): the orchestrator's `codec`
 section does not yet accept `keyManagement`, because W15b has not landed. The
 installation startup document declares it now. The orchestrator document
 declares it when the merged orchestrator parser accepts the field.
+
+## After integ/w00 2b2e12550 (merged at 70def1355)
+
+The merge brings W02c, W01g, W09c, W09d-2, W04b, W12c, W15, and W15c. Record:
+`/tmp/factory-platform-evidence/w16/merge-2b2e12550/merge.json`.
+
+| Hunk | Resolution |
+| --- | --- |
+| `src/db/migrate.ts`, registration after the legacy workflow adapters | Both sides: W16's installation bootstrap, then W02c's package fence runs and W04b's artifact regrant; recovery stays last |
+| `src/factory/runner/supervisor-process.test.ts`, the bind retry test's readiness writer | W01g's side (ruling: the W01g fixture is canonical for the supervisor flake). W16 keeps only its installation-free readiness record, which did not conflict |
+| `tasks/todo.md`, the section list | Both sides |
+
+Integration fix: the merged dependency bump removes `KeyPairKeyObjectResult`
+from `@types/node`. The pool process fixture now infers its key type from its
+own generator (`src/factory/pool/process.test.ts`).
+
+W15 and W15c items W16 depends on:
+
+- Checkpoint-limits leaf: W16 imports neither `checkpoint-barrier.ts` nor
+  `checkpoint-limits.ts`. W15c's node-service-link rule covers the pool graph
+  W16 changed (`pool/process.ts`, `pool/gpu-host-profiles.ts`), and
+  `check-factory-boundaries.ts` passes on the merged tree. The image runs the
+  pool under Bun, so the pool's Node bundle does not change the deployment.
+- Recovery composition: every rendered installation startup document declares
+  every recovery section (see "After W15" below). The merged parser's
+  `checkRecoverySections` accepts each one (`deployment.test.ts`), so no
+  provisioned installation is degraded for an undeclared recovery section.
 
 ## Pre-commit hook skip (disclosed)
 

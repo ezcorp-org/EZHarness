@@ -1569,3 +1569,9 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 - A Node service may import only leaf modules from the product. `src/db/queries/*` and anything that
   reaches them (records, auth) pull in `db/connection` and the Bun SQL driver. Put shared constants and
   types in a leaf, and let `check-factory-boundaries.ts` (`NODE_SERVICE_BOUNDARIES`) guard the entry.
+
+## 2026-09-24 — An empty test list turns a targeted run into a root run (W16)
+
+- Under zsh, an unmatched glob such as `--include=*.test.ts` fails the whole command substitution, so
+  `bun test --timeout N $T` received no file and ran every test at the repo root. Build a test list in
+  bash with `mapfile`, quote the pattern, and exit before `bun test` when the list is empty.
