@@ -120,7 +120,9 @@
 				uncertain = needsStatusCheck;
 				error = outcomeError;
 				busy = false;
-			if (applied?.plan.planDigest === reviewed.planDigest) onapplied?.(applied);
+			if (applied?.plan.planDigest === reviewed.planDigest) {
+				onapplied?.(applied);
+			}
 			}
 		}
 	}
@@ -136,7 +138,7 @@
 			<p class="intro">Read current host headroom, review the safe limits, then apply the exact plan.</p></div>
 		<span class:ready={receipt} class="state">{receipt ? "Applied" : plan ? "Review plan" : "Not set"}</span>
 	</header>
-	{#if error}<p class="message error" role="alert">{error}</p>{/if}
+	{#if error}<p class="message error text-red-700 dark:text-red-300" role="alert">{error}</p>{/if}
 	{#if busy}<p class="message" role="status">Checking capacity…</p>{/if}
 	{#if shownPlan}
 		<div class="measurements" aria-label="Sandbox host capacity">
@@ -170,7 +172,7 @@
 	.state{border:1px solid var(--color-border);border-radius:999px;padding:5px 10px;color:var(--color-text-muted);font-size:.72rem;white-space:nowrap}.state.ready{color:var(--color-accent);border-color:var(--color-accent)}
 	.measurements{display:grid;grid-template-columns:repeat(auto-fit,minmax(105px,1fr));gap:1px;background:var(--color-border);border:1px solid var(--color-border);border-radius:9px;overflow:hidden;margin-top:20px}.measurements>div{background:var(--color-surface-secondary);padding:14px 12px;min-width:0}.measurements span{display:block;color:var(--color-text-muted);font-size:.7rem;margin-bottom:7px}.measurements strong{font-size:1rem;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
 	.plan-details{display:flex;flex-wrap:wrap;justify-content:space-between;gap:6px 18px;color:var(--color-text-muted);font-size:.75rem;margin-top:13px}.digest{display:flex;flex-wrap:wrap;gap:5px 12px;margin:12px 0 16px;font-size:.72rem;color:var(--color-text-muted)}.digest code{color:var(--color-text-primary);overflow-wrap:anywhere;word-break:break-all}
-	.message{border-radius:8px;padding:10px 12px;margin:18px 0 0;background:var(--color-surface-tertiary);font-size:.82rem}.message.error{border:1px solid #ba654e;color:#f3ad9c}.message.success{border:1px solid var(--color-accent);color:var(--color-accent)}
+	.message{border-radius:8px;padding:10px 12px;margin:18px 0 0;background:var(--color-surface-tertiary);font-size:.82rem}.message.error{border:1px solid #ba654e}.message.success{border:1px solid var(--color-accent);color:var(--color-accent)}
 	.approval{display:flex;align-items:flex-start;gap:10px;font-size:.82rem;line-height:1.4;margin:18px 0 12px;cursor:pointer}.approval input{margin-top:2px;accent-color:var(--color-accent)}.actions{display:flex;flex-wrap:wrap;gap:9px;margin-top:20px}
 	button{border-radius:7px;padding:9px 14px;font-size:.8rem;font-weight:700;cursor:pointer}button:disabled{opacity:.5;cursor:not-allowed}.plan,.apply{background:var(--color-accent);border:1px solid var(--color-accent);color:var(--color-surface-primary,#101722)}.secondary{background:transparent;border:1px solid var(--color-border);color:var(--color-text-primary)}
 	@media(max-width:520px){.capacity{padding:18px}.heading{flex-direction:column}.measurements{grid-template-columns:repeat(2,minmax(0,1fr))}}
