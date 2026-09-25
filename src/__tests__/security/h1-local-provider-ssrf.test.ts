@@ -31,7 +31,7 @@
 // Tests fix(sec-H1): f1af9df
 
 import { test, expect, describe, afterAll, beforeEach, mock } from "bun:test";
-import { restoreModuleMocks } from "../helpers/mock-cleanup";
+import { restoreModuleMocks, webLibModule } from "../helpers/mock-cleanup";
 import {
   mockServerAlias,
   createMockEvent,
@@ -87,7 +87,7 @@ mock.module("node:dns/promises", () => ({
 
 // requireScope must stay a no-op passthrough — we're exercising the NEW
 // requireRole gate, not an api-key scope check.
-mock.module("$lib/server/security/api-keys", () => ({
+mock.module("$lib/server/security/api-keys", () => webLibModule("server/security/api-keys", {
   requireScope: () => null,
   // Real contract: null when the principal IS an admin, else a 403 Response.
   // RETURNED, never thrown — a thrown Response 500s via SvelteKit.

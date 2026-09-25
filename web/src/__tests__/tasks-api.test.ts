@@ -1,4 +1,5 @@
 import { test, expect, describe, beforeEach, mock } from "bun:test";
+import { webLibModule } from "../../../src/__tests__/helpers/mock-cleanup";
 import type { TaskSnapshot } from "../../../src/runtime/task-tracking-host";
 import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
@@ -43,9 +44,10 @@ mock.module("$server/auth/middleware", () => ({
 }));
 
 let mockScopeResponse: Response | null = null;
-mock.module("$lib/server/security/api-keys", () => ({
+const apiKeysExports = webLibModule("server/security/api-keys", {
   requireScope: () => mockScopeResponse,
-}));
+});
+mock.module("$lib/server/security/api-keys", () => apiKeysExports);
 
 // Import handler AFTER all mocks are installed.
 const { GET } = await import("../routes/api/conversations/[id]/tasks/+server");

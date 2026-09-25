@@ -714,3 +714,246 @@ describe("mock-cleanup coverage (meta-test)", () => {
     expect(stripCommentLines(`// ${q}x${q}\n${q}y${q}`)).toBe(`${q}y${q}`);
   });
 });
+
+/**
+ * ── F1 guard: a `$lib/*` mock.module factory must be COMPLETE (W18 hygiene) ──
+ *
+ * A partial `$lib/*` factory — a raw object literal carrying only SOME of
+ * the real module's exports — freezes the module's export NAMES for the
+ * rest of the process: the first route that links it gets exactly those
+ * names, and neither a later mock.module() registration nor
+ * restoreModuleMocks() can add a missing one back. Two partial factories
+ * (api-keys, then validation) made later suites' routes fail to link
+ * ("Export named 'requireAdmin' not found", "Export named
+ * 'projectPathSchema' not found"; 2026-09-24) — see W18a-3's F1 disclosure
+ * in tasks/factory/w18a3-GATES.md. `webLibModule()` in
+ * `./helpers/mock-cleanup.ts` is the fix: it spreads the REAL module under
+ * the overrides. This section pins the detector that tells a complete
+ * factory from a partial one, and enforces it for the module the F1
+ * conversion (W18 hygiene) actually completed:
+ * `$lib/server/security/api-keys`.
+ */
+
+/**
+ * A `$lib/*` factory body is complete iff it spreads the real module —
+ * either via `webLibModule(...)`, or a bare `require(...)` passthrough
+ * (with nothing subtracted), or an object literal that spreads a
+ * `require(...)` call under its own overrides. A raw object literal with
+ * no spread of the real module is partial: it freezes the export list to
+ * whatever keys the test author happened to write down.
+ */
+function isCompleteLibFactoryBody(body: string): boolean {
+  const b = body.trim();
+  if (b.includes("webLibModule(")) return true;
+  // A bare passthrough: `() => require("...")`, optionally with the
+  // trailing comma a multi-line call argument list leaves behind.
+  if (/^\(\)\s*=>\s*require\(\s*"[^"]+"\s*\)\s*,?\s*$/.test(b)) return true;
+  // An object literal that spreads a `require(...)` call before laying
+  // overrides on top: `() => ({ ...require("../real"), x: 1 })`.
+  if (/\{\s*\.\.\.\s*require\(\s*"[^"]+"\s*\)/.test(b)) return true;
+  return false;
+}
+
+/** Balanced-paren index of the `)` matching the `(` at `openIdx`. */
+function matchingParenIndex(s: string, openIdx: number): number {
+  let depth = 0;
+  for (let i = openIdx; i < s.length; i++) {
+    if (s[i] === "(") depth++;
+    else if (s[i] === ")") {
+      depth--;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
+/** Split the (already-balanced) contents of a call's argument list at its
+ *  top-level commas — nested `()`, `{}`, `[]` do not split. */
+function splitTopLevelArgs(s: string): string[] {
+  const args: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (c === "(" || c === "{" || c === "[") depth++;
+    else if (c === ")" || c === "}" || c === "]") depth--;
+    else if (c === "," && depth === 0) {
+      args.push(s.slice(start, i));
+      start = i + 1;
+    }
+  }
+  args.push(s.slice(start));
+  return args;
+}
+
+/** The RHS of a top-level `const <name> = <expr>;` declaration, balanced
+ *  across nested `()`/`{}`/`[]` so a `;` inside an override body cannot
+ *  end the search early. */
+function resolveConstDecl(source: string, name: string): string | null {
+  const declRe = new RegExp(`\\bconst\\s+${name}\\s*=\\s*`);
+  const m = declRe.exec(source);
+  if (!m) return null;
+  let depth = 0;
+  for (let i = m.index + m[0].length; i < source.length; i++) {
+    const c = source[i];
+    if (c === "(" || c === "{" || c === "[") depth++;
+    else if (c === ")" || c === "}" || c === "]") depth--;
+    else if (c === ";" && depth === 0) {
+      return source.slice(m.index + m[0].length, i).trim();
+    }
+  }
+  return null;
+}
+
+/**
+ * Every `mock.module("<libSpecifier>", <factory>)` factory body in
+ * `source`, for an exact specifier string. Handles three call shapes seen
+ * in the tree: an inline factory (`() => ({...})` or `() => require(...)`),
+ * a bare-identifier factory (`mock.module(path, apiKeysMock)` — the
+ * pre-F1 shape), and an arrow wrapping a bare identifier
+ * (`mock.module(path, () => apiKeysMock)` — the post-F1 shape, once
+ * `apiKeysMock` itself holds the resolved, already-complete object). Both
+ * identifier shapes resolve one level through the file's own
+ * `const NAME = <expr>;` declaration.
+ */
+function extractLibFactoryBodies(source: string, libSpecifier: string): string[] {
+  const stripped = stripCommentLines(source);
+  const needle = `mock.module(${JSON.stringify(libSpecifier)}`;
+  const bodies: string[] = [];
+  let from = 0;
+  while (true) {
+    const at = stripped.indexOf(needle, from);
+    if (at === -1) break;
+    const openParen = stripped.indexOf("(", at);
+    const closeParen = matchingParenIndex(stripped, openParen);
+    if (closeParen === -1) break;
+    const argsText = stripped.slice(openParen + 1, closeParen);
+    const args = splitTopLevelArgs(argsText);
+    let factory = args.slice(1).join(",").trim();
+
+    const bareIdent = /^([A-Za-z_$][\w$]*)$/.exec(factory);
+    const arrowIdent = /^\(\)\s*=>\s*([A-Za-z_$][\w$]*)\s*,?\s*$/.exec(factory);
+    const name = bareIdent?.[1] ?? arrowIdent?.[1];
+    if (name) {
+      const resolved = resolveConstDecl(stripped, name);
+      if (resolved !== null) factory = resolved;
+    }
+
+    bodies.push(factory);
+    from = closeParen + 1;
+  }
+  return bodies;
+}
+
+describe("$lib/* factory completeness detector (general rule, pinned by fixture)", () => {
+  test("a webLibModule(...)-wrapped factory is complete", () => {
+    expect(
+      isCompleteLibFactoryBody('() => webLibModule("server/security/api-keys", { requireScope: () => null })'),
+    ).toBe(true);
+  });
+
+  test("a bare require(...) passthrough factory is complete, single- and multi-line", () => {
+    expect(isCompleteLibFactoryBody('() => require("../../web/src/lib/server/security/api-keys")')).toBe(true);
+    expect(isCompleteLibFactoryBody('() =>\n  require("../../web/src/lib/server/security/api-keys"),')).toBe(true);
+  });
+
+  test("an object literal that spreads a require(...) passthrough under overrides is complete", () => {
+    expect(
+      isCompleteLibFactoryBody(
+        '() => ({ ...require("../../web/src/lib/server/security/api-keys"), requireScope: () => null })',
+      ),
+    ).toBe(true);
+  });
+
+  test("a raw object literal with no spread of the real module is PARTIAL — rejected", () => {
+    // The verbatim shape that motivated F1: only ONE export survives, so a
+    // later route that needs `requireAdmin` fails to link.
+    expect(isCompleteLibFactoryBody("() => ({ requireScope: () => null })")).toBe(false);
+  });
+
+  test("a bare-identifier factory (pre-F1 shape) resolves to its declaration", () => {
+    const complete = [
+      'const apiKeysMock = webLibModule("server/security/api-keys", { requireScope: () => null });',
+      'mock.module("$lib/server/security/api-keys", apiKeysMock);',
+    ].join("\n");
+    const partial = [
+      "const apiKeysMock = () => ({ requireScope: () => null });",
+      'mock.module("$lib/server/security/api-keys", apiKeysMock);',
+    ].join("\n");
+
+    expect(extractLibFactoryBodies(complete, "$lib/server/security/api-keys")).toHaveLength(1);
+    expect(isCompleteLibFactoryBody(extractLibFactoryBodies(complete, "$lib/server/security/api-keys")[0]!)).toBe(
+      true,
+    );
+    expect(isCompleteLibFactoryBody(extractLibFactoryBodies(partial, "$lib/server/security/api-keys")[0]!)).toBe(
+      false,
+    );
+  });
+
+  test("an arrow-wrapping-an-identifier factory (post-F1 shape) resolves to its declaration", () => {
+    // `webLibModule(...)` runs ONCE at the const line (before either
+    // mock.module() registration exists), so both specifiers share one
+    // resolved, already-complete object — the dual-specifier fix this
+    // package applied. See the module docstring above.
+    const src = [
+      'const apiKeysMock = webLibModule("server/security/api-keys", { requireScope: () => null });',
+      'mock.module("$lib/server/security/api-keys", () => apiKeysMock);',
+      'mock.module("../../web/src/lib/server/security/api-keys", () => apiKeysMock);',
+    ].join("\n");
+
+    const bodies = extractLibFactoryBodies(src, "$lib/server/security/api-keys");
+    expect(bodies).toHaveLength(1);
+    expect(isCompleteLibFactoryBody(bodies[0]!)).toBe(true);
+  });
+});
+
+describe("F1 guard: every $lib/server/security/api-keys mock is complete (W18 hygiene)", () => {
+  const TARGET = "$lib/server/security/api-keys";
+
+  // Fixed on W18a-3's in-flight leak-fix branch (wp/w18a3-quality-r2),
+  // which is NOT YET merged into this package's base (integ/w00 at
+  // 2b2e12550). W18 hygiene item C already plans to merge that hash and
+  // convert its own 27-test backlog; remove each entry here the moment
+  // that merge lands and re-run this test to confirm zero offenders
+  // remain repo-wide.
+  const PENDING_ELSEWHERE = new Set<string>([
+    "src/__tests__/executor-slash-command-expansion-e2e.test.ts",
+    "src/__tests__/mentions-search-symlink-integration.test.ts",
+    "src/__tests__/mentions-search-workflow-branch.test.ts",
+    "src/__tests__/security/cross-tenant-deletion-projects-kb-modes.test.ts",
+  ]);
+
+  test('every mock.module("$lib/server/security/api-keys", …) factory is complete', () => {
+    const roots = [
+      import.meta.dir,
+      join(import.meta.dir, "..", "extensions", "__tests__"),
+      join(import.meta.dir, "..", "integrations"),
+      join(import.meta.dir, "..", "..", "web", "src"),
+    ];
+    const repoRoot = join(import.meta.dir, "..", "..");
+    // Exclude this meta-test itself: its own fixture strings above are
+    // literal `mock.module("$lib/server/security/api-keys", …)` text for
+    // readability (not `${Q}`-obfuscated like the walker above), so the
+    // scan would otherwise flag its own rule-pinning fixtures.
+    const files = roots.flatMap((r) => listTestFiles(r)).filter((f) => f !== join(import.meta.dir, "mock-cleanup-coverage.test.ts"));
+
+    const offenders: string[] = [];
+    for (const file of files) {
+      const rel = relative(repoRoot, file);
+      if (PENDING_ELSEWHERE.has(rel)) continue;
+      const src = readFileSync(file, "utf8");
+      for (const body of extractLibFactoryBodies(src, TARGET)) {
+        if (!isCompleteLibFactoryBody(body)) offenders.push(rel);
+      }
+    }
+
+    if (offenders.length > 0) {
+      console.error(
+        `Partial $lib/server/security/api-keys mock.module factory in: ${offenders.join(", ")}. ` +
+          `Wrap it with webLibModule("server/security/api-keys", { ...overrides }) from ` +
+          `./helpers/mock-cleanup instead of a raw object literal.`,
+      );
+    }
+    expect(offenders).toEqual([]);
+  });
+});

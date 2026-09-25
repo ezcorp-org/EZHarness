@@ -1,4 +1,5 @@
 import { test, expect, describe, beforeEach, mock } from "bun:test";
+import { webLibModule } from "../../../src/__tests__/helpers/mock-cleanup";
 import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 // ── Shared state used by mocks ─────────────────────────────────────
@@ -54,9 +55,10 @@ mock.module("$server/auth/middleware", () => ({
   requireAuth: (locals: any) => locals?.user ?? mockUser,
 }));
 
-mock.module("$lib/server/security/api-keys", () => ({
+const apiKeysExports = webLibModule("server/security/api-keys", {
   requireScope: () => mockScopeResponse,
-}));
+});
+mock.module("$lib/server/security/api-keys", () => apiKeysExports);
 
 // ── Mock event bus + executor ──────────────────────────────────────
 

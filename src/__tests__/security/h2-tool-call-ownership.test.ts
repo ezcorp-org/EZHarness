@@ -42,7 +42,7 @@
 // Tests fix(sec-H2): 1d7b12b
 
 import { test, expect, describe, afterAll, beforeEach, mock } from "bun:test";
-import { restoreModuleMocks } from "../helpers/mock-cleanup";
+import { restoreModuleMocks, webLibModule } from "../helpers/mock-cleanup";
 import {
   mockServerAlias,
   createMockEvent,
@@ -61,9 +61,9 @@ mock.module("../../../web/src/routes/api/tool-calls/[id]/permission/$types", () 
 
 // requireScope pass-through — we're exercising the new requireAuth +
 // ownership check, not API-key scopes.
-const apiKeysMock = () => ({ requireScope: () => null });
-mock.module("$lib/server/security/api-keys", apiKeysMock);
-mock.module("../../../web/src/lib/server/security/api-keys", apiKeysMock);
+const apiKeysMock = webLibModule("server/security/api-keys", { requireScope: () => null });
+mock.module("$lib/server/security/api-keys", () => apiKeysMock);
+mock.module("../../../web/src/lib/server/security/api-keys", () => apiKeysMock);
 
 // requireAuth — throws Response(401) when locals.user is missing, else passes.
 // Dual-specifier per the Bun mock-cache lesson (handler imports via

@@ -25,7 +25,7 @@ import { test, expect, describe, beforeAll, beforeEach, afterAll, mock } from "b
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { restoreModuleMocks } from "./helpers/mock-cleanup";
+import { restoreModuleMocks, webLibModule } from "./helpers/mock-cleanup";
 import { setupTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglite";
 import { mockServerAlias, ADMIN_USER } from "./helpers/mock-request";
 
@@ -65,7 +65,7 @@ mock.module("$lib/server/security/validation", () => ({
 mock.module("$lib/server/security/resource-quotas", () => ({
   checkTokenBudget: async () => ({ allowed: true, resetsAt: null }),
 }));
-mock.module("$lib/server/security/api-keys", () => ({
+mock.module("$lib/server/security/api-keys", () => webLibModule("server/security/api-keys", {
   requireScope: () => null,
 }));
 

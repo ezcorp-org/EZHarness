@@ -1,5 +1,5 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
-import { restoreModuleMocks } from "./helpers/mock-cleanup";
+import { restoreModuleMocks, webLibModule } from "./helpers/mock-cleanup";
 import { ADMIN_USER, MEMBER_USER, createMockEvent, mockServerAlias } from "./helpers/mock-request";
 import { LifecycleError, type LifecycleActor } from "../extensions/v4/types";
 
@@ -27,9 +27,9 @@ mock.module("$server/extensions/extension-lifecycle-service", services);
 const registry = () => ({ ExtensionRegistry: { getInstance: () => ({ reload, killAll: reload }) } });
 mock.module("../extensions/registry", registry);
 mock.module("$server/extensions/registry", registry);
-const scopes = () => ({ requireScope: () => null });
-mock.module("$lib/server/security/api-keys", scopes);
-mock.module("../../web/src/lib/server/security/api-keys", scopes);
+const scopes = webLibModule("server/security/api-keys", { requireScope: () => null });
+mock.module("$lib/server/security/api-keys", () => scopes);
+mock.module("../../web/src/lib/server/security/api-keys", () => scopes);
 const { GET, PATCH, DELETE } = await import("../../web/src/routes/api/extensions/[id]/+server");
 
 async function request(method: "GET" | "PATCH" | "DELETE", options: { body?: unknown; user?: typeof ADMIN_USER | typeof MEMBER_USER | null; session?: boolean } = {}) {

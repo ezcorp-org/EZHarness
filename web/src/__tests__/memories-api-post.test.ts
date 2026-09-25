@@ -1,5 +1,6 @@
 import { test, expect, describe, beforeEach, mock } from "bun:test";
 
+import { webLibModule } from "../../../src/__tests__/helpers/mock-cleanup";
 // Mock DB queries before importing handler
 const mockInsertMemory = mock(() =>
 	Promise.resolve({
@@ -42,9 +43,10 @@ mock.module("$server/auth/middleware", () => ({
 	requireAuth: () => ({ id: "user-1", email: "test@test.com", name: "Test", role: "member" }),
 }));
 
-mock.module("$lib/server/security/api-keys", () => ({
+const apiKeysExports = webLibModule("server/security/api-keys", {
 	requireScope: () => null,
-}));
+});
+mock.module("$lib/server/security/api-keys", () => apiKeysExports);
 
 mock.module("$server/memory/embeddings", () => ({
 	generateEmbedding: mock(() => Promise.resolve(new Array(1536).fill(0))),

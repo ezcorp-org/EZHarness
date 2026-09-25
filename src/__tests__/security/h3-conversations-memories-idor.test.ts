@@ -47,7 +47,7 @@
 import { test, expect, describe, afterAll, beforeEach, mock } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { restoreModuleMocks } from "../helpers/mock-cleanup";
+import { restoreModuleMocks, webLibModule } from "../helpers/mock-cleanup";
 import {
   mockServerAlias,
   createMockEvent,
@@ -65,13 +65,13 @@ mock.module("../../../web/src/routes/api/conversations/[id]/$types", () => ({}))
 mock.module("../../../web/src/routes/api/memories/[id]/$types", () => ({}));
 
 // Stub web/src/lib/server/security/api-keys (scope check = noop allow).
-const apiKeysMock = () => ({
+const apiKeysMock = webLibModule("server/security/api-keys", {
   requireScope: () => null,
 });
-mock.module("$lib/server/security/api-keys", apiKeysMock);
+mock.module("$lib/server/security/api-keys", () => apiKeysMock);
 mock.module(
   "../../../web/src/lib/server/security/api-keys",
-  apiKeysMock,
+  () => apiKeysMock,
 );
 
 // validation helper — re-export the real module so validationError works.

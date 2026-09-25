@@ -25,7 +25,7 @@
 // Tests fix(sec-C5): 36f3667
 
 import { test, expect, describe, afterAll, beforeEach, mock } from "bun:test";
-import { restoreModuleMocks } from "../helpers/mock-cleanup";
+import { restoreModuleMocks, webLibModule } from "../helpers/mock-cleanup";
 import {
   mockServerAlias,
   createMockEvent,
@@ -45,7 +45,7 @@ mock.module("../../../web/src/routes/api/providers/$types", () => ({}));
 // verifyApiKey: included so this mock doesn't leak an incomplete shape to
 // sibling tests (e.g. c2-session-revocation) via Bun's module cache —
 // mock.module() persists across test files.
-mock.module("$lib/server/security/api-keys", () => ({
+mock.module("$lib/server/security/api-keys", () => webLibModule("server/security/api-keys", {
   requireScope: () => null,
   verifyApiKey: async () => null,
   // Real contract: null when the principal IS an admin, else a 403 Response.

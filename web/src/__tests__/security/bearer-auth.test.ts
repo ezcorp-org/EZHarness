@@ -18,7 +18,7 @@ import {
   resetInternalKeyStoreForTests,
   INTERNAL_KEY_PREFIX,
 } from "$lib/server/security/internal-auth";
-import { restoreModuleMocks } from "../../../../src/__tests__/helpers/mock-cleanup";
+import { restoreModuleMocks, webLibModule } from "../../../../src/__tests__/helpers/mock-cleanup";
 
 // Observe calls to the user-key verifier so we can assert it is NOT
 // invoked on the internal-key path. The impl is a mutable let so a
@@ -62,9 +62,10 @@ let verifyApiKeyImpl: (raw: string) => Promise<
   if (raw === "ezk_member_adminowner") return { userId: "user-2", name: "Member Key", scopes: ["read"], role: "member" };
   return null;
 };
-mock.module("$lib/server/security/api-keys", () => ({
+const apiKeysExports = webLibModule("server/security/api-keys", {
   verifyApiKey: (raw: string) => verifyApiKeyImpl(raw),
-}));
+});
+mock.module("$lib/server/security/api-keys", () => apiKeysExports);
 
 // Stub the users query so on-behalf-of validation has a real user row to
 // resolve. `geff` is our canonical human user; `ghost` is an id that does

@@ -4679,3 +4679,74 @@ Numbering grants turns revoke-then-grant into history rather than a conflict. A 
 that matters: one active grant per target. First grants keep their old seal, so every existing row still
 verifies. The display name is read from the user or service-account record only. It is resolved outside the
 authorization path, and it can never fall back to the raw id.
+
+## W18 hygiene — 60 partial api-keys mocks, hook cap, 27 bare git-init tests (branch `wp/w18-hygiene`)
+
+Base `integ/w00` `2b2e12550`. Receipts: `/tmp/factory-platform-evidence/w18-hygiene/receipts/`. Gates:
+`tasks/factory/w18-hygiene-GATES.md`. Item lists (F1 = 60 files, F2 = 27 files) are W18a-3's, copied
+verbatim from `tasks/factory/w18a3-GATES.md`.
+
+### Item A — F1
+
+- [x] Add `webLibModule()` to `src/__tests__/helpers/mock-cleanup.ts`, identical to W18a-3's (found on
+  their unmerged branch `wp/w18a3-quality-r2`; not yet on this package's base).
+- [x] Convert all 60 listed suites' partial `$lib/server/security/api-keys` mock to `webLibModule(...)`.
+- [x] Find and fix a self-recursion hazard: the 14 dual-specifier files (`$lib/...` + the resolved
+  relative path, same factory) and, separately, ALL 24 web-side files (because `web/`'s generated
+  tsconfig maps `$lib/*` to a really-resolvable path, unlike the virtual-only repo root) drop every
+  export but the override if `webLibModule()` is called lazily inside a factory also registered for the
+  same resolved module. Fixed by computing the merged object once, before either registration.
+- [x] Verify all 60 pass at their REAL invocation (some web files are only correctly gated from the repo
+  root, per `scripts/lib/test-file-sets.sh`'s `passfail_files`, not from `web/`).
+- [x] Add a guard test rejecting a partial `$lib/*` factory (general detector, pinned by fixtures;
+  enforced repo-wide for the api-keys module this item completed, with four named exemptions for files
+  W18a-3 is fixing on its own unmerged branch).
+- [x] typecheck, lint, boundaries, gate-integrity, `factory-process-boundaries.test.ts` all green.
+
+**Review.** The 60 suites' mocks were correct for the ONE key each test used, and silently wrong for
+every OTHER key any later test in the same process needed — a raw object literal freezes Bun's
+mock.module() export list forever, and neither a second registration nor restoreModuleMocks() can add a
+name back. Reproduced the base failure directly: running the 36 src-side files together in one batch
+(the F1 disclosure's own words — "any of them run before a route that imports requireAdmin fails to
+link") throws exactly that SyntaxError on the base, and the api-keys-specific instances of it are gone
+after the fix (unrelated pre-existing pollution from OTHER $lib modules, present on the base too, is
+disclosed and left alone — out of scope for this item). The harder finding was that `webLibModule()`
+itself needs to run BEFORE its own mock.module() registration when the specifier it targets and the
+plain relative path to the real file can resolve to the same module record — proven with a standalone
+repro, and this affects every web-side file, not only the already-known dual-specifier ones, because
+`$lib` genuinely resolves there.
+
+### Item B — pre-commit hook cap
+
+- [x] `run_staged_tests()` names every staged test file above the cap and, by default, exits non-zero
+  (blocks the commit) instead of skipping silently.
+- [x] `EZ_SKIP_HOOK_TESTS=1` moved from a pre-filter in `.githooks/pre-commit` into `run_staged_tests()`
+  itself, so it is honoured — visibly — for both the over-cap and the pre-existing under-cap skip.
+- [x] Four tests in `src/__tests__/git-hooks.test.ts` (a new `repoWithHookLib()` fixture): blocked over
+  cap, skipped-and-visible over cap with the env var, unaffected at the cap, and (validator-3 L1, added
+  in the fix round) skipped-and-visible AT the cap with the env var — the fourth combination, which
+  before this item never even reached `run_staged_tests()` (the caller pre-filtered the env var), so it
+  was silent too.
+- [x] typecheck, lint, boundaries, gate-integrity, `factory-process-boundaries.test.ts`,
+  `gate-scripts.test.ts` all green.
+
+**Review.** Reproduced the bug directly, twice, on this package's own commits: staging the 36-file and
+then the 24-file api-keys conversion each hit the cap and the hook printed one line ("N test files map
+to this commit (cap 12) — skipping.") and exited 0 — the commit landed with zero tests run and no file
+named. That is the same shape as the coordinator's 74-file main-merge incident. The fix does not lower
+the bar (a wide commit still does not run its tests locally — CI does), it makes the decision to skip an
+ACT the developer takes knowingly, every time, with the exact file list in front of them, rather than
+something that happens to them silently past a threshold they may not know exists.
+
+**Validator-3 fix round (M1, L1).** M1: the receipts had no producing commit, exit code, or timestamp
+named, and three files were missing from `SHA256SUMS.txt`. Added `receipts/MANIFEST.json` and cited
+every commit in the gates file; evidence-only, no code change. One correction surfaced while building
+it: `f1-src-batch.log`'s exit code is 1 (the four-module pollution item D closes), not 0 as the gates
+file previously implied by omission. L1: added the missing fourth test above. New head `344b11efc`. L2
+(the withheld-factory-orchestrator name; the empty-list guard for an orchestrator-only stage; removing
+the F1-guard's W18a-3 exemption once those files land) is item C's scope on `wp/w18-hygiene-2`.
+
+### Item C — F2 (27 bare git-init tests)
+
+Blocked on the integ/w00 hash containing W18a-3 (needs `src/__tests__/helpers/scratch-git.ts`). Not
+started.
