@@ -98,6 +98,8 @@ describe("an attempt whose answer will never arrive ends failed, with the reason
     const w = await world("attempt-exited", [refusal(502, "guest_exited", detail)]);
     const lost = await (await w.open()).wait();
     expect(lost).toMatchObject({ status: "failed", journalCursor: -1, operations: [], error: { code: FACTORY_LOST_RESULT_CODES.container_exit, retryable: true } });
+    // No operation, so the usage is a measured zero, which lets the attempt's stop settle.
+    expect(lost.usage).toEqual({ kind: "measured", inputTokens: 0, outputTokens: 0, computeMs: 0, costMicros: "0" });
     expect(lost.status === "failed" && lost.error.message).toBe(`Factory attempt ended without its guest's answer (container_exit): ${detail}`);
     expect(await w.store.terminalResult("attempt-exited")).toEqual(lost);
     expect(await w.row()).toBe("terminal");
