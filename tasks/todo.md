@@ -4644,8 +4644,11 @@ repro, and this affects every web-side file, not only the already-known dual-spe
   (blocks the commit) instead of skipping silently.
 - [x] `EZ_SKIP_HOOK_TESTS=1` moved from a pre-filter in `.githooks/pre-commit` into `run_staged_tests()`
   itself, so it is honoured — visibly — for both the over-cap and the pre-existing under-cap skip.
-- [x] Three new tests in `src/__tests__/git-hooks.test.ts` (a new `repoWithHookLib()` fixture): blocked
-  over cap, skipped-and-visible over cap with the env var, unaffected at the cap.
+- [x] Four tests in `src/__tests__/git-hooks.test.ts` (a new `repoWithHookLib()` fixture): blocked over
+  cap, skipped-and-visible over cap with the env var, unaffected at the cap, and (validator-3 L1, added
+  in the fix round) skipped-and-visible AT the cap with the env var — the fourth combination, which
+  before this item never even reached `run_staged_tests()` (the caller pre-filtered the env var), so it
+  was silent too.
 - [x] typecheck, lint, boundaries, gate-integrity, `factory-process-boundaries.test.ts`,
   `gate-scripts.test.ts` all green.
 
@@ -4656,6 +4659,14 @@ named. That is the same shape as the coordinator's 74-file main-merge incident. 
 the bar (a wide commit still does not run its tests locally — CI does), it makes the decision to skip an
 ACT the developer takes knowingly, every time, with the exact file list in front of them, rather than
 something that happens to them silently past a threshold they may not know exists.
+
+**Validator-3 fix round (M1, L1).** M1: the receipts had no producing commit, exit code, or timestamp
+named, and three files were missing from `SHA256SUMS.txt`. Added `receipts/MANIFEST.json` and cited
+every commit in the gates file; evidence-only, no code change. One correction surfaced while building
+it: `f1-src-batch.log`'s exit code is 1 (the four-module pollution item D closes), not 0 as the gates
+file previously implied by omission. L1: added the missing fourth test above. New head `344b11efc`. L2
+(the withheld-factory-orchestrator name; the empty-list guard for an orchestrator-only stage; removing
+the F1-guard's W18a-3 exemption once those files land) is item C's scope on `wp/w18-hygiene-2`.
 
 ### Item C — F2 (27 bare git-init tests)
 

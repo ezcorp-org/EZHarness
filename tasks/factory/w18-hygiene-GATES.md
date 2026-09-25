@@ -133,9 +133,35 @@ the module this item completed.
   EVIDENCE: `coverage-new-file-b1.log`, `coverage-patch-b1.log` (commit `b7349ba8c`, dirty tree at
   capture, content identical to `05b6329db`; see `MANIFEST.json`) — both exit 0.
 
+- [x] GB4 (validator-3 L1): the fourth branch — at or under the cap, WITH `EZ_SKIP_HOOK_TESTS=1` set —
+  has its own test. Before this item's fix that combination never reached `run_staged_tests()` at all
+  (the caller pre-filtered the env var), so it was ALSO silent — the same defect as the over-cap case,
+  simply never exercised.
+  CHECK: `bun test --timeout 30000 ./src/__tests__/git-hooks.test.ts`
+  EXPECT: 20/20 pass, including "at or under the cap WITH EZ_SKIP_HOOK_TESTS=1: prints the list, skips,
+  commit lands"
+  EVIDENCE: commit `344b11efc`. `typecheck-l1.log`, `lint-l1.log`, `boundaries-l1.log`,
+  `gate-integrity-l1.log`, `gate-scripts-l1.log` (204/204) — all exit 0, commit `344b11efc`, clean tree
+  at capture. Coverage: `hook-lib.sh` is shell (outside the lcov-based coverage system, same as GB3);
+  the new test file's own lines are not separately lcov-measured either (Bun's coverage instruments
+  production code the test exercises, not the test file itself — the same convention this repo's own
+  `NON_SOURCE_GLOBS` encodes for the gated coverage checks). The new assertions are real (see the test
+  body) and the suite passing at 20/20 is the proof this branch is exercised.
+
 Pass for item B: the silent skip is gone; a wide commit is loud and, by default, blocked; the one
-escape hatch is visible in both directions it applies (over and under the cap); no other hook behavior
-changed (the three original `repoWithPreCommit()` tests and `EZ_SKIP_HOOKS=1` bypass are unaffected).
+escape hatch is visible in every direction it applies (over cap, and now proven under cap too); no
+other hook behavior changed (the three original `repoWithPreCommit()` tests and `EZ_SKIP_HOOKS=1`
+bypass are unaffected).
+
+## Validator-3 fix round (M1, L1) — receipts corrected, one test added, no code behavior changed by M1
+
+M1 and L1 (above, GA3/GA6/GA8/GB1/GB2/GB3 citations and GB4) are validator-3's required fixes on the
+ACCEPT-WITH-FIXES verdict at `b7349ba8c`. M1 touched only evidence (this file's citations,
+`receipts/MANIFEST.json`, `receipts/SHA256SUMS.txt`); L1 added one test and no production or hook-lib.sh
+behavior change beyond what `702a97468`/`05b6329db` already shipped. New head after both: `344b11efc`.
+L2 (the withheld-factory-orchestrator name in the over-cap list; the empty-list guard when only
+orchestrator files are staged; removing the F1-guard's by-name W18a-3 exemption once those four files
+land) is item C's scope on `wp/w18-hygiene-2`, per the ruling — not done here.
 
 ## Item C — F2: the 27 bare git-init tests
 
