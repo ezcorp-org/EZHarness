@@ -295,4 +295,15 @@ describe("Incus management recovery", () => {
 		await waitFor(() => expect(view.getByRole("alert")).toHaveTextContent("Reconcile unavailable"));
 		expect(calls.map(body => body.action)).toEqual(["status", "reconcile"]);
 	});
+
+	test.each([
+		["PROVIDER_PENDING", "Waiting for provider"],
+		["JOURNALED", "In progress"],
+	] as const)("%s lifecycle work stays blocked and shows %s", async (state, label) => {
+		serve({ feature: feature({ kind: "START", state }) });
+		const view = render(Page, { props: { data: { operatorId } } });
+		await waitFor(() => expect(view.getByText(label)).toBeInTheDocument());
+		expect(view.queryByRole("button", { name: "Start" })).not.toBeInTheDocument();
+		expect(view.queryByRole("button", { name: "Dispose…" })).not.toBeInTheDocument();
+	});
 });
