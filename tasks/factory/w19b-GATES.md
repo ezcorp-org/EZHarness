@@ -56,10 +56,10 @@ their readiness file in the stack directory, which went with it.
   EXPECT: 15 pass; `diagnostics.ts` and `stack-documents.ts` at 100 percent; the control fails by its named check and its diagnostics check is `ok: true`, with no readiness file refused; every static check and gate exits 0; the scan finds nothing
   EVIDENCE: `receipts/fix-*.json`, `proof-fix/` (all at `080204bd3`). The first heavy attempt ran without the storage credential directory and refused to start; it is kept as `receipts/fix-heavy-attempt-1-no-storage-env.json`.
 
-- [ ] G6 (second fix round, validator-3's F1 to F3): the inline-document guard fails closed and is itself tested; each attempt keeps its own log; a URL password is a secret under any key.
+- [x] G6 (second fix round, validator-3's F1 to F3): the inline-document guard fails closed and is itself tested; each attempt keeps its own log; a URL password is a secret under any key.
   CHECK: `bun test ./src/factory/graph-proof-diagnostics.test.ts --coverage`; an inline `privateWrite` planted in `stack.ts` on one line and split across lines; the fast legs and the credential scan through `receipt.sh`, which now names each log and receipt `LABEL.attempt-N`
   EXPECT: 17 pass; both files at 100 percent; each planted write fails the guard with an `"inline"` entry; every leg exits 0; the scan finds nothing. No heavy leg: F1 to F3 do not change the control's inputs
-  EVIDENCE: `receipts/f-*.attempt-*.json`; `receipts/fix-heavy-attempt-1-no-storage-env.json` now points at its preserved log copy and says why
+  EVIDENCE: `receipts/f-*.attempt-1.json` (all at `8be8ce5ce`, every one exit 0; the scan checked 41 values and found none); `receipts/fix-heavy-attempt-1-no-storage-env.json` now points at its preserved log copy and says why
 
 ## History
 
