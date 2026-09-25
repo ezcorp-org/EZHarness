@@ -61,12 +61,13 @@ export const GET: RequestHandler = async ({ locals }) => {
           ORDER BY deadline_at DESC, run_id DESC LIMIT 1`));
         const running = run && ["AWAITING_RESTART", "CLAIMED"].includes(run.state)
           && new Date(run.deadlineAt).getTime() > Date.now();
+        const failed = run && run.state !== "COMPLETED" && !running;
         environments.push({ ...connection, releaseGeneration: active.installation.generation,
           presetId: preset.id, label: `${connection.label} · ${preset.id}`, profile: preset.profile,
-          qualified: qualification !== null, qualificationValidUntil: qualification?.validUntil ?? null,
-          qualificationState: qualification ? "qualified" : running ? "running" : run ? "failed" : "not_qualified",
+          qualified: qualification !== null && !running, qualificationValidUntil: qualification?.validUntil ?? null,
+          qualificationState: running ? "running" : qualification ? "qualified" : failed ? "failed" : "not_qualified",
           qualificationRunId: run?.runId ?? null,
-          blockedReason: qualification ? null : running ? "Qualification is running."
+          blockedReason: running ? "Qualification is running." : qualification ? null
             : "Run qualification before creating a sandbox." });
       }
     }

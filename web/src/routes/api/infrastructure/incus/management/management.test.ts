@@ -44,7 +44,7 @@ test("lists current environments with explicit missing qualification and no cach
 
 test("shows saved running, expired, failed, and qualified outcomes", async () => {
   for (const [saved, expected] of [[run, "running"], [{ ...run, state: "FAILED" }, "failed"],
-    [{ ...run, deadlineAt: "2000-01-01T00:00:00Z" }, "failed"]] as const) {
+    [{ ...run, deadlineAt: "2000-01-01T00:00:00Z" }, "failed"], [{ ...run, state: "COMPLETED" }, "not_qualified"]] as const) {
     rows = [[connection], [], [], [saved]];
     const result = await (await request()).json();
     expect(result.environments[0].qualificationState).toBe(expected);
@@ -54,6 +54,8 @@ test("shows saved running, expired, failed, and qualified outcomes", async () =>
   rows = [[connection], [], [], []];
   expect((await (await request()).json()).environments[0]).toMatchObject({ qualified: true,
     qualificationState: "qualified", qualificationValidUntil: qualification.validUntil, blockedReason: null });
+  rows = [[connection], [], [], [run]];
+  expect((await (await request()).json()).environments[0]).toMatchObject({ qualified: false, qualificationState: "running" });
 });
 
 test("keeps existing features visible when their release is inactive or changed", async () => {
