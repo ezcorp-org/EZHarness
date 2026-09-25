@@ -1,5 +1,6 @@
 # Lessons
 
+- On this NixOS host, `bun` resolves to system 1.4.2 unless `/home/dev/.bun/bin` is first in `PATH`; this repository pins 1.3.14. Use the pinned path for local checks and for Git commit/push hooks, then report only pinned-version results.
 - Reach the first real end-to-end guest early. Contract tests and direct Incus probes did not expose an expiring daemon operation receipt. Report completed and missing live gates plainly instead of treating each setup step as near completion.
 - A short-lived provider operation UUID cannot be the only durable proof of a CREATE. Persist a stable request identity, then reconcile an expired operation through exact, host-authorized resource tags before any retry or state transition. Test this in a live E2E flow.
 

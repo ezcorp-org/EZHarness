@@ -21,6 +21,7 @@
 - [x] Run the approved first EZHarness CREATE; record its real stopped guest and the `OUTCOME_UNKNOWN` stop before START.
 - [ ] Fix durable CREATE inspection after the short-lived Incus operation disappears; prove the same journal and guest reconcile without another CREATE.
 - [ ] Prove recovery through the retained 0.1.2 provider worker schema and host broker; the active guest blocks routine release replacement.
+- [x] Stage and verify the exact `f77b7ab8a` test-app bundle; non-root isolated smoke returns HTTP 200 without touching the live app.
 - [ ] Review and authorize recovery of the existing guest, then resume START/marker/Compose/STOP/DESTROY under a new exact plan.
 - [ ] Run a complete EZHarness-owned guest fixture, the live qualification cases, feature workflow, and cleanup.
 - [ ] Remove the temporary `/var/empty/.config` workaround after the corrected NixOS setup gate is active.
