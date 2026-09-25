@@ -35,6 +35,34 @@ test("a real Node client receives exact immutable bytes and the Bun handler rece
   } finally { server.stop(); }
 });
 
+test("only a client certificate the listener's authority issued, and that is still valid, reaches the handler", async () => {
+  // Bun.listen does not enforce rejectUnauthorized; the handshake callback is the check (W01k).
+  const trusted = await certificates(directories, "tenant-a", { expiredClient: true });
+  // Same subject, unrelated authority: an impersonation attempt.
+  const outsider = await certificates(directories, "tenant-a");
+  const peers: string[] = [];
+  const server = startFactoryPrivateHttps({
+    tls: { key: trusted.serverKey, cert: trusted.serverCert, ca: trusted.ca },
+    async handle(request) { peers.push(request.peerIdentity); return { status: 200, body: Buffer.from('{"reached":true}') }; },
+  });
+  const as = (cert: string | undefined, key: string | undefined) => rawTls(server.url, { ...trusted, clientCert: cert as string, clientKey: key as string }, ["GET /identity HTTP/1.1\r\n\r\n"]);
+  const statusOf = (response: string) => response.split("\r\n")[0];
+  try {
+    expect(statusOf(await as(trusted.clientCert, trusted.clientKey))).toBe("HTTP/1.1 200 OK");
+    expect(peers).toEqual(["tenant-a"]);
+    // A certificate that does not verify completes the handshake (Bun does not
+    // refuse it there) and is refused 401 by the listener.
+    for (const [label, cert, key] of [["unrelated authority", outsider.clientCert, outsider.clientKey], ["expired", trusted.expiredCert, trusted.expiredKey]] as const) {
+      const response = await as(cert, key);
+      expect({ label, status: statusOf(response), body: response.slice(response.indexOf("\r\n\r\n") + 4) }).toEqual({ label, status: "HTTP/1.1 401 Unauthorized", body: '{"error":"unauthorized"}' });
+    }
+    // No certificate at all fails the handshake itself: the connection closes with no response.
+    expect(await as(undefined, undefined)).toBe("");
+    // None of the three reached the handler.
+    expect(peers).toEqual(["tenant-a"]);
+  } finally { server.stop(); }
+});
+
 test("the read deadline applies to incomplete requests and not to accepted handler work", async () => {
   let calls = 0;
   const server = startFactoryPrivateHttps({ tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca }, requestTimeoutMs: 100, async handle() { calls += 1; await Bun.sleep(200); return { status: 200, body: Buffer.from('"complete"') }; } });
