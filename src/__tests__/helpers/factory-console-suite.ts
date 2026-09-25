@@ -404,8 +404,8 @@ export function factoryConsoleConformance(create: () => Promise<FactoryConsoleFi
       expect(preview).toMatchObject({ transition: "quarantine", allowed: true, currentRevision: 1 });
       expect(preview.refusal).toBeUndefined();
       expect(preview.runs).toEqual([
-        { runId: packagedRun, factoryId: "console-packaged", status: "queued", liveAttempts: 2 },
-        { runId: unpinnedRun, factoryId: FACTORY, status: "queued", liveAttempts: 1 },
+        { runId: packagedRun, factoryId: "console-packaged", status: "queued" as const, liveAttempts: 2 },
+        { runId: unpinnedRun, factoryId: FACTORY, status: "queued" as const, liveAttempts: 1 },
       ].sort((left, right) => left.runId.localeCompare(right.runId)));
       // Nothing is recorded before a decision.
       expect(await a.console.packages.affectedRuns(OWNER, PROJECT, bound.referenceId)).toEqual({ items: [] });
