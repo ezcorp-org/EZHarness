@@ -1,8 +1,9 @@
 import { afterAll, expect, mock, test } from "bun:test";
-import { chmod, mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getSandboxWorkspaceDispatcher } from "../runtime/workspace/target";
+import { writeFileWithModeAsync } from "./helpers/exact-mode";
 
 let configured = 0;
 let commandResult = { code: 0, stdout: JSON.stringify({ host: { cgroupVersion: "v2", security: { rootless: true, seccompEnabled: true } } }), stderr: "", timedOut: false };
@@ -14,9 +15,11 @@ const { loadLocalSandboxConfig, verifyLocalSandboxHost, initializeLocalSandbox }
 const root = await mkdtemp(join(tmpdir(), "ez-sandbox-startup-"));
 afterAll(async () => { await rm(root, { recursive: true, force: true }); mock.restore(); });
 const executable = join(root, "tool");
-await writeFile(executable, "#!/bin/sh\nexit 0\n", { mode: 0o700 });
+await writeFileWithModeAsync(executable, "#!/bin/sh\nexit 0\n", 0o700);
 const config = { stateRoot: join(root, "state"), imageReference: `localhost/example@sha256:${"a".repeat(64)}`, imageId: "b".repeat(64), podmanPath: executable, fuse2fsPath: executable, supervisorPath: executable, nativeToolsArtifact: executable, workspaceUid: 0 as const, workspaceGid: 0 as const };
-async function save(name: string, value: unknown = config, mode = 0o600) { const path = join(root, name); await writeFile(path, typeof value === "string" ? value : JSON.stringify(value), { mode }); return path; }
+// Exact modes (helpers/exact-mode): a umask-masked 0644 "public" config came
+// out private on a 077 runner, so the refusals under test never ran.
+async function save(name: string, value: unknown = config, mode = 0o600) { const path = join(root, name); await writeFileWithModeAsync(path, typeof value === "string" ? value : JSON.stringify(value), mode); return path; }
 
 test("loads only private operator configuration and available immutable artifacts", async () => {
   expect(await loadLocalSandboxConfig(await save("valid"))).toEqual(config);

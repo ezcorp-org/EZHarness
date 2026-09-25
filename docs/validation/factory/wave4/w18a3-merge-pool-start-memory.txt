@@ -1,0 +1,5 @@
+pool log appeared 2026-09-25T14:31:29Z
+MemAvailable:   15800952 kB
+SwapTotal:      17173956 kB
+SwapFree:        9268296 kB
+ 145G

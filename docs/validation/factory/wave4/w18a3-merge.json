@@ -1,0 +1,513 @@
+{
+ "package": "w18a3",
+ "branch": "wp/w18a3-quality-r2",
+ "head": "ddf9ff164d3987e35834983b1f6b05421826a19c",
+ "acceptedAt": "6739e852b (G6 closed at ddf9ff164 = merge c5507c5ce of 15410e421 + docs)",
+ "validatorVerdict": "ACCEPT, G6 closed, by validator-3 (copied as w18a3-validation.txt)",
+ "workerReport": "the gate file tasks/factory/w18a3-GATES.md (copied as w18a3-worker-report.txt)",
+ "mergeSha": "8a08328fc386b2e8c43205f71e08c2e70c703587",
+ "tree": "089bc524083bf839bb850b0a95f35d8767295364",
+ "parents": [
+  "03538e909cb6f43e0058494be71d1438fd5d5b78",
+  "ddf9ff164d3987e35834983b1f6b05421826a19c"
+ ],
+ "conflicts": {
+  "src/__tests__/helpers/mock-cleanup.ts": "1 hunk; W18a-3's side empty, ours = W18 hygiene item D's serverModule/completeFactory/CONTEXT_EXPORT_NAMES/contextModule; kept ours (file identical to HEAD)",
+  "scripts/lib/hook-lib.sh": "auto-merged; carries both the loud cap (NOT running, EZ_SKIP_HOOK_TESTS=1) and the G13 orchestrator routing through without_git_context; proof git-hooks 25/0, gate-scripts 210/0",
+  "hunks": "w18a3-merge-conflict-hunks.txt"
+ },
+ "integrationFix": [
+  {
+   "id": "mock-cleanup",
+   "what": "kept ours (W18a-3 side empty)",
+   "ruling": "coordinator approved"
+  },
+  {
+   "id": "ext-files-route-cwd",
+   "what": "src/__tests__/ext-files-route.test.ts: afterAll restores the cwd captured at module load (ORIGINAL_CWD) instead of chdir(tmpdir()), so later files in the same process do not inherit the tmp dir as their project root",
+   "diff": "w18a3-merge-ext-files-route-fix.diff",
+   "proof": "alone 11/0; ext-files-route then factory-boot 35/0 (was 6 fails); focused producer delta -11 (factory-boot 6, legacy-workflow/import-parity 3, quality-report-fail-closed 1, pool/lazy-sql-assertions 1)",
+   "ruling": "coordinator 2026-09-25"
+  }
+ ],
+ "g6Sweep": {
+  "where": "proof/w18a3-merge-staged ec14ad9477ecf2e8bc24e2d354fd6c39d8d61742 in .worktrees/w18a3-merge-sweep (real frozen install at root and web; core.bare worktree false)",
+  "driver": "copy of validator-3's final-sweep.sh (w18a3-merge-final-sweep.sh)",
+  "run1": "VOID: the temporary worktree had symlinked root/web node_modules and lacked the workspace packages' node_modules; 6 producers failed on 'cannot find'; its backend pool was stopped by me at 15:49Z (exit 143)",
+  "run2": {
+   "when": "15:50:34-16:35:01Z",
+   "producers": [
+    {
+     "name": "sdk-build",
+     "exitCode": 0
+    },
+    {
+     "name": "transport-build",
+     "exitCode": 0
+    },
+    {
+     "name": "sdk-tests",
+     "exitCode": 0
+    },
+    {
+     "name": "focused",
+     "exitCode": 1
+    },
+    {
+     "name": "web-coverage",
+     "exitCode": 0
+    },
+    {
+     "name": "web-bun-coverage",
+     "exitCode": 0
+    },
+    {
+     "name": "postgres",
+     "exitCode": 0
+    },
+    {
+     "name": "types",
+     "exitCode": 0
+    },
+    {
+     "name": "lint",
+     "exitCode": 0
+    },
+    {
+     "name": "gate-integrity",
+     "exitCode": 0
+    },
+    {
+     "name": "boundaries",
+     "exitCode": 0
+    },
+    {
+     "name": "orchestrator-build",
+     "exitCode": 0
+    },
+    {
+     "name": "node-coverage",
+     "exitCode": 0
+    },
+    {
+     "name": "pool-coverage",
+     "exitCode": 0
+    },
+    {
+     "name": "compute-coverage",
+     "exitCode": 0
+    },
+    {
+     "name": "provisioning-coverage",
+     "exitCode": 0
+    },
+    {
+     "name": "python-coverage",
+     "exitCode": 0
+    }
+   ],
+   "steps": [
+    {
+     "name": "extra-temporal-retention.test",
+     "exitCode": 0
+    },
+    {
+     "name": "extra-scope-enforcement.test",
+     "exitCode": 0
+    },
+    {
+     "name": "extra-factory-boot.test",
+     "exitCode": 0
+    },
+    {
+     "name": "extra-factory-service-token.test",
+     "exitCode": 0
+    },
+    {
+     "name": "extra-private-files.test",
+     "exitCode": 0
+    },
+    {
+     "name": "extra-encryption.test",
+     "exitCode": 0
+    },
+    {
+     "name": "extra-process.test",
+     "exitCode": 0
+    },
+    {
+     "name": "extra-startup-config.test",
+     "exitCode": 0
+    },
+    {
+     "name": "extra-installation-startup.test",
+     "exitCode": 0
+    },
+    {
+     "name": "extra-service-probes.test",
+     "exitCode": 0
+    },
+    {
+     "name": "extra-service-capabilities.test",
+     "exitCode": 0
+    },
+    {
+     "name": "extra-service-invocation.test",
+     "exitCode": 0
+    },
+    {
+     "name": "extra-deliveries.test",
+     "exitCode": 0
+    },
+    {
+     "name": "extra-runtime-tools-shell.test",
+     "exitCode": 0
+    },
+    {
+     "name": "extra-failover.test",
+     "exitCode": 0
+    },
+    {
+     "name": "extra-db-connection-real-init.test",
+     "exitCode": 0
+    },
+    {
+     "name": "extra-db-corruption-catch.unit.test",
+     "exitCode": 0
+    },
+    {
+     "name": "web-bearer-auth.test",
+     "exitCode": 0
+    },
+    {
+     "name": "web-factory-boot.server.test",
+     "exitCode": 0
+    },
+    {
+     "name": "web-mock-llm-store.test",
+     "exitCode": 0
+    },
+    {
+     "name": "runner",
+     "exitCode": 1
+    },
+    {
+     "name": "merge",
+     "exitCode": 0
+    },
+    {
+     "name": "gate-crap-changed",
+     "exitCode": 1
+    },
+    {
+     "name": "gate-new-file-origin-main",
+     "exitCode": 1
+    },
+    {
+     "name": "gate-new-file-integ",
+     "exitCode": 0
+    },
+    {
+     "name": "gate-patch-integ",
+     "exitCode": 0
+    },
+    {
+     "name": "gate-global-floor",
+     "exitCode": 1
+    },
+    {
+     "name": "gate-per-file-thresholds",
+     "exitCode": 1
+    },
+    {
+     "name": "gate-integrity",
+     "exitCode": 0
+    },
+    {
+     "name": "boundaries",
+     "exitCode": 0
+    }
+   ],
+   "attribution": "focused is the only red producer (5667/20); the origin/main gates (crap --changed, new-file vs origin/main, global floor, per-file thresholds) are red as in validator-3's G6 at c5507c5ce and are recorded, not gating (W18c owns them); new-file and patch against integ/w00, gate-integrity and boundaries are 0"
+  }
+ },
+ "focused": {
+  "files": 405,
+  "validatorG6Files": 368,
+  "extra": "37 files auto-added as changed since c6ac529d2 (W18 hygiene A/D conversions, graph-proof-diagnostics)",
+  "run2": "5667 pass / 20 fail",
+  "bisection": {
+   "ext-files-route.test.ts": "afterAll chdir(tmpdir()) never restored -> factory-boot 6, import-parity 3, quality-report-fail-closed 1, lazy-sql-assertions 1 (fixed here)",
+   "extensions-patch-route.test.ts": "then phase-2b-e2e 6 fail",
+   "extensions-delete-route-policy.test.ts": "then phase-2b-e2e 5 fail",
+   "installer-idempotent-local": "3 fail after the same new-file set",
+   "basePreExisting": "the pre-hygiene versions from 2b2e12550 pollute identically (w18a3-merge-base-pairs.txt)",
+   "files": [
+    "w18a3-merge-bisect-pairs.txt",
+    "w18a3-merge-bisect-phase2b.txt",
+    "w18a3-merge-pairs-ext-files.txt",
+    "w18a3-merge-base-pairs.txt"
+   ]
+  },
+  "rerun1": {
+   "proofCommit": "proof/w18a3-merge-staged-fix dba08e4fd1438c8df2fa83b0d40cd6514e8c2ef1 (with the ext-files-route fix)",
+   "when": "19:19:45-19:34:25Z",
+   "result": "5677 pass / 10 fail",
+   "fails": [
+    {
+     "file": "src/__tests__/workflow-run-persistence.test.ts",
+     "test": "workflow-runs query layer > terminalizeOrphanedWorkflowRuns sweeps rows a dead process left running [1.46ms]"
+    },
+    {
+     "file": "src/__tests__/installer-idempotent-local.test.ts",
+     "test": "a project member imports and opens the real scoped review loader without disclosing foreign source [369.21ms]"
+    },
+    {
+     "file": "src/__tests__/installer-idempotent-local.test.ts",
+     "test": "the author loader keeps lifecycle history when its real workspace blob is missing [301.75ms]"
+    },
+    {
+     "file": "src/__tests__/installer-idempotent-local.test.ts",
+     "test": "the author loader names listed installations in bulk and leaves a fresh workspace unnamed [325.58ms]"
+    },
+    {
+     "file": "src/__tests__/phase-2b-e2e.test.ts",
+     "test": "Phase 2b e2e: install \u2192 clamp \u2192 audit \u2192 RPC routing \u2192 revoke \u2192 kill-switch > release publication grants the exact declared capabilities [7.34ms]"
+    },
+    {
+     "file": "src/__tests__/phase-2b-e2e.test.ts",
+     "test": "Phase 2b e2e: install \u2192 clamp \u2192 audit \u2192 RPC routing \u2192 revoke \u2192 kill-switch > GET echoes the clamped grants [0.13ms]"
+    },
+    {
+     "file": "src/__tests__/phase-2b-e2e.test.ts",
+     "test": "Phase 2b e2e: install \u2192 clamp \u2192 audit \u2192 RPC routing \u2192 revoke \u2192 kill-switch > legacy PUT cannot add undeclared shell access or mutate current grants [0.15ms]"
+    },
+    {
+     "file": "src/__tests__/phase-2b-e2e.test.ts",
+     "test": "Phase 2b e2e: install \u2192 clamp \u2192 audit \u2192 RPC routing \u2192 revoke \u2192 kill-switch > handleEmitTaskEventRpc routes off the granted permissions \u2192 bus fires [0.10ms]"
+    },
+    {
+     "file": "src/__tests__/phase-2b-e2e.test.ts",
+     "test": "Phase 2b e2e: install \u2192 clamp \u2192 audit \u2192 RPC routing \u2192 revoke \u2192 kill-switch > handleAgentConfigsRpc routes off the granted permissions \u2192 returns user's configs [0.08ms]"
+    },
+    {
+     "file": "src/__tests__/phase-2b-e2e.test.ts",
+     "test": "Phase 2b e2e: install \u2192 clamp \u2192 audit \u2192 RPC routing \u2192 revoke \u2192 kill-switch > disabling the release revokes grants and the next RPC call is refused (-32001) [4.43ms]"
+    }
+   ]
+  },
+  "rerun2": {
+   "proofCommit": "dba08e4fd",
+   "when": "23:10:54-23:26:37Z",
+   "result": "5678 pass / 9 fail",
+   "fails": [
+    {
+     "file": "src/__tests__/installer-idempotent-local.test.ts",
+     "test": "a project member imports and opens the real scoped review loader without disclosing foreign source [345.99ms]"
+    },
+    {
+     "file": "src/__tests__/installer-idempotent-local.test.ts",
+     "test": "the author loader keeps lifecycle history when its real workspace blob is missing [312.13ms]"
+    },
+    {
+     "file": "src/__tests__/installer-idempotent-local.test.ts",
+     "test": "the author loader names listed installations in bulk and leaves a fresh workspace unnamed [307.55ms]"
+    },
+    {
+     "file": "src/__tests__/phase-2b-e2e.test.ts",
+     "test": "Phase 2b e2e: install \u2192 clamp \u2192 audit \u2192 RPC routing \u2192 revoke \u2192 kill-switch > release publication grants the exact declared capabilities [7.73ms]"
+    },
+    {
+     "file": "src/__tests__/phase-2b-e2e.test.ts",
+     "test": "Phase 2b e2e: install \u2192 clamp \u2192 audit \u2192 RPC routing \u2192 revoke \u2192 kill-switch > GET echoes the clamped grants [0.08ms]"
+    },
+    {
+     "file": "src/__tests__/phase-2b-e2e.test.ts",
+     "test": "Phase 2b e2e: install \u2192 clamp \u2192 audit \u2192 RPC routing \u2192 revoke \u2192 kill-switch > legacy PUT cannot add undeclared shell access or mutate current grants [0.16ms]"
+    },
+    {
+     "file": "src/__tests__/phase-2b-e2e.test.ts",
+     "test": "Phase 2b e2e: install \u2192 clamp \u2192 audit \u2192 RPC routing \u2192 revoke \u2192 kill-switch > handleEmitTaskEventRpc routes off the granted permissions \u2192 bus fires [0.10ms]"
+    },
+    {
+     "file": "src/__tests__/phase-2b-e2e.test.ts",
+     "test": "Phase 2b e2e: install \u2192 clamp \u2192 audit \u2192 RPC routing \u2192 revoke \u2192 kill-switch > handleAgentConfigsRpc routes off the granted permissions \u2192 returns user's configs [0.08ms]"
+    },
+    {
+     "file": "src/__tests__/phase-2b-e2e.test.ts",
+     "test": "Phase 2b e2e: install \u2192 clamp \u2192 audit \u2192 RPC routing \u2192 revoke \u2192 kill-switch > disabling the release revokes grants and the next RPC call is refused (-32001) [4.76ms]"
+    }
+   ]
+  }
+ },
+ "OPEN": {
+  "owner": "W18 hygiene item C, required (item C is accepted only with the focused producer green; not a disclosed gap)",
+  "items": [
+   {
+    "leak": "extensions-patch-route.test.ts -> phase-2b-e2e.test.ts",
+    "victims": [
+     {
+      "file": "src/__tests__/phase-2b-e2e.test.ts",
+      "test": "Phase 2b e2e: install \u2192 clamp \u2192 audit \u2192 RPC routing \u2192 revoke \u2192 kill-switch > release publication grants the exact declared capabilities [7.73ms]"
+     },
+     {
+      "file": "src/__tests__/phase-2b-e2e.test.ts",
+      "test": "Phase 2b e2e: install \u2192 clamp \u2192 audit \u2192 RPC routing \u2192 revoke \u2192 kill-switch > GET echoes the clamped grants [0.08ms]"
+     },
+     {
+      "file": "src/__tests__/phase-2b-e2e.test.ts",
+      "test": "Phase 2b e2e: install \u2192 clamp \u2192 audit \u2192 RPC routing \u2192 revoke \u2192 kill-switch > legacy PUT cannot add undeclared shell access or mutate current grants [0.16ms]"
+     },
+     {
+      "file": "src/__tests__/phase-2b-e2e.test.ts",
+      "test": "Phase 2b e2e: install \u2192 clamp \u2192 audit \u2192 RPC routing \u2192 revoke \u2192 kill-switch > handleEmitTaskEventRpc routes off the granted permissions \u2192 bus fires [0.10ms]"
+     },
+     {
+      "file": "src/__tests__/phase-2b-e2e.test.ts",
+      "test": "Phase 2b e2e: install \u2192 clamp \u2192 audit \u2192 RPC routing \u2192 revoke \u2192 kill-switch > handleAgentConfigsRpc routes off the granted permissions \u2192 returns user's configs [0.08ms]"
+     },
+     {
+      "file": "src/__tests__/phase-2b-e2e.test.ts",
+      "test": "Phase 2b e2e: install \u2192 clamp \u2192 audit \u2192 RPC routing \u2192 revoke \u2192 kill-switch > disabling the release revokes grants and the next RPC call is refused (-32001) [4.76ms]"
+     }
+    ]
+   },
+   {
+    "leak": "extensions-delete-route-policy.test.ts (and the same new-file set) -> phase-2b-e2e.test.ts, installer-idempotent-local.test.ts",
+    "victims": [
+     {
+      "file": "src/__tests__/installer-idempotent-local.test.ts",
+      "test": "a project member imports and opens the real scoped review loader without disclosing foreign source [345.99ms]"
+     },
+     {
+      "file": "src/__tests__/installer-idempotent-local.test.ts",
+      "test": "the author loader keeps lifecycle history when its real workspace blob is missing [312.13ms]"
+     },
+     {
+      "file": "src/__tests__/installer-idempotent-local.test.ts",
+      "test": "the author loader names listed installations in bulk and leaves a fresh workspace unnamed [307.55ms]"
+     }
+    ]
+   },
+   {
+    "nondeterministic": "src/__tests__/workflow-run-persistence.test.ts 'workflow-runs query layer > terminalizeOrphanedWorkflowRuns sweeps rows a dead process left running'",
+    "observed": "drained 0, expected >= 1 (line 720) once in three focused runs of the same tree and order (run 2 pass, rerun-1 fail, rerun-2 pass); passes alone 3/3 (95/0)",
+    "required": "make the liveness window deterministic by injecting the clock or threshold, never by widening a timeout"
+   }
+  ]
+ },
+ "backendPool": {
+  "run2": "VOID: my wrapper exported DATABASE_URL and FACTORY_TEST_POSTGRES_URL (9 fails in db-connection*, db-graceful-shutdown, file-organizer EZCORP_DB_PATH); validator-3's pool ran with neither",
+  "run3": {
+   "when": "18:46:47-18:58:30Z",
+   "env": "umask 022, DATABASE_URL unset",
+   "result": "29024 pass | 0 fail | 1956 files",
+   "gate": "resource-gate 2026-09-25T18:46:47Z backend-pool disk=113G memAvailable=17GiB swapFreeKiB=7492204/17173956",
+   "log": "w18a3-merge-backend-pool.log"
+  },
+  "memoryNote": "run 2's pool step started before the memory-floor rule; its start was sampled (w18a3-merge-pool-start-memory.txt: MemAvailable ~15 GiB); run 3 ran behind the resource gate"
+ },
+ "checks": [
+  {
+   "name": "registration",
+   "exitCode": 0,
+   "start": "2026-09-25T12:51:25Z",
+   "end": "2026-09-25T12:51:26Z",
+   "command": "bun test --timeout 30000 ./scripts/factory-postgres-suite-registration.test.ts ./src/__tests__/factory-ci-registration.test.ts ./scripts/check-required-checks.test.ts",
+   "logSha256": "7e7078e154117b61b39e5ffc871bbe04cf41389ccd86a86723f5b9611fb007b4"
+  },
+  {
+   "name": "typecheck",
+   "exitCode": 0,
+   "start": "2026-09-25T12:51:26Z",
+   "end": "2026-09-25T12:52:14Z",
+   "command": "bun run typecheck",
+   "logSha256": "e93e196f6620daa41d986721997f78dc0a27e3c5457d17fb6d52f296e4151945"
+  },
+  {
+   "name": "lint",
+   "exitCode": 0,
+   "start": "2026-09-25T12:52:14Z",
+   "end": "2026-09-25T12:52:15Z",
+   "command": "bun run lint",
+   "logSha256": "b543520791e2fbbc84ab20ab60fa78b0ab7e673a0833111b63aeec29a1fe1220"
+  },
+  {
+   "name": "gate-integrity",
+   "exitCode": 0,
+   "start": "2026-09-25T12:52:15Z",
+   "end": "2026-09-25T12:52:18Z",
+   "command": "bun scripts/gate-integrity.ts",
+   "logSha256": "b1a0297506aab4a182c44b23c41d861c6f4ae88da68848497d810bb39bff6bda"
+  },
+  {
+   "name": "boundaries",
+   "exitCode": 0,
+   "start": "2026-09-25T12:52:18Z",
+   "end": "2026-09-25T12:52:19Z",
+   "command": "bun scripts/check-factory-boundaries.ts",
+   "logSha256": "a701e3a2106adf5e27905c6b5ba03385c3e8490562ff4d2e98236c0403caaf83"
+  },
+  {
+   "name": "schema-drift",
+   "exitCode": 0,
+   "start": "2026-09-25T12:52:19Z",
+   "end": "2026-09-25T12:52:23Z",
+   "command": "bun scripts/check-schema-generate-drift.ts",
+   "logSha256": "58e4fb0d5102f899bd14326e7b9fcbaee5ad91491dec01c137198838c9b29f15"
+  },
+  {
+   "name": "focused-src-__tests__-git-hooks-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T12:52:23Z",
+   "end": "2026-09-25T12:52:27Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/git-hooks.test.ts",
+   "logSha256": "138a3e4806798f2212e7ab8c2436092ca2d1618c40a4443d8bfea11ff446a2db"
+  },
+  {
+   "name": "focused-src-__tests__-gate-scripts-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T12:52:27Z",
+   "end": "2026-09-25T12:52:33Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/gate-scripts.test.ts",
+   "logSha256": "87d782c8858a8b6c9abfcfad904e41afc761643553a49bf851a61ab0eff815e6"
+  },
+  {
+   "name": "focused-src-__tests__-mock-cleanup-coverage-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T12:52:33Z",
+   "end": "2026-09-25T12:52:34Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/mock-cleanup-coverage.test.ts",
+   "logSha256": "e9ff800ea391afff15bd0891d7b5e9f3bd898ef77309549780c23a0db4fd38a2"
+  },
+  {
+   "name": "focused-src-__tests__-factory-process-boundaries-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T12:52:34Z",
+   "end": "2026-09-25T12:52:37Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/factory-process-boundaries.test.ts",
+   "logSha256": "5036d21d4488d2e9f3a0379c4ebd64e8a4b00182a66f787c2ccd02b4dd1004c7"
+  },
+  {
+   "name": "focused-scripts-check-factory-boundaries-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T12:52:37Z",
+   "end": "2026-09-25T12:52:39Z",
+   "command": "bun test --timeout 60000 ./scripts/check-factory-boundaries.test.ts",
+   "logSha256": "7b461af568cbaeadc69ea848f9a7fa10a8fc3c629bbb9a457e3a1c820bd7f6af"
+  },
+  {
+   "name": "check-boundaries",
+   "exitCode": 0,
+   "result": "5727 source files, 0 violations"
+  }
+ ],
+ "hookSuites": "11 staged test files (under the cap): the hook ran them itself; all pass (w18a3-merge-hook-list.txt)",
+ "sharedGitConfig": "baseline 2f62c2f1d5da2f92 (core.bare=true incident); it changed to 44962525f1ca1a8b at 14:16:04Z during run 1 (the user's repair, confirmed by the coordinator); unchanged at 44962525f1ca1a8b through run 2, the pool and both reruns",
+ "lessons": [
+  "temporary producer worktree needs a real frozen install",
+  "the backend pool runs without DATABASE_URL/FACTORY_TEST_POSTGRES_URL",
+  "poll a background job's exit file on a timer"
+ ],
+ "standingSteps": "df 146G at run 1, 143G at run 2, 113G at pool 3, 114G at commit; memory 15-17 GiB available at each gate"
+}
