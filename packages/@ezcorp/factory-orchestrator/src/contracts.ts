@@ -10,6 +10,21 @@ export const FACTORY_STATE_QUERY = "factoryState";
 export const FACTORY_INBOX_RECEIPT_QUERY = "factoryInboxReceipt";
 export const FACTORY_TASK_QUEUE = "factory-orchestrator";
 export const MAX_INBOX_EVENTS = 128;
+
+/**
+ * The orchestrator's bounds for a request to the product's private service.
+ *
+ * They must keep one order: the private service's own request bound (two
+ * physical stop bounds, 40 s) plus a margin, then the gateway client's bound,
+ * then its configurable maximum, then the start-to-close bound of one audit or
+ * read activity. A client bound below the service's bound cuts a slow stop the
+ * service is still serving. A start-to-close bound below the client's bound
+ * makes Temporal send the same sealed request again while the first one runs.
+ * `src/__tests__/factory-gateway-timeouts.test.ts` pins this order.
+ */
+export const FACTORY_GATEWAY_REQUEST_TIMEOUT_MS = 50_000;
+export const FACTORY_GATEWAY_REQUEST_TIMEOUT_MAX_MS = 60_000;
+export const FACTORY_GATEWAY_ACTIVITY_TIMEOUT_MS = 90_000;
 export const CONTINUE_AFTER_EVENTS = 64;
 export const MAX_ACTIVITY_PAYLOAD_BYTES = 64 * 1024;
 export const MAX_DEFINITION_BYTES = 16 * 1024 * 1024;

@@ -152,7 +152,7 @@ describe("authenticated factory gateway activities", () => {
           address: "unused", namespace: "default", serverName: "unused", caPath: "unused", certificatePath: "unused", privateKeyPath: "unused", apiKeyPath: "unused",
           credentialRefreshMs: 1_000, pollingProbeTimeoutMs: 1_000,
         },
-        gateway: { baseUrl: origin, tls: paths, serverName: "localhost", requestTimeoutMs: 1_000 },
+        gateway: { baseUrl: origin, tls: paths, serverName: "localhost" },
         payloadCodec: { encode: async (values) => values, decode: async (values) => values },
         loadTemporalCredentials: async () => ({ ca: Buffer.from("ca"), certificate: Buffer.from("cert"), privateKey: Buffer.from("key"), apiKey: "token", tlsFingerprint: "tls" }),
         readiness: { write: async (state) => {
