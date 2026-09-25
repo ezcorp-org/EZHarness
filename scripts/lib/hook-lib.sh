@@ -63,9 +63,16 @@ svelte_check() {
 # ── Staged unit tests (pre-commit shift-left) ───────────────────────────────
 # Run the unit tests that correspond to the files a commit is staging, so a
 # broken test is caught before the push instead of by CI. Advisory speed, NOT
-# the backstop: the cap below deliberately SKIPS rather than blocks on a wide
-# commit, because a pre-commit hook that takes minutes gets bypassed, and a
-# bypassed hook checks nothing.
+# the backstop — CI is. Above EZ_PRECOMMIT_TEST_MAX (default 12) the hook does
+# NOT run the tests (a pre-commit hook that takes minutes gets bypassed, and a
+# bypassed hook checks nothing), but it never skips SILENTLY: it names every
+# file it is not running and, by default, BLOCKS the commit — the developer
+# must consciously narrow the commit, raise the cap, or set
+# EZ_SKIP_HOOK_TESTS=1 to acknowledge the skip and proceed. (Ruling
+# 2026-09-24: a 74-file main merge and a 36/24-file W18-hygiene commit both
+# hit the old silent-skip path with zero output — see tasks/todo.md.)
+# EZ_SKIP_HOOK_TESTS=1 is honoured for BOTH branches (over cap and under it)
+# so there is exactly one skip mechanism, always visible, never two.
 
 # staged_test_targets FILE...
 # Print the test files that cover the given staged paths, one per line.
@@ -133,8 +140,22 @@ run_staged_tests() {
   fi
   count=$(printf '%s\n' "$targets" | wc -l | tr -d ' ')
   if [ "$count" -gt "$max" ]; then
-    echo "  $count test files map to this commit (cap ${max}) — skipping."
-    echo "  A wide commit is what pre-push and CI are for; raise with EZ_PRECOMMIT_TEST_MAX."
+    echo "  $count test files map to this commit (cap ${max}) — NOT running:"
+    printf '%s\n' "$targets" | sed 's/^/    /'
+    if [ "${EZ_SKIP_HOOK_TESTS:-}" = "1" ]; then
+      echo "  EZ_SKIP_HOOK_TESTS=1 set — skipping the ${count} file(s) above; continuing with lint."
+      return 0
+    fi
+    echo "  Above the ${max}-file cap a hook that ran them all would be slow enough to get bypassed,"
+    echo "  and a bypassed hook checks nothing — so this blocks the commit instead of skipping silently."
+    echo "  Narrow the commit, raise EZ_PRECOMMIT_TEST_MAX, or set EZ_SKIP_HOOK_TESTS=1 to acknowledge"
+    echo "  and skip the file(s) above here (pre-push and CI still run them)."
+    return 1
+  fi
+
+  if [ "${EZ_SKIP_HOOK_TESTS:-}" = "1" ]; then
+    echo "  EZ_SKIP_HOOK_TESTS=1 set — skipping the ${count} staged test file(s) below; continuing with lint:"
+    printf '%s\n' "$targets" | sed 's/^/    /'
     return 0
   fi
 
