@@ -138,7 +138,7 @@ async function routeFactoryApi(page: Page, options: { conflictOnce?: boolean; di
 			return respond(envelope({ kind: "run.details", resource: { ...runSummary(), parameters: {}, error: { code: "factory_assurance_claim_failed", message: "A required protected claim failed." } } }));
 		}
 		if (url.pathname.endsWith("/grants") && method === "GET") {
-			return respond(envelope({ kind: "grant.page", page: { items: [{ principalKind: "user", principalId: "e2e-admin", action: "factory.run", revision: 2, expiresAtMs: null, revoked: false }] } }));
+			return respond(envelope({ kind: "grant.page", page: { items: [{ principalKind: "user", principalId: "e2e-admin", action: "factory.run", revision: 2, expiresAtMs: null, revoked: false, displayName: "E2E Admin" }] } }));
 		}
 		if (url.pathname.endsWith("/" + encodeURIComponent(factoryId) + "/runs") && method === "POST") {
 			const rejection = reject("start");

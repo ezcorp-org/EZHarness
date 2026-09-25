@@ -9,7 +9,9 @@
 	import FeatureIndex from "$lib/components/FeatureIndex.svelte";
 	import ComposerSuggestSection from "$lib/components/settings/ComposerSuggestSection.svelte";
 	import SaveIndicator from "$lib/components/settings/SaveIndicator.svelte";
+	import ProjectSandboxPanel from "$lib/components/ProjectSandboxPanel.svelte";
 	import { createSaveFlash } from "$lib/save-flash.svelte.js";
+	import { resolveWorkspaceBinding, type WorkspaceKind } from "$lib/workspace-binding";
 
 	let globalPrompt = $state("");
 	let projectPrompt = $state("");
@@ -65,6 +67,8 @@
 	$effect(() => {
 		if (projectId) {
 			loadInstructions();
+		}
+		if (projectId && workspaceKind === "local") {
 			loadGithubProjectsLink();
 		}
 	});
@@ -84,6 +88,25 @@
 
 	let projectId = $derived(page.params.id);
 	let project = $derived(store.projects.find((p) => p.id === projectId));
+	let workspaceKind = $state<WorkspaceKind | "loading">("loading");
+	let workspaceError = $state("");
+	let workspaceRequest = 0;
+	let sandbox = $derived(workspaceKind === "sandbox");
+	let workspaceResolved = $derived(workspaceKind === "local" || workspaceKind === "sandbox");
+
+	async function loadWorkspaceKind(id: string, path: string) {
+		const request = ++workspaceRequest;
+		workspaceError = "";
+		workspaceKind = "loading";
+		const resolution = await resolveWorkspaceBinding(id, path);
+		if (request !== workspaceRequest) return;
+		workspaceKind = resolution.kind;
+		workspaceError = resolution.error ?? "";
+	}
+
+	$effect(() => {
+		if (projectId && project) void loadWorkspaceKind(projectId, project.path);
+	});
 
 	async function handleUpdate(data: { name: string; path: string; icon?: string | null; variables: Record<string, unknown> }) {
 		if (!projectId) return;
@@ -110,34 +133,44 @@
 					{/if}
 					<h2 class="text-2xl font-bold text-[var(--color-text-primary)]">{project.name}</h2>
 				</div>
-				<button
-					onclick={handleDelete}
-					class="rounded-md px-3 py-1.5 text-sm text-red-400 hover:bg-[var(--color-surface-tertiary)] hover:text-red-300"
-				>
-					Delete
-				</button>
+				{#if workspaceResolved && !sandbox}
+					<button
+						onclick={handleDelete}
+						class="rounded-md px-3 py-1.5 text-sm text-red-400 hover:bg-[var(--color-surface-tertiary)] hover:text-red-300"
+					>
+						Delete
+					</button>
+				{/if}
 			</div>
-			<ProjectForm {project} onsubmit={handleUpdate} submitting={projectUpdateFlash.saving} />
-			<div class="mt-2"><SaveIndicator saved={projectUpdateFlash.saved} error={projectUpdateFlash.error} /></div>
+			{#if workspaceResolved && !sandbox}
+				<ProjectForm {project} onsubmit={handleUpdate} submitting={projectUpdateFlash.saving} />
+				<div class="mt-2"><SaveIndicator saved={projectUpdateFlash.saved} error={projectUpdateFlash.error} /></div>
+			{/if}
 		</div>
-		<!-- Feature Index -->
-		<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-6">
-			<p class="mb-3 text-xs text-[var(--color-text-secondary)]">
-				Buckets of related files. Mention them in chat with <code>$[feature:name]</code> — the assistant
-				gets a system note listing the feature's files. Run <strong>Scan features</strong> to auto-populate
-				from this project's source roots; user-pinned files survive every rescan.
-			</p>
-			<FeatureIndex projectId={project.id} />
-		</div>
+		{#if workspaceKind === "unavailable"}
+			<p class="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-300" role="alert">{workspaceError}</p>
+		{:else if workspaceResolved}
+			<ProjectSandboxPanel projectId={project.id} {sandbox} />
+		{/if}
+		{#if workspaceResolved && !sandbox}
+			<!-- Feature Index -->
+			<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-6">
+				<p class="mb-3 text-xs text-[var(--color-text-secondary)]">
+					Buckets of related files. Mention them in chat with <code>$[feature:name]</code> — the assistant
+					gets a system note listing the feature's files. Run <strong>Scan features</strong> to auto-populate
+					from this project's source roots; user-pinned files survive every rescan.
+				</p>
+				<FeatureIndex projectId={project.id} />
+			</div>
 
-		<!-- Integrations -->
-		<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-6" data-testid="project-settings-integrations">
+			<!-- Integrations -->
+			<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-6" data-testid="project-settings-integrations">
 			<h3 class="mb-1 text-lg font-semibold text-[var(--color-text-primary)]">Integrations</h3>
 			<p class="mb-3 text-xs text-[var(--color-text-secondary)]">
 				Connect this project to external services. Moving a card on a connected GitHub Projects
 				board can propose (or auto-spawn) an AI agent run.
 			</p>
-			<div class="flex items-center justify-between gap-3 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2">
+			<div class="flex flex-col items-start gap-3 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
 				<div class="min-w-0">
 					<p class="text-sm font-medium text-[var(--color-text-primary)]">GitHub Projects</p>
 					<p class="text-xs text-[var(--color-text-muted)]" data-testid="project-settings-gh-status">
@@ -155,12 +188,13 @@
 				<a
 					href={`/project/${projectId}/integrations/github-projects`}
 					data-testid="project-settings-gh-link"
-					class="shrink-0 rounded-md border border-[var(--color-border)] px-3 py-1.5 text-sm text-[var(--color-accent)] hover:bg-[var(--color-surface-tertiary)]"
+					class="w-full rounded-md border border-[var(--color-border)] px-3 py-1.5 text-center text-sm text-[var(--color-accent)] hover:bg-[var(--color-surface-tertiary)] sm:w-auto sm:shrink-0"
 				>
 					Connect a GitHub Projects board →
 				</a>
 			</div>
-		</div>
+			</div>
+		{/if}
 
 		<!-- Composer suggestions (per-project toggle; global override lives
 		     under Settings → Personalization) -->

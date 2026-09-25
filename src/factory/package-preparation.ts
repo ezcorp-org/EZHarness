@@ -27,14 +27,29 @@ export type FactoryRunnerPackageTrustState = "active" | "quarantined" | "revoked
 export type FactoryPackageTrustTransition = "publish" | "quarantine" | "revoke";
 export interface FactoryRunnerPackageTrustRecord { readonly projectId: string; readonly reference: RunnerReference; readonly revision: number; readonly state: FactoryRunnerPackageTrustState; readonly packageTrustDigest: string; readonly approvedBy: string; readonly approvalGrantRevision: number; /** The v4 `extension_release_installations.generation` this decision was taken against. */ readonly installationGeneration: number; readonly protectedDigest: string; }
 
+/** What a blocking trust decision hands the stop seam, inside the transaction that records it. */
+export interface FactoryPackageFenceDecision {
+  readonly tenantId: string;
+  readonly projectId: string;
+  readonly reference: RunnerReference;
+  readonly state: Exclude<FactoryRunnerPackageTrustState, "active">;
+  /** The trust revision this decision wrote: the generation that quarantined or revoked the package. */
+  readonly trustRevision: number;
+  /** The v4 installation generation the decision was taken against. */
+  readonly installationGeneration: number;
+  /** The human who took the decision. Every run the fence cancels is attributed to them. */
+  readonly actor: FactoryPrincipal;
+}
+
 /**
- * The stop seam quarantine and revocation drive. Sol lifecycle (W03) implements
- * it over the physical stop path; it is called inside the same transaction that
- * records the state, so a package can never be quarantined without its live
- * attempts being fenced in the same commit.
+ * The stop seam quarantine and revocation drive. `FactoryPackageFence`
+ * (`package-fence.ts`) is the production implementation; it is called inside the
+ * same transaction that records the state, so a package can never be quarantined
+ * without its live attempts being fenced in the same commit.
  */
 export interface FactoryPackageQuarantineFence {
-  fenceAttempts(transaction: MigrationDb, input: { readonly tenantId: string; readonly projectId: string; readonly reference: RunnerReference; readonly state: FactoryRunnerPackageTrustState; readonly trustRevision: number }): Promise<readonly string[]>;
+  /** Returns the attempts it fenced. */
+  fenceAttempts(transaction: MigrationDb, decision: FactoryPackageFenceDecision): Promise<readonly string[]>;
 }
 /** Dispatcher calls this after durable claim and before it mints a runner token. */
 type FactoryPackageDispatchRequest = Pick<FactoryRunnerRequest, "runner"> & { readonly authority: Pick<FactoryRunnerRequest["authority"], "tenantId" | "projectId"> };
@@ -44,6 +59,18 @@ export interface FactoryPreparedPackageReceipt { readonly projectId: string; rea
 type FactoryPackagePreparationIntent = { readonly projectId: string; readonly reference: RunnerReference; readonly trustRevision: number; readonly packageTrustDigest: string; readonly binding: FactoryV4PackageBinding; readonly evidenceDigest: string; readonly entrypoint: string; readonly buildIdentity: string; readonly state: "prepared" | "completed"; readonly intentDigest: string; };
 
 export class FactoryPackagePreparationError extends Error { constructor(readonly code: string) { super(code); this.name = "FactoryPackagePreparationError"; } }
+/** The two refusals a blocking trust state produces, named by the state that caused them. */
+export type FactoryPackageBlockedCode = "factory_package_quarantined" | "factory_package_revoked";
+export const FACTORY_PACKAGE_BLOCKED_CODES: Readonly<Record<Exclude<FactoryRunnerPackageTrustState, "active">, FactoryPackageBlockedCode>> = Object.freeze({ quarantined: "factory_package_quarantined", revoked: "factory_package_revoked" });
+/**
+ * A refusal by a quarantined or revoked package, at admission, preflight, or
+ * launch. It names the trust revision that blocked the package and the
+ * installation generation that decision was taken against, so an operator can
+ * tell which decision refused the work and whether a later one has lifted it.
+ */
+export class FactoryPackageBlockedError extends FactoryPackagePreparationError {
+  constructor(override readonly code: FactoryPackageBlockedCode, readonly trustRevision: number, readonly installationGeneration: number) { super(code); this.name = "FactoryPackageBlockedError"; }
+}
 export function factoryPackageDispatchDisposition(error: unknown): "retry" | "deny" { return error instanceof FactoryPackagePreparationError && error.code !== "factory_package_not_prepared" ? "deny" : "retry"; }
 
 function snapshot<T>(value: T): T { return JSON.parse(encodeFactoryPayload(value)) as T; }
@@ -62,6 +89,8 @@ function same(left: unknown, right: unknown): boolean { return canonicalJson(lef
 function sameBindingFacts(left: FactoryV4PackageBinding, right: FactoryV4PackageBinding): boolean { return left.projectId === right.projectId && same(left.reference, right.reference) && left.installationId === right.installationId && left.releaseId === right.releaseId && left.releaseDigest === right.releaseDigest && left.sourceDigest === right.sourceDigest && left.artifactDigest === right.artifactDigest && left.imageDigest === right.imageDigest && left.manifestDigest === right.manifestDigest; }
 function referenceDigest(reference: RunnerReference): string { return sha(reference); }
 function tuple(reference: RunnerReference): [string, string, string, string, string] { return [reference.package, reference.version, reference.digest, reference.export, referenceDigest(reference)]; }
+/** The validated, frozen runner tuple every trust, fence, and preparation row is keyed by. */
+export { runner as factoryRunnerPackageReference, tuple as factoryRunnerPackageKey };
 function bindingSeal(tenantId: string, input: Omit<FactoryV4PackageBinding, "protectedDigest">): string { return sha({ tenantId, projectId: input.projectId, reference: input.reference, installationId: input.installationId, releaseId: input.releaseId, releaseDigest: input.releaseDigest, sourceDigest: input.sourceDigest, artifactDigest: input.artifactDigest, imageDigest: input.imageDigest, manifestDigest: input.manifestDigest, issuerId: input.issuerId, issuerGrantRevision: input.issuerGrantRevision }); }
 function trustSeal(tenantId: string, value: Omit<FactoryRunnerPackageTrustRecord, "protectedDigest">): string { return sha({ tenantId, projectId: value.projectId, reference: value.reference, revision: value.revision, state: value.state, packageTrustDigest: value.packageTrustDigest, approvedBy: value.approvedBy, approvalGrantRevision: value.approvalGrantRevision, installationGeneration: value.installationGeneration }); }
 
@@ -111,6 +140,11 @@ export class FactoryPackageTrusts {
     const rule = TRUST_TRANSITIONS[transition];
     if (principal.kind !== "user" || principal.authentication !== "session" || !Number.isSafeInteger(value.expectedRevision) || value.expectedRevision < (rule.from.includes("none") ? 0 : 1)) throw new FactoryPackagePreparationError("factory_package_trust_invalid");
     assertFactoryIdentity(value.projectId);
+    // Fail closed: a composition that forgot the fence would otherwise record a
+    // quarantine that stops no live work, which is the defect this seam exists
+    // to prevent. Refused before anything is written.
+    const fence = this.fence;
+    if (rule.next !== "active" && !fence) throw new FactoryPackagePreparationError("factory_package_fence_unavailable");
     return this.mutations.execute({ principal, projectId: value.projectId, action: "factory.trust", idempotencyKey, input: { kind: `factory.package.trust.${transition}`, ...value } }, async transaction => {
       if (!await lockFactoryScope(transaction, this.tenantId, value.projectId, "write")) throw new FactoryPackagePreparationError("factory_package_scope");
       const current = await this.current(transaction, value.projectId, value.reference, "update");
@@ -126,7 +160,7 @@ export class FactoryPackageTrusts {
       await insertTransactionalAuditEntry(transaction, `factory-package-trust:${this.tenantId}:${record.projectId}:${record.reference.digest}:${record.reference.export}:${record.revision}`, principal.id, TRUST_AUDIT_ACTIONS[transition], record.projectId, { tenantId: this.tenantId, projectId: record.projectId, reference: record.reference, revision: record.revision, ...(transition === "publish" ? { packageTrustDigest: record.packageTrustDigest } : { priorRevision: value.expectedRevision }), state: record.state, installationGeneration: record.installationGeneration, approvalGrantRevision: record.approvalGrantRevision });
       // The stop path runs inside this transaction, so a package cannot reach a
       // blocking state without its live attempts being fenced in the same commit.
-      if (record.state !== "active") await this.fence?.fenceAttempts(transaction, { tenantId: this.tenantId, projectId: record.projectId, reference: record.reference, state: record.state, trustRevision: record.revision });
+      if (record.state !== "active") await fence!.fenceAttempts(transaction, { tenantId: this.tenantId, projectId: record.projectId, reference: record.reference, state: record.state, trustRevision: record.revision, installationGeneration: record.installationGeneration, actor: principal });
       return record;
     });
   }
@@ -171,8 +205,7 @@ export class FactoryPackageTrusts {
     if (!Number.isSafeInteger(installationGeneration) || installationGeneration < 0) throw new FactoryPackagePreparationError("factory_package_trust_corrupt");
     const unsigned: Omit<FactoryRunnerPackageTrustRecord, "protectedDigest"> = { projectId, reference, revision, state: row.state, packageTrustDigest: row.package_trust_digest, approvedBy: row.approved_by, approvalGrantRevision, installationGeneration };
     if (row.protected_digest !== trustSeal(this.tenantId, unsigned) || row.package_trust_digest !== sha(reference)) throw new FactoryPackagePreparationError("factory_package_trust_corrupt"); const trust: FactoryRunnerPackageTrustRecord = { ...unsigned, protectedDigest: row.protected_digest };
-    if (active && trust.state === "quarantined") throw new FactoryPackagePreparationError("factory_package_quarantined");
-    if (active && trust.state !== "active") throw new FactoryPackagePreparationError("factory_package_revoked");
+    if (active && trust.state !== "active") throw new FactoryPackageBlockedError(FACTORY_PACKAGE_BLOCKED_CODES[trust.state], trust.revision, trust.installationGeneration);
     // The v4 generation fence: a decision taken against an installation that has
     // since been activated, disabled, or uninstalled no longer authorizes dispatch.
     if (active && await this.installationGeneration(transaction, projectId, reference) !== trust.installationGeneration) throw new FactoryPackagePreparationError("factory_package_fence_stale");

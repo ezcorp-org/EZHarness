@@ -297,12 +297,12 @@ async function dispatchGrants(application: FactoryApplication, principal: Factor
     case "grant.set": {
       const target = grantPrincipal(request.path.principalKind, request.path.principalId);
       const result = await application.grants.set(principal, { projectId: request.path.projectId, principal: target, action: request.path.action, expectedRevision: request.preconditions.expectedRevision, expiresAtMs: request.body.expiresAtMs }, request.preconditions.idempotencyKey);
-      return { schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "grant.resource", resource: { principalKind: target.kind, principalId: target.id, action: request.path.action, revision: result.revision, expiresAtMs: result.expiresAtMs, revoked: false } };
+      return { schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "grant.resource", resource: { principalKind: target.kind, principalId: target.id, action: request.path.action, revision: result.revision, expiresAtMs: result.expiresAtMs, revoked: false, displayName: await application.grants.displayNameOf(target) } };
     }
     case "grant.revoke": {
       const target = grantPrincipal(request.path.principalKind, request.path.principalId);
       const result = await application.grants.revoke(principal, { projectId: request.path.projectId, principal: target, action: request.path.action, expectedRevision: request.preconditions.expectedRevision }, request.preconditions.idempotencyKey);
-      return { schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "grant.resource", resource: { principalKind: target.kind, principalId: target.id, action: request.path.action, revision: result.revision, expiresAtMs: result.expiresAtMs, revoked: true } };
+      return { schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "grant.resource", resource: { principalKind: target.kind, principalId: target.id, action: request.path.action, revision: result.revision, expiresAtMs: result.expiresAtMs, revoked: true, displayName: await application.grants.displayNameOf(target) } };
     }
     default:
       return null;
@@ -431,7 +431,7 @@ function versionResource(version: FactoryVersion) {
 }
 
 function grantResource(grant: FactoryGrantRecord) {
-  return { principalKind: grant.principalKind, principalId: grant.principalId, action: grant.action, revision: grant.revision, expiresAtMs: grant.expiresAtMs, revoked: grant.revoked };
+  return { principalKind: grant.principalKind, principalId: grant.principalId, action: grant.action, revision: grant.revision, expiresAtMs: grant.expiresAtMs, revoked: grant.revoked, displayName: grant.displayName };
 }
 
 function credentialResource(record: import("$server/factory/service-credentials").FactoryServiceCredentialRecord) {

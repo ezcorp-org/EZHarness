@@ -2477,6 +2477,12 @@
         "action": {
           "$ref": "#/definitions/FactoryAction"
         },
+        "displayName": {
+          "description": "The grantee's display name, or the stated placeholder \"Unnamed principal\". Never the raw principal id.",
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
         "expiresAtMs": {
           "maximum": 9007199254740991,
           "minimum": 1,
@@ -2508,7 +2514,8 @@
         "action",
         "revision",
         "expiresAtMs",
-        "revoked"
+        "revoked",
+        "displayName"
       ],
       "type": "object"
     },

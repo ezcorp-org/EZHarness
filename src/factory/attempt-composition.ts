@@ -28,7 +28,6 @@
  * **The physical stop carries only physical coordinates.** See
  * `factoryIntentPhysicalStop` below.
  */
-import { basename, dirname, resolve } from "node:path";
 import type { FactoryRunnerRequest } from "@ezcorp/factory-sdk";
 import { factoryRunnerRequestDigest } from "@ezcorp/factory-sdk/compiler";
 import { buildLimits } from "@ezcorp/extension-runner";
@@ -43,7 +42,7 @@ import type { FactoryGrants } from "./grants";
 import { createFactoryHostLaunchClient } from "./host-launch-client";
 import type { FactoryPhysicalStopExpectation } from "./journal-validation";
 import { FactoryPackagePreparations, FactoryPackageTrusts, FactoryV4PackageCatalog, type FactoryRunnerDispatchReadiness } from "./package-preparation";
-import { privateDirectory, readPrivateBounded } from "./private-files";
+import { readPrivateText } from "./private-files";
 import type { PoolAdmissionClient } from "./pool/client";
 import { createFactoryAttemptDispatchDriver, type FactoryAttemptDispatchDriver } from "./runner/attempt-dispatch-driver";
 import { FactoryDatabaseAttemptLaunchStore, type FactoryAttemptLaunchIntent, type FactoryPhysicalStopReason, type FactoryPhysicalStopReceipt } from "./runner/attempt-runtime";
@@ -75,15 +74,7 @@ export class FactoryAttemptCompositionError extends Error {
  * returned to exactly one caller and never logged, recorded, or published.
  */
 export async function loadFactoryAttemptTokenSecret(path: string): Promise<string> {
-  const absolute = resolve(path);
-  const directory = await privateDirectory(dirname(absolute));
-  let bytes: Uint8Array;
-  try {
-    bytes = await readPrivateBounded(directory, basename(absolute), MAX_ATTEMPT_TOKEN_BYTES);
-  } finally {
-    await directory.close();
-  }
-  const secret = new TextDecoder("utf-8", { fatal: true }).decode(bytes).trim();
+  const secret = (await readPrivateText(path, MAX_ATTEMPT_TOKEN_BYTES)).trim();
   if (secret.length < MIN_ATTEMPT_TOKEN_SECRET_LENGTH) {
     throw new FactoryAttemptCompositionError("factory_attempt_token_secret_invalid",
       `The factory attempt token secret must be at least ${MIN_ATTEMPT_TOKEN_SECRET_LENGTH} characters.`);

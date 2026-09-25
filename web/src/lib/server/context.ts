@@ -167,6 +167,8 @@ async function initialize(): Promise<void> {
     console.error("Bundled source staging unavailable; configure the runner and retry", { error: String(error) });
   });
   await registry.loadFromDb();
+  const { initializeLocalSandbox } = await import("$server/runtime/sandbox/startup");
+  await initializeLocalSandbox();
   const agents = await loadAgents(agentsDir, { includeDb: true });
   bus = new EventBus<AgentEvents>();
   // Phase 3a (Secure Preview): register the live conversation SSE bus so the

@@ -51,6 +51,19 @@ GUEST_MODEL_MAX_INPUT_BYTES: Final = 32 * 1024
 GUEST_MODEL_MAX_OUTPUT_TOKENS: Final = 8192
 GUEST_MODEL_MAX_RESPONSE_BYTES: Final = 128 * 1024
 
+# The staging frame bounds, mirroring ``FACTORY_GUEST_MATERIAL_LIMITS``.  The
+# chunk bound equals the recorded-page limit in both runtimes, so one canonical
+# base64 codec carries a chunk rather than a second encoder existing per
+# language; ``test_factory_guest_material.py`` asserts the equality.
+GUEST_MATERIAL_MAX_CHUNK_BYTES: Final = 32 * 1024
+GUEST_MATERIAL_MAX_CHUNKS: Final = 64
+GUEST_MATERIAL_MAX_TOTAL_BYTES: Final = 512 * 1024
+GUEST_MATERIAL_MAX_NAME_LENGTH: Final = 512
+GUEST_MATERIAL_MAX_MEDIA_TYPE_LENGTH: Final = 127
+
+_MEDIA_TYPE_EXTRA: Final = "!#$&^_.+-"
+_BASE64_ALPHABET: Final = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/")
+
 PORT_SCHEMA_KEYS: Final = frozenset(
     {
         "$defs",
@@ -658,3 +671,206 @@ def validate_factory_guest_model_response(value: Json, schema: Schema) -> Result
             ("providerReceiptDigest",),
         )
     return _validate_usage(value.get("usage"), ("usage",))
+
+
+# --------------------------------------------------------------------------
+# The guest material staging contract, the fifth and sixth entry points.
+# --------------------------------------------------------------------------
+
+
+def _media_type_token(value: str) -> bool:
+    if len(value) < 1 or len(value) > 64:
+        return False
+    for index, character in enumerate(value):
+        alphanumeric = "a" <= character <= "z" or "0" <= character <= "9"
+        if not (alphanumeric if index == 0 else alphanumeric or character in _MEDIA_TYPE_EXTRA):
+            return False
+    return True
+
+
+def valid_media_type(value: Json) -> bool:
+    """``type/subtype`` in the grammar every factory artifact media type uses."""
+    if not isinstance(value, str) or len(value) > GUEST_MATERIAL_MAX_MEDIA_TYPE_LENGTH:
+        return False
+    separator = value.find("/")
+    if separator <= 0 or value.find("/", separator + 1) != -1:
+        return False
+    return _media_type_token(value[:separator]) and _media_type_token(value[separator + 1 :])
+
+
+def valid_object_name(value: Json) -> bool:
+    """A bounded relative path, the same shape the material service requires."""
+    if not isinstance(value, str) or len(value) < 1 or len(value) > GUEST_MATERIAL_MAX_NAME_LENGTH:
+        return False
+    if value.startswith("/") or "\\" in value or ":" in value:
+        return False
+    if any(ord(character) < 32 or ord(character) == 127 for character in value):
+        return False
+    return all(part not in ("", ".", "..") for part in value.split("/"))
+
+
+def base64_bytes(value: Json) -> int:
+    """How many bytes a canonical base64 string decodes to, or -1 if it is not one."""
+    if not isinstance(value, str) or len(value) == 0 or len(value) % 4 != 0:
+        return -1
+    padding = 0
+    for index, character in enumerate(value):
+        if character == "=":
+            padding += 1
+            if padding > 2 or index < len(value) - 2:
+                return -1
+            continue
+        if padding > 0 or character not in _BASE64_ALPHABET:
+            return -1
+    return (len(value) // 4) * 3 - padding
+
+
+def _validate_material_identity(value: Json) -> Result:
+    operation_id = value.get("operationId")
+    operation_index = value.get("operationIndex")
+    if (
+        not bounded_text(operation_id, 1_024)
+        or not operation_id.endswith(f":{_index_text(operation_index)}")
+        or not safe_counter(operation_index)
+    ):
+        return reject(
+            "GUEST_MATERIAL_OPERATION",
+            "A guest material frame must name its own journalled operation.",
+            ("operationId",),
+        )
+    if not valid_object_name(value.get("objectName")):
+        return reject(
+            "GUEST_MATERIAL_NAME", "A material object name is a bounded relative path.", ("objectName",)
+        )
+    if not safe_counter(value.get("version"), 1):
+        return reject("GUEST_MATERIAL_VERSION", "A material version starts at 1 and counts up.", ("version",))
+    return OK
+
+
+def validate_factory_guest_material_request(value: Json, schema: Schema) -> Result:
+    """The Python counterpart of ``validateFactoryGuestMaterialRequest``.
+
+    Same checks, same order, same issue code.  Nothing here decides authority:
+    the scope a frame writes into comes from the verified attempt on the host
+    side, and this refuses only a payload that is not a staging frame or whose
+    own numbers cannot be honoured.
+    """
+    if not matches_generated_schema(schema, value):
+        return reject(
+            "GUEST_MATERIAL_SCHEMA",
+            "Value does not match the generated FactoryGuestMaterialRequest schema.",
+            (),
+        )
+    identity = _validate_material_identity(value)
+    if not identity.ok:
+        return identity
+    kind = value.get("schemaVersion")
+    if kind == "factory.guest-material-begin.v1":
+        if not valid_media_type(value.get("mediaType")):
+            return reject(
+                "GUEST_MATERIAL_MEDIA_TYPE",
+                "A material media type is `type/subtype` in the shared artifact grammar.",
+                ("mediaType",),
+            )
+        total_bytes = value.get("totalBytes")
+        chunk_count = value.get("chunkCount")
+        if not safe_counter(total_bytes, 1) or total_bytes > GUEST_MATERIAL_MAX_TOTAL_BYTES:
+            return reject(
+                "GUEST_MATERIAL_BYTES",
+                f"A guest may stage at most {GUEST_MATERIAL_MAX_TOTAL_BYTES} bytes in one material.",
+                ("totalBytes",),
+            )
+        if not safe_counter(chunk_count, 1) or chunk_count > GUEST_MATERIAL_MAX_CHUNKS:
+            return reject(
+                "GUEST_MATERIAL_CHUNK_COUNT",
+                f"A material carries 1 to {GUEST_MATERIAL_MAX_CHUNKS} chunks.",
+                ("chunkCount",),
+            )
+        if chunk_count > total_bytes or chunk_count * GUEST_MATERIAL_MAX_CHUNK_BYTES < total_bytes:
+            return reject(
+                "GUEST_MATERIAL_CHUNK_COUNT",
+                "The declared chunk count cannot carry the declared byte count.",
+                ("chunkCount",),
+            )
+        return OK
+    if kind == "factory.guest-material-chunk.v1":
+        index = value.get("index")
+        if not safe_counter(index) or index >= GUEST_MATERIAL_MAX_CHUNKS:
+            return reject(
+                "GUEST_MATERIAL_CHUNK_INDEX",
+                "A chunk index is 0-based and inside the material's chunk bound.",
+                ("index",),
+            )
+        if not valid_digest(value.get("digest"), True):
+            return reject(
+                "GUEST_MATERIAL_DIGEST",
+                "A chunk digest is `sha256:` and 64 lowercase hex characters.",
+                ("digest",),
+            )
+        encoded = value.get("encodedBytes")
+        if not safe_counter(encoded, 1) or encoded > GUEST_MATERIAL_MAX_CHUNK_BYTES:
+            return reject(
+                "GUEST_MATERIAL_CHUNK_BYTES",
+                f"A chunk carries 1 to {GUEST_MATERIAL_MAX_CHUNK_BYTES} bytes.",
+                ("encodedBytes",),
+            )
+        if base64_bytes(value.get("contentBase64")) != encoded:
+            return reject(
+                "GUEST_MATERIAL_CHUNK_CONTENT",
+                "A chunk's base64 content must decode to exactly its declared byte count.",
+                ("contentBase64",),
+            )
+        return OK
+    if not valid_digest(value.get("digest"), True):
+        return reject(
+            "GUEST_MATERIAL_DIGEST",
+            "A material digest is `sha256:` and 64 lowercase hex characters.",
+            ("digest",),
+        )
+    return OK
+
+
+def validate_factory_guest_material_response(value: Json, schema: Schema) -> Result:
+    """The Python counterpart of ``validateFactoryGuestMaterialResponse``."""
+    if not matches_generated_schema(schema, value):
+        return reject(
+            "GUEST_MATERIAL_SCHEMA",
+            "Value does not match the generated FactoryGuestMaterialResponse schema.",
+            (),
+        )
+    identity = _validate_material_identity(value)
+    if not identity.ok:
+        return identity
+    status = value.get("status")
+    if status == "refused":
+        if bounded_text(value.get("refusal", {}).get("message"), 4_096):
+            return OK
+        return reject("GUEST_MATERIAL_REFUSAL", "A refusal needs a bounded message.", ("refusal", "message"))
+    if status == "begun":
+        if safe_counter(value.get("totalBytes"), 1) and safe_counter(value.get("chunkCount"), 1):
+            return OK
+        return reject(
+            "GUEST_MATERIAL_BYTES",
+            "An accepted plan reports the byte and chunk counts it admitted.",
+            ("totalBytes",),
+        )
+    if status == "stored":
+        if not safe_counter(value.get("index")):
+            return reject("GUEST_MATERIAL_CHUNK_INDEX", "A stored chunk reports its index.", ("index",))
+        if valid_digest(value.get("digest"), True):
+            return OK
+        return reject("GUEST_MATERIAL_DIGEST", "A stored chunk reports its `sha256:` digest.", ("digest",))
+    if status == "sealed":
+        return _validate_artifact_reference(value.get("material"), ("material",))
+    output = _validate_artifact_reference(value.get("output"), ("output",))
+    if not output.ok:
+        return output
+    # BARE 64-hex: a COMPLETED runner result carries this exact value as its
+    # ``resultDigest``, where the runner-result validator requires that form.
+    if valid_digest(value.get("resultDigest"), False):
+        return OK
+    return reject(
+        "GUEST_MATERIAL_DIGEST",
+        "A promoted output reports its result digest as bare 64-character hex.",
+        ("resultDigest",),
+    )

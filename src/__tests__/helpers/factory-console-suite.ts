@@ -15,7 +15,7 @@ import { FactoryRestoreReports } from "../../factory/restore-console";
 import { canonicalJson } from "@ezcorp/extension-contract";
 import { DatabaseLifecycleRepository } from "../../db/queries/extension-releases";
 import { digestObject } from "../../extensions/v4/blobs";
-import { factoryPackageTestReference as packageReference, factoryPackageTestRelease } from "./factory-package-preparation-suite";
+import { factoryPackageTestReference as packageReference, factoryPackageRelease } from "./factory-package-preparation-suite";
 
 /** Narrows an inspection to the one section page it must be. */
 function sectionPage<Item>(result: FactoryRunInspection | FactoryInspectionPage): { items: Item[]; nextCursor?: string } {
@@ -360,7 +360,7 @@ export function factoryConsoleConformance(create: () => Promise<FactoryConsoleFi
     test("install, preview, publish, quarantine, and revoke run through W02's fence with exact revisions", async () => {
       const blobs = a.fixture.blobs;
       const sourceDigest = await blobs.put(new TextEncoder().encode(canonicalJson({ "extension.ts": "export {};" })));
-      const current = factoryPackageTestRelease(sourceDigest, digestObject({ "extension.ts": "export {};", ".runner/recipe.json": "{}" }));
+      const current = factoryPackageRelease(packageReference, sourceDigest, digestObject({ "extension.ts": "export {};", ".runner/recipe.json": "{}" }));
       await new DatabaseLifecycleRepository(a.fixture.db).create({ installation: { id: current.installationId, ownerId: OWNER.id, scope: `project:${PROJECT}`, generation: 1, activeReleaseId: current.id, enabled: true, uninstalled: false, status: "active", grants: [], acknowledgedGeneration: 1 }, workspaces: {}, revisions: {}, operations: {}, releases: { [current.id]: current }, approvals: {} });
       await a.application.grants.set(OWNER, { projectId: PROJECT, principal: OWNER, action: "factory.trust", expectedRevision: 0, expiresAtMs: null });
       const install = { reference: packageReference, installationId: current.installationId, releaseId: current.id };

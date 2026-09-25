@@ -34,7 +34,7 @@ const inspection = {
 };
 const ticket = { url: "/download?ticket=t", expiresAtMs: 9, mediaType: "application/octet-stream", encodedBytes: 4 };
 const share = { sourceProjectId: "project/one", sourceRunId: "run/one", artifactId: "artifact/one", targetProjectId: "project/two", digest: "sha256:" + digest, encodedBytes: 4, mediaType: "text/plain", revoked: false };
-const grant = { principalKind: "user", principalId: "member/one", action: "factory.run", revision: 2, expiresAtMs: null, revoked: false };
+const grant = { principalKind: "user", principalId: "member/one", action: "factory.run", revision: 2, expiresAtMs: null, revoked: false, displayName: "Member One" };
 const preview = { tenantId: "tenant/one", ready: true, preconditions: [], auditRowsLost: 0 };
 const restore = { restoreId: "restore/1", mode: "tenant", state: "awaiting_signature", checkpointId: "c", previousEpoch: 1, executionEpoch: 2, startedAtMs: 1, reportDigest: `sha256:${"4".repeat(64)}` };
 const signature = { restoreId: "restore/1", enabled: true, rebound: 2, blockedRuns: [] };

@@ -67,6 +67,26 @@ section() { echo; echo "${BOLD}==> $1${RESET}"; }
 pass() { echo "  ${GREEN}✓${RESET} $1"; }
 die()  { echo "  ${RED}✗${RESET} $1" >&2; exit 1; }
 
+runner_image_at_source() {
+  local source="$1" image
+  image="$(git show "$source:packages/@ezcorp/extension-runner/src/podman.ts" \
+    | awk -F'"' '/^export const DEFAULT_IMAGE = "/ { print $2 }')"
+  [[ "$image" =~ ^[^[:space:]]+@sha256:[0-9a-f]{64}$ ]] \
+    || die "Source $source does not declare one immutable default runner image"
+  printf '%s\n' "$image"
+}
+
+ensure_runner_image() {
+  local image="$1"
+  command -v podman >/dev/null || die "Historical lifecycle verification requires the rootless Podman runner"
+  if ! podman image exists "$image"; then
+    podman pull "$image" >/dev/null \
+      || die "Runner image is absent and could not be pulled: $image"
+  fi
+  podman image exists "$image" \
+    || die "Runner image is absent after pull: $image"
+}
+
 cleanup() {
   local status=$? cleanup_status=0
   set +e
@@ -172,18 +192,25 @@ if [[ "${VERIFY_UPGRADE_SKIP_BUILD:-0}" == 1 ]]; then
 fi
 pass "Previous image source=$PREVIOUS_SOURCE; candidate image source=$IMAGE_B_SOURCE; driver source=$SOURCE_B"
 
+RUNNER_IMAGE_A="$(runner_image_at_source "$PREVIOUS_SOURCE")"
+RUNNER_IMAGE_B="$(runner_image_at_source "$SOURCE_B")"
+ensure_runner_image "$RUNNER_IMAGE_A"
+ensure_runner_image "$RUNNER_IMAGE_B"
+pass "Runner profile transition prepared: previous=$RUNNER_IMAGE_A; candidate=$RUNNER_IMAGE_B"
+
 run_lifecycle_state() {
-  local image="$1" mode="$2" state_root="$3" port="$4" phase="$5" project="${6}-${RUN_ID}" receipt status
+  local image="$1" runner_image="$2" mode="$3" state_root="$4" port="$5" phase="$6" project="${7}-${RUN_ID}" receipt status
   receipt="${UPGRADE_RECEIPT_ROOT:+$UPGRADE_RECEIPT_ROOT/$mode-$phase}"
   [[ -n "$receipt" ]] || receipt="$(mktemp -d /tmp/ezcorp-upgrade-receipt-XXXXXXXX)"
   set +e
   EZ_PRODUCTION_IMAGE="$image" \
+  EZ_PRODUCTION_RUNNER_IMAGE="$runner_image" \
   EZ_PRODUCTION_RECEIPT_DIR="$receipt" \
   EZ_PRODUCTION_STATE_DIR="$state_root" \
   EZ_PRODUCTION_PORT="$port" EZ_PRODUCTION_COMPOSE_PROJECT="$project" \
   EZ_PRODUCTION_APP_CONTAINER="${project}-app" EZ_PRODUCTION_APP_UID="${EZ_UPGRADE_APP_UID:-0}" EZ_PRODUCTION_APP_GID="${EZ_UPGRADE_APP_GID:-0}" \
   bash scripts/verify-production-image-lifecycle.sh -- \
-    env EZ_UPGRADE_MODE="$mode" EZ_UPGRADE_STATE_FILE="$STATE_FILE" bun scripts/verify-docker-upgrade-state.ts
+    env EZ_UPGRADE_MODE="$mode" EZ_UPGRADE_STATE_FILE="$STATE_FILE" EZ_UPGRADE_RUNNER_IMAGE="$runner_image" bun scripts/verify-docker-upgrade-state.ts
   status=$?
   set -e
   [[ "$status" -eq 0 ]] || return "$status"
@@ -192,18 +219,18 @@ run_lifecycle_state() {
 }
 
 section "Semantic lifecycle seed on the previous image"
-run_lifecycle_state "$IMAGE_A" seed "$STATE_ROOT" 13004 previous ezcorp-upgrade-semantic-old
+run_lifecycle_state "$IMAGE_A" "$RUNNER_IMAGE_A" seed "$STATE_ROOT" 13004 previous ezcorp-upgrade-semantic-old
 [[ -s "$STATE_FILE" ]] || die "Previous image did not persist lifecycle sentinel"
 pass "Previous image created user-owned extension, exact human approval, conversation and tool sentinel"
 
 section "Semantic lifecycle upgrade to the candidate"
 tar -C "$STATE_ROOT" --exclude=socket -cf - . | tar -C "$RESTORE_STATE_ROOT" -xf -
-run_lifecycle_state "$IMAGE_B" assert "$STATE_ROOT" 13005 candidate ezcorp-upgrade-semantic-candidate
-pass "Candidate preserved exact installation, active release, human approval, conversation and tool sentinel"
+run_lifecycle_state "$IMAGE_B" "$RUNNER_IMAGE_B" assert "$STATE_ROOT" 13005 candidate ezcorp-upgrade-semantic-candidate
+pass "Candidate preserved installation identity, approval boundaries, conversation, and tool sentinel across the runner-profile rebuild"
 
 section "Semantic backup restore into a separate owned candidate instance"
-run_lifecycle_state "$IMAGE_B" assert "$RESTORE_STATE_ROOT" 13006 restore ezcorp-upgrade-semantic-restore
-pass "Separate restored instance preserved the same lifecycle sentinel"
+run_lifecycle_state "$IMAGE_B" "$RUNNER_IMAGE_B" assert "$RESTORE_STATE_ROOT" 13006 restore ezcorp-upgrade-semantic-restore
+pass "Separate restored instance repeated the runner-profile rebuild and preserved the same lifecycle sentinel"
 
 if [[ "${VERIFY_UPGRADE_SEMANTIC_ONLY:-0}" == "1" ]]; then
   echo

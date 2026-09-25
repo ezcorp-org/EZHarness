@@ -32,7 +32,17 @@ export interface FactoryGrantRecord {
   readonly revoked: boolean;
   readonly issuerId: string;
   readonly updatedAtMs: number;
+  /**
+   * The grantee's display name: the user's name, or the service account's name.
+   * `FACTORY_GRANTEE_UNNAMED` when the record has none. Never the raw id, and no
+   * other personal field.
+   */
+  readonly displayName: string;
 }
+/** What a grantee with no display name is shown as. Stated, so a panel never falls back to the raw id. */
+export const FACTORY_GRANTEE_UNNAMED = "Unnamed principal";
+/** A display name longer than this is cut, so one long name cannot break a listing's bounds. */
+export const FACTORY_GRANTEE_NAME_MAX = 256;
 export interface FactoryGrantListOptions { readonly cursor?: string; readonly limit?: number; readonly principalKind?: FactoryPrincipal["kind"]; readonly action?: FactoryAction }
 type GrantRow = { principal_kind?: string; principal_id?: string; action?: string; revision: string | number; expires_ms: string | number | null; revoked_at: unknown; issuer_id: string; updated_ms?: string | number };
 
@@ -112,7 +122,8 @@ export class FactoryGrants {
       await this.authorizeInTransaction(transaction, actor, key.projectId, "read");
       const row = await this.find(transaction, key);
       if (!row) throw new FactoryGrantError("factory_grant_not_found");
-      return this.record(key.projectId, row, key);
+      const names = await this.displayNames(transaction, [key.principal]);
+      return this.record(key.projectId, row, names, key);
     });
   }
 
@@ -134,7 +145,9 @@ export class FactoryGrants {
       const selected = rows<GrantRow>(await transaction.execute(sql`SELECT principal_kind, principal_id, action, revision, EXTRACT(EPOCH FROM expires_at) * 1000 AS expires_ms, revoked_at, issuer_id, FLOOR(EXTRACT(EPOCH FROM updated_at) * 1000) AS updated_ms
         FROM factory_grants WHERE tenant_id=${this.tenantId} AND project_id=${projectId} ${principalFilter} ${actionFilter} ${cursorFilter}
         ORDER BY principal_kind, principal_id, action LIMIT ${limit + 1}`));
-      const items = selected.slice(0, limit).map(row => this.record(projectId, row));
+      const page = selected.slice(0, limit);
+      const names = await this.displayNames(transaction, page.map(row => ({ kind: row.principal_kind as FactoryPrincipal["kind"], id: row.principal_id ?? "" })));
+      const items = page.map(row => this.record(projectId, row, names));
       const last = items[items.length - 1];
       return { items, nextCursor: selected.length > limit && last ? this.encodeCursor(last) : null };
     });
@@ -220,7 +233,34 @@ export class FactoryGrants {
     return rows<GrantRow>(await transaction.execute(sql`SELECT principal_kind, principal_id, action, revision, EXTRACT(EPOCH FROM expires_at) * 1000 AS expires_ms, revoked_at, issuer_id, FLOOR(EXTRACT(EPOCH FROM updated_at) * 1000) AS updated_ms FROM factory_grants WHERE tenant_id=${this.tenantId} AND project_id=${key.projectId} AND principal_kind=${key.principal.kind} AND principal_id=${key.principal.id} AND action=${key.action} FOR SHARE`))[0];
   }
 
-  private record(projectId: string, row: GrantRow, key?: FactoryGrantKey): FactoryGrantRecord {
+  /** One grantee's display name, or `FACTORY_GRANTEE_UNNAMED`. For a response that names the grantee it just changed. */
+  async displayNameOf(principal: Pick<FactoryPrincipal, "kind" | "id">): Promise<string> {
+    const target = { kind: principal.kind, id: principal.id };
+    const names = await this.database.transaction(transaction => this.displayNames(transaction, [target]));
+    return names.get(`${target.kind}:${target.id}`) ?? FACTORY_GRANTEE_UNNAMED;
+  }
+
+  /**
+   * Display names for a page of grantees, in one query per principal kind. Only
+   * the name column is read; a grantee whose row is gone or whose name is blank
+   * maps to nothing, and `record` states the placeholder.
+   */
+  private async displayNames(transaction: MigrationDb, principals: readonly Pick<FactoryPrincipal, "kind" | "id">[]): Promise<ReadonlyMap<string, string>> {
+    const names = new Map<string, string>();
+    for (const [kind, table] of [["user", sql`users`], ["service", sql`service_accounts`]] as const) {
+      const ids = [...new Set(principals.filter(principal => principal.kind === kind).map(principal => principal.id))];
+      if (ids.length === 0) continue;
+      const found = rows<{ id: string; name: string | null }>(await transaction.execute(sql`SELECT id, name FROM ${table} WHERE id IN (${sql.join(ids.map(id => sql`${id}`), sql`, `)})`));
+      for (const row of found) {
+        const name = typeof row.name === "string" ? Array.from(row.name.trim()).slice(0, FACTORY_GRANTEE_NAME_MAX).join("") : "";
+        // A name that is the id would show the raw id as a name.
+        if (name && name !== row.id) names.set(`${kind}:${row.id}`, name);
+      }
+    }
+    return names;
+  }
+
+  private record(projectId: string, row: GrantRow, names: ReadonlyMap<string, string>, key?: FactoryGrantKey): FactoryGrantRecord {
     const principalKind = (row.principal_kind ?? key?.principal.kind) as FactoryPrincipal["kind"];
     const principalId = row.principal_id ?? key?.principal.id;
     const action = (row.action ?? key?.action) as FactoryAction;
@@ -230,7 +270,8 @@ export class FactoryGrants {
     const expiresAtMs = row.expires_ms === null ? null : Number(row.expires_ms);
     try { assertFactoryIdentity(principalId, row.issuer_id); } catch { throw new FactoryGrantError("factory_grant_corrupt"); }
     if (!Number.isSafeInteger(revision) || revision < 1 || !Number.isSafeInteger(updatedAtMs) || updatedAtMs < 0 || expiresAtMs !== null && (!Number.isSafeInteger(expiresAtMs) || expiresAtMs < 0)) throw new FactoryGrantError("factory_grant_corrupt");
-    return { projectId, principalKind, principalId, action, revision, expiresAtMs, revoked: row.revoked_at !== null, issuerId: row.issuer_id, updatedAtMs };
+    const displayName = names.get(`${principalKind}:${principalId}`) ?? FACTORY_GRANTEE_UNNAMED;
+    return { projectId, principalKind, principalId, action, revision, expiresAtMs, revoked: row.revoked_at !== null, issuerId: row.issuer_id, updatedAtMs, displayName };
   }
 
   private encodeCursor(record: Pick<FactoryGrantRecord, "principalKind" | "principalId" | "action">): string {

@@ -426,6 +426,70 @@ export function factoryMigrationRestartConformance(createFixture: () => Promise<
     }
   });
 
+  test("repeated migration keeps every package fence record, its keys, and its coherence checks", async () => {
+    const db = fixture.db;
+    const reference = `sha256:${"c".repeat(64)}`;
+    const raw = "d".repeat(64);
+    await db.execute(sql`INSERT INTO users(id,email,password_hash,name,role) VALUES ('restart-fence-user','restart-fence@example.test','x','Restart fence','admin') ON CONFLICT (id) DO NOTHING`);
+    await db.execute(sql`INSERT INTO extension_release_installations(id,owner_id,scope,payload) VALUES ('restart-fence-installation','restart-fence-user','project:restart-project',${JSON.stringify({ id: "restart-fence-installation", generation: 3 })})`);
+    await db.execute(sql`INSERT INTO factory_runner_package_bindings (tenant_id,project_id,package_name,package_version,package_digest,export_name,reference_digest,reference_json,installation_id,release_id,release_digest,source_digest,artifact_digest,image_digest,manifest_digest,issuer_id,issuer_grant_revision,protected_digest) VALUES ('restart-tenant','restart-project','restart-fence-pkg','1.0.0',${reference},'run',${reference},'{}','restart-fence-installation','restart-fence-release',${raw},${raw},${raw},'image',${raw},'restart-fence-user',1,${reference})`);
+    await db.execute(sql`INSERT INTO factory_runner_package_trust_revisions (tenant_id,project_id,package_name,package_version,package_digest,export_name,reference_digest,revision,state,package_trust_digest,approved_by,approval_grant_revision,installation_generation,protected_digest) VALUES ('restart-tenant','restart-project','restart-fence-pkg','1.0.0',${reference},'run',${reference},2,'quarantined',${reference},'restart-fence-user',1,3,${reference})`);
+    await db.execute(sql`INSERT INTO factory_executions(attempt_id,tenant_id,project_id,run_id,node_instance_id,candidate_generation,attempt_number,grant_revision,reservation_generation,execution_epoch,cancellation_epoch,deadline_at,request_hash,request_json,status) VALUES ('restart-fence-attempt','restart-tenant','restart-project','restart-run','restart-fence-node',0,1,1,1,1,0,NOW() + INTERVAL '1 hour',${"e".repeat(64)},'{}','running')`);
+    const columns = sql`tenant_id,project_id,package_name,package_version,package_digest,export_name,reference_digest,trust_revision,state,reason,run_id,attempt_id,attempt_status,launch_state,disposition,cancellation_event_id,recorded_at_ms,record_digest`;
+    await db.execute(sql`INSERT INTO factory_package_fence_runs (${columns}) VALUES ('restart-tenant','restart-project','restart-fence-pkg','1.0.0',${reference},'run',${reference},2,'quarantined','factory_package_quarantined','restart-run','restart-fence-attempt','running','launched','cancel-requested','restart-fence-cancel',23,${reference})`);
+    const constraints = async () => rows<{ conname: string; oid: number; definition: string }>(await db.execute(sql`SELECT conname,oid,pg_get_constraintdef(oid) AS definition FROM pg_constraint WHERE conrelid='factory_package_fence_runs'::regclass ORDER BY conname`));
+    const before = await constraints();
+    const probe = (values: ReturnType<typeof sql>) => db.transaction(async tx => {
+      await tx.execute(sql`CREATE TEMP TABLE fence_probe (LIKE factory_package_fence_runs INCLUDING CONSTRAINTS INCLUDING DEFAULTS) ON COMMIT DROP`);
+      await tx.execute(sql`INSERT INTO fence_probe (${columns}) VALUES ${values}`);
+    }).then(() => null, (error: unknown) => error);
+    const valid = sql`('t','p','pkg','1.0.0',${reference},'run',${reference},2,'revoked','factory_package_revoked','r','a','admitted',NULL,'run-terminal',NULL,0,${reference})`;
+    for (let boot = 0; boot < 2; boot++) {
+      await fixture.migrate();
+      const stored = rows<{ disposition: string; launch_state: string; recorded_at_ms: number | string }>(await db.execute(sql`SELECT disposition,launch_state,recorded_at_ms FROM factory_package_fence_runs WHERE attempt_id='restart-fence-attempt'`));
+      expect(stored.map(row => [row.disposition, row.launch_state, Number(row.recorded_at_ms)])).toEqual([["cancel-requested", "launched", 23]]);
+      // Nothing is re-created on a boot, so every constraint keeps its catalog entry.
+      expect(await constraints()).toEqual(before);
+      const definitions = before.map(row => row.definition).join("\n");
+      expect(definitions).toContain("REFERENCES factory_runner_package_trust_revisions(tenant_id, project_id, package_name, package_version, package_digest, export_name, reference_digest, revision) ON DELETE RESTRICT");
+      expect(definitions).toContain("REFERENCES factory_executions(attempt_id, tenant_id, project_id, run_id) ON DELETE RESTRICT");
+      expect(await probe(valid)).toBeNull();
+      // A quarantine can never carry the revoked reason, and only a finished run lacks a cancel event.
+      expect(await probe(sql`('t','p','pkg','1.0.0',${reference},'run',${reference},2,'quarantined','factory_package_revoked','r','a','admitted',NULL,'run-terminal',NULL,0,${reference})`)).toBeInstanceOf(Error);
+      expect(await probe(sql`('t','p','pkg','1.0.0',${reference},'run',${reference},2,'revoked','factory_package_revoked','r','a','admitted',NULL,'cancel-requested',NULL,0,${reference})`)).toBeInstanceOf(Error);
+      expect(await probe(sql`('t','p','pkg','1.0.0',${reference},'run',${reference},2,'revoked','factory_package_revoked','r','a','admitted',NULL,'run-terminal','event',0,${reference})`)).toBeInstanceOf(Error);
+      expect(await probe(sql`('t','p','pkg','1.0.0',${reference},'run',${reference},2,'revoked','factory_package_revoked','r','a','cancel_accepted',NULL,'run-terminal',NULL,0,${reference})`)).toBeInstanceOf(Error);
+      expect(await probe(sql`('t','p','pkg','1.0.0',${reference},'run',${reference},2,'revoked','factory_package_revoked','r','a','admitted','gone','run-terminal',NULL,0,${reference})`)).toBeInstanceOf(Error);
+      expect(await probe(sql`('t','p','pkg','1.0.0',${reference},'run',${reference},2,'revoked','factory_package_revoked','r','a','admitted',NULL,'run-terminal',NULL,-1,${reference})`)).toBeInstanceOf(Error);
+      expect(await probe(sql`('t','p','pkg','1.0.0',${reference},'run',${reference},2,'revoked','factory_package_revoked','r','a','admitted',NULL,'run-terminal',NULL,0,${raw})`)).toBeInstanceOf(Error);
+    }
+    // The record cannot name a decision or an attempt that does not exist.
+    const orphan = await db.execute(sql`INSERT INTO factory_package_fence_runs (${columns}) VALUES ('restart-tenant','restart-project','restart-fence-pkg','1.0.0',${reference},'run',${reference},9,'quarantined','factory_package_quarantined','restart-run','restart-fence-attempt','running',NULL,'cancel-requested','restart-fence-cancel',23,${reference})`).then(() => null, (error: unknown) => error);
+    expect(orphan).toBeInstanceOf(Error);
+  });
+
+  test("repeated migration keeps a revoked artifact share beside its re-grant, and one active share per target", async () => {
+    const db = fixture.db;
+    const digest = `sha256:${"d".repeat(64)}`;
+    await db.execute(sql`INSERT INTO users(id,email,password_hash,name,role) VALUES ('restart-regrant-user','restart-regrant@example.test','x','Restart regrant','admin') ON CONFLICT (id) DO NOTHING`);
+    await db.execute(sql`INSERT INTO projects(id,name,path) VALUES ('restart-regrant-target','Restart regrant target','/tmp/factory-restart-regrant')`);
+    await db.execute(sql`INSERT INTO factory_projects(tenant_id,project_id) VALUES ('restart-tenant','restart-regrant-target')`);
+    await db.execute(sql`INSERT INTO factory_artifacts(object_id,tenant_id,project_id,run_id,kind,digest,blob_digest,storage_version,encoded_bytes) VALUES ('restart-regrant-artifact','restart-tenant','restart-project','restart-run','execution_manifest',${digest},${"d".repeat(64)},'version-1',10)`);
+    const share = (revision: number, revoked: boolean) => db.execute(sql`INSERT INTO factory_artifact_read_grants (tenant_id,source_project_id,source_run_id,source_artifact_id,target_project_id,artifact_digest,artifact_bytes,artifact_kind,storage_version,media_type,issuer_id,issuer_grant_revision,protected_digest,revoked_at,grant_revision)
+      VALUES ('restart-tenant','restart-project','restart-run','restart-regrant-artifact','restart-regrant-target',${digest},10,'execution_manifest','version-1','application/json','restart-regrant-user',1,${digest},${revoked ? sql`NOW()` : sql`NULL`},${revision})`).then(() => null, (error: unknown) => error);
+    expect(await share(1, true)).toBeNull();
+    expect(await share(2, false)).toBeNull();
+    const constraints = async () => rows<{ conname: string; oid: number }>(await db.execute(sql`SELECT conname,oid FROM pg_constraint WHERE conrelid='factory_artifact_read_grants'::regclass ORDER BY conname`));
+    const before = await constraints();
+    for (let boot = 0; boot < 2; boot++) {
+      await fixture.migrate();
+      const kept = rows<{ grant_revision: number | string; revoked: boolean }>(await db.execute(sql`SELECT grant_revision, revoked_at IS NOT NULL AS revoked FROM factory_artifact_read_grants WHERE source_artifact_id='restart-regrant-artifact' ORDER BY grant_revision`));
+      expect(kept.map(row => [Number(row.grant_revision), row.revoked])).toEqual([[1, true], [2, false]]);
+      expect(await constraints()).toEqual(before);
+      expect(await share(3, false)).toBeInstanceOf(Error);
+    }
+  });
+
   test("the legacy unscoped key upgrades once and preserves dependent foreign keys on rerun", async () => {
     await fixture.db.transaction(async tx => {
       await tx.execute(sql`CREATE SCHEMA factory_old_key`);

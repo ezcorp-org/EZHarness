@@ -9,7 +9,7 @@ const pkg = (name: string, state?: FactoryPackageResource["state"], revision = 1
 	referenceId: name.charCodeAt(0).toString(16).padStart(2, "0").repeat(32), reference: { package: `@ezcorp/${name}`, manifestName: name, version: "1.0.0", digest, export: "run" },
 	revision, ...(state ? { state } : {}), installationId: "i-1", releaseId: "r-1", boundAtMs: 1,
 });
-const grant = (principalId: string, overrides: Partial<FactoryGrantResource> = {}): FactoryGrantResource => ({ principalKind: "user", principalId, action: "factory.run", revision: 2, expiresAtMs: null, revoked: false, ...overrides });
+const grant = (principalId: string, overrides: Partial<FactoryGrantResource> = {}): FactoryGrantResource => ({ principalKind: "user", principalId, action: "factory.run", revision: 2, expiresAtMs: null, revoked: false, displayName: `Name of ${principalId}`, ...overrides });
 const preview = { tenantId: "tenant-1", ready: false, auditRowsLost: 1, preconditions: [{ id: "live-runs", satisfied: false, count: 2, detail: "Runs still running" }, { id: "uncertain-usage", satisfied: true, count: 0, detail: "Uncertain usage" }] };
 
 const reportDigest = `sha256:${"b".repeat(64)}`;

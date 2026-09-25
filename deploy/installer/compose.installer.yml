@@ -1,0 +1,137 @@
+# Installer-owned compose file. NOT compose.prod.yml with different values —
+# compose.prod.yml cannot be reused here for three structural reasons:
+#
+#   1. Every volume is a REPO-RELATIVE bind (`./.ezcorp/...`). The installer
+#      has no repo: it owns a directory under the user's app-data dir, so
+#      every path here is absolute and injected as ${EZCORP_DATA_ROOT}.
+#   2. It carries `build:`. A user machine has no source tree and no
+#      toolchain; the installer pulls a released image and nothing else.
+#   3. Its four `${VAR:?...}` guards abort the deploy when a secret is
+#      missing. That is right for an operator editing .env.prod by hand and
+#      wrong here: the installer WRITES every one of these values before it
+#      ever invokes compose, so a missing one is an installer bug that should
+#      surface as an installer error, not as a compose stack trace in front of
+#      someone who has never seen a terminal.
+#
+# Everything else — the volume layout, the env contract, the healthcheck, the
+# sidecars — is deliberately identical to compose.prod.yml so that an install
+# and a documented server deployment are the same runtime.
+name: ezcorp
+
+services:
+  app:
+    image: "${EZCORP_IMAGE}"
+    # Same startup check as the server stack; the core requires an existing
+    # isolated runner and never selects trusted-local as a fallback.
+    entrypoint: ["/bin/sh", "/app/deploy/extension-runner/app-entrypoint.sh"]
+    command: ["bun", "run", "web/build/index.js"]
+    cap_add:
+      - NET_ADMIN
+    restart: unless-stopped
+    stop_grace_period: 30s
+    ports:
+      # Host side only. The container side is fixed at 3000 because the image
+      # pins EZCORP_PORT=3000 and in-container loopback callers
+      # (web/src/lib/server/security/bundled-creds.ts) resolve to it.
+      - "127.0.0.1:${EZCORP_PORT_HOST}:3000"
+    env_file:
+      - .env
+    environment:
+      BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0"
+      EZCORP_EXTENSION_RUNNER_SOCKET: /run/ez-extension-runner/runner.sock
+      EZCORP_EXTENSION_RUNNER_TOKEN_FILE: /run/secrets/extension-runner-token
+      EZCORP_PORT: "3000"
+      ORIGIN: "${EZCORP_PUBLIC_URL}"
+      EZCORP_PUBLIC_URL: "${EZCORP_PUBLIC_URL}"
+      FORCE_SECURE_COOKIES: "${FORCE_SECURE_COOKIES:-false}"
+      # Pinned rather than left to the code's own fallbacks. Both values WOULD
+      # be derived (src/db/data-path.ts, src/providers/encryption.ts), but the
+      # secrets dir falls back to process.cwd() when neither is set, and cwd
+      # inside the image is /app — image state, not volume state. A .pi-secret
+      # written there would vanish on the next image pull and take every
+      # stored provider key with it.
+      EZCORP_DB_PATH: /app/data/ezcorp
+      EZCORP_SECRETS_DIR: /app/data
+      # Marks this install as installer-managed: updates are applied from the
+      # host by `ezcorp update`, never from inside the container.
+      EZCORP_INSTALL_CHANNEL: installer
+      IDLE_TIMEOUT: "0"
+      SEARXNG_BASE_URL: "${SEARXNG_BASE_URL:-http://searxng:8080}"
+    group_add:
+      - "${EZ_RUNNER_GROUP}"
+    volumes:
+      - type: bind
+        source: ${EZ_RUNNER_SOCKET_DIR}
+        target: /run/ez-extension-runner
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${EZ_RUNNER_TOKEN_FILE}
+        target: /run/secrets/extension-runner-token
+        read_only: true
+        bind:
+          create_host_path: false
+      - "${EZCORP_DATA_ROOT}/data:/app/data"
+      - ext-data:/app/.ezcorp
+      - "${EZCORP_DATA_ROOT}/extensions:/app/.ezcorp/extensions"
+      - "${EZCORP_DATA_ROOT}/extension-data:/app/.ezcorp/extension-data"
+      - "${EZCORP_DATA_ROOT}/projects:/app/web/.ezcorp/projects"
+    healthcheck:
+      test: ["CMD", "bun", "-e", "const r = await fetch('http://localhost:3000/api/health'); process.exit(r.ok || r.status === 401 ? 0 : 1)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+  searxng:
+    image: docker.io/searxng/searxng:latest
+    restart: unless-stopped
+    mem_limit: 256m
+    cpus: 0.5
+    volumes:
+      - "${EZCORP_SEARXNG_CONFIG}:/etc/searxng:ro"
+    environment:
+      SEARXNG_SECRET: "${SEARXNG_SECRET}"
+
+  # ── Opt-in: local suggestion model ────────────────────────────────────────
+  #
+  # Behind a profile, unlike compose.prod.yml where it is always on. It backs
+  # ONLY the composer's prompt-enhancement row (src/suggest/), not chat, and
+  # it costs a ~1GB model pull plus a 4g memory reservation. On the 8GB laptop
+  # this installer targets, that is the difference between an install that
+  # feels fine and one that swaps.
+  #
+  # `ezcorp suggestions on` adds the profile and sets EZCORP_SUGGEST_OLLAMA_URL.
+  # While the profile is off that variable stays UNSET, so the suggestion path
+  # never dials a host that isn't there.
+  ollama:
+    image: docker.io/ollama/ollama:latest
+    profiles: ["suggest"]
+    restart: unless-stopped
+    mem_limit: 4g
+    cpus: 4
+    volumes:
+      - ollama-models:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+
+  ollama-init:
+    image: docker.io/ollama/ollama:latest
+    profiles: ["suggest"]
+    depends_on:
+      ollama:
+        condition: service_healthy
+    restart: "no"
+    environment:
+      OLLAMA_HOST: "http://ollama:11434"
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["ollama pull ${EZCORP_SUGGEST_MODEL:-qwen3:1.7b}"]
+
+volumes:
+  ext-data:
+  ollama-models:

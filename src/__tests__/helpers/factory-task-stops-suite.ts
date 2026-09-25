@@ -1,37 +1,25 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { createHash, generateKeyPairSync } from "node:crypto";
+import { generateKeyPairSync } from "node:crypto";
 import { sql } from "drizzle-orm";
-import { canonicalJson } from "@ezcorp/extension-contract";
-import { advanceKernel, createKernelState, FACTORY_LAZY_INPUT_SCHEMA_VERSION, referenceCodeV1, type FactoryDefinition, type FactoryRunnerRequest, type FactoryRunnerResult, type FactoryRunStartBody, type JsonValue, type KernelEvent } from "@ezcorp/factory-sdk";
+import { advanceKernel, type FactoryRunnerResult, type KernelEvent } from "@ezcorp/factory-sdk";
 import type { TransactionalDb } from "../../db/migrations/types";
 import { releaseRows as rows } from "../../db/queries/extension-releases";
-import { digestBytes } from "../../extensions/v4/blobs";
 import type { BlobStore } from "../../extensions/v4/types";
-import { FactoryArtifacts } from "../../factory/artifacts";
-import { createFactoryArtifactActivities } from "../../factory/artifact-activities";
 import { FactoryAttemptQueue } from "../../factory/attempt-queue";
-import { FactoryCommandAuthority } from "../../factory/command-authority";
 import { FactoryComputeAdmissions } from "../../factory/compute-admissions";
-import { FactoryDefinitionArtifacts } from "../../factory/definition-artifacts";
-import { FactoryDefinitions } from "../../factory/definitions";
 import { FactoryExecutionJournal } from "../../factory/executions";
-import { FactoryGrants, type FactoryPrincipal } from "../../factory/grants";
+import type { FactoryPrincipal } from "../../factory/grants";
 import { FactoryInbox } from "../../factory/inbox";
-import { FactoryNativeRunnerPolicy } from "../../factory/native-runner-policy";
-import { FactoryCommandOutbox } from "../../factory/outbox";
 import type { PoolAdmissionClient } from "../../factory/pool/client";
 import type { PoolLeaseStatus } from "../../factory/pool/ledger";
-import { FactoryRecords } from "../../factory/records";
-import { FactoryRunLifecycle } from "../../factory/run-lifecycle";
-import { FactoryRunTransitionProjector } from "../../factory/run-transition-projector";
-import { FactoryDatabaseAttemptLaunchStore, signFactoryPhysicalStopReceipt, type FactoryAttemptLease, type FactoryPhysicalStopReceipt, type FactoryUnsignedPhysicalStopReceipt } from "../../factory/runner/attempt-runtime";
+import type { FactoryRunLifecycle } from "../../factory/run-lifecycle";
+import type { FactoryPhysicalStopReceipt, } from "../../factory/runner/attempt-runtime";
 import { FactoryTaskAdmission, type FactoryTaskResourceProfile } from "../../factory/task-admission";
-import { FactoryTaskExecutionAdmission } from "../../factory/task-execution-admission";
 import { FactoryTaskOutcomes } from "../../factory/task-outcomes";
 import { FactoryTaskStops, FactoryTaskStopError, FACTORY_STOP_SCAN_MAX_LIMIT, type FactoryPhysicalStopper, type FactoryPoolStopAcknowledger, type FactoryStopHostKey, type FactoryTaskStopRequest } from "../../factory/task-stops";
-import { FactoryTransitionArtifacts } from "../../factory/transition-artifacts";
 import { FactoryUsageReconciliation, FactoryUsageSettlements } from "../../factory/usage-settlement";
 import { persistTransition } from "../../../packages/@ezcorp/factory-orchestrator/src/transition-pages";
+import { createFactoryLiveAttemptWorld, type FactoryLiveAttempt, type FactoryLiveAttemptWorld } from "./factory-live-attempt-world";
 
 const hostKeys = generateKeyPairSync("rsa", { modulusLength: 2048 });
 const rotatedKeys = generateKeyPairSync("rsa", { modulusLength: 2048 });
@@ -42,13 +30,9 @@ export interface FactoryTaskStopsFixture { db: TransactionalDb; blobs?: BlobStor
 /** Every C02 stop and C03 settlement behaviour, against one isolated database. */
 export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskStopsFixture>): void {
   let fixture: FactoryTaskStopsFixture;
-  let definitions: FactoryDefinitions;
-  let grants: FactoryGrants;
+  let world: FactoryLiveAttemptWorld;
   let lifecycle: FactoryRunLifecycle;
-  let body: FactoryRunStartBody;
-  let objectStore: BlobStore;
   const now = Date.UTC(2030, 0, 1);
-  let sequence = 0;
   const tenantId = "stop-tenant";
   const projectId = "stop-project";
   const hostId = "stop-host";
@@ -56,136 +40,20 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
   const key = { projectId, factoryId: "stop-factory" };
   const service = { tenantId, subject: "orchestration" };
   const profile: FactoryTaskResourceProfile = { resources: { cpu: 1 }, memoryBytes: 128, budget: { costMicros: "5", tokens: 6, computeMs: 7 } };
-  const contents = new Map<string, Uint8Array>();
-  const memoryBlobs = { async put(bytes: Uint8Array) { const digest = digestBytes(bytes); contents.set(digest, bytes.slice()); return digest; }, async get(digest: string) { const bytes = contents.get(digest); if (!bytes) throw new Error("blob unavailable"); return bytes.slice(); } };
   const runKey = (runId: string) => ({ projectId, runId });
 
-  function signed(request: FactoryTaskStopRequest, overrides: Partial<FactoryPhysicalStopReceipt> = {}, key = hostKeys.privateKey, keyId = "stop-host-key-1"): FactoryPhysicalStopReceipt {
-    const unsigned: FactoryUnsignedPhysicalStopReceipt = {
-      schemaVersion: "factory.physical-stop.v1", attemptId: request.attemptId, reservationId: request.reservationId,
-      workerId: request.workerId, holderGeneration: request.holderGeneration, allocationGeneration: request.allocationGeneration,
-      processGroupAbsent: true, stoppedAtMs: now, reason: request.reason, hostId: request.hostId, ...overrides,
-    };
-    const signature = signFactoryPhysicalStopReceipt(unsigned, keyId, key);
-    return Object.freeze({ ...unsigned, ...signature, receiptDigest: `sha256:${createHash("sha256").update(canonicalJson(unsigned)).digest("hex")}` });
-  }
+  const signed = (request: FactoryTaskStopRequest, overrides: Partial<FactoryPhysicalStopReceipt> = {}, key = hostKeys.privateKey, keyId = "stop-host-key-1") => world.signedStop(request, overrides, key, keyId);
+  const acknowledger = (overrides: Partial<PoolLeaseStatus> = {}, onCall?: () => void) => world.settlingPool(overrides, onCall);
+  const stopper = (sign: (request: FactoryTaskStopRequest) => Promise<FactoryPhysicalStopReceipt>, calls?: { count: number }) => world.countingStopper(sign, calls);
+  const harness = (attempt: Attempt, physical: FactoryPhysicalStopper, pool: FactoryPoolStopAcknowledger, keys?: readonly FactoryStopHostKey[], timeoutMs?: number) => world.stopHarness(attempt, physical, pool, keys, timeoutMs);
 
-  /** A trusted pool that settles exactly the generations and host it is shown. */
-  function acknowledger(overrides: Partial<PoolLeaseStatus> = {}, onCall?: () => void): FactoryPoolStopAcknowledger {
-    return {
-      async confirmStopped(input) {
-        onCall?.();
-        return { reservationId: input.reservationId, tenantId, state: "settled", allocationGeneration: 1, holderGeneration: input.holderGeneration, effects: 0, resources: { cpu: 1 }, hostId: input.hostId, ...overrides } satisfies PoolLeaseStatus;
-      },
-    };
-  }
+  type Attempt = FactoryLiveAttempt;
 
-  function stopper(sign: (request: FactoryTaskStopRequest) => Promise<FactoryPhysicalStopReceipt>, calls?: { count: number }): FactoryPhysicalStopper {
-    return { async stop(request) { if (calls) calls.count++; return sign(request); } };
-  }
-
-  interface StopHarness {
-    readonly stops: FactoryTaskStops;
-    readonly settlements: FactoryUsageSettlements;
-    readonly journal: FactoryExecutionJournal;
-  }
-
-  function harness(attempt: Attempt, physical: FactoryPhysicalStopper, pool: FactoryPoolStopAcknowledger, keys: readonly FactoryStopHostKey[] = [{ hostId, hostKeyId: "stop-host-key-1", publicKey: hostKeys.publicKey }], timeoutMs = 20_000): StopHarness {
-    const inbox = new FactoryInbox(fixture.db, tenantId, () => now);
-    const settlements = new FactoryUsageSettlements(fixture.db, tenantId, inbox, () => now);
-    const outcomes = new FactoryTaskOutcomes(fixture.db, attempt.authority, attempt.admissions, attempt.journal, attempt.queue, lifecycle.budgets, inbox, () => now);
-    const stops = new FactoryTaskStops(fixture.db, attempt.authority, attempt.admissions, attempt.journal, outcomes, attempt.queue, lifecycle.budgets, inbox, settlements, physical, pool, keys, () => now, timeoutMs);
-    return { stops, settlements, journal: attempt.journal };
-  }
-
-  interface Attempt {
-    readonly run: { runId: string; revision: number };
-    readonly identity: { tenantId: string; projectId: string; logicalRunId: string; interpreterId: string };
-    readonly transitions: FactoryTransitionArtifacts;
-    readonly activities: ReturnType<typeof createFactoryArtifactActivities>;
-    readonly compiled: Awaited<ReturnType<FactoryDefinitions["readVersion"]>>["compiled"];
-    readonly authority: FactoryCommandAuthority;
-    readonly admissions: FactoryComputeAdmissions;
-    readonly journal: FactoryExecutionJournal;
-    readonly queue: FactoryAttemptQueue;
-    readonly launches: FactoryDatabaseAttemptLaunchStore;
-    readonly reservationId: string;
-    readonly attemptId: string;
-    readonly request: FactoryRunnerRequest;
-    readonly dispatchReference: { tenantId: string; projectId: string; logicalRunId: string; interpreterId: string; commandId: string };
-    readonly state: ReturnType<typeof advanceKernel>;
-    readonly lease: FactoryAttemptLease;
-  }
-
-  /**
-   * Drives one run to a live, launched attempt through the real kernel and stores.
-   *
-   * `poolPinsHost` is the C03 distinction, not a knob: the pool names a machine
-   * only for an allocation that binds a whole one, so an ordinary CPU
-   * reservation has none. Both shapes must reach a stop, and the default keeps
-   * every existing case on the pinned one.
-   */
-  async function launchedAttempt(poolPinsHost = true): Promise<Attempt> {
-    const started = await lifecycle.start(principal, key, body, 0, `stop-start-${++sequence}`);
-    const run = { runId: started.run.runId, revision: started.run.revision };
-    const identity = { tenantId, projectId, logicalRunId: run.runId, interpreterId: "root" };
-    const artifacts = new FactoryArtifacts(fixture.db, objectStore, tenantId);
-    const transitions = new FactoryTransitionArtifacts(artifacts);
-    const activities = createFactoryArtifactActivities(new FactoryDefinitionArtifacts(artifacts), transitions);
-    const { compiled } = await definitions.readVersion(principal, key, body.factoryVersion);
-    const input = Object.fromEntries(Object.entries(body.parameters).map(([name, value]) => [name, value.kind === "inline" ? value.value : null])) as JsonValue;
-    const { fence } = await fixture.db.transaction(transaction => lifecycle.readExecutionPlanInTransaction(transaction, runKey(run.runId)));
-    const created = createKernelState(compiled, run.runId, input, now, { schemaVersion: FACTORY_LAZY_INPUT_SCHEMA_VERSION, parameters: body.parameters });
-    const event = { kind: "start", id: `stop-start-event-${sequence}`, atMs: now } as const;
-    const first = advanceKernel(compiled, { ...created, runDeadlineAtMs: Math.min(created.runDeadlineAtMs, fence.deadlineAtMs) }, event);
-    const admissionCommand = first.commands.find(command => command.kind === "request-admission")!;
-    const authority = new FactoryCommandAuthority(fixture.db, tenantId, lifecycle, transitions, ["orchestration"], () => now);
-    await persistTransition(identity, 1, event, first.nextState, first.commands, undefined, activities);
-    const inbox = new FactoryInbox(fixture.db, tenantId, () => now);
-    const unavailable = async (): Promise<never> => { throw new Error("This fixture admits product facts without a remote pool."); };
-    const reference = { ...identity, commandId: admissionCommand.id };
-    const requestPool = { request: unavailable, status: unavailable, cancel: unavailable, acknowledgeStart: unavailable, renew: unavailable, confirmStopped: unavailable } satisfies PoolAdmissionClient;
-    const reserved = await new FactoryTaskAdmission(fixture.db, authority, lifecycle.budgets, { cpu: profile }, new FactoryComputeAdmissions(fixture.db, tenantId, authority, lifecycle.budgets, inbox, requestPool, () => now), () => now).request(service, reference);
-    await new FactoryRunTransitionProjector(fixture.db, tenantId, transitions, lifecycle).project(runKey(run.runId));
-    const queued = (await new FactoryCommandOutbox(fixture.db, tenantId, projectId, () => now, "pool").inspect(reserved.outboxCommandId))!;
-    const requested = queued.command.body as { request: { resources: Record<string, number> } };
-    const poolLease = { reservationId: reserved.reservationId, tenantId, grantRevision: body.grantRevision, allocationGeneration: 1, holderGeneration: 1, allocationToken: "stop-allocation", fence: "stop-fence", deadlineAt: new Date(now + 60_000), resources: requested.request.resources, ...(poolPinsHost ? { hostId } : {}) };
-    const admissions = new FactoryComputeAdmissions(fixture.db, tenantId, authority, lifecycle.budgets, inbox, { ...requestPool, async request() { return { status: "admitted" as const, reservationId: reserved.reservationId, lease: poolLease }; }, async status() { return undefined; } }, () => now);
-    const admitted = await admissions.recover(service, { projectId, runId: run.runId, reservationId: reserved.reservationId });
-    if (admitted.status !== "admitted") throw new Error("fixture compute admission failed");
-    // A dispatch-node admission always carries its kernel event; a validator
-    // origin is the only shape that does not, and this fixture has none.
-    if (!admitted.receipt.event) throw new Error("fixture compute admission produced no admission-result event");
-    const next = advanceKernel(compiled, first.nextState, admitted.receipt.event);
-    const dispatch = next.commands.find(command => command.kind === "dispatch-node")!;
-    await persistTransition(identity, 2, admitted.receipt.event, next.nextState, next.commands, undefined, activities);
-    const dispatchReference = { ...identity, commandId: dispatch.id };
-    const journal = new FactoryExecutionJournal(fixture.db, lifecycle.authorizeAttemptInTransaction);
-    const queue = new FactoryAttemptQueue(fixture.db, journal, tenantId, () => now);
-    const taskNode = compiled.indexes.nodeById[dispatch.nodeId];
-    if (taskNode?.kind !== "task") throw new Error("fixture dispatch task is missing");
-    const policy = new FactoryNativeRunnerPolicy(tenantId, grants, [{ runner: taskNode.runner, resourceClass: "cpu", allocation: profile, allowedCapabilities: taskNode.capabilities ?? [], tools: [] }], "factory-broker");
-    const execution = await new FactoryTaskExecutionAdmission(authority, admissions, journal, queue, policy, () => now).admit(service, dispatchReference);
-    const request = { ...execution.request, broker: { ...execution.request.broker, attemptToken: "stop-fixture-token" } } as FactoryRunnerRequest;
-    const lease: FactoryAttemptLease = { reservationId: reserved.reservationId, grantRevision: body.grantRevision, allocationGeneration: 1, holderGeneration: 1, allocationToken: "stop-allocation", hostId };
-    const launches = new FactoryDatabaseAttemptLaunchStore(fixture.db);
-    const preparedPackage = { projectId, reference: request.runner, trustRevision: 1, packageTrustDigest: `sha256:${"a".repeat(64)}`, releaseDigest: `sha256:${"a".repeat(64)}`, sourceDigest: `sha256:${"a".repeat(64)}`, artifactDigest: "b".repeat(64), imageDigest: `sha256:${"a".repeat(64)}`, manifestDigest: `sha256:${"a".repeat(64)}`, evidenceDigest: `sha256:${"a".repeat(64)}`, buildIdentity: "stop-build", receiptDigest: `sha256:${"a".repeat(64)}` };
-    await launches.prepare(request, lease, preparedPackage);
-    await launches.state(request.authority.attemptId, "launched");
-    return { run, identity, transitions, activities, compiled, authority, admissions, journal, queue, launches, reservationId: reserved.reservationId, attemptId: request.authority.attemptId, request, dispatchReference, state: next, lease };
-  }
+  /** Drives one run to a live, launched attempt through the real kernel and stores. */
+  function launchedAttempt(poolPinsHost = true): Promise<Attempt> { return world.launchedAttempt(poolPinsHost); }
 
   /** Cancels the run and commits the transition that carries the live `cancel-node` command. */
-  async function cancelled(attempt: Attempt): Promise<{ reference: typeof attempt.dispatchReference; advanced: ReturnType<typeof advanceKernel> }> {
-    await lifecycle.cancel(principal, runKey(attempt.run.runId), attempt.run.revision, `stop-cancel-${attempt.run.runId}`);
-    const stored = rows<{ payload: string }>(await fixture.db.execute(sql`SELECT payload FROM factory_inbox_events WHERE tenant_id=${tenantId} AND run_id=${attempt.run.runId} AND payload::jsonb->>'kind'='cancel'`));
-    const event = JSON.parse(stored[0]!.payload) as KernelEvent;
-    const advanced = advanceKernel(attempt.compiled, attempt.state.nextState, event);
-    const cancelCommand = advanced.commands.find(command => command.kind === "cancel-node");
-    if (!cancelCommand) throw new Error("fixture cancellation produced no cancel-node command");
-    await persistTransition(attempt.identity, 3, event, advanced.nextState, advanced.commands, undefined, attempt.activities);
-    return { reference: { ...attempt.identity, commandId: cancelCommand.id }, advanced };
-  }
+  function cancelled(attempt: Attempt) { return world.cancelled(attempt); }
 
   /** The sealed attempt authority as the durable execution row holds it. */
   async function sealedAuthority(attempt: Attempt) {
@@ -237,23 +105,8 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
 
   beforeAll(async () => {
     fixture = await create();
-    const records = new FactoryRecords(fixture.db, tenantId);
-    await records.bindInstallation();
-    await fixture.db.execute(sql`INSERT INTO projects(id,name,path) VALUES (${projectId},'Stop settlement','/tmp/factory-stop')`);
-    await records.bindProject(projectId);
-    await fixture.db.execute(sql`INSERT INTO users(id,email,password_hash,name,role) VALUES (${principal.id},'stop@example.test','not-a-login','Stop owner','admin')`);
-    await fixture.db.execute(sql`INSERT INTO project_members(id,project_id,user_id,role) VALUES ('stop-membership',${projectId},${principal.id},'owner')`);
-    grants = new FactoryGrants(fixture.db, tenantId, () => now);
-    for (const action of ["factory.author", "factory.publish", "factory.run", "factory.operate", "factory.approve", "factory.trust", "factory.release"] as const) await grants.set(principal, { principal, projectId, action, expectedRevision: 0, expiresAtMs: null });
-    objectStore = fixture.blobs ?? memoryBlobs;
-    definitions = new FactoryDefinitions(fixture.db, tenantId, grants, objectStore);
-    const source: FactoryDefinition = { ...structuredClone(referenceCodeV1), id: key.factoryId };
-    await definitions.save(principal, key, 0, "stop-definition-create", source);
-    const version = await definitions.publish(principal, key, 1, "stop-definition-publish");
-    body = { factoryVersion: version.version, definitionDigest: version.definitionDigest, grantRevision: 1, parameters: Object.fromEntries(Object.entries(source.inputPorts).map(([name, schema]) => [name, { kind: "inline" as const, value: schema.type === "object" ? {} : "stop value" }])) };
-    lifecycle = new FactoryRunLifecycle(fixture.db, tenantId, { definitions, grants, interpreterBuild: "kernel-build-immutable", interpreterCompatibility: source.interpreterCompatibility, limits: { maxCostMicros: "100", maxTokens: 100, maxComputeMs: 100 },
-      async stageDefinitionInTransaction(transaction, compiled, identity) { return new FactoryDefinitionArtifacts(new FactoryArtifacts(fixture.db, objectStore, tenantId)).stageDefinitionInTransaction(transaction, compiled, identity); },
-      async resolveParameters(_transaction, _principal, _key, parameters) { return Object.fromEntries(Object.entries(parameters).map(([name, value]) => { if (value.kind !== "inline") throw new Error("fixture has no artifact input"); return [name, value.value]; })) as JsonValue; } }, () => now);
+    world = await createFactoryLiveAttemptWorld(fixture, { label: "stop", tenantId, projectId, principal, factoryId: key.factoryId, hostId, now, profile, service, hostKeys });
+    lifecycle = world.lifecycle;
   });
   afterAll(async () => { await fixture?.close(); });
 
@@ -595,21 +448,8 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
   test("cancelling during admission claims no capacity and leaves no stop to settle", async () => {
     // The run is cancelled while the compute request is still queued, so no
     // attempt was ever dispatched and there is nothing physical to stop.
-    const started = await lifecycle.start(principal, key, body, 0, `admitting-start-${++sequence}`);
-    const run = { runId: started.run.runId, revision: started.run.revision };
-    const identity = { tenantId, projectId, logicalRunId: run.runId, interpreterId: "root" };
-    const artifacts = new FactoryArtifacts(fixture.db, objectStore, tenantId);
-    const transitions = new FactoryTransitionArtifacts(artifacts);
-    const activities = createFactoryArtifactActivities(new FactoryDefinitionArtifacts(artifacts), transitions);
-    const { compiled } = await definitions.readVersion(principal, key, body.factoryVersion);
-    const input = Object.fromEntries(Object.entries(body.parameters).map(([name, value]) => [name, value.kind === "inline" ? value.value : null])) as JsonValue;
-    const { fence } = await fixture.db.transaction(transaction => lifecycle.readExecutionPlanInTransaction(transaction, runKey(run.runId)));
-    const created = createKernelState(compiled, run.runId, input, now, { schemaVersion: FACTORY_LAZY_INPUT_SCHEMA_VERSION, parameters: body.parameters });
-    const event = { kind: "start", id: `admitting-start-event-${sequence}`, atMs: now } as const;
-    const first = advanceKernel(compiled, { ...created, runDeadlineAtMs: Math.min(created.runDeadlineAtMs, fence.deadlineAtMs) }, event);
-    const admissionCommand = first.commands.find(command => command.kind === "request-admission")!;
-    const authority = new FactoryCommandAuthority(fixture.db, tenantId, lifecycle, transitions, ["orchestration"], () => now);
-    await persistTransition(identity, 1, event, first.nextState, first.commands, undefined, activities);
+    const { run, identity, compiled, authority, first, activities, admissionCommandId } = await world.startRun();
+    const admissionCommand = { id: admissionCommandId };
     const inbox = new FactoryInbox(fixture.db, tenantId, () => now);
     const unavailable = async (): Promise<never> => { throw new Error("A cancelled admission never reaches the pool."); };
     const requestPool = { request: unavailable, status: unavailable, cancel: unavailable, acknowledgeStart: unavailable, renew: unavailable, confirmStopped: unavailable } satisfies PoolAdmissionClient;

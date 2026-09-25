@@ -169,6 +169,7 @@ jobs:
           ./tests/postgres/factory-artifacts.test.ts
           ./tests/postgres/factory-artifact-access.test.ts
           ./tests/postgres/factory-artifact-materials.test.ts
+          ./tests/postgres/factory-guest-material-broker.test.ts
           ./tests/postgres/factory-lazy-input.test.ts
           ./tests/postgres/factory-lazy-commands.test.ts
           ./tests/postgres/factory-boot.test.ts
@@ -192,6 +193,7 @@ jobs:
           ./tests/postgres/factory-service-credentials.test.ts
           ./tests/postgres/factory-grants.test.ts
           ./tests/postgres/factory-task-stops.test.ts
+          ./tests/postgres/factory-package-fence.test.ts
           ./tests/postgres/factory-migration-restart.test.ts
           ./tests/postgres/factory-schema.test.ts
           ./tests/postgres/factory-retention.test.ts

@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
-import { existsSync } from "node:fs";
-import { relative, resolve } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, relative, resolve } from "node:path";
 import ts from "typescript";
 import { REPO_ROOT } from "./coverage-config.ts";
 
@@ -12,7 +12,7 @@ export interface SourceInput {
 export interface BoundaryViolation {
   path: string;
   line: number;
-  rule: "validator-code-generation" | "f13-duplicate" | "f13-required-import";
+  rule: "validator-code-generation" | "f13-duplicate" | "f13-required-import" | "node-service-link";
   message: string;
 }
 
@@ -101,6 +101,7 @@ export const REQUIRED_SHARED_IMPORTS: readonly RequiredImport[] = [
   { factoryPath: "src/factory/legacy-workflow/import.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/native-runner-policy.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/outbox.ts", sharedModule: "src/delivery-queue/durable-delivery-queue.ts" },
+  { factoryPath: "src/factory/package-fence.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/package-preparation.ts", sharedModule: "src/db/queries/audit-log.ts" },
   { factoryPath: "src/factory/package-preparation.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/protected-command-effects.ts", sharedModule: "src/extensions/v4/blobs.ts" },
@@ -408,6 +409,126 @@ export function localImportClosure(factoryFiles: readonly SourceInput[], roots: 
   return closure;
 }
 
+/** Every module a process loads at run time, and the bare packages it links. */
+export interface RuntimeClosure {
+  /** Repo-relative paths, sorted. */
+  readonly files: readonly string[];
+  /** Bare specifier to the repo-relative files that import it. */
+  readonly bare: ReadonlyMap<string, readonly string[]>;
+  /** For each reached file, the file that first imported it (roots map to themselves). */
+  readonly importedBy: ReadonlyMap<string, string>;
+}
+
+/** Reads a repo-relative source file, or `undefined` when it does not exist. */
+export type SourceReader = (path: string) => string | undefined;
+
+const readRepositorySource: SourceReader = (path) => {
+  const absolute = resolve(REPO_ROOT, path);
+  return existsSync(absolute) ? readFileSync(absolute, "utf8") : undefined;
+};
+
+/** True when the whole import declaration is erased at compile time, so it links nothing. */
+function typeOnlyImport(statement: ts.ImportDeclaration): boolean {
+  const clause = statement.importClause;
+  if (!clause) return false;
+  if (clause.isTypeOnly) return true;
+  const named = clause.namedBindings;
+  return clause.name === undefined && named !== undefined && ts.isNamedImports(named)
+    && named.elements.length > 0 && named.elements.every((element) => element.isTypeOnly);
+}
+
+/**
+ * The runtime import closure of `roots`: static VALUE imports, re-exports, and
+ * dynamic `import("...")` calls, followed through every local module. A type
+ * import is erased and links nothing, so it is not followed. This is the graph
+ * a bundler loads, which is what a process boundary is about.
+ */
+export function runtimeImportClosure(roots: readonly string[], read: SourceReader = readRepositorySource): RuntimeClosure {
+  const sources = new Map<string, string | undefined>();
+  const source = (path: string): string | undefined => {
+    if (!sources.has(path)) sources.set(path, read(path));
+    return sources.get(path);
+  };
+  const resolveLocal = (from: string, specifier: string): string | undefined => {
+    const base = relative(REPO_ROOT, resolve(REPO_ROOT, dirname(from), specifier.replace(/\.js$/, ""))).replaceAll("\\", "/");
+    return [base.endsWith(".ts") ? base : `${base}.ts`, `${base}/index.ts`].find((candidate) => source(candidate) !== undefined);
+  };
+  const importedBy = new Map<string, string>(roots.map((root) => [root, root]));
+  const bare = new Map<string, string[]>();
+  const seen = new Set<string>();
+  const pending = [...roots];
+  while (pending.length > 0) {
+    const file = pending.pop()!;
+    const text = source(file);
+    if (seen.has(file) || text === undefined) continue;
+    seen.add(file);
+    const link = (specifier: string): void => {
+      const local = specifier.startsWith(".") ? resolveLocal(file, specifier) : undefined;
+      if (local !== undefined) {
+        if (!importedBy.has(local)) importedBy.set(local, file);
+        pending.push(local);
+      } else if (!specifier.startsWith(".")) {
+        bare.set(specifier, [...(bare.get(specifier) ?? []), file]);
+      }
+    };
+    const visit = (node: ts.Node): void => {
+      if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier) && !typeOnlyImport(node)) link(node.moduleSpecifier.text);
+      if (ts.isExportDeclaration(node) && !node.isTypeOnly && node.moduleSpecifier !== undefined && ts.isStringLiteral(node.moduleSpecifier)) link(node.moduleSpecifier.text);
+      if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword && node.arguments[0] !== undefined && ts.isStringLiteral(node.arguments[0])) link(node.arguments[0].text);
+      ts.forEachChild(node, visit);
+    };
+    visit(ts.createSourceFile(file, text, ts.ScriptTarget.ES2022, true));
+  }
+  return { files: [...seen].sort(), bare, importedBy };
+}
+
+/** A Node process entry and the modules its runtime graph must never reach. */
+export interface NodeServiceBoundary {
+  readonly entry: string;
+  /** Repo-relative source files. */
+  readonly forbidden: readonly string[];
+  /** Bare specifiers: `name` matches it and its subpaths, `scheme:*` matches every `scheme:` builtin. */
+  readonly forbiddenPackages: readonly string[];
+  readonly reason: string;
+}
+
+/**
+ * The pool service runs on Node (C12). `db/connection` links `drizzle-orm/bun-sql`
+ * and so the `bun` builtin, which a Node bundle cannot load; a W15 import chain
+ * once reached it through the checkpoint barrier and broke the pool build. The
+ * bare specifiers catch a direct import of the driver or a Bun builtin too.
+ */
+export const NODE_SERVICE_BOUNDARIES: readonly NodeServiceBoundary[] = [{
+  entry: "src/factory/pool/service-server.ts",
+  forbidden: ["src/db/connection.ts"],
+  forbiddenPackages: ["bun", "bun:*", "drizzle-orm/bun-sql"],
+  reason: "links the Bun SQL driver or a Bun builtin that a Node bundle cannot load",
+}];
+
+function matchesPackage(specifier: string, pattern: string): boolean {
+  return pattern.endsWith(":*") ? specifier.startsWith(pattern.slice(0, -1)) : specifier === pattern || specifier.startsWith(`${pattern}/`);
+}
+
+/** One violation per forbidden module or package a Node service entry reaches, with the import chain that reaches it. */
+export function nodeServiceViolations(boundaries: readonly NodeServiceBoundary[] = NODE_SERVICE_BOUNDARIES, read: SourceReader = readRepositorySource): BoundaryViolation[] {
+  return boundaries.flatMap((boundary) => {
+    if (read(boundary.entry) === undefined) return [{ path: boundary.entry, line: 1, rule: "node-service-link" as const, message: "Node service entry is missing" }];
+    const closure = runtimeImportClosure([boundary.entry], read);
+    const chainTo = (file: string): string[] => {
+      const chain = [file];
+      while (chain[0] !== boundary.entry) chain.unshift(closure.importedBy.get(chain[0]!)!);
+      return chain;
+    };
+    const violation = (subject: string, chain: readonly string[]): BoundaryViolation => ({
+      path: boundary.entry, line: 1, rule: "node-service-link", message: `reaches ${subject}, which ${boundary.reason}: ${chain.join(" -> ")}`,
+    });
+    const files = boundary.forbidden.filter((file) => closure.files.includes(file)).map((file) => violation(file, chainTo(file)));
+    const packages = [...closure.bare].filter(([specifier]) => boundary.forbiddenPackages.some((pattern) => matchesPackage(specifier, pattern)))
+      .map(([specifier, importers]) => violation(`"${specifier}"`, [...chainTo(importers[0]!), `"${specifier}"`]));
+    return [...files, ...packages];
+  });
+}
+
 async function sourceInput(path: string): Promise<SourceInput> {
   return { path, source: await Bun.file(resolve(REPO_ROOT, path)).text() };
 }
@@ -429,12 +550,15 @@ export async function inspectRepositoryBoundaries(): Promise<BoundaryViolation[]
     if (!factoryPaths.includes(required)) throw new Error(`required validator source is missing: ${required}`);
   }
   const factoryFiles = await Promise.all(factoryPaths.map(sourceInput));
-  return checkFactoryBoundaries(
-    factoryFiles,
-    await Promise.all(SHARED_REUSE_MODULES.map(sourceInput)),
-    REQUIRED_SHARED_IMPORTS,
-    localImportClosure(factoryFiles, VALIDATOR_PATHS),
-  );
+  return [
+    ...checkFactoryBoundaries(
+      factoryFiles,
+      await Promise.all(SHARED_REUSE_MODULES.map(sourceInput)),
+      REQUIRED_SHARED_IMPORTS,
+      localImportClosure(factoryFiles, VALIDATOR_PATHS),
+    ),
+    ...nodeServiceViolations(),
+  ];
 }
 
 export async function runBoundaryCheck(options: {
@@ -448,7 +572,7 @@ export async function runBoundaryCheck(options: {
     for (const violation of violations) log.error(`${violation.path}:${violation.line} [${violation.rule}] ${violation.message}`);
     return 1;
   }
-  log.log("Factory boundary checks passed (F07 deterministic validator and F13 shared-module reuse).");
+  log.log("Factory boundary checks passed (F07 deterministic validator, F13 shared-module reuse, and Node service links).");
   return 0;
 }
 

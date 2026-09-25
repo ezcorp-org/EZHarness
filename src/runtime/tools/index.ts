@@ -1,12 +1,13 @@
 import type { BuiltinToolDef } from "./types";
-import { createReadFileTool } from "./read-file";
-import { createListFilesTool } from "./list-files";
-import { createReadDirectoryTool } from "./read-directory";
-import { createEditFileTool } from "./edit-file";
-import { createShellTool, type ShellPreviewWiring, type ShellSandboxWiring } from "./shell";
-import { createGrepTool } from "./grep";
-import { createGlobTool } from "./glob";
-import { describeOutputCap, getToolOutputLimit } from "./output-limits";
+import { getNativeToolDefs } from "./native-tools";
+import type { ShellPreviewWiring, ShellSandboxWiring } from "./shell";
+import {
+  getSandboxWorkspaceDispatcher,
+  type SandboxWorkspaceOperation,
+  type WorkspaceTarget,
+  type WorkspacePrincipal,
+} from "../workspace/target";
+import { toolError } from "./types";
 
 export type { BuiltinToolDef, ToolCategory, PermissionMode, CardType } from "./types";
 export type { ShellPreviewWiring, ShellSandboxWiring } from "./shell";
@@ -23,22 +24,36 @@ export type { ShellPreviewWiring, ShellSandboxWiring } from "./shell";
  * context (the shell tool then behaves exactly as before).
  */
 export function getBuiltinToolDefs(
-  projectPath: string,
+  workspace: WorkspaceTarget | string,
   preview?: ShellPreviewWiring,
   shellSandbox?: ShellSandboxWiring,
+  principal?: WorkspacePrincipal,
 ): BuiltinToolDef[] {
-  const defs: BuiltinToolDef[] = [
-    createReadFileTool(projectPath),
-    createListFilesTool(projectPath),
-    createReadDirectoryTool(projectPath),
-    createEditFileTool(projectPath),
-    createShellTool(projectPath, preview, shellSandbox),
-    createGrepTool(projectPath),
-    createGlobTool(projectPath),
-  ];
-  for (const def of defs) {
-    def.maxOutputBytes = getToolOutputLimit(def.name);
-    def.description = `${def.description} ${describeOutputCap(def.name)}`;
-  }
-  return defs;
+  if (typeof workspace === "string") workspace = { kind: "local", root: workspace, revision: 0 };
+  if (workspace.kind === "sandbox") return getSandboxToolDefs(workspace, principal);
+  return getNativeToolDefs(workspace.root, preview, shellSandbox);
+}
+
+/** Keep the existing schemas, labels, permission categories and output caps
+ * identical while replacing every executable body with one host dispatcher.
+ * The local bodies are metadata donors only and are never invoked here. */
+function getSandboxToolDefs(workspace: Extract<WorkspaceTarget, { kind: "sandbox" }>, principal?: WorkspacePrincipal): BuiltinToolDef[] {
+  const metadata = getBuiltinToolDefs({ kind: "local", root: "/workspace-not-used", revision: workspace.revision });
+  return metadata.map((definition) => {
+    const operation = definition.name as SandboxWorkspaceOperation;
+    return {
+      ...definition,
+      execute: async (_toolCallId, params, signal) => {
+        // Resolve per effect: an emergency disable must affect a catalog that
+        // was already handed to a running model.
+        const dispatcher = getSandboxWorkspaceDispatcher();
+        if (!dispatcher) return toolError("Sandbox workspace is unavailable");
+        try {
+          return await dispatcher(workspace, operation, params, signal, principal);
+        } catch {
+          return toolError("Sandbox workspace is unavailable");
+        }
+      },
+    };
+  });
 }

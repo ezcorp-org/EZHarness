@@ -190,6 +190,138 @@
           "message": "A guest may only call the model its attempt pinned."
         }
       }
+    },
+    {
+      "name": "planned-guest-material-begin",
+      "kind": "guest-material-request",
+      "value": {
+        "schemaVersion": "factory.guest-material-begin.v1",
+        "operationId": "run-1:node-1:0:0",
+        "operationIndex": 0,
+        "objectName": "report.json",
+        "version": 1,
+        "mediaType": "application/json",
+        "totalBytes": 29,
+        "chunkCount": 1
+      }
+    },
+    {
+      "name": "one-guest-material-chunk",
+      "kind": "guest-material-request",
+      "value": {
+        "schemaVersion": "factory.guest-material-chunk.v1",
+        "operationId": "run-1:node-1:0:0",
+        "operationIndex": 0,
+        "objectName": "report.json",
+        "version": 1,
+        "index": 0,
+        "digest": "sha256:ec660117d4658ef52244f8f8a947bcf05dc6f2b87ef51879c4be1a316e5389cc",
+        "encodedBytes": 29,
+        "contentBase64": "YSBzdGFnZWQgY29uZm9ybWFuY2UgbWF0ZXJpYWw="
+      }
+    },
+    {
+      "name": "sealed-guest-material",
+      "kind": "guest-material-request",
+      "value": {
+        "schemaVersion": "factory.guest-material-seal.v1",
+        "operationId": "run-1:node-1:0:0",
+        "operationIndex": 0,
+        "objectName": "report.json",
+        "version": 1,
+        "digest": "sha256:ec660117d4658ef52244f8f8a947bcf05dc6f2b87ef51879c4be1a316e5389cc"
+      }
+    },
+    {
+      "name": "promoted-guest-material-output",
+      "kind": "guest-material-request",
+      "value": {
+        "schemaVersion": "factory.guest-material-output.v1",
+        "operationId": "run-1:node-1:0:0",
+        "operationIndex": 0,
+        "objectName": "report.json",
+        "version": 1,
+        "digest": "sha256:ec660117d4658ef52244f8f8a947bcf05dc6f2b87ef51879c4be1a316e5389cc"
+      }
+    },
+    {
+      "name": "begun-guest-material-response",
+      "kind": "guest-material-response",
+      "value": {
+        "schemaVersion": "factory.guest-material-response.v1",
+        "operationId": "run-1:node-1:0:0",
+        "operationIndex": 0,
+        "objectName": "report.json",
+        "version": 1,
+        "status": "begun",
+        "totalBytes": 29,
+        "chunkCount": 1
+      }
+    },
+    {
+      "name": "stored-guest-material-response",
+      "kind": "guest-material-response",
+      "value": {
+        "schemaVersion": "factory.guest-material-response.v1",
+        "operationId": "run-1:node-1:0:0",
+        "operationIndex": 0,
+        "objectName": "report.json",
+        "version": 1,
+        "status": "stored",
+        "index": 0,
+        "digest": "sha256:ec660117d4658ef52244f8f8a947bcf05dc6f2b87ef51879c4be1a316e5389cc"
+      }
+    },
+    {
+      "name": "sealed-guest-material-response",
+      "kind": "guest-material-response",
+      "value": {
+        "schemaVersion": "factory.guest-material-response.v1",
+        "operationId": "run-1:node-1:0:0",
+        "operationIndex": 0,
+        "objectName": "report.json",
+        "version": 1,
+        "status": "sealed",
+        "material": {
+          "artifactId": "factory-artifact-material-1",
+          "digest": "sha256:ec660117d4658ef52244f8f8a947bcf05dc6f2b87ef51879c4be1a316e5389cc",
+          "encodedBytes": 29
+        }
+      }
+    },
+    {
+      "name": "output-guest-material-response",
+      "kind": "guest-material-response",
+      "value": {
+        "schemaVersion": "factory.guest-material-response.v1",
+        "operationId": "run-1:node-1:0:0",
+        "operationIndex": 0,
+        "objectName": "report.json",
+        "version": 1,
+        "status": "output",
+        "output": {
+          "artifactId": "factory-artifact-material-1",
+          "digest": "sha256:ec660117d4658ef52244f8f8a947bcf05dc6f2b87ef51879c4be1a316e5389cc",
+          "encodedBytes": 29
+        },
+        "resultDigest": "ec660117d4658ef52244f8f8a947bcf05dc6f2b87ef51879c4be1a316e5389cc"
+      }
+    },
+    {
+      "name": "refused-guest-material-response",
+      "kind": "guest-material-response",
+      "value": {
+        "schemaVersion": "factory.guest-material-response.v1",
+        "operationId": "run-1:node-1:0:0",
+        "operationIndex": 0,
+        "objectName": "report.json",
+        "version": 1,
+        "status": "refused",
+        "refusal": {
+          "code": "stale_epoch",
+          "message": "the attempt fence moved"
+        }
+      }
     }
   ],
   "rejected": [
@@ -418,6 +550,211 @@
         "providerReceiptDigest"
       ],
       "value": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    },
+    {
+      "name": "guest-material-operation-not-its-own-index",
+      "kind": "guest-material-request",
+      "from": "planned-guest-material-begin",
+      "path": [
+        "operationId"
+      ],
+      "value": "run-1:node-1:0:9"
+    },
+    {
+      "name": "guest-material-name-escapes-its-root",
+      "kind": "guest-material-request",
+      "from": "planned-guest-material-begin",
+      "path": [
+        "objectName"
+      ],
+      "value": "../escape.json"
+    },
+    {
+      "name": "guest-material-version-below-one",
+      "kind": "guest-material-request",
+      "from": "planned-guest-material-begin",
+      "path": [
+        "version"
+      ],
+      "value": 0
+    },
+    {
+      "name": "guest-material-media-type-not-a-type-subtype",
+      "kind": "guest-material-request",
+      "from": "planned-guest-material-begin",
+      "path": [
+        "mediaType"
+      ],
+      "value": "application"
+    },
+    {
+      "name": "guest-material-total-bytes-over-bound",
+      "kind": "guest-material-request",
+      "from": "planned-guest-material-begin",
+      "path": [
+        "totalBytes"
+      ],
+      "value": 99999999
+    },
+    {
+      "name": "guest-material-chunk-count-over-bound",
+      "kind": "guest-material-request",
+      "from": "planned-guest-material-begin",
+      "path": [
+        "chunkCount"
+      ],
+      "value": 65
+    },
+    {
+      "name": "guest-material-chunk-count-cannot-carry-the-bytes",
+      "kind": "guest-material-request",
+      "from": "planned-guest-material-begin",
+      "path": [
+        "chunkCount"
+      ],
+      "value": 40
+    },
+    {
+      "name": "guest-material-chunk-index-over-bound",
+      "kind": "guest-material-request",
+      "from": "one-guest-material-chunk",
+      "path": [
+        "index"
+      ],
+      "value": 64
+    },
+    {
+      "name": "guest-material-chunk-digest-not-prefixed",
+      "kind": "guest-material-request",
+      "from": "one-guest-material-chunk",
+      "path": [
+        "digest"
+      ],
+      "value": "ec660117d4658ef52244f8f8a947bcf05dc6f2b87ef51879c4be1a316e5389cc"
+    },
+    {
+      "name": "guest-material-chunk-bytes-over-bound",
+      "kind": "guest-material-request",
+      "from": "one-guest-material-chunk",
+      "path": [
+        "encodedBytes"
+      ],
+      "value": 32769
+    },
+    {
+      "name": "guest-material-chunk-content-disagrees-with-its-count",
+      "kind": "guest-material-request",
+      "from": "one-guest-material-chunk",
+      "path": [
+        "encodedBytes"
+      ],
+      "value": 7
+    },
+    {
+      "name": "guest-material-chunk-content-not-canonical-base64",
+      "kind": "guest-material-request",
+      "from": "one-guest-material-chunk",
+      "path": [
+        "contentBase64"
+      ],
+      "value": "A$=="
+    },
+    {
+      "name": "guest-material-seal-digest-invalid",
+      "kind": "guest-material-request",
+      "from": "sealed-guest-material",
+      "path": [
+        "digest"
+      ],
+      "value": "sha256:not-hex"
+    },
+    {
+      "name": "guest-material-output-digest-invalid",
+      "kind": "guest-material-request",
+      "from": "promoted-guest-material-output",
+      "path": [
+        "digest"
+      ],
+      "value": "sha256:"
+    },
+    {
+      "name": "guest-material-response-operation-unnamed",
+      "kind": "guest-material-response",
+      "from": "begun-guest-material-response",
+      "path": [
+        "operationId"
+      ],
+      "value": "run-1:node-1:0:4"
+    },
+    {
+      "name": "guest-material-response-plan-empty",
+      "kind": "guest-material-response",
+      "from": "begun-guest-material-response",
+      "path": [
+        "totalBytes"
+      ],
+      "value": 0
+    },
+    {
+      "name": "guest-material-response-stored-index-negative",
+      "kind": "guest-material-response",
+      "from": "stored-guest-material-response",
+      "path": [
+        "index"
+      ],
+      "value": -1
+    },
+    {
+      "name": "guest-material-response-stored-digest-invalid",
+      "kind": "guest-material-response",
+      "from": "stored-guest-material-response",
+      "path": [
+        "digest"
+      ],
+      "value": "sha256:zz"
+    },
+    {
+      "name": "guest-material-response-handle-is-a-path",
+      "kind": "guest-material-response",
+      "from": "sealed-guest-material-response",
+      "path": [
+        "material",
+        "artifactId"
+      ],
+      "value": "a/b"
+    },
+    {
+      "name": "guest-material-response-result-digest-prefixed",
+      "kind": "guest-material-response",
+      "from": "output-guest-material-response",
+      "path": [
+        "resultDigest"
+      ],
+      "value": "sha256:ec660117d4658ef52244f8f8a947bcf05dc6f2b87ef51879c4be1a316e5389cc"
+    },
+    {
+      "name": "guest-material-response-refusal-message-empty",
+      "kind": "guest-material-response",
+      "from": "refused-guest-material-response",
+      "path": [
+        "refusal",
+        "message"
+      ],
+      "value": ""
+    },
+    {
+      "name": "guest-material-response-refusal-message-over-bound",
+      "kind": "guest-material-response",
+      "from": "refused-guest-material-response",
+      "path": [
+        "refusal",
+        "message"
+      ],
+      "generate": {
+        "kind": "text",
+        "unit": "x",
+        "times": 4097
+      }
     }
   ]
 }

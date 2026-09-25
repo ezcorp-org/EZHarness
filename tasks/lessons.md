@@ -3,6 +3,7 @@
 - Seal every persisted field that controls a protected decision, including its scope, revision, and approving authority. Recompute the canonical seal before acceptance and before a later effect claim; a semantic source digest alone cannot detect authority or policy-row tampering.
 
 - Keep definition list rows bounded. Persist compact semantic and resource metadata when a bounded source is saved; do not load or compile up to 200 full 16 MiB sources for one list request. Snapshot mutable request input before an authorization await.
+- When infrastructure is not provisioned, separate locally verifiable contract work from later network qualification. Do not infer AMD, Xeon, Incus, Infisical, or credential availability from a delivery plan.
 
 - Describe a raw entrypoint subprocess as a process, not an installed immutable release.
 - In asynchronous delivery tests, await an observed operation or use transport ordering. Do not use a fixed sleep as proof of completion.
@@ -1452,6 +1453,11 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 - Queue at most one job on the shared heavy lock. I queued mutation and the journeys together; I had to stop one. Chain the heavy work into one script instead.
 - zsh does not word-split an unquoted `$var`, and `pkill -f <pattern>` kills the calling shell when the pattern is in its own command line. Use `bash -c` for arrays, and stop a server by its port.
 
+## 2026-09-22 — W01g round 2
+- Check the merge base yourself before you trust a stated one. The handoff said `integ/w00` was merged at the W09b merge; `git merge-base HEAD integ/w00` showed an older commit, and the file the whole round depended on was absent.
+- A proof harness that reads a credential directory from the environment must refuse by name when it is empty. An empty value became a copy from a relative path and a failure that looked like a product fault.
+- When a proof needs a composition the product cannot yet express, add the configuration field to the product and inject it from the harness. Do not add a convention (a file beside a key) that only a harness uses.
+
 ## 2026-09-22 — W09d: composing validators
 
 - A test suite that pins the clock cannot see a lease expire. W05's acceptance path re-recorded the candidate's terminal fact through a live-attempt authorization on every call, and every suite passed because `now` never moved past the candidate's lease. The real started application refused `factory_run_fence_changed` the first time a validator took longer than that lease, which is always. When a path can run long after the thing it re-authorizes, write one test whose authorizer says "expired".
@@ -1542,3 +1548,47 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 - Verify live state before you answer a factual question about it. When the user asked which model the subagents run on, the first answer came from the spawn parameter, not from evidence. Ask the agents (or read the source) first, then answer with the evidence named.
 - An outer `timeout` around a command that waits for a lock counts the wait. The first W18a-2 combined run waited about 1.6 hours for the heavy lock inside `timeout 9000` and was killed (exit 124) in its node leg. Put the timeout inside the lock (`flock ... timeout N cmd`), or rely on the runner's own per-leg bound.
 - Never pipe a command that must run to completion into a reader that can close early (head, a limited grep). A closed pipe kills git commit with SIGPIPE and nothing is committed. Write to a file, then summarize from the file.
+## 2026-09-21 — Isolated Git fixtures
+
+- Never delegate `git init` from a fake Git shim that can inherit the caller's repository variables. Use a real temporary repository with every `GIT_*` variable removed, and assert that provenance probes leave `core.bare=false`.
+
+## Pluggable infrastructure scope
+
+- When infrastructure does not exist, validate locally first. Do not make external host connections a prerequisite for the local implementation. Keep local validation and later remote networking as separate milestones.
+
+- This infrastructure build uses the native EZHarness loop only. Claude and Codex guest workers are excluded by user decision; do not add worker placement or SDK integrations for them.
+
+- When the user requests the bare minimum MVP, reduce the active milestone explicitly. Keep optional protocols, second-provider proof and external services in the later backlog; do not keep building them under the earlier full-plan scope.
+- 2026-09-20: For integration audits, verify the exact parent worktree and HEAD before reporting findings. Do not infer current code from an earlier feature worktree.
+- 2026-09-20: Before classifying a focused-suite failure as a source defect, check ownership messages and active fixture migrations; distinguish an assigned stale-test update from behavior.
+
+- Freeze every tracked file, including documentation and task notes, while collecting or verifying source-attested browser coverage. Apply pending documentation only after those checks finish. Rebuilding mapped assets can change chunk names; preserve the exact mapped build until coverage receipt validation completes.
+
+- A lock released in `finally` must await every returned asynchronous cleanup inside the `try`. Test the final deletion phase with at least three queued callers; serializing only the earlier unmount phase does not prove the lock lifetime. Preserve post-conflict idempotency replay when adding a pre-insert lookup.
+ - `tasks/` is gitignored but `tasks/todo.md` and `tasks/lessons.md` are force-tracked. Append a section; never overwrite either file, and check `git status` after writing under `tasks/`.
+- A report-only flag must suppress only the verdict it was made for. Classify a tool exit by whether the tool produced its report this run; delete the previous report first so a stale file cannot vouch for a crash.
+- A summary reporter must be told which gates ran. Absence of a report is a failure, never an omission; there is no safe default for the expected set.
+- A PR in conflict with its base gets no pull_request workflow runs at all; GitHub cannot build the merge ref. When checks are silently absent, check `mergeable` before suspecting the workflow. Merge or rebase, then reinstall dependencies before the pre-push typecheck when the base moved a lockfile.
+- Budget a hosted-runner job against the 360-minute cap with a measured rate, not a guess. When one job cannot finish, shard the work and merge with an exact-count check so a missing slice fails instead of shrinking the denominator.
+- Report a hash or count only after reading the command's output; never write the value you expect. (Integrator, 2026-09-24: a staged-tree hash and file count were sent in the same step as the query that produced them.)
+- In a shell wrapper, save the exit code on the line right after the command (`rc=$?`). A `$(...)` in the same echo as `$?` runs first and resets it to 0: "exit=0" was logged for a test pool that exited 1 (2026-09-24).
+
+## 2026-09-23 — W02c package quarantine fence
+
+- Do not edit a shell script while a queued job will run it. Bash reads a script as it runs, so an edit made while an earlier leg was running broke the sweep with "unexpected EOF". Copy a driver before queueing it, or change it only between runs.
+- A proof harness must keep every child process log. My runner deleted `process-*.log` after moving only a few of them, and the one failure that mattered was in the gateway stub's log. Move them all, by glob.
+- Run a proof from a detached worktree at a fixed commit, never from the worktree you are editing. The harness imports repository sources at run time, so an edit made while a job waits in the lock queue changes what the job measures.
+- A race test that passes on PGlite can still hide a branch, because PGlite serializes the two transactions. My quarantine and launch race always let the quarantine win on PGlite. On real PostgreSQL the launch won, and it failed on an unprepared package the test had never needed.
+- A 500 from the object store can be a full host disk. When S3 PutObject returned InternalError while List worked, `df -h /` showed 100% used. Probe with a key of your own, delete it afterwards, and report the store to the coordinator. Do not repair it.
+- `/tmp` inputs older than ten days are removed by the daily systemd-tmpfiles clean at 03:55 local. When `postgres.env` or the pinned Bun disappears, check the tmpfiles journal before debugging.
+
+## 2026-09-23 — W01g round 4
+- A summary built from receipt files can report an old pass as a new one. When a run fails before it writes its record, the summary must not read the previous record. Check `producingCommit` and `startedAt` on every receipt before quoting it.
+- When the AWS SDK fails with "DOMParser is not defined / Deserialization error", read the object store's log before blaming the bundle. The SDK parses XML only for an S3 error body, and here the real error was a full host disk that made the store's volumes read-only.
+- Bun's line coverage can mark the line before an unexecuted function as uncovered: the unexecuted block's range bleeds back one line. Before restructuring code to satisfy the patch gate, check whether the neighbouring function runs in the measured suites, and add the suite that exercises it.
+
+## 2026-09-24 — A Node service must not import a product module for a constant (W15c)
+
+- A Node service may import only leaf modules from the product. `src/db/queries/*` and anything that
+  reaches them (records, auth) pull in `db/connection` and the Bun SQL driver. Put shared constants and
+  types in a leaf, and let `check-factory-boundaries.ts` (`NODE_SERVICE_BOUNDARIES`) guard the entry.

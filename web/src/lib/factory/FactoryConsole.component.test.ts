@@ -75,8 +75,8 @@ function api(overrides: Partial<FactoryAuthoringApi> = {}): FactoryAuthoringApi 
 			draftRevision: revision,
 		})),
 		listGrants: vi.fn(async () => ({ items: [
-			{ principalKind: "user" as const, principalId: "someone-else", action: "factory.run" as const, revision: 9, expiresAtMs: null, revoked: false },
-			{ principalKind: "user" as const, principalId: "member-1", action: "factory.run" as const, revision: 4, expiresAtMs: null, revoked: false },
+			{ principalKind: "user" as const, principalId: "someone-else", action: "factory.run" as const, revision: 9, expiresAtMs: null, revoked: false, displayName: "Someone Else" },
+			{ principalKind: "user" as const, principalId: "member-1", action: "factory.run" as const, revision: 4, expiresAtMs: null, revoked: false, displayName: "Member One" },
 		], nextCursor: null })),
 		startRun: vi.fn(async () => ({ resourceId: "run-new", commandId: "start-1", statusUrl: "/api/factories/projects/project-a/runs/run-new/commands/start-1" })),
 		...overrides,

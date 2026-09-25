@@ -162,8 +162,8 @@ async function routeConsole(page: Page, scenario: Scenario = {}) {
 		if (path.endsWith("/grants") && method === "GET") {
 			return json(envelope({ kind: "grant.page", page: { items: [
 				{ principalKind: "user", principalId: "reviewer-with-a-very-long-member-identifier@example.com", action: "factory.approve", revision: 2, expiresAtMs: 1_900_000_000_000, revoked: false },
-				{ principalKind: "service", principalId: "nightly-scheduler", action: "factory.run", revision: 1, expiresAtMs: 1_900_000_000_000, revoked: false },
-				{ principalKind: "user", principalId: "former-operator", action: "factory.operate", revision: 3, expiresAtMs: null, revoked: true },
+				{ principalKind: "service", principalId: "nightly-scheduler", action: "factory.run", revision: 1, expiresAtMs: 1_900_000_000_000, revoked: false, displayName: "Nightly scheduler" },
+				{ principalKind: "user", principalId: "former-operator", action: "factory.operate", revision: 3, expiresAtMs: null, revoked: true, displayName: "Former operator" },
 			] } }));
 		}
 		return json(envelope({ kind: "error", error: { code: "factory_not_found", message: "No mock route", retryable: false } }), 404);
