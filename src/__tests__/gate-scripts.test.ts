@@ -286,7 +286,9 @@ describe("coverage diff gates: dependency-free Git controls", () => {
       git("branch", "patch-base");
       writeFileSync(sourcePath, "export const value = 2;\n");
       writeFileSync(newSourcePath, "export const newValue = 3;\n");
-      git("add", "src/change.ts", "src/new.ts");
+      // A type-only file emits no code: no producer records it, and the gate passes it.
+      writeFileSync(join(fixture, "src/types.ts"), "export interface Shape {\n  readonly id: string;\n}\n");
+      git("add", "src/change.ts", "src/new.ts", "src/types.ts");
       git("commit", "--quiet", "-m", "covered change");
       const measuredLcov = [
         `SF:${sourcePath}`,
@@ -323,6 +325,15 @@ describe("coverage diff gates: dependency-free Git controls", () => {
       expect(newFileMissingMeasurement.exitCode).toBe(1);
       expect(newFileMissingMeasurement.stderr.toString()).toContain("new source file with no measured coverage");
       writeFileSync(join(fixture, "coverage/lcov.info"), measuredLcov);
+
+      // The same kind of file with an enum is executable, so it is gated again.
+      writeFileSync(join(fixture, "src/modes.ts"), "export interface Shape {\n  readonly id: string;\n}\nexport enum Mode { A, B }\n");
+      git("add", "src/modes.ts");
+      git("commit", "--quiet", "-m", "enum");
+      const enumNewFile = runGate("scripts/check-new-file-coverage.ts", "patch-base");
+      expect(enumNewFile.exitCode).toBe(1);
+      expect(enumNewFile.stderr.toString()).toContain("src/modes.ts: new source file with no measured coverage");
+      expect(enumNewFile.stderr.toString()).not.toContain("src/types.ts");
 
       const missingBase = runGate("scripts/check-patch-coverage.ts", "missing-base");
       expect(missingBase.exitCode).toBe(1);
@@ -1153,6 +1164,39 @@ describe("check-new-file-coverage: newFileViolations", () => {
   test("a specific key still gates even when a catch-all is also present", () => {
     const perFile = new Map([["src/new.ts", cov(10, 10)]]);
     expect(newFileViolations(["src/new.ts"], perFile, ["src/**", "src/new.ts"])).toEqual([]);
+  });
+  // Coordinator ruling (W18c, 2026-09-26): a type-only file emits no code, so
+  // it has no lines to cover. The structural test is the one shared
+  // isDeclarationOnlyTypeScript that check-coverage.ts and
+  // check-patch-coverage.ts already apply; any executable export re-gates it.
+  describe("type-only files", () => {
+    const typeOnly = "export interface Shape {\n  readonly id: string;\n}\nexport type Alias = Shape | null;\n";
+    const judge = (sources: Record<string, string>) => (file: string) => isDeclarationOnlyTypeScript(sources[file] ?? "x;");
+    test.each([
+      ["interfaces and type aliases", typeOnly],
+      ["only `export type` and `import type`", 'import type { Shape } from "./shape";\nexport type { Shape };\nexport type Pair = [Shape, Shape];\n'],
+    ])("a new file with %s and no lcov record passes", (_label, source) => {
+      expect(newFileViolations(["src/types.ts"], new Map(), ["src/types.ts"], judge({ "src/types.ts": source }))).toEqual([]);
+      expect(newFileViolations(["src/types.ts"], new Map([["src/types.ts", cov(0, 0)]]), [], judge({ "src/types.ts": source }))).toEqual([]);
+    });
+    test.each([
+      ["an enum", "export enum Mode { A, B }\n"],
+      ["a const", "export const limit = 3;\n"],
+      ["a function", "export function id(value: string): string { return value; }\n"],
+    ])("the same file with %s added is executable and gated again", (_label, extra) => {
+      const v = newFileViolations(["src/types.ts"], new Map(), ["src/types.ts"], judge({ "src/types.ts": typeOnly + extra }));
+      expect(v).toEqual([expect.stringContaining("src/types.ts: new source file with no measured coverage")]);
+    });
+    test("only .ts files qualify, and a caller that gives no judge keeps the old rule", () => {
+      expect(newFileViolations(["web/src/lib/x.svelte"], new Map(), ["web/src/lib/x.svelte"], () => true)).toHaveLength(1);
+      expect(newFileViolations(["src/types.ts"], new Map(), ["src/types.ts"])).toHaveLength(1);
+    });
+    test("the message for an unmeasured type-only file never arises, so EXCLUDES is not suggested for it", () => {
+      const v = newFileViolations(["src/types.ts", "src/run.ts"], new Map(), ["src/**"], judge({ "src/types.ts": typeOnly, "src/run.ts": "export const run = 1;\n" }));
+      expect(v).toHaveLength(1);
+      expect(v[0]).toStartWith("src/run.ts:");
+      expect(v.join("\n")).not.toContain("src/types.ts");
+    });
   });
 });
 
