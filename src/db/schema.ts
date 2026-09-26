@@ -3401,10 +3401,12 @@ export const factoryUsageSettlements = pgTable("factory_usage_settlements", {
   tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), runId: text("run_id").notNull(),
   reservationId: text("reservation_id").notNull(), revision: bigint("revision", { mode: "number" }).notNull(),
   attemptId: text("attempt_id").notNull(),
-  source: text("source").notNull().$type<"stop" | "reconciliation">(),
+  source: text("source").notNull().$type<"stop" | "reconciliation" | "no-operations">(),
   knownCostMicros: text("known_cost_micros").notNull(),
   unknownCostMicros: text("unknown_cost_micros"),
   providerReceiptDigest: text("provider_receipt_digest"),
+  stopReceiptDigest: text("stop_receipt_digest"),
+  basis: text("basis"),
   settledAtMs: bigint("settled_at_ms", { mode: "number" }).notNull(),
   settlementDigest: text("settlement_digest").notNull(),
   eventJson: text("event_json").notNull(), eventDigest: text("event_digest").notNull(),
@@ -3413,7 +3415,7 @@ export const factoryUsageSettlements = pgTable("factory_usage_settlements", {
   primaryKey({ columns: [table.tenantId, table.projectId, table.runId, table.reservationId, table.revision] }),
   foreignKey({ columns: [table.tenantId, table.projectId, table.runId, table.reservationId], foreignColumns: [factoryBudgetReservations.tenantId, factoryBudgetReservations.projectId, factoryBudgetReservations.runId, factoryBudgetReservations.reservationId] }).onDelete("restrict"),
   check("factory_usage_settlements_revision_check", sql`${table.revision} >= 1`),
-  check("factory_usage_settlements_source_check", sql`${table.source} IN ('stop','reconciliation')`),
+  check("factory_usage_settlements_source_check", sql`${table.source} IN ('stop','reconciliation','no-operations')`),
   check("factory_usage_settlements_known_cost_check", sql`${table.knownCostMicros} ~ '^[0-9]+$'`),
   check("factory_usage_settlements_unknown_cost_check", sql`${table.unknownCostMicros} IS NULL OR ${table.unknownCostMicros} ~ '^[0-9]+$'`),
   // C02 form: bare 64-character lowercase hex, matching the SDK result
@@ -3423,6 +3425,10 @@ export const factoryUsageSettlements = pgTable("factory_usage_settlements", {
   check("factory_usage_settlements_settlement_digest_check", sql`${table.settlementDigest} ~ '^sha256:[0-9a-f]{64}$'`),
   check("factory_usage_settlements_event_digest_check", sql`${table.eventDigest} ~ '^sha256:[0-9a-f]{64}$'`),
   check("factory_usage_settlements_reconciliation_check", sql`${table.source} <> 'reconciliation' OR ${table.providerReceiptDigest} IS NOT NULL`),
+  // W03e: a no-operations zero carries exactly its signed stop receipt, and is only ever a known zero.
+  check("factory_usage_settlements_stop_receipt_check", sql`${table.stopReceiptDigest} IS NULL OR ${table.stopReceiptDigest} ~ '^sha256:[0-9a-f]{64}$'`),
+  check("factory_usage_settlements_basis_check", sql`(${table.source} = 'no-operations') = (${table.basis} IS NOT NULL) AND (${table.basis} IS NULL OR ${table.basis} = 'no-operations: compute at reserved bound')`),
+  check("factory_usage_settlements_no_operations_check", sql`(${table.source} = 'no-operations') = (${table.stopReceiptDigest} IS NOT NULL) AND (${table.source} <> 'no-operations' OR (${table.knownCostMicros} = '0' AND ${table.unknownCostMicros} IS NULL AND ${table.providerReceiptDigest} IS NULL))`),
 ]);
 
 /**
