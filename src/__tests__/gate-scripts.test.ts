@@ -10,7 +10,7 @@
  * end-to-end verification in the plan, not here.
  */
 import { test, expect, describe } from "bun:test";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -131,19 +131,22 @@ describe("gate-integrity: isolated parser dependency", () => {
       expect(missingParser.exitCode).toBe(1);
       expect(missingParser.stderr.toString()).toContain("TypeScript AST parser is unavailable");
 
-      // The real HOME keeps bun's package cache; only the git context is dropped.
-      const install = Bun.spawnSync([
-        process.execPath,
-        "install",
-        "--cwd",
-        ".github/gate-integrity-deps",
-        "--frozen-lockfile",
-        "--ignore-scripts",
-      ], { cwd: fixture, env: withoutGitContext(process.env), stdout: "pipe", stderr: "pipe" });
-      expect(install.exitCode).toBe(0);
+      // The locked parser, installed without a network or a package manager: a
+      // real `bun install` here measured the install's wall clock, not the gate,
+      // and once ran past this test's budget under host load (2026-09-26). The
+      // install result is prepared from this checkout's own TypeScript, which
+      // must be exactly the version the gate's frozen lockfile pins.
+      const lockedVersion = /"typescript": \["typescript@([^"]+)"/.exec(
+        readFileSync(join(repoRoot, ".github/gate-integrity-deps/bun.lock"), "utf8"),
+      )?.[1];
+      const installed = realpathSync(join(repoRoot, "node_modules/typescript"));
+      expect(lockedVersion).toBeDefined();
+      expect(JSON.parse(readFileSync(join(installed, "package.json"), "utf8")).version).toBe(lockedVersion);
+      const parserPath = join(fixture, ".github/gate-integrity-deps/node_modules");
+      mkdirSync(parserPath);
+      symlinkSync(installed, join(parserPath, "typescript"), "dir");
       expect(existsSync(join(fixture, "node_modules"))).toBe(false);
 
-      const parserPath = join(fixture, ".github/gate-integrity-deps/node_modules");
       const assertedTest = runGate(parserPath);
       expect(assertedTest.exitCode).toBe(0);
       expect(assertedTest.stdout.toString()).toContain("Gate integrity PASSED");
