@@ -472,3 +472,18 @@ residual-fix files) pass individually at their real invocation (`d-src-isolated-
   EVIDENCE: `mock-cleanup-coverage.test.ts` 34/34 (was 33/33; the new describe block adds the walker
   test). Typecheck, lint, gate-integrity, both boundary checks all 0. Shared `.git/config` `core.bare`
   unchanged (`false`) throughout.
+
+- [x] GC7: `workflow-run-persistence.test.ts`'s `terminalizeOrphanedWorkflowRuns` timing flake fixed.
+  The crash-recovery describe block's `BOOT`/`NOW` (`2026-07-29T12:00:00Z`/`T12:05:00Z`) hoisted to
+  MODULE level — one clock for the whole file, not per-test copies — and reused in all three places:
+  the flaky test itself ("sweeps rows a dead process left running"), the neighbouring
+  "the boot sweep drains a half-written row" test (dropped its `Date.now() - 60_000` margin), and the
+  existing crash-recovery block (unchanged behaviour, now reading the module-level constant instead of
+  its own describe-scoped copy). Both fixed tests now insert with `startedAt: BOOT` and pass explicit
+  cutoffs strictly after it by construction (`BOOT.getTime() + 1000` for the draining sweep, `NOW` —
+  five fixed minutes later — for the half-written test's second cutoff and the "second sweep finds
+  nothing" call) instead of calling `terminalizeOrphanedWorkflowRuns()` with no arguments, which read
+  `new Date()` twice internally. No wall-clock read (`new Date()`/`Date.now()`) in either test.
+  CHECK: the file alone, five consecutive runs.
+  EXPECT/RESULT: 95/0 every time.
+  EVIDENCE: typecheck, lint, gate-integrity, both boundary checks all 0.
