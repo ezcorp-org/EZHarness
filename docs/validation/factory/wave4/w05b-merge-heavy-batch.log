@@ -1,0 +1,19 @@
+=== heavy batch 2026-09-26T03:54:30Z
+HEAD f7c1290a67a1ed859ee09b0f1ee9a0b024fe767d MERGE_HEAD e8ee2f8f25cd41852de5b012df712ae29aa0ea14 index-tree bd8b1abfc8a6507e2b77a1f82cd7df5f34ed6557 umask 0077
+df: /dev/nvme0n1p2  1.8T  1.6T  127G  93% /
+resource-gate 2026-09-26T03:54:30Z pg-factory-task-stops disk=127G memAvailable=18GiB swapFreeKiB=7756904/17173956
+--- START pg-factory-task-stops 2026-09-26T03:54:30Z
+--- END   pg-factory-task-stops 2026-09-26T03:54:42Z exit=0  29 pass 0 fail 
+resource-gate 2026-09-26T03:54:42Z pg-factory-guest-model-journal disk=127G memAvailable=18GiB swapFreeKiB=7760096/17173956
+--- START pg-factory-guest-model-journal 2026-09-26T03:54:42Z
+--- END   pg-factory-guest-model-journal 2026-09-26T03:54:47Z exit=0  2 pass 0 fail 
+resource-gate 2026-09-26T03:54:47Z pg-factory-budgets disk=127G memAvailable=18GiB swapFreeKiB=7760192/17173956
+--- START pg-factory-budgets 2026-09-26T03:54:47Z
+--- END   pg-factory-budgets 2026-09-26T03:54:52Z exit=0  13 pass 0 fail 
+resource-gate 2026-09-26T03:54:52Z pg-factory-assurance disk=127G memAvailable=18GiB swapFreeKiB=7760224/17173956
+--- START pg-factory-assurance 2026-09-26T03:54:52Z
+--- END   pg-factory-assurance 2026-09-26T03:54:58Z exit=0  17 pass 0 fail 
+resource-gate 2026-09-26T03:54:58Z podman-guest-model-journal.integration disk=127G memAvailable=18GiB swapFreeKiB=7760288/17173956
+--- START podman-guest-model-journal.integration 2026-09-26T03:54:58Z
+--- END   podman-guest-model-journal.integration 2026-09-26T03:55:02Z exit=0  4 pass 0 fail 
+BATCH DONE status=0 2026-09-26T03:55:02Z

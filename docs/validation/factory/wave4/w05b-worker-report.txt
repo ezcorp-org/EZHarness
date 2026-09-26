@@ -1,0 +1,59 @@
+W05b — a reconciled hold lets the cancelled run end. Final report.
+
+Branch wp/w05b-reconcile-clear, head 996c60a66, clean tree.
+Base: wp/w03e-usage-settle at c6dbc321c, unmoved. Coverage gates ran with BASE_REF=wp/w03e-usage-settle.
+Gate file: tasks/factory/w05b-GATES.md. Todo section and review: tasks/todo.md. Lessons: tasks/lessons.md.
+
+COMMITS
+- d14a98658 test(factory): a reconciled hold must let the cancelled run end, once
+- 90396066a fix(factory): reconciliation tells the kernel the stopped attempt is no longer uncertain
+- 996c60a66 docs(factory): W05b gate file, review, and lessons
+
+REPRODUCTION (real application, W03e's harness, commit c6dbc321c)
+Receipts: proof/receipt-base.json and proof/record-base.json.
+- Run U journals one uncertain operation that carries a provider receipt.
+- The operator cancels run U. The stop leaves the attempt uncertain.
+- The usage-reconciliation role settles the hold once, and the reservation is settled.
+- No clearing event reaches the kernel, and run U stays cancelling.
+- The tests are red at base: logs/red-base-final.log shows 3 fail.
+
+FIX
+- In its settlement transaction, FactoryUsageReconciliation.reconcile now calls clearResolvedStopInTransaction on the stop store, but only after it has settled the reservation from the receipt.
+- That call sends the sealed stop's attempt-stopped event again, with the id <cancel>:usage-resolved, uncertain: false, and the settlement's own time. Sending it again produces the identical inbox event.
+- Nothing is sent unless the physical stop is confirmed and its stopped event said uncertain.
+- A hold whose usage is still unknown is not reconciled and not cleared.
+- Reverse order, found on the real server: reconciliation settles the cost before the stop confirms.
+  - Before the fix, the confirming stop failed factory_task_stop_stale for ever.
+  - Now that stop keeps the settled budget and sends its own event with uncertain: false.
+  - The stop store's re-derivation accepts that event shape when the latest settlement is a reconciliation.
+- kernel.ts is unchanged, because the kernel already folds uncertain: false (W03e). A kernel test proves the clearing event ends the run once, that replaying all the events from the start gives the same state, and that redelivering the event is a no-op.
+
+PASSES (real server, commit 90396066a; receipts proof/receipt-v2-pass-1, -2 and -3)
+- Each pass: outcome passed, 7 of 7 checks. Run U ends cancelled with the operator's reason, cleared exactly once.
+- Pass 1 cleared through the usage-resolved event. Passes 2 and 3 took the reverse order.
+- The first three passes (proof/v1-narrow-check) counted only :usage-resolved events. Two of them took the reverse order and were marked failed, although run U ended cancelled. The check now counts any uncertain: false event after the uncertain one, and still requires exactly one.
+
+SWEEP (commit 90396066a, clean tree; receipts sweep-final/receipts/)
+| Leg | Result |
+| --- | --- |
+| Focused suites | 94 pass, 0 fail |
+| Real PostgreSQL | 60 pass, 0 fail |
+| typecheck, lint, boundaries, gate integrity | exit 0 |
+| New-file coverage gate | no new source files |
+| Patch coverage gate | all changed lines covered, 2 files |
+| Backend pool, first run | 2 environmental failures (see below) |
+| Backend pool, rerun | 28200 pass, 0 fail (logs/backend-pool-rerun.log) |
+The W03e and W05 suites are unchanged and green.
+
+ENVIRONMENT (reported to the lead)
+- At 02:10 the shared .git/config changed to core.bare = true, with extensions.worktreeConfig on.
+- A worktree with no core.bare = false of its own stops being a work tree to git. In such a worktree two pool tests, dependency-denylist and typescript-tsgo-wiring, fail at any commit.
+- I set core.bare = false in my W05b worktrees only.
+
+DISCLOSED FILES OWNED BY OTHERS
+- W03:
+  - task-stops.ts: the new clearing method, the usage-resolved event phase, and finalize and re-derivation for the reverse order.
+  - usage-settlement.ts: the optional interface member and the reconcile hook.
+  - The stop suite: three new cases.
+- Sol controls: kernel.test.ts gains one replay test. kernel.ts is not touched, so there is no overlap with W09d-2.
+- Harness-supplied fact: the guest cannot journal operations, so the harness records the uncertain operation through the product's own journal class.
