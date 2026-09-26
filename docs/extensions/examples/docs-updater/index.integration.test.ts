@@ -55,6 +55,7 @@ import {
   type ShellResult,
 } from "./index";
 import type { LoopApprovalLabel, LoopRunState } from "@ezcorp/sdk/runtime";
+import { scratchRepository, type ScratchRepository } from "../../../../src/__tests__/helpers/scratch-git";
 
 // ── in-memory Storage (mirrors the host storage RPC contract) ───────
 
@@ -99,40 +100,33 @@ function fakeGh() {
 
 // ── harness ─────────────────────────────────────────────────────────
 
+let scratch: ScratchRepository;
+let scratchRoot: string;
 let repo: string;
 let kv: Map<string, unknown>;
 let events: { pending: unknown[]; resolved: unknown[] };
 let dashboardPages: ReturnType<typeof captureLoopPagesForTests>;
 let spawnCount = 0;
 
-async function git(...args: string[]): Promise<void> {
-  const p = Bun.spawn(["git", "-C", repo, ...args], {
-    stdout: "pipe", stderr: "pipe",
-    env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_SYSTEM: "/dev/null" },
-  });
-  await p.exited;
-}
-async function commit(file: string, msg: string): Promise<void> {
+function commit(file: string, msg: string): void {
   const abs = join(repo, file);
   mkdirSync(abs.slice(0, abs.lastIndexOf("/")), { recursive: true });
   writeFileSync(abs, `${msg}\n`);
-  await git("add", file);
-  await git("commit", "-q", "-m", msg);
+  scratch.git("add", file);
+  scratch.git("commit", "-q", "-m", msg);
 }
 
 beforeEach(async () => {
   __resetLoopsForTests();
   spawnCount = 0;
   ghCalls = [];
-  repo = join(tmpdir(), `du-int-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
-  mkdirSync(repo, { recursive: true });
-  await git("init", "-q");
-  await git("config", "user.email", "probe@example.test");
-  await git("config", "user.name", "Probe");
+  scratchRoot = join(tmpdir(), `du-int-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+  scratch = scratchRepository(scratchRoot, { name: "Probe", email: "probe@example.test" });
+  repo = scratch.dir;
   // The watched origin — gh is pinned to `o/r`, so the drafted `github.com/o/r`
   // PR URLs below are own-repo (normalized to `#N`), not foreign.
-  await git("remote", "add", "origin", "https://github.com/o/r.git");
-  await commit("README.md", "feat: initial");
+  scratch.git("remote", "add", "origin", "https://github.com/o/r.git");
+  commit("README.md", "feat: initial");
 
   const mem = makeMemStorage();
   kv = mem.kv;
@@ -175,7 +169,7 @@ afterEach(() => {
   _setShellForTests(null);
   _setProjectRootForTests(null);
   __resetChannelForTests();
-  rmSync(repo, { recursive: true, force: true });
+  rmSync(scratchRoot, { recursive: true, force: true });
 });
 
 /** Fire the manual tool once and return the reported run id. */

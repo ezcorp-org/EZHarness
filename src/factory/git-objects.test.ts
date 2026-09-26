@@ -12,6 +12,7 @@ import {
   factoryGitTreeId,
   type FactoryGitFile,
 } from "./git-objects";
+import { scratchGitEnv } from "../__tests__/helpers/scratch-git";
 
 /**
  * Real git produced every identity asserted here.
@@ -33,11 +34,10 @@ const COMMIT = "ba63a3699ca16f845eeb8c05af3e8322eadc0f38";
 const IDENTITY = { name: "EZCorp", email: "e@z.invalid", atSeconds: 1_700_000_000, timezone: "+0000" } as const;
 
 let repository: string;
-const GIT_ENV = {
-  PATH: process.env.PATH ?? "", HOME: "/nonexistent", GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null",
-  GIT_AUTHOR_NAME: IDENTITY.name, GIT_AUTHOR_EMAIL: IDENTITY.email, GIT_AUTHOR_DATE: `${IDENTITY.atSeconds} ${IDENTITY.timezone}`,
-  GIT_COMMITTER_NAME: IDENTITY.name, GIT_COMMITTER_EMAIL: IDENTITY.email, GIT_COMMITTER_DATE: `${IDENTITY.atSeconds} ${IDENTITY.timezone}`,
-};
+// Full isolation (see scratchGitEnv) PLUS a fixed author/committer identity
+// and date, so the hashes recorded above reproduce exactly rather than
+// drifting with wall-clock time or the ambient git identity.
+let GIT_ENV: Record<string, string>;
 
 async function git(...argv: readonly string[]): Promise<string> {
   const child = Bun.spawn(["git", ...argv], { cwd: repository, env: GIT_ENV, stdout: "pipe", stderr: "pipe" });
@@ -48,6 +48,11 @@ async function git(...argv: readonly string[]): Promise<string> {
 
 beforeAll(async () => {
   repository = await mkdtemp(join(tmpdir(), "ezcorp-git-objects-"));
+  GIT_ENV = {
+    ...scratchGitEnv(join(repository, ".git-scratch-home")),
+    GIT_AUTHOR_NAME: IDENTITY.name, GIT_AUTHOR_EMAIL: IDENTITY.email, GIT_AUTHOR_DATE: `${IDENTITY.atSeconds} ${IDENTITY.timezone}`,
+    GIT_COMMITTER_NAME: IDENTITY.name, GIT_COMMITTER_EMAIL: IDENTITY.email, GIT_COMMITTER_DATE: `${IDENTITY.atSeconds} ${IDENTITY.timezone}`,
+  };
   await git("init", "-q", "-b", "main", ".");
   for (const file of FILES) {
     const path = join(repository, file.path);
