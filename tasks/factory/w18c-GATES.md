@@ -48,10 +48,11 @@ runner-contracts, external-postgres, browser routes); main's own CI at 31052930d
 
 ## Findings for follow-up
 
-- The gate-integrity parser test in gate-scripts.test.ts ("fails closed without TypeScript ...") runs a real
-  `bun install` inside a 30 s budget. Under host load (load average near 9, 2026-09-26 01:28Z) it hit the
-  budget once (30044 ms) and passed alone and on the next full run (217 pass). A load-sensitive test; not
-  changed here.
+- FIXED (coordinator: a flake is a defect): the gate-integrity parser test in gate-scripts.test.ts ran a real
+  `bun install` inside its 30 s budget and hit it once under load (30044 ms, load average about 9). 226a3fadb
+  prepares the locked parser from this checkout's TypeScript after asserting it is the lockfile's version
+  (5.9.3); the budget is unchanged. Proof `parser-flake/after.txt`: alone 1 pass in 5.8 s at load 18.7; five
+  consecutive full-file runs 217 pass each, 8.1-27.1 s at load 13.6-31.7.
 - The type error in 4e1f1541e (client failure helper) reached a commit because I ran the suite but not
   typecheck; fixed in 376278d17. Typecheck now runs before each W18c commit.
 

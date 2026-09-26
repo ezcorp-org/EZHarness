@@ -1619,3 +1619,8 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 - A failure set another package owns is reported, not bisected or fixed: check the owner's recorded
   OPEN set (for example docs/validation/factory/wave4/*-merge.json .OPEN) first.
 - Kill a process by its PID, never by a `pkill -f` pattern: the pattern also matches the shell that runs it.
+- Run typecheck before every commit, not only the changed suite: vitest and bun run TypeScript without
+  checking types, so a green suite can hide type errors (W18c 4e1f1541e carried 12; fixed in 376278d17).
+- A test must measure the code under test, not a package manager: a live `bun install` inside a test's
+  budget is a flake under host load. Prepare the install result from a pinned local copy and assert its
+  version against the lockfile (W18c 226a3fadb).
