@@ -27,8 +27,7 @@ import {
   startFactoryInstallation,
   factoryReleaseOperations,
   type FactoryInstallationHost,
-  type FactoryInstallationStartupError,
-} from "./installation-startup";
+  type FactoryInstallationStartupError, type FactoryBootTraceEvent } from "./installation-startup";
 
 // This suite composes the real installation, which checks C11's bound against
 // the interval the host maintenance daemon will really use. An installation
@@ -261,6 +260,47 @@ describe("startFactoryInstallation", () => {
     expect(report.probes.every((probe) => probe.available)).toBe(true);
     expect(report.workers.map((worker) => worker.name)).toContain("run-projection");
     expect(report.workers.every((worker) => worker.running)).toBe(true);
+  });
+
+  test("traces every boot phase in order with its duration, and each startup probe's verdict", async () => {
+    const root = await privateRoot();
+    await writeReadyRecords(root);
+    const events: FactoryBootTraceEvent[] = [];
+    const startup = await startFactoryInstallation({
+      host: host({ trace: (event) => events.push(event) }),
+      blobs: memoryBlobs(),
+      databaseUrl: "postgres://product",
+      signal: new AbortController().signal,
+      configPath: await writeConfig(root),
+      boot: bootConfig(root),
+      dependencies: { gateway: { health: async () => true }, workers: { projections: { projectPending: async () => ({ runs: [] }) } } },
+    });
+    started.push(startup);
+    const phases = events.filter((event) => !event.phase.startsWith("probe:")).map(({ phase, state }) => `${state}:${phase}`);
+    // The store and the workers are supplied here, so those two phases do not run.
+    expect(phases).toEqual([
+      "started:config", "finished:config", "started:bind-installation", "finished:bind-installation",
+      "started:provider-broker", "finished:provider-broker", "started:runtime", "finished:runtime",
+    ]);
+    // Each probe's verdict lands inside the runtime phase, named by service.
+    const probes = events.filter((event) => event.phase.startsWith("probe:"));
+    expect(probes.map((event) => event.phase).sort()).toEqual(startup.runtime.report().probes.map((probe) => `probe:${probe.service}`).sort());
+    expect(probes.every((event) => event.state === "finished" && event.detail === "ready")).toBe(true);
+    expect(events.every((event) => Number.isInteger(event.elapsedMs) && event.elapsedMs >= 0)).toBe(true);
+  });
+
+  test("a phase that throws still reports that it finished, so a failed boot names where it failed", async () => {
+    const root = await privateRoot();
+    const events: FactoryBootTraceEvent[] = [];
+    await expect(startFactoryInstallation({
+      host: host({ trace: (event) => events.push(event) }),
+      blobs: memoryBlobs(),
+      databaseUrl: "postgres://product",
+      signal: new AbortController().signal,
+      configPath: join(root, "missing-startup.json"),
+      boot: bootConfig(root),
+    })).rejects.toBeDefined();
+    expect(events.map(({ phase, state }) => `${state}:${phase}`)).toEqual(["started:config", "finished:config"]);
   });
 
   test("reads the host supervisor's own record when this process holds no runner", async () => {
