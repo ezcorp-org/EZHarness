@@ -330,5 +330,85 @@ residual-fix files) pass individually at their real invocation (`d-src-isolated-
 
 ## Item C — F2: the 27 bare git-init tests
 
-- [ ] GC1: BLOCKED on the integ/w00 hash containing W18a-3 (for `src/__tests__/helpers/scratch-git.ts`),
-  per the spawn brief. Not started.
+- [x] GC1: branch `wp/w18-hygiene-3` created from `integ/w00` at `6cea43e67` (W18a-3 landed as `8a08328fc`,
+  receipts in `6cea43e67`), per the team-lead-supplied hash. Worktree set up per the standing
+  incident-response rule: `git config --worktree core.bare false` + worktree identity set FIRST,
+  confirmed with `git config --show-origin --get-all core.bare` (both the shared `.git/config` and this
+  worktree's own `config.worktree` read `false`, unchanged throughout everything below); `GIT_DIR`,
+  `GIT_INDEX_FILE`, `GIT_WORK_TREE` confirmed clear before every suite.
+
+- [x] GC2: hardened `packages/@ezcorp/sdk/src/test/filesystem.ts`'s `gitInDirectory()` to full isolation.
+  It previously only stripped `GIT_*`; it still read the real user's `~/.gitconfig` and the host's
+  system config. Extracted the isolation rule as a new export `isolatedGitEnv(home, env)` (strip
+  `GIT_*`, drop `XDG_CONFIG_HOME`, set `HOME`, set `GIT_CONFIG_NOSYSTEM=1`) used by both
+  `gitInDirectory()` (default: a fresh scratch `HOME` per call) and `src/__tests__/helpers/scratch-git.ts`'s
+  `scratchGitEnv()`, which now delegates to it instead of duplicating the rule. This is Group 2 (the 2
+  SDK-based files use `gitInDirectory()`/`markGitRepository()` already — no test-file change needed):
+  `docs/extensions/examples/task-stack/index.test.ts`, `packages/@ezcorp/ai-kit/test/unit/cli-install.test.ts`.
+  CHECK: `bun scripts/check-boundaries.ts` and `bun scripts/check-factory-boundaries.ts` (app code
+  importing `@ezcorp/sdk/*` is unrestricted by either); `bun test packages/@ezcorp/sdk/test/fs.test.ts`
+  + the two Group 2 files.
+  EXPECT: both boundary checks 0; 122/0 across the three files.
+  EVIDENCE: commit `d296f0b91`. Verified with the pinned bun 1.3.14 (`.bun-version`); typecheck, lint,
+  gate-integrity all 0; shared `.git/config` `core.bare` unchanged (`false`) before/after.
+
+- [x] GC3: Group 1 (17 confirmed real bare-git-init files) converted to the shared helper. Each file's
+  hand-rolled isolation (several already replaced the child's env wholesale — safe by accident, not by
+  the shared rule — most did not: full `...process.env` spreads, or no `env` override at all, meaning
+  an ambient hook `GIT_DIR` would act on the wrong/real repository). Converted to
+  `scratchRepository()`/`scratchGitEnv()` uniformly; where a file needed a fixed author/committer
+  identity AND date (so previously-pinned object hashes keep reproducing — `git-objects.test.ts`,
+  `reference-code/git-reader.test.ts`), composed `{ ...scratchGitEnv(home), GIT_AUTHOR_DATE: ..., ... }`
+  rather than using `scratchRepository()`'s own (undated) identity path, so no behavior/hash changed.
+  Files: `docs/extensions/examples/docs-updater/index.integration.test.ts`,
+  `src/extensions/first-party-integration/docs-updater/git.test.ts`,
+  `src/extensions/first-party-integration/repo-activity-notify/git.test.ts`,
+  `scripts/check-patch-coverage-typeonly.test.ts`, `src/extensions/project-git-refs.test.ts`,
+  `src/extensions/__tests__/project-git-broker.test.ts`, `src/extensions/__tests__/project-open-pr.test.ts`,
+  `src/extensions/__tests__/source-project-credentials.test.ts`, `src/factory/git-objects.test.ts`,
+  `src/factory/reference-code/git-reader.test.ts`, `src/__tests__/biome-ignores-worktrees.test.ts`,
+  `src/__tests__/git-install.test.ts`, `src/__tests__/security/c3-extension-install.test.ts` (the exact
+  file the 2026-09-24 incident named), `src/__tests__/source-parser-git-coverage.test.ts`,
+  `src/__tests__/source-parser.test.ts`, `src/__tests__/unlanded-branches.test.ts`,
+  `src/__tests__/visual-evidence-select.test.ts`.
+  CHECK: each file alone, then all 17 + the 2 Group 2 files together in one process.
+  EXPECT: alone — 3 batches of 8/4/5 files, 49/0, 42/0, 121/0; combined — 334/0 across 20 files.
+  EVIDENCE: `git status --short` shows exactly the 17 files touched; shared `.git/config` `core.bare`
+  unchanged (`false`) after every run.
+
+- [x] GC4: Group 3 (8 files disclosed as uncertain) verified against this real merged base — all 8 are
+  false positives; none invoke a real git subprocess. Grep evidence per file:
+  `src/__tests__/cli-ext-coverage.test.ts` (only fake `.git@v1.0.0`/`github:` source strings, no spawn);
+  `src/__tests__/ext-docs-validation.test.ts` (only a doc example name `github-stats`);
+  `src/__tests__/ext-init.test.ts` (only `.gitignore` file-content assertions);
+  `src/__tests__/lessons-audit-queries.test.ts`, `src/__tests__/memory-types.test.ts`,
+  `web/src/__tests__/copyable-content.test.ts`, `src/factory/release-git-refs.test.ts` (zero
+  case-insensitive `git` matches in the whole file); `src/__tests__/cli-ext-typed-scaffold.test.ts`
+  (spawns the project's OWN built CLI's `ext init`, which calls `@ezcorp/sdk/scaffold` — confirmed by
+  grep to contain no git invocation at all, pure file scaffolding). No code change; no false-positive
+  filed as real.
+
+- [x] GC5: poisoned-env guard-with-control proof, the pattern `gate-scripts.test.ts` already uses for
+  `scratchRepository()`/`scratchGitEnv()` themselves, run over all 17 Group 1 files: a dummy repository
+  built with `scratchRepository()`, snapshotted (config/index/refs/objects/HEAD), then the SAME 17
+  files run via `bun test` with `GIT_DIR`/`GIT_INDEX_FILE`/`GIT_WORK_TREE`/`GIT_COMMON_DIR`/
+  `GIT_OBJECT_DIRECTORY`/`HOME` all pointed at the dummy (exactly what a pre-commit hook exports).
+  RESULT: the dummy repository's snapshot is BYTE IDENTICAL before and after (my 17 conversions never
+  read or write the poisoned target); the control (the same poisoned env, unprotected) DOES leak into
+  the dummy (`git config user.email` written into its real config), proving the poison in the proof is
+  real and not a no-op.
+  RESIDUAL — 13 test failures surfaced under poison, in 3 of the 17 files, ALL and ONLY on tests that
+  exercise pre-existing PRODUCTION git wrappers this item's scope never touched:
+  `src/extensions/git.ts`'s `gitExec()` (spreads `{...process.env}` with no `GIT_*` stripping — used by
+  its `clone()`/`getCurrentRef()`/`lsRemoteTags()`, exercised by `source-parser.test.ts` and
+  `source-parser-git-coverage.test.ts`) and `scripts/unlanded-branches.ts`'s internal
+  `Bun.spawnSync(["git",...args],{cwd})` (no `env` override at all — exercised by its exported `main()`,
+  used in `unlanded-branches.test.ts`'s real-git describe block). A third instance of the same gap
+  (found earlier, not triggered by this specific poison run): `docs/extensions/examples/docs-updater/index.ts`'s
+  `HERMETIC_GIT_ENV` blocks global/system config reads but never strips `GIT_DIR`/`GIT_INDEX_FILE`/
+  `GIT_WORK_TREE`. These are production runtime code, not test fixtures — outside item C's stated scope
+  ("convert 27 disclosed bare git-init TESTS") — reported to team-lead for a ruling rather than fixed
+  unilaterally; item C's own 17 conversions are unaffected by and do not depend on that ruling.
+  EVIDENCE: `/tmp/w18-hygiene-3-poison-check.ts`, `/tmp/w18-hygiene-3-poison-check2.ts` (not repo-tracked,
+  scratch proof scripts); full failing-test list captured, all 13 map 1:1 to the three production
+  call sites above.
