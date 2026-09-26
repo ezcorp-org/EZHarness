@@ -17,7 +17,6 @@ class FixedResizeObserver {
 }
 class IdentityMatrix {
 	m22 = 1;
-	constructor(_transform?: string) {}
 }
 vi.stubGlobal("ResizeObserver", FixedResizeObserver);
 vi.stubGlobal("DOMMatrixReadOnly", IdentityMatrix);
