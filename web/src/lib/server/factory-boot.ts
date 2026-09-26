@@ -24,7 +24,28 @@ export interface FactoryHostBootDependencies {
   readonly boot: FactoryBootConfig;
   readonly registerTeardown: (name: string, fn: () => Promise<void> | void) => void;
   readonly log: Pick<Console, "info" | "error">;
+  /** Overrides {@link FACTORY_BOOT_BOUND_MS}. */
+  readonly bootBoundMs?: number;
+  /** How the host ends itself when boot outlives its bound. Defaults to `process.exit`. */
+  readonly exit?: (code: number) => void;
 }
+
+/**
+ * How long factory boot may take before the host gives up and exits.
+ *
+ * Boot, up to "[factory] composed", is the startup config, binding the
+ * installation, the object store, the provider broker, the collaborators, and
+ * one round of the seven startup probes. Each probe has its own fifteen-second
+ * deadline (FACTORY_PROBE_DEADLINE_MS), so the probes cannot exceed 105 s even
+ * if every one hangs, and the other phases take seconds on a healthy host.
+ * Three minutes leaves that headroom, and stays well inside the provisioner's
+ * ten-minute ready() wait, so a restart and a fresh boot still fit in it. The
+ * readinessRetry window runs after boot, in the background, and is not part
+ * of this bound. Past it, the host logs the phase it stalled in and exits
+ * non-zero, so its supervisor restarts it instead of the healthcheck reporting
+ * "starting" for the whole wait.
+ */
+export const FACTORY_BOOT_BOUND_MS = 180_000;
 
 /** Bounds a run may not exceed, from the environment or the documented default. */
 function hostRunOptions(env: Readonly<Record<string, string | undefined>>) {
@@ -46,9 +67,23 @@ export async function startFactoryForHost(
   dependencies: FactoryHostBootDependencies,
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): Promise<FactoryInstallationStartup | null> {
+  const boundMs = dependencies.bootBoundMs ?? FACTORY_BOOT_BOUND_MS;
+  let started = "boot";
+  let finished = "none";
+  const bound = setTimeout(() => {
+    dependencies.log.error("[factory] boot exceeded its bound; exiting so the host restarts", { phase: started, lastFinished: finished, boundMs });
+    setReadiness({ state: "degraded", reason: "factory-boot-stalled", detail: { phase: started, lastFinished: finished, boundMs } });
+    (dependencies.exit ?? ((code: number) => process.exit(code)))(1);
+  }, boundMs);
+  bound.unref?.();
   try {
     const startup = await startFactoryInstallation({
       host: {
+        trace: (event) => {
+          if (event.state === "started") started = event.phase;
+          else finished = event.phase;
+          dependencies.log.info("[factory] boot phase", event);
+        },
         database: dependencies.database,
         // `resolveParameters` is omitted so `createFactoryApplication` uses the
         // run-inputs resolver it builds; naming it here would shadow that.
@@ -89,6 +124,9 @@ export async function startFactoryForHost(
     }
     dependencies.log.error("[factory] composition failed; factory routes stay closed", { error: String(error) });
     return null;
+  } finally {
+    // Boot is over, composed or refused: the bound no longer applies.
+    clearTimeout(bound);
   }
 }
 
