@@ -731,3 +731,13 @@ residual-fix files) pass individually at their real invocation (`d-src-isolated-
   EVIDENCE: typecheck (backend + web + backend-tests + web-e2e + Python, all clean), `bun run lint`
   (5639 files, no fixes needed), `gate-integrity.ts` PASSED, `check-boundaries.ts` (5727 files, 0
   violations), `check-factory-boundaries.ts` PASSED.
+  FOLLOW-UP: a full 1956-file backend regression sweep run alongside this item's own targeted
+  verification caught one real gap the targeted checks did not exercise:
+  `ci-test-set-drift.test.ts` failed because `packages/@ezcorp/sdk/src/git/index.test.ts` (this item's
+  new coverage for `withoutGitContext`) was the first test file outside `sdk_leg_files()`'s four listed
+  search directories, so no CI job would ever have run it. Fixed by adding
+  `packages/@ezcorp/sdk/src/git` to that function's search paths (`scripts/lib/test-file-sets.sh`).
+  The same sweep's other apparent failure, `bundled-source-lock.test.ts`, was a timing artifact — the
+  sweep read `manifest.lock.json` mid-run, before `bun scripts/regenerate-manifest-lock.ts` had been
+  run for the docs-updater edit; re-run alone against the committed state, it passes. Committed
+  separately (`8ce48ca9e`).
