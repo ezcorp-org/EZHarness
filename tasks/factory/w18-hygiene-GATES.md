@@ -487,3 +487,27 @@ residual-fix files) pass individually at their real invocation (`d-src-isolated-
   CHECK: the file alone, five consecutive runs.
   EXPECT/RESULT: 95/0 every time.
   EVIDENCE: typecheck, lint, gate-integrity, both boundary checks all 0.
+
+- [x] GC8 (L2, from the A+B verdict): the hook's over-cap/skip messages now name the withheld
+  `packages/@ezcorp/factory-orchestrator` run whenever one is staged, and never print an empty list
+  when ONLY orchestrator files are staged with `EZ_SKIP_HOOK_TESTS=1` set. Two bugs fixed in
+  `scripts/lib/hook-lib.sh`'s `run_staged_tests()`:
+  1. `printf '%s\n' "$targets" | wc -l` on an EMPTY `$targets` still emits one (empty) line, so `count`
+     was wrongly `1` instead of `0` whenever only orchestrator files were staged (the exact case this
+     ruling names) — fixed with an explicit `[ -z "$targets" ] && count=0` branch.
+  2. Neither the over-cap "NOT running" list nor the `EZ_SKIP_HOOK_TESTS=1` "skipping" list ever
+     mentioned the orchestrator run, even though both branches `return` before it would run — a hook
+     that silently withholds a real test run without saying so is exactly the bug item B fixed for the
+     cap itself, just for the orchestrator's separate execution path. Both messages now print
+     `packages/@ezcorp/factory-orchestrator (node: bun run test) — also withheld[, blocked by the same
+     cap]` whenever `orchestrator=1` and the function is about to return without running it.
+  Also removed the F1 guard's by-name W18a-3 exemption (`mock-cleanup-coverage.test.ts`'s
+  `PENDING_ELSEWHERE` for the four files fixed on wp/w18a3-quality-r2) now that its merge landed in this
+  package's base — all four already use `webLibModule()`; the guard test re-confirms zero offenders
+  repo-wide with the list gone.
+  CHECK: two new tests in "hook-lib > run_staged_tests > factory-orchestrator" (EZ_SKIP_HOOK_TESTS=1
+  with only an orchestrator file staged; the over-cap block with an orchestrator file staged alongside
+  three real test files); `git-hooks.test.ts`, `gate-scripts.test.ts`, `mock-cleanup-coverage.test.ts`.
+  EXPECT/RESULT: `git-hooks.test.ts` 27/27 (was 25/25); `gate-scripts.test.ts` 210/0;
+  `mock-cleanup-coverage.test.ts` 34/34 with zero api-keys offenders and the exemption list removed.
+  EVIDENCE: typecheck, lint, gate-integrity, both boundary checks all 0.

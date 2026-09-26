@@ -1078,18 +1078,10 @@ describe("$lib/* factory completeness detector (general rule, pinned by fixture)
 describe("F1 guard: every $lib/server/security/api-keys mock is complete (W18 hygiene)", () => {
   const TARGET = "$lib/server/security/api-keys";
 
-  // Fixed on W18a-3's in-flight leak-fix branch (wp/w18a3-quality-r2),
-  // which is NOT YET merged into this package's base (integ/w00 at
-  // 2b2e12550). W18 hygiene item C already plans to merge that hash and
-  // convert its own 27-test backlog; remove each entry here the moment
-  // that merge lands and re-run this test to confirm zero offenders
-  // remain repo-wide.
-  const PENDING_ELSEWHERE = new Set<string>([
-    "src/__tests__/executor-slash-command-expansion-e2e.test.ts",
-    "src/__tests__/mentions-search-symlink-integration.test.ts",
-    "src/__tests__/mentions-search-workflow-branch.test.ts",
-    "src/__tests__/security/cross-tenant-deletion-projects-kb-modes.test.ts",
-  ]);
+  // W18a-3's leak-fix branch (wp/w18a3-quality-r2) landed in this package's
+  // base (merged as 8a08328fc); its four PENDING_ELSEWHERE files all use
+  // webLibModule() now. No offenders remain repo-wide, so the by-name
+  // exemption list is gone — do not re-add one; convert the file instead.
 
   test('every mock.module("$lib/server/security/api-keys", …) factory is complete', () => {
     const roots = [
@@ -1108,7 +1100,6 @@ describe("F1 guard: every $lib/server/security/api-keys mock is complete (W18 hy
     const offenders: string[] = [];
     for (const file of files) {
       const rel = relative(repoRoot, file);
-      if (PENDING_ELSEWHERE.has(rel)) continue;
       const src = readFileSync(file, "utf8");
       for (const body of extractLibFactoryBodies(src, TARGET)) {
         if (!isCompleteLibFactoryBody(body)) offenders.push(rel);
