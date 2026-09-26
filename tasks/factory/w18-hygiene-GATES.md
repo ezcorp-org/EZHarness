@@ -511,3 +511,62 @@ residual-fix files) pass individually at their real invocation (`d-src-isolated-
   EXPECT/RESULT: `git-hooks.test.ts` 27/27 (was 25/25); `gate-scripts.test.ts` 210/0;
   `mock-cleanup-coverage.test.ts` 34/34 with zero api-keys offenders and the exemption list removed.
   EVIDENCE: typecheck, lint, gate-integrity, both boundary checks all 0.
+
+- [x] GC9: the third pair (`extensions-delete-route-policy.test.ts` + `installer-idempotent-local.test.ts`,
+  GC6's residual) fixed, per the coordinator's ruling that it stays in item C's scope. GC6's own
+  `serverModule()`-plus-lazy-`Proxy` approach for the lifecycle-service/registry aliases is SUPERSEDED —
+  it left this pair red (same 3 tests, "PGlite is closed" instead of the original
+  `TypeError: lifecycle.list is not a function`) and, separately, introduced a `getOwnPropertyDescriptor`
+  bug of its own (a Proxy advertising a real export name via `ownKeys` but reporting a hardcoded
+  `value: undefined` broke Bun's static `import { X }` linking for names outside the override set —
+  confirmed with an isolated reproduction outside this repo before diagnosing it correctly). Replaced
+  with W18c's independently-produced fix, offered as evidence at
+  `/tmp/factory-platform-evidence/w18c/leak-fix-alias-withdrawal.diff` (README and raw results
+  alongside it) and adopted here with attribution:
+  1. The lifecycle service is mocked on its RELATIVE path ONLY — no `$server/extensions/extension-lifecycle-service`
+     alias registration at all. A route resolves that alias NATIVELY to the same record as the relative
+     path when nothing has claimed the alias separately (confirmed empirically — this is why
+     `restoreModuleMocks()`'s existing relative-path restoration, via `MODULE_PATHS`, is sufficient once
+     the alias is never separately claimed). An alias registration, once made, can never be withdrawn;
+     with one in place, `installer-idempotent-local.test.ts`'s own `spyOn()` on the real lifecycle-service
+     namespace stopped reaching its author-loader.
+  2. `db/queries/extensions` keeps its alias (other suites claim it too, so a relative-only mock cannot
+     be relied on) and hands it back to the real module in `afterAll` — claim-and-revert, the exact
+     pattern GC6 already used for this one alias, kept unchanged; this item's own id-gating (fall through
+     to the real, DB-backed function for any id but the fixture's own) stays layered on top, on the real
+     module handed back for the OTHER thing that reads it.
+  3. `ExtensionRegistry`'s `spyOn()` (GC6) is kept, not replaced — it already avoids the alias question
+     entirely.
+  A THIRD bug found and fixed while proving this at a realistic scale (a 25-file random sample of
+  `helpers/test-pglite.ts` consumers run alongside all four polluter/victim files together, per the
+  coordinator's "run every file that uses test-pglite.ts" instruction): `extensions-patch-route.test.ts`'s
+  and `extensions-delete-route-policy.test.ts`'s own `ExtensionRegistry.getInstance()` + `spyOn()` calls
+  were at THIS FILE's own top level — during the shared loading phase, before any file's tests run and
+  before the singleton has been reset by anyone. Two files doing this same thing capture the SAME
+  instance; the first file's own `afterAll` then calls `resetInstance()`, discarding it, so the second
+  file's module-level spy references a stale object `getInstance()` no longer returns — its own
+  assertions silently check nothing, and a LATER real caller (`phase-2b-e2e.test.ts`'s `publish()`)
+  hits whichever spy is still active from whoever spied last ("Route bypassed fenced publication" from
+  the OTHER file's throwing mock). Fixed by moving both files' `ExtensionRegistry.getInstance()` +
+  `spyOn()` calls into `beforeAll` (test-execution time, after every earlier file's own `resetInstance()`
+  has already run), so each file gets the instance actually live for its own run.
+  PROOF (all four required demonstrations plus both orders, superseding GC6's partial result):
+  each file alone; all 4 pair combinations in BOTH orders (`extensions-patch-route.test.ts`/
+  `extensions-delete-route-policy.test.ts` × `installer-idempotent-local.test.ts`/`phase-2b-e2e.test.ts`,
+  forward and reversed); all four files together in one process; a 25-file random sample of
+  `helpers/test-pglite.ts` consumers alongside all four.
+  RESULT: alone 11/0 and 9/0; every pair, both orders, all green (27/0, 27/0, 25/0, 25/0, 19/0, 19/0,
+  17/0, 17/0 — matching W18c's own cited numbers exactly for the four it ran); all four together 44/0;
+  the 25-file sample plus all four together 353/0 (the sample alone is 369/0 across 25 files — the count
+  differs because the four polluter/victim files are additional, not because anything in the sample
+  changed). A DIFFERENT, PRE-EXISTING, UNRELATED issue surfaced only in that 25-file sample (`Export
+  named 'checkRole'/'checkProjectRole'/'requireRole' not found in module '$server/auth/middleware'`) —
+  confirmed present identically whether this item's fix is applied or not (reproduced against the
+  pre-GC9 committed head with the same sample), so it is a latent partial-`auth/middleware`-mock
+  collision among files in that random sample, unrelated to and not caused by this item; reported to
+  the coordinator, not investigated further here (out of this item's scope).
+  EVIDENCE: `/tmp/factory-platform-evidence/w18c/leak-fix-alias-withdrawal.{diff,README.txt,results.txt}`.
+  Typecheck, lint, gate-integrity, both boundary checks all 0; shared `.git/config` `core.bare`
+  unchanged (`false`) throughout; `mock-cleanup-coverage.test.ts` still 34/34 (the alias this item's
+  files claim, `$server/db/queries/extensions`, is unchanged, so the guard's own coverage of it is
+  unaffected).

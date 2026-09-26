@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import { afterAll, beforeAll, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { restoreModuleMocks, webLibModule, serverModule } from "./helpers/mock-cleanup";
 import { ExtensionRegistry } from "../extensions/registry";
 import { ADMIN_USER, MEMBER_USER, createMockEvent, mockServerAlias } from "./helpers/mock-request";
@@ -13,32 +13,30 @@ let mutationFailure = false;
 const mutations: { action: string; actor: LifecycleActor; id: string }[] = [];
 const directWrites = mock(() => { throw new Error("Route bypassed release lifecycle"); });
 const reload = mock(() => { throw new Error("Route bypassed fenced publication"); });
-// `$server/db/queries/extensions` cannot be withdrawn either (same reason as
-// the lifecycle-service alias above). Unlike that one, this override is
-// scoped to THIS test's own fixture id ("installation") and falls through to
-// the real, DB-backed functions for anything else — so whichever OTHER file's
-// route module gets frozen on this registration during the load phase still
-// reads its OWN real rows for its OWN ids, instead of this fixture's fake
-// one. installer-idempotent-local.test.ts and phase-2b-e2e.test.ts both read
-// their own real extensions this way.
-// Snapshot the specific real functions as standalone values (not a live
-// object reference) BEFORE registering the override below — mock.module()
-// on the SAME relative specifier updates properties in place, so a captured
-// object reference would see the override too, not just a specifier that
-// resolves to it.
-const realExtensions = require("../db/queries/extensions");
-const realGetExtensionByRef = realExtensions.getExtensionByRef as (id: string) => unknown;
-const realUpdateExtension = realExtensions.updateExtension as (id: string, data: Record<string, unknown>) => unknown;
-const realDeleteExtension = realExtensions.deleteExtension as (id: string) => unknown;
-const realResetFailures = realExtensions.resetFailures as (id: string) => unknown;
+// `$server/db/queries/extensions` cannot be withdrawn once registered, and
+// OTHER files also claim it, so a relative-only mock cannot be relied on
+// here the way it can for lifecycle-service/registry below. Claim it, then
+// hand it BACK to the real module in afterAll (W18c's diff, cited in the
+// gates file) — without that, a later route (phase-2b-e2e.test.ts) reads
+// THIS file's fixture row, which has no grantedPermissions, and returns an
+// empty body. Scoped to this test's own fixture id ("installation") on top
+// of that, falling through to the real, DB-backed function for any other
+// id, so installer-idempotent-local.test.ts's own real ids still read real
+// rows in the window before afterAll runs.
+const realExtensionQueries = serverModule("db/queries/extensions", {}) as {
+  getExtensionByRef: (id: string) => unknown;
+  updateExtension: (id: string, data: Record<string, unknown>) => unknown;
+  deleteExtension: (id: string) => unknown;
+  resetFailures: (id: string) => unknown;
+};
 const FIXTURE_ID = "installation";
-const read = async (id: string) => id !== FIXTURE_ID ? realGetExtensionByRef(id) : missing ? null : { id, name: "fixture", enabled, manifest };
+const read = async (id: string) => id !== FIXTURE_ID ? realExtensionQueries.getExtensionByRef(id) : missing ? null : { id, name: "fixture", enabled, manifest };
 const queries = serverModule("db/queries/extensions", {
   getExtensionByRef: read,
   getExtension: read,
-  updateExtension: (id: string, data: Record<string, unknown>) => id !== FIXTURE_ID ? realUpdateExtension(id, data) : directWrites(),
-  deleteExtension: (id: string) => id !== FIXTURE_ID ? realDeleteExtension(id) : directWrites(),
-  resetFailures: (id: string) => id !== FIXTURE_ID ? realResetFailures(id) : directWrites(),
+  updateExtension: (id: string, data: Record<string, unknown>) => id !== FIXTURE_ID ? realExtensionQueries.updateExtension(id, data) : directWrites(),
+  deleteExtension: (id: string) => id !== FIXTURE_ID ? realExtensionQueries.deleteExtension(id) : directWrites(),
+  resetFailures: (id: string) => id !== FIXTURE_ID ? realExtensionQueries.resetFailures(id) : directWrites(),
 });
 mock.module("../db/queries/extensions", () => queries);
 mock.module("$server/db/queries/extensions", () => queries);
@@ -47,50 +45,18 @@ const lifecycle = {
   async disable(actor: LifecycleActor, id: string) { if (mutationFailure) throw new LifecycleError("generation_superseded", "A newer generation exists"); mutations.push({ action: "disable", actor, id }); enabled = false; },
   async uninstall(actor: LifecycleActor, id: string) { mutations.push({ action: "uninstall", actor, id }); },
 };
-// `$server/extensions/extension-lifecycle-service` cannot be withdrawn once
-// registered — restoreModuleMocks() only restores the relative-path snapshot
-// in MODULE_PATHS, never a `$server/*` alias (removed as actively harmful;
-// see mock-cleanup.ts). Capture the real module here so any OTHER file's
-// route module that freezes on this registration during the load phase
-// still reaches the REAL lifecycle for any method this test does not
-// override (e.g. `.list()`, which installer-idempotent-local.test.ts's
-// author-loader needs, by then backed by that file's own real test DB) —
-// only inspect/disable/uninstall, this test's own concern, are faked.
-// Snapshot the specific real function as a standalone value, same reason as
-// realGetExtensionByRef above.
-const realGetExtensionLifecycle = require("../extensions/extension-lifecycle-service").getExtensionLifecycle as () => Promise<Record<string, (...a: unknown[]) => unknown>>;
-const lifecycleProxy = new Proxy(lifecycle, {
-  get(target, prop, receiver) {
-    // `typeof prop !== "string"` excludes symbols (Symbol.toPrimitive,
-    // Symbol.iterator, …). `prop === "then"` is separate and critical: if a
-    // lazy-delegate function were returned for "then", `await
-    // getExtensionLifecycle()`'s own promise-resolution would see a
-    // callable .then and treat this object as a thenable, calling it as
-    // `lifecycleProxy.then(resolve, reject)` — which calls
-    // getExtensionLifecycle() again to build the fallback, which is ALSO
-    // awaited, checking .then again: an infinite loop that never reaches a
-    // single test body.
-    if (Reflect.has(target, prop) || typeof prop !== "string" || prop === "then") return Reflect.get(target, prop, receiver);
-    return async (...args: unknown[]) => {
-      const real = await realGetExtensionLifecycle();
-      return real[prop]?.(...args);
-    };
-  },
-});
-const lifecycleModule = serverModule("extensions/extension-lifecycle-service", { getExtensionLifecycle: async () => lifecycleProxy });
-mock.module("../extensions/extension-lifecycle-service", () => lifecycleModule);
-mock.module("$server/extensions/extension-lifecycle-service", () => lifecycleModule);
-// ExtensionRegistry.getInstance() is a cheap in-memory singleton (no I/O) —
-// never replace the class/module: any OTHER file's already-loaded consumer
-// (scoped-tools.ts, context.ts, …) shares the SAME singleton object either
-// way, and a module-level mock.module() override freezes on whichever file
-// bound it first for the rest of the process, breaking every other
-// consumer's real methods (tool scoping, workflow loading, …). spyOn() the
-// real instance's two methods instead; restoreModuleMocks()'s mock.restore()
-// undoes it for everyone, from wherever they got their reference.
-const registryInstance = ExtensionRegistry.getInstance();
-const reloadSpy = spyOn(registryInstance, "reload").mockImplementation(async () => { reload(); });
-const killAllSpy = spyOn(registryInstance, "killAll").mockImplementation(() => { reload(); });
+// The lifecycle service is mocked on its RELATIVE path ONLY — no
+// `$server/extensions/extension-lifecycle-service` registration at all. A
+// route resolves that alias natively to the same record as the relative
+// path when nothing has claimed the alias separately, so the stub still
+// reaches it; but an alias registration can never be withdrawn, and once
+// one exists, installer-idempotent-local.test.ts's own spyOn() on the real
+// lifecycle-service namespace no longer reaches its author loader (3
+// failures; W18c's diff, cited in the gates file). Spread the real module
+// under the fake so no export name is ever missing.
+const realLifecycleService = serverModule("extensions/extension-lifecycle-service", {});
+const lifecycleModule = () => ({ ...realLifecycleService, getExtensionLifecycle: async () => lifecycle });
+mock.module("../extensions/extension-lifecycle-service", lifecycleModule);
 const scopes = webLibModule("server/security/api-keys", { requireScope: () => null });
 mock.module("$lib/server/security/api-keys", () => scopes);
 mock.module("../../web/src/lib/server/security/api-keys", () => scopes);
@@ -103,11 +69,45 @@ async function request(method: "GET" | "PATCH" | "DELETE", options: { body?: unk
   catch (error) { if (error instanceof Response) return error; throw error; }
 }
 
+// ExtensionRegistry.getInstance() is a cheap in-memory singleton (no I/O) —
+// never replace the class/module: any OTHER file's already-loaded consumer
+// (scoped-tools.ts, context.ts, …) shares the SAME singleton object either
+// way, and a module-level mock.module() override freezes on whichever file
+// bound it first for the rest of the process, breaking every other
+// consumer's real methods (tool scoping, workflow loading, …). spyOn() the
+// real instance's two methods instead; restoreModuleMocks()'s mock.restore()
+// undoes it for everyone, from wherever they got their reference.
+//
+// Fetched in beforeAll, NOT at this file's own top level: every file that
+// does this same thing calls ExtensionRegistry.getInstance() during the
+// SHARED LOADING PHASE (before any file's tests run), when the singleton has
+// not been reset by anyone yet — so two such files capture the SAME
+// instance. The first file's own afterAll then calls resetInstance(),
+// discarding it; the second file's module-level reference is now stale, and
+// its OWN spies point at an object getInstance() no longer returns —
+// leaving its OWN afterAll's assertions silently checking nothing, and a
+// LATER real caller (phase-2b-e2e.test.ts's publish(), reaching a fresh
+// instance this file never spied) hitting whichever spy is STILL active
+// from whoever spied last. Fetching it in beforeAll (test-execution time,
+// after every earlier file's own resetInstance() has already run) gets the
+// instance actually live for THIS file's own run.
+let registryInstance: ExtensionRegistry;
+let reloadSpy: ReturnType<typeof spyOn>;
+let killAllSpy: ReturnType<typeof spyOn>;
+beforeAll(() => {
+  registryInstance = ExtensionRegistry.getInstance();
+  reloadSpy = spyOn(registryInstance, "reload").mockImplementation(async () => { reload(); });
+  killAllSpy = spyOn(registryInstance, "killAll").mockImplementation(() => { reload(); });
+});
+
 beforeEach(() => { missing = legacy = mutationFailure = false; enabled = true; manifest = { schemaVersion: 4, name: "fixture" }; mutations.length = 0; directWrites.mockClear(); reload.mockClear(); });
 afterAll(() => {
-  // Hand the claimed alias back to the real module before the generic
-  // restore, which cannot reach it (see the comment above).
-  mock.module("$server/extensions/extension-lifecycle-service", () => require("../extensions/extension-lifecycle-service"));
+  // Hand the claimed extensions-queries alias back to the real module
+  // before the generic restore, which cannot reach a `$server/*` alias (see
+  // the comment above). The lifecycle-service alias was never claimed, so
+  // there is nothing to hand back for it — only its relative path, which
+  // restoreModuleMocks() already covers via MODULE_PATHS.
+  mock.module("$server/db/queries/extensions", () => realExtensionQueries);
   restoreModuleMocks();
   // Un-spy BEFORE resetInstance(): resetInstance() calls the instance's own
   // killAll(), and leaving the throwing spy in place would make resetInstance()
