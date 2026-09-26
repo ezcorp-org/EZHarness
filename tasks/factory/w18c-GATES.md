@@ -49,7 +49,25 @@ runner-contracts, external-postgres, browser routes); main's own CI at 31052930d
 ## Gates
 
 - [ ] G1: every feature-new file has direct behaviour tests (routes, components, kernel-types, two scripts).
+  PROGRESS (lock-free, single-file runs): FactoryGraph, FactoryGraphBoundary, FactoryNode (b17c1bbaf, 09b86d301;
+  8 pass) and the factories page (89ac0f9eb; 4 pass). The 17 factory routes already have behaviour tests in
+  `web/src/routes/api/factories/factories.server.test.ts`, yet the Vitest lcov has no record for 10 of them: a
+  coverage-measurement defect to diagnose under the lock. The two scripts have suites
+  (`scripts/check-factory-runners.test.ts`, `src/__tests__/factory-ci-registration.test.ts`) that the runner's
+  legs do not load. kernel-types.ts is declaration-only; check-new-file-coverage.ts lacks the structural
+  declaration-only exemption the other two gates have (ruling requested).
 - [ ] G2: feature-changed files named by the per-file, patch and CRAP gates are covered by tests.
 - [ ] G3: mutation score >= 80 on the files this feature changed, blocking form, with W18d's toolchain.
+  PROGRESS: tests strengthened for all four owing files (575cf93f1 download, 8d2c29bb8 layout, 6c5ecb952 model,
+  4e1f1541e client). Replaying W18d's 165 survivors against the new suites
+  (`/tmp/factory-platform-evidence/w18c/apply-mutants.py`, one test file per process, source byte-restored after
+  each mutant; `mutants/*.txt`):
+  | file | survivors before | killed | equivalent (reason recorded) |
+  | download.ts | 9 | 9 | 0 |
+  | layout.ts | 16 | 15 | 1 |
+  | model.ts | 89 | 70 | 19 |
+  | client.ts | 51 | 49 | 2 |
+  Expected Stryker score about 96.8 (22 of 691 alive, all equivalent). OPEN until Stryker measures it
+  under the lock after W15d, without --report-only.
 - [ ] G4: the full producer set (runner legs plus browser producers) merged; the gates against origin/main
   exit 0, or each remaining red names only pre-existing main files, listed per file.
