@@ -667,3 +667,67 @@ residual-fix files) pass individually at their real invocation (`d-src-isolated-
   clean), `bun run lint` (5637 files, no fixes needed), `gate-integrity.ts` PASSED, `check-boundaries.ts`
   (5727 source files, 0 violations), `check-factory-boundaries.ts` PASSED, full backend per-file-isolated
   pool (`scripts/test.sh`) and full web bun-leg pool (`scripts/test-web.sh`, 3630/0 across 194 files).
+
+- [x] GC11: GC5 — the three production git wrappers the coordinator named (`src/extensions/git.ts`'s
+  `gitExec()`, `scripts/unlanded-branches.ts`'s internal `run()`, `docs/extensions/examples/docs-updater/index.ts`'s
+  `HERMETIC_GIT_ENV`), fixed under all five of the coordinator's conditions.
+  1. ONE PRODUCTION DEFINITION: `withoutGitContext(env)` — strip every `GIT_*`-prefixed variable, nothing
+     else — lives in a NEW production module, `packages/@ezcorp/sdk/src/git/index.ts` (a new `./git`
+     package export, `dist/git/` built alongside the existing subpaths). Deliberately narrow: it does
+     NOT touch `HOME`, `XDG_CONFIG_HOME`, or disable global/system git config — only the confirmed,
+     previously-incidented threat (a git hook's `GIT_DIR`/`GIT_WORK_TREE`/`GIT_INDEX_FILE`/etc.
+     silently redirecting a `cwd`/`-C`-scoped command onto the wrong repository) is defended against,
+     so a caller that depends on the host's transport/auth config (a credential helper, an `insteadOf`
+     rewrite, a container's `safe.directory` entry, `gh`'s own HOME-based auth) keeps working unchanged.
+     Every test helper now DELEGATES to this one definition rather than reimplementing it — the SDK's
+     own `isolatedGitEnv()` (`../test/filesystem.ts`) layers a scratch `HOME` + `GIT_CONFIG_NOSYSTEM`
+     on top of it (full isolation, for tests that WRITE); `src/__tests__/helpers/scratch-git.ts`'s
+     `withoutGitContext` is now a bare re-export of the SDK's, removing a second, independent
+     strip-loop implementation that had silently drifted into existence alongside `isolatedGitEnv`'s
+     own (a DRY violation predating this item, found and fixed in passing). No production module
+     depends on any test helper — test helpers depend on the production module, never the reverse.
+  2. NO BEHAVIOUR CHANGE: verified by running every existing consumer of the changed functions
+     unchanged — `source-parser.test.ts`/`source-parser-git-coverage.test.ts` (gitExec/clone/
+     lsRemoteTags/getCurrentRef), `unlanded-branches.test.ts`, `git-hooks.test.ts`,
+     `gate-scripts.test.ts`, the docs-updater and repo-activity-notify example test suites, the full
+     `packages/@ezcorp/sdk` test suite (1027/0/1-skip across 56 files), and a broader sweep of every
+     `scratch-git.ts` consumer (383/0 across 8 files) — all green, unchanged. The docs-updater fix
+     deliberately keeps `makeProductionShell`'s (git+`gh` mixed) runner on the SAME hardened env
+     (`hermeticGitEnv()`) since the added strip never touches `HOME`, so `gh`'s own auth is
+     unaffected — verified via that file's own `makeProductionShell` test.
+  3. POISONED-ENV GUARD-WITH-CONTROL, one per wrapper, each independently confirmed to FAIL without
+     its fix (temporarily reverted, re-run, restored) before being accepted:
+     - `gitExec()`: a new `describe` in `source-parser-git-coverage.test.ts` builds a target + a
+       foreign real repo, mutates `process.env.GIT_DIR`/`GIT_WORK_TREE`/`GIT_INDEX_FILE` toward the
+       foreign one (valid here — `gitExec` explicitly spreads `process.env` at call time, confirmed by
+       an isolated repro), and asserts `git log` on the target still reports the target's own commit.
+     - `unlanded-branches.ts`'s `run()`: the ORIGINAL bug (env omitted entirely) is NOT reachable by
+       mutating `process.env` in-process — confirmed by an isolated repro that Bun's default env
+       inheritance for an omitted `env` key does not re-read `process.env` live, only an explicit
+       `{...process.env}` spread does. So this one's guard spawns the CLI as a REAL child process with
+       the poison baked into its environment from start (mirroring `dev-image-provenance.test.ts`'s /
+       `podman-compose-wrapper.test.ts`'s existing convention for the same reason), in a new `describe`
+       in `unlanded-branches.test.ts`.
+     - docs-updater's `readGitHead`/`readCommitSubjects`/`readOriginUrl`: a new `describe` in
+       `src/extensions/first-party-integration/docs-updater/git.test.ts` builds a target + a foreign
+       scratch repo and mutates `process.env` the same way as `gitExec` (valid here too — confirmed by
+       the same repro finding, since these three explicitly spread `process.env` at call time).
+  4. COVERAGE: every changed line, and the one new file, verified covered via targeted `--coverage`
+     runs cross-checked from both sides of the package boundary — `packages/@ezcorp/sdk`'s own suite
+     (`src/git/index.ts` 100/100; `src/test/filesystem.ts`'s changed `isolatedGitEnv` lines covered,
+     its only gap the pre-existing, untouched `gitInDirectory`/`outsideAnyGitRepository`) and the main
+     repo's suite (`src/extensions/git.ts` 100/100; `scripts/unlanded-branches.ts` 98.27%, its only gap
+     the pre-existing, untouched `if (import.meta.main)` CLI bootstrap; `docs-updater/index.ts`'s
+     changed `hermeticGitEnv()` + all four call sites covered, gaps are pre-existing unrelated code
+     elsewhere in the file; `scratch-git.ts`'s changed re-export line covered, its only gap the
+     pre-existing, untouched `scratchRepository()`). The full repo-wide `check-patch-coverage.ts` CI
+     gate was not run (its `origin/main` diff base does not correspond to this branch's actual history
+     and a full-repo coverage pass is a ~6-40 minute separate CI job); the per-file cross-checked
+     verification above answers the same question with more precision than that blunt tool would.
+  5. RECORDED here and in `tasks/todo.md`.
+  A fourth instance of the SAME weaker pattern (`GIT_CONFIG_GLOBAL` only, no `GIT_DIR` strip) was found
+  in passing at `docs/extensions/examples/repo-activity-notify/index.ts` — NOT named in this item's
+  scope, not fixed here, reported to the coordinator.
+  EVIDENCE: typecheck (backend + web + backend-tests + web-e2e + Python, all clean), `bun run lint`
+  (5639 files, no fixes needed), `gate-integrity.ts` PASSED, `check-boundaries.ts` (5727 files, 0
+  violations), `check-factory-boundaries.ts` PASSED.

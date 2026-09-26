@@ -44,6 +44,7 @@ import {
 import { join } from "node:path";
 import { spyOn } from "bun:test";
 import { getChannel, JsonRpcError } from "../runtime";
+import { withoutGitContext } from "../git";
 import type { JsonRpcRequest, JsonRpcResponse } from "../types";
 
 /** Minimal structural view of `ExtensionProcess` — avoids a value import. */
@@ -273,17 +274,18 @@ export function markGitRepository(dir: string): void {
  * this reads neither the caller's repository context (a git hook exports
  * `GIT_DIR` and friends, which would make the command act on the hook's
  * repository instead of discovering one from `cwd`), nor the real user's
- * global config, nor the host's system config. The single isolation rule
- * shared with `src/__tests__/helpers/scratch-git.ts`, which delegates to it.
+ * global config, nor the host's system config. Layers this test-specific
+ * full isolation (a scratch `HOME`, so no real identity/config is ever
+ * visible — needed here because a test may WRITE, e.g. `git init`/`git
+ * config`) on top of `withoutGitContext` (`../git`), the one production
+ * definition of the repository-redirection defense this and
+ * `src/__tests__/helpers/scratch-git.ts` both delegate to.
  */
 export function isolatedGitEnv(
   home: string,
   env: Record<string, string | undefined> = process.env,
 ): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const [name, value] of Object.entries(env)) {
-    if (value !== undefined && !name.startsWith("GIT_")) out[name] = value;
-  }
+  const out = withoutGitContext(env);
   delete out.XDG_CONFIG_HOME;
   out.HOME = home;
   out.GIT_CONFIG_NOSYSTEM = "1";

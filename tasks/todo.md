@@ -4868,7 +4868,7 @@ Gates: `tasks/factory/w18-hygiene-GATES.md` (GC1 through GC10). Worktree:
   full web bun-leg pool (3630/0 across 194 files) all clean. Details in GATES.md GC10.
 - [x] GC5 (production git wrappers): moved to item C2 (branch `wp/w18-hygiene-c2`, from item C's head)
   per the coordinator's re-sequencing — not on this branch. See `tasks/factory/w18-hygiene-GATES.md`
-  GC11-14 on the C2 branch for the full write-up.
+  GC11-15 on the C2 branch for the full write-up.
 - [x] Validator-3 fix round on item C (medium F1, medium F2, lows L1-L3):
   - F1 (identity): all nine commits from `d296f0b91` through the cherry-picked gate-integrity flake fix
     were authored with a personal address copied from the worktree's inherited git config (the
