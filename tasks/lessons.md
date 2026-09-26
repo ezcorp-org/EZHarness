@@ -1602,3 +1602,20 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 - A temporary worktree for a producer run needs a real `bun install --frozen-lockfile` at the root and in web/; symlinking node_modules misses the workspace packages' own node_modules (integrator, W18a-3 merge, 2026-09-25: six producers failed on "cannot find zod / @temporalio").
 - The backend pool (`bash scripts/test.sh`) runs WITHOUT DATABASE_URL and FACTORY_TEST_POSTGRES_URL; exporting them fails the db-connection and EZCORP_DB_PATH tests (integrator, W18a-3 merge, 2026-09-25).
 - A background job's completion notification can be missed; set a timed check on its exit file instead of waiting (integrator, W18a-3 merge, 2026-09-25: a finished rerun sat unread for hours).
+
+## 2026-09-26 — No bypass and no heavy run without the lock and a ruling (W18c)
+
+- No hook bypass without a coordinator ruling, even for a scratch or proof commit. `EZ_SKIP_HOOKS=1` on
+  the measurement merge 303e2b33b was a deviation; `EZ_PRECOMMIT_TEST_MAX=0` on a merge is a hook-test
+  skip by another name. The only skip is `EZ_SKIP_HOOK_TESTS=1`, with the ruling in the commit message.
+- Any bun or vitest run of more than ten files, any coverage run, any Stryker run, and any suite that
+  starts containers runs only under the heavy lock. A 178-file bun process run outside the lock
+  coincided with the host-wide OOM of 2026-09-26 00:37Z, which killed the user's app container.
+- Before every leg: at least 6 GiB available, at least 2 GiB swap free, and at least 100 GB disk, and the
+  leg's own peak must fit (the backend pool alone peaks near 15 GiB). A 256 MB swap floor let a
+  near-exhausted host through.
+- After any host OOM, stop everything, report, and restart nothing without the coordinator's word.
+  Re-read the coordinator's latest messages before restarting any job; a smaller rerun is still a rerun.
+- A failure set another package owns is reported, not bisected or fixed: check the owner's recorded
+  OPEN set (for example docs/validation/factory/wave4/*-merge.json .OPEN) first.
+- Kill a process by its PID, never by a `pkill -f` pattern: the pattern also matches the shell that runs it.
