@@ -324,7 +324,10 @@ describe("FactoryApiClient", () => {
 
 	test("names each client-side failure exactly", async () => {
 		const failure = async (reply: Response) =>
-			new FactoryApiClient({ fetch: vi.fn(async () => reply) as unknown as typeof fetch }).getDraft("project", source.id).catch(error => error as FactoryApiClientError);
+			new FactoryApiClient({ fetch: vi.fn(async () => reply) as unknown as typeof fetch }).getDraft("project", source.id).then(
+				() => { throw new Error("expected the request to fail"); },
+				error => error as FactoryApiClientError,
+			);
 		const invalidJson = await failure(new Response("not json", { status: 502 }));
 		expect([invalidJson.status, invalidJson.code, invalidJson.message]).toEqual([502, "factory_invalid_response", "The factory service returned invalid JSON."]);
 		const invalidShape = await failure(Response.json({ kind: "unknown" }));
