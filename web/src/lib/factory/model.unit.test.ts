@@ -172,6 +172,15 @@ describe("factory graph model: exact values and edges", () => {
 		expect(projected.nodes.map(node => node.diagnosticCount)).toEqual([0, 0, 0]);
 	});
 
+	test("a node without a dependency list gets no edge, whatever ids its neighbours have", () => {
+		// Node ids are free text, so a fallback list that named any id would invent an edge.
+		let source = blankFactory("free-ids");
+		source = addFactoryNode(source, ROOT_GRAPH_SCOPE, newFactoryNode("task", "Stryker was here"));
+		const { dependsOn: _dropped, ...bare } = newFactoryNode("task", "loner");
+		source = addFactoryNode(source, ROOT_GRAPH_SCOPE, bare as FactoryNode);
+		expect(projectFactoryGraph(source, ROOT_GRAPH_SCOPE).edges).toEqual([]);
+	});
+
 	test("the first node can be replaced, and replacing keeps its position", () => {
 		const replaced = replaceFactoryNode(definition(), ROOT_GRAPH_SCOPE, "collect", newFactoryNode("join", "gather"));
 		expect(replaced.graph.nodes.map(node => [node.id, node.kind])).toEqual([["gather", "join"], ["choose", "branch"]]);
