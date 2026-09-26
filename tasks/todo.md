@@ -4836,10 +4836,42 @@ catches the first kind cannot see the second — a narrower reimplementation wit
 through silently until two files' tests happen to run in the same process and one needs the part the
 other dropped.
 
-### Item C — F2 (27 bare git-init tests)
+### Item C — F2 (27 bare git-init tests) plus the leak-fix, offender conversions, workflow-run-persistence,
+### L2, and GC5 (branch `wp/w18-hygiene-3`, from `integ/w00` `6cea43e67`)
 
-Blocked on the integ/w00 hash containing W18a-3 (needs `src/__tests__/helpers/scratch-git.ts`). Not
-started.
+Gates: `tasks/factory/w18-hygiene-GATES.md` (GC1 through GC10). Worktree:
+`/home/dev/work/EZCorp/EZHarness/.worktrees/w18-hygiene-3`.
+
+- [x] Git-init conversions: all 27 disclosed bare git-init test files (17 Group 1, 2 Group 2, 8 Group 3)
+  converted to `scratch-git.ts`'s helpers; `gitInDirectory()` hardened in the SDK
+  (`packages/@ezcorp/sdk/src/test/filesystem.ts`, new exported `isolatedGitEnv()`), with
+  `scratchGitEnv()` delegating to it. Full poisoned-env proof. Committed (`d296f0b91`, `873c433a7`,
+  `eaad4abee`).
+- [x] `workflow-run-persistence.test.ts` flake: module-level fixed clock (`BOOT`/`NOW`), no wall-clock
+  reads, duplicate describe-scoped constant removed. Committed (`a20ddb723`).
+- [x] L2 hook fix: `scripts/lib/hook-lib.sh`'s `run_staged_tests()` count-miscounting and silent
+  orchestrator-withholding both fixed; two new tests in `git-hooks.test.ts`. Committed (`e6ee00ad5`).
+- [x] The two leak-fix route files (`extensions-patch-route.test.ts`,
+  `extensions-delete-route-policy.test.ts`): fixed against both `phase-2b-e2e.test.ts` and
+  `installer-idempotent-local.test.ts`, both orders, per GC9 — adopted W18c's alias-withdrawal pattern
+  (relative-path-only mock for lifecycle-service/registry, claim-and-revert for
+  `db/queries/extensions`) over this item's own superseded GC6 Proxy approach. F1 guard extended to
+  reject partial `extension-lifecycle-service`/`registry` mocks repo-wide.
+- [x] The six further offenders GC9's extended guard found, each converted as its own fix (GC10):
+  `hub-render-pull.test.ts`, `phase-2b-e2e.test.ts`, `extension-events-hub-branch.test.ts`,
+  `web/.../commit.test.ts`, `web/.../extensions-api.test.ts`, `web/.../extensions-events-route.test.ts`.
+  `PENDING_ELSEWHERE` exemption removed entirely — zero offenders repo-wide, no by-name exemption
+  list remains. A separate, pre-existing, out-of-scope (item E) `$server/auth/middleware`
+  partial-mock collision between `extensions-api.test.ts` and `extensions-events-route.test.ts` was
+  found and reported, not fixed here.
+  EVIDENCE: typecheck, lint, gate-integrity, both boundary checks, full backend per-file-isolated pool,
+  full web bun-leg pool (3630/0 across 194 files) all clean. Details in GATES.md GC10.
+- [ ] GC5 (production git wrappers): fix `src/extensions/git.ts`'s `gitExec()`, `scripts/unlanded-branches.ts`'s
+  internal spawn, and the docs-updater example's `HERMETIC_GIT_ENV`, under the coordinator's five
+  conditions (one production-module isolation-rule definition test helpers delegate to; no behavior
+  change for legitimate callers; poisoned-env guard-with-control proof per wrapper; 100% coverage on
+  changed lines/new file; record in GATES.md and here). Not started.
+
 ## W12d — reproducible data image build (branch `wp/w12d-reproducible-image`)
 
 Base `wp/w12c-data-image-repin` `7821e5d7c`, merged with `integ/w00` `2b2e12550`. Receipts:

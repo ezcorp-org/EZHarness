@@ -570,3 +570,61 @@ residual-fix files) pass individually at their real invocation (`d-src-isolated-
   unchanged (`false`) throughout; `mock-cleanup-coverage.test.ts` still 34/34 (the alias this item's
   files claim, `$server/db/queries/extensions`, is unchanged, so the guard's own coverage of it is
   unaffected).
+
+- [x] GC10: the six further offenders GC9's extended F1 guard found — each converted, per the
+  coordinator's ruling, as its own file-level fix, and the guard's by-name `PENDING_ELSEWHERE`
+  exemption removed entirely (an exemption that exists so a new guard passes is an EXCLUDES list,
+  forbidden here). All six shared the same bug shape as GC9's `ExtensionRegistry` piece: a
+  `$server/extensions/registry` alias replacement of the whole module (or, for `phase-2b-e2e.test.ts`,
+  a partial-shape alias factory), which is a PERMANENT registration — any later file's own
+  `getInstance()` call would keep resolving through the earlier file's narrow stub forever. Fix
+  pattern, identical across all six: register no alias at all; `spyOn()` the real, cheap in-memory
+  `ExtensionRegistry.getInstance()` singleton's specific method(s) (`reload`, `killAll`, `getProcess`,
+  as each file needed), inside `beforeAll` (test-execution time, never module top level — GC9's own
+  multi-file stale-spy bug is exactly what top-level placement causes); un-spy and
+  `ExtensionRegistry.resetInstance()` in `afterAll`, un-spying BEFORE the reset so `resetInstance()`'s
+  own `killAll()` call hits the real implementation, not a possibly-throwing spy.
+  - `src/__tests__/hub-render-pull.test.ts`: `spyOn(ExtensionRegistry.getInstance(), "getProcess")`.
+  - `src/__tests__/extension-events-hub-branch.test.ts`: same, delegating to the file's existing
+    `fakeProc`/`spawnShouldFail` fixtures.
+  - `src/__tests__/phase-2b-e2e.test.ts`: `spyOn(ExtensionRegistry.getInstance(), "reload")`
+    (the file's own mock only ever stubbed `reload`).
+  - `web/src/routes/api/import/__tests__/commit.test.ts`: `spyOn(ExtensionRegistry.getInstance(), "reload")`.
+  - `web/src/__tests__/extensions-api.test.ts`: `spyOn(…, "reload")` + `spyOn(…, "killAll")`; its
+    `extension-lifecycle-service` mock also moved off the `$server/*` alias onto the relative path only
+    (spread over `serverModule("extensions/extension-lifecycle-service", {})`), matching GC9's pattern.
+  - `web/src/__tests__/extensions-events-route.test.ts`: `spyOn(ExtensionRegistry.getInstance(), "getProcess")`.
+    This file also had its own, SEPARATE pre-existing bug, found and fixed as directly adjacent work in
+    the same file: its `$server/runtime/sse-conversation-filter` mock called `serverModule(...)`
+    *lazily inside* the `mock.module()` factory callback — since that alias resolves to the same
+    absolute module the relative `require()` inside `serverModule()` reaches, the call landed on this
+    same in-progress mock registration and returned only the override, silently dropping every real
+    export (surfacing as `Export named 'SCOPED_RUNTIME_EVENT_TYPES' not found`). Fixed by precomputing
+    the merged real+override object ONCE, before the `mock.module()` call — the same precompute-once
+    shape `serverModule()`'s own callers elsewhere already use for exactly this reason.
+  PROOF (file alone, then a pair with the file that follows it in the focused order — the order the
+  guard's removed exemption list enumerated them in): `hub-render-pull.test.ts` alone 27/0; paired with
+  `phase-2b-e2e.test.ts` 35/0. `phase-2b-e2e.test.ts` alone 8/0; paired with
+  `extension-events-hub-branch.test.ts` 27/0. `extension-events-hub-branch.test.ts` alone 19/0. A pair
+  with the next file in the order (`commit.test.ts`) is not meaningful as a same-process proof: `web/`
+  runs its own files via a separate `bun test` invocation under `web/bunfig.toml`'s own root, so a
+  `src/__tests__` file and a `web/` file never share a module registry and cannot pollute each other by
+  construction. `commit.test.ts` alone 13/0; paired with `extensions-api.test.ts` 68/0.
+  `extensions-api.test.ts` alone 55/0. `extensions-events-route.test.ts` alone 44/0.
+  The `extensions-api.test.ts` + `extensions-events-route.test.ts` pair, in EITHER order, hits a
+  DIFFERENT, PRE-EXISTING, UNRELATED bug: both files register their own partial
+  `$server/auth/middleware` mock.module() factory (`extensions-api.test.ts` supplies `requireRole`/
+  `checkRole` only; `extensions-events-route.test.ts` supplies `checkProjectRole` only), and the alias
+  registration is permanent — whichever file runs first freezes the other's route on the narrower
+  shape (`checkProjectRole` missing one order, `checkAuth` missing the other). Confirmed unrelated to
+  this item's fix: reproduced identically with the ORIGINAL committed `extensions-api.test.ts` swapped
+  in for the fixed one (still fails, same error), and this exact bug class
+  (`auth/middleware`) is already called out by name in GC9's own guard comment as a separate,
+  previously-disclosed candidate survey out of item C's scope (item E's, not item C's). Not fixed
+  here; reported only.
+  Full-guard re-run after removing `PENDING_ELSEWHERE` entirely: `mock-cleanup-coverage.test.ts` 34/0,
+  zero offenders repo-wide.
+  EVIDENCE: typecheck (backend + web + backend-tests + web-e2e + locked Python `mypy --strict`, all
+  clean), `bun run lint` (5637 files, no fixes needed), `gate-integrity.ts` PASSED, `check-boundaries.ts`
+  (5727 source files, 0 violations), `check-factory-boundaries.ts` PASSED, full backend per-file-isolated
+  pool (`scripts/test.sh`) and full web bun-leg pool (`scripts/test-web.sh`, 3630/0 across 194 files).

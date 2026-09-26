@@ -1125,22 +1125,16 @@ describe("F1 guard: every $lib/server/security/api-keys mock is complete (W18 hy
 // installer-idempotent-local.test.ts's real getExtensionLifecycle().list(),
 // both went missing. Both are converted to serverModule() now; this guard
 // rejects the raw shape a regression would reintroduce, repo-wide.
+//
+// The six further offenders the extended guard found (hub-render-pull,
+// phase-2b-e2e, extension-events-hub-branch, commit.test, extensions-api,
+// extensions-events-route) are converted too — each to a `beforeAll`-scoped
+// `spyOn(ExtensionRegistry.getInstance(), …)` / relative-path-only
+// `serverModule()` mock, never a `$server/*` alias replacement of the whole
+// module. No by-name exemption list remains: one exists only so a new guard
+// can pass, which makes it an EXCLUDES list, and those are forbidden here.
 describe("F1 guard: every extension-lifecycle-service/registry mock is complete (W18 hygiene item C)", () => {
   const TARGETS = ["$server/extensions/extension-lifecycle-service", "$server/extensions/registry"] as const;
-
-  // Pre-existing, disclosed to the coordinator as a new candidate survey
-  // (same shape as item E's db/queries/extensions and auth/middleware
-  // surveys) — not fixed here, item C's scope is the two route files that
-  // caused the bisected leak. Each entry is a real offender this guard
-  // would otherwise catch; remove one only once its file is converted.
-  const PENDING_ELSEWHERE = new Set<string>([
-    "src/__tests__/hub-render-pull.test.ts",
-    "src/__tests__/phase-2b-e2e.test.ts",
-    "src/__tests__/extension-events-hub-branch.test.ts",
-    "web/src/routes/api/import/__tests__/commit.test.ts",
-    "web/src/__tests__/extensions-api.test.ts",
-    "web/src/__tests__/extensions-events-route.test.ts",
-  ]);
 
   test("every mock.module($server/extensions/{extension-lifecycle-service,registry}, …) factory is complete", () => {
     const roots = [
@@ -1159,7 +1153,6 @@ describe("F1 guard: every extension-lifecycle-service/registry mock is complete 
     const offenders: string[] = [];
     for (const file of files) {
       const rel = relative(repoRoot, file);
-      if (PENDING_ELSEWHERE.has(rel)) continue;
       const src = readFileSync(file, "utf8");
       for (const target of TARGETS) {
         for (const body of extractLibFactoryBodies(src, target)) {
