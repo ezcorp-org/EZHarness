@@ -208,8 +208,10 @@ export function factoryGuestModelJournalConformance(createFixture: () => Promise
     // here — the journal, the settlements, the reconciliation itself — is real.
     const settlements = new FactoryUsageSettlements(db, TENANT, new FactoryInbox(db, TENANT));
     const budgetSettlements: { costMicros: string; tokens: number; computeMs: number; receipt: string }[] = [];
+    const cleared: { reservationId: string; atMs: number }[] = [];
     const reconciler = new FactoryUsageReconciliation(db, TENANT, {
       readSettlementScopeInTransaction: async () => ({ projectId: PROJECT, runId: RUN, interpreterId: "root", reservationId: RESERVATION, authority: sealed }),
+      clearResolvedStopInTransaction: async (_transaction, reservationId, atMs) => { cleared.push({ reservationId, atMs }); },
     }, journal, {
       settleInTransaction: async (_transaction, _key, actual, receiptDigest) => { budgetSettlements.push({ ...actual, receipt: receiptDigest }); },
     }, settlements);
@@ -232,9 +234,13 @@ export function factoryGuestModelJournalConformance(createFixture: () => Promise
     expect(budgetSettlements[0]).toMatchObject({ costMicros: "103", tokens: 11, computeMs: 7 });
     expect(budgetSettlements[0]!.receipt).toBe(reconciled.settlementDigest);
     expect(reconciled.providerReceiptDigest).toBe(completionFor(3).providerReceiptDigest);
+    // W05b: the settlement asks the stop to clear the kernel's uncertain
+    // attempt, at the settlement's own time.
+    expect(cleared).toEqual([{ reservationId: RESERVATION, atMs: reconciled.settledAtMs }]);
     // One receipt, one settlement: reconciling again returns the same row.
     expect(await reconciler.reconcile(facts)).toEqual(reconciled);
     expect(budgetSettlements).toHaveLength(1);
+    expect(cleared).toHaveLength(1);
   });
 
   /**
