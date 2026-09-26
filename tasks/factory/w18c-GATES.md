@@ -46,6 +46,15 @@ runner-contracts, external-postgres, browser routes); main's own CI at 31052930d
   to the two hygiene-owned test files reverted. The window results stay in
   `bisect-window-{installer,phase2b}.txt` for the w18-hygiene worker.
 
+## Findings for follow-up
+
+- The gate-integrity parser test in gate-scripts.test.ts ("fails closed without TypeScript ...") runs a real
+  `bun install` inside a 30 s budget. Under host load (load average near 9, 2026-09-26 01:28Z) it hit the
+  budget once (30044 ms) and passed alone and on the next full run (217 pass). A load-sensitive test; not
+  changed here.
+- The type error in 4e1f1541e (client failure helper) reached a commit because I ran the suite but not
+  typecheck; fixed in 376278d17. Typecheck now runs before each W18c commit.
+
 ## Gates
 
 - [ ] G1: every feature-new file has direct behaviour tests (routes, components, kernel-types, two scripts).
@@ -55,7 +64,13 @@ runner-contracts, external-postgres, browser routes); main's own CI at 31052930d
   coverage-measurement defect to diagnose under the lock. The two scripts have suites
   (`scripts/check-factory-runners.test.ts`, `src/__tests__/factory-ci-registration.test.ts`) that the runner's
   legs do not load. kernel-types.ts is declaration-only; check-new-file-coverage.ts lacks the structural
-  declaration-only exemption the other two gates have (ruling requested).
+  declaration-only exemption the other two gates have.
+  RULING (coordinator, 2026-09-26, option a): the new-file gate uses the same shared isDeclarationOnlyTypeScript
+  (coverage-config.ts) as check-coverage.ts and check-patch-coverage.ts; no third copy. Done in a927c4bca with
+  gate-scripts tests (type-only passes; enum, const, or function re-gates; `export type` plus `import type`
+  passes; no EXCLUDES message for the type-only case; end to end through the real gate in a scratch repository).
+  gate-integrity exit 0 at a927c4bca with no rule change (`newfile-ruling-checks.txt`). Proof for kernel-types.ts:
+  15923 source characters, 0 emitted, isDeclarationOnlyTypeScript=true.
 - [ ] G2: feature-changed files named by the per-file, patch and CRAP gates are covered by tests.
 - [ ] G3: mutation score >= 80 on the files this feature changed, blocking form, with W18d's toolchain.
   PROGRESS: tests strengthened for all four owing files (575cf93f1 download, 8d2c29bb8 layout, 6c5ecb952 model,
