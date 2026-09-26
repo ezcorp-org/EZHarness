@@ -1,0 +1,50 @@
+2026-09-25 ~14:00Z validator-4 on W03e c6dbc321c (wp/w03e-usage-settle): ACCEPT. The three legs validator-3 held open have all run at the head.
+
+Proof merge 6943985ff8647798bcbc71641f9efe810c7b6ece = ref proof/w03e-integ-2b2e12550
+  (parents: integ/w00 2b2e12550, W03e c6dbc321c). Four conflicts, both sides kept:
+  - src/__tests__/helpers/factory-task-stops-suite.ts, 2 import hunks: integ (W02c live-attempt refactor) removed the
+    lines, and W03e added digestObject and the FactoryBudgets type. The resolution keeps only the names W03e's tests
+    use on the refactored suite.
+  - src/__tests__/helpers/factory-migration-restart-suite.ts, 1 hunk: all three appended tests kept (integ first).
+  - tasks/lessons.md, tasks/todo.md: union, integ first.
+  Record: legs-validator-4/merge/remerge-diff.patch, merge/message.txt, merge/conflicts-raw.diff.
+  Every leg ran at 6943985ff with a clean tree at start. Receipts record commit, exit code, log sha256 and
+  dirty-at-start, and no environment. No PostgreSQL URL in argv.
+
+Leg 1: focused coverage and gates (one heavy hold, df 126 GB)
+  focused 7 files 102/0; PostgreSQL task-stops, migration-restart, schema 45/0; merge-lcov 665 files
+  new-file gate PASSED (1 file), patch gate PASSED (6 files: migrate.ts, add-factory-usage-no-operations.ts,
+  schema.ts, budgets.ts, task-stops.ts incl. the 8-line legacy-read delta, usage-settlement.ts), CRAP --changed exit 0.
+  All with BASE_REF=2b2e12550.
+  Unlocked static legs at 6943985ff: boundary suites (factory-process-boundaries + check-factory-boundaries.test) 46/0;
+  check-factory-boundaries, gate-integrity, typecheck, lint exit 0.
+
+Leg 2: three real passes (one heavy hold each; web built at the proof merge)
+  v4r2-pass-1  11:39:46Z-11:40:33Z  exit 0  passed  10/10 held  no timeouts  record sha256 8a0df7b84f92...
+  v4r3-pass-2  12:58:14Z-12:59:09Z  exit 0  passed  10/10 held  no timeouts  record sha256 fe97653c56ca...
+  v4r3-pass-3  13:55:47Z-13:56:48Z  exit 0  passed  10/10 held  no timeouts  record sha256 af66547faea4...
+  Timing against the archive-store outage (12:04Z-12:47Z): pass 1 ended before it; passes 2 and 3 started after it.
+  Void or harness-failed runs (kept as evidence, not counted):
+  - v4-pass-1..3 (07:07Z-08:09Z): 0/10 held. The run-o and run-a launches timed out. The harness startup document
+    lacked temporalHttp, which is required since W15 landed, so checkpoint-barrier failed and no guest launched.
+    Fixed in the validator's harness copy only, with the same deployment fact as W15b's harness: a Temporal
+    --http-port and startup temporalHttp.endpoint. No check was changed. The copied runner also exited with its
+    receipt writer's code (a failed pass recorded exit 0). That is fixed: it now exits with the proof's code.
+  - v4r2-pass-2 (12:05:36Z-12:05:38Z): archive store unreachable; the read-only store probe refused to start. Outage.
+
+Leg 3: backend pool at umask 022 (one heavy hold, df 152 GB)
+  28909 pass, 10 fail, 1952 files, exit 1.
+  Red suites: src/__tests__/podman-compose-wrapper.test.ts, 10 fails. This is the disclosed W18a-3 F4 set.
+  local-sandbox-startup, setup-podman and dev-image-provenance (umask 077 only) are green at umask 022.
+  Reds outside the disclosed list: 0.
+
+Findings on W03e: none.
+Validator process notes: the harness needed the W15 temporalHttp fact on this base; later W03e full-stack reruns on
+integ should use legs-validator-4/harness/usage-settle-proof.ts or add the same fact.
+
+Receipts (under /tmp/factory-platform-evidence/w03e-validation/legs-validator-4/):
+  receipts/coverage/*.json, receipts/static/*.json, receipts/backend-pool.json,
+  receipts/passes-r2/pass-1.json, receipts/passes-r3/pass-{2,3}.json,
+  proof/receipt-v4r2-pass-1.json, proof/receipt-v4r3-pass-{2,3}.json (with records and process logs),
+  void: receipts/passes/pass-{1,2,3}.json, proof/receipt-v4-pass-{1,2,3}.json, receipts/passes-r2/pass-2.json.
+  Driver status with df before each hold: driver-status.txt.
