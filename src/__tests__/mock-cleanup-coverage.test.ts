@@ -744,6 +744,7 @@ describe("mock-cleanup coverage (meta-test)", () => {
     ).toBe(true);
   });
 
+
   test("a SNAPSHOT the restore loop never uses does not cover a stub", () => {
     // `restoreModuleMocks()` derives `$server/<rel>` only for a rel whose prefix
     // is in the helper's SERVER_ALIAS_PREFIXES. `logger` is not one, so
@@ -899,6 +900,24 @@ function isCompleteLibFactoryBody(body: string): boolean {
   if (/^\(\)\s*=>\s*require\(\s*"[^"]+"\s*\)\s*,?\s*$/.test(b)) return true;
   // An object literal that spreads a `require(...)` call before laying
   // overrides on top: `() => ({ ...require("../real"), x: 1 })`.
+  if (/\{\s*\.\.\.\s*require\(\s*"[^"]+"\s*\)/.test(b)) return true;
+  return false;
+}
+
+/**
+ * `serverModule()`'s counterpart to `isCompleteLibFactoryBody` above, for a
+ * `$server/*` alias backed by a real `src/` module (rather than a `$lib/*`
+ * one). Same rule: a raw object literal freezes the export list to whatever
+ * keys the test author wrote down — the item C leak (extensions-patch-route.test.ts,
+ * extensions-delete-route-policy.test.ts once mocked extension-lifecycle-service
+ * and registry this way; whichever file's registration was active when a
+ * LATER file's route module first resolved the alias froze that later file
+ * on the narrow shape).
+ */
+function isCompleteServerFactoryBody(body: string): boolean {
+  const b = body.trim();
+  if (b.includes("serverModule(")) return true;
+  if (/^\(\)\s*=>\s*require\(\s*"[^"]+"\s*\)\s*,?\s*$/.test(b)) return true;
   if (/\{\s*\.\.\.\s*require\(\s*"[^"]+"\s*\)/.test(b)) return true;
   return false;
 }
@@ -1101,6 +1120,68 @@ describe("F1 guard: every $lib/server/security/api-keys mock is complete (W18 hy
         `Partial $lib/server/security/api-keys mock.module factory in: ${offenders.join(", ")}. ` +
           `Wrap it with webLibModule("server/security/api-keys", { ...overrides }) from ` +
           `./helpers/mock-cleanup instead of a raw object literal.`,
+      );
+    }
+    expect(offenders).toEqual([]);
+  });
+});
+
+// Item C: extensions-patch-route.test.ts and extensions-delete-route-policy.test.ts
+// once mocked these two `$server/*` aliases with hand-rolled partial object
+// literals. Whichever file's registration was active when a LATER file's
+// route module first resolved the alias froze that later file on the narrow
+// shape — scoped-tools.ts/context.ts's real ExtensionRegistry methods, and
+// installer-idempotent-local.test.ts's real getExtensionLifecycle().list(),
+// both went missing. Both are converted to serverModule() now; this guard
+// rejects the raw shape a regression would reintroduce, repo-wide.
+describe("F1 guard: every extension-lifecycle-service/registry mock is complete (W18 hygiene item C)", () => {
+  const TARGETS = ["$server/extensions/extension-lifecycle-service", "$server/extensions/registry"] as const;
+
+  // Pre-existing, disclosed to the coordinator as a new candidate survey
+  // (same shape as item E's db/queries/extensions and auth/middleware
+  // surveys) — not fixed here, item C's scope is the two route files that
+  // caused the bisected leak. Each entry is a real offender this guard
+  // would otherwise catch; remove one only once its file is converted.
+  const PENDING_ELSEWHERE = new Set<string>([
+    "src/__tests__/hub-render-pull.test.ts",
+    "src/__tests__/phase-2b-e2e.test.ts",
+    "src/__tests__/extension-events-hub-branch.test.ts",
+    "web/src/routes/api/import/__tests__/commit.test.ts",
+    "web/src/__tests__/extensions-api.test.ts",
+    "web/src/__tests__/extensions-events-route.test.ts",
+  ]);
+
+  test("every mock.module($server/extensions/{extension-lifecycle-service,registry}, …) factory is complete", () => {
+    const roots = [
+      import.meta.dir,
+      join(import.meta.dir, "..", "extensions", "__tests__"),
+      join(import.meta.dir, "..", "integrations"),
+      join(import.meta.dir, "..", "..", "web", "src"),
+    ];
+    const repoRoot = join(import.meta.dir, "..", "..");
+    // Exclude this meta-test itself: its own fixture strings elsewhere in
+    // this file are literal `mock.module("$server/...")` text for
+    // readability, so the scan would otherwise flag its own rule-pinning
+    // fixtures.
+    const files = roots.flatMap((r) => listTestFiles(r)).filter((f) => f !== join(import.meta.dir, "mock-cleanup-coverage.test.ts"));
+
+    const offenders: string[] = [];
+    for (const file of files) {
+      const rel = relative(repoRoot, file);
+      if (PENDING_ELSEWHERE.has(rel)) continue;
+      const src = readFileSync(file, "utf8");
+      for (const target of TARGETS) {
+        for (const body of extractLibFactoryBodies(src, target)) {
+          if (!isCompleteServerFactoryBody(body)) offenders.push(`${rel} (${target})`);
+        }
+      }
+    }
+
+    if (offenders.length > 0) {
+      console.error(
+        `Partial extension-lifecycle-service/registry mock.module factory in: ${offenders.join(", ")}. ` +
+          `Wrap it with serverModule("extensions/extension-lifecycle-service" | "extensions/registry", ` +
+          `{ ...overrides }) from ./helpers/mock-cleanup instead of a raw object literal.`,
       );
     }
     expect(offenders).toEqual([]);

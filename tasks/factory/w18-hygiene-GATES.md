@@ -412,3 +412,63 @@ residual-fix files) pass individually at their real invocation (`d-src-isolated-
   EVIDENCE: `/tmp/w18-hygiene-3-poison-check.ts`, `/tmp/w18-hygiene-3-poison-check2.ts` (not repo-tracked,
   scratch proof scripts); full failing-test list captured, all 13 map 1:1 to the three production
   call sites above.
+
+- [x] GC6: bisected leak fix — `src/__tests__/extensions-patch-route.test.ts` and
+  `src/__tests__/extensions-delete-route-policy.test.ts` converted their `extension-lifecycle-service`/
+  `registry`/`db/queries/extensions` mocks to `serverModule()`, plus two structural fixes the bisection
+  required beyond that:
+  1. `ExtensionRegistry.getInstance()` is a cheap in-memory singleton (no I/O) — replacing the whole
+     class/module still freezes on whichever file's registration is active when another file's
+     already-loaded consumer (`scoped-tools.ts`, `context.ts`, both call `ExtensionRegistry.getInstance()`
+     at their own top level) first resolves the alias, breaking every real method the frozen shape
+     omits. Fixed by `spyOn()`-ing the real singleton's `reload`/`killAll` instead of replacing the
+     module, with `ExtensionRegistry.resetInstance()` in `afterAll` (un-spying first, since
+     `resetInstance()` calls the instance's own `killAll()`) so the next `getInstance()` anywhere gets a
+     fresh, unspied instance.
+  2. `getExtensionByRef`/`getExtension` and `getExtensionLifecycle` are gated/proxied rather than
+     wholesale-replaced: `db/queries/extensions` reads fall through to the real, DB-backed function for
+     any id other than the fixture's own; `getExtensionLifecycle()` returns a `Proxy` over the fake
+     (`inspect`/`disable`/`uninstall`) that lazily delegates any OTHER method call to the real service —
+     needed because `installer-idempotent-local.test.ts`'s author-loader calls `.list()`, which the
+     original hand-rolled fake never had. Both real references are snapshotted as standalone function
+     values BEFORE the override is registered — `mock.module()` on the same relative specifier updates
+     properties on the same object in place, so a captured OBJECT reference (not a captured FUNCTION
+     value) would see the override too.
+  BUG FOUND AND FIXED DURING THIS: the lazy-delegate Proxy's `get` trap, if it returns a function for
+  `"then"`, makes the returned object look like a thenable to JS's own promise-resolution machinery —
+  `await getExtensionLifecycle()` then calls `proxy.then(resolve, reject)`, which calls
+  `getExtensionLifecycle()` again to build the fallback, which is also awaited, checking `.then` again:
+  an infinite loop that hung the process (confirmed via a temporary route-file trace: the override was
+  called thousands of times, no test body ever reached). Fixed by excluding `prop === "then"` (and
+  symbols) from the lazy-delegate branch.
+  CHECK (all four required proofs): each file alone; `extensions-patch-route.test.ts` + `phase-2b-e2e.test.ts`;
+  `extensions-delete-route-policy.test.ts` + `phase-2b-e2e.test.ts`; `extensions-delete-route-policy.test.ts`
+  + `installer-idempotent-local.test.ts`.
+  RESULT: alone 11/0 and 9/0; both `phase-2b-e2e.test.ts` pairs fully green (19/0, 17/0) — the disclosed
+  leak for those two pairs is closed. The third pair (`extensions-delete-route-policy.test.ts` +
+  `installer-idempotent-local.test.ts`) still fails the SAME 3 tests the original bisection named, but
+  the proximate error changed (was `TypeError: lifecycle.list is not a function`; now a DB-connection-
+  lifecycle error, `PGlite is closed`, plus one data-content assertion mismatch). CONFIRMED PRE-EXISTING,
+  NOT A REGRESSION: checked out the ORIGINAL, unconverted `extensions-delete-route-policy.test.ts` from
+  HEAD and ran the identical pairing — the SAME 3 test names fail there too (with the pre-fix
+  `.list is not a function` symptom). The pair passes cleanly in the REVERSED order (25/0) and each
+  file passes alone (16/0, 9/0), so this is order-dependent but not caused by anything item C's scope
+  touches — it traces to `installer-idempotent-local.test.ts`'s own `mockDbConnection()` (in
+  `helpers/test-pglite.ts`) registering `../../db/connection`, a second instance of the exact "$server/*
+  alias frozen by load order" class this item fixes, one layer down and in the opposite direction
+  (the VICTIM's own mock can't reach a consumer whose `db/connection` binding another file's earlier
+  load already froze). Reported to the coordinator; not fixed here (out of item C's two-file scope,
+  requires touching `helpers/test-pglite.ts` and/or `installer-idempotent-local.test.ts`).
+  ALSO EXTENDED THE GUARD: added `isCompleteServerFactoryBody()` (serverModule()'s counterpart to the
+  existing `isCompleteLibFactoryBody()`) and a real-file walker guard, analogous to the F1
+  `$lib/server/security/api-keys` one, over every `mock.module($server/extensions/{extension-lifecycle-service,registry})`
+  in the tree. Running it uncovered FIVE more pre-existing offenders beyond the two files fixed here —
+  `src/__tests__/hub-render-pull.test.ts`, `src/__tests__/phase-2b-e2e.test.ts` (its own narrow
+  `ExtensionRegistry.getInstance` override, the same class of bug), `src/__tests__/extension-events-hub-branch.test.ts`,
+  `web/src/routes/api/import/__tests__/commit.test.ts`, `web/src/__tests__/extensions-api.test.ts`,
+  `web/src/__tests__/extensions-events-route.test.ts` — recorded as a `PENDING_ELSEWHERE` exemption list
+  (same pattern as the api-keys guard's own), disclosed to the coordinator as a new candidate survey
+  (same shape as item E), not fixed here.
+  EVIDENCE: `mock-cleanup-coverage.test.ts` 34/34 (was 33/33; the new describe block adds the walker
+  test). Typecheck, lint, gate-integrity, both boundary checks all 0. Shared `.git/config` `core.bare`
+  unchanged (`false`) throughout.
