@@ -82,7 +82,32 @@ runner-contracts, external-postgres, browser routes); main's own CI at 31052930d
   | layout.ts | 16 | 15 | 1 |
   | model.ts | 89 | 70 | 19 |
   | client.ts | 51 | 49 | 2 |
-  Expected Stryker score about 96.8 (22 of 691 alive, all equivalent). OPEN until Stryker measures it
-  under the lock after W15d, without --report-only.
+  Update 6e796f09e: model.ts L121 was not equivalent (node ids are free text) and is now killed: 144 killed,
+  21 equivalent. Expected Stryker score about 97.0 (21 of 691 alive). OPEN until Stryker measures it under the
+  lock after W15d, without --report-only.
+
+  Equivalent mutants, one line each (web/src/lib/factory/; lines from W18d's gate-branch-head report):
+  | file:line:col | mutator (original -> mutant) | why no test can observe it |
+  | layout.ts:37:47 | ArrayDeclaration `graph.children ?? []` -> `?? ["Stryker was here"]` | the string element has no id, so positions gets only the key undefined; every projection node id is a string, so each node falls back to {x:0,y:0} exactly as with [] |
+  | model.ts:64:8 | ConditionalExpression `!Array.isArray(value)` -> `false` | an index into a non-array object reads undefined (definition objects have no numeric keys), and the next segment's check or the final graph check throws the same "Factory graph scope is invalid." |
+  | model.ts:81:11 | ConditionalExpression `typeof segment === "number"` -> `true` | both arms of the ternary are the same property read owner[segment]; they differ only in a TypeScript cast |
+  | model.ts:81:11 | ConditionalExpression -> `false` | same: both arms read owner[segment] |
+  | model.ts:81:11 | EqualityOperator `===` -> `!==` | same: both arms read owner[segment] |
+  | model.ts:81:30 | StringLiteral `"number"` -> `""` | same: both arms read owner[segment] |
+  | model.ts:86:6 | ConditionalExpression whole guard -> `false` | graphAt(source, scope) runs first on the same scope and throws unless every prefix resolves to an object and the last step to a graph, so the guard is always false at runtime |
+  | model.ts:86:6 | LogicalOperator `last === undefined || !owner` -> `&&` | the guard is always false (see 86:6 above); a weaker form is also false |
+  | model.ts:86:6 | ConditionalExpression `last === undefined` -> `false` | the guard is always false (see above) |
+  | model.ts:86:6 | LogicalOperator `(a || b) || c` -> `(a || b) && c` | the guard is always false (see above) |
+  | model.ts:86:38 | ConditionalExpression `typeof owner !== "object"` -> `false` | the guard is always false (see above) |
+  | model.ts:86:81 | StringLiteral error message -> `""` | the guard never throws (see above), so the message is never read |
+  | model.ts:87:6 | ConditionalExpression `typeof last === "number"` -> `false` | both branches perform the same assignment owner[last] = graph; they differ only in a cast |
+  | model.ts:87:6 | EqualityOperator `===` -> `!==` | same: both branches assign owner[last] = graph |
+  | model.ts:87:6 | ConditionalExpression -> `true` | same: both branches assign owner[last] = graph |
+  | model.ts:87:22 | StringLiteral `"number"` -> `""` | same: both branches assign owner[last] = graph |
+  | model.ts:109:47 | ArrayDeclaration default `diagnostics = []` -> `["Stryker was here"]` | a string element has no nodeId (undefined) and every node id is a string, so each count stays 0 |
+  | model.ts:194:16 | ConditionalExpression `typeof value !== "object"` -> `false` | for any JSON primitive the next check reads value.id as undefined, which is not a string, so the same error is thrown |
+  | model.ts:239:24 | EqualityOperator `index < length` -> `<=` | the extra step compares left[length] and right[length], both undefined, which Object.is treats as equal, so nothing is recorded |
+  | client.ts:79:80 | OptionalChaining `issues[0]?.message` -> `issues[0].message` | validateFactoryApiResponse returns ok:false only through issue() (validation.ts:59-60, the only `ok: false` in the file), which always holds one issue, so issues[0] exists |
+  | client.ts:79:113 | StringLiteral fallback message -> `""` | same: issues[0].message always exists, so the ?? fallback is never read |
 - [ ] G4: the full producer set (runner legs plus browser producers) merged; the gates against origin/main
   exit 0, or each remaining red names only pre-existing main files, listed per file.
