@@ -1,0 +1,15 @@
+lock 2026-09-26T00:29:36Z proof f2734f574df427f16434ba1d422862d6fdce1073 tree ee1846d82f2068520b40f8c58eb10578f4f4bd06
+resource-gate 2026-09-26T00:29:36Z pg-suites disk=113G memAvailable=17GiB swapFreeKiB=7153792/17173956
+pg batch exit=0
+resource-gate 2026-09-26T00:30:17Z web-build disk=113G memAvailable=17GiB swapFreeKiB=7154784/17173956
+web build exit=0
+resource-gate 2026-09-26T00:30:57Z pass-1 disk=112G memAvailable=17GiB swapFreeKiB=7146580/17173956
+pass-1 exit=0 passed 10 / 10 held timeouts None
+resource-gate 2026-09-26T00:31:46Z pass-2 disk=112G memAvailable=17GiB swapFreeKiB=7145072/17173956
+pass-2 exit=0 passed 10 / 10 held timeouts None
+resource-gate 2026-09-26T00:32:35Z pass-3 disk=112G memAvailable=16GiB swapFreeKiB=7119148/17173956
+pass-3 exit=0 passed 10 / 10 held timeouts None
+resource-gate 2026-09-26T00:33:25Z backend-pool disk=112G memAvailable=15GiB swapFreeKiB=7090708/17173956
+backend-pool exit=0
+DONE status=0 end=2026-09-26T00:47:16Z dirty=0
+INCIDENT (coordinator, 2026-09-26): host-wide OOM during this hold. Kernel log: 00:36:07Z and 00:36:23Z memory-cgroup kills of two bun processes inside podman containers (cgroups libpod-4d033c..., libpod-782c0e...; UID 231069; anon-rss ~120 MiB each); 00:37:13Z the global OOM killed searxng and the node process of ezharness-app-1 (both restarted). Extra pressure from a W18c 178-file bisect outside the lock. This hold's backend pool (00:33:25-00:47Z) shows no SIGKILL/137/OOM and 0 fails; the killed containers were io.ezcorp.runner containers ez-v4-02cdbb97... and ez-v4-b4e1ee35... (lived <1 s, exit 1), not attributable to a suite of this hold from its records. No leg void.
