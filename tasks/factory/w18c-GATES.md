@@ -207,6 +207,12 @@ the recorded merge (sha256 prefix b4e6498a65858ac6). Changed records: 24; every 
   in jwt.ts, which installationId() calls with the boot-frozen factoryBootConfig; the import order is unchanged (the
   added import is type-only). In-process tests in auth-jwt-password.test.ts, red first (the export was missing);
   factory-boot.test.ts keeps the child-process proof and passes (24 tests).
+  guest.py 267 and 288-293: two behaviour tests in test_factory_guest_material.py. A guest whose staged result
+  schema is from another contract version stages the bytes and then refuses to answer (267). The verdict on every
+  staging request and response the guest sends and receives is the contract's own verdict, admitted or refused
+  (288-293). Each test kills a mutant: the raise removed, the response validator swapped for the request validator,
+  and the reverse. Under the lock, coverage.py over the full Python discovery gives guest.py 100% of lines and
+  branches (`guest-py-cov.txt`); 253 tests, ruff and mypy --strict pass.
 - [x] G3: mutation score >= 80 on the files this feature changed, blocking form, with W18d's toolchain.
   RECORD: Stryker at 6eda84a76 under the lock, `BASE_REF=origin/main bun scripts/mutation.ts --changed` without
   --report-only (`heavy/stryker.out`, `receipts/stryker-6eda84a76-report.json`): 97.05, exit 0; 1286 killed,
