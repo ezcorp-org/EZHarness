@@ -7,8 +7,12 @@ Decision memo: /tmp/factory-platform-evidence/w03f/decision-memo.md (option A).
 
 - This package merges ONLY on the user's decision A, and ONLY with the `gate-change-approved` label. It changes the
   patch gate and adds an attestation file, so gate-integrity rule 11 (G2) refuses it without the label, by design.
-- It is removed at the Bun upgrade (W12e) if Bun 1.4.2 credits src/factory/task-stops.ts:370. The gate enforces this:
-  a `.bun-version` change stales every entry, and a credited line fails as no longer needed.
+- Bun 1.4.2 was probed and does NOT clear the defect: w19a's probe at W03f a4c07dca5 under Bun 1.4.2 reads DA 370 = 156
+  and DA 371 = 0, so the method's last statement is still uncredited (w03f/logs/w12e-bun142-probe.log, now in the
+  entry's `proof`). The upgrade does not remove this entry by itself.
+- The entry never carries over silently. A `.bun-version` change stales it by name, so a Bun bump forces a re-probe
+  and a re-attestation with the label. A change to the line text, the line number or the file hash stales it by name.
+  A line that becomes credited, on any Bun, fails as no longer needed, and the entry must then be removed.
 
 ## Why
 
@@ -45,7 +49,7 @@ wp/w03f-provider-settle 9c954b11a (15da47f8…c3aa), Bun 1.3.14. W03f's two late
 the line; under decision A, W03f reverts them to the 9c954b11a form, or it records the new hash and line in the entry
 (a change rule 11 labels). Proof paths: validator-4's throw mutants (stops-line370-throw.log, stops-sync-helper-throw-370.log),
 the DA readings (attr/cov/lcov.info and the five shape probes), W03f's attribution receipts. w19a's receipts are added
-to `proof` when its probe reports.
+to `proof` when its probe reports; its Bun 1.4.2 probe is there now (see Merge conditions).
 
 Tests: scripts/check-patch-coverage-attestation.test.ts, 26 cases (schema, every verdict branch, five end-to-end runs of
 the real gate in a sandbox). The sandbox is shared with the type-only suite (src/__tests__/helpers/patch-coverage-sandbox.ts),

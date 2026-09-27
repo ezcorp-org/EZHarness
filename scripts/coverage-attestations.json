@@ -16,7 +16,8 @@
       "/tmp/factory-platform-evidence/w03f-validation/logs/attr/stops-cov-sync-helper.log",
       "/tmp/factory-platform-evidence/w03f-validation/logs/attr/stops-cov-then-form.log",
       "/tmp/factory-platform-evidence/w03f/receipts/attribution-before.attempt-2.json",
-      "/tmp/factory-platform-evidence/w03f/receipts/attribution-after.attempt-2.json"
+      "/tmp/factory-platform-evidence/w03f/receipts/attribution-after.attempt-2.json",
+      "/tmp/factory-platform-evidence/w03f/logs/w12e-bun142-probe.log"
     ]
   }
 ]
