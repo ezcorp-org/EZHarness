@@ -20,6 +20,9 @@ Brief: `/tmp/factory-platform-evidence/w00/briefs/w09e.md`.
 | `63d97ef49` | R3 cost: the stop outcome records {costMicros, source, basis}; the run inspection and inspector show held and settled lines |
 | `1872820e3` | merge integ/w00 a24a619ad; three keep-both conflicts; EZ_SKIP_HOOK_TESTS=1 by the coordinator's ruling of 20:09Z, the 29 mapped suites listed in the message and run outside the hook, all green |
 | `fc03c0076` | the inspector's cost lines rendered by a component test (the final patch gate's lines 314-318) |
+| `4bfad4885` | gates-doc record of the cost commit, the merge and the final legs |
+| `4a19553e0` | validator-4 M1: the provider's absence alone never settles a stopped release (lifecycle case; red against `if (!absent)`) |
+| `f89eaec08` | validator-4 L1: the stop cost check ties a published outcome to provider-receipt or reserved-bound (PGlite and PostgreSQL migration cases, red first) |
 
 ## The defect
 
@@ -182,3 +185,14 @@ before and after (`logs/final-driver.log`, `logs/final/`).
 | coverage vs `a24a619ad` | new-file passed (3); patch first failed on `FactoryRunInspector.svelte` 314-318 (DA 0: no component fixture rendered the cost list), a real gap; after `fc03c0076` passed (19 files) (`logs/final/coverage-gates2.log`) |
 | web build, graph-proof runbook `pass mock none` | passed (`graph/w09e-final.json`) |
 | console e2e x3 / W09e test in evidence mode | 66/66, 2/2, no preview crash |
+
+## validator-4 tree review at `63d97ef49`: M1 and L1
+
+- M1 (`4a19553e0`): red 1 fail with the check weakened to `if (!absent)` (`logs/review/m1-red-weakened.log`); green
+  with the real check, W09e cases 12/0 on PostgreSQL (`logs/review/m1-green.log`); the lifecycle suite 92/0 on PGlite
+  and PostgreSQL.
+- L1 (`f89eaec08`): red 1 fail each in the PGlite and PostgreSQL migration cases (`logs/review/l1-red-*.log`), green 1/0
+  each. PostgreSQL releases 23/0, release-stop-race 4/0, run-lifecycle 92/0, console 27/0; PGlite console 27/0,
+  releases 24/0, migrate 8/0, factory-schema 2/0. Typecheck and lint clean.
+- Coverage vs `a24a619ad`, lock-free (the migration's lcov refreshed): new-file passed (3), patch passed (19)
+  (`logs/review/coverage-gates.log`).
