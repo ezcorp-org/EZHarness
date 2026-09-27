@@ -93,6 +93,42 @@ describe("FactoryRunInspector", () => {
 		expect(screen.getByText("1.5 KiB · summarised")).toBeVisible();
 	});
 
+	test("a stopped run shows each release's effect and deadline, and its cost held, charged at the bound, or proven free (W09e)", async () => {
+		const deadlineMs = 1_900_000_000_000;
+		const stop = (effect: "uncertain" | "published" | "no_effect") => ({ requestedAtMs: 1, effect });
+		const stopped = inspection("run-1", {
+			releases: [
+				{ operationId: "op-held", nodeInstanceId: "publish", state: "executing", action: "factory.release.publish", dispatchGeneration: 1, deadlineMs, stop: stop("uncertain") },
+				{ operationId: "op-bound", nodeInstanceId: "mirror", state: "succeeded", action: "factory.release.publish", dispatchGeneration: 1, deadlineMs, stop: stop("published") },
+				{ operationId: "op-free", nodeInstanceId: "archive", state: "failed", action: "factory.release.publish", dispatchGeneration: 1, outcomeCode: "stopped_no_effect", deadlineMs, stop: stop("no_effect") },
+			],
+			costs: {
+				limitMicros: "2500000", allocatedMicros: "1000000", spentMicros: "0", knownCostMicros: "420000", unknownCostMicros: "420000", admissionBlocked: false, uncertain: true,
+				releases: [
+					{ operationId: "op-free", nodeInstanceId: "archive", state: "settled", costMicros: "0", source: "proven-no-effect", basis: "proven: the provider shows no publication and the sender is stopped" },
+					{ operationId: "op-bound", nodeInstanceId: "mirror", state: "settled", costMicros: "420000", source: "reserved-bound", basis: "bound: the provider reports no spend" },
+					{ operationId: "op-held", nodeInstanceId: "publish", state: "held", costMicros: "420000", hold: "operation-cost-unknown" },
+				],
+			},
+		});
+		const service = api({ inspectRun: vi.fn(async () => stopped), openRunEvents: vi.fn(async () => frames(drained(5))) });
+		render(FactoryRunInspector, { projectId: "project-1", onOpenInbox: vi.fn(), api: service });
+		await fireEvent.click(await screen.findByRole("button", { name: /run-1/ }));
+		const costs = await screen.findAllByTestId("factory-release-cost");
+		const part = (line: HTMLElement, selector: string) => line.querySelector(selector)?.textContent;
+		expect(costs.map(line => [line.getAttribute("data-state"), part(line, "strong"), part(line, ".release-cost-note"), part(line, ".release-cost-figure")])).toEqual([
+			["settled", "archive", "proven-no-effect · proven: the provider shows no publication and the sender is stopped", "0.0000"],
+			["settled", "mirror", "reserved-bound · bound: the provider reports no spend", "0.4200"],
+			["held", "publish", "held at its bound · operation-cost-unknown", "0.4200"],
+		]);
+		expect(screen.getByRole("list", { name: "Stopped release costs" })).toBeVisible();
+		expect(screen.getAllByTestId("factory-release-stop").map(line => line.textContent)).toEqual([
+			"Stopped during publish · effect uncertain · deadline 2030-03-17 17:46 UTC",
+			"Stopped after publish · the release was published · deadline 2030-03-17 17:46 UTC",
+			"Stopped before publish · nothing was published · deadline 2030-03-17 17:46 UTC",
+		]);
+	});
+
 	test("pages every section in place and filters attempts on the server", async () => {
 		const service = api({ openRunEvents: vi.fn(async () => frames(drained(5))) });
 		render(FactoryRunInspector, { projectId: "project-1", onOpenInbox: vi.fn(), api: service });
