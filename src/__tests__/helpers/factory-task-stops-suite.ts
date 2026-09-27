@@ -417,7 +417,8 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
     const bound = await late.resolve(hold);
     expect(bound).toEqual({ kind: "bound", reservationId: attempt.reservationId, attemptId: attempt.attemptId, reason: "operation-not-settled", operationIds: [request.operationId] });
     const settled = await late.settleAtBound(bound as Extract<typeof bound, { kind: "bound" }>);
-    expect(settled).toMatchObject({ revision: 1, source: "reserved-bound", basis: "unknown: charged at reserved bound", knownCostMicros: profile.budget.costMicros, stopReceiptDigest: stopped.stopReceipt!.receiptDigest });
+    expect(settled).toMatchObject({ revision: 1, source: "reserved-bound", basis: "unknown: charged at reserved bound; ended by stop", knownCostMicros: profile.budget.costMicros, stopReceiptDigest: stopped.stopReceipt!.receiptDigest });
+    expect(settled.restoreDigest).toBeUndefined();
     expect(settled.unknownCostMicros).toBeUndefined();
     expect(await reservationState(attempt.reservationId)).toMatchObject({ state: "settled" });
     expect(JSON.parse((await reservationState(attempt.reservationId))!.actual!)).toEqual(reservedBound);
@@ -447,6 +448,39 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
     expect(bound).toEqual({ kind: "bound", reservationId: attempt.reservationId, attemptId: attempt.attemptId, reason: "operation-cost-unknown", operationIds: [operation!.operationId] });
     expect(await late.settleAtBound(bound as Extract<typeof bound, { kind: "bound" }>)).toMatchObject({ source: "reserved-bound", knownCostMicros: profile.budget.costMicros });
     expect(await foldedNode(attempt, advanced)).toMatchObject({ unresolved: [], error: "provider_unavailable" });
+  });
+
+  test("W03f ruling B with W15f: an attempt a signed restore superseded is charged the bound with the supersession as its proof, and a late answer is refused", async () => {
+    const attempt = await launchedAttempt();
+    const { journal, request } = await inFlightModelCall(attempt);
+    const authority = await sealedAuthority(attempt);
+    // W15f's record, read through the interface both packages agreed; no stop was ever sealed.
+    const restoreDigest = `sha256:${"7".repeat(64)}`;
+    const supersessions = {
+      async readAttemptSupersessionInTransaction(_transaction: unknown, reservationId: string) {
+        return reservationId === attempt.reservationId ? { projectId, runId: attempt.run.runId, interpreterId: attempt.identity.interpreterId, attemptId: attempt.attemptId, restoreDigest } : undefined;
+      },
+    };
+    const inbox = new FactoryInbox(fixture.db, tenantId, () => now);
+    const settlements = new FactoryUsageSettlements(fixture.db, tenantId, inbox, () => now);
+    const outcomes = new FactoryTaskOutcomes(fixture.db, attempt.authority, attempt.admissions, attempt.journal, attempt.queue, lifecycle.budgets, inbox, () => now);
+    const stops = new FactoryTaskStops(fixture.db, attempt.authority, attempt.admissions, attempt.journal, outcomes, attempt.queue, lifecycle.budgets, inbox, settlements, stopper(async stopRequest => signed(stopRequest)), acknowledger(), [{ hostId, hostKeyId: "stop-host-key-1", publicKey: hostKeys.publicKey }], () => now, 20_000, supersessions);
+    const reconciler = (nowMs: number) => new FactoryUsageReconciliation(fixture.db, tenantId, stops, attempt.journal, lifecycle.budgets, settlements, () => nowMs);
+    await lifecycle.budgets.markUncertain({ projectId, runId: attempt.run.runId, reservationId: attempt.reservationId }, "execution_epoch_superseded");
+    const hold = await heldFor(attempt);
+    expect(await reconciler(authority.deadlineAt.getTime() - 1).resolve(hold)).toEqual({ kind: "unknown", reservationId: attempt.reservationId, reason: "operation-not-settled", operationIds: [request.operationId] });
+    const late = reconciler(authority.deadlineAt.getTime() + 1);
+    const bound = await late.resolve(hold);
+    expect(bound).toEqual({ kind: "bound", reservationId: attempt.reservationId, attemptId: attempt.attemptId, reason: "operation-not-settled", operationIds: [request.operationId] });
+    const settled = await late.settleAtBound(bound as Extract<typeof bound, { kind: "bound" }>);
+    expect(settled).toMatchObject({ source: "reserved-bound", basis: "unknown: charged at reserved bound; ended by restore supersession", restoreDigest, knownCostMicros: profile.budget.costMicros });
+    expect(settled.stopReceiptDigest).toBeUndefined();
+    expect(await reservationState(attempt.reservationId)).toMatchObject({ state: "settled" });
+    // A provider answer after the bound is kept in the journal, and its settlement is refused.
+    const answer = { text: "late", providerReceiptDigest: "e".repeat(64), usage: { kind: "measured" as const, inputTokens: 1, outputTokens: 1, computeMs: 1, costMicros: "2" } };
+    await journal.hold(attempt.request, request, answer);
+    await expect(late.reconcile({ reservationId: attempt.reservationId, attemptId: attempt.attemptId, operationId: request.operationId, providerReceiptDigest: answer.providerReceiptDigest, usage: answer.usage })).rejects.toMatchObject({ code: "factory_usage_settlement_state" });
+    expect(await settlementRows(attempt.run.runId)).toEqual([{ revision: 1, source: "reserved-bound" }]);
   });
 
   test("a bounded stop timeout leaves durable uncertainty and a later receipt settles the same operation", async () => {

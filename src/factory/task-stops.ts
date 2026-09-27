@@ -19,7 +19,7 @@ import { assertFactoryIdentity, encodeFactoryPayload } from "./records";
 import { factoryAttemptWorkerId, readFactoryAttemptLaunchFacts, type FactoryAttemptLaunchState, type FactoryPhysicalStopReason, type FactoryPhysicalStopReceipt } from "./runner/attempt-runtime";
 import type { FactoryTaskOutcomes, FactoryVerifiedTaskOutcome } from "./task-outcomes";
 import type { TrustedFactoryCommandReference, TrustedFactoryServiceIdentity } from "./trusted-command-gateway";
-import { factoryJournalStopSettlement, type FactoryJournalStopSettlement, type FactoryUsageSettlementAuthority, type FactoryUsageSettlements, type FactoryUsageSettlementScope } from "./usage-settlement";
+import { factoryJournalStopSettlement, type FactoryAttemptSupersessionReader, type FactoryJournalStopSettlement, type FactoryUsageSettlementAuthority, type FactoryUsageSettlements, type FactoryUsageSettlementScope } from "./usage-settlement";
 
 /** C02: abort, then at most this much cleanup, then kill the whole sandbox. */
 export { FACTORY_SANDBOX_ABORT_GRACE_MS as FACTORY_STOP_ABORT_GRACE_MS } from "./runner/sandbox-stop";
@@ -287,6 +287,8 @@ export class FactoryTaskStops implements FactoryUsageSettlementAuthority {
     hostKeys: readonly FactoryStopHostKey[],
     now: () => number = Date.now,
     private readonly stopTimeoutMs = FACTORY_PHYSICAL_STOP_TIMEOUT_MS,
+    /** W15f: the record of attempts a signed restore superseded, the second proof of an attempt's end. */
+    private readonly supersessions?: FactoryAttemptSupersessionReader,
   ) {
     if (compute.tenantId !== authority.tenantId || inbox.tenantId !== authority.tenantId || attempts.tenantId !== authority.tenantId || settlements.tenantId !== authority.tenantId || journal.database !== database || hostKeys.length < 1) throw new FactoryTaskStopError("factory_task_stop_scope");
     this.keys = factoryStopHostKeyMap(hostKeys);
@@ -425,10 +427,17 @@ export class FactoryTaskStops implements FactoryUsageSettlementAuthority {
   async readSettlementScopeInTransaction(transaction: MigrationDb, reservationId: string): Promise<FactoryUsageSettlementScope | undefined> {
     assertFactoryIdentity(reservationId);
     const row = rows<StopRow>(await transaction.execute(sql`SELECT * FROM factory_task_stops WHERE tenant_id=${this.authority.tenantId} AND reservation_id=${reservationId} FOR UPDATE`))[0];
-    if (!row) return undefined;
-    const authority = await this.journal.readAuthorityInTransaction(transaction, { tenantId: row.tenant_id, projectId: row.project_id, runId: row.run_id, attemptId: row.attempt_id });
+    // W15f: a signed restore that superseded the attempt proves its end even when no stop was sealed.
+    const superseded = await this.supersessions?.readAttemptSupersessionInTransaction(transaction, reservationId);
+    const held = row ? { projectId: row.project_id, runId: row.run_id, interpreterId: row.interpreter_id, attemptId: row.attempt_id } : superseded;
+    if (!held) return undefined;
+    if (row && superseded && (superseded.attemptId !== row.attempt_id || superseded.runId !== row.run_id)) throw new FactoryTaskStopError("factory_task_stop_corrupt");
+    const authority = await this.journal.readAuthorityInTransaction(transaction, { tenantId: this.authority.tenantId, projectId: held.projectId, runId: held.runId, attemptId: held.attemptId });
     if (!authority) throw new FactoryTaskStopError("factory_task_stop_corrupt");
-    return Object.freeze({ projectId: row.project_id, runId: row.run_id, interpreterId: row.interpreter_id, reservationId, authority, ...(row.state === "stopped" && row.stop_receipt_digest ? { stopReceiptDigest: row.stop_receipt_digest } : {}) });
+    const end = row?.state === "stopped" && row.stop_receipt_digest ? { kind: "stop" as const, digest: row.stop_receipt_digest }
+      : superseded ? { kind: "restore-supersession" as const, digest: superseded.restoreDigest }
+      : undefined;
+    return Object.freeze({ projectId: held.projectId, runId: held.runId, interpreterId: held.interpreterId, reservationId, authority, ...(end === undefined ? {} : { end: Object.freeze(end) }) });
   }
 
   private async accept(service: TrustedFactoryServiceIdentity, reference: TrustedFactoryCommandReference): Promise<SealedStop> {

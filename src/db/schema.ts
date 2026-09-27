@@ -3406,6 +3406,7 @@ export const factoryUsageSettlements = pgTable("factory_usage_settlements", {
   unknownCostMicros: text("unknown_cost_micros"),
   providerReceiptDigest: text("provider_receipt_digest"),
   stopReceiptDigest: text("stop_receipt_digest"),
+  restoreDigest: text("restore_digest"),
   basis: text("basis"),
   settledAtMs: bigint("settled_at_ms", { mode: "number" }).notNull(),
   settlementDigest: text("settlement_digest").notNull(),
@@ -3428,8 +3429,10 @@ export const factoryUsageSettlements = pgTable("factory_usage_settlements", {
   // W03e and W03f: a stop-proven amount (no-operations, operations, reserved-bound) carries exactly its signed stop
   // receipt and its basis, never a held cost or a provider receipt; a no-operations one is only a zero.
   check("factory_usage_settlements_stop_receipt_check", sql`${table.stopReceiptDigest} IS NULL OR ${table.stopReceiptDigest} ~ '^sha256:[0-9a-f]{64}$'`),
-  check("factory_usage_settlements_basis_check", sql`(${table.source} IN ('no-operations','operations','reserved-bound')) = (${table.basis} IS NOT NULL) AND (${table.basis} IS NULL OR (${table.source} = 'no-operations' AND ${table.basis} = 'no-operations: compute at reserved bound') OR (${table.source} = 'operations' AND ${table.basis} IN ('provider-error: model usage measured, compute at reserved bound', 'operations: model usage measured, compute at reserved bound')) OR (${table.source} = 'reserved-bound' AND ${table.basis} = 'unknown: charged at reserved bound'))`),
-  check("factory_usage_settlements_no_operations_check", sql`(${table.source} IN ('no-operations','operations','reserved-bound')) = (${table.stopReceiptDigest} IS NOT NULL) AND (${table.source} NOT IN ('no-operations','operations','reserved-bound') OR (${table.unknownCostMicros} IS NULL AND ${table.providerReceiptDigest} IS NULL)) AND (${table.source} <> 'no-operations' OR ${table.knownCostMicros} = '0')`),
+  check("factory_usage_settlements_basis_check", sql`(${table.source} IN ('no-operations','operations','reserved-bound')) = (${table.basis} IS NOT NULL) AND (${table.basis} IS NULL OR (${table.source} = 'no-operations' AND ${table.basis} = 'no-operations: compute at reserved bound') OR (${table.source} = 'operations' AND ${table.basis} IN ('provider-error: model usage measured, compute at reserved bound', 'operations: model usage measured, compute at reserved bound')) OR (${table.source} = 'reserved-bound' AND ${table.stopReceiptDigest} IS NOT NULL AND ${table.basis} = 'unknown: charged at reserved bound; ended by stop') OR (${table.source} = 'reserved-bound' AND ${table.restoreDigest} IS NOT NULL AND ${table.basis} = 'unknown: charged at reserved bound; ended by restore supersession'))`),
+  check("factory_usage_settlements_no_operations_check", sql`(CASE WHEN ${table.source} IN ('no-operations','operations') THEN ${table.stopReceiptDigest} IS NOT NULL AND ${table.restoreDigest} IS NULL WHEN ${table.source} = 'reserved-bound' THEN (${table.stopReceiptDigest} IS NULL) <> (${table.restoreDigest} IS NULL) ELSE ${table.stopReceiptDigest} IS NULL AND ${table.restoreDigest} IS NULL END) AND (${table.source} NOT IN ('no-operations','operations','reserved-bound') OR (${table.unknownCostMicros} IS NULL AND ${table.providerReceiptDigest} IS NULL)) AND (${table.source} <> 'no-operations' OR ${table.knownCostMicros} = '0')`),
+  // W15f's signed restore that superseded the attempt, the second proof a reserved-bound settlement may rest on.
+  check("factory_usage_settlements_restore_digest_check", sql`${table.restoreDigest} IS NULL OR ${table.restoreDigest} ~ '^sha256:[0-9a-f]{64}$'`),
 ]);
 
 /**

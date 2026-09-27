@@ -53,16 +53,26 @@ export const FACTORY_USAGE_NO_OPERATIONS_BASIS = "no-operations: compute at rese
  */
 export const FACTORY_USAGE_PROVIDER_ERROR_BASIS = "provider-error: model usage measured, compute at reserved bound" as const;
 export const FACTORY_USAGE_OPERATIONS_BASIS = "operations: model usage measured, compute at reserved bound" as const;
-/** The basis a reserved-bound settlement records. Derived from the source, never supplied by a caller. */
-export const FACTORY_USAGE_RESERVED_BOUND_BASIS = "unknown: charged at reserved bound" as const;
-export type FactoryUsageSettlementBasis = typeof FACTORY_USAGE_NO_OPERATIONS_BASIS | typeof FACTORY_USAGE_PROVIDER_ERROR_BASIS | typeof FACTORY_USAGE_OPERATIONS_BASIS | typeof FACTORY_USAGE_RESERVED_BOUND_BASIS;
+/**
+ * The bases a reserved-bound settlement records, one per proof that the
+ * attempt's process is gone: its signed physical stop, or a signed restore
+ * that superseded its execution epoch (W15f). Derived from the proof the
+ * settlement carries, never supplied by a caller.
+ */
+export const FACTORY_USAGE_RESERVED_BOUND_BASIS = "unknown: charged at reserved bound; ended by stop" as const;
+export const FACTORY_USAGE_RESERVED_BOUND_RESTORE_BASIS = "unknown: charged at reserved bound; ended by restore supersession" as const;
+export type FactoryUsageSettlementBasis = typeof FACTORY_USAGE_NO_OPERATIONS_BASIS | typeof FACTORY_USAGE_PROVIDER_ERROR_BASIS | typeof FACTORY_USAGE_OPERATIONS_BASIS | typeof FACTORY_USAGE_RESERVED_BOUND_BASIS | typeof FACTORY_USAGE_RESERVED_BOUND_RESTORE_BASIS;
 
 const SETTLEMENT_SOURCES = new Set<FactoryUsageSettlementSource>(["stop", "reconciliation", "no-operations", "operations", "reserved-bound"]);
 const OPERATIONS_BASES = new Set<string>([FACTORY_USAGE_PROVIDER_ERROR_BASIS, FACTORY_USAGE_OPERATIONS_BASIS]);
 /** The sources a signed physical stop proves, and so carry its receipt digest and a basis. */
 const STOP_PROVEN_SOURCES = new Set<FactoryUsageSettlementSource>(["no-operations", "operations", "reserved-bound"]);
-/** The sources whose one basis is derived from the source itself. */
-const DERIVED_BASES: Partial<Record<FactoryUsageSettlementSource, FactoryUsageSettlementBasis>> = { "no-operations": FACTORY_USAGE_NO_OPERATIONS_BASIS, "reserved-bound": FACTORY_USAGE_RESERVED_BOUND_BASIS };
+/** The basis a source derives from its proof; operations names one of its two itself. */
+function derivedBasis(input: Pick<FactoryUsageSettlementInput, "source" | "restoreDigest">): FactoryUsageSettlementBasis | undefined {
+  if (input.source === "no-operations") return FACTORY_USAGE_NO_OPERATIONS_BASIS;
+  if (input.source === "reserved-bound") return input.restoreDigest === undefined ? FACTORY_USAGE_RESERVED_BOUND_BASIS : FACTORY_USAGE_RESERVED_BOUND_RESTORE_BASIS;
+  return undefined;
+}
 const STOP_RECEIPT_DIGEST = /^sha256:[0-9a-f]{64}$/;
 
 /**
@@ -140,9 +150,11 @@ export interface FactoryUsageSettlement {
   readonly unknownCostMicros?: string;
   /** Required when source is "reconciliation". */
   readonly providerReceiptDigest?: string;
-  /** Present exactly when source is "no-operations" or "operations": the signed physical stop that proves the amount. */
+  /** The signed physical stop that proves the amount: always for no-operations and operations; for reserved-bound, one of this or `restoreDigest`. */
   readonly stopReceiptDigest?: string;
-  /** Present exactly when source is "no-operations" or "operations": how the settled amounts were decided. */
+  /** W15f: the signed restore that superseded the attempt, the other proof a reserved-bound settlement may rest on. */
+  readonly restoreDigest?: string;
+  /** Present exactly when source is "no-operations", "operations" or "reserved-bound": how the settled amounts were decided. */
   readonly basis?: FactoryUsageSettlementBasis;
   readonly settledAtMs: number;
   /** `sha256:` over the canonical settlement, excluding this field. */
@@ -160,6 +172,7 @@ export interface FactoryUsageSettlementInput {
   readonly unknownCostMicros?: string;
   readonly providerReceiptDigest?: string;
   readonly stopReceiptDigest?: string;
+  readonly restoreDigest?: string;
   /** Required for "operations", which has two; "no-operations" derives its one. */
   readonly basis?: FactoryUsageSettlementBasis;
   readonly settledAtMs: number;
@@ -249,12 +262,17 @@ export function buildFactoryUsageSettlement(input: FactoryUsageSettlementInput):
   // A stop-proven amount is proven only by its signed stop. It never carries a
   // provider receipt or a held cost, and a no-operations one is only a zero.
   const stopProven = STOP_PROVEN_SOURCES.has(input.source);
-  if (stopProven !== (input.stopReceiptDigest !== undefined)) throw new FactoryUsageSettlementError("factory_usage_settlement_receipt_invalid");
-  if (input.stopReceiptDigest !== undefined && (typeof input.stopReceiptDigest !== "string" || !STOP_RECEIPT_DIGEST.test(input.stopReceiptDigest))) throw new FactoryUsageSettlementError("factory_usage_settlement_receipt_invalid");
+  // Exactly one proof that the process is gone: its stop, or (reserved-bound only) a restore that superseded it.
+  const proofs = Number(input.stopReceiptDigest !== undefined) + Number(input.restoreDigest !== undefined);
+  if (stopProven ? proofs !== 1 : proofs !== 0) throw new FactoryUsageSettlementError("factory_usage_settlement_receipt_invalid");
+  if (input.restoreDigest !== undefined && input.source !== "reserved-bound") throw new FactoryUsageSettlementError("factory_usage_settlement_receipt_invalid");
+  for (const proof of [input.stopReceiptDigest, input.restoreDigest]) {
+    if (proof !== undefined && (typeof proof !== "string" || !STOP_RECEIPT_DIGEST.test(proof))) throw new FactoryUsageSettlementError("factory_usage_settlement_receipt_invalid");
+  }
   if (stopProven && (input.unknownCostMicros !== undefined || input.providerReceiptDigest !== undefined)) throw new FactoryUsageSettlementError("factory_usage_settlement_invalid");
   if (input.source === "no-operations" && input.knownCostMicros !== "0") throw new FactoryUsageSettlementError("factory_usage_settlement_invalid");
   // no-operations and reserved-bound derive their one basis, operations names one of its two, and no other source has any.
-  const basis = DERIVED_BASES[input.source] ?? (input.source === "operations" ? input.basis : undefined);
+  const basis = derivedBasis(input) ?? (input.source === "operations" ? input.basis : undefined);
   if (input.source === "operations" ? !OPERATIONS_BASES.has(basis as string) : input.basis !== undefined && input.basis !== basis) throw new FactoryUsageSettlementError("factory_usage_settlement_invalid");
   if (input.attemptId !== input.authority.attemptId) throw new FactoryUsageSettlementError("factory_usage_settlement_invalid");
   const event: FactoryUsageSettledEvent = Object.freeze({
@@ -279,6 +297,7 @@ export function buildFactoryUsageSettlement(input: FactoryUsageSettlementInput):
     ...(input.unknownCostMicros === undefined ? {} : { unknownCostMicros: input.unknownCostMicros }),
     ...(input.providerReceiptDigest === undefined ? {} : { providerReceiptDigest: input.providerReceiptDigest }),
     ...(input.stopReceiptDigest === undefined ? {} : { stopReceiptDigest: input.stopReceiptDigest }),
+    ...(input.restoreDigest === undefined ? {} : { restoreDigest: input.restoreDigest }),
     ...(basis === undefined ? {} : { basis }),
     settledAtMs: input.settledAtMs,
     event,
@@ -321,6 +340,7 @@ interface SettlementRow {
   unknown_cost_micros: string | null;
   provider_receipt_digest: string | null;
   stop_receipt_digest: string | null;
+  restore_digest: string | null;
   basis: string | null;
   settled_at_ms: number | string;
   settlement_digest: string;
@@ -335,8 +355,27 @@ export interface FactoryUsageSettlementScope {
   readonly interpreterId: string;
   readonly reservationId: string;
   readonly authority: FactoryAttemptAuthority;
-  /** W03f: the signed physical stop's digest, present once the stop is confirmed. */
-  readonly stopReceiptDigest?: string;
+  /**
+   * W03f: the durable proof that the attempt's process is gone, present once
+   * there is one: its confirmed signed stop, or a signed restore that
+   * superseded its execution epoch (W15f).
+   */
+  readonly end?: { readonly kind: "stop" | "restore-supersession"; readonly digest: string };
+}
+
+/** W15f: an attempt a signed restore superseded, read by the reservation it held. */
+export interface FactoryAttemptSupersession {
+  readonly projectId: string;
+  readonly runId: string;
+  readonly interpreterId: string;
+  readonly attemptId: string;
+  /** `sha256:` digest of the restore's signature or receipt. */
+  readonly restoreDigest: string;
+}
+
+/** The seam W15f implements over its supersession record. */
+export interface FactoryAttemptSupersessionReader {
+  readAttemptSupersessionInTransaction(transaction: MigrationDb, reservationId: string): Promise<FactoryAttemptSupersession | undefined>;
 }
 
 export interface FactoryUsageSettlementAmounts {
@@ -345,6 +384,7 @@ export interface FactoryUsageSettlementAmounts {
   readonly unknownCostMicros?: string;
   readonly providerReceiptDigest?: string;
   readonly stopReceiptDigest?: string;
+  readonly restoreDigest?: string;
   readonly basis?: FactoryUsageSettlementBasis;
 }
 
@@ -412,10 +452,11 @@ export class FactoryUsageSettlements {
       ...(amounts.unknownCostMicros === undefined ? {} : { unknownCostMicros: amounts.unknownCostMicros }),
       ...(amounts.providerReceiptDigest === undefined ? {} : { providerReceiptDigest: amounts.providerReceiptDigest }),
       ...(amounts.stopReceiptDigest === undefined ? {} : { stopReceiptDigest: amounts.stopReceiptDigest }),
+      ...(amounts.restoreDigest === undefined ? {} : { restoreDigest: amounts.restoreDigest }),
       ...(amounts.basis === undefined ? {} : { basis: amounts.basis }),
       settledAtMs: this.clock(previous?.settledAtMs ?? 0),
     });
-    await transaction.execute(sql`INSERT INTO factory_usage_settlements (tenant_id,project_id,run_id,reservation_id,revision,attempt_id,source,known_cost_micros,unknown_cost_micros,provider_receipt_digest,stop_receipt_digest,basis,settled_at_ms,settlement_digest,event_json,event_digest) VALUES (${this.tenantId},${scope.projectId},${scope.runId},${scope.reservationId},${settlement.revision},${settlement.attemptId},${settlement.source},${settlement.knownCostMicros},${settlement.unknownCostMicros ?? null},${settlement.providerReceiptDigest ?? null},${settlement.stopReceiptDigest ?? null},${settlement.basis ?? null},${settlement.settledAtMs},${settlement.settlementDigest},${encodeFactoryPayload(settlement.event)},${`sha256:${digestObject(settlement.event)}`})`);
+    await transaction.execute(sql`INSERT INTO factory_usage_settlements (tenant_id,project_id,run_id,reservation_id,revision,attempt_id,source,known_cost_micros,unknown_cost_micros,provider_receipt_digest,stop_receipt_digest,restore_digest,basis,settled_at_ms,settlement_digest,event_json,event_digest) VALUES (${this.tenantId},${scope.projectId},${scope.runId},${scope.reservationId},${settlement.revision},${settlement.attemptId},${settlement.source},${settlement.knownCostMicros},${settlement.unknownCostMicros ?? null},${settlement.providerReceiptDigest ?? null},${settlement.stopReceiptDigest ?? null},${settlement.restoreDigest ?? null},${settlement.basis ?? null},${settlement.settledAtMs},${settlement.settlementDigest},${encodeFactoryPayload(settlement.event)},${`sha256:${digestObject(settlement.event)}`})`);
     await this.inbox.enqueueInTransaction(transaction, { projectId: scope.projectId, runId: scope.runId, interpreterId: scope.interpreterId }, settlement.event);
     return settlement;
   }
@@ -427,7 +468,7 @@ export class FactoryUsageSettlements {
   }
 
   private async rows(transaction: MigrationDb, scope: Pick<FactoryUsageSettlementScope, "projectId" | "runId" | "reservationId">, lock: boolean): Promise<SettlementRow[]> {
-    return rows<SettlementRow>(await transaction.execute(sql`SELECT reservation_id,revision,attempt_id,source,known_cost_micros,unknown_cost_micros,provider_receipt_digest,stop_receipt_digest,basis,settled_at_ms,settlement_digest,event_json,event_digest FROM factory_usage_settlements WHERE tenant_id=${this.tenantId} AND project_id=${scope.projectId} AND run_id=${scope.runId} AND reservation_id=${scope.reservationId} ORDER BY revision DESC${lock ? sql` FOR UPDATE` : sql``}`));
+    return rows<SettlementRow>(await transaction.execute(sql`SELECT reservation_id,revision,attempt_id,source,known_cost_micros,unknown_cost_micros,provider_receipt_digest,stop_receipt_digest,restore_digest,basis,settled_at_ms,settlement_digest,event_json,event_digest FROM factory_usage_settlements WHERE tenant_id=${this.tenantId} AND project_id=${scope.projectId} AND run_id=${scope.runId} AND reservation_id=${scope.reservationId} ORDER BY revision DESC${lock ? sql` FOR UPDATE` : sql``}`));
   }
 
   private decode(row: SettlementRow): FactoryUsageSettlement {
@@ -444,6 +485,7 @@ export class FactoryUsageSettlements {
       ...(row.unknown_cost_micros === null ? {} : { unknownCostMicros: row.unknown_cost_micros }),
       ...(row.provider_receipt_digest === null ? {} : { providerReceiptDigest: row.provider_receipt_digest }),
       ...(row.stop_receipt_digest === null ? {} : { stopReceiptDigest: row.stop_receipt_digest }),
+      ...(row.restore_digest === null ? {} : { restoreDigest: row.restore_digest }),
       ...(row.basis === null ? {} : { basis: row.basis as FactoryUsageSettlementBasis }),
       settledAtMs: Number(row.settled_at_ms),
       event,
@@ -544,7 +586,7 @@ export class FactoryUsageReconciliation implements FactoryUsageReconciler {
       if (!named) return Object.freeze({ kind: "unknown" as const, reservationId, reason: "no-operation-receipt" as const });
       // Ruling B: once the stop is confirmed and the signed deadline has passed,
       // nothing can price these calls any more, so the bound settles them.
-      if (scope.stopReceiptDigest !== undefined && scope.authority.deadlineAt.getTime() <= this.now()) return Object.freeze({ kind: "bound" as const, reservationId, attemptId: scope.authority.attemptId, ...named });
+      if (scope.end !== undefined && scope.authority.deadlineAt.getTime() <= this.now()) return Object.freeze({ kind: "bound" as const, reservationId, attemptId: scope.authority.attemptId, ...named });
       return Object.freeze({ kind: "unknown" as const, reservationId, ...named });
     }
     const usage = validateFactoryOperationUsage(candidate.usage);
@@ -580,10 +622,11 @@ export class FactoryUsageReconciliation implements FactoryUsageReconciler {
     if (resolution.kind !== "bound" || resolution.attemptId !== input.attemptId) throw new FactoryUsageSettlementError("factory_usage_settlement_state");
     return this.database.transaction(async transaction => {
       const scope = await this.scopes.readSettlementScopeInTransaction(transaction, input.reservationId);
-      if (!scope?.stopReceiptDigest || scope.authority.attemptId !== input.attemptId) throw new FactoryUsageSettlementError("factory_usage_settlement_state");
+      if (!scope?.end || scope.authority.attemptId !== input.attemptId) throw new FactoryUsageSettlementError("factory_usage_settlement_state");
       const key = { projectId: scope.projectId, runId: scope.runId, reservationId: scope.reservationId };
-      const charged = await this.budgets.settleAtReservedBoundInTransaction(transaction, key, scope.stopReceiptDigest);
-      const settlement = await this.settlements.recordInTransaction(transaction, scope, { source: "reserved-bound", knownCostMicros: charged.costMicros, stopReceiptDigest: scope.stopReceiptDigest });
+      const charged = await this.budgets.settleAtReservedBoundInTransaction(transaction, key, scope.end.digest);
+      const proof = scope.end.kind === "stop" ? { stopReceiptDigest: scope.end.digest } : { restoreDigest: scope.end.digest };
+      const settlement = await this.settlements.recordInTransaction(transaction, scope, { source: "reserved-bound", knownCostMicros: charged.costMicros, ...proof });
       await this.scopes.clearResolvedStopInTransaction(transaction, scope.reservationId, settlement.settledAtMs);
       return settlement;
     });

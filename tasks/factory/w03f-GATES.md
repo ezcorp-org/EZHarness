@@ -109,6 +109,30 @@ the tenant accepted, named. An unknown is never settled at zero and never at a g
   record carries only costs and claims no measured token count, which keeps the truth visible. A
   nullable token count would change the budget schema and the envelope sums for no gain.
 
+## Coordination with W15f (w15b-fix), the reservation hold after a restore
+
+Agreed shape (lead accepted, recorded in both gates files):
+- W15f owns a new nullable column on `factory_budget_reservations` (proposed `stale_epoch_hold BIGINT`,
+  the execution epoch at which the hold was marked). W03f never reads it.
+- W15f owns the skip rule inside `listUncertainWithCostInTransaction`: a marked row is skipped while
+  its epoch is unchanged and the old attempt is not terminal. Once the attempt is terminal and past
+  its signed deadline it is listed again, and W03f's `resolve`/`settleAtBound` take it.
+- Migration order: W03f's `add-factory-usage-operations` after `allow-factory-artifact-regrant`,
+  W15f's immediately after it, `add-factory-recovery` last. Different tables, no dependency.
+- Coordinator ruling: a signed restore that moves the execution epoch marks the old epoch's
+  attempts terminal as superseded, with the restore's digest as proof, in the same transaction.
+  B accepts either proof of an attempt's end, named in the basis: "unknown: charged at reserved
+  bound; ended by stop" (`stop_receipt_digest`) or "...; ended by restore supersession"
+  (`restore_digest`, a new column with its own CHECK).
+- W03f side built against the proposed reader `FactoryAttemptSupersessionReader`
+  (`readAttemptSupersessionInTransaction(transaction, reservationId)` returning project, run,
+  interpreter, attempt and `restoreDigest`), passed to `FactoryTaskStops` as its last argument.
+  Red first: `receipts/restore-red.attempt-1.json`; the stop suite's case with a reader double
+  settles at the bound with the supersession as proof, and a late answer is parked and refused.
+- Open with w15b-fix: the confirmed record and reader names, how a superseded attempt leaves the
+  run's kernel (W05b's clear needs a sealed stop, so after a restore it is a no-op today), and
+  which branch carries the joint test on a real W15f-marked hold (whichever merges second).
+
 ## Disclosed
 
 - Credential misdirection (lead ruling, record it): M1 attempt 1's `w14-repro.sh` sourced a file

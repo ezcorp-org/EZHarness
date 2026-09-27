@@ -13,6 +13,7 @@ import {
   FACTORY_USAGE_OPERATIONS_BASIS,
   FACTORY_USAGE_PROVIDER_ERROR_BASIS,
   FACTORY_USAGE_RESERVED_BOUND_BASIS,
+  FACTORY_USAGE_RESERVED_BOUND_RESTORE_BASIS,
   factoryJournalStopSettlement,
   FACTORY_USAGE_SETTLEMENT_CODES,
   FACTORY_USAGE_SETTLEMENT_SCHEMA_VERSION,
@@ -216,7 +217,19 @@ test("W03f ruling B: seals a reserved-bound settlement with its stop and its one
   const stopReceiptDigest = `sha256:${"c".repeat(64)}`;
   const settlement = buildFactoryUsageSettlement(input({ source: "reserved-bound", knownCostMicros: "5", stopReceiptDigest }));
   expect(settlement).toMatchObject({ source: "reserved-bound", knownCostMicros: "5", stopReceiptDigest, basis: FACTORY_USAGE_RESERVED_BOUND_BASIS });
-  expect(FACTORY_USAGE_RESERVED_BOUND_BASIS).toBe("unknown: charged at reserved bound");
+  expect(FACTORY_USAGE_RESERVED_BOUND_BASIS).toBe("unknown: charged at reserved bound; ended by stop");
+  // W15f: a signed restore that superseded the attempt is the other proof, and the basis names it.
+  const restoreDigest = `sha256:${"7".repeat(64)}`;
+  const restored = buildFactoryUsageSettlement(input({ source: "reserved-bound", knownCostMicros: "5", restoreDigest }));
+  expect(restored).toMatchObject({ source: "reserved-bound", restoreDigest, basis: FACTORY_USAGE_RESERVED_BOUND_RESTORE_BASIS });
+  expect(FACTORY_USAGE_RESERVED_BOUND_RESTORE_BASIS).toBe("unknown: charged at reserved bound; ended by restore supersession");
+  expect(restored.stopReceiptDigest).toBeUndefined();
+  expect(factoryUsageSettlementIsIntact({ ...restored, restoreDigest: `sha256:${"8".repeat(64)}` })).toBe(false);
+  expect(rejection({ source: "reserved-bound", knownCostMicros: "5", restoreDigest, stopReceiptDigest })).toBe("factory_usage_settlement_receipt_invalid");
+  expect(rejection({ source: "reserved-bound", knownCostMicros: "5", restoreDigest: "7".repeat(64) })).toBe("factory_usage_settlement_receipt_invalid");
+  expect(rejection({ source: "reserved-bound", knownCostMicros: "5", restoreDigest, basis: FACTORY_USAGE_RESERVED_BOUND_BASIS })).toBe("factory_usage_settlement_invalid");
+  expect(rejection({ source: "operations", knownCostMicros: "5", restoreDigest, basis: FACTORY_USAGE_OPERATIONS_BASIS })).toBe("factory_usage_settlement_receipt_invalid");
+  expect(rejection({ source: "no-operations", knownCostMicros: "0", restoreDigest })).toBe("factory_usage_settlement_receipt_invalid");
   expect(settlement.unknownCostMicros).toBeUndefined();
   expect(factoryUsageSettlementIsIntact(settlement)).toBe(true);
   expect(buildFactoryUsageSettlement(input({ source: "reserved-bound", knownCostMicros: "5", stopReceiptDigest, basis: FACTORY_USAGE_RESERVED_BOUND_BASIS })).basis).toBe(FACTORY_USAGE_RESERVED_BOUND_BASIS);

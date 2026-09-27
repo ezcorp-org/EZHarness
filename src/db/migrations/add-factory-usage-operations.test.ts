@@ -31,12 +31,13 @@ const digest = (character: string) => `sha256:${character.repeat(64)}`;
 const NO_OPERATIONS = "no-operations: compute at reserved bound";
 const PROVIDER_ERROR = "provider-error: model usage measured, compute at reserved bound";
 const OPERATIONS = "operations: model usage measured, compute at reserved bound";
-const RESERVED_BOUND = "unknown: charged at reserved bound";
+const RESERVED_BOUND = "unknown: charged at reserved bound; ended by stop";
+const RESERVED_BOUND_RESTORE = "unknown: charged at reserved bound; ended by restore supersession";
 
 /** One row, with the reservation foreign key out of the way so each case states one fact. */
-function insert(database: Database, reservation: string, row: { source: string; known: string; unknown?: string; provider?: string; stop?: string; basis?: string }) {
-  return database.execute(sql`INSERT INTO factory_usage_settlements (tenant_id,project_id,run_id,reservation_id,revision,attempt_id,source,known_cost_micros,unknown_cost_micros,provider_receipt_digest,stop_receipt_digest,basis,settled_at_ms,settlement_digest,event_json,event_digest)
-    VALUES ('t','p','r',${reservation},1,'attempt-1',${row.source},${row.known},${row.unknown ?? null},${row.provider ?? null},${row.stop ?? null},${row.basis ?? null},1,${digest("c")},'{}',${digest("c")})`);
+function insert(database: Database, reservation: string, row: { source: string; known: string; unknown?: string; provider?: string; stop?: string; restore?: string; basis?: string }) {
+  return database.execute(sql`INSERT INTO factory_usage_settlements (tenant_id,project_id,run_id,reservation_id,revision,attempt_id,source,known_cost_micros,unknown_cost_micros,provider_receipt_digest,stop_receipt_digest,restore_digest,basis,settled_at_ms,settlement_digest,event_json,event_digest)
+    VALUES ('t','p','r',${reservation},1,'attempt-1',${row.source},${row.known},${row.unknown ?? null},${row.provider ?? null},${row.stop ?? null},${row.restore ?? null},${row.basis ?? null},1,${digest("c")},'{}',${digest("c")})`);
 }
 
 test("migrate() installs the widened CHECKs, and re-running either settlement migration changes nothing", async () => {
@@ -74,9 +75,11 @@ test("widens W03e's CHECKs once, and then an operations settlement's shape is ex
     await insert(fixture.db, "accepted-operations", { source: "operations", known: "31", stop: digest("d"), basis: OPERATIONS });
     await insert(fixture.db, "accepted-no-operations", { source: "no-operations", known: "0", stop: digest("e"), basis: NO_OPERATIONS });
     await insert(fixture.db, "accepted-reserved-bound", { source: "reserved-bound", known: "5", stop: digest("f"), basis: RESERVED_BOUND });
+    await insert(fixture.db, "accepted-reserved-bound-restore", { source: "reserved-bound", known: "5", restore: digest("9"), basis: RESERVED_BOUND_RESTORE });
     await insert(fixture.db, "accepted-stop", { source: "stop", known: "0", unknown: "900" });
     await insert(fixture.db, "accepted-reconciliation", { source: "reconciliation", known: "5", provider: "b".repeat(64) });
-    const refused: Array<[string, Parameters<typeof insert>[2], string]> = [
+    // A row may break more than one CHECK; which one PostgreSQL names first is not part of the contract.
+    const refused: Array<[string, Parameters<typeof insert>[2], string | RegExp]> = [
       ["operations-without-stop", { source: "operations", known: "0", basis: PROVIDER_ERROR }, "factory_usage_settlements_no_operations_check"],
       ["operations-held", { source: "operations", known: "0", unknown: "5", stop: digest("a"), basis: PROVIDER_ERROR }, "factory_usage_settlements_no_operations_check"],
       ["operations-provider-receipt", { source: "operations", known: "0", provider: "b".repeat(64), stop: digest("a"), basis: PROVIDER_ERROR }, "factory_usage_settlements_no_operations_check"],
@@ -87,14 +90,18 @@ test("widens W03e's CHECKs once, and then an operations settlement's shape is ex
       ["no-operations-with-provider-basis", { source: "no-operations", known: "0", stop: digest("a"), basis: PROVIDER_ERROR }, "factory_usage_settlements_basis_check"],
       ["operations-other-basis", { source: "operations", known: "0", stop: digest("a"), basis: "provider-error: compute refunded" }, "factory_usage_settlements_basis_check"],
       ["basis-on-stop", { source: "stop", known: "4", basis: OPERATIONS }, "factory_usage_settlements_basis_check"],
-      ["bound-without-stop", { source: "reserved-bound", known: "5", basis: RESERVED_BOUND }, "factory_usage_settlements_no_operations_check"],
+      ["bound-without-stop", { source: "reserved-bound", known: "5", basis: RESERVED_BOUND }, /factory_usage_settlements_(no_operations|basis)_check/],
       ["bound-held", { source: "reserved-bound", known: "5", unknown: "5", stop: digest("a"), basis: RESERVED_BOUND }, "factory_usage_settlements_no_operations_check"],
       ["bound-other-basis", { source: "reserved-bound", known: "5", stop: digest("a"), basis: OPERATIONS }, "factory_usage_settlements_basis_check"],
+      ["bound-both-proofs", { source: "reserved-bound", known: "5", stop: digest("a"), restore: digest("9"), basis: RESERVED_BOUND }, "factory_usage_settlements_no_operations_check"],
+      ["bound-restore-with-stop-basis", { source: "reserved-bound", known: "5", restore: digest("9"), basis: RESERVED_BOUND }, "factory_usage_settlements_basis_check"],
+      ["bound-restore-bare", { source: "reserved-bound", known: "5", restore: "9".repeat(64), basis: RESERVED_BOUND_RESTORE }, "factory_usage_settlements_restore_digest_check"],
+      ["operations-with-restore", { source: "operations", known: "5", stop: digest("a"), restore: digest("9"), basis: OPERATIONS }, "factory_usage_settlements_no_operations_check"],
       ["operations-with-bound-basis", { source: "operations", known: "5", stop: digest("a"), basis: RESERVED_BOUND }, "factory_usage_settlements_basis_check"],
       ["unknown-source", { source: "estimate", known: "0" }, "factory_usage_settlements_source_check"],
     ];
-    for (const [reservation, row, constraint] of refused) expect({ reservation, refused: await failure(insert(fixture.db, reservation, row)) }).toEqual({ reservation, refused: expect.stringContaining(constraint) });
+    for (const [reservation, row, constraint] of refused) expect({ reservation, refused: await failure(insert(fixture.db, reservation, row)) }).toEqual({ reservation, refused: typeof constraint === "string" ? expect.stringContaining(constraint) : expect.stringMatching(constraint) });
     expect(rows<{ reservation_id: string }>(await fixture.db.execute(sql`SELECT reservation_id FROM factory_usage_settlements ORDER BY reservation_id`)).map(row => row.reservation_id))
-      .toEqual(["accepted-no-operations", "accepted-operations", "accepted-partial", "accepted-provider-zero", "accepted-reconciliation", "accepted-reserved-bound", "accepted-stop"]);
+      .toEqual(["accepted-no-operations", "accepted-operations", "accepted-partial", "accepted-provider-zero", "accepted-reconciliation", "accepted-reserved-bound", "accepted-reserved-bound-restore", "accepted-stop"]);
   } finally { await fixture.pglite.close(); }
 });
