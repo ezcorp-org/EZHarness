@@ -169,7 +169,30 @@ describe("gate-integrity: isolated parser dependency", () => {
     } finally {
       rmSync(fixtureRoot, { recursive: true, force: true });
     }
-  }, 30_000);
+    // 120s, not 30s (validator-3 L-gate-scripts investigation, 2026-09-27):
+    // this test does FOUR sequential real subprocess spawns (runGate() ×4),
+    // each a cold bun runtime running scripts/gate-integrity.ts's main(),
+    // which itself spawns git as a further nested subprocess. Not a network
+    // install and not a slow parser (that class was already fixed
+    // 2026-09-26, see this file's own comment above) — direct PID/state
+    // monitoring (ps -eo pid,ppid,etimes,stat,cmd sampled every second)
+    // caught the exact failing subprocess starting in D (uninterruptible
+    // sleep, blocked in-kernel at fork/exec, not CPU-bound) and never
+    // leaving that state before the 30s cap killed it, correlated with
+    // heavy host swap usage (measured 10 GiB of 16 GiB in use at the time)
+    // from this being a shared, heavily multi-tenant CI-style host running
+    // many concurrent heavy suites. Reproduced directly: three copies of
+    // this exact test running together in one bun:test invocation fail
+    // intermittently (roughly 1-in-8 to 1-in-16 locally; also reproduced
+    // once in the real 405-file focused-producer run under the shared
+    // validation lock, "gate-scripts-repro-copy-a.test.ts" failing the
+    // same way) where the SAME test run alone is consistently well under
+    // 8s. 120s gives four sequential cold-process spawns roughly 30s of
+    // budget each — the ceiling actually observed for one spawn under this
+    // host's real contention — while still catching a genuine hang (this
+    // test's own logic finishes in under a second once every spawn
+    // returns).
+  }, 120_000);
 });
 
 // ── scratch repositories: the caller's git context is never used ───────────

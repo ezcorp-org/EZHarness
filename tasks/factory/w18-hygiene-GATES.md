@@ -1023,3 +1023,42 @@ C's head whenever it moves.
   restored to green after. `mock-cleanup-coverage.test.ts` + `extension-event-end-to-end.test.ts`
   combined: 53/0.
   EVIDENCE: typecheck, lint, `gate-integrity.ts`, both boundary checks all clean.
+
+- [x] GC18: validator-3's follow-up on the focused producer's single failure — "gate-integrity: isolated
+  parser dependency" (exitCode null after a 30s timeout, "killed 1 dangling process" logged at the
+  run's start) chased to root cause rather than noted.
+  WHAT IT SPAWNS/WAITS ON: `runGate()` in this test (`src/__tests__/gate-scripts.test.ts`) is
+  `Bun.spawnSync([process.execPath, "scripts/gate-integrity.ts"], {...})` — a full cold bun-runtime
+  subprocess running `gate-integrity.ts`'s `main()`, which itself spawns `git merge-base`/`git diff`
+  as further nested subprocesses. The test calls this FOUR times sequentially inside one outer test
+  timeout.
+  WHAT THE DANGLING PROCESS WAS: found bun's own format string in the binary (`strings` on the
+  pinned bun binary): `"killed %d dangling process"` is bun:test's own timeout-enforcement message —
+  when a test's outer timeout fires while `Bun.spawnSync` is blocked waiting on a child, bun
+  force-kills that child and reports it here. It is the SAME event as the assertion's observed
+  `exitCode: null`, not a separate leftover from an earlier run.
+  REPRODUCED, cheaply and directly, twice over: (1) running `gate-scripts.test.ts` three times in one
+  `bun test` invocation (two in-place scratch copies alongside the original, deleted after) failed
+  intermittently, roughly 1-in-8 to 1-in-16 attempts, lock-free, no heavy leg needed. `ps -eo
+  pid,ppid,etimes,stat,cmd` sampled every second during these runs caught the exact failing process:
+  alive continuously from `etimes=0` (state `D`, uninterruptible sleep — blocked in-kernel at
+  fork/exec, not CPU-bound) through `etimes=29`, then gone — killed at the cap, in the same run bun
+  reported "1 fail" and "killed 1 dangling process". Host snapshot at the time: swap 10 GiB of 16 GiB
+  in use, ~3164 processes, loadavg 3.76 on 32 cores. (2) The SAME reproduction repeated properly
+  inside the real 405-file focused-producer run, under the shared validation lock, gated before each
+  attempt: loaded run 1 (6135 tests across 407 files) was clean; loaded run 2 reproduced it directly
+  (`gate-scripts-repro-copy-a.test.ts` timed out the same way, 1 fail).
+  CONCLUSION: this is host memory/swap pressure occasionally delaying fork/exec itself (D-state at
+  spawn time), not a slow parser or a network install (that class was already fixed 2026-09-26 per
+  this test's own comment) and not a defect in `gate-integrity.ts`'s or the test's own logic — every
+  isolated single-file run this whole engagement was fast and clean. Per validator-3's stated
+  criterion ("never a bare timeout increase without the cause written down"), the cause above is
+  written down; the fix is a timeout increase sized to the actually-measured worst case, not an
+  arbitrary bump: 30s → 120s. The test performs FOUR sequential real subprocess spawns; the worst
+  single-spawn duration directly observed under real host contention was the 30s cap itself (the
+  spawn that got killed), so 4 × 30s = 120s budgets for the worst case actually measured, while still
+  catching a genuine hang (the test's own logic completes in well under a second once every spawn
+  returns).
+  PROOF: five consecutive local three-copy runs after the fix, all clean (`642 pass / 0 fail` each,
+  32-71s each); `gate-scripts.test.ts` alone unaffected (`214 pass / 0 fail`, ~20s).
+  EVIDENCE: typecheck, lint, `gate-integrity.ts`, the boundary check all clean.
