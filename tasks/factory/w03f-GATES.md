@@ -239,6 +239,53 @@ module, 43/0 with the consumer). Hook-cap ruling 19:02Z: `EZ_SKIP_HOOK_TESTS=1` 
 the 74 mapped files plus the factory-orchestrator package suite are listed verbatim in the commit
 message and in `logs/final-merge-hook-list-verbatim.log`, and run as leg 0 of the final leg.
 
+## task-stops.ts:370, a proven-executed line Bun 1.3.14 does not credit (pending the user's ruling)
+
+The final leg at `9c954b11a` is green except the patch-coverage gate (`BASE_REF=94edd1e30`), which
+reports one uncovered changed line: `src/factory/task-stops.ts:370`,
+`return factoryJournalStopSettlement(await this.journal.operations(liveAuthority.authority));`, the
+last statement of `stopSettlement` and the single call site of `factoryJournalStopSettlement`.
+
+That line executes. Evidence:
+- `receipts/attribution-before.attempt-2` (one-file stop-suite coverage under the lock, Bun 1.3.14, at
+  `9c954b11a`): 43/0, eight named passing tests settle `no-operations` or `operations`, which only
+  that call produces; the lcov gives DA:370 = 0 while DA:369 (176) exceeds DA:366 (159), the line it
+  follows.
+- validator-4, independently (`/tmp/factory-platform-evidence/w03f-validation/logs/attr/`): the line
+  replaced by a throw fails 34 of 43 cases while Bun credits it 0; and six code shapes at `9c954b11a`
+  (the original, the `.then` form, a braced early return, a synchronous helper in three lines and in
+  one, and two statements on one line) all leave the final statement's line at 0. Lint is clean on
+  every form, so no suppression applies.
+- W03f's own attempts, parked on proof refs and not on the branch:
+  `proof/w03f-two-statement-refactor` (`a4c07dca5`): the await line credited (DA:370 = 156), the
+  statement after it not (DA:371 = 0), `receipts/attribution-after.attempt-1`, patch gate red on 371
+  (`logs/cov-final.out`); `proof/w03f-then-refactor` (`86330b87c`): the `.then` line at 0,
+  `receipts/attribution-after.attempt-2`, patch gate red (`logs/cov-final2.out`). A refactor only
+  moves the uncredited line, so the branch keeps the original form, unchanged since `4ba07e94f`.
+- Bun 1.4.2 (the W12e upgrade question, an observation, not W03f evidence): the same one-file run at
+  `a4c07dca5` in a scratch worktree with the system Bun 1.4.2 (`bun test v1.4.2 (744846f84)`) gives
+  43/0 with DA:370 = 156 and DA:371 = 0 (`logs/w12e-bun142-probe.log`). The upgrade does not clear it.
+
+So `src/factory/task-stops.ts:370` is a proven-executed line that Bun 1.3.14 credits to the line before
+it. The patch gate is red on that one line, pending the user's ruling (a one-line exception, or
+another route); nothing on the branch works around it.
+
+The legs that stand from `9c954b11a` (this docs commit changes no code):
+- leg 0: the 74 hook-mapped files and the factory-orchestrator package suite, 75 receipts, 1326
+  tests, none red, none at zero;
+- PostgreSQL: task-stops 43/0, guest-model-route 18/0, guest-model-journal 2/0, usage-epoch 6/0;
+- coverage leg 210/0, cov-merge 0, new-file gate 0 (patch gate as above);
+- the web build and the runbook mock pass (outcome passed);
+- shared `.git/config` sha256 `44962525f1ca1a8b` before and after every leg.
+
+Bun pin disclosure. Every `bun test` leg ran 1.3.14 (the final leg's 76 banners). The pinned
+directory had no `bunx` until 19:36Z, so four steps ran the system `bunx`, Bun 1.4.2: the final leg's
+three web vitest files and its web build, and the earlier `hook-web-factory-boot-server.attempt-2`.
+All four reran green under the fixed pin at `a4c07dca5`, whose code differs from `9c954b11a` only in
+the two lines of `stopSettlement` (vitest 1, 1 and 16 tests; web build exit 0). The runbook mock
+pass used the earlier build; per the coordinator the graph proof stands. `receipt.sh` asserts both
+`bun --version` and `bunx --version` against `.bun-version`.
+
 ## Disclosed
 
 - Credential misdirection (lead ruling, record it): M1 attempt 1's `w14-repro.sh` sourced a file
