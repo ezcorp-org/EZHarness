@@ -56,7 +56,16 @@ have to declare anyway. The truthful fix is the row, appended in path order.
   EXPECT: all exit 0
   EVIDENCE: `receipts/static-*.attempt-1.json`
 
-- [ ] G5: Coverage gates against `a24a619ad`.
-  CHECK: the inventory test with coverage under the heavy lock, merged; `BASE_REF=a24a619ad` new-file and patch gates
-  EXPECT: both exit 0 (the change is one data row in `scripts/`, outside the coverage source globs)
-  EVIDENCE: `receipts/cov-*.json`, `receipts/gate-*.json`
+- [x] G5: Coverage gates against `a24a619ad`.
+  CHECK: the inventory test with coverage under the heavy lock (22:43Z), merged; `BASE_REF=a24a619ad` new-file and patch gates
+  EXPECT: both exit 0
+  EVIDENCE: all at `65f250465`: `receipts/cov-w01j.attempt-1.json` 13 pass, 0 fail (222 expect calls);
+  `receipts/cov-merge.attempt-1.json` exit 0; `receipts/gate-new-file-coverage.attempt-1.json` "PASSED: no new
+  source files in this diff"; `receipts/gate-patch-coverage.attempt-1.json` "PASSED: all changed executable
+  lines covered (1 file(s))"; the session `receipts/cov-session.attempt-1.json` exit 0.
+
+## Red and green, and the hook
+
+- Red: G1 at `a24a619ad` (12/1). Green: G2 to G5 at `65f250465`.
+- The fix commit `65f250465` ran its hook's mapped suites inside the cap: 31 pass, 0 fail. No skip.
+- This docs commit changes no code.
