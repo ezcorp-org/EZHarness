@@ -223,11 +223,14 @@ export function factoryGuestModelRouteConformance(createFixture: () => Promise<F
     const result = await infer(attempt.request, route(async () => providerOver(provider.broker))(attempt));
     expect(result).toMatchObject({ status: "failed", error: { code: "provider_unavailable", retryable: false } });
     expect(String((result.error as { message: string }).message)).toContain("model 'qwen3:missing' not found");
-    // The failed row carries no usage, so the result cannot claim a measured total.
-    expect("usage" in result).toBe(false);
+    // W03f: the provider's error answer is its own account of the call, so the
+    // failed row carries that answer's measured usage and receipt digest, and
+    // the guest's result mirrors the row the product handed back.
+    expect(result.usage).toMatchObject({ kind: "measured" });
     await verifies(attempt, result);
     const rows = await operationRows(attempt);
-    expect(rows).toMatchObject([{ state: "failed", kind: "model", provider_receipt_digest: null }]);
+    expect(rows).toMatchObject([{ state: "failed", kind: "model", provider_receipt_digest: expect.stringMatching(/^[0-9a-f]{64}$/) }]);
+    expect((result.operations as unknown as Array<{ usage?: unknown }>)[0]!.usage).toEqual(result.usage);
   });
 
   test("an installation that pins no provider refuses by name and still journals the failed call", async () => {

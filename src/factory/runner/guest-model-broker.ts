@@ -1,5 +1,5 @@
 import { canonicalJson } from "@ezcorp/extension-contract";
-import { validateFactoryGuestModelRequest, validateFactoryGuestModelResponse, type FactoryGuestModelRefusal, type FactoryGuestModelRequest, type FactoryGuestModelResponse, type FactoryMeasuredUsage, type FactoryModelPin, type FactoryRunnerRequest } from "@ezcorp/factory-sdk";
+import { validateFactoryGuestModelRequest, validateFactoryGuestModelResponse, type FactoryGuestModelRefusal, type FactoryGuestModelRequest, type FactoryGuestModelResponse, type FactoryMeasuredUsage, type FactoryModelPin, type FactoryRunnerFailedOperation, type FactoryRunnerRequest } from "@ezcorp/factory-sdk";
 import { FactoryGuestFrameError } from "./guest-frames";
 
 /**
@@ -19,6 +19,32 @@ export interface FactoryGuestBroker {
 /** The guest model contract, served over that one seam. */
 export interface FactoryGuestModelBroker extends FactoryGuestBroker {
   call(request: FactoryRunnerRequest, payload: unknown): Promise<FactoryGuestModelResponse>;
+}
+
+/** The refusals that name a provider which answered with an error. */
+export type FactoryProviderRefusal = Extract<FactoryGuestModelRefusal, "provider_unavailable" | "provider_auth_failed" | "provider_rate_limited">;
+
+/**
+ * How a claimed call failed.
+ *
+ * `evidence` is present only when the provider itself answered with an error
+ * and reported what that answer consumed: its measured usage (zero before any
+ * token was consumed, the partial amount after) and a digest of that answer.
+ * A failure without it proves nothing about cost, so its operation settles
+ * with no usage and the stop keeps the reservation held.
+ */
+export interface FactoryModelFailure {
+  readonly code: FactoryProviderRefusal;
+  readonly message: string;
+  readonly evidence?: { readonly usage: FactoryMeasuredUsage; readonly providerReceiptDigest: string };
+}
+
+/** A provider that answered with an error, typed. Any other thrown error is `provider_unavailable` with no evidence. */
+export class FactoryModelProviderError extends Error {
+  constructor(readonly failure: FactoryModelFailure) {
+    super(failure.message);
+    this.name = "FactoryModelProviderError";
+  }
 }
 
 /** What a provider double or the real SDK broker must answer in one hop. */
@@ -67,8 +93,11 @@ export interface FactoryGuestModelJournal {
    * the deployment has already spent.
    */
   hold(attempt: FactoryRunnerRequest, request: FactoryGuestModelRequest, completion: FactoryModelCompletion): Promise<void>;
-  /** Settles a claimed operation that never produced a completion. */
-  fail(attempt: FactoryRunnerRequest, request: FactoryGuestModelRequest, reason: string): Promise<void>;
+  /**
+   * Settles a claimed operation that never produced a completion, and returns
+   * the operation exactly as settled, for the guest to copy into its result.
+   */
+  fail(attempt: FactoryRunnerRequest, request: FactoryGuestModelRequest, failure: FactoryModelFailure): Promise<FactoryRunnerFailedOperation>;
 }
 
 export interface FactoryGuestModelBrokerOptions {
@@ -82,8 +111,8 @@ export interface FactoryGuestModelBrokerOptions {
 }
 
 /** A typed refusal. Shared by every answer a guest's model request can get. */
-export function factoryGuestModelRefusal(operationId: string, code: FactoryGuestModelRefusal, message: string): FactoryGuestModelResponse {
-  return Object.freeze({ schemaVersion: "factory.guest-model-response.v1" as const, status: "refused" as const, operationId, refusal: Object.freeze({ code, message }) });
+export function factoryGuestModelRefusal(operationId: string, code: FactoryGuestModelRefusal, message: string, operation?: FactoryRunnerFailedOperation): FactoryGuestModelResponse {
+  return Object.freeze({ schemaVersion: "factory.guest-model-response.v1" as const, status: "refused" as const, operationId, refusal: Object.freeze({ code, message }), ...(operation === undefined ? {} : { operation }) });
 }
 
 /** The operation a payload names, or `unknown` when it names none a refusal could echo. */
@@ -105,6 +134,12 @@ export function isFactoryGuestModelPayload(payload: unknown): boolean {
 
 function reason(error: unknown): string {
   return error instanceof Error ? error.message.slice(0, 4_096) : "The provider was unavailable.";
+}
+
+/** A typed provider failure as thrown, or `provider_unavailable` with no evidence for anything else. */
+function failureOf(error: unknown): FactoryModelFailure {
+  if (error instanceof FactoryModelProviderError) return { ...error.failure, message: reason(error) };
+  return { code: "provider_unavailable", message: reason(error) };
 }
 
 /**
@@ -144,13 +179,14 @@ export function createFactoryGuestModelBroker(options: FactoryGuestModelBrokerOp
     try {
       completion = await options.provider.complete(request, attempt);
     } catch (error) {
-      const message = reason(error);
+      const failure = failureOf(error);
       // The claim is released as a failed settlement so the operation is not
-      // left dispatched forever by a provider that was simply unavailable.
-      // A failed release is reported to the guest as the same refusal; the
-      // operation then stays dispatched for `reconcileLate` to settle.
-      await options.journal.fail(attempt, request, message).catch(() => undefined);
-      return factoryGuestModelRefusal(request.operationId, "provider_unavailable", message);
+      // left dispatched forever by a provider that answered with an error. The
+      // settled operation rides on the refusal, because the guest's result must
+      // mirror it exactly. A failed release is reported as the same refusal
+      // with no operation; the operation then stays dispatched and held.
+      const operation = await options.journal.fail(attempt, request, failure).catch(() => undefined);
+      return factoryGuestModelRefusal(request.operationId, failure.code, failure.message, operation);
     }
 
     try {

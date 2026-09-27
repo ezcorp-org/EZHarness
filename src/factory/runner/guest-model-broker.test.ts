@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { FactoryGuestModelRequest, FactoryMeasuredUsage, FactoryModelPin, FactoryRunnerRequest } from "@ezcorp/factory-sdk";
-import { createFactoryGuestModelBroker, isFactoryGuestModelPayload, type FactoryGuestModelJournal, type FactoryModelCompletion } from "./guest-model-broker";
+import { createFactoryGuestModelBroker, FactoryModelProviderError, isFactoryGuestModelPayload, type FactoryGuestModelJournal, type FactoryModelCompletion } from "./guest-model-broker";
 import { createFactoryMemoryGuestModelJournal } from "./guest-model-journal";
 import { factoryLaunchRequest } from "../../__tests__/helpers/factory-attempt-launch-fixture";
 
@@ -42,7 +42,7 @@ function broker(options: { complete?: () => Promise<FactoryModelCompletion>; jou
     claim: memory.claim,
     record: async (a, r, c) => { calls.push("record"); await memory.record(a, r, c); },
     hold: async (a, r, c) => { calls.push("hold"); await memory.hold(a, r, c); },
-    fail: async (a, r, reason) => { calls.push("fail"); await memory.fail(a, r, reason); },
+    fail: async (a, r, failure) => { calls.push("fail"); return memory.fail(a, r, failure); },
   };
   const instance = createFactoryGuestModelBroker({
     provider: { complete: async () => { calls.push("provider"); return options.complete ? options.complete() : completion; } },
@@ -131,7 +131,10 @@ test("a refusal survives a release that itself fails, leaving the operation for 
     provider: { complete: async () => { throw new Error("provider gone"); } },
     journal: { claim: memory.claim, record: memory.record, hold: memory.hold, fail: async () => { throw new Error("journal unavailable"); } },
   });
-  expect(await instance.call(attempt(), request())).toMatchObject({ status: "refused", refusal: { code: "provider_unavailable", message: "provider gone" } });
+  const refused = await instance.call(attempt(), request());
+  expect(refused).toMatchObject({ status: "refused", refusal: { code: "provider_unavailable", message: "provider gone" } });
+  // No settled operation to hand back: the guest mirrors nothing it cannot prove.
+  expect("operation" in refused).toBe(false);
   // The operation stays claimed, so nothing else can repeat the effect while
   // `reconcileLate` has not settled it.
   expect(await instance.call(attempt(), request())).toMatchObject({ status: "refused", refusal: { code: "operation_busy" } });
@@ -205,4 +208,26 @@ test("the one seam routes a model payload here and everything else to its delega
   // Without a delegate a non-model payload is denied, not silently accepted.
   const alone = createFactoryGuestModelBroker({ provider: { complete: async () => completion }, journal: createFactoryMemoryGuestModelJournal() });
   await expect(alone.invoke(attempt(), { kind: "validator-report" })).rejects.toThrow("no other route");
+});
+
+test("W03f: a typed provider error refuses by its class and hands back the settled operation with the provider's measured usage", async () => {
+  const zero: FactoryMeasuredUsage = { kind: "measured", inputTokens: 0, outputTokens: 0, computeMs: 4, costMicros: "0" };
+  for (const code of ["provider_unavailable", "provider_auth_failed", "provider_rate_limited"] as const) {
+    const { instance, calls } = broker({ complete: async () => { throw new FactoryModelProviderError({ code, message: `the provider refused: ${code}`, evidence: { usage: zero, providerReceiptDigest: receipt } }); } });
+    const refused = await instance.call(attempt(), request());
+    expect(refused).toEqual({
+      schemaVersion: "factory.guest-model-response.v1", status: "refused", operationId: "run:node:0:0",
+      refusal: { code, message: `the provider refused: ${code}` },
+      operation: expect.objectContaining({ operationId: "run:node:0:0", operationIndex: 0, kind: "model", state: "failed", providerReceiptDigest: receipt, usage: zero }),
+    });
+    expect(calls).toEqual(["provider", "fail"]);
+  }
+});
+
+test("W03f: an untyped provider failure is provider_unavailable and its settled operation carries no usage, so nothing claims a cost", async () => {
+  const { instance } = broker({ complete: async () => { throw new Error("socket hang up"); } });
+  const refused = await instance.call(attempt(), request());
+  expect(refused).toMatchObject({ status: "refused", refusal: { code: "provider_unavailable", message: "socket hang up" }, operation: { state: "failed" } });
+  const operation = (refused as { operation?: Record<string, unknown> }).operation!;
+  expect("usage" in operation || "providerReceiptDigest" in operation).toBe(false);
 });

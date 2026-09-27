@@ -4,7 +4,7 @@ import { canonicalJson } from "@ezcorp/extension-contract";
 import type { FactoryGuestModelMessage, FactoryGuestModelRequest, FactoryMeasuredUsage, FactoryModelPin, FactoryRunnerRequest } from "@ezcorp/factory-sdk";
 import type { FactoryBroker } from "../../runtime/factory-execution";
 import { factoryModelSamplingOptions } from "../model-configuration";
-import type { FactoryModelCompletion, FactoryOneHopProvider } from "./guest-model-broker";
+import { FactoryModelProviderError, type FactoryModelCompletion, type FactoryModelFailure, type FactoryOneHopProvider, type FactoryProviderRefusal } from "./guest-model-broker";
 import { factoryGuestModelOperation } from "./guest-model-journal";
 
 /**
@@ -93,6 +93,41 @@ export function factoryMeasuredUsageOf(message: AssistantMessage, computeMs: num
   };
 }
 
+/**
+ * The typed class of a provider's error answer, read from the HTTP status the
+ * provider SDK puts at the head of its message ("401 ...", "429: ...",
+ * "Provider (403): ..."). 401 and 403 are a refused credential, 429 is a
+ * refused rate, and everything else, including a message with no status, is
+ * `provider_unavailable`: a narrower class is never guessed.
+ */
+export function factoryProviderRefusalOf(errorMessage: string | undefined): FactoryProviderRefusal {
+  const status = /^(?:[^()\n]{0,80}\()?(\d{3})\)?[:\s]/.exec(errorMessage ?? "")?.[1];
+  if (status === "401" || status === "403") return "provider_auth_failed";
+  if (status === "429") return "provider_rate_limited";
+  return "provider_unavailable";
+}
+
+/**
+ * The failure a provider's non-answer raises.
+ *
+ * An error answer is the provider's own account of the call, so it carries
+ * that account's measured usage (zero when it failed before consuming a
+ * token) and a digest of the answer. An aborted stream is not the provider's
+ * account of anything: what it consumed is unknown, so it carries no
+ * evidence, and a usage the provider reported that cannot be settled is
+ * dropped the same way. Without evidence the stop keeps the cost held.
+ */
+function providerFailure(message: AssistantMessage, computeMs: number): FactoryModelFailure {
+  const text = `The provider did not complete the call: ${message.stopReason}${message.errorMessage ? ` (${message.errorMessage})` : ""}.`;
+  if (message.stopReason !== "error") return { code: "provider_unavailable", message: text };
+  const code = factoryProviderRefusalOf(message.errorMessage);
+  try {
+    return { code, message: text, evidence: { usage: factoryMeasuredUsageOf(message, computeMs), providerReceiptDigest: factoryProviderReceiptDigest(message) } };
+  } catch {
+    return { code, message: text };
+  }
+}
+
 export function createFactoryOneHopProvider(options: FactoryOneHopProviderOptions): FactoryOneHopProvider {
   const now = options.now ?? Date.now;
   return Object.freeze({
@@ -119,7 +154,7 @@ export function createFactoryOneHopProvider(options: FactoryOneHopProviderOption
       // C10: a failed or aborted provider answer is a readiness failure, not a
       // shorter answer. Recording a cost for it would settle a result that has
       // no content.
-      if (message.stopReason === "error" || message.stopReason === "aborted") throw new Error(`The provider did not complete the call: ${message.stopReason}${message.errorMessage ? ` (${message.errorMessage})` : ""}.`);
+      if (message.stopReason === "error" || message.stopReason === "aborted") throw new FactoryModelProviderError(providerFailure(message, now() - startedAtMs));
       return Object.freeze({ text: textOf(message), providerReceiptDigest: factoryProviderReceiptDigest(message), usage: factoryMeasuredUsageOf(message, now() - startedAtMs) });
     },
   });

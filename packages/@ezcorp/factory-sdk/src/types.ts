@@ -555,13 +555,22 @@ export interface FactoryGuestModelRequest {
   readonly maxOutputTokens: number;
 }
 
-/** Why a model call was refused. A refusal is never a quiet substitution. */
+/**
+ * Why a model call was refused. A refusal is never a quiet substitution.
+ *
+ * Three codes name a provider that answered with an error:
+ * `provider_auth_failed` (it refused the credential), `provider_rate_limited`
+ * (it refused for rate), and `provider_unavailable` (anything else, including
+ * every error the host cannot classify; a narrower code is never guessed).
+ */
 export type FactoryGuestModelRefusal =
   | "model_pin_mismatch"
   | "input_too_large"
   | "operation_busy"
   | "operation_settled"
   | "provider_unavailable"
+  | "provider_auth_failed"
+  | "provider_rate_limited"
   | "invalid_request";
 
 export type FactoryGuestModelResponse =
@@ -579,6 +588,13 @@ export type FactoryGuestModelResponse =
     readonly status: "refused";
     readonly operationId: string;
     readonly refusal: { readonly code: FactoryGuestModelRefusal; readonly message: string };
+    /**
+     * The operation exactly as the host journaled it, present when the call was
+     * claimed and settled `failed`. A guest copies it into its result's
+     * `operations` unchanged: the host verifies a result against its journal
+     * byte for byte, and only the host knows the settled code and usage.
+     */
+    readonly operation?: FactoryRunnerFailedOperation;
   };
 
 /**
@@ -786,6 +802,9 @@ export type FactoryRunnerOperationResult =
     readonly usage: FactoryUnknownUsage;
     readonly workspaceCheckpoint?: FactoryCheckpointReference;
   });
+
+/** A settled `failed` operation, the one shape a refused model call may hand back. */
+export type FactoryRunnerFailedOperation = Extract<FactoryRunnerOperationResult, { readonly state: "failed" }>;
 
 interface FactoryRunnerResultBase {
   readonly schemaVersion: "factory.runner.result.v1";

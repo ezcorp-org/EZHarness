@@ -947,13 +947,23 @@ export function validateFactoryGuestModelRequest(value: unknown): ValidationResu
   return { ok: true };
 }
 
+/** The refusals that name a provider which answered with an error. */
+const PROVIDER_REFUSALS: ReadonlySet<string> = new Set(["provider_unavailable", "provider_auth_failed", "provider_rate_limited"]);
+
 /** The host's single reply. A completed answer is whole, and a refusal names itself. */
 export function validateFactoryGuestModelResponse(value: unknown): ValidationResult {
   if (!isFactoryGuestModelResponse(value)) return issue("GUEST_MODEL_SCHEMA", "Value does not match the generated FactoryGuestModelResponse schema.", []);
   const response = value as FactoryGuestModelResponse;
   if (!boundedText(response.operationId, 1_024)) return issue("GUEST_MODEL_OPERATION", "A guest model response must name its operation.", ["operationId"]);
   if (response.status === "refused") {
-    return boundedText(response.refusal.message, 4_096) ? { ok: true } : issue("GUEST_MODEL_REFUSAL", "A refusal needs a bounded message.", ["refusal", "message"]);
+    if (!boundedText(response.refusal.message, 4_096)) return issue("GUEST_MODEL_REFUSAL", "A refusal needs a bounded message.", ["refusal", "message"]);
+    if (response.operation === undefined) return { ok: true };
+    // A settled operation rides only on a provider refusal, and only for the
+    // model operation this response names: a guest copies it into its result.
+    if (!PROVIDER_REFUSALS.has(response.refusal.code) || response.operation.kind !== "model" || response.operation.operationId !== response.operationId) {
+      return issue("GUEST_MODEL_OPERATION", "Only a provider refusal carries its settled model operation, and only its own.", ["operation"]);
+    }
+    return validateOperation(response.operation, ["operation"]);
   }
   if (encodedBytes(response.text as unknown as JsonValue) > FACTORY_GUEST_MODEL_LIMITS.maxResponseBytes) {
     return issue("GUEST_MODEL_RESPONSE_BYTES", `A guest model response exceeds ${FACTORY_GUEST_MODEL_LIMITS.maxResponseBytes} bytes.`, ["text"]);

@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
 import { canonicalJson, type JsonValue } from "@ezcorp/extension-contract";
-import type { FactoryGuestModelRequest, FactoryRunnerRequest } from "@ezcorp/factory-sdk";
+import type { FactoryGuestModelRequest, FactoryRunnerFailedOperation, FactoryRunnerRequest } from "@ezcorp/factory-sdk";
 import type { FactoryAttemptAuthority, FactoryExecutionJournal, FactoryJournalOperation } from "../executions";
 import { factoryRunnerRequestAuthority } from "./attempt-authority";
-import type { FactoryGuestModelClaim, FactoryGuestModelJournal, FactoryModelCompletion } from "./guest-model-broker";
+import type { FactoryGuestModelClaim, FactoryGuestModelJournal, FactoryModelCompletion, FactoryModelFailure } from "./guest-model-broker";
 import type { FactoryWorkspaceCheckpoint } from "./supervisor";
 
 /**
@@ -39,6 +39,25 @@ export function factoryGuestModelOperation(request: FactoryGuestModelRequest): F
 /** What a completed model operation stores, so recovery replays it instead of re-calling. */
 export function factoryGuestModelResult(completion: FactoryModelCompletion): JsonValue {
   return { schemaVersion: "factory.guest-model-response.v1", status: "completed", text: completion.text, providerReceiptDigest: completion.providerReceiptDigest, usage: { ...completion.usage } } as unknown as JsonValue;
+}
+
+/**
+ * The failed operation a claimed call settles, and the exact row a guest mirrors.
+ *
+ * The result names the typed refusal and its message. The provider's own
+ * evidence, when it reported any, rides on the row as its measured usage and
+ * receipt digest, which is what lets the stop settle the call's cost from the
+ * journal instead of holding it.
+ */
+export function factoryGuestModelFailure(request: FactoryGuestModelRequest, failure: FactoryModelFailure): { readonly result: JsonValue; readonly operation: FactoryRunnerFailedOperation } {
+  const result = { code: failure.code, message: failure.message.slice(0, 4_096) } as unknown as JsonValue;
+  const operation: FactoryRunnerFailedOperation = Object.freeze({
+    ...factoryGuestModelOperation(request),
+    state: "failed" as const,
+    resultDigest: digest(result),
+    ...(failure.evidence === undefined ? {} : { providerReceiptDigest: failure.evidence.providerReceiptDigest, usage: Object.freeze({ ...failure.evidence.usage }) }),
+  });
+  return { result, operation };
 }
 
 export interface FactoryJournalGuestModelOptions {
@@ -79,11 +98,14 @@ export function createFactoryJournalGuestModelJournal(options: FactoryJournalGue
       // reconciliation that recovers this cost fail as a mismatch.
       await options.journal.settle(authority, operation.operationId, "uncertain", { providerReceiptDigest: completion.providerReceiptDigest, usage: completion.usage });
     },
-    async fail(attempt: FactoryRunnerRequest, request: FactoryGuestModelRequest, reason: string): Promise<void> {
+    async fail(attempt: FactoryRunnerRequest, request: FactoryGuestModelRequest, failure: FactoryModelFailure): Promise<FactoryRunnerFailedOperation> {
       const authority = factoryRunnerRequestAuthority(attempt);
-      const operation = factoryGuestModelOperation(request);
-      const result = { code: "factory_guest_model_failed", message: reason.slice(0, 4_096) } as unknown as JsonValue;
-      await options.journal.settle(authority, operation.operationId, "failed", { resultDigest: digest(result), result });
+      const { result, operation } = factoryGuestModelFailure(request, failure);
+      await options.journal.settle(authority, operation.operationId, "failed", {
+        resultDigest: operation.resultDigest, result,
+        ...(operation.usage === undefined ? {} : { usage: operation.usage, providerReceiptDigest: operation.providerReceiptDigest! }),
+      });
+      return operation;
     },
   });
 }
@@ -122,8 +144,9 @@ export function createFactoryMemoryGuestModelJournal(): FactoryGuestModelJournal
       states.set(key(attempt, request), "settled");
       held.push({ operationId: request.operationId, providerReceiptDigest: completion.providerReceiptDigest, usage: { ...completion.usage } });
     },
-    async fail(attempt: FactoryRunnerRequest, request: FactoryGuestModelRequest): Promise<void> {
+    async fail(attempt: FactoryRunnerRequest, request: FactoryGuestModelRequest, failure: FactoryModelFailure): Promise<FactoryRunnerFailedOperation> {
       states.set(key(attempt, request), "settled");
+      return factoryGuestModelFailure(request, failure).operation;
     },
   });
 }

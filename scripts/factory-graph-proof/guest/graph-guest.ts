@@ -24,16 +24,17 @@
  *     guest recovers the checkpoint's handle with W01g's recovery frames: a
  *     repeated begin of a sealed material answers `begun`, and a seal naming
  *     the same digest answers the sealed handle;
- *   - `provider_unavailable` names a failed operation whose result is
- *     `{ code: "factory_guest_model_failed", message }`, because the product
- *     settles every claimed call that reached no answer that way;
+ *   - a claimed call that reached no answer comes back as a provider refusal
+ *     carrying the operation the product settled (W03f): its typed code, and
+ *     the provider's measured usage when the provider reported one. The guest
+ *     copies that operation verbatim, because only the product knows it;
  *   - every other refusal is decided before the claim and leaves no row.
  *
- * Usage follows the same rule the journal does. A result that settled no
- * operation reports a MEASURED zero, which is the sum over no operations; an
- * unmeasured one would become an unknown budget hold that nothing can clear,
- * and the run could never end. A failed call carries no usage on its journal
- * row, so a result that mirrors one cannot claim a measured total and omits it.
+ * Usage mirrors the rows: the sum over them when every row is measured (a
+ * measured zero over no rows), and nothing when a row carries no usage. The
+ * product settles a failed attempt from its journal at the stop, never from
+ * this number (W03f supersedes eb7b8b8c5, where this guest's zero decided the
+ * settlement); the number only has to agree with the rows.
  */
 import { canonicalizeJson, sha256Hex } from "@ezcorp/factory-sdk/canonical";
 import { createFactoryGuestStaging, factoryGuestCheckpointName, type FactoryGuestBrokerCall } from "@ezcorp/factory-sdk/guest-materials";
@@ -172,16 +173,16 @@ export async function infer(request: FactoryRunnerRequest, call: FactoryGuestBro
   } as unknown as JsonValue) as FactoryGuestModelResponse;
 
   if (answer.status === "refused") {
-    const failure = { code: "factory_guest_model_failed", message: answer.refusal.message } as const;
-    const settled = answer.refusal.code === "provider_unavailable";
+    const settled = answer.operation;
+    const usage = settled === undefined ? ZERO_USAGE : settled.usage?.kind === "measured" ? settled.usage : undefined;
     return {
       schemaVersion: "factory.runner.result.v1",
       status: "failed",
-      journalCursor: settled ? index : index - 1,
-      operations: settled ? [{ operationId: id, operationIndex: index, kind: "model", state: "failed", requestDigest, resultDigest: digest(failure) }] : [],
+      journalCursor: settled === undefined ? index - 1 : index,
+      operations: settled === undefined ? [] : [settled as unknown as JsonValue],
       resultDigest: digest({ code: answer.refusal.code, message: answer.refusal.message }),
       error: { code: answer.refusal.code, message: answer.refusal.message, retryable: false },
-      ...(settled ? {} : { usage: ZERO_USAGE as unknown as JsonValue }),
+      ...(usage === undefined ? {} : { usage: usage as unknown as JsonValue }),
     };
   }
 
