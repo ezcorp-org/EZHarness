@@ -3996,6 +3996,8 @@ Gate file: `tasks/factory/w15f-GATES.md`. Evidence: `/tmp/factory-platform-evide
 - [x] Reproduce from W01i's lane (15 `usage-reconciliation:fault` reports of one hold) with a lifecycle suite; red at 4 reports in 4 passes.
 - [x] Mark the hold once with both epochs, report once, skip until the epoch moves; the hold stays uncertain.
 - [x] PGlite and PostgreSQL suites for the fence, budgets, task stops, restore, checkpoint, schema; coverage gates.
+- [x] Round 2: a signed restore supersedes the old epoch's live attempts (status `superseded`, record with the signed digest and the kernel event); the scan skips a marked hold only while its attempt is live; W05b's clear falls back to the supersession; names and migration order agreed with W03f.
+- [ ] Joint test with W03f (a marked hold settles at the reserved bound after a signed restore): on whichever branch merges second.
 
 Review (W15f): The fault was usage reconciliation meeting a run fence that a restore had moved:
 the old attempt's authority can never name the new epoch, so every pass failed the same hold. The

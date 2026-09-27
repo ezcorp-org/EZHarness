@@ -1671,3 +1671,7 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
   caught it. Assert `jsonb_typeof(...) = 'object'` in the test.
 - A scan that skips rows by a stored mark must compare with `IS DISTINCT FROM`, so a mark it cannot read keeps the row
   (and its loud report) rather than hiding it: `NULL <> value` is not true, and the row vanishes in silence.
+- Before relaunching a background job, look at the flock queue itself (`pgrep -af 'flock --close'`), not only a
+  pattern for the script. A job started with `&` in a tool shell survived the shell, my narrower check missed it,
+  and the W15f batch ran twice back to back, holding the shared lock twice for nothing.
+
