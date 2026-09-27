@@ -23,30 +23,32 @@ is shorter than its own 25 s shutdown hard timeout.
 - [x] G1: Every startup probe runs under its own named 15 s deadline as well as the caller's signal; a probe that outlives it (even one that ignores its signal) is reported unavailable as `<service>_probe_timeout` and boot continues.
   CHECK: `bun test ./src/factory/service-probes.test.ts`
   EXPECT: exit 0
-  EVIDENCE: pending hold
+  EVIDENCE: hold c1 at ca68c6de5, `/tmp/factory-platform-evidence/w16c/receipts/c1/`
 
 - [x] G2: The storage probe hands its signal to the store; `S3BlobStore` put and get take an optional `{ signal }` and pass it to the S3 client as `abortSignal`, so a request that never answers is aborted; without a signal, requests go out as before.
   CHECK: `bun test ./src/factory/service-probes.test.ts ./src/extensions/v4/blobs-s3.test.ts`
   EXPECT: exit 0
-  EVIDENCE: pending hold
+  EVIDENCE: hold c1 at ca68c6de5, `/tmp/factory-platform-evidence/w16c/receipts/c1/`
 
 - [x] G3: Boot phases (config, bind-installation, object-store, provider-broker, collaborators, runtime) and each probe verdict are traced with elapsed ms; a throwing phase still reports its finish.
   CHECK: `bun test ./src/factory/installation-startup.test.ts`
   EXPECT: exit 0
-  EVIDENCE: pending hold
+  EVIDENCE: hold c1 at ca68c6de5, `/tmp/factory-platform-evidence/w16c/receipts/c1/`
 
 - [x] G4: The web host logs every phase and bounds boot at FACTORY_BOOT_BOUND_MS (180 s; 7 probes × 15 s = 105 s worst case, inside the provisioner's 600 s wait); past it, it logs the phase it stalled in and the last one finished, degrades readiness (`factory-boot-stalled`), and exits 1 so its supervisor restarts it.
   CHECK: `cd web && npx vitest run src/__tests__/factory-boot.server.test.ts`
   EXPECT: 13 passed
-  EVIDENCE: pending hold
+  EVIDENCE: hold c1 at ca68c6de5, `/tmp/factory-platform-evidence/w16c/receipts/c1/`
 
 - [x] G5: The boot migrate lock waits a bounded 120 s (pg_try_advisory_lock polled every second), logs "waiting for migrate lock held by pid N" once per holder, and past the deadline fails boot by name (`migrate_lock_timeout`, holder pid) with the reserved connection released; proven against a real server.
   CHECK: `bun test ./src/__tests__/db-connection.test.ts ./src/__tests__/cov-fix-connection-postgres.test.ts`; `tests/postgres/migrate-lock.test.ts` under the lock
   EXPECT: exit 0
-  EVIDENCE: pending hold
+  EVIDENCE: hold c1 at ca68c6de5, `/tmp/factory-platform-evidence/w16c/receipts/c1/`
 
-- [ ] G6: Hold: PostgreSQL (migrate-lock plus a factory suite that migrates through the lock), focused suites with lcov, web vitest with lcov, coverage vs f7c1290a6 (100 percent on changed lines and new files), typecheck, lint, boundaries, gate integrity, PostgreSQL suite registration.
-  EVIDENCE: pending
+- [x] G6: Hold: PostgreSQL (migrate-lock plus factory suites that migrate through the lock), focused suites with lcov, web vitest with lcov, coverage vs f7c1290a6 (100 percent on changed lines and new files), typecheck, lint, boundaries, gate integrity, PostgreSQL suite registration.
+  CHECK: `flock --close /tmp/ezcorp-validation-heavy.lock timeout 5400 bash /tmp/factory-platform-evidence/w16/repro/leaf-hold.sh /tmp/factory-platform-evidence/w16c/hold-config.sh <label>`
+  EXPECT: every leg exit 0
+  EVIDENCE: hold c1 at ca68c6de5 (06:58Z to 07:00Z), 14 receipts, all exit 0, clean at start: PostgreSQL 20/0 (migrate-lock, factory-schema, factory-restore), focused 143/0, web factory-boot 13, boundary suites 48/0; patch coverage 7 files, no new source file; typecheck, lint, boundaries, gate integrity 0
 
 ## Not in W16c (with reason)
 
