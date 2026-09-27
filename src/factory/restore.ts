@@ -11,6 +11,8 @@ import type { InstallationDataKey } from "./encryption";
 import type { FactoryPrincipal } from "./grants";
 import { validateFactoryStopReceipt, type FactoryJournalHostKey } from "./journal-validation";
 import { assertFactoryIdentity, FactoryRecordError, FactoryRecords, type FactoryRunKey } from "./records";
+import { supersedeEpochAttemptsInTransaction } from "./attempt-supersessions";
+import { FactoryInbox } from "./inbox";
 import { parseFactoryArchiveReference, readFactoryRecoveryJson, writeFactoryRecoveryJson, type FactoryArchivedReleaseCatalog, type FactoryArchivedReleaseObjects, type FactoryRecoveryArchive } from "./recovery-archive";
 import type { FactoryArchiveObject, FactoryProviderReceipt, FactoryReleaseArchive, FactoryReleaseOperation, FactoryReleaseProvider } from "./releases";
 import type { FactoryPhysicalStopReceipt } from "./runner/attempt-wire";
@@ -306,7 +308,7 @@ export class FactoryRestore {
    * do unblocked runs move to the new epoch and service reopen. A report with
    * a blocked check cannot be signed into service.
    */
-  async sign(restoreId: string, principal: FactoryPrincipal, reportDigest: string): Promise<{ readonly enabled: true; readonly rebound: number; readonly blockedRuns: readonly string[] }> {
+  async sign(restoreId: string, principal: FactoryPrincipal, reportDigest: string): Promise<{ readonly enabled: true; readonly rebound: number; readonly superseded: number; readonly blockedRuns: readonly string[] }> {
     assertFactoryIdentity(restoreId);
     const actor = Object.freeze({ kind: principal.kind, id: principal.id, authentication: principal.authentication });
     if (actor.kind !== "user" || actor.authentication !== "session") throw new FactoryRestoreError("factory_restore_human_required");
@@ -332,9 +334,14 @@ export class FactoryRestore {
         await transaction.execute(sql`UPDATE factory_runs SET execution_epoch = ${next} WHERE tenant_id = ${this.tenantId} AND project_id = ${run.project_id} AND run_id = ${run.run_id}`);
         rebound += 1;
       }
+      // Every attempt of the epoch this restore left ends here, with the signed
+      // report as its proof: its authority can never pass the run fence again (W15f).
+      const superseded = await supersedeEpochAttemptsInTransaction(transaction, new FactoryInbox(this.database, this.tenantId), {
+        tenantId: this.tenantId, previousEpoch: previous, executionEpoch: next, restoreId, restoreDigest: reportDigest, atMs: this.now(),
+      });
       await transaction.execute(sql`UPDATE factory_restore_epochs SET state = 'enabled', signed_by = ${actor.id}, signed_at_ms = ${this.now()}, enabled_at_ms = ${this.now()}, updated_at = NOW() WHERE tenant_id = ${this.tenantId} AND restore_id = ${restoreId}`);
-      await insertTransactionalAuditEntry(transaction, `factory-restore-enabled:${this.tenantId}:${restoreId}`, actor.id, "factory.restore.enabled", restoreId, { tenantId: this.tenantId, reportDigest, executionEpoch: next, rebound, blockedRuns: report.blockedRuns });
-      return { enabled: true as const, rebound, blockedRuns: report.blockedRuns };
+      await insertTransactionalAuditEntry(transaction, `factory-restore-enabled:${this.tenantId}:${restoreId}`, actor.id, "factory.restore.enabled", restoreId, { tenantId: this.tenantId, reportDigest, executionEpoch: next, rebound, superseded, blockedRuns: report.blockedRuns });
+      return { enabled: true as const, rebound, superseded, blockedRuns: report.blockedRuns };
     });
   }
 
