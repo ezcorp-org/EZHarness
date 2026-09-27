@@ -397,21 +397,44 @@ residual-fix files) pass individually at their real invocation (`d-src-isolated-
   read or write the poisoned target); the control (the same poisoned env, unprotected) DOES leak into
   the dummy (`git config user.email` written into its real config), proving the poison in the proof is
   real and not a no-op.
-  RESIDUAL — 13 test failures surfaced under poison, in 3 of the 17 files, ALL and ONLY on tests that
-  exercise pre-existing PRODUCTION git wrappers this item's scope never touched:
-  `src/extensions/git.ts`'s `gitExec()` (spreads `{...process.env}` with no `GIT_*` stripping — used by
-  its `clone()`/`getCurrentRef()`/`lsRemoteTags()`, exercised by `source-parser.test.ts` and
-  `source-parser-git-coverage.test.ts`) and `scripts/unlanded-branches.ts`'s internal
-  `Bun.spawnSync(["git",...args],{cwd})` (no `env` override at all — exercised by its exported `main()`,
-  used in `unlanded-branches.test.ts`'s real-git describe block). A third instance of the same gap
-  (found earlier, not triggered by this specific poison run): `docs/extensions/examples/docs-updater/index.ts`'s
-  `HERMETIC_GIT_ENV` blocks global/system config reads but never strips `GIT_DIR`/`GIT_INDEX_FILE`/
-  `GIT_WORK_TREE`. These are production runtime code, not test fixtures — outside item C's stated scope
-  ("convert 27 disclosed bare git-init TESTS") — reported to team-lead for a ruling rather than fixed
-  unilaterally; item C's own 17 conversions are unaffected by and do not depend on that ruling.
-  EVIDENCE: `/tmp/w18-hygiene-3-poison-check.ts`, `/tmp/w18-hygiene-3-poison-check2.ts` (not repo-tracked,
-  scratch proof scripts); full failing-test list captured, all 13 map 1:1 to the three production
-  call sites above.
+  RESIDUAL, CORRECTED (validator-3's F2 finding on the original draft of this entry, which undercounted
+  both the failures and the sites): this item's own scratch poison probe found 13 failures in 3 files
+  and named 3 production wrapper sites; validator-3's later, more rigorous poison run over the full 17
+  Group 1 files plus their siblings found 21 test failures across 7 files, naming FOUR real production
+  wrapper sites, one of which (`repo-activity-notify`) this item's own probe missed entirely. All ONLY
+  on tests that exercise pre-existing PRODUCTION git wrappers this item's scope never touched — these
+  are production runtime code, not test fixtures, outside item C's stated scope ("convert 27 disclosed
+  bare git-init TESTS") — reported to team-lead for a ruling rather than fixed unilaterally; item C's
+  own 17 conversions are unaffected by and do not depend on that ruling. The fixes for all four sites
+  landed later, in item C2 (branch `wp/w18-hygiene-c2`, gates doc GC11-15).
+  POISON RECIPE (validator-3's, `/tmp/factory-platform-evidence/w18-hygiene-validation/itemC/poison.sh`):
+  a real scratch "dummy" repo at `$D`, then every file run as
+  `env GIT_DIR=$D/.git GIT_INDEX_FILE=$D/.git/index GIT_WORK_TREE=$D GIT_COMMON_DIR=$D/.git
+  GIT_OBJECT_DIRECTORY=$D/.git/objects HOME=$H timeout 600 bun test --timeout 60000 ./<file>`, one file
+  per process (no lock needed). A snapshot of `$D` before and after every run, plus an explicit control
+  (the same poison, no protection, does write into `$D`), proves the poison is both harmless-if-ignored
+  and effective-if-not.
+  - `src/extensions/git.ts`'s `gitExec()` (spreads `{...process.env}` with no `GIT_*` stripping — used
+    by its `clone()`/`getCurrentRef()`/`lsRemoteTags()`): 7 failures —
+    `src/__tests__/source-parser-git-coverage.test.ts` (3) + `src/__tests__/source-parser.test.ts` (4).
+  - `scripts/unlanded-branches.ts`'s internal `Bun.spawnSync(["git",...args],{cwd})` (no `env` override
+    at all — exercised by its exported `main()`): 5 failures — `src/__tests__/unlanded-branches.test.ts`.
+  - `docs/extensions/examples/docs-updater/index.ts`'s `HERMETIC_GIT_ENV` (blocks global/system config
+    reads but never strips `GIT_DIR`/`GIT_INDEX_FILE`/`GIT_WORK_TREE` — IS triggered, this entry's
+    original draft said only "found earlier, not triggered"; that was wrong): 7 failures —
+    `docs/extensions/examples/docs-updater/index.integration.test.ts` (3) +
+    `src/extensions/first-party-integration/docs-updater/git.test.ts` (4).
+  - `docs/extensions/examples/repo-activity-notify/index.ts`'s `readGitHead` (undisclosed by this
+    entry's original draft entirely): 1 failure —
+    `src/extensions/first-party-integration/repo-activity-notify/git.test.ts`.
+  Total: 20 real failures across four sites. The 21st (`src/__tests__/git-install.test.ts`, 1 failure)
+  is a METHODOLOGY ARTIFACT, not a fifth site: poisoning `HOME` moves rootless podman's image store,
+  which this test's runner depends on regardless of git isolation — `RunnerError: ...image not known`,
+  unrelated to any git-context bug. Stated explicitly so it is never miscounted as a real site.
+  EVIDENCE: `/tmp/w18-hygiene-3-poison-check.ts`, `/tmp/w18-hygiene-3-poison-check2.ts` (this item's own
+  original, less complete probe; not repo-tracked, scratch proof scripts);
+  `/tmp/factory-platform-evidence/w18-hygiene-validation/itemC/poison-results.txt` and the per-file
+  `poison-*.log` files beside it (validator-3's authoritative run, cited above).
 
 - [x] GC6: bisected leak fix — `src/__tests__/extensions-patch-route.test.ts` and
   `src/__tests__/extensions-delete-route-policy.test.ts` converted their `extension-lifecycle-service`/
@@ -564,11 +587,12 @@ residual-fix files) pass individually at their real invocation (`d-src-isolated-
   fail for its own tests). That omission is the bug L3 names, not a specific number now known to be
   wrong — the raw log from that run is gone. Re-run today (2026-09-27, same worktree, same 25-file
   list at `/tmp/pglite-sample.txt`, same four files, same order) to replace it with a citation that
-  states both counts explicitly: 413 pass, 0 fail, 0 errors across 29 files (`bun test` prints an
-  explicit "N error(s)" line whenever a module fails to link; its absence here is confirmed, not
-  assumed, by grepping the full run's output for "Unhandled error" / "SyntaxError" / "not found in
-  module", zero matches). Going forward, any citation of a multi-file run's result in this doc states
-  pass, fail, AND error counts together, never pass/fail alone.
+  states both counts explicitly: 413 pass, 0 fail, 0 errors across 29 files
+  (`/tmp/w18-hygiene-3-gc9-sample-rerun.log`; `bun test` prints an explicit "N error(s)" line whenever a
+  module fails to link; its absence here is confirmed, not assumed, by grepping the full run's output
+  for "Unhandled error" / "SyntaxError" / "not found in module", zero matches). Going forward, any
+  citation of a multi-file run's result in this doc states pass, fail, AND error counts together, never
+  pass/fail alone.
   A DIFFERENT, PRE-EXISTING, UNRELATED issue was reported at the time as surfacing in that 25-file
   sample (`Export named 'checkRole'/'checkProjectRole'/'requireRole' not found in module
   '$server/auth/middleware'`), confirmed present identically whether this item's fix is applied or not
