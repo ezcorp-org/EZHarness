@@ -353,12 +353,17 @@ describe("FactoryComputeAdmissions", () => {
     expect(await reservationState(value)).toBe("held");
   });
 
-  test("rejection commits a negative event while the product hold remains", async () => {
+  test("rejection commits a negative event and releases the unused hold at a known zero, once (C03; W02d R9)", async () => {
     const value = await fixture();
     value.pool.decisions.push({ status: "rejected", reservationId: value.input.request.reservationId, reason: "capacity" });
     const result = await value.admissions.dispatchNext(service);
     expect(result).toMatchObject({ status: "rejected", event: { granted: false } });
-    expect(await reservationState(value)).toBe("held");
+    // The pool assigned nothing, so nothing ran: the hold settles at zero on the pool's own rejection as receipt.
+    expect(await reservationState(value)).toBe("settled");
+    const [settled] = rows<{ actual: string; receipt_digest: string }>(await value.db.execute(sql`SELECT actual, receipt_digest FROM factory_budget_reservations WHERE tenant_id=${tenantId} AND project_id=${projectId} AND run_id=${value.runId} AND reservation_id=${value.input.request.reservationId}`));
+    expect(JSON.parse(settled!.actual)).toEqual({ costMicros: "0", tokens: "0", computeMs: "0" });
+    const [admission] = rows<{ response_digest: string }>(await value.db.execute(sql`SELECT response_digest FROM factory_compute_admissions WHERE tenant_id=${tenantId} AND project_id=${projectId} AND run_id=${value.runId} AND reservation_id=${value.input.request.reservationId}`));
+    expect(settled!.receipt_digest).toBe(admission!.response_digest);
     expect(rows(await value.db.execute(sql`SELECT event_id FROM factory_inbox_events WHERE run_id=${value.runId}`))).toHaveLength(1);
   });
 

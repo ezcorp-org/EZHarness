@@ -77,6 +77,9 @@ function canonical<T>(value: T): { readonly value: T; readonly json: string; rea
   return { value: JSON.parse(json) as T, json, digest: durableInputHash(JSON.parse(json)) };
 }
 
+/** What a reservation the pool never assigned used: nothing, in every dimension. */
+const NOTHING_ASSIGNED = Object.freeze({ costMicros: "0", tokens: 0, computeMs: 0 });
+
 function canonicalDecision(value: PoolDecision): ReturnType<typeof canonical<unknown>> {
   if (value.status !== "admitted") return canonical(value);
   const deadlineAt = value.lease?.deadlineAt;
@@ -394,6 +397,9 @@ export class FactoryComputeAdmissions {
         granted: admitted,
       };
       const encodedDecision = canonicalDecision(decision);
+      // A rejection assigned nothing, so nothing ran: the unused hold settles at a known zero, with the pool's own
+      // rejection as its receipt (C03: failure before compute assignment releases the hold; W02d R9).
+      if (!admitted) await this.budgets.settleInTransaction(transaction, { projectId: current.project_id, runId: current.run_id, reservationId: current.reservation_id }, NOTHING_ASSIGNED, encodedDecision.digest);
       const encodedEvent = event === undefined ? undefined : canonical(event);
       if (encodedEvent) await this.inbox.enqueueInTransaction(transaction, { projectId: current.project_id, runId: current.run_id, interpreterId: claim.input.reference.interpreterId }, encodedEvent.value);
       await transaction.execute(sql`UPDATE factory_compute_admissions SET state=${admitted ? "admitted" : "rejected"}, response_digest=${encodedDecision.digest}, response_json=${encodedDecision.json}, event_digest=${encodedEvent?.digest ?? null}, event_json=${encodedEvent?.json ?? null}, next_poll_at=0, poll_lease_until=0, poll_lease_token=NULL, updated_at=NOW() WHERE tenant_id=${this.tenantId} AND project_id=${current.project_id} AND run_id=${current.run_id} AND reservation_id=${current.reservation_id}`);
