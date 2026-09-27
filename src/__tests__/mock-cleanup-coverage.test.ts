@@ -914,11 +914,33 @@ function isCompleteLibFactoryBody(body: string): boolean {
  * LATER file's route module first resolved the alias froze that later file
  * on the narrow shape).
  */
-function isCompleteServerFactoryBody(body: string): boolean {
+function isCompleteServerFactoryBody(body: string, source?: string): boolean {
   const b = body.trim();
   if (b.includes("serverModule(")) return true;
   if (/^\(\)\s*=>\s*require\(\s*"[^"]+"\s*\)\s*,?\s*$/.test(b)) return true;
   if (/\{\s*\.\.\.\s*require\(\s*"[^"]+"\s*\)/.test(b)) return true;
+  // A precomputed identifier spread — `{ ...realThing, override: ... }` —
+  // is complete when the identifier's own `const NAME = <expr>;`
+  // declaration is itself one of the shapes above. This is the
+  // precompute-once pattern (item C2, W18 hygiene): a caller that KEEPS an
+  // alias registered (auth/middleware is claimed by dozens of files, so
+  // withdrawing it repo-wide is not viable the way it was for
+  // extension-lifecycle-service/registry) and needs its overrides re-applied
+  // inside `beforeAll` cannot inline `serverModule(...)` in the factory body
+  // itself — that would recompute the real module fresh on every
+  // `beforeAll`, which is harmless but pointless, and more importantly the
+  // established convention elsewhere in this file is always to precompute
+  // once, outside any mock.module() factory, to avoid the self-recursion
+  // hazard when the alias and the relative require() resolve to the same
+  // module. The walker must recognize that shape as complete too, not only
+  // an inline call.
+  if (source) {
+    const spreadIdent = /\{\s*\.\.\.\s*([A-Za-z_$][\w$]*)/.exec(b);
+    if (spreadIdent) {
+      const resolved = resolveConstDecl(stripCommentLines(source), spreadIdent[1]!);
+      if (resolved !== null && isCompleteServerFactoryBody(resolved)) return true;
+    }
+  }
   return false;
 }
 
@@ -1075,6 +1097,73 @@ describe("$lib/* factory completeness detector (general rule, pinned by fixture)
   });
 });
 
+describe("$server/* factory completeness detector (general rule, pinned by fixture)", () => {
+  test("an inline serverModule(...) call is complete", () => {
+    expect(
+      isCompleteServerFactoryBody('() => serverModule("auth/middleware", { requireAuth: () => null })'),
+    ).toBe(true);
+  });
+
+  test("a bare require(...) passthrough factory is complete, single- and multi-line", () => {
+    expect(isCompleteServerFactoryBody('() => require("../../auth/middleware")')).toBe(true);
+    expect(isCompleteServerFactoryBody('() =>\n  require("../../auth/middleware"),')).toBe(true);
+  });
+
+  test("an object literal that spreads a require(...) passthrough under overrides is complete", () => {
+    expect(
+      isCompleteServerFactoryBody('() => ({ ...require("../../auth/middleware"), requireAuth: () => null })'),
+    ).toBe(true);
+  });
+
+  test("a raw object literal with no spread of the real module is PARTIAL — rejected", () => {
+    expect(isCompleteServerFactoryBody("() => ({ requireAuth: () => null })")).toBe(false);
+  });
+
+  test("a precomputed identifier spread resolves through its own const declaration (item C2 shape)", () => {
+    // The pattern every beforeAll-scoped auth/middleware fix uses: precompute
+    // the real+override merge ONCE at module top level (never lazily inside
+    // the mock.module() factory, which would self-recurse when the alias
+    // and the relative require() resolve to the same module — see
+    // extensions-api.test.ts's own comment), then spread the CONSTANT inside
+    // beforeAll. The walker must resolve `realAuthMiddleware` back through
+    // its own declaration rather than only recognizing an inline call.
+    const complete = [
+      'const realAuthMiddleware = serverModule("auth/middleware", {});',
+      'mock.module("$server/auth/middleware", () => ({ ...realAuthMiddleware, requireAuth: mockRequireAuth }));',
+    ].join("\n");
+    const partial = [
+      "const realAuthMiddleware = { requireAuth: () => null };", // NOT a real-module spread
+      'mock.module("$server/auth/middleware", () => ({ ...realAuthMiddleware, requireAuth: mockRequireAuth }));',
+    ].join("\n");
+
+    const completeBodies = extractLibFactoryBodies(complete, "$server/auth/middleware");
+    expect(completeBodies).toHaveLength(1);
+    expect(isCompleteServerFactoryBody(completeBodies[0]!, complete)).toBe(true);
+    // Without the source parameter, the walker can't resolve the identifier
+    // and must not silently pass it — this is the exact gap that motivated
+    // the source-aware branch, pinned here so it can't regress unnoticed.
+    expect(isCompleteServerFactoryBody(completeBodies[0]!)).toBe(false);
+
+    const partialBodies = extractLibFactoryBodies(partial, "$server/auth/middleware");
+    expect(partialBodies).toHaveLength(1);
+    expect(isCompleteServerFactoryBody(partialBodies[0]!, partial)).toBe(false);
+  });
+
+  test("a bare-identifier factory (pre-F1 shape) resolves to its declaration", () => {
+    const complete = [
+      'const authMock = serverModule("auth/middleware", { requireAuth: () => null });',
+      'mock.module("$server/auth/middleware", authMock);',
+    ].join("\n");
+    const partial = [
+      "const authMock = () => ({ requireAuth: () => null });",
+      'mock.module("$server/auth/middleware", authMock);',
+    ].join("\n");
+
+    expect(isCompleteServerFactoryBody(extractLibFactoryBodies(complete, "$server/auth/middleware")[0]!)).toBe(true);
+    expect(isCompleteServerFactoryBody(extractLibFactoryBodies(partial, "$server/auth/middleware")[0]!)).toBe(false);
+  });
+});
+
 describe("F1 guard: every $lib/server/security/api-keys mock is complete (W18 hygiene)", () => {
   const TARGET = "$lib/server/security/api-keys";
 
@@ -1134,7 +1223,7 @@ describe("F1 guard: every $lib/server/security/api-keys mock is complete (W18 hy
 // module. No by-name exemption list remains: one exists only so a new guard
 // can pass, which makes it an EXCLUDES list, and those are forbidden here.
 describe("F1 guard: every extension-lifecycle-service/registry mock is complete (W18 hygiene item C)", () => {
-  const TARGETS = ["$server/extensions/extension-lifecycle-service", "$server/extensions/registry"] as const;
+  const TARGETS = ["$server/extensions/extension-lifecycle-service", "$server/extensions/registry", "$server/auth/middleware"] as const;
 
   test("every mock.module($server/extensions/{extension-lifecycle-service,registry}, …) factory is complete", () => {
     const roots = [
@@ -1156,7 +1245,7 @@ describe("F1 guard: every extension-lifecycle-service/registry mock is complete 
       const src = readFileSync(file, "utf8");
       for (const target of TARGETS) {
         for (const body of extractLibFactoryBodies(src, target)) {
-          if (!isCompleteServerFactoryBody(body)) offenders.push(`${rel} (${target})`);
+          if (!isCompleteServerFactoryBody(body, src)) offenders.push(`${rel} (${target})`);
         }
       }
     }
