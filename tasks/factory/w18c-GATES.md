@@ -56,6 +56,46 @@ runner-contracts, external-postgres, browser routes); main's own CI at 31052930d
 - The type error in 4e1f1541e (client failure helper) reached a commit because I ran the suite but not
   typecheck; fixed in 376278d17. Typecheck now runs before each W18c commit.
 
+- OPEN, owner question: e2e/real-auth/factory-authoring-flow.spec.ts fails in the real-auth lane ("Factories are
+  disabled", 404): src/factory/boot.ts enables factories only for EZCORP_FACTORY_ENABLED=1, which the mock config
+  and the factory-services stack set and playwright.real.config.ts does not. Latent since bdfa1c9f6; CI never ran
+  on this branch.
+- OPEN, owner question: packages/@ezcorp/factory-sdk/src/validation.ts validateApiPreconditions reached
+  complexity 38 with W14's changes (a3997f1c3, 46237000f); at 100 percent coverage only a split lowers CRAP.
+- Reported, main-owned: 80 non-factory `+server.ts` files that Vitest server tests import are not in the Vitest
+  coverage manifest (account, admin, auth, conversations, extensions, and others); other producers may measure them.
+- Not W18c's: item C's nine focused victims (w18-hygiene) and the W14 guest-staging regression (W14b, five tests).
+
+## Merge of integ/w00 146a94829 and the heavy legs (2026-09-27)
+
+- Merge 6eda84a76 (parents d156be721, 146a94829). Hook cap skip by coordinator ruling 2026-09-27 08:22Z
+  (EZ_SKIP_HOOK_TESTS=1, this commit only; the hook's 61-file list verbatim in `heavy/hook-61-verbatim.txt`).
+  Shared .git/config sha256 44962525f1ca1a8b before and after. Workspace packages rebuilt first.
+- Conflicts: tasks/lessons.md (both appended; both kept) and web/src/lib/factory/download.unit.test.ts (W14
+  d8bf8d967 and W18c 575cf93f1 strengthened the same test; W14's structure kept, plus W18c's create-click-revoke
+  order assertion). Adapted: W14 rewrote (app)/factories/+page.svelte around FactoryWorkspace, so the W18c page
+  test (89ac0f9eb, 4 of 4 failing against the new page) is rewritten for it (7 pass: project choice, view and run
+  from the URL, the /api/auth/me confirmation, goto URL rewrites) and the props probe stub widened.
+- Every leg: resource gate (>= 6 GiB available, >= 2 GiB swap, >= 100 GB disk), GIT_DIR, GIT_INDEX_FILE,
+  GIT_WORK_TREE, GIT_COMMON_DIR, GIT_OBJECT_DIRECTORY, GIT_PREFIX cleared, GIT_CONFIG_NOSYSTEM=1 (`heavy/envcheck.txt`);
+  receipts with commit, exit, times, log sha256 in `heavy/receipts.jsonl`. One false start of the combined leg at
+  08:22Z without the last two settings was stopped after 32 s (`heavy/aborted.txt`).
+- Leg 1, combined runner (wave4f leg list), 6eda84a76: every producer exit 0 except focused (5763 pass, 13 fail:
+  item C's nine OPEN, and four W14b guest-staging failures, "factory-sdk-types.ts imports './console-types.js'").
+- Leg 2, backend pool at umask 022: 29095 pass, 5 fail, 1962 files; all 5 are the W14b regression (guest.test 3,
+  pack.test 1, guest.podman.integration 1, the last confirmed alone under the lock).
+- Leg 3, browser producers from their ci.yml jobs: build, both transfer checks, mock-gate, mock-full, evidence,
+  fresh-setup, and the merge exit 0; real-auth 107 pass, 1 fail (see findings: EZCORP_FACTORY_ENABLED).
+- The 61 hook-mapped files: each ran in at least one leg (`heavy/hook-61-map.tsv`); the one no leg covered,
+  tests/postgres/factory-reference-data.test.ts, ran alone on real PostgreSQL under the lock: 11 pass. None red.
+- Leg 5, route lcov: `scripts/web-vitest-coverage-includes.sh` is an allowlist and omitted 15 tested factory
+  routes; fixed in 3f01b52ec with a guard test; proof 15 of 15 recorded at 100 percent (`heavy/route-cov*`).
+- Re-measures (`heavy/remeasure-3f01b52ec/`, `heavy/gap-suites-f11d06d03/`): with the browser lcov, the fixed
+  manifest, and the eight suites no runner leg loads, against origin/main: new-file exit 0; CRAP one function
+  (validateApiPreconditions, complexity 38, a W14 change); global floor 79.95 percent; per-file 636 entries; patch
+  12 files. f11d06d03 gates five newly measured routes at 100. b5db5c814 adds a direct suite for
+  factory-execution.ts (29 lines were real gaps).
+
 ## Gates
 
 - [ ] G1: every feature-new file has direct behaviour tests (routes, components, kernel-types, two scripts).
@@ -73,7 +113,13 @@ runner-contracts, external-postgres, browser routes); main's own CI at 31052930d
   gate-integrity exit 0 at a927c4bca with no rule change (`newfile-ruling-checks.txt`). Proof for kernel-types.ts:
   15923 source characters, 0 emitted, isDeclarationOnlyTypeScript=true.
 - [ ] G2: feature-changed files named by the per-file, patch and CRAP gates are covered by tests.
-- [ ] G3: mutation score >= 80 on the files this feature changed, blocking form, with W18d's toolchain.
+- [x] G3: mutation score >= 80 on the files this feature changed, blocking form, with W18d's toolchain.
+  RECORD: Stryker at 6eda84a76 under the lock, `BASE_REF=origin/main bun scripts/mutation.ts --changed` without
+  --report-only (`heavy/stryker.out`, `receipts/stryker-6eda84a76-report.json`): 97.05, exit 0; 1286 killed,
+  65 timeout, 39 survived, 2 no coverage; 2.30 tests per mutant. Per file: client 98.01, document-theme 100,
+  download 100, layout 98.04, model 97.31, preview 96.88, run-format 97.98, run-stream 95.10, workspace-view 91.67.
+  049b48d53 then killed 6 live mutants in W14's client code (openRunEvents and artifactBytes); replay 6 of 6.
+  The table below is re-derived on the current lines (W14 refactored model.ts), and replaces the older one.
   PROGRESS: tests strengthened for all four owing files (575cf93f1 download, 8d2c29bb8 layout, 6c5ecb952 model,
   4e1f1541e client). Replaying W18d's 165 survivors against the new suites
   (`/tmp/factory-platform-evidence/w18c/apply-mutants.py`, one test file per process, source byte-restored after
@@ -87,28 +133,23 @@ runner-contracts, external-postgres, browser routes); main's own CI at 31052930d
   21 equivalent. Expected Stryker score about 97.0 (21 of 691 alive). OPEN until Stryker measures it under the
   lock after W15d, without --report-only.
 
-  Equivalent mutants, one line each (web/src/lib/factory/; lines from W18d's gate-branch-head report):
+  Surviving mutants at 6eda84a76 in the four files W18c strengthened, one line each (web/src/lib/factory/; from
+  receipts/stryker-6eda84a76-report.json). All are equivalent: no test can observe them.
   | file:line:col | mutator (original -> mutant) | why no test can observe it |
-  | layout.ts:37:47 | ArrayDeclaration `graph.children ?? []` -> `?? ["Stryker was here"]` | the string element has no id, so positions gets only the key undefined; every projection node id is a string, so each node falls back to {x:0,y:0} exactly as with [] |
-  | model.ts:64:8 | ConditionalExpression `!Array.isArray(value)` -> `false` | an index into a non-array object reads undefined (definition objects have no numeric keys), and the next segment's check or the final graph check throws the same "Factory graph scope is invalid." |
-  | model.ts:81:11 | ConditionalExpression `typeof segment === "number"` -> `true` | both arms of the ternary are the same property read owner[segment]; they differ only in a TypeScript cast |
-  | model.ts:81:11 | ConditionalExpression -> `false` | same: both arms read owner[segment] |
-  | model.ts:81:11 | EqualityOperator `===` -> `!==` | same: both arms read owner[segment] |
-  | model.ts:81:30 | StringLiteral `"number"` -> `""` | same: both arms read owner[segment] |
-  | model.ts:86:6 | ConditionalExpression whole guard -> `false` | graphAt(source, scope) runs first on the same scope and throws unless every prefix resolves to an object and the last step to a graph, so the guard is always false at runtime |
-  | model.ts:86:6 | LogicalOperator `last === undefined || !owner` -> `&&` | the guard is always false (see 86:6 above); a weaker form is also false |
-  | model.ts:86:6 | ConditionalExpression `last === undefined` -> `false` | the guard is always false (see above) |
-  | model.ts:86:6 | LogicalOperator `(a || b) || c` -> `(a || b) && c` | the guard is always false (see above) |
-  | model.ts:86:38 | ConditionalExpression `typeof owner !== "object"` -> `false` | the guard is always false (see above) |
-  | model.ts:86:81 | StringLiteral error message -> `""` | the guard never throws (see above), so the message is never read |
-  | model.ts:87:6 | ConditionalExpression `typeof last === "number"` -> `false` | both branches perform the same assignment owner[last] = graph; they differ only in a cast |
-  | model.ts:87:6 | EqualityOperator `===` -> `!==` | same: both branches assign owner[last] = graph |
-  | model.ts:87:6 | ConditionalExpression -> `true` | same: both branches assign owner[last] = graph |
-  | model.ts:87:22 | StringLiteral `"number"` -> `""` | same: both branches assign owner[last] = graph |
-  | model.ts:109:47 | ArrayDeclaration default `diagnostics = []` -> `["Stryker was here"]` | a string element has no nodeId (undefined) and every node id is a string, so each count stays 0 |
-  | model.ts:194:16 | ConditionalExpression `typeof value !== "object"` -> `false` | for any JSON primitive the next check reads value.id as undefined, which is not a string, so the same error is thrown |
-  | model.ts:239:24 | EqualityOperator `index < length` -> `<=` | the extra step compares left[length] and right[length], both undefined, which Object.is treats as equal, so nothing is recorded |
-  | client.ts:79:80 | OptionalChaining `issues[0]?.message` -> `issues[0].message` | validateFactoryApiResponse returns ok:false only through issue() (validation.ts:59-60, the only `ok: false` in the file), which always holds one issue, so issues[0] exists |
-  | client.ts:79:113 | StringLiteral fallback message -> `""` | same: issues[0].message always exists, so the ?? fallback is never read |
+  | layout.ts:37:47 | ArrayDeclaration `graph.children ?? []` -> `["Stryker was here"]` | the string element has no id, so every projection node (string ids) falls back to {x:0,y:0} exactly as with [] |
+  | model.ts:63:26 | StringLiteral `"number"` -> `""` | a number segment then takes the object branch; an array is an object and value[segment] reads the same slot; an index into a non-array object reads undefined and the final graph check throws the same message |
+  | model.ts:64:8 | ConditionalExpression `!Array.isArray(value)` -> `false` | an index into a non-array object reads undefined (definition objects have no numeric keys), and the next check throws the same "Factory graph scope is invalid." |
+  | model.ts:71:16 | ConditionalExpression `typeof value !== "object"` -> `false` | a truthy primitive has no nodes array, so the third condition throws the same message |
+  | model.ts:83:38 | ConditionalExpression `typeof owner !== "object"` -> `false` | graphAt(source, scope) runs first on the same scope and throws unless the path resolves to a graph, so the replaceGraph guard never fires |
+  | model.ts:84:6 | ConditionalExpression `typeof last === "number"` -> `false` | both branches assign owner[last] = graph; they differ only in a cast |
+  | model.ts:84:6 | ConditionalExpression -> `true` | same: both branches assign owner[last] = graph |
+  | model.ts:106:47 | ArrayDeclaration default `diagnostics = []` -> `["Stryker was here"]` | a string has no nodeId (undefined) and node ids are strings, so every count stays 0 |
+  | model.ts:191:16 | ConditionalExpression `typeof value !== "object"` -> `false` | a JSON primitive has no string id, so the next check throws the same error |
+  | model.ts:226:6 | ConditionalExpression `path.length === 0` -> `false` | for an empty path "$" + [].join("") is "$", the same answer |
+  | model.ts:236:24 | EqualityOperator `index < length` -> `<=` | the extra step compares undefined with undefined, equal under Object.is, so nothing is recorded |
+  | client.ts:101:80 | OptionalChaining `issues[0]?.message` -> `issues[0].message` | validateFactoryApiResponse fails only through issue() (validation.ts:59-60, the only `ok: false`), which always holds one issue |
+  | client.ts:101:113 | StringLiteral fallback message -> `""` | same: issues[0].message always exists, so the fallback is never read |
+  Other survivors are in W14's files (preview 4, run-format 2, run-stream 15, workspace-view 1); every file is
+  above 80 and the gate passes. W14's six client survivors were real and are killed in 049b48d53.
 - [ ] G4: the full producer set (runner legs plus browser producers) merged; the gates against origin/main
   exit 0, or each remaining red names only pre-existing main files, listed per file.
