@@ -14,7 +14,7 @@
  *   - All failure modes return the same 404 status (opaque surface).
  */
 
-import { test, expect, describe, beforeEach, afterAll, mock } from "bun:test";
+import { test, expect, describe, beforeEach, beforeAll, afterAll, mock } from "bun:test";
 import { webLibModule, serverModule } from "../../../src/__tests__/helpers/mock-cleanup";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync, realpathSync } from "node:fs";
 import { join } from "node:path";
@@ -29,9 +29,13 @@ const apiKeysExports = webLibModule("server/security/api-keys", {
 });
 mock.module("$lib/server/security/api-keys", () => apiKeysExports);
 
-mock.module("$server/auth/middleware", () => ({
-  requireAuth: () => ({ id: "user-1", email: "t@t.com", name: "T", role: "member" }),
-}));
+const realAuthMiddleware = serverModule("auth/middleware", {});
+beforeAll(() => {
+  mock.module("$server/auth/middleware", () => ({
+    ...realAuthMiddleware,
+    requireAuth: () => ({ id: "user-1", email: "t@t.com", name: "T", role: "member" }),
+  }));
+});
 
 mock.module("$lib/server/http-errors", () => ({
   errorJson: (status: number, message: string) =>
@@ -57,6 +61,7 @@ writeFileSync(join(dataDir, "tokens.css"), ":root { --color-primary: #ff0066; }"
 
 afterAll(() => {
   try { rmSync(fakeRoot, { recursive: true, force: true }); } catch { /* best-effort */ }
+  mock.module("$server/auth/middleware", () => realAuthMiddleware);
 });
 
 mock.module("$server/chat/attachments/ext-files-resolver", () => ({

@@ -1,5 +1,5 @@
-import { afterAll, beforeEach, expect, mock, test } from "bun:test";
-import { restoreModuleMocks } from "../../../src/__tests__/helpers/mock-cleanup";
+import { afterAll, beforeAll, beforeEach, expect, mock, test } from "bun:test";
+import { restoreModuleMocks, serverModule } from "../../../src/__tests__/helpers/mock-cleanup";
 
 const binding = "a".repeat(64);
 const nonce = crypto.randomUUID();
@@ -11,7 +11,7 @@ let controller = new AbortController();
 let prepared: any;
 let cancelled: any;
 let claimed: any;
-mock.module("$server/auth/middleware", () => ({ requireSessionAuth: (locals: any) => locals.user ?? new Response("Denied", { status: 401 }) }));
+const realAuthMiddleware = serverModule("auth/middleware", {});
 mock.module("$lib/server/context", () => ({ ensureInitialized: async () => {} }));
 mock.module("$lib/server/extension-browser", () => ({
   authorizeExtensionBrowser: async (...args: unknown[]) => {
@@ -28,7 +28,16 @@ mock.module("$server/extensions/browser-invocation-control", () => ({
 }));
 mock.module("../routes/api/tool-invoke/+server", () => ({ _invokeWithControl: async ({ request }: { request: Request }, options: { signal: AbortSignal; invocationGuard: () => Promise<void> }) => { expect(options.signal).toBe(controller.signal); await options.invocationGuard(); invoked = request; return Response.json({ success: true, output: "result" }); } }));
 const { GET, POST } = await import("../routes/api/extensions/[name]/preview/+server");
-afterAll(() => restoreModuleMocks());
+beforeAll(() => {
+  mock.module("$server/auth/middleware", () => ({
+    ...realAuthMiddleware,
+    requireSessionAuth: (locals: any) => locals.user ?? new Response("Denied", { status: 401 }),
+  }));
+});
+afterAll(() => {
+  restoreModuleMocks();
+  mock.module("$server/auth/middleware", () => realAuthMiddleware);
+});
 beforeEach(() => { permitted = true; calls = []; invoked = undefined; controller = new AbortController(); prepared = undefined; cancelled = undefined; claimed = undefined; });
 
 function event(body?: unknown, overrides: Record<string, unknown> = {}) {

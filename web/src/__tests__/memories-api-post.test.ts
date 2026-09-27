@@ -1,6 +1,6 @@
-import { test, expect, describe, beforeEach, mock } from "bun:test";
+import { test, expect, describe, beforeEach, beforeAll, afterAll, mock } from "bun:test";
 
-import { webLibModule } from "../../../src/__tests__/helpers/mock-cleanup";
+import { webLibModule, serverModule } from "../../../src/__tests__/helpers/mock-cleanup";
 // Mock DB queries before importing handler
 const mockInsertMemory = mock(() =>
 	Promise.resolve({
@@ -39,9 +39,16 @@ mock.module("$server/db/queries/memories", () => ({
 	getProjectIdsForMemories: mockGetProjectIdsForMemories,
 }));
 
-mock.module("$server/auth/middleware", () => ({
-	requireAuth: () => ({ id: "user-1", email: "test@test.com", name: "Test", role: "member" }),
-}));
+const realAuthMiddleware = serverModule("auth/middleware", {});
+beforeAll(() => {
+	mock.module("$server/auth/middleware", () => ({
+		...realAuthMiddleware,
+		requireAuth: () => ({ id: "user-1", email: "test@test.com", name: "Test", role: "member" }),
+	}));
+});
+afterAll(() => {
+	mock.module("$server/auth/middleware", () => realAuthMiddleware);
+});
 
 const apiKeysExports = webLibModule("server/security/api-keys", {
 	requireScope: () => null,

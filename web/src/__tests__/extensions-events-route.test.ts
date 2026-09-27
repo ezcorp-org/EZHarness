@@ -35,15 +35,18 @@ const apiKeysExports = webLibModule("server/security/api-keys", {
 });
 mock.module("$lib/server/security/api-keys", () => apiKeysExports);
 
-mock.module("$server/auth/middleware", () => ({
-  checkProjectRole: async () => undefined,
-  requireAuth: () => ({
-    id: "user-1",
-    email: "t@t.com",
-    name: "T",
-    role: "member",
-  }),
-}));
+// auth/middleware: registered in beforeAll below, not here at module top
+// level — item C2 (W18 hygiene). See extensions-api.test.ts's identical
+// comment: the $server/auth/middleware alias is claimed by dozens of files
+// repo-wide, and a raw object literal here both misses exports (checkAuth,
+// requireRole, checkRole, requireTeamRole) AND, since another file's own
+// override could differ in VALUE for a key both files supply (requireAuth),
+// risks this file's own tests reading someone else's canned user instead of
+// "user-1" if the shared alias is active when they run. beforeAll +
+// serverModule() make this file's own values active for this file's own
+// tests; afterAll hands the alias back to the real module.
+const realAuthMiddleware = serverModule("auth/middleware", {});
+
 mock.module("$server/extensions/project-binding", () => ({ getExtensionProjectBinding: async () => null }));
 
 // ── Mock bus via $lib/server/context ───────────────────────────────
@@ -177,10 +180,21 @@ const mockGetProcess = mock(async (_extId: string) => ({}));
 let getProcessSpy: ReturnType<typeof spyOn>;
 beforeAll(() => {
   getProcessSpy = spyOn(ExtensionRegistry.getInstance(), "getProcess").mockImplementation(mockGetProcess as never);
+  mock.module("$server/auth/middleware", () => ({
+    ...realAuthMiddleware,
+    checkProjectRole: async () => undefined,
+    requireAuth: () => ({
+      id: "user-1",
+      email: "t@t.com",
+      name: "T",
+      role: "member",
+    }),
+  }));
 });
 afterAll(() => {
   getProcessSpy.mockRestore();
   ExtensionRegistry.resetInstance();
+  mock.module("$server/auth/middleware", () => realAuthMiddleware);
 });
 
 // ToolExecutor is constructed by the route to wire reverse-RPC

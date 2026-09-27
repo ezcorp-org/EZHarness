@@ -79,17 +79,40 @@ const mockCheckRole = mock((locals: unknown, role: string) => {
 	}
 });
 
-mock.module("$server/auth/middleware", () => ({
-	requireAuth: mockRequireAuth,
-	checkAuth: mockCheckAuth,
-	requireRole: mockRequireRole,
-	checkRole: mockCheckRole,
-}));
+// auth/middleware: registered in beforeAll below, not here at module top
+// level — item C2 (W18 hygiene). A raw object literal here is a partial
+// mock (missing checkProjectRole/requireTeamRole/etc.), and the
+// $server/auth/middleware alias is claimed by dozens of files repo-wide, so
+// whichever file's registration is active when a shared-process run
+// resolves the alias wins for every OTHER file too — both the missing-export
+// shape (the F1 guard's own concern) and, worse here, a VALUE conflict: this
+// file's requireAuth reads a mutable per-test authUser, while another file's
+// own override could be a fixed literal a shared registration would then
+// impose on this file's tests instead. beforeAll (test-execution time, after
+// every earlier file's own top-level code has already loaded) plus a
+// complete serverModule() factory make THIS file's own values active for
+// THIS file's own tests, and afterAll hands the alias back to the real
+// module so a later file in the same process starts from a clean slate.
+const realAuthMiddleware = serverModule("auth/middleware", {});
 
+// Registered in beforeAll below, not here at module top level — item C2
+// (W18 hygiene). This alias was previously registered at top level with NO
+// restoration at all (afterAll only restored reloadSpy/killAllSpy) — a
+// real, pre-existing test-authorization gap, confirmed independently by
+// running this file paired with extension-settings-api.test.ts on the
+// ORIGINAL committed sources: a read-only key's PUT/DELETE wrongly returned
+// 200 instead of 403, because this file's mockRequireScope override (which
+// allows everything unconditionally unless apiKeyScopes says otherwise) was
+// still active for extension-settings-api.test.ts's own tests, which run
+// after this file in the same process and never re-claim the alias
+// themselves. beforeAll + afterAll hand-back close it, same pattern as the
+// auth/middleware fix above.
 const apiKeysExports = webLibModule("server/security/api-keys", {
 	requireScope: mockRequireScope,
 });
-mock.module("$lib/server/security/api-keys", () => apiKeysExports);
+// Truly real (no override) — handed back in afterAll, separate from
+// apiKeysExports above which bakes this file's own requireScope override in.
+const realApiKeys = webLibModule("server/security/api-keys", {});
 
 // ── DB/query mocks ───────────────────────────────────────────────────────
 const extensionFixture = {
@@ -260,11 +283,21 @@ let killAllSpy: ReturnType<typeof spyOn>;
 beforeAll(() => {
 	reloadSpy = spyOn(ExtensionRegistry.getInstance(), "reload").mockImplementation(mockReload);
 	killAllSpy = spyOn(ExtensionRegistry.getInstance(), "killAll").mockImplementation(mockKillAll);
+	mock.module("$server/auth/middleware", () => ({
+		...realAuthMiddleware,
+		requireAuth: mockRequireAuth,
+		checkAuth: mockCheckAuth,
+		requireRole: mockRequireRole,
+		checkRole: mockCheckRole,
+	}));
+	mock.module("$lib/server/security/api-keys", () => apiKeysExports);
 });
 afterAll(() => {
 	reloadSpy.mockRestore();
 	killAllSpy.mockRestore();
 	ExtensionRegistry.resetInstance();
+	mock.module("$server/auth/middleware", () => realAuthMiddleware);
+	mock.module("$lib/server/security/api-keys", () => realApiKeys);
 });
 
 // ── Security check mock ──────────────────────────────────────────────────
