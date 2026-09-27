@@ -104,10 +104,10 @@ the tenant accepted, named. An unknown is never settled at zero and never at a g
   W05b clears the kernel in the same transaction. Before the deadline the hold stays named and
   unsettled. A provider receipt that arrives after the bound settlement is kept in the journal and
   its reconciliation is refused (`factory_usage_settlement_state`): never settled twice.
-- Deviation from the ruling's wording, stated: the ruling says model tokens are recorded as unknown
-  (null). The budget stores one vector whose three dimensions are unsigned integers, so the budget
-  charges tokens at the reserved bound too; the settlement record carries only costs and claims no
-  measured token count. Recording a null token count would change the budget schema.
+- Coordinator ruling (approving a stated deviation from the first wording): the budget charges the
+  vector's tokens at the reserved bound too, the same tenant-accepted maximum; the settlement
+  record carries only costs and claims no measured token count, which keeps the truth visible. A
+  nullable token count would change the budget schema and the envelope sums for no gain.
 
 ## Disclosed
 
