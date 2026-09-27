@@ -1,0 +1,8 @@
+W15e (user-authorized, coordinator-approved): the ordinary store's leftover proof-run objects were pruned only through scripts/prune-factory-storage-manifest.ts, with 12 reviewed manifests (/tmp/factory-platform-evidence/w15e/manifests/, SHA256SUMS). Each manifest named every version of runs whose UUID appears in no evidence file, no committed or worktree task or validation file, and no proof-database row, and whose newest write was more than 3 hours old. That is 4,470 runs, 53,798 versions, 17.44 GiB.
+Run 2026-09-26T00:47:16Z to 00:48:24Z, under the heavy lock: 12/12 dry runs exit 0, 12/12 applies exit 0, 53,798 deleted, 0 failures.
+Census before: 62,758 versions, 19,335,544,841 bytes, 366/400 volumes.
+Census after: 8,961 versions, 610,508,206 bytes, 366/400 volumes.
+Kept: 6,535 shared-root digests (44 MiB), 10 probe keys, and 2 runs referenced in w09c logs (1,112 keys).
+After GET /vol/vacuum, tenant-01 writable volumes went 43 (before) -> 54 (after the applies) -> 82 (+10 min) -> 105 (+15 min) -> 183 (+30 min), and /data went from 16,867 to 8,892 MiB. Volumes in use stay 366, because emptied volumes stay allocated.
+The archive store was not touched. The first attempt stopped at the runner's own checksum gate before any listing or delete (logs/prune-attempt-1.log).
+Source: /tmp/factory-platform-evidence/w15e/report.txt (sent by w15b-fix at the coordinator's request).

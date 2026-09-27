@@ -1,0 +1,6 @@
+lock 2026-09-27T07:54:49Z index-tree 588ddc3b94acb6b42d97efae92f7b7ccaeeadeef
+resource-gate 2026-09-27T07:54:49Z census-before disk=122G memAvailable=17GiB swapFreeKiB=5972136/17173956
+census-before exit=0 {"listedAt":"2026-09-27T07:54:51.656Z","versionsPerBucket":{"tenant-01":8977,"tenant-02":21,"tenant-03":19,"tenant-04":19,"tenant-05":19,"tenant-06":19,"tenant-07":19,"tenant-08":19,"tenant-09":19,"tenant-10":19}} versions=9150
+batch exit=0
+census-after exit=0 {"listedAt":"2026-09-27T08:11:18.007Z","versionsPerBucket":{"tenant-01":8977,"tenant-02":21,"tenant-03":19,"tenant-04":19,"tenant-05":19,"tenant-06":19,"tenant-07":19,"tenant-08":19,"tenant-09":19,"tenant-10":19}} versions=9150
+DONE status=0 end=2026-09-27T08:11:18Z dirty=0

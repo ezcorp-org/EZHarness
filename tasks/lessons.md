@@ -1655,3 +1655,7 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 - A kernel OOM record names its constraint. `CONSTRAINT_MEMCG` is the container limit; `CONSTRAINT_NONE`
   with `global_oom` is the host. Read it before raising a container limit.
 
+
+## 2026-09-25 — A fail-closed gate that has never passed is untested (W15e)
+
+- Run each gate green by hand once before the real run of a destructive tool. The first approved W15e prune stopped at its own SHA256SUMS gate, because the sums listed `manifests/<name>` while the gate checked from inside `manifests/`, so it could never pass. It failed closed and nothing was deleted, but the approved run was lost and the script had to change after approval. Before queueing, pass each gate by hand: the checksum check, the memory gate, one dry run of the destructive tool (it must report deleted 0 and applied false), and the census code on existing data.

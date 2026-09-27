@@ -1,0 +1,74 @@
+W15d report: store memory and capacity
+
+Branch wp/w15d-store-memory from integ/w00 0a95d765b. Head 0910d514e (tree clean). Source e5fb31f87; 0910d514e adds only tasks/. Round 1 head bde1ab6c4 (source a98677a06); its receipts are in round1/.
+Gate file tasks/factory/w15d-GATES.md. Evidence /tmp/factory-platform-evidence/w15d/.
+
+COMMITS
+  a98677a06 fix(factory): proof runs remove every object version they wrote; store memory and capacity basis
+  bde1ab6c4 docs(tasks): W15d gate evidence (cleanup suites, callers, leftover census)
+
+MEMORY (per-second cgroup samples, run1/ and run2/memory.csv; no store restarted)
+  run1 13:04Z  checkpoint 12/0 + restore 17/0 + W19a mock pass (passed), concurrent:
+    ordinary peak 170 MiB, archive 229 MiB, no oom_kill, host MemAvailable >= 16.2 GiB
+  run2 14:31Z  the same + db-postgres.yml storage step (387/1; the one failure a beforeEach hook timeout in
+    factory-artifacts under this load; that file passes 30/0 in the final batch):
+    ordinary peak 1263 MiB (anon 739 MiB), archive 247 MiB (anon 225 MiB), no oom_kill, host MemAvailable >= 14.1 GiB
+  Decision: mem_limit stays 2g for both.
+CAUSE OF THE KILLS (journalctl -k)
+  Sep 23 18:31:46Z ordinary and Sep 25 12:05:07Z archive: constraint=CONSTRAINT_NONE, global_oom, free swap 0 kB.
+  The weed victims held 7-9 MiB anon RSS at oom_score_adj 200. At 12:04Z 62 MainThread (Node) processes held 21.6 GiB
+  RSS + 7.1 GiB swap; 133 processes were killed 07:30-08:50 local.
+  podman.service (socket-activated) has OOMScoreAdjust=200; via the socket a container gets 200 whatever it requests
+  (probe: 0 and 100 -> 200); a plain podman run from a shell gets 0. A compose oom_score_adj line cannot help.
+CAPACITY (census-ordinary-01.json, read-only ListObjectVersions; weed shell fs.du)
+  ordinary: 308 of 400 volumes; tenant-01 16.95 GiB, 59,888 keys, all live, 3 ever deleted.
+  s3-publication 8.32 GB, s3-published 8.32 GB, reference-data 0.89 GB, factory-material-gateway 0.39 GB,
+  factory-lifecycle 0.18 GB (33,471 keys), bare digests at the shared root 46 MB. 1.1 to 7.0 GB a day since Sep 21.
+  archive: 77 volumes, 80 MB.
+CHANGE
+  tests/postgres/helpers/factory-storage.ts: createFactoryOrdinaryStorage(prefix, tenant, owns); close() is async and
+  removes every version and delete marker under the run prefix and the owned prefixes (paged; fails on a truncated
+  page without a continuation; refuses a prefix with fewer than two segments). factory-recovery-storage.ts reuses it
+  (its old listing read one page). Thirteen callers await close(); three pass their publication prefix as owned.
+  New suite tests/postgres/factory-storage-cleanup.test.ts (registered in the db-postgres.yml storage step).
+  compose.factory-storage.local.yml: memory basis in comments; -volume.max stays 400 for both stores (fix round F1).
+  docs/factory-local-storage.md: 768 MiB line fixed; capacity, cleanup, manifest-only prune, and a "Memory and the host
+  OOM killer" section.
+  Not built: a prefix or age prune. scripts/prune-factory-storage-manifest.ts and tasks/factory/w07-GATES.md forbid it;
+  leftovers go through a reviewed manifest the coordinator authorizes.
+GATES (a98677a06, clean, BASE_REF=0a95d765b; logs/batch-1.log, logs/batch-callers.log)
+  typecheck 0, lint 0, boundaries 0, gate-integrity 0, suite registration 5/0, new-file 0, patch 0
+  pg-storage-cleanup 5/0; red with close() not removing (logs/cleanup-red.log)
+  callers one per step: 234 pass / 0 fail over 13 files; recovery suites 44/0; other storage suites 30/0
+  pre-commit hook: all 14 mapped suites, 0 fail (EZ_PRECOMMIT_TEST_MAX=16; the cap is 12; nothing skipped)
+  The 13 callers in one covered process hit the 25-minute bound (exit 124); one file per step passed.
+  Leftover census before/after: +7 keys, all written 17:21:51-17:22:30Z by the prior lock holder, none by these runs.
+  CORRECTION (validator-3 F2): the census compared only keys that changed between two snapshots, so it missed 7
+  versions my red run left at 17:00:45Z (close() removed nothing by design in the red run); they were in both snapshots.
+OPEN
+  G6: rerun the load without an OOM after the coordinator recreates the stores with the new command.
+  Host-side protection (podman.service OOMScoreAdjust=100): the host owner's decision.
+  The 17.5 GiB backlog: removable only by an authorized manifest.
+
+FIX ROUND (validator-3), head 0910d514e, source e5fb31f87
+  e5fb31f87 fix(factory): batch run cleanup deletes; keep the ordinary volume cap at 400 until the backlog is pruned
+  0910d514e docs(tasks): W15d fix-round evidence (batched cleanup, volume cap, red-run leftovers)
+  F1  -volume.max stays 400 for the ordinary store. 600 (37.5 GiB) would take the host from 106 GB free to about
+      86 GB, under the 100 GB floor, while the 17.5 GiB backlog exists. The compose comment and the docs say the
+      ceiling must keep the host above the floor at recreate time and rises only after the reviewed-manifest prune,
+      with the free space measured then.
+  F2  Removed with removeFactoryRunObjects at 2026-09-25T18:37:48Z (f2-dry.json, f2-applied.json):
+        ordinary/w15d-cleanup/9b128849-b7c8-4fe6-8adb-3b89deeb0834            5 versions (4 + 1 delete marker) -> 0
+        ordinary/w15d-cleanup/9b128849-b7c8-4fe6-8adb-3b89deeb0834x           1 -> 0
+        ordinary/w15d-cleanup-published/9b128849-b7c8-4fe6-8adb-3b89deeb0834  1 (receipt.json) -> 0
+      Afterwards and after the fix-round batches: 0 under ordinary/w15d-cleanup and ordinary/w15d-cleanup-published
+      (f2-check.txt, f3-check.txt).
+  F3  removeFactoryRunObjects sends DeleteObjects calls of at most 1000 versions and fails on any per-key refusal.
+      Scripted-client cases: 2,345 versions over three listing pages -> calls of 1000, 1000, 345, each version named
+      once; a version and its marker in one call; an empty run sends no delete; a refusal fails naming the first.
+  Lessons: the pre-commit test cap rule; a ceiling against the disk floor.
+  GATES at e5fb31f87 (logs/batch-2.log, logs/batch-callers-2.log), BASE_REF=0a95d765b:
+    typecheck 0, lint 0, boundaries 0, gate-integrity 0, suite registration 5/0, new-file 0, patch 0
+    cleanup suite 7/0 (hook 7/0, logs/commit-hook-f.log; one suite mapped, under the cap, no override)
+    recovery suites 44/0; other storage suites 30/0; 13 callers one per step 234/0 in 13 min (22 min before batching)
+    The combined 13-caller step was removed from the batch; the per-file steps cover the same suites.
