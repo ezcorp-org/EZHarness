@@ -1,6 +1,6 @@
-import { test, expect } from "../fixtures/hydration.js";
+import { test, expect } from "./fixtures/hydration.js";
 import type { APIRequestContext } from "@playwright/test";
-import { referenceCodeV1, type FactoryApiResponse, type FactoryDefinition } from "../../../packages/@ezcorp/factory-sdk/src/index";
+import { referenceCodeV1, type FactoryApiResponse, type FactoryDefinition } from "../../packages/@ezcorp/factory-sdk/src/index";
 
 function mutation(
   request: APIRequestContext,

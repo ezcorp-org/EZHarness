@@ -257,8 +257,9 @@ describe("e2e lane manifest", () => {
     // W14 populated this lane deliberately: its specs and its Playwright
     // configuration landed together. The guards below are unchanged and are
     // what stop an emptied lane from ever being collected as a pass.
-    expect(lanes["factory-services"]).toEqual(["web/e2e/factory-services-console.spec.ts"]);
-    expect(laneArgs(lanes, "factory-services")).toEqual(["e2e/factory-services-console\\.spec\\.ts$"]);
+    // W18c (2026-09-27) moved the factory authoring spec here from real-auth: that lane never enables factories.
+    expect(lanes["factory-services"]).toEqual(["web/e2e/factory-authoring-flow.spec.ts", "web/e2e/factory-services-console.spec.ts"]);
+    expect(laneArgs(lanes, "factory-services")).toEqual(["e2e/factory-authoring-flow\\.spec\\.ts$", "e2e/factory-services-console\\.spec\\.ts$"]);
     expect(() => laneArgs({ ...lanes, "factory-services": [] }, "factory-services")).toThrow("lane 'factory-services' is missing/empty in web/e2e/lanes.json");
     const config = await Bun.file(join(REPO_ROOT, "web/playwright.factory-services.config.ts")).text();
     // Every lane member runs through the real stack: no fetch mocks, the real-auth hydration fixture.
@@ -277,6 +278,26 @@ describe("e2e lane manifest", () => {
     expect(block).toContain("FACTORY_TEMPORAL_CLI:?");
     expect(block).toContain("web/playwright.factory-services.config.ts");
     expect(block).toMatch(/\[ "\$\{#args\[@\]\}" -gt 0 \]/);
+  });
+
+  test("a lane whose server never enables factories carries no spec that calls /api/factories", async () => {
+    // src/factory/boot.ts serves /api/factories only when EZCORP_FACTORY_ENABLED=1. The real-auth and
+    // fresh-setup lanes start their server through playwright.real.config.ts and scripts/run-real-e2e.ts,
+    // which never set it, so a factory spec there can only fail ("Factories are disabled", 404). One did,
+    // from bdfa1c9f6 until W18c moved it to factory-services (2026-09-27), unseen because CI never ran on
+    // the branch. If those launchers start enabling factories, this guard lets such specs back in.
+    const launchers = await Promise.all(["web/playwright.real.config.ts", "scripts/run-real-e2e.ts"].map(path => Bun.file(join(REPO_ROOT, path)).text()));
+    const enabled = launchers.some(text => /EZCORP_FACTORY_ENABLED\s*[:=]\s*["']?1/.test(text));
+    const callers: string[] = [];
+    for (const lane of ["real-auth", "fresh-setup"]) {
+      for (const spec of lanes[lane] ?? []) {
+        if ((await Bun.file(join(REPO_ROOT, spec)).text()).includes("/api/factories")) callers.push(`${lane}: ${spec}`);
+      }
+    }
+    expect(enabled ? [] : callers).toEqual([]);
+    // The guard is live: the lanes are populated, and the factory-services config does enable factories.
+    expect((lanes["real-auth"] ?? []).length).toBeGreaterThan(10);
+    expect(await Bun.file(join(REPO_ROOT, "web/e2e/factory-services/stack.ts")).text()).toContain('EZCORP_FACTORY_ENABLED: "1"');
   });
 
   test("the service lane is collected and aggregated through the same path as the mandatory five", async () => {
