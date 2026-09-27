@@ -120,16 +120,36 @@ describe("gate-integrity: isolated parser dependency", () => {
       git("commit", "--quiet", "-m", "asserted test");
 
       expect(existsSync(join(fixture, "node_modules"))).toBe(false);
+      // With no node_modules in the fixture, Bun auto-installs the gate's `typescript` import: offline it hands
+      // back an empty stub, which is the path the gate must fail closed on. Against the real registry that
+      // fetch hung until the test timed out, or could succeed from the network or the shared cache (a 30 s
+      // flake, 2026-09-27). An unreachable registry and an empty cache keep the case local and deterministic.
+      const offlineCache = mkdtempSync(join(fixtureRoot, "bun-cache-"));
       const runGate = (nodePath?: string) => Bun.spawnSync([process.execPath, "scripts/gate-integrity.ts"], {
         cwd: fixture,
-        env: { ...repo.env, BASE_REF: "gate-base", NODE_PATH: nodePath ?? "" },
+        env: {
+          ...repo.env,
+          BASE_REF: "gate-base",
+          NODE_PATH: nodePath ?? "",
+          BUN_CONFIG_REGISTRY: "http://127.0.0.1:9/",
+          BUN_INSTALL_CACHE_DIR: offlineCache,
+        },
         stdout: "pipe",
         stderr: "pipe",
       });
 
+      // Fails closed both ways the locked parser can be absent: no package at all, and a package that is not
+      // the TypeScript compiler API (what an unpinned download handed the gate before this was made local).
       const missingParser = runGate();
       expect(missingParser.exitCode).toBe(1);
-      expect(missingParser.stderr.toString()).toContain("TypeScript AST parser is unavailable");
+      expect(missingParser.stderr.toString()).toContain("Cannot find package 'typescript'");
+      const impostorPath = join(fixtureRoot, "impostor/node_modules");
+      mkdirSync(join(impostorPath, "typescript"), { recursive: true });
+      writeFileSync(join(impostorPath, "typescript/package.json"), '{ "name": "typescript", "version": "0.0.0", "main": "index.js" }\n');
+      writeFileSync(join(impostorPath, "typescript/index.js"), "module.exports = {};\n");
+      const impostorParser = runGate(impostorPath);
+      expect(impostorParser.exitCode).toBe(1);
+      expect(impostorParser.stderr.toString()).toContain("TypeScript AST parser is unavailable");
 
       // The locked parser, installed without a network or a package manager: a
       // real `bun install` here measured the install's wall clock, not the gate,
