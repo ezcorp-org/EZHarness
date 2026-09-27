@@ -916,7 +916,30 @@ function isCompleteLibFactoryBody(body: string): boolean {
  */
 function isCompleteServerFactoryBody(body: string, source?: string): boolean {
   const b = body.trim();
-  if (b.includes("serverModule(")) return true;
+  // `serverModule(...)` is complete ONLY when this text is what a preceding
+  // `const NAME = serverModule(...)` (or a spread of one) resolved to —
+  // extractLibFactoryBodies()'s own const-resolution already strips any
+  // `() =>` wrapper in that case, and so does the spreadIdent branch below
+  // (resolveConstDecl() returns a bare RHS, never re-wrapped). A body that
+  // STILL starts with `() =>` here was never resolved through a preceding
+  // declaration — it is what the test author wrote directly as the
+  // mock.module() factory, i.e. a LAZY, INLINE `() => serverModule("X",
+  // { ...overrides })` call. That shape looked identical to the safe one
+  // (both mention `serverModule(`) but is NOT equivalent (validator-3 L2):
+  // `serverModule()` calls `require()` on the relative path fresh, every
+  // time it runs, and an inline call has no guarantee it runs BEFORE the
+  // alias's own mock.module() registration takes hold, unlike a precomputed
+  // `const realX = serverModule(...)` at module top level, which always
+  // runs first, synchronously, at module load. If the alias and the
+  // relative require() ever resolve to the same module — the exact
+  // self-recursion hazard this function's own docblock already named for
+  // the precomputed case — an inline call can self-recurse against its OWN
+  // half-registered value and silently come back with no exports at all
+  // (item A). Fixed here to reject the unresolved (still-`() =>`-wrapped)
+  // shape; a real offender existed repo-wide when this landed
+  // (extension-event-end-to-end.test.ts, three call sites), converted to
+  // the precomputed form alongside this fix.
+  if (!/^\(\)\s*=>/.test(b) && b.includes("serverModule(")) return true;
   if (/^\(\)\s*=>\s*require\(\s*"[^"]+"\s*\)\s*,?\s*$/.test(b)) return true;
   if (/\{\s*\.\.\.\s*require\(\s*"[^"]+"\s*\)/.test(b)) return true;
   // A precomputed identifier spread — `{ ...realThing, override: ... }` —
@@ -1098,9 +1121,29 @@ describe("$lib/* factory completeness detector (general rule, pinned by fixture)
 });
 
 describe("$server/* factory completeness detector (general rule, pinned by fixture)", () => {
-  test("an inline serverModule(...) call is complete", () => {
+  test("a LAZY, INLINE serverModule(...) call — never precomputed — is INCOMPLETE (item A self-recursion hazard, validator-3 L2)", () => {
+    // This exact string used to be pinned as COMPLETE (true) here — that was
+    // the bug: it mentions serverModule( just like the safe precomputed
+    // shape below, but was never assigned to a const before the
+    // mock.module() registration, so nothing guarantees it runs before the
+    // alias's own registration takes hold. A real repo offender existed at
+    // this shape when this was fixed (extension-event-end-to-end.test.ts,
+    // three call sites, converted to the precomputed form alongside this
+    // test).
     expect(
       isCompleteServerFactoryBody('() => serverModule("auth/middleware", { requireAuth: () => null })'),
+    ).toBe(false);
+  });
+
+  test("a precomputed serverModule(...) call, already resolved through its own const declaration, is complete", () => {
+    // The safe counterpart to the fixture above: same call, but the text
+    // here is what extractLibFactoryBodies() (or the spreadIdent branch)
+    // hands back AFTER resolving a preceding `const NAME = serverModule(...)`
+    // declaration — no `() =>` wrapper survives that resolution, which is
+    // exactly the signal isCompleteServerFactoryBody() uses to tell the two
+    // apart.
+    expect(
+      isCompleteServerFactoryBody('serverModule("auth/middleware", { requireAuth: () => null })'),
     ).toBe(true);
   });
 

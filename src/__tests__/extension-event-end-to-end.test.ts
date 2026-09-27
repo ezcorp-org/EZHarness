@@ -55,7 +55,15 @@ const conversationCalls: string[] = [];
 // fixed. A sibling file needing e.g. getLatestLeaf got a mock.module()
 // registration that lacked it once this file's context fix made both
 // files' full test bodies actually run together.
-mock.module("$server/db/queries/conversations", () => serverModule("db/queries/conversations", {
+// Precomputed BEFORE either mock.module() registration below (item C2, W18
+// hygiene, validator-3 L2): a factory that calls serverModule(...) INLINE,
+// lazily, is a self-recursion hazard when the alias and the relative
+// require() resolve to the same module — the established convention
+// elsewhere in this file (auth/middleware, below) and repo-wide is always
+// to precompute once, outside the factory, then spread the constant.
+const realDbQueriesConversations = serverModule("db/queries/conversations", {});
+mock.module("$server/db/queries/conversations", () => ({
+  ...realDbQueriesConversations,
   getConversation: async (id: string) => {
     conversationCalls.push(id);
     return mockConv;
@@ -66,7 +74,9 @@ mock.module("$server/db/queries/conversations", () => serverModule("db/queries/c
   // exactly the pre-P2 behavior these cases assert.
   getOrCreateExtServiceConversation: async () => null,
 }));
-mock.module("$server/db/queries/tool-calls", () => serverModule("db/queries/tool-calls", {
+const realDbQueriesToolCalls = serverModule("db/queries/tool-calls", {});
+mock.module("$server/db/queries/tool-calls", () => ({
+  ...realDbQueriesToolCalls,
   getToolCallConversationById: async (_id: string) => mockToolCall,
 }));
 
@@ -79,7 +89,9 @@ mock.module("$lib/server/security/api-keys", () => webLibModule("server/security
 // $lib/server/context mock: a sibling test needing requireRole (or any
 // of the other 7 real exports) got a mock.module() registration that
 // lacked it, and Bun's "Export named X not found" persists across files.
-mock.module("$server/auth/middleware", () => serverModule("auth/middleware", {
+const realAuthMiddleware = serverModule("auth/middleware", {});
+mock.module("$server/auth/middleware", () => ({
+  ...realAuthMiddleware,
   checkProjectRole: async () => true,
   requireAuth: () => ({
     id: "user-1",

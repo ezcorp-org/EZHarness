@@ -991,3 +991,35 @@ C's head whenever it moves.
   `isSafeExplicitTargetEnv()` (a bare-substring check missed it; fixed to a regex before this landed).
   Full guard suite: 19/0 (was 11/0).
   EVIDENCE: typecheck, lint clean.
+
+- [x] GC17: validator-3's L2 finding on the mock-cleanup meta-test — `isCompleteServerFactoryBody()`'s
+  naive `if (b.includes("serverModule(")) return true;` accepted a LAZY, INLINE `() =>
+  serverModule("X", { ...overrides })` mock.module() factory just as readily as the safe,
+  established precomputed-identifier-spread shape (`const realX = serverModule(...);
+  mock.module(alias, () => ({ ...realX, ...overrides }))`), but the two are not equivalent: an
+  inline call has no guarantee it runs BEFORE the alias's own mock.module() registration takes
+  hold, unlike a precomputed call, which always runs first, synchronously, at module load. If the
+  alias and the relative `require()` a `serverModule()` call makes ever resolve to the same module,
+  an inline call can self-recurse against its own half-registered value and silently come back
+  with no exports at all ("item A", predating this branch) — exactly the class of bug this whole
+  meta-test exists to catch, missed here because the check only looked for the SUBSTRING
+  `serverModule(`, not whether the call had actually been precomputed.
+  A REAL, repo-wide offender existed at this shape: `src/__tests__/extension-event-end-to-end.test.ts`
+  mocked `$server/db/queries/conversations`, `$server/db/queries/tool-calls`, and (inside this
+  file's own TARGETS list) `$server/auth/middleware` all three this way.
+  FIX: the check now looks at whether the factory body still starts with an unresolved `() =>`
+  wrapper — `extractLibFactoryBodies()`'s own const-resolution (and the spreadIdent branch here)
+  already strips that wrapper when a `serverModule(...)` call came from a preceding `const NAME =
+  serverModule(...)` declaration, so a body that STILL has it was written directly as the factory,
+  never precomputed. Rejected in that case; accepted otherwise (unchanged for the precomputed
+  forms). The existing fixture that pinned the WRONG expectation (`() => serverModule(...)` treated
+  as complete) is inverted into the negative case this always should have been, plus a new positive
+  fixture for the resolved (no-wrapper) form. The real offender is converted to the precomputed
+  pattern alongside this fix — same values, same overrides, just precomputed once before either
+  registration, matching every other auth/middleware conversion on this branch.
+  PROOF: genuine red-first control — reverting just the `$server/auth/middleware` call site in
+  `extension-event-end-to-end.test.ts` back to the inline shape (detector fix left in place)
+  reproduces exactly one offender in the repo-wide "F1 guard" test, naming that file and alias;
+  restored to green after. `mock-cleanup-coverage.test.ts` + `extension-event-end-to-end.test.ts`
+  combined: 53/0.
+  EVIDENCE: typecheck, lint, `gate-integrity.ts`, both boundary checks all clean.
