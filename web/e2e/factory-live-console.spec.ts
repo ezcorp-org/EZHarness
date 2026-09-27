@@ -49,7 +49,12 @@ function runStatus(runId: string): FactoryRunSummary["status"] {
 	return runId === "run-finished" ? "succeeded" : runId === "run-failed" ? "failed" : runId === STOPPED_RUN ? "cancelled" : "running";
 }
 
-function runSummary(runId: string, status: FactoryRunSummary["status"], factoryId = longFactory): FactoryRunSummary {
+/** The definition each listed run belongs to, the same in the list, the run read and the inspection. */
+function factoryOf(runId: string): string {
+	return ({ "run-finished": "nightly-inventory-refresh", "run-failed": "image-thumbnails", [STOPPED_RUN]: "catalog-publisher" } as Record<string, string>)[runId] ?? longFactory;
+}
+
+function runSummary(runId: string, status: FactoryRunSummary["status"], factoryId = factoryOf(runId)): FactoryRunSummary {
 	return { runId, factoryId, factoryVersion: "2.4.0", definitionDigest: digest("a"), grantRevision: 3, revision: 7, status, createdAtMs: 1_789_000_000_000, updatedAtMs: 1_789_000_100_000 };
 }
 
@@ -83,7 +88,8 @@ function inspection(runId: string, status: FactoryRunSummary["status"]): Factory
 		children: { items: [{ runId: "run-child-inventory-sync-with-a-long-identifier", factoryId: "inventory-sync-child-factory", factoryVersion: "1.3.0", state: "open", status: "running", deadlineMs: 1_900_000_000_000 }] },
 		attempts: { items: attempts(50), nextCursor: "attempts-page-2" },
 		artifacts: { items: ARTIFACTS },
-		blockers: [
+		// A stopped run waits on nothing; its releases say what they did instead.
+		blockers: status === "cancelled" ? [] : [
 			{ kind: "approval", id: "approval-ship", nodeInstanceId: "approve-the-release-candidate", reason: "Waiting for an approval decision", sinceMs: 1 },
 			{ kind: "release", id: "operation-catalog", nodeInstanceId: "publish-catalog", reason: "Release outcome is uncertain and needs reconciliation", sinceMs: 2 },
 		],
@@ -122,7 +128,7 @@ async function routeConsole(page: Page, scenario: Scenario = {}) {
 		const json = (value: FactoryApiResponse, status = 200) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(value) });
 		const path = url.pathname;
 		if (path.endsWith("/runs") && method === "GET") {
-			return json(envelope({ kind: "run.page", page: { items: [runSummary("run-live-catalog", "running"), runSummary("run-finished", "succeeded", "nightly-inventory-refresh"), runSummary("run-failed", "failed", "image-thumbnails"), runSummary(STOPPED_RUN, "cancelled", "catalog-publisher")] } }));
+			return json(envelope({ kind: "run.page", page: { items: [runSummary("run-live-catalog", "running"), runSummary("run-finished", "succeeded"), runSummary("run-failed", "failed"), runSummary(STOPPED_RUN, "cancelled")] } }));
 		}
 		const runRead = /\/runs\/([^/]+)$/.exec(path);
 		if (runRead && method === "GET") {

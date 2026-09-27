@@ -472,7 +472,8 @@
 	.run-copy, .row-copy { display: grid; min-width: 0; }
 	.run-copy strong, .row-copy strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 	.release-stop { color: var(--color-text-muted); font-size: 11px; line-height: 1.35; }
-	.release-stop[data-effect="uncertain"], .release-stop[data-effect="unknown_at_deadline"] { color: var(--color-amber-500); }
+	/* Small text: the warning hue mixed toward the theme's text colour, so it stays readable in both themes. */
+	.release-stop[data-effect="uncertain"], .release-stop[data-effect="unknown_at_deadline"] { color: color-mix(in srgb, var(--color-amber-500) 65%, var(--color-text-primary)); }
 	.release-stop[data-effect="published"] { color: var(--color-text-primary); }
 	.run-copy small, .row-copy small { overflow: hidden; color: var(--color-text-muted); font-family: var(--font-mono); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 	.status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--color-text-muted); }
