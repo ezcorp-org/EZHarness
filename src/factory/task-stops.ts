@@ -14,7 +14,7 @@ import type { FactoryAttemptAuthority, FactoryExecutionJournal } from "./executi
 import type { FactoryInbox } from "./inbox";
 import { firstFactoryJournalIssue, validateFactoryStopReceipt, type FactoryJournalHostKey, type FactoryPhysicalStopExpectation } from "./journal-validation";
 import { lockFactoryScope } from "./locks";
-import type { PoolLeaseStatus } from "./pool/ledger";
+import { poolStopConfirmed, type PoolLeaseStatus } from "./pool/ledger";
 import { assertFactoryIdentity, encodeFactoryPayload } from "./records";
 import { factoryAttemptWorkerId, readFactoryAttemptLaunchFacts, type FactoryAttemptLaunchState, type FactoryPhysicalStopReason, type FactoryPhysicalStopReceipt } from "./runner/attempt-runtime";
 import type { FactoryTaskOutcomes, FactoryVerifiedTaskOutcome } from "./task-outcomes";
@@ -345,7 +345,8 @@ export class FactoryTaskStops implements FactoryUsageSettlementAuthority {
     // a CPU reservation has none. The host binding is proven by the signed
     // receipt this method already verified; the pool must not contradict it,
     // and having no opinion is not a contradiction.
-    if (acknowledged.reservationId !== receipt.reservationId || acknowledged.state !== "settled" || acknowledged.holderGeneration !== receipt.holderGeneration || acknowledged.allocationGeneration !== receipt.allocationGeneration || (acknowledged.hostId !== undefined && acknowledged.hostId !== receipt.hostId)) throw new FactoryTaskStopError("factory_task_stop_pool_mismatch");
+    // A GPU host's stop confirms while the host waits for its reimage (W02d R7); no other uncertainty does.
+    if (acknowledged.reservationId !== receipt.reservationId || !poolStopConfirmed(acknowledged) || acknowledged.holderGeneration !== receipt.holderGeneration || acknowledged.allocationGeneration !== receipt.allocationGeneration || (acknowledged.hostId !== undefined && acknowledged.hostId !== receipt.hostId)) throw new FactoryTaskStopError("factory_task_stop_pool_mismatch");
     // A stop with no terminal usage settles as a known zero only when the
     // attempt journaled no operation. The journal is final here: the sealed
     // stop exists, so the cancellation was accepted, and an accepted attempt

@@ -140,6 +140,26 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
     expect(await executionStatus(attempt.attemptId)).toBe("stopped");
   });
 
+  test("a GPU stop the pool holds for a reimage confirms and settles once; any other uncertain acknowledgement is refused (W02d R7)", async () => {
+    const gpu = await launchedAttempt();
+    const { reference } = await cancelled(gpu);
+    const awaiting = { state: "uncertain", reason: "awaiting-gpu-reimage", resources: { "gpu-host": 1 } } as const;
+    const receipt = await harness(gpu, stopper(async request => signed(request)), acknowledger(awaiting)).stops.stop(service, reference);
+    expect(receipt.state).toBe("stopped");
+    expect(await reservationState(gpu.reservationId)).toMatchObject({ state: "settled" });
+    expect(await settlementRows(gpu.run.runId)).toHaveLength(1);
+
+    const lapsed = await launchedAttempt();
+    const lapsedCancel = await cancelled(lapsed);
+    // A lapsed lease, or a holder still running, proves nothing about the process: the stop stays uncertain.
+    for (const refused of [{ ...awaiting, reason: "lease-expired" }, { state: "running" as const }]) {
+      expect(await harness(lapsed, stopper(async request => signed(request)), acknowledger(refused)).stops.stop(service, lapsedCancel.reference))
+        .toMatchObject({ state: "uncertain", cause: { code: "factory_task_stop_pool_mismatch" } });
+    }
+    // Left settled, as every case leaves the shared tenant.
+    expect((await harness(lapsed, stopper(async request => signed(request)), acknowledger()).stops.stop(service, lapsedCancel.reference)).state).toBe("stopped");
+  });
+
   test("stops a still-running attempt from its sealed launch, and an empty journal settles a typed zero", async () => {
     const attempt = await launchedAttempt();
     const { reference, advanced } = await cancelled(attempt);

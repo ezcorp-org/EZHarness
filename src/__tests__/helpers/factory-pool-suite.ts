@@ -418,7 +418,7 @@ describe(`factory C03 pool admission ledger on ${fixture.name}`, () => {
     await expect(service.acknowledgeStopped(supervisorPrincipal, stop)).rejects.toThrow("requires a tenant certificate");
   });
 
-  test("a GPU stop stays unacknowledged until its host is proven reimaged", async () => {
+  test("a supervisor-confirmed GPU stop is acknowledged while its host waits for a reimage; the host stays held until the reimage (W02d R7)", async () => {
     const service = new PoolAdmissionService(poolDatabase, pool);
     const holder: PoolPrincipal = { kind: "tenant", tenantId: "tenant-a", subject: "tenant-a", scopes: ["pool:tenant:tenant-a"] };
     const supervisorPrincipal: PoolPrincipal = { kind: "supervisor", supervisorId: "supervisor-a", subject: "supervisor-a", hostIds: ["gpu-ack"], scopes: ["pool:supervisor:supervisor-a"] };
@@ -427,14 +427,33 @@ describe(`factory C03 pool admission ledger on ${fixture.name}`, () => {
     await pool.request(request("gpu-ack-reservation", "tenant-a", { cpu: 1, "gpu-host": 1 }, clock));
     const lease = await admitted(pool);
     const stop = { reservationId: "gpu-ack-reservation", holderGeneration: lease.holderGeneration, hostId: "gpu-ack" };
-    expect(await service.confirmStopped(supervisorPrincipal, stop)).toMatchObject({ state: "uncertain", reason: "awaiting-gpu-reimage" });
-    // The host is not offered again yet, so there is nothing for the tenant to
-    // acknowledge; C03 holds the capacity until a verified reimage receipt.
+    // Before the supervisor's word the holder may still run: refused.
     await expect(service.acknowledgeStopped(holder, stop)).rejects.toThrow("cannot be acknowledged");
+    expect(await service.confirmStopped(supervisorPrincipal, stop)).toMatchObject({ state: "uncertain", reason: "awaiting-gpu-reimage" });
+    // The supervisor proved the process gone, so the product's stop confirms (W02d R7). The host itself is not
+    // offered again: C03 holds its capacity until a verified reimage receipt.
+    const acknowledged = await service.acknowledgeStopped(holder, stop);
+    expect(acknowledged).toMatchObject({ state: "uncertain", reason: "awaiting-gpu-reimage", hostId: "gpu-ack", holderGeneration: lease.holderGeneration });
+    expect(await service.acknowledgeStopped(holder, stop)).toEqual(acknowledged);
+    await expect(service.acknowledgeStopped(holder, { ...stop, hostId: "gpu-elsewhere" })).rejects.toThrow("host is stale");
+    await pool.request(request("gpu-ack-next", "tenant-b", { "gpu-host": 1 }, clock));
+    expect(await pool.schedule()).toMatchObject({ status: "queued", blockingResource: "gpu-host" });
     expect(await service.confirmReimage(supervisorPrincipal, { ...stop, receipt: "reimage-proof" })).toMatchObject({ state: "settled" });
     expect(await service.acknowledgeStopped(holder, stop)).toMatchObject({ state: "settled", hostId: "gpu-ack" });
     // Here the pool does know the host, so a foreign one is refused.
     await expect(service.acknowledgeStopped(holder, { ...stop, hostId: "gpu-elsewhere" })).rejects.toThrow("host is stale");
+  });
+
+  test("an uncertainty other than a GPU host's reimage wait is never acknowledged: a lapsed lease proves nothing (W02d R7)", async () => {
+    const service = new PoolAdmissionService(poolDatabase, pool);
+    const holder: PoolPrincipal = { kind: "tenant", tenantId: "tenant-a", subject: "tenant-a", scopes: ["pool:tenant:tenant-a"] };
+    await pool.configureCapacity("cpu", 1);
+    await pool.request(request("cpu-lapse", "tenant-a", { cpu: 1 }, clock));
+    const lease = await admitted(pool);
+    clock.advance(31_000);
+    await pool.schedule();
+    expect(await pool.status("cpu-lapse")).toMatchObject({ state: "uncertain", reason: "lease-expired" });
+    await expect(service.acknowledgeStopped(holder, { reservationId: "cpu-lapse", holderGeneration: lease.holderGeneration, hostId: "host-any" })).rejects.toThrow("cannot be acknowledged");
   });
 
   test("GPU stop proof releases CPU once and leaves another active CPU lease accounted", async () => {

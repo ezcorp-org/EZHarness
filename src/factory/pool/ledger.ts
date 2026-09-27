@@ -119,6 +119,18 @@ export interface PoolLeaseStatus {
   reason?: string;
 }
 
+/** Why a GPU host's reservation stays held after its supervisor confirmed the stop: the host waits for a reimage. */
+export const POOL_AWAITING_GPU_REIMAGE = "awaiting-gpu-reimage";
+
+/**
+ * Whether a supervisor has confirmed this reservation's stop (W02d R7): settled, or a GPU host's reservation that
+ * waits only for its reimage. The process is proven gone in both; the GPU host's capacity stays held until the
+ * reimage (C03). Every other uncertainty proves nothing about the process.
+ */
+export function poolStopConfirmed(status: Pick<PoolLeaseStatus, "state" | "reason">): boolean {
+  return status.state === "settled" || (status.state === "uncertain" && status.reason === POOL_AWAITING_GPU_REIMAGE);
+}
+
 const leaseMs = 30_000;
 const ageLaneMs = 30_000;
 const resourceSet = new Set<string>(POOL_RESOURCE_CLASSES);
