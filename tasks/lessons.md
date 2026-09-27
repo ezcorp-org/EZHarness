@@ -1663,3 +1663,11 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 ## 2026-09-27 — A test leg that ran zero tests must fail loudly (W01h merge)
 
 - `bun test <path>` without a leading `./` treats the path as a name filter. The W01h merge batch listed `tests/postgres/...` and `src/...` bare, so bun matched nothing and its three PostgreSQL legs and its Podman leg ran no tests. Write every listed test path with `./`, and make every test leg assert that it ran at least one test: a count of zero is a failure, whatever the exit code. The integrator's heavy-batch and fast-check scripts now add `./` and fail a zero-test leg with exit 97.
+
+## 2026-09-27 — Build JSON in SQL, and let a filter on it fail open (W15f)
+
+- Write a JSONB value with `jsonb_build_object` from typed parameters, not a JSON text parameter cast to `jsonb`. On
+  real PostgreSQL the text parameter arrived as a JSON string; PGlite stored an object, so only the PostgreSQL leg
+  caught it. Assert `jsonb_typeof(...) = 'object'` in the test.
+- A scan that skips rows by a stored mark must compare with `IS DISTINCT FROM`, so a mark it cannot read keeps the row
+  (and its loud report) rather than hiding it: `NULL <> value` is not true, and the row vanishes in silence.
