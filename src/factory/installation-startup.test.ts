@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, jest, test } from "bun:test";
 import { generateKeyPairSync } from "node:crypto";
 import { certificates } from "../__tests__/helpers/factory-certificates";
 import { FACTORY_WORKER_ROLES } from "./runtime-workers";
@@ -10,6 +10,7 @@ import type { FactorySettleableChild } from "./child-runs";
 import type { TrustedFactoryServiceIdentity } from "./trusted-command-gateway";
 import type { BlobStore } from "../extensions/v4/types";
 import { getReadiness, resetReadiness } from "../readiness";
+import { FACTORY_PROBE_DEADLINE_MS } from "./service-probes";
 import { configureFactoryApplication, getFactoryApplication } from "./application";
 import type { FactoryBootConfig } from "./boot";
 import { createFactoryPoolReadinessWriter } from "./pool/readiness";
@@ -337,6 +338,58 @@ describe("startFactoryInstallation", () => {
     expect(probes.every((event) => event.state === "finished" && event.detail === "ready")).toBe(true);
     expect(events.every((event) => Number.isInteger(event.elapsedMs) && event.elapsedMs >= 0)).toBe(true);
   });
+
+  test("a store that never answers its probe times out by name, and boot still composes with admission closed", async () => {
+    const root = await privateRoot();
+    await writeReadyRecords(root);
+    const events: FactoryBootTraceEvent[] = [];
+    const puts: AbortSignal[] = [];
+    // The probe's put never answers and ignores its abort signal, the worst case: only the
+    // deadline race can end the probe. Fake timers run only from the runtime phase to that put,
+    // so the deadline passes at once instead of after fifteen real seconds.
+    const silent = {
+      ...memoryBlobs(),
+      put(_content: Uint8Array, options?: { signal?: AbortSignal }) {
+        const signal = options?.signal;
+        if (!signal) throw new Error("the storage probe sent its put without a signal");
+        puts.push(signal);
+        queueMicrotask(() => { jest.advanceTimersByTime(FACTORY_PROBE_DEADLINE_MS); jest.useRealTimers(); });
+        return new Promise<never>(() => {});
+      },
+    } as unknown as BlobStore;
+    const controller = new AbortController();
+    try {
+      const startup = await startFactoryInstallation({
+        host: host({ trace: (event) => { events.push(event); if (event.phase === "runtime" && event.state === "started") jest.useFakeTimers(); } }),
+        blobs: silent,
+        databaseUrl: "postgres://product",
+        signal: controller.signal,
+        configPath: await writeConfig(root, { readinessRetry: { delayMs: 60_000, windowMs: 300_000 } }),
+        boot: bootConfig(root),
+        dependencies: { gateway: { health: async () => true }, workers: { projections: { projectPending: async () => ({ runs: [] }) } } },
+      });
+      started.push(startup);
+
+      // The deadline also aborted the put's signal, so a store that honours it stops its request.
+      expect(puts).toHaveLength(1);
+      expect(puts[0]!.aborted).toBe(true);
+      expect(String(puts[0]!.reason)).toContain("object_storage_probe_timeout");
+      // Every probe after the stuck one still ran, and the runtime phase finished.
+      const report = startup.runtime.report();
+      expect(report.admissionOpen).toBe(false);
+      expect(report.probes.map(({ service, available, detail }) => ({ service, available, detail }))).toEqual(report.probes.map(({ service }) => (
+        service === "object-storage"
+          ? { service, available: false, detail: "object_storage_probe_timeout" }
+          : { service, available: true, detail: "ready" })));
+      expect(report.probes.map(({ service }) => service)).toContain("required-sandbox");
+      expect(events.filter((event) => event.phase === "probe:object-storage").map(({ state, detail }) => `${state}:${detail}`)).toEqual(["finished:object_storage_probe_timeout"]);
+      expect(events.some((event) => event.phase === "runtime" && event.state === "finished")).toBe(true);
+      expect(getReadiness()).toMatchObject({ state: "degraded", reason: "factory-services-unavailable", detail: { missing: ["object-storage"] } });
+    } finally {
+      jest.useRealTimers();
+      controller.abort();
+    }
+  }, 10_000);
 
   test("a phase that throws still reports that it finished, so a failed boot names where it failed", async () => {
     const root = await privateRoot();
