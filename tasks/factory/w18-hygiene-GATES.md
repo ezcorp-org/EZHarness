@@ -952,3 +952,42 @@ C's head whenever it moves.
   import-resolution mechanism exactly).
   EVIDENCE: typecheck, lint, `gate-integrity.ts`, both boundary checks all clean (including
   `gate-integrity.ts` and `check-boundaries.ts` checking themselves, now correctly on the keeping side).
+
+- [x] GC16: validator-3's L1 finding on GC14/15 — the repo-wide git-spawn guard's own docblock claimed
+  "every production git spawn" while its detection was structurally narrower: it only ever recognized a
+  literal `Bun.spawn(["git", ...`/`Bun.spawnSync(["git", ...` argv, missing two real production call
+  sites entirely. Both are safe TODAY (each builds its `env` from scratch, never spreading ambient
+  `process.env`), so this was a docblock-vs-reality gap, not a live vulnerability — but the guard could
+  not have caught a regression on either site, which is the whole point of having one.
+  SITE 1: `src/factory/reference-code/git-reader.ts`'s `runGit()` — `node:child_process`'s `spawn(options.git
+  ?? "git", args, { env: { PATH: ..., GIT_CONFIG_GLOBAL: "/dev/null", ... } })`, a from-scratch env with no
+  SDK helper call at all (a third, independent isolation strategy, same class as the two pre-GC5 hand-
+  rolled filters GC14 already found and fixed elsewhere).
+  SITE 2: `src/extensions/project-open-pr.ts`'s `createProjectCommandRunner()` — `Bun.spawn(command, { cwd,
+  env: environment, ... })` where `command` is a runtime-assembled array (`argv[0] === "git" ? ["git",
+  ...GIT_POLICY, ...argv.slice(1)] : argv`), invisible to a literal-argv match by construction.
+  `project-git-broker.ts` calls this factory but has no git-spawn code of its own to miss.
+  FIX: two new detector families in `git-spawn-context-guard.test.ts`, alongside the original (now
+  "family 1"): family 2 recognizes a `node:child_process` `spawn`/`execFile`/`exec` call whose first
+  argument is (or `??`/`||`-falls-back to) the literal `"git"`, scoped to files that import from
+  `"node:child_process"` (excludes a same-named local function or a namespaced `child_process.spawn(...)`
+  call — stated honestly as a scope limit, matching this guard's existing convention). Family 3 recognizes
+  any `Bun.spawn`/`Bun.spawnSync` call inside a function/arrow declaration whose name ends in
+  `CommandRunner`, by name rather than by argv shape. Both families are held to a NEW, stricter check,
+  `isSafeExplicitTargetEnv()` — neither operates on "the repository as invoked" (both take an explicit
+  path/argv the caller controls), so unlike family 1's `isGuardedEnvExpr()`, `currentRepositoryGitContext()`
+  does NOT satisfy it here; only an explicit `withoutGitContext()` call or a genuinely from-scratch env (no
+  `...process.env` spread, however wrapped — a parenthesized or type-cast spread like `...(process.env as
+  T)` counts too, caught by regex, not a bare substring check) passes. The repo-wide scan now walks all
+  three families over the same file roots; two new positive fixtures pin the two real sites; six new unit
+  tests (three per family, including one negative control per family: a bare `{...process.env}` spread, and
+  — family 2 only — an explicit `currentRepositoryGitContext()` call, the wrong class for this family)
+  pin the detectors before the repo-wide scan runs.
+  PROOF: repo-wide scan clean across all three families (zero offenders); both new positive fixtures pass;
+  genuine red-green control on both real sites — reverting `git-reader.ts`'s env to `{ ...process.env }`
+  and `project-open-pr.ts`'s to a wrapped `...(process.env as Record<string, string>)` spread each
+  independently flips the repo-wide scan and that file's own positive fixture to failing, with the fix
+  restored to green after; the wrapped-spread case specifically caught a real gap in the first draft of
+  `isSafeExplicitTargetEnv()` (a bare-substring check missed it; fixed to a regex before this landed).
+  Full guard suite: 19/0 (was 11/0).
+  EVIDENCE: typecheck, lint clean.

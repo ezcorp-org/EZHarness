@@ -30,16 +30,39 @@
  * spawns are a test-isolation concern with its own established pattern,
  * `src/__tests__/helpers/scratch-git.ts`'s `scratchGitEnv()`, not this rule).
  *
- * DETECTION SCOPE, STATED HONESTLY: this walker recognizes a LITERAL argv
- * array whose first element is the string `"git"` — `Bun.spawn(["git", ...])`
- * / `Bun.spawnSync(["git", ...])`. It does NOT (and structurally cannot,
- * without a real parser) recognize a generic passthrough runner that takes
- * an arbitrary `cmd: string[]` parameter and might sometimes be called with
- * a git argv — docs-updater's `makeProductionShell` is exactly this shape,
- * deliberately reused for both `git` and `gh` calls, and is out of this
- * guard's detection reach for that reason (its own env, `hermeticGitEnv()`,
- * already goes through `withoutGitContext()` — checked by the positive
- * fixture at the read-function call sites in the SAME file, not this one).
+ * DETECTION SCOPE, STATED HONESTLY: this walker recognizes THREE shapes, in
+ * three families (validator-3 L1 widened it from one to three):
+ *   1. A LITERAL argv array whose first element is the string `"git"` —
+ *      `Bun.spawn(["git", ...])` / `Bun.spawnSync(["git", ...])`.
+ *   2. A `node:child_process` `spawn`/`execFile`/`exec` call whose first
+ *      argument is the literal `"git"`, or a `x ?? "git"` / `x || "git"`
+ *      fallback to it (`src/factory/reference-code/git-reader.ts`'s
+ *      `spawn(options.git ?? "git", args, {...})`). Only a file that
+ *      imports from `"node:child_process"` is scanned this way, so an
+ *      unrelated same-named local function cannot be mistaken for it.
+ *   3. A function or arrow declaration whose name ends in `CommandRunner` —
+ *      a "git command runner" factory whose OWN spawn call cannot be seen
+ *      by family 1's literal-argv match, because its argv is assembled
+ *      conditionally from a caller-supplied array at runtime
+ *      (`createProjectCommandRunner` in `src/extensions/project-open-pr.ts`:
+ *      `argv[0] === "git" ? ["git", ...GIT_POLICY, ...argv.slice(1)] : argv`).
+ *      Recognized by name, not by argv shape.
+ * Families 2 and 3 are held to a NARROWER, STRICTER rule than families
+ * A/B above: neither operates on "the repository as invoked" — both take an
+ * explicit path/argv/target the caller already controls — so a from-scratch
+ * env object (built with no `...process.env` spread — `process.env.X` for
+ * ONE named var is fine, spreading the whole thing is not) or an explicit
+ * `withoutGitContext()` call is required; `currentRepositoryGitContext()`
+ * would be the wrong class here and does NOT satisfy this check (unlike
+ * family 1's `isGuardedEnvExpr()`, which accepts either class by design).
+ * It does NOT (and structurally cannot, without a real parser) recognize a
+ * generic passthrough runner that takes an arbitrary `cmd: string[]`
+ * parameter with NO type-name signal — docs-updater's `makeProductionShell`
+ * is exactly this shape, deliberately reused for both `git` and `gh` calls,
+ * and stays out of this guard's detection reach for that reason (its own
+ * env, `hermeticGitEnv()`, already goes through `withoutGitContext()` —
+ * checked by the positive fixture at the read-function call sites in the
+ * SAME file, not this one).
  *
  * ALSO STATED HONESTLY: this guard is MECHANICAL, not semantic — it checks
  * that a call site names ONE of the two classes, never that it named the
@@ -134,6 +157,82 @@ export function findGitSpawnArgLists(source: string): GitSpawnCallsite[] {
       const firstArg = (splitTopLevelArgs(argsText)[0] ?? "").trim();
       if (/^\[\s*["']git["']/.test(firstArg)) out.push({ argsText, precedingSource: stripped.slice(0, at) });
       from = closeParen + 1;
+    }
+  }
+  return out;
+}
+
+/**
+ * Family 2 (validator-3 L1): every `node:child_process` `spawn`/`execFile`/
+ * `exec` call whose first argument is the literal `"git"`, or resolves via a
+ * `x ?? "git"` / `x || "git"` fallback to it. Only scanned when `source`
+ * imports from `"node:child_process"` — a same-named local function or a
+ * namespaced call (`child_process.spawn(...)`, `Bun.spawn(...)`, already
+ * family 1's job) is excluded by requiring a BARE call (no `.` immediately
+ * before the function name).
+ */
+export function findChildProcessGitSpawnArgLists(source: string): GitSpawnCallsite[] {
+  const stripped = stripCommentLines(source);
+  if (!/from\s+["']node:child_process["']/.test(stripped)) return [];
+  const out: GitSpawnCallsite[] = [];
+  for (const needle of ["spawn(", "execFile(", "exec("]) {
+    let from = 0;
+    while (true) {
+      const at = stripped.indexOf(needle, from);
+      if (at === -1) break;
+      const prevChar = stripped[at - 1];
+      if (prevChar !== undefined && /[\w.]/.test(prevChar)) { from = at + needle.length; continue; }
+      const openParen = at + needle.length - 1;
+      const closeParen = matchingParenIndex(stripped, openParen);
+      if (closeParen === -1) { from = at + needle.length; continue; }
+      const argsText = stripped.slice(openParen + 1, closeParen);
+      const firstArg = (splitTopLevelArgs(argsText)[0] ?? "").trim();
+      const isGitLiteral = /^["']git["']$/.test(firstArg);
+      const isGitFallback = /^[\w.]+\s*(\?\?|\|\|)\s*["']git["']$/.test(firstArg);
+      if (isGitLiteral || isGitFallback) out.push({ argsText, precedingSource: stripped.slice(0, at) });
+      from = closeParen + 1;
+    }
+  }
+  return out;
+}
+
+/**
+ * Family 3 (validator-3 L1): every `Bun.spawn`/`Bun.spawnSync` call inside a
+ * function or arrow declaration whose name ends in `CommandRunner` — a "git
+ * command runner" factory recognized by name, not by argv shape (its argv is
+ * assembled conditionally from a caller-supplied array at runtime, so
+ * family 1's literal-argv match cannot see it).
+ */
+export function findCommandRunnerGitSpawnArgLists(source: string): GitSpawnCallsite[] {
+  const stripped = stripCommentLines(source);
+  const out: GitSpawnCallsite[] = [];
+  const declRe = /(?:function\s+(\w*CommandRunner)\s*\([^)]*\)[^{]*\{)|(?:const\s+(\w*CommandRunner)\s*=[^{]*\{)/g;
+  let m: RegExpExecArray | null;
+  while ((m = declRe.exec(stripped))) {
+    const braceStart = m.index + m[0].length - 1;
+    let depth = 0;
+    let bodyEnd = -1;
+    for (let i = braceStart; i < stripped.length; i++) {
+      if (stripped[i] === "{") depth++;
+      else if (stripped[i] === "}") {
+        depth--;
+        if (depth === 0) { bodyEnd = i; break; }
+      }
+    }
+    if (bodyEnd === -1) continue;
+    const body = stripped.slice(braceStart, bodyEnd + 1);
+    for (const needle of ["Bun.spawnSync(", "Bun.spawn("]) {
+      let from = 0;
+      while (true) {
+        const at = body.indexOf(needle, from);
+        if (at === -1) break;
+        const openParen = at + needle.length - 1;
+        const closeParen = matchingParenIndex(body, openParen);
+        if (closeParen === -1) { from = at + needle.length; continue; }
+        const argsText = body.slice(openParen + 1, closeParen);
+        out.push({ argsText, precedingSource: stripped.slice(0, m.index) + body.slice(0, at) });
+        from = closeParen + 1;
+      }
     }
   }
   return out;
@@ -256,6 +355,60 @@ export function isGuardedEnvExpr(envExpr: string | null, source: string, depth =
   return false;
 }
 
+/**
+ * The `env:` expression from whichever top-level argument (from index 1
+ * onward) actually looks like an options object literal — family 2's
+ * options position varies by which of `spawn`/`execFile`/`exec` matched
+ * (`exec(command, options)` puts it at index 1; `spawn`/`execFile`'s
+ * `(command, args, options)` puts it at index 2), and family 3 always
+ * passes `(command, options)` to `Bun.spawn`, so index 1. Trying each
+ * top-level arg past the first and taking the first one shaped like an
+ * object literal avoids hard-coding a position per call shape.
+ */
+function optionsEnvFrom(argsText: string): string | null {
+  const args = splitTopLevelArgs(argsText);
+  for (const arg of args.slice(1)) {
+    const trimmed = arg.trim();
+    if (!trimmed.startsWith("{")) continue;
+    const env = extractObjectProp(trimmed, "env");
+    if (env !== null) return env;
+  }
+  return null;
+}
+
+/**
+ * Families 2 and 3's env check (validator-3 L1) — stricter than
+ * `isGuardedEnvExpr()` above: neither family operates on "the repository as
+ * invoked" (both take an explicit path/argv the caller already controls),
+ * so `currentRepositoryGitContext()` would be the WRONG class here and does
+ * NOT satisfy this check. The env must be either an explicit
+ * `withoutGitContext()` call, or a from-scratch object with no
+ * `...process.env` spread (`process.env.PATH` for one named var is fine —
+ * that is `git-reader.ts`'s and `project-open-pr.ts`'s actual shape — only
+ * spreading the WHOLE ambient environment is the violation this checks
+ * for). Resolves a bare identifier through its own `const` declaration, one
+ * level, same as `isGuardedEnvExpr()`.
+ */
+export function isSafeExplicitTargetEnv(envExpr: string | null, source: string, depth = 0): boolean {
+  if (envExpr === null || depth > 5) return false;
+  const e = envExpr.trim();
+  if (e.includes("withoutGitContext(")) return true;
+  // A spread of the whole ambient environment, however it is wrapped — a
+  // bare `...process.env`, or `...(process.env as T)` behind a type cast —
+  // is the violation this checks for. `process.env.PATH` (one named var,
+  // not a spread) must NOT match this.
+  if (/\.\.\.\s*\(*\s*process\.env\b/.test(e)) return false;
+  if (/^\{[\s\S]*\}$/.test(e)) return true;
+
+  const bareIdent = /^[A-Za-z_$][\w$]*$/.exec(e);
+  if (bareIdent) {
+    const decl = resolveConstDecl(source, e);
+    if (decl !== null) return isSafeExplicitTargetEnv(decl, source, depth + 1);
+  }
+
+  return false;
+}
+
 describe("git-spawn env guard: fixtures pin the detector before it walks the repo", () => {
   test("a direct withoutGitContext(process.env) call is guarded", () => {
     const src = 'const p = Bun.spawnSync(["git", ...args], { cwd, env: withoutGitContext(process.env) });';
@@ -345,6 +498,96 @@ describe("git-spawn env guard: fixtures pin the detector before it walks the rep
   });
 });
 
+describe("git-spawn env guard: family 2 (node:child_process) fixtures (validator-3 L1)", () => {
+  test("a fallback-to-\"git\" spawn() with a from-scratch env is safe", () => {
+    const src = [
+      'import { spawn } from "node:child_process";',
+      "function run(options) {",
+      '  const child = spawn(options.git ?? "git", args, { env: { PATH: process.env.PATH ?? "" } });',
+      "}",
+    ].join("\n");
+    const argLists = findChildProcessGitSpawnArgLists(src);
+    expect(argLists).toHaveLength(1);
+    const envExpr = optionsEnvFrom(argLists[0]!.argsText);
+    expect(isSafeExplicitTargetEnv(envExpr, argLists[0]!.precedingSource)).toBe(true);
+  });
+
+  test("a namespaced child_process.spawn(...) or a same-named local function is not matched at all", () => {
+    const noImport = 'function spawn() {} spawn("git", args, { env: { ...process.env } });';
+    expect(findChildProcessGitSpawnArgLists(noImport)).toHaveLength(0);
+    const namespaced = [
+      'import * as child_process from "node:child_process";',
+      'child_process.spawn("git", args, { env: { ...process.env } });',
+    ].join("\n");
+    expect(findChildProcessGitSpawnArgLists(namespaced)).toHaveLength(0);
+  });
+
+  test("NEGATIVE CONTROL: a bare {...process.env} spread is a violation for this family", () => {
+    const src = [
+      'import { spawn } from "node:child_process";',
+      'spawn("git", args, { env: { ...process.env } });',
+    ].join("\n");
+    const argLists = findChildProcessGitSpawnArgLists(src);
+    expect(argLists).toHaveLength(1);
+    const envExpr = optionsEnvFrom(argLists[0]!.argsText);
+    expect(isSafeExplicitTargetEnv(envExpr, argLists[0]!.precedingSource)).toBe(false);
+  });
+
+  test("NEGATIVE CONTROL: currentRepositoryGitContext() (the wrong class for this family) is a violation", () => {
+    const src = [
+      'import { spawn } from "node:child_process";',
+      'spawn("git", args, { env: currentRepositoryGitContext(process.env) });',
+    ].join("\n");
+    const argLists = findChildProcessGitSpawnArgLists(src);
+    expect(argLists).toHaveLength(1);
+    const envExpr = optionsEnvFrom(argLists[0]!.argsText);
+    expect(isSafeExplicitTargetEnv(envExpr, argLists[0]!.precedingSource)).toBe(false);
+  });
+});
+
+describe("git-spawn env guard: family 3 (*CommandRunner factories) fixtures (validator-3 L1)", () => {
+  test("a CommandRunner's Bun.spawn(command, ...) with a from-scratch env is safe", () => {
+    const src = [
+      "export function createProjectCommandRunner(githubToken) {",
+      "  return async (argv, cwd, input) => {",
+      "    const environment = { PATH: process.env.PATH ?? \"\", HOME: \"/nonexistent\" };",
+      '    const command = argv[0] === "git" ? ["git", ...GIT_POLICY, ...argv.slice(1)] : argv;',
+      "    const child = Bun.spawn(command, { cwd, env: environment, stdout: \"pipe\" });",
+      "  };",
+      "}",
+    ].join("\n");
+    const argLists = findCommandRunnerGitSpawnArgLists(src);
+    expect(argLists).toHaveLength(1);
+    const envExpr = optionsEnvFrom(argLists[0]!.argsText);
+    expect(envExpr).toBe("environment");
+    expect(isSafeExplicitTargetEnv(envExpr, argLists[0]!.precedingSource)).toBe(true);
+  });
+
+  test("a function not named *CommandRunner is not matched at all", () => {
+    const src = [
+      "function createRunner() {",
+      '  const child = Bun.spawn(command, { env: { ...process.env } });',
+      "}",
+    ].join("\n");
+    expect(findCommandRunnerGitSpawnArgLists(src)).toHaveLength(0);
+  });
+
+  test("NEGATIVE CONTROL: a CommandRunner spreading {...process.env} is a violation", () => {
+    const src = [
+      "function createXCommandRunner() {",
+      "  return (argv, cwd) => {",
+      '    const child = Bun.spawn(argv, { cwd, env: { ...process.env } });',
+      "  };",
+      "}",
+    ].join("\n");
+    const argLists = findCommandRunnerGitSpawnArgLists(src);
+    expect(argLists).toHaveLength(1);
+    const optionsArg = splitTopLevelArgs(argLists[0]!.argsText)[1] ?? null;
+    const envExpr = optionsArg ? extractObjectProp(optionsArg, "env") : null;
+    expect(isSafeExplicitTargetEnv(envExpr, argLists[0]!.precedingSource)).toBe(false);
+  });
+});
+
 describe("git-spawn env guard: every production git spawn is guarded (item C2, W18 hygiene)", () => {
   test("src/, scripts/, packages/, docs/extensions/examples/ have zero unguarded git spawns", async () => {
     const roots = ["src", "scripts", "packages", "docs/extensions/examples"];
@@ -366,6 +609,22 @@ describe("git-spawn env guard: every production git spawn is guarded (item C2, W
           offenders.push(`${file.slice(REPO_ROOT.length + 1)} (env: ${envExpr ?? "<absent>"})`);
         }
       }
+      // Families 2 (node:child_process) and 3 (*CommandRunner factories) —
+      // validator-3 L1. Held to isSafeExplicitTargetEnv()'s stricter rule:
+      // neither operates on "the repository as invoked", so
+      // currentRepositoryGitContext() does not satisfy it here.
+      for (const { argsText, precedingSource } of findChildProcessGitSpawnArgLists(source)) {
+        const envExpr = optionsEnvFrom(argsText);
+        if (!isSafeExplicitTargetEnv(envExpr, precedingSource)) {
+          offenders.push(`${file.slice(REPO_ROOT.length + 1)} [child_process] (env: ${envExpr ?? "<absent>"})`);
+        }
+      }
+      for (const { argsText, precedingSource } of findCommandRunnerGitSpawnArgLists(source)) {
+        const envExpr = optionsEnvFrom(argsText);
+        if (!isSafeExplicitTargetEnv(envExpr, precedingSource)) {
+          offenders.push(`${file.slice(REPO_ROOT.length + 1)} [*CommandRunner] (env: ${envExpr ?? "<absent>"})`);
+        }
+      }
     }
 
     if (offenders.length > 0) {
@@ -375,7 +634,9 @@ describe("git-spawn env guard: every production git spawn is guarded (item C2, W
           `currentRepositoryGitContext() (a current-repository spawn) from @ezcorp/sdk/git ` +
           `(directly, or via a same-file helper that itself calls one) — see ` +
           `src/extensions/git.ts's gitExec() and scripts/gate-integrity.ts's gitRun() for the ` +
-          `two patterns.`,
+          `two patterns. A [child_process] or [*CommandRunner] offender needs a from-scratch env ` +
+          `object (no ...process.env spread) or withoutGitContext() specifically — ` +
+          `currentRepositoryGitContext() is the wrong class for these two families.`,
       );
     }
     expect(offenders).toEqual([]);
@@ -397,6 +658,22 @@ describe("git-spawn env guard: every production git spawn is guarded (item C2, W
         const envExpr = optionsArg ? extractObjectProp(optionsArg, "env") : null;
         expect(isGuardedEnvExpr(envExpr, precedingSource)).toBe(true);
       }
+    }
+  });
+
+  test("the two named family 2/3 real sites are each recognized and safe (positive fixtures, validator-3 L1)", () => {
+    const childProcessSource = readFileSync(join(REPO_ROOT, "src/factory/reference-code/git-reader.ts"), "utf8");
+    const childProcessLists = findChildProcessGitSpawnArgLists(childProcessSource);
+    expect(childProcessLists.length).toBeGreaterThan(0);
+    for (const { argsText, precedingSource } of childProcessLists) {
+      expect(isSafeExplicitTargetEnv(optionsEnvFrom(argsText), precedingSource)).toBe(true);
+    }
+
+    const commandRunnerSource = readFileSync(join(REPO_ROOT, "src/extensions/project-open-pr.ts"), "utf8");
+    const commandRunnerLists = findCommandRunnerGitSpawnArgLists(commandRunnerSource);
+    expect(commandRunnerLists.length).toBeGreaterThan(0);
+    for (const { argsText, precedingSource } of commandRunnerLists) {
+      expect(isSafeExplicitTargetEnv(optionsEnvFrom(argsText), precedingSource)).toBe(true);
     }
   });
 
