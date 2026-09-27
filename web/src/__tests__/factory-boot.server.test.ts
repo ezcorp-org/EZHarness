@@ -56,6 +56,7 @@ function dependencies(overrides: Record<string, unknown> = {}) {
     boot,
     registerTeardown: vi.fn(),
     log: { info: vi.fn(), error: vi.fn() } as unknown as Pick<Console, "info" | "error">,
+    recoverDatabase: vi.fn(async () => false),
     ...overrides,
   };
 }
@@ -171,8 +172,31 @@ describe("startFactoryForHost", () => {
     expect(log.error).toHaveBeenCalledWith("[factory] background role failed", {
       role: "run-projection",
       error: "Error: Failed query: SELECT audit.project_id",
-      causes: [{ message: "bind message supplies 2 parameters, but prepared statement \"Pselect $5\" requires 1", code: "ERR_POSTGRES_SERVER_ERROR", errno: "08P01", routine: "exec_bind_message", severity: "ERROR" }],
+      causes: [{ message: "bind message supplies 2 parameters, but prepared statement \"Pselect $5\" requires 1", code: "ERR_POSTGRES_SERVER_ERROR", errno: "08P01", routine: "exec_bind_message", severity: "ERROR", statement: "Pselect $5" }],
     });
+  });
+
+  it("hands every role failure to the database recovery, and says when the pool was replaced", async () => {
+    startFactoryInstallation.mockResolvedValue(startup().handle);
+    const log = { info: vi.fn(), error: vi.fn() };
+    const recoverDatabase = vi.fn(async () => true);
+    await startFactoryForHost(dependencies({ log, recoverDatabase }) as never, {});
+    const passed = startFactoryInstallation.mock.calls[0]![0] as { host: { report: (role: string, error: unknown) => void } };
+    const failure = new Error("Failed query: SELECT audit.project_id");
+    passed.host.report("run-projection", failure);
+    expect(recoverDatabase).toHaveBeenCalledWith(failure);
+    await vi.waitFor(() => expect(log.info).toHaveBeenCalledWith("[factory] database pool replaced after a driver statement desync", { role: "run-projection" }));
+  });
+
+  it("reports a failed pool replacement instead of losing it", async () => {
+    startFactoryInstallation.mockResolvedValue(startup().handle);
+    const log = { info: vi.fn(), error: vi.fn() };
+    const recoverDatabase = vi.fn(async () => { throw new Error("pool open failed"); });
+    await startFactoryForHost(dependencies({ log, recoverDatabase }) as never, {});
+    const passed = startFactoryInstallation.mock.calls[0]![0] as { host: { report: (role: string, error: unknown) => void } };
+    passed.host.report("run-projection", new Error("Failed query"));
+    await vi.waitFor(() => expect(log.error).toHaveBeenCalledWith("[factory] database pool replacement failed", { role: "run-projection", error: "Error: pool open failed" }));
+    expect(log.info).not.toHaveBeenCalledWith("[factory] database pool replaced after a driver statement desync", expect.anything());
   });
 
   it("keeps the composition's own richer readiness rather than replacing it", async () => {

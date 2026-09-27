@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { ERROR_CHAIN_MAX_LINKS, errorChain } from "./error-chain";
+import { ERROR_CHAIN_MAX_LINKS, errorChain, isDriverStatementDesync } from "./error-chain";
 
 /** The shape Bun.sql's PostgresError takes behind a DrizzleQueryError (W09f field log). */
 function bunDriverError(): Error {
@@ -22,8 +22,15 @@ describe("errorChain", () => {
         errno: "08P01",
         routine: "exec_bind_message",
         severity: "ERROR",
+        statement: "Pselect $5",
       },
     ]);
+  });
+
+  test("names a driver statement whose name carries quotes", () => {
+    const [link] = errorChain(new Error('bind message supplies 2 parameters, but prepared statement "Pselect "id", "managed_by_extension_id", $5" requires 1'));
+    expect(link!.statement).toBe('Pselect "id", "managed_by_extension_id", $5');
+    expect(errorChain(new Error("no statement here"))[0]!.statement).toBeUndefined();
   });
 
   test("normalizes facts to strings and skips absent or null ones", () => {
@@ -54,5 +61,19 @@ describe("errorChain", () => {
     const chain = errorChain(error);
     expect(chain).toHaveLength(ERROR_CHAIN_MAX_LINKS);
     expect(chain[0]!.message).toBe(`depth-${ERROR_CHAIN_MAX_LINKS + 4}`);
+  });
+});
+
+describe("isDriverStatementDesync", () => {
+  test("recognises the statement-bookkeeping states on the error or any cause", () => {
+    expect(isDriverStatementDesync(bunDriverError())).toBe(true);
+    expect(isDriverStatementDesync(new Error("wrapped", { cause: { message: "gone", errno: "26000" } }))).toBe(true);
+    expect(isDriverStatementDesync({ message: "exists", code: "42P05" })).toBe(true);
+  });
+
+  test("does not treat ordinary query failures as a desync", () => {
+    expect(isDriverStatementDesync(new Error("wrapped", { cause: { message: "duplicate key", errno: "23505" } }))).toBe(false);
+    expect(isDriverStatementDesync(new Error("Connection closed"))).toBe(false);
+    expect(isDriverStatementDesync(undefined)).toBe(false);
   });
 });

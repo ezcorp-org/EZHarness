@@ -111,6 +111,11 @@ jobs:
           DB_POOL_MAX: "1"
         run: bun test ./tests/postgres/pool-one.test.ts
 
+      # W09f: the external pool can be discarded under a live Drizzle handle
+      # after a driver statement desync (src/db/swappable-bun-sql.ts).
+      - name: Run Bun.sql pool replacement on real PostgreSQL
+        run: FACTORY_TEST_POSTGRES_URL="$DATABASE_URL" bun test --timeout 60000 ./tests/postgres/bun-sql-pool-replacement.test.ts
+
       - name: Run pool service PostgreSQL and Node mTLS coverage producer
         env:
           COV_OUT: coverage-factory-pool

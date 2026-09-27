@@ -20,6 +20,8 @@ export interface ErrorChainLink {
   readonly errno?: string;
   readonly routine?: string;
   readonly severity?: string;
+  /** The prepared statement the server named in its message, when it named one. */
+  readonly statement?: string;
 }
 
 export const ERROR_CHAIN_MAX_LINKS = 8;
@@ -29,10 +31,15 @@ const FACTS = ["code", "errno", "routine", "severity"] as const;
 function chainLink(value: unknown): ErrorChainLink {
   if (typeof value !== "object" || value === null) return { message: String(value) };
   const fields = value as Record<string, unknown>;
-  const link: Record<string, string> = { message: typeof fields.message === "string" ? fields.message : String(value) };
+  const message = typeof fields.message === "string" ? fields.message : String(value);
+  const link: Record<string, string> = { message };
   for (const fact of FACTS) {
     if (fields[fact] !== undefined && fields[fact] !== null) link[fact] = String(fields[fact]);
   }
+  // A driver-generated statement name may itself contain quotes
+  // (`Pselect "id", …$5`), so the match runs to the last quote.
+  const statement = /prepared statement "(.*)"/s.exec(message)?.[1];
+  if (statement !== undefined) link.statement = statement;
   return link as unknown as ErrorChainLink;
 }
 
@@ -47,4 +54,18 @@ export function errorChain(error: unknown): readonly ErrorChainLink[] {
     current = typeof current === "object" ? (current as { cause?: unknown }).cause : undefined;
   }
   return links;
+}
+
+/**
+ * SQLSTATEs that only a driver's own prepared-statement bookkeeping can cause:
+ * this codebase never names, prepares or deallocates a statement itself.
+ * 08P01 protocol_violation (a Bind that does not fit its statement),
+ * 26000 invalid_sql_statement_name (a statement the session does not have),
+ * 42P05 duplicate_prepared_statement (a name the session already holds).
+ */
+export const DRIVER_STATEMENT_DESYNC_STATES: readonly string[] = ["08P01", "26000", "42P05"];
+
+/** True when the error, or any cause behind it, is a driver statement desync. */
+export function isDriverStatementDesync(error: unknown): boolean {
+  return errorChain(error).some((link) => DRIVER_STATEMENT_DESYNC_STATES.includes(link.errno ?? link.code ?? ""));
 }

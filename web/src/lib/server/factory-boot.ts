@@ -25,6 +25,12 @@ export interface FactoryHostBootDependencies {
   readonly boot: FactoryBootConfig;
   readonly registerTeardown: (name: string, fn: () => Promise<void> | void) => void;
   readonly log: Pick<Console, "info" | "error">;
+  /**
+   * Discard the database pool after a driver statement desync and say whether
+   * it did (`recoverFromDriverDesync`). A role that retried on a poisoned
+   * connection would fail the same way forever (W09f).
+   */
+  readonly recoverDatabase: (error: unknown) => Promise<boolean>;
 }
 
 /** Bounds a run may not exceed, from the environment or the documented default. */
@@ -55,11 +61,17 @@ export async function startFactoryForHost(
         // run-inputs resolver it builds; naming it here would shadow that.
         runOptions: hostRunOptions(env),
         availableResourceClasses: (env.EZCORP_FACTORY_RESOURCE_CLASSES ?? "cpu").split(",").map((value) => value.trim()).filter(Boolean),
-        // The causes carry the server's own words (SQLSTATE, routine); the
-        // top message of a driver error is only the query that failed.
+        // The causes carry the server's own words (SQLSTATE, routine,
+        // statement); the top message of a driver error is only the query.
+        // After a driver statement desync the pool is replaced, so the role's
+        // retry reaches a fresh connection instead of the poisoned one.
         report: (role, error) => {
           const causes = errorChain(error).slice(1);
           dependencies.log.error("[factory] background role failed", causes.length > 0 ? { role, error: String(error), causes } : { role, error: String(error) });
+          dependencies.recoverDatabase(error).then(
+            (replaced) => { if (replaced) dependencies.log.info("[factory] database pool replaced after a driver statement desync", { role }); },
+            (cause: unknown) => { dependencies.log.error("[factory] database pool replacement failed", { role, error: String(cause) }); },
+          );
         },
       },
       databaseUrl: dependencies.databaseUrl,
