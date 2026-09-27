@@ -259,6 +259,45 @@ on main. No test was written for them. The manifest above now makes the runner r
   that one commit (ruling 20:00Z; 19 mapped, listed in the commit message; config hash unchanged). The 19 suites run
   outside the hook in the final measurement slot.
 
+## Final measurement at dc3b64234 (2026-09-27, 20:02Z to 23:50Z)
+
+Driver `heavy/final-measure.sh`, three locked parts with a resource gate before each; bun and bunx 1.3.14 asserted.
+1. The 19 suites the a24a619ad merge mapped, one process per file: 19 of 19 green with nonzero counts
+   (`heavy/merge-a24a619ad-suites-rerun-dbdaf2e3b/summary.txt`; the vitest files 1, 18 and 15).
+2. The combined runner with scripts/combined-runner-legs.json (`heavy/final-measure-dc3b64234/part2-runner.log`).
+   Exit 0: sdk, transport and orchestrator builds, sdk-tests, web-coverage, web-bun-coverage, postgres (559 tests in 49
+   files), types, lint, gate-integrity, boundaries, pool, compute and provisioning coverage, the four podman legs,
+   manifest-cov-extras, manifest-factory-reference-data (its real-PostgreSQL suite 11 pass, 0 fail). The reds:
+   - focused, 6274 pass and 111 fail in one 462-file process. Pooled contamination: every failing file passes alone
+     (10 unit files, `focused-triage.txt`; 8 integration files under the lock,
+     `heavy/focused-triage-integration-dc3b64234/`), except scripts/factory-c13-inventory.test.ts, which is red at the
+     integ base a24a619ad ("src/factory/runner/attempt-runtime.ts imports C13 shared module src/db/queries/audit-log.ts
+     without a REQUIRED_SHARED_IMPORTS row"; W18c does not touch attempt-runtime.ts).
+   - manifest-cov-shard, 28677 pass and 1 fail in 1942 files: the same c13 test, red at base.
+   - node-coverage, python-coverage, manifest-web-security-coverage: exit 97, the runner's zero-count guard. False
+     reds: the node leg writes its counts to test-progress.log (91 pass, 0 fail), unittest prints "Ran N tests ... OK"
+     (253 and 183), and security-coverage.sh prints only failing suites (exit 0, 10 source records from 18 suites).
+3. `heavy/final-browser.sh` on one fresh build: build, round-trip and transfer check exit 0; mock-gate 259 passed,
+   mock-full 1448, evidence 393, fresh-setup 7, real-auth 107; merge exit 0; then the factory-services lane on the
+   same build under the Bun guards: 13 passed, exit 0 (the moved authoring spec included). CI does not merge the
+   factory-services receipt into coverage, so it is a pass/fail lane here too.
+
+Merge by hand with the runner's re-rooting rules (the runner skips its merge on any red, and expects lcov.info in
+each manifest leg while cov-shard, cov-extras and web-security write lcov_*.info): 23 inputs,
+`heavy/final-gates-dc3b64234/` (merged lcov sha256 prefix e6b87c61e1639d0e).
+  | gate | vs integ a24a619ad | vs origin/main | before (60e3e436a, 31 inputs, vs origin/main) |
+  |---|---|---|---|
+  | global floor | 97.97%, pass | 97.97%, pass | 97.88%, pass |
+  | per-file | 2131 enforced, pass | pass | 6 entries, fail |
+  | new-file | pass (none new) | pass (406 gated) | pass |
+  | patch | pass (2 files) | FAIL: web/src/hooks.server.ts 703 | fail (7 files; mixed-age inputs) |
+  | CRAP --changed | pass | pass (429 files, none above 30) | fail (3 functions over 30; mixed-age inputs) |
+The one red, hooks.server.ts 703, is a `} catch {` line: the Bun producers write DA 703 = 0 while the catch body at
+706 ran (DA 2); the V8 producer writes none. Across the merged lcov, 94 zero-hit bare catch lines have an executed
+first body line (109 more are true misses). A tooling fix like the header rule is proposed to the coordinator.
+Lane hygiene found here: f59f330ca, the stack removes the restore request it served.
+Runner tool gaps reported to the coordinator: the zero-count guard's formats and the manifest-leg lcov names.
+
 ## Follow-up: the reference-data producer runs in no CI job (ruling 2026-09-27 16:36Z)
 
 scripts/factory-reference-data-coverage.sh, and with it tests/postgres/factory-reference-data.test.ts, runs in no
