@@ -65,6 +65,24 @@ export class FactoryUncertainStopError extends Error {
   }
 }
 
+/**
+ * A stop whose durable facts no longer verify, taken out of settlement for an
+ * operator (W01h fix round). Raised once, when the stop is marked; the scan
+ * never lists it again, so it cannot become a hot loop.
+ */
+export class FactoryStopReconciliationError extends Error {
+  readonly code = "factory_task_stop_reconciliation";
+  // Explicit fields, not parameter properties, so Node's type stripping can run this file.
+  readonly attemptId: string;
+  readonly cancelCommandId: string;
+  constructor(attemptId: string, cancelCommandId: string, override readonly cause: unknown) {
+    super(`factory_task_stop_reconciliation: stop ${cancelCommandId} of attempt ${attemptId} no longer verifies and is taken out of settlement for an operator: ${cause instanceof Error ? cause.message : String(cause)}`);
+    this.name = "FactoryStopReconciliationError";
+    this.attemptId = attemptId;
+    this.cancelCommandId = cancelCommandId;
+  }
+}
+
 export function factoryStopSettlementDisposition(error: unknown): FactoryItemDisposition {
   // Durable uncertainty is backpressure: the row stays listed and a later pass
   // retries it against the same sealed request.
@@ -75,7 +93,7 @@ export function factoryStopSettlementDisposition(error: unknown): FactoryItemDis
 
 export function factoryStopSettlementDriver(
   database: TransactionalDb,
-  stops: Pick<FactoryTaskStops, "listStoppableInTransaction" | "stop">,
+  stops: Pick<FactoryTaskStops, "listStoppableInTransaction" | "stop" | "markForReconciliation">,
   service: TrustedFactoryServiceIdentity,
   report: (role: string, error: unknown) => void,
   limit?: number,
@@ -91,7 +109,15 @@ export function factoryStopSettlementDriver(
     // as settled is how a run can sit in `stopping` while every pass reports
     // success.
     settle: async (item, _signal) => {
-      const receipt = await stops.stop(service, item.reference);
+      let receipt: Awaited<ReturnType<typeof stops.stop>>;
+      try { receipt = await stops.stop(service, item.reference); }
+      catch (error) {
+        // No retry can succeed on facts that no longer verify: mark the stop
+        // once and say so loudly, instead of failing it again every pass.
+        if ((error as { code?: unknown } | null | undefined)?.code !== "factory_task_stop_corrupt") throw error;
+        await stops.markForReconciliation(service, item.reference, error);
+        throw new FactoryStopReconciliationError(item.attemptId, item.reference.commandId, error);
+      }
       if (receipt.state !== "stopped") throw new FactoryUncertainStopError(item.attemptId, receipt.cause);
     },
     classify: factoryStopSettlementDisposition,

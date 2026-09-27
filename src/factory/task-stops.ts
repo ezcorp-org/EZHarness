@@ -163,6 +163,24 @@ export class FactoryTaskStopError extends Error {
   constructor(readonly code: FactoryTaskStopCode) { super(code); this.name = "FactoryTaskStopError"; }
 }
 
+/**
+ * A sealed stop whose reason the durable facts no longer give: still
+ * `factory_task_stop_corrupt`, now with both reasons named, so the operator
+ * reading the reconciliation item sees what disagreed.
+ */
+export class FactoryTaskStopReasonConflictError extends FactoryTaskStopError {
+  // Explicit fields, not parameter properties, so Node's type stripping can run this file.
+  readonly sealedReason: FactoryPhysicalStopReason;
+  readonly derivedReason: FactoryPhysicalStopReason;
+  constructor(sealedReason: FactoryPhysicalStopReason, derivedReason: FactoryPhysicalStopReason) {
+    super("factory_task_stop_corrupt");
+    this.message = `factory_task_stop_corrupt: the stop was sealed with reason ${sealedReason} and its durable facts now give ${derivedReason}`;
+    this.name = "FactoryTaskStopReasonConflictError";
+    this.sealedReason = sealedReason;
+    this.derivedReason = derivedReason;
+  }
+}
+
 type StopEvent = Extract<KernelEvent, { readonly kind: "attempt-stopped" }>;
 
 interface StopRow {
@@ -350,6 +368,27 @@ export class FactoryTaskStops implements FactoryUsageSettlementAuthority {
    * belongs to `stop`, which locks the row it settles, so two workers may list
    * the same work and only one will commit it.
    */
+  /**
+   * Takes a stop whose durable facts no longer verify out of the settlement scan
+   * (W01h fix round).
+   *
+   * Settling it again cannot succeed, because nothing it re-reads will change,
+   * and retrying it every pass was a hot loop. It stays unsettled, which is the
+   * truth, with the refusal recorded on its row as an item for an operator to
+   * reconcile. Only an open stop is marked, and only once.
+   */
+  async markForReconciliation(valueService: TrustedFactoryServiceIdentity, valueReference: TrustedFactoryCommandReference, error: unknown): Promise<void> {
+    const service = stopCopy(valueService);
+    const reference = stopCopy(valueReference);
+    const conflict = error instanceof FactoryTaskStopReasonConflictError ? { sealedReason: error.sealedReason, derivedReason: error.derivedReason } : {};
+    const code = (error as { code?: unknown } | null | undefined)?.code;
+    const item = { code: typeof code === "string" ? code : "factory_task_stop_corrupt", detail: (error instanceof Error ? error.message : String(error)).slice(0, 1_024), ...conflict, markedAtMs: this.now() };
+    await this.database.transaction(async transaction => {
+      await this.assertStopScope(transaction, service, reference);
+      await transaction.execute(sql`UPDATE factory_task_stops SET reconcile_json=${encodeFactoryPayload(item)},updated_at=NOW() WHERE tenant_id=${reference.tenantId} AND project_id=${reference.projectId} AND run_id=${reference.logicalRunId} AND interpreter_id=${reference.interpreterId} AND cancel_command_id=${reference.commandId} AND state IN ('accepted','uncertain') AND reconcile_json IS NULL`);
+    });
+  }
+
   async listStoppableInTransaction(transaction: MigrationDb, options: { readonly limit?: number; readonly after?: FactoryStoppableCursor } = {}): Promise<readonly FactoryStoppableAttempt[]> {
     const limit = options.limit ?? FACTORY_STOP_SCAN_DEFAULT_LIMIT;
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > FACTORY_STOP_SCAN_MAX_LIMIT) throw new FactoryTaskStopError("factory_task_stop_invalid");
@@ -359,7 +398,7 @@ export class FactoryTaskStops implements FactoryUsageSettlementAuthority {
     const scanned = rows<Pick<StopRow, "tenant_id" | "project_id" | "run_id" | "interpreter_id" | "cancel_command_id" | "attempt_id" | "reservation_id" | "source" | "state" | "accepted_at_ms">>(await transaction.execute(sql`
       SELECT tenant_id, project_id, run_id, interpreter_id, cancel_command_id, attempt_id, reservation_id, source, state, accepted_at_ms
       FROM factory_task_stops
-      WHERE tenant_id = ${this.authority.tenantId} AND state IN ('accepted', 'uncertain')${keyset}
+      WHERE tenant_id = ${this.authority.tenantId} AND state IN ('accepted', 'uncertain') AND reconcile_json IS NULL${keyset}
       ORDER BY accepted_at_ms, cancel_command_id
       LIMIT ${limit}`));
     return Object.freeze(scanned.map(row => {
@@ -573,7 +612,8 @@ export class FactoryTaskStops implements FactoryUsageSettlementAuthority {
       ...(launch.terminalResult === undefined ? {} : { terminalResult: launch.terminalResult }),
       ...(outcome ? { terminalOutcome: outcome } : {}),
     });
-    if (terminalStopReason(outcome?.result ?? launch.terminalResult) !== request.reason) throw new FactoryTaskStopError("factory_task_stop_corrupt");
+    const derivedReason = terminalStopReason(outcome?.result ?? launch.terminalResult);
+    if (derivedReason !== request.reason) throw new FactoryTaskStopReasonConflictError(request.reason, derivedReason);
     return liveAuthority;
   }
 
