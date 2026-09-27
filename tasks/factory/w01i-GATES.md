@@ -96,6 +96,36 @@ The same `entry.tenantId` already keys `guestBrokers`, so both sections name the
 | `03d577fe9` | merge wp/w01h-runner-outcome 34b3b0a74; hook cap skip by coordinator ruling 2026-09-27 06:45Z; the 17 listed suites run outside the hook, all green (`logs/merge-w01h-suites/`; the Podman one under the lock); shared `.git/config` sha256 `44962525f1ca1a8b` before and after (`logs/shared-config-hash.txt`) |
 | `95ebd50f4` | the peer-to-tenant binding on the launch and stop routes, the document, the producers (hook ran its 7 suites under the lock) |
 | `9737238ff` | the guest-broker route accepts only a single string audience (hook ran its 1 suite under the lock) |
+| `88fedcf89` | merge integ/w00 d2bc674c7 (W14) so the real-lane stack can be ported; hook cap skip by coordinator ruling 2026-09-27 07:20Z; workspace packages rebuilt first; all 36 listed suites green outside the hook (`logs/merge-integ-suites/`); config hash unchanged |
+| `2f1f2791e` | the real-lane stack (`web/e2e/factory-services/stack.ts`) writes `peerTenants: { "tenant-a": TENANT }` |
+| `124f7043e` | the runtime's post-result stop names its tenant without a cancel command (the lane-found defect below; hook ran its 3 suites under the lock) |
+
+## The real lane (the coordinator's condition for the e2e stack)
+
+- First run at `2f1f2791e` (2026-09-27 08:18Z to 08:29Z): the stack held with `peerTenants`; Playwright 4 passed,
+  1 failed, 7 did not run. The product log named the cause: `attempt-dispatch:outcome-unknown` failed with
+  "TypeError: undefined is not an object (evaluating 'request.cancelReference.tenantId')". W01h's post-result stop
+  reaches the host stop client through `factoryIntentPhysicalStop` with only the physical coordinates, and W01i's
+  client read the cancel command's tenant unconditionally. Every unit and transport suite had stayed green; only
+  the real lane found it. Evidence: `logs/lane-playwright.log`, `logs/lane-processes/web.log`.
+- Fix `124f7043e`: `FactoryPhysicalStopExpectation.tenantId` (optional), filled by the adapter from
+  `intent.request.authority.tenantId`; the client names the tenant from the cancel command, else the expectation,
+  else sends none (the host then decides by its launch record; with no record, 403 forbidden_tenant). Regression
+  test in `host-stop-transport.integration.test.ts`: the runtime's request shape through the real client and host
+  route; on the previous client it fails with the lane's exact TypeError (1 of 2 red,
+  `logs/negative/post-result-stop-red.log`). The adapter test pins `tenantId`.
+- Disclosed: while reproducing, the single-file `host-stop-transport.integration.test.ts` (a local TLS pair, no
+  store, no container) ran twice outside the heavy lock, within the coordinator's carve-out.
+- Second run at `124f7043e` (2026-09-27 10:33Z to 10:37Z, one lock hold, gated): the stack held; Playwright
+  12 passed (3.3 m); stack exit 0; shared config hash `44962525f1ca1a8b` before and after
+  (`logs/fix-lane-driver.log`, `logs/lane2-playwright.log`, `lane2.json`).
+- Found in the second run's product log, reported to the coordinator (W01h territory, not a W01i change):
+  `stop-settlement:fault` fails `factory_task_stop_corrupt` 174 times for one attempt. The host refused its stop
+  (500 stop_failed), the guest then died (container exit 1), W01h's lost-result path recorded a typed failed
+  result, and the stop sealed earlier with reason `cancelled` (no terminal result then, `task-stops.ts:443`) is
+  re-derived as `failed` on every retry (`task-stops.ts:610`) and called corrupt. The W14 baseline lane shows the
+  same refused stop but no such loop (its attempt ended unknown). The other background-role lines match the W14
+  baseline (usage hold without a receipt, stale epoch, release consent absent).
 
 ## Open
 
