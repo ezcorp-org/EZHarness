@@ -1089,11 +1089,14 @@ export class FactoryReleases {
   /**
    * Records the stop of this release's run on the operation, once (W09e).
    *
-   * The operation row is taken FOR UPDATE, the lock `claim` takes to move it out of `pending`, so the state
-   * read here is the whole truth about whether a publish can have started:
-   * - `pending` (or already `failed`): no publish started and none can; the operation fails with
-   *   `stopped_before_dispatch` and the effect is certainly none;
-   * - `executing` or `uncertain`: a publish may be in flight at the provider; the effect is uncertain and
+   * The operation row is taken FOR UPDATE, the lock `claim` takes to move it out of `pending` and the lock
+   * the dispatch start takes to mark it started; both refuse a stopped release. So the row read here is the
+   * whole truth about whether a publish can have started:
+   * - `pending`, or `executing` with no dispatch started (or already `failed`): no publish started and none
+   *   can; the operation fails with `stopped_before_dispatch`, its destination is released, and the effect is
+   *   certainly none;
+   * - `executing` with its dispatch started, or `uncertain`: a publish may be in flight at the provider; the
+   *   effect is uncertain and
    *   the release outcome later proves it;
    * - `succeeded`: the effect happened.
    * The stop is keyed by the kernel's cancel-node: a repeat returns the event recorded the first time, and
@@ -1109,13 +1112,14 @@ export class FactoryReleases {
       const [recorded] = rows<{ stop_event_json: string }>(await transaction.execute(sql`SELECT stop_event_json FROM factory_release_operations WHERE tenant_id=${this.tenantId} AND project_id=${projectId} AND operation_id=${operationId}`));
       return JSON.parse(recorded!.stop_event_json) as KernelEvent;
     }
-    const effect: FactoryReleaseStopEffect = operation.state === "pending" || operation.state === "failed" ? "none" : operation.state === "succeeded" ? "published" : "uncertain";
+    const beforeDispatch = operation.state === "pending" || (operation.state === "executing" && !operation.dispatchStarted);
+    const effect: FactoryReleaseStopEffect = beforeDispatch || operation.state === "failed" ? "none" : operation.state === "succeeded" ? "published" : "uncertain";
     const recorded = event(effect);
     const outcome: FactoryReleaseStopOutcome | null = effect === "none" ? "no_effect" : effect === "published" ? "published" : null;
-    const beforeDispatch = operation.state === "pending";
     await transaction.execute(sql`UPDATE factory_release_operations SET stop_command_id=${stop.commandId},stop_requested_epoch=${stop.epoch},stop_requested_at_ms=${stop.requestedAtMs},stop_event_json=${canonicalJson(recorded)},stop_outcome=${outcome},
       state=${beforeDispatch ? "failed" : operation.state},outcome_code=${beforeDispatch ? "stopped_before_dispatch" : operation.outcomeCode ?? null},updated_at=NOW()
       WHERE tenant_id=${this.tenantId} AND project_id=${projectId} AND operation_id=${operationId} AND stop_command_id IS NULL`);
+    if (beforeDispatch) await transaction.execute(sql`UPDATE factory_release_destination_reservations SET state='released',updated_at=NOW() WHERE tenant_id=${this.tenantId} AND operation_id=${operationId} AND state='held'`);
     await insertTransactionalAuditEntry(transaction, `factory-release-stopped:${operationId}`, null, "factory.release.stop_requested", operationId, { tenantId: this.tenantId, projectId, operationId, stopCommandId: stop.commandId, epoch: stop.epoch, state: operation.state, effect });
     return recorded;
   }
@@ -1253,7 +1257,7 @@ export class FactoryReleases {
 
   private async beginDispatch(claim: FactoryReleaseClaim): Promise<FactoryReleaseClaim> {
     return this.database.transaction(async transaction => {
-      const changed = rows(await transaction.execute(sql`UPDATE factory_release_operations SET dispatch_started=TRUE,updated_at=NOW() WHERE tenant_id=${this.tenantId} AND project_id=${claim.projectId} AND operation_id=${claim.operationId} AND state='executing' AND dispatch_generation=${claim.dispatchGeneration} AND sender_token=${claim.senderToken} AND dispatch_started=FALSE RETURNING operation_id`));
+      const changed = rows(await transaction.execute(sql`UPDATE factory_release_operations SET dispatch_started=TRUE,updated_at=NOW() WHERE tenant_id=${this.tenantId} AND project_id=${claim.projectId} AND operation_id=${claim.operationId} AND state='executing' AND dispatch_generation=${claim.dispatchGeneration} AND sender_token=${claim.senderToken} AND dispatch_started=FALSE AND stop_command_id IS NULL RETURNING operation_id`));
       if (!changed.length) throw new FactoryReleaseError("factory_release_sender_fenced");
       await insertTransactionalAuditEntry(transaction, `factory-release-dispatch-started:${claim.operationId}:${claim.dispatchGeneration}`, null, "factory.release.dispatch.started", claim.operationId, { tenantId: this.tenantId, projectId: claim.projectId, operationId: claim.operationId, dispatchGeneration: claim.dispatchGeneration, senderTokenDigest: hash({ senderToken: claim.senderToken }) });
       const started = await this.readInTransaction(transaction, claim.projectId, claim.operationId, "share");

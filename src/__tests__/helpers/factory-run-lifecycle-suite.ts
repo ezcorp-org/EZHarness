@@ -780,13 +780,14 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     const { releaseReference, acceptedAdvanced } = await acceptedRelease({ effects, completed: world.completed, acceptanceReference: world.acceptanceReference, candidateAdvanced: world.candidateAdvanced });
     expect(await effects.requestRelease(task.service, releaseReference)).toBeNull();
     const operationId = rows<{ operation_id: string }>(await fixture.db.execute(sql`SELECT operation_id FROM factory_release_operations WHERE tenant_id=${tenantId} AND project_id=${projectId} AND run_id=${task.run.runId}`))[0]!.operation_id;
+    let claim: Awaited<ReturnType<typeof releases.claim>> | undefined;
     if (phase !== "pending") {
       // A claim passes the checkpoint barrier's effect gate, as every dispatching release test opens it.
       await openFactoryEffectClaimsForTest(fixture.db, tenantId);
       const operation = (await releases.inspect(projectId, operationId))!;
       const approval = await releases.requestApproval(principal, projectId, operationId, Math.min(operation.deadlineMs, Date.now() + 3_600_000), operation.dispatchGeneration, `stop-approval-${phase}-${task.run.runId}`);
       await world.assurance.decideApproval(principal, projectId, approval.approvalId, approval.contextDigest, true, `stop-decision-${phase}-${task.run.runId}`);
-      const claim = await releases.claim(principal, projectId, operationId, { kind: "approval", approvalId: approval.approvalId });
+      claim = await releases.claim(principal, projectId, operationId, { kind: "approval", approvalId: approval.approvalId });
       if (phase === "published") expect((await releases.dispatch(claim, new FactoryRememberingProvider())).state).toBe("succeeded");
     }
     const revision = Number(rows<{ revision: number | string }>(await fixture.db.execute(sql`SELECT revision FROM factory_run_lifecycle WHERE tenant_id=${tenantId} AND project_id=${projectId} AND run_id=${task.run.runId}`))[0]!.revision);
@@ -829,7 +830,8 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
       await new FactoryRunTransitionProjector(fixture.db, tenantId, task.transitions, lifecycle).project(runKey(task.run.runId));
       return { stopped, run: rows<{ status: string }>(await fixture.db.execute(sql`SELECT status FROM factory_run_lifecycle WHERE tenant_id=${tenantId} AND project_id=${projectId} AND run_id=${task.run.runId}`))[0]?.status };
     };
-    return { task, releases, operationId, cancelNode, cancelReference, stop: () => cancel(task.service, cancelReference), operation, apply };
+    const reservation = async () => rows<{ state: string }>(await fixture.db.execute(sql`SELECT state FROM factory_release_destination_reservations WHERE tenant_id=${tenantId} AND operation_id=${operationId}`)).map(row => row.state);
+    return { task, releases, operationId, claim, reservation, cancelNode, cancelReference, stop: () => cancel(task.service, cancelReference), operation, apply };
   }
 
   test("W09e R1: a user cancel while a release is in flight ends the run", async () => {
@@ -850,15 +852,22 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     expect(stopped.nextState.nodes.release).toMatchObject({ status: "cancelled" });
   });
 
-  test("W09e R2: a release claimed before the stop ends the run with its effect named uncertain", async () => {
+  test("W09e R2: a release claimed but not yet dispatched stops with no effect, and its dispatch never starts", async () => {
     const world = await releaseStopWorld("claimed");
+    expect(await world.reservation()).toEqual(["held"]);
     const event = await world.stop();
-    expect(event).toMatchObject({ kind: "attempt-stopped", uncertain: false, effect: "uncertain" });
-    // The publish may be running at the provider: the operation keeps its state and waits for its outcome.
-    expect(await world.operation()).toMatchObject({ state: "executing", stop_command_id: world.cancelNode.id, stop_outcome: null });
+    expect(event).toEqual({ kind: "attempt-stopped", id: `${world.cancelNode.id}:stopped`, atMs: expect.any(Number), nodeId: "release", commandId: world.cancelNode.attemptCommandId, candidateGeneration: world.cancelNode.candidateGeneration, attempt: world.cancelNode.attempt });
+    // No dispatch started under the row lock the dispatch start also takes, so no publish can have started.
+    expect(await world.operation()).toMatchObject({ state: "failed", outcome_code: "stopped_before_dispatch", stop_command_id: world.cancelNode.id, stop_outcome: "no_effect" });
+    expect(await world.reservation()).toEqual(["released"]);
+    const provider = new FactoryRememberingProvider();
+    await expect(world.releases.dispatch(world.claim!, provider)).rejects.toMatchObject({ code: "factory_release_sender_fenced" });
+    expect(provider.calls).toBe(0);
     const { stopped, run } = await world.apply(event!);
     expect(run).toBe("cancelled");
-    expect(stopped.nextState.nodes.release).toMatchObject({ status: "cancelled", error: "RELEASE_EFFECT_UNCERTAIN" });
+    expect(stopped.nextState.nodes.release).toMatchObject({ status: "cancelled" });
+    // A plain stop: the node names no release effect.
+    expect((stopped.nextState.nodes.release as { error?: string }).error).toBe("Operator requested cancellation");
   });
 
   test("W09e R6: the release stop locks neither an attempt's stop row nor its launch row", async () => {
@@ -866,7 +875,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     // and its stop path never reaches them, so it adds no pair order.
     const statements: string[] = [];
     const world = await releaseStopWorld("claimed", statements);
-    expect(await world.stop()).toMatchObject({ effect: "uncertain" });
+    expect(await world.stop()).toMatchObject({ kind: "attempt-stopped" });
     expect(statements.some(statement => /factory_release_operations[\s\S]*for update/i.test(statement))).toBe(true);
     expect(statements.filter(statement => /factory_attempt_launches/i.test(statement) || /factory_task_stops[\s\S]*for (update|share)/i.test(statement))).toEqual([]);
   });
