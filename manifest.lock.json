@@ -201,8 +201,8 @@
       "directory": "docs/extensions/examples/repo-activity-notify",
       "entrypoint": "extension.ts",
       "files": 7,
-      "bytes": 30071,
-      "sourceDigest": "f95698ea3460aec4c99b0cf8e634921b7460958ceddfc81beb36303e638aabed"
+      "bytes": 30491,
+      "sourceDigest": "44701b0bc3c499f8fa1be51a240f13b59a786acf4f0f448142553949b814a0a4"
     },
     "research-agent": {
       "directory": "docs/extensions/examples/research-agent",
@@ -355,8 +355,8 @@
       "directory": "packages/@ezcorp/ai-kit",
       "entrypoint": "extension.ts",
       "files": 53,
-      "bytes": 400229,
-      "sourceDigest": "505a40ad7deab5590f27757ecfdf262fc1554b8fef00be7ad08a97d2b8aa71d2"
+      "bytes": 400556,
+      "sourceDigest": "bad62b13e132d7cf44d832cf842ebe8d417ec073acd219c5c386951f8758dbec"
     }
   }
 }

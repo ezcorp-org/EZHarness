@@ -41,6 +41,25 @@ import { join } from "node:path";
 import { escapeGlob, REPO_ROOT } from "./coverage-config.ts";
 
 /**
+ * A LOCAL copy of `@ezcorp/sdk/git`'s `currentRepositoryGitContext()` —
+ * deliberately not imported (item C2, W18 hygiene). This file is copied
+ * (via `copyFileSync`, not `cpSync`, but the same constraint) into a bare
+ * scratch fixture by `src/__tests__/visual-evidence-select.test.ts`'s
+ * `runScenario()`, which has no `node_modules` at all — a workspace-package
+ * import cannot resolve there, which is exactly the regression importing
+ * `@ezcorp/sdk/git` here caused. The function is a one-line identity
+ * (`return env` unchanged); duplicating it carries no real drift risk, and
+ * the SAME name here is what lets the repo-wide git-spawn guard
+ * (`src/__tests__/git-spawn-context-guard.test.ts`) still recognize this as
+ * a declared class-B (current-repository) spawn.
+ */
+function currentRepositoryGitContext(
+  env: Record<string, string | undefined> = process.env,
+): Record<string, string | undefined> {
+  return env;
+}
+
+/**
  * Globs for the user-visible surface. A file is a visual surface iff it matches
  * one of these AND is not under web/src/lib/server/** (see isVisualSurfaceFile).
  */
@@ -227,7 +246,10 @@ export async function loadCoversMap(path: string = COVERS_PATH): Promise<CoversM
 export async function changedFilesSince(base: string): Promise<string[]> {
   const proc = Bun.spawn(
     ["git", "diff", "--diff-filter=ACMR", "--name-only", `${base}...HEAD`],
-    { cwd: REPO_ROOT, stdout: "pipe", stderr: "pipe" },
+    // Item C2 (W18 hygiene): this diffs the CURRENT checkout against `base`
+    // as invoked, so it keeps the invoking git context
+    // (currentRepositoryGitContext(), never withoutGitContext()).
+    { cwd: REPO_ROOT, stdout: "pipe", stderr: "pipe", env: currentRepositoryGitContext(process.env) },
   );
   const [out, err, code] = await Promise.all([
     new Response(proc.stdout).text(),

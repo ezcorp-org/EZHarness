@@ -712,6 +712,34 @@ residual-fix files) pass individually at their real invocation (`d-src-isolated-
        `src/extensions/first-party-integration/docs-updater/git.test.ts` builds a target + a foreign
        scratch repo and mutates `process.env` the same way as `gitExec` (valid here too — confirmed by
        the same repro finding, since these three explicitly spread `process.env` at call time).
+  VALIDATOR-3 CORRECTION (F2, medium): this entry originally named three production wrapper sites and
+  reported a fourth (`repo-activity-notify`) as merely "found in passing, not fixed" — incomplete.
+  Validator-3 poisoned the ambient environment (recipe below) and ran the 17 Group-1 git-init test
+  files plus their siblings one file per process; 7 of 17 failed with 21 tests total, naming FOUR real
+  production wrapper sites this item's scope touches (the fixes for all four landed in this item;
+  `repo-activity-notify`'s specific fix is GC13, below, since the coordinator's re-sequencing put it in
+  item C2 rather than folding it into GC11's own three):
+  POISON RECIPE (validator-3's, `/tmp/factory-platform-evidence/w18-hygiene-validation/itemC/poison.sh`):
+  a real scratch "dummy" repo at `$D`, then every file run as
+  `env GIT_DIR=$D/.git GIT_INDEX_FILE=$D/.git/index GIT_WORK_TREE=$D GIT_COMMON_DIR=$D/.git
+  GIT_OBJECT_DIRECTORY=$D/.git/objects HOME=$H timeout 600 bun test --timeout 60000 ./<file>`, one file
+  per process (no lock needed). A snapshot of `$D` before and after every run, plus an explicit control
+  (the same poison, no protection, does write into `$D`), proves the poison is both harmless-if-ignored
+  and effective-if-not.
+  - `src/extensions/git.ts`'s `gitExec()`: 7 failures — `src/__tests__/source-parser-git-coverage.test.ts`
+    (3) + `src/__tests__/source-parser.test.ts` (4).
+  - `scripts/unlanded-branches.ts`'s `run()`: 5 failures — `src/__tests__/unlanded-branches.test.ts`.
+  - `docs/extensions/examples/docs-updater/index.ts`'s `HERMETIC_GIT_ENV`: 7 failures (IS triggered —
+    this entry's first draft said "not triggered"; that was wrong) —
+    `docs/extensions/examples/docs-updater/index.integration.test.ts` (3) +
+    `src/extensions/first-party-integration/docs-updater/git.test.ts` (4).
+  - `docs/extensions/examples/repo-activity-notify/index.ts`'s `readGitHead` (undisclosed in this
+    entry's first draft): 1 failure —
+    `src/extensions/first-party-integration/repo-activity-notify/git.test.ts`.
+  Total: 20 real failures across four sites. The 21st (`src/__tests__/git-install.test.ts`, 1 failure)
+  is a METHODOLOGY ARTIFACT, not a fifth site: poisoning `HOME` moves rootless podman's image store,
+  which this test's runner depends on regardless of git isolation — `RunnerError: ...image not known`,
+  unrelated to any git-context bug. Stated explicitly so it is never miscounted as a real site.
   4. COVERAGE: every changed line, and the one new file, verified covered via targeted `--coverage`
      runs cross-checked from both sides of the package boundary — `packages/@ezcorp/sdk`'s own suite
      (`src/git/index.ts` 100/100; `src/test/filesystem.ts`'s changed `isolatedGitEnv` lines covered,
@@ -725,9 +753,10 @@ residual-fix files) pass individually at their real invocation (`d-src-isolated-
      and a full-repo coverage pass is a ~6-40 minute separate CI job); the per-file cross-checked
      verification above answers the same question with more precision than that blunt tool would.
   5. RECORDED here and in `tasks/todo.md`.
-  A fourth instance of the SAME weaker pattern (`GIT_CONFIG_GLOBAL` only, no `GIT_DIR` strip) was found
-  in passing at `docs/extensions/examples/repo-activity-notify/index.ts` — NOT named in this item's
-  scope, not fixed here, reported to the coordinator.
+  A fourth instance of the SAME weaker pattern (`GIT_CONFIG_GLOBAL` only, no `GIT_DIR` strip) at
+  `docs/extensions/examples/repo-activity-notify/index.ts` was found in passing and reported to the
+  coordinator, but this entry originally undercounted it as "not fixed here" without naming it as a
+  poison-confirmed real site — corrected above (VALIDATOR-3 CORRECTION). Its fix is GC13, in item C2.
   EVIDENCE: typecheck (backend + web + backend-tests + web-e2e + Python, all clean), `bun run lint`
   (5639 files, no fixes needed), `gate-integrity.ts` PASSED, `check-boundaries.ts` (5727 files, 0
   violations), `check-factory-boundaries.ts` PASSED.
@@ -741,3 +770,152 @@ residual-fix files) pass individually at their real invocation (`d-src-isolated-
   sweep read `manifest.lock.json` mid-run, before `bun scripts/regenerate-manifest-lock.ts` had been
   run for the docs-updater edit; re-run alone against the committed state, it passes. Committed
   separately (`8ce48ca9e`).
+
+## Item C2 (branch `wp/w18-hygiene-c2`, from item C's accepted head)
+
+Per the coordinator's re-sequencing: item C stayed test-and-hook only (GC5 and the auth/middleware
+finding moved here so item C's own validation and merge stay simple). This branch rebases onto item
+C's head whenever it moves.
+
+- [x] GC12: `$server/auth/middleware` added to the F1 walker's guarded modules; every partial mock of
+  it repo-wide converted; the walker itself extended to recognize the shape the fix actually needs.
+  SCOPE FOUND VIA THE REAL WALKER, NOT GUESSED: adding the target to `TARGETS` in
+  `mock-cleanup-coverage.test.ts` found 38 offenders repo-wide (not the 2 the coordinator named to
+  start with — those 2 are among the 38). The other ~41 files that reference this module are either
+  already complete (`serverModule()`-style, 10 files) or are Vitest `.server.test.ts` files using
+  `vi.mock()` — a different test runner with a different isolation model, outside `mock.module()`'s
+  alias-freeze mechanism and this walker's mechanism entirely.
+  FIX MECHANISM, STRONGER THAN serverModule() ALONE: unlike extension-lifecycle-service/registry
+  (missing-export only), auth/middleware mocks collide on VALUE, not just shape — two files can both
+  supply a COMPLETE factory with DIFFERENT `requireAuth` behavior, and whichever registers last wins
+  for both in a shared process. Confirmed on the coordinator's named pair
+  (`extensions-api.test.ts`/`extensions-events-route.test.ts`): reproduced the original bug on the
+  unfixed committed pair first (`SyntaxError: checkProjectRole not found`), then fixed by moving the
+  `mock.module()` registration into `beforeAll` (completed via a module-top-level-precomputed
+  `serverModule("auth/middleware", {})`), with the alias handed back to the real module in `afterAll` —
+  the same beforeAll-not-top-level principle as GC9's `ExtensionRegistry` fix, applied to `mock.module()`
+  itself rather than `spyOn()`. Proven: both files alone green, both orders of the pair green (99/0
+  each), reproduced on the unfixed pair to confirm the fix is load-bearing.
+  WALKER GAP FOUND AND FIXED: `isCompleteServerFactoryBody` didn't recognize `{ ...realThing, override }`
+  where `realThing` is a PRECOMPUTED VARIABLE (not an inline `serverModule(...)`/`require(...)` call) —
+  every prior TARGET (extension-lifecycle-service/registry) avoided the alias-retention case entirely
+  (GC9's fix drops the alias registration outright), so this shape had never been exercised by the
+  walker before. Extended `isCompleteServerFactoryBody` to resolve a spread identifier back through its
+  own `const NAME = <expr>;` declaration (reusing `resolveConstDecl`), recursively checking THAT
+  expression — pinned by six new fixture tests in a new `describe("$server/* factory completeness
+  detector...")` block before touching the repo-wide scan.
+  CONVERSION AT SCALE: all 38 files converted, dispatched across four parallel agent batches (~9-10
+  files each) following the proven pattern, each file's pass count recorded before and after (identical,
+  0 fail both times) and independently spot-checked. `mock-cleanup-coverage.test.ts`'s extended F1 guard
+  confirms zero offenders (40/40, no exemption list — none was ever added; `TARGETS` was extended
+  directly).
+  DUAL-SPECIFIER FOLLOW-UP: 10 of the 38 ALSO registered a second, relative-path mock of the same
+  module (`../auth/middleware` or `../../auth/middleware` — the "dual-specifier lesson" already
+  established elsewhere in this codebase: some routes resolve via the alias, others via the relative
+  path, so both need the same complete, correct value) that the walker doesn't check (it only targets
+  the `$server/*` alias literal) and the four batch agents correctly flagged as out of their assigned
+  scope rather than silently leaving it. Fixed identically (moved into the same `beforeAll`/`afterAll`,
+  completed the same way) for all 10:
+  `src/__tests__/{provider-api-crud,local-model-test-endpoint,provider-test-connection,provider-status-api}.test.ts`
+  and `src/__tests__/security/{h3b-conversation-subroutes-idor,kb-retrieval-is-user-scoped,h3-conversations-memories-idor,kb-ownerless-rows-are-shared,m3-fs-list-sandbox,h2-tool-call-ownership}.test.ts`.
+  NOT chased further: files that mock ONLY a relative path (never the alias) are outside the walker's
+  stated target and were not enumerated — a materially larger, separate investigation, reported to the
+  coordinator rather than silently expanded into.
+  EVIDENCE: typecheck, lint, `gate-integrity.ts`, both boundary checks all clean. Per-file before/after
+  pass counts recorded for all 48 touched files (38 + 10 dual-specifier). A combined multi-file
+  regression run of all 38 converted files (two groups — `src/` and `web/`, since they run under
+  separate `bun test` roots — under the heavy lock) is [queued/pending; update on completion].
+
+- [x] GC13: `docs/extensions/examples/repo-activity-notify/index.ts`'s `readGitHead` — the fourth
+  instance flagged in passing during GC5 (only `GIT_CONFIG_GLOBAL`/`GIT_CONFIG_SYSTEM`, never
+  `GIT_DIR`/`GIT_WORK_TREE`/`GIT_INDEX_FILE`) — now goes through `withoutGitContext()`, same as the
+  other four wrappers. Only one spawn call site in this file (no `gh`-mixed runner to preserve, unlike
+  docs-updater's `makeProductionShell`). Verified via `docs/extensions/examples/repo-activity-notify/`'s
+  own test suite (`boot`, `extension`, `git-broker`, `index.integration`, `index` — 26 tests, one
+  PRE-EXISTING unrelated failure — `ContractError: Runtime tool dispatcher was not registered` in
+  `extension.test.ts` — confirmed present identically on the unmodified committed file, reported not
+  fixed) plus `src/extensions/first-party-integration/repo-activity-notify/git.test.ts` (2/0).
+
+- [x] GC14: repo-wide guard that every production `git` subprocess spawn (literal `Bun.spawn(["git",
+  ...`/`Bun.spawnSync(["git", ...`) goes through `withoutGitContext()` — new file
+  `src/__tests__/git-spawn-context-guard.test.ts`. Scans `src/`, `scripts/`, `packages/`,
+  `docs/extensions/examples/` (production only — test files excluded; a test's own git isolation is
+  `scratch-git.ts`'s established, separate concern). Recognizes: a direct `withoutGitContext(...)` call;
+  a same-file helper function call (`hermeticGitEnv()`) whose own body calls it; a bare/shorthand
+  variable reference whose own `const` declaration resolves — possibly through ANOTHER level of a
+  helper call — to something that does (`gitInDirectory()`'s `env` → `isolatedGitEnv(home)` → its own
+  `withoutGitContext(env)`). Declaration/call resolution uses the NEAREST PRECEDING match in the file,
+  not the first one — a same-named `const`/function in an unrelated, earlier scope cannot be mistaken
+  for the one actually referenced (found and fixed during development: a naive first-match resolver
+  incorrectly resolved `gitInDirectory`'s own `env` to an unrelated, earlier `buildHarnessEnv`'s `env`
+  in the same file). DELIBERATELY NARROW, STATED IN THE FILE'S OWN DOCBLOCK: a generic passthrough
+  runner taking an arbitrary `cmd: string[]` (docs-updater's `makeProductionShell`, reused for both
+  `git` and `gh`) is not detectable by a literal-argv match and is out of this guard's reach by
+  construction — its own env is checked at the pure-git call sites in the SAME file instead.
+  Positive fixtures: the four already-fixed wrappers (`src/extensions/git.ts`,
+  `scripts/unlanded-branches.ts`, both docs-updater and repo-activity-notify examples) — each confirmed
+  recognized and guarded. Negative fixture: nine unit tests pin the detector directly (a raw
+  `{...process.env}` passthrough, an omitted `env` key entirely, a non-git spawn not matched at all,
+  the shorthand/transitive-resolution cases) before the repo-wide scan runs at all.
+  REPO-WIDE SCAN FOUND EIGHT MORE REAL INSTANCES beyond the four named wrappers, none previously
+  disclosed: `scripts/{check-visual-evidence,gate-integrity,check-boundaries,verify-browser-coverage-receipt,git-worktree-clean,git-output}.ts`
+  and `packages/@ezcorp/ai-kit/src/cli/install.ts`'s `gitProjectRoot()` (a THIRD independent
+  reimplementation of the identical GIT_*-strip filter — fixed to delegate to the canonical
+  `withoutGitContext()` instead, using ai-kit's already-declared `@ezcorp/sdk` peer dependency, which no
+  other ai-kit source file had exercised until now — confirmed safe via ai-kit's own install test suite,
+  40/0). `packages/@ezcorp/sdk/src/test/filesystem.ts`'s `gitInDirectory()` was ALSO initially flagged —
+  a walker false positive (shorthand `env` property, not a genuine violation; `isolatedGitEnv()` already
+  called `withoutGitContext()` since GC5) — fixed in the walker itself (see above), not the file.
+  `scripts/git-worktree-clean.ts` needed one additional care: its inner function's own result variable
+  was named `process`, shadowing the global `process.env` for its own initializer (a `let`/`const`
+  temporal-dead-zone rule) — renamed to `process_`, env computed on the line before.
+  Each of the 8 fixes verified with a poisoned-env guard-with-control equivalent: the guard test itself
+  is the control (reverted `scripts/git-output.ts`'s fix, confirmed the guard fails with the exact
+  offender named, restored the fix, confirmed green again) — a real, load-bearing detector, not vacuous.
+  EVIDENCE: typecheck, lint, `gate-integrity.ts` (self-referentially — this gate script is itself one of
+  the 8 fixed files, and its own guard check on itself passes), both boundary checks (`check-boundaries.ts`
+  is also one of the 8 fixed files) all clean.
+
+- [x] GC15: validator-3's medium finding on GC14 — a real regression, not a false alarm. Converting all
+  six gate/coverage scripts (`check-boundaries`, `check-visual-evidence`, `gate-integrity`, `git-output`,
+  `git-worktree-clean`, `verify-browser-coverage-receipt`) to `withoutGitContext()` broke ten tests: seven
+  in `scripts/check-patch-coverage-typeonly.test.ts`, `"coverage diff gates: dependency-free Git
+  controls"` and `"gate-integrity: isolated parser dependency"` in `src/__tests__/gate-scripts.test.ts`,
+  and `"checked-in lock matches every source snapshot"` in `src/__tests__/bundled-source-lock.test.ts`
+  (a manifest-lock staleness the same edits caused, regenerated). ROOT CAUSE: these six do not target
+  an explicit repository the caller names (GC11/GC13's four wrappers all do — a clone URL, an
+  `ls-remote` URL, an explicit `-C`/`cwd`) — they operate on the repository AS INVOKED, including a
+  pre-commit hook's STAGED (not committed) view via `GIT_INDEX_FILE`. Stripping `GIT_*` there is wrong,
+  not merely unneeded.
+  FIX: a second named class in `@ezcorp/sdk/git`, `currentRepositoryGitContext(env)` — a declared,
+  walker-recognized identity function (returns `env` unchanged) alongside `withoutGitContext()`. Every
+  production git spawn now calls exactly one of the two, by name; the guard
+  (`src/__tests__/git-spawn-context-guard.test.ts`) checks that, not which is semantically correct for a
+  given call site — stated honestly in both the guard's own docblock and `@ezcorp/sdk/git`'s. All six
+  gate/coverage scripts reverted to the new class-B helper. New guard fixtures: a direct
+  `currentRepositoryGitContext(...)` call is guarded (unit-level), and the six class-B scripts are
+  pinned as their OWN positive-fixture group (not merely "guarded" like the class-A four — specifically
+  guarded VIA `currentRepositoryGitContext`, so a regression back to `withoutGitContext` on any of them
+  fails this specific assertion, not just the blanket zero-unguarded-spawns check).
+  A SECOND real finding surfaced fixing the first: three of the six (`gate-integrity.ts`, `git-output.ts`,
+  `check-visual-evidence.ts`) are each copied whole-file into a bare, `node_modules`-free scratch fixture
+  by their own tests (`gate-scripts.test.ts`'s "isolated parser dependency" describe block;
+  `check-patch-coverage-typeonly.test.ts`; `visual-evidence-select.test.ts`'s `runScenario()`) —
+  importing `@ezcorp/sdk/git` (a workspace package) cannot resolve there, which is exactly what broke
+  all ten tests initially even after adding the class-B helper. Fixed by giving these three a LOCAL,
+  identically-named, non-imported copy of `currentRepositoryGitContext` instead (a one-line identity
+  function; duplicating it carries no drift risk) — documented in both the SDK module's own docblock and
+  each local copy, cross-referenced. The other three (`check-boundaries.ts`,
+  `verify-browser-coverage-receipt.ts`, `git-worktree-clean.ts`) are never copied into a bare fixture and
+  keep the normal import.
+  PROOF: all ten originally-regressed tests green (217/0 across
+  `check-patch-coverage-typeonly.test.ts` + `gate-scripts.test.ts`); the visual-evidence suite, which
+  the SAME bare-fixture-copy issue also broke via `check-visual-evidence.ts` (found during this fix,
+  not previously reported) — 64/0 across four files; `git-worktree-clean.test.ts` +
+  `verify-browser-coverage-receipt.test.ts` + `e2e-lanes.test.ts` — 37/0; the extended guard itself —
+  11/0; the SDK's own `git/index.test.ts` — 8/0, 100% coverage on `currentRepositoryGitContext`; all
+  eleven files combined in one run — 332/0. `manifest.lock.json` regenerated for the two class-A files'
+  changed source digests (`ai-kit/src/cli/install.ts`, `repo-activity-notify/index.ts` — unchanged by
+  this entry, already fixed in GC14/GC13).
+  EVIDENCE: typecheck, lint, `gate-integrity.ts`, both boundary checks all clean (including
+  `gate-integrity.ts` and `check-boundaries.ts` checking themselves, now correctly on the keeping side).
