@@ -104,6 +104,9 @@ describe("orchestrator boundary validation", () => {
   });
   it("requires stable, recorded inbox events", () => {
     assert.doesNotThrow(() => validateInboxEvent({ id: "event", atMs: 1, kind: "cancel", reason: "test" }));
+    // W09e: a release stop names its external effect from one enum.
+    for (const effect of ["uncertain", "published"]) assert.doesNotThrow(() => validateInboxEvent({ id: "stop", atMs: 1, kind: "attempt-stopped", effect }));
+    for (const effect of ["maybe", 1, null]) assert.throws(() => validateInboxEvent({ id: "stop", atMs: 1, kind: "attempt-stopped", effect }), /effect must be uncertain or published/);
     for (const value of [null, [], 1]) assert.throws(() => validateInboxEvent(value), /object/);
     for (const id of [undefined, "", "x".repeat(513)]) assert.throws(() => validateInboxEvent({ id, atMs: 1, kind: "cancel" }), /stable ID/);
     for (const atMs of [undefined, -1, 1.5]) assert.throws(() => validateInboxEvent({ id: "event", atMs, kind: "cancel" }), /timestamp/);
