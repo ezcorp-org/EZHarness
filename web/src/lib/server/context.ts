@@ -12,7 +12,7 @@ import { AgentExecutor } from "$server/runtime/executor";
 import { WorkflowExecutor } from "$server/runtime/workflow-executor";
 import { loadYamlWorkflows } from "$server/runtime/workflow-loader";
 import { loadReleaseWorkflowEntries } from "$server/runtime/workflow-release-assets";
-import { initDb, closeDb, getDb } from "$server/db/connection";
+import { initDb, closeDb, getDb, recoverFromDriverDesync } from "$server/db/connection";
 import { warmKiloCatalog } from "$server/providers/kilo";
 import { validateEnv } from "$server/env-validation";
 import { loadDbCachedWorkflows } from "$server/db/queries/workflows";
@@ -495,6 +495,7 @@ async function initialize(): Promise<void> {
     signal: getShutdownSignal(),
     registerTeardown,
     log: console,
+    recoverDatabase: recoverFromDriverDesync,
   });
 
   // Signal-driven teardown lives in `$lib/server/shutdown.ts`. The

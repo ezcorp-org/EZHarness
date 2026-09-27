@@ -47,6 +47,7 @@ import {
   type FactoryServiceProbeResult,
   type FactoryStorageProbeTarget,
   type FactorySupervisorProbeTarget,
+  type FactoryProbeTraceEvent,
 } from "./service-probes";
 import { factoryRuntimeSeams, factorySeamStates, type FactoryRuntimeSeamInputs, type FactoryRuntimeSeams, type FactorySeamState } from "./runtime-seams";
 import { registerFactoryRuntimeWorkers, type FactoryHeldWorker, type FactoryRuntimeWorkerCollaborators } from "./runtime-workers";
@@ -103,6 +104,8 @@ export interface FactoryRuntimeDependencies {
   readonly service: FactoryRuntimeWorkerCollaborators["service"];
   readonly seams?: FactoryRuntimeSeamInputs;
   readonly report: (role: string, error: unknown) => void;
+  /** Receives each probe's verdict and duration, for the boot log. */
+  readonly probeTrace?: (event: FactoryProbeTraceEvent) => void;
   /** Additional probes a deployment adds. Never replaces a required one. */
   readonly extraProbes?: readonly FactoryServiceProbe[];
   /**
@@ -262,7 +265,8 @@ export async function startFactoryRuntime(
 
   const seams = factoryRuntimeSeams(dependencies.seams);
   const probes = requiredProbes(config, dependencies, boot);
-  let results = await probeFactoryServices(probes, signal);
+  const probeOptions = dependencies.probeTrace === undefined ? {} : { trace: dependencies.probeTrace };
+  let results = await probeFactoryServices(probes, signal, probeOptions);
 
   const workerSet = registerFactoryRuntimeWorkers({
     ...dependencies.workers,
@@ -330,7 +334,7 @@ export async function startFactoryRuntime(
       for (let round = 0; round < rounds && !signal.aborted; round += 1) {
         await wait(retry.delayMs, signal);
         if (signal.aborted) break;
-        results = await probeFactoryServices(probes, signal);
+        results = await probeFactoryServices(probes, signal, probeOptions);
         try {
           admit();
           openAdmission();

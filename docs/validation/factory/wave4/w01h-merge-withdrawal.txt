@@ -1,0 +1,9 @@
+W01h merge 1593c1137 with receipts 3c1c8becb withdrawn from integ/w00 to proof refs because validator-2 found a lock-order deadlock (D1) in aefcf828f after the merge; fix round 2 at e676e6190 merges after its re-check.
+
+Record (lead ruling Option A, 2026-09-27): before the move, `git branch -a --contains` showed only integ/w00 and the
+two proof refs, and no HEAD among 302 worktrees carried either commit. integ/w00 was moved back to 9da0ed9ec (the
+W14b receipts). The withdrawn commits stay on proof/w01h-merge2-committed (1593c11375c6327f68fae5dd746f925e82f2291b)
+and proof/w01h-merge2-receipts (3c1c8becb787c7c9938d472a250089888c2ef1f3). The SHA256SUMS lines added by 3c1c8becb
+left with it; the ledger is append-only from 9da0ed9ec onward. The W01h legs run at 1593c1137 stay as evidence
+(/tmp/factory-platform-evidence/w00/w01h-merge2/) and do not count for the next W01h merge, which reruns every leg.
+Later note from the lead: the fix-round-2 head moved again; W01h merges at the head that validator-2's final ACCEPT names.

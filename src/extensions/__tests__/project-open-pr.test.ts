@@ -3,12 +3,23 @@ import { mkdtemp, writeFile, mkdir, rm, readFile, symlink } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createProjectCommandRunner, openProjectPullRequest, type ProjectCommandRunner } from "../project-open-pr";
+import { scratchGitEnv } from "../../__tests__/helpers/scratch-git";
 
 const directories: string[] = [];
 afterEach(async () => { for (const directory of directories.splice(0)) await rm(directory, { recursive: true, force: true }); });
 
+/**
+ * Isolated from the caller's own git context (a hook that exports `GIT_DIR`
+ * and friends would otherwise make these commands act on the hook's real
+ * repository instead of `root`/`cwd`). `home` is a hidden directory nested
+ * under the fixture's own `root`, so it never needs separate cleanup and
+ * `git add .`/`-A` never picks it up (it stays empty; nothing here ever
+ * writes to it).
+ */
 async function git(root: string, ...args: string[]) {
-  const child = Bun.spawn(["git", "-c", "core.hooksPath=/dev/null", ...args], { cwd: root, stdout: "pipe", stderr: "pipe" });
+  const home = join(root, ".git-scratch-home");
+  await mkdir(home, { recursive: true });
+  const child = Bun.spawn(["git", "-c", "core.hooksPath=/dev/null", ...args], { cwd: root, env: scratchGitEnv(home), stdout: "pipe", stderr: "pipe" });
   const [stdout, stderr, exitCode] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   if (exitCode !== 0) throw new Error(stderr);
   return stdout;
@@ -17,6 +28,8 @@ async function git(root: string, ...args: string[]) {
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), "extension-pr-test-"));
   directories.push(root);
+  const home = join(root, ".git-scratch-home");
+  await mkdir(home, { recursive: true });
   await git(root, "init", "-b", "main");
   await git(root, "config", "user.name", "Test");
   await git(root, "config", "user.email", "test@example.invalid");
@@ -34,7 +47,7 @@ async function fixture() {
       committed = await readFile(join(cwd, "tracked.txt"), "utf8");
       return { exitCode: 0, stdout: "", stderr: "" };
     }
-    const child = Bun.spawn(["git", "-c", "core.hooksPath=/dev/null", ...argv.slice(1)], { cwd, stdin: input === undefined ? "ignore" : new Blob([input]), stdout: "pipe", stderr: "pipe" });
+    const child = Bun.spawn(["git", "-c", "core.hooksPath=/dev/null", ...argv.slice(1)], { cwd, env: scratchGitEnv(home), stdin: input === undefined ? "ignore" : new Blob([input]), stdout: "pipe", stderr: "pipe" });
     const [stdout, stderr, exitCode] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
     return { stdout, stderr, exitCode };
   };

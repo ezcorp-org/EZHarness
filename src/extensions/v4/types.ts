@@ -27,9 +27,14 @@ export interface LifecycleRepository {
   transact<Result>(installationId: string, change: (state: InstallationState) => Result | Promise<Result>, actor?: LifecycleActor): Promise<Result>;
 }
 
+/** Per-call options a store may honour. `signal` aborts a request that never answers. */
+export interface BlobOperationOptions {
+  readonly signal?: AbortSignal;
+}
+
 export interface BlobStore {
-  put(bytes: Uint8Array): Promise<string>;
-  get(digest: string): Promise<Uint8Array>;
+  put(bytes: Uint8Array, options?: BlobOperationOptions): Promise<string>;
+  get(digest: string, options?: BlobOperationOptions): Promise<Uint8Array>;
 }
 
 export type LifecycleRunner = Pick<Runner, "build" | "cancel" | "collectArtifacts">;

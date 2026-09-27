@@ -1,0 +1,60 @@
+{
+  "label": "w16c-merge-mock",
+  "mode": "mock",
+  "control": "none",
+  "startedAt": "2026-09-27T11:21:29.112Z",
+  "harnessSuppliedDeploymentFacts": [
+    "a TLS-terminating sidecar in front of the Temporal dev server; the orchestrator's own mutual TLS is unrelaxed",
+    "the runner package installation (bind, trust, prepare) through the product's own classes, because no product route owns it yet (W02)"
+  ],
+  "steps": [],
+  "pin": {
+    "provider": "ezcorp-mock",
+    "model": "prompt-digest:w19a",
+    "configuration": {
+      "temperature": 0,
+      "seed": 42,
+      "reasoningEffort": "none"
+    },
+    "configurationDigest": "sha256:5aa469ad9a877ca0f293c38a0d5ff9a5cb4ff39fd159d8f5da58d44ccdb9329c",
+    "policy": {
+      "tools": false
+    },
+    "policyDigest": "sha256:889c786e2c05705f46dd143902989266c33d001197dce8f3f387342fce09dbe4"
+  },
+  "installationModelProvider": {
+    "provider": "ezcorp-mock",
+    "model": "prompt-digest:w19a"
+  },
+  "sharedStores": [
+    {
+      "store": "ordinary",
+      "port": 18333,
+      "reachable": true,
+      "detail": "http 403"
+    },
+    {
+      "store": "archive",
+      "port": 18334,
+      "reachable": true,
+      "detail": "http 403"
+    }
+  ],
+  "databases": {
+    "pool": "w19a_pool_1790508089455_fdb333",
+    "product": "w19a_product_1790508089455_fdb333"
+  },
+  "diagnostics": {
+    "processLogs": [],
+    "redactions": {},
+    "stack": {
+      "copied": [],
+      "refused": [],
+      "oversize": {},
+      "unreadable": []
+    }
+  },
+  "outcome": "failed",
+  "failure": "harness error: Error: the graph guest did not build: command_failed: types.ts(6,8): error TS2307: Cannot find module './console-types.ts' or its corresponding type declarations.\ntypes.ts(8,20): error TS2307: Cannot find module './console-types.ts' or its corresponding type declarations.\n    at buildGraphGuest (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/scripts/factory-graph-proof/guest-package.ts:102:17)\n    at async <anonymous> (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/scripts/factory-graph-proof/proof.ts:99:53)\n    at async startStack (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/scripts/factory-graph-proof/stack.ts:305:36)\n    at processTicksAndRejections (native:7:39)",
+  "finishedAt": "2026-09-27T11:21:32.777Z"
+}

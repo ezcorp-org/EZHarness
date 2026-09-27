@@ -61,7 +61,7 @@ import { FactoryReleaseOutcomeDelivery } from "./release-outcome-delivery";
 import { composeFactoryReleaseDestinations, FactoryReleaseDestinationError, type FactoryComposedReleaseDestinations } from "./release-declaration";
 import { FactoryReleaseApplication, type FactoryReleaseProviderResolver } from "./release-application";
 import { startFactoryRuntime, type FactoryRuntime, type FactoryRuntimeDependencies } from "./runtime-composition";
-import type { FactoryStorageProbeTarget } from "./service-probes";
+import type { FactoryProbeTraceEvent, FactoryStorageProbeTarget } from "./service-probes";
 import { factoryPageDriver, type FactoryItemDisposition } from "./role-drivers";
 import type { FactoryRuntimeWorkerCollaborators } from "./runtime-workers";
 import type { FactoryApplication, FactoryApplicationOptions } from "./application";
@@ -119,6 +119,28 @@ export interface FactoryInstallationHost {
   readonly runOptions: FactoryApplicationOptions["runOptions"];
   readonly availableResourceClasses: Iterable<string>;
   readonly report: (role: string, error: unknown) => void;
+  /**
+   * Receives each boot phase as it starts and finishes, with its duration, and
+   * each startup probe's verdict. A boot that stalls then names the phase it
+   * stalled in, and the host can bound it.
+   */
+  readonly trace?: (event: FactoryBootTraceEvent) => void;
+}
+
+/** One boot phase, started or finished. A probe's phase is `probe:<service>` and carries its verdict. */
+export interface FactoryBootTraceEvent {
+  readonly phase: string;
+  readonly state: "started" | "finished";
+  readonly elapsedMs: number;
+  readonly detail?: string;
+}
+
+/** Run one boot phase, reporting its start and its duration whether it succeeds or throws. */
+async function bootPhase<T>(trace: FactoryInstallationHost["trace"], phase: string, work: () => Promise<T>): Promise<T> {
+  const started = performance.now();
+  trace?.({ phase, state: "started", elapsedMs: 0 });
+  try { return await work(); }
+  finally { trace?.({ phase, state: "finished", elapsedMs: Math.round(performance.now() - started) }); }
 }
 
 export interface FactoryInstallationStartOptions {
@@ -163,14 +185,14 @@ export interface FactoryInstallationStartOptions {
 export function factoryStorageProbeTarget(blobs: BlobStore): FactoryStorageProbeTarget {
   const written = new Map<string, string>();
   return {
-    async put(key: string, content: Uint8Array) {
-      const stored = await blobs.put(content);
+    async put(key: string, content: Uint8Array, signal?: AbortSignal) {
+      const stored = await blobs.put(content, { signal });
       written.set(key, typeof stored === "string" ? stored : (stored as { blobDigest: string }).blobDigest);
     },
-    async get(key: string) {
+    async get(key: string, signal?: AbortSignal) {
       const digest = written.get(key);
       if (digest === undefined) throw new FactoryInstallationStartupError("factory-startup-blobs-missing", "The probe object was never written.");
-      return blobs.get(digest);
+      return blobs.get(digest, { signal });
     },
   };
 }
@@ -594,8 +616,9 @@ export interface FactoryInstallationStartup {
  */
 export async function startFactoryInstallation(options: FactoryInstallationStartOptions): Promise<FactoryInstallationStartup> {
   const boot = options.boot ?? factoryBootConfig;
-  const config = await loadFactoryStartupConfig(options.configPath ?? factoryStartupConfigPath(process.env, boot));
   const host = options.host;
+  const trace = host.trace;
+  const config = await bootPhase(trace, "config", () => loadFactoryStartupConfig(options.configPath ?? factoryStartupConfigPath(process.env, boot)));
 
   // Bind this installation to this tenant before anything else touches the
   // factory tables.
@@ -612,22 +635,22 @@ export async function startFactoryInstallation(options: FactoryInstallationStart
   // database already bound to a different tenant raises
   // `factory_installation_mismatch` here, at boot, instead of letting this
   // process serve another installation's records.
-  await new FactoryRecords(host.database, config.tenantId).bindInstallation();
+  await bootPhase(trace, "bind-installation", () => new FactoryRecords(host.database, config.tenantId).bindInstallation());
 
   // The stores the roles read through. `createFactoryApplication` builds the
   // same ones again inside `startFactoryRuntime`; these are the collaborators
   // the background roles need and the application does not expose.
-  const blobs = options.blobs ?? await productObjectStore(config);
+  const blobs = options.blobs ?? await bootPhase(trace, "object-store", () => productObjectStore(config));
   const artifacts = new FactoryArtifacts(host.database, blobs, config.tenantId);
   const transitions = new FactoryTransitionArtifacts(artifacts);
 
   const supplied = options.dependencies ?? {};
   // Before anything is composed, so a half-configured model pin is a readiness
   // row rather than a surprise at the first guest call.
-  const provider = await composeFactoryProviderBroker(config.modelProvider, options.providerReadiness ?? {});
+  const provider = await bootPhase(trace, "provider-broker", () => composeFactoryProviderBroker(config.modelProvider, options.providerReadiness ?? {}));
   if (provider !== undefined && provider.broker === undefined) host.report("model-provider", new Error(`factory_provider_not_ready: ${JSON.stringify(provider.readiness.failures)}`));
   const composed = supplied.workers === undefined
-    ? await installationCollaborators(config, host, blobs, transitions, options.signal, options.releaseProviders)
+    ? await bootPhase(trace, "collaborators", () => installationCollaborators(config, host, blobs, transitions, options.signal, options.releaseProviders))
     : undefined;
   const storage = supplied.storage ?? factoryStorageProbeTarget(blobs);
   const gateway = supplied.gateway ?? factoryGatewayProbeTarget(config);
@@ -665,9 +688,10 @@ export async function startFactoryInstallation(options: FactoryInstallationStart
     ...(provider === undefined ? {} : { providerReadiness: provider.readiness }),
     ...(composed?.guestBroker === undefined ? {} : { guestBrokerReadiness: composed.guestBroker }),
     report: host.report,
+    ...(trace === undefined ? {} : { probeTrace: (event: FactoryProbeTraceEvent) => trace({ phase: `probe:${event.service}`, state: "finished", elapsedMs: event.elapsedMs, detail: event.detail }) }),
   };
 
-  const runtime = await startFactoryRuntime(config, options.databaseUrl, dependencies, options.signal, boot);
+  const runtime = await bootPhase(trace, "runtime", () => startFactoryRuntime(config, options.databaseUrl, dependencies, options.signal, boot));
   return Object.freeze({ runtime, ...(provider === undefined ? {} : { provider }), stop: () => runtime.stop() });
 }
 
