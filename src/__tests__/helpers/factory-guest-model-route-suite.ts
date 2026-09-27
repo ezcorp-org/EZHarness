@@ -211,7 +211,11 @@ export function factoryGuestModelRouteConformance(createFixture: () => Promise<F
     const attempt = await admit();
     const provider = streamDouble(() => text("ok"));
     await infer(attempt.request, route(async () => providerOver(provider.broker))(attempt));
-    expect(provider.seen[0]?.options).toEqual({ temperature: 0, samplingParams: { seed: 7, reasoning_effort: "none" }, maxTokens: 64 });
+    // W03f ruling C: the attempt's deadline rides along as an abort signal, which is not a sampling
+    // parameter; apart from it, nothing but the pin's configuration and the output bound is sent.
+    const { signal, ...sampled } = provider.seen[0]!.options;
+    expect(sampled).toEqual({ temperature: 0, samplingParams: { seed: 7, reasoning_effort: "none" }, maxTokens: 64 });
+    expect(signal?.aborted).toBe(false);
     expect(provider.seen[0]?.model).toMatchObject({ provider: "ollama", id: "qwen3:1.7b" });
     // The request the provider saw is the one the guest sent, turn for turn.
     expect(provider.seen[0]?.context.systemPrompt).toBe("Answer in one short sentence.");
