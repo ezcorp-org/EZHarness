@@ -1,5 +1,5 @@
-import { test, expect, describe, beforeEach, afterAll, mock } from "bun:test";
-import { restoreModuleMocks } from "./helpers/mock-cleanup";
+import { test, expect, describe, beforeEach, beforeAll, afterAll, mock } from "bun:test";
+import { restoreModuleMocks, serverModule } from "./helpers/mock-cleanup";
 import { mockServerAlias, createMockEvent, jsonFromResponse, ADMIN_USER } from "./helpers/mock-request";
 
 // ── Module-level mocks (BEFORE handler imports) ──────────────────
@@ -32,33 +32,6 @@ mock.module("../providers/encryption", () => ({
 // updated for sec-C5: handler now calls requireRole(locals, "admin") and
 // insertAuditEntry; mock passes the admin check for ADMIN_USER fixtures and
 // the audit log is a no-op.
-mock.module("../auth/middleware", () => ({
-  requireAuth: mock((locals: any) => {
-    if (!locals?.user) {
-      throw new Response(JSON.stringify({ error: "Authentication required" }), {
-        status: 401,
-        headers: { "Content-Type": "application/json" },
-      });
-    }
-    return locals.user;
-  }),
-  requireRole: mock((locals: any, role: string) => {
-    if (!locals?.user) {
-      throw new Response(JSON.stringify({ error: "Authentication required" }), {
-        status: 401,
-        headers: { "Content-Type": "application/json" },
-      });
-    }
-    if (locals.user.role !== role) {
-      throw new Response(JSON.stringify({ error: "Insufficient permissions" }), {
-        status: 403,
-        headers: { "Content-Type": "application/json" },
-      });
-    }
-    return locals.user;
-  }),
-}));
-
 mock.module("../db/queries/audit-log", () => ({
   insertAuditEntry: mock(async () => {}),
 }));
@@ -80,7 +53,24 @@ mock.module("$server/providers/encryption", () => ({
   _resetKeyCache: () => {},
 }));
 // updated for sec-C5: $server-aliased mock must also export requireRole.
-mock.module("$server/auth/middleware", () => ({
+// auth/middleware: registered in beforeAll below, not here at module top
+// level — item C2 (W18 hygiene). A raw object literal here is a partial
+// mock (missing checkAuth/checkProjectRole/etc.), and the
+// $server/auth/middleware alias is claimed by dozens of files repo-wide, so
+// whichever file's registration is active when a shared-process run
+// resolves the alias wins for every OTHER file too. beforeAll (test-
+// execution time, after every earlier file's own top-level code has already
+// loaded) plus a complete serverModule() factory make THIS file's own
+// values active for THIS file's own tests, and afterAll hands the alias
+// back to the real module so a later file in the same process starts from
+// a clean slate.
+const realAuthMiddleware = serverModule("auth/middleware", {});
+// Shared by both specifiers below (item C2 dual-specifier lesson): the
+// relative path "../auth/middleware" is the identical literal specifier
+// string every other src/__tests__/ file at this same depth resolves to,
+// so it needs the same beforeAll-scoped, complete-factory treatment as the
+// $server alias, not a separate top-level partial mock.
+const authMiddlewareOverrides = () => ({
   requireAuth: mock((locals: any) => {
     if (!locals?.user) {
       throw new Response(JSON.stringify({ error: "Authentication required" }), {
@@ -105,7 +95,16 @@ mock.module("$server/auth/middleware", () => ({
     }
     return locals.user;
   }),
-}));
+});
+
+beforeAll(() => {
+  mock.module("$server/auth/middleware", () => ({ ...realAuthMiddleware, ...authMiddlewareOverrides() }));
+  mock.module("../auth/middleware", () => ({ ...realAuthMiddleware, ...authMiddlewareOverrides() }));
+});
+afterAll(() => {
+  mock.module("$server/auth/middleware", () => realAuthMiddleware);
+  mock.module("../auth/middleware", () => realAuthMiddleware);
+});
 
 // updated for sec-C5: handler now audit-logs provider key writes/deletes.
 mock.module("$server/db/queries/audit-log", () => ({
