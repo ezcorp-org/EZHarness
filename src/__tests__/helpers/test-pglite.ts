@@ -6,6 +6,8 @@ import { vector } from "@electric-sql/pglite-pgvector";
 // without this contrib import, so `similarity(...)` would 42883.
 import { pg_trgm } from "@electric-sql/pglite/contrib/pg_trgm";
 import { drizzle } from "drizzle-orm/pglite";
+import { getTableName, is } from "drizzle-orm";
+import { PgTable } from "drizzle-orm/pg-core";
 import * as schema from "../../db/schema";
 import { migrate } from "../../db/migrate";
 import { applyPgliteNulPatches } from "../../db/nul-column-patch";
@@ -85,14 +87,29 @@ async function buildMigratedSnapshot(): Promise<Blob | File> {
   const seed = new PGlite({ extensions: EXTENSIONS });
   await seed.waitReady;
   await migrate(drizzle(seed, { schema }));
+  // A file that mocks `db/migrate` (for example cov-fix-connection-postgres)
+  // can run in the same process as this build. Its no-op migrate would yield
+  // an unmigrated datadir, and publishing that under the real key poisons
+  // every later run on this checkout (W09f: 12 unrelated suites failed with
+  // `relation "factory_runs" does not exist`). Only a snapshot that holds
+  // every schema table is published; any other stays in this process.
+  const missing = await missingSchemaTables(seed);
   // Dump BEFORE any test mutates the seed instance so the snapshot is a clean,
   // representative post-migrate state. "none" (uncompressed) → fastest restore;
   // the blob is cached once per process, so per-test decompression cost would
   // outweigh the one-time memory saving of gzip.
   const snapshot = await seed.dumpDataDir("none");
   await seed.close();
-  await writeCachedSnapshot(key, snapshot);
+  if (missing.length === 0) await writeCachedSnapshot(key, snapshot);
+  else console.warn(`[test-pglite] not caching an incomplete migrated snapshot; missing ${missing.length} schema table(s), first: ${missing[0]}`);
   return snapshot;
+}
+
+/** Schema tables absent from `database`'s public schema, sorted; empty when fully migrated. */
+export async function missingSchemaTables(database: PGlite): Promise<string[]> {
+  const expected = Object.values(schema).filter((value) => is(value, PgTable)).map((table) => getTableName(table as PgTable));
+  const present = new Set((await database.query<{ table_name: string }>("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'")).rows.map((row) => row.table_name));
+  return [...new Set(expected)].filter((name) => !present.has(name)).sort();
 }
 
 export async function setupTestDb() {

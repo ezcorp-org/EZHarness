@@ -5129,3 +5129,19 @@ Base integ/w00 `146a94829`. Gate file: `tasks/factory/w14b-GATES.md`. Evidence: 
 - [x] Runbook mock pass at the head under the lock; graph-proof suites; builds; typecheck, lint, boundaries, gate integrity.
 
 Review (W14b): the graph guest listed its SDK modules by hand, so the first new module an SDK file imported broke every build of it. The package now stages exactly what its own files reach, found by following imports, and a missing module is refused by name. The guard compares every staged import against the staged files, for both guests on the real SDK.
+## W09f: run-projection prepared-statement mismatch (branch `wp/w09f-run-projection`)
+
+Base `integ/w00` `b10b7ea1a`. Receipts: `/tmp/factory-platform-evidence/w09f/`. Gates: `tasks/factory/w09f-GATES.md`.
+
+- [x] Reproduce on real PostgreSQL with product queries. Bun 1.3.14 stalls and contaminates transactions; Bun 1.4.2 is clean.
+- [x] The role's report names the database error (`ef9ba50f5`).
+- [x] A desynchronized pool is replaced under the live Drizzle handle (`c4a5cc1f0`, `488b51458`).
+- [x] Fix the poisoned PGlite snapshot cache found by the sweep (`af673760e`).
+- [x] Final sweep green at `af673760e`.
+- [ ] The Bun upgrade and its regression suite: W12e, pending the user's decision.
+
+**Review.** The run-projection error came from Bun 1.3.14's Postgres request queue, not from our
+queries: one query's Bind reached another query's statement on the same connection. The same component
+stalls and mixes transactions on this host, with our own queries, and Bun 1.4.2 is clean. Until the
+upgrade, the process names the database error in its logs and replaces a desynchronized pool instead of
+retrying on it.
