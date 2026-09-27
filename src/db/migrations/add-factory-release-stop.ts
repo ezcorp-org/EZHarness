@@ -59,7 +59,8 @@ export async function up(database: MigrationDb): Promise<void> {
             AND (stop_cost_source IS NULL OR stop_cost_source IN ('proven-no-effect','provider-receipt','reserved-bound'))
             AND (stop_cost_micros IS NULL OR stop_cost_micros >= 0)
             AND (stop_outcome IS DISTINCT FROM 'no_effect' OR (stop_cost_source = 'proven-no-effect' AND stop_cost_micros = 0))
-            AND (stop_outcome IS DISTINCT FROM 'unknown_at_deadline' OR stop_cost_source = 'reserved-bound'));
+            AND (stop_outcome IS DISTINCT FROM 'unknown_at_deadline' OR stop_cost_source = 'reserved-bound')
+            AND (stop_outcome IS DISTINCT FROM 'published' OR stop_cost_source IN ('provider-receipt','reserved-bound')));
       END IF;
     END $$`);
 }

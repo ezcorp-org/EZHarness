@@ -16,6 +16,9 @@ test("adds the release stop columns and checks once, and re-running changes noth
     const installed = await checks();
     expect(installed.map(row => row.conname)).toEqual([...FACTORY_RELEASE_STOP_CHECKS].sort());
     expect(FACTORY_RELEASE_STOP_CHECKS).toContain("factory_release_operations_stop_cost_check");
+    // A published outcome is charged at the receipt's spend or the reserved bound, never as proven free.
+    const [cost] = rows<{ definition: string }>(await fixture.db.execute(sql`SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint WHERE conname='factory_release_operations_stop_cost_check'`));
+    expect(cost!.definition).toMatch(/stop_outcome IS DISTINCT FROM 'published'.*stop_cost_source = ANY \(ARRAY\['provider-receipt'::text, 'reserved-bound'::text\]\)/s);
     await up(fixture.db);
     expect(await checks()).toEqual(installed);
   } finally {

@@ -39,7 +39,7 @@ test("the release stop columns and checks are added to a table of the pre-W09e s
   expect(migrated.columns).toEqual(current.columns);
   expect(migrated.checks.map(check => [check.conname, check.definition])).toEqual(current.checks.map(check => [check.conname, check.definition]));
   expect(migrated.checks.find(check => check.conname === "factory_release_operations_stop_outcome_check")?.definition).toContain("'unknown_at_deadline'");
-  expect(migrated.checks.find(check => check.conname === "factory_release_operations_stop_cost_check")?.definition).toContain("'reserved-bound'");
+  expect(migrated.checks.find(check => check.conname === "factory_release_operations_stop_cost_check")?.definition).toMatch(/stop_outcome IS DISTINCT FROM 'published'.*stop_cost_source = ANY \(ARRAY\['provider-receipt'::text, 'reserved-bound'::text\]\)/s);
 
   // A second run changes nothing: the same columns and the same constraint rows.
   await up(fixture.db);
