@@ -8,7 +8,7 @@ import { factoryUsageReconciliationDriver } from "../../factory/dispatch-composi
 import { FactoryExecutionJournal, type FactoryAttemptAuthority } from "../../factory/executions";
 import { FactoryInbox } from "../../factory/inbox";
 import { FactoryRestore, factoryRestoreReportDigest, type FactoryRestoreReport } from "../../factory/restore";
-import { clearResolvedSupersessionInTransaction, readAttemptSupersessionInTransaction, supersedeEpochAttemptsInTransaction } from "../../factory/attempt-supersessions";
+import { clearResolvedSupersessionInTransaction, FactoryAttemptNotSupersededError, readAttemptSupersessionInTransaction, readSupersededOperationsInTransaction, supersedeEpochAttemptsInTransaction } from "../../factory/attempt-supersessions";
 import { FactoryUsageReconciliation, FactoryUsageSettlements } from "../../factory/usage-settlement";
 import { FACTORY_TEST_DIGEST, factoryTestAuthority, factoryTestRunnerRequest } from "./factory-attempt-fixtures";
 
@@ -79,6 +79,22 @@ export function factoryUsageEpochConformance(createFixture: () => Promise<Factor
 
   const staleReports = (reports: readonly { role: string; error: unknown }[]) => reports.filter(report => report.role === "usage-reconciliation:fault:stale-reservation");
   const liveReports = (reports: readonly { role: string; error: unknown }[]) => reports.filter(report => report.role.endsWith(":live-reservation"));
+
+  /** The operator signs a restore that moved the installation from `previous` to `next`, as FactoryRestore.sign does it. */
+  async function signRestore(restoreId: string, previous: number, next: number) {
+    const report = { schemaVersion: "factory.recovery-report.v1", tenantId: TENANT, installationId: "usage-epoch-installation", restoreId, mode: "tenant", checkpointId: "checkpoint-1", manifestDigest: FACTORY_TEST_DIGEST, previousEpoch: previous, executionEpoch: next, findings: [], blockedChecks: [], blockedRuns: [], blockedSubjects: [], releaseIdentities: { archived: 0, recovered: 0, blocked: 0 } } as unknown as FactoryRestoreReport;
+    const digest = factoryRestoreReportDigest(report);
+    await fixture.db.execute(sql`INSERT INTO factory_restore_epochs (tenant_id, restore_id, mode, checkpoint_id, manifest_digest, previous_epoch, execution_epoch, state, started_at_ms, opened_state_json, report_json, report_digest)
+      VALUES (${TENANT}, ${restoreId}, 'tenant', 'checkpoint-1', ${FACTORY_TEST_DIGEST}, ${previous}, ${next}, 'awaiting_signature', 1, '{}', ${JSON.stringify(report)}, ${digest})`);
+    await fixture.db.execute(sql`INSERT INTO users(id,email,password_hash,name,role) VALUES ('usage-epoch-admin','usage-epoch@example.test','x','Usage Epoch','admin') ON CONFLICT (id) DO NOTHING`);
+    const restore = new FactoryRestore({ database: fixture.db, tenantId: TENANT, installationId: "usage-epoch-installation", hostKeys: new Map(), providers: () => null } as never);
+    const signed = await restore.sign(restoreId, { kind: "user", id: "usage-epoch-admin", authentication: "session" } as never, digest);
+    return { signed, digest };
+  }
+
+  async function installationEpoch(): Promise<number> {
+    return Number(releaseRows<{ execution_epoch: number | string }>(await fixture.db.execute(sql`SELECT execution_epoch FROM factory_installation WHERE tenant_id = ${TENANT}`))[0]!.execution_epoch);
+  }
 
   beforeAll(async () => {
     fixture = await createFixture();
@@ -183,13 +199,7 @@ export function factoryUsageEpochConformance(createFixture: () => Promise<Factor
 
     // The operator signs the restore.
     const restoreId = "restore-supersession";
-    const report = { schemaVersion: "factory.recovery-report.v1", tenantId: TENANT, installationId: "usage-epoch-installation", restoreId, mode: "tenant", checkpointId: "checkpoint-1", manifestDigest: FACTORY_TEST_DIGEST, previousEpoch: previous, executionEpoch: next, findings: [], blockedChecks: [], blockedRuns: [], blockedSubjects: [], releaseIdentities: { archived: 0, recovered: 0, blocked: 0 } } as unknown as FactoryRestoreReport;
-    const digest = factoryRestoreReportDigest(report);
-    await fixture.db.execute(sql`INSERT INTO factory_restore_epochs (tenant_id, restore_id, mode, checkpoint_id, manifest_digest, previous_epoch, execution_epoch, state, started_at_ms, opened_state_json, report_json, report_digest)
-      VALUES (${TENANT}, ${restoreId}, 'tenant', 'checkpoint-1', ${FACTORY_TEST_DIGEST}, ${previous}, ${next}, 'awaiting_signature', 1, '{}', ${JSON.stringify(report)}, ${digest})`);
-    await fixture.db.execute(sql`INSERT INTO users(id,email,password_hash,name,role) VALUES ('usage-epoch-admin','usage-epoch@example.test','x','Usage Epoch','admin')`);
-    const restore = new FactoryRestore({ database: fixture.db, tenantId: TENANT, installationId: "usage-epoch-installation", hostKeys: new Map(), providers: () => null } as never);
-    const signed = await restore.sign(restoreId, { kind: "user", id: "usage-epoch-admin", authentication: "session" } as never, digest);
+    const { signed, digest } = await signRestore(restoreId, previous, next);
     expect(signed).toMatchObject({ enabled: true, superseded: expect.any(Number) });
 
     // The old attempt is terminal, superseded, with the signed restore as its proof.
@@ -237,5 +247,36 @@ export function factoryUsageEpochConformance(createFixture: () => Promise<Factor
     await expect(fixture.db.transaction(transaction => clearResolvedSupersessionInTransaction(transaction, inbox, TENANT, bare.reservationId, -1))).rejects.toThrow("factory_supersession_invalid");
     // A second pass finds nothing live to supersede.
     expect(await fixture.db.transaction(transaction => supersedeEpochAttemptsInTransaction(transaction, inbox, input))).toBe(0);
+  });
+
+  test("the superseded epoch's operations are read only with the supersession as proof, never for a live attempt", async () => {
+    const previous = await installationEpoch(), next = previous + 1;
+    const journaled = await holdIn("journaled", previous);
+    const live = await holdIn("still-live", previous);
+    // The old attempt journaled one model operation before the restore.
+    const journal = new FactoryExecutionJournal(fixture.db, async () => {});
+    const operation = { operationId: `${journaled.runId}:journaled-node:0:0`, operationIndex: 0, kind: "model" as const, requestDigest: "a".repeat(64) };
+    await journal.prepare(journaled.sealed, operation);
+    await journal.dispatch(journaled.sealed, operation.operationId);
+
+    // Before any restore, a live attempt has no proof: refused by name.
+    await expect(fixture.db.transaction(transaction => readSupersededOperationsInTransaction(transaction, TENANT, live.reservationId))).rejects.toBeInstanceOf(FactoryAttemptNotSupersededError);
+    await expect(fixture.db.transaction(transaction => readSupersededOperationsInTransaction(transaction, TENANT, "no-such-reservation"))).rejects.toMatchObject({ code: "factory_attempt_not_superseded", reason: "no-supersession" });
+
+    await fixture.db.execute(sql`UPDATE factory_installation SET execution_epoch = ${next} WHERE tenant_id = ${TENANT}`);
+    const { digest } = await signRestore("restore-journaled", previous, next);
+    // Record the attempt's reservation on its supersession, as a dispatch-queued attempt has it.
+    await fixture.db.execute(sql`UPDATE factory_attempt_supersessions SET reservation_id = ${journaled.reservationId} WHERE tenant_id = ${TENANT} AND attempt_id = ${journaled.sealed.attemptId}`);
+
+    const read = await fixture.db.transaction(transaction => readSupersededOperationsInTransaction(transaction, TENANT, journaled.reservationId));
+    expect(read).toMatchObject({ attemptId: journaled.sealed.attemptId, supersededEpoch: previous, restoreDigest: digest, journalCursor: -1 });
+    expect(read.operations).toEqual([expect.objectContaining({ operationId: operation.operationId, operationIndex: 0, kind: "model", state: "dispatched", requestDigest: operation.requestDigest })]);
+    // The live journal read of the same attempt is still refused by the epoch fence.
+    await expect(journal.operations(journaled.sealed)).rejects.toThrow("Factory run epoch is stale or unavailable.");
+
+    // A record whose execution is no longer superseded is not proof.
+    await fixture.db.execute(sql`UPDATE factory_executions SET status = 'running' WHERE attempt_id = ${journaled.sealed.attemptId}`);
+    await expect(fixture.db.transaction(transaction => readSupersededOperationsInTransaction(transaction, TENANT, journaled.reservationId))).rejects.toMatchObject({ code: "factory_attempt_not_superseded", reason: "attempt-not-superseded" });
+    await fixture.db.execute(sql`UPDATE factory_executions SET status = 'superseded' WHERE attempt_id = ${journaled.sealed.attemptId}`);
   });
 }

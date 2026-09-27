@@ -2,6 +2,7 @@ import type { KernelEvent } from "@ezcorp/factory-sdk/kernel-types";
 import { sql } from "drizzle-orm";
 import type { MigrationDb } from "../db/migrations/types";
 import { releaseRows as rows } from "../db/queries/extension-releases";
+import { readFactoryOperationEvidenceInTransaction, type FactoryJournalOperationEvidence } from "./executions";
 import type { FactoryInbox } from "./inbox";
 import { assertFactoryIdentity } from "./records";
 
@@ -33,6 +34,28 @@ export interface FactoryAttemptSupersession {
   readonly restoreId: string;
   readonly restoreDigest: string;
   readonly event: AttemptStopped | null;
+}
+
+/**
+ * A superseded-operations read was asked for a reservation whose attempt has no
+ * restore supersession as proof (W15f). `reason` names which: there is no
+ * supersession record, or the record's attempt is not (or no longer) superseded
+ * at the epoch the record names.
+ */
+export class FactoryAttemptNotSupersededError extends Error {
+  readonly code = "factory_attempt_not_superseded";
+  constructor(readonly reservationId: string, readonly reason: "no-supersession" | "attempt-not-superseded") {
+    super(`factory_attempt_not_superseded: reservation ${reservationId} has no superseded attempt to read (${reason})`);
+    this.name = "FactoryAttemptNotSupersededError";
+  }
+}
+
+export interface FactorySupersededOperations {
+  readonly attemptId: string;
+  readonly supersededEpoch: number;
+  readonly restoreDigest: string;
+  readonly operations: readonly FactoryJournalOperationEvidence[];
+  readonly journalCursor: number;
 }
 
 function counter(value: number, minimum = 0): void {
@@ -120,3 +143,28 @@ export async function clearResolvedSupersessionInTransaction(
   await inbox.enqueueInTransaction(transaction, { projectId: supersession.projectId, runId: supersession.runId, interpreterId: supersession.interpreterId }, event);
   return event;
 }
+
+/**
+ * The journaled operations of the superseded attempt that held `reservationId`,
+ * read-only. The proof is the restore's supersession record, not the live run
+ * fence (which refuses an attempt of an epoch the installation has left): the
+ * record must exist for this reservation, and the attempt it names must still
+ * be `superseded` at the epoch it records. The epoch is the record's, never the
+ * caller's. Writes nothing. A bound settlement reads what it prices through here.
+ */
+export async function readSupersededOperationsInTransaction(transaction: MigrationDb, tenantId: string, reservationId: string): Promise<FactorySupersededOperations> {
+  assertFactoryIdentity(tenantId, reservationId);
+  const record = rows<{ attempt_id: string; superseded_epoch: number | string; restore_digest: string; status: string | null; execution_epoch: number | string | null }>(await transaction.execute(sql`
+    SELECT supersession.attempt_id, supersession.superseded_epoch, supersession.restore_digest, execution.status, execution.execution_epoch
+    FROM factory_attempt_supersessions supersession
+    LEFT JOIN factory_executions execution ON execution.attempt_id = supersession.attempt_id AND execution.tenant_id = supersession.tenant_id
+    WHERE supersession.tenant_id = ${tenantId} AND supersession.reservation_id = ${reservationId}
+    ORDER BY supersession.superseded_at_ms DESC, supersession.attempt_id LIMIT 1
+    FOR SHARE OF supersession`))[0];
+  if (!record) throw new FactoryAttemptNotSupersededError(reservationId, "no-supersession");
+  const supersededEpoch = Number(record.superseded_epoch);
+  if (record.status !== "superseded" || Number(record.execution_epoch) !== supersededEpoch) throw new FactoryAttemptNotSupersededError(reservationId, "attempt-not-superseded");
+  const evidence = await readFactoryOperationEvidenceInTransaction(transaction, record.attempt_id);
+  return Object.freeze({ attemptId: record.attempt_id, supersededEpoch, restoreDigest: record.restore_digest, operations: Object.freeze(evidence.operations), journalCursor: evidence.journalCursor });
+}
+
