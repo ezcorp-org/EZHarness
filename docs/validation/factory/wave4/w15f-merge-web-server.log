@@ -1,0 +1,76 @@
+
+ RUN  v5.0.0 /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/web
+      Coverage enabled with v8
+
+ ❯ src/routes/api/factories/console.server.test.ts (0 test)
+ ❯ src/routes/api/factories/factories.server.test.ts (0 test)
+ ❯ src/lib/server/factory/console-dispatch.server.test.ts (0 test)
+ ❯ src/lib/server/factory/route-kit.server.test.ts (0 test)
+{"ts":"2026-09-27T18:52:32.670Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","code":"recovery_failed"}
+{"ts":"2026-09-27T18:52:33.827Z","level":"error","msg":"Extension delivery drain failed","subsystem":"ext.delivery.runtime","code":"delivery_failed"}
+{"ts":"2026-09-27T18:52:34.123Z","level":"warn","msg":"EZCORP_ENCRYPTION_SECRET is unset; falling back to auto-generated secret. Set EZCORP_ENCRYPTION_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+{"ts":"2026-09-27T18:52:34.124Z","level":"warn","msg":"EZCORP_JWT_SECRET is unset; falling back to auto-generated secret. Set EZCORP_JWT_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+{"ts":"2026-09-27T18:52:34.220Z","level":"warn","msg":"EZCORP_ENCRYPTION_SECRET is unset; falling back to auto-generated secret. Set EZCORP_ENCRYPTION_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+{"ts":"2026-09-27T18:52:34.221Z","level":"warn","msg":"EZCORP_JWT_SECRET is unset; falling back to auto-generated secret. Set EZCORP_JWT_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+{"ts":"2026-09-27T18:52:34.221Z","level":"warn","msg":"EZCORP_ENCRYPTION_SECRET is unset; falling back to auto-generated secret. Set EZCORP_ENCRYPTION_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+{"ts":"2026-09-27T18:52:34.221Z","level":"warn","msg":"EZCORP_JWT_SECRET is unset; falling back to auto-generated secret. Set EZCORP_JWT_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+{"ts":"2026-09-27T18:52:34.309Z","level":"warn","msg":"EZCORP_ENCRYPTION_SECRET is unset; falling back to auto-generated secret. Set EZCORP_ENCRYPTION_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+{"ts":"2026-09-27T18:52:34.309Z","level":"warn","msg":"EZCORP_JWT_SECRET is unset; falling back to auto-generated secret. Set EZCORP_JWT_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+{"ts":"2026-09-27T18:52:34.385Z","level":"warn","msg":"EZCORP_ENCRYPTION_SECRET is unset; falling back to auto-generated secret. Set EZCORP_ENCRYPTION_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+{"ts":"2026-09-27T18:52:34.386Z","level":"warn","msg":"EZCORP_JWT_SECRET is unset; falling back to auto-generated secret. Set EZCORP_JWT_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/routes/api/factories/console.server.test.ts [ src/routes/api/factories/console.server.test.ts ]
+Error: Failed to resolve import "bun" from "../src/db/connection.ts". Does the file exist?
+  Plugin: vite:import-analysis
+  File: /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/src/db/connection.ts:784:31
+  697 |  	// can be discarded without rebuilding every holder of `db` (W09f; see
+  698 |  	// swappable-bun-sql.ts and recoverFromDriverDesync below).
+  699 |  	const { SQL } = await import("bun");
+      |                                ^
+  700 |  	const poolOptions = {
+  701 |  		url: DATABASE_URL,
+ ❯ TransformPluginContext._formatLog node_modules/vite/dist/node/chunks/node.js:8393:39
+ ❯ TransformPluginContext.error node_modules/vite/dist/node/chunks/node.js:8390:14
+ ❯ normalizeUrl node_modules/vite/dist/node/chunks/node.js:26058:18
+ ❯ node_modules/vite/dist/node/chunks/node.js:26128:30
+ ❯ TransformPluginContext.transform node_modules/vite/dist/node/chunks/node.js:26094:4
+ ❯ EnvironmentPluginContainer.transform node_modules/vite/dist/node/chunks/node.js:8172:14
+ ❯ loadAndTransform node_modules/vite/dist/node/chunks/node.js:19634:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  src/routes/api/factories/factories.server.test.ts [ src/routes/api/factories/factories.server.test.ts ]
+ FAIL  src/lib/server/factory/console-dispatch.server.test.ts [ src/lib/server/factory/console-dispatch.server.test.ts ]
+ FAIL  src/lib/server/factory/route-kit.server.test.ts [ src/lib/server/factory/route-kit.server.test.ts ]
+Error: Failed to resolve import "bun" from "../src/db/connection.ts". Does the file exist?
+  Plugin: vite:import-analysis
+  File: /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/src/db/connection.ts:784:31
+  697 |  	// can be discarded without rebuilding every holder of `db` (W09f; see
+  698 |  	// swappable-bun-sql.ts and recoverFromDriverDesync below).
+  699 |  	const { SQL } = await import("bun");
+      |                                ^
+  700 |  	const poolOptions = {
+  701 |  		url: DATABASE_URL,
+ ❯ TransformPluginContext._formatLog node_modules/vite/dist/node/chunks/node.js:8393:39
+ ❯ TransformPluginContext.error node_modules/vite/dist/node/chunks/node.js:8390:14
+ ❯ normalizeUrl node_modules/vite/dist/node/chunks/node.js:26058:18
+ ❯ node_modules/vite/dist/node/chunks/node.js:26128:30
+ ❯ TransformPluginContext.transform node_modules/vite/dist/node/chunks/node.js:26094:4
+ ❯ EnvironmentPluginContainer.transform node_modules/vite/dist/node/chunks/node.js:8172:14
+ ❯ loadAndTransform node_modules/vite/dist/node/chunks/node.js:19634:26
+ ❯ fetchModule node_modules/vite/dist/node/chunks/node.js:35529:15
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+
+ Test Files  4 failed | 14 passed (18)
+      Tests  112 passed (112)
+   Start at  14:52:28
+   Duration  15.77s (tests 34%, environment 32%, import 18%, setup 10%, transform 4%, worker 2%)
+
+Environment  jsdom was created 18 times · 6.23s total, 32% of tracked time
+             create it once per worker with pool: 'vmThreads' (keeps per-file isolation) or isolate: false (shares it across files)
+             learn more: https://vitest.dev/guide/improving-performance#test-environments
+

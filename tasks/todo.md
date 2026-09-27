@@ -4042,6 +4042,22 @@ load; the socket paths were already short. Each cause is pinned by a test that f
 code. At `2d33f46d7` the full backend pool reports 0 fail, and every static and coverage gate passes.
 Two findings are left open outside scope: the ai-kit installer ignores its postinstall exit code, and
 `inspectProductionRunner` keeps a fixed 5-second default for verification commands.
+## W15f — Stale execution epoch hold (branch `wp/w15f-stale-epoch`)
+
+Gate file: `tasks/factory/w15f-GATES.md`. Evidence: `/tmp/factory-platform-evidence/w15f/`.
+
+- [x] Reproduce from W01i's lane (15 `usage-reconciliation:fault` reports of one hold) with a lifecycle suite; red at 4 reports in 4 passes.
+- [x] Mark the hold once with both epochs, report once, skip until the epoch moves; the hold stays uncertain.
+- [x] PGlite and PostgreSQL suites for the fence, budgets, task stops, restore, checkpoint, schema; coverage gates.
+- [x] Round 2: a signed restore supersedes the old epoch's live attempts (status `superseded`, record with the signed digest and the kernel event); the scan skips a marked hold only while its attempt is live; W05b's clear falls back to the supersession; names and migration order agreed with W03f.
+- [ ] Joint test with W03f (a marked hold settles at the reserved bound after a signed restore): on whichever branch merges second.
+
+Review (W15f): The fault was usage reconciliation meeting a run fence that a restore had moved:
+the old attempt's authority can never name the new epoch, so every pass failed the same hold. The
+role now marks the hold once, names both epochs, and stops retrying until the epoch changes. The
+real PostgreSQL run caught a mark PGlite accepted but the scan could not read; the mark is now a
+typed object and an unreadable one is retried and reported, never hidden.
+
 ## W15d — Store memory and capacity (branch `wp/w15d-store-memory`)
 
 Gate file: `tasks/factory/w15d-GATES.md`. Evidence: `/tmp/factory-platform-evidence/w15d/`.

@@ -1706,3 +1706,15 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 - A lock-order claim needs a concurrent test, not a sequential one. W01h's "the launch row lock orders the lost result against the stop" held in `factory-stop-after-loss.test.ts`, which runs the two transactions one after the other, and deadlocked on the proof server under the lane (validator-2, 2026-09-27). Before adding a second lock to a path, list every path that locks both rows and its order, and drive the interleaving on real PostgreSQL with two connections.
 - Build the workspace packages before any suite in a hold, not in the late fast steps. After a merge, a suite that imports a package's built output reads the stale dist and fails for a reason that is not in the code (r4: client-requests.unit.test.ts, 18 tests).
 - A suite that no hold of mine runs is still mine when my routes break it. The scope and route-contract scans had failed on W16's routes since the bootstrap work, and only a merge's hook list ran them.
+
+## 2026-09-27 — Build JSON in SQL, and let a filter on it fail open (W15f)
+
+- Write a JSONB value with `jsonb_build_object` from typed parameters, not a JSON text parameter cast to `jsonb`. On
+  real PostgreSQL the text parameter arrived as a JSON string; PGlite stored an object, so only the PostgreSQL leg
+  caught it. Assert `jsonb_typeof(...) = 'object'` in the test.
+- A scan that skips rows by a stored mark must compare with `IS DISTINCT FROM`, so a mark it cannot read keeps the row
+  (and its loud report) rather than hiding it: `NULL <> value` is not true, and the row vanishes in silence.
+- Before relaunching a background job, look at the flock queue itself (`pgrep -af 'flock --close'`), not only a
+  pattern for the script. A job started with `&` in a tool shell survived the shell, my narrower check missed it,
+  and the W15f batch ran twice back to back, holding the shared lock twice for nothing.
+

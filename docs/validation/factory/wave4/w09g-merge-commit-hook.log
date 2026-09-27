@@ -1,0 +1,31 @@
+Checked 3 files in 11ms. No fixes applied.
+── Tests (staged) ─────────────────────────────────
+  bun: src/__tests__/db-connection.test.ts
+bun test v1.3.14 (0d9b296a)
+{"ts":"2026-09-27T19:21:14.950Z","level":"warn","msg":"Bun.sql pool close failed","subsystem":"db","error":"Error: reset"}
+{"ts":"2026-09-27T19:21:14.951Z","level":"error","msg":"Completing interrupted migration rollback from a prior boot","subsystem":"db","marker":{"ts":"2026-09-27T19:21:14.951Z","snapshot":"/tmp/conn-rollback-rbJ8iZ/snap"}}
+{"ts":"2026-09-27T19:21:14.951Z","level":"info","msg":"Interrupted rollback completed — snapshot restored","subsystem":"db","snapshot":"/tmp/conn-rollback-rbJ8iZ/snap"}
+{"ts":"2026-09-27T19:21:14.951Z","level":"error","msg":"Interrupted rollback with no snapshot — refusing to boot","subsystem":"db","message":"A migration rollback was interrupted on a prior boot and no snapshot is available to complete it. Refusing to boot to avoid starting a fresh empty database over the half-finished rollback.","marker":{"ts":"2026-09-27T19:21:14.951Z","snapshot":"/tmp/conn-rollback-nh3dEX/does-not-exist"},"dbPath":"/tmp/conn-rollback-nh3dEX/db"}
+{"ts":"2026-09-27T19:21:14.961Z","level":"warn","msg":"advisory unlock failed","subsystem":"db","error":"Error: unlock boom"}
+{"ts":"2026-09-27T19:21:14.961Z","level":"warn","msg":"waiting for migrate lock held by pid 4242","subsystem":"db","holderPid":4242,"waitMs":60000}
+{"ts":"2026-09-27T19:21:14.961Z","level":"warn","msg":"waiting for migrate lock held by pid 5151","subsystem":"db","holderPid":5151,"waitMs":60000}
+{"ts":"2026-09-27T19:21:14.962Z","level":"warn","msg":"waiting for migrate lock held by pid 4242","subsystem":"db","holderPid":4242,"waitMs":1000}
+{"ts":"2026-09-27T19:21:14.962Z","level":"warn","msg":"waiting for migrate lock held by pid unknown","subsystem":"db","holderPid":null,"waitMs":100}
+{"ts":"2026-09-27T19:21:14.962Z","level":"warn","msg":"waiting for migrate lock held by pid 7","subsystem":"db","holderPid":7,"waitMs":120000}
+{"ts":"2026-09-27T19:21:15.967Z","level":"warn","msg":"Could not write rollback-in-progress marker","subsystem":"db","error":"Error: ENOTDIR: not a directory, open '/tmp/conn-marker-iWn5eD/afile/.ezcorp-rollback-in-progress.json'"}
+{"ts":"2026-09-27T19:21:15.968Z","level":"info","msg":"Restored pre-boot snapshot","subsystem":"db","snapshot":"/tmp/ezcorp-test-db-bkLWEX/backups/pre-boot-2026-01-01T00-00-00-000Z","failedPath":"/tmp/ezcorp-test-db-bkLWEX/db.failed.1790536875968"}
+
+ 21 pass
+ 0 fail
+ 51 expect() calls
+Ran 21 tests across 1 file. [1.62s]
+  vitest: src/lib/server/db-connection-load.server.test.ts
+
+ RUN  v5.0.0 /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/web
+
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  15:21:16
+   Duration  1.95s (tests 39%, transform 35%, environment 20%, setup 6%)
+
