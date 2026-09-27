@@ -18,7 +18,7 @@
  * Runs in the P∩C sweep (src/__tests__ → the CI cov-shards gate it).
  */
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { parse as parseYaml } from "yaml";
@@ -356,6 +356,26 @@ describe("e2e lane manifest", () => {
       const pinnedRun = run({ EZCORP_PINNED_BUN_DIR: dirname(process.execPath) });
       expect(pinnedRun.exitCode).toBe(0);
       expect(pinnedRun.stdout.toString().trim()).toBe(pinned);
+
+      // The pinned `bun` first, but `bunx` resolving to another Bun (W01g-fix: the pinned directory had no
+      // bunx, so `bunx --bun vite build`, `bunx vitest` and `bunx playwright` ran under the system Bun).
+      const bunOnly = mkdtempSync(join(tmpdir(), "lane-bun-only-"));
+      try {
+        symlinkSync(process.execPath, join(bunOnly, "bun"));
+        writeFileSync(join(fake, "bunx"), "#!/bin/sh\necho 1.4.2\n", { mode: 0o755 });
+        const splitPath = `${bunOnly}:${fake}:${process.env.PATH}`;
+        expect(() => pinnedWebServer(server, { ...process.env, PATH: splitPath })).toThrow(
+          `lane Bun mismatch: PATH resolves bunx 1.4.2, .bun-version pins ${pinned}`,
+        );
+        const split = run({ PATH: `${bunOnly}:${fake}:${dirname(bash)}:/usr/bin:/bin` });
+        expect(split.exitCode).toBe(1);
+        expect(split.stderr.toString()).toContain(`lane Bun mismatch: PATH resolves bunx 1.4.2 (${fake}/bunx), .bun-version pins ${pinned}`);
+        expect(split.stderr.toString()).not.toContain("resolves bun 1.4.2");
+        // A directory holding only a pinned `bun` is not a pinned directory.
+        expect(run({ PATH: `${fake}:${dirname(bash)}:/usr/bin:/bin`, EZCORP_PINNED_BUN_DIR: bunOnly }).exitCode).toBe(1);
+      } finally {
+        rmSync(bunOnly, { recursive: true, force: true });
+      }
     } finally {
       rmSync(fake, { recursive: true, force: true });
     }
