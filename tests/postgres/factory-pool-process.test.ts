@@ -7,7 +7,7 @@ import { createPoolAdmissionClient } from "../../src/factory/pool/client";
 import { readFactoryPoolReadiness } from "../../src/factory/pool/readiness";
 import { setupFactoryPoolPostgres } from "./helpers/factory-pool-database";
 
-const bun = "/tmp/factory-tools/bun-1.3.14/bun-linux-x64/bun";
+const bun = "/tmp/factory-tools/bun-1.4.2/bun-linux-x64/bun";
 const directories: string[] = [];
 const keys = generateKeyPairSync("rsa", { modulusLength: 2048 });
 let closeDatabase: () => Promise<void>;

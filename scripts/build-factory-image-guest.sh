@@ -39,7 +39,7 @@ command -v podman >/dev/null 2>&1 || fail "podman is not available"
 # full lock requires, so parsing the whole lock here would mean a first build
 # could never run. The model section is still validated in full.
 read -r CLOSURE EXPECTED_BYTES REVISION < <(
-  cd "$REPO_ROOT" && PATH="/tmp/factory-tools/bun-1.3.14/bun-linux-x64:$PATH" bun -e '
+  cd "$REPO_ROOT" && PATH="/tmp/factory-tools/bun-1.4.2/bun-linux-x64:$PATH" bun -e '
     const { referenceImageModelDocument, sdxlClosureDirectoryFor } = await import("./src/factory/reference-image/model-lock.ts");
     const model = referenceImageModelDocument();
     const bytes = model.files.reduce((total, file) => total + file.bytes, 0);
@@ -108,7 +108,7 @@ fi
 printf '%s\n' "$RECEIPT"
 
 if [ "$SEAL" -eq 1 ]; then
-  printf '%s\n' "$RECEIPT" | PATH="/tmp/factory-tools/bun-1.3.14/bun-linux-x64:$PATH" bun -e '
+  printf '%s\n' "$RECEIPT" | PATH="/tmp/factory-tools/bun-1.4.2/bun-linux-x64:$PATH" bun -e '
     const receipt = JSON.parse(await Bun.stdin.text());
     const path = "src/factory/reference-image/sdxl-lock.json";
     const lock = await Bun.file(path).json();

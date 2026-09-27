@@ -23,7 +23,7 @@ set -uo pipefail
 # "production"; other code paths change under "test", so it is left unset.
 unset NODE_ENV
 REPO=$(cd "$(dirname "$0")/../.." && pwd)
-export PATH=/tmp/factory-tools/bun-1.3.14/bun-linux-x64:$PATH
+export PATH=/tmp/factory-tools/bun-1.4.2/bun-linux-x64:$PATH
 export W19A_REPO=$REPO
 export W19A_OUT=${W19A_OUT:-/tmp/factory-platform-evidence/w19a/proof}
 mkdir -p "$W19A_OUT"

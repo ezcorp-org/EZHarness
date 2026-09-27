@@ -4,7 +4,7 @@
 # Pinned to match `.bun-version` (the repo's single pin source — see the note
 # in ci.yml). The floating `oven/bun:1` this used to carry meant any upstream
 # 1.x push invalidated every layer below, including both installs.
-FROM oven/bun:1.3.14
+FROM oven/bun:1.4.2@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
 ENV BUN_RUNTIME_TRANSPILER_CACHE_PATH=0
 WORKDIR /app
 
