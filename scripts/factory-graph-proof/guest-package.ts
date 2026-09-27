@@ -13,7 +13,7 @@
  * this harness ships is the guest that suite proves.
  */
 import { join } from "node:path";
-import { factorySdkClosure } from "../lib/factory-sdk-closure";
+import { factorySdkClosure } from "../../src/factory/guest-sdk-closure";
 import { GRAPH_GUEST_MANIFEST, GRAPH_GUEST_PACKAGE, GRAPH_GUEST_VERSION, type GraphGuestPackage } from "./graph";
 
 const EXPORTS = ["prepare", "infer", "combine"] as const;

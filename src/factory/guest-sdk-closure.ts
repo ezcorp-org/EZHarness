@@ -22,9 +22,17 @@ export function relativeImports(source: string): string[] {
   return [...source.matchAll(RELATIVE)].map(([, name, extension]) => `${name}.${extension === "json" ? "json" : "ts"}`);
 }
 
+/** A staged file: text, or an encoded binary that imports nothing. */
+type StagedFile = string | { readonly data: string };
+
+/** The relative imports of one staged file; a binary file has none. */
+function stagedImports(file: StagedFile): string[] {
+  return typeof file === "string" ? relativeImports(file) : [];
+}
+
 /** Relative imports of staged files that name no staged file, as `file -> missing`. */
-export function unresolvedImports(files: Readonly<Record<string, string>>): string[] {
-  return Object.entries(files).flatMap(([file, source]) => relativeImports(source).filter(target => !(target in files)).map(target => `${file} -> ${target}`));
+export function unresolvedImports(files: Readonly<Record<string, StagedFile>>): string[] {
+  return Object.entries(files).flatMap(([file, source]) => stagedImports(source).filter(target => !(target in files)).map(target => `${file} -> ${target}`));
 }
 
 export class FactorySdkClosureError extends Error {
@@ -39,9 +47,9 @@ export class FactorySdkClosureError extends Error {
  * own files, by flat name), rewritten for a flat workspace. A seed is never
  * looked up in the SDK. An import naming no file is refused by name.
  */
-export async function factorySdkClosure(sdkDirectory: string, seeds: Readonly<Record<string, string>>, read: (path: string) => Promise<string> = path => readFile(path, "utf8")): Promise<Record<string, string>> {
+export async function factorySdkClosure(sdkDirectory: string, seeds: Readonly<Record<string, StagedFile>>, read: (path: string) => Promise<string> = path => readFile(path, "utf8")): Promise<Record<string, string>> {
   const files: Record<string, string> = {};
-  const pending = Object.entries(seeds).flatMap(([file, source]) => relativeImports(source).map(module => ({ module, importedBy: file })));
+  const pending = Object.entries(seeds).flatMap(([file, source]) => stagedImports(source).map(module => ({ module, importedBy: file })));
   while (pending.length > 0) {
     const { module, importedBy } = pending.shift()!;
     if (module in files || module in seeds) continue;

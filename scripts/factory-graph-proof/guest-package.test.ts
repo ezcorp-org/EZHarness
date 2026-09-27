@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { join } from "node:path";
-import { unresolvedImports } from "../lib/factory-sdk-closure";
+import { unresolvedImports } from "../../src/factory/guest-sdk-closure";
 import { graphGuestSource } from "./guest-package";
 
 const REPO = join(import.meta.dir, "..", "..");

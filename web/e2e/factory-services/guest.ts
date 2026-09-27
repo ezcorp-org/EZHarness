@@ -94,7 +94,7 @@ test('the guest carries the shipped staging client', () => {
 `,
 	};
 	// The shipped staging client and everything it reaches in the SDK, found by following imports (W14b).
-	const { factorySdkClosure } = await import(join(repo, "scripts/lib/factory-sdk-closure.ts"));
+	const { factorySdkClosure } = await import(join(repo, "src/factory/guest-sdk-closure.ts"));
 	return { ...await factorySdkClosure(join(repo, "packages/@ezcorp/factory-sdk/src"), own), ...own };
 }
 

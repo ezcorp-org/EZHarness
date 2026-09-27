@@ -9,6 +9,7 @@ import {
   REFERENCE_CODE_GUEST_ENTRYPOINT,
   REFERENCE_CODE_GUEST_SOURCES,
 } from "./guest";
+import { unresolvedImports } from "../guest-sdk-closure";
 import {
   referenceCodeGuestReport,
   referenceCodeGuestTool,
@@ -110,9 +111,11 @@ describe("the guest's report", () => {
 describe("staging the guest's committed source", () => {
   test("stages every closure file and rewrites its specifiers to the flat workspace", async () => {
     const files = await referenceCodeGuestFiles();
-    expect(Object.keys(files).sort()).toEqual([...Object.keys(REFERENCE_CODE_GUEST_SOURCES), "feature.test.ts"].sort());
+    // The committed sources, the SDK type modules they reach, and the test file; every import resolves inside.
+    expect(Object.keys(files).sort()).toEqual([...Object.keys(REFERENCE_CODE_GUEST_SOURCES), "console-types.ts", "types.ts", "feature.test.ts"].sort());
+    expect(unresolvedImports(files)).toEqual([]);
     const entry = files[REFERENCE_CODE_GUEST_ENTRYPOINT]!;
-    expect(entry).toContain('from "./factory-sdk-types.ts"');
+    expect(entry).toContain('from "./types.ts"');
     expect(entry).toContain('from "./static-claims.ts"');
     expect(entry).toContain('from "@ezcorp/sdk/v4"');
     expect(entry).not.toContain("@ezcorp/factory-sdk/types");
@@ -120,10 +123,13 @@ describe("staging the guest's committed source", () => {
     expect(files["snapshot.ts"]).toContain('from "./git-objects.ts"');
   });
 
-  test("stages the SDK's own type module rather than a second copy of those types", async () => {
+  test("stages the SDK's own type modules rather than a second copy of those types", async () => {
     const files = await referenceCodeGuestFiles();
-    const committed = await Bun.file(`${import.meta.dir}/../../../packages/@ezcorp/factory-sdk/src/types.ts`).text();
-    expect(files["factory-sdk-types.ts"]).toBe(committed);
+    // Byte for byte the committed modules, with only their relative `.js` specifiers made `.ts` for the flat workspace.
+    for (const name of ["types.ts", "console-types.ts"]) {
+      const committed = await Bun.file(`${import.meta.dir}/../../../packages/@ezcorp/factory-sdk/src/${name}`).text();
+      expect(files[name]).toBe(committed.replaceAll(/from "\.\/([a-z-]+)\.js"/g, 'from "./$1.ts"'));
+    }
   });
 
   test("the digest changes when any staged byte changes", async () => {
