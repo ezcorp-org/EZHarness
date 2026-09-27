@@ -43,32 +43,50 @@ const settle = (promise: Promise<unknown>) => promise.then(value => ({ ok: true 
   return { ok: false as const, error: parts.join(" | ") };
 });
 
-test(`a settlement holding the stop row and a lost result on the same attempt both complete (${FACTORY_STOP_LAUNCH_LOCK_ORDER})`, async () => {
+/** Waits until `count` backends of this database wait on a lock while asking for the attempt's launch row. */
+async function blockedOnLaunchRow(count: number): Promise<void> {
+  const deadline = Date.now() + 10_000;
+  for (;;) {
+    const [row] = rows<{ waiting: number | string }>(await fixture.db.execute(sql`SELECT count(*) AS waiting FROM pg_stat_activity
+      WHERE datname = current_database() AND wait_event_type = 'Lock' AND query ILIKE '%factory_attempt_launches%'`));
+    if (Number(row?.waiting ?? 0) >= count) return;
+    if (Date.now() > deadline) throw new Error(`fewer than ${count} transactions blocked on the launch row after 10 s`);
+    await Bun.sleep(20);
+  }
+}
+
+test(`a real settlement and a real lost result on the same attempt both complete (${FACTORY_STOP_LAUNCH_LOCK_ORDER})`, async () => {
   const attempt = await world.launchedAttempt(false);
   const { reference } = await world.cancelled(attempt);
   // The stop is sealed (reason cancelled) while the host does not answer.
   const hung = world.stopHarness(attempt, { async stop(_request, signal) { return new Promise<never>((_resolve, reject) => { signal.addEventListener("abort", () => reject(new Error("host unreachable"))); }); } }, world.settlingPool(), undefined, 1);
   expect((await hung.stops.stop(service, reference)).state).toBe("uncertain");
 
-  let heldStop!: () => void;
-  const stopHeld = new Promise<void>(resolve => { heldStop = resolve; });
-  // The settlement's order: the stop row, a pause in which the lost result runs, then the launch row.
-  const settlement = settle(fixture.db.transaction(async transaction => {
-    await transaction.execute(sql`SELECT cancel_command_id FROM factory_task_stops WHERE attempt_id=${attempt.attemptId} FOR UPDATE`);
-    heldStop();
-    await Bun.sleep(500);
+  // 1. The gate holds the launch row until both real paths queue behind it.
+  let release!: () => void;
+  const released = new Promise<void>(resolve => { release = resolve; });
+  let gateHeld!: () => void;
+  const held = new Promise<void>(resolve => { gateHeld = resolve; });
+  const gate = fixture.db.transaction(async transaction => {
     await transaction.execute(sql`SELECT attempt_id FROM factory_attempt_launches WHERE attempt_id=${attempt.attemptId} FOR UPDATE`);
-    return "settled";
-  }));
-  await stopHeld;
-  const lost = settle(attempt.launches.recordLostTerminal(attempt.attemptId, failedFactoryRunnerResult({ operations: [], journalCursor: -1 }, { code: "RUNNER_CONTAINER_EXIT", message: "Container ended with exit code 1", retryable: true })));
-  const [held, recorded] = await Promise.all([settlement, lost]);
-
-  // Before the fix one side was aborted with "deadlock detected"; now neither is.
-  expect({ held, recorded }).toEqual({
-    held: { ok: true, value: "settled" },
-    recorded: { ok: true, value: { state: "stop-sealed", cancelCommandId: reference.commandId, sealedReason: "cancelled" } },
+    gateHeld();
+    await released;
   });
+  await held;
+  // 2. The real lost-result write queues on the launch row first.
+  const lost = settle(attempt.launches.recordLostTerminal(attempt.attemptId, failedFactoryRunnerResult({ operations: [], journalCursor: -1 }, { code: "RUNNER_CONTAINER_EXIT", message: "Container ended with exit code 1", retryable: true })));
+  await blockedOnLaunchRow(1);
+  // 3. The real settlement locks the stop row, then queues on the launch row behind it.
+  const settlement = settle(world.stopHarness(attempt, world.countingStopper(async request => world.signedStop(request)), world.settlingPool()).stops.stop(service, reference));
+  await blockedOnLaunchRow(2);
+  // 4. The lost result now holds the launch row while the settlement holds the stop row.
+  release();
+  await gate;
+  const [recorded, stopped] = await Promise.all([lost, settlement]);
+
+  // Before the fix one side was aborted with "deadlock detected"; now both complete.
+  expect(recorded).toEqual({ ok: true, value: { state: "stop-sealed", cancelCommandId: reference.commandId, sealedReason: "cancelled" } });
+  expect(stopped).toMatchObject({ ok: true, value: { state: "stopped", stopReceipt: { reason: "cancelled" } } });
   expect(await attempt.launches.terminalResult(attempt.attemptId)).toBeUndefined();
   expect(rows(await fixture.db.execute(sql`SELECT id FROM audit_log WHERE id=${`factory-attempt-exit-after-stop:${attempt.attemptId}`}`))).toHaveLength(1);
 }, 60_000);
