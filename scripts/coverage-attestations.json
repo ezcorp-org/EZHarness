@@ -1,0 +1,22 @@
+[
+  {
+    "file": "src/factory/task-stops.ts",
+    "line": 370,
+    "text": "    return factoryJournalStopSettlement(await this.journal.operations(liveAuthority.authority));",
+    "fileSha256": "15da47f8d159c1b520f0ed1c76f1f603505143e349e6a6d916817adf3d01c3aa",
+    "bunVersion": "1.3.14",
+    "reason": "The last statement of stopSettlement runs in every stop settlement, but Bun 1.3.14 coverage credits it to the line before it in every code shape tried (DA 370 = 0, DA 369 = 176); a throw planted on it fails 34 of 43 stop-suite tests. Proved against wp/w03f-provider-settle at 9c954b11a (W03f, user decision A).",
+    "proof": [
+      "/tmp/factory-platform-evidence/w03f-validation/logs/attr/stops-line370-throw.log",
+      "/tmp/factory-platform-evidence/w03f-validation/logs/attr/stops-sync-helper-throw-370.log",
+      "/tmp/factory-platform-evidence/w03f-validation/logs/attr/cov/lcov.info",
+      "/tmp/factory-platform-evidence/w03f-validation/logs/attr/stops-cov-braced-if.log",
+      "/tmp/factory-platform-evidence/w03f-validation/logs/attr/stops-cov-oneline-helper.log",
+      "/tmp/factory-platform-evidence/w03f-validation/logs/attr/stops-cov-sameline.log",
+      "/tmp/factory-platform-evidence/w03f-validation/logs/attr/stops-cov-sync-helper.log",
+      "/tmp/factory-platform-evidence/w03f-validation/logs/attr/stops-cov-then-form.log",
+      "/tmp/factory-platform-evidence/w03f/receipts/attribution-before.attempt-2.json",
+      "/tmp/factory-platform-evidence/w03f/receipts/attribution-after.attempt-2.json"
+    ]
+  }
+]

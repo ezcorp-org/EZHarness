@@ -13,76 +13,13 @@
  * must still FAIL: an enum, a value export, and a class all emit JavaScript.
  */
 import { describe, expect, test } from "bun:test";
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
-import { scratchGitEnv } from "../src/__tests__/helpers/scratch-git";
-
-const REPO_ROOT = resolve(import.meta.dir, "..");
-const GATE_SCRIPTS = [
-  "check-patch-coverage.ts",
-  "coverage-config.ts",
-  "git-output.ts",
-  "unified-diff.ts",
-] as const;
-
-type Sandbox = { root: string; base: string; cleanup: () => void };
-
-/**
- * Every command below (`git` and `bun`) runs isolated from the caller's own
- * git context: a hook that exports `GIT_DIR` and friends would otherwise make
- * `git init`/`git commit` below act on the hook's repository instead of the
- * sandbox. `home` is colocated under `cwd` so a single `rmSync(root, ...)`
- * cleans it up with the rest of the sandbox.
- */
-async function run(cwd: string, command: readonly string[], env: Record<string, string> = {}) {
-  const home = join(cwd, ".git-scratch-home");
-  mkdirSync(home, { recursive: true });
-  const proc = Bun.spawn([...command], { cwd, env: { ...scratchGitEnv(home), ...env }, stdout: "pipe", stderr: "pipe" });
-  const [stdout, stderr, exitCode] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ]);
-  return { stdout, stderr, exitCode };
-}
-
-/** A real git repository carrying the real gate scripts, rebased onto itself. */
-async function makeSandbox(): Promise<Sandbox> {
-  const root = mkdtempSync(join(tmpdir(), "patchcov-typeonly-"));
-  mkdirSync(join(root, "scripts"), { recursive: true });
-  mkdirSync(join(root, "coverage"), { recursive: true });
-  mkdirSync(join(root, "src/factory"), { recursive: true });
-  for (const script of GATE_SCRIPTS) copyFileSync(join(REPO_ROOT, "scripts", script), join(root, "scripts", script));
-  await Bun.write(join(root, "src/factory/anchor.ts"), "export const anchor = 1;\n");
-  await run(root, ["git", "init", "--initial-branch=main"]);
-  await run(root, ["git", "config", "user.email", "gate@example.test"]);
-  await run(root, ["git", "config", "user.name", "Gate Sandbox"]);
-  await run(root, ["git", "add", "-A"]);
-  await run(root, ["git", "commit", "-m", "base"]);
-  const base = (await run(root, ["git", "rev-parse", "HEAD"])).stdout.trim();
-  expect(base, "sandbox base commit is missing").toMatch(/^[0-9a-f]{40}$/);
-  return { root, base, cleanup: () => rmSync(root, { recursive: true, force: true }) };
-}
+import { mkdirSync } from "node:fs";
+import { join } from "node:path";
+import { gateAfterWriting, makePatchGateSandbox as makeSandbox, type PatchGateSandbox as Sandbox } from "../src/__tests__/helpers/patch-coverage-sandbox";
 
 /** Add one source file (and optional lcov), then run the real gate over the diff. */
-async function gateAfterAdding(
-  sandbox: Sandbox,
-  relPath: string,
-  source: string,
-  lcov = "",
-): Promise<{ exitCode: number; output: string }> {
-  await Bun.write(join(sandbox.root, relPath), source);
-  await Bun.write(join(sandbox.root, "coverage/lcov.info"), lcov);
-  await run(sandbox.root, ["git", "add", "-A"]);
-  const committed = await run(sandbox.root, ["git", "commit", "-m", `add ${relPath}`]);
-  expect(committed.exitCode, committed.stderr).toBe(0);
-  const result = await run(sandbox.root, ["bun", join(sandbox.root, "scripts/check-patch-coverage.ts")], {
-    BASE_REF: sandbox.base,
-  });
-  // Roll back so each case starts from the same base diff.
-  await run(sandbox.root, ["git", "reset", "--hard", sandbox.base]);
-  return { exitCode: result.exitCode, output: `${result.stdout}${result.stderr}` };
+function gateAfterAdding(sandbox: Sandbox, relPath: string, source: string, lcov = "") {
+  return gateAfterWriting(sandbox, { [relPath]: source }, lcov);
 }
 
 /** LCOV covering every line of a source, so "has data" is never the variable under test. */

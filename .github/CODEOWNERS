@@ -21,6 +21,7 @@
 /scripts/check-coverage.ts          @EZArchy
 /scripts/coverage-config.ts         @EZArchy
 /scripts/coverage-thresholds.json   @EZArchy
+/scripts/coverage-attestations.json @EZArchy
 /scripts/check-new-file-coverage.ts @EZArchy
 /scripts/check-patch-coverage.ts    @EZArchy
 /scripts/gate-integrity.ts          @EZArchy
