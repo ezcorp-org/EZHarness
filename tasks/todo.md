@@ -3989,6 +3989,23 @@ load; the socket paths were already short. Each cause is pinned by a test that f
 code. At `2d33f46d7` the full backend pool reports 0 fail, and every static and coverage gate passes.
 Two findings are left open outside scope: the ai-kit installer ignores its postinstall exit code, and
 `inspectProductionRunner` keeps a fixed 5-second default for verification commands.
+## W15d — Store memory and capacity (branch `wp/w15d-store-memory`)
+
+Gate file: `tasks/factory/w15d-GATES.md`. Evidence: `/tmp/factory-platform-evidence/w15d/`.
+
+- [x] Measure both stores under the killing load: ordinary 1263 MiB peak (739 MiB anonymous), archive 247 MiB; no container OOM; 2 GiB stays.
+- [x] Name the cause: both past kills were host-wide OOMs; the stores were chosen for `oom_score_adj` 200 from `podman.service`.
+- [x] Document the basis in the compose file and the setup docs; fix the stale 768 MiB line.
+- [x] Census of the ordinary store: 16.95 GiB, all live proof-run objects; publication suites hold 16.6 GB.
+- [x] Proof runs remove every version they wrote (`close()` in the storage helper); tested against the real store.
+- [x] Ordinary `-volume.max` 600 with its disk basis; leftovers only through the manifest prune.
+- [ ] Rerun the load without an OOM after the coordinator recreates the stores.
+- [ ] Host-side protection (`podman.service` `OOMScoreAdjust=100`): the host owner's decision.
+
+Review (W15d): The stores did not die of their 2 GiB limits; the host ran out of memory and the
+kernel chose them because the Podman socket gives every container it creates an OOM adjustment of
+200. The ordinary store was filling because no proof run removed its versioned objects; each run
+now removes its own prefixes on close. The volume cap rises to 600 with room above the disk floor.
 
 ## W15c — Pool service leaf (branch `wp/w15c-pool-leaf`)
 
@@ -5054,3 +5071,16 @@ Base `integ/w00` `d2bc674c7`. Gates: `tasks/factory/w03f-GATES.md`. Receipts: `/
 - [x] Finding (a): the kernel does not retry `provider_auth_failed`; red first (`retry-red.attempt-1`).
 - [x] Finding (b): a hold names its unsettled operations; a late answer after a cancel parks its evidence for reconciliation; red first (`hold-red.attempt-1/2`).
 - [x] Condition: a guest that rebuilds or alters the settled operation is refused by the journal.
+
+## W14b — graph-proof guest package derives its SDK module closure (branch `wp/w14b-guest-closure`)
+
+Base integ/w00 `146a94829`. Gate file: `tasks/factory/w14b-GATES.md`. Evidence: `/tmp/factory-platform-evidence/w14b/`.
+
+- [x] Reproduce through the runbook's mock pass under the lock: the guest build fails with TS2307 on `./console-types.ts`.
+- [x] Root fix: one shared helper (`src/factory/guest-sdk-closure.ts`) derives the SDK files from the guest's own imports; the graph guest, the W14 lane guest and the reference-code validator guest all use it; the fixed module and schema lists are gone.
+- [x] Second site: the reference-code guest's four failing tests (`guest.test.ts` 3, `pack.test.ts` 1) are green.
+- [x] Structural guard: every packager that copies SDK sources must use the helper or be a named schemas-only Python packager.
+- [x] Guard tests, red on the base package, green at the head; they run in the CI pool.
+- [x] Runbook mock pass at the head under the lock; graph-proof suites; builds; typecheck, lint, boundaries, gate integrity.
+
+Review (W14b): the graph guest listed its SDK modules by hand, so the first new module an SDK file imported broke every build of it. The package now stages exactly what its own files reach, found by following imports, and a missing module is refused by name. The guard compares every staged import against the staged files, for both guests on the real SDK.

@@ -16,9 +16,12 @@
  *   - `host-supervisor` runs the runner's own preflight.
  *   - `required-sandbox` reads the boot-captured policy.
  *
- * Every probe is bounded by the caller's deadline, and one probe's failure
- * never hides another's: the whole set runs and every failure is reported, so
- * an operator sees all of what is down rather than the first of it.
+ * Every probe runs under its own deadline as well as the caller's signal, and
+ * one probe's failure never hides another's: the whole set runs and every
+ * failure is reported, so an operator sees all of what is down rather than the
+ * first of it. A probe that outlives its deadline is reported by name
+ * (`<service>_probe_timeout`) even if it ignores its signal, so boot can never
+ * wait on one forever.
  */
 import { FACTORY_REQUIRED_SERVICES, type FactoryBootConfig, type FactoryService } from "./boot";
 import { readFactoryOrchestrationReadiness } from "./orchestration-readiness";
@@ -57,6 +60,42 @@ export function factoryProbeDetail(error: unknown): string {
 }
 
 /**
+ * How long one probe may take. A readiness record read answers in
+ * milliseconds and an object-store round trip in well under a second on a
+ * healthy host; fifteen seconds names a hung dependency long before the
+ * provisioner's own ten-minute wait, and the seven probes together stay under
+ * two minutes even when every one of them hangs.
+ */
+export const FACTORY_PROBE_DEADLINE_MS = 15_000;
+
+/** One probe's verdict and how long it took, for the boot log. */
+export interface FactoryProbeTraceEvent extends FactoryServiceProbeResult {
+  readonly elapsedMs: number;
+}
+
+export interface FactoryProbeOptions {
+  /** Overrides {@link FACTORY_PROBE_DEADLINE_MS}. */
+  readonly deadlineMs?: number;
+  /** Receives each probe's verdict as it lands. */
+  readonly trace?: (event: FactoryProbeTraceEvent) => void;
+}
+
+/** Run one probe under its own deadline, abandoning it (and aborting its signal) when the deadline passes. */
+async function probeWithin(probe: FactoryServiceProbe, signal: AbortSignal, deadlineMs: number): Promise<void> {
+  const deadline = new AbortController();
+  const timeout = new FactoryServiceProbeError(`${probe.service.replaceAll("-", "_")}_probe_timeout`);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => { deadline.abort(timeout); reject(timeout); }, deadlineMs);
+  });
+  try {
+    await Promise.race([probe.probe(AbortSignal.any([signal, deadline.signal])), expired]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
  * Run every probe and report each verdict.
  *
  * Deliberately not `Promise.all` with a short circuit. Startup is the one
@@ -68,19 +107,25 @@ export function factoryProbeDetail(error: unknown): string {
 export async function probeFactoryServices(
   probes: readonly FactoryServiceProbe[],
   signal: AbortSignal,
+  options: FactoryProbeOptions = {},
 ): Promise<readonly FactoryServiceProbeResult[]> {
+  const deadlineMs = options.deadlineMs ?? FACTORY_PROBE_DEADLINE_MS;
   const results: FactoryServiceProbeResult[] = [];
   for (const probe of probes) {
     if (signal.aborted) {
       results.push({ service: probe.service, available: false, detail: "probe_aborted" });
       continue;
     }
+    const started = performance.now();
+    let result: FactoryServiceProbeResult;
     try {
-      await probe.probe(signal);
-      results.push({ service: probe.service, available: true, detail: "ready" });
+      await probeWithin(probe, signal, deadlineMs);
+      result = { service: probe.service, available: true, detail: "ready" };
     } catch (error) {
-      results.push({ service: probe.service, available: false, detail: factoryProbeDetail(error) });
+      result = { service: probe.service, available: false, detail: factoryProbeDetail(error) };
     }
+    results.push(result);
+    options.trace?.({ ...result, elapsedMs: Math.round(performance.now() - started) });
   }
   return Object.freeze(results);
 }
@@ -108,10 +153,10 @@ export interface FactoryProbeIdentity {
   readonly readinessHeartbeatMs?: number;
 }
 
-/** A byte round-trip through the store the product will actually use. */
+/** A byte round-trip through the store the product will actually use. The signal aborts a request that never answers. */
 export interface FactoryStorageProbeTarget {
-  put(key: string, content: Uint8Array): Promise<unknown>;
-  get(key: string): Promise<Uint8Array>;
+  put(key: string, content: Uint8Array, signal?: AbortSignal): Promise<unknown>;
+  get(key: string, signal?: AbortSignal): Promise<Uint8Array>;
 }
 
 /** The started listener, asked over its own transport. */
@@ -170,10 +215,10 @@ export function factoryPoolProbe(identity: FactoryProbeIdentity): FactoryService
  * equal. A reachable endpoint that silently drops a write is not storage.
  */
 export function factoryStorageProbe(target: FactoryStorageProbeTarget, key: string): FactoryServiceProbe {
-  return probeOf("object-storage", async () => {
+  return probeOf("object-storage", async (signal) => {
     const written = new TextEncoder().encode(`factory-probe:${key}`);
-    await target.put(key, written);
-    const read = await target.get(key);
+    await target.put(key, written, signal);
+    const read = await target.get(key, signal);
     if (read.byteLength !== written.byteLength || !written.every((byte, index) => read[index] === byte)) {
       throw new FactoryServiceProbeError("object_storage_roundtrip_mismatch");
     }

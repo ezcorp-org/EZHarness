@@ -1638,3 +1638,28 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 
 - A proof check must describe the promise, not the path I expected. The check "one `:usage-resolved` event" failed two of three passes in which the run ended correctly, because the real server took the reverse order: the stop confirmed after reconciliation and cleared the attempt through its own event. Count the outcome the kernel sees (one `uncertain: false` after the uncertain stop), not the id of the path.
 - When a worktree's git suddenly says "must be run in a work tree", read the shared config. With `extensions.worktreeConfig` on, a shared `core.bare = true` makes every worktree without its own `core.bare = false` stop being a work tree, and tests that shell out to `git grep` or `git check-ignore` fail at any commit. Set it per worktree (`git config --worktree core.bare false`); never edit the shared config.
+
+## 2026-09-25 — Search for a prior decision before building a destructive tool (W15d)
+
+- Before writing a delete or prune tool, search the repository for an existing one and its history. I
+  drafted a prefix-and-age prune for the shared store, then found `scripts/prune-factory-storage-manifest.ts`
+  and `tasks/factory/w07-GATES.md`: a window deleter had removed another package's evidence, and the
+  project replaced it with a manifest-only tool. A run may delete only what it wrote, under its own
+  unique prefix; anything older needs a reviewed manifest.
+- Never raise `EZ_PRECOMMIT_TEST_MAX`, even to run more suites. A staged suite that spawns git inherits
+  the hook's `GIT_DIR`, which re-initialised the shared repository twice. Above the cap, ask the
+  coordinator for the skip ruling and run the listed suites yourself with `GIT_DIR`, `GIT_INDEX_FILE`,
+  and `GIT_WORK_TREE` cleared.
+- A resource ceiling must keep the host above its disk floor at recreate time, counting what is already
+  stored. Measure free space against the full ceiling, not the growth you expect.
+- A kernel OOM record names its constraint. `CONSTRAINT_MEMCG` is the container limit; `CONSTRAINT_NONE`
+  with `global_oom` is the host. Read it before raising a container limit.
+
+
+## 2026-09-25 — A fail-closed gate that has never passed is untested (W15e)
+
+- Run each gate green by hand once before the real run of a destructive tool. The first approved W15e prune stopped at its own SHA256SUMS gate, because the sums listed `manifests/<name>` while the gate checked from inside `manifests/`, so it could never pass. It failed closed and nothing was deleted, but the approved run was lost and the script had to change after approval. Before queueing, pass each gate by hand: the checksum check, the memory gate, one dry run of the destructive tool (it must report deleted 0 and applied false), and the census code on existing data.
+
+## 2026-09-27 — A test leg that ran zero tests must fail loudly (W01h merge)
+
+- `bun test <path>` without a leading `./` treats the path as a name filter. The W01h merge batch listed `tests/postgres/...` and `src/...` bare, so bun matched nothing and its three PostgreSQL legs and its Podman leg ran no tests. Write every listed test path with `./`, and make every test leg assert that it ran at least one test: a count of zero is a failure, whatever the exit code. The integrator's heavy-batch and fast-check scripts now add `./` and fail a zero-test leg with exit 97.

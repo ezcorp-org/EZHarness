@@ -23,7 +23,7 @@ vi.mock("$server/factory/installation-startup", () => ({
   startFactoryInstallation: (...args: unknown[]) => startFactoryInstallation(...args),
 }));
 
-const { startFactoryForHost, startFactoryIfEnabled } = await import("$lib/server/factory-boot");
+const { FACTORY_BOOT_BOUND_MS, startFactoryForHost, startFactoryIfEnabled } = await import("$lib/server/factory-boot");
 
 function report(overrides: Record<string, unknown> = {}) {
   return {
@@ -93,6 +93,54 @@ describe("startFactoryIfEnabled", () => {
 });
 
 describe("startFactoryForHost", () => {
+  describe("the boot bound", () => {
+    type Trace = (event: { phase: string; state: "started" | "finished"; elapsedMs: number }) => void;
+    /** A composition that reports config done, starts `collaborators`, and never returns. */
+    const stallInCollaborators = async (options: { host: { trace: Trace } }) => {
+      options.host.trace({ phase: "config", state: "started", elapsedMs: 0 });
+      options.host.trace({ phase: "config", state: "finished", elapsedMs: 3 });
+      options.host.trace({ phase: "collaborators", state: "started", elapsedMs: 0 });
+      return new Promise(() => {});
+    };
+    afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
+
+    it("a boot that outlives its bound logs the phase it stalled in, degrades readiness, and exits non-zero", async () => {
+      vi.useFakeTimers();
+      startFactoryInstallation.mockImplementation(stallInCollaborators);
+      const exit = vi.fn();
+      const log = { info: vi.fn(), error: vi.fn() };
+      void startFactoryForHost(dependencies({ log, exit, bootBoundMs: 1_000 }) as never);
+      await vi.advanceTimersByTimeAsync(999);
+      expect(exit).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(exit).toHaveBeenCalledWith(1);
+      expect(log.error).toHaveBeenCalledWith("[factory] boot exceeded its bound; exiting so the host restarts", { phase: "collaborators", lastFinished: "config", boundMs: 1_000 });
+      expect(getReadiness()).toMatchObject({ state: "degraded", reason: "factory-boot-stalled", detail: { phase: "collaborators", lastFinished: "config", boundMs: 1_000 } });
+      // Every phase is logged as it moves, so the log names where boot was.
+      expect(log.info).toHaveBeenCalledWith("[factory] boot phase", { phase: "config", state: "finished", elapsedMs: 3 });
+    });
+
+    it("a boot that composes clears its bound, so it never exits afterwards", async () => {
+      vi.useFakeTimers();
+      startFactoryInstallation.mockResolvedValue(startup().handle);
+      const exit = vi.fn();
+      await startFactoryForHost(dependencies({ exit, bootBoundMs: 1_000 }) as never);
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(exit).not.toHaveBeenCalled();
+    });
+
+    it("defaults to the three-minute bound and to process.exit", async () => {
+      vi.useFakeTimers();
+      startFactoryInstallation.mockImplementation(stallInCollaborators);
+      const processExit = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never);
+      void startFactoryForHost(dependencies() as never);
+      await vi.advanceTimersByTimeAsync(FACTORY_BOOT_BOUND_MS - 1);
+      expect(processExit).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(processExit).toHaveBeenCalledWith(1);
+    });
+  });
+
   it("hands the composition the host's database, bounds, and stop signal", async () => {
     const running = startup();
     startFactoryInstallation.mockResolvedValue(running.handle);

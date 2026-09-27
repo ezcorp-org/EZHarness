@@ -10,23 +10,24 @@ import { createFactoryOrdinaryStorage, factoryStorageCredentials, factoryStorage
 // installation does, and read back what reached the store.
 factoryRunLifecycleConformance(async () => {
   const label = randomUUID();
-  const storage = await createFactoryOrdinaryStorage(`ordinary/factory-lifecycle/${label}`);
+  const published = `ordinary/factory-lifecycle-published/${label}`;
+  const storage = await createFactoryOrdinaryStorage(`ordinary/factory-lifecycle/${label}`, "tenant-01", [published]);
   try {
     const database = await setupFactoryPostgres();
     return {
       db: database.db,
       blobs: storage.blobs,
       publication: {
-        endpoint: factoryStorageEndpoint("ordinary"), bucket: storage.bucket, prefix: `ordinary/factory-lifecycle-published/${label}`,
+        endpoint: factoryStorageEndpoint("ordinary"), bucket: storage.bucket, prefix: published,
         credentials: await factoryStorageCredentials("ordinary"), client: storage.client as unknown as S3ClientLike,
       },
       async close() {
         try { await database.close(); }
-        finally { storage.close(); }
+        finally { await storage.close(); }
       },
     };
   } catch (error) {
-    storage.close();
+    await storage.close();
     throw error;
   }
 });

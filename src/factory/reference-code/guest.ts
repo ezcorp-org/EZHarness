@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { WorkspaceFiles } from "@ezcorp/extension-contract";
 import { filesDigest } from "@ezcorp/extension-runner";
+import { factorySdkClosure } from "../guest-sdk-closure";
 
 /**
  * The exact bytes one reference-code validator guest runs.
@@ -19,8 +20,10 @@ import { filesDigest } from "@ezcorp/extension-runner";
  * in it fails the staging rather than reaching the guest unresolved.
  *
  * The closure is deliberately narrow — the static claims, the two scans, the tree model, the git
- * object identities, the byte digest, and the SDK's own type module. It reaches no workspace, no
- * subprocess, no storage client, and no network.
+ * object identities, the byte digest, and the SDK's own type modules. It reaches no workspace, no
+ * subprocess, no storage client, and no network. The SDK modules are found by following the SDK's
+ * own imports (`guest-sdk-closure.ts`), because a fixed list went stale when `types.ts` began
+ * importing `console-types.ts` (W14b).
  */
 
 export const REFERENCE_CODE_GUEST_ENTRYPOINT = "extension.ts";
@@ -33,12 +36,11 @@ export const REFERENCE_CODE_GUEST_SOURCES: Readonly<Record<string, string>> = Ob
   "snapshot.ts": "src/factory/reference-code/snapshot.ts",
   "git-objects.ts": "src/factory/git-objects.ts",
   "digest.ts": "src/extensions/v4/digest.ts",
-  "factory-sdk-types.ts": "packages/@ezcorp/factory-sdk/src/types.ts",
 });
 
 /** Every import specifier the closure uses, and the flat name it becomes. */
 const SPECIFIERS: Readonly<Record<string, string>> = Object.freeze({
-  "@ezcorp/factory-sdk/types": "./factory-sdk-types.ts",
+  "@ezcorp/factory-sdk/types": "./types.ts",
   "../../extensions/v4/digest": "./digest.ts",
   "../git-objects": "./git-objects.ts",
   "./static-claims": "./static-claims.ts",
@@ -82,6 +84,8 @@ export async function referenceCodeGuestFiles(): Promise<WorkspaceFiles> {
   for (const [name, source] of Object.entries(REFERENCE_CODE_GUEST_SOURCES)) {
     files[name] = stageReferenceCodeGuestSource(name, await readFile(join(root, source), "utf8"));
   }
+  // The SDK files the staged sources reach, by the SDK's own imports.
+  Object.assign(files, await factorySdkClosure(join(root, "packages/@ezcorp/factory-sdk/src"), files));
   files["feature.test.ts"] = [
     'import { expect, test } from "bun:test";',
     'import { referenceCodeGuestReport } from "./extension.ts";',

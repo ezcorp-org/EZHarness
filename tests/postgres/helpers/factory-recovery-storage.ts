@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { DeleteObjectCommand, ListObjectVersionsCommand, S3Client } from "@aws-sdk/client-s3";
+import { S3Client } from "@aws-sdk/client-s3";
 import { S3BlobStore } from "../../../src/extensions/v4/blobs";
 import { S3FactoryReleaseArchive } from "../../../src/factory/release-adapters";
 import { S3FactoryRecoveryArchive } from "../../../src/factory/recovery-archive";
 import { S3FactoryRetentionBlobEraser } from "../../../src/factory/retention";
-import { factoryStorageCredentials, factoryStorageEndpoint } from "./factory-storage";
+import { factoryStorageCredentials, factoryStorageEndpoint, listFactoryRunVersions, removeFactoryRunObjects } from "./factory-storage";
 
 /**
  * The real ordinary store and the real independent archive, under prefixes
@@ -27,11 +27,6 @@ export async function factoryRecoveryStorage(tenant = "tenant-09") {
   const archiveOptions = { endpoint: archiveEndpoint, bucket: tenant, prefix: `archive/${run}`, credentials: archiveCredentials, client: archiveClient };
   const blobs = new S3BlobStore({ endpoint: ordinaryEndpoint, bucket: tenant, prefix: ordinaryPrefix, credentials: ordinaryCredentials, client: ordinaryClient });
 
-  async function versions(client: S3Client, prefix: string) {
-    const listed = await client.send(new ListObjectVersionsCommand({ Bucket: tenant, Prefix: `${prefix}/` }));
-    return [...(listed.Versions ?? []), ...(listed.DeleteMarkers ?? [])].flatMap(item => item.Key && item.VersionId ? [{ Key: item.Key, VersionId: item.VersionId }] : []);
-  }
-
   return {
     run, tenant, ordinaryPrefix, ordinaryEndpoint, ordinaryCredentials, ordinaryClient, archiveClient, blobs, archiveOptions,
     archive: new S3FactoryRecoveryArchive(archiveOptions),
@@ -41,11 +36,10 @@ export async function factoryRecoveryStorage(tenant = "tenant-09") {
     candidateReadable: (blobDigest: string) => blobs.get(blobDigest).then(() => true, () => false),
     /** Removes this process's ordinary objects, every version. Returns what the archive still holds. */
     async cleanup(): Promise<{ readonly ordinaryRemoved: number; readonly archiveRetained: number }> {
-      const ordinary = await versions(ordinaryClient, ordinaryPrefix);
-      for (const item of ordinary) await ordinaryClient.send(new DeleteObjectCommand({ Bucket: tenant, Key: item.Key, VersionId: item.VersionId }));
-      const retained = (await versions(archiveClient, archiveOptions.prefix)).length;
-      ordinaryClient.destroy(); archiveClient.destroy();
-      return { ordinaryRemoved: ordinary.length, archiveRetained: retained };
+      try {
+        const ordinaryRemoved = await removeFactoryRunObjects(ordinaryClient, tenant, ordinaryPrefix);
+        return { ordinaryRemoved, archiveRetained: (await listFactoryRunVersions(archiveClient, tenant, archiveOptions.prefix)).length };
+      } finally { ordinaryClient.destroy(); archiveClient.destroy(); }
     },
   };
 }
