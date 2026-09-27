@@ -882,14 +882,40 @@ C's head whenever it moves.
   in `scripts/check-patch-coverage-typeonly.test.ts`, `"coverage diff gates: dependency-free Git
   controls"` and `"gate-integrity: isolated parser dependency"` in `src/__tests__/gate-scripts.test.ts`,
   and `"checked-in lock matches every source snapshot"` in `src/__tests__/bundled-source-lock.test.ts`
-  (a manifest-lock staleness the same edits caused, regenerated). ROOT CAUSE: these six do not target
-  an explicit repository the caller names (GC11/GC13's four wrappers all do — a clone URL, an
-  `ls-remote` URL, an explicit `-C`/`cwd`) — they operate on the repository AS INVOKED, including a
-  pre-commit hook's STAGED (not committed) view via `GIT_INDEX_FILE`. Stripping `GIT_*` there is wrong,
-  not merely unneeded.
-  FIX: a second named class in `@ezcorp/sdk/git`, `currentRepositoryGitContext(env)` — a declared,
-  walker-recognized identity function (returns `env` unchanged) alongside `withoutGitContext()`. Every
-  production git spawn now calls exactly one of the two, by name; the guard
+  (a manifest-lock staleness the same edits caused, regenerated).
+  TWO INDEPENDENT PROBLEMS, NOT ONE — CORRECTED 2026-09-27 (validator-3 M3: the first version of this
+  entry blamed all ten failures on stripping `GIT_*`, then in its own next paragraph said the bare-fixture
+  import failure was "exactly what broke all ten tests initially even after adding the class-B helper" —
+  a straight contradiction it never resolved. The two mechanisms are independent, and only one of them
+  needed a test-observed failure to be real):
+  (1) SEMANTIC: these six do not target an explicit repository the caller names (GC11/GC13's four
+  wrappers all do — a clone URL, an `ls-remote` URL, an explicit `-C`/`cwd`) — they operate on the
+  repository AS INVOKED, including a pre-commit hook's STAGED (not committed) view via `GIT_INDEX_FILE`.
+  Stripping `GIT_*` there is a real correctness bug independent of any test that happens to catch it —
+  confirmed directly this round (validator-3 M3): a fresh hook-like test on `git-worktree-clean.ts`
+  (`src/__tests__/git-worktree-clean.test.ts`) sets `GIT_INDEX_FILE` to a scratch index staged with a file
+  the real `.git/index` has never seen, and asserts the reported status names that file as staged
+  (`"A  hook-staged.ts"`) — genuinely red when `currentRepositoryGitContext` is swapped for
+  `withoutGitContext` (the script then reports `"?? hook-staged.ts"`, reading the real index instead).
+  (2) IMPORT RESOLUTION, wholly separate from (1): three of the six (`gate-integrity.ts`, `git-output.ts`,
+  `check-visual-evidence.ts`) are each copied whole-file into a bare, `node_modules`-free scratch fixture
+  by their own tests (`gate-scripts.test.ts`'s "isolated parser dependency" describe block;
+  `check-patch-coverage-typeonly.test.ts`; `visual-evidence-select.test.ts`'s `runScenario()`) — importing
+  `@ezcorp/sdk/git` (a workspace package) cannot resolve there, REGARDLESS OF WHICH FUNCTION IS IMPORTED.
+  Verified directly (validator-3 M3): temporarily changing `gate-integrity.ts` to `import {
+  withoutGitContext } from "@ezcorp/sdk/git"` — the semantically WRONG class, imported instead of the
+  local copy — reproduces the identical failure the bare-fixture test showed originally: `"Cannot find
+  module '@ezcorp/sdk/git'"`, not a wrong-env assertion failure. This is what actually accounts for the
+  bulk of the ten originally-observed failures (the seven in `check-patch-coverage-typeonly.test.ts`,
+  which copies `git-output.ts`, and `"gate-integrity: isolated parser dependency"`, which copies
+  `gate-integrity.ts`) — they would have failed the SAME way with either class, so long as the fix
+  imports rather than locally reimplements. The `"coverage diff gates: dependency-free Git controls"` and
+  `bundled-source-lock.test.ts` failures are not part of this mechanism (the former is a
+  dependency-footprint assertion on `git-output.ts` also tripped by the new import; the latter is the
+  manifest-lock staleness noted above, mechanical and unrelated to git context at all).
+  FIX (semantic half): a second named class in `@ezcorp/sdk/git`, `currentRepositoryGitContext(env)` — a
+  declared, walker-recognized identity function (returns `env` unchanged) alongside `withoutGitContext()`.
+  Every production git spawn now calls exactly one of the two, by name; the guard
   (`src/__tests__/git-spawn-context-guard.test.ts`) checks that, not which is semantically correct for a
   given call site — stated honestly in both the guard's own docblock and `@ezcorp/sdk/git`'s. All six
   gate/coverage scripts reverted to the new class-B helper. New guard fixtures: a direct
@@ -897,17 +923,18 @@ C's head whenever it moves.
   pinned as their OWN positive-fixture group (not merely "guarded" like the class-A four — specifically
   guarded VIA `currentRepositoryGitContext`, so a regression back to `withoutGitContext` on any of them
   fails this specific assertion, not just the blanket zero-unguarded-spawns check).
-  A SECOND real finding surfaced fixing the first: three of the six (`gate-integrity.ts`, `git-output.ts`,
-  `check-visual-evidence.ts`) are each copied whole-file into a bare, `node_modules`-free scratch fixture
-  by their own tests (`gate-scripts.test.ts`'s "isolated parser dependency" describe block;
-  `check-patch-coverage-typeonly.test.ts`; `visual-evidence-select.test.ts`'s `runScenario()`) —
-  importing `@ezcorp/sdk/git` (a workspace package) cannot resolve there, which is exactly what broke
-  all ten tests initially even after adding the class-B helper. Fixed by giving these three a LOCAL,
-  identically-named, non-imported copy of `currentRepositoryGitContext` instead (a one-line identity
+  FIX (import-resolution half): the three bare-fixture-copied scripts each get a LOCAL, identically-named,
+  non-imported copy of `currentRepositoryGitContext` instead of importing it (a one-line identity
   function; duplicating it carries no drift risk) — documented in both the SDK module's own docblock and
   each local copy, cross-referenced. The other three (`check-boundaries.ts`,
   `verify-browser-coverage-receipt.ts`, `git-worktree-clean.ts`) are never copied into a bare fixture and
-  keep the normal import.
+  keep the normal import. Each of the three local copies is now `export`ed and pinned by a dedicated unit
+  test asserting reference equality (`toBe`, not `toEqual`) against the input env, with and without a
+  supplied argument (`src/__tests__/gate-scripts.test.ts` for `gate-integrity.ts` and `git-output.ts`;
+  `src/__tests__/visual-evidence-select.test.ts` for `check-visual-evidence.ts`) — a drifted local copy
+  (one that started stripping GIT_* by accident) would defeat the whole class-B contract silently,
+  since the repo-wide guard only checks that SOME function named `currentRepositoryGitContext` is
+  called, never what it does.
   PROOF: all ten originally-regressed tests green (217/0 across
   `check-patch-coverage-typeonly.test.ts` + `gate-scripts.test.ts`); the visual-evidence suite, which
   the SAME bare-fixture-copy issue also broke via `check-visual-evidence.ts` (found during this fix,
@@ -916,6 +943,12 @@ C's head whenever it moves.
   11/0; the SDK's own `git/index.test.ts` — 8/0, 100% coverage on `currentRepositoryGitContext`; all
   eleven files combined in one run — 332/0. `manifest.lock.json` regenerated for the two class-A files'
   changed source digests (`ai-kit/src/cli/install.ts`, `repo-activity-notify/index.ts` — unchanged by
-  this entry, already fixed in GC14/GC13).
+  this entry, already fixed in GC14/GC13). The new hook-context test (semantic half) and the three
+  identity pins (import-resolution half) added 2026-09-27: `git-worktree-clean.test.ts` — 7/0 (was 6/0);
+  `gate-scripts.test.ts` + `visual-evidence-select.test.ts` — 257/0 combined; genuine red-green control
+  demonstrated for each (a reverted class on `git-worktree-clean.ts` flips the hook-context assertion's
+  observed status code from `"A "` to `"??"`, matching the semantic mechanism exactly; a wrong-class-but-
+  still-imported `gate-integrity.ts` reproduces `"Cannot find module '@ezcorp/sdk/git'"`, matching the
+  import-resolution mechanism exactly).
   EVIDENCE: typecheck, lint, `gate-integrity.ts`, both boundary checks all clean (including
   `gate-integrity.ts` and `check-boundaries.ts` checking themselves, now correctly on the keeping side).

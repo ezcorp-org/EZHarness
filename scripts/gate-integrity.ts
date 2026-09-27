@@ -72,7 +72,7 @@ export { parseUnifiedDiff, type DiffFile } from "./unified-diff.ts";
  * (`src/__tests__/git-spawn-context-guard.test.ts`) still recognize this as
  * a declared class-B (current-repository) spawn.
  */
-function currentRepositoryGitContext(
+export function currentRepositoryGitContext(
   env: Record<string, string | undefined> = process.env,
 ): Record<string, string | undefined> {
   return env;

@@ -20,7 +20,7 @@
  * the SAME name here is what lets the repo-wide guard still recognize this
  * as a declared class-B (current-repository) spawn.
  */
-function currentRepositoryGitContext(
+export function currentRepositoryGitContext(
   env: Record<string, string | undefined> = process.env,
 ): Record<string, string | undefined> {
   return env;

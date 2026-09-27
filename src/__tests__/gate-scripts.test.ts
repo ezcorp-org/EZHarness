@@ -31,6 +31,7 @@ import {
   addedExcludes,
   biomeConfigFileViolations,
   biomeGateWeakenings,
+  currentRepositoryGitContext as gateIntegrityGitContext,
   deletedOrRenamedTests,
   forbiddenTestAdditions,
   isPathAbsentAtRev,
@@ -42,6 +43,7 @@ import {
   unassertedAddedBlocks,
 } from "../../scripts/gate-integrity.ts";
 import { addedOrRewrittenFiles, newFileViolations } from "../../scripts/check-new-file-coverage.ts";
+import { currentRepositoryGitContext as gitOutputGitContext } from "../../scripts/git-output.ts";
 import {
   binaryDiffFiles,
   shouldFailOnLcovAbsence,
@@ -2284,6 +2286,43 @@ describe("gate-integrity: biome CONFIG FILE moves (check 10)", () => {
       "X",
     ].join("\n");
     expect(biomeConfigFileViolations(quiet)).toEqual([]);
+  });
+});
+
+// item C2 (W18 hygiene), validator-3 M3: this script cannot import
+// @ezcorp/sdk/git's currentRepositoryGitContext() (see this file's own
+// "isolated parser dependency" describe block below — its own tests copy
+// gate-integrity.ts into a bare, node_modules-free fixture, where that
+// workspace import cannot resolve), so it carries a LOCAL, identically-named
+// copy instead. Pin that the copy really is the identity function the SDK's
+// own is — a drifted local copy (e.g. one that started stripping GIT_* by
+// accident) would defeat the whole class-B contract silently, since the
+// repo-wide git-spawn guard only checks that SOME function named
+// currentRepositoryGitContext is called, never what it does.
+describe("gate-integrity: currentRepositoryGitContext (local copy)", () => {
+  test("returns env unchanged, GIT_* included", () => {
+    const env = { PATH: "/usr/bin", GIT_DIR: "/tmp/x/.git", GIT_INDEX_FILE: "/tmp/x/.git/index", HOME: "/home/x" };
+    expect(gateIntegrityGitContext(env)).toBe(env);
+  });
+
+  test("defaults to process.env when called with no argument", () => {
+    expect(gateIntegrityGitContext()).toBe(process.env);
+  });
+});
+
+// Same pin, same reasoning (see gate-integrity.ts's docblock and the
+// describe block above): git-output.ts's copy must also stay a true
+// identity function, checked for reference equality, not merely
+// deep-equality (a copy that clones and re-serializes env would still
+// "look" unchanged but silently break a caller that mutates env in place).
+describe("git-output: currentRepositoryGitContext (local copy)", () => {
+  test("returns env unchanged, GIT_* included", () => {
+    const env = { PATH: "/usr/bin", GIT_DIR: "/tmp/x/.git", GIT_INDEX_FILE: "/tmp/x/.git/index", HOME: "/home/x" };
+    expect(gitOutputGitContext(env)).toBe(env);
+  });
+
+  test("defaults to process.env when called with no argument", () => {
+    expect(gitOutputGitContext()).toBe(process.env);
   });
 });
 
