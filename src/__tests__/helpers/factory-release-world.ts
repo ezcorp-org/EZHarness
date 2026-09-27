@@ -41,10 +41,47 @@ export class FactoryRememberingProvider implements FactoryReleaseProvider {
     this.receipts.set(claim.operationId, receipt);
     return receipt;
   }
+  async lookupReceipt(operation: FactoryReleaseOperation): Promise<FactoryProviderReceipt | null> { return this.receipts.get(operation.operationId) ?? null; }
   async verifyReceipt(operation: FactoryReleaseOperation, receipt: FactoryProviderReceipt): Promise<boolean> {
     return canonicalJson(this.receipts.get(operation.operationId) ?? null) === canonicalJson(receipt);
   }
   async proveNoEffect(operation: FactoryReleaseOperation): Promise<boolean> { return !this.receipts.has(operation.operationId); }
+}
+
+/** How a gated publish ends: published; published with its response lost; or failed before any write. */
+export type FactoryGatedPublishAnswer = "published" | "lost" | "failed";
+
+/**
+ * A remembering provider whose publish waits until the test answers it, so a test can act while a publish is
+ * in flight (W09e). `started` resolves when a publish is called; `lookedUp` lists the operation of each status
+ * question, and the questions fail while `lookupFails` is set.
+ */
+export class FactoryGatedProvider extends FactoryRememberingProvider {
+  readonly lookedUp: string[] = [];
+  lookupFails = false;
+  readonly started: Promise<void>;
+  #start!: () => void;
+  #answer!: (answer: FactoryGatedPublishAnswer) => void;
+  readonly #answered: Promise<FactoryGatedPublishAnswer>;
+  constructor() {
+    super();
+    this.started = new Promise(resolve => { this.#start = resolve; });
+    this.#answered = new Promise(resolve => { this.#answer = resolve; });
+  }
+  answer(answer: FactoryGatedPublishAnswer): void { this.#answer(answer); }
+  override async publish(claim: FactoryReleaseClaim): Promise<FactoryProviderReceipt> {
+    this.#start();
+    const answer = await this.#answered;
+    if (answer === "failed") { this.calls += 1; throw new Error("provider refused before any write"); }
+    const receipt = await super.publish(claim);
+    if (answer === "lost") throw new Error("provider response lost after the write");
+    return receipt;
+  }
+  override async lookupReceipt(operation: FactoryReleaseOperation): Promise<FactoryProviderReceipt | null> {
+    this.lookedUp.push(operation.operationId);
+    if (this.lookupFails) throw new Error("provider status unavailable");
+    return super.lookupReceipt(operation);
+  }
 }
 
 /** One accepted run: its decision and the two ways to drive a release of it. */

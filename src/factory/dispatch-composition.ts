@@ -21,7 +21,7 @@ import type { TrustedFactoryServiceIdentity } from "./trusted-command-gateway";
 import { FactoryTaskStops, type FactoryPhysicalStopper, type FactoryStopHostKey, type FactoryStoppableAttempt } from "./task-stops";
 import type { FactoryBudgets, FactoryUncertainHold } from "./budgets";
 import { FactoryUsageReconciliation } from "./usage-settlement";
-import type { FactoryClaimableRelease, FactoryReleaseConsentAbsence, FactoryReleaseOperation, FactoryReleaseProvider, FactoryReleases } from "./releases";
+import { FACTORY_RELEASE_STOP_OUTCOME_UNKNOWN, FactoryReleaseError, type FactoryClaimableRelease, type FactoryReleaseConsentAbsence, type FactoryReleaseOperation, type FactoryReleaseProvider, type FactoryReleases, type FactoryStoppedRelease } from "./releases";
 import type { FactoryReleaseProviderResolver } from "./release-application";
 import type { FactoryReleaseOutcomeDelivery, FactoryUndeliveredReleaseOutcome } from "./release-outcome-delivery";
 import type { FactoryRunLifecycle } from "./run-lifecycle";
@@ -255,7 +255,7 @@ export const FACTORY_RELEASE_CONSENT_FAULT_REASONS: readonly FactoryReleaseUncla
  * routinely list the same operation and exactly one of them commits it.
  */
 export const FACTORY_RELEASE_OUTCOME_TRANSIENT_CODES: readonly string[] =
-  Object.freeze(["factory_release_claim_lost", "factory_release_not_claimable", "factory_run_stopped"]);
+  Object.freeze(["factory_release_claim_lost", "factory_release_not_claimable", "factory_run_stopped", FACTORY_RELEASE_STOP_OUTCOME_UNKNOWN, "factory_release_stop_settlement_stale"]);
 
 export function factoryReleaseOutcomeDisposition(error: unknown): FactoryItemDisposition {
   if (error instanceof FactoryReleaseConsentAbsentError) {
@@ -263,6 +263,11 @@ export function factoryReleaseOutcomeDisposition(error: unknown): FactoryItemDis
   }
   const code = (error as { code?: unknown } | null | undefined)?.code;
   return typeof code === "string" && FACTORY_RELEASE_OUTCOME_TRANSIENT_CODES.includes(code) ? "transient" : "fault";
+}
+
+/** A stopped release whose effect the driver asks its provider about, once per pass (W09e R3). */
+export interface FactoryPendingReleaseStop extends FactoryStoppedRelease {
+  readonly stopOnly: true;
 }
 
 /** A settled operation the driver still owes its run an event for. */
@@ -312,7 +317,7 @@ export interface FactoryPendingReleaseDelivery extends FactoryUndeliveredRelease
  */
 export function factoryReleaseOutcomeDriver(
   database: TransactionalDb,
-  releases: Pick<FactoryReleases, "listClaimableInTransaction" | "inspect" | "readConsentInTransaction" | "claim" | "dispatch">,
+  releases: Pick<FactoryReleases, "listClaimableInTransaction" | "listStoppedInTransaction" | "inspect" | "readConsentInTransaction" | "claim" | "dispatch" | "settleStopped">,
   runs: Pick<FactoryRunLifecycle, "readExecutionPlanInTransaction">,
   projectIds: () => Promise<readonly string[]>,
   providers: FactoryReleaseProviderResolver,
@@ -320,18 +325,26 @@ export function factoryReleaseOutcomeDriver(
   limit?: number,
   delivery?: Pick<FactoryReleaseOutcomeDelivery, "deliver" | "undelivered">,
 ): FactoryRoleDriver {
-  return factoryPageDriver<FactoryClaimableRelease | FactoryPendingReleaseDelivery>({
+  return factoryPageDriver<FactoryClaimableRelease | FactoryPendingReleaseDelivery | FactoryPendingReleaseStop>({
     async page(_signal) {
       for (const projectId of await projectIds()) {
-        const claimable = await database.transaction((transaction: MigrationDb) =>
-          releases.listClaimableInTransaction(transaction, projectId, limit));
-        if (claimable.length > 0) return claimable;
+        // A project's stopped releases ride on the same page as its claimable ones, so a release that cannot be
+        // claimed on this pass never keeps a stopped one from its one question per pass (W09e R3).
+        const [claimable, stopped] = await database.transaction(async (transaction: MigrationDb) =>
+          [await releases.listClaimableInTransaction(transaction, projectId, limit), await releases.listStoppedInTransaction(transaction, projectId, limit)] as const);
+        if (claimable.length > 0 || stopped.length > 0) return [...claimable, ...stopped.map((item) => ({ ...item, stopOnly: true as const }))];
       }
       return delivery === undefined ? [] : (await delivery.undelivered()).map((item) => ({ ...item, deliverOnly: true as const }));
     },
     settle: async (item, _signal) => {
       if ("deliverOnly" in item) {
         await delivery!.deliver(item.projectId, item.operationId);
+        return;
+      }
+      if ("stopOnly" in item) {
+        const operation = await releases.inspect(item.projectId, item.operationId);
+        if (operation === null) throw new FactoryReleaseError("factory_release_stop_settlement_stale");
+        await releases.settleStopped(item.projectId, item.operationId, await providers.resolve(operation));
         return;
       }
       const claimable = item;

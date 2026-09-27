@@ -44,7 +44,7 @@ export function factoryReleaseOutcomeEventId(operationId: string): string {
 export const FACTORY_RELEASE_OUTCOME_SCAN_LIMIT = 16;
 
 export class FactoryReleaseOutcomeDeliveryError extends Error {
-  constructor(readonly code: "factory_release_outcome_missing" | "factory_release_outcome_command_missing" | "factory_release_outcome_invalid") {
+  constructor(readonly code: "factory_release_outcome_missing" | "factory_release_outcome_command_missing" | "factory_release_outcome_invalid" | "factory_release_stopped") {
     super(code);
     this.name = "FactoryReleaseOutcomeDeliveryError";
   }
@@ -117,10 +117,13 @@ export class FactoryReleaseOutcomeDelivery {
    */
   async deliverInTransaction(transaction: MigrationDb, projectId: string, operationId: string): Promise<KernelEvent | null> {
     assertFactoryIdentity(projectId, operationId);
-    const row = rows<SettledRow>(await transaction.execute(sql`SELECT run_id,state,request_digest,receipt_json,outcome_code,
+    const row = rows<SettledRow & { stop_command_id: string | null }>(await transaction.execute(sql`SELECT run_id,state,request_digest,receipt_json,outcome_code,stop_command_id,
       FLOOR(EXTRACT(EPOCH FROM updated_at) * 1000)::bigint AS settled_at_ms
       FROM factory_release_operations WHERE tenant_id=${this.tenantId} AND project_id=${projectId} AND operation_id=${operationId} FOR SHARE`))[0];
     if (!row) throw new FactoryReleaseOutcomeDeliveryError("factory_release_outcome_missing");
+    // W09e R4: the node of a stopped release already has its stop. What the release did later is evidence on the
+    // release record, never the node's status.
+    if (row.stop_command_id !== null) throw new FactoryReleaseOutcomeDeliveryError("factory_release_stopped");
     if (row.state !== "succeeded" && row.state !== "failed") return null;
     const reference = await this.options.effects.readReleaseCommandInTransaction(transaction, {
       tenantId: this.tenantId, projectId, runId: row.run_id, operationId, requestDigest: row.request_digest,

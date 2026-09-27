@@ -597,7 +597,7 @@ test("a written manifest whose receipt never reached the archive stays recoverab
 
   // An operator rebuilds the confirmed effect from the live store, with no new write.
   world.archive.failWriteFor = undefined;
-  const rebuilt = (await world.provider.describePublication(uncertain))!;
+  const rebuilt = (await world.provider.lookupReceipt(uncertain))!;
   expect(rebuilt.files.map(file => file.name)).toEqual(["data/part-0.csv", "data/part-1.csv"]);
   const attached = await world.releases.reconcile(world.admin, { projectId: world.projectId, operationId: operation.operationId, action: "attach_receipt", reason: "the manifest is present at its exact version", providerEvidence: { operationId: operation.operationId, reason: "operator lookup" }, receipt: rebuilt }, claimed.dispatchGeneration, world.provider, world.mutationKey("reconcile"));
   expect(attached).toMatchObject({ state: "succeeded", outcomeCode: "confirmed" });
@@ -626,7 +626,7 @@ test("an interrupted staging resumes under the same identity and never appears p
   expect(sha256(staged!.bytes)).toBe(request.members[0]!.digest);
 
   // Nothing is published, so absence is provable and the operation returns to pending.
-  expect(await world.provider.describePublication(uncertain)).toBeNull();
+  expect(await world.provider.lookupReceipt(uncertain)).toBeNull();
   expect(await world.provider.proveNoEffect(uncertain, { operationId: operation.operationId, reason: "operator lookup" })).toBe(true);
   const cleared = await world.releases.reconcile(world.admin, { projectId: world.projectId, operationId: operation.operationId, action: "confirm_no_effect", reason: "the manifest was never written", providerEvidence: { operationId: operation.operationId, reason: "operator lookup" } }, claimed.dispatchGeneration, world.provider, world.mutationKey("reconcile"));
   expect(cleared).toMatchObject({ state: "pending", outcomeCode: "confirmed_no_effect" });
@@ -668,7 +668,7 @@ test("a confirmed publication is never repeated and a manifest race is never a s
   const uncertain = await world.releases.dispatch(claimed, world.provider);
   expect(uncertain).toMatchObject({ state: "uncertain", outcomeCode: "provider_response_unknown" });
   // The foreign manifest is not this operation's effect, so no receipt can be rebuilt.
-  await expect(world.provider.describePublication(uncertain)).rejects.toMatchObject({ code: "factory_s3_receipt_corrupt" });
+  await expect(world.provider.lookupReceipt(uncertain)).rejects.toMatchObject({ code: "factory_s3_receipt_corrupt" });
 });
 
 test("a 256 MiB material exports through W04 chunks as a real multipart upload", async () => {

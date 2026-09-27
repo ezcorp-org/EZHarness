@@ -55,7 +55,7 @@ const stopEvent = (effect: FactoryReleaseStopEffect): KernelEvent => ({ kind: "a
 
 /** A provider whose response is lost: every publish it starts fails after it is called, so nothing settles. */
 function losingProvider() {
-  return { calls: 0, async publish() { this.calls += 1; throw new Error("provider response lost"); }, async verifyReceipt() { return false; }, async proveNoEffect() { return false; } };
+  return { calls: 0, async publish() { this.calls += 1; throw new Error("provider response lost"); }, async lookupReceipt() { return null; }, async verifyReceipt() { return false; }, async proveNoEffect() { return false; } };
 }
 
 type Contender = "claim" | "stop" | "dispatch";

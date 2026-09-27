@@ -168,6 +168,19 @@ export class S3FactoryReleaseProvider implements FactoryReleaseProvider {
     catch (error) { if (s3ErrorIsMissing(error)) return false; throw error; }
   }
 
+  /**
+   * The receipt the object at this operation's key supports, or `null` when the key is empty. The target is
+   * written once (`IfNoneMatch`), so the object there is this operation's only if its bytes are the request's;
+   * any other object is refused `factory_s3_receipt_corrupt`, which keeps the outcome unknown.
+   */
+  async lookupReceipt(operation: FactoryReleaseOperation, signal?: AbortSignal): Promise<FactoryProviderReceipt | null> {
+    let head: { VersionId?: string };
+    try { head = await this.client.send(new HeadObjectCommand({ Bucket: this.options.bucket, Key: this.key(operation) }), signal ? { abortSignal: signal } : undefined) as { VersionId?: string }; }
+    catch (error) { if (s3ErrorIsMissing(error)) return null; throw error; }
+    if (!head.VersionId) throw new FactoryReleaseError("factory_s3_receipt_missing");
+    return this.readReceipt(operation, head.VersionId, signal);
+  }
+
   async proveNoEffect(operation: FactoryReleaseOperation, evidence: unknown, signal?: AbortSignal): Promise<boolean> {
     if (!evidence || typeof evidence !== "object" || (evidence as { operationId?: unknown }).operationId !== operation.operationId || (evidence as { reason?: unknown }).reason === undefined) return false;
     const key = this.key(operation);
