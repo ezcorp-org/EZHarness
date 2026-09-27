@@ -74,7 +74,7 @@ const PAIRS: ReadonlyArray<{
   minPass: number;
 }> = [
   {
-    label: "OPEN-1 reverse order: extension-settings-api (polluter) then extensions-api (victim), $lib/server/security/api-keys",
+    label: "OPEN-1 reverse order: extension-settings-api (polluter) then extensions-api (victim), $server/extensions/secret-settings",
     files: ["./src/__tests__/extension-settings-api.test.ts", "./src/__tests__/extensions-api.test.ts"],
     minPass: 90,
   },
