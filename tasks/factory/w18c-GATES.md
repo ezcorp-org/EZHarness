@@ -96,6 +96,106 @@ runner-contracts, external-postgres, browser routes); main's own CI at 31052930d
   12 files. f11d06d03 gates five newly measured routes at 100. b5db5c814 adds a direct suite for
   factory-execution.ts (29 lines were real gaps).
 
+## Follow-up: the 89 main-only per-file entries (resolved by the CI producers)
+
+The cov-shard measurement of aa0a5f2d3 (20 inputs, `heavy/covshard-aa0a5f2d3/per-file-thresholds.log`) had 96
+per-file entries. 89 of them name files the feature does not change (`git diff origin/main...aa0a5f2d3`): 87 files, two
+of them (web/src/lib/api.ts, web/src/lib/empty-node-shim.ts) with two entries each. With the three remaining CI
+producers added (cov-extras, web-security-coverage, factory-temporal; 31 inputs at 60e3e436a,
+`heavy/ci-extras-60e3e436a/`), none of the 89 remains. They were producer gaps in the local run, not coverage gaps
+on main. No test was written for them. The manifest above now makes the runner run those producers.
+  | file (main-only) | at aa0a5f2d3 with 20 inputs; absent with 31 inputs |
+  |---|---|
+  | packages/@ezcorp/sdk/src/browser/index.ts | 92.66% < 100% |
+  | packages/@ezcorp/sdk/src/entities/storage.ts | 88.30% < 100% |
+  | packages/@ezcorp/sdk/src/entities/tools.ts | 87.17% < 100% |
+  | packages/@ezcorp/sdk/src/entities/validate.ts | 63.31% < 100% |
+  | packages/@ezcorp/sdk/src/runtime/cancel-run.ts | 11.11% < 100% |
+  | packages/@ezcorp/sdk/src/runtime/canvas.ts | 86.49% < 100% |
+  | packages/@ezcorp/sdk/src/runtime/channel.ts | 70.20% < 100% |
+  | packages/@ezcorp/sdk/src/runtime/component-builder.ts | 44.90% < 100% |
+  | packages/@ezcorp/sdk/src/runtime/events.ts | 87.50% < 100% |
+  | packages/@ezcorp/sdk/src/runtime/lessons.ts | 9.68% < 100% |
+  | packages/@ezcorp/sdk/src/runtime/lifecycle.ts | 33.33% < 100% |
+  | packages/@ezcorp/sdk/src/runtime/llm.ts | 43.06% < 100% |
+  | packages/@ezcorp/sdk/src/runtime/lock.ts | 48.33% < 100% |
+  | packages/@ezcorp/sdk/src/runtime/loop-core.ts | 81.72% < 100% |
+  | packages/@ezcorp/sdk/src/runtime/loop-events.ts | 13.04% < 100% |
+  | packages/@ezcorp/sdk/src/runtime/loop-log.ts | 90.63% < 100% |
+  | packages/@ezcorp/sdk/src/runtime/loop-store.ts | 90.48% < 100% |
+  | packages/@ezcorp/sdk/src/runtime/loop.ts | 83.79% < 100% |
+  | packages/@ezcorp/sdk/src/runtime/memory.ts | 12.00% < 100% |
+  | packages/@ezcorp/sdk/src/runtime/page.ts | 81.90% < 100% |
+  | packages/@ezcorp/sdk/src/runtime/panel.ts | 33.33% < 100% |
+  | packages/@ezcorp/sdk/src/runtime/preview.ts | 41.30% < 100% |
+  | packages/@ezcorp/sdk/src/runtime/rbac.ts | 60.00% < 100% |
+  | packages/@ezcorp/sdk/src/runtime/rpc.ts | 90.00% < 100% |
+  | packages/@ezcorp/sdk/src/runtime/schedule.ts | 54.55% < 100% |
+  | packages/@ezcorp/sdk/src/runtime/search.ts | 32.50% < 100% |
+  | packages/@ezcorp/sdk/src/runtime/settings.ts | 70.00% < 100% |
+  | packages/@ezcorp/sdk/src/runtime/spawn.ts | 77.19% < 100% |
+  | packages/@ezcorp/sdk/src/runtime/storage.ts | 99.06% < 100% |
+  | packages/@ezcorp/sdk/src/runtime/task-events.ts | 25.00% < 100% |
+  | packages/@ezcorp/sdk/src/runtime/triggers.ts | 52.50% < 100% |
+  | packages/@ezcorp/sdk/src/runtime/webhook.ts | 57.14% < 100% |
+  | packages/@ezcorp/sdk/src/runtime/workflows.ts | 93.94% < 100% |
+  | packages/@ezcorp/sdk/src/v4/context.ts | 70.83% < 100% |
+  | packages/@ezcorp/sdk/src/v4/invocation-channel.ts | 89.09% < 100% |
+  | packages/@ezcorp/sdk/src/v4/native-proxy.ts | 76.86% < 100% |
+  | packages/@ezcorp/sdk/src/v4/network.ts | 9.52% < 100% |
+  | packages/@ezcorp/sdk/src/v4/runtime.ts | 93.65% < 100% |
+  | packages/@ezcorp/sdk/src/v4/serve.ts | 2.65% < 100% |
+  | src/suggest/config.ts | 34.78% < 100% |
+  | src/suggest/enhance.ts | 34.85% < 100% |
+  | web/src/lib/server/security/api-keys.ts | 77.08% < 90% |
+  | web/src/lib/server/security/bundled-creds.ts | 0.00% < 90% |
+  | web/src/lib/server/security/internal-auth.ts | 87.80% < 90% |
+  | web/src/lib/server/security/openai-extension-creds.ts | 0.00% < 90% |
+  | web/src/lib/server/security/rate-limiter.ts | 88.64% < 90% |
+  | web/src/lib/server/security/resource-quotas.ts | 37.04% < 90% |
+  | web/src/lib/server/security/route-allowlist.ts | 91.43% < 100% |
+  | web/src/lib/server/security/system-user.ts | 0.00% < 90% |
+  | packages/@ezcorp/ai-kit/src/mcp/tools/orchestrate.ts | no lcov data |
+  | packages/@ezcorp/ai-kit/src/mcp/tools/discover.ts | no lcov data |
+  | packages/@ezcorp/ai-kit/src/mcp/tools/agents.ts | no lcov data |
+  | packages/@ezcorp/ai-kit/src/mcp/tools/chat.ts | no lcov data |
+  | packages/@ezcorp/ai-kit/src/mcp/server.ts | no lcov data |
+  | src/db/queries/suggestion-feedback.ts | no lcov data |
+  | web/src/lib/empty-node-shim.ts | no lcov data |
+  | web/src/lib/api.ts | no lcov data |
+  | src/suggest/intent-rank.ts | 0 measured lines |
+  | src/suggest/embedding-cache.ts | 0 measured lines |
+  | src/suggest/training-export.ts | 0 measured lines |
+  | src/suggest/user-tool-priors.ts | 0 measured lines |
+  | web/src/lib/shortcuts.ts | 0 measured lines |
+  | web/src/lib/clipboard.ts | 0 measured lines |
+  | web/src/lib/tool-display.ts | 0 measured lines |
+  | web/src/lib/api.ts | 0 measured lines |
+  | web/src/lib/theme.ts | 0 measured lines |
+  | web/src/lib/combobox-nav.ts | 0 measured lines |
+  | web/src/lib/focus-trap.ts | 0 measured lines |
+  | web/src/lib/chat-scroll-restore.ts | 0 measured lines |
+  | web/src/lib/sub-convo-agent-state.ts | 0 measured lines |
+  | web/src/lib/empty-node-shim.ts | 0 measured lines |
+  | web/src/lib/select-mode.ts | 0 measured lines |
+  | web/src/lib/sub-agent-routing.ts | 0 measured lines |
+  | web/src/lib/auth-keepalive.ts | 0 measured lines |
+  | web/src/lib/panel-persistence.ts | 0 measured lines |
+  | web/src/lib/commands.ts | 0 measured lines |
+  | web/src/lib/markdown-speech.ts | 0 measured lines |
+  | web/src/lib/progressive-image.ts | 0 measured lines |
+  | web/src/lib/last-model.ts | 0 measured lines |
+  | web/src/lib/workers/agent-fuzzy-search-bridge.ts | 0 measured lines |
+  | web/src/lib/workers/agent-fuzzy-search-worker.ts | 0 measured lines |
+  | web/src/lib/workers/kokoro-tts-bridge.ts | 0 measured lines |
+  | web/src/lib/ez/pill-visibility.ts | 0 measured lines |
+  | web/src/lib/ez/api.ts | 0 measured lines |
+  | web/src/lib/chat/attachment-client.ts | 0 measured lines |
+  | web/src/lib/chat/chat-window-drop.ts | 0 measured lines |
+  | web/src/lib/chat/page-handlers/inline-tool-handlers.ts | 0 measured lines |
+  | web/src/lib/actions/hover-tooltip.ts | 0 measured lines |
+  | web/src/lib/components/tool-cards/price-chart-logic.ts | 0 measured lines |
+
 ## Leg manifest for the combined runner (ruling 2026-09-27)
 
 `scripts/combined-runner-legs.json` names what the local combined runner and the wave4f driver must run beyond their
