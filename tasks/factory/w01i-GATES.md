@@ -99,6 +99,7 @@ The same `entry.tenantId` already keys `guestBrokers`, so both sections name the
 | `88fedcf89` | merge integ/w00 d2bc674c7 (W14) so the real-lane stack can be ported; hook cap skip by coordinator ruling 2026-09-27 07:20Z; workspace packages rebuilt first; all 36 listed suites green outside the hook (`logs/merge-integ-suites/`); config hash unchanged |
 | `2f1f2791e` | the real-lane stack (`web/e2e/factory-services/stack.ts`) writes `peerTenants: { "tenant-a": TENANT }` |
 | `124f7043e` | the runtime's post-result stop names its tenant without a cancel command (the lane-found defect below; hook ran its 3 suites under the lock) |
+| `b0152056b` | merge W01h's fix round `aefcf828f` (a stop sealed first owns the attempt's end; no stop-settlement hot loop), the fix for the loop this lane found; clean; the hook ran its 7 suites green; typecheck, boundaries, and W01i's host-route, supervisor, composition and C05 suites green after it (`logs/remerge2/`) |
 
 ## The real lane (the coordinator's condition for the e2e stack)
 
