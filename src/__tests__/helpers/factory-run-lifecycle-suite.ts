@@ -776,9 +776,10 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     const world = await protectedAcceptance(true);
     const task = world.completed.task;
     const archive = memoryReleaseArchive();
-    // The sender fence's quiet period counts on the store's clock; a test that proves absence has let it pass.
-    const releasesAt = (clock: () => number) => new FactoryReleases(fixture.db, tenantId, grants, world.assurance, world.releaseAuthority, world.releaseAuthority,
-      new FactoryDestinationReservations({ database: fixture.db, tenantId }), archive, new FactoryStoreSenderFence({ database: fixture.db, tenantId, now: () => clock() + FACTORY_SENDER_QUIET_PERIOD_MS }), clock);
+    // The sender fence's quiet period counts on the store's clock. A test that proves absence has let it pass;
+    // with `senderQuiet: false` it has not, so the fence cannot prove the sender stopped.
+    const releasesAt = (clock: () => number, senderQuiet = true) => new FactoryReleases(fixture.db, tenantId, grants, world.assurance, world.releaseAuthority, world.releaseAuthority,
+      new FactoryDestinationReservations({ database: fixture.db, tenantId }), archive, new FactoryStoreSenderFence({ database: fixture.db, tenantId, now: () => clock() + (senderQuiet ? FACTORY_SENDER_QUIET_PERIOD_MS : 0) }), clock);
     const releases = releasesAt(Date.now);
     const effects = new FactoryProtectedCommandEffects(fixture.db, tenantId, task.authority, world.completed.completions, world.releaseAuthority, world.assurance, releases,
       [factorySynchronousReleaseProfile({ adapter: world.releaseNode.adapter, action: "publish", build(input) { return { destination: { provider: "test", account: "protected", object: `stop-${phase}-${world.completed.task.run.runId}` }, request: { acceptedCandidate: input.acceptedCandidate, destination: input.destination }, estimatedSpendMicros: 42 }; } })]);
@@ -839,7 +840,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
       return { stopped, run: rows<{ status: string }>(await fixture.db.execute(sql`SELECT status FROM factory_run_lifecycle WHERE tenant_id=${tenantId} AND project_id=${projectId} AND run_id=${task.run.runId}`))[0]?.status };
     };
     const reports: Array<{ role: string; code: unknown }> = [];
-    const pass = (clock: () => number = Date.now) => factoryReleaseOutcomeDriver(fixture.db, releasesAt(clock), lifecycle, async () => [projectId], factoryReleaseProviderResolver({ test: provider }),
+    const pass = (clock: () => number = Date.now, senderQuiet = true) => factoryReleaseOutcomeDriver(fixture.db, releasesAt(clock, senderQuiet), lifecycle, async () => [projectId], factoryReleaseProviderResolver({ test: provider }),
       (role, error) => { if (role.endsWith(`:${operationId}`)) reports.push({ role, code: (error as { code?: unknown }).code }); }).step(new AbortController().signal);
     const delivery = new FactoryReleaseOutcomeDelivery({ database: fixture.db, tenantId, service: task.service, effects, authority: task.authority, inbox });
     /** The stop outcome's cost record: {costMicros, source, basis}, or null while the effect is unrecorded. */
@@ -987,6 +988,19 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     expect(await world.reservation()).toEqual(["released"]);
     await expect(world.delivery.deliver(projectId, world.operationId)).rejects.toMatchObject({ code: "factory_release_stopped" });
     expect(await world.runStatus()).toBe("cancelled");
+  });
+
+  test("W09e R3: the provider's absence alone proves nothing while the sender cannot be proven stopped", async () => {
+    const world = await stoppedDuringPublish();
+    world.provider.answer("failed");
+    expect(await world.dispatching).toMatchObject({ state: "uncertain" });
+    // The provider shows nothing and would prove absence, but the sender's quiet period has not passed.
+    expect(await world.pass(Date.now, false)).toBe(false);
+    expect(world.lookups()).toBe(1);
+    expect(world.reports).toEqual([{ role: `release-outcome:transient:${world.operationId}`, code: "factory_release_stop_outcome_unknown" }]);
+    expect(await world.operation()).toMatchObject({ state: "uncertain", stop_outcome: null });
+    expect(await world.cost()).toBeNull();
+    expect(await world.reservation()).toEqual(["held"]);
   });
 
   test("W09e R3: an unanswered question is a named transient, and a later pass asks again", async () => {
