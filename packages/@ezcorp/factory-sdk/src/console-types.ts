@@ -121,6 +121,44 @@ export interface FactoryRunCostResource {
   readonly unknownCostMicros: string;
   readonly admissionBlocked: boolean;
   readonly uncertain: boolean;
+  /**
+   * The cost of each release the run was stopped during (W09e). Release spend stays outside the compute budget
+   * ledger; these lines are its record, and the figures above include them: a held bound in
+   * `unknownCostMicros`, a settled figure in `knownCostMicros`. Absent when no release was stopped.
+   * @maxItems 200
+   */
+  readonly releases?: readonly FactoryRunReleaseCostResource[];
+}
+
+/** Where a stopped release's cost came from, in the usage settlement vocabulary (W03f). */
+export type FactoryReleaseCostSource = "proven-no-effect" | "provider-receipt" | "reserved-bound";
+
+/**
+ * One stopped release's cost. `held`: its effect is not recorded yet, so its reserved bound (its signed
+ * estimated spend) is held as unknown cost under the named hold `operation-cost-unknown`. `settled`: the figure
+ * its recorded effect settled at, with the source and the basis.
+ */
+export type FactoryRunReleaseCostResource = FactoryRunReleaseCostHeld | FactoryRunReleaseCostSettled;
+
+interface FactoryRunReleaseCostLine {
+  /** @minLength 1 @maxLength 512 */
+  readonly operationId: string;
+  /** @minLength 1 @maxLength 512 */
+  readonly nodeInstanceId: string;
+  /** @pattern ^(0|[1-9][0-9]{0,30})$ */
+  readonly costMicros: string;
+}
+
+export interface FactoryRunReleaseCostHeld extends FactoryRunReleaseCostLine {
+  readonly state: "held";
+  readonly hold: "operation-cost-unknown";
+}
+
+export interface FactoryRunReleaseCostSettled extends FactoryRunReleaseCostLine {
+  readonly state: "settled";
+  readonly source: FactoryReleaseCostSource;
+  /** @minLength 1 @maxLength 512 */
+  readonly basis: string;
 }
 
 export interface FactoryArtifactResource {

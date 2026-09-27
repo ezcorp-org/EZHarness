@@ -59,6 +59,8 @@ export type FactoryGatedPublishAnswer = "published" | "lost" | "failed";
 export class FactoryGatedProvider extends FactoryRememberingProvider {
   readonly lookedUp: string[] = [];
   lookupFails = false;
+  /** When set, the provider's receipt carries this spend. */
+  spendMicros?: number;
   readonly started: Promise<void>;
   #start!: () => void;
   #answer!: (answer: FactoryGatedPublishAnswer) => void;
@@ -73,7 +75,9 @@ export class FactoryGatedProvider extends FactoryRememberingProvider {
     this.#start();
     const answer = await this.#answered;
     if (answer === "failed") { this.calls += 1; throw new Error("provider refused before any write"); }
-    const receipt = await super.publish(claim);
+    const published = await super.publish(claim);
+    const receipt = this.spendMicros === undefined ? published : { ...published, spendMicros: this.spendMicros };
+    this.receipts.set(claim.operationId, receipt);
     if (answer === "lost") throw new Error("provider response lost after the write");
     return receipt;
   }

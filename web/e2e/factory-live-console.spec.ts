@@ -93,7 +93,15 @@ function inspection(runId: string, status: FactoryRunSummary["status"]): Factory
 			{ kind: "approval", id: "approval-ship", nodeInstanceId: "approve-the-release-candidate", reason: "Waiting for an approval decision", sinceMs: 1 },
 			{ kind: "release", id: "operation-catalog", nodeInstanceId: "publish-catalog", reason: "Release outcome is uncertain and needs reconciliation", sinceMs: 2 },
 		],
-		costs: { limitMicros: "25000000", allocatedMicros: "12500000", spentMicros: "9870000", knownCostMicros: "9870000", unknownCostMicros: "420000", admissionBlocked: false, uncertain: true },
+		costs: status === "cancelled" ? {
+			// Stopped releases: one held at its bound until its effect is known, one charged at the bound, one proven free.
+			limitMicros: "25000000", allocatedMicros: "12500000", spentMicros: "9870000", knownCostMicros: "14070000", unknownCostMicros: "4200000", admissionBlocked: false, uncertain: true,
+			releases: [
+				{ operationId: "operation-catalog-archive", nodeInstanceId: "archive-catalog", state: "settled", costMicros: "0", source: "proven-no-effect", basis: "proven: the provider shows no publication and the sender is stopped" },
+				{ operationId: "operation-catalog-mirror", nodeInstanceId: "mirror-catalog-to-the-secondary-region", state: "settled", costMicros: "4200000", source: "reserved-bound", basis: "bound: the provider reports no spend" },
+				{ operationId: "operation-catalog-publish", nodeInstanceId: "publish-catalog", state: "held", costMicros: "4200000", hold: "operation-cost-unknown" },
+			],
+		} : { limitMicros: "25000000", allocatedMicros: "12500000", spentMicros: "9870000", knownCostMicros: "9870000", unknownCostMicros: "420000", admissionBlocked: false, uncertain: true },
 		acceptance: [
 			{ commandId: "cmd-accept-1", decision: "rejected", candidateDigest: digest("f"), reasons: [{ claimId: "tests-pass", validatorId: "validator.unit-tests", verdict: "FAIL", reasonCode: "TESTS_FAILED" }, { claimId: "coverage-at-least-ninety-percent-of-changed-lines", validatorId: "validator.coverage", verdict: "FAIL", reasonCode: "COVERAGE_BELOW_THRESHOLD" }], groupFailures: [{ groupId: "quality", passes: 1, minimumPasses: 2 }], decidedAtMs: 1 },
 			{ commandId: "cmd-accept-2", decision: "accepted", candidateDigest: digest("9"), reasons: [], groupFailures: [], decidedAtMs: 2 },
@@ -101,6 +109,7 @@ function inspection(runId: string, status: FactoryRunSummary["status"]): Factory
 		releases: status === "cancelled" ? [
 			{ operationId: "operation-catalog-publish", nodeInstanceId: "publish-catalog", state: "executing", action: "factory.release.publish", dispatchGeneration: 1, deadlineMs: RELEASE_DEADLINE_MS, stop: { requestedAtMs: 1_789_000_090_000, effect: "uncertain" } },
 			{ operationId: "operation-catalog-mirror", nodeInstanceId: "mirror-catalog-to-the-secondary-region", state: "succeeded", action: "factory.release.publish", dispatchGeneration: 1, deadlineMs: RELEASE_DEADLINE_MS, stop: { requestedAtMs: 1_789_000_090_000, effect: "published" } },
+			{ operationId: "operation-catalog-archive", nodeInstanceId: "archive-catalog", state: "failed", action: "factory.release.publish", dispatchGeneration: 1, outcomeCode: "stopped_no_effect", deadlineMs: RELEASE_DEADLINE_MS, stop: { requestedAtMs: 1_789_000_090_000, effect: "no_effect" } },
 		] : [{ operationId: "operation-catalog", nodeInstanceId: "publish-catalog", state: "uncertain", action: "factory.release.publish", dispatchGeneration: 2, outcomeCode: "provider_timeout", deadlineMs: RELEASE_DEADLINE_MS }],
 	};
 }
@@ -251,7 +260,16 @@ test.describe("factory live console", () => {
 		await expect(stops).toHaveText([
 			"Stopped during publish · effect uncertain · deadline 2030-03-17 17:46 UTC",
 			"Stopped after publish · the release was published · deadline 2030-03-17 17:46 UTC",
+			"Stopped before publish · nothing was published · deadline 2030-03-17 17:46 UTC",
 		]);
+		// The cost of each: settled at zero with its proof, settled at the bound, and held at the bound until known.
+		const costs = inspector.getByTestId("factory-release-cost");
+		await expect(costs).toHaveText([
+			/archive-catalog\s*proven-no-effect · proven: the provider shows no publication and the sender is stopped\s*0\.0000/,
+			/mirror-catalog-to-the-secondary-region\s*reserved-bound · bound: the provider reports no spend\s*4\.2000/,
+			/publish-catalog\s*held at its bound · operation-cost-unknown\s*4\.2000/,
+		]);
+		await expect(costs.last()).toHaveAttribute("data-state", "held");
 		await expect(stops.first()).toHaveAttribute("data-effect", "uncertain");
 		await stops.first().evaluate(element => element.scrollIntoView({ block: "center" }));
 		await captureEvidence(page, testInfo, "factory-run-stopped-release-1440-light");
@@ -260,6 +278,8 @@ test.describe("factory live console", () => {
 		expect(await factoryLayoutOverflow(page)).toEqual([]);
 		await stops.last().evaluate(element => element.scrollIntoView({ block: "center" }));
 		await captureEvidence(page, testInfo, "factory-run-stopped-release-390-light");
+		await costs.first().evaluate(element => element.scrollIntoView({ block: "center" }));
+		await captureEvidence(page, testInfo, "factory-run-stopped-release-costs-390-light");
 	});
 
 	test("filters attempts on the server and walks into a nested run and back", async ({ page, mockApi }) => {

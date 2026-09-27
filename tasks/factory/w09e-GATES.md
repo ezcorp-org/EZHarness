@@ -88,8 +88,25 @@ pass (250 ms idle delay), which is the lane's `factory_release_consent_absent` l
   transaction.
 - Red: `logs/r3-lifecycle-red.log` (5 fail on `487183a39`).
 - Green at the head: lifecycle 90/0 on PostgreSQL and PGlite; driver unit 44/0; S3 lookup unit 5/0.
-- Cost: OPEN, waiting for the coordinator's ruling (W03f's `settleAtBound` takes a compute reservation and an
-  attempt; a release has neither).
+- Cost (coordinator ruling, 17:13Z): release spend stays outside the compute budget ledger in W09e; there is no
+  entry point beside W03f's `settleAtBound` and no call into W03f. The stop outcome records `{costMicros, source,
+  basis}` in `stop_cost_micros`, `stop_cost_source`, `stop_cost_basis`, and a check ties them to `stop_outcome`:
+
+  | Outcome | Cost | Source | Basis |
+  | --- | --- | --- | --- |
+  | no_effect (stopped before dispatch) | 0 | `proven-no-effect` | proven: no publish started before the stop |
+  | no_effect (provider lookup + sender fence) | 0 | `proven-no-effect` | proven: the provider shows no publication and the sender is stopped |
+  | no_effect (operator reconciliation) | 0 | `proven-no-effect` | proven: an operator's reconciliation shows no publication |
+  | published, receipt carries spend | the spend | `provider-receipt` | measured: the provider receipt's spend |
+  | published, no spend on the receipt | the bound | `reserved-bound` | bound: the provider reports no spend |
+  | unknown_at_deadline | the bound | `reserved-bound` | unknown: charged at reserved bound; ended by stop |
+
+  The bound is the release's signed `estimated_spend_micros`. The first recorded outcome's cost stays, as the
+  outcome does. The run inspection's costs list each stopped release: `held` at the bound under the named hold
+  `operation-cost-unknown` while the outcome is unrecorded (the bound in `unknownCostMicros`, `uncertain`), and
+  `settled` with source and basis once recorded (the figure in `knownCostMicros`). The run inspector renders the
+  three; the e2e test on `/factories?view=runs` asserts them.
+- Follow-up recorded by name in `tasks/todo.md`: "release spend into the budget ledger".
 
 ## G4 = R4: late answers
 
@@ -119,6 +136,14 @@ pass (250 ms idle delay), which is the lane's `factory_release_consent_absent` l
 - One run: stopped during its publish, the run `cancelled` with `RELEASE_EFFECT_UNCERTAIN`; the publish then
   succeeds; the operation is `succeeded` with `stop_outcome = published` and late evidence; delivery refuses
   it; the run stays `cancelled`. Red: `logs/r3-lifecycle-red.log`. Green: lifecycle 90/0.
+
+## Bun 1.4.2 observation (for the W12e upgrade decision)
+
+Runs whose app server ran under the system Bun 1.4.2 (the tool directory lacked `bunx`) are void: the e2e runs
+at `7f134ad10` and `92bca9a9d`, and the repeat measurements that crashed. The record is the rerun under the pin
+at `fe2199392` and the runs after it. The preview crash (`ERR_STREAM_WRITE_AFTER_END`) did not reproduce under
+1.3.14 (66 of 66); it is recorded in `tasks/todo.md` for W12e, not as a package. The coverage merge at
+`92bca9a9d` used web lcov produced by vitest under 1.4.2 (runner only, no app server); disclosed here.
 
 ## Legs at the head
 

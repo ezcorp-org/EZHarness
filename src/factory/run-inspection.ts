@@ -1,7 +1,7 @@
-import { sql } from "drizzle-orm";
+import { sql, type SQL } from "drizzle-orm";
 import type {
   FactoryAcceptanceResource, FactoryApiPage, FactoryArtifactResource, FactoryAttemptResource, FactoryBlockerResource, FactoryChildRunResource,
-  FactoryInspectionPage, FactoryInspectionQuery, FactoryInspectionSection, FactoryRunCostResource, FactoryRunInspection, FactoryRunReleaseResource, FactoryRunReleaseStopEffect, FactoryRunStatus,
+  FactoryInspectionPage, FactoryInspectionQuery, FactoryInspectionSection, FactoryRunCostResource, FactoryRunInspection, FactoryReleaseCostSource, FactoryRunReleaseCostResource, FactoryRunReleaseResource, FactoryRunReleaseStopEffect, FactoryRunStatus,
   FactoryValidatorMaterialQuery,
   FactoryValidatorMaterialResource,
 } from "@ezcorp/factory-sdk";
@@ -232,11 +232,34 @@ export class FactoryRunInspections {
       known += BigInt(text(row.known_cost_micros));
       if (row.unknown_cost_micros !== null) unknown += BigInt(text(row.unknown_cost_micros));
     }
+    const releases = await this.releaseCosts(transaction, scope);
+    for (const line of releases) {
+      if (line.state === "held") unknown += BigInt(line.costMicros);
+      else known += BigInt(line.costMicros);
+    }
     return {
       limitMicros: String(micros(envelope?.limits)), allocatedMicros: String(micros(envelope?.allocated)), spentMicros: String(micros(envelope?.spent)),
       knownCostMicros: String(known), unknownCostMicros: String(unknown), admissionBlocked: envelope?.admission_blocked === true,
-      uncertain: uncertain?.uncertain === true || unknown > 0n,
+      uncertain: uncertain?.uncertain === true || unknown > 0n || releases.some(line => line.state === "held"),
+      ...(releases.length === 0 ? {} : { releases }),
     };
+  }
+
+  /**
+   * The cost of each release the run was stopped during (W09e cost ruling). Release spend stays outside the
+   * compute budget ledger, so this is its record: while the effect is unrecorded the release's reserved bound
+   * (its signed estimated spend) is held as unknown under `operation-cost-unknown`; once recorded, the figure
+   * and its source and basis.
+   */
+  private async releaseCosts(transaction: MigrationDb, scope: SQL): Promise<readonly FactoryRunReleaseCostResource[]> {
+    const found = rows<Row>(await transaction.execute(sql`SELECT operation_id, node_instance_id, estimated_spend_micros, stop_outcome, stop_cost_micros, stop_cost_source, stop_cost_basis
+      FROM factory_release_operations WHERE ${scope} AND stop_command_id IS NOT NULL ORDER BY operation_id LIMIT ${SECTION_CAP}`));
+    return found.map(row => {
+      const line = { operationId: text(row.operation_id), nodeInstanceId: text(row.node_instance_id) };
+      return row.stop_outcome === null
+        ? { ...line, costMicros: text(row.estimated_spend_micros), state: "held" as const, hold: "operation-cost-unknown" as const }
+        : { ...line, costMicros: text(row.stop_cost_micros), state: "settled" as const, source: text(row.stop_cost_source) as FactoryReleaseCostSource, basis: text(row.stop_cost_basis) };
+    });
   }
 
   private async acceptance(transaction: MigrationDb, key: FactoryRunKey): Promise<readonly FactoryAcceptanceResource[]> {

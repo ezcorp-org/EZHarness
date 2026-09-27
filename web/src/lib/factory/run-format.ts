@@ -1,5 +1,5 @@
 /** Plain-language formatting for the run inspector. Pure, so it is tested directly. */
-import type { FactoryRunReleaseResource, FactoryRunReleaseStopEffect } from "@ezcorp/factory-sdk/types";
+import type { FactoryRunReleaseCostResource, FactoryRunReleaseResource, FactoryRunReleaseStopEffect } from "@ezcorp/factory-sdk/types";
 import type { FactoryRunStreamStatus, FactoryStreamState } from "./run-stream";
 
 /** Plain words for every stream state; none of them claims a status it has not seen. */
@@ -43,6 +43,14 @@ export function formatInstant(ms: number): string {
 export function releaseStopSummary(release: Pick<FactoryRunReleaseResource, "stop" | "deadlineMs">): { readonly effect: string; readonly deadline: string } | undefined {
 	if (!release.stop) return undefined;
 	return { effect: FACTORY_RELEASE_STOP_LABELS[release.stop.effect], deadline: formatInstant(release.deadlineMs) };
+}
+
+/**
+ * What a stopped release's cost line says beside its figure: a held bound names its hold; a settled figure
+ * names its source and basis, so the reader sees how it was decided.
+ */
+export function releaseCostNote(line: FactoryRunReleaseCostResource): string {
+	return line.state === "held" ? `held at its bound · ${line.hold}` : `${line.source} · ${line.basis}`;
 }
 
 export function formatMicros(value: string): string {

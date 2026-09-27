@@ -842,6 +842,11 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     const pass = (clock: () => number = Date.now) => factoryReleaseOutcomeDriver(fixture.db, releasesAt(clock), lifecycle, async () => [projectId], factoryReleaseProviderResolver({ test: provider }),
       (role, error) => { if (role.endsWith(`:${operationId}`)) reports.push({ role, code: (error as { code?: unknown }).code }); }).step(new AbortController().signal);
     const delivery = new FactoryReleaseOutcomeDelivery({ database: fixture.db, tenantId, service: task.service, effects, authority: task.authority, inbox });
+    /** The stop outcome's cost record: {costMicros, source, basis}, or null while the effect is unrecorded. */
+    const cost = async () => {
+      const [row] = rows<{ stop_cost_micros: number | string | null; stop_cost_source: string | null; stop_cost_basis: string | null }>(await fixture.db.execute(sql`SELECT stop_cost_micros,stop_cost_source,stop_cost_basis FROM factory_release_operations WHERE tenant_id=${tenantId} AND project_id=${projectId} AND operation_id=${operationId}`));
+      return row!.stop_cost_source === null ? null : { costMicros: Number(row!.stop_cost_micros), source: row!.stop_cost_source, basis: row!.stop_cost_basis };
+    };
     const lateEvidence = async () => JSON.parse(rows<{ late_evidence_json: string | null }>(await fixture.db.execute(sql`SELECT late_evidence_json FROM factory_release_operations WHERE tenant_id=${tenantId} AND project_id=${projectId} AND operation_id=${operationId}`))[0]!.late_evidence_json ?? "null") as unknown;
     const runStatus = async () => {
       await new FactoryRunTransitionProjector(fixture.db, tenantId, task.transitions, lifecycle).project(runKey(task.run.runId));
@@ -850,8 +855,13 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     const reservation = async () => rows<{ state: string }>(await fixture.db.execute(sql`SELECT state FROM factory_release_destination_reservations WHERE tenant_id=${tenantId} AND operation_id=${operationId}`)).map(row => row.state);
     // The role walks the whole project, which other cases share, so a case counts only its own questions.
     const lookups = () => provider.lookedUp.filter(id => id === operationId).length;
-    return { task, releases, releasesAt, operationId, claim, provider, lookups, dispatching, pass, reports, delivery, lateEvidence, runStatus, reservation, cancelNode, cancelReference, stop: () => cancel(task.service, cancelReference), operation, apply };
+    return { task, releases, releasesAt, operationId, claim, provider, lookups, cost, dispatching, pass, reports, delivery, lateEvidence, runStatus, reservation, cancelNode, cancelReference, stop: () => cancel(task.service, cancelReference), operation, apply };
   }
+
+  // W09e cost ruling: the release's reserved bound is its signed estimated spend (42 in this world).
+  const BOUND = 42;
+  const NO_EFFECT_BEFORE_DISPATCH = { costMicros: 0, source: "proven-no-effect", basis: "proven: no publish started before the stop" };
+  const BOUND_NO_SPEND = { costMicros: BOUND, source: "reserved-bound", basis: "bound: the provider reports no spend" };
 
   test("W09e R1: a user cancel while a release is in flight ends the run", async () => {
     // Red first on integ (factory_task_stop_stale, run cancelling): the cancel route resolved every cancel through
@@ -861,6 +871,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     expect(event).toEqual({ kind: "attempt-stopped", id: `${world.cancelNode.id}:stopped`, atMs: expect.any(Number), nodeId: "release", commandId: world.cancelNode.attemptCommandId, candidateGeneration: world.cancelNode.candidateGeneration, attempt: world.cancelNode.attempt });
     expect(await world.operation()).toEqual({ state: "failed", outcome_code: "stopped_before_dispatch", stop_command_id: world.cancelNode.id, stop_requested_epoch: expect.anything(), stop_outcome: "no_effect" });
     expect(Number((await world.operation()).stop_requested_epoch)).toBe(world.cancelNode.cancellationEpoch);
+    expect(await world.cost()).toEqual(NO_EFFECT_BEFORE_DISPATCH);
     // A repeated cancel returns the event recorded the first time and marks nothing again.
     expect(await world.stop()).toEqual(event);
     // A stopped release is never claimed afterwards: the run fence refuses first; the operation's own row check
@@ -879,6 +890,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     // No dispatch started under the row lock the dispatch start also takes, so no publish can have started.
     expect(await world.operation()).toMatchObject({ state: "failed", outcome_code: "stopped_before_dispatch", stop_command_id: world.cancelNode.id, stop_outcome: "no_effect" });
     expect(await world.reservation()).toEqual(["released"]);
+    expect(await world.cost()).toEqual(NO_EFFECT_BEFORE_DISPATCH);
     const provider = new FactoryRememberingProvider();
     await expect(world.releases.dispatch(world.claim!, provider)).rejects.toMatchObject({ code: "factory_release_sender_fenced" });
     expect(provider.calls).toBe(0);
@@ -907,6 +919,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     const event = await world.stop();
     expect(event).toMatchObject({ kind: "attempt-stopped", uncertain: false, effect: "published" });
     expect(await world.operation()).toMatchObject({ state: "succeeded", stop_command_id: world.cancelNode.id, stop_outcome: "published" });
+    expect(await world.cost()).toEqual(BOUND_NO_SPEND);
     const { stopped, run } = await world.apply(event!);
     expect(run).toBe("cancelled");
     expect(stopped.nextState.nodes.release).toMatchObject({ status: "cancelled", error: "RELEASE_PUBLISHED_BEFORE_STOP" });
@@ -920,12 +933,15 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     const { stopped, run } = await world.apply(event!);
     expect(run).toBe("cancelled");
     expect(stopped.nextState.nodes.release).toMatchObject({ status: "cancelled", error: "RELEASE_EFFECT_UNCERTAIN" });
+    // The effect is unrecorded, so is the cost: the run shows the bound held as unknown until it is.
+    expect(await world.cost()).toBeNull();
     return world;
   }
 
   /** The release published after its run stopped: the effect is recorded, the node and the run keep the stop. */
-  async function expectPublishedAfterStop(world: Awaited<ReturnType<typeof releaseStopWorld>>, source: string, outcome = "published") {
+  async function expectPublishedAfterStop(world: Awaited<ReturnType<typeof releaseStopWorld>>, source: string, outcome = "published", cost: Awaited<ReturnType<Awaited<ReturnType<typeof releaseStopWorld>>["cost"]>> = BOUND_NO_SPEND) {
     expect(await world.operation()).toMatchObject({ state: "succeeded", stop_command_id: world.cancelNode.id, stop_outcome: outcome });
+    expect(await world.cost()).toEqual(cost);
     expect(await world.lateEvidence()).toEqual({ kind: "receipt", source, providerReceiptId: `receipt-${world.operationId}`, receiptDigest: expect.stringMatching(/^sha256:/), recordedAtMs: expect.any(Number), statusRefusal: "factory_release_stopped" });
     await expect(world.delivery.deliver(projectId, world.operationId)).rejects.toMatchObject({ code: "factory_release_stopped" });
     expect(rows(await fixture.db.execute(sql`SELECT event_id FROM factory_inbox_events WHERE tenant_id=${tenantId} AND project_id=${projectId} AND event_id=${factoryReleaseOutcomeEventId(world.operationId)}`))).toEqual([]);
@@ -937,6 +953,14 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     world.provider.answer("published");
     expect(await world.dispatching).toMatchObject({ state: "succeeded" });
     await expectPublishedAfterStop(world, "dispatch");
+  });
+
+  test("W09e R7: a receipt that carries the provider's spend settles the stopped release at that spend", async () => {
+    const world = await stoppedDuringPublish();
+    world.provider.spendMicros = 17;
+    world.provider.answer("published");
+    expect(await world.dispatching).toMatchObject({ state: "succeeded" });
+    await expectPublishedAfterStop(world, "dispatch", "published", { costMicros: 17, source: "provider-receipt", basis: "measured: the provider receipt's spend" });
   });
 
   test("W09e R3: the release outcome finds a publish whose response was lost after the stop, with one question", async () => {
@@ -959,6 +983,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     expect(await world.pass()).toBe(true);
     expect(world.lookups()).toBe(1);
     expect(await world.operation()).toMatchObject({ state: "failed", outcome_code: "stopped_no_effect", stop_outcome: "no_effect" });
+    expect(await world.cost()).toEqual({ costMicros: 0, source: "proven-no-effect", basis: "proven: the provider shows no publication and the sender is stopped" });
     expect(await world.reservation()).toEqual(["released"]);
     await expect(world.delivery.deliver(projectId, world.operationId)).rejects.toMatchObject({ code: "factory_release_stopped" });
     expect(await world.runStatus()).toBe("cancelled");
@@ -974,6 +999,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     expect(world.lookups()).toBe(2);
     expect(world.reports).toEqual([1, 2].map(() => ({ role: `release-outcome:transient:${world.operationId}`, code: "factory_release_stop_outcome_unknown" })));
     expect(await world.operation()).toMatchObject({ state: "uncertain", stop_outcome: null });
+    expect(await world.cost()).toBeNull();
   });
 
   test("W09e R3: an operator's no-effect proof ends a stopped release with no effect, never pending again", async () => {
@@ -982,6 +1008,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     const { dispatchGeneration } = await world.dispatching!;
     const reconciled = await world.releasesAt(Date.now).reconcile(principal, { projectId, operationId: world.operationId, action: "confirm_no_effect", reason: "the destination shows nothing", providerEvidence: { operationId: world.operationId, reason: "operator lookup" } }, dispatchGeneration, world.provider, `w09e-operator-${world.operationId}`);
     expect(reconciled).toMatchObject({ state: "failed", outcomeCode: "stopped_no_effect", stop: { outcome: "no_effect" } });
+    expect(await world.cost()).toEqual({ costMicros: 0, source: "proven-no-effect", basis: "proven: an operator's reconciliation shows no publication" });
     expect(await world.reservation()).toEqual(["released"]);
     await world.pass();
     expect(world.lookups()).toBe(0);
@@ -993,11 +1020,14 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     expect(await world.pass(() => deadlineMs)).toBe(true);
     expect(world.lookups()).toBe(0);
     expect(await world.operation()).toMatchObject({ state: "uncertain", outcome_code: "unknown_at_deadline", stop_outcome: "unknown_at_deadline" });
+    const atBound = { costMicros: BOUND, source: "reserved-bound", basis: "unknown: charged at reserved bound; ended by stop" };
+    expect(await world.cost()).toEqual(atBound);
     // The publish answers after the deadline: the effect happened and is recorded, the deadline's outcome stays,
     // and the node's status is refused the late answer.
     world.provider.answer("published");
     expect(await world.dispatching).toMatchObject({ state: "succeeded" });
-    await expectPublishedAfterStop(world, "dispatch", "unknown_at_deadline");
+    // The deadline decided the cost once; the late receipt does not move it.
+    await expectPublishedAfterStop(world, "dispatch", "unknown_at_deadline", atBound);
   });
 
   test("an authorized child still creates exactly one release operation", async () => {

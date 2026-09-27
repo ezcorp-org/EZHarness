@@ -3303,6 +3303,15 @@
       ],
       "type": "object"
     },
+    "FactoryReleaseCostSource": {
+      "description": "Where a stopped release's cost came from, in the usage settlement vocabulary (W03f).",
+      "enum": [
+        "proven-no-effect",
+        "provider-receipt",
+        "reserved-bound"
+      ],
+      "type": "string"
+    },
     "FactoryReleaseDestinationBody": {
       "additionalProperties": false,
       "properties": {
@@ -3980,6 +3989,14 @@
           "pattern": "^(0|[1-9][0-9]{0,30})$",
           "type": "string"
         },
+        "releases": {
+          "description": "The cost of each release the run was stopped during (W09e). Release spend stays outside the compute budget ledger; these lines are its record, and the figures above include them: a held bound in `unknownCostMicros`, a settled figure in `knownCostMicros`. Absent when no release was stopped.",
+          "items": {
+            "$ref": "#/definitions/FactoryRunReleaseCostResource"
+          },
+          "maxItems": 200,
+          "type": "array"
+        },
         "spentMicros": {
           "pattern": "^(0|[1-9][0-9]{0,30})$",
           "type": "string"
@@ -4165,6 +4182,92 @@
         "costs",
         "acceptance",
         "releases"
+      ],
+      "type": "object"
+    },
+    "FactoryRunReleaseCostHeld": {
+      "additionalProperties": false,
+      "properties": {
+        "costMicros": {
+          "pattern": "^(0|[1-9][0-9]{0,30})$",
+          "type": "string"
+        },
+        "hold": {
+          "const": "operation-cost-unknown",
+          "type": "string"
+        },
+        "nodeInstanceId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "operationId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "state": {
+          "const": "held",
+          "type": "string"
+        }
+      },
+      "required": [
+        "costMicros",
+        "hold",
+        "nodeInstanceId",
+        "operationId",
+        "state"
+      ],
+      "type": "object"
+    },
+    "FactoryRunReleaseCostResource": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/FactoryRunReleaseCostHeld"
+        },
+        {
+          "$ref": "#/definitions/FactoryRunReleaseCostSettled"
+        }
+      ],
+      "description": "One stopped release's cost. `held`: its effect is not recorded yet, so its reserved bound (its signed estimated spend) is held as unknown cost under the named hold `operation-cost-unknown`. `settled`: the figure its recorded effect settled at, with the source and the basis."
+    },
+    "FactoryRunReleaseCostSettled": {
+      "additionalProperties": false,
+      "properties": {
+        "basis": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "costMicros": {
+          "pattern": "^(0|[1-9][0-9]{0,30})$",
+          "type": "string"
+        },
+        "nodeInstanceId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "operationId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/definitions/FactoryReleaseCostSource"
+        },
+        "state": {
+          "const": "settled",
+          "type": "string"
+        }
+      },
+      "required": [
+        "basis",
+        "costMicros",
+        "nodeInstanceId",
+        "operationId",
+        "source",
+        "state"
       ],
       "type": "object"
     },

@@ -3,7 +3,7 @@
 	import { onDestroy, tick } from "svelte";
 	import type { FactoryArtifactResource, FactoryAttemptResource, FactoryChildRunResource, FactoryRunEvent, FactoryRunInspection, FactoryRunStatus, FactoryRunSummary } from "@ezcorp/factory-sdk/types";
 	import { FactoryApiClient, FactoryApiClientError, type FactoryRunControlApi, type FactoryRunInspectorApi } from "./client";
-	import { FACTORY_STREAM_LABELS, appendUnique, formatBytes, formatMicros, horizontalRevealOffset, releaseStopSummary, shortDigest, streamSummary } from "./run-format";
+	import { FACTORY_STREAM_LABELS, appendUnique, formatBytes, formatMicros, horizontalRevealOffset, releaseCostNote, releaseStopSummary, shortDigest, streamSummary } from "./run-format";
 	import { FactoryRunStream, type FactoryRunStreamStatus } from "./run-stream";
 	import FactoryArtifactPreview from "./FactoryArtifactPreview.svelte";
 	import FactoryRunControls from "./FactoryRunControls.svelte";
@@ -310,6 +310,16 @@
 							{#if inspection.costs.uncertain}Some provider usage is not settled yet.{:else}All reported usage is settled.{/if}
 							{#if inspection.costs.admissionBlocked} New work is held by the budget.{/if}
 						</p>
+						{#if inspection.costs.releases?.length}
+							<ul class="release-costs" aria-label="Stopped release costs">
+								{#each inspection.costs.releases as line (line.operationId)}
+									<li data-state={line.state} data-testid="factory-release-cost">
+										<span class="release-cost-copy"><strong title={line.operationId}>{line.nodeInstanceId}</strong><span class="release-cost-note">{releaseCostNote(line)}</span></span>
+										<span class="release-cost-figure">{formatMicros(line.costMicros)}</span>
+									</li>
+								{/each}
+							</ul>
+						{/if}
 					</section>
 
 					<section class="card" aria-labelledby="acceptance-title">
@@ -547,6 +557,13 @@
 	.figures dt { color: var(--color-text-muted); font-size: 10px; letter-spacing: .06em; text-transform: uppercase; }
 	.figures dd { margin: 2px 0 0; overflow: hidden; font-family: var(--font-mono); font-size: 15px; font-weight: 700; text-overflow: ellipsis; }
 	.figures dd.warn { color: var(--color-amber-500); }
+	.release-costs { display: grid; gap: 8px; margin: 12px 0 0; padding: 10px 0 0; border-top: 1px solid var(--color-border); list-style: none; }
+	.release-costs li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 10px; }
+	.release-cost-copy { display: grid; min-width: 0; }
+	.release-cost-copy strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+	.release-cost-note { color: var(--color-text-muted); font-size: 11px; line-height: 1.35; }
+	.release-cost-figure { font-family: var(--font-mono); font-size: 12px; font-weight: 700; }
+	.release-costs li[data-state="held"] .release-cost-figure { color: color-mix(in srgb, var(--color-amber-500) 65%, var(--color-text-primary)); }
 	.card-note { margin: 10px 0 0; color: var(--color-text-secondary); font-size: 11px; }
 	.decision { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
 	.contract { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; margin: 12px 0 0; border-top: 1px solid var(--color-border); padding-top: 10px; font-size: 11px; }
