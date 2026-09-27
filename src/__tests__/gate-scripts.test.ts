@@ -9,7 +9,7 @@
  * they're fast and deterministic. The git-wiring main()s are validated by the
  * end-to-end verification in the plan, not here.
  */
-import { test, expect, describe } from "bun:test";
+import { test, expect, describe, beforeAll, afterAll } from "bun:test";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -83,116 +83,143 @@ import { scratchGitEnv, scratchRepository, withoutGitContext } from "./helpers/s
 // ── gate-integrity: isolated parser dependency ─────────────────────────────
 describe("gate-integrity: isolated parser dependency", () => {
   const repoRoot = join(import.meta.dir, "..", "..");
+  // ONE SPAWN PER TEST CASE, each with its own bound (validator-3 ruling,
+  // 2026-09-27, on the earlier single 120s-for-everything fix): the three
+  // cases below share ONE progressively-committed scratch fixture (built
+  // once in beforeAll, cleaned up once in afterAll) but each does exactly
+  // ONE runGate() call — one cold bun runtime running scripts/gate-
+  // integrity.ts's main(), which itself spawns git as a further nested
+  // subprocess. Relies on bun:test's default in-file sequential ordering
+  // (no parallel execution within one describe), the same pattern already
+  // used elsewhere in this repo for a progressively-built fixture (e.g.
+  // extension-event-end-to-end.test.ts's shared bus/context across its
+  // test bodies).
+  //
+  // CAUSE, why any bound at all (written once, applies to every case
+  // below): direct PID/state monitoring (ps -eo pid,ppid,etimes,stat,cmd
+  // sampled every second) caught a runGate() subprocess starting in D
+  // (uninterruptible sleep — blocked in-kernel at fork/exec, not CPU-bound)
+  // and staying there for the full duration before being killed, correlated
+  // with heavy host swap usage (measured 10 GiB of 16 GiB in use) on this
+  // shared, heavily multi-tenant host — not a slow parser and not a network
+  // install (that class was already fixed 2026-09-26, see the comment
+  // beside the symlink setup below). Reproduced directly: three copies of
+  // the ORIGINAL single combined test running together in one bun:test
+  // invocation failed intermittently (roughly 1-in-8 to 1-in-16 locally,
+  // and once inside the real 405-file focused-producer run under the
+  // shared validation lock) where the same test run ALONE was consistently
+  // under 8s total for all three spawns combined. No assertion here is on
+  // elapsed time — only exit code and output; the bound only guards against
+  // a genuine hang.
+  const SPAWN_TIMEOUT_MS = 60_000; // 2x the ~30s worst single-spawn duration directly observed under real host contention (the one that hit the ORIGINAL shared 30s cap and got killed) — sized to that measurement, not picked arbitrarily.
 
-  test("fails closed without TypeScript, then parses asserted and vacuous changed tests", () => {
-    const fixtureRoot = mkdtempSync(join(tmpdir(), "gate-integrity-parser-"));
-    try {
-      const repo = scratchRepository(fixtureRoot, { name: "Gate fixture", email: "gate-fixture@example.test" });
-      const { dir: fixture, git } = repo;
-      mkdirSync(join(fixture, ".github/gate-integrity-deps"), { recursive: true });
-      mkdirSync(join(fixture, "scripts"), { recursive: true });
-      mkdirSync(join(fixture, "src/__tests__"), { recursive: true });
-      // Keep this independent of the caller's branches, remotes, depth and
-      // worktree state. Only the real gate, its real shared config and the
-      // locked parser setup are copied into the disposable repository.
-      for (const relative of [
-        "scripts/gate-integrity.ts",
-        "scripts/coverage-config.ts",
-        "scripts/unified-diff.ts",
-        ".github/gate-integrity-deps/package.json",
-        ".github/gate-integrity-deps/bun.lock",
-      ]) {
-        cpSync(join(repoRoot, relative), join(fixture, relative), { recursive: true });
-      }
-      writeFileSync(join(fixture, "biome.json"), '{ "linter": { "enabled": true } }\n');
-      const testPath = join(fixture, "src/__tests__/fixture.test.ts");
-      writeFileSync(testPath, 'import { expect, test } from "bun:test";\ntest("base", () => expect(true).toBe(true));\n');
+  let fixtureRoot: string;
+  let fixture: string;
+  let git: ReturnType<typeof scratchRepository>["git"];
+  let repo: ReturnType<typeof scratchRepository>;
+  let testPath: string;
+  let runGate: (nodePath?: string) => Bun.ReadableSyncSubprocess;
 
-      git("add", ".");
-      git("commit", "--quiet", "-m", "base");
-      git("branch", "gate-base");
-
-      writeFileSync(testPath, [
-        'import { expect, test } from "bun:test";',
-        'test("base", () => expect(true).toBe(true));',
-        'test("new asserted test", () => expect(true).toBe(true));',
-        "",
-      ].join("\n"));
-      git("add", "src/__tests__/fixture.test.ts");
-      git("commit", "--quiet", "-m", "asserted test");
-
-      expect(existsSync(join(fixture, "node_modules"))).toBe(false);
-      const runGate = (nodePath?: string) => Bun.spawnSync([process.execPath, "scripts/gate-integrity.ts"], {
-        cwd: fixture,
-        env: { ...repo.env, BASE_REF: "gate-base", NODE_PATH: nodePath ?? "" },
-        stdout: "pipe",
-        stderr: "pipe",
-      });
-
-      const missingParser = runGate();
-      expect(missingParser.exitCode).toBe(1);
-      expect(missingParser.stderr.toString()).toContain("TypeScript AST parser is unavailable");
-
-      // The locked parser, installed without a network or a package manager: a
-      // real `bun install` here measured the install's wall clock, not the gate,
-      // and once ran past this test's budget under host load (2026-09-26). The
-      // install result is prepared from this checkout's own TypeScript, which
-      // must be exactly the version the gate's frozen lockfile pins.
-      const lockedVersion = /"typescript": \["typescript@([^"]+)"/.exec(
-        readFileSync(join(repoRoot, ".github/gate-integrity-deps/bun.lock"), "utf8"),
-      )?.[1];
-      const installed = realpathSync(join(repoRoot, "node_modules/typescript"));
-      expect(lockedVersion).toBeDefined();
-      expect(JSON.parse(readFileSync(join(installed, "package.json"), "utf8")).version).toBe(lockedVersion);
-      const parserPath = join(fixture, ".github/gate-integrity-deps/node_modules");
-      mkdirSync(parserPath);
-      symlinkSync(installed, join(parserPath, "typescript"), "dir");
-      expect(existsSync(join(fixture, "node_modules"))).toBe(false);
-
-      const assertedTest = runGate(parserPath);
-      expect(assertedTest.exitCode).toBe(0);
-      expect(assertedTest.stdout.toString()).toContain("Gate integrity PASSED");
-
-      writeFileSync(testPath, [
-        'import { expect, test } from "bun:test";',
-        'test("base", () => expect(true).toBe(true));',
-        'test("new asserted test", () => expect(true).toBe(true));',
-        'test("vacuous test", () => { prepareOnly(); });',
-        "",
-      ].join("\n"));
-      git("add", "src/__tests__/fixture.test.ts");
-      git("commit", "--quiet", "-m", "vacuous test");
-
-      const vacuousTest = runGate(parserPath);
-      expect(vacuousTest.exitCode).toBe(1);
-      expect(vacuousTest.stderr.toString()).toContain("vacuous test (no assertion)");
-    } finally {
-      rmSync(fixtureRoot, { recursive: true, force: true });
+  beforeAll(() => {
+    fixtureRoot = mkdtempSync(join(tmpdir(), "gate-integrity-parser-"));
+    repo = scratchRepository(fixtureRoot, { name: "Gate fixture", email: "gate-fixture@example.test" });
+    fixture = repo.dir;
+    git = repo.git;
+    mkdirSync(join(fixture, ".github/gate-integrity-deps"), { recursive: true });
+    mkdirSync(join(fixture, "scripts"), { recursive: true });
+    mkdirSync(join(fixture, "src/__tests__"), { recursive: true });
+    // Keep this independent of the caller's branches, remotes, depth and
+    // worktree state. Only the real gate, its real shared config and the
+    // locked parser setup are copied into the disposable repository.
+    for (const relative of [
+      "scripts/gate-integrity.ts",
+      "scripts/coverage-config.ts",
+      "scripts/unified-diff.ts",
+      ".github/gate-integrity-deps/package.json",
+      ".github/gate-integrity-deps/bun.lock",
+    ]) {
+      cpSync(join(repoRoot, relative), join(fixture, relative), { recursive: true });
     }
-    // 120s, not 30s (validator-3 L-gate-scripts investigation, 2026-09-27):
-    // this test does FOUR sequential real subprocess spawns (runGate() ×4),
-    // each a cold bun runtime running scripts/gate-integrity.ts's main(),
-    // which itself spawns git as a further nested subprocess. Not a network
-    // install and not a slow parser (that class was already fixed
-    // 2026-09-26, see this file's own comment above) — direct PID/state
-    // monitoring (ps -eo pid,ppid,etimes,stat,cmd sampled every second)
-    // caught the exact failing subprocess starting in D (uninterruptible
-    // sleep, blocked in-kernel at fork/exec, not CPU-bound) and never
-    // leaving that state before the 30s cap killed it, correlated with
-    // heavy host swap usage (measured 10 GiB of 16 GiB in use at the time)
-    // from this being a shared, heavily multi-tenant CI-style host running
-    // many concurrent heavy suites. Reproduced directly: three copies of
-    // this exact test running together in one bun:test invocation fail
-    // intermittently (roughly 1-in-8 to 1-in-16 locally; also reproduced
-    // once in the real 405-file focused-producer run under the shared
-    // validation lock, "gate-scripts-repro-copy-a.test.ts" failing the
-    // same way) where the SAME test run alone is consistently well under
-    // 8s. 120s gives four sequential cold-process spawns roughly 30s of
-    // budget each — the ceiling actually observed for one spawn under this
-    // host's real contention — while still catching a genuine hang (this
-    // test's own logic finishes in under a second once every spawn
-    // returns).
-  }, 120_000);
+    writeFileSync(join(fixture, "biome.json"), '{ "linter": { "enabled": true } }\n');
+    testPath = join(fixture, "src/__tests__/fixture.test.ts");
+    writeFileSync(testPath, 'import { expect, test } from "bun:test";\ntest("base", () => expect(true).toBe(true));\n');
+
+    git("add", ".");
+    git("commit", "--quiet", "-m", "base");
+    git("branch", "gate-base");
+
+    writeFileSync(testPath, [
+      'import { expect, test } from "bun:test";',
+      'test("base", () => expect(true).toBe(true));',
+      'test("new asserted test", () => expect(true).toBe(true));',
+      "",
+    ].join("\n"));
+    git("add", "src/__tests__/fixture.test.ts");
+    git("commit", "--quiet", "-m", "asserted test");
+
+    runGate = (nodePath?: string) => Bun.spawnSync([process.execPath, "scripts/gate-integrity.ts"], {
+      cwd: fixture,
+      env: { ...repo.env, BASE_REF: "gate-base", NODE_PATH: nodePath ?? "" },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+  });
+
+  afterAll(() => {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  });
+
+  test("fails closed when the TypeScript AST parser is unavailable", () => {
+    expect(existsSync(join(fixture, "node_modules"))).toBe(false);
+    const missingParser = runGate();
+    expect(missingParser.exitCode).toBe(1);
+    expect(missingParser.stderr.toString()).toContain("TypeScript AST parser is unavailable");
+  }, SPAWN_TIMEOUT_MS);
+
+  // Shared across the next two cases (both need the locked parser
+  // symlinked in) — computed once, after the first case, not in beforeAll:
+  // it depends on nothing the first case's OWN assertions touch, and
+  // keeping it here keeps each case's own setup next to the spawn it
+  // feeds.
+  let parserPath: string;
+
+  test("passes with the locked parser available and only an asserted test present", () => {
+    // The locked parser, installed without a network or a package manager: a
+    // real `bun install` here measured the install's wall clock, not the gate,
+    // and once ran past this test's budget under host load (2026-09-26). The
+    // install result is prepared from this checkout's own TypeScript, which
+    // must be exactly the version the gate's frozen lockfile pins.
+    const lockedVersion = /"typescript": \["typescript@([^"]+)"/.exec(
+      readFileSync(join(repoRoot, ".github/gate-integrity-deps/bun.lock"), "utf8"),
+    )?.[1];
+    const installed = realpathSync(join(repoRoot, "node_modules/typescript"));
+    expect(lockedVersion).toBeDefined();
+    expect(JSON.parse(readFileSync(join(installed, "package.json"), "utf8")).version).toBe(lockedVersion);
+    parserPath = join(fixture, ".github/gate-integrity-deps/node_modules");
+    mkdirSync(parserPath);
+    symlinkSync(installed, join(parserPath, "typescript"), "dir");
+    expect(existsSync(join(fixture, "node_modules"))).toBe(false);
+
+    const assertedTest = runGate(parserPath);
+    expect(assertedTest.exitCode).toBe(0);
+    expect(assertedTest.stdout.toString()).toContain("Gate integrity PASSED");
+  }, SPAWN_TIMEOUT_MS);
+
+  test("fails closed on a vacuous (unasserted) test, parser available", () => {
+    writeFileSync(testPath, [
+      'import { expect, test } from "bun:test";',
+      'test("base", () => expect(true).toBe(true));',
+      'test("new asserted test", () => expect(true).toBe(true));',
+      'test("vacuous test", () => { prepareOnly(); });',
+      "",
+    ].join("\n"));
+    git("add", "src/__tests__/fixture.test.ts");
+    git("commit", "--quiet", "-m", "vacuous test");
+
+    const vacuousTest = runGate(parserPath);
+    expect(vacuousTest.exitCode).toBe(1);
+    expect(vacuousTest.stderr.toString()).toContain("vacuous test (no assertion)");
+  }, SPAWN_TIMEOUT_MS);
 });
 
 // ── scratch repositories: the caller's git context is never used ───────────

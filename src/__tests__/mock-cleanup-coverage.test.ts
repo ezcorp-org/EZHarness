@@ -1249,6 +1249,99 @@ describe("F1 guard: every $lib/server/security/api-keys mock is complete (W18 hy
   });
 });
 
+/**
+ * validator-3 L-b: the two F1-guard blocks above (and GC17's fix) only ever
+ * checked a short, hand-kept list of aliases known ahead of time to have
+ * been broken once (api-keys; extension-lifecycle-service/registry/auth-
+ * middleware). The self-recursion hazard a LAZY, INLINE `() =>
+ * serverModule(...)`/`() => webLibModule(...)` factory carries is not
+ * specific to those aliases — it is a property of `web/`'s OWN module
+ * resolution: `.svelte-kit/tsconfig.json` maps `$server/*`/`$lib/*` to the
+ * SAME files the two helpers `require()` relatively, so under `web/`
+ * (never at the repo root — confirmed by direct experiment, see below) an
+ * inline call can self-recurse against its own half-registered value and
+ * come back with NO exports AT ALL (worse than a partial factory: `Object
+ * .keys(mod)` is empty, `overrideApplied` is false — measured directly for
+ * BOTH helpers, both under `web/`).
+ *
+ * MEASURED (standby plants, /tmp/factory-platform-evidence/
+ * w18-hygiene-c2-standby/, one alias per helper, lazy vs. precomputed,
+ * `web/` vs. repo root):
+ *
+ * | helper        | alias                             | root   | shape       | result                    |
+ * |---------------|------------------------------------|--------|-------------|---------------------------|
+ * | serverModule  | $server/auth/middleware            | web/   | lazy        | keys=[] overrideApplied=false |
+ * | serverModule  | $server/auth/middleware            | web/   | precomputed | 9 real keys, overrideApplied=true |
+ * | serverModule  | $server/auth/middleware            | root   | lazy        | 9 real keys, overrideApplied=true |
+ * | serverModule  | $server/auth/middleware            | root   | precomputed | 9 real keys, overrideApplied=true |
+ * | webLibModule  | $lib/server/security/api-keys      | web/   | lazy        | keys=[] overrideApplied=false |
+ * | webLibModule  | $lib/server/security/api-keys      | web/   | precomputed | 12 real keys, overrideApplied=true |
+ * | webLibModule  | $lib/server/security/api-keys      | root   | lazy        | 12 real keys, overrideApplied=true |
+ * | webLibModule  | $lib/server/security/api-keys      | root   | precomputed | 12 real keys, overrideApplied=true |
+ *
+ * RULING: refuse both lazy shapes for every `$server/*`/`$lib/*` alias in
+ * `web/` test files — 0 offenders today (verified below); the root-side
+ * lazy shape is safe by this same measurement and stays permitted there
+ * (root-side inline `webLibModule()` alone is 25 files repo-wide today,
+ * cataloged, out of scope for this guard).
+ */
+function extractAllAliasFactories(source: string): Array<{ alias: string; body: string }> {
+  const stripped = stripCommentLines(source);
+  const aliases = new Set<string>();
+  for (const m of stripped.matchAll(/mock\.module\(\s*"(\$(?:server|lib)\/[^"]+)"/g)) aliases.add(m[1]!);
+  const out: Array<{ alias: string; body: string }> = [];
+  for (const alias of aliases) {
+    for (const body of extractLibFactoryBodies(source, alias)) out.push({ alias, body });
+  }
+  return out;
+}
+
+/** The risky shape itself: a factory body that STILL starts with an
+ *  unresolved `() =>` (never precomputed through a preceding `const`
+ *  declaration — see isCompleteServerFactoryBody()'s doc for why that
+ *  matters) and calls either helper. */
+function isLazyUnresolvedHelperCall(body: string): boolean {
+  const b = body.trim();
+  return /^\(\)\s*=>/.test(b) && (b.includes("serverModule(") || b.includes("webLibModule("));
+}
+
+describe("web/-wide lazy inline helper factory guard (validator-3 L-b)", () => {
+  test("no \\$server/* or \\$lib/* mock.module factory in web/ test files is a lazy, unresolved serverModule()/webLibModule() call", () => {
+    const webRoot = join(import.meta.dir, "..", "..", "web", "src");
+    const repoRoot = join(import.meta.dir, "..", "..");
+    const files = listTestFiles(webRoot);
+
+    const offenders: string[] = [];
+    for (const file of files) {
+      const source = readFileSync(file, "utf8");
+      for (const { alias, body } of extractAllAliasFactories(source)) {
+        if (isLazyUnresolvedHelperCall(body)) {
+          offenders.push(`${relative(repoRoot, file)} (${alias})`);
+        }
+      }
+    }
+
+    if (offenders.length > 0) {
+      console.error(
+        `Lazy, unresolved serverModule()/webLibModule() mock.module factory in: ${offenders.join(", ")}. ` +
+          `Precompute the real+override merge in a const BEFORE any mock.module() registration for the ` +
+          `same alias (e.g. const realX = serverModule('path', {}); mock.module(alias, () => ({ ` +
+          `...realX, ...overrides }));"), never call serverModule()/webLibModule() directly inside the ` +
+          `factory itself — under web/, that self-recurses and comes back with no exports at all.`,
+      );
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  test("the detector itself: lazy is refused, precomputed (resolved, no wrapper) is accepted", () => {
+    expect(isLazyUnresolvedHelperCall('() => serverModule("auth/middleware", { requireAuth: () => null })')).toBe(true);
+    expect(isLazyUnresolvedHelperCall('() => webLibModule("server/security/api-keys", { requireScope: () => null })')).toBe(true);
+    expect(isLazyUnresolvedHelperCall('serverModule("auth/middleware", { requireAuth: () => null })')).toBe(false);
+    expect(isLazyUnresolvedHelperCall('webLibModule("server/security/api-keys", { requireScope: () => null })')).toBe(false);
+    expect(isLazyUnresolvedHelperCall('() => ({ ...realThing, requireAuth: () => null })')).toBe(false);
+  });
+});
+
 // Item C: extensions-patch-route.test.ts and extensions-delete-route-policy.test.ts
 // once mocked these two `$server/*` aliases with hand-rolled partial object
 // literals. Whichever file's registration was active when a LATER file's

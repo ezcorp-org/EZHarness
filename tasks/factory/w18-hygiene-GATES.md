@@ -1051,14 +1051,98 @@ C's head whenever it moves.
   CONCLUSION: this is host memory/swap pressure occasionally delaying fork/exec itself (D-state at
   spawn time), not a slow parser or a network install (that class was already fixed 2026-09-26 per
   this test's own comment) and not a defect in `gate-integrity.ts`'s or the test's own logic — every
-  isolated single-file run this whole engagement was fast and clean. Per validator-3's stated
-  criterion ("never a bare timeout increase without the cause written down"), the cause above is
-  written down; the fix is a timeout increase sized to the actually-measured worst case, not an
-  arbitrary bump: 30s → 120s. The test performs FOUR sequential real subprocess spawns; the worst
-  single-spawn duration directly observed under real host contention was the 30s cap itself (the
-  spawn that got killed), so 4 × 30s = 120s budgets for the worst case actually measured, while still
-  catching a genuine hang (the test's own logic completes in well under a second once every spawn
-  returns).
-  PROOF: five consecutive local three-copy runs after the fix, all clean (`642 pass / 0 fail` each,
-  32-71s each); `gate-scripts.test.ts` alone unaffected (`214 pass / 0 fail`, ~20s).
+  isolated single-file run this whole engagement was fast and clean.
+  RULING (validator-3, superseding this entry's first draft): a test that runs multiple cold bun
+  subprocesses inside ONE shared outer timeout is timing-sensitive by construction — a measured
+  single clean spawn taking up to 22s under load means several such spawns can exceed any ONE shared
+  budget with no defect anywhere. A blanket timeout bump (this entry's original fix: 30s → 120s
+  shared across all three spawns) was rejected in favor of a DESIGN fix: ONE SPAWN PER TEST CASE.
+  `gate-scripts.test.ts`'s combined test is split into three (`beforeAll` builds the shared,
+  progressively-committed scratch fixture once; `afterAll` tears it down once; the three test bodies
+  rely on bun:test's default in-file sequential ordering, the same pattern already used elsewhere in
+  this repo for a progressively-built fixture): "fails closed when the TypeScript AST parser is
+  unavailable", "passes with the locked parser available and only an asserted test present", "fails
+  closed on a vacuous (unasserted) test, parser available" — each with its OWN 60s bound (2× the ~30s
+  worst single-spawn duration directly observed under real host contention), the cause written beside
+  each bound, and no assertion anywhere on elapsed time (only exit code and output).
+  REPRODUCTION CORRECTION: an earlier attempt to reproduce this "properly, inside the real 405-file
+  focused-producer run" by adding `gate-scripts.test.ts`'s path twice more to the file list was
+  invalid — `bun test` deduplicates by resolved absolute path when the same relative path string
+  repeats, so it silently ran once. Corrected with two genuinely distinct scratch copies
+  (different filenames, same directory so relative imports resolve unchanged): loaded run 1 (6135
+  tests across 407 files) was clean; loaded run 2 reproduced it directly
+  (`gate-scripts-repro-copy-a.test.ts` timed out the same way, 1 fail) — confirming run 1's clean
+  result was chance, not absence of the mechanism, and confirming the design fix (not an environment
+  note) was the correct call.
+  PROOF: gate-scripts.test.ts alone, post-split, 216/0 (was 214/0 combined into one test; +2 net from
+  the split); five consecutive local three-copy runs (the same reproduction method) after the split,
+  all clean (648/0 each, 32-52s each — well inside each case's own 60s bound).
   EVIDENCE: typecheck, lint, `gate-integrity.ts`, the boundary check all clean.
+
+- [x] GC19: validator-3's tree review at 301dcfaac (M1/M3/L1/L2 all held, verified by their own
+  mutation controls) plus three findings for this same commit round.
+  F-M2 (medium, required): `src/__tests__/web-mock-pair-pollution.test.ts` (M2) encoded the WRONG
+  OPEN-1 direction and only ONE OPEN-2 order. The ruled OPEN-1 is `extensions-api.test.ts` THEN
+  `extension-settings-api.test.ts` (a read-only API key's PUT/DELETE got 200 instead of 403), fixed in
+  `7705cb1cf`, red at `8275cccd4` — the file's own case ran the REVERSE order instead (still a real,
+  independently-worth-keeping pair, kept, relabeled "OPEN-1 reverse order"). OPEN-2 was proven red in
+  BOTH orders during M1's own fix, but the committed test only ran one ("commit then preview").
+  FIX: two new cases. (1) `extensions-api.test.ts` THEN `extension-settings-api.test.ts`, asserting BY
+  NAME rather than by aggregate fail-count — a bare fail-count assertion would also pass if the two
+  named tests were SKIPPED rather than genuinely exercised and passing. `bun test
+  --test-name-pattern` isolates exactly the two "F1 — settings/user writes require the 'extensions'
+  scope" tests (`"read-only key"` matches nothing else in either file's actual test names — the only
+  other occurrences of that phrase are source comments, invisible to bun's own name-pattern matching,
+  confirmed: exactly 2 tests match, 2 pass, 0 fail on the fixed head), and the pass count for that
+  FILTERED run must be exactly 2. (2) "import preview (polluter) then import commit (victim)" — OPEN-2's
+  other order.
+  RED-FIRST PROOF for the new by-name case: checked out both files at `8275cccd4` (git show, restored
+  via `cp` after), ran the pair-pollution suite — the new by-name test failed with `result.fail`
+  received `2` (both named tests genuinely failed), confirming genuine red at the cited pre-fix commit;
+  restored, reconfirmed green (5/5).
+  L-a (low): `runFilesInOneProcess()`'s summary parsing took the FIRST regex match anywhere in the
+  captured output, which also carries interleaved application JSON logs from the routes under test — a
+  false positive was possible in principle even if none was observed. FIX: anchored to a line that is
+  JUST `"<N> pass"`/`"<N> fail"` (bun's own exact format, one leading space, digits, the word, nothing
+  else — confirmed against captured runs; no JSON log line can ever match this shape) and takes the
+  LAST such match, not the first.
+  L-b (low): the item-C2 lazy-inline-`serverModule()`/`webLibModule()` guard (GC17) only ever checked a
+  short, hand-kept TARGETS list (auth/middleware, extension-lifecycle-service, registry, api-keys) —
+  the self-recursion hazard is not specific to those aliases, it is a property of `web/`'s OWN module
+  resolution (`.svelte-kit/tsconfig.json` maps `$server/*`/`$lib/*` to the same files the two helpers
+  `require()` relatively). MEASURED (validator-3's standby plants,
+  `/tmp/factory-platform-evidence/w18-hygiene-c2-standby/`, one alias per helper, lazy vs. precomputed,
+  `web/` vs. repo root):
+
+  | helper | alias | root | shape | result |
+  |---|---|---|---|---|
+  | serverModule | `$server/auth/middleware` | web/ | lazy | `keys=[]`, `overrideApplied=false` |
+  | serverModule | `$server/auth/middleware` | web/ | precomputed | 9 real keys, `overrideApplied=true` |
+  | serverModule | `$server/auth/middleware` | root | lazy | 9 real keys, `overrideApplied=true` |
+  | serverModule | `$server/auth/middleware` | root | precomputed | 9 real keys, `overrideApplied=true` |
+  | webLibModule | `$lib/server/security/api-keys` | web/ | lazy | `keys=[]`, `overrideApplied=false` |
+  | webLibModule | `$lib/server/security/api-keys` | web/ | precomputed | 12 real keys, `overrideApplied=true` |
+  | webLibModule | `$lib/server/security/api-keys` | root | lazy | 12 real keys, `overrideApplied=true` |
+  | webLibModule | `$lib/server/security/api-keys` | root | precomputed | 12 real keys, `overrideApplied=true` |
+
+  RULING: refuse both lazy shapes for EVERY `$server/*`/`$lib/*` alias in `web/` test files; the
+  root-side lazy shape is safe by this same measurement and stays permitted there — the 25 root-side
+  files using an inline `webLibModule()` call (`src/__tests__/**`, `src/integrations/**`, cataloged in
+  `inline-weblib-files.txt` in the same standby evidence directory) stay explicitly out of scope for
+  this new check (an earlier attempt to reuse the EXISTING, shared `isCompleteLibFactoryBody()`
+  unconditionally would have wrongly flagged all 25 as new offenders — reverted; the new check is a
+  SEPARATE, `web/`-scoped scan instead, leaving the existing api-keys/extension-lifecycle-service/
+  registry/auth-middleware checks, which intentionally also cover root-side, untouched).
+  FIX: `src/__tests__/mock-cleanup-coverage.test.ts` gains a new describe block scanning every
+  `web/src/**/*.test.ts` file for EVERY `$server/*`/`$lib/*` `mock.module()` factory (regardless of
+  which specific alias — `extractAllAliasFactories()`, built from the existing per-alias extraction
+  already used by the two named-target guards) and rejecting any that is still `() =>`-wrapped
+  (unresolved) and calls either helper.
+  RED-FIRST PROOF: a scratch plant, never committed, on `$server/lib/cache-utils` (a real, existing
+  module, `src/lib/cache-utils.ts`, not in any TARGETS list) with a lazy `() =>
+  serverModule("lib/cache-utils", {...})` factory — caught immediately, correctly named; a second
+  plant on a made-up `$lib/*` alias with a lazy `() => webLibModule(...)` factory — also caught. Both
+  plants deleted after (confirmed via `git status`, never staged).
+  PROOF: `gate-scripts.test.ts` + `mock-cleanup-coverage.test.ts` + `web-mock-pair-pollution.test.ts`
+  combined — 264/0.
+  EVIDENCE: typecheck, lint, `gate-integrity.ts`, both boundary checks all clean.
