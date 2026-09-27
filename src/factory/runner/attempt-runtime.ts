@@ -157,11 +157,15 @@ export class FactoryDatabaseAttemptLaunchStore implements FactoryAttemptLaunchSt
     const snapshot = snapshotTerminalResult(result);
     const resultDigest = factoryTerminalResultDigest(snapshot);
     return this.database.transaction(async (transaction): Promise<FactoryLostTerminal> => {
-      // The launch row lock is the one a stop's acceptance takes to seal its
-      // reason, so exactly one of the two writes first.
+      // Lock order (FACTORY_STOP_LAUNCH_LOCK_ORDER): this path locks only the
+      // launch row. A stop's acceptance holds that same lock while it inserts
+      // the stop row, so exactly one of the two writes first; the stop row is
+      // then read WITHOUT a lock, because its existence and sealed reason never
+      // change once committed. Locking it here after the launch row inverted the
+      // settlement's order and deadlocked (validator-2, W01i lane, 2026-09-27).
       const existing = await lockedTerminalResult(transaction, attemptId);
       if (existing) return Object.freeze({ state: "recorded" as const, result: existing });
-      const stop = releaseRows<{ cancel_command_id: string; request_json: string }>(await transaction.execute(sql`SELECT cancel_command_id,request_json FROM factory_task_stops WHERE attempt_id=${attemptId} FOR SHARE`))[0];
+      const stop = releaseRows<{ cancel_command_id: string; request_json: string }>(await transaction.execute(sql`SELECT cancel_command_id,request_json FROM factory_task_stops WHERE attempt_id=${attemptId}`))[0];
       if (!stop) return Object.freeze({ state: "recorded" as const, result: await writeTerminalResult(transaction, attemptId, snapshot, resultDigest) });
       const sealedReason = String((JSON.parse(stop.request_json) as { reason?: unknown }).reason);
       const loss = snapshot.status === "failed" ? snapshot.error : undefined;
@@ -208,7 +212,24 @@ export interface FactoryAttemptLaunchFacts {
   readonly terminalResult?: FactoryRunnerResult;
 }
 
-/** Reads one launch record under the caller's transaction and lock. */
+/**
+ * The one lock order for every transaction that touches an attempt's
+ * `factory_task_stops` row and its `factory_attempt_launches` row (W01h fix
+ * round 2):
+ *
+ * 1. the stop row, then the launch row. Every stop settlement (`readSealed`,
+ *    then its live authority) locks them in this order;
+ * 2. a stop's acceptance locks the launch row and then CREATES the stop row. A
+ *    row being created is not a lock any other transaction holds first, so this
+ *    cannot close a cycle;
+ * 3. the lost-result write locks only the launch row and reads the stop row
+ *    unlocked.
+ *
+ * No path may lock an existing stop row after it holds the launch row.
+ */
+export const FACTORY_STOP_LAUNCH_LOCK_ORDER = "factory_task_stops row, then factory_attempt_launches row" as const;
+
+/** Reads one launch record under the caller's transaction and an update lock (see FACTORY_STOP_LAUNCH_LOCK_ORDER). */
 export async function readFactoryAttemptLaunchFacts(transaction: MigrationDb, attemptId: string, candidateGeneration: number, attemptNumber: number): Promise<FactoryAttemptLaunchFacts | undefined> {
   opaque(attemptId, "attempt id");
   const row = releaseRows<LaunchRow>(await transaction.execute(sql`SELECT * FROM factory_attempt_launches WHERE attempt_id=${attemptId} FOR UPDATE`))[0];

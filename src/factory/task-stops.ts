@@ -498,6 +498,7 @@ export class FactoryTaskStops implements FactoryUsageSettlementAuthority {
    * a stop request can name this holder.
    */
   private async sealAuthority(transaction: MigrationDb, reference: TrustedFactoryCommandReference, authority: FactoryAttemptAuthority, outcome: FactoryVerifiedTaskOutcome | undefined): Promise<FactoryLiveStopAuthority> {
+    // Acceptance locks the launch row and then creates the stop row (FACTORY_STOP_LAUNCH_LOCK_ORDER, rule 2).
     const launch = await readFactoryAttemptLaunchFacts(transaction, authority.attemptId, authority.candidateGeneration, authority.attemptNumber);
     if (!launch || launch.state === "prepared") throw new FactoryTaskStopError("factory_task_stop_stale");
     if (launch.tenantId !== reference.tenantId || launch.projectId !== reference.projectId || launch.runId !== reference.logicalRunId || launch.requestDigest !== authority.requestDigest || launch.grantRevision !== authority.grantRevision) throw new FactoryTaskStopError("factory_task_stop_stale");
@@ -636,6 +637,7 @@ export class FactoryTaskStops implements FactoryUsageSettlementAuthority {
     if (!authority) throw new FactoryTaskStopError("factory_task_stop_corrupt");
     const outcome = request.attemptReference ? await this.outcomes.readVerifiedInTransaction(transaction, service, request.attemptReference) : undefined;
     if (Boolean(outcome) !== (request.source === "terminal-outcome")) throw new FactoryTaskStopError("factory_task_stop_corrupt");
+    // Second in FACTORY_STOP_LAUNCH_LOCK_ORDER: the caller already holds the stop row.
     const launch = await readFactoryAttemptLaunchFacts(transaction, request.attemptId, authority.candidateGeneration, authority.attemptNumber);
     if (!launch || launch.hostId !== request.hostId || launch.reservationId !== request.reservationId || launch.workerId !== request.workerId || launch.holderGeneration !== request.holderGeneration || launch.allocationGeneration !== request.allocationGeneration) throw new FactoryTaskStopError("factory_task_stop_corrupt");
     const liveAuthority = Object.freeze({
@@ -676,6 +678,7 @@ export class FactoryTaskStops implements FactoryUsageSettlementAuthority {
     }
   }
 
+  /** The stop row, locked first: see FACTORY_STOP_LAUNCH_LOCK_ORDER (stop row, then launch row). */
   private async readRow(transaction: MigrationDb, reference: TrustedFactoryCommandReference, lock = true): Promise<StopRow | undefined> {
     return rows<StopRow>(await transaction.execute(sql`SELECT * FROM factory_task_stops WHERE tenant_id=${reference.tenantId} AND project_id=${reference.projectId} AND run_id=${reference.logicalRunId} AND interpreter_id=${reference.interpreterId} AND cancel_command_id=${reference.commandId}${lock ? sql` FOR UPDATE` : sql``}`))[0];
   }
