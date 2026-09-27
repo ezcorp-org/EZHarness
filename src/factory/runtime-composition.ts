@@ -51,7 +51,7 @@ import {
 } from "./service-probes";
 import { factoryRuntimeSeams, factorySeamStates, type FactoryRuntimeSeamInputs, type FactoryRuntimeSeams, type FactorySeamState } from "./runtime-seams";
 import { registerFactoryRuntimeWorkers, type FactoryHeldWorker, type FactoryRuntimeWorkerCollaborators } from "./runtime-workers";
-import type { FactoryBackgroundWorkers, FactoryBackgroundWorkerState } from "./background-workers";
+import type { FactoryBackgroundWorkers, FactoryBackgroundWorkerState, FactoryWorkerStopRecord } from "./background-workers";
 
 /** Why a held checkpoint barrier keeps readiness degraded. */
 export type FactoryRecoveryReadinessReason = "factory-recovery-not-declared" | "factory-checkpoint-barrier-held";
@@ -179,8 +179,12 @@ export interface FactoryRuntime {
    */
   readonly workers: FactoryBackgroundWorkers;
   report(): FactoryRuntimeReport;
-  /** Reverse of startup, awaiting every step. Idempotent. */
-  stop(): Promise<void>;
+  /**
+   * Reverse of startup. Idempotent. Resolves with each role's stop record; a role
+   * whose in-flight step outlived `FACTORY_WORKER_STOP_DEADLINE_MS` is
+   * named there with `settled: false`, and a repeated call resolves with none.
+   */
+  stop(): Promise<readonly FactoryWorkerStopRecord[]>;
 }
 
 /** The flag is off, so no factory service exists and the API answers 404. */
@@ -381,15 +385,15 @@ export async function startFactoryRuntime(
   }
 
   let stopped = false;
-  const stop = async (): Promise<void> => {
-    if (stopped) return;
+  const stop = async (): Promise<readonly FactoryWorkerStopRecord[]> => {
+    if (stopped) return [];
     stopped = true;
     // Reverse of startup. Admission closes first so no new work arrives while
     // the roles drain, then the roles drain, then the listeners close.
     configureFactoryApplication(null);
     admissionOpen = false;
     try {
-      await workerSet.workers.stop();
+      return await workerSet.workers.stop();
     } finally {
       stopListeners();
     }
