@@ -17,8 +17,9 @@ W03f, G6 and the combined run. Same class as the W01g reference-data pack that m
 `src/factory/reference-code/guest.ts` staged SDK `types.ts` as `factory-sdk-types.ts` and rewrote
 specifiers through a fixed table, so `guest.test.ts` (3) and `pack.test.ts` (1) failed with
 "factory-sdk-types.ts imports './console-types.js', which the guest workspace does not provide".
-Reproduced at `bbdf9f9d3` (the reference-code packager unchanged from the base): 25 pass, 4 fail
-(`logs/refcode-red-at-head.log`).
+Red at `146a94829` itself, in a clean detached worktree with its own frozen installs: `guest.test.ts`
+and `pack.test.ts` 25 pass, 4 fail on that message (`logs/refcode-red-at-146a94829.log`); the Podman
+suite `guest.podman.integration.test.ts` under the lock (`logs/podman-red-at-146a94829.log`, 0 pass, 1 fail, "a real isolated guest reports the reference code contract's static protected claims", on the same message; gate 16 GiB / 5 GiB / 122 GB, head `146a94829`, dirty 0).
 
 ## Gates
 
@@ -48,25 +49,32 @@ Reproduced at `bbdf9f9d3` (the reference-code packager unchanged from the base):
   JSON, seeds never read, a module read once, a missing module refused by name).
   Red on the base package: `["types.ts -> console-types.ts", "types.ts -> console-types.ts"]`, 0 pass,
   1 fail. The pool runs `scripts/**/*.test.ts` and `src/**/*.test.ts`, so CI runs both.
-  - A structural guard covers every packager. Any non-test source that names the SDK source directory
-    and builds a guest workspace (a staged `files[` record, a `feature.test.ts`, or the helper) must be
-    one of the three packagers that call `factorySdkClosure(`, or one of the two Python packagers that
-    stage generated JSON schemas only (checked: they read no SDK `.ts` module). A packager the test does
-    not know fails it by path. Negative control: a temporary fake packager with a fixed SDK list made it
-    fail, naming the file (`logs/packager-guard-negative-control.log`); removed, it passes.
+  - A structural guard covers every packager, detected by the fact that matters: any non-test source
+    (under scripts, src, web, packages other than the SDK itself, extensions, worker) that names the SDK
+    source directory in any form (a joined path, path segments, an import path, a Windows path) is a
+    candidate. Each candidate must call `factorySdkClosure(`, or be one of the two Python packagers that
+    stage generated JSON schemas only (checked: they read no SDK `.ts` module), or one of three named
+    non-packagers that read the SDK tree to check it and stage nothing (`check-factory-boundaries.ts`,
+    `check-schema-generate-drift.ts`, `coverage-config.ts`). An unknown candidate fails the test by path.
+    A second case pins what the pattern recognises and what it must not (`@ezcorp/factory-sdk`, `dist`).
+    Negative controls, each a temporary file removed after its run: a fixed-list packager with the old
+    markers, and one with none of them (a `Map` built with `readFileSync` over `join("packages", "@ezcorp",
+    "factory-sdk", "src")`). Both fail the guard naming the file
+    (`logs/packager-guard-control-1-markers.log`, `logs/packager-guard-control-2-no-markers.log`).
   - The reference-code guest's own tests now expect every import to resolve, and the staged `types.ts`
     and `console-types.ts` to be the committed modules with only `.js` specifiers made `.ts`.
   EVIDENCE: `logs/guard-red-at-base.log`, `logs/lib-tests.log`, `receipts/`.
 - [x] G4: The runbook mock pass at the head under the lock, the reference-code suites and its Podman
   build, the graph-proof suites, and the builds.
-  EVIDENCE: receipts at `1276e7d33` (15 legs, each gated on memory, swap and disk, all exit 0,
-  dirty 0): `receipts/runbook-mock.json` (record `proof/head2/head2-mock.json`: outcome "passed",
-  failure null; gate 17 GiB / 5 GiB / 123 GB), `receipts/reference-code.json` (29 pass: `guest.test.ts`
-  and `pack.test.ts`, the four once-failing tests among them), `receipts/reference-code-podman.json`
-  (the reference-code guest builds for real with the new staged files, 1 pass),
-  `receipts/guard-tests.json` (8 pass), `receipts/graph-proof-suites.json` (22 pass),
-  `receipts/boundary-suites.json` (61 pass), `receipts/sdk-build.json`, `receipts/web-build.json`.
-  The first sweep's receipts at `bbdf9f9d3` (graph guest only) are kept in `receipts-at-bbdf9f9d3/`.
+  EVIDENCE: receipts at `dadb54980` (15 legs under the lock, each gated on memory, swap and disk, all
+  exit 0, dirty 0): `receipts/runbook-mock.json` (record `proof/head3/head3-mock.json`: outcome "passed",
+  failure null; gate 17 GiB / 5 GiB / 122 GB); `receipts/reference-code.json` (29 pass: `guest.test.ts`
+  and `pack.test.ts`, the four once-failing tests among them); `receipts/reference-code-podman.json`
+  (`guest.podman.integration.test.ts` 1 pass: the reference-code guest builds for real with the new
+  staged files); `receipts/guard-tests.json` (9 pass); `receipts/graph-proof-suites.json` (22 pass);
+  `receipts/boundary-suites.json` (61 pass); `receipts/sdk-build.json`; `receipts/web-build.json`.
+  So all five tests W18c named are red at `146a94829` and green here. Earlier receipt sets are kept in
+  `receipts-at-bbdf9f9d3/` and `receipts-at-1276e7d33/`.
 - [x] G5: Static checks and coverage. Typecheck, lint, factory boundaries, the boundary suites and gate
   integrity pass. New-file and patch coverage pass against `146a94829`; the helper
   (`src/factory/guest-sdk-closure.ts`, threshold 100) is at 100% lines and functions.
