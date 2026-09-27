@@ -30,6 +30,11 @@
  *      (biome falls back to its built-in defaults), or a NESTED biome config
  *      added (biome resolves the nearest config, so one can un-lint a whole
  *      subtree without the root diff showing anything).
+ *  11. The patch gate's ATTESTATION surface changed — any change to
+ *      scripts/check-patch-coverage.ts (which holds the attestation schema and
+ *      decides what an attested line may skip) or to
+ *      scripts/coverage-attestations.json (W03g). An attestation lets one
+ *      uncovered line pass, so it is un-gating in the same way EXCLUDES is.
  *
  * All checks are DIFF-SCOPED (only what the PR adds is judged) so the 19
  * pre-existing `.skip`s and 365 mock files in the tree don't false-positive.
@@ -1287,6 +1292,31 @@ export function biomeConfigFileViolations(nameStatus: string): string[] {
   return out;
 }
 
+/**
+ * Check 11 (W03g): the patch gate's attestation surface. Any added, modified,
+ * deleted, renamed or copied path that is the patch gate itself (it holds the
+ * attestation schema and the rule for what an attested line may skip) or the
+ * attestation file needs the gate-change-approved label. Removing an entry is
+ * still a change here: the label is the review, whichever way the entry moves.
+ */
+export const ATTESTATION_SURFACE: readonly string[] = ["scripts/check-patch-coverage.ts", "scripts/coverage-attestations.json"];
+
+export function attestationSurfaceViolations(nameStatus: string): string[] {
+  const out: string[] = [];
+  for (const line of nameStatus.split("\n")) {
+    if (!line.trim()) continue;
+    const [status, rawOld, rawNew] = line.split("\t");
+    const oldPath = unquotePath(rawOld);
+    if (!status || !oldPath) continue;
+    const newPath = unquotePath(rawNew) ?? oldPath;
+    const touched = [...new Set([oldPath, newPath])].filter((path) => ATTESTATION_SURFACE.includes(path));
+    for (const path of touched) {
+      out.push(`patch-gate attestation surface changed (${status[0]} ${path}) — an attestation lets an uncovered line pass`);
+    }
+  }
+  return out;
+}
+
 // ── git wiring + main() ────────────────────────────────────────────────────
 
 async function gitRun(args: string[]): Promise<{ code: number; out: string; err: string }> {
@@ -1401,6 +1431,11 @@ async function main(): Promise<void> {
 
   // 10. biome CONFIG FILE moves (root deleted/renamed, nested config added).
   for (const v of biomeConfigFileViolations(nameStatus)) {
+    violations.push(`${v} — needs the gate-change-approved label`);
+  }
+
+  // 11. The patch gate's attestation surface (W03g).
+  for (const v of attestationSurfaceViolations(nameStatus)) {
     violations.push(`${v} — needs the gate-change-approved label`);
   }
 

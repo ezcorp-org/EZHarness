@@ -53,7 +53,18 @@ not copied. Red: eleven mutants, each disabling one branch, each fail the suite 
 
 ## G2 — gate-integrity rule 11
 
-Filled by the second commit.
+scripts/gate-integrity.ts check 11: any added, modified, deleted, renamed or copied path that is
+scripts/check-patch-coverage.ts (the gate, which holds the attestation schema) or scripts/coverage-attestations.json
+needs the `gate-change-approved` label. Removal is a change too; the label is the review either way. Before this, an
+edit to check-patch-coverage.ts was not flagged by any gate-integrity check (only EXCLUDES growth, the ratchets, biome
+and test cheats were).
+
+Tests: scripts/gate-integrity-rule11.test.ts, 12 cases: name-status fixtures for A, M, D, R (both sides), C, a
+C-quoted path and the neighbours that must not match; two end-to-end runs of the real gate in a scratch repository
+(without the label: FAILED naming check 11; with GATE_CHANGE_APPROVED=1: bypassed and logged). Each end-to-end case
+spawns the gate once under its own 60 s bound (a cold spawn took up to 22 s under swap pressure, W18 hygiene C2).
+Red (logs/mutants-rule11-results.txt): main() without the check-11 wiring fails both end-to-end cases; a rename that
+ignores the new side, a surface without the patch gate, and a matcher without unquoting each fail the fixtures.
 
 ## Results
 
