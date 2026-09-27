@@ -129,9 +129,15 @@ Agreed shape (lead accepted, recorded in both gates files):
   interpreter, attempt and `restoreDigest`), passed to `FactoryTaskStops` as its last argument.
   Red first: `receipts/restore-red.attempt-1.json`; the stop suite's case with a reader double
   settles at the bound with the supersession as proof, and a late answer is parked and refused.
-- Open with w15b-fix: the confirmed record and reader names, how a superseded attempt leaves the
-  run's kernel (W05b's clear needs a sealed stop, so after a restore it is a no-op today), and
-  which branch carries the joint test on a real W15f-marked hold (whichever merges second).
+- Coordinator rulings on the three open points:
+  1. Names: w15b-fix picks the record and reader names; W03f renames to match on their reply.
+  2. Kernel: W15f's supersession record is a sealed end for the old-epoch attempt, like a sealed
+     stop. It carries the kernel event payload (attempt superseded, reason restore, both epochs, the
+     restore digest), written in the restore's transaction. W05b's clear re-sends that event exactly
+     as it re-sends a sealed stop's; any generalization of the clear to read either record goes in
+     W15f with W05b's tests kept green. B emits no event of its own.
+  3. The joint test on a real W15f-marked hold lives on whichever branch merges second; the other
+     keeps its double.
 
 ## Disclosed
 
