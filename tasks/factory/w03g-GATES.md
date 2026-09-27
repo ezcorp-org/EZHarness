@@ -66,6 +66,19 @@ spawns the gate once under its own 60 s bound (a cold spawn took up to 22 s unde
 Red (logs/mutants-rule11-results.txt): main() without the check-11 wiring fails both end-to-end cases; a rename that
 ignores the new side, a surface without the patch gate, and a matcher without unquoting each fail the fixtures.
 
-## Results
+## Results (code head 77c860dcf, Bun 1.3.14 and bunx 1.3.14 asserted against .bun-version)
 
-Filled at the head.
+| Leg | Result | Log (w03g/logs/) |
+|---|---|---|
+| check-patch-coverage-attestation.test.ts | 26/0; red by 11 mutants | suite-check-patch-coverage-attestation.log, mutants-results.txt |
+| gate-integrity-rule11.test.ts | 12/0; red unwired and by 3 mutants | suite-gate-integrity-rule11.log, mutants-rule11-results.txt |
+| check-patch-coverage-typeonly.test.ts (shared sandbox) | 7/0 | suite-check-patch-coverage-typeonly.log |
+| gate-scripts.test.ts, dependency-denylist.test.ts | 210/0, 10/0 | suite-gate-scripts.log, suite-dependency-denylist.log |
+| typecheck, lint, check-boundaries, check-factory-boundaries | all 0 | typecheck.log, lint.log, boundaries.log, factory-boundaries.log |
+| gate-integrity vs a24a619ad, no label | FAILED, exactly the two check-11 findings (M check-patch-coverage.ts, A coverage-attestations.json), as designed | gate-integrity.log |
+| gate-integrity vs a24a619ad, GATE_CHANGE_APPROVED=1 | PASSED, the two findings logged as bypassed | gate-integrity-labelled.log |
+| patch coverage vs a24a619ad | PASSED; the task-stops entry printed as inactive (file not in this diff) | patch-coverage.log |
+| new-file coverage vs a24a619ad | PASSED (no new source files) | new-file-coverage.log |
+
+Hook: commit 1 mapped 2 tests (26/0, 7/0), commit 2 mapped 1 (12/0), this docs commit maps 0. CI runs both new
+suites: scripts/lib/test-file-sets.sh collects every scripts/*.test.ts.
