@@ -779,6 +779,10 @@ const checkRunnerProfiles: StartupCheck = (value, { invalid }) => {
   const installationPin = read(value, "modelProvider").value as { provider?: unknown; model?: unknown } | undefined;
   for (const [index, profile] of section.profiles.entries()) {
     if (!wellFormedRunnerProfile(profile)) { invalid.push(`runnerProfiles.profiles[${index}]`); continue; }
+    // A GPU is leased as one whole host (C03): the pool refuses any other amount at request time, so a profile
+    // that asked for another would boot and then fail every admission of its class (W02d R1).
+    const gpuHosts = (profile as FactoryStartupRunnerProfile).allocation.resources["gpu-host"];
+    if (gpuHosts !== undefined && gpuHosts !== 1) invalid.push(`runnerProfiles.profiles[${index}].allocation.resources.gpu-host`);
     const pin = (profile as { model?: FactoryModelPin }).model;
     if (pin !== undefined && (installationPin?.provider !== pin.provider || installationPin?.model !== pin.model)) invalid.push(`runnerProfiles.profiles[${index}].model`);
   }

@@ -318,6 +318,16 @@ describe("the runner profiles this installation dispatches to", () => {
     }
   });
 
+  test("a GPU profile holds exactly one whole host: any other gpu-host amount is refused by name (W02d R1)", () => {
+    const gpu = { ...profile, resourceClass: "gpu", allocation: { ...profile.allocation, resources: { cpu: 1, "gpu-host": 1 } } };
+    expect(parseFactoryStartupConfig(valid({ runnerProfiles: { ...section, profiles: [profile, gpu] } })).runnerProfiles?.profiles).toHaveLength(2);
+    for (const amount of [0, 2, 8]) {
+      const refused = reject(valid({ runnerProfiles: { ...section, profiles: [profile, { ...gpu, allocation: { ...gpu.allocation, resources: { cpu: 1, "gpu-host": amount } } }] } }));
+      expect(refused.invalid).toContain("runnerProfiles.profiles[1].allocation.resources.gpu-host");
+      expect(refused.invalid).not.toContain("runnerProfiles.profiles[0].allocation.resources.gpu-host");
+    }
+  });
+
   test("refuses a resource class declared twice, because the map would depend on order", () => {
     expect(reject(valid({ runnerProfiles: { ...section, profiles: [profile, { ...profile, runner: { ...profile.runner, export: "other" } }] } })).invalid)
       .toContain("runnerProfiles.profiles");
