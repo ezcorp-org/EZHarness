@@ -98,7 +98,7 @@ export function openProcessLog(diagnostics: PassDiagnostics, name: string, comma
 export const CONFIGURATION_KEYS: ReadonlySet<string> = new Set([
   // Identity: which installation, tenant, pool, host and subject.
   "schemaVersion", "installationId", "tenantId", "poolId", "hostId", "hostIds", "hosts", "supervisorId", "tokenSubject",
-  "hostKeyId", "masterKeyId", "certificateIdentity", "allowedPeers", "issuer", "audience", "brokerAudience",
+  "hostKeyId", "masterKeyId", "certificateIdentity", "peerTenants", "issuer", "audience", "brokerAudience",
   // Where things are.
   "hostname", "serverName", "baseUrl", "endpoint", "address", "namespace", "temporalNamespace", "runnerRoot",
   "grantableRoots", "expectedDatabase", "expectedRole", "bucket", "prefix", "credentialSet",
@@ -111,7 +111,7 @@ export const CONFIGURATION_KEYS: ReadonlySet<string> = new Set([
  * Keys whose object maps data (a subject, a key name) to a value. A string
  * directly under one is judged by the container's key, never by its own name.
  */
-const DATA_MAP_KEYS: ReadonlySet<string> = new Set(["hosts", "publicKeyPaths"]);
+const DATA_MAP_KEYS: ReadonlySet<string> = new Set(["hosts", "peerTenants", "publicKeyPaths"]);
 
 /** A key that names a file path: `*Path` or `*Paths`. The file's content is judged on its own. */
 const isPathKey = (key: string) => /[a-z]Paths?$/.test(key);

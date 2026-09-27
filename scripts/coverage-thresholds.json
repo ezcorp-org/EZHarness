@@ -343,6 +343,7 @@
   "src/factory/runner/guest-material-broker.ts": 100,
   "src/factory/runner/guest-broker-client.ts": 100,
   "src/factory/run-cancellation-epoch.ts": 100,
+  "src/factory/runner/host-peer-tenants.ts": 100,
   "src/factory/runner/guest-broker-contract.ts": 100,
   "src/factory/guest-broker-composition.ts": 100,
   "src/factory/runner/guest-broker-service.ts": 100,

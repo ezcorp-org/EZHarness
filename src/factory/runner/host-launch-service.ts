@@ -2,6 +2,7 @@ import type { FactoryRunnerResult } from "@ezcorp/factory-sdk";
 import { validateFactoryRunnerResult } from "@ezcorp/factory-sdk";
 import type { FactoryPrivateRequest, FactoryPrivateResponse } from "../private-https";
 import { FactoryAttemptRuntimeError, factoryAttemptLaunchIntentFromWire, type FactoryAttemptLaunchIntent, type FactoryAttemptOpenDisposition } from "./attempt-wire";
+import { FACTORY_HOST_FORBIDDEN_TENANT, factoryHostPeerTenantLookup, type FactoryHostGuestTenants, type FactoryHostPeerTenants } from "./host-peer-tenants";
 
 /** What a host reports about one physical attempt. It carries no tenant record. */
 export interface FactoryHostAttemptHandle {
@@ -45,9 +46,11 @@ export interface FactoryHostLaunchReport {
 
 export interface FactoryHostLaunchServiceOptions {
   readonly hostId: string;
-  /** mTLS peer identities allowed to drive attempts on this host. */
-  readonly allowedPeers: readonly string[];
+  /** Each mTLS peer allowed to drive attempts on this host, bound to the one tenant it acts for. */
+  readonly peerTenants: FactoryHostPeerTenants;
   readonly supervisor: FactoryHostLaunchSupervisor;
+  /** Where the tenant of each guest a peer launched or reattached is recorded, for the stop route. */
+  readonly guestTenants?: FactoryHostGuestTenants;
   readonly launchTimeoutMs?: number;
   readonly resultTimeoutMs?: number;
   /** Where every refusal is written. Absent, it is the process's standard error, which is the supervisor log. */
@@ -99,17 +102,21 @@ function handle(value: FactoryHostAttemptHandle, expected: { workerId?: string; 
  * stop route does; nothing in a body names its caller. A launch body carries a
  * complete intent whose derived identities are recomputed here, so a caller
  * cannot assert a worker, an invocation, or a device grant it did not earn.
+ * The intent's tenant must be the one the peer is bound to (W01i): otherwise
+ * the request is refused `403 forbidden_tenant` before the supervisor is
+ * called, so another tenant's guest is never started, reattached, or read.
  */
 export function createFactoryHostLaunchRouteHandler(options: FactoryHostLaunchServiceOptions): (request: FactoryPrivateRequest) => Promise<FactoryPrivateResponse> {
   const snapshot = Object.freeze({
     hostId: options.hostId,
-    peers: new Set(options.allowedPeers),
+    peers: factoryHostPeerTenantLookup(options.peerTenants),
     supervisor: options.supervisor,
+    guestTenants: options.guestTenants,
     launchTimeoutMs: options.launchTimeoutMs ?? FACTORY_HOST_LAUNCH_TIMEOUT_MS,
     resultTimeoutMs: options.resultTimeoutMs ?? FACTORY_HOST_RESULT_WINDOW_MS,
     report: options.report ?? standardErrorReport,
   });
-  if (!snapshot.peers.size || !snapshot.hostId) throw new Error("Factory host launch service needs its own host and at least one authorized peer.");
+  if (!snapshot.hostId) throw new Error("Factory host launch service needs its own host and at least one authorized peer.");
 
   return async request => {
     const controller = new AbortController();
@@ -123,7 +130,8 @@ export function createFactoryHostLaunchRouteHandler(options: FactoryHostLaunchSe
       return json(status, status === 502 ? { error, detail } : { error });
     };
     try {
-      if (!snapshot.peers.has(request.peerIdentity)) refuse(401, "unauthorized");
+      const peerTenant = snapshot.peers.get(request.peerIdentity);
+      if (peerTenant === undefined) refuse(401, "unauthorized");
       if (request.headers["x-ezcorp-factory-version"] !== "1") refuse(400, "invalid_request");
       if (request.method !== "POST") refuse(404, "not_found");
       if (request.headers["content-type"]?.split(";", 1)[0]?.trim().toLowerCase() !== "application/json") refuse(400, "invalid_request");
@@ -132,30 +140,28 @@ export function createFactoryHostLaunchRouteHandler(options: FactoryHostLaunchSe
       catch { refuse(400, "invalid_request"); }
       if (!body || typeof body !== "object" || Array.isArray(body)) refuse(400, "invalid_request");
       const fields = body as Record<string, unknown>;
+      if (request.path !== FACTORY_HOST_LAUNCH_PATH && request.path !== FACTORY_HOST_ATTACH_PATH && request.path !== FACTORY_HOST_RESULT_PATH) refuse(404, "not_found");
+      try { intent = factoryAttemptLaunchIntentFromWire(fields.intent); }
+      catch { refuse(400, "invalid_intent"); }
+      // A host runs only the attempts its own allocation holds.
+      if (intent.lease.hostId !== snapshot.hostId) refuse(403, "forbidden_host");
+      // And only for the tenant the calling peer acts for, before anything is started or read.
+      if (intent.request.authority.tenantId !== peerTenant) refuse(403, FACTORY_HOST_FORBIDDEN_TENANT);
+      snapshot.guestTenants?.record(intent.workerId, peerTenant);
 
       if (request.path === FACTORY_HOST_LAUNCH_PATH) {
-        try { intent = factoryAttemptLaunchIntentFromWire(fields.intent); }
-        catch { refuse(400, "invalid_intent"); }
-        // A host runs only the attempts its own allocation holds.
-        if (intent.lease.hostId !== snapshot.hostId) refuse(403, "forbidden_host");
         timer = setTimeout(() => controller.abort(), snapshot.launchTimeoutMs);
         const opened = await snapshot.supervisor.launch(intent, controller.signal);
         return json(200, handle(opened, { workerId: intent.workerId, invocationId: intent.invocationId }));
       }
-      if (request.path === FACTORY_HOST_ATTACH_PATH || request.path === FACTORY_HOST_RESULT_PATH) {
-        try { intent = factoryAttemptLaunchIntentFromWire(fields.intent); }
-        catch { refuse(400, "invalid_intent"); }
-        if (intent.lease.hostId !== snapshot.hostId) refuse(403, "forbidden_host");
-        if (request.path === FACTORY_HOST_ATTACH_PATH) {
-          timer = setTimeout(() => controller.abort(), snapshot.launchTimeoutMs);
-          return json(200, handle(await snapshot.supervisor.attach(intent, controller.signal), { workerId: intent.workerId, invocationId: intent.invocationId }));
-        }
-        timer = setTimeout(() => controller.abort(), snapshot.resultTimeoutMs);
-        const result = await snapshot.supervisor.result(intent, controller.signal);
-        if (!validateFactoryRunnerResult(result).ok) refuse(500, "invalid_result");
-        return json(200, { result });
+      if (request.path === FACTORY_HOST_ATTACH_PATH) {
+        timer = setTimeout(() => controller.abort(), snapshot.launchTimeoutMs);
+        return json(200, handle(await snapshot.supervisor.attach(intent, controller.signal), { workerId: intent.workerId, invocationId: intent.invocationId }));
       }
-      refuse(404, "not_found");
+      timer = setTimeout(() => controller.abort(), snapshot.resultTimeoutMs);
+      const result = await snapshot.supervisor.result(intent, controller.signal);
+      if (!validateFactoryRunnerResult(result).ok) refuse(500, "invalid_result");
+      return json(200, { result });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (error instanceof HostLaunchRouteError) return refused(error.status, error.code, message);

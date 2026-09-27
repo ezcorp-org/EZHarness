@@ -173,6 +173,8 @@ export function factoryIntentPhysicalStop(stopper: FactoryHostPhysicalStopper, h
       // the fallback the preflight already applied when the pool pinned none.
       hostId: intent.lease.hostId || hostId,
       reason,
+      // The host binds each peer to one tenant (W01i); this stop has no cancel command to name it.
+      tenantId: intent.request.authority.tenantId,
     }), controller.signal);
   };
 }

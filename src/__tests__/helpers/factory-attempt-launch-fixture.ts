@@ -17,12 +17,20 @@ export const factoryLaunchDigest = `sha256:${raw}`;
 export const factoryLaunchArtifactDigest = raw;
 
 /** One canonical C02 runner request. Every identity field is explicit so a test can vary exactly one. */
+/** The tenant every fixture intent names. */
+export const factoryLaunchTenant = "tenant-recovery";
+
+/** A host's peer-to-tenant map that binds the test peer to the fixture's tenant (W01i). */
+export function factoryLaunchPeerTenants(peer = "tenant-a"): Readonly<Record<string, string>> {
+  return { [peer]: factoryLaunchTenant };
+}
+
 export function factoryLaunchRequest(overrides: { attemptId?: string; candidateGeneration?: number; attemptNumber?: number; model?: string; configurationDigest?: string } = {}): FactoryRunnerRequest {
   return {
     schemaVersion: "factory.runner.request.v1",
     authority: {
       attemptId: overrides.attemptId ?? "attempt-recovery",
-      tenantId: "tenant-recovery", projectId: "project-recovery", runId: "run-recovery", nodeInstanceId: "node-recovery",
+      tenantId: factoryLaunchTenant, projectId: "project-recovery", runId: "run-recovery", nodeInstanceId: "node-recovery",
       candidateGeneration: overrides.candidateGeneration ?? 2, attemptNumber: overrides.attemptNumber ?? 3,
       grantRevision: 4, reservationGeneration: 5, executionEpoch: 6, cancellationEpoch: 0,
       deadlineAtMs: Date.now() + 600_000, nextOperationIndex: 0,
