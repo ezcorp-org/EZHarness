@@ -9,7 +9,7 @@ describe("run formatting", () => {
 		expect(Object.keys(FACTORY_RELEASE_STOP_LABELS).sort()).toEqual(["no_effect", "published", "uncertain", "unknown_at_deadline"]);
 		expect(new Set(Object.values(FACTORY_RELEASE_STOP_LABELS)).size).toBe(4);
 		expect(formatInstant(1_900_000_000_000)).toBe("2030-03-17 17:46 UTC");
-		expect(releaseStopSummary({ deadlineMs: 1_900_000_000_000, stop: { requestedAtMs: 1, effect: "unknown_at_deadline" } })).toBe("Stopped during publish · no answer by the deadline, effect unknown · deadline 2030-03-17 17:46 UTC");
+		expect(releaseStopSummary({ deadlineMs: 1_900_000_000_000, stop: { requestedAtMs: 1, effect: "unknown_at_deadline" } })).toEqual({ effect: "Stopped during publish · no answer by the deadline, effect unknown", deadline: "2030-03-17 17:46 UTC" });
 		expect(releaseStopSummary({ deadlineMs: 1_900_000_000_000 })).toBeUndefined();
 	});
 

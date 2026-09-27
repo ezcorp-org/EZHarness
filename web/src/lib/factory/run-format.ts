@@ -36,10 +36,13 @@ export function formatInstant(ms: number): string {
 	return `${new Date(ms).toISOString().slice(0, 16).replace("T", " ")} UTC`;
 }
 
-/** The stop line of a release, or undefined when its run was not stopped during it. */
-export function releaseStopSummary(release: Pick<FactoryRunReleaseResource, "stop" | "deadlineMs">): string | undefined {
+/**
+ * The stop line of a release in two parts, the effect and the deadline, so a narrow view never breaks inside
+ * the date; undefined when its run was not stopped during it.
+ */
+export function releaseStopSummary(release: Pick<FactoryRunReleaseResource, "stop" | "deadlineMs">): { readonly effect: string; readonly deadline: string } | undefined {
 	if (!release.stop) return undefined;
-	return `${FACTORY_RELEASE_STOP_LABELS[release.stop.effect]} · deadline ${formatInstant(release.deadlineMs)}`;
+	return { effect: FACTORY_RELEASE_STOP_LABELS[release.stop.effect], deadline: formatInstant(release.deadlineMs) };
 }
 
 export function formatMicros(value: string): string {

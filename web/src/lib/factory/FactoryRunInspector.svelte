@@ -358,7 +358,7 @@
 								{@const stopLine = releaseStopSummary(release)}
 								<li>
 									<span class="chip" data-status={release.state === "succeeded" ? "succeeded" : release.state === "failed" ? "failed" : release.state === "uncertain" ? "uncertain" : "waiting"}>{release.state}</span>
-									<span class="row-copy"><strong>{release.action}</strong><small>{release.nodeInstanceId} · generation {release.dispatchGeneration}{release.outcomeCode ? ` · ${release.outcomeCode}` : ""}</small>{#if stopLine}<span class="release-stop" data-effect={release.stop?.effect} data-testid="factory-release-stop">{stopLine}</span>{/if}</span>
+									<span class="row-copy"><strong>{release.action}</strong><small>{release.nodeInstanceId} · generation {release.dispatchGeneration}{release.outcomeCode ? ` · ${release.outcomeCode}` : ""}</small>{#if stopLine}<span class="release-stop" data-effect={release.stop?.effect} data-testid="factory-release-stop">{stopLine.effect} · deadline <span class="deadline">{stopLine.deadline}</span></span>{/if}</span>
 									{#if release.state === "uncertain"}<button class="button-secondary" onclick={onOpenInbox}>Reconcile</button>{/if}
 								</li>
 							{/each}
@@ -472,6 +472,7 @@
 	.run-copy, .row-copy { display: grid; min-width: 0; }
 	.run-copy strong, .row-copy strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 	.release-stop { color: var(--color-text-muted); font-size: 11px; line-height: 1.35; }
+	.release-stop .deadline { white-space: nowrap; }
 	/* Small text: the warning hue mixed toward the theme's text colour, so it stays readable in both themes. */
 	.release-stop[data-effect="uncertain"], .release-stop[data-effect="unknown_at_deadline"] { color: color-mix(in srgb, var(--color-amber-500) 65%, var(--color-text-primary)); }
 	.release-stop[data-effect="published"] { color: var(--color-text-primary); }
