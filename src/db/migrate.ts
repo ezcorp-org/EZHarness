@@ -3141,6 +3141,10 @@ export async function migrate(db: MigrateDb): Promise<void> {
   // add-factory-artifact-read-grants, registered above.
   const { up: allowFactoryArtifactRegrant } = await import("./migrations/allow-factory-artifact-regrant");
   await allowFactoryArtifactRegrant(db);
+  // W03f: a stop settles from its journal's measured operations. Widens the three
+  // settlement CHECKs add-factory-usage-no-operations installed, registered above.
+  const { up: addFactoryUsageOperations } = await import("./migrations/add-factory-usage-operations");
+  await addFactoryUsageOperations(db);
   // Last on purpose: the checkpoint barrier gate attaches to every factory table that exists.
   const { up: addFactoryRecovery } = await import("./migrations/add-factory-recovery");
   await addFactoryRecovery(db);

@@ -147,6 +147,29 @@ describe("factory kernel", () => {
     expect(stopped.commands.find((command) => command.kind === "start-timer" && command.nodeId === "only")).toEqual(expect.objectContaining({ kind: "start-timer", nodeId: "only", deadlineAtMs: 6 }));
   });
 
+  test("W03f: a node failed by a typed provider error ends the run failed with that reason once its stop is certain, and waits while it is not", () => {
+    // One attempt, as the graph proof's nodes are compiled: a node with attempts left would retry instead.
+    const graph = compiled([{ id: "only", kind: "task", runner, retry: { maxAttempts: 1, initialDelayMs: 1_000, maximumDelayMs: 2_000 } }], { result: { kind: "ref", root: "node", name: "only" } });
+    for (const error of ["provider_unavailable", "provider_auth_failed", "provider_rate_limited", "model_pin_mismatch"]) {
+      let state = advanceKernel(graph, createKernelState(graph, `run-provider-${error}`, {}, 0), event("start", { kind: "start" })).nextState;
+      const admission = state.nodes.only!.attempts.at(-1)!;
+      state = advanceKernel(graph, state, event("admit", { kind: "admission-result", nodeId: "only", commandId: admission.commandId, candidateGeneration: admission.candidateGeneration, granted: true })).nextState;
+      const only = dispatchedAttempt(state, "only");
+      const failed = advanceKernel(graph, state, event("failed", { kind: "node-failed", nodeId: "only", commandId: only.commandId, candidateGeneration: only.candidateGeneration, attempt: only.attempt, error, failureKind: "execution" }));
+      expect(failed.commands.map((command) => command.kind)).toEqual(["cancel-node"]);
+      const stop = { kind: "attempt-stopped", nodeId: "only", commandId: only.commandId, candidateGeneration: only.candidateGeneration, attempt: only.attempt } as const;
+      // The stop that settled the usage from the journal is certain: the run fails with the provider's reason.
+      const certain = advanceKernel(graph, failed.nextState, event("stopped", stop));
+      expect(certain.nextState).toMatchObject({ status: "failed", unresolvedUncertainNodeIds: [] });
+      expect(certain.commands.filter((command) => command.kind === "fail-run")).toEqual([expect.objectContaining({ kind: "fail-run", error })]);
+      // The pre-W03f shape: a held usage makes the stop uncertain, and the run waits on it by name.
+      const held = advanceKernel(graph, failed.nextState, event("stopped", { ...stop, uncertain: true }));
+      expect(held.nextState.status).not.toBe("failed");
+      expect(held.nextState.unresolvedUncertainNodeIds).toEqual(["only"]);
+      expect(held.commands.some((command) => command.kind === "fail-run")).toBe(false);
+    }
+  });
+
   test("cancellation fences late work and retains uncertainty", () => {
     const graph = compiled([{ id: "only", kind: "task", runner }], { result: { kind: "ref", root: "node", name: "only" } });
     let state = advanceKernel(graph, createKernelState(graph, "run-4", {}, 0), event("start", { kind: "start" })).nextState;

@@ -10,6 +10,9 @@ import {
   factoryUsageSettlementEventId,
   factoryUsageSettlementIsIntact,
   FACTORY_USAGE_NO_OPERATIONS_BASIS,
+  FACTORY_USAGE_OPERATIONS_BASIS,
+  FACTORY_USAGE_PROVIDER_ERROR_BASIS,
+  factoryJournalStopSettlement,
   FACTORY_USAGE_SETTLEMENT_CODES,
   FACTORY_USAGE_SETTLEMENT_SCHEMA_VERSION,
   FactoryUsageSettlementError,
@@ -155,4 +158,55 @@ test("seals a no-operations zero bound to its signed stop, and nothing else unde
   expect(rejection({ source: "stop", stopReceiptDigest })).toBe("factory_usage_settlement_receipt_invalid");
   expect(rejection({ source: "reconciliation", providerReceiptDigest: receipt, stopReceiptDigest })).toBe("factory_usage_settlement_receipt_invalid");
   expect(rejection({ source: "estimate" as never })).toBe("factory_usage_settlement_invalid");
+});
+
+test("W03f: seals an operations settlement with its stop and one of its two bases, and nothing else under that source", () => {
+  const stopReceiptDigest = `sha256:${"c".repeat(64)}`;
+  for (const [knownCostMicros, basis] of [["0", FACTORY_USAGE_PROVIDER_ERROR_BASIS], ["1200", FACTORY_USAGE_PROVIDER_ERROR_BASIS], ["31", FACTORY_USAGE_OPERATIONS_BASIS]] as const) {
+    const settlement = buildFactoryUsageSettlement(input({ source: "operations", knownCostMicros, stopReceiptDigest, basis }));
+    expect(settlement).toMatchObject({ source: "operations", knownCostMicros, stopReceiptDigest, basis });
+    expect(settlement.event).toMatchObject({ kind: "usage-settled", knownCostMicros });
+    expect(factoryUsageSettlementIsIntact(settlement)).toBe(true);
+    expect(factoryUsageSettlementIsIntact({ ...settlement, basis: basis === FACTORY_USAGE_OPERATIONS_BASIS ? FACTORY_USAGE_PROVIDER_ERROR_BASIS : FACTORY_USAGE_OPERATIONS_BASIS })).toBe(false);
+  }
+  expect([FACTORY_USAGE_PROVIDER_ERROR_BASIS, FACTORY_USAGE_OPERATIONS_BASIS]).toEqual(["provider-error: model usage measured, compute at reserved bound", "operations: model usage measured, compute at reserved bound"]);
+  // Proven only by its stop, with a basis of its own, and never with a held cost or a provider receipt.
+  expect(rejection({ source: "operations", knownCostMicros: "0", basis: FACTORY_USAGE_PROVIDER_ERROR_BASIS })).toBe("factory_usage_settlement_receipt_invalid");
+  expect(rejection({ source: "operations", knownCostMicros: "0", stopReceiptDigest })).toBe("factory_usage_settlement_invalid");
+  expect(rejection({ source: "operations", knownCostMicros: "0", stopReceiptDigest, basis: FACTORY_USAGE_NO_OPERATIONS_BASIS })).toBe("factory_usage_settlement_invalid");
+  expect(rejection({ source: "operations", knownCostMicros: "0", stopReceiptDigest, basis: "provider-error: refunded" as never })).toBe("factory_usage_settlement_invalid");
+  expect(rejection({ source: "operations", knownCostMicros: "0", unknownCostMicros: "5", stopReceiptDigest, basis: FACTORY_USAGE_OPERATIONS_BASIS })).toBe("factory_usage_settlement_invalid");
+  expect(rejection({ source: "operations", knownCostMicros: "0", providerReceiptDigest: receipt, stopReceiptDigest, basis: FACTORY_USAGE_OPERATIONS_BASIS })).toBe("factory_usage_settlement_invalid");
+  // A caller cannot put a basis on a settlement whose source has none, or change the one no-operations derives.
+  expect(rejection({ source: "stop", basis: FACTORY_USAGE_OPERATIONS_BASIS })).toBe("factory_usage_settlement_invalid");
+  expect(rejection({ source: "no-operations", knownCostMicros: "0", stopReceiptDigest, basis: FACTORY_USAGE_PROVIDER_ERROR_BASIS })).toBe("factory_usage_settlement_invalid");
+  expect(buildFactoryUsageSettlement(input({ source: "no-operations", knownCostMicros: "0", stopReceiptDigest, basis: FACTORY_USAGE_NO_OPERATIONS_BASIS })).basis).toBe(FACTORY_USAGE_NO_OPERATIONS_BASIS);
+});
+
+test("W03f: a stop settles from the journal alone: no operation, every operation measured, or held", () => {
+  const measured = (costMicros: string, inputTokens: number, outputTokens: number) => ({ kind: "measured", inputTokens, outputTokens, computeMs: 999, costMicros });
+  const receiptDigest = "d".repeat(64);
+  expect(factoryJournalStopSettlement([])).toEqual({ kind: "no-operations" });
+  // A provider refused before consuming anything: a measured zero, named as a provider error.
+  expect(factoryJournalStopSettlement([{ state: "failed", usage: measured("0", 0, 0), providerReceiptDigest: receiptDigest }]))
+    .toEqual({ kind: "operations", costMicros: "0", tokens: 0, basis: FACTORY_USAGE_PROVIDER_ERROR_BASIS });
+  // Partial consumption settles the measured sum, never zero; compute is not summed here at all.
+  expect(factoryJournalStopSettlement([
+    { state: "completed", usage: measured("1200", 11, 7), providerReceiptDigest: receiptDigest },
+    { state: "failed", usage: measured("18446744073709551615", 3, 0), providerReceiptDigest: receiptDigest },
+  ])).toEqual({ kind: "operations", costMicros: "18446744073709552815", tokens: 21, basis: FACTORY_USAGE_PROVIDER_ERROR_BASIS });
+  // Settled calls and no provider error: the operations basis.
+  expect(factoryJournalStopSettlement([{ state: "completed", usage: measured("31", 2, 2), providerReceiptDigest: receiptDigest }]))
+    .toEqual({ kind: "operations", costMicros: "31", tokens: 4, basis: FACTORY_USAGE_OPERATIONS_BASIS });
+  // Anything the journal cannot price keeps the hold, fail closed.
+  for (const unpriced of [
+    { state: "failed" },
+    { state: "failed", usage: { kind: "unknown", reason: "lost", heldCostMicros: "5" } },
+    { state: "dispatched" },
+    { state: "prepared" },
+    { state: "uncertain", usage: { kind: "unknown", reason: "record failed", heldCostMicros: "5" }, providerReceiptDigest: receiptDigest },
+  ] as const) {
+    expect(factoryJournalStopSettlement([{ state: "completed", usage: measured("1", 1, 1) }, unpriced as never])).toEqual({ kind: "held" });
+  }
+  expect(() => factoryJournalStopSettlement([{ state: "failed", usage: { kind: "measured", inputTokens: -1, outputTokens: 0, computeMs: 0, costMicros: "0" } }])).toThrow("factory_usage_settlement_corrupt");
 });

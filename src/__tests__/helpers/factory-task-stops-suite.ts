@@ -19,7 +19,9 @@ import type { FactoryPhysicalStopReceipt, } from "../../factory/runner/attempt-r
 import { FactoryTaskAdmission, type FactoryTaskResourceProfile } from "../../factory/task-admission";
 import { FactoryTaskOutcomes } from "../../factory/task-outcomes";
 import { FactoryTaskStops, FactoryTaskStopError, FACTORY_STOP_SCAN_MAX_LIMIT, type FactoryPhysicalStopper, type FactoryPoolStopAcknowledger, type FactoryStopHostKey, type FactoryTaskStopRequest } from "../../factory/task-stops";
-import { FactoryUsageReconciliation, FactoryUsageSettlements } from "../../factory/usage-settlement";
+import { FACTORY_USAGE_OPERATIONS_BASIS, FACTORY_USAGE_PROVIDER_ERROR_BASIS, FactoryUsageReconciliation, FactoryUsageSettlements } from "../../factory/usage-settlement";
+import type { FactoryModelFailure } from "../../factory/runner/guest-model-broker";
+import { factoryGuestModelFailure } from "../../factory/runner/guest-model-journal";
 import { persistTransition } from "../../../packages/@ezcorp/factory-orchestrator/src/transition-pages";
 import { createFactoryLiveAttemptWorld, type FactoryLiveAttempt, type FactoryLiveAttemptWorld } from "./factory-live-attempt-world";
 
@@ -77,9 +79,7 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
    * Records a non-success outcome whose settled journal evidence really sums to
    * its terminal usage, then commits the transition that cancels the node.
    */
-  async function failedOutcome(attempt: Attempt, mode: "measured" | "held"): Promise<{ reference: typeof attempt.dispatchReference }> {
-    const inbox = new FactoryInbox(fixture.db, tenantId, () => now);
-    const outcomes = new FactoryTaskOutcomes(fixture.db, attempt.authority, attempt.admissions, attempt.journal, attempt.queue, lifecycle.budgets, inbox, () => now);
+  async function failedOutcome(attempt: Attempt, mode: "measured" | "held"): Promise<{ reference: typeof attempt.dispatchReference; advanced: ReturnType<typeof advanceKernel> }> {
     let result: FactoryRunnerResult;
     if (mode === "measured") {
       const { authority, operation } = await dispatchedOperation(attempt);
@@ -92,22 +92,66 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
       // which is the shape that carries a held cost and no settled operation.
       result = { schemaVersion: "factory.runner.result.v1", status: "uncertain", journalCursor: -1, operations: [], providerReceiptDigest: "e".repeat(64), usage: { kind: "unknown", reason: "provider receipt pending", heldCostMicros: "900" } };
     }
+    return recordedOutcome(attempt, result);
+  }
+
+  /**
+   * W03f: an infer node whose one model call a provider refused, exactly as the
+   * product's broker settles it (`factoryGuestModelFailure`) and as the guest
+   * mirrors it from the refusal. With no failure given, the broker refused
+   * before the claim (a pin mismatch): nothing was journaled, and the guest
+   * claims a measured zero, compute included.
+   */
+  async function providerFailedOutcome(attempt: Attempt, failure: FactoryModelFailure | "model_pin_mismatch"): Promise<{ reference: typeof attempt.dispatchReference; advanced: ReturnType<typeof advanceKernel> }> {
+    const error = (code: string) => ({ code, message: "the model call was refused", retryable: false });
+    if (failure === "model_pin_mismatch") {
+      const zero = { kind: "measured" as const, inputTokens: 0, outputTokens: 0, computeMs: 0, costMicros: "0" };
+      return recordedOutcome(attempt, { schemaVersion: "factory.runner.result.v1", status: "failed", resultDigest: "c".repeat(64), error: error(failure), journalCursor: -1, operations: [], usage: zero });
+    }
+    const authority = await sealedAuthority(attempt);
+    const request = {
+      schemaVersion: "factory.guest-model-request.v1" as const, operationId: `${attempt.run.runId}:${authority.nodeInstanceId}:${authority.candidateGeneration}:0`, operationIndex: 0,
+      model: { provider: "ollama", model: "qwen3:1.7b", configurationDigest: `sha256:${"a".repeat(64)}`, configuration: {}, policyDigest: `sha256:${"a".repeat(64)}`, policy: {} },
+      messages: [{ role: "user" as const, text: "the primary colours of light" }], maxOutputTokens: 64,
+    };
+    const { result: stored, operation } = factoryGuestModelFailure(request, failure);
+    await attempt.journal.prepare(authority, { operationId: operation.operationId, operationIndex: operation.operationIndex, kind: operation.kind, requestDigest: operation.requestDigest });
+    await attempt.journal.dispatch(authority, operation.operationId);
+    await attempt.journal.settle(authority, operation.operationId, "failed", { resultDigest: operation.resultDigest, result: stored, ...(operation.usage === undefined ? {} : { usage: operation.usage, providerReceiptDigest: operation.providerReceiptDigest! }) });
+    return recordedOutcome(attempt, {
+      schemaVersion: "factory.runner.result.v1", status: "failed", resultDigest: "c".repeat(64), error: error(failure.code), journalCursor: 0,
+      operations: [operation], ...(operation.usage?.kind === "measured" ? { usage: operation.usage } : {}),
+    });
+  }
+
+  /** Records a non-success outcome through the real outcome store and commits the transition that cancels the node. */
+  async function recordedOutcome(attempt: Attempt, result: FactoryRunnerResult): Promise<{ reference: typeof attempt.dispatchReference; advanced: ReturnType<typeof advanceKernel> }> {
+    const inbox = new FactoryInbox(fixture.db, tenantId, () => now);
+    const outcomes = new FactoryTaskOutcomes(fixture.db, attempt.authority, attempt.admissions, attempt.journal, attempt.queue, lifecycle.budgets, inbox, () => now);
     const receipt = await fixture.db.transaction(transaction => outcomes.recordInTransaction(transaction, service, attempt.dispatchReference, result));
     const advanced = advanceKernel(attempt.compiled, attempt.state.nextState, receipt.event);
     const cancelCommand = advanced.commands.find(command => command.kind === "cancel-node");
     if (!cancelCommand) throw new Error("fixture outcome produced no cancel-node command");
     await persistTransition(attempt.identity, 3, receipt.event, advanced.nextState, advanced.commands, undefined, attempt.activities);
-    return { reference: { ...attempt.identity, commandId: cancelCommand.id } };
+    return { reference: { ...attempt.identity, commandId: cancelCommand.id }, advanced };
   }
 
   const reservationState = async (reservationId: string) => rows<{ state: string; actual: string | null }>(await fixture.db.execute(sql`SELECT state,actual FROM factory_budget_reservations WHERE reservation_id=${reservationId}`))[0];
   const executionStatus = async (attemptId: string) => rows<{ status: string }>(await fixture.db.execute(sql`SELECT status FROM factory_executions WHERE attempt_id=${attemptId}`))[0]?.status;
   const inboxKinds = async (runId: string) => rows<{ payload: string }>(await fixture.db.execute(sql`SELECT payload FROM factory_inbox_events WHERE tenant_id=${tenantId} AND run_id=${runId} ORDER BY sequence`)).map(row => (JSON.parse(row.payload) as KernelEvent).kind);
   /** Folds every stop and usage event the stop enqueued through the real kernel, from the cancelled state. */
-  async function foldedStatus(attempt: Attempt, cancelledState: ReturnType<typeof advanceKernel>): Promise<string> {
+  async function foldedState(attempt: Attempt, cancelledState: ReturnType<typeof advanceKernel>) {
     const events = rows<{ payload: string }>(await fixture.db.execute(sql`SELECT payload FROM factory_inbox_events WHERE tenant_id=${tenantId} AND run_id=${attempt.run.runId} ORDER BY sequence`))
       .map(row => JSON.parse(row.payload) as KernelEvent).filter(event => event.kind === "usage-settled" || event.kind === "attempt-stopped");
-    return events.reduce((state, event) => advanceKernel(attempt.compiled, state.nextState, event), cancelledState).nextState.status;
+    return events.reduce((state, event) => advanceKernel(attempt.compiled, state.nextState, event), cancelledState).nextState;
+  }
+  const foldedStatus = async (attempt: Attempt, cancelledState: ReturnType<typeof advanceKernel>): Promise<string> => (await foldedState(attempt, cancelledState)).status;
+  /** What the kernel holds for the failed node once every stop and usage event is folded. */
+  async function foldedNode(attempt: Attempt, advanced: ReturnType<typeof advanceKernel>) {
+    const state = await foldedState(attempt, advanced);
+    const nodeId = (await sealedAuthority(attempt)).nodeInstanceId;
+    const node = state.nodes[nodeId]!;
+    return { unresolved: state.unresolvedUncertainNodeIds, error: node.error, attempt: node.attempts.find(entry => entry.commandId === attempt.attemptId) };
   }
   /** Stored settlement revisions, normalized: PostgreSQL returns a BIGINT as a string, PGlite as a number. */
   const settlementRows = async (runId: string) => rows<{ revision: number | string; source: string }>(await fixture.db.execute(sql`SELECT revision, source FROM factory_usage_settlements WHERE run_id=${runId} ORDER BY revision`)).map(row => ({ revision: Number(row.revision), source: row.source }));
@@ -190,7 +234,7 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
     expect(await foldedStatus(attempt, advanced)).toBe("stopping");
   });
 
-  test("settles a measured cost once and emits one usage-settled event", async () => {
+  test("settles a failed attempt's measured operations once, from its journal, and emits one usage-settled event", async () => {
     const attempt = await launchedAttempt();
     const { reference } = await failedOutcome(attempt, "measured");
     const { stops, settlements } = harness(attempt, stopper(async request => signed(request)), acknowledger());
@@ -200,8 +244,12 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
     expect(await stopRow(attempt.run.runId)).toMatchObject({ state: "stopped", source: "terminal-outcome", attempt_command_id: attempt.dispatchReference.commandId });
     expect(await reservationState(attempt.reservationId)).toMatchObject({ state: "settled" });
     const settlement = await fixture.db.transaction(transaction => settlements.readLatestInTransaction(transaction, { projectId, runId: attempt.run.runId, reservationId: attempt.reservationId }));
-    expect(settlement).toMatchObject({ revision: 1, source: "stop", knownCostMicros: "4", attemptId: attempt.attemptId });
+    // W03f: a failed attempt settles from its journal, never from its guest's
+    // claimed total: the model cost is the measured operation, and compute is
+    // the reserved bound, not the 3 ms the result reported.
+    expect(settlement).toMatchObject({ revision: 1, source: "operations", knownCostMicros: "4", attemptId: attempt.attemptId, basis: FACTORY_USAGE_OPERATIONS_BASIS, stopReceiptDigest: receipt.stopReceipt!.receiptDigest });
     expect(settlement!.unknownCostMicros).toBeUndefined();
+    expect(JSON.parse((await reservationState(attempt.reservationId))!.actual!)).toEqual({ costMicros: "4", tokens: "3", computeMs: String(profile.budget.computeMs) });
     expect(await inboxKinds(attempt.run.runId)).toEqual(["admission-result", "node-failed", "usage-settled", "attempt-stopped"]);
     expect(await stops.stop(service, reference)).toEqual(receipt);
     expect(await inboxKinds(attempt.run.runId)).toEqual(["admission-result", "node-failed", "usage-settled", "attempt-stopped"]);
@@ -216,6 +264,62 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
     expect(await reservationState(attempt.reservationId)).toMatchObject({ state: "uncertain", actual: null });
     const settlement = await fixture.db.transaction(transaction => settlements.readLatestInTransaction(transaction, { projectId, runId: attempt.run.runId, reservationId: attempt.reservationId }));
     expect(settlement).toMatchObject({ revision: 1, source: "stop", knownCostMicros: "0", unknownCostMicros: "900" });
+  });
+
+  // W03f: one lifecycle case per provider error class. Each drives the broker's
+  // own settled row through the real outcome store, kernel, stop, pool and
+  // budget, and ends with the run failed by its typed reason.
+  const reserved = () => String(profile.budget.computeMs);
+  const zero = { kind: "measured" as const, inputTokens: 0, outputTokens: 0, computeMs: 41, costMicros: "0" };
+  for (const [label, failure, cost, tokens] of [
+    ["unavailable (Ollama's missing model, 404)", { code: "provider_unavailable", message: "The provider did not complete the call: error (404: model 'qwen3:w19a-missing' not found).", evidence: { usage: zero, providerReceiptDigest: "1".repeat(64) } }, "0", "0"],
+    ["auth (a refused credential, 401)", { code: "provider_auth_failed", message: "The provider did not complete the call: error (401 invalid x-api-key).", evidence: { usage: zero, providerReceiptDigest: "2".repeat(64) } }, "0", "0"],
+    ["rate limit after partial consumption (429 mid-stream)", { code: "provider_rate_limited", message: "The provider did not complete the call: error (429 rate limited).", evidence: { usage: { kind: "measured", inputTokens: 11, outputTokens: 7, computeMs: 90, costMicros: "1200" }, providerReceiptDigest: "3".repeat(64) } }, "1200", "18"],
+  ] as const) {
+    test(`W03f: a provider error, ${label}, settles its measured model usage with compute at the reserved bound, and the run ends failed with its typed reason`, async () => {
+      const attempt = await launchedAttempt();
+      const { reference, advanced } = await providerFailedOutcome(attempt, failure);
+      const { stops, settlements } = harness(attempt, stopper(async request => signed(request)), acknowledger());
+      const receipt = await stops.stop(service, reference);
+      expect(receipt.state).toBe("stopped");
+      expect(receipt.event.uncertain).toBeUndefined();
+      const settlement = await settlementOf(settlements, attempt);
+      expect(settlement).toMatchObject({ revision: 1, source: "operations", knownCostMicros: cost, basis: FACTORY_USAGE_PROVIDER_ERROR_BASIS, stopReceiptDigest: receipt.stopReceipt!.receiptDigest });
+      expect(settlement!.unknownCostMicros).toBeUndefined();
+      // Partial consumption is the measured amount, never zero; compute is never the provider's 41 or 90 ms.
+      expect(JSON.parse((await reservationState(attempt.reservationId))!.actual!)).toEqual({ costMicros: cost, tokens, computeMs: reserved() });
+      expect(await inboxKinds(attempt.run.runId)).toEqual(["admission-result", "node-failed", "usage-settled", "attempt-stopped"]);
+      // The kernel holds nothing unresolved: the node carries its typed reason and its attempt stopped certain.
+      expect(await foldedNode(attempt, advanced)).toMatchObject({ unresolved: [], error: failure.code, attempt: { stopped: true } });
+      expect((await foldedNode(attempt, advanced)).attempt?.uncertain).not.toBe(true);
+      // Nothing is left for reconciliation to wait on, and a replay settles nothing twice.
+      expect((await fixture.db.transaction(transaction => lifecycle.budgets.listUncertainWithCostInTransaction(transaction))).filter(hold => hold.reservationId === attempt.reservationId)).toEqual([]);
+      expect(await stops.stop(service, reference)).toEqual(receipt);
+      expect(await settlementRows(attempt.run.runId)).toEqual([{ revision: 1, source: "operations" }]);
+    });
+  }
+
+  test("W03f: a pin mismatch journals nothing, so its stop settles the no-operations zero with compute at the bound, never the guest's claimed 0 ms", async () => {
+    const attempt = await launchedAttempt();
+    const { reference, advanced } = await providerFailedOutcome(attempt, "model_pin_mismatch");
+    const { stops, settlements } = harness(attempt, stopper(async request => signed(request)), acknowledger());
+    const receipt = await stops.stop(service, reference);
+    expect(receipt.event.uncertain).toBeUndefined();
+    expect(await settlementOf(settlements, attempt)).toMatchObject({ revision: 1, source: "no-operations", knownCostMicros: "0", basis: "no-operations: compute at reserved bound" });
+    expect(JSON.parse((await reservationState(attempt.reservationId))!.actual!)).toEqual({ costMicros: "0", tokens: "0", computeMs: reserved() });
+    expect(await foldedNode(attempt, advanced)).toMatchObject({ unresolved: [], error: "model_pin_mismatch", attempt: { stopped: true } });
+  });
+
+  test("W03f control: a provider failure with no usage evidence, as the broker settled it before W03f, keeps the hold and the run waits", async () => {
+    const attempt = await launchedAttempt();
+    const { reference, advanced } = await providerFailedOutcome(attempt, { code: "provider_unavailable", message: "socket hang up" });
+    const { stops, settlements } = harness(attempt, stopper(async request => signed(request)), acknowledger());
+    const receipt = await stops.stop(service, reference);
+    expect(receipt.event).toMatchObject({ kind: "attempt-stopped", uncertain: true });
+    expect(await reservationState(attempt.reservationId)).toMatchObject({ state: "uncertain", actual: null });
+    expect(await settlementOf(settlements, attempt)).toBeUndefined();
+    // The kernel keeps the node unresolved: this is the hold W19a's missing-model control met.
+    expect(await foldedNode(attempt, advanced)).toMatchObject({ unresolved: [(await sealedAuthority(attempt)).nodeInstanceId], attempt: { stopped: true, uncertain: true } });
   });
 
   test("a bounded stop timeout leaves durable uncertainty and a later receipt settles the same operation", async () => {
