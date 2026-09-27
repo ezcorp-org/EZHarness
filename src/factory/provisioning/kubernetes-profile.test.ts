@@ -66,6 +66,13 @@ describe("renderFactoryKubernetesInstallation", () => {
     expect(objects[0]!.kind).toBe("Namespace");
   });
 
+  test("the installation pod's termination grace outlasts the harness's shutdown hard timeout", async () => {
+    const { HARD_TIMEOUT_MS } = await import("../../../web/src/lib/server/shutdown");
+    const [deployment] = kind(objects, "Deployment");
+    const spec = podSpec(deployment!) as PodSpec & { terminationGracePeriodSeconds?: number };
+    expect((spec.terminationGracePeriodSeconds ?? 0) * 1_000).toBeGreaterThan(HARD_TIMEOUT_MS);
+  });
+
   test("no tenant container is privileged; each runs as non-root, read-only, with every capability dropped", () => {
     const [deployment] = kind(objects, "Deployment");
     const spec = podSpec(deployment!);

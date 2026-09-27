@@ -140,6 +140,8 @@ export function renderFactoryKubernetesInstallation(bundle: FactoryInstallationB
           metadata: { labels: labels(bundle) },
           spec: {
             serviceAccountName: "installation", automountServiceAccountToken: false, enableServiceLinks: false,
+            // Above the harness's 25 s shutdown hard timeout, so it drains and closes its database before SIGKILL.
+            terminationGracePeriodSeconds: 30,
             securityContext: { runAsNonRoot: true, runAsUser: settings.runAsUser, runAsGroup: settings.runAsUser, seccompProfile: { type: "RuntimeDefault" } },
             initContainers: [{
               name: "deliver-secrets", image, imagePullPolicy: "IfNotPresent", command: ["sh", "-ec", `umask 077 && ${copy}`],

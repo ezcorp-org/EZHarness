@@ -61,6 +61,9 @@ services:
   harness:
     <<: *factory-service
     image: ${EZCORP_FACTORY_HARNESS_IMAGE:?}
+    # Above the harness's own 25 s shutdown hard timeout (web/src/lib/server/shutdown.ts),
+    # so a slow drain ends by its own deadline, closing the database, rather than by SIGKILL.
+    stop_grace_period: 30s
     network_mode: ${EZCORP_FACTORY_HARNESS_NETWORK:?}
     ports:
       - "127.0.0.1:${EZCORP_FACTORY_HARNESS_PORT:?}:${EZCORP_FACTORY_HARNESS_PORT:?}"

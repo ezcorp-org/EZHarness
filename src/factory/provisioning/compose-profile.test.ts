@@ -589,6 +589,13 @@ describe("the Compose templates parse and hold the hardening", () => {
     for (const [name, service] of Object.entries(services)) hardened(name, service);
   });
 
+  test("the harness's stop grace outlasts its own shutdown hard timeout, so a slow drain is never cut by SIGKILL", async () => {
+    const { HARD_TIMEOUT_MS } = await import("../../../web/src/lib/server/shutdown");
+    const { services } = await parse("installation.yml");
+    const seconds = (value: unknown) => Number(/^(\d+)s$/.exec(String(value))?.[1] ?? Number.NaN);
+    expect(seconds(services.harness!.stop_grace_period) * 1_000).toBeGreaterThan(HARD_TIMEOUT_MS);
+  });
+
   test("the host template runs the one shared pool, hardened the same way", async () => {
     const { services } = await parse("host.yml");
     expect(Object.keys(services)).toEqual(["pool"]);
