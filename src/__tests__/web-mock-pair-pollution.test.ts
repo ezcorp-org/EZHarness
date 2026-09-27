@@ -74,7 +74,7 @@ const PAIRS: ReadonlyArray<{
   minPass: number;
 }> = [
   {
-    label: "OPEN-1 reverse order: extension-settings-api (polluter) then extensions-api (victim), $server/extensions/secret-settings",
+    label: "OPEN-1 reverse order: extension-settings-api (polluter) then extensions-api (victim), $lib/server/security/api-keys",
     files: ["./src/__tests__/extension-settings-api.test.ts", "./src/__tests__/extensions-api.test.ts"],
     minPass: 90,
   },
@@ -117,7 +117,7 @@ for (const pair of PAIRS) {
 // that phrase in either file are source comments, which bun's pattern
 // matching does not see), and the pass count for that FILTERED run must
 // be exactly 2, never merely "at least some number."
-test("OPEN-1: extensions-api (polluter) then extension-settings-api (victim), $server/extensions/secret-settings — the two F1 scope tests by name", () => {
+test("OPEN-1: extensions-api (polluter) then extension-settings-api (victim), $lib/server/security/api-keys — the two F1 scope tests by name", () => {
   const result = runFilesInOneProcess(
     ["./src/__tests__/extensions-api.test.ts", "./src/__tests__/extension-settings-api.test.ts"],
     "read-only key",

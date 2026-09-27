@@ -1146,3 +1146,42 @@ C's head whenever it moves.
   PROOF: `gate-scripts.test.ts` + `mock-cleanup-coverage.test.ts` + `web-mock-pair-pollution.test.ts`
   combined — 264/0.
   EVIDENCE: typecheck, lint, `gate-integrity.ts`, both boundary checks all clean.
+
+- [x] GC20: validator-3's L-b DRY finding (low, required) plus a cosmetic label fix, same commit round.
+  DRY: the lazy-inline-helper-call predicate existed TWICE and disagreed. `isCompleteServerFactoryBody()`
+  (301dcfaac, GC17/L2) checked ONLY `serverModule(`, applied at BOTH `web/` and the repo root (via the
+  extension-lifecycle-service/registry/auth-middleware TARGETS scan, whose `roots` array includes
+  `src/__tests__/` and `src/integrations/`). `isLazyUnresolvedHelperCall()` (4500e1e2f, L-b) checked
+  BOTH helpers, `web/`-scoped only. The two disagreed specifically on the repo root: the shared helper
+  refused a lazy `serverModule()` call there too, which GC19's own plant table shows is SAFE (the same
+  alias, `$server/auth/middleware`, lazy at the repo root: 9 real keys, `overrideApplied=true` — no
+  self-recursion).
+  RULING CONFIRMED: the shared helper's root-side refusal was a FALSE POSITIVE, not a rule item C
+  relied on for some other reason — verified directly by reverting
+  `src/__tests__/extension-event-end-to-end.test.ts` (root-side) to the lazy-inline shape and
+  re-running the repo-wide scan: it now correctly passes (44/0), where before this fix it would have
+  been the genuine, real offender GC17 originally found and fixed. That file's OWN conversion to the
+  precomputed form is kept regardless (a real code-quality improvement independent of whether this
+  predicate enforces it structurally at root).
+  FIX: one shared predicate, `isLazyUnresolvedHelperCall(body, scope: "web" | "root")` — `"root"`
+  never refuses (root is safe by the plant evidence); `"web"` always does (both helpers). Both
+  `isCompleteServerFactoryBody()` (now delegates to it for its `serverModule()` check, `scope`
+  defaulting to `"web"` so every existing scope-independent unit fixture keeps its answer) and the
+  L-b web/-wide scan (always passes `"web"` explicitly) call the ONE function. The repo-wide TARGETS
+  scan now derives `scope` per file (`"web"` iff the file's repo-relative path starts with `web/`) and
+  passes it through.
+  RED-FIRST, with the SAME plants GC19 used (never re-invented): the `$server/lib/cache-utils` lazy
+  plant under `web/` is still caught by the unified predicate (confirmed, then deleted). A NEW,
+  positive-direction check for the root side: reverting
+  `extension-event-end-to-end.test.ts`'s `$server/auth/middleware` mock back to the lazy-inline shape
+  (the exact pre-GC17 form) and re-running the repo-wide scan now shows GREEN (44/0) — proving the
+  new root-permissive behavior is wired through the real file scan, not only the isolated unit
+  fixture; restored after.
+  Cosmetic: the OPEN-1 pair-pollution test cases (both the aggregate-count "reverse order" case and
+  the by-name "ruled direction" case) were labeled `$server/extensions/secret-settings` — the wrong
+  alias. The actual mechanism (confirmed: `web/src/__tests__/extensions-api.test.ts` registers and
+  hands back `$lib/server/security/api-keys`, lines 110/115/293/300) is api-keys, not
+  secret-settings. Both labels corrected to `$lib/server/security/api-keys`.
+  PROOF: `gate-scripts.test.ts` + `mock-cleanup-coverage.test.ts` + `web-mock-pair-pollution.test.ts`
+  combined — 265/0 (was 264/0; +1 for the new root-scope fixture).
+  EVIDENCE: typecheck, lint, `gate-integrity.ts`, both boundary checks all clean.
