@@ -39,7 +39,7 @@ process.env.EZCORP_PERM_SWEEP_INTERVAL_MS = "30000";
 
 const roots: string[] = [];
 const reported: Array<{ role: string; error: unknown }> = [];
-const started: Array<{ stop(): Promise<void> }> = [];
+const started: Array<{ stop(): Promise<unknown> }> = [];
 
 afterEach(async () => {
   for (const startup of started.splice(0)) await startup.stop();

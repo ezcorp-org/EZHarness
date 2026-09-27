@@ -16,7 +16,9 @@
  * inside one process, and it adds the three things a hosted worker needs and
  * the process loop does not: an owned `AbortController` derived from the
  * shutdown signal, a batch bound so one role cannot starve the others, and a
- * `stop()` that awaits the in-flight step instead of abandoning it.
+ * `stop()` that awaits the in-flight step instead of abandoning it, for at most
+ * {@link FACTORY_WORKER_STOP_DEADLINE_MS}, so one step that ignores its abort
+ * signal cannot hold the process past its shutdown hard timeout.
  *
  * **Why this is not `createLifecycleRecoveryScheduler`.** C13 names
  * `src/extensions/lifecycle-recovery-scheduler.ts` as the shared scheduling
@@ -80,6 +82,35 @@ export interface FactoryBackgroundWorkerState {
 export interface FactoryWorkerClock {
   /** Resolves on elapse or on abort. It never rejects: an aborted worker exits cleanly. */
   wait(milliseconds: number, signal: AbortSignal): Promise<void>;
+}
+
+/**
+ * How long a stop waits for in-flight steps before it leaves them behind.
+ *
+ * The harness force-exits 25 s after shutdown begins (`HARD_TIMEOUT_MS` in
+ * `web/src/lib/server/shutdown.ts`), after a request drain of up to 10 s, and
+ * the database close still follows this teardown. Five seconds fits inside that
+ * budget with room for the close; a test in `web/` pins the sum.
+ */
+export const FACTORY_WORKER_STOP_DEADLINE_MS = 5_000;
+
+/** How one worker's stop ended. */
+export interface FactoryWorkerStopRecord {
+  readonly name: string;
+  /** Milliseconds from the stop request until the loop settled, or until the deadline passed. */
+  readonly ms: number;
+  /** False when the in-flight step outlived the deadline and was left running. */
+  readonly settled: boolean;
+}
+
+/** Resolve true when `work` settles within `milliseconds`, false when the deadline passes first. */
+function settlesWithin(work: Promise<void>, milliseconds: number): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<boolean>((resolve) => {
+    timer = setTimeout(() => resolve(false), milliseconds);
+    timer.unref?.();
+  });
+  return Promise.race([work.then(() => true), expired]).finally(() => clearTimeout(timer));
 }
 
 const DEFAULT_BATCH = 32;
@@ -229,15 +260,33 @@ export class FactoryBackgroundWorker {
     return "worked";
   }
 
-  /** Abort this worker and await the step already in flight. */
-  async stop(): Promise<void> {
+  /**
+   * Abort this worker and await the step already in flight, for at most
+   * `deadlineMs`.
+   *
+   * A step that ignores its signal past the deadline is left running and the
+   * record says so: the worker stays `running` and `stopping` until that step
+   * returns, so a report never claims a stop that did not happen.
+   */
+  async stop(deadlineMs: number = FACTORY_WORKER_STOP_DEADLINE_MS): Promise<FactoryWorkerStopRecord> {
+    const started = Date.now();
     this.controller?.abort(new Error(`factory worker '${this.name_}' stopped`));
     this.detach?.();
     this.detach = undefined;
     const loop = this.loop;
-    this.loop = undefined;
-    if (loop) await loop;
-    this.controller = undefined;
+    const release = () => {
+      if (this.loop !== loop) return;
+      this.loop = undefined;
+      this.controller = undefined;
+    };
+    if (loop === undefined) {
+      this.controller = undefined;
+      return Object.freeze({ name: this.name_, ms: 0, settled: true });
+    }
+    const settled = await settlesWithin(loop, deadlineMs);
+    if (settled) release();
+    else void loop.then(release);
+    return Object.freeze({ name: this.name_, ms: Date.now() - started, settled });
   }
 
   private async run(signal: AbortSignal): Promise<void> {
@@ -302,21 +351,19 @@ export class FactoryBackgroundWorkers {
   }
 
   /**
-   * Stop every worker in reverse registration order and await each one.
+   * Stop every worker, in reverse registration order, and await them together
+   * under one deadline. Resolves with one record per worker, in stop order.
    *
-   * Every worker is stopped even when one throws; the first failure is
-   * rethrown afterwards. A single stuck role must not leave the rest running,
-   * which is how a shutdown leaks processes.
+   * The stops start in reverse order and then run concurrently. At shutdown the
+   * parent signal has already aborted every worker, so waiting for them one at
+   * a time would only add their deadlines together. A single stuck role must
+   * not leave the rest running, which is how a shutdown leaks processes; every
+   * worker is stopped even when one throws, and the first failure is rethrown.
    */
-  async stop(): Promise<void> {
-    let first: unknown;
-    for (let index = this.workers.length - 1; index >= 0; index--) {
-      try {
-        await this.workers[index]!.stop();
-      } catch (error) {
-        first ??= error;
-      }
-    }
-    if (first !== undefined) throw first;
+  async stop(deadlineMs: number = FACTORY_WORKER_STOP_DEADLINE_MS): Promise<readonly FactoryWorkerStopRecord[]> {
+    const outcomes = await Promise.allSettled([...this.workers].reverse().map((worker) => worker.stop(deadlineMs)));
+    const failed = outcomes.find((outcome): outcome is PromiseRejectedResult => outcome.status === "rejected");
+    if (failed !== undefined) throw failed.reason;
+    return Object.freeze(outcomes.map((outcome) => (outcome as PromiseFulfilledResult<FactoryWorkerStopRecord>).value));
   }
 }

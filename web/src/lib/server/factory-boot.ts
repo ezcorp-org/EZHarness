@@ -16,6 +16,7 @@ import { startFactoryInstallation, type FactoryInstallationStartup } from "$serv
 import { FactoryBootError, factoryBootConfig, type FactoryBootConfig } from "$server/factory/boot";
 import { setReadiness } from "$server/readiness";
 import type { TransactionalDb } from "$server/db/migrations/types";
+import type { FactoryWorkerStopRecord } from "$server/factory/background-workers";
 
 export interface FactoryHostBootDependencies {
   readonly database: TransactionalDb;
@@ -65,7 +66,7 @@ export async function startFactoryForHost(
     // Registered last, so shutdown stops the factory roles FIRST. They hold
     // database leases, and draining them before the database closes is the
     // same LIFO rule `pglite-close` relies on.
-    dependencies.registerTeardown("factory-runtime", () => startup.stop());
+    dependencies.registerTeardown("factory-runtime", async () => logRoleStops(dependencies.log, await startup.stop()));
     const report = startup.runtime.report();
     dependencies.log.info("[factory] composed", {
       tenantId: report.tenantId,
@@ -90,6 +91,18 @@ export async function startFactoryForHost(
     dependencies.log.error("[factory] composition failed; factory routes stay closed", { error: String(error) });
     return null;
   }
+}
+
+/**
+ * One line per shutdown with each role's stop time, so a slow stop is named
+ * rather than hidden inside the teardown's total. A role whose in-flight step
+ * outlived its stop deadline is an error line naming it.
+ */
+export function logRoleStops(log: FactoryHostBootDependencies["log"], records: readonly FactoryWorkerStopRecord[]): void {
+  const ms = Object.fromEntries(records.map((record) => [record.name, record.ms]));
+  const stuck = records.filter((record) => !record.settled).map((record) => record.name);
+  if (stuck.length === 0) log.info("[factory] roles stopped", { ms });
+  else log.error("[factory] roles stopped; in-flight steps left running past the stop deadline", { stuck, ms });
 }
 
 /** The one call `ensureInitialized` makes. Off means no factory service starts. */

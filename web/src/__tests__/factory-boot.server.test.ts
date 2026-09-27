@@ -16,6 +16,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getReadiness, resetReadiness } from "$server/readiness";
 import type { FactoryBootConfig } from "$server/factory/boot";
+import { FACTORY_WORKER_STOP_DEADLINE_MS, type FactoryWorkerStopRecord } from "$server/factory/background-workers";
+import { DRAIN_TIMEOUT_MS, HARD_TIMEOUT_MS } from "$lib/server/shutdown";
 
 const startFactoryInstallation = vi.fn();
 
@@ -38,8 +40,8 @@ function report(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function startup() {
-  const stop = vi.fn(async () => {});
+function startup(records: readonly FactoryWorkerStopRecord[] = []) {
+  const stop = vi.fn(async () => records);
   return { stop, handle: { runtime: { report: () => report() }, stop } };
 }
 
@@ -137,6 +139,37 @@ describe("startFactoryForHost", () => {
 
     await (registerTeardown.mock.calls[0]![1] as () => Promise<void>)();
     expect(running.stop).toHaveBeenCalledTimes(1);
+  });
+
+  it("logs each role's stop time when the shutdown teardown runs", async () => {
+    const running = startup([{ name: "run-projection", ms: 3, settled: true }, { name: "attempt-dispatch", ms: 0, settled: true }]);
+    startFactoryInstallation.mockResolvedValue(running.handle);
+    const registerTeardown = vi.fn();
+    const log = { info: vi.fn(), error: vi.fn() };
+    await startFactoryForHost(dependencies({ registerTeardown, log }) as never, {});
+
+    await (registerTeardown.mock.calls[0]![1] as () => Promise<void>)();
+    expect(log.info).toHaveBeenCalledWith("[factory] roles stopped", { ms: { "run-projection": 3, "attempt-dispatch": 0 } });
+    expect(log.error).not.toHaveBeenCalled();
+  });
+
+  it("names a role whose in-flight step outlived its stop deadline", async () => {
+    const running = startup([{ name: "stop-settlement", ms: FACTORY_WORKER_STOP_DEADLINE_MS, settled: false }, { name: "run-projection", ms: 1, settled: true }]);
+    startFactoryInstallation.mockResolvedValue(running.handle);
+    const registerTeardown = vi.fn();
+    const log = { info: vi.fn(), error: vi.fn() };
+    await startFactoryForHost(dependencies({ registerTeardown, log }) as never, {});
+
+    await (registerTeardown.mock.calls[0]![1] as () => Promise<void>)();
+    expect(log.error).toHaveBeenCalledWith("[factory] roles stopped; in-flight steps left running past the stop deadline", {
+      stuck: ["stop-settlement"],
+      ms: { "stop-settlement": FACTORY_WORKER_STOP_DEADLINE_MS, "run-projection": 1 },
+    });
+  });
+
+  it("bounds the role stop inside the shutdown hard timeout, after the request drain", () => {
+    // The database close still runs after this teardown, so the sum must leave room for it.
+    expect(DRAIN_TIMEOUT_MS + FACTORY_WORKER_STOP_DEADLINE_MS).toBeLessThan(HARD_TIMEOUT_MS);
   });
 
   it("reports what runs and what is held, so the gap is visible without reading code", async () => {

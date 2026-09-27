@@ -215,6 +215,39 @@ describe("FactoryBackgroundWorker loop", () => {
     expect(worker.state.running).toBe(false);
   });
 
+  test("a step that ignores its abort signal cannot hold the stop past its deadline, and the record names it", async () => {
+    const clock = recordingClock();
+    let finish: () => void = () => {};
+    const ignoresAbort = new Promise<FactoryWorkerProgress>((resolve) => { finish = () => resolve("idle"); });
+    let entered = false;
+    const worker = new FactoryBackgroundWorker(definition({ name: "stop-settlement", step: async () => { entered = true; return ignoresAbort; } }), clock);
+    worker.start();
+    await tick();
+    expect(entered).toBe(true);
+
+    const record = await worker.stop(10);
+    expect(record).toMatchObject({ name: "stop-settlement", settled: false });
+    // The report does not claim a stop that did not happen, and a start cannot run a second loop beside it.
+    expect(worker.state).toMatchObject({ running: true, stopping: true });
+    worker.start();
+
+    // When the step finally returns, the loop sees the abort and the worker is released.
+    finish();
+    await tick();
+    expect(worker.state).toMatchObject({ running: false, stopping: false });
+  });
+
+  test("a stop that settles in time says so, and a stop before any start settles at once", async () => {
+    const clock = recordingClock();
+    const worker = new FactoryBackgroundWorker(definition({ name: "run-projection", step: async () => "idle" }), clock);
+    expect(await worker.stop(10)).toEqual({ name: "run-projection", ms: 0, settled: true });
+    worker.start();
+    await tick();
+    const record = await worker.stop(60_000);
+    expect(record).toMatchObject({ name: "run-projection", settled: true });
+    expect(worker.state.running).toBe(false);
+  });
+
   test("a parent abort stops the worker, and a worker started during shutdown never runs", async () => {
     const clock = recordingClock();
     const parent = new AbortController();
@@ -303,11 +336,36 @@ describe("FactoryBackgroundWorkers", () => {
     for (const name of workers.names()) {
       const worker = workers.get(name);
       const original = worker.stop.bind(worker);
-      worker.stop = async () => { stopOrder.push(name); await original(); };
+      worker.stop = async (deadlineMs) => { stopOrder.push(name); return original(deadlineMs); };
     }
     await workers.stop();
     expect(stopOrder).toEqual(["notifications", "attempts", "projections"]);
     expect(workers.states().every((state) => !state.running)).toBe(true);
+  });
+
+  test("one role whose step ignores its abort signal is named, and does not hold up the others or the stop", async () => {
+    const clock = recordingClock();
+    const workers = new FactoryBackgroundWorkers();
+    workers.register(definition({ name: "run-projection", step: async () => "idle" }), clock);
+    // Never returns: the worst case, a step blocked on a request that is never answered.
+    workers.register(definition({ name: "stop-settlement", step: () => new Promise<FactoryWorkerProgress>(() => {}) }), clock);
+    workers.register(definition({ name: "notification-send", step: async () => "idle" }), clock);
+    const parent = new AbortController();
+    workers.start(parent.signal);
+    await tick();
+    parent.abort(new Error("server shutting down"));
+
+    const records = await workers.stop(10);
+    expect(records.map(({ name, settled }) => ({ name, settled }))).toEqual([
+      { name: "notification-send", settled: true },
+      { name: "stop-settlement", settled: false },
+      { name: "run-projection", settled: true },
+    ]);
+    expect(workers.states().map(({ name, running }) => ({ name, running }))).toEqual([
+      { name: "run-projection", running: false },
+      { name: "stop-settlement", running: true },
+      { name: "notification-send", running: false },
+    ]);
   });
 
   test("stops every worker even when one stop throws, then rethrows the first failure", async () => {
@@ -317,10 +375,11 @@ describe("FactoryBackgroundWorkers", () => {
     for (const name of ["first", "second", "third"]) {
       const worker = workers.register(definition({ name }), clock);
       const original = worker.stop.bind(worker);
-      worker.stop = async () => {
+      worker.stop = async (deadlineMs) => {
         stopped.push(name);
-        await original();
+        const record = await original(deadlineMs);
         if (name !== "first") throw new Error(`${name} refused to stop`);
+        return record;
       };
     }
 
