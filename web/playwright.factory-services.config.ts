@@ -18,6 +18,7 @@ import { defineConfig } from "@playwright/test";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { pinnedWebServer } from "./playwright-lane-bun";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const lanes = JSON.parse(readFileSync(join(__dirname, "e2e", "lanes.json"), "utf8")) as { lanes: Record<string, string[]> };
@@ -48,7 +49,7 @@ export default defineConfig({
 		screenshot: evidence ? "off" : "only-on-failure",
 	},
 	projects: [{ name: "chromium", use: { browserName: "chromium", channel: "chromium" } }],
-	webServer: external ? undefined : {
+	webServer: external ? undefined : pinnedWebServer({
 		command: "bun e2e/factory-services/stack.ts",
 		cwd: __dirname,
 		// No `url`: Playwright RACES a `url` check against `wait`, and /api/ready
@@ -61,5 +62,5 @@ export default defineConfig({
 		reuseExistingServer: false,
 		gracefulShutdown: { signal: "SIGTERM", timeout: 120_000 },
 		env: { FACTORY_SERVICES_PORT: port, FACTORY_SERVICES_STATE: statePath },
-	},
+	}),
 });

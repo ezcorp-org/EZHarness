@@ -50,6 +50,9 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, "..", "..", "..");
 const WEB = join(REPO, "web");
 const BUN = process.execPath;
+// Every process this stack starts runs under this Bun (BUN above), so this Bun must be the pin.
+const PINNED_BUN = (await Bun.file(join(REPO, ".bun-version")).text()).trim();
+if (Bun.version !== PINNED_BUN) throw new Error(`lane Bun mismatch: the factory-services stack runs under bun ${Bun.version}, .bun-version pins ${PINNED_BUN}`);
 
 function required(name: string): string {
 	const value = process.env[name];
@@ -526,7 +529,7 @@ async function openRestoreEpoch(): Promise<void> {
 	const restoreToken = await writePrivate("restore.token", serviceToken(TENANT, [`pool:tenant:${TENANT}`, `pool:grant:${TENANT}:factory`, `pool:restore:${TENANT}`]));
 	const startup = JSON.parse(await readFile(startupPath, "utf8")) as { pool: Record<string, unknown> };
 	const restoreStartup = await writePrivate("factory-restore-startup.json", JSON.stringify({ ...startup, pool: { ...startup.pool, serviceTokenPath: restoreToken } }));
-	const command = Bun.spawn(["bun", join(REPO, "scripts/factory-restore.ts"), "begin", "--restore-id", restoreId, "--fence", fence, "--config", restoreStartup], {
+	const command = Bun.spawn([BUN, join(REPO, "scripts/factory-restore.ts"), "begin", "--restore-id", restoreId, "--fence", fence, "--config", restoreStartup], {
 		cwd: REPO, env: { ...process.env, DATABASE_URL: productUrl.toString() }, stdout: "pipe", stderr: "pipe",
 	});
 	const [out, err, exit] = await Promise.all([new Response(command.stdout).text(), new Response(command.stderr).text(), command.exited]);

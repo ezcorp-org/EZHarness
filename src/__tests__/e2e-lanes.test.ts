@@ -20,7 +20,7 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { laneArgs } from "../../scripts/e2e-lane-args.ts";
 import lanesManifest from "../../web/e2e/lanes.json";
@@ -295,6 +295,70 @@ describe("e2e lane manifest", () => {
     const written = stack.indexOf("await writeFile(FACTORY_SERVICES_STATE_PATH");
     expect(written).toBeGreaterThan(0);
     expect(stack.indexOf("[factory-services] held at")).toBeGreaterThan(written);
+  });
+
+  test("every lane starts its server only under the pinned Bun, and refuses another Bun by name", async () => {
+    // A system Bun 1.4.2 first on PATH started lane servers under the wrong runtime while .bun-version pinned
+    // 1.3.14 (W09e, 2026-09-27): the webServer commands resolve `bun` from PATH. Every Playwright config wraps
+    // its webServer in pinnedWebServer, every lane script runs lane_bun_pin before anything else, and the
+    // factory-services stack checks its own runtime. The server launchers (start-*-preview.sh) run only under a
+    // guarded webServer and the pinned fixture wrapper, so they carry no pin of their own.
+    const pinned = (await Bun.file(join(REPO_ROOT, ".bun-version")).text()).trim();
+    const configs = [...new Bun.Glob("playwright*.config.ts").scanSync({ cwd: join(REPO_ROOT, "web") })].sort();
+    expect(configs.length).toBeGreaterThanOrEqual(8);
+    const serverKeys: string[] = [];
+    for (const config of configs) {
+      const text = await Bun.file(join(REPO_ROOT, "web", config)).text();
+      for (const [, value] of text.matchAll(/^\s*webServer:\s*(.*)$/gm)) {
+        serverKeys.push(config);
+        expect(value, `${config}: its webServer is not wrapped in pinnedWebServer`).toContain("pinnedWebServer(");
+      }
+    }
+    expect(new Set(serverKeys).size).toBe(5);
+    const laneScripts = [
+      "scripts/collect-browser-route-coverage-lane.sh",
+      "scripts/run-browser-route-coverage.sh",
+      "scripts/test-e2e.sh",
+      "scripts/run-kokoro-realmodel-e2e.sh",
+      "web/e2e/run-real-auth-fixture.sh",
+    ];
+    for (const script of laneScripts) {
+      const lines = (await Bun.file(join(REPO_ROOT, script)).text()).split("\n");
+      const pin = lines.findIndex((line) => line.trim() === "lane_bun_pin");
+      const firstBun = lines.findIndex((line) => !line.trimStart().startsWith("#") && /\bbunx?\s/.test(line));
+      expect(pin, `${script}: never calls lane_bun_pin`).toBeGreaterThan(0);
+      expect(lines[pin - 1], `${script}: lane_bun_pin without sourcing lane-bun.sh`).toContain("lib/lane-bun.sh");
+      if (firstBun >= 0) expect(firstBun, `${script}: runs bun before lane_bun_pin`).toBeGreaterThan(pin);
+    }
+    const stack = await Bun.file(join(REPO_ROOT, "web/e2e/factory-services/stack.ts")).text();
+    expect(stack).toContain("if (Bun.version !== PINNED_BUN) throw new Error(`lane Bun mismatch");
+    expect(stack).not.toMatch(/Bun\.spawn\(\["bun"/);
+
+    // Behaviour, with a Bun 1.4.2 stand-in first on PATH.
+    const fake = mkdtempSync(join(tmpdir(), "lane-bun-"));
+    try {
+      writeFileSync(join(fake, "bun"), "#!/bin/sh\necho 1.4.2\n", { mode: 0o755 });
+      const { pinnedWebServer } = await import("../../web/playwright-lane-bun.ts");
+      const server = { command: "bun e2e/factory-services/stack.ts" };
+      expect(() => pinnedWebServer(server, { ...process.env, PATH: `${fake}:${process.env.PATH}` })).toThrow(
+        `lane Bun mismatch: PATH resolves bun 1.4.2, .bun-version pins ${pinned}`,
+      );
+      expect(pinnedWebServer(server, { ...process.env, PATH: `${dirname(process.execPath)}:${process.env.PATH}` })).toBe(server);
+      const bash = Bun.which("bash")!;
+      const run = (env: Record<string, string>) =>
+        Bun.spawnSync([bash, "-c", ". scripts/lib/lane-bun.sh; lane_bun_pin && bun --version"], {
+          cwd: REPO_ROOT,
+          env: { HOME: fake, PATH: `${fake}:${dirname(bash)}:/usr/bin:/bin`, ...env },
+        });
+      const refused = run({});
+      expect(refused.exitCode).toBe(1);
+      expect(refused.stderr.toString()).toContain(`lane Bun mismatch: PATH resolves bun 1.4.2 (${fake}/bun), .bun-version pins ${pinned}`);
+      const pinnedRun = run({ EZCORP_PINNED_BUN_DIR: dirname(process.execPath) });
+      expect(pinnedRun.exitCode).toBe(0);
+      expect(pinnedRun.stdout.toString().trim()).toBe(pinned);
+    } finally {
+      rmSync(fake, { recursive: true, force: true });
+    }
   });
 
   test("a lane whose server never enables factories carries no spec that calls /api/factories", async () => {

@@ -17,14 +17,15 @@
  */
 import { defineConfig } from "@playwright/test";
 import realConfig from "./playwright.real.config";
+import { pinnedWebServer } from "./playwright-lane-bun";
 
 const realWebServer = realConfig.webServer as Exclude<typeof realConfig.webServer, undefined | unknown[]>;
 
 export default defineConfig({
   ...realConfig,
   testMatch: [/extension-author-trusted-local\.spec\.ts$/],
-  webServer: {
+  webServer: pinnedWebServer({
     ...realWebServer,
     command: "bash e2e/run-real-auth-fixture.sh bash ../scripts/start-trusted-local-preview.sh",
-  },
+  }),
 });
