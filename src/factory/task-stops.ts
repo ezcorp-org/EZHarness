@@ -428,8 +428,10 @@ export class FactoryTaskStops implements FactoryUsageSettlementAuthority {
     assertFactoryIdentity(reservationId);
     const row = rows<StopRow>(await transaction.execute(sql`SELECT * FROM factory_task_stops WHERE tenant_id=${this.authority.tenantId} AND reservation_id=${reservationId} FOR UPDATE`))[0];
     // W15f: a signed restore that superseded the attempt proves its end even when no stop was sealed.
-    const superseded = await this.supersessions?.readAttemptSupersessionInTransaction(transaction, reservationId);
-    const held = row ? { projectId: row.project_id, runId: row.run_id, interpreterId: row.interpreter_id, attemptId: row.attempt_id } : superseded;
+    const superseded = await this.supersessions?.readAttemptSupersessionInTransaction(transaction, this.authority.tenantId, reservationId);
+    // A supersession whose dispatch named no interpreter has no inbox a settlement could report into.
+    const held = row ? { projectId: row.project_id, runId: row.run_id, interpreterId: row.interpreter_id, attemptId: row.attempt_id }
+      : superseded?.interpreterId ? { ...superseded, interpreterId: superseded.interpreterId } : undefined;
     if (!held) return undefined;
     if (row && superseded && (superseded.attemptId !== row.attempt_id || superseded.runId !== row.run_id)) throw new FactoryTaskStopError("factory_task_stop_corrupt");
     const authority = await this.journal.readAuthorityInTransaction(transaction, { tenantId: this.authority.tenantId, projectId: held.projectId, runId: held.runId, attemptId: held.attemptId });

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { canonicalJson, type JsonValue } from "@ezcorp/extension-contract";
 import type { FactoryGuestModelRequest, FactoryRunnerFailedOperation, FactoryRunnerRequest } from "@ezcorp/factory-sdk";
-import type { FactoryAttemptAuthority, FactoryExecutionJournal, FactoryJournalOperation } from "../executions";
+import { isFactoryAttemptNotLive, type FactoryAttemptAuthority, type FactoryExecutionJournal, type FactoryJournalOperation } from "../executions";
 import { factoryRunnerRequestAuthority } from "./attempt-authority";
 import type { FactoryGuestModelClaim, FactoryGuestModelJournal, FactoryModelCompletion, FactoryModelFailure } from "./guest-model-broker";
 import type { FactoryWorkspaceCheckpoint } from "./supervisor";
@@ -82,7 +82,9 @@ export function createFactoryJournalGuestModelJournal(options: FactoryJournalGue
    * nothing to park, and the original refusal stands.
    */
   const parkLate = async (authority: FactoryAttemptAuthority, operationId: string, refused: unknown, evidence: { readonly providerReceiptDigest: string; readonly usage: FactoryModelCompletion["usage"] } | undefined): Promise<void> => {
-    if (evidence === undefined) throw refused;
+    // Only the refusal of an attempt that is no longer live means the stop came first; any other
+    // failure (a lost connection on a live attempt) propagates as what it is (validator L1).
+    if (evidence === undefined || !isFactoryAttemptNotLive(refused)) throw refused;
     await options.journal.reconcileLate(authority, operationId, { providerReceiptDigest: evidence.providerReceiptDigest, usage: evidence.usage }).catch(() => { throw refused; });
   };
   return Object.freeze({

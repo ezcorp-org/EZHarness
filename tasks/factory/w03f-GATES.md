@@ -139,6 +139,81 @@ Agreed shape (lead accepted, recorded in both gates files):
   3. The joint test on a real W15f-marked hold lives on whichever branch merges second; the other
      keeps its double.
 
+## The integ/w00 9da0ed9ec merge (5cf78799c) and the hook-cap ruling
+
+The coordinator's ruling, verbatim (issued 12:48Z per validator-4's review; the ruling's own text
+names 12:52Z for the commit message):
+
+> Ruling granted for this one commit only: the merge of integ/w00 9da0ed9ec into wp/w03f-provider-settle. Conditions: the commit message names it ("hook cap skip by coordinator ruling 2026-09-27 12:52Z; 26 mapped suites run outside the hook under the lock; receipts under /tmp/factory-platform-evidence/w03f/"); the hook's printed list of 26 recorded verbatim before committing; all 26 run as the first leg of your locked session with GIT_DIR, GIT_INDEX_FILE, GIT_WORK_TREE and GIT_COMMON_DIR cleared and GIT_CONFIG_NOSYSTEM=1, the PostgreSQL ones against the proof database with the URL built inside the script, one receipt each, and a nonzero test count asserted per file (a leg that runs zero tests is red); the shared .git/config sha256 (44962525f1ca1a8b) recorded before and after; any red is a defect on your head, not a gap. Never raise EZ_PRECOMMIT_TEST_MAX.
+
+The merge commit's message is a paraphrase of that ruling (validator L2): it carries the named
+sentence, not the conditions. The conditions and their evidence:
+- The hook's list, recorded verbatim before the commit (`logs/merge-hook-list-verbatim.log`):
+  `scripts/factory-graph-proof/guest-package.test.ts`
+  `src/extensions/v4/blobs-s3.test.ts`
+  `src/factory/guest-sdk-closure.test.ts`
+  `src/factory/installation-startup.test.ts`
+  `src/factory/reference-code/guest.test.ts`
+  `src/factory/runtime-composition.test.ts`
+  `src/factory/service-probes.test.ts`
+  `src/__tests__/cov-fix-connection-postgres.test.ts`
+  `src/__tests__/db-connection.test.ts`
+  `src/__tests__/factory-boot.test.ts`
+  `tests/postgres/factory-archive-writer.test.ts`
+  `tests/postgres/factory-artifact-materials.test.ts`
+  `tests/postgres/factory-child-artifacts.test.ts`
+  `tests/postgres/factory-encryption-s3.test.ts`
+  `tests/postgres/factory-guest-material-broker.test.ts`
+  `tests/postgres/factory-legacy-workflow.test.ts`
+  `tests/postgres/factory-package-preparation.test.ts`
+  `tests/postgres/factory-private-service.test.ts`
+  `tests/postgres/factory-reference-data.test.ts`
+  `tests/postgres/factory-run-inputs.test.ts`
+  `tests/postgres/factory-run-lifecycle-s3.test.ts`
+  `tests/postgres/factory-s3-publication.test.ts`
+  `tests/postgres/factory-storage-cleanup.test.ts`
+  `tests/postgres/factory-validator-materials.test.ts`
+  `tests/postgres/migrate-lock.test.ts`
+  `web/src/__tests__/factory-boot.server.test.ts`
+- All 26 ran as leg 0 of the locked session with git's environment cleared and
+  `GIT_CONFIG_NOSYSTEM=1`, one receipt each (`receipts/hook-*.attempt-*.json`); 24 green on the first
+  attempt with a nonzero count. Two first attempts were my runner errors, rerun green:
+  - `db-connection` (16/3): the session exported `DATABASE_URL` (`--pg`) to suites that require
+    none; rerun without it, 19/0.
+  - `web/src/__tests__/factory-boot.server` (10/3): a vitest file run under `bun test`; rerun with
+    `bunx vitest run`, 13 passed. Its receipt first read 0/0 because the tool parsed only bun output;
+    it is regenerated from the unchanged log with the shared counter (validator L3), and the tool
+    now counts bun, vitest and node output through `/tmp/factory-platform-evidence/w00/test-count.sh`
+    and makes a zero-count test leg red (exit 97).
+- Shared `.git/config` sha256 `44962525f1ca1a8b` before and after the commit and the session.
+- The session's one real red was W03f's: the route suite compared the whole provider options object
+  after ruling C added the deadline signal; fixed test-only in `0ac18b37d`, rerun 18/0 on PostgreSQL.
+
+## Validator-4 findings at 0ac18b37d
+
+- L1: `parkLate` parked on any settle refusal. It now parks only on the liveness refusal
+  (`isFactoryAttemptNotLive`: `factory_attempt_not_live`, `factory_run_stopped`,
+  `factory_run_fence_changed`); a lost connection on a live attempt propagates as itself, nothing is
+  parked, and the operation stays dispatched in a named hold that B settles. Red first:
+  `receipts/l1-red.attempt-1.json` against `0ac18b37d`'s journal.
+- L2 and L3: above.
+
+## W15f names (from w15b-fix, their head 5afafa64b)
+
+- The reservation mark is W15f's `factory_budget_reservations.epoch_stale_json` (JSONB), with the
+  skip rule in `listUncertainWithCostInTransaction`; W03f never reads it.
+- Record `factory_attempt_supersessions`; reader
+  `readAttemptSupersessionInTransaction(transaction, tenantId, reservationId)` in
+  `src/factory/attempt-supersessions.ts`. W03f's `FactoryAttemptSupersessionReader` takes that
+  signature and shape (a null `interpreterId` yields no scope: no inbox to settle into).
+- The clear for a superseded attempt is W15f's `clearResolvedSupersessionInTransaction`, reached
+  through W05b's clear; B emits no event.
+- The operations of a superseded attempt are read through W15f's
+  `supersededOperationsInTransaction` (the live read refuses the old epoch). W03f calls it for a
+  restore-proven scope; without it the hold stays named `superseded-operations-unreadable`.
+- Migration order: W03f's `add-factory-usage-operations`, then W15f's
+  `add-factory-usage-epoch-stale` and `add-factory-attempt-supersessions`, `add-factory-recovery` last.
+
 ## Disclosed
 
 - Credential misdirection (lead ruling, record it): M1 attempt 1's `w14-repro.sh` sourced a file

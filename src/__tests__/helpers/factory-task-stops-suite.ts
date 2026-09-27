@@ -457,7 +457,8 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
     // W15f's record, read through the interface both packages agreed; no stop was ever sealed.
     const restoreDigest = `sha256:${"7".repeat(64)}`;
     const supersessions = {
-      async readAttemptSupersessionInTransaction(_transaction: unknown, reservationId: string) {
+      async readAttemptSupersessionInTransaction(_transaction: unknown, tenant: string, reservationId: string) {
+        expect(tenant).toBe(tenantId);
         return reservationId === attempt.reservationId ? { projectId, runId: attempt.run.runId, interpreterId: attempt.identity.interpreterId, attemptId: attempt.attemptId, restoreDigest } : undefined;
       },
     };
@@ -465,7 +466,14 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
     const settlements = new FactoryUsageSettlements(fixture.db, tenantId, inbox, () => now);
     const outcomes = new FactoryTaskOutcomes(fixture.db, attempt.authority, attempt.admissions, attempt.journal, attempt.queue, lifecycle.budgets, inbox, () => now);
     const stops = new FactoryTaskStops(fixture.db, attempt.authority, attempt.admissions, attempt.journal, outcomes, attempt.queue, lifecycle.budgets, inbox, settlements, stopper(async stopRequest => signed(stopRequest)), acknowledger(), [{ hostId, hostKeyId: "stop-host-key-1", publicKey: hostKeys.publicKey }], () => now, 20_000, supersessions);
-    const reconciler = (nowMs: number) => new FactoryUsageReconciliation(fixture.db, tenantId, stops, attempt.journal, lifecycle.budgets, settlements, () => nowMs);
+    // W15f's journal reads a superseded attempt's operations past the stale epoch; here the epoch is
+    // not moved, so the double hands back the journal's own evidence, read beforehand.
+    const evidence = await attempt.journal.operations(authority);
+    const withSuperseded = { reconcileLate: attempt.journal.reconcileLate.bind(attempt.journal), operations: attempt.journal.operations.bind(attempt.journal), supersededOperationsInTransaction: async () => evidence };
+    // Without that read, the hold stays named rather than priced by a guess.
+    expect(await new FactoryUsageReconciliation(fixture.db, tenantId, stops, attempt.journal, lifecycle.budgets, settlements, () => authority.deadlineAt.getTime() + 1).resolve({ projectId, runId: attempt.run.runId, reservationId: attempt.reservationId } as never))
+      .toEqual({ kind: "unknown", reservationId: attempt.reservationId, reason: "superseded-operations-unreadable" });
+    const reconciler = (nowMs: number) => new FactoryUsageReconciliation(fixture.db, tenantId, stops, withSuperseded, lifecycle.budgets, settlements, () => nowMs);
     await lifecycle.budgets.markUncertain({ projectId, runId: attempt.run.runId, reservationId: attempt.reservationId }, "execution_epoch_superseded");
     const hold = await heldFor(attempt);
     expect(await reconciler(authority.deadlineAt.getTime() - 1).resolve(hold)).toEqual({ kind: "unknown", reservationId: attempt.reservationId, reason: "operation-not-settled", operationIds: [request.operationId] });

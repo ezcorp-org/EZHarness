@@ -189,6 +189,12 @@ export type FactoryUncertainHoldUnknownReason =
    * (a provider that threw without an answer); the resolution names each one.
    */
   | "operation-cost-unknown"
+  /**
+   * W03f with W15f: the attempt a restore superseded names an old execution
+   * epoch, which the journal's live read refuses; its operations are read only
+   * through W15f's `supersededOperationsInTransaction`, and this journal has none.
+   */
+  | "superseded-operations-unreadable"
   | "usage-still-unknown";
 
 /**
@@ -363,19 +369,24 @@ export interface FactoryUsageSettlementScope {
   readonly end?: { readonly kind: "stop" | "restore-supersession"; readonly digest: string };
 }
 
-/** W15f: an attempt a signed restore superseded, read by the reservation it held. */
+/**
+ * W15f: an attempt a signed restore superseded, read by the reservation it
+ * held (`factory_attempt_supersessions`, `src/factory/attempt-supersessions.ts`).
+ * The fields W03f reads; W15f's record carries more.
+ */
 export interface FactoryAttemptSupersession {
   readonly projectId: string;
   readonly runId: string;
-  readonly interpreterId: string;
   readonly attemptId: string;
-  /** `sha256:` digest of the restore's signature or receipt. */
+  /** Null when the attempt's dispatch named no interpreter: then there is no inbox to settle into. */
+  readonly interpreterId: string | null;
+  /** `sha256:` digest of the signed restore report. */
   readonly restoreDigest: string;
 }
 
-/** The seam W15f implements over its supersession record. */
+/** The seam W15f's `readAttemptSupersessionInTransaction` fills. */
 export interface FactoryAttemptSupersessionReader {
-  readAttemptSupersessionInTransaction(transaction: MigrationDb, reservationId: string): Promise<FactoryAttemptSupersession | undefined>;
+  readAttemptSupersessionInTransaction(transaction: MigrationDb, tenantId: string, reservationId: string): Promise<FactoryAttemptSupersession | undefined>;
 }
 
 export interface FactoryUsageSettlementAmounts {
@@ -518,6 +529,12 @@ export interface FactoryUsageJournal {
   reconcileLate(authority: FactoryAttemptAuthority, operationId: string, result: { readonly providerReceiptDigest: string; readonly usage: FactoryMeasuredUsage }): Promise<void>;
   /** The sealed operation evidence the journal already holds for one attempt. */
   operations(authority: FactoryAttemptAuthority): Promise<readonly FactoryJournalOperationEvidence[]>;
+  /**
+   * W15f: the operations of an attempt a signed restore superseded, read
+   * without the live epoch comparison and refused unless the supersession
+   * record names this attempt. Optional until W15f's journal provides it.
+   */
+  supersededOperationsInTransaction?(transaction: MigrationDb, authority: FactoryAttemptAuthority): Promise<readonly FactoryJournalOperationEvidence[]>;
 }
 
 /** The budget seam a verified receipt settles through. */
@@ -572,7 +589,14 @@ export class FactoryUsageReconciliation implements FactoryUsageReconciler {
     // The hold and the sealed stop must describe the same work, or one of them
     // is about a different run and neither may fund the other.
     if (scope.projectId !== hold.projectId || scope.runId !== hold.runId) throw new FactoryUsageSettlementError("factory_usage_settlement_conflict");
-    const operations = await this.journal.operations(scope.authority);
+    let operations: readonly FactoryJournalOperationEvidence[];
+    if (scope.end?.kind === "restore-supersession") {
+      const read = this.journal.supersededOperationsInTransaction?.bind(this.journal);
+      if (!read) return Object.freeze({ kind: "unknown" as const, reservationId, reason: "superseded-operations-unreadable" as const });
+      operations = await this.database.transaction(transaction => read(transaction, scope.authority));
+    } else {
+      operations = await this.journal.operations(scope.authority);
+    }
     const pending = [...operations].filter(operation => operation.state === "uncertain" && typeof operation.providerReceiptDigest === "string" && operation.providerReceiptDigest.length > 0)
       .sort((left, right) => left.operationIndex - right.operationIndex);
     const candidate = pending[0];

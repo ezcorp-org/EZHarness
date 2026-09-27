@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { FactoryGuestModelRequest, FactoryModelPin, FactoryRunnerRequest } from "@ezcorp/factory-sdk";
-import type { FactoryExecutionJournal } from "../executions";
+import { FactoryAttemptLivenessError, type FactoryExecutionJournal } from "../executions";
 import { factoryLaunchRequest } from "../../__tests__/helpers/factory-attempt-launch-fixture";
 import { createFactoryJournalGuestModelJournal, FACTORY_GUEST_MODEL_EVIDENCE_PARKED } from "./guest-model-journal";
 
@@ -20,7 +20,7 @@ const pin: FactoryModelPin = { provider: "ollama", model: "qwen3:1.7b", configur
 const attempt = factoryLaunchRequest({ attemptId: "attempt-late" }) as FactoryRunnerRequest;
 const request = { schemaVersion: "factory.guest-model-request.v1", operationId: "run:node:0:0", operationIndex: 0, model: pin, messages: [{ role: "user", text: "hello" }], maxOutputTokens: 64 } as FactoryGuestModelRequest;
 const evidence = { providerReceiptDigest: "f".repeat(64), usage: { kind: "measured" as const, inputTokens: 3, outputTokens: 1, computeMs: 7, costMicros: "9" } };
-const stopped = new Error("Factory attempt is stale, cancelled, or expired.");
+const stopped = new FactoryAttemptLivenessError("factory_attempt_not_live", "Factory attempt is stale, cancelled, or expired.");
 
 function journal(options: { settle?: () => Promise<void>; reconcileLate?: () => Promise<void> }) {
   const calls: Array<{ method: string; args: unknown[] }> = [];
@@ -60,4 +60,25 @@ test("without evidence, or when parking is refused too, the original refusal sta
   const both = journal({ settle: async () => { throw stopped; }, reconcileLate: async () => { throw new Error("Late factory receipt does not match a dispatched operation."); } });
   await expect(both.guest.hold(attempt, request, { text: "late", ...evidence })).rejects.toBe(stopped);
   await expect(both.guest.fail(attempt, request, { code: "provider_unavailable", message: "404", evidence })).rejects.toBe(stopped);
+});
+
+test("validator L1: a settle failure that is not the liveness refusal propagates as itself, and nothing is parked", async () => {
+  const lost = new Error("Connection terminated unexpectedly");
+  for (const settle of [async () => { throw lost; }]) {
+    const failed = journal({ settle });
+    const error = await failed.guest.fail(attempt, request, { code: "provider_unavailable", message: "404", evidence }).then(() => undefined, (thrown: unknown) => thrown);
+    expect(error).toBe(lost);
+    expect(String((error as Error).message)).not.toContain(FACTORY_GUEST_MODEL_EVIDENCE_PARKED);
+    expect(failed.calls.map(call => call.method)).toEqual(["settle"]);
+
+    const held = journal({ settle });
+    await expect(held.guest.hold(attempt, request, { text: "answer", ...evidence })).rejects.toBe(lost);
+    expect(held.calls.map(call => call.method)).toEqual(["settle"]);
+  }
+  // Each form of the liveness refusal still parks: the journal's own, and a stopped or re-fenced run.
+  for (const refusal of [stopped, Object.assign(new Error("factory_run_stopped"), { code: "factory_run_stopped" }), Object.assign(new Error("factory_run_fence_changed"), { code: "factory_run_fence_changed" })]) {
+    const parked = journal({ settle: async () => { throw refusal; } });
+    await parked.guest.hold(attempt, request, { text: "late", ...evidence });
+    expect(parked.calls.map(call => call.method)).toEqual(["settle", "reconcileLate"]);
+  }
 });

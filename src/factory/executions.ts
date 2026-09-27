@@ -196,6 +196,18 @@ function durableRunnerRequest(value: unknown, requestHash: string): FactoryDurab
  */
 export type FactoryAttemptLivenessCode = "factory_attempt_unknown" | "factory_attempt_not_live";
 
+/**
+ * Is this the journal refusing an attempt that is no longer live? The journal's
+ * own refusal (`factory_attempt_not_live`) and the run lifecycle's refusal of a
+ * stopped or re-fenced run (`factory_run_stopped`, `factory_run_fence_changed`)
+ * are; every other failure (a lost connection, a corrupt row) is not. Read by
+ * code so the runner side need not import the run lifecycle.
+ */
+export function isFactoryAttemptNotLive(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  return code === "factory_attempt_not_live" || code === "factory_run_stopped" || code === "factory_run_fence_changed";
+}
+
 export class FactoryAttemptLivenessError extends Error {
   constructor(readonly code: FactoryAttemptLivenessCode, message: string) {
     super(message);
