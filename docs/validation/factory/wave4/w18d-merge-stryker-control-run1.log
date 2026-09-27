@@ -1,0 +1,26 @@
+resource-gate 2026-09-26T04:19:32Z stryker disk=127G memAvailable=18GiB swapFreeKiB=7795228/17173956
+head=36c6d3b061f3a44e4239b5346a24be5777589bed index-tree=a2033f7cab873710db7ab215980d1f7fc729d9ed unstaged=0
+[33m00:19:33 (2497606) WARN ProjectReader[39m Glob pattern "src/lib/factory/run-format.ts" did not result in any files.
+[33m00:19:33 (2497606) WARN ProjectReader[39m Warning: No files found for mutation with the given glob expressions. As a result, a dry-run will be performed without actually modifying anything. If you intended to mutate files, please check and adjust the configuration. Current glob pattern(s) used: "src/lib/factory/run-format.ts". To enable file mutation, consider configuring the `mutate` property in your configuration file or using the --mutate option via the command line.
+[32m00:19:33 (2497606) INFO Instrumenter[39m Instrumented 0 source file(s) with 0 mutant(s)
+[32m00:19:35 (2497606) INFO ConcurrencyTokenProvider[39m Creating 31 test runner process(es).
+[32m00:19:36 (2497606) INFO BroadcastReporter[39m Detected that current console does not support the "progress" reporter, downgrading to "progress-append-only" reporter
+[32m00:19:37 (2497606) INFO DryRunExecutor[39m Starting initial test run (vitest test runner with "perTest" coverage analysis). This may take a while.
+[33m00:19:37 (2497909) WARN VitestTestRunner[39m Vitest failed to find test files related to mutated files. Either disable `vitest.related` or import your source files directly from your test files. See https://stryker-mutator.io/docs/stryker-js/troubleshooting/#vitest-failed-to-find-test-files-related-to-mutated-files
+[32m00:19:37 (2497606) INFO DryRunExecutor[39m No tests were found
+[91m00:19:37 (2497606) ERROR Stryker[39m No tests were executed. Stryker will exit prematurely. Please check your configuration.
+file:///home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/web/node_modules/@stryker-mutator/core/dist/src/process/3-dry-run-executor.js:47
+            throw new ConfigError('No tests were executed. Stryker will exit prematurely. Please check your configuration.');
+                  ^
+
+ConfigError: No tests were executed. Stryker will exit prematurely. Please check your configuration.
+    at DryRunExecutor.execute (file:///home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/web/node_modules/@stryker-mutator/core/dist/src/process/3-dry-run-executor.js:47:19)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async Stryker.run (file:///home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/web/node_modules/@stryker-mutator/core/dist/src/stryker.js:52:53)
+    at async Stryker.runMutationTest (file:///home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/web/node_modules/@stryker-mutator/core/dist/src/stryker.js:27:20)
+    at async Command.<anonymous> (file:///home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/web/node_modules/@stryker-mutator/core/dist/src/stryker-cli.js:51:13) {
+  innerError: undefined
+}
+
+Node.js v24.14.1
+exit=1 start=2026-09-26T00:19:32-04:00 end=2026-09-26T00:19:37-04:00 unstagedAfter=0
