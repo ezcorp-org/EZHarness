@@ -21,6 +21,7 @@ import type { TrustedFactoryServiceIdentity } from "./trusted-command-gateway";
 import { FactoryTaskStops, type FactoryPhysicalStopper, type FactoryStopHostKey, type FactoryStoppableAttempt } from "./task-stops";
 import type { FactoryBudgets, FactoryUncertainHold } from "./budgets";
 import { FactoryUsageReconciliation } from "./usage-settlement";
+import { FactoryReleaseOutcomeBackoff } from "./release-outcome-backoff";
 import { FACTORY_RELEASE_STOP_OUTCOME_UNKNOWN, FactoryReleaseError, type FactoryClaimableRelease, type FactoryReleaseConsentAbsence, type FactoryReleaseOperation, type FactoryReleaseProvider, type FactoryReleases, type FactoryStoppedRelease } from "./releases";
 import type { FactoryReleaseProviderResolver } from "./release-application";
 import type { FactoryReleaseOutcomeDelivery, FactoryUndeliveredReleaseOutcome } from "./release-outcome-delivery";
@@ -257,6 +258,19 @@ export const FACTORY_RELEASE_CONSENT_FAULT_REASONS: readonly FactoryReleaseUncla
 export const FACTORY_RELEASE_OUTCOME_TRANSIENT_CODES: readonly string[] =
   Object.freeze(["factory_release_claim_lost", "factory_release_not_claimable", "factory_run_stopped", FACTORY_RELEASE_STOP_OUTCOME_UNKNOWN, "factory_release_stop_settlement_stale"]);
 
+/**
+ * A release that waits for a person: consent that is not there yet. Named apart from other transients (W09e
+ * R5). An operation that left the work list waits for nobody, and the two faults need an operator.
+ */
+function awaitingConsent(error: unknown): boolean {
+  return error instanceof FactoryReleaseConsentAbsentError && error.reason !== "operation_absent" && !FACTORY_RELEASE_CONSENT_FAULT_REASONS.includes(error.reason);
+}
+
+/** The failures that leave a release where it was, so trying it again at once cannot help: it waits (W09e R5). */
+function waitsBeforeRetry(error: unknown): boolean {
+  return awaitingConsent(error) || (error as { code?: unknown } | null | undefined)?.code === FACTORY_RELEASE_STOP_OUTCOME_UNKNOWN;
+}
+
 export function factoryReleaseOutcomeDisposition(error: unknown): FactoryItemDisposition {
   if (error instanceof FactoryReleaseConsentAbsentError) {
     return FACTORY_RELEASE_CONSENT_FAULT_REASONS.includes(error.reason) ? "fault" : "transient";
@@ -314,6 +328,12 @@ export interface FactoryPendingReleaseDelivery extends FactoryUndeliveredRelease
  * page is the settled operations whose event is still missing. That second
  * source is what makes delivery survive a crash between settlement and
  * enqueue: the operation is found again and delivered once.
+ *
+ * **A release that cannot move waits (W09e R5).** A release waiting for consent, and a stopped release whose
+ * provider has not answered, are tried once and then left alone for a doubling wait
+ * (`FactoryReleaseOutcomeBackoff`), so each reports one line per wait rather than one per pass. A waiting
+ * release is off the page, so it never keeps another from its turn. Consent that is not there yet is
+ * reported as `awaiting_consent`, apart from other transients.
  */
 export function factoryReleaseOutcomeDriver(
   database: TransactionalDb,
@@ -324,15 +344,43 @@ export function factoryReleaseOutcomeDriver(
   report: (role: string, error: unknown) => void,
   limit?: number,
   delivery?: Pick<FactoryReleaseOutcomeDelivery, "deliver" | "undelivered">,
+  now: () => number = Date.now,
 ): FactoryRoleDriver {
+  const backoff = new FactoryReleaseOutcomeBackoff(now);
+  const key = (item: { readonly projectId: string; readonly operationId: string }) => `${item.projectId}\u0000${item.operationId}`;
+  const settleStopped = async (item: FactoryPendingReleaseStop) => {
+    const operation = await releases.inspect(item.projectId, item.operationId);
+    if (operation === null) throw new FactoryReleaseError("factory_release_stop_settlement_stale");
+    await releases.settleStopped(item.projectId, item.operationId, await providers.resolve(operation));
+  };
+  const claimAndDispatch = async (claimable: FactoryClaimableRelease) => {
+    // The operation the consent is read against. `readConsentInTransaction`
+    // re-validates every byte of it and `claim` re-reads it under a lock, so
+    // an operation that moved between the scan and here costs a refusal by
+    // name rather than a wrong claim.
+    const operation = await releases.inspect(claimable.projectId, claimable.operationId);
+    if (operation === null) throw new FactoryReleaseConsentAbsentError("operation_absent");
+    const { requester, consent } = await database.transaction(async (transaction: MigrationDb) => {
+      const { initiator } = await runs.readExecutionPlanInTransaction(transaction, { projectId: claimable.projectId, runId: claimable.runId });
+      return { requester: initiator, consent: await releases.readConsentInTransaction(transaction, initiator, operation) };
+    });
+    if (consent.kind === "none") throw new FactoryReleaseConsentAbsentError(consent.reason);
+    const claim = await releases.claim(requester, claimable.projectId, claimable.operationId, consent.consent);
+    // A claim IS the operation (`FactoryReleaseClaim extends
+    // FactoryReleaseOperation`), so the destination the resolver reads is the
+    // one already persisted against this release.
+    const settled = await releases.dispatch(claim, await providers.resolve(claim));
+    if (delivery !== undefined) await delivery.deliver(settled.projectId, settled.operationId);
+  };
   return factoryPageDriver<FactoryClaimableRelease | FactoryPendingReleaseDelivery | FactoryPendingReleaseStop>({
     async page(_signal) {
       for (const projectId of await projectIds()) {
         // A project's stopped releases ride on the same page as its claimable ones, so a release that cannot be
-        // claimed on this pass never keeps a stopped one from its one question per pass (W09e R3).
+        // claimed on this pass never keeps a stopped one from its question (W09e R3). A waiting one is off it.
         const [claimable, stopped] = await database.transaction(async (transaction: MigrationDb) =>
           [await releases.listClaimableInTransaction(transaction, projectId, limit), await releases.listStoppedInTransaction(transaction, projectId, limit)] as const);
-        if (claimable.length > 0 || stopped.length > 0) return [...claimable, ...stopped.map((item) => ({ ...item, stopOnly: true as const }))];
+        const page = [...claimable, ...stopped.map((item) => ({ ...item, stopOnly: true as const }))].filter((item) => !backoff.waiting(key(item)));
+        if (page.length > 0) return page;
       }
       return delivery === undefined ? [] : (await delivery.undelivered()).map((item) => ({ ...item, deliverOnly: true as const }));
     },
@@ -341,33 +389,16 @@ export function factoryReleaseOutcomeDriver(
         await delivery!.deliver(item.projectId, item.operationId);
         return;
       }
-      if ("stopOnly" in item) {
-        const operation = await releases.inspect(item.projectId, item.operationId);
-        if (operation === null) throw new FactoryReleaseError("factory_release_stop_settlement_stale");
-        await releases.settleStopped(item.projectId, item.operationId, await providers.resolve(operation));
-        return;
+      try {
+        await ("stopOnly" in item ? settleStopped(item) : claimAndDispatch(item));
+        backoff.moved(key(item));
+      } catch (error) {
+        if (waitsBeforeRetry(error)) backoff.defer(key(item));
+        throw error;
       }
-      const claimable = item;
-      // The operation the consent is read against. `readConsentInTransaction`
-      // re-validates every byte of it and `claim` re-reads it under a lock, so
-      // an operation that moved between the scan and here costs a refusal by
-      // name rather than a wrong claim.
-      const operation = await releases.inspect(claimable.projectId, claimable.operationId);
-      if (operation === null) throw new FactoryReleaseConsentAbsentError("operation_absent");
-      const { requester, consent } = await database.transaction(async (transaction: MigrationDb) => {
-        const { initiator } = await runs.readExecutionPlanInTransaction(transaction, { projectId: claimable.projectId, runId: claimable.runId });
-        return { requester: initiator, consent: await releases.readConsentInTransaction(transaction, initiator, operation) };
-      });
-      if (consent.kind === "none") throw new FactoryReleaseConsentAbsentError(consent.reason);
-      const claim = await releases.claim(requester, claimable.projectId, claimable.operationId, consent.consent);
-      // A claim IS the operation (`FactoryReleaseClaim extends
-      // FactoryReleaseOperation`), so the destination the resolver reads is the
-      // one already persisted against this release.
-      const settled = await releases.dispatch(claim, await providers.resolve(claim));
-      if (delivery !== undefined) await delivery.deliver(settled.projectId, settled.operationId);
     },
     classify: factoryReleaseOutcomeDisposition,
-    report: (claimable, error, disposition) => { report(`release-outcome:${disposition}:${claimable.operationId}`, error); },
+    report: (item, error, disposition) => { report(`release-outcome:${awaitingConsent(error) ? "awaiting_consent" : disposition}:${item.operationId}`, error); },
   });
 }
 

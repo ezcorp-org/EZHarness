@@ -68,6 +68,7 @@ import { composeFactoryReleaseDestinations } from "../../factory/release-declara
 import { FACTORY_SENDER_QUIET_PERIOD_MS, FactoryDestinationReservations, FactoryStoreSenderFence } from "../../factory/release-destinations";
 import { FactoryGatedProvider, FactoryRememberingProvider } from "./factory-release-world";
 import { factoryReleaseOutcomeDriver, factoryReleaseProviderResolver } from "../../factory/dispatch-composition";
+import { FACTORY_RELEASE_OUTCOME_BACKOFF_CAP_MS } from "../../factory/release-outcome-backoff";
 import { FactoryReleaseOutcomeDelivery, factoryReleaseOutcomeEventId } from "../../factory/release-outcome-delivery";
 import { FactoryMemoryS3Store } from "./factory-s3-memory-store";
 import { FaultInjectingArchive, MemoryFactoryReleaseArchive } from "./factory-archive-fixtures";
@@ -963,7 +964,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     expect(await world.runStatus()).toBe("cancelled");
   });
 
-  test("W09e R3: an unanswered question is a named transient, asked again once on each later pass", async () => {
+  test("W09e R3: an unanswered question is a named transient, and a later pass asks again", async () => {
     const world = await stoppedDuringPublish();
     world.provider.answer("failed");
     await world.dispatching;
@@ -1101,8 +1102,11 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     const delivery = new FactoryReleaseOutcomeDelivery({
       database: fixture.db, tenantId, service: world.completed.task.service, effects, authority: world.completed.task.authority, inbox: new FactoryInbox(fixture.db, tenantId, () => now),
     });
+    // The role's clock only times its back-off (W09e R5): a release it could not move waits before the next try.
+    let driverNow = Date.now();
+    const afterWait = () => { driverNow += FACTORY_RELEASE_OUTCOME_BACKOFF_CAP_MS; };
     const driverFor = (resolver: typeof composed.providers, delivered?: FactoryReleaseOutcomeDelivery) =>
-      factoryReleaseOutcomeDriver(fixture.db, releases, lifecycle, async () => [projectId], resolver, report, undefined, delivered);
+      factoryReleaseOutcomeDriver(fixture.db, releases, lifecycle, async () => [projectId], resolver, report, undefined, delivered, () => driverNow);
     const driver = driverFor(composed.providers, delivery);
     /** The same role in a process that crashed after settlement and before its delivery. */
     const settlingOnly = driverFor(composed.providers);
@@ -1125,7 +1129,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
       await new FactoryRunTransitionProjector(fixture.db, tenantId, world.completed.task.transitions, lifecycle).project(runKey(world.completed.task.run.runId));
       for (;;) if (await releases.deliverNextNotification(projectId) === null) break;
     };
-    return { ...world, store, object, published, releases, composed, effects, releaseReference, driver, reports, operationRows, read, declaredAccount, consentExpiry, reportsFor, finish, archiveWriter, provenance, delivery, driverFor, settlingOnly, outcomeEvents, acceptedAdvanced, service: world.completed.task.service };
+    return { ...world, store, object, published, releases, composed, effects, releaseReference, driver, afterWait, reports, operationRows, read, declaredAccount, consentExpiry, reportsFor, finish, archiveWriter, provenance, delivery, driverFor, settlingOnly, outcomeEvents, acceptedAdvanced, service: world.completed.task.service };
   }
 
   test("a declared S3 destination and profile prepare, claim, and publish the attempt's sealed members", async () => {
@@ -1139,13 +1143,16 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
 
     // Nothing consents yet, so the running role claims nothing and says why by name.
     await world.driver.step(new AbortController().signal);
-    expect(world.reportsFor(prepared!.operation_id)).toEqual([{ role: `release-outcome:transient:${prepared!.operation_id}`, code: "factory_release_consent_absent", reason: "no_consent" }]);
+    expect(world.reportsFor(prepared!.operation_id)).toEqual([{ role: `release-outcome:awaiting_consent:${prepared!.operation_id}`, code: "factory_release_consent_absent", reason: "no_consent" }]);
     expect((await world.operationRows())[0]!.state).toBe("pending");
 
     // A human approval through W05's production writers, then the role claims and publishes it.
     const operation = (await world.releases.inspect(projectId, prepared!.operation_id))!;
     const approval = await world.releases.requestApproval(principal, projectId, operation.operationId, world.consentExpiry(operation), operation.dispatchGeneration, `declared-approval-${sequence}`);
     await world.assurance.decideApproval(principal, projectId, approval.approvalId, approval.contextDigest, true, `declared-decision-${sequence}`);
+    // The role asks again once the release's wait is over, not on every pass (W09e R5).
+    expect(await world.driver.step(new AbortController().signal)).toBe(false);
+    world.afterWait();
     expect(await world.driver.step(new AbortController().signal)).toBe(true);
     const settled = (await world.releases.inspect(projectId, operation.operationId))!;
     expect(settled).toMatchObject({ state: "succeeded", outcomeCode: "confirmed" });
@@ -1310,6 +1317,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     expect(world.reportsFor(operation.operationId).at(-1)).toMatchObject({ code: "factory_release_consent_absent", reason: "policy_revoked" });
     const approval = await world.releases.requestApproval(principal, projectId, operation.operationId, world.consentExpiry(operation), operation.dispatchGeneration, `${policyId}-approval`);
     await world.assurance.decideApproval(principal, projectId, approval.approvalId, approval.contextDigest, false, `${policyId}-reject`);
+    world.afterWait();
     await world.driver.step(new AbortController().signal);
     expect(world.reportsFor(operation.operationId).at(-1)).toMatchObject({ code: "factory_release_consent_absent", reason: "approval_not_approved" });
     expect((await world.operationRows())[0]!.state).toBe("pending");
