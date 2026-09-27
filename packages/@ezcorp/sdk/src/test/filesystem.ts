@@ -293,16 +293,28 @@ export function isolatedGitEnv(
 /**
  * Run git in `cwd` fully isolated (see {@link isolatedGitEnv}). `home`
  * defaults to a fresh scratch directory per call, so a caller that does not
- * need to inspect or reuse it need not create one.
+ * need to inspect or reuse it need not create one — and, since this
+ * function created it, it also removes it when the call returns (L2, W18
+ * hygiene item C: an earlier default-parameter `home: string =
+ * mkdtempSync(...)` left one directory behind per call with no `home`
+ * argument, forever). A caller-supplied `home` is never removed here — it
+ * outlives this call by design (inspected or reused afterward), so cleanup
+ * stays the caller's own responsibility.
  */
 export function gitInDirectory(
   cwd: string,
   args: string[],
-  home: string = mkdtempSync(join(tmpdir(), "gitInDirectory-")),
+  home?: string,
 ): { exitCode: number; stdout: string } {
-  const env = isolatedGitEnv(home);
-  const git = Bun.spawnSync(["git", ...args], { cwd, env, stdout: "pipe", stderr: "ignore" });
-  return { exitCode: git.exitCode, stdout: git.stdout.toString().trim() };
+  const ownHome = home === undefined;
+  const resolvedHome = home ?? mkdtempSync(join(tmpdir(), "gitInDirectory-"));
+  try {
+    const env = isolatedGitEnv(resolvedHome);
+    const git = Bun.spawnSync(["git", ...args], { cwd, env, stdout: "pipe", stderr: "ignore" });
+    return { exitCode: git.exitCode, stdout: git.stdout.toString().trim() };
+  } finally {
+    if (ownHome) rmSync(resolvedHome, { recursive: true, force: true });
+  }
 }
 
 /** True when git itself finds no repository enclosing `dir`. */

@@ -582,6 +582,19 @@ describe("hook-lib > run_staged_tests > factory-orchestrator", () => {
       expect(res.out).toContain(ORCHESTRATOR);
       expect(res.out).toContain("also withheld");
       expect(res.out).not.toContain("ran: run test");
+      // L1 (W18 hygiene item C fix round): `count -gt 0` is the only guard
+      // between `$targets` being genuinely empty and `printf '%s\n' ""`
+      // still running (one empty line, or "    " once `sed 's/^/    /'`
+      // prepends the fixture's leading-space marker to it) — untested until
+      // now, so a regression that dropped or inverted the guard would have
+      // shipped silently. With count=0 the line right after "skipping the 0
+      // staged test file(s) below:" must be the orchestrator line, not a
+      // blank/whitespace-only one.
+      const lines = res.out.split("\n");
+      const skipLineIndex = lines.findIndex((l) => l.includes("skipping the 0 staged test file(s)"));
+      expect(skipLineIndex).toBeGreaterThanOrEqual(0);
+      expect(lines[skipLineIndex + 1]).not.toMatch(/^\s*$/);
+      expect(lines[skipLineIndex + 1]).toContain(ORCHESTRATOR);
     } finally {
       rmSync(bin, { recursive: true, force: true });
     }

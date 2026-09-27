@@ -4866,11 +4866,41 @@ Gates: `tasks/factory/w18-hygiene-GATES.md` (GC1 through GC10). Worktree:
   found and reported, not fixed here.
   EVIDENCE: typecheck, lint, gate-integrity, both boundary checks, full backend per-file-isolated pool,
   full web bun-leg pool (3630/0 across 194 files) all clean. Details in GATES.md GC10.
-- [ ] GC5 (production git wrappers): fix `src/extensions/git.ts`'s `gitExec()`, `scripts/unlanded-branches.ts`'s
-  internal spawn, and the docs-updater example's `HERMETIC_GIT_ENV`, under the coordinator's five
-  conditions (one production-module isolation-rule definition test helpers delegate to; no behavior
-  change for legitimate callers; poisoned-env guard-with-control proof per wrapper; 100% coverage on
-  changed lines/new file; record in GATES.md and here). Not started.
+- [x] GC5 (production git wrappers): moved to item C2 (branch `wp/w18-hygiene-c2`, from item C's head)
+  per the coordinator's re-sequencing — not on this branch. See `tasks/factory/w18-hygiene-GATES.md`
+  GC11-14 on the C2 branch for the full write-up.
+- [x] Validator-3 fix round on item C (medium F1, medium F2, lows L1-L3):
+  - F1 (identity): all nine commits from `d296f0b91` through the cherry-picked gate-integrity flake fix
+    were authored with a personal address copied from the worktree's inherited git config (the
+    coordinator's own finding; never write that address itself — referred to here only by its config
+    file path, `/home/dev/.config/git/local`). Fixed: set `git config --worktree user.name`/`user.email`
+    explicitly to the project's noreply identity, then `git filter-branch --env-filter` over
+    `6cea43e67..HEAD` to re-author all nine commits, verified by comparing each commit's tree hash
+    before and after (identical for all nine) and `git log --format='%an <%ae> / %cn <%ce>'
+    6cea43e67..HEAD` (noreply identity throughout, both author and committer).
+  - F2 (GC5 disclosure incomplete): the fix itself and its corrected write-up are on the C2 branch,
+    since that is where GC5's code now lives — see that branch's GATES.md entry for the four named
+    wrapper sites, the poison recipe, and the matching counts.
+  - L1: `src/__tests__/git-hooks.test.ts`'s existing "only orchestrator files staged" test gained an
+    assertion that the line right after "skipping the 0 staged test file(s)" is the orchestrator line,
+    not a blank/whitespace-only one — the `count -gt 0` guard around that `printf` was previously
+    unpinned. Verified by removing the guard and confirming the new assertion fails with exactly a
+    four-space blank line, then restoring it.
+  - L2: `packages/@ezcorp/sdk/src/test/filesystem.ts`'s `gitInDirectory()` used to default `home` to a
+    fresh `mkdtempSync(...)` per call and never remove it — one leaked directory under `os.tmpdir()`
+    per caller that didn't supply its own `home`. Fixed to clean up only the directory it created
+    itself (a caller-supplied `home` is left alone). New test in
+    `packages/@ezcorp/sdk/test/filesystem-harness.test.ts`; verified by reverting the fix and confirming
+    the test catches the leaked directory, then restoring it.
+  - L3: the GC9 gates-doc entry's "353/0" citation for the 25-file-sample-plus-four-files run stated a
+    pass/fail count with no separate load-error count, which is not the same claim as "nothing failed
+    to link." Rewritten to require pass/fail/error counts together going forward, and replaced with a
+    fresh 2026-09-27 re-run of the identical file set: 413 pass, 0 fail, 0 errors across 29 files,
+    confirmed by grepping the run's full output for load-error signatures (none found). The originally-
+    reported pre-existing `auth/middleware` collision did not reproduce in this specific re-run — noted
+    as evidence multi-file `bun test` load order is not fully pinned by argument order, not as evidence
+    the underlying bug is fixed (it isn't on this branch; C2 owns that fix).
+  Re-authored head before this fix round's own commit: `a9f46fbb3`. Full details: `tasks/factory/w18-hygiene-GATES.md` (GC9 entry, updated).
 
 ## W12d — reproducible data image build (branch `wp/w12d-reproducible-image`)
 

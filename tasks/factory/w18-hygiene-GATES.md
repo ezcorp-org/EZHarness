@@ -556,15 +556,30 @@ residual-fix files) pass individually at their real invocation (`d-src-isolated-
   forward and reversed); all four files together in one process; a 25-file random sample of
   `helpers/test-pglite.ts` consumers alongside all four.
   RESULT: alone 11/0 and 9/0; every pair, both orders, all green (27/0, 27/0, 25/0, 25/0, 19/0, 19/0,
-  17/0, 17/0 — matching W18c's own cited numbers exactly for the four it ran); all four together 44/0;
-  the 25-file sample plus all four together 353/0 (the sample alone is 369/0 across 25 files — the count
-  differs because the four polluter/victim files are additional, not because anything in the sample
-  changed). A DIFFERENT, PRE-EXISTING, UNRELATED issue surfaced only in that 25-file sample (`Export
-  named 'checkRole'/'checkProjectRole'/'requireRole' not found in module '$server/auth/middleware'`) —
-  confirmed present identically whether this item's fix is applied or not (reproduced against the
-  pre-GC9 committed head with the same sample), so it is a latent partial-`auth/middleware`-mock
-  collision among files in that random sample, unrelated to and not caused by this item; reported to
-  the coordinator, not investigated further here (out of this item's scope).
+  17/0, 17/0 — matching W18c's own cited numbers exactly for the four it ran); all four together 44/0.
+  L3 (validator-3 fix round): the original citation here for the 25-file sample plus all four together
+  read "353/0" — a pass/fail count only, with no separate count of LOAD errors (bun reports a module
+  that fails to link as an error distinct from a test failure; a pass/fail count alone can under-state
+  what actually happened, since a file whose module graph never linked contributes neither a pass nor a
+  fail for its own tests). That omission is the bug L3 names, not a specific number now known to be
+  wrong — the raw log from that run is gone. Re-run today (2026-09-27, same worktree, same 25-file
+  list at `/tmp/pglite-sample.txt`, same four files, same order) to replace it with a citation that
+  states both counts explicitly: 413 pass, 0 fail, 0 errors across 29 files (`bun test` prints an
+  explicit "N error(s)" line whenever a module fails to link; its absence here is confirmed, not
+  assumed, by grepping the full run's output for "Unhandled error" / "SyntaxError" / "not found in
+  module", zero matches). Going forward, any citation of a multi-file run's result in this doc states
+  pass, fail, AND error counts together, never pass/fail alone.
+  A DIFFERENT, PRE-EXISTING, UNRELATED issue was reported at the time as surfacing in that 25-file
+  sample (`Export named 'checkRole'/'checkProjectRole'/'requireRole' not found in module
+  '$server/auth/middleware'`), confirmed present identically whether this item's fix is applied or not
+  (reproduced against the pre-GC9 committed head with the same sample) — a latent partial-
+  `auth/middleware`-mock collision among files in that random sample, unrelated to and not caused by
+  this item. It did NOT reproduce in today's re-run (0 errors, confirmed above) — multi-file `bun test`
+  module-load order is not fully pinned by argument order alone, so a collision between two specific
+  mocks can be present in the file set without triggering on every invocation. The underlying bug is
+  independently confirmed elsewhere regardless (item C2's GC12 converts the `$server/auth/middleware`
+  offenders this collision comes from), so its absence from today's specific re-run is not evidence it
+  is fixed on this branch — it isn't; C2 owns that fix, not item C.
   EVIDENCE: `/tmp/factory-platform-evidence/w18c/leak-fix-alias-withdrawal.{diff,README.txt,results.txt}`.
   Typecheck, lint, gate-integrity, both boundary checks all 0; shared `.git/config` `core.bare`
   unchanged (`false`) throughout; `mock-cleanup-coverage.test.ts` still 34/34 (the alias this item's
