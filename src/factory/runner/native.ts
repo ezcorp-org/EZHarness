@@ -127,9 +127,7 @@ export async function runNativeFactoryRunner(value: unknown, options: NativeFact
   }
   if (run.status !== "success") {
     const error = typeof run.result?.error === "string" ? run.result.error : run.result?.error?.message ?? "Factory agent did not complete.";
-    const result: FactoryRunnerResult = { schemaVersion: "factory.runner.result.v1", status: "failed", journalCursor, operations: [...operations], resultDigest: digest({ error }), error: { code: "FACTORY_AGENT_FAILED", message: error, retryable: false }, ...(usage ? { usage } : {}) };
-    requireValid(validateFactoryRunnerResult(result), "Factory runner result");
-    return result;
+    return failedFactoryRunnerResult({ journalCursor, operations, ...(usage ? { usage } : {}) }, { code: "FACTORY_AGENT_FAILED", message: error, retryable: false });
   }
   if (usage?.kind !== "measured") throw new Error("A completed native runner needs durable measured usage.");
   const [output, workspaceCheckpoint] = await Promise.all([options.artifacts.output(request, run), options.artifacts.checkpoint(request, run)]);
@@ -143,6 +141,26 @@ export async function runNativeFactoryRunner(value: unknown, options: NativeFact
 }
 
 export type { FactoryUsage };
+
+/** The journal facts a terminal result must repeat exactly, as {@link NativeFactoryJournal} reads them. */
+export type FactoryJournalSnapshot = Awaited<ReturnType<NativeFactoryJournal["snapshot"]>>;
+
+/**
+ * A `failed` runner result over the attempt's own durable journal.
+ *
+ * The operations, cursor and usage are the journal's, never a guess, so the
+ * result passes the same verification a guest's own report does. The digest
+ * covers the message, which is what the failure says.
+ */
+export function failedFactoryRunnerResult(snapshot: FactoryJournalSnapshot, error: { readonly code: string; readonly message: string; readonly retryable: boolean }): FactoryRunnerResult {
+  const result: FactoryRunnerResult = {
+    schemaVersion: "factory.runner.result.v1", status: "failed", journalCursor: snapshot.journalCursor, operations: [...snapshot.operations],
+    resultDigest: digest({ error: error.message }), error: { code: error.code, message: error.message, retryable: error.retryable },
+    ...(snapshot.usage ? { usage: snapshot.usage } : {}),
+  };
+  requireValid(validateFactoryRunnerResult(result), "Factory runner result");
+  return result;
+}
 
 function operationUsage(operations: readonly FactoryRunnerOperationResult[]): FactoryUsage | undefined {
   if (operations.length === 0) return undefined;

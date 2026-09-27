@@ -13,6 +13,7 @@ import {
   startFactoryOrchestratorMain,
 } from "../../../../src/factory/orchestration-process.ts";
 import { readFactoryOrchestrationReadiness } from "../../../../src/factory/orchestration-readiness.ts";
+import { FACTORY_GATEWAY_REQUEST_TIMEOUT_MAX_MS, FACTORY_GATEWAY_REQUEST_TIMEOUT_MS } from "../src/contracts.ts";
 
 const runtimeRoot = process.env.XDG_RUNTIME_DIR ?? `/run/user/${process.getuid?.()}`;
 const codec: TemporalPayloadCodec = { encode: async (values) => values, decode: async (values) => values };
@@ -29,7 +30,7 @@ function config(directory: string) {
       credentialRefreshMs: 1_000, pollingProbeTimeoutMs: 1_000,
     },
     gateway: {
-      baseUrl: "https://factory.internal", serverName: "factory.internal", requestTimeoutMs: 1_000,
+      baseUrl: "https://factory.internal", serverName: "factory.internal", requestTimeoutMs: FACTORY_GATEWAY_REQUEST_TIMEOUT_MS,
       tls: { caPath: "/refs/gateway-ca", certificatePath: "/refs/gateway-cert", privateKeyPath: "/refs/gateway-key", serviceTokenPath: "/refs/gateway-token" },
     },
     codec: { wrappedKeyFilePath: "/refs/wraps", masterKeyFilePath: "/refs/master", masterKeyId: "master-1", grantableRoots: ["/run/secrets"] },
@@ -49,6 +50,10 @@ test("the strict launcher config contains only bounded references", () => {
   assert.throws(() => parseFactoryOrchestratorProcessConfig({ ...value, temporal: { ...value.temporal, namespace: "" } }), /config is invalid/);
   assert.throws(() => parseFactoryOrchestratorProcessConfig({ ...value, gateway: { ...value.gateway, tls: { ...value.gateway.tls, token: "secret" } } }), /config is invalid/);
   assert.throws(() => parseFactoryOrchestratorProcessConfig({ ...value, codec: { ...value.codec, grantableRoots: [] } }), /config is invalid/);
+  // A gateway bound below the private service's own bound, or above the activity bound, is refused.
+  for (const requestTimeoutMs of [1_000, FACTORY_GATEWAY_REQUEST_TIMEOUT_MS - 1, FACTORY_GATEWAY_REQUEST_TIMEOUT_MAX_MS + 1]) {
+    assert.throws(() => parseFactoryOrchestratorProcessConfig({ ...value, gateway: { ...value.gateway, requestTimeoutMs } }), /config is invalid/);
+  }
 });
 
 test("the Node launcher reloads private Temporal credentials and passes the encrypted codec to the process", async () => {

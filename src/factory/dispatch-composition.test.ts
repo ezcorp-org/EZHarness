@@ -39,6 +39,7 @@ import {
   factoryReleaseProviderResolver,
   factoryStopSettlementDisposition,
   factoryStopSettlementDriver,
+  FactoryStopReconciliationError,
   factoryUsageReconciliationDisposition,
   factoryUsageReconciliationDriver,
   composeFactorySettlement,
@@ -55,9 +56,10 @@ function database(): TransactionalDb {
 
 const failure = (code: string) => Object.assign(new Error(code), { code });
 
+const stoppable = (attemptId: string): FactoryStoppableAttempt =>
+  ({ attemptId, reference: { attemptId }, reservationId: `res-${attemptId}` }) as unknown as FactoryStoppableAttempt;
+
 describe("the stop-settlement step", () => {
-  const stoppable = (attemptId: string): FactoryStoppableAttempt =>
-    ({ attemptId, reference: { attemptId }, reservationId: `res-${attemptId}` }) as unknown as FactoryStoppableAttempt;
 
   test("settles each listed cancellation against the reference the scan returned", async () => {
     const settled: unknown[] = [];
@@ -130,10 +132,49 @@ describe("the stop-settlement step", () => {
         if (reference.attemptId === "bad") throw failure("factory_task_stop_corrupt");
         return { state: "stopped" } as never;
       },
+      async markForReconciliation() {},
     } as never, SERVICE, (role) => { reported.push(role); }, 5);
 
     expect(await driver.step(SIGNAL)).toBe(true);
     expect(reported).toEqual(["stop-settlement:transient:busy", "stop-settlement:fault:bad"]);
+  });
+});
+
+describe("a stop that no longer verifies (W01h fix round)", () => {
+  test("is marked once, reported once by stop id, and not settled again", async () => {
+    const marked = new Set<string>();
+    const stopCalls: string[] = [];
+    const reported: Array<{ role: string; error: unknown }> = [];
+    const cause = Object.assign(new Error("factory_task_stop_corrupt: the stop was sealed with reason cancelled and its durable facts now give failed"), { code: "factory_task_stop_corrupt" });
+    const driver = factoryStopSettlementDriver(database(), {
+      // The scan skips a marked stop, as the store's does.
+      async listStoppableInTransaction() { return [stoppable("lost")].filter(item => !marked.has(item.attemptId)).map(item => ({ ...item, reference: { attemptId: item.attemptId, commandId: "cancel-lost" } })); },
+      async stop(_s: unknown, reference: { attemptId: string }) { stopCalls.push(reference.attemptId); throw cause; },
+      async markForReconciliation(_s: unknown, reference: { attemptId: string }, error: unknown) { expect(error).toBe(cause); marked.add(reference.attemptId); },
+    } as never, SERVICE, (role, error) => { reported.push({ role, error }); });
+
+    expect(await driver.step(SIGNAL)).toBe(false);
+    expect(reported).toHaveLength(1);
+    expect(reported[0]!.role).toBe("stop-settlement:fault:lost");
+    expect(reported[0]!.error).toBeInstanceOf(FactoryStopReconciliationError);
+    expect(reported[0]!.error).toMatchObject({ code: "factory_task_stop_reconciliation", attemptId: "lost", cancelCommandId: "cancel-lost", cause });
+    expect((reported[0]!.error as Error).message).toContain("sealed with reason cancelled and its durable facts now give failed");
+
+    for (let pass = 0; pass < 3; pass += 1) await driver.step(SIGNAL);
+    expect(stopCalls).toEqual(["lost"]);
+    expect(reported).toHaveLength(1);
+    expect(factoryStopSettlementDisposition(reported[0]!.error)).toBe("fault");
+  });
+
+  test("any other refusal is left to the ordinary disposition and marks nothing", async () => {
+    const reported: string[] = [];
+    const driver = factoryStopSettlementDriver(database(), {
+      async listStoppableInTransaction() { return [stoppable("busy")]; },
+      async stop() { throw failure("factory_task_stop_conflict"); },
+      async markForReconciliation() { throw new Error("must not be called"); },
+    } as never, SERVICE, (role) => { reported.push(role); });
+    await driver.step(SIGNAL);
+    expect(reported).toEqual(["stop-settlement:transient:busy"]);
   });
 });
 
