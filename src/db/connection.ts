@@ -743,6 +743,20 @@ function applyExecuteNormalization(db: Database): void {
  */
 const EXTERNAL_PG_HOLDER_KEY = "external-postgres";
 
+/**
+ * The Bun SQL class, taken from the runtime (`Bun.SQL`), never from `import("bun")`.
+ * This module reaches the web tests through the factory server modules, and Vite's
+ * import analysis fails on a bare "bun" specifier in analysed source (W09g). Outside
+ * Bun it is refused by name, and only when an external pool actually opens.
+ */
+export function bunSqlClass(runtime: unknown = (globalThis as { Bun?: unknown }).Bun): typeof Bun.SQL {
+  const sqlClass = (runtime as { SQL?: unknown } | undefined)?.SQL;
+  if (typeof sqlClass !== "function") {
+    throw new Error("the external PostgreSQL pool needs the Bun runtime (Bun.SQL is unavailable)");
+  }
+  return sqlClass as typeof Bun.SQL;
+}
+
 async function initPostgres(): Promise<void> {
   const { drizzle } = await import("drizzle-orm/bun-sql");
   const { sql } = await import("drizzle-orm");
@@ -781,14 +795,15 @@ async function initPostgres(): Promise<void> {
   // The pool sits behind a swap point so a desynchronized driver connection
   // can be discarded without rebuilding every holder of `db` (W09f; see
   // swappable-bun-sql.ts and recoverFromDriverDesync below).
-  const { SQL } = await import("bun");
+  // The class is resolved inside the default opener, so a test's pool override never needs the Bun runtime.
   const poolOptions = { url: DATABASE_URL!, max: poolMax };
-  const openPool = openBunSqlPoolOverride ?? ((options: typeof poolOptions) => new SQL(options) as unknown as BunSqlLike);
+  const openPool =
+    openBunSqlPoolOverride ?? ((options: typeof poolOptions) => new (bunSqlClass())(options) as unknown as BunSqlLike);
   const externalPool = swappableBunSql(() => openPool(poolOptions), {
     drainSeconds: REPLACED_POOL_DRAIN_SECONDS,
     onCloseError: (err) => log.warn("replaced Bun.sql pool did not close cleanly", { error: String(err) }),
   });
-  const db = drizzle({ client: externalPool.client as unknown as InstanceType<typeof SQL>, schema });
+  const db = drizzle({ client: externalPool.client as unknown as InstanceType<typeof Bun.SQL>, schema });
   _externalPool = externalPool;
   _lastDesyncRecoveryMs = 0;
   _pglite = null;
