@@ -3989,6 +3989,23 @@ load; the socket paths were already short. Each cause is pinned by a test that f
 code. At `2d33f46d7` the full backend pool reports 0 fail, and every static and coverage gate passes.
 Two findings are left open outside scope: the ai-kit installer ignores its postinstall exit code, and
 `inspectProductionRunner` keeps a fixed 5-second default for verification commands.
+## W15d — Store memory and capacity (branch `wp/w15d-store-memory`)
+
+Gate file: `tasks/factory/w15d-GATES.md`. Evidence: `/tmp/factory-platform-evidence/w15d/`.
+
+- [x] Measure both stores under the killing load: ordinary 1263 MiB peak (739 MiB anonymous), archive 247 MiB; no container OOM; 2 GiB stays.
+- [x] Name the cause: both past kills were host-wide OOMs; the stores were chosen for `oom_score_adj` 200 from `podman.service`.
+- [x] Document the basis in the compose file and the setup docs; fix the stale 768 MiB line.
+- [x] Census of the ordinary store: 16.95 GiB, all live proof-run objects; publication suites hold 16.6 GB.
+- [x] Proof runs remove every version they wrote (`close()` in the storage helper); tested against the real store.
+- [x] Ordinary `-volume.max` 600 with its disk basis; leftovers only through the manifest prune.
+- [ ] Rerun the load without an OOM after the coordinator recreates the stores.
+- [ ] Host-side protection (`podman.service` `OOMScoreAdjust=100`): the host owner's decision.
+
+Review (W15d): The stores did not die of their 2 GiB limits; the host ran out of memory and the
+kernel chose them because the Podman socket gives every container it creates an OOM adjustment of
+200. The ordinary store was filling because no proof run removed its versioned objects; each run
+now removes its own prefixes on close. The volume cap rises to 600 with room above the disk floor.
 
 ## W15c — Pool service leaf (branch `wp/w15c-pool-leaf`)
 

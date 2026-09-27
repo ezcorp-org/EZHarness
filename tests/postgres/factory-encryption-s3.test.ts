@@ -50,6 +50,6 @@ describe("C06 real local ordinary S3 encryption", () => {
       expect(await blobs.version(digest)).toBe(version);
       await expect(InstallationDataKey.loadOrCreate("installation", wraps, provider("lost"))).rejects.toMatchObject({ code: "factory_key_missing" });
       expect(new EncryptedRecordCodec(rotated, "backup").decode({ tenantId: "tenant", objectId: "backup" }, new EncryptedRecordCodec(rotated, "backup").encode({ tenantId: "tenant", objectId: "backup" }, bytes))).toEqual(bytes);
-    } finally { storage.close(); }
+    } finally { await storage.close(); }
   });
 });

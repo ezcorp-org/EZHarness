@@ -7,9 +7,9 @@ factoryPackagePreparationConformance(async () => {
   const storage = await createFactoryOrdinaryStorage(`ordinary/factory-package-preparation/${randomUUID()}`);
   try {
     const database = await setupFactoryPostgres();
-    return { db: database.db, blobs: storage.blobs, async close() { try { await database.close(); } finally { storage.close(); } } };
+    return { db: database.db, blobs: storage.blobs, async close() { try { await database.close(); } finally { await storage.close(); } } };
   } catch (error) {
-    storage.close();
+    await storage.close();
     throw error;
   }
 });

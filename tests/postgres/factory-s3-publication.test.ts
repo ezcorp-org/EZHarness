@@ -11,14 +11,15 @@ import { createFactoryArchiveStorage, createFactoryOrdinaryStorage } from "./hel
 factoryS3PublicationConformance(async () => {
   const database = await setupFactoryPostgres();
   const label = randomUUID();
-  const ordinary = await createFactoryOrdinaryStorage(`ordinary/s3-publication/${label}`);
+  const published = `ordinary/s3-published/${label}`;
+  const ordinary = await createFactoryOrdinaryStorage(`ordinary/s3-publication/${label}`, "tenant-01", [published]);
   const archive = await createFactoryArchiveStorage(`archive/s3-publication/${label}`);
   return {
     db: database.db,
     blobs: ordinary.blobs,
     archive,
-    s3: { client: ordinary.client as unknown as S3ClientLike, bucket: ordinary.bucket, prefix: `ordinary/s3-published/${label}` },
+    s3: { client: ordinary.client as unknown as S3ClientLike, bucket: ordinary.bucket, prefix: published },
     large: true,
-    async close() { archive.close(); ordinary.close(); await database.close(); },
+    async close() { archive.close(); try { await ordinary.close(); } finally { await database.close(); } },
   };
 });
