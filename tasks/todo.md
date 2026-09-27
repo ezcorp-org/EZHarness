@@ -3989,6 +3989,22 @@ load; the socket paths were already short. Each cause is pinned by a test that f
 code. At `2d33f46d7` the full backend pool reports 0 fail, and every static and coverage gate passes.
 Two findings are left open outside scope: the ai-kit installer ignores its postinstall exit code, and
 `inspectProductionRunner` keeps a fixed 5-second default for verification commands.
+## W15f — Stale execution epoch hold (branch `wp/w15f-stale-epoch`)
+
+Gate file: `tasks/factory/w15f-GATES.md`. Evidence: `/tmp/factory-platform-evidence/w15f/`.
+
+- [x] Reproduce from W01i's lane (15 `usage-reconciliation:fault` reports of one hold) with a lifecycle suite; red at 4 reports in 4 passes.
+- [x] Mark the hold once with both epochs, report once, skip until the epoch moves; the hold stays uncertain.
+- [x] PGlite and PostgreSQL suites for the fence, budgets, task stops, restore, checkpoint, schema; coverage gates.
+- [x] Round 2: a signed restore supersedes the old epoch's live attempts (status `superseded`, record with the signed digest and the kernel event); the scan skips a marked hold only while its attempt is live; W05b's clear falls back to the supersession; names and migration order agreed with W03f.
+- [ ] Joint test with W03f (a marked hold settles at the reserved bound after a signed restore): on whichever branch merges second.
+
+Review (W15f): The fault was usage reconciliation meeting a run fence that a restore had moved:
+the old attempt's authority can never name the new epoch, so every pass failed the same hold. The
+role now marks the hold once, names both epochs, and stops retrying until the epoch changes. The
+real PostgreSQL run caught a mark PGlite accepted but the scan could not read; the mark is now a
+typed object and an unreadable one is retried and reported, never hidden.
+
 ## W15d — Store memory and capacity (branch `wp/w15d-store-memory`)
 
 Gate file: `tasks/factory/w15d-GATES.md`. Evidence: `/tmp/factory-platform-evidence/w15d/`.
@@ -4943,10 +4959,72 @@ catches the first kind cannot see the second — a narrower reimplementation wit
 through silently until two files' tests happen to run in the same process and one needs the part the
 other dropped.
 
-### Item C — F2 (27 bare git-init tests)
+### Item C — F2 (27 bare git-init tests) plus the leak-fix, offender conversions, workflow-run-persistence,
+### L2, and GC5 (branch `wp/w18-hygiene-3`, from `integ/w00` `6cea43e67`)
 
-Blocked on the integ/w00 hash containing W18a-3 (needs `src/__tests__/helpers/scratch-git.ts`). Not
-started.
+Gates: `tasks/factory/w18-hygiene-GATES.md` (GC1 through GC10). Worktree:
+`/home/dev/work/EZCorp/EZHarness/.worktrees/w18-hygiene-3`.
+
+- [x] Git-init conversions: all 27 disclosed bare git-init test files (17 Group 1, 2 Group 2, 8 Group 3)
+  converted to `scratch-git.ts`'s helpers; `gitInDirectory()` hardened in the SDK
+  (`packages/@ezcorp/sdk/src/test/filesystem.ts`, new exported `isolatedGitEnv()`), with
+  `scratchGitEnv()` delegating to it. Full poisoned-env proof. Committed (`d296f0b91`, `873c433a7`,
+  `eaad4abee`).
+- [x] `workflow-run-persistence.test.ts` flake: module-level fixed clock (`BOOT`/`NOW`), no wall-clock
+  reads, duplicate describe-scoped constant removed. Committed (`a20ddb723`).
+- [x] L2 hook fix: `scripts/lib/hook-lib.sh`'s `run_staged_tests()` count-miscounting and silent
+  orchestrator-withholding both fixed; two new tests in `git-hooks.test.ts`. Committed (`e6ee00ad5`).
+- [x] The two leak-fix route files (`extensions-patch-route.test.ts`,
+  `extensions-delete-route-policy.test.ts`): fixed against both `phase-2b-e2e.test.ts` and
+  `installer-idempotent-local.test.ts`, both orders, per GC9 — adopted W18c's alias-withdrawal pattern
+  (relative-path-only mock for lifecycle-service/registry, claim-and-revert for
+  `db/queries/extensions`) over this item's own superseded GC6 Proxy approach. F1 guard extended to
+  reject partial `extension-lifecycle-service`/`registry` mocks repo-wide.
+- [x] The six further offenders GC9's extended guard found, each converted as its own fix (GC10):
+  `hub-render-pull.test.ts`, `phase-2b-e2e.test.ts`, `extension-events-hub-branch.test.ts`,
+  `web/.../commit.test.ts`, `web/.../extensions-api.test.ts`, `web/.../extensions-events-route.test.ts`.
+  `PENDING_ELSEWHERE` exemption removed entirely — zero offenders repo-wide, no by-name exemption
+  list remains. A separate, pre-existing, out-of-scope (item E) `$server/auth/middleware`
+  partial-mock collision between `extensions-api.test.ts` and `extensions-events-route.test.ts` was
+  found and reported, not fixed here.
+  EVIDENCE: typecheck, lint, gate-integrity, both boundary checks, full backend per-file-isolated pool,
+  full web bun-leg pool (3630/0 across 194 files) all clean. Details in GATES.md GC10.
+- [x] GC5 (production git wrappers): moved to item C2 (branch `wp/w18-hygiene-c2`, from item C's head)
+  per the coordinator's re-sequencing — not on this branch. See `tasks/factory/w18-hygiene-GATES.md`
+  GC11-14 on the C2 branch for the full write-up.
+- [x] Validator-3 fix round on item C (medium F1, medium F2, lows L1-L3):
+  - F1 (identity): all nine commits from `d296f0b91` through the cherry-picked gate-integrity flake fix
+    were authored with a personal address copied from the worktree's inherited git config (the
+    coordinator's own finding; never write that address itself — referred to here only by its config
+    file path, `/home/dev/.config/git/local`). Fixed: set `git config --worktree user.name`/`user.email`
+    explicitly to the project's noreply identity, then `git filter-branch --env-filter` over
+    `6cea43e67..HEAD` to re-author all nine commits, verified by comparing each commit's tree hash
+    before and after (identical for all nine) and `git log --format='%an <%ae> / %cn <%ce>'
+    6cea43e67..HEAD` (noreply identity throughout, both author and committer).
+  - F2 (GC5 disclosure incomplete): the fix itself and its corrected write-up are on the C2 branch,
+    since that is where GC5's code now lives — see that branch's GATES.md entry for the four named
+    wrapper sites, the poison recipe, and the matching counts.
+  - L1: `src/__tests__/git-hooks.test.ts`'s existing "only orchestrator files staged" test gained an
+    assertion that the line right after "skipping the 0 staged test file(s)" is the orchestrator line,
+    not a blank/whitespace-only one — the `count -gt 0` guard around that `printf` was previously
+    unpinned. Verified by removing the guard and confirming the new assertion fails with exactly a
+    four-space blank line, then restoring it.
+  - L2: `packages/@ezcorp/sdk/src/test/filesystem.ts`'s `gitInDirectory()` used to default `home` to a
+    fresh `mkdtempSync(...)` per call and never remove it — one leaked directory under `os.tmpdir()`
+    per caller that didn't supply its own `home`. Fixed to clean up only the directory it created
+    itself (a caller-supplied `home` is left alone). New test in
+    `packages/@ezcorp/sdk/test/filesystem-harness.test.ts`; verified by reverting the fix and confirming
+    the test catches the leaked directory, then restoring it.
+  - L3: the GC9 gates-doc entry's "353/0" citation for the 25-file-sample-plus-four-files run stated a
+    pass/fail count with no separate load-error count, which is not the same claim as "nothing failed
+    to link." Rewritten to require pass/fail/error counts together going forward, and replaced with a
+    fresh 2026-09-27 re-run of the identical file set: 413 pass, 0 fail, 0 errors across 29 files,
+    confirmed by grepping the run's full output for load-error signatures (none found). The originally-
+    reported pre-existing `auth/middleware` collision did not reproduce in this specific re-run — noted
+    as evidence multi-file `bun test` load order is not fully pinned by argument order, not as evidence
+    the underlying bug is fixed (it isn't on this branch; C2 owns that fix).
+  Re-authored head before this fix round's own commit: `a9f46fbb3`. Full details: `tasks/factory/w18-hygiene-GATES.md` (GC9 entry, updated).
+
 ## W12d — reproducible data image build (branch `wp/w12d-reproducible-image`)
 
 Base `wp/w12c-data-image-repin` `7821e5d7c`, merged with `integ/w00` `2b2e12550`. Receipts:
@@ -5084,3 +5162,41 @@ Base integ/w00 `146a94829`. Gate file: `tasks/factory/w14b-GATES.md`. Evidence: 
 - [x] Runbook mock pass at the head under the lock; graph-proof suites; builds; typecheck, lint, boundaries, gate integrity.
 
 Review (W14b): the graph guest listed its SDK modules by hand, so the first new module an SDK file imported broke every build of it. The package now stages exactly what its own files reach, found by following imports, and a missing module is refused by name. The guard compares every staged import against the staged files, for both guests on the real SDK.
+## W09f: run-projection prepared-statement mismatch (branch `wp/w09f-run-projection`)
+
+Base `integ/w00` `b10b7ea1a`. Receipts: `/tmp/factory-platform-evidence/w09f/`. Gates: `tasks/factory/w09f-GATES.md`.
+
+- [x] Reproduce on real PostgreSQL with product queries. Bun 1.3.14 stalls and contaminates transactions; Bun 1.4.2 is clean.
+- [x] The role's report names the database error (`ef9ba50f5`).
+- [x] A desynchronized pool is replaced under the live Drizzle handle (`c4a5cc1f0`, `488b51458`).
+- [x] Fix the poisoned PGlite snapshot cache found by the sweep (`af673760e`).
+- [x] Final sweep green at `af673760e`.
+- [ ] The Bun upgrade and its regression suite: W12e, pending the user's decision.
+
+**Review.** The run-projection error came from Bun 1.3.14's Postgres request queue, not from our
+queries: one query's Bind reached another query's statement on the same connection. The same component
+stalls and mixes transactions on this host, with our own queries, and Bun 1.4.2 is clean. Until the
+upgrade, the process names the database error in its logs and replaces a desynchronized pool instead of
+retrying on it.
+
+
+## W01h — runner_outcome_unknown leaves a run stuck (branch `wp/w01h-runner-outcome`)
+
+Gate file `tasks/factory/w01h-GATES.md`; evidence `/tmp/factory-platform-evidence/w01h/`.
+
+- [x] Reproduce first: unit reproduction of three mechanisms on the base; the incident reproduced on W19a's harness (`proof/w01h-base-fault`)
+- [x] Transport settles under Bun (deadline, abort, early close, oversize) — `1812495b6`
+- [x] Host keeps answers until collected, typed refusals, every refusal in the supervisor log — `760cf1810`
+- [x] Every lost answer ends in a typed failed terminal row; dispatcher keeps the cause — `4cd3f76b4`, `41b1d8a02`
+- [x] Kernel retries or fails the run on the typed failure (lifecycle case) and the Podman fault-injection case — `4dbe4a1b2`
+- [x] W19a runbook green with the fix (`proof/w01h-fix-w19a`)
+- [ ] The incident path itself (guest dies AT its 30 s attempt deadline) ends the run — blocked on a coordinator ruling (C02 fence refuses any report after the deadline; patch proposed)
+- [ ] Run-deadline stop refused `factory_command_stale` (kernel epoch moves, durable fence does not) — reported, owner ruling pending
+
+### Review
+
+The run hung because nothing ever wrote what happened to an attempt whose guest answer was lost: the host dropped
+the answer, the product swallowed the error, and the kernel heard nothing until its own 10-minute deadline, whose
+stop was then refused as stale. W01h makes every lost answer a durable, typed failure the kernel acts on, and gives
+both processes a log line that names it. Two causes remain outside this package: the 30 s sealed attempt deadline
+(pool lease, never renewed by the remote runtime), after which C02 refuses any report, and the run-deadline epoch.

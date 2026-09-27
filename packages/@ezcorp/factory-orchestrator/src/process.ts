@@ -2,7 +2,7 @@ import type { PayloadCodec } from "@temporalio/common";
 import type { FactoryOrchestrationReadiness } from "@ezcorp/factory-sdk/transport-types";
 import { Client } from "@temporalio/client";
 import { NativeConnection } from "@temporalio/worker";
-import { FACTORY_TASK_QUEUE } from "./contracts.ts";
+import { FACTORY_GATEWAY_REQUEST_TIMEOUT_MAX_MS, FACTORY_GATEWAY_REQUEST_TIMEOUT_MS, FACTORY_TASK_QUEUE } from "./contracts.ts";
 import { dispatchNext } from "./dispatcher.ts";
 import { createGatewayFactoryActivities, createGatewayTransport, type GatewayTransportOptions } from "./gateway-activities.ts";
 import { createGatewayFactoryCommandQueue } from "./queue-client.ts";
@@ -89,6 +89,7 @@ function validateOptions(options: FactoryOrchestratorProcessOptions): void {
   boundedInteger(options.temporal.pollingProbeTimeoutMs, 30_000, 1_000, 60_000, "polling probe timeout");
   boundedInteger(options.readinessHeartbeatMs, 5_000, 1_000, 60_000, "readiness heartbeat interval");
   boundedInteger(options.dispatchEmptyDelayMs, 100, 10, 5_000, "empty dispatch delay");
+  boundedInteger(options.gateway.requestTimeoutMs, FACTORY_GATEWAY_REQUEST_TIMEOUT_MS, FACTORY_GATEWAY_REQUEST_TIMEOUT_MS, FACTORY_GATEWAY_REQUEST_TIMEOUT_MAX_MS, "gateway request timeout");
 }
 
 async function connectTemporal(options: FactoryTemporalProcessOptions, credentials: TemporalCredentials): Promise<FactoryTemporalConnection> {
@@ -188,6 +189,8 @@ export async function runFactoryOrchestratorProcess(options: FactoryOrchestrator
   const probeTimeoutMs = options.temporal.pollingProbeTimeoutMs ?? 30_000;
   const heartbeatMs = options.readinessHeartbeatMs ?? 5_000;
   const emptyDelayMs = options.dispatchEmptyDelayMs ?? 100;
+  // The runtime's gateway clients always carry the ordered bound, never the transport's shorter default.
+  const runtimeOptions = { ...options, gateway: { ...options.gateway, requestTimeoutMs: options.gateway.requestTimeoutMs ?? FACTORY_GATEWAY_REQUEST_TIMEOUT_MS } };
   const identity = `${options.installationId}:factory-orchestrator`;
   let credentialGeneration = 0;
   await options.readiness.write({ lifecycle: "starting", workerPolling: false, dispatcherLive: false, credentialGeneration });
@@ -202,7 +205,7 @@ export async function runFactoryOrchestratorProcess(options: FactoryOrchestrator
       let credentials = await options.loadTemporalCredentials();
       connection = await dependencies.connect(options.temporal, credentials);
       credentialGeneration += 1;
-      const runtime = await dependencies.createRuntime(options, connection, identity);
+      const runtime = await dependencies.createRuntime(runtimeOptions, connection, identity);
       worker = runtime.worker;
       let dispatcherLive = false;
       runPromise = worker.run();

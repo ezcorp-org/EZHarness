@@ -216,6 +216,29 @@ The merge commit's message carries the text the ruling prescribed, word for word
 - Migration order: W03f's `add-factory-usage-operations`, then W15f's
   `add-factory-usage-epoch-stale` and `add-factory-attempt-supersessions`, `add-factory-recovery` last.
 
+## The integ/w00 94edd1e30 merge (W15f landed), the final step
+
+Six conflicts, resolutions accepted by the coordinator (ruling 19:02Z):
+- `scripts/coverage-thresholds.json`: both keys kept.
+- `src/db/migrate.ts`: W01h's `add-factory-task-stop-reconciliation`, then W03f's
+  `add-factory-usage-operations`, then W15f's `add-factory-usage-epoch-stale` and
+  `add-factory-attempt-supersessions`, then `add-factory-recovery` last.
+- `src/factory/dispatch-composition.ts` and its test: W15f's and W01h's changes kept; W03f's bound and
+  named-hold logic sits inside W15f's stale-epoch catch; both sides' tests kept.
+- `src/factory/task-stops.ts`: imports (W03f's settlement imports plus W15f's supersession exports).
+- `src/__tests__/helpers/factory-task-stops-suite.ts`: the snapshot's version (integ's side equals W15f's).
+The consumer and both joint cases come from snapshot `e8d9a55df` (write-tree/commit-tree, no hooks,
+no refs). Where integ's file equals W15f's `930c90331` the snapshot version was taken (20 files); for
+every other merged file W03f's delta against integ was checked equal to the snapshot's delta against
+`930c90331`. The transitional `superseded-operations-unreadable` path and W03f's own reader type are
+gone: the bound path calls W15f's `readAttemptSupersessionInTransaction` and
+`readSupersededOperationsInTransaction` directly (refusing by name if the read names another attempt
+or another restore digest); a null interpreter is named `superseded-without-interpreter`. Red then
+green on the branch: `receipts/joint-red-green.attempt-1.json` (41/2 with the interim settlement
+module, 43/0 with the consumer). Hook-cap ruling 19:02Z: `EZ_SKIP_HOOK_TESTS=1` for this one commit;
+the 74 mapped files plus the factory-orchestrator package suite are listed verbatim in the commit
+message and in `logs/final-merge-hook-list-verbatim.log`, and run as leg 0 of the final leg.
+
 ## Disclosed
 
 - Credential misdirection (lead ruling, record it): M1 attempt 1's `w14-repro.sh` sourced a file

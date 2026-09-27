@@ -10,6 +10,7 @@ import { digestObject } from "../extensions/v4/blobs";
 import type { FactoryAttemptAuthority, FactoryJournalOperationEvidence } from "./executions";
 import type { FactoryUncertainHold } from "./budgets";
 import { isFactoryProviderReceiptDigest, validateFactoryOperationUsage } from "./journal-validation";
+import { readSupersededOperationsInTransaction } from "./attempt-supersessions";
 import type { FactoryInbox } from "./inbox";
 import { lockFactoryScope } from "./locks";
 import { assertFactoryIdentity, encodeFactoryPayload } from "./records";
@@ -190,11 +191,10 @@ export type FactoryUncertainHoldUnknownReason =
    */
   | "operation-cost-unknown"
   /**
-   * W03f with W15f: the attempt a restore superseded names an old execution
-   * epoch, which the journal's live read refuses; its operations are read only
-   * through W15f's `supersededOperationsInTransaction`, and this journal has none.
+   * W03f with W15f: a restore superseded the attempt, but its dispatch named no
+   * interpreter, so there is no run inbox a settlement could report into.
    */
-  | "superseded-operations-unreadable"
+  | "superseded-without-interpreter"
   | "usage-still-unknown";
 
 /**
@@ -358,7 +358,8 @@ interface SettlementRow {
 export interface FactoryUsageSettlementScope {
   readonly projectId: string;
   readonly runId: string;
-  readonly interpreterId: string;
+  /** Null only for an attempt a restore superseded whose dispatch named no interpreter (W15f). */
+  readonly interpreterId: string | null;
   readonly reservationId: string;
   readonly authority: FactoryAttemptAuthority;
   /**
@@ -367,26 +368,6 @@ export interface FactoryUsageSettlementScope {
    * superseded its execution epoch (W15f).
    */
   readonly end?: { readonly kind: "stop" | "restore-supersession"; readonly digest: string };
-}
-
-/**
- * W15f: an attempt a signed restore superseded, read by the reservation it
- * held (`factory_attempt_supersessions`, `src/factory/attempt-supersessions.ts`).
- * The fields W03f reads; W15f's record carries more.
- */
-export interface FactoryAttemptSupersession {
-  readonly projectId: string;
-  readonly runId: string;
-  readonly attemptId: string;
-  /** Null when the attempt's dispatch named no interpreter: then there is no inbox to settle into. */
-  readonly interpreterId: string | null;
-  /** `sha256:` digest of the signed restore report. */
-  readonly restoreDigest: string;
-}
-
-/** The seam W15f's `readAttemptSupersessionInTransaction` fills. */
-export interface FactoryAttemptSupersessionReader {
-  readAttemptSupersessionInTransaction(transaction: MigrationDb, tenantId: string, reservationId: string): Promise<FactoryAttemptSupersession | undefined>;
 }
 
 export interface FactoryUsageSettlementAmounts {
@@ -438,7 +419,10 @@ export class FactoryUsageSettlements {
    * current revision; neither emits a second event.
    */
   async recordInTransaction(transaction: MigrationDb, value: FactoryUsageSettlementScope, valueAmounts: FactoryUsageSettlementAmounts): Promise<FactoryUsageSettlement> {
-    const scope = Object.freeze({ projectId: value.projectId, runId: value.runId, interpreterId: value.interpreterId, reservationId: value.reservationId, authority: value.authority });
+    // A scope with no interpreter has no run inbox to report into (W15f): nothing is recorded for it.
+    const interpreterId = value.interpreterId;
+    if (interpreterId === null) throw new FactoryUsageSettlementError("factory_usage_settlement_scope");
+    const scope = Object.freeze({ projectId: value.projectId, runId: value.runId, interpreterId, reservationId: value.reservationId, authority: value.authority });
     const amounts = Object.freeze({ ...valueAmounts });
     assertFactoryIdentity(scope.projectId, scope.runId, scope.interpreterId, scope.reservationId);
     if (!await lockFactoryScope(transaction, this.tenantId, scope.projectId)) throw new FactoryUsageSettlementError("factory_usage_settlement_scope");
@@ -529,12 +513,6 @@ export interface FactoryUsageJournal {
   reconcileLate(authority: FactoryAttemptAuthority, operationId: string, result: { readonly providerReceiptDigest: string; readonly usage: FactoryMeasuredUsage }): Promise<void>;
   /** The sealed operation evidence the journal already holds for one attempt. */
   operations(authority: FactoryAttemptAuthority): Promise<readonly FactoryJournalOperationEvidence[]>;
-  /**
-   * W15f: the operations of an attempt a signed restore superseded, read
-   * without the live epoch comparison and refused unless the supersession
-   * record names this attempt. Optional until W15f's journal provides it.
-   */
-  supersededOperationsInTransaction?(transaction: MigrationDb, authority: FactoryAttemptAuthority): Promise<readonly FactoryJournalOperationEvidence[]>;
 }
 
 /** The budget seam a verified receipt settles through. */
@@ -589,11 +567,15 @@ export class FactoryUsageReconciliation implements FactoryUsageReconciler {
     // The hold and the sealed stop must describe the same work, or one of them
     // is about a different run and neither may fund the other.
     if (scope.projectId !== hold.projectId || scope.runId !== hold.runId) throw new FactoryUsageSettlementError("factory_usage_settlement_conflict");
+    if (scope.interpreterId === null) return Object.freeze({ kind: "unknown" as const, reservationId, reason: "superseded-without-interpreter" as const });
     let operations: readonly FactoryJournalOperationEvidence[];
     if (scope.end?.kind === "restore-supersession") {
-      const read = this.journal.supersededOperationsInTransaction?.bind(this.journal);
-      if (!read) return Object.freeze({ kind: "unknown" as const, reservationId, reason: "superseded-operations-unreadable" as const });
-      operations = await this.database.transaction(transaction => read(transaction, scope.authority));
+      // The live read refuses the old epoch; W15f's read takes the supersession
+      // record as its proof, and must name the attempt the scope names.
+      const superseded = await this.database.transaction(transaction => readSupersededOperationsInTransaction(transaction, this.tenantId, reservationId));
+      // The read must name the scope's attempt and carry the proof the scope rests on, or neither may fund the other.
+      if (superseded.attemptId !== scope.authority.attemptId || superseded.restoreDigest !== scope.end.digest) throw new FactoryUsageSettlementError("factory_usage_settlement_conflict");
+      operations = superseded.operations;
     } else {
       operations = await this.journal.operations(scope.authority);
     }

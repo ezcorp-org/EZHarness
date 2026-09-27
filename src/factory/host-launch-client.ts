@@ -1,7 +1,38 @@
-import { createGatewayTransport, type GatewayTransportOptions } from "@ezcorp/factory-transport";
+import { createGatewayTransport, GatewayStatusError, type GatewayResponse, type GatewayTransportOptions } from "@ezcorp/factory-transport";
 import { validateFactoryRunnerResult, type FactoryRunnerResult } from "@ezcorp/factory-sdk";
 import { FactoryAttemptRuntimeError, factoryAttemptLaunchIntentToWire, type FactoryAttemptLaunchIntent, type FactoryAttemptOpenDisposition } from "./runner/attempt-runtime";
-import { FACTORY_HOST_ATTACH_PATH, FACTORY_HOST_LAUNCH_PATH, FACTORY_HOST_RESULT_PATH, type FactoryHostAttemptHandle } from "./runner/host-launch-service";
+import { FACTORY_HOST_ATTACH_PATH, FACTORY_HOST_LAUNCH_PATH, FACTORY_HOST_LAUNCH_TIMEOUT_MS, FACTORY_HOST_RESULT_PATH, type FactoryHostAttemptHandle } from "./runner/host-launch-service";
+
+/**
+ * The product's timeout for one host call.
+ *
+ * Longer than anything the host itself waits for — a launch or a reattach, or
+ * one result window — so the host always answers first, with a result or a
+ * named refusal, and a client timeout means the host did not answer at all.
+ */
+export const FACTORY_HOST_CLIENT_TIMEOUT_MS = FACTORY_HOST_LAUNCH_TIMEOUT_MS + 30_000;
+
+/**
+ * A host's named refusal: the status, the host's `error` code, and its detail.
+ *
+ * It is still a {@link GatewayStatusError}, so every caller that treated a
+ * non-2xx as a failure still does; a caller that must tell a still-running
+ * guest from a dead one or a forgotten one reads `code`.
+ */
+export class FactoryHostLaunchRefusal extends GatewayStatusError {
+  readonly code: string;
+  readonly detail: string;
+
+  constructor(response: GatewayResponse) {
+    super(response);
+    this.name = "FactoryHostLaunchRefusal";
+    let body: { error?: unknown; detail?: unknown } = {};
+    try { body = JSON.parse(response.body.toString("utf8")) as typeof body; }
+    catch { body = {}; }
+    this.code = typeof body?.error === "string" ? body.error.slice(0, 128) : "unknown";
+    this.detail = typeof body?.detail === "string" ? body.detail.slice(0, 1_024) : "";
+  }
+}
 
 export interface FactoryHostLaunchClientOptions extends GatewayTransportOptions {
   /** The host this endpoint speaks for. An intent for another host never leaves. */
@@ -60,8 +91,13 @@ export async function createFactoryHostLaunchClient(options: FactoryHostLaunchCl
   const hostId = opaque(options.hostId);
   const transport = await createGatewayTransport(options);
   const call = async (path: string, body: unknown, limit: number, signal?: AbortSignal) => {
-    const response = await transport.request("POST", path, body, limit, signal ?? new AbortController().signal);
-    return decode(response.body);
+    try {
+      const response = await transport.request("POST", path, body, limit, signal ?? new AbortController().signal);
+      return decode(response.body);
+    } catch (error) {
+      if (error instanceof GatewayStatusError) throw new FactoryHostLaunchRefusal(error.response);
+      throw error;
+    }
   };
   return Object.freeze({
     async launch(intent: FactoryAttemptLaunchIntent, signal?: AbortSignal): Promise<FactoryHostAttemptHandle> {

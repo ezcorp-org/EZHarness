@@ -11,6 +11,7 @@ import { tmpdir } from "os";
 
 import { parseSource } from "../extensions/source-parser";
 import { gitExec, clone, lsRemoteTags, getCurrentRef } from "../extensions/git";
+import { scratchGitEnv } from "./helpers/scratch-git";
 
 // ── parseSource coverage ────────────────────────────────────────────────
 
@@ -140,9 +141,12 @@ describe("git.ts – coverage gaps", () => {
   let tempBase: string;
   let bareRepoDir: string;
 
-  const env = { ...process.env };
+  // Isolated from the caller's own git context (a hook that exports `GIT_DIR`
+  // and friends would otherwise make these commands act on the hook's real
+  // repository). `home` is a sibling of the bare repo and work tree below,
+  // never touched by a `git add .` scoped to either.
   const spawn = (cmd: string[], opts?: { cwd?: string }) =>
-    Bun.spawnSync(cmd, { ...opts, env });
+    Bun.spawnSync(cmd, { ...opts, env: scratchGitEnv(join(tempBase, ".git-scratch-home")) });
 
   beforeAll(async () => {
     tempBase = await mkdtemp(join(tmpdir(), "git-cov-"));

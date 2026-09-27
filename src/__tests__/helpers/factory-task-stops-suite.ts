@@ -22,6 +22,7 @@ import { FactoryTaskStops, FactoryTaskStopError, FACTORY_STOP_SCAN_MAX_LIMIT, ty
 import { FACTORY_USAGE_OPERATIONS_BASIS, FACTORY_USAGE_PROVIDER_ERROR_BASIS, FactoryUsageReconciliation, FactoryUsageSettlements } from "../../factory/usage-settlement";
 import type { FactoryModelFailure } from "../../factory/runner/guest-model-broker";
 import { createFactoryJournalGuestModelJournal, factoryGuestModelFailure } from "../../factory/runner/guest-model-journal";
+import { readAttemptSupersessionInTransaction, supersedeEpochAttemptsInTransaction } from "../../factory/attempt-supersessions";
 import { persistTransition } from "../../../packages/@ezcorp/factory-orchestrator/src/transition-pages";
 import { createFactoryLiveAttemptWorld, type FactoryLiveAttempt, type FactoryLiveAttemptWorld } from "./factory-live-attempt-world";
 
@@ -448,47 +449,6 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
     expect(bound).toEqual({ kind: "bound", reservationId: attempt.reservationId, attemptId: attempt.attemptId, reason: "operation-cost-unknown", operationIds: [operation!.operationId] });
     expect(await late.settleAtBound(bound as Extract<typeof bound, { kind: "bound" }>)).toMatchObject({ source: "reserved-bound", knownCostMicros: profile.budget.costMicros });
     expect(await foldedNode(attempt, advanced)).toMatchObject({ unresolved: [], error: "provider_unavailable" });
-  });
-
-  test("W03f ruling B with W15f: an attempt a signed restore superseded is charged the bound with the supersession as its proof, and a late answer is refused", async () => {
-    const attempt = await launchedAttempt();
-    const { journal, request } = await inFlightModelCall(attempt);
-    const authority = await sealedAuthority(attempt);
-    // W15f's record, read through the interface both packages agreed; no stop was ever sealed.
-    const restoreDigest = `sha256:${"7".repeat(64)}`;
-    const supersessions = {
-      async readAttemptSupersessionInTransaction(_transaction: unknown, tenant: string, reservationId: string) {
-        expect(tenant).toBe(tenantId);
-        return reservationId === attempt.reservationId ? { projectId, runId: attempt.run.runId, interpreterId: attempt.identity.interpreterId, attemptId: attempt.attemptId, restoreDigest } : undefined;
-      },
-    };
-    const inbox = new FactoryInbox(fixture.db, tenantId, () => now);
-    const settlements = new FactoryUsageSettlements(fixture.db, tenantId, inbox, () => now);
-    const outcomes = new FactoryTaskOutcomes(fixture.db, attempt.authority, attempt.admissions, attempt.journal, attempt.queue, lifecycle.budgets, inbox, () => now);
-    const stops = new FactoryTaskStops(fixture.db, attempt.authority, attempt.admissions, attempt.journal, outcomes, attempt.queue, lifecycle.budgets, inbox, settlements, stopper(async stopRequest => signed(stopRequest)), acknowledger(), [{ hostId, hostKeyId: "stop-host-key-1", publicKey: hostKeys.publicKey }], () => now, 20_000, supersessions);
-    // W15f's journal reads a superseded attempt's operations past the stale epoch; here the epoch is
-    // not moved, so the double hands back the journal's own evidence, read beforehand.
-    const evidence = await attempt.journal.operations(authority);
-    const withSuperseded = { reconcileLate: attempt.journal.reconcileLate.bind(attempt.journal), operations: attempt.journal.operations.bind(attempt.journal), supersededOperationsInTransaction: async () => evidence };
-    // Without that read, the hold stays named rather than priced by a guess.
-    expect(await new FactoryUsageReconciliation(fixture.db, tenantId, stops, attempt.journal, lifecycle.budgets, settlements, () => authority.deadlineAt.getTime() + 1).resolve({ projectId, runId: attempt.run.runId, reservationId: attempt.reservationId } as never))
-      .toEqual({ kind: "unknown", reservationId: attempt.reservationId, reason: "superseded-operations-unreadable" });
-    const reconciler = (nowMs: number) => new FactoryUsageReconciliation(fixture.db, tenantId, stops, withSuperseded, lifecycle.budgets, settlements, () => nowMs);
-    await lifecycle.budgets.markUncertain({ projectId, runId: attempt.run.runId, reservationId: attempt.reservationId }, "execution_epoch_superseded");
-    const hold = await heldFor(attempt);
-    expect(await reconciler(authority.deadlineAt.getTime() - 1).resolve(hold)).toEqual({ kind: "unknown", reservationId: attempt.reservationId, reason: "operation-not-settled", operationIds: [request.operationId] });
-    const late = reconciler(authority.deadlineAt.getTime() + 1);
-    const bound = await late.resolve(hold);
-    expect(bound).toEqual({ kind: "bound", reservationId: attempt.reservationId, attemptId: attempt.attemptId, reason: "operation-not-settled", operationIds: [request.operationId] });
-    const settled = await late.settleAtBound(bound as Extract<typeof bound, { kind: "bound" }>);
-    expect(settled).toMatchObject({ source: "reserved-bound", basis: "unknown: charged at reserved bound; ended by restore supersession", restoreDigest, knownCostMicros: profile.budget.costMicros });
-    expect(settled.stopReceiptDigest).toBeUndefined();
-    expect(await reservationState(attempt.reservationId)).toMatchObject({ state: "settled" });
-    // A provider answer after the bound is kept in the journal, and its settlement is refused.
-    const answer = { text: "late", providerReceiptDigest: "e".repeat(64), usage: { kind: "measured" as const, inputTokens: 1, outputTokens: 1, computeMs: 1, costMicros: "2" } };
-    await journal.hold(attempt.request, request, answer);
-    await expect(late.reconcile({ reservationId: attempt.reservationId, attemptId: attempt.attemptId, operationId: request.operationId, providerReceiptDigest: answer.providerReceiptDigest, usage: answer.usage })).rejects.toMatchObject({ code: "factory_usage_settlement_state" });
-    expect(await settlementRows(attempt.run.runId)).toEqual([{ revision: 1, source: "reserved-bound" }]);
   });
 
   test("a bounded stop timeout leaves durable uncertainty and a later receipt settles the same operation", async () => {
@@ -1083,5 +1043,126 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
       await fixture.db.execute(sql`UPDATE factory_task_stops SET stopped_event_json=${stored.stopped_event_json}, stopped_event_digest=${stored.stopped_event_digest} WHERE run_id=${attempt.run.runId}`);
     }
     expect(await stops.stop(service, reference)).toEqual(sealed);
+  });
+
+  // Last on purpose: supersession ends every live attempt of the epoch in this shared store.
+  test("a stop left accepted, before its host was ever asked, also ends with the attempt's supersession (W15f M1)", async () => {
+    const attempt = await launchedAttempt(false);
+    const { reference } = await cancelled(attempt);
+    const { stops } = harness(attempt, { async stop(_request, signal) { return new Promise<never>((_resolve, reject) => { signal.addEventListener("abort", () => reject(new Error("host unreachable"))); }); } }, acknowledger(), undefined, 5);
+    await stops.stop(service, reference);
+    // The process ended between acceptance and the host call: the stop is only accepted.
+    await fixture.db.execute(sql`UPDATE factory_task_stops SET state='accepted', uncertain_event_json=NULL, uncertain_event_digest=NULL WHERE attempt_id=${attempt.attemptId}`);
+    const epoch = Number(rows<{ execution_epoch: number | string }>(await fixture.db.execute(sql`SELECT execution_epoch FROM factory_executions WHERE attempt_id=${attempt.attemptId}`))[0]!.execution_epoch);
+    const inbox = new FactoryInbox(fixture.db, tenantId, () => now);
+    await fixture.db.transaction(transaction => supersedeEpochAttemptsInTransaction(transaction, inbox, { tenantId, previousEpoch: epoch, executionEpoch: epoch + 1, restoreId: "restore-m1-accepted", restoreDigest: `sha256:${"d".repeat(64)}`, atMs: now }));
+    expect(rows<{ state: string; superseded_restore_id: string | null }>(await fixture.db.execute(sql`SELECT state, superseded_restore_id FROM factory_task_stops WHERE attempt_id=${attempt.attemptId}`))).toEqual([{ state: "superseded", superseded_restore_id: "restore-m1-accepted" }]);
+    expect((await fixture.db.transaction(transaction => stops.listStoppableInTransaction(transaction))).map(item => item.attemptId)).not.toContain(attempt.attemptId);
+  });
+
+  test("a stop accepted before a restore and never confirmed ends with the attempt's supersession: not listed again, and the clear sends the supersession's end (W15f M1)", async () => {
+    const attempt = await launchedAttempt(false);
+    const { reference } = await cancelled(attempt);
+    // The host never answers, so the stop stays uncertain.
+    const { stops } = harness(attempt, { async stop(_request, signal) { return new Promise<never>((_resolve, reject) => { signal.addEventListener("abort", () => reject(new Error("host unreachable"))); }); } }, acknowledger(), undefined, 5);
+    expect((await stops.stop(service, reference)).state).toBe("uncertain");
+    const epoch = Number(rows<{ execution_epoch: number | string }>(await fixture.db.execute(sql`SELECT execution_epoch FROM factory_executions WHERE attempt_id=${attempt.attemptId}`))[0]!.execution_epoch);
+    // A restore opens and is signed: the installation moves on and the attempt is superseded.
+    await fixture.db.execute(sql`UPDATE factory_installation SET execution_epoch=${epoch + 1} WHERE tenant_id=${tenantId}`);
+    try {
+      const inbox = new FactoryInbox(fixture.db, tenantId, () => now);
+      await fixture.db.transaction(transaction => supersedeEpochAttemptsInTransaction(transaction, inbox, { tenantId, previousEpoch: epoch, executionEpoch: epoch + 1, restoreId: "restore-m1", restoreDigest: `sha256:${"e".repeat(64)}`, atMs: now }));
+      expect(await executionStatus(attempt.attemptId)).toBe("superseded");
+      // The stop ends with the supersession, by state: the stop role never lists it again.
+      expect(rows<{ state: string; superseded_restore_id: string | null }>(await fixture.db.execute(sql`SELECT state, superseded_restore_id FROM factory_task_stops WHERE attempt_id=${attempt.attemptId}`))).toEqual([{ state: "superseded", superseded_restore_id: "restore-m1" }]);
+      const listed = await fixture.db.transaction(transaction => stops.listStoppableInTransaction(transaction));
+      expect(listed.map(item => item.attemptId)).not.toContain(attempt.attemptId);
+      // Once its cost is settled, the clear sends the supersession's end, so the kernel releases the attempt.
+      const event = await fixture.db.transaction(transaction => stops.clearResolvedStopInTransaction(transaction, attempt.reservationId, now + 1));
+      expect(event).toMatchObject({ kind: "attempt-stopped", id: `restore-m1:${attempt.attemptId}:usage-resolved`, commandId: attempt.attemptId, uncertain: false });
+      const delivered = rows<{ event_id: string }>(await fixture.db.execute(sql`SELECT event_id FROM factory_inbox_events WHERE tenant_id=${tenantId} AND run_id=${attempt.run.runId} AND event_id LIKE 'restore-m1:%' ORDER BY sequence`));
+      expect(delivered.map(row => row.event_id)).toEqual([`restore-m1:${attempt.attemptId}:superseded`, `restore-m1:${attempt.attemptId}:usage-resolved`]);
+    } finally {
+      await fixture.db.execute(sql`UPDATE factory_installation SET execution_epoch=${epoch} WHERE tenant_id=${tenantId}`);
+    }
+  });
+
+  test("with no sealed stop, the clear re-sends a signed restore's supersession event with its uncertainty cleared (W15f)", async () => {
+    const attempt = await launchedAttempt(false);
+    const inbox = new FactoryInbox(fixture.db, tenantId, () => now);
+    const epoch = Number(rows<{ execution_epoch: number | string }>(await fixture.db.execute(sql`SELECT execution_epoch FROM factory_executions WHERE attempt_id=${attempt.attemptId}`))[0]!.execution_epoch);
+    const restoreDigest = `sha256:${"f".repeat(64)}`;
+    const superseded = await fixture.db.transaction(transaction => supersedeEpochAttemptsInTransaction(transaction, inbox, { tenantId, previousEpoch: epoch, executionEpoch: epoch + 1, restoreId: "restore-w15f", restoreDigest, atMs: now }));
+    expect(superseded).toBeGreaterThanOrEqual(1);
+    expect(await executionStatus(attempt.attemptId)).toBe("superseded");
+    // What a bound settlement reads as the attempt's proven end.
+    expect(await fixture.db.transaction(transaction => readAttemptSupersessionInTransaction(transaction, tenantId, attempt.reservationId))).toMatchObject({
+      projectId: attempt.dispatchReference.projectId, runId: attempt.run.runId, attemptId: attempt.attemptId, interpreterId: attempt.dispatchReference.interpreterId, restoreId: "restore-w15f", restoreDigest,
+      event: { kind: "attempt-stopped", id: `restore-w15f:${attempt.attemptId}:superseded`, commandId: attempt.attemptId, uncertain: true },
+    });
+    const { stops } = harness(attempt, stopper(async () => { throw new Error("a superseded attempt is not stopped again"); }), acknowledger());
+    const event = await fixture.db.transaction(transaction => stops.clearResolvedStopInTransaction(transaction, attempt.reservationId, now + 1));
+    expect(event).toMatchObject({ kind: "attempt-stopped", id: `restore-w15f:${attempt.attemptId}:usage-resolved`, commandId: attempt.attemptId, atMs: now + 1, uncertain: false });
+    const delivered = rows<{ event_id: string }>(await fixture.db.execute(sql`SELECT event_id FROM factory_inbox_events WHERE tenant_id=${tenantId} AND run_id=${attempt.run.runId} AND interpreter_id=${attempt.dispatchReference.interpreterId} AND event_id LIKE 'restore-w15f:%' ORDER BY sequence`));
+    expect(delivered.map(row => row.event_id)).toEqual([`restore-w15f:${attempt.attemptId}:superseded`, `restore-w15f:${attempt.attemptId}:usage-resolved`]);
+    // A reservation with neither a stop nor a supersession still clears nothing.
+    expect(await fixture.db.transaction(transaction => stops.clearResolvedStopInTransaction(transaction, "no-such-reservation", now + 2))).toBeUndefined();
+  });
+
+  // Joint W03f and W15f test, also last: it supersedes the epoch's live attempts in this shared store.
+  test("W03f ruling B with W15f: an attempt a signed restore superseded settles at the reserved bound with the supersession as its proof, and W05b clears through it", async () => {
+    const attempt = await launchedAttempt();
+    const { journal, request } = await inFlightModelCall(attempt);
+    const authority = await sealedAuthority(attempt);
+    const inbox = new FactoryInbox(fixture.db, tenantId, () => now);
+    const held = harness(attempt, stopper(async () => { throw new Error("a superseded attempt is not stopped again"); }), acknowledger());
+    await lifecycle.budgets.markUncertain({ projectId, runId: attempt.run.runId, reservationId: attempt.reservationId }, "execution_epoch_superseded");
+    const hold = await heldFor(attempt);
+    // Before the restore: no proof of the attempt's end, so the hold stays named and unsettled.
+    expect(await reconcilerAt(attempt, held, authority.deadlineAt.getTime() + 1).resolve(hold)).toMatchObject({ kind: "unknown", reason: "no-sealed-attempt" });
+    // The signed restore supersedes the epoch's live attempts, this one included, in one transaction.
+    const restoreDigest = `sha256:${"7".repeat(64)}`;
+    await fixture.db.transaction(transaction => supersedeEpochAttemptsInTransaction(transaction, inbox, { tenantId, previousEpoch: authority.executionEpoch, executionEpoch: authority.executionEpoch + 1, restoreId: "restore-w03f", restoreDigest, atMs: now }));
+    expect(await executionStatus(attempt.attemptId)).toBe("superseded");
+    // Before the deadline: named, and nothing settles.
+    expect(await reconcilerAt(attempt, held, authority.deadlineAt.getTime() - 1).resolve(hold)).toEqual({ kind: "unknown", reservationId: attempt.reservationId, reason: "operation-not-settled", operationIds: [request.operationId] });
+    // After it: bound, read through W15f's proof-gated read, and settled with the restore as proof.
+    const late = reconcilerAt(attempt, held, authority.deadlineAt.getTime() + 1);
+    const bound = await late.resolve(hold);
+    expect(bound).toEqual({ kind: "bound", reservationId: attempt.reservationId, attemptId: attempt.attemptId, reason: "operation-not-settled", operationIds: [request.operationId] });
+    const settled = await late.settleAtBound(bound as Extract<typeof bound, { kind: "bound" }>);
+    expect(settled).toMatchObject({ source: "reserved-bound", basis: "unknown: charged at reserved bound; ended by restore supersession", restoreDigest, knownCostMicros: profile.budget.costMicros });
+    expect(settled.stopReceiptDigest).toBeUndefined();
+    // The budget carries the reserved bound; the settlement claims no measured token count.
+    expect(JSON.parse((await reservationState(attempt.reservationId))!.actual!)).toEqual(reservedBound);
+    expect(Object.keys(settled)).not.toContain("tokens");
+    // W05b clears the kernel through the supersession's event, re-sent with its uncertainty cleared.
+    const delivered = rows<{ event_id: string }>(await fixture.db.execute(sql`SELECT event_id FROM factory_inbox_events WHERE tenant_id=${tenantId} AND run_id=${attempt.run.runId} ORDER BY sequence`)).map(row => row.event_id);
+    expect(delivered).toContain(`restore-w03f:${attempt.attemptId}:usage-resolved`);
+    // A provider answer after the bound never settles again.
+    const answer = { text: "late", providerReceiptDigest: "e".repeat(64), usage: { kind: "measured" as const, inputTokens: 1, outputTokens: 1, computeMs: 1, costMicros: "2" } };
+    await journal.hold(attempt.request, request, answer).catch(() => undefined);
+    await expect(late.reconcile({ reservationId: attempt.reservationId, attemptId: attempt.attemptId, operationId: request.operationId, providerReceiptDigest: answer.providerReceiptDigest, usage: answer.usage })).rejects.toMatchObject({ code: "factory_usage_settlement_state" });
+    expect(await settlementRows(attempt.run.runId)).toEqual([{ revision: 1, source: "reserved-bound" }]);
+  });
+
+  test("W03f with W15f M1: a stop the restore left unconfirmed ends as superseded, and the bound rests on the restore, not a stop receipt", async () => {
+    const attempt = await launchedAttempt();
+    const { request } = await inFlightModelCall(attempt);
+    const authority = await sealedAuthority(attempt);
+    const { reference } = await cancelled(attempt);
+    // The host never confirms: the stop stays uncertain and the reservation stays held.
+    const held = harness(attempt, stopper(async () => { throw new Error("host unreachable"); }), acknowledger());
+    expect((await held.stops.stop(service, reference)).state).toBe("uncertain");
+    const inbox = new FactoryInbox(fixture.db, tenantId, () => now);
+    const restoreDigest = `sha256:${"6".repeat(64)}`;
+    await fixture.db.transaction(transaction => supersedeEpochAttemptsInTransaction(transaction, inbox, { tenantId, previousEpoch: authority.executionEpoch, executionEpoch: authority.executionEpoch + 1, restoreId: "restore-w03f-m1", restoreDigest, atMs: now }));
+    expect(await stopRow(attempt.run.runId)).toMatchObject({ state: "superseded" });
+    const late = reconcilerAt(attempt, held, authority.deadlineAt.getTime() + 1);
+    const bound = await late.resolve(await heldFor(attempt));
+    expect(bound).toEqual({ kind: "bound", reservationId: attempt.reservationId, attemptId: attempt.attemptId, reason: "operation-not-settled", operationIds: [request.operationId] });
+    const settled = await late.settleAtBound(bound as Extract<typeof bound, { kind: "bound" }>);
+    expect(settled).toMatchObject({ source: "reserved-bound", basis: "unknown: charged at reserved bound; ended by restore supersession", restoreDigest });
+    expect(settled.stopReceiptDigest).toBeUndefined();
   });
 }

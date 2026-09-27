@@ -7,6 +7,7 @@ import { freezeReferenceCodeCandidate } from "./freeze";
 import { referenceCodeFixtureCandidate, referenceCodeLaunchRepository, REFERENCE_CODE_FIXTURE_REQUEST } from "./fixtures";
 import { ReferenceCodeGitReader } from "./git-reader";
 import { snapshotReferenceCodeRepository } from "./snapshot";
+import { scratchGitEnv } from "../../__tests__/helpers/scratch-git";
 
 /**
  * Real git is the oracle here, twice over: it produces the base commit the snapshot pins, and it
@@ -21,10 +22,7 @@ function git(cwd: string, ...args: string[]): string {
     cwd,
     encoding: "utf8",
     env: {
-      PATH: process.env.PATH ?? "",
-      HOME: cwd,
-      GIT_CONFIG_GLOBAL: "/dev/null",
-      GIT_CONFIG_SYSTEM: "/dev/null",
+      ...scratchGitEnv(join(cwd, ".git-scratch-home")),
       GIT_AUTHOR_NAME: "Fixture",
       GIT_AUTHOR_EMAIL: "fixture@ezcorp.invalid",
       GIT_AUTHOR_DATE: "1700000000 +0000",

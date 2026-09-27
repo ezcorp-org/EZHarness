@@ -926,11 +926,18 @@ function predecessorRuntime(state: KernelState, nodeId: string): KernelNodeState
  * activity and kills the run. An acceptance therefore settles in place on every stop path, and it
  * loses nothing by doing so because only a task may declare a retry.
  *
- * Approval and release attempts have the same shape and the same defect. Changing them would change
- * cancellation semantics this package does not own, so they are unchanged here and filed instead.
+ * An approval attempt is a human request in the inbox, and nothing runs for it either (W01h). Its
+ * stop used to reach the cancel route as a `cancel-node`, which the attempt queue refused as stale,
+ * so a denied approval, and every other stop of a waiting approval, held the run in `stopping` for
+ * ever. It settles in place too. Its pending request cannot be answered late: the approval row
+ * carries the cancellation epoch this stop raised, so a decision after it is refused as stale.
+ *
+ * A release attempt has the same shape, but its effect may be in flight at a provider, so settling
+ * it in place could hide a publish. It keeps the ordinary stop until that is ruled on.
  */
 function physicalNode(factory: KernelFactoryPlan, nodeId: string): boolean {
-  return nodeFor(factory, nodeId)?.kind !== "acceptance";
+  const kind = nodeFor(factory, nodeId)?.kind;
+  return kind !== "acceptance" && kind !== "approval";
 }
 
 function terminalStatus(status: KernelNodeState["status"]): boolean {

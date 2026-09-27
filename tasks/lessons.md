@@ -1663,3 +1663,50 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 ## 2026-09-27 — A test leg that ran zero tests must fail loudly (W01h merge)
 
 - `bun test <path>` without a leading `./` treats the path as a name filter. The W01h merge batch listed `tests/postgres/...` and `src/...` bare, so bun matched nothing and its three PostgreSQL legs and its Podman leg ran no tests. Write every listed test path with `./`, and make every test leg assert that it ran at least one test: a count of zero is a failure, whatever the exit code. The integrator's heavy-batch and fast-check scripts now add `./` and fail a zero-test leg with exit 97.
+## 2026-09-27 — Test harness mistakes found in W09f
+
+- A suite that calls `mock.module` must run in its own bun process when it is grouped with other
+  suites. A mocked `db/migrate` once poisoned the shared PGlite snapshot cache for the whole checkout.
+- A reproduction suite must close each trial's pool completely before the next trial opens. Pools left
+  closing hold connections on a shared server and look like a driver stall.
+- Settle a Bun.sql query with `.then` or `await` in a test. `expect(query).rejects` never starts a lazy
+  query, and the test hangs.
+
+
+## 2026-09-25 — W01h runner outcome unknown
+
+- Under Bun 1.3.14, `node:https` `request.destroy(error)` and an aborted `signal` emit only `close`, never `error`. A promise that rejects only from `error` then never settles. Settle explicitly on the deadline, on abort, and on a `close` that arrives before a response. Node emits `error` in all three cases, so a Node-only test cannot see this.
+- A long result wait over one HTTP call is fragile. Use a bounded long poll: the server answers inside its own window (for example 504 `host_timeout`), keeps a settled answer until it is collected, and the client asks again until the attempt deadline.
+- Never delete a result in the handler that returns it. The caller may already be gone, and the result is then lost for good.
+- An unknown outcome with no durable record stops a run for good: the kernel only moves on `node-failed`. Record a typed `failed` result over the journal's own facts, and let the kernel's `cancel-node` decide the retry.
+- The pre-commit hook runs every staged test file, including `*.podman.integration.test.ts`, without the heavy lock. Commit a Podman test on its own, inside `flock --close /tmp/ezcorp-validation-heavy.lock`.
+- The durable run fence epoch (`factory_run_lifecycle.cancellation_epoch`) moves only on a user cancel. A stop the kernel begins itself (run deadline) makes every later `cancel-node` stale. Check a kernel-initiated stop path end to end before you trust it.
+- Never raise EZ_PRECOMMIT_TEST_MAX so the hook runs suites you did not write. On 2026-09-25 the hook ran c3-extension-install.test.ts, whose `git init` inherited the hook's GIT_DIR and set core.bare=true in the shared repository config. Run such suites yourself, outside the hook, with GIT_DIR, GIT_INDEX_FILE and GIT_WORK_TREE cleared.
+- A skip ruling names one commit. EZ_SKIP_HOOK_TESTS=1 on the a4dc40f3e merge was used under an earlier merge's ruling and needed a retroactive ratification (coordinator, 2026-09-26 00:12Z). Ask the coordinator for the ruling before every skip commit, and name that ruling in the commit message.
+- W19a's `run.sh pass` starts `web/build/index.js` as it finds it; only `run.sh all` builds the web server. A fresh proof tree for a lone pass needs `bun run --cwd web build` first, and the driver must stop if the build is missing. On 2026-09-26 the W01h 70 s pass ran without it: the web process exited at once, the orchestrator got ECONNREFUSED 107 times, and the pass read like a boot stall.
+- Report a job's end to the coordinator within ten minutes, red or green, and read the process logs before naming a cause.
+- Before a shared client reads a new field, list every caller and the exact shape each one passes. W01i's host stop client read `request.cancelReference.tenantId`, but W01h's post-result stop calls the same client through `factoryIntentPhysicalStop` with only the physical coordinates. Every unit and transport suite stayed green; only the real factory-services lane found it (2026-09-27).
+- A lock-order claim needs a concurrent test, not a sequential one. W01h's "the launch row lock orders the lost result against the stop" held in `factory-stop-after-loss.test.ts`, which runs the two transactions one after the other, and deadlocked on the proof server under the lane (validator-2, 2026-09-27). Before adding a second lock to a path, list every path that locks both rows and its order, and drive the interleaving on real PostgreSQL with two connections.
+
+## 2026-09-27 — Build JSON in SQL, and let a filter on it fail open (W15f)
+
+- Write a JSONB value with `jsonb_build_object` from typed parameters, not a JSON text parameter cast to `jsonb`. On
+  real PostgreSQL the text parameter arrived as a JSON string; PGlite stored an object, so only the PostgreSQL leg
+  caught it. Assert `jsonb_typeof(...) = 'object'` in the test.
+- A scan that skips rows by a stored mark must compare with `IS DISTINCT FROM`, so a mark it cannot read keeps the row
+  (and its loud report) rather than hiding it: `NULL <> value` is not true, and the row vanishes in silence.
+- Before relaunching a background job, look at the flock queue itself (`pgrep -af 'flock --close'`), not only a
+  pattern for the script. A job started with `&` in a tool shell survived the shell, my narrower check missed it,
+  and the W15f batch ran twice back to back, holding the shared lock twice for nothing.
+
+
+## 2026-09-27 — W03f: scratch snapshots and hook skips (coordinator correction)
+
+- Mistake: to snapshot a detached scratch worktree I ran `git commit` with `EZ_SKIP_HOOK_TESTS=1`
+  and no per-commit ruling (9178be47c, never merged).
+- Rule: a snapshot of a scratch or detached worktree is `git add -A && git write-tree` then
+  `git commit-tree <tree> -p <parents>`: no hooks, no refs. `EZ_SKIP_HOOK_TESTS` is never set
+  without a per-commit ruling, on any commit, scratch or not.
+- Also from this package: a suite that needs no database must not get `--pg` (DATABASE_URL changes
+  its behaviour), and a vitest file runs under `bunx vitest run`, never `bun test`; count tests with
+  the shared counter, and treat a zero count as red.

@@ -3141,10 +3141,20 @@ export async function migrate(db: MigrateDb): Promise<void> {
   // add-factory-artifact-read-grants, registered above.
   const { up: allowFactoryArtifactRegrant } = await import("./migrations/allow-factory-artifact-regrant");
   await allowFactoryArtifactRegrant(db);
+  // W01h fix round: a stop whose facts no longer verify becomes a reconciliation
+  // item. Depends only on add-factory-task-stops, registered above.
+  const { up: addFactoryTaskStopReconciliation } = await import("./migrations/add-factory-task-stop-reconciliation");
+  await addFactoryTaskStopReconciliation(db);
   // W03f: a stop settles from its journal's measured operations. Widens the three
   // settlement CHECKs add-factory-usage-no-operations installed, registered above.
   const { up: addFactoryUsageOperations } = await import("./migrations/add-factory-usage-operations");
   await addFactoryUsageOperations(db);
+  // W15f: the uncertain-hold mark for an attempt a restore's epoch left behind.
+  const { up: addFactoryUsageEpochStale } = await import("./migrations/add-factory-usage-epoch-stale");
+  await addFactoryUsageEpochStale(db);
+  // W15f: a signed restore's proven end for every attempt of the epoch it left.
+  const { up: addFactoryAttemptSupersessions } = await import("./migrations/add-factory-attempt-supersessions");
+  await addFactoryAttemptSupersessions(db);
   // Last on purpose: the checkpoint barrier gate attaches to every factory table that exists.
   const { up: addFactoryRecovery } = await import("./migrations/add-factory-recovery");
   await addFactoryRecovery(db);

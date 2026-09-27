@@ -1,0 +1,90 @@
+Checked 24 files in 20ms. No fixes applied.
+── Tests (staged) ─────────────────────────────────
+  bun: src/factory/attempt-composition.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 14 pass
+ 0 fail
+ 35 expect() calls
+Ran 14 tests across 1 file. [4.24s]
+  bun: src/factory/host-launch-lost-result.integration.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 4 pass
+ 0 fail
+ 52 expect() calls
+Ran 4 tests across 1 file. [10.27s]
+  bun: src/factory/host-launch-transport.integration.test.ts
+bun test v1.3.14 (0d9b296a)
+
+src/factory/host-launch-transport.integration.test.ts:
+[factory-host-launch] {"path":"/v1/host/launches","status":401,"error":"unauthorized","detail":"unauthorized"}
+[factory-host-launch] {"path":"/v1/host/launches","status":400,"error":"invalid_intent","detail":"invalid_intent"}
+[factory-host-launch] {"path":"/v1/host/launches","status":400,"error":"invalid_intent","detail":"invalid_intent"}
+[factory-host-launch] {"path":"/v1/host/launches","status":400,"error":"invalid_intent","detail":"invalid_intent"}
+[factory-host-launch] {"path":"/v1/host/launches","status":400,"error":"invalid_intent","detail":"invalid_intent"}
+
+ 6 pass
+ 0 fail
+ 81 expect() calls
+Ran 6 tests across 1 file. [10.04s]
+  bun: src/factory/host-stop-transport.integration.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 2 pass
+ 0 fail
+ 50 expect() calls
+Ran 2 tests across 1 file. [834.00ms]
+  bun: src/factory/journal-validation.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 10 pass
+ 0 fail
+ 84 expect() calls
+Ran 10 tests across 1 file. [649.00ms]
+  bun: src/factory/runner/guest-broker-transport.integration.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 13 pass
+ 0 fail
+ 180 expect() calls
+Ran 13 tests across 1 file. [15.24s]
+  bun: src/factory/runner/host-launch-service.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 18 pass
+ 0 fail
+ 52 expect() calls
+Ran 18 tests across 1 file. [611.00ms]
+  bun: src/factory/runner/host-stop-service.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 5 pass
+ 0 fail
+ 18 expect() calls
+Ran 5 tests across 1 file. [590.00ms]
+  bun: src/factory/runner/supervisor-process.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 41 pass
+ 0 fail
+ 176 expect() calls
+Ran 41 tests across 1 file. [2.01s]
+  bun: src/factory/runner/supervisor-services.test.ts
+bun test v1.3.14 (0d9b296a)
+
+src/factory/runner/supervisor-services.test.ts:
+[factory-host-launch] {"path":"/v1/host/launches","status":401,"error":"unauthorized","detail":"unauthorized"}
+[factory-host-launch] {"path":"/v1/host/unknown","status":401,"error":"unauthorized","detail":"unauthorized"}
+[factory-host-launch] {"path":"/v1/host/launches","status":400,"error":"invalid_intent","detail":"invalid_intent"}
+[factory-host-launch] {"path":"/v1/host/attachments","status":400,"error":"invalid_intent","detail":"invalid_intent"}
+[factory-host-launch] {"path":"/v1/host/results","status":400,"error":"invalid_intent","detail":"invalid_intent"}
+[factory-host-launch] {"path":"/v1/host/unknown","status":404,"error":"not_found","detail":"not_found"}
+[factory-host-launch] {"path":"/v1/host/launches","status":400,"error":"invalid_intent","detail":"invalid_intent"}
+[factory-host-launch] {"path":"/v1/host/results","status":409,"error":"attempt_uncertain","detail":"This host is not running that attempt.","attemptId":"attempt-1","workerId":"factory_3dafcfaa6218343276ff42263fe100bab5e2b0475a8d98b9"}
+[factory-host-launch] {"path":"/v1/host/launches","status":403,"error":"forbidden_tenant","detail":"forbidden_tenant","attemptId":"attempt-1","workerId":"factory_3dafcfaa6218343276ff42263fe100bab5e2b0475a8d98b9"}
+
+ 22 pass
+ 0 fail
+ 70 expect() calls
+Ran 22 tests across 1 file. [21.36s]

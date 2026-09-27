@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { sql } from "drizzle-orm";
-import type { FactoryGuestModelRequest, FactoryModelPin, FactoryRunnerRequest, FactoryRunnerResult, JsonValue } from "@ezcorp/factory-sdk";
+import type { FactoryGuestModelRequest, FactoryRunnerResult, JsonValue } from "@ezcorp/factory-sdk";
 import { validateFactoryRunnerResult } from "@ezcorp/factory-sdk";
 import { factoryRunnerRequestDigest } from "@ezcorp/factory-sdk/compiler";
 import { isFactoryProviderReceiptDigest, validateFactoryTerminalUsage } from "../../factory/journal-validation";
@@ -11,6 +11,7 @@ import { releaseRows } from "../../db/queries/extension-releases";
 import { FactoryExecutionJournal, type FactoryAttemptAuthority } from "../../factory/executions";
 import { createFactoryGuestModelBroker, type FactoryModelCompletion } from "../../factory/runner/guest-model-broker";
 import { createFactoryJournalGuestModelJournal } from "../../factory/runner/guest-model-journal";
+import { FACTORY_TEST_DIGEST, factoryTestAuthority, factoryTestModelPin as pin, factoryTestRunnerRequest as runnerRequest } from "./factory-attempt-fixtures";
 
 /**
  * The durable half of the guest model contract, proved on a real store.
@@ -22,7 +23,7 @@ import { createFactoryJournalGuestModelJournal } from "../../factory/runner/gues
  * the rows back rather than trusting the answer the guest got.
  */
 
-const DIGEST = `sha256:${"a".repeat(64)}`;
+const DIGEST = FACTORY_TEST_DIGEST;
 const TENANT = "guest-model-tenant";
 const PROJECT = "guest-model-project";
 const RUN = "guest-model-run";
@@ -31,21 +32,8 @@ const RESERVATION = "guest-model-reservation";
 const ENVELOPE = "guest-model-envelope";
 const TERMINAL_NODE = "guest-model-node-terminal";
 
-const pin: FactoryModelPin = { provider: "anthropic", model: "claude-opus-5", configurationDigest: DIGEST, configuration: {}, policyDigest: DIGEST, policy: {} };
-
 function authority(overrides: Partial<FactoryAttemptAuthority> = {}): FactoryAttemptAuthority {
-  return { attemptId: "guest-model-attempt", tenantId: TENANT, projectId: PROJECT, runId: RUN, nodeInstanceId: NODE, candidateGeneration: 0, attemptNumber: 1, grantRevision: 1, reservationGeneration: 1, executionEpoch: 1, cancellationEpoch: 0, requestDigest: "a".repeat(64), deadlineAt: new Date(Date.now() + 600_000), ...overrides };
-}
-
-function runnerRequest(attempt: FactoryAttemptAuthority): FactoryRunnerRequest {
-  return {
-    schemaVersion: "factory.runner.request.v1",
-    authority: { attemptId: attempt.attemptId, tenantId: attempt.tenantId, projectId: attempt.projectId, runId: attempt.runId, nodeInstanceId: attempt.nodeInstanceId, candidateGeneration: attempt.candidateGeneration, attemptNumber: attempt.attemptNumber, grantRevision: attempt.grantRevision, reservationGeneration: attempt.reservationGeneration, executionEpoch: attempt.executionEpoch, cancellationEpoch: attempt.cancellationEpoch, deadlineAtMs: attempt.deadlineAt.getTime(), nextOperationIndex: 0 },
-    runner: { package: "runner", manifestName: "runner", version: "1", digest: DIGEST, export: "run" },
-    input: { kind: "inline", value: { task: "answer" } },
-    grants: [], resources: {}, model: pin, tools: [],
-    broker: { attemptToken: "ephemeral-guest-model-token", audience: "gateway" },
-  };
+  return factoryTestAuthority({ attemptId: "guest-model-attempt", tenantId: TENANT, projectId: PROJECT, runId: RUN, nodeInstanceId: NODE }, overrides);
 }
 
 function guestRequest(index: number, overrides: Partial<FactoryGuestModelRequest> = {}): FactoryGuestModelRequest {

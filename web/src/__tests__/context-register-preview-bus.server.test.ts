@@ -64,6 +64,8 @@ vi.mock("$server/runtime/workflow/runtime-registry", () => ({
 vi.mock("$server/env-validation", () => ({ validateEnv: vi.fn() }));
 vi.mock("$server/db/connection", () => ({
   initDb: vi.fn(async () => undefined),
+  // The factory report hook discards a desynchronized pool (W09f).
+  recoverFromDriverDesync: vi.fn(async () => false),
   closeDb: vi.fn(async () => undefined),
   // `ensureInitialized` composes the factory after the database opens, so it
   // reads the open handle and the data path. The factory flag is off in this

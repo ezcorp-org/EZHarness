@@ -103,7 +103,10 @@ export function createFactoryGuestBrokerRouteHandler(options: FactoryGuestBroker
 /**
  * The host's bearer token verifies for THIS route's audience, names the peer
  * that sent it, and carries the route's scope. `audience` is a token that
- * verifies in every other respect but names another audience.
+ * verifies in every other respect but names another audience, or names this
+ * route's audience in a list (W01i): a token listing both the pool's audience
+ * and this one would pass both routes, so only a single string audience is
+ * accepted here.
  */
 async function hostTokenVerifies(request: FactoryPrivateRequest, options: FactoryGuestBrokerServiceOptions): Promise<"verified" | "audience" | "refused"> {
   const bearer = request.headers.authorization;
@@ -112,18 +115,25 @@ async function hostTokenVerifies(request: FactoryPrivateRequest, options: Factor
   const verifier = { ...await options.tokens(), audience: FACTORY_GUEST_BROKER_AUDIENCE };
   try {
     const claims = verifyPoolToken(token, verifier);
+    if (typeof claims.aud !== "string") return "audience";
     return claims.sub === request.peerIdentity && claims.scope.includes(FACTORY_GUEST_BROKER_SCOPE) ? "verified" : "refused";
   } catch {
     return otherAudience(token, verifier) ? "audience" : "refused";
   }
 }
 
-/** Whether `token` verifies (key, issuer, expiry) under its own audience, which is not this route's. */
+/**
+ * Whether `token` verifies (key, issuer, expiry) under an audience of its own,
+ * single or listed, none of which is this route's. A token that names this
+ * route's audience and still failed verification is forged or expired, and
+ * stays plain `unauthorized`.
+ */
 function otherAudience(token: string, verifier: PoolTokenVerifierOptions): boolean {
   try {
     const payload = JSON.parse(Buffer.from(token.split(".")[1] ?? "", "base64url").toString("utf8")) as { aud?: unknown };
-    const audience = typeof payload.aud === "string" ? payload.aud : undefined;
-    if (audience === undefined || audience === FACTORY_GUEST_BROKER_AUDIENCE) return false;
+    const audiences = typeof payload.aud === "string" ? [payload.aud] : Array.isArray(payload.aud) ? payload.aud : [];
+    const audience = audiences[0];
+    if (typeof audience !== "string" || audiences.includes(FACTORY_GUEST_BROKER_AUDIENCE)) return false;
     verifyPoolToken(token, { ...verifier, audience });
     return true;
   } catch {

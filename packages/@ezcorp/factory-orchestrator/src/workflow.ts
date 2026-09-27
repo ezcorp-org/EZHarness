@@ -20,6 +20,7 @@ import {
 } from "@temporalio/workflow";
 import {
   CONTINUE_AFTER_EVENTS,
+  FACTORY_GATEWAY_ACTIVITY_TIMEOUT_MS,
   FACTORY_INBOX_RECEIPT_QUERY,
   FACTORY_INBOX_SIGNAL,
   FACTORY_STATE_QUERY,
@@ -45,11 +46,11 @@ const inboxSignal = defineSignal<[FactoryInboxEnvelope]>(FACTORY_INBOX_SIGNAL);
 const stateQuery = defineQuery<KernelState>(FACTORY_STATE_QUERY);
 const inboxReceiptQuery = defineQuery<FactoryInboxReceipt>(FACTORY_INBOX_RECEIPT_QUERY);
 const audit = proxyActivities<Pick<FactoryActivities, "stageTransitionPage" | "finalizeTransitionArtifact" | "recordTransition">>({
-  startToCloseTimeout: "30 seconds",
+  startToCloseTimeout: FACTORY_GATEWAY_ACTIVITY_TIMEOUT_MS,
   retry: { maximumAttempts: 3 },
 });
 const reads = proxyActivities<Pick<FactoryActivities, "resolveFactory" | "loadManifestPage" | "loadDefinitionPage" | "loadExecutionManifest" | "loadPartitionArtifact" | "loadTransitionManifest" | "loadTransitionPage">>({
-  startToCloseTimeout: "30 seconds",
+  startToCloseTimeout: FACTORY_GATEWAY_ACTIVITY_TIMEOUT_MS,
   retry: { maximumAttempts: 3 },
 });
 const effects = proxyActivities<Pick<FactoryActivities, "executeCommand">>({

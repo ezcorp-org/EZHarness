@@ -33,6 +33,7 @@
 import { tmpdir } from "node:os";
 import {
   mkdirSync,
+  mkdtempSync,
   readFileSync,
   writeFileSync,
   readdirSync,
@@ -40,6 +41,7 @@ import {
   existsSync,
   rmSync,
 } from "node:fs";
+import { join } from "node:path";
 import { spyOn } from "bun:test";
 import { getChannel, JsonRpcError } from "../runtime";
 import type { JsonRpcRequest, JsonRpcResponse } from "../types";
@@ -266,14 +268,53 @@ export function markGitRepository(dir: string): void {
 }
 
 /**
- * Run git in `cwd` without the caller's `GIT_*` variables. A git hook
- * exports `GIT_DIR` and friends, which would make every git command below
- * act on the hook's repository instead of discovering one from `cwd`.
+ * `env` with every `GIT_*` variable removed and `home` as `HOME`, with
+ * `GIT_CONFIG_NOSYSTEM=1` and no `XDG_CONFIG_HOME`. A git subprocess run with
+ * this reads neither the caller's repository context (a git hook exports
+ * `GIT_DIR` and friends, which would make the command act on the hook's
+ * repository instead of discovering one from `cwd`), nor the real user's
+ * global config, nor the host's system config. The single isolation rule
+ * shared with `src/__tests__/helpers/scratch-git.ts`, which delegates to it.
  */
-export function gitInDirectory(cwd: string, args: string[]): { exitCode: number; stdout: string } {
-  const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith("GIT_")));
-  const git = Bun.spawnSync(["git", ...args], { cwd, env, stdout: "pipe", stderr: "ignore" });
-  return { exitCode: git.exitCode, stdout: git.stdout.toString().trim() };
+export function isolatedGitEnv(
+  home: string,
+  env: Record<string, string | undefined> = process.env,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [name, value] of Object.entries(env)) {
+    if (value !== undefined && !name.startsWith("GIT_")) out[name] = value;
+  }
+  delete out.XDG_CONFIG_HOME;
+  out.HOME = home;
+  out.GIT_CONFIG_NOSYSTEM = "1";
+  return out;
+}
+
+/**
+ * Run git in `cwd` fully isolated (see {@link isolatedGitEnv}). `home`
+ * defaults to a fresh scratch directory per call, so a caller that does not
+ * need to inspect or reuse it need not create one — and, since this
+ * function created it, it also removes it when the call returns (L2, W18
+ * hygiene item C: an earlier default-parameter `home: string =
+ * mkdtempSync(...)` left one directory behind per call with no `home`
+ * argument, forever). A caller-supplied `home` is never removed here — it
+ * outlives this call by design (inspected or reused afterward), so cleanup
+ * stays the caller's own responsibility.
+ */
+export function gitInDirectory(
+  cwd: string,
+  args: string[],
+  home?: string,
+): { exitCode: number; stdout: string } {
+  const ownHome = home === undefined;
+  const resolvedHome = home ?? mkdtempSync(join(tmpdir(), "gitInDirectory-"));
+  try {
+    const env = isolatedGitEnv(resolvedHome);
+    const git = Bun.spawnSync(["git", ...args], { cwd, env, stdout: "pipe", stderr: "ignore" });
+    return { exitCode: git.exitCode, stdout: git.stdout.toString().trim() };
+  } finally {
+    if (ownHome) rmSync(resolvedHome, { recursive: true, force: true });
+  }
 }
 
 /** True when git itself finds no repository enclosing `dir`. */

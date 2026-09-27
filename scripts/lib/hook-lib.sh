@@ -162,10 +162,20 @@ run_staged_tests() {
     echo "  no test file maps to the staged changes — skipping"
     return 0
   fi
-  count=$(printf '%s\n' "$targets" | wc -l | tr -d ' ')
+  # `printf '%s\n' ""` still emits one (empty) line, so `wc -l` on an empty
+  # $targets would misreport count=1 instead of 0 — exactly the case where
+  # only orchestrator files are staged and $targets is genuinely empty.
+  if [ -z "$targets" ]; then
+    count=0
+  else
+    count=$(printf '%s\n' "$targets" | wc -l | tr -d ' ')
+  fi
   if [ "$count" -gt "$max" ]; then
     echo "  $count test files map to this commit (cap ${max}) — NOT running:"
     printf '%s\n' "$targets" | sed 's/^/    /'
+    if [ "$orchestrator" -eq 1 ]; then
+      echo "    $ORCHESTRATOR_PACKAGE (node: bun run test) — also withheld, blocked by the same cap"
+    fi
     if [ "${EZ_SKIP_HOOK_TESTS:-}" = "1" ]; then
       echo "  EZ_SKIP_HOOK_TESTS=1 set — skipping the ${count} file(s) above; continuing with lint."
       return 0
@@ -178,8 +188,15 @@ run_staged_tests() {
   fi
 
   if [ "${EZ_SKIP_HOOK_TESTS:-}" = "1" ]; then
+    # Never an empty list: with only orchestrator files staged, $targets is
+    # empty and count is 0, but the orchestrator run is still withheld here
+    # (this branch returns before it would run) — name it, or "skipping the
+    # 0 staged test file(s) below:" reads as nothing was skipped at all.
     echo "  EZ_SKIP_HOOK_TESTS=1 set — skipping the ${count} staged test file(s) below; continuing with lint:"
-    printf '%s\n' "$targets" | sed 's/^/    /'
+    [ "$count" -gt 0 ] && printf '%s\n' "$targets" | sed 's/^/    /'
+    if [ "$orchestrator" -eq 1 ]; then
+      echo "    $ORCHESTRATOR_PACKAGE (node: bun run test) — also withheld"
+    fi
     return 0
   fi
 
