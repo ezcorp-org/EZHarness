@@ -146,8 +146,8 @@ names 12:52Z for the commit message):
 
 > Ruling granted for this one commit only: the merge of integ/w00 9da0ed9ec into wp/w03f-provider-settle. Conditions: the commit message names it ("hook cap skip by coordinator ruling 2026-09-27 12:52Z; 26 mapped suites run outside the hook under the lock; receipts under /tmp/factory-platform-evidence/w03f/"); the hook's printed list of 26 recorded verbatim before committing; all 26 run as the first leg of your locked session with GIT_DIR, GIT_INDEX_FILE, GIT_WORK_TREE and GIT_COMMON_DIR cleared and GIT_CONFIG_NOSYSTEM=1, the PostgreSQL ones against the proof database with the URL built inside the script, one receipt each, and a nonzero test count asserted per file (a leg that runs zero tests is red); the shared .git/config sha256 (44962525f1ca1a8b) recorded before and after; any red is a defect on your head, not a gap. Never raise EZ_PRECOMMIT_TEST_MAX.
 
-The merge commit's message is a paraphrase of that ruling (validator L2): it carries the named
-sentence, not the conditions. The conditions and their evidence:
+The merge commit's message carries the text the ruling prescribed, word for word, including
+"12:52Z" (validator-4 withdrew L2, which had called it a paraphrase). The conditions and their evidence:
 - The hook's list, recorded verbatim before the commit (`logs/merge-hook-list-verbatim.log`):
   `scripts/factory-graph-proof/guest-package.test.ts`
   `src/extensions/v4/blobs-s3.test.ts`
@@ -195,8 +195,10 @@ sentence, not the conditions. The conditions and their evidence:
   (`isFactoryAttemptNotLive`: `factory_attempt_not_live`, `factory_run_stopped`,
   `factory_run_fence_changed`); a lost connection on a live attempt propagates as itself, nothing is
   parked, and the operation stays dispatched in a named hold that B settles. Red first:
-  `receipts/l1-red.attempt-1.json` against `0ac18b37d`'s journal.
-- L2 and L3: above.
+  `receipts/l1-red.attempt-1.json` against `0ac18b37d`'s journal. That receipt predates the L3 tool
+  and so has no `testsRan` field; its log shows 3 pass, 1 fail. Validator-4 reproduced it in a fresh
+  worktree (3/1 at `0ac18b37d`'s journal, 4/0 at the head). L1 closed.
+- L2: withdrawn by validator-4 (above). L3: closed.
 
 ## W15f names (from w15b-fix, their head 5afafa64b)
 
