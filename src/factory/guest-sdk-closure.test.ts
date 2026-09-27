@@ -85,36 +85,54 @@ test("every relative import in the staged factory-services lane guest names a st
   expect(files).toHaveProperty(["console-types.ts"]);
 });
 
-/** Every non-test TypeScript source under `roots`, repository-relative. */
+/** Every non-test TypeScript source under `roots`, repository-relative; the SDK's own tree is not a copier of itself. */
 function sources(roots: readonly string[]): string[] {
   const found: string[] = [];
   const walk = (directory: string) => {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
       if (entry.name === "node_modules" || entry.name === "dist" || entry.name === "build" || entry.name.startsWith(".")) continue;
       const path = join(directory, entry.name);
+      if (relative(REPO, path) === "packages/@ezcorp/factory-sdk") continue;
       if (entry.isDirectory()) walk(path);
-      else if (entry.name.endsWith(".ts") && !entry.name.endsWith(".test.ts") && !entry.name.endsWith(".spec.ts")) found.push(relative(REPO, path));
+      else if (entry.name.endsWith(".ts") && !/\.(test|spec|d)\.ts$/.test(entry.name)) found.push(relative(REPO, path));
     }
   };
   for (const root of roots) walk(join(REPO, root));
   return found.sort();
 }
 
-// A guest packager reads from the SDK source directory and stages what it read into a guest workspace. The
-// TypeScript ones must follow the SDK's imports through factorySdkClosure, so no fixed module list (the
-// W14 regression, twice) can come back. A packager this test does not know fails it by path.
-test("every packager that copies SDK sources into a guest stages them through the closure helper", () => {
+/**
+ * Names the SDK source directory in any form a reader would: a joined path (`factory-sdk/src`), path
+ * segments (`"factory-sdk", "src"`), or an import path. Deliberately broader than what a packager looks like.
+ */
+const SDK_SOURCE_DIRECTORY = /factory-sdk(?:\/|\\{1,2}|["'`]\s*,\s*["'`])src(?![A-Za-z0-9_])/;
+
+// Any source that names the SDK source directory is a candidate packager. The TypeScript packagers must
+// follow the SDK's imports through factorySdkClosure, so no fixed module list (the W14 regression, three
+// times) can come back. Every other candidate is named here with the reason it is not one. An unknown
+// candidate fails this test by path, however it is written.
+test("every source that names the SDK source directory stages SDK modules through the closure helper, or is named", () => {
   const throughClosure = ["scripts/factory-graph-proof/guest-package.ts", "src/factory/reference-code/guest.ts", "web/e2e/factory-services/guest.ts"];
   // Python guests stage generated JSON schemas by name and import no TypeScript; the reference-data pack's
   // import-closure guard (reference-data/guest.test.ts) covers their Python modules.
   const schemasOnly = ["src/factory/reference-data/guest.ts", "src/factory/runner/python-guest.ts"];
-  const packagers = sources(["scripts", "src", "web/e2e", "web/src"]).filter(path => {
-    const text = readFileSync(join(REPO, path), "utf8");
-    // It names the SDK source directory and builds a guest workspace: a feature test, a staged files record, or the helper.
-    return text.includes("packages/@ezcorp/factory-sdk/src") && (text.includes("feature.test.ts") || text.includes("files[") || text.includes("factorySdkClosure("));
-  });
-  expect(packagers).toEqual([...throughClosure, ...schemasOnly].sort());
+  // Read the SDK tree to check it, and stage nothing into a guest.
+  const notPackagers = [
+    "scripts/check-factory-boundaries.ts", // scans the SDK's sources for boundary rules
+    "scripts/check-schema-generate-drift.ts", // compares the generated schemas with their generator
+    "scripts/coverage-config.ts", // names the SDK sources in the coverage source set
+  ];
+  const candidates = sources(["scripts", "src", "web/e2e", "web/src", "packages", "extensions", "worker"])
+    .filter(path => SDK_SOURCE_DIRECTORY.test(readFileSync(join(REPO, path), "utf8")));
+  expect(candidates).toEqual([...throughClosure, ...schemasOnly, ...notPackagers].sort());
   for (const path of throughClosure) expect(readFileSync(join(REPO, path), "utf8")).toContain("factorySdkClosure(");
-  // A schemas-only packager stages no SDK TypeScript module.
+  // A schemas-only packager reads no SDK TypeScript module.
   for (const path of schemasOnly) expect(readFileSync(join(REPO, path), "utf8")).not.toMatch(/factory-sdk\/src\/[A-Za-z-]+\.ts/);
+});
+
+test("the SDK-directory pattern recognises every way a source can name it, and nothing near it", () => {
+  for (const named of ['join(root, "packages/@ezcorp/factory-sdk/src")', '["packages", "@ezcorp", "factory-sdk", "src"].join("/")', 'from "../../packages/@ezcorp/factory-sdk/src/index"', "join(repo, 'factory-sdk', 'src', name)", "packages\\@ezcorp\\factory-sdk\\src"]) {
+    expect(SDK_SOURCE_DIRECTORY.test(named)).toBe(true);
+  }
+  for (const other of ['from "@ezcorp/factory-sdk"', '"packages/@ezcorp/factory-sdk/dist"', '"factory-sdk/srcmap"', '"factory-sdk-types.ts"']) expect(SDK_SOURCE_DIRECTORY.test(other)).toBe(false);
 });
