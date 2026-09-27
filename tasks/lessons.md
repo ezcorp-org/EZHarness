@@ -1615,3 +1615,12 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 
 - A proof check must describe the promise, not the path I expected. The check "one `:usage-resolved` event" failed two of three passes in which the run ended correctly, because the real server took the reverse order: the stop confirmed after reconciliation and cleared the attempt through its own event. Count the outcome the kernel sees (one `uncertain: false` after the uncertain stop), not the id of the path.
 - When a worktree's git suddenly says "must be run in a work tree", read the shared config. With `extensions.worktreeConfig` on, a shared `core.bare = true` makes every worktree without its own `core.bare = false` stop being a work tree, and tests that shell out to `git grep` or `git check-ignore` fail at any commit. Set it per worktree (`git config --worktree core.bare false`); never edit the shared config.
+
+## 2026-09-27 — Test harness mistakes found in W09f
+
+- A suite that calls `mock.module` must run in its own bun process when it is grouped with other
+  suites. A mocked `db/migrate` once poisoned the shared PGlite snapshot cache for the whole checkout.
+- A reproduction suite must close each trial's pool completely before the next trial opens. Pools left
+  closing hold connections on a shared server and look like a driver stall.
+- Settle a Bun.sql query with `.then` or `await` in a test. `expect(query).rejects` never starts a lazy
+  query, and the test hangs.

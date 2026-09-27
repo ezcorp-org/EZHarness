@@ -4947,3 +4947,20 @@ confirmed. The real server then showed the reverse order, and it was not rare: r
 first, and the confirming stop failed stale. That stop now treats the settled cost as certain and clears
 the uncertainty itself. Either way the kernel is cleared exactly once, and the run ends `cancelled` with
 its reason.
+
+## W09f: run-projection prepared-statement mismatch (branch `wp/w09f-run-projection`)
+
+Base `integ/w00` `b10b7ea1a`. Receipts: `/tmp/factory-platform-evidence/w09f/`. Gates: `tasks/factory/w09f-GATES.md`.
+
+- [x] Reproduce on real PostgreSQL with product queries. Bun 1.3.14 stalls and contaminates transactions; Bun 1.4.2 is clean.
+- [x] The role's report names the database error (`ef9ba50f5`).
+- [x] A desynchronized pool is replaced under the live Drizzle handle (`c4a5cc1f0`, `488b51458`).
+- [x] Fix the poisoned PGlite snapshot cache found by the sweep (`af673760e`).
+- [x] Final sweep green at `af673760e`.
+- [ ] The Bun upgrade and its regression suite: W12e, pending the user's decision.
+
+**Review.** The run-projection error came from Bun 1.3.14's Postgres request queue, not from our
+queries: one query's Bind reached another query's statement on the same connection. The same component
+stalls and mixes transactions on this host, with our own queries, and Bun 1.4.2 is clean. Until the
+upgrade, the process names the database error in its logs and replaces a desynchronized pool instead of
+retrying on it.
