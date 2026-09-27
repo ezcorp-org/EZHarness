@@ -58,6 +58,11 @@ a provider receipt, named `factory_usage_hold_unresolved: no-operation-receipt` 
   EXPECT: red on exactly the new cases (auth retried; hold unnamed, then the late hold refused); green after
   EVIDENCE: `receipts/retry-red.attempt-1.json`, `logs/retry-red-kernel-recheck.log`, `receipts/hold-red.attempt-{1,2}.json`; PostgreSQL rerun in the next session
 
+- [ ] G2d: Rulings B and C, red first.
+  CHECK: `bound-red.sh` before the change; the stop suite, the provider test, the driver test and the migration tests after
+  EXPECT: red on exactly the three new cases (bound, deadline abort, bound after abort); green after
+  EVIDENCE: `receipts/bound-red.attempt-1.json`; PostgreSQL rerun in the next session
+
 - [ ] G2c: A guest that rebuilds or alters the settled failed operation is refused as a journal mismatch.
   CHECK: the guest-model route suite
   EXPECT: the pre-W03f rebuild, a lowered usage and a changed receipt each pass result validation and are refused by the journal
@@ -79,21 +84,30 @@ a provider receipt, named `factory_usage_hold_unresolved: no-operation-receipt` 
   EXPECT: 100 percent of the new migration and every changed line; all exit 0
   EVIDENCE: `receipts/cov-*.json`, `receipts/gate-*.json`, `receipts/static-*.json`
 
-## Why W03f adds no timer (lead ruling), and what bounds a model call today
+## What bounds a model call (coordinator ruling B plus C)
 
-Checked against the code at this head:
-- The host's guest-broker transport waits at most `FACTORY_GUEST_MODEL_REQUEST_TIMEOUT_MS` (300 s)
-  for the product to answer a model request, then fails the guest's call. That timeout is on the
-  host side only: the product's broker is not told, and it keeps waiting on the provider. The
-  one-hop provider has no deadline of its own.
-- So the journal learns an outcome only from the provider. An answer after the stop is parked for
-  reconciliation (finding (b)). A provider that threw without an answer settles the operation
-  `failed` with no usage.
-- Every hold now names what it waits on: `operation-not-settled` (prepared or dispatched) or
-  `operation-cost-unknown` (failed with no measured usage), each with the operation ids. Before, the
-  second resolved as the unnamed `no-operation-receipt` (red: `receipts/unpriced-red.attempt-1.json`).
-- Open, pending a ruling: a call that never answers, or whose product process dies, leaves a named
-  hold that nothing settles. No code settles such a hold at the reserved bound today.
+Coordinator ruling, recorded as the C03 reading change: settle an unknown cost only at the bound
+the tenant accepted, named. An unknown is never settled at zero and never at a guest's claim.
+
+- C, the one timer: the product's provider call carries the attempt's signed deadline. At the
+  deadline the stream is aborted and the call fails `provider_unavailable` with no evidence
+  ("The provider did not answer before the attempt's deadline.").
+- The host's guest-broker transport still waits at most 300 s for the product's answer; that is
+  the host side only, and the product's call ends at the attempt's deadline, not there.
+- Every hold names what it waits on: `operation-not-settled` (prepared or dispatched) or
+  `operation-cost-unknown` (failed with no measured usage), with the operation ids.
+- A provider answer after the stop is parked for reconciliation (finding (b)) and settles from its
+  receipt while the hold is still open.
+- B: once the stop is confirmed and the attempt's signed deadline has passed, reconciliation
+  resolves a named hold as `bound` and `settleAtBound` charges the reserved bound: settlement
+  source `reserved-bound`, basis `unknown: charged at reserved bound`, proven by the stop receipt;
+  W05b clears the kernel in the same transaction. Before the deadline the hold stays named and
+  unsettled. A provider receipt that arrives after the bound settlement is kept in the journal and
+  its reconciliation is refused (`factory_usage_settlement_state`): never settled twice.
+- Deviation from the ruling's wording, stated: the ruling says model tokens are recorded as unknown
+  (null). The budget stores one vector whose three dimensions are unsigned integers, so the budget
+  charges tokens at the reserved bound too; the settlement record carries only costs and claims no
+  measured token count. Recording a null token count would change the budget schema.
 
 ## Disclosed
 

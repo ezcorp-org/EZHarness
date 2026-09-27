@@ -12,6 +12,7 @@ import {
   FACTORY_USAGE_NO_OPERATIONS_BASIS,
   FACTORY_USAGE_OPERATIONS_BASIS,
   FACTORY_USAGE_PROVIDER_ERROR_BASIS,
+  FACTORY_USAGE_RESERVED_BOUND_BASIS,
   factoryJournalStopSettlement,
   FACTORY_USAGE_SETTLEMENT_CODES,
   FACTORY_USAGE_SETTLEMENT_SCHEMA_VERSION,
@@ -125,7 +126,7 @@ test("binds the settlement store and its reconciler to one tenant", () => {
   expect(settlements.transactionalDatabase).toBe(database);
   const scopes = { async readSettlementScopeInTransaction() { return undefined; }, async clearResolvedStopInTransaction() { return undefined; } };
   const journal = { async reconcileLate(): Promise<never> { throw new Error("unused"); }, async operations(): Promise<never> { throw new Error("unused"); } };
-  const budgets = { async settleInTransaction() { throw new Error("unused"); } };
+  const budgets = { async settleInTransaction() { throw new Error("unused"); }, async settleAtReservedBoundInTransaction(): Promise<never> { throw new Error("unused"); } };
   expect(() => new FactoryUsageReconciliation(database, "other-tenant", scopes, journal, budgets, settlements)).toThrow("factory_usage_settlement_scope");
   expect(new FactoryUsageReconciliation(database, "tenant", scopes, journal, budgets, settlements).tenantId).toBe("tenant");
 });
@@ -209,4 +210,18 @@ test("W03f: a stop settles from the journal alone: no operation, every operation
     expect(factoryJournalStopSettlement([{ state: "completed", usage: measured("1", 1, 1) }, unpriced as never])).toEqual({ kind: "held" });
   }
   expect(() => factoryJournalStopSettlement([{ state: "failed", usage: { kind: "measured", inputTokens: -1, outputTokens: 0, computeMs: 0, costMicros: "0" } }])).toThrow("factory_usage_settlement_corrupt");
+});
+
+test("W03f ruling B: seals a reserved-bound settlement with its stop and its one derived basis, and nothing else under that source", () => {
+  const stopReceiptDigest = `sha256:${"c".repeat(64)}`;
+  const settlement = buildFactoryUsageSettlement(input({ source: "reserved-bound", knownCostMicros: "5", stopReceiptDigest }));
+  expect(settlement).toMatchObject({ source: "reserved-bound", knownCostMicros: "5", stopReceiptDigest, basis: FACTORY_USAGE_RESERVED_BOUND_BASIS });
+  expect(FACTORY_USAGE_RESERVED_BOUND_BASIS).toBe("unknown: charged at reserved bound");
+  expect(settlement.unknownCostMicros).toBeUndefined();
+  expect(factoryUsageSettlementIsIntact(settlement)).toBe(true);
+  expect(buildFactoryUsageSettlement(input({ source: "reserved-bound", knownCostMicros: "5", stopReceiptDigest, basis: FACTORY_USAGE_RESERVED_BOUND_BASIS })).basis).toBe(FACTORY_USAGE_RESERVED_BOUND_BASIS);
+  expect(rejection({ source: "reserved-bound", knownCostMicros: "5" })).toBe("factory_usage_settlement_receipt_invalid");
+  expect(rejection({ source: "reserved-bound", knownCostMicros: "5", stopReceiptDigest, basis: FACTORY_USAGE_OPERATIONS_BASIS })).toBe("factory_usage_settlement_invalid");
+  expect(rejection({ source: "reserved-bound", knownCostMicros: "5", unknownCostMicros: "1", stopReceiptDigest })).toBe("factory_usage_settlement_invalid");
+  expect(rejection({ source: "reserved-bound", knownCostMicros: "5", providerReceiptDigest: receipt, stopReceiptDigest })).toBe("factory_usage_settlement_invalid");
 });

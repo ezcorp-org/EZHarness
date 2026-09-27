@@ -174,6 +174,20 @@ describe("the usage-reconciliation step", () => {
     expect(reported).toEqual(["usage-reconciliation:transient:res-9"]);
   });
 
+  test("W03f ruling B: a hold the resolver bounds is settled at its reserved bound, and nothing is reconciled", async () => {
+    const bounded: unknown[] = [];
+    const driver = factoryUsageReconciliationDriver(database(), {
+      async listUncertainWithCostInTransaction() { return [hold("res-8")]; },
+    } as never, {
+      async resolve() { return { kind: "bound", reservationId: "res-8", attemptId: "attempt-8", reason: "operation-cost-unknown", operationIds: ["run-1:infer:0:0"] } as never; },
+      async settleAtBound(resolution: unknown) { bounded.push(resolution); return {} as never; },
+      async reconcile() { throw new Error("must not reconcile"); },
+    } as never, () => { throw new Error("must not report"); });
+
+    expect(await driver.step(SIGNAL)).toBe(true);
+    expect(bounded).toEqual([{ kind: "bound", reservationId: "res-8", attemptId: "attempt-8", reason: "operation-cost-unknown", operationIds: ["run-1:infer:0:0"] }]);
+  });
+
   test("W03f: a hold waiting on calls in flight names each one in its report", async () => {
     const errors: unknown[] = [];
     const driver = factoryUsageReconciliationDriver(database(), {

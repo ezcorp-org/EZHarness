@@ -60,7 +60,10 @@ test("one stream becomes one reply carrying the text, the receipt digest and mea
   expect(sent?.attemptToken).toBe(attempt().broker.attemptToken);
   expect(sent?.operation).toMatchObject({ operationId: "run:node:0:2", operationIndex: 2, kind: "model", state: "prepared" });
   // The guest's output bound reaches the provider rather than being dropped.
-  expect(sent?.options).toEqual({ maxTokens: 512 });
+  // W03f: the attempt's deadline rides along as an abort signal, not yet fired.
+  const { signal, ...sentOptions } = sent!.options;
+  expect(sentOptions).toEqual({ maxTokens: 512 });
+  expect(signal?.aborted).toBe(false);
   expect(sent?.context.messages).toEqual([{ role: "user", content: [{ type: "text", text: "hello" }], timestamp: 0 }]);
   expect(sent?.context.systemPrompt).toBeUndefined();
 });
@@ -120,7 +123,8 @@ test("the pin's temperature, seed and reasoning effort reach the provider reques
   const { broker, seen } = brokerReturning(message());
   const provider = createFactoryOneHopProvider({ broker, resolveModel: () => model, now: () => 0 });
   await provider.complete(request({ model: configured, maxOutputTokens: 64 }), attempt());
-  expect(seen[0]?.options).toEqual({ temperature: 0, samplingParams: { seed: 42, reasoning_effort: "none" }, maxTokens: 64 });
+  const { signal: _signal, ...sampled } = seen[0]!.options;
+  expect(sampled).toEqual({ temperature: 0, samplingParams: { seed: 42, reasoning_effort: "none" }, maxTokens: 64 });
 });
 
 test("a pin whose configuration cannot be honoured is refused before the provider is reached", async () => {
@@ -174,4 +178,23 @@ test("W03f: an aborted stream, or an error answer whose cost cannot be settled, 
   expect(await failureOf(message({ stopReason: "aborted" } as Partial<AssistantMessage>))).toEqual({ code: "provider_unavailable", message: "The provider did not complete the call: aborted." });
   const unsettleable = message({ stopReason: "error", errorMessage: "401 bad key", usage: { input: 1, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 1, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: Number.NaN } } } as Partial<AssistantMessage>);
   expect(await failureOf(unsettleable)).toEqual({ code: "provider_auth_failed", message: "The provider did not complete the call: error (401 bad key)." });
+});
+
+test("W03f C: the provider call carries the attempt's signed deadline, and a provider that never answers is aborted there with no evidence", async () => {
+  const seen: FactoryBrokerRequest[] = [];
+  const broker = {
+    stream: async (brokerRequest: FactoryBrokerRequest) => {
+      seen.push(brokerRequest);
+      const stream = createAssistantMessageEventStream();
+      stream.push({ type: "start", partial: message() });
+      return stream; // never ends
+    },
+  };
+  const provider = createFactoryOneHopProvider({ broker, resolveModel: () => model });
+  const soon = { ...attempt(), authority: { ...attempt().authority, deadlineAtMs: Date.now() + 40 } } as FactoryRunnerRequest;
+  const error = await provider.complete(request(), soon).then(() => undefined, (thrown: unknown) => thrown);
+  expect(error).toBeInstanceOf(FactoryModelProviderError);
+  expect((error as FactoryModelProviderError).failure).toEqual({ code: "provider_unavailable", message: "The provider did not answer before the attempt's deadline." });
+  // The stream itself was aborted, so the provider connection does not outlive the attempt.
+  expect(seen[0]?.options.signal?.aborted).toBe(true);
 });

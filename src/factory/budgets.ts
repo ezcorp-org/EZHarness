@@ -263,6 +263,23 @@ export class FactoryBudgets {
   }
 
   /**
+   * Settles a reservation at its reserved bound in every dimension (W03f,
+   * coordinator ruling B): the attempt stopped and its deadline passed while
+   * an operation's cost was still unknown, so it is charged exactly what the
+   * tenant accepted at admission, never less. The budget holds one vector, so
+   * tokens are charged at the bound too; the settlement record carries only
+   * costs, so it claims no measured token count.
+   */
+  async settleAtReservedBoundInTransaction(transaction: MigrationDb, value: FactoryBudgetReservationKey, receiptDigest: string): Promise<FactoryBudgetAmount> {
+    const key = { ...value };
+    await this.lockRun(transaction, key);
+    const reserved = decode((await this.reservation(transaction, key))!.amount);
+    const actual = Object.freeze({ costMicros: String(reserved.costMicros), tokens: Number(reserved.tokens), computeMs: Number(reserved.computeMs) });
+    await this.settleInTransaction(transaction, key, actual, receiptDigest);
+    return actual;
+  }
+
+  /**
    * Settles a reservation from its journal's measured model usage (W03f).
    *
    * The cost and the tokens are what the journal measured; compute is the

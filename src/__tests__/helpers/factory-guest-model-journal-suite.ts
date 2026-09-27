@@ -214,6 +214,7 @@ export function factoryGuestModelJournalConformance(createFixture: () => Promise
       clearResolvedStopInTransaction: async (_transaction, reservationId, atMs) => { cleared.push({ reservationId, atMs }); },
     }, journal, {
       settleInTransaction: async (_transaction, _key, actual, receiptDigest) => { budgetSettlements.push({ ...actual, receipt: receiptDigest }); },
+      settleAtReservedBoundInTransaction: async () => { throw new Error("a reconciled receipt never charges the bound"); },
     }, settlements);
 
     const hold = { projectId: PROJECT, runId: RUN, reservationId: RESERVATION, envelopeId: ENVELOPE, heldCostMicros: "1000", uncertainty: "provider outcome lost", cursor: { createdAtMs: 1, runId: RUN, reservationId: RESERVATION } };

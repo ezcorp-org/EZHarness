@@ -428,7 +428,7 @@ export class FactoryTaskStops implements FactoryUsageSettlementAuthority {
     if (!row) return undefined;
     const authority = await this.journal.readAuthorityInTransaction(transaction, { tenantId: row.tenant_id, projectId: row.project_id, runId: row.run_id, attemptId: row.attempt_id });
     if (!authority) throw new FactoryTaskStopError("factory_task_stop_corrupt");
-    return Object.freeze({ projectId: row.project_id, runId: row.run_id, interpreterId: row.interpreter_id, reservationId, authority });
+    return Object.freeze({ projectId: row.project_id, runId: row.run_id, interpreterId: row.interpreter_id, reservationId, authority, ...(row.state === "stopped" && row.stop_receipt_digest ? { stopReceiptDigest: row.stop_receipt_digest } : {}) });
   }
 
   private async accept(service: TrustedFactoryServiceIdentity, reference: TrustedFactoryCommandReference): Promise<SealedStop> {

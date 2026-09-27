@@ -393,6 +393,62 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
     expect(await foldedNode(attempt, advanced)).toMatchObject({ unresolved: [] });
   });
 
+  // W03f ruling B: once the stop is confirmed and the attempt's signed deadline has passed, a hold
+  // whose operations nothing priced is charged the reserved bound, named, and cleared.
+  const reconcilerAt = (attempt: Attempt, held: ReturnType<typeof harness>, nowMs: number) => new FactoryUsageReconciliation(fixture.db, tenantId, held.stops, attempt.journal, lifecycle.budgets, held.settlements, () => nowMs);
+  const reservedBound = { costMicros: profile.budget.costMicros, tokens: String(profile.budget.tokens), computeMs: String(profile.budget.computeMs) };
+
+  test("W03f B: a named hold stays unsettled before the deadline, is charged the reserved bound after it, and W05b clears the kernel; a later answer never settles twice", async () => {
+    const attempt = await launchedAttempt();
+    const { journal, request } = await inFlightModelCall(attempt);
+    const { reference, advanced } = await cancelled(attempt);
+    const held = harness(attempt, stopper(async stopRequest => signed(stopRequest)), acknowledger());
+    const stopped = await held.stops.stop(service, reference);
+    const deadline = (await sealedAuthority(attempt)).deadlineAt.getTime();
+    const hold = await heldFor(attempt);
+    // Before the attempt's deadline: named, and nothing settles.
+    expect(await reconcilerAt(attempt, held, deadline - 1).resolve(hold)).toEqual({ kind: "unknown", reservationId: attempt.reservationId, reason: "operation-not-settled", operationIds: [request.operationId] });
+    // Nor can a caller force the bound early, or on a reservation with no sealed stop.
+    await expect(reconcilerAt(attempt, held, deadline - 1).settleAtBound({ reservationId: attempt.reservationId, attemptId: attempt.attemptId })).rejects.toMatchObject({ code: "factory_usage_settlement_state" });
+    await expect(reconcilerAt(attempt, held, deadline + 1).settleAtBound({ reservationId: "factory-reservation:none", attemptId: attempt.attemptId })).rejects.toMatchObject({ code: "factory_usage_settlement_not_found" });
+    expect(await settlementRows(attempt.run.runId)).toEqual([]);
+    // After it, with the stop confirmed: the reserved bound, named by its basis.
+    const late = reconcilerAt(attempt, held, deadline + 1);
+    const bound = await late.resolve(hold);
+    expect(bound).toEqual({ kind: "bound", reservationId: attempt.reservationId, attemptId: attempt.attemptId, reason: "operation-not-settled", operationIds: [request.operationId] });
+    const settled = await late.settleAtBound(bound as Extract<typeof bound, { kind: "bound" }>);
+    expect(settled).toMatchObject({ revision: 1, source: "reserved-bound", basis: "unknown: charged at reserved bound", knownCostMicros: profile.budget.costMicros, stopReceiptDigest: stopped.stopReceipt!.receiptDigest });
+    expect(settled.unknownCostMicros).toBeUndefined();
+    expect(await reservationState(attempt.reservationId)).toMatchObject({ state: "settled" });
+    expect(JSON.parse((await reservationState(attempt.reservationId))!.actual!)).toEqual(reservedBound);
+    expect(await foldedNode(attempt, advanced)).toMatchObject({ unresolved: [] });
+    expect(await foldedStatus(attempt, advanced)).toBe("cancelled");
+    // A replay is the same settlement, and the reservation is no longer listed as a hold.
+    expect(await late.settleAtBound(bound as Extract<typeof bound, { kind: "bound" }>)).toEqual(settled);
+    expect(await heldFor(attempt)).toBeUndefined();
+    // The provider answers after all: its evidence is kept in the journal, and its settlement is refused.
+    const answer = { text: "red, green and blue", providerReceiptDigest: "f".repeat(64), usage: { kind: "measured" as const, inputTokens: 12, outputTokens: 5, computeMs: 30, costMicros: "17" } };
+    await journal.hold(attempt.request, request, answer);
+    await expect(late.reconcile({ reservationId: attempt.reservationId, attemptId: attempt.attemptId, operationId: request.operationId, providerReceiptDigest: answer.providerReceiptDigest, usage: answer.usage })).rejects.toMatchObject({ code: "factory_usage_settlement_state" });
+    expect(await settlementRows(attempt.run.runId)).toEqual([{ revision: 1, source: "reserved-bound" }]);
+    expect(JSON.parse((await reservationState(attempt.reservationId))!.actual!)).toEqual(reservedBound);
+  });
+
+  test("W03f C and B: a provider call aborted at the attempt's deadline leaves a cost-unknown hold that the bound settles, and the run's node keeps its typed reason", async () => {
+    const attempt = await launchedAttempt();
+    // What the provider's deadline abort settles: a failed call with no evidence.
+    const { reference, advanced } = await providerFailedOutcome(attempt, { code: "provider_unavailable", message: "The provider did not answer before the attempt's deadline." });
+    const held = harness(attempt, stopper(async stopRequest => signed(stopRequest)), acknowledger());
+    await held.stops.stop(service, reference);
+    const deadline = (await sealedAuthority(attempt)).deadlineAt.getTime();
+    const late = reconcilerAt(attempt, held, deadline + 1);
+    const bound = await late.resolve(await heldFor(attempt));
+    const [operation] = await attempt.journal.operations(await sealedAuthority(attempt));
+    expect(bound).toEqual({ kind: "bound", reservationId: attempt.reservationId, attemptId: attempt.attemptId, reason: "operation-cost-unknown", operationIds: [operation!.operationId] });
+    expect(await late.settleAtBound(bound as Extract<typeof bound, { kind: "bound" }>)).toMatchObject({ source: "reserved-bound", knownCostMicros: profile.budget.costMicros });
+    expect(await foldedNode(attempt, advanced)).toMatchObject({ unresolved: [], error: "provider_unavailable" });
+  });
+
   test("a bounded stop timeout leaves durable uncertainty and a later receipt settles the same operation", async () => {
     const attempt = await launchedAttempt();
     const { reference, advanced } = await cancelled(attempt);
