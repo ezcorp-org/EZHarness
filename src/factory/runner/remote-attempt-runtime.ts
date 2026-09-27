@@ -272,7 +272,13 @@ export class FactoryRemoteAttemptRuntime implements FactoryAttemptRuntime {
     this.options.report(`attempt-result-lost:${attemptId}`, new FactoryAttemptRuntimeError("launch_uncertain", message));
     await this.options.stop(intent, "failed").catch(error => { this.options.report(`attempt-stop-unconfirmed:${attemptId}`, error); });
     const result = failedFactoryRunnerResult(await this.settledJournal(intent), { code: FACTORY_LOST_RESULT_CODES[reason], message, retryable: true });
-    return this.options.launches.recordTerminal(attemptId, result);
+    const recorded = await this.options.launches.recordLostTerminal(attemptId, result);
+    if (recorded.state === "recorded") return recorded.result;
+    // A stop sealed first owns this attempt's end (W01h fix round): the loss is
+    // audit evidence on that stop, and no terminal result contradicts its reason.
+    this.options.report(`attempt-exit-after-stop:${attemptId}`, new FactoryAttemptRuntimeError("launch_uncertain",
+      `${message} (stop ${recorded.cancelCommandId} was sealed first with reason ${recorded.sealedReason}; recorded as its evidence)`.slice(0, 4_096)));
+    return result;
   }
 
   /** The journal's facts once no operation is in flight, or its own error once the settle bound has passed. */

@@ -16,6 +16,7 @@ import { validateFactoryRunnerRequest, validateFactoryRunnerResult } from "@ezco
 import { factoryRunnerRequestIdentity } from "@ezcorp/factory-sdk/compiler";
 import { sql } from "drizzle-orm";
 import type { MigrationDb, TransactionalDb } from "../../db/migrations/types";
+import { insertTransactionalAuditEntry } from "../../db/queries/audit-log";
 import { releaseRows } from "../../db/queries/extension-releases";
 import type { FactoryPreparedPackageReceipt, FactoryRunnerDispatchReadiness } from "../package-preparation";
 import type { PoolAdmissionClient } from "../pool/client";
@@ -53,6 +54,7 @@ import {
   type FactoryAttemptLaunchIntent,
   type FactoryAttemptLaunchState,
   type FactoryAttemptLaunchStore,
+  type FactoryLostTerminal,
   type FactoryAttemptLease,
   type FactoryAttemptOpen,
   type FactoryAttemptRuntime,
@@ -86,6 +88,22 @@ async function assertDevicesExclusive(transaction: MigrationDb, intent: FactoryA
 }
 
 /** Product-database intent store. It contains no broker token because only the durable request identity is stored. */
+/** The attempt's terminal result under the launch row's update lock, which a stop's acceptance also takes. */
+async function lockedTerminalResult(transaction: MigrationDb, attemptId: string): Promise<FactoryRunnerResult | undefined> {
+  const row = releaseRows<Pick<LaunchRow, "terminal_result_json" | "terminal_result_digest">>(await transaction.execute(sql`SELECT terminal_result_json,terminal_result_digest FROM factory_attempt_launches WHERE attempt_id=${attemptId} FOR UPDATE`))[0];
+  if (!row) throw new FactoryAttemptRuntimeError("launch_corrupt", "Factory launch intent is missing.");
+  return storedTerminalResult(row);
+}
+
+/** Writes a terminal result into a launch row that holds none, and reads back exactly what persisted. */
+async function writeTerminalResult(transaction: MigrationDb, attemptId: string, snapshot: FactoryRunnerResult, resultDigest: string): Promise<FactoryRunnerResult> {
+  await transaction.execute(sql`UPDATE factory_attempt_launches SET terminal_result_json=${canonicalJson(snapshot)}::text::jsonb,terminal_result_digest=${resultDigest},state='terminal',updated_at=NOW() WHERE attempt_id=${attemptId} AND terminal_result_json IS NULL`);
+  const saved = releaseRows<Pick<LaunchRow, "terminal_result_json" | "terminal_result_digest">>(await transaction.execute(sql`SELECT terminal_result_json,terminal_result_digest FROM factory_attempt_launches WHERE attempt_id=${attemptId} FOR SHARE`))[0];
+  const durable = saved && storedTerminalResult(saved);
+  if (!durable || factoryTerminalResultDigest(durable) !== resultDigest) throw new FactoryAttemptRuntimeError("launch_conflict", "Factory terminal result did not persist.");
+  return durable;
+}
+
 export class FactoryDatabaseAttemptLaunchStore implements FactoryAttemptLaunchStore {
   constructor(private readonly database: TransactionalDb) {}
 
@@ -125,18 +143,32 @@ export class FactoryDatabaseAttemptLaunchStore implements FactoryAttemptLaunchSt
     const snapshot = snapshotTerminalResult(result);
     const resultDigest = factoryTerminalResultDigest(snapshot);
     return this.database.transaction(async transaction => {
-      const row = releaseRows<Pick<LaunchRow, "terminal_result_json" | "terminal_result_digest">>(await transaction.execute(sql`SELECT terminal_result_json,terminal_result_digest FROM factory_attempt_launches WHERE attempt_id=${attemptId} FOR UPDATE`))[0];
-      if (!row) throw new FactoryAttemptRuntimeError("launch_corrupt", "Factory launch intent is missing.");
-      const existing = storedTerminalResult(row);
+      const existing = await lockedTerminalResult(transaction, attemptId);
       if (existing) {
         if (factoryTerminalResultDigest(existing) !== resultDigest) throw new FactoryAttemptRuntimeError("launch_conflict", "Factory attempt already recorded a different terminal result.");
         return existing;
       }
-      await transaction.execute(sql`UPDATE factory_attempt_launches SET terminal_result_json=${canonicalJson(snapshot)}::text::jsonb,terminal_result_digest=${resultDigest},state='terminal',updated_at=NOW() WHERE attempt_id=${attemptId} AND terminal_result_json IS NULL`);
-      const saved = releaseRows<Pick<LaunchRow, "terminal_result_json" | "terminal_result_digest">>(await transaction.execute(sql`SELECT terminal_result_json,terminal_result_digest FROM factory_attempt_launches WHERE attempt_id=${attemptId} FOR SHARE`))[0];
-      const durable = saved && storedTerminalResult(saved);
-      if (!durable || factoryTerminalResultDigest(durable) !== resultDigest) throw new FactoryAttemptRuntimeError("launch_conflict", "Factory terminal result did not persist.");
-      return durable;
+      return writeTerminalResult(transaction, attemptId, snapshot, resultDigest);
+    });
+  }
+
+  async recordLostTerminal(attemptId: string, result: FactoryRunnerResult): Promise<FactoryLostTerminal> {
+    opaque(attemptId, "attempt id");
+    const snapshot = snapshotTerminalResult(result);
+    const resultDigest = factoryTerminalResultDigest(snapshot);
+    return this.database.transaction(async (transaction): Promise<FactoryLostTerminal> => {
+      // The launch row lock is the one a stop's acceptance takes to seal its
+      // reason, so exactly one of the two writes first.
+      const existing = await lockedTerminalResult(transaction, attemptId);
+      if (existing) return Object.freeze({ state: "recorded" as const, result: existing });
+      const stop = releaseRows<{ cancel_command_id: string; request_json: string }>(await transaction.execute(sql`SELECT cancel_command_id,request_json FROM factory_task_stops WHERE attempt_id=${attemptId} FOR SHARE`))[0];
+      if (!stop) return Object.freeze({ state: "recorded" as const, result: await writeTerminalResult(transaction, attemptId, snapshot, resultDigest) });
+      const sealedReason = String((JSON.parse(stop.request_json) as { reason?: unknown }).reason);
+      const loss = snapshot.status === "failed" ? snapshot.error : undefined;
+      await insertTransactionalAuditEntry(transaction, `factory-attempt-exit-after-stop:${attemptId}`, null, "factory.attempt.exit_after_stop", stop.cancel_command_id, {
+        attemptId, sealedReason, observedStatus: snapshot.status, ...(loss ? { code: loss.code, message: loss.message } : {}),
+      });
+      return Object.freeze({ state: "stop-sealed" as const, cancelCommandId: stop.cancel_command_id, sealedReason });
     });
   }
 

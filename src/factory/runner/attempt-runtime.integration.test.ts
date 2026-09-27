@@ -68,6 +68,8 @@ class MemoryLaunchStore implements FactoryAttemptLaunchStore {
     return this.terminal;
   }
   async terminalResult(): Promise<FactoryRunnerResult | undefined> { return this.terminal; }
+  // No stop is ever sealed in memory, so a lost result is always the terminal one.
+  async recordLostTerminal(attemptId: string, result: FactoryRunnerResult) { return { state: "recorded" as const, result: await this.recordTerminal(attemptId, result) }; }
 }
 
 class RenewalFailureRunner implements Runner {
