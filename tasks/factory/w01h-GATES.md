@@ -29,6 +29,7 @@ Evidence: `/tmp/factory-platform-evidence/w01h/`.
 | `6f3903666` | merge integ/w00 f7c1290a6 (W03e); only tasks/lessons.md and tasks/todo.md conflicted (union); the hook ran its 4 mapped suites (no skip) |
 | `be1d4530c` | fix round: a stop whose facts no longer verify is a reconciliation item, not a hot loop (stop settlement, migration) |
 | `b254a1a56` | fix round: a stop sealed first owns the attempt's end; a lost result is its evidence (runner) |
+| `216868819` | fix round 2: one lock order for an attempt's stop and launch rows (validator-2's D1) |
 | `942a03dac` | the orchestrator's gateway bounds stay above the private service's slow-stop bound (orchestrator); EZ_SKIP_HOOK_TESTS=1 by the lead's ruling, its 4 listed suites run outside the hook |
 | `702bad45d` | defect 5: a stopped approval settles in place; a denied approval ends its run (kernel) |
 
@@ -266,6 +267,21 @@ terminal result, and the stop sealed earlier with reason `cancelled` re-derived 
   25/0, run-lifecycle 79/0, migration-restart 18/0, executions 7/0, host-launch 1/0; Podman lost-result 1/0;
   coverage leg 113/0; new-file gate PASSED (the migration, threshold 100), patch gate PASSED, 8 files, against
   `34b3b0a74` (`logs/fix4/`); typecheck, lint, boundaries exit 0; hooks ran their 3 and 4 suites green.
+
+- [x] G19: One lock order for an attempt's stop and launch rows (fix round 2, validator-2's finding D1).
+  `recordLostTerminal` locked the launch row and then the stop row FOR SHARE, while every settlement locks the
+  stop row and then the launch row; interleaved, they deadlocked on the proof server (12:35:31Z). The order is
+  `FACTORY_STOP_LAUNCH_LOCK_ORDER`, documented at every lock site: the stop row, then the launch row; acceptance
+  locks the launch row and then creates the stop row, which no transaction can hold first; the lost-result write
+  locks only the launch row and reads the stop row unlocked (it never changes once committed). This order was
+  chosen because every settlement can reach the launch row only through its stop row, so the one new path adapts.
+  CHECK: under the lock, `tests/postgres/factory-stop-lock-order.test.ts` (real PostgreSQL, two connections: the
+  settlement holds the stop row, the lost result takes the launch row, then the settlement asks for the launch
+  row). EXPECT: red on the previous code with "deadlock detected" captured (`logs/fix5/lock-order-red.log`), green
+  on the fix; `factory-stop-after-loss` 3/0. EVIDENCE (`w01h-fix5-locked.sh`, 2026-09-27 13:05Z to 13:08Z):
+  PostgreSQL task-stops 25/0, run-lifecycle 79/0, migration-restart 18/0, executions 7/0, host-launch 1/0; Podman
+  lost-result 1/0; coverage leg 54/0; patch gate PASSED, 2 files, against `aefcf828f` (`logs/fix5/`); the commit's
+  hook ran attempt-runtime 18/0 and the lock-order test 1/0 under the lock.
 
 ### Baseline background-role lines (OPEN, pre-existing, owned)
 
