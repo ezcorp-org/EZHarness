@@ -185,11 +185,12 @@ if (started.status !== 202 || !runId) await finish(`the run was not accepted thr
 const TERMINAL = new Set(["succeeded", "failed", "cancelled"]);
 const timeline: string[] = [];
 let runResource: unknown;
-// A failed model call carries no usage, so its attempt's cost is unknown and
-// C03 holds the run rather than settle an unknown cost as zero. That hold is
-// named in the server log by the reconciliation role; the missing-model
-// control waits for the name instead of for a terminal status that cannot come.
-const HOLD = "factory_usage_hold_unresolved: no-operation-receipt";
+// A run whose attempt's cost is unknown is held by C03 rather than settled as
+// zero, and the reconciliation role names that hold in the server log. Since
+// W03f a provider's error answer settles from the journal and the run ends, so
+// a hold is a failure of the missing-model control; the loop stops on the name
+// rather than wait out a terminal status that cannot come.
+const HOLD = "factory_usage_hold_unresolved";
 const webLog = () => stack!.children.find((entry) => entry.name === "web")?.log.join("") ?? "";
 let held = false;
 for (let attempt = 0; attempt < 600; attempt++) {
@@ -221,6 +222,8 @@ try {
   const commands = await probe.unsafe(`SELECT command_id, source_sequence FROM factory_transition_commands ORDER BY source_sequence, command_id`) as Array<Record<string, unknown>>;
   const projections = await probe.unsafe(`SELECT consumer_id, sequence, payload FROM factory_run_projections ORDER BY sequence`) as Array<Record<string, unknown>>;
   const queue = await probe.unsafe(`SELECT attempt_id, state, failure_code FROM factory_attempt_queue ORDER BY attempt_id`) as Array<Record<string, unknown>>;
+  const settlements = await probe.unsafe(`SELECT reservation_id, revision, attempt_id, source, known_cost_micros, unknown_cost_micros, basis, stop_receipt_digest FROM factory_usage_settlements ORDER BY reservation_id, revision`) as Array<Record<string, unknown>>;
+  const reservations = await probe.unsafe(`SELECT reservation_id, state, amount, actual FROM factory_budget_reservations ORDER BY reservation_id`) as Array<Record<string, unknown>>;
 
   // Candidate outputs, read back through the product's own artifact class,
   // restricted to `candidate_output`, under the scope that sealed each one.
@@ -250,6 +253,9 @@ try {
     }
     const completion = completions.find((row) => row.attempt_id === attemptId);
     const outcome = outcomes.find((row) => row.attempt_id === attemptId);
+    // The newest settlement of this attempt's reservation, and the reservation it settled.
+    const settlement = settlements.filter((row) => row.attempt_id === attemptId).at(-1);
+    const reservation = settlement ? reservations.find((row) => row.reservation_id === settlement.reservation_id) : undefined;
     nodes[node] = {
       ran: true,
       attemptId,
@@ -265,6 +271,8 @@ try {
       stored: stored ?? null,
       completionEventOutput: completion ? (parsed(completion.receipt_json).event as { output?: unknown } | undefined)?.output ?? null : null,
       outcomeResult: outcome ? parsed(outcome.result_json) : null,
+      settlement: settlement ? { revision: Number(settlement.revision), source: settlement.source, knownCostMicros: settlement.known_cost_micros, unknownCostMicros: settlement.unknown_cost_micros, basis: settlement.basis, stopReceipt: settlement.stop_receipt_digest !== null } : null,
+      reservation: reservation ? { state: reservation.state, amount: parsed(reservation.amount), actual: reservation.actual === null ? null : parsed(reservation.actual) } : null,
       operations: operations.filter((row) => row.attempt_id === attemptId).map((row) => ({
         operationId: row.operation_id, operationIndex: Number(row.operation_index), kind: row.kind, state: row.state,
         requestDigest: row.request_digest, resultDigest: row.result_digest, providerReceiptDigest: row.provider_receipt_digest,
@@ -285,10 +293,19 @@ record.evidence = evidence;
 record.readiness = (record.ready as { body?: { detail?: { factory?: Record<string, unknown> } } } | null)?.body?.detail?.factory ?? null;
 
 // ── The verdict for this pass ───────────────────────────────────────────
-type Node = { ran: boolean; stored?: Record<string, unknown> | null; input?: { value?: unknown }; completionEventOutput?: unknown; operations?: Array<Record<string, unknown>>; result?: Record<string, unknown> | null; model?: Record<string, unknown> | null; candidateOutput?: Record<string, unknown> | null };
+type Node = { ran: boolean; stored?: Record<string, unknown> | null; input?: { value?: unknown }; completionEventOutput?: unknown; operations?: Array<Record<string, unknown>>; result?: Record<string, unknown> | null; model?: Record<string, unknown> | null; candidateOutput?: Record<string, unknown> | null; settlement?: Record<string, unknown> | null; reservation?: { state?: unknown; amount?: Record<string, unknown>; actual?: Record<string, unknown> | null } | null };
 const nodes = (evidence.nodes ?? {}) as Record<NodeName, Node>;
 const checks: Array<{ check: string; ok: boolean; detail?: unknown }> = [];
 const expect = (check: string, ok: boolean, detail?: unknown) => { checks.push({ check, ok, ...(ok ? {} : { detail }) }); };
+/**
+ * W03f: an attempt that did not complete settled once, by its stop, from its journal: the named
+ * source and basis, the model cost given, no held cost, and compute at the reserved bound.
+ */
+const settledAtBound = (node: Node | undefined, source: string, basis: string, costMicros: string) => {
+  const reservation = node?.reservation;
+  return node?.settlement?.source === source && node.settlement.basis === basis && node.settlement.knownCostMicros === costMicros && node.settlement.unknownCostMicros === null && node.settlement.stopReceipt === true
+    && reservation?.state === "settled" && String(reservation.actual?.costMicros) === costMicros && String(reservation.actual?.computeMs) === String(reservation.amount?.computeMs);
+};
 // Canonical JSON: a jsonb column returns its keys in its own order.
 const same = (left: unknown, right: unknown) => left !== undefined && right !== undefined && canonicalizeJson(left as JsonValue) === canonicalizeJson(right as JsonValue);
 
@@ -318,6 +335,9 @@ if (CONTROL === "none" || CONTROL === "forced-failure") {
     expect("B ran with no model pin", b?.ran === true && b?.model === null, b?.model);
     expect("B was refused model_pin_mismatch by the broker", error?.code === "model_pin_mismatch", error);
     expect("nothing was claimed or journaled for B", (b?.operations ?? []).length === 0, b?.operations);
+    // W03f: the stop settles from the journal, not from the guest's claimed zero: no operation is
+    // W03e's no-operations zero, with compute charged at the reserved bound rather than 0 ms.
+    expect("B's cost settled as the no-operations zero, compute at the reserved bound", settledAtBound(b, "no-operations", "no-operations: compute at reserved bound", "0"), { settlement: b?.settlement, reservation: b?.reservation });
     const compile = record.compileControl as { valid?: boolean | null; diagnosticCodes?: string[]; publishStatus?: number; publishBody?: { error?: { code?: string; issues?: Array<{ code?: string }> } }; draft?: { availability?: string } } | undefined;
     expect("the compiler refused the missing port by name, BINDING_PORT", compile?.valid === false && (compile.diagnosticCodes ?? []).includes("BINDING_PORT"), compile);
     expect("the invalid draft is unavailable, and publishing it is refused 422 factory_definition_invalid naming BINDING_PORT",
@@ -328,10 +348,15 @@ if (CONTROL === "none" || CONTROL === "forced-failure") {
     expect("the refusal carries Ollama's own missing-model message", String(error?.message ?? "").includes(`model '${OLLAMA_MISSING_MODEL}' not found`), error);
     const operations = b?.operations ?? [];
     const failure = operations[0]?.result as { code?: string; message?: string } | undefined;
-    expect("the provider error is journaled as B's one failed model operation", operations.length === 1 && operations[0]?.kind === "model" && operations[0]?.state === "failed" && failure?.code === "factory_guest_model_failed" && String(failure?.message).includes("not found"), operations);
-    // Not a pass condition of the control; a finding it records. The failed row
-    // has no usage, so the attempt's cost is unknown and the run is held.
-    record.heldRunFinding = { held, timeline, reason: held ? HOLD : null };
+    const usage = operations[0]?.usage as { kind?: string; inputTokens?: number; outputTokens?: number; costMicros?: string } | null | undefined;
+    // W03f: the broker settles Ollama's error answer as the failed operation with its typed code and
+    // the provider's own measured usage (nothing consumed), which the guest mirrored from the refusal.
+    expect("the provider error is journaled as B's one failed model operation, with its typed code and the provider's measured zero",
+      operations.length === 1 && operations[0]?.kind === "model" && operations[0]?.state === "failed" && failure?.code === "provider_unavailable" && String(failure?.message).includes("not found")
+        && usage?.kind === "measured" && usage.inputTokens === 0 && usage.outputTokens === 0 && usage.costMicros === "0" && typeof operations[0]?.providerReceiptDigest === "string", operations);
+    expect("B's cost settled from the journal as a provider error: zero model cost, compute at the reserved bound", settledAtBound(b, "operations", "provider-error: model usage measured, compute at reserved bound", "0"), { settlement: b?.settlement, reservation: b?.reservation });
+    expect("the run ended failed", (record.run as { terminal?: string }).terminal === "failed", timeline);
+    expect("the run was never held", !held, { held, timeline });
   }
 }
 // The diagnostics control runs the whole proof, then fails the pass on purpose:

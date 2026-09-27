@@ -11,8 +11,8 @@
 import { join } from "node:path";
 
 const dir = process.argv[2]!;
-type Node = { stored?: Record<string, unknown> | null; candidateOutput?: { digest?: string } | null; operations?: Array<{ usage?: unknown; providerReceiptDigest?: unknown }> };
-type Record_ = { label: string; outcome?: string; failure?: string; startedAt?: string; finishedAt?: string; pin?: { provider?: string; model?: string; configuration?: unknown } | null; checks?: Array<{ check: string; ok: boolean }>; run?: { timeline?: string[] }; evidence?: { nodes?: Record<string, Node> } };
+type Node = { stored?: Record<string, unknown> | null; candidateOutput?: { digest?: string } | null; operations?: Array<{ usage?: unknown; providerReceiptDigest?: unknown }>; settlement?: unknown; reservation?: unknown };
+type Record_ = { label: string; outcome?: string; failure?: string; startedAt?: string; finishedAt?: string; pin?: { provider?: string; model?: string; configuration?: unknown } | null; checks?: Array<{ check: string; ok: boolean }>; run?: { timeline?: string[]; terminal?: string | null; heldBy?: string | null }; evidence?: { nodes?: Record<string, Node> } };
 
 async function load(label: string): Promise<Record_ | undefined> {
   const file = Bun.file(join(dir, `${label}.json`));
@@ -48,7 +48,10 @@ const controls: Record<string, unknown> = {};
 for (const label of ["control-no-pin", "control-missing-model"]) {
   const record = await load(label);
   criteria.push({ criterion: `${label}: every refusal named`, ok: record?.outcome === "passed", detail: record?.checks ?? record?.failure ?? "absent" });
-  controls[label] = { outcome: record?.outcome ?? "absent", timeline: record?.run?.timeline ?? null, checks: record?.checks ?? null };
+  // W03f: a refused model call settles from the journal, so each control's run ends failed and is never held.
+  criteria.push({ criterion: `${label}: the run ended failed and was never held`, ok: record?.run?.terminal === "failed" && !record?.run?.heldBy, detail: { timeline: record?.run?.timeline ?? null, heldBy: record?.run?.heldBy ?? null } });
+  const infer = record?.evidence?.nodes?.infer;
+  controls[label] = { outcome: record?.outcome ?? "absent", timeline: record?.run?.timeline ?? null, settlement: infer?.settlement ?? null, reservation: infer?.reservation ?? null, checks: record?.checks ?? null };
 }
 {
   // The forced-failure control: the pass must fail by its own named check, and
