@@ -96,6 +96,26 @@ runner-contracts, external-postgres, browser routes); main's own CI at 31052930d
   12 files. f11d06d03 gates five newly measured routes at 100. b5db5c814 adds a direct suite for
   factory-execution.ts (29 lines were real gaps).
 
+## Leg manifest for the combined runner (ruling 2026-09-27)
+
+`scripts/combined-runner-legs.json` names what the local combined runner and the wave4f driver must run beyond their
+own legs. ci.yml stays the authority for CI.
+- `producers`: the CI jobs cov-shard, cov-extras, web-security-coverage and factory-temporal, each with the exact
+  command, its workflow and job, and a comment on what it measures.
+- `localOnlyProducers`: scripts/factory-reference-data-coverage.sh. No workflow runs it, so the real-PostgreSQL suite
+  tests/postgres/factory-reference-data.test.ts runs in no CI job. This is a CI GAP in the feature, found by the new
+  guard. scripts/factory-postgres-suite-registration.test.ts did not catch it, because it counts every
+  `scripts/factory-*-coverage.sh` as a producer whether or not a workflow invokes it.
+- `suites`: the eight gap suites, each with `cwd`, the gated sources it measures, and a comment. All eight are also in
+  a CI coverage set.
+
+The guard is src/__tests__/combined-runner-legs.test.ts, with helpers in scripts/lib/combined-runner-legs.ts. It checks
+that each producer is its job's command, that each local-only producer is still run by no workflow, and that each suite
+imports what it claims to measure. It then fails, by file name, for any test file that imports a gated source (a
+threshold key or the new-file source set) and that no CI leg and no manifest entry loads. CI legs are the
+test-file-sets.sh functions ci.yml runs, the Vitest test includes, and the tests a workflow or its scripts name. Red
+first: without the local-only entry the guard names tests/postgres/factory-reference-data.test.ts.
+
 ## Tooling fix: merge-lcov credits the header line of a called function (ruling a, 2026-09-27)
 
 CAUSE. A Node/V8 (Vitest) lcov writes `FN` and `FNDA` for a function and no `DA` record for its header line. A bun
