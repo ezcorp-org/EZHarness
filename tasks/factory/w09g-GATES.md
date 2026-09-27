@@ -38,6 +38,7 @@ vitest pool (G3) shows that no web test reaches them.
 |---|---|---|
 | G1 | Reproduction, red at c3da32784: four route files, 0 tests, "Failed to resolve import \"bun\"" | logs/repro-red.log |
 | G2 | Red-first test web/src/lib/server/db-connection-load.server.test.ts: imports connection.ts under vitest (jsdom, the pool default), asserts it loads and that the resolver refuses by name outside Bun. Red at the base with the same resolution error | logs/load-test-red-jsdom.log (red), logs/green-five.log (green, with the four route files) |
+| G2b | Bun side, src/__tests__/db-connection.test.ts: under Bun the resolver returns the SQL class the "bun" module exports (same identity), and a runtime without a SQL class (null, a non-class value) is refused by name. Covers both branches for the patch-coverage gate, which reads bun lcov only | G4 db-connection leg |
 | G3 | Full web vitest pool under the heavy lock, gate first, nonzero count | see Results |
 | G4 | Bun suites that touch connection.ts: cov-fix-connection-postgres, db-connection, and the PostgreSQL pool-replacement suite on real PostgreSQL, under the lock | see Results |
 | G5 | Typecheck, lint, gate-integrity, coverage gates against c3da32784 | see Results |
