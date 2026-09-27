@@ -94,6 +94,18 @@ export interface PoolLease {
   deadlineAt: Date;
   resources: PoolResourceVector;
   hostId?: string;
+  /**
+   * The GPU host's device profile as the pool recorded it when it assigned the host: present exactly when the
+   * lease holds `gpu-host` (W02d R2). A later profile change never alters a held lease.
+   */
+  deviceProfile?: PoolDeviceProfile;
+}
+/** The devices a GPU host grants, snapshotted onto the lease that holds it (W02d). */
+export interface PoolDeviceProfile {
+  readonly hostId: string;
+  readonly devices: readonly string[];
+  readonly cdiDevices: readonly string[];
+  readonly tier: "trusted-local" | "production";
 }
 export interface PoolLeaseStatus {
   reservationId: string;
