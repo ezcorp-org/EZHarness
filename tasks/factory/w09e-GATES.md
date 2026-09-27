@@ -16,6 +16,10 @@ Brief: `/tmp/factory-platform-evidence/w00/briefs/w09e.md`.
 | `e604126fd` | R5: a release that cannot move waits a doubling interval (5 s base, 5 min cap) |
 | `92bca9a9d` | R2d: the stop line reads in both themes; the console mock names each run's factory |
 | `fe2199392` | R2d: a stopped release's deadline never breaks inside its date (390 px screenshot) |
+| `96acee7d7` | the gates file (G1-G7) and two lessons |
+| `63d97ef49` | R3 cost: the stop outcome records {costMicros, source, basis}; the run inspection and inspector show held and settled lines |
+| `1872820e3` | merge integ/w00 a24a619ad; three keep-both conflicts; EZ_SKIP_HOOK_TESTS=1 by the coordinator's ruling of 20:09Z, the 29 mapped suites listed in the message and run outside the hook, all green |
+| `fc03c0076` | the inspector's cost lines rendered by a component test (the final patch gate's lines 314-318) |
 
 ## The defect
 
@@ -163,3 +167,18 @@ At `92bca9a9d`, under the heavy lock, gated before every leg (`logs/head-driver.
 | coverage vs `326e5e725` | new-file gate passed (3 files); patch gate passed (19 files), with unit, PostgreSQL, SDK, orchestrator and web lcov merged (`logs/head/coverage-gates3.log`) |
 | graph-proof runbook `pass mock none` | passed at `92bca9a9d` (`graph/w09e-head.json`) and at `fe2199392` with the pinned `bunx` (`graph/w09e-head-pinned.json`) |
 | hook per commit | at most 6 mapped suites per commit, no skip |
+
+## Final legs on the merge (staged a24a619ad, committed as `1872820e3`)
+
+One lock hold, 2026-09-27 20:43Z-21:02Z, bun and bunx asserted 1.3.14, `.git/config` sha256 44962525f1ca1a8b
+before and after (`logs/final-driver.log`, `logs/final/`).
+
+| Leg | Result |
+| --- | --- |
+| the merge commit's 29 mapped suites | all green, nonzero counts (PostgreSQL usage-epoch 6/0; web 34/0) |
+| kernel / orchestrator | 236/0, 91/0 |
+| PGlite (14 files, lifecycle 91) | all 0 fail |
+| PostgreSQL (15 suites: task-stops 32, run-lifecycle 91, run-lifecycle-s3 91, release-stop-race 4, release-stop-migration 1, console 27, ...) | all 0 fail |
+| coverage vs `a24a619ad` | new-file passed (3); patch first failed on `FactoryRunInspector.svelte` 314-318 (DA 0: no component fixture rendered the cost list), a real gap; after `fc03c0076` passed (19 files) (`logs/final/coverage-gates2.log`) |
+| web build, graph-proof runbook `pass mock none` | passed (`graph/w09e-final.json`) |
+| console e2e x3 / W09e test in evidence mode | 66/66, 2/2, no preview crash |
