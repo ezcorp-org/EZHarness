@@ -102,6 +102,19 @@ test("the host signs a real mutual-TLS stop, rotates its key without a restart, 
     expect(validateFactoryStopReceipt(request, receipt, both)).toEqual({ ok: true });
     expect(validateFactoryStopReceipt(request, rotated, both)).toEqual({ ok: true });
 
+    // W01i, found on the real lane: the runtime's post-result stop reaches this
+    // client with the physical coordinates and the tenant, and no cancel
+    // command. It must name the tenant from the expectation, not crash on the
+    // missing cancel reference.
+    const { cancelReference: _cancel, source: _source, ...physical } = request;
+    stops = [];
+    const postResult = await client.stop({ ...physical, tenantId: "tenant-a" } as unknown as FactoryTaskStopRequest, AbortSignal.timeout(10_000));
+    expect(postResult).toMatchObject({ hostId, attemptId, processGroupAbsent: true });
+    expect(stops.map((stop) => stop.tenantId)).toEqual(["tenant-a"]);
+    // With no tenant named and no launch record, the host refuses by name and stops nothing.
+    await expect(client.stop(physical as unknown as FactoryTaskStopRequest, AbortSignal.timeout(10_000))).rejects.toMatchObject({ status: 403, hostError: "forbidden_tenant" });
+    expect(stops).toHaveLength(1);
+
     // A foreign client certificate is refused before any stop is attempted.
     stops = [];
     const foreign = await privateHttpsCall(`${service.url}/v1/host/stops`, certs, { method: "POST", certificate: "foreign", body: Buffer.from(JSON.stringify({ attemptId, reservationId: request.reservationId, workerId: request.workerId, holderGeneration: 3, allocationGeneration: 4, hostId, reason: "cancelled" })), headers: { "content-type": "application/json", "x-ezcorp-factory-version": "1" } });
