@@ -59,11 +59,18 @@ Reproduced at `bbdf9f9d3` (the reference-code packager unchanged from the base):
   EVIDENCE: `logs/guard-red-at-base.log`, `logs/lib-tests.log`, `receipts/`.
 - [x] G4: The runbook mock pass at the head under the lock, the reference-code suites and its Podman
   build, the graph-proof suites, and the builds.
-  EVIDENCE: `receipts/runbook-mock.json` (outcome "passed", failure null; gate 17 GiB / 5 GiB / 125 GB; head `bbdf9f9d3`, dirty 0). Every receipt leg exits 0: SDK build, guard 7 pass, graph-proof suites 22 pass, typecheck, lint, boundaries, gate integrity, web build, `receipts/graph-proof-suites.json`, `receipts/sdk-build.json`.
+  EVIDENCE: receipts at `1276e7d33` (15 legs, each gated on memory, swap and disk, all exit 0,
+  dirty 0): `receipts/runbook-mock.json` (record `proof/head2/head2-mock.json`: outcome "passed",
+  failure null; gate 17 GiB / 5 GiB / 123 GB), `receipts/reference-code.json` (29 pass: `guest.test.ts`
+  and `pack.test.ts`, the four once-failing tests among them), `receipts/reference-code-podman.json`
+  (the reference-code guest builds for real with the new staged files, 1 pass),
+  `receipts/guard-tests.json` (8 pass), `receipts/graph-proof-suites.json` (22 pass),
+  `receipts/boundary-suites.json` (61 pass), `receipts/sdk-build.json`, `receipts/web-build.json`.
+  The first sweep's receipts at `bbdf9f9d3` (graph guest only) are kept in `receipts-at-bbdf9f9d3/`.
 - [x] G5: Static checks and coverage. Typecheck, lint, factory boundaries, the boundary suites and gate
   integrity pass. New-file and patch coverage pass against `146a94829`; the helper
   (`src/factory/guest-sdk-closure.ts`, threshold 100) is at 100% lines and functions.
-  EVIDENCE: `receipts/`.
+  EVIDENCE: `receipts/{typecheck,lint,boundaries,gate-integrity,merge-lcov,new-file-coverage,patch-coverage}.json`.
 
 ## Findings
 
