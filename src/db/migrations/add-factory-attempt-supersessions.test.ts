@@ -23,9 +23,13 @@ test("an execution can end superseded, the record table exists, and re-running c
     const installed = await statusCheck(fixture.db);
     expect(installed?.definition).toContain("superseded");
     expect(await table(fixture.db)).toEqual(["tenant_id", "project_id", "run_id", "attempt_id", "reservation_id", "interpreter_id", "superseded_epoch", "execution_epoch", "restore_id", "restore_digest", "event_json", "superseded_at_ms"]);
+    // A stop can end superseded, naming its restore.
+    const stopState = rows<{ oid: number; definition: string }>(await fixture.db.execute(sql`SELECT oid, pg_get_constraintdef(oid) AS definition FROM pg_constraint WHERE conrelid = 'factory_task_stops'::regclass AND conname = 'factory_task_stops_state_check'`))[0];
+    expect(stopState?.definition).toContain("superseded");
     await up(fixture.db);
-    // The same constraint, not a dropped-and-re-added one.
+    // The same constraints, not dropped-and-re-added ones.
     expect((await statusCheck(fixture.db))?.oid).toBe(installed?.oid);
+    expect(rows<{ oid: number }>(await fixture.db.execute(sql`SELECT oid FROM pg_constraint WHERE conrelid = 'factory_task_stops'::regclass AND conname = 'factory_task_stops_state_check'`))[0]?.oid).toBe(stopState?.oid);
   } finally { await fixture.pglite.close(); }
 });
 
@@ -54,5 +58,15 @@ test("a record whose kernel event has no interpreter, or whose epochs do not adv
     // CHECK constraints are evaluated before the foreign key, so each row fails on its CHECK.
     expect(await refused(sql`INSERT INTO factory_attempt_supersessions VALUES ('t','p','r','a',NULL,'root',1,2,'restore',${`sha256:${"a".repeat(64)}`},NULL,0)`)).toContain("factory_attempt_supersessions_event_check");
     expect(await refused(sql`INSERT INTO factory_attempt_supersessions VALUES ('t','p','r','a',NULL,NULL,2,2,'restore',${`sha256:${"a".repeat(64)}`},NULL,0)`)).toContain("factory_attempt_supersessions_epoch_check");
+    // A superseded stop must name its restore, and only a superseded stop may.
+    // The pairing check is what refuses these; the accepted-state check admits a bare superseded stop.
+    // An uncertain row carries its uncertain event, so only the pairing check can refuse it.
+    const stop = (state: string, restoreId: string | null) => {
+      const event = state === "uncertain" ? "{}" : null, digest = state === "uncertain" ? `sha256:${"a".repeat(64)}` : null;
+      return sql`INSERT INTO factory_task_stops (tenant_id, project_id, run_id, interpreter_id, cancel_command_id, attempt_id, reservation_id, request_json, request_digest, source, state, accepted_at_ms, superseded_restore_id, uncertain_event_json, uncertain_event_digest)
+        VALUES ('t','p','r','i','c','a','res','{}',${`sha256:${"a".repeat(64)}`},'sealed-launch',${state},0,${restoreId},${event},${digest})`;
+    };
+    expect(await refused(stop("superseded", null))).toContain("factory_task_stops_superseded_check");
+    expect(await refused(stop("uncertain", "restore"))).toContain("factory_task_stops_superseded_check");
   } finally { await fixture.pglite.close(); }
 });

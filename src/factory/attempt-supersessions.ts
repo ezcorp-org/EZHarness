@@ -97,6 +97,11 @@ export async function supersedeEpochAttemptsInTransaction(
       candidateGeneration: Number(attempt.candidate_generation), attempt: Number(attempt.attempt_number), uncertain: true,
     });
     await transaction.execute(sql`UPDATE factory_executions SET status = 'superseded', updated_at = NOW() WHERE tenant_id = ${input.tenantId} AND attempt_id = ${attempt.attempt_id}`);
+    // A stop accepted before the restore can never be confirmed now (its
+    // confirmation runs under the run fence): it ends with the supersession, by
+    // state, so the stop role stops re-driving it (W15f M1).
+    await transaction.execute(sql`UPDATE factory_task_stops SET state = 'superseded', superseded_restore_id = ${input.restoreId}, updated_at = NOW()
+      WHERE tenant_id = ${input.tenantId} AND attempt_id = ${attempt.attempt_id} AND state IN ('accepted', 'uncertain')`);
     // The event is built in SQL from typed values: a JSON text parameter can
     // reach a real server as a JSON string rather than an object.
     const eventJson = event === null ? sql`NULL` : sql`jsonb_build_object('kind', ${event.kind}::text, 'id', ${event.id}::text, 'atMs', ${event.atMs}::bigint,

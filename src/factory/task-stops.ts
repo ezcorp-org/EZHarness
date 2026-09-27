@@ -396,10 +396,12 @@ export class FactoryTaskStops implements FactoryUsageSettlementAuthority {
     assertFactoryIdentity(reservationId);
     stopCount(atMs);
     const row = rows<StopRow>(await transaction.execute(sql`SELECT * FROM factory_task_stops WHERE tenant_id=${this.authority.tenantId} AND reservation_id=${reservationId} FOR UPDATE`))[0];
-    // No sealed stop: the attempt may instead have ended by a signed restore's
-    // supersession (W15f), whose record carries the kernel event to re-send.
-    if (!row) return clearResolvedSupersessionInTransaction(transaction, this.inbox, this.authority.tenantId, reservationId, atMs);
-    if (row.state !== "stopped") return undefined;
+    // No confirmed stop: the attempt may instead have ended by a signed
+    // restore's supersession (W15f), whose record carries the kernel event to
+    // re-send. That holds for a missing stop row and for one the restore left
+    // unconfirmed and marked superseded (M1); a stop still awaiting its host
+    // with no supersession clears nothing.
+    if (row?.state !== "stopped") return clearResolvedSupersessionInTransaction(transaction, this.inbox, this.authority.tenantId, reservationId, atMs);
     const reference = { tenantId: row.tenant_id, projectId: row.project_id, logicalRunId: row.run_id, interpreterId: row.interpreter_id, commandId: row.cancel_command_id };
     const request = sealedStopRequest(row, reference);
     if (sealedStopEvents(row).stopped?.uncertain !== true) return undefined;

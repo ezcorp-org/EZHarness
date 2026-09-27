@@ -813,6 +813,47 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
   });
 
   // Last on purpose: supersession ends every live attempt of the epoch in this shared store.
+  test("a stop left accepted, before its host was ever asked, also ends with the attempt's supersession (W15f M1)", async () => {
+    const attempt = await launchedAttempt(false);
+    const { reference } = await cancelled(attempt);
+    const { stops } = harness(attempt, { async stop(_request, signal) { return new Promise<never>((_resolve, reject) => { signal.addEventListener("abort", () => reject(new Error("host unreachable"))); }); } }, acknowledger(), undefined, 5);
+    await stops.stop(service, reference);
+    // The process ended between acceptance and the host call: the stop is only accepted.
+    await fixture.db.execute(sql`UPDATE factory_task_stops SET state='accepted', uncertain_event_json=NULL, uncertain_event_digest=NULL WHERE attempt_id=${attempt.attemptId}`);
+    const epoch = Number(rows<{ execution_epoch: number | string }>(await fixture.db.execute(sql`SELECT execution_epoch FROM factory_executions WHERE attempt_id=${attempt.attemptId}`))[0]!.execution_epoch);
+    const inbox = new FactoryInbox(fixture.db, tenantId, () => now);
+    await fixture.db.transaction(transaction => supersedeEpochAttemptsInTransaction(transaction, inbox, { tenantId, previousEpoch: epoch, executionEpoch: epoch + 1, restoreId: "restore-m1-accepted", restoreDigest: `sha256:${"d".repeat(64)}`, atMs: now }));
+    expect(rows<{ state: string; superseded_restore_id: string | null }>(await fixture.db.execute(sql`SELECT state, superseded_restore_id FROM factory_task_stops WHERE attempt_id=${attempt.attemptId}`))).toEqual([{ state: "superseded", superseded_restore_id: "restore-m1-accepted" }]);
+    expect((await fixture.db.transaction(transaction => stops.listStoppableInTransaction(transaction))).map(item => item.attemptId)).not.toContain(attempt.attemptId);
+  });
+
+  test("a stop accepted before a restore and never confirmed ends with the attempt's supersession: not listed again, and the clear sends the supersession's end (W15f M1)", async () => {
+    const attempt = await launchedAttempt(false);
+    const { reference } = await cancelled(attempt);
+    // The host never answers, so the stop stays uncertain.
+    const { stops } = harness(attempt, { async stop(_request, signal) { return new Promise<never>((_resolve, reject) => { signal.addEventListener("abort", () => reject(new Error("host unreachable"))); }); } }, acknowledger(), undefined, 5);
+    expect((await stops.stop(service, reference)).state).toBe("uncertain");
+    const epoch = Number(rows<{ execution_epoch: number | string }>(await fixture.db.execute(sql`SELECT execution_epoch FROM factory_executions WHERE attempt_id=${attempt.attemptId}`))[0]!.execution_epoch);
+    // A restore opens and is signed: the installation moves on and the attempt is superseded.
+    await fixture.db.execute(sql`UPDATE factory_installation SET execution_epoch=${epoch + 1} WHERE tenant_id=${tenantId}`);
+    try {
+      const inbox = new FactoryInbox(fixture.db, tenantId, () => now);
+      await fixture.db.transaction(transaction => supersedeEpochAttemptsInTransaction(transaction, inbox, { tenantId, previousEpoch: epoch, executionEpoch: epoch + 1, restoreId: "restore-m1", restoreDigest: `sha256:${"e".repeat(64)}`, atMs: now }));
+      expect(await executionStatus(attempt.attemptId)).toBe("superseded");
+      // The stop ends with the supersession, by state: the stop role never lists it again.
+      expect(rows<{ state: string; superseded_restore_id: string | null }>(await fixture.db.execute(sql`SELECT state, superseded_restore_id FROM factory_task_stops WHERE attempt_id=${attempt.attemptId}`))).toEqual([{ state: "superseded", superseded_restore_id: "restore-m1" }]);
+      const listed = await fixture.db.transaction(transaction => stops.listStoppableInTransaction(transaction));
+      expect(listed.map(item => item.attemptId)).not.toContain(attempt.attemptId);
+      // Once its cost is settled, the clear sends the supersession's end, so the kernel releases the attempt.
+      const event = await fixture.db.transaction(transaction => stops.clearResolvedStopInTransaction(transaction, attempt.reservationId, now + 1));
+      expect(event).toMatchObject({ kind: "attempt-stopped", id: `restore-m1:${attempt.attemptId}:usage-resolved`, commandId: attempt.attemptId, uncertain: false });
+      const delivered = rows<{ event_id: string }>(await fixture.db.execute(sql`SELECT event_id FROM factory_inbox_events WHERE tenant_id=${tenantId} AND run_id=${attempt.run.runId} AND event_id LIKE 'restore-m1:%' ORDER BY sequence`));
+      expect(delivered.map(row => row.event_id)).toEqual([`restore-m1:${attempt.attemptId}:superseded`, `restore-m1:${attempt.attemptId}:usage-resolved`]);
+    } finally {
+      await fixture.db.execute(sql`UPDATE factory_installation SET execution_epoch=${epoch} WHERE tenant_id=${tenantId}`);
+    }
+  });
+
   test("with no sealed stop, the clear re-sends a signed restore's supersession event with its uncertainty cleared (W15f)", async () => {
     const attempt = await launchedAttempt(false);
     const inbox = new FactoryInbox(fixture.db, tenantId, () => now);
