@@ -176,6 +176,12 @@ the recorded merge (sha256 prefix b4e6498a65858ac6). Changed records: 24; every 
   passes; no EXCLUDES message for the type-only case; end to end through the real gate in a scratch repository).
   gate-integrity exit 0 at a927c4bca with no rule change (`newfile-ruling-checks.txt`). Proof for kernel-types.ts:
   15923 source characters, 0 emitted, isDeclarationOnlyTypeScript=true.
+  Per-file gate (ruling 2026-09-27): check-coverage.ts gives the exact-key "no lcov data" check the same structural
+  exemption through one local wrapper over the shared isDeclarationOnlyTypeScript (no copy of its logic). A
+  declaration-only file absent from the lcov is exempt; a file with runtime code absent from the lcov still fails
+  with "no lcov data" (coverage-gate.test.ts, red first: the exemption test failed on the old script). On the CI
+  extras lcov of 60e3e436a the per-file gate goes from 6 entries to 5; only the kernel-types.ts entry leaves
+  (`kernel-types-per-file.txt`).
 - [ ] G2: feature-changed files named by the per-file, patch and CRAP gates are covered by tests.
 - [x] G3: mutation score >= 80 on the files this feature changed, blocking form, with W18d's toolchain.
   RECORD: Stryker at 6eda84a76 under the lock, `BASE_REF=origin/main bun scripts/mutation.ts --changed` without

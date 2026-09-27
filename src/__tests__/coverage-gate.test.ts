@@ -527,6 +527,44 @@ describe("coverage-gate semantics: declaration-only LCOV headers", () => {
       sb.cleanup();
     }
   });
+
+  // An exact threshold key for a declaration-only file: no producer emits an
+  // SF record for a module that compiles to nothing, so the key matches no
+  // lcov record at all (packages/@ezcorp/factory-sdk/src/kernel-types.ts).
+  test("permits an exact key for a declaration-only TypeScript file absent from the lcov", async () => {
+    const sb = makeSandbox();
+    try {
+      const typePath = "packages/@ezcorp/factory-sdk/src/kernel-types.ts";
+      const canary = "packages/@ezcorp/factory-sdk/src/canary.ts";
+      mkdirSync(join(sb.root, "packages/@ezcorp/factory-sdk/src"), { recursive: true });
+      writeFileSync(join(sb.root, typePath), "import type { A } from './a';\nexport type Kernel = { id: A };\n");
+      writeFileSync(join(sb.root, canary), "export const covered = true;\n");
+      await writeFixtures(sb.root, lcovRecord(sb.root, canary, 1, [1]), { [typePath]: 100, [canary]: 100 });
+      const r = await runCheck(sb.root);
+      expect(r.stderr).not.toContain(typePath);
+      expect(r.exitCode).toBe(0);
+      expect(r.stdout).toContain("PASSED");
+    } finally {
+      sb.cleanup();
+    }
+  });
+
+  test("still rejects an exact key for a runtime TypeScript file absent from the lcov", async () => {
+    const sb = makeSandbox();
+    try {
+      const runtimePath = "packages/@ezcorp/factory-sdk/src/kernel-runtime.ts";
+      const canary = "packages/@ezcorp/factory-sdk/src/canary.ts";
+      mkdirSync(join(sb.root, "packages/@ezcorp/factory-sdk/src"), { recursive: true });
+      writeFileSync(join(sb.root, runtimePath), "export type Kernel = { id: string };\nexport const KERNEL = 1;\n");
+      writeFileSync(join(sb.root, canary), "export const covered = true;\n");
+      await writeFixtures(sb.root, lcovRecord(sb.root, canary, 1, [1]), { [runtimePath]: 100, [canary]: 100 });
+      const r = await runCheck(sb.root);
+      expect(r.exitCode).toBe(1);
+      expect(r.stderr).toContain(`${runtimePath}: listed in thresholds but no lcov data`);
+    } finally {
+      sb.cleanup();
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
