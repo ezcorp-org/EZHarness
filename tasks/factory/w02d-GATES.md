@@ -42,10 +42,31 @@ on class `gpu` = `{cpu 1, gpu-host 1}`). Under the heavy lock; bun and bunx asse
   Pool red against the old rule (1), green 25/0 on PGlite and PostgreSQL; stop suite red on the base, green 33/0.
 - R9: kernel red on the base kernel (1), green 11/0 (SDK 234/0); admission release red (1), green 15/0.
 
+## R8: the refused dispatch (parked)
+
+- Built red first and parked as `92bdc1f22` on the local branch `wip/w02d-r8`; it commits onto this branch after
+  integ is merged with W09h, whose no-operations basis "nothing launched, all zero" replaces the provisional
+  budget settle (coordinator ruling). Red: stop suite with the recorder a no-op, 2 fail; migration with the worker
+  clause removed, 1 fail. Green: stop suite 37/0 (PGlite), PostgreSQL old-shape migration 1/0.
+- Q5 revised (coordinator, 2026-09-27): Q5 said "no stop row". C03 decides it: capacity is freed only on a
+  supervisor's signed word, and a held lease does not prove nothing started, because the remote runtime launches
+  before acknowledgeStart. So the mechanism that already carries a signed host stop, the stop row and the existing
+  stop worker, is the truthful one. The row is of source `dispatch-refused`, with `attempt_id` NULL (the attempt
+  foreign keys stay; a NULL skips them, so no synthetic launch or execution row exists), `worker_id`, and
+  `cancel_command_id` = the refused `dispatch-node` command, tied together by a CHECK.
+- Lock order: the refused-dispatch stop locks only its stop row. There is no launch row, so
+  FACTORY_STOP_LAUNCH_LOCK_ORDER (the stop row, then the launch row) holds.
+- R9 switches its zero settlement to the same W09h basis at that merge (coordinator ruling): today it settles the
+  budget hold all zero with the pool's rejection digest and records no usage settlement or basis.
+
+## Blocked on W09h (w19a)
+
+- A run stopped while a node waits for compute admission (for example a GPU host queued behind a reimage) never
+  ends: its `cancel-node` names the request-admission command and no stop route settles it. W02d's P3 and P5 head
+  runs proceed only when the host is not queued; the queued-host case waits for W09h.
+
 ## Open
 
 - R2 and R7b: need W16's `pool/gpu-host-profiles.ts` (the registry and its tenant binding).
 - R6: P2 measures a 45 s queue wait after admission.
-- R8: the refused dispatch after admission (O1); options sent to the coordinator.
-- Finding: a run stopped while a node waits for compute admission sends a `cancel-node` no stop route settles
-  (the stop suite pins the refusal), so the run stays stopping and the hold stays `held`. Sent to the coordinator.
+- R8: parked until the W09h merge (above).
