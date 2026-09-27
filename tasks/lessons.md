@@ -1623,3 +1623,6 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 - PostgreSQL returns BIGINT as a string and PGlite as a number. Normalize numeric columns in shared conformance suites, or the PostgreSQL leg fails a correct change.
 - In zsh an unquoted `$files` does not word-split; a loop over it runs once with the whole list. Use `${=files}` or a bash script.
 - The pre-commit hook runs real-PostgreSQL suites for staged test helpers; those belong under the heavy lock, so a scratch proof commit skips only the hook's test step and says so.
+- Cite only captures you have read. I named W01h's failed graph-proof pass as a second site of the boot stall from its symptom alone; its web process had exited 2 ms after start with "Module not found build/index.js", so no product code ran. Before calling another run the same defect, read its logs and find the same signature.
+- In zsh, `echo ===` fails ("== not found") and aborts the rest of a `;` chain; `=word` expands to a command path. Quote separators: `echo '---'`.
+- A deadline test must make the probe ignore its signal. A fake that honours the abort passes even with the deadline race removed, because the deadline also aborts the signal.
