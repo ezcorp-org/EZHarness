@@ -234,6 +234,26 @@ function isNoEvidenceZero(r: FileRec, line: number): boolean {
   return r.straddled.has(line) && r.zeroVerdict.get(line) === "fill";
 }
 
+/**
+ * CALLED-FUNCTION HEADERS. A Node/V8 (Vitest) producer reports a function's
+ * entry count as `FNDA` and writes NO `DA` record for the function's header
+ * line; a bun producer that only imports the same module writes `DA:<header>,0`.
+ * The per-line sum then reads 0 for the header of a function that ran. So an
+ * emitted `DA` record of 0 at the `FN` start line of a function whose merged
+ * `FNDA` is above zero takes that `FNDA` as its hits (the `FNDA` is merged by
+ * the same sum as `DA`). Nothing else changes: a `DA` line that is no `FN`
+ * start keeps its value, no `DA` record is created or restored after the
+ * no-evidence and noise drops, and a function no producer called keeps 0.
+ */
+function calledFunctionHeaders(r: FileRec): Map<number, number> {
+  const credits = new Map<number, number>();
+  for (const [name, line] of r.fn) {
+    const calls = r.fnda.get(name) ?? 0;
+    if (calls > 0) credits.set(line, calls);
+  }
+  return credits;
+}
+
 const [globPat, outPath] = Bun.argv.slice(2);
 if (!globPat || !outPath) {
   console.error("usage: merge-lcov.ts <glob> <output>");
@@ -410,8 +430,10 @@ for (const [sf, r] of sortedFiles) {
     ([lineNo, hits]) => hits > 0 || !isNoEvidenceZero(r, lineNo),
   );
   const filteredDa = await filterNoiseDA(absSrcPath, evidencedDa);
+  const headerCredits = calledFunctionHeaders(r);
   let lh = 0;
-  for (const [lineNo, hits] of filteredDa) {
+  for (const [lineNo, merged] of filteredDa) {
+    const hits = merged === 0 ? (headerCredits.get(lineNo) ?? 0) : merged;
     out.push(`DA:${lineNo},${hits}`);
     if (hits > 0) lh++;
   }

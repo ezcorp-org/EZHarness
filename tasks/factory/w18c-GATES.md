@@ -96,6 +96,70 @@ runner-contracts, external-postgres, browser routes); main's own CI at 31052930d
   12 files. f11d06d03 gates five newly measured routes at 100. b5db5c814 adds a direct suite for
   factory-execution.ts (29 lines were real gaps).
 
+## Tooling fix: merge-lcov credits the header line of a called function (ruling a, 2026-09-27)
+
+CAUSE. A Node/V8 (Vitest) lcov writes `FN` and `FNDA` for a function and no `DA` record for its header line. A bun
+producer that only imports the same module writes `DA:<header>,0`. merge-lcov.ts sums `DA` per line, so the union
+read 0 for the header of a function that ran, and the per-file and patch gates named those headers as misses
+(route-kit.ts 45, 100, 108, 326; console-dispatch.ts 13, 18). This is a tooling fix, not a test gap.
+
+RULE (scripts/merge-lcov.ts, `calledFunctionHeaders`). An emitted `DA` record of 0 whose line is the `FN` start line
+of a function in the same file with merged `FNDA` above zero takes that `FNDA` as its hits (`FNDA` is merged by the
+same sum as `DA`). No other `DA` record changes. No `DA` record is created. A record dropped as a no-evidence zero or
+as noise stays dropped. A function no producer called keeps its header at 0.
+
+TESTS (src/__tests__/gate-scripts.test.ts, red first against the old script: 3 of 5 failed). The artefact case, the
+no-call case, the non-header case, "no DA record is created", and a fixture cut from the real inputs
+(`src/__tests__/fixtures/merge-lcov-function-headers/`, the lcov records as `*.lcov.txt`: the route-kit and console-dispatch records of web, product and
+cov-shard at aa0a5f2d3, with the two sources at aa0a5f2d3). The fixture test asserts that exactly those six lines
+flip and every other DA equals the plain sum.
+
+DIFFERENTIAL (`/tmp/factory-platform-evidence/w18c/fn-header-diff/`, under the lock). The 20 cov-shard inputs of
+aa0a5f2d3 merged in a clean worktree at aa0a5f2d3 with the old and the new script. The old output is byte-identical to
+the recorded merge (sha256 prefix b4e6498a65858ac6). Changed records: 24; every one is an `FN` start line with
+`FNDA` above zero in an input and was 0 before; no line set or LF changed (`differential.txt`).
+  | file:line | function | FNDA evidence | inputs that wrote DA 0 |
+  |---|---|---|---|
+  | web/src/lib/components/FeatureIndex.svelte:473 | get_2 | web.lcov FNDA 6 | browser-routes.lcov, web.lcov |
+  | web/src/lib/components/FeatureIndex.svelte:557 | get_4 | web.lcov FNDA 12 | browser-routes.lcov, web.lcov |
+  | web/src/lib/components/settings/BriefingSettings.svelte:458 | get_4 | web.lcov FNDA 68 | browser-routes.lcov, web.lcov |
+  | web/src/lib/components/settings/SecuritySettings.svelte:140 | get_4 | web.lcov FNDA 4 | browser-routes.lcov, web.lcov |
+  | web/src/lib/components/tool-cards/TimeClockCard.svelte:1 | TimeClockCard | web.lcov FNDA 4 | browser-routes.lcov |
+  | web/src/lib/components/tool-cards/WeatherCard.svelte:1 | WeatherCard | web.lcov FNDA 7 | browser-routes.lcov |
+  | web/src/lib/fuzzy-match.ts:65 | fuzzyMatches | web.lcov FNDA 3 | cov-shard.lcov, product.lcov |
+  | web/src/lib/server/context.ts:242 | (anonymous_14) | web.lcov FNDA 2 | 11 bun inputs, cov-shard among them |
+  | web/src/lib/server/context.ts:510 | getExecutor | web.lcov FNDA 4 | 11 bun inputs, cov-shard among them |
+  | web/src/lib/server/context.ts:515 | getWorkflowExecutor | web.lcov FNDA 3 | 11 bun inputs, cov-shard among them |
+  | web/src/lib/server/context.ts:520 | getBus | web.lcov FNDA 49 | 11 bun inputs, cov-shard among them |
+  | web/src/lib/server/context.ts:525 | getCommandRegistry | web.lcov FNDA 3 | 11 bun inputs, cov-shard among them |
+  | web/src/lib/server/context.ts:536 | getGoalHost | web.lcov FNDA 1 | 11 bun inputs, cov-shard among them |
+  | web/src/lib/server/context.ts:548 | getWorkflows | web.lcov FNDA 1 | 11 bun inputs, cov-shard among them |
+  | web/src/lib/server/context.ts:588 | reloadWorkflows | web.lcov FNDA 2 | 11 bun inputs, cov-shard among them |
+  | web/src/lib/server/factory/console-dispatch.ts:13 | factoryArtifactDownloadPath | web.lcov FNDA 2 | cov-shard.lcov, product.lcov |
+  | web/src/lib/server/factory/console-dispatch.ts:18 | factoryRunKey | web.lcov FNDA 6 | cov-shard.lcov, product.lcov |
+  | web/src/lib/server/factory/route-kit.ts:45 | resolveFactoryPrincipal | web.lcov FNDA 252 | cov-shard.lcov, product.lcov |
+  | web/src/lib/server/factory/route-kit.ts:100 | dispatchRegisteredFactoryRequest | web.lcov FNDA 71 | cov-shard.lcov, product.lcov |
+  | web/src/lib/server/factory/route-kit.ts:108 | factoryResponse | web.lcov FNDA 62 | cov-shard.lcov, product.lcov |
+  | web/src/lib/server/factory/route-kit.ts:326 | registerFactoryErrorFamily | web.lcov FNDA 9 | cov-shard.lcov, product.lcov |
+  | web/src/lib/server/security/internal-auth.ts:176 | revokeInternalKey | web.lcov FNDA 6 | cov-shard.lcov, product.lcov, web-bun.lcov |
+  | web/src/lib/server/security/route-allowlist.ts:61 | routeAllowlistKey | web.lcov FNDA 18 | cov-shard.lcov, product.lcov |
+  | web/src/lib/use-breakpoint.svelte.ts:43 | (anonymous_3) | web.lcov FNDA 244 | browser-routes.lcov, web.lcov |
+
+  Five of the 24 (FeatureIndex.svelte 473 and 557, BriefingSettings.svelte 458, SecuritySettings.svelte 140,
+  use-breakpoint.svelte.ts 43) have `DA 0` from web.lcov itself next to its own `FNDA` above zero: a compiled Svelte
+  getter whose start line V8 also reports as an unrun statement. The rule credits them as written; none is a
+  feature file.
+
+  | gate (BASE_REF=origin/main, inputs of aa0a5f2d3) | before | after |
+  |---|---|---|
+  | global floor | 97.31%, exit 0 | 97.32%, exit 0 |
+  | per-file | 96 files, exit 1 | 94 files, exit 1: route-kit and console-dispatch leave; internal-auth 176 and route-allowlist 61 leave the miss lists |
+  | new-file | exit 0 | exit 0 |
+  | patch | 6 files, exit 1 | 4 files, exit 1: route-kit and console-dispatch leave |
+  | CRAP --changed | exit 1 (validation.ts 38, split later in 7fc4426ed) | same |
+
+  The per-file reds that remain in this 20-input set are the producer gaps the CI extras close (see G4).
+
 ## Gates
 
 - [ ] G1: every feature-new file has direct behaviour tests (routes, components, kernel-types, two scripts).

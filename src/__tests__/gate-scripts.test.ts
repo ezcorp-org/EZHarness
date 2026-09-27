@@ -1311,6 +1311,158 @@ describe("merge-lcov: refuses to write an empty merge", () => {
   });
 });
 
+// ── merge-lcov: the header line of a called function ───────────────────────
+// A Node/V8 producer writes FNDA for a function and no DA for its header line;
+// a bun producer that only imports the module writes DA:<header>,0. The merge
+// must credit the header from the merged FNDA, and change nothing else.
+describe("merge-lcov: a called function's header line counts as hit", () => {
+  const REPO_ROOT_ML = join(import.meta.dir, "..", "..");
+  const FIXTURE_DIR = join(import.meta.dir, "fixtures", "merge-lcov-function-headers");
+  const SOURCE = [
+    "export function called(a: number): number {",
+    "  const b = a + 1;",
+    "  return b * 2;",
+    "}",
+    "export function neverCalled(a: number): number {",
+    "  const b = a - 1;",
+    "  return b * 3;",
+    "}",
+    "",
+  ].join("\n");
+
+  type LcovRec = { fn: Map<string, number>; fnda: Map<string, number>; da: Map<number, number> };
+  function parseRecords(text: string): Map<string, LcovRec> {
+    const out = new Map<string, LcovRec>();
+    let cur: LcovRec | null = null;
+    for (const line of text.split("\n")) {
+      if (line.startsWith("SF:")) {
+        cur = out.get(line.slice(3)) ?? { fn: new Map(), fnda: new Map(), da: new Map() };
+        out.set(line.slice(3), cur);
+      } else if (!cur) continue;
+      else if (line.startsWith("FN:")) {
+        const [n, name] = line.slice(3).split(",");
+        cur.fn.set(name!, Number(n));
+      } else if (line.startsWith("FNDA:")) {
+        const [h, name] = line.slice(5).split(",");
+        cur.fnda.set(name!, (cur.fnda.get(name!) ?? 0) + Number(h));
+      } else if (line.startsWith("DA:")) {
+        const [n, h] = line.slice(3).split(",");
+        cur.da.set(Number(n), (cur.da.get(Number(n)) ?? 0) + Number(h));
+      }
+    }
+    return out;
+  }
+
+  /** Write the inputs into a sandbox, merge them, and return the merged records. */
+  function merge(inputs: Record<string, string>, sources: Record<string, string>) {
+    const dir = mkdtempSync(join(tmpdir(), "merge-lcov-fn-header-"));
+    try {
+      for (const [rel, text] of Object.entries(sources)) {
+        mkdirSync(join(dir, rel, ".."), { recursive: true });
+        writeFileSync(join(dir, rel), text);
+      }
+      mkdirSync(join(dir, "in"));
+      for (const [name, text] of Object.entries(inputs)) {
+        writeFileSync(join(dir, "in", name), text.replaceAll("@ROOT@", dir));
+      }
+      const out = join(dir, "merged.info");
+      const proc = Bun.spawnSync(["bun", "scripts/merge-lcov.ts", join(dir, "in", "*.lcov"), out], {
+        cwd: REPO_ROOT_ML,
+      });
+      expect(proc.exitCode).toBe(0);
+      const strip = (m: Map<string, LcovRec>) =>
+        new Map([...m].map(([sf, r]) => [sf.replace(`${dir}/`, ""), r]));
+      return {
+        merged: strip(parseRecords(readFileSync(out, "utf8"))),
+        inputs: strip(parseRecords(Object.values(inputs).join("\n").replaceAll("@ROOT@", dir))),
+      };
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  const V8 = (called: number, neverCalled: number) =>
+    [
+      "TN:ezcorp-node-v8",
+      "SF:@ROOT@/mod.ts",
+      "FN:1,called",
+      "FN:5,neverCalled",
+      `FNDA:${called},called`,
+      `FNDA:${neverCalled},neverCalled`,
+      `DA:2,${called}`,
+      `DA:3,${called}`,
+      `DA:6,${neverCalled}`,
+      `DA:7,${neverCalled}`,
+      "end_of_record",
+      "",
+    ].join("\n");
+  const BUN_IMPORT_ONLY = ["TN:", "SF:@ROOT@/mod.ts", "DA:1,0", "DA:2,0", "DA:3,0", "DA:5,0", "end_of_record", ""].join("\n");
+
+  test("artefact: FNDA above zero in one producer and DA 0 for the header in another → header hit by FNDA", () => {
+    const { merged } = merge({ "v8.lcov": V8(4, 0), "bun.lcov": BUN_IMPORT_ONLY }, { "mod.ts": SOURCE });
+    const r = merged.get("mod.ts")!;
+    expect(r.fnda.get("called")).toBe(4);
+    expect(r.da.get(1)).toBe(4);
+    expect(r.da.get(2)).toBe(4);
+    expect(r.da.get(3)).toBe(4);
+  });
+
+  test("no call: FNDA 0 in every producer → the header DA stays 0", () => {
+    const { merged } = merge({ "v8.lcov": V8(4, 0), "bun.lcov": BUN_IMPORT_ONLY }, { "mod.ts": SOURCE });
+    const r = merged.get("mod.ts")!;
+    expect(r.fnda.get("neverCalled")).toBe(0);
+    expect(r.da.get(5)).toBe(0);
+    expect(r.da.get(6)).toBe(0);
+    expect(r.da.get(7)).toBe(0);
+  });
+
+  test("not a header: a DA 0 on a line that is no FN start stays 0 next to a called function", () => {
+    const v8 = V8(4, 0).replace("DA:3,4", "DA:3,0");
+    const { merged } = merge({ "v8.lcov": v8, "bun.lcov": BUN_IMPORT_ONLY }, { "mod.ts": SOURCE });
+    const r = merged.get("mod.ts")!;
+    expect(r.da.get(1)).toBe(4);
+    expect(r.da.get(3)).toBe(0);
+  });
+
+  test("no DA record is created for a header that no producer names", () => {
+    const { merged } = merge({ "v8.lcov": V8(4, 2) }, { "mod.ts": SOURCE });
+    const r = merged.get("mod.ts")!;
+    expect(r.da.has(1)).toBe(false);
+    expect(r.da.has(5)).toBe(false);
+  });
+
+  test("real inputs (cov-shard at aa0a5f2d3): exactly the six header lines flip, every other DA is the plain sum", () => {
+    const read = (f: string) => readFileSync(join(FIXTURE_DIR, f), "utf8");
+    const { merged, inputs } = merge(
+      { "web.lcov": read("web.lcov.txt"), "product.lcov": read("product.lcov.txt"), "cov-shard.lcov": read("cov-shard.lcov.txt") },
+      {
+        "web/src/lib/server/factory/route-kit.ts": read("route-kit.ts.src"),
+        "web/src/lib/server/factory/console-dispatch.ts": read("console-dispatch.ts.src"),
+      },
+    );
+    const flipped: string[] = [];
+    for (const [sf, r] of merged) {
+      const plain = inputs.get(sf)!;
+      for (const [line, hits] of r.da) {
+        if (hits === plain.da.get(line)) continue;
+        const fn = [...r.fn].find(([, start]) => start === line)?.[0];
+        expect(plain.da.get(line)).toBe(0);
+        expect(fn).toBeDefined();
+        expect(hits).toBe(r.fnda.get(fn!)!);
+        flipped.push(`${sf.split("/").pop()}:${line}`);
+      }
+    }
+    expect(flipped.sort()).toEqual([
+      "console-dispatch.ts:13",
+      "console-dispatch.ts:18",
+      "route-kit.ts:100",
+      "route-kit.ts:108",
+      "route-kit.ts:326",
+      "route-kit.ts:45",
+    ]);
+  });
+});
+
 // ── check-coverage: wildcard whole-tree dropout ─────────────────────────────
 describe("check-coverage: wildcardTreeDropouts", () => {
   test("tree present in lcov → no dropout (even when shadowed by specific keys)", () => {
