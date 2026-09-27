@@ -42,7 +42,7 @@ W03f, G6 and the combined run. Same class as the W01g reference-data pack that m
   1 fail. Green at the head: 7 pass, 0 fail. The pool runs `scripts/**/*.test.ts`, so CI runs both.
   EVIDENCE: `logs/guard-red-at-base.log`, `logs/lib-tests.log`, `receipts/`.
 - [x] G4: The runbook mock pass at the head, under the lock, plus the graph-proof suites and builds.
-  EVIDENCE: `receipts/runbook-mock.json` (@@RUNBOOK@@), `receipts/graph-proof-suites.json`, `receipts/sdk-build.json`.
+  EVIDENCE: `receipts/runbook-mock.json` (outcome "passed", failure null; gate 17 GiB / 5 GiB / 125 GB; head `bbdf9f9d3`, dirty 0). Every receipt leg exits 0: SDK build, guard 7 pass, graph-proof suites 22 pass, typecheck, lint, boundaries, gate integrity, web build, `receipts/graph-proof-suites.json`, `receipts/sdk-build.json`.
 - [x] G5: Static checks and coverage. Typecheck, lint, factory boundaries and gate integrity pass.
   The helper is at 100% lines and functions from its own tests. The changed lines of
   `guest-package.ts` run in the guard. Neither file is in the coverage gate's source set, which
