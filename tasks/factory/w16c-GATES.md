@@ -11,8 +11,9 @@ Live captures on W16's fleet (hold r1, tenant-07, 03:42Z) showed a product
 process that finished migrating, kept its database sessions idle and its timers
 running, and never logged "[factory] composed" nor opened its HTTP port: its
 healthcheck reported "starting" for the provisioner's whole ten-minute wait
-while its orchestrator crash-looped. W01h's graph-proof pass stalled the same
-way (orchestration "starting" through its wait). Nothing bounded the steps
+while its orchestrator crash-looped. (An earlier draft also cited W01h's
+graph-proof pass; that pass ran without a web build and never started the
+product, so it is not a second site.) Nothing bounded the steps
 between bundled staging and "composed", and nothing named them. Two related
 defects were read from the code: the boot migrate advisory lock was taken with
 no timeout and no log line, and (W16's fleet only) the harness stop grace (20 s)
