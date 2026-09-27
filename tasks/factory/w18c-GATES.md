@@ -214,8 +214,11 @@ on main. No test was written for them. The manifest above now makes the runner r
   `heavy/merge-c3da32784-suites/summary.txt`): 65 of 67 entries green with nonzero counts. Two marked red:
   - mock-cleanup-coverage.test.ts, 33 pass and 1 fail: a W18c defect, not the merge. The resolver fixture in
     combined-runner-legs.test.ts (479a9a0cb) held the string 'mock.module("../mod.ts", ...)', which the meta-test
-    scans as a real mock with no snapshot. Fixed in f40024e7e by single-quoting the fixture's specifier (no
-    exemption); the meta-test went from 32/1 to 33/0.
+    scans as a real mock with no snapshot. The fixture now builds the call name at run time, so the source never
+    holds the literal token (a single-quote variant was refused: it relied on the scanner not reading single quotes).
+    The meta-test and MODULE_PATHS are unchanged and nothing is exempted; the meta-test went from 32/1 to 33/0, the
+    guard stays 8/0, and the fixture's mock now names its own file, so the resolver's mock reading is tested apart
+    from its import reading.
   - factory-orchestrator package: a receipt-parser defect, not a red. node --test reported 91 pass and 0 fail with
     exit 0; the counter read only the TAP "# pass" form. Re-counted from the saved log (`corrections.txt`).
   The suite rerun after the fix waits for the coordinator's word on the lock.

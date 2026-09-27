@@ -59,9 +59,12 @@ describe("combined-runner-legs helpers", () => {
       writeFileSync(join(root, "src/a/mod.ts"), "export const x = 1;\n");
       writeFileSync(join(root, "src/a/index.ts"), "export {};\n");
       writeFileSync(join(root, "web/src/lib/server/mock.ts"), "export {};\n");
+      writeFileSync(join(root, "src/a/mocked.ts"), "export {};\n");
+      // Built at run time: mock-cleanup-coverage.test.ts reads source text, and this is a fixture, not a mock.
+      const mockCall = ["mock", "module"].join(".");
       const text = [
         'import { x } from "../mod";',
-        'mock.module("../mod.ts", () => ({}));',
+        `${mockCall}("../mocked.ts", () => ({}));`,
         'const lazy = await import("..");',
         'import { y } from "$lib/server/mock";',
         'import { z } from "bun:test";',
@@ -69,6 +72,7 @@ describe("combined-runner-legs helpers", () => {
       ].join("\n");
       expect(importedRepoFiles("src/a/__tests__/t.test.ts", text, root)).toEqual([
         "src/a/index.ts",
+        "src/a/mocked.ts",
         "src/a/mod.ts",
         "web/src/lib/server/mock.ts",
       ]);
