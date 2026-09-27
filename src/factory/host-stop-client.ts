@@ -89,8 +89,10 @@ export function parseFactoryHostStopReceipt(value: unknown, hostId: string): Fac
 /**
  * The concrete authenticated host stop transport.
  *
- * It carries only the sealed physical coordinates: the cancel command, the run,
- * and the tenant's own references never leave the product. Mutual TLS is the
+ * It carries only the sealed physical coordinates and the tenant id the host
+ * checks against the calling peer (W01i; the launch intent already carries it):
+ * the cancel command, the run, and the tenant's own references never leave the
+ * product. Mutual TLS is the
  * authentication, and the reply is a fact the host signed with a key this
  * process does not hold.
  */
@@ -103,7 +105,7 @@ export async function createFactoryHostStopClient(options: FactoryHostStopClient
       const body = {
         attemptId: request.attemptId, reservationId: request.reservationId, workerId: request.workerId,
         holderGeneration: request.holderGeneration, allocationGeneration: request.allocationGeneration,
-        hostId: request.hostId, reason: request.reason,
+        hostId: request.hostId, reason: request.reason, tenantId: request.cancelReference.tenantId,
       };
       let response: Awaited<ReturnType<typeof transport.request>>;
       try {

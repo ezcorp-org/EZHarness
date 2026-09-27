@@ -69,7 +69,7 @@ test("the host signs a real mutual-TLS stop, rotates its key without a restart, 
       return unsigned(drift ? { ...command, attemptId: "another-attempt" } : command, stoppedAtMs);
     },
   };
-  const handler = createFactoryHostStopRouteHandler({ hostId, allowedPeers: ["tenant-a"], supervisor, signingKey, stopTimeoutMs: 2_000 });
+  const handler = createFactoryHostStopRouteHandler({ hostId, peerTenants: { "tenant-a": "tenant-a" }, supervisor, signingKey, stopTimeoutMs: 2_000 });
   const service = startFactoryPrivateHttps({ tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca }, handle: handler });
   try {
     const paths = await clientSecrets(root, certs);
@@ -158,8 +158,8 @@ test("refuses malformed host signing material and every non-receipt reply", asyn
   await expect(loadFactoryHostSigningKey(good)).rejects.toThrow("oversized");
 
   const supervisor = { async stop(command: FactoryHostStopCommand) { return unsigned(command, 1); } };
-  expect(() => createFactoryHostStopRouteHandler({ hostId, allowedPeers: [], supervisor, signingKey: good })).toThrow("authorized peer");
-  expect(() => createFactoryHostStopRouteHandler({ hostId, allowedPeers: ["tenant-a"], supervisor, signingKey: { ...good, hostId: "other" } })).toThrow("authorized peer");
+  expect(() => createFactoryHostStopRouteHandler({ hostId, peerTenants: {}, supervisor, signingKey: good })).toThrow("authorized peer");
+  expect(() => createFactoryHostStopRouteHandler({ hostId, peerTenants: { "tenant-a": "tenant-a" }, supervisor, signingKey: { ...good, hostId: "other" } })).toThrow("authorized peer");
 
   const valid = { schemaVersion: "factory.physical-stop.v1", attemptId, reservationId: "r", workerId: "w", holderGeneration: 1, allocationGeneration: 1, processGroupAbsent: true, stoppedAtMs: 5, reason: "cancelled", hostId, hostKeyId: "k", hostSignature: "s", receiptDigest: "d" };
   expect(parseFactoryHostStopReceipt(valid, hostId)).toMatchObject({ attemptId, hostId });

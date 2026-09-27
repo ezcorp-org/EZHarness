@@ -9,7 +9,7 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import type { FactoryRunnerResult } from "@ezcorp/factory-sdk";
 import type { FactoryPrivateRequest } from "../private-https";
-import { factoryLaunchCompletedResult, factoryLaunchLease, factoryLaunchPackage, factoryLaunchRequest } from "../../__tests__/helpers/factory-attempt-launch-fixture";
+import { factoryLaunchCompletedResult, factoryLaunchLease, factoryLaunchPackage, factoryLaunchRequest, factoryLaunchPeerTenants } from "../../__tests__/helpers/factory-attempt-launch-fixture";
 import { FactoryAttemptRuntimeError, factoryAttemptLaunchIntentToWire, snapshotIntent } from "./attempt-wire";
 import {
   FACTORY_HOST_ATTACH_PATH,
@@ -20,6 +20,7 @@ import {
   type FactoryHostLaunchReport,
   type FactoryHostLaunchSupervisor,
 } from "./host-launch-service";
+import { FactoryHostGuestTenants } from "./host-peer-tenants";
 
 const hostId = factoryLaunchLease.hostId;
 const request = factoryLaunchRequest({ attemptId: "attempt-route" });
@@ -48,7 +49,7 @@ const untilAborted = (signal: AbortSignal) => new Promise<never>((_resolve, reje
 
 function route(result: (signal: AbortSignal) => Promise<FactoryRunnerResult>, windows: { launchTimeoutMs?: number; resultTimeoutMs?: number } = {}) {
   const reports: FactoryHostLaunchReport[] = [];
-  const handle = createFactoryHostLaunchRouteHandler({ hostId, allowedPeers: ["tenant-a"], supervisor: supervisor(result), report: (entry) => { reports.push(entry); }, ...windows });
+  const handle = createFactoryHostLaunchRouteHandler({ hostId, peerTenants: factoryLaunchPeerTenants(), supervisor: supervisor(result), report: (entry) => { reports.push(entry); }, ...windows });
   return { handle, reports };
 }
 
@@ -132,8 +133,64 @@ describe("the host's log", () => {
     const lines: string[] = [];
     const spy = spyOn(console, "error").mockImplementation((...args: unknown[]) => { lines.push(args.map(String).join(" ")); });
     restore = () => spy.mockRestore();
-    const handle = createFactoryHostLaunchRouteHandler({ hostId, allowedPeers: ["tenant-a"], supervisor: supervisor(async () => { throw new FactoryAttemptRuntimeError("guest_exited", "exited 1"); }) });
+    const handle = createFactoryHostLaunchRouteHandler({ hostId, peerTenants: factoryLaunchPeerTenants(), supervisor: supervisor(async () => { throw new FactoryAttemptRuntimeError("guest_exited", "exited 1"); }) });
     expect((await handle(call(FACTORY_HOST_RESULT_PATH))).status).toBe(502);
     expect(lines).toEqual([`[factory-host-launch] ${JSON.stringify({ path: FACTORY_HOST_RESULT_PATH, status: 502, error: "guest_exited", detail: "exited 1", ...named })}`]);
   });
 });
+
+describe("each peer drives only its own tenant's guests (W01i)", () => {
+  /** A supervisor that counts every call, so a refusal can be shown to happen before any of them. */
+  function counting() {
+    const calls: string[] = [];
+    const handle = { disposition: "started" as const, workerId: intent.workerId, invocationId: intent.invocationId };
+    const counted: FactoryHostLaunchSupervisor = {
+      launch: async () => { calls.push("launch"); return handle; },
+      attach: async () => { calls.push("attach"); return handle; },
+      result: async () => { calls.push("result"); return factoryLaunchCompletedResult("tenant"); },
+    };
+    return { calls, counted };
+  }
+  const peerTenants = { ...factoryLaunchPeerTenants(), "tenant-b": "tenant-other" };
+
+  for (const path of [FACTORY_HOST_LAUNCH_PATH, FACTORY_HOST_ATTACH_PATH, FACTORY_HOST_RESULT_PATH]) {
+    test(`${path}: a peer bound to another tenant is refused forbidden_tenant before the supervisor is called`, async () => {
+      const { calls, counted } = counting();
+      const guestTenants = new FactoryHostGuestTenants();
+      const reports: FactoryHostLaunchReport[] = [];
+      const handle = createFactoryHostLaunchRouteHandler({ hostId, peerTenants, supervisor: counted, guestTenants, report: (entry) => { reports.push(entry); } });
+      const response = await handle(call(path, "tenant-b"));
+      expect(response.status).toBe(403);
+      expect(body(response)).toEqual({ error: "forbidden_tenant" });
+      expect(calls).toEqual([]);
+      expect(guestTenants.of(intent.workerId)).toBeUndefined();
+      expect(reports).toEqual([{ path, status: 403, error: "forbidden_tenant", detail: "forbidden_tenant", ...named }]);
+    });
+
+    test(`${path}: the peer bound to the intent's tenant goes through and its guest's tenant is recorded`, async () => {
+      const { calls, counted } = counting();
+      const guestTenants = new FactoryHostGuestTenants();
+      const handle = createFactoryHostLaunchRouteHandler({ hostId, peerTenants, supervisor: counted, guestTenants, report: () => {} });
+      expect((await handle(call(path))).status).toBe(200);
+      expect(calls).toEqual([path === FACTORY_HOST_LAUNCH_PATH ? "launch" : path === FACTORY_HOST_ATTACH_PATH ? "attach" : "result"]);
+      expect(guestTenants.of(intent.workerId)).toBe(request.authority.tenantId);
+    });
+  }
+
+  test("an unknown peer stays 401 unauthorized and reaches nothing", async () => {
+    const { calls, counted } = counting();
+    const handle = createFactoryHostLaunchRouteHandler({ hostId, peerTenants, supervisor: counted, report: () => {} });
+    const response = await handle(call(FACTORY_HOST_LAUNCH_PATH, "tenant-unknown"));
+    expect(response.status).toBe(401);
+    expect(body(response)).toEqual({ error: "unauthorized" });
+    expect(calls).toEqual([]);
+  });
+
+  test("a host with no peer bound to a tenant does not start", () => {
+    const { counted } = counting();
+    for (const broken of [{}, { "tenant-a": "" }] as Readonly<Record<string, string>>[]) {
+      expect(() => createFactoryHostLaunchRouteHandler({ hostId, peerTenants: broken, supervisor: counted })).toThrow("authorized peer");
+    }
+  });
+});
+
