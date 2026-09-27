@@ -9,6 +9,7 @@ import {
   factoryUsageSettlementDigest,
   factoryUsageSettlementEventId,
   factoryUsageSettlementIsIntact,
+  FACTORY_USAGE_NO_OPERATIONS_BASIS,
   FACTORY_USAGE_SETTLEMENT_CODES,
   FACTORY_USAGE_SETTLEMENT_SCHEMA_VERSION,
   FactoryUsageSettlementError,
@@ -124,4 +125,34 @@ test("binds the settlement store and its reconciler to one tenant", () => {
   const budgets = { async settleInTransaction() { throw new Error("unused"); } };
   expect(() => new FactoryUsageReconciliation(database, "other-tenant", scopes, journal, budgets, settlements)).toThrow("factory_usage_settlement_scope");
   expect(new FactoryUsageReconciliation(database, "tenant", scopes, journal, budgets, settlements).tenantId).toBe("tenant");
+});
+
+test("seals a no-operations zero bound to its signed stop, and nothing else under that source", () => {
+  const stopReceiptDigest = `sha256:${"c".repeat(64)}`;
+  const settlement = buildFactoryUsageSettlement(input({ source: "no-operations", knownCostMicros: "0", stopReceiptDigest }));
+  expect(settlement).toMatchObject({ source: "no-operations", knownCostMicros: "0", stopReceiptDigest, revision: 1, basis: FACTORY_USAGE_NO_OPERATIONS_BASIS });
+  expect(FACTORY_USAGE_NO_OPERATIONS_BASIS).toBe("no-operations: compute at reserved bound");
+  // The basis is derived from the source: no other settlement carries one.
+  expect(buildFactoryUsageSettlement(input()).basis).toBeUndefined();
+  expect(settlement.unknownCostMicros).toBeUndefined();
+  expect(settlement.providerReceiptDigest).toBeUndefined();
+  expect(settlement.event).toMatchObject({ kind: "usage-settled", knownCostMicros: "0" });
+  expect(settlement.event.unknownCostMicros).toBeUndefined();
+  expect(factoryUsageSettlementIsIntact(settlement)).toBe(true);
+  // The stop receipt is part of the sealed body: swapping it breaks the digest.
+  expect(factoryUsageSettlementIsIntact({ ...settlement, stopReceiptDigest: `sha256:${"d".repeat(64)}` })).toBe(false);
+  // So is the basis: a record that drops it no longer hashes to its own body.
+  const { basis: _dropped, ...withoutBasis } = settlement;
+  expect(factoryUsageSettlementIsIntact(withoutBasis)).toBe(false);
+  // Only a zero, only with its stop, and never with a held cost or a provider receipt.
+  expect(rejection({ source: "no-operations", knownCostMicros: "0" })).toBe("factory_usage_settlement_receipt_invalid");
+  expect(rejection({ source: "no-operations", knownCostMicros: "0", stopReceiptDigest: "c".repeat(64) })).toBe("factory_usage_settlement_receipt_invalid");
+  expect(rejection({ source: "no-operations", knownCostMicros: "0", stopReceiptDigest: 7 as never })).toBe("factory_usage_settlement_receipt_invalid");
+  expect(rejection({ source: "no-operations", knownCostMicros: "1", stopReceiptDigest })).toBe("factory_usage_settlement_invalid");
+  expect(rejection({ source: "no-operations", knownCostMicros: "0", unknownCostMicros: "5", stopReceiptDigest })).toBe("factory_usage_settlement_invalid");
+  expect(rejection({ source: "no-operations", knownCostMicros: "0", providerReceiptDigest: receipt, stopReceiptDigest })).toBe("factory_usage_settlement_invalid");
+  // A stop receipt never rides on a measured or reconciled settlement.
+  expect(rejection({ source: "stop", stopReceiptDigest })).toBe("factory_usage_settlement_receipt_invalid");
+  expect(rejection({ source: "reconciliation", providerReceiptDigest: receipt, stopReceiptDigest })).toBe("factory_usage_settlement_receipt_invalid");
+  expect(rejection({ source: "estimate" as never })).toBe("factory_usage_settlement_invalid");
 });

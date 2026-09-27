@@ -3115,6 +3115,8 @@ export async function migrate(db: MigrateDb): Promise<void> {
   await addFactoryUsageSettlements(db);
   const { up: addFactoryUsageReceiptC02Form } = await import("./migrations/add-factory-usage-receipt-c02-form");
   await addFactoryUsageReceiptC02Form(db);
+  const { up: addFactoryUsageNoOperations } = await import("./migrations/add-factory-usage-no-operations");
+  await addFactoryUsageNoOperations(db);
   const { up: addFactoryAdmissionOrigin } = await import("./migrations/add-factory-admission-origin");
   await addFactoryAdmissionOrigin(db);
   const { up: addFactoryValidatorAdmissionEvent } = await import("./migrations/add-factory-validator-admission-event");

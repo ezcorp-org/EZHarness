@@ -81,11 +81,16 @@ interface FakeSqlClient {
   release?: () => void;
 }
 
+/** A fake driver's answer: the bounded migrate lock's try-lock takes the lock; everything else returns no rows. */
+function grant(strings: TemplateStringsArray): Promise<unknown[]> {
+  return Promise.resolve(strings.join("").includes("pg_try_advisory_lock") ? [{ locked: true }] : []);
+}
+
 function createReservedClient(events: string[]): FakeSqlClient {
   return Object.assign(
     (strings: TemplateStringsArray): Promise<unknown[]> => {
       events.push(strings.join("?"));
-      return Promise.resolve([]);
+      return grant(strings);
     },
     { release: () => { events.push("release"); } },
   );
@@ -121,7 +126,7 @@ function createFakePool(client?: FakeSqlClient): FakePool {
     $client: client ?? Object.assign(
       (strings: TemplateStringsArray, ..._v: unknown[]): Promise<unknown[]> => {
         sqlCalls.push(strings.join("?"));
-        return Promise.resolve([]);
+        return grant(strings);
       },
       {
         close: async (): Promise<void> => {
@@ -205,7 +210,7 @@ describe("initPostgres — external Postgres boot path (unit, mocked driver)", (
     expect(migrateCalls).toBe(1);
 
     // The advisory lock bracketed the migrate on the Bun.sql client.
-    expect(sqlCalls.some((s) => s.includes("pg_advisory_lock"))).toBe(true);
+    expect(sqlCalls.some((s) => s.includes("pg_try_advisory_lock"))).toBe(true);
     expect(sqlCalls.some((s) => s.includes("pg_advisory_unlock"))).toBe(true);
 
     // applyBunSqlJsonbFix() swapped drizzle's jsonb mapper for identity.
@@ -243,7 +248,7 @@ describe("initPostgres — external Postgres boot path (unit, mocked driver)", (
     // the main external handle, so migration callers keep the { rows } shape.
     const normalized = (await migrationDb.execute()) as unknown as { rows: unknown[] };
     expect(normalized).toEqual({ rows: [] });
-    expect(events[0]).toContain("pg_advisory_lock");
+    expect(events[0]).toContain("pg_try_advisory_lock");
     expect(events[1]).toContain("pg_advisory_unlock");
     expect(events[2]).toBe("release");
 
@@ -267,7 +272,7 @@ describe("withPostgresMigrateLock — reserved migration failure cleanup (unit, 
         expect(migrationDb).toBe(reservedMigrationPools.at(-1));
         throw new Error("migration failed");
       })).rejects.toThrow("migration failed");
-      expect(events[0]).toContain("pg_advisory_lock");
+      expect(events[0]).toContain("pg_try_advisory_lock");
       expect(events[1]).toContain("pg_advisory_unlock");
       expect(events[2]).toBe("release");
     } finally {

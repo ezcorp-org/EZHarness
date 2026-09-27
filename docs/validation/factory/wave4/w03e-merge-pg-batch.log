@@ -1,0 +1,16 @@
+=== heavy batch 2026-09-26T00:29:36Z
+HEAD 97423ce17c44c165cc060473b0bc0cbd9d693f27 MERGE_HEAD c6dbc321ce88f8806fe2895ed0e901d2026acf42 index-tree ee1846d82f2068520b40f8c58eb10578f4f4bd06 umask 0077
+df: /dev/nvme0n1p2  1.8T  1.6T  113G  94% /
+resource-gate 2026-09-26T00:29:36Z pg-factory-task-stops disk=113G memAvailable=17GiB swapFreeKiB=7153792/17173956
+--- START pg-factory-task-stops 2026-09-26T00:29:36Z
+--- END   pg-factory-task-stops 2026-09-26T00:29:47Z exit=0  25 pass 0 fail 
+resource-gate 2026-09-26T00:29:47Z pg-factory-migration-restart disk=113G memAvailable=17GiB swapFreeKiB=7154048/17173956
+--- START pg-factory-migration-restart 2026-09-26T00:29:47Z
+--- END   pg-factory-migration-restart 2026-09-26T00:30:06Z exit=0  18 pass 0 fail 
+resource-gate 2026-09-26T00:30:06Z pg-factory-schema disk=113G memAvailable=17GiB swapFreeKiB=7154404/17173956
+--- START pg-factory-schema 2026-09-26T00:30:06Z
+--- END   pg-factory-schema 2026-09-26T00:30:12Z exit=0  2 pass 0 fail 
+resource-gate 2026-09-26T00:30:12Z pg-factory-budgets disk=113G memAvailable=17GiB swapFreeKiB=7154456/17173956
+--- START pg-factory-budgets 2026-09-26T00:30:12Z
+--- END   pg-factory-budgets 2026-09-26T00:30:17Z exit=0  13 pass 0 fail 
+BATCH DONE status=0 2026-09-26T00:30:17Z
