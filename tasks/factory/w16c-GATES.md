@@ -50,6 +50,11 @@ is shorter than its own 25 s shutdown hard timeout.
   EXPECT: every leg exit 0
   EVIDENCE: hold c1 at ca68c6de5 (06:58Z to 07:00Z), 14 receipts, all exit 0, clean at start: PostgreSQL 20/0 (migrate-lock, factory-schema, factory-restore), focused 143/0, web factory-boot 13, boundary suites 48/0; patch coverage 7 files, no new source file; typecheck, lint, boundaries, gate integrity 0
 
+- [x] G7: Fix round after validator-4's review (test-only). L1: the HangingS3 fake rejects a request without an abortSignal by name, so a store that drops the signal fails at once. New test: an object store whose put never answers and ignores its signal times out as `object_storage_probe_timeout`, and boot still composes (later probes run, runtime phase finishes, admission closed, readiness degraded naming object-storage).
+  CHECK: `bun test ./src/extensions/v4/blobs-s3.test.ts ./src/factory/installation-startup.test.ts ./src/factory/service-probes.test.ts`; mutants: S3 drops the signal; probeWithin without the race; probeWithin without the timer
+  EXPECT: exit 0 at 887b41e55 (79/0); each mutant turns its test red (L1 in 0.4 ms by name; both deadline mutants at the 10 s test timeout)
+  EVIDENCE: `/tmp/factory-platform-evidence/w16c/receipts/` (l1-mutant.log, l1-fixed.log, composes-fixed.log, composes-mutant-no-race.log, composes-mutant-no-timer.log, fix-round-files.log, fix-round-typecheck.log, fix-round-commit.log)
+
 ## Not in W16c (with reason)
 
 - The harness stop grace: the file that sets it, `deploy/factory/compose/installation.yml`, is W16's and does not exist on this base; the repository's other product compose stacks already give the app 30 s. W16 sets its harness grace to 30 s with a test that pins it above `HARD_TIMEOUT_MS` (imported from `web/src/lib/server/shutdown.ts`) when it merges this head.
