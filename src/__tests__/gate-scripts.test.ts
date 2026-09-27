@@ -78,31 +78,72 @@ import {
 } from "../../scripts/check-boundaries.ts";
 import { scratchGitEnv, scratchRepository, withoutGitContext } from "./helpers/scratch-git.ts";
 
-// ── gate-integrity: isolated parser dependency ─────────────────────────────
-describe("gate-integrity: isolated parser dependency", () => {
+// ── gate-integrity: the real gate in a disposable repository ───────────────
+/**
+ * A disposable repository holding only the real gate, its shared config and
+ * its locked parser setup, independent of the caller's branches, remotes,
+ * depth and worktree state. `runGate` runs the real gate there.
+ */
+function gateIntegrityFixture(fixtureRoot: string) {
   const repoRoot = join(import.meta.dir, "..", "..");
+  const repo = scratchRepository(fixtureRoot, { name: "Gate fixture", email: "gate-fixture@example.test" });
+  const { dir: fixture } = repo;
+  mkdirSync(join(fixture, ".github/gate-integrity-deps"), { recursive: true });
+  mkdirSync(join(fixture, "scripts"), { recursive: true });
+  mkdirSync(join(fixture, "src/__tests__"), { recursive: true });
+  for (const relative of [
+    "scripts/gate-integrity.ts",
+    "scripts/coverage-config.ts",
+    "scripts/unified-diff.ts",
+    ".github/gate-integrity-deps/package.json",
+    ".github/gate-integrity-deps/bun.lock",
+  ]) {
+    cpSync(join(repoRoot, relative), join(fixture, relative), { recursive: true });
+  }
+  writeFileSync(join(fixture, "biome.json"), '{ "linter": { "enabled": true } }\n');
+  // With no node_modules in the fixture, Bun auto-installs the gate's `typescript` import: offline it hands
+  // back an empty stub, which is the path the gate must fail closed on. Against the real registry that
+  // fetch hung until the test timed out, or could succeed from the network or the shared cache (a 30 s
+  // flake, 2026-09-27). An unreachable registry and an empty cache keep the case local and deterministic.
+  const offlineCache = mkdtempSync(join(fixtureRoot, "bun-cache-"));
+  const runGate = (nodePath?: string) =>
+    Bun.spawnSync([process.execPath, "scripts/gate-integrity.ts"], {
+      cwd: fixture,
+      env: {
+        ...repo.env,
+        BASE_REF: "gate-base",
+        NODE_PATH: nodePath ?? "",
+        BUN_CONFIG_REGISTRY: "http://127.0.0.1:9/",
+        BUN_INSTALL_CACHE_DIR: offlineCache,
+      },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+  // The locked parser, installed without a network or a package manager: a
+  // real `bun install` here measured the install's wall clock, not the gate,
+  // and once ran past this test's budget under host load (2026-09-26). The
+  // install result is prepared from this checkout's own TypeScript, which
+  // must be exactly the version the gate's frozen lockfile pins.
+  const installLockedParser = () => {
+    const lockedVersion = /"typescript": \["typescript@([^"]+)"/.exec(
+      readFileSync(join(repoRoot, ".github/gate-integrity-deps/bun.lock"), "utf8"),
+    )?.[1];
+    const installed = realpathSync(join(repoRoot, "node_modules/typescript"));
+    expect(lockedVersion).toBeDefined();
+    expect(JSON.parse(readFileSync(join(installed, "package.json"), "utf8")).version).toBe(lockedVersion);
+    const parserPath = join(fixture, ".github/gate-integrity-deps/node_modules");
+    mkdirSync(parserPath);
+    symlinkSync(installed, join(parserPath, "typescript"), "dir");
+    return parserPath;
+  };
+  return { ...repo, fixture, runGate, installLockedParser };
+}
 
+describe("gate-integrity: isolated parser dependency", () => {
   test("fails closed without TypeScript, then parses asserted and vacuous changed tests", () => {
     const fixtureRoot = mkdtempSync(join(tmpdir(), "gate-integrity-parser-"));
     try {
-      const repo = scratchRepository(fixtureRoot, { name: "Gate fixture", email: "gate-fixture@example.test" });
-      const { dir: fixture, git } = repo;
-      mkdirSync(join(fixture, ".github/gate-integrity-deps"), { recursive: true });
-      mkdirSync(join(fixture, "scripts"), { recursive: true });
-      mkdirSync(join(fixture, "src/__tests__"), { recursive: true });
-      // Keep this independent of the caller's branches, remotes, depth and
-      // worktree state. Only the real gate, its real shared config and the
-      // locked parser setup are copied into the disposable repository.
-      for (const relative of [
-        "scripts/gate-integrity.ts",
-        "scripts/coverage-config.ts",
-        "scripts/unified-diff.ts",
-        ".github/gate-integrity-deps/package.json",
-        ".github/gate-integrity-deps/bun.lock",
-      ]) {
-        cpSync(join(repoRoot, relative), join(fixture, relative), { recursive: true });
-      }
-      writeFileSync(join(fixture, "biome.json"), '{ "linter": { "enabled": true } }\n');
+      const { fixture, git, runGate, installLockedParser } = gateIntegrityFixture(fixtureRoot);
       const testPath = join(fixture, "src/__tests__/fixture.test.ts");
       writeFileSync(testPath, 'import { expect, test } from "bun:test";\ntest("base", () => expect(true).toBe(true));\n');
 
@@ -120,24 +161,6 @@ describe("gate-integrity: isolated parser dependency", () => {
       git("commit", "--quiet", "-m", "asserted test");
 
       expect(existsSync(join(fixture, "node_modules"))).toBe(false);
-      // With no node_modules in the fixture, Bun auto-installs the gate's `typescript` import: offline it hands
-      // back an empty stub, which is the path the gate must fail closed on. Against the real registry that
-      // fetch hung until the test timed out, or could succeed from the network or the shared cache (a 30 s
-      // flake, 2026-09-27). An unreachable registry and an empty cache keep the case local and deterministic.
-      const offlineCache = mkdtempSync(join(fixtureRoot, "bun-cache-"));
-      const runGate = (nodePath?: string) => Bun.spawnSync([process.execPath, "scripts/gate-integrity.ts"], {
-        cwd: fixture,
-        env: {
-          ...repo.env,
-          BASE_REF: "gate-base",
-          NODE_PATH: nodePath ?? "",
-          BUN_CONFIG_REGISTRY: "http://127.0.0.1:9/",
-          BUN_INSTALL_CACHE_DIR: offlineCache,
-        },
-        stdout: "pipe",
-        stderr: "pipe",
-      });
-
       // Fails closed both ways the locked parser can be absent: no package at all, and a package that is not
       // the TypeScript compiler API (what an unpinned download handed the gate before this was made local).
       const missingParser = runGate();
@@ -151,20 +174,7 @@ describe("gate-integrity: isolated parser dependency", () => {
       expect(impostorParser.exitCode).toBe(1);
       expect(impostorParser.stderr.toString()).toContain("TypeScript AST parser is unavailable");
 
-      // The locked parser, installed without a network or a package manager: a
-      // real `bun install` here measured the install's wall clock, not the gate,
-      // and once ran past this test's budget under host load (2026-09-26). The
-      // install result is prepared from this checkout's own TypeScript, which
-      // must be exactly the version the gate's frozen lockfile pins.
-      const lockedVersion = /"typescript": \["typescript@([^"]+)"/.exec(
-        readFileSync(join(repoRoot, ".github/gate-integrity-deps/bun.lock"), "utf8"),
-      )?.[1];
-      const installed = realpathSync(join(repoRoot, "node_modules/typescript"));
-      expect(lockedVersion).toBeDefined();
-      expect(JSON.parse(readFileSync(join(installed, "package.json"), "utf8")).version).toBe(lockedVersion);
-      const parserPath = join(fixture, ".github/gate-integrity-deps/node_modules");
-      mkdirSync(parserPath);
-      symlinkSync(installed, join(parserPath, "typescript"), "dir");
+      const parserPath = installLockedParser();
       expect(existsSync(join(fixture, "node_modules"))).toBe(false);
 
       const assertedTest = runGate(parserPath);
@@ -184,6 +194,44 @@ describe("gate-integrity: isolated parser dependency", () => {
       const vacuousTest = runGate(parserPath);
       expect(vacuousTest.exitCode).toBe(1);
       expect(vacuousTest.stderr.toString()).toContain("vacuous test (no assertion)");
+    } finally {
+      rmSync(fixtureRoot, { recursive: true, force: true });
+    }
+  }, 30_000);
+});
+
+describe("gate-integrity: every head-side read comes from the revision it diffs", () => {
+  // The gate numbers added lines from `git diff mergeBase...HEAD`. It used to read the file text from the
+  // working tree, so on a staged, uncommitted merge the numbers were HEAD's and the text was the staged
+  // tree's: an old test that moved onto HEAD's added-line numbers was reported as a new vacuous test
+  // (integrator-2, the staged W16d merge, 2026-09-27: "vacuous test (no assertion) near line 397").
+  test("a staged shift does not move HEAD's added lines onto an old unasserted test", () => {
+    const fixtureRoot = mkdtempSync(join(tmpdir(), "gate-integrity-shift-"));
+    try {
+      const { fixture, git, runGate, installLockedParser } = gateIntegrityFixture(fixtureRoot);
+      const testPath = join(fixture, "src/__tests__/fixture.test.ts");
+      const oldUnasserted = 'test("old unasserted", () => { prepareOnly(); });';
+      writeFileSync(testPath, ['import { expect, test } from "bun:test";', oldUnasserted, ""].join("\n"));
+      git("add", ".");
+      git("commit", "--quiet", "-m", "base");
+      git("branch", "gate-base");
+
+      // HEAD adds one asserted test at lines 2-4, above the old one.
+      const added = ['test("new asserted", () => {', "  expect(1).toBe(1);", "});"];
+      writeFileSync(testPath, ['import { expect, test } from "bun:test";', ...added, oldUnasserted, ""].join("\n"));
+      git("add", "src/__tests__/fixture.test.ts");
+      git("commit", "--quiet", "-m", "asserted test");
+      const parserPath = installLockedParser();
+      expect(runGate(parserPath).exitCode).toBe(0);
+
+      // Staged, not committed: the new test moves below the old one, so HEAD's added lines 2-4 now hold the
+      // old unasserted test in the working tree.
+      writeFileSync(testPath, ['import { expect, test } from "bun:test";', oldUnasserted, ...added, ""].join("\n"));
+      git("add", "src/__tests__/fixture.test.ts");
+      const staged = runGate(parserPath);
+      expect(staged.stderr.toString()).not.toContain("vacuous test");
+      expect(staged.exitCode).toBe(0);
+      expect(staged.stdout.toString()).toContain("Gate integrity PASSED");
     } finally {
       rmSync(fixtureRoot, { recursive: true, force: true });
     }

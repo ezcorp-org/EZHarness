@@ -51,8 +51,6 @@
  * The pure detection helpers are exported for unit testing; main() only wires
  * git + the filesystem.
  */
-import { existsSync } from "node:fs";
-import { resolve } from "node:path";
 import ts from "typescript";
 import { REPO_ROOT } from "./coverage-config.ts";
 import { parseUnifiedDiff } from "./unified-diff.ts";
@@ -1316,6 +1314,25 @@ async function showAtBase(rev: string, path: string): Promise<string | null> {
   throw new Error(`git show ${rev}:${path} failed (exit ${code}): ${err.trim()}`);
 }
 
+/**
+ * The head side of every comparison is the file at HEAD, the revision whose
+ * `mergeBase...HEAD` diff numbers the added lines. Never the working tree: on
+ * a staged, uncommitted merge the numbers are HEAD's while the working-tree
+ * text is the staged tree's, and an old test that moved onto HEAD's added-line
+ * numbers read as a new vacuous test (integrator-2, the staged W16d merge,
+ * 2026-09-27). In CI the working tree is HEAD, so nothing changes there.
+ */
+async function showAtHead(path: string): Promise<string | null> {
+  return showAtBase("HEAD", path);
+}
+
+/** A head-side file the diff says changed and still exists: absent is an error, never "no data". */
+async function readAtHead(path: string): Promise<string> {
+  const content = await showAtHead(path);
+  if (content === null) throw new Error(`${path} is absent at HEAD`);
+  return content;
+}
+
 async function main(): Promise<void> {
   // Check this before any diff shortcut. A missing AST parser must never let a
   // no-test-change PR appear green while later test-changing PRs crash.
@@ -1347,7 +1364,7 @@ async function main(): Promise<void> {
     // that split there is no coverage-config.ts, so fall back to the EXCLUDES at
     // their old inline home — otherwise a verbatim move reads as 100% "growth".
     if (baseSrc === null) baseSrc = await showAtBase(mergeBase, "scripts/check-coverage.ts");
-    const headSrc = await Bun.file(resolve(REPO_ROOT, "scripts/coverage-config.ts")).text();
+    const headSrc = await readAtHead("scripts/coverage-config.ts");
     for (const p of addedExcludes(baseSrc ?? "", headSrc)) {
       violations.push(`EXCLUDES grew: "${p}" — un-gating a file needs the gate-change-approved label`);
     }
@@ -1357,7 +1374,7 @@ async function main(): Promise<void> {
   // every key is new — no ratchet to enforce.
   if (changed.includes("scripts/coverage-thresholds.json")) {
     const baseJson = await showAtBase(mergeBase, "scripts/coverage-thresholds.json");
-    const headJson = await Bun.file(resolve(REPO_ROOT, "scripts/coverage-thresholds.json")).text();
+    const headJson = await readAtHead("scripts/coverage-thresholds.json");
     violations.push(...thresholdRatchetViolations(baseJson ?? "{}", headJson));
   }
 
@@ -1365,7 +1382,7 @@ async function main(): Promise<void> {
   // the mutation score. Same rule as 2, per-key direction (see the function).
   if (changed.includes("scripts/quality-gates.json")) {
     const baseJson = await showAtBase(mergeBase, "scripts/quality-gates.json");
-    const headJson = await Bun.file(resolve(REPO_ROOT, "scripts/quality-gates.json")).text();
+    const headJson = await readAtHead("scripts/quality-gates.json");
     violations.push(...qualityGateRatchetViolations(baseJson ?? "{}", headJson));
   }
 
@@ -1387,12 +1404,11 @@ async function main(): Promise<void> {
   // 9. biome.json content — the LINT gate's un-gating surface.
   if (changed.includes("biome.json")) {
     const baseSrc = await showAtBase(mergeBase, "biome.json");
-    const headPath = resolve(REPO_ROOT, "biome.json");
+    const headSrc = await showAtHead("biome.json");
     // Absent at the merge-base = this PR INTRODUCES the lint config; there is
     // no prior enforcement to weaken. Absent in HEAD = deleted, which check 10
-    // reports from the name-status (and reading it here would just throw).
-    if (baseSrc !== null && existsSync(headPath)) {
-      const headSrc = await Bun.file(headPath).text();
+    // reports from the name-status.
+    if (baseSrc !== null && headSrc !== null) {
       for (const v of biomeGateWeakenings(baseSrc, headSrc)) {
         violations.push(`${v} — needs the gate-change-approved label`);
       }
@@ -1416,9 +1432,8 @@ async function main(): Promise<void> {
   const perFile = parseUnifiedDiff(testDiff);
   for (const [file, info] of perFile) {
     if (!isTestFile(file)) continue;
-    const content = await Bun.file(resolve(REPO_ROOT, file))
-      .text()
-      .catch(() => "");
+    const headContent = await showAtHead(file);
+    const content = headContent ?? "";
     if (content) {
       // Both scans are content-aware so a construct SPLIT ACROSS LINES is still
       // seen; each stays diff-scoped by intersecting `addedLines`.
@@ -1434,7 +1449,7 @@ async function main(): Promise<void> {
     // that is genuinely GONE is check 7's finding, and reporting it twice
     // buries the real signal — retiring `ez-code-factory` produced 44
     // duplicate lines of it before this guard.
-    if (!existsSync(resolve(REPO_ROOT, file))) continue;
+    if (headContent === null) continue;
     const baseContent = await showAtBase(mergeBase, file);
     if (baseContent !== null) {
       const v = testGuttingViolation(info.addedTexts, info.removedTexts, baseContent);
