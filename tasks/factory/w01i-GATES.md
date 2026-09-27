@@ -99,7 +99,7 @@ The same `entry.tenantId` already keys `guestBrokers`, so both sections name the
 | `88fedcf89` | merge integ/w00 d2bc674c7 (W14) so the real-lane stack can be ported; hook cap skip by coordinator ruling 2026-09-27 07:20Z; workspace packages rebuilt first; all 36 listed suites green outside the hook (`logs/merge-integ-suites/`); config hash unchanged |
 | `2f1f2791e` | the real-lane stack (`web/e2e/factory-services/stack.ts`) writes `peerTenants: { "tenant-a": TENANT }` |
 | `124f7043e` | the runtime's post-result stop names its tenant without a cancel command (the lane-found defect below; hook ran its 3 suites under the lock) |
-| `b0152056b` | merge W01h's fix round `aefcf828f` (a stop sealed first owns the attempt's end; no stop-settlement hot loop), the fix for the loop this lane found; clean; the hook ran its 7 suites green; typecheck, boundaries, and W01i's host-route, supervisor, composition and C05 suites green after it (`logs/remerge2/`) |
+| `b0152056b` | merge W01h's fix round `aefcf828f` (a stop sealed first owns the attempt's end; no stop-settlement hot loop), the fix for the loop this lane found; clean; the hook ran its 7 suites green; typecheck, boundaries, and W01i's host-route, supervisor, composition and C05 suites green after it; transport suites under the lock at `4d2b76a84`: guest-broker 13/0, host-launch 6/0, host-stop 2/0, lost-result 4/0 (`logs/remerge2/transport-driver.log`) |
 
 ## The real lane (the coordinator's condition for the e2e stack)
 
@@ -130,6 +130,17 @@ The same `entry.tenantId` already keys `guestBrokers`, so both sections name the
   re-derived as `failed` on every retry (`task-stops.ts:610`) and called corrupt. The W14 baseline lane shows the
   same refused stop but no such loop (its attempt ended unknown). The other background-role lines match the W14
   baseline (usage hold without a receipt, stale epoch, release consent absent).
+
+## Baseline background-role lines from this lane (OPEN, owners ruled by the coordinator 2026-09-27)
+
+Counted in the second lane run's product log (`logs/lane2-processes/web.log`) and in the W14 validator's baseline
+lane at integ, which has no W01h code. Pre-existing; W01h and W01i do not cause them.
+
+| Line | This lane | W14 baseline | Owner |
+| --- | --- | --- | --- |
+| `usage-reconciliation:transient … factory_usage_hold_unresolved: no-operation-receipt` | 157 | 153 | W03f (reserved-bound settlement for unpriced operations, in progress) |
+| `usage-reconciliation:fault … Factory run epoch is stale or unavailable` (the EXECUTION epoch in the run fence, moved by the lane's restore case) | 15 | 15 | W15f, w15b-fix: mark once, name the run and both epochs, no retry storm; this lane's logs are the reproduction |
+| `release-outcome:transient … factory_release_consent_absent` | 21 | 17 | W09e: backpressure by design, but it must back off rather than retry every pass |
 
 ## Open
 
