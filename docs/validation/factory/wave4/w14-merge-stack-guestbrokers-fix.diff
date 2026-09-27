@@ -1,0 +1,14 @@
+diff --git a/web/e2e/factory-services/stack.ts b/web/e2e/factory-services/stack.ts
+index fc22c5e55..5401befc5 100644
+--- a/web/e2e/factory-services/stack.ts
++++ b/web/e2e/factory-services/stack.ts
+@@ -267,7 +267,8 @@ const supervisorConfig = await writePrivate("supervisor.json", JSON.stringify({
+ 	services: {
+ 		hostname: "127.0.0.1", port: hostServicePort, allowedPeers: ["tenant-a"], hostKeyIdPath, tls: serverTls,
+ 		pool: { baseUrl: `https://127.0.0.1:${poolPort}`, serviceTokenPath: supervisorToken, tls: supervisorTls },
+-		guestBroker: { baseUrl: `https://127.0.0.1:${guestBrokerPort}`, serviceTokenPath: guestBrokerToken, tls: supervisorTls },
++		// W16b: one guest-broker route per tenant; this stack runs one tenant.
++		guestBrokers: { [TENANT]: { baseUrl: `https://127.0.0.1:${guestBrokerPort}`, serviceTokenPath: guestBrokerToken, tls: supervisorTls } },
+ 	},
+ }));
+ processes.start("supervisor", BUN, [join(REPO, "src/factory/runner/supervisor-process.ts"), supervisorConfig], { cwd: REPO });
