@@ -26,6 +26,7 @@ Evidence: `/tmp/factory-platform-evidence/w01h/`.
 | `3eabc851b` | defect 5: the PostgreSQL lifecycle case for a denied approval, committed under the lock (test) |
 | `c9baf2f4c` | merge integ/w00 03538e909 (W19b, W16b); only tasks/todo.md conflicted (union); EZ_SKIP_HOOK_TESTS=1 by the merge ruling, its 5 listed suites green in the batch |
 | `a4dc40f3e` | merge integ/w00 97423ce17 (W18a-3, W01k); only tasks/lessons.md conflicted (union); the hook mapped 14 suites (cap 12). EZ_SKIP_HOOK_TESTS=1 on a4dc40f3e; ratified by coordinator ruling 2026-09-26 00:12Z (it was used without a ruling; a skip ruling names one commit): `logs/m4/hook-list.txt` verbatim, 13 unlocked suites exit 0 (`logs/m4/hook/`), factory-compute-admissions under the lock 2/0 (`logs/m4/hook/pg-compute-admissions.log`); shared `.git/config` sha256 `44962525f1ca1a8b…`, core.bare=false, after the git-running suites; typecheck, lint, boundaries, gate-integrity and 25 focused suites exit 0 (`logs/m4/`) |
+| `6f3903666` | merge integ/w00 f7c1290a6 (W03e); only tasks/lessons.md and tasks/todo.md conflicted (union); the hook ran its 4 mapped suites (no skip) |
 | `942a03dac` | the orchestrator's gateway bounds stay above the private service's slow-stop bound (orchestrator); EZ_SKIP_HOOK_TESTS=1 by the lead's ruling, its 4 listed suites run outside the hook |
 | `702bad45d` | defect 5: a stopped approval settles in place; a denied approval ends its run (kernel) |
 
@@ -254,9 +255,23 @@ projection, in one chain.
   transition; a deny beside a running task stops only the task; red without the fix (5 of 10)
   EVIDENCE: `logs/denied-approval-red.log`, `logs/sdk-all-approval.log`, `logs/final/pg-lifecycle-approval.log` (79/0)
 
-- [ ] G16: A lost result carries no invented usage; the no-operations stop settles through W03e.
+- [x] G16: A lost result carries no invented usage; the no-operations stop settles through W03e.
   CHECK: `bun test ./src/factory/runner/remote-attempt-runtime.test.ts`; the fault pass after W03e is merged
   EXPECT: `usage` absent on a lost result with no operation; compute settled at the reserved bound
+  RESULT at `6f3903666` (W03e merged; proof ref `proof/w01h-merged-delay70` f4950dc03; `w01h-merged70.sh` under the
+  lock, gates 6 GiB / 2 GiB swap / 110 GB passed; 2026-09-27 06:37:29Z to 06:39:04Z): run `failed`, RUNNER_CONTAINER_EXIT;
+  `prepare` stopped at its deadline 06:38:58.962Z, run failed 06:39:03.269Z (4.3 s later); the lost result carries no
+  usage; `factory_usage_settlements` source `no-operations`, known cost 0, basis "no-operations: compute at reserved
+  bound"; the stop is `stopped` (certain) and the reservation `settled`. The harness exits 1 because its success
+  checks fail, as a fault pass must. This also re-proves G12 on the runner path W16b changed.
+  EVIDENCE: `logs/merged/driver.log`, `logs/merged/web-build.log`, `graph-merged/merged-delay70.json`,
+  `graph-merged/merged-delay70.rows.json` (lease and token values not copied)
+  NOT A PRODUCT FAILURE: the first 70 s pass at `6f3903666` (2026-09-26 03:55Z to 04:03:48Z) failed "the server never
+  reported ready: orchestration starting" because the W01h driver ran `run.sh pass` in a fresh proof tree without
+  building the web server: `web/build/index.js` was missing, the web process exited 2 ms after start, and the
+  orchestrator got ECONNREFUSED on the product gateway 107 times. No product code ran; "[factory] composed" was never
+  logged; no "background role failed" or bind error. Evidence: `logs/merged/delay70-stall/`,
+  `graph-merged-stall-20260926/`. The driver now builds the web server and stops if the build is missing.
   STATE: the unit half is green (13/0 at `c9baf2f4c`); the 70 s pass on the merged head waits for W03e on integ/w00
   (it also re-proves G12 on the merged runner path: W16b changed supervisor-process.ts and supervisor-services.ts)
 
