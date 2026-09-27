@@ -5,7 +5,7 @@ import { resolve, join } from "node:path";
 import { AbortMultipartUploadCommand, CompleteMultipartUploadCommand, CreateMultipartUploadCommand, GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client, UploadPartCommand } from "@aws-sdk/client-s3";
 import { canonicalJson, validateArtifactFiles, validateWorkspaceFiles, validateWorkspacePath, type WorkspaceFiles } from "@ezcorp/extension-contract";
 import { digestBytes } from "./digest";
-import { LifecycleError, type BlobStore } from "./types";
+import { LifecycleError, type BlobOperationOptions, type BlobStore } from "./types";
 import { idempotencyInputDigest } from "../../idempotency";
 
 export { canonicalJson } from "@ezcorp/extension-contract";
@@ -116,6 +116,11 @@ async function bytesFromBody(body: unknown, contentLength: number | undefined): 
   return bytes;
 }
 
+/** The S3 client's per-request options: an abort signal when the caller gave one. */
+function sendOptions(signal: AbortSignal | undefined): { abortSignal: AbortSignal } | undefined {
+  return signal === undefined ? undefined : { abortSignal: signal };
+}
+
 export class S3BlobStore implements BlobStore {
   private readonly client: Pick<S3Client, "send">;
   private readonly bucket: string;
@@ -140,50 +145,50 @@ export class S3BlobStore implements BlobStore {
     return s3ObjectKey(this.prefix, digest);
   }
 
-  private async verifyExisting(digest: string): Promise<void> {
-    const bytes = await this.get(digest);
+  private async verifyExisting(digest: string, signal?: AbortSignal): Promise<void> {
+    const bytes = await this.get(digest, { signal });
     if (digestBytes(bytes) !== digest) throw new LifecycleError("artifact_corrupt", "Stored S3 content does not match its digest.");
   }
 
-  private async putSingle(key: string, bytes: Uint8Array, checksum: string): Promise<void> {
-    await this.client.send(new PutObjectCommand({ Bucket: this.bucket, Key: key, Body: bytes, IfNoneMatch: "*", ChecksumSHA256: checksum }));
+  private async putSingle(key: string, bytes: Uint8Array, checksum: string, signal?: AbortSignal): Promise<void> {
+    await this.client.send(new PutObjectCommand({ Bucket: this.bucket, Key: key, Body: bytes, IfNoneMatch: "*", ChecksumSHA256: checksum }), sendOptions(signal));
   }
 
-  private async putMultipart(key: string, bytes: Uint8Array): Promise<void> {
-    const created = await this.client.send(new CreateMultipartUploadCommand({ Bucket: this.bucket, Key: key, ChecksumAlgorithm: "SHA256" }));
+  private async putMultipart(key: string, bytes: Uint8Array, signal?: AbortSignal): Promise<void> {
+    const created = await this.client.send(new CreateMultipartUploadCommand({ Bucket: this.bucket, Key: key, ChecksumAlgorithm: "SHA256" }), sendOptions(signal));
     if (!created.UploadId) throw new LifecycleError("artifact_corrupt", "S3 did not create a multipart upload.");
     try {
       const parts: Array<{ ETag: string; PartNumber: number; ChecksumSHA256: string }> = [];
       for (let offset = 0, partNumber = 1; offset < bytes.byteLength; offset += this.multipartPartBytes, partNumber += 1) {
         const part = bytes.subarray(offset, Math.min(bytes.byteLength, offset + this.multipartPartBytes));
-        const uploaded = await this.client.send(new UploadPartCommand({ Bucket: this.bucket, Key: key, UploadId: created.UploadId, PartNumber: partNumber, Body: part, ChecksumSHA256: sha256Base64(part) }));
+        const uploaded = await this.client.send(new UploadPartCommand({ Bucket: this.bucket, Key: key, UploadId: created.UploadId, PartNumber: partNumber, Body: part, ChecksumSHA256: sha256Base64(part) }), sendOptions(signal));
         if (!uploaded.ETag) throw new LifecycleError("artifact_corrupt", "S3 did not return a multipart part identity.");
         parts.push({ ETag: uploaded.ETag, PartNumber: partNumber, ChecksumSHA256: sha256Base64(part) });
       }
-      await this.client.send(new CompleteMultipartUploadCommand({ Bucket: this.bucket, Key: key, UploadId: created.UploadId, MultipartUpload: { Parts: parts }, IfNoneMatch: "*" }));
+      await this.client.send(new CompleteMultipartUploadCommand({ Bucket: this.bucket, Key: key, UploadId: created.UploadId, MultipartUpload: { Parts: parts }, IfNoneMatch: "*" }), sendOptions(signal));
     } catch (error) {
       await this.client.send(new AbortMultipartUploadCommand({ Bucket: this.bucket, Key: key, UploadId: created.UploadId })).catch(() => undefined);
       throw error;
     }
   }
 
-  async put(bytes: Uint8Array): Promise<string> {
+  async put(bytes: Uint8Array, options: BlobOperationOptions = {}): Promise<string> {
     if (bytes.byteLength > MAX_BLOB_BYTES) throw new LifecycleError("artifact_corrupt", "Stored content exceeds the artifact byte limit.");
     const digest = digestBytes(bytes);
     const key = this.key(digest);
     try {
-      if (bytes.byteLength >= this.multipartThresholdBytes) await this.putMultipart(key, bytes);
-      else await this.putSingle(key, bytes, sha256Base64(bytes));
+      if (bytes.byteLength >= this.multipartThresholdBytes) await this.putMultipart(key, bytes, options.signal);
+      else await this.putSingle(key, bytes, sha256Base64(bytes), options.signal);
     } catch (error) {
       if (!isConditionalConflict(error)) throw error;
-      await this.verifyExisting(digest);
+      await this.verifyExisting(digest, options.signal);
     }
     return digest;
   }
 
-  private async getS3Object(digest: string, versionId?: string): Promise<Uint8Array> {
+  private async getS3Object(digest: string, versionId?: string, signal?: AbortSignal): Promise<Uint8Array> {
     try {
-      const result = await this.client.send(new GetObjectCommand({ Bucket: this.bucket, Key: this.key(digest), VersionId: versionId, ChecksumMode: "ENABLED" }));
+      const result = await this.client.send(new GetObjectCommand({ Bucket: this.bucket, Key: this.key(digest), VersionId: versionId, ChecksumMode: "ENABLED" }), sendOptions(signal));
       const bytes = await bytesFromBody(result.Body, result.ContentLength);
       if (digestBytes(bytes) !== digest) throw new LifecycleError("artifact_corrupt", "Stored S3 content does not match its digest.");
       return bytes;
@@ -194,8 +199,8 @@ export class S3BlobStore implements BlobStore {
     }
   }
 
-  async get(digest: string): Promise<Uint8Array> {
-    return this.getS3Object(digest);
+  async get(digest: string, options: BlobOperationOptions = {}): Promise<Uint8Array> {
+    return this.getS3Object(digest, undefined, options.signal);
   }
 
   async getVersion(digest: string, versionId: string): Promise<Uint8Array> {

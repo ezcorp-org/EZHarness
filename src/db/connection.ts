@@ -532,6 +532,61 @@ async function applyBunSqlJsonbFix(): Promise<void> {
 const MIGRATE_ADVISORY_LOCK_KEY = 40_172_026;
 
 /**
+ * How long boot waits for another process's migrate lock before failing by
+ * name. A migrate over an existing schema takes seconds, and a concurrent
+ * peer's (a product process and its gateway booting together) finishes well
+ * inside this; two minutes stays inside the provisioner's ten-minute ready()
+ * wait, so a failed boot and its restart still fit. Waiting forever turned a
+ * held lock into a process that never logged again.
+ */
+export const MIGRATE_LOCK_WAIT_MS = 120_000;
+const MIGRATE_LOCK_POLL_MS = 1_000;
+
+/** Boot gave up waiting for the migrate lock. Carries the holder's backend pid when PostgreSQL named one. */
+export class MigrateLockTimeoutError extends Error {
+  readonly code = "migrate_lock_timeout";
+  readonly holderPid: number | null;
+  constructor(holderPid: number | null, waitedMs: number) {
+    super(`Gave up after ${waitedMs} ms waiting for the migrate lock held by pid ${holderPid ?? "unknown"}.`);
+    this.name = "MigrateLockTimeoutError";
+    this.holderPid = holderPid;
+  }
+}
+
+export interface MigrateLockWait {
+  readonly waitMs?: number;
+  readonly pollMs?: number;
+  readonly now?: () => number;
+  readonly sleep?: (milliseconds: number) => Promise<void>;
+}
+
+/**
+ * Take the migrate lock on `conn`, waiting a bounded time. Each time the
+ * holder changes the wait is logged with the holder's pid, so a boot that
+ * waits says on whom; past the deadline it throws MigrateLockTimeoutError.
+ */
+async function acquireMigrateLock(conn: (strings: TemplateStringsArray, ...values: unknown[]) => Promise<unknown[]>, wait: MigrateLockWait = {}): Promise<void> {
+  const waitMs = wait.waitMs ?? MIGRATE_LOCK_WAIT_MS;
+  const now = wait.now ?? Date.now;
+  const sleep = wait.sleep ?? ((milliseconds: number) => new Promise<void>((settle) => setTimeout(settle, milliseconds)));
+  const deadline = now() + waitMs;
+  let reported: number | null | undefined;
+  for (;;) {
+    const [taken] = await conn`SELECT pg_try_advisory_lock(${MIGRATE_ADVISORY_LOCK_KEY}) AS locked` as Array<{ locked?: unknown }>;
+    if (taken?.locked === true) return;
+    // A single bigint key is stored as classid (high 32 bits) and objid (low 32 bits), objsubid 1.
+    const [holder] = await conn`SELECT pid FROM pg_locks WHERE locktype = 'advisory' AND objsubid = 1 AND objid::bigint = ${MIGRATE_ADVISORY_LOCK_KEY} AND granted AND database = (SELECT oid FROM pg_database WHERE datname = current_database()) LIMIT 1` as Array<{ pid?: unknown }>;
+    const pid = typeof holder?.pid === "number" ? holder.pid : null;
+    if (pid !== reported) {
+      log.warn(`waiting for migrate lock held by pid ${pid ?? "unknown"}`, { holderPid: pid, waitMs });
+      reported = pid;
+    }
+    if (now() >= deadline) throw new MigrateLockTimeoutError(pid, waitMs);
+    await sleep(wait.pollMs ?? MIGRATE_LOCK_POLL_MS);
+  }
+}
+
+/**
  * Run `fn` (the migrate) while holding a cluster-wide advisory lock so two app
  * instances booting concurrently (rolling deploy / scaled replicas) can't
  * interleave migrate()'s non-idempotent statement pairs (DROP/CREATE TRIGGER,
@@ -542,14 +597,20 @@ const MIGRATE_ADVISORY_LOCK_KEY = 40_172_026;
  * equivalent, so this only runs on the external-Postgres path. Exposed via
  * `__test` for the ordering regression test.
  */
-async function withPostgresMigrateLock<T>(fn: (db: Database) => Promise<T>): Promise<T> {
+async function withPostgresMigrateLock<T>(fn: (db: Database) => Promise<T>, wait: MigrateLockWait = {}): Promise<T> {
   // `Database` is `any`, so `$client` — the Bun.sql instance, a callable
   // tagged template that also exposes reserve() — arrives untyped already and
   // the cast that used to be here was a no-op.
   const client = getDb().$client;
   const reserved = typeof client?.reserve === "function" ? await client.reserve() : null;
   const conn = reserved ?? client;
-  await conn`SELECT pg_advisory_lock(${MIGRATE_ADVISORY_LOCK_KEY})`;
+  try {
+    await acquireMigrateLock(conn, wait);
+  } catch (error) {
+    // Never acquired: give the reserved connection back and fail boot by name.
+    if (reserved && typeof reserved.release === "function") reserved.release();
+    throw error;
+  }
   try {
     if (!reserved) return await fn(getDb());
     // Reserving a pool connection removes it from the general pool. Running
@@ -923,6 +984,8 @@ export const __test = {
   applyBunSqlJsonbFix,
   repairDoubleEncodedJsonb,
   withPostgresMigrateLock,
+  // The module logger, so a test can read what the migrate-lock wait reported.
+  log,
   // The external-Postgres opener. `init()` only reaches it when the process
   // was booted with DATABASE_URL set (a module-load const), so the PGlite
   // coverage shards never do — exposed here so a unit test can drive the

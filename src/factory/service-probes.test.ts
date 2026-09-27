@@ -16,6 +16,7 @@ import {
   probeFactoryServices,
   unavailableFactoryServices,
   type FactoryProbeIdentity,
+  type FactoryProbeTraceEvent,
   type FactoryServiceProbe,
 } from "./service-probes";
 
@@ -92,6 +93,44 @@ describe("probeFactoryServices", () => {
     ]);
     expect(availableFactoryServices(results)).toEqual(["temporal"]);
     expect(unavailableFactoryServices(results)).toEqual(["object-storage: object_storage_down", "pool-admission: pool_down"]);
+  });
+
+  test("a probe that never answers is reported by name at its own deadline, its signal is aborted, and the rest still run", async () => {
+    let seen: AbortSignal | undefined;
+    const events: FactoryProbeTraceEvent[] = [];
+    const results = await probeFactoryServices([
+      // Ignores its signal entirely: only the deadline race can end it.
+      { service: "object-storage", probe: (signal) => { seen = signal; return new Promise<void>(() => {}); } },
+      { service: "temporal", probe: async () => {} },
+    ], open, { deadlineMs: 50, trace: (event) => events.push(event) });
+    expect(results).toEqual([
+      { service: "object-storage", available: false, detail: "object_storage_probe_timeout" },
+      { service: "temporal", available: true, detail: "ready" },
+    ]);
+    expect(seen?.aborted).toBe(true);
+    expect(events.map(({ service, available, detail }) => ({ service, available, detail }))).toEqual(results as never);
+    expect(events.every((event) => Number.isInteger(event.elapsedMs) && event.elapsedMs >= 0)).toBe(true);
+  });
+
+  test("a probe that honours its signal is aborted with the named timeout", async () => {
+    const results = await probeFactoryServices([{
+      service: "pool-admission",
+      probe: (signal) => new Promise<void>((_, reject) => { signal.addEventListener("abort", () => reject(signal.reason), { once: true }); }),
+    }], open, { deadlineMs: 50 });
+    expect(results).toEqual([{ service: "pool-admission", available: false, detail: "pool_admission_probe_timeout" }]);
+  });
+
+  test("the storage probe hands its signal to the store, so a hanging request is aborted at the deadline", async () => {
+    const aborted: string[] = [];
+    const hanging = {
+      put: (_key: string, _content: Uint8Array, signal?: AbortSignal) => new Promise<unknown>((_, reject) => {
+        signal!.addEventListener("abort", () => { aborted.push("put"); reject(signal!.reason); }, { once: true });
+      }),
+      get: async () => new Uint8Array(),
+    };
+    const results = await probeFactoryServices([factoryStorageProbe(hanging, "factory/readiness/installation-01")], open, { deadlineMs: 50 });
+    expect(results).toEqual([{ service: "object-storage", available: false, detail: "object_storage_probe_timeout" }]);
+    expect(aborted).toEqual(["put"]);
   });
 
   test("reports an aborted run as unavailable rather than as ready", async () => {
@@ -217,7 +256,12 @@ describe("the storage, gateway, supervisor, and sandbox probes", () => {
     const controller = new AbortController();
     let observed: AbortSignal | undefined;
     await probeFactoryServices([factoryGatewayProbe({ health: async (signal) => { observed = signal; return true; } })], controller.signal);
-    expect(observed).toBe(controller.signal);
+    // The probe runs under the caller's signal combined with its own deadline: aborting the caller aborts it.
+    const signal = observed as AbortSignal;
+    expect(signal.aborted).toBe(false);
+    controller.abort(new Error("caller deadline"));
+    expect(signal.aborted).toBe(true);
+    expect((signal.reason as Error).message).toBe("caller deadline");
   });
 
   test("the supervisor probe reports its preflight verdict", async () => {
