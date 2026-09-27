@@ -25,6 +25,7 @@ import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
 import { FactoryReleaseError, FactoryReleases, type FactoryClaimableRelease, type FactoryReleaseConsentResult, type FactoryReleaseOperation, type FactoryReleaseProvider } from "./releases";
 import type { FactoryStoppableAttempt } from "./task-stops";
 import type { FactoryUncertainHold } from "./budgets";
+import { FactoryRunEpochStaleError } from "./executions";
 import type { TrustedFactoryServiceIdentity } from "./trusted-command-gateway";
 import type { FactoryPrincipal } from "./grants";
 import {
@@ -34,6 +35,7 @@ import {
   FactoryReleaseConsentAbsentError,
   FactoryUnknownReleaseProviderError,
   FactoryUnresolvedHoldError,
+  FactoryUsageHoldEpochStaleError,
   factoryReleaseOutcomeDisposition,
   factoryReleaseOutcomeDriver,
   factoryReleaseProviderResolver,
@@ -172,6 +174,55 @@ describe("the usage-reconciliation step", () => {
     expect(await driver.step(SIGNAL)).toBe(false);
     expect(reconciled).toBe(0);
     expect(reported).toEqual(["usage-reconciliation:transient:res-9"]);
+  });
+
+  describe("a hold whose attempt a restore's epoch left behind (W15f)", () => {
+    const stale = () => new FactoryRunEpochStaleError("run-1", "attempt-1", 1, 2);
+    function staleDriver(options: { resolveThrows?: boolean; marked?: boolean }) {
+      const marks: unknown[] = [];
+      const reported: { role: string; error: unknown }[] = [];
+      const driver = factoryUsageReconciliationDriver(database(), {
+        async listUncertainWithCostInTransaction() { return [hold("res-3")]; },
+        async markEpochStaleInTransaction(_transaction: MigrationDb, key: unknown, mark: unknown) { marks.push({ key, mark }); return options.marked ?? true; },
+      } as never, {
+        async resolve() {
+          if (options.resolveThrows ?? true) throw stale();
+          return { kind: "resolved", reservationId: "res-3", attemptId: "attempt-1", operationId: "op-1", providerReceiptDigest: "sha256:receipt", usage: { costMicros: "1" } } as never;
+        },
+        async reconcile() { throw stale(); },
+      } as never, (role, error) => { reported.push({ role, error }); }, undefined, () => 1_234);
+      return { driver, marks, reported };
+    }
+
+    test("the resolver's fence refusal marks the hold once and reports one named fault with both epochs", async () => {
+      const { driver, marks, reported } = staleDriver({});
+      expect(await driver.step(SIGNAL)).toBe(false);
+      expect(marks).toEqual([{ key: hold("res-3"), mark: { attemptId: "attempt-1", attemptEpoch: 1, installationEpoch: 2, markedAtMs: 1_234 } }]);
+      expect(reported.map(report => report.role)).toEqual(["usage-reconciliation:fault:res-3"]);
+      const error = reported[0]!.error as FactoryUsageHoldEpochStaleError;
+      expect(error).toBeInstanceOf(FactoryUsageHoldEpochStaleError);
+      expect(error.code).toBe("factory_usage_hold_epoch_stale");
+      expect(error.reservationId).toBe("res-3");
+      expect(error.cause).toBeInstanceOf(FactoryRunEpochStaleError);
+      expect(error.message).toBe("factory_usage_hold_epoch_stale: reservation res-3 of run run-1 is held by attempt attempt-1 of execution epoch 1; the installation is at epoch 2, so it cannot be reconciled here. Marked once; not retried until the epoch moves.");
+      expect(factoryUsageReconciliationDisposition(error)).toBe("fault");
+    });
+
+    test("the settlement's own fence refusal is handled the same way", async () => {
+      const { driver, marks, reported } = staleDriver({ resolveThrows: false });
+      await driver.step(SIGNAL);
+      expect(marks).toHaveLength(1);
+      expect(reported[0]!.error).toBeInstanceOf(FactoryUsageHoldEpochStaleError);
+    });
+
+    test("a hold that settled before the mark is not claimed as marked: its refusal is reported as it came", async () => {
+      const { driver, marks, reported } = staleDriver({ marked: false });
+      await driver.step(SIGNAL);
+      expect(marks).toHaveLength(1);
+      expect(reported).toHaveLength(1);
+      expect(reported[0]!.error).toBeInstanceOf(FactoryRunEpochStaleError);
+      expect(reported[0]!.error).not.toBeInstanceOf(FactoryUsageHoldEpochStaleError);
+    });
   });
 
   test("an unresolved hold is backpressure; anything else needs a person", () => {

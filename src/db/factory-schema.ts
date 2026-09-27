@@ -260,6 +260,7 @@ export function buildFactorySchema({ projects, users, serviceAccounts }: Factory
     uncertainty: text("uncertainty"),
     state: text("state").notNull(),
     originKind: text("origin_kind").notNull().default("dispatch-node"),
+    epochStaleJson: jsonb("epoch_stale_json"),
   }, (table) => [
     primaryKey({ columns: [table.tenantId, table.projectId, table.runId, table.reservationId] }),
     foreignKey({ columns: [table.tenantId, table.projectId, table.runId, table.envelopeId], foreignColumns: [factoryBudgetEnvelopes.tenantId, factoryBudgetEnvelopes.projectId, factoryBudgetEnvelopes.runId, factoryBudgetEnvelopes.envelopeId] }).onDelete("restrict"),

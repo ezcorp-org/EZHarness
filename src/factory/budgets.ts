@@ -291,6 +291,27 @@ export class FactoryBudgets {
 
 
   /**
+   * Records, once, that an uncertain hold's attempt belongs to an execution
+   * epoch the installation has left (W15f). The hold stays `uncertain` and its
+   * money stays held; only the scan stops listing it until the epoch moves
+   * again. Returns false when the hold is no longer uncertain, so a hold that
+   * settled meanwhile is never marked.
+   */
+  async markEpochStaleInTransaction(transaction: MigrationDb, key: { readonly projectId: string; readonly runId: string; readonly reservationId: string }, mark: { readonly attemptId: string; readonly attemptEpoch: number; readonly installationEpoch: number; readonly markedAtMs: number }): Promise<boolean> {
+    assertFactoryIdentity(key.projectId, key.runId, key.reservationId, mark.attemptId);
+    for (const value of [mark.attemptEpoch, mark.installationEpoch]) if (!Number.isSafeInteger(value) || value < 1) throw new FactoryBudgetError("factory_budget_invalid");
+    counter(mark.markedAtMs);
+    // Built in SQL from typed values: a JSON text parameter can reach PostgreSQL
+    // as a JSON string rather than an object, and a mark the scan cannot read
+    // must never be written.
+    return rows(await transaction.execute(sql`UPDATE factory_budget_reservations SET epoch_stale_json = jsonb_build_object(
+        'attemptId', ${mark.attemptId}::text, 'attemptEpoch', ${mark.attemptEpoch}::bigint,
+        'installationEpoch', ${mark.installationEpoch}::bigint, 'markedAtMs', ${mark.markedAtMs}::bigint)
+      WHERE tenant_id = ${this.tenantId} AND project_id = ${key.projectId} AND run_id = ${key.runId} AND reservation_id = ${key.reservationId} AND state = 'uncertain'
+      RETURNING reservation_id`)).length > 0;
+  }
+
+  /**
    * Reservations whose cost is still held and which no settlement has resolved.
    *
    * This is the work list for reconciliation: `uncertain` means the charge is
@@ -304,6 +325,12 @@ export class FactoryBudgets {
    * bounds the scan, and every row returned is either eligible or loudly
    * corrupt: a zero cost is excluded in SQL, and an amount that is not
    * canonical reaches `decode` and throws rather than being silently dropped.
+   *
+   * A hold marked stale at the installation's current execution epoch (see
+   * `markEpochStaleInTransaction`) is left out: its attempt can never pass the
+   * run fence in this epoch, so listing it again would only fail it again. A
+   * later epoch lists it once more, and so does a mark the scan cannot read:
+   * an unreadable mark is retried and reported, never silently skipped.
    */
   async listUncertainWithCostInTransaction(transaction: MigrationDb, options: { readonly limit?: number; readonly after?: FactoryUncertainHoldCursor } = {}): Promise<readonly FactoryUncertainHold[]> {
     const limit = options.limit ?? FACTORY_BUDGET_SCAN_DEFAULT_LIMIT;
@@ -316,7 +343,9 @@ export class FactoryBudgets {
       SELECT reservation.project_id, reservation.run_id, reservation.reservation_id, reservation.envelope_id, reservation.amount, reservation.uncertainty, reservation.state, ${position} AS created_at_ms
       FROM factory_budget_reservations reservation
       JOIN factory_runs run ON run.tenant_id = reservation.tenant_id AND run.project_id = reservation.project_id AND run.run_id = reservation.run_id
+      JOIN factory_installation installation ON installation.tenant_id = reservation.tenant_id
       WHERE reservation.tenant_id = ${this.tenantId} AND reservation.state = 'uncertain'
+        AND (reservation.epoch_stale_json IS NULL OR (reservation.epoch_stale_json->>'installationEpoch')::bigint IS DISTINCT FROM installation.execution_epoch)
         AND COALESCE(substring(reservation.amount from '"costMicros":"([0-9]+)"'), '1')::numeric > 0
         AND NOT EXISTS (
           SELECT 1 FROM factory_usage_settlements settlement

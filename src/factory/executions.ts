@@ -203,6 +203,19 @@ export class FactoryAttemptLivenessError extends Error {
   }
 }
 
+/**
+ * The run fence refused an attempt whose authority names an execution epoch the
+ * installation has left (a restore opened a new one). It is a liveness refusal
+ * like any other — same code, same message — and it carries both epochs so a
+ * caller that must not retry forever can say which epochs, and stop (W15f).
+ */
+export class FactoryRunEpochStaleError extends FactoryAttemptLivenessError {
+  constructor(readonly runId: string, readonly attemptId: string, readonly attemptEpoch: number, readonly installationEpoch: number) {
+    super("factory_attempt_not_live", "Factory run epoch is stale or unavailable.");
+    this.name = "FactoryRunEpochStaleError";
+  }
+}
+
 export class FactoryExecutionJournal {
   constructor(private readonly db: TransactionalDb, private readonly authorizeInTransaction: FactoryAttemptAuthorizer, private readonly now: () => Date = () => new Date()) {}
   get database(): TransactionalDb { return this.db; }
@@ -603,7 +616,7 @@ export class FactoryExecutionJournal {
     const message = "Factory run epoch is stale or unavailable.";
     const installation = await lockFactoryScope(database, authority.tenantId, authority.projectId);
     if (installation === null) throw new FactoryAttemptLivenessError("factory_attempt_unknown", message);
-    if (installation.executionEpoch !== authority.executionEpoch) throw new FactoryAttemptLivenessError("factory_attempt_not_live", message);
+    if (installation.executionEpoch !== authority.executionEpoch) throw new FactoryRunEpochStaleError(authority.runId, authority.attemptId, authority.executionEpoch, installation.executionEpoch);
     const run = releaseRows(await database.execute(sql`SELECT run_id FROM factory_runs WHERE tenant_id=${authority.tenantId} AND project_id=${authority.projectId} AND run_id=${authority.runId} AND execution_epoch=${authority.executionEpoch} FOR UPDATE`));
     if (run.length) return;
     const known = releaseRows(await database.execute(sql`SELECT run_id FROM factory_runs WHERE tenant_id=${authority.tenantId} AND project_id=${authority.projectId} AND run_id=${authority.runId}`));

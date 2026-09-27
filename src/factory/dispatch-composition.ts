@@ -20,6 +20,7 @@ import type { FactoryRoleDriver } from "./runtime-seams";
 import type { TrustedFactoryServiceIdentity } from "./trusted-command-gateway";
 import { FactoryTaskStops, type FactoryPhysicalStopper, type FactoryStopHostKey, type FactoryStoppableAttempt } from "./task-stops";
 import type { FactoryBudgets, FactoryUncertainHold } from "./budgets";
+import { FactoryRunEpochStaleError } from "./executions";
 import { FactoryUsageReconciliation } from "./usage-settlement";
 import type { FactoryClaimableRelease, FactoryReleaseConsentAbsence, FactoryReleaseOperation, FactoryReleaseProvider, FactoryReleases } from "./releases";
 import type { FactoryReleaseProviderResolver } from "./release-application";
@@ -122,6 +123,21 @@ export class FactoryUnresolvedHoldError extends Error {
   }
 }
 
+/**
+ * An uncertain hold whose attempt belongs to an execution epoch a restore has
+ * left (W15f). Its authority can never pass the run fence in this epoch, so the
+ * role marks the hold once and says so here, naming both epochs; the scan then
+ * skips it until the epoch moves again. It stays a fault: the money is still
+ * held, and a person decides what the old epoch's hold is worth.
+ */
+export class FactoryUsageHoldEpochStaleError extends Error {
+  readonly code = "factory_usage_hold_epoch_stale";
+  constructor(readonly reservationId: string, override readonly cause: FactoryRunEpochStaleError) {
+    super(`factory_usage_hold_epoch_stale: reservation ${reservationId} of run ${cause.runId} is held by attempt ${cause.attemptId} of execution epoch ${cause.attemptEpoch}; the installation is at epoch ${cause.installationEpoch}, so it cannot be reconciled here. Marked once; not retried until the epoch moves.`);
+    this.name = "FactoryUsageHoldEpochStaleError";
+  }
+}
+
 export function factoryUsageReconciliationDisposition(error: unknown): FactoryItemDisposition {
   // A hold whose receipt has not landed is backpressure, not an integrity
   // fault; anything else needs a person.
@@ -130,23 +146,35 @@ export function factoryUsageReconciliationDisposition(error: unknown): FactoryIt
 
 export function factoryUsageReconciliationDriver(
   database: TransactionalDb,
-  budgets: Pick<FactoryBudgets, "listUncertainWithCostInTransaction">,
+  budgets: Pick<FactoryBudgets, "listUncertainWithCostInTransaction" | "markEpochStaleInTransaction">,
   reconciler: Pick<FactoryUsageReconciliation, "resolve" | "reconcile">,
   report: (role: string, error: unknown) => void,
   limit?: number,
+  now: () => number = Date.now,
 ): FactoryRoleDriver {
   return factoryPageDriver<FactoryUncertainHold>({
     page: (_signal) => database.transaction((transaction) => budgets.listUncertainWithCostInTransaction(transaction, limit === undefined ? {} : { limit })),
     settle: async (hold, signal) => {
-      const resolution = await reconciler.resolve(hold, signal);
-      if (resolution.kind !== "resolved") throw new FactoryUnresolvedHoldError(resolution.reason);
-      await reconciler.reconcile({
-        reservationId: resolution.reservationId,
-        attemptId: resolution.attemptId,
-        operationId: resolution.operationId,
-        providerReceiptDigest: resolution.providerReceiptDigest,
-        usage: resolution.usage,
-      }, signal);
+      try {
+        const resolution = await reconciler.resolve(hold, signal);
+        if (resolution.kind !== "resolved") throw new FactoryUnresolvedHoldError(resolution.reason);
+        await reconciler.reconcile({
+          reservationId: resolution.reservationId,
+          attemptId: resolution.attemptId,
+          operationId: resolution.operationId,
+          providerReceiptDigest: resolution.providerReceiptDigest,
+          usage: resolution.usage,
+        }, signal);
+      } catch (error) {
+        if (!(error instanceof FactoryRunEpochStaleError)) throw error;
+        // Mark once, then say so once. A hold that settled meanwhile is not
+        // marked, and its refusal is reported as it came.
+        const marked = await database.transaction((transaction) => budgets.markEpochStaleInTransaction(transaction, hold, {
+          attemptId: error.attemptId, attemptEpoch: error.attemptEpoch, installationEpoch: error.installationEpoch, markedAtMs: now(),
+        }));
+        if (!marked) throw error;
+        throw new FactoryUsageHoldEpochStaleError(hold.reservationId, error);
+      }
     },
     classify: factoryUsageReconciliationDisposition,
     report: (hold, error, disposition) => { report(`usage-reconciliation:${disposition}:${hold.reservationId}`, error); },

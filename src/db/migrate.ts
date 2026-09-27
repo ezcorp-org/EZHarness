@@ -3141,6 +3141,9 @@ export async function migrate(db: MigrateDb): Promise<void> {
   // add-factory-artifact-read-grants, registered above.
   const { up: allowFactoryArtifactRegrant } = await import("./migrations/allow-factory-artifact-regrant");
   await allowFactoryArtifactRegrant(db);
+  // W15f: the uncertain-hold mark for an attempt a restore's epoch left behind.
+  const { up: addFactoryUsageEpochStale } = await import("./migrations/add-factory-usage-epoch-stale");
+  await addFactoryUsageEpochStale(db);
   // Last on purpose: the checkpoint barrier gate attaches to every factory table that exists.
   const { up: addFactoryRecovery } = await import("./migrations/add-factory-recovery");
   await addFactoryRecovery(db);
