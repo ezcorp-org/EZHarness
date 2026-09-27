@@ -119,6 +119,9 @@ The same `entry.tenantId` already keys `guestBrokers`, so both sections name the
 - Second run at `124f7043e` (2026-09-27 10:33Z to 10:37Z, one lock hold, gated): the stack held; Playwright
   12 passed (3.3 m); stack exit 0; shared config hash `44962525f1ca1a8b` before and after
   (`logs/fix-lane-driver.log`, `logs/lane2-playwright.log`, `lane2.json`).
+- Coverage of the commits after the integ merge (the stack port and the fix), BASE_REF `88fedcf89`, under the
+  lock: 53/0; new-file gate PASSED (no new file); patch gate PASSED, every changed executable line covered in 3
+  files (`logs/cov2/`).
 - Found in the second run's product log, reported to the coordinator (W01h territory, not a W01i change):
   `stop-settlement:fault` fails `factory_task_stop_corrupt` 174 times for one attempt. The host refused its stop
   (500 stop_failed), the guest then died (container exit 1), W01h's lost-result path recorded a typed failed
