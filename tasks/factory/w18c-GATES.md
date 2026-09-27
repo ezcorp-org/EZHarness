@@ -196,6 +196,33 @@ on main. No test was written for them. The manifest above now makes the runner r
   | web/src/lib/actions/hover-tooltip.ts | 0 measured lines |
   | web/src/lib/components/tool-cards/price-chart-logic.ts | 0 measured lines |
 
+## Merges of integ/w00 9da0ed9ec and c3da32784 (2026-09-27)
+
+- 0e104d104 merges 9da0ed9ec (W14b). The hook ran all 12 mapped suites with no skip, from one locked script that
+  exported the PostgreSQL URL inside itself (ruling 16:12Z). Every suite had a nonzero pass count and no failure,
+  migrate-lock on real PostgreSQL and the Vitest factory-boot.server included (`heavy/merge-9da0ed9ec-commit-hook.log`).
+  The three reference-code files that failed in the aa0a5f2d3 cov-shard leg (W14b regression) pass at the merged head:
+  guest 12/0, pack 17/0, guest.podman.integration 1/0 (`heavy/w14b-guest-files-0e104d104/`).
+- bd2026f45 merges c3da32784 (W09f, W01h, W01i) with no conflict, under EZ_SKIP_HOOK_TESTS=1 for that one commit
+  (ruling 16:36Z, repeated 17:02Z; the cap was not raised). The shared git config sha256 was 44962525…6ee6aa8 before
+  and after.
+  CORRECTION to the commit message, recorded here rather than by amending: the message says "The hook mapped these 69".
+  The hook listed 66 files plus `packages/@ezcorp/factory-orchestrator (node: bun run test)`: it runs that package's
+  own test (tsc, then node --test) in place of its three test files gateway-activities, process-launcher and process,
+  which the message lists individually. The verification ran the package test the same way, so every mapped suite ran.
+- Verification of bd2026f45 outside the hook, under the lock (18:08:58Z to 18:14:45Z;
+  `heavy/merge-c3da32784-suites/summary.txt`): 65 of 67 entries green with nonzero counts. Two marked red:
+  - mock-cleanup-coverage.test.ts, 33 pass and 1 fail: a W18c defect, not the merge. The resolver fixture in
+    combined-runner-legs.test.ts (479a9a0cb) held the string 'mock.module("../mod.ts", ...)', which the meta-test
+    scans as a real mock with no snapshot. Fixed in f40024e7e by single-quoting the fixture's specifier (no
+    exemption); the meta-test went from 32/1 to 33/0.
+  - factory-orchestrator package: a receipt-parser defect, not a red. node --test reported 91 pass and 0 fail with
+    exit 0; the counter read only the TAP "# pass" form. Re-counted from the saved log (`corrections.txt`).
+  The suite rerun after the fix waits for the coordinator's word on the lock.
+- Known red at base: the coordinator reports four web Vitest files red on integ at c3da32784, fixed by the W09g
+  hotfix. bd2026f45 carries them; the final measurement records them as red at base unless W09g has landed and been
+  merged by then.
+
 ## Follow-up: the reference-data producer runs in no CI job (ruling 2026-09-27 16:36Z)
 
 scripts/factory-reference-data-coverage.sh, and with it tests/postgres/factory-reference-data.test.ts, runs in no
