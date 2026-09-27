@@ -15,9 +15,9 @@
  *
  * If any link breaks, this test catches it.
  */
-import { test, expect, describe, beforeEach, mock } from "bun:test";
+import { test, expect, describe, beforeEach, beforeAll, afterAll, mock } from "bun:test";
 
-import { webLibModule, contextModule } from "../../../src/__tests__/helpers/mock-cleanup";
+import { webLibModule, contextModule, serverModule } from "../../../src/__tests__/helpers/mock-cleanup";
 // ── Conversation graph (mirrors the team structure) ────────────────
 //
 //   main-conv         (user-owned, the user's chat page)
@@ -86,9 +86,16 @@ mock.module("$server/db/queries/agent-configs", () => ({
   })),
 }));
 
-mock.module("$server/auth/middleware", () => ({
-  requireAuth: () => ({ id: "user-1", email: "u@e.com", name: "U", role: "member" }),
-}));
+const realAuthMiddleware = serverModule("auth/middleware", {});
+beforeAll(() => {
+  mock.module("$server/auth/middleware", () => ({
+    ...realAuthMiddleware,
+    requireAuth: () => ({ id: "user-1", email: "u@e.com", name: "U", role: "member" }),
+  }));
+});
+afterAll(() => {
+  mock.module("$server/auth/middleware", () => realAuthMiddleware);
+});
 const apiKeysExports = webLibModule("server/security/api-keys", {
   requireScope: () => null,
 });
