@@ -495,6 +495,7 @@
   "src/db/unique-violation.ts": 100,
   "src/db/error-chain.ts": 100,
   "src/db/swappable-bun-sql.ts": 100,
+  "src/shutdown-deadlines.ts": 100,
   "src/idempotency.ts": 100,
   "src/db/session-sync.ts": 100,
   "src/db/queries/conversation-metadata.ts": 100,
@@ -1234,5 +1235,8 @@
   "src/runtime/tools/race-control.ts": 100,
   "src/runtime/sandbox/startup.ts": 100,
   "src/runtime/sandbox/provider-invoker.ts": 100,
-  "src/factory/checkpoint-limits.ts": 100
+  "src/factory/checkpoint-limits.ts": 100,
+  "src/db/migrations/add-factory-usage-epoch-stale.ts": 100,
+  "src/factory/attempt-supersessions.ts": 100,
+  "src/db/migrations/add-factory-attempt-supersessions.ts": 100
 }

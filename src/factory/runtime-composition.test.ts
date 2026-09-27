@@ -12,7 +12,7 @@ import { composeFactoryRecoveryRoles } from "./recovery-composition";
 import { FactoryDisabledError, factoryRuntimeWait, startFactoryRuntime, type FactoryRuntimeDependencies, type FactoryStartedListener } from "./runtime-composition";
 
 const roots: string[] = [];
-const started: Array<{ stop(): Promise<void> }> = [];
+const started: Array<{ stop(): Promise<unknown> }> = [];
 
 afterEach(async () => {
   for (const runtime of started.splice(0)) await runtime.stop();
@@ -382,8 +382,11 @@ describe("startFactoryRuntime shuts down in reverse", () => {
     await writeReadyRecords(root);
     const order: string[] = [];
     const runtime = await start(root, { listeners: [listener(order, "gateway")] });
-    await runtime.stop();
-    await runtime.stop();
+    const roles = runtime.report().workers.map((worker) => worker.name);
+    expect(roles.length).toBeGreaterThan(0);
+    // The first stop returns one settled record per role, in reverse registration order; a repeat stops nothing.
+    expect((await runtime.stop()).map(({ name, settled }) => ({ name, settled }))).toEqual([...roles].reverse().map((name) => ({ name, settled: true })));
+    expect(await runtime.stop()).toEqual([]);
     expect(order).toEqual(["gateway"]);
   });
 

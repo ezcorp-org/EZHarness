@@ -34,7 +34,8 @@
  *   - `restoreModuleMocks()` (top + afterAll) keeps the real connection module
  *     bound and undoes any leaked mock either way.
  */
-import { test, expect, describe, afterAll, mock } from "bun:test";
+import { test, expect, describe, afterAll, mock, spyOn } from "bun:test";
+import { DB_POOL_CLOSE_DEADLINE_MS } from "../shutdown-deadlines";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 import { setReadiness } from "../readiness";
 // Capture the REAL modules BEFORE stubbing so afterAll can re-register them
@@ -76,16 +77,21 @@ function createFakeTx(): FakeTx {
 
 interface FakeSqlClient {
   (strings: TemplateStringsArray, ...v: unknown[]): Promise<unknown[]>;
-  close?: () => Promise<void>;
+  close?: (options?: { timeout?: number }) => Promise<void>;
   reserve?: () => Promise<FakeSqlClient>;
   release?: () => void;
   /** How many times this client's pool was drained. */
   closed?: number;
 }
 
-/** A fake driver's answer: the bounded migrate lock's try-lock takes the lock; everything else returns no rows. */
+/** The row the fake server reports for the open-connection listing a stuck close logs. */
+const OPEN_CONNECTION = { pid: 4242, state: "idle", wait_event_type: "Client", wait_event: "ClientRead", query: "SELECT 1" };
+
+/** A fake driver's answer: the bounded migrate lock's try-lock takes the lock, the open-connection listing sees one; everything else returns no rows. */
 function grant(strings: TemplateStringsArray): Promise<unknown[]> {
-  return Promise.resolve(strings.join("").includes("pg_try_advisory_lock") ? [{ locked: true }] : []);
+  const text = strings.join("");
+  if (text.includes("pg_try_advisory_lock")) return Promise.resolve([{ locked: true }]);
+  return Promise.resolve(text.includes("pg_stat_activity") ? [OPEN_CONNECTION] : []);
 }
 
 /**
@@ -446,4 +452,30 @@ describe("recoverFromDriverDesync — the external pool is discarded after a sta
     await conn.closeDb();
     expect(await conn.recoverFromDriverDesync(desync(), () => 3_000_000)).toBe(false);
   });
+});
+
+describe("closeDb — a pool close that never returns (W16d)", () => {
+  test("is named after its deadline with the connections still open listed, and the database state is cleared", async () => {
+    await conn.__test.initPostgres();
+    const stuck = openedClients.at(-1)!;
+    // Bun 1.3.14 can leave a queued request unwritten; a close that waits for it never returns.
+    stuck.close = () => new Promise<void>(() => {});
+    const errors: unknown[][] = [];
+    const spy = spyOn(conn.__test.log, "error").mockImplementation((...args: unknown[]) => { errors.push(args); });
+    try {
+      await conn.closeDb();
+    } finally {
+      spy.mockRestore();
+    }
+    expect(errors).toEqual([[
+      "Bun.sql pool close did not finish within its deadline; the pool is left to the process exit",
+      { timeoutMs: DB_POOL_CLOSE_DEADLINE_MS, openConnections: [OPEN_CONNECTION] },
+    ]]);
+    // The listing ran on its own one-connection pool, which is closed without waiting.
+    const listing = openedClients.at(-1)!;
+    expect(listing).not.toBe(stuck);
+    await Promise.resolve();
+    expect(listing.closed).toBe(1);
+    expect(() => conn.getDb()).toThrow("Database not initialized");
+  }, 10_000);
 });

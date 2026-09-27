@@ -69,6 +69,7 @@ import type { TrustedFactoryServiceIdentity } from "./trusted-command-gateway";
 import { FactoryAssuranceCommands } from "./assurance-commands";
 import type { FactoryRoleDriver } from "./runtime-seams";
 import type { FactoryStartedListener } from "./runtime-composition";
+import type { FactoryWorkerStopRecord } from "./background-workers";
 import { composeFactoryGuestBroker, type FactoryGuestBrokerReadiness } from "./guest-broker-composition";
 import type { FactoryPhysicalStopper, FactoryTaskStops } from "./task-stops";
 import { composeFactoryRecoveryRoles } from "./recovery-composition";
@@ -602,7 +603,8 @@ export interface FactoryInstallationStartup {
   readonly runtime: FactoryRuntime;
   /** The pinned model broker, when one is configured AND ready. */
   readonly provider?: FactoryProviderComposition;
-  stop(): Promise<void>;
+  /** Stops the runtime; resolves with each role's stop record (see {@link FactoryRuntime.stop}). */
+  stop(): Promise<readonly FactoryWorkerStopRecord[]>;
 }
 
 /**
