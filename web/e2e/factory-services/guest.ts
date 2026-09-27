@@ -15,7 +15,6 @@
  * - a protected validator attempt (its input is the candidate artifact) answers
  *   the strict claims report with a PASS verdict for {@link GUEST_CLAIM_ID}.
  */
-import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 export const GUEST_MANIFEST_NAME = "factory-services-guest";
@@ -38,30 +37,9 @@ const MANIFEST = {
 	tools: [{ name: GUEST_EXPORT, description: "Stage a candidate or a validator report and return a completed runner result", inputSchema: { type: "object" }, outputSchema: { type: "object" } }],
 };
 
-/**
- * The SDK files `guest-materials.ts` reaches, followed through its relative
- * imports, with `.js` specifiers rewritten for the flat guest workspace. The
- * closure is read from the source, so the guest carries exactly the client the
- * package ships and nothing else.
- */
-async function stagingClientFiles(repo: string): Promise<Record<string, string>> {
-	const sdk = join(repo, "packages/@ezcorp/factory-sdk/src");
-	const files: Record<string, string> = {};
-	const pending = ["guest-materials.ts"];
-	while (pending.length > 0) {
-		const name = pending.pop()!;
-		if (name in files) continue;
-		const source = await readFile(join(sdk, name), "utf8");
-		files[name] = source.replaceAll(/from "\.\/([a-z-]+)\.js"/g, 'from "./$1.ts"');
-		for (const match of source.matchAll(/from "\.\/([a-z.-]+?)(\.js|\.json)"/g)) pending.push(match[2] === ".js" ? `${match[1]}.ts` : `${match[1]}.json`);
-	}
-	return files;
-}
-
 /** The exact bytes the guest is built from. Content-addressed, so it is stable. */
 export async function guestSource(repo: string): Promise<Record<string, string>> {
-	return {
-		...await stagingClientFiles(repo),
+	const own: Record<string, string> = {
 		"extension.ts": `import { defineExtension, serve } from '@ezcorp/sdk/v4';
 import { createFactoryGuestStaging } from './guest-materials.ts';
 
@@ -115,6 +93,9 @@ test('the guest carries the shipped staging client', () => {
 });
 `,
 	};
+	// The shipped staging client and everything it reaches in the SDK, found by following imports (W14b).
+	const { factorySdkClosure } = await import(join(repo, "scripts/lib/factory-sdk-closure.ts"));
+	return { ...await factorySdkClosure(join(repo, "packages/@ezcorp/factory-sdk/src"), own), ...own };
 }
 
 export interface GuestBuild {
