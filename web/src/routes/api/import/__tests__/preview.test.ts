@@ -4,7 +4,7 @@
 // root (true integration); only the project lookup + auth/scope
 // boundaries are stubbed.
 
-import { test, expect, describe, beforeEach, afterAll, mock } from "bun:test";
+import { test, expect, describe, beforeEach, afterAll, mock, spyOn } from "bun:test";
 import { mkdtemp, mkdir, writeFile, rm, stat, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -43,17 +43,31 @@ mock.module("$lib/server/security/api-keys", () => apiKeysExports);
 
 let projectRoot: string;
 let unwritablePath: string;
-mock.module("$server/db/queries/projects", () => ({
-  getProject: async (id: string) => {
+// $server/db/queries/projects: spyOn()'d on the module the alias currently
+// resolves to, not mock.module()'d directly — item C2 (W18 hygiene, real
+// OPEN-2 fix). See commit.test.ts's sibling comment for the full mechanism:
+// this alias is claimed by mockServerAlias() above AND by this file's
+// sibling commit.test.ts (both mock only `getProject`, a partial factory),
+// and shared through common.ts's resolveProjectRoot(). A second
+// mock.module() call for an already-registered specifier is silently
+// ignored for a consumer that links after it, so whichever of these two
+// files loaded second used to keep resolving the FIRST file's stale
+// getProject — confirmed fixed in both orders.
+const aliasDbQueriesProjects: any = await import("$server/db/queries/projects");
+const getProjectSpy = spyOn(aliasDbQueriesProjects, "getProject").mockImplementation(
+  async (id: string) => {
     if (id === "missing") return undefined;
     if (id === "unwritable") return { id, name: "p", path: unwritablePath };
     return { id, name: "p", path: projectRoot };
   },
-}));
+);
 
 const { POST } = await import("../preview/+server");
 
-afterAll(() => restoreModuleMocks());
+afterAll(() => {
+  restoreModuleMocks();
+  getProjectSpy.mockRestore();
+});
 
 beforeEach(async () => {
   scopeResponse = null;
