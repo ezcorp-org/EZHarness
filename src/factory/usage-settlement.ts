@@ -160,6 +160,8 @@ export interface FactoryUsageSettlementInput {
 export type FactoryUncertainHoldUnknownReason =
   | "no-sealed-attempt"
   | "no-operation-receipt"
+  /** W03f: an operation is still prepared or dispatched; the resolution names each one. */
+  | "operation-not-settled"
   | "usage-still-unknown";
 
 /**
@@ -178,7 +180,7 @@ export type FactoryUncertainHoldResolution =
       readonly providerReceiptDigest: string;
       readonly usage: FactoryMeasuredUsage;
     }
-  | { readonly kind: "unknown"; readonly reservationId: string; readonly reason: FactoryUncertainHoldUnknownReason };
+  | { readonly kind: "unknown"; readonly reservationId: string; readonly reason: FactoryUncertainHoldUnknownReason; readonly operationIds?: readonly string[] };
 
 /** Trusted later reconciliation of an operation whose cost was unknown. */
 export interface FactoryUsageReconciler {
@@ -506,7 +508,12 @@ export class FactoryUsageReconciliation implements FactoryUsageReconciler {
     const pending = [...operations].filter(operation => operation.state === "uncertain" && typeof operation.providerReceiptDigest === "string" && operation.providerReceiptDigest.length > 0)
       .sort((left, right) => left.operationIndex - right.operationIndex);
     const candidate = pending[0];
-    if (!candidate) return Object.freeze({ kind: "unknown" as const, reservationId, reason: "no-operation-receipt" as const });
+    if (!candidate) {
+      // A call still in flight is what the hold waits on, so the answer names it.
+      const unsettled = operations.filter(operation => operation.state === "prepared" || operation.state === "dispatched").map(operation => operation.operationId);
+      if (unsettled.length > 0) return Object.freeze({ kind: "unknown" as const, reservationId, reason: "operation-not-settled" as const, operationIds: Object.freeze(unsettled) });
+      return Object.freeze({ kind: "unknown" as const, reservationId, reason: "no-operation-receipt" as const });
+    }
     const usage = validateFactoryOperationUsage(candidate.usage);
     if (!usage.ok) throw new FactoryUsageSettlementError("factory_usage_settlement_corrupt");
     if ((candidate.usage as { kind?: string }).kind !== "measured") return Object.freeze({ kind: "unknown" as const, reservationId, reason: "usage-still-unknown" as const });

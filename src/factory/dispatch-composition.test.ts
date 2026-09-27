@@ -174,6 +174,21 @@ describe("the usage-reconciliation step", () => {
     expect(reported).toEqual(["usage-reconciliation:transient:res-9"]);
   });
 
+  test("W03f: a hold waiting on calls in flight names each one in its report", async () => {
+    const errors: unknown[] = [];
+    const driver = factoryUsageReconciliationDriver(database(), {
+      async listUncertainWithCostInTransaction() { return [hold("res-7")]; },
+    } as never, {
+      async resolve() { return { kind: "unknown", reservationId: "res-7", reason: "operation-not-settled", operationIds: ["run-1:infer:0:0", "run-1:infer:0:1"] } as never; },
+      async reconcile() { throw new Error("must not reconcile"); },
+    } as never, (_role, error) => { errors.push(error); });
+
+    expect(await driver.step(SIGNAL)).toBe(false);
+    expect(errors).toHaveLength(1);
+    expect((errors[0] as Error).message).toBe("factory_usage_hold_unresolved: operation-not-settled run-1:infer:0:0, run-1:infer:0:1");
+    expect(factoryUsageReconciliationDisposition(errors[0])).toBe("transient");
+  });
+
   test("an unresolved hold is backpressure; anything else needs a person", () => {
     expect(factoryUsageReconciliationDisposition(new FactoryUnresolvedHoldError("receipt-not-sealed"))).toBe("transient");
     expect(factoryUsageReconciliationDisposition(failure("factory_budget_corrupt"))).toBe("fault");

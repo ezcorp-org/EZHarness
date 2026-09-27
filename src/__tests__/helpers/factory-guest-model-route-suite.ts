@@ -233,6 +233,29 @@ export function factoryGuestModelRouteConformance(createFixture: () => Promise<F
     expect((result.operations as unknown as Array<{ usage?: unknown }>)[0]!.usage).toEqual(result.usage);
   });
 
+  test("W03f: a guest that rebuilds or alters the settled failed operation is refused as a journal mismatch", async () => {
+    const attempt = await admit();
+    const provider = streamDouble(() => ({ stopReason: "error", errorMessage: "401 invalid x-api-key" }));
+    const result = await infer(attempt.request, route(async () => providerOver(provider.broker))(attempt));
+    expect(result).toMatchObject({ status: "failed", error: { code: "provider_auth_failed" } });
+    await verifies(attempt, result);
+    const [settled] = result.operations as unknown as Array<Record<string, JsonValue>>;
+    const refused = async (operation: Record<string, JsonValue>, usage: JsonValue | undefined) => {
+      const { usage: _claimed, ...rest } = result;
+      const altered = { ...rest, operations: [operation], ...(usage === undefined ? {} : { usage }) } as Record<string, JsonValue>;
+      // A well-formed result, refused only because the journal holds something else.
+      expect(validateFactoryRunnerResult(altered).ok).toBe(true);
+      await expect(fixture.db.transaction(transaction => journal.verifyRunnerResultInTransaction(transaction, attempt.authority, altered as unknown as FactoryRunnerResult))).rejects.toThrow("does not match settled journal evidence");
+    };
+    // The pre-W03f rebuild: a generic code and no usage, which the host no longer journals.
+    const rebuilt = { code: "factory_guest_model_failed", message: String((result.error as { message: string }).message) };
+    const { usage: _dropped, providerReceiptDigest: _receipt, ...bare } = settled!;
+    await refused({ ...bare, resultDigest: digestObject(rebuilt) }, undefined);
+    // Altered evidence: a smaller usage, or another receipt, than the provider reported.
+    await refused({ ...settled!, usage: { ...(settled!.usage as Record<string, JsonValue>), inputTokens: 0, costMicros: "0" } }, { ...(settled!.usage as Record<string, JsonValue>), inputTokens: 0, costMicros: "0" });
+    await refused({ ...settled!, providerReceiptDigest: "0".repeat(64) }, result.usage);
+  });
+
   test("an installation that pins no provider refuses by name and still journals the failed call", async () => {
     const attempt = await admit();
     const result = await infer(attempt.request, route(factoryUnpinnedModelProvider, () => HOST, { installationPin: null })(attempt));

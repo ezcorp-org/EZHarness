@@ -504,7 +504,7 @@ function applyStopped(factory: KernelFactoryPlan, state: KernelState, event: Ext
     if (state.status !== "stopping") next = activateReady(factory, next, commands, successorsFor(factory, event.nodeId));
     return progressContainingScopes(factory, next, event.nodeId, commands);
   }
-  if (runtime.status === "stopping" && retryAllowed(node, runtime)) {
+  if (runtime.status === "stopping" && retryAllowed(node, runtime) && errorRetryable(runtime.error)) {
     const delay = retryDelay(node, runtime.nextAttempt);
     next = withNode(next, event.nodeId, { ...next.nodes[event.nodeId]!, status: "retry_wait", nextAttempt: runtime.nextAttempt + 1 });
     return scheduleTimer(next, event.nodeId, next.nowMs + delay, "retry", commands);
@@ -1087,6 +1087,19 @@ function rememberEvent(state: KernelState, eventId: string): KernelState {
 
 function nodeDeadline(state: KernelState, node: FactoryNode): number {
   return Math.min(state.runDeadlineAtMs, state.nowMs + Math.min(node.deadlineMs ?? DEFAULT_NODE_DEADLINE_MS, 24 * 60 * 60 * 1_000));
+}
+
+/**
+ * Typed failures a retry cannot change (W03f). A provider that refused the
+ * credential refuses it again on the next attempt, so the attempt sequence
+ * ends there. A rate limit or an unavailable provider can pass with time, so
+ * those keep the node's retry and its backoff. Decided from the node's
+ * recorded error alone, so a replay decides the same.
+ */
+const NON_RETRYABLE_ERRORS: ReadonlySet<string> = new Set(["provider_auth_failed"]);
+
+function errorRetryable(error: string | undefined): boolean {
+  return error === undefined || !NON_RETRYABLE_ERRORS.has(error);
 }
 
 function retryAllowed(node: FactoryNode, runtime: KernelNodeState): boolean {

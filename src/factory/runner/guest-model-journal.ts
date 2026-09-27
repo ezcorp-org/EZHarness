@@ -61,14 +61,30 @@ export function factoryGuestModelFailure(request: FactoryGuestModelRequest, fail
 }
 
 export interface FactoryJournalGuestModelOptions {
-  readonly journal: Pick<FactoryExecutionJournal, "prepare" | "dispatch" | "settle" | "operation">;
+  readonly journal: Pick<FactoryExecutionJournal, "prepare" | "dispatch" | "settle" | "operation" | "reconcileLate">;
   /** W04's workspace checkpoint, which a completed operation must carry. */
   readonly workspace: FactoryWorkspaceCheckpoint;
   /** Revalidated under the journal's own locks immediately before the claim. */
   readonly authorizeAttempt?: (authority: FactoryAttemptAuthority) => Promise<void>;
 }
 
+/** What a late provider answer leaves when its attempt had already stopped: the answer was parked, not settled. */
+export const FACTORY_GUEST_MODEL_EVIDENCE_PARKED = "factory_guest_model_evidence_parked";
+
 export function createFactoryJournalGuestModelJournal(options: FactoryJournalGuestModelOptions): FactoryGuestModelJournal {
+  /**
+   * W03f: a provider can answer after the attempt's stop was confirmed (an
+   * operator cancel during the call). The attempt is no longer live, so the
+   * journal refuses the settlement. The provider's receipt and measured usage
+   * are real, so they are parked on the still-dispatched operation through
+   * `reconcileLate`, which makes it `uncertain`: exactly what reconciliation
+   * settles, after which W05b clears the kernel. Without that evidence there is
+   * nothing to park, and the original refusal stands.
+   */
+  const parkLate = async (authority: FactoryAttemptAuthority, operationId: string, refused: unknown, evidence: { readonly providerReceiptDigest: string; readonly usage: FactoryModelCompletion["usage"] } | undefined): Promise<void> => {
+    if (evidence === undefined) throw refused;
+    await options.journal.reconcileLate(authority, operationId, { providerReceiptDigest: evidence.providerReceiptDigest, usage: evidence.usage }).catch(() => { throw refused; });
+  };
   return Object.freeze({
     async claim(attempt: FactoryRunnerRequest, request: FactoryGuestModelRequest): Promise<FactoryGuestModelClaim> {
       const authority = factoryRunnerRequestAuthority(attempt);
@@ -96,15 +112,23 @@ export function createFactoryJournalGuestModelJournal(options: FactoryJournalGue
       // compares the stored row field for field against what a later caller
       // passes, so a result digest or a checkpoint written here would make the
       // reconciliation that recovers this cost fail as a mismatch.
-      await options.journal.settle(authority, operation.operationId, "uncertain", { providerReceiptDigest: completion.providerReceiptDigest, usage: completion.usage });
+      const evidence = { providerReceiptDigest: completion.providerReceiptDigest, usage: completion.usage };
+      await options.journal.settle(authority, operation.operationId, "uncertain", evidence).catch((refused: unknown) => parkLate(authority, operation.operationId, refused, evidence));
     },
     async fail(attempt: FactoryRunnerRequest, request: FactoryGuestModelRequest, failure: FactoryModelFailure): Promise<FactoryRunnerFailedOperation> {
       const authority = factoryRunnerRequestAuthority(attempt);
       const { result, operation } = factoryGuestModelFailure(request, failure);
-      await options.journal.settle(authority, operation.operationId, "failed", {
-        resultDigest: operation.resultDigest, result,
-        ...(operation.usage === undefined ? {} : { usage: operation.usage, providerReceiptDigest: operation.providerReceiptDigest! }),
-      });
+      const evidence = failure.evidence;
+      try {
+        await options.journal.settle(authority, operation.operationId, "failed", {
+          resultDigest: operation.resultDigest, result,
+          ...(evidence === undefined ? {} : { usage: evidence.usage, providerReceiptDigest: evidence.providerReceiptDigest }),
+        });
+      } catch (refused) {
+        await parkLate(authority, operation.operationId, refused, evidence);
+        // Parked, not settled: no failed row exists for a guest to mirror, and its attempt has stopped.
+        throw new Error(`${FACTORY_GUEST_MODEL_EVIDENCE_PARKED}: the attempt stopped before the provider answered; its evidence was held for reconciliation.`);
+      }
       return operation;
     },
   });

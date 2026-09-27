@@ -21,7 +21,7 @@ import { FactoryTaskOutcomes } from "../../factory/task-outcomes";
 import { FactoryTaskStops, FactoryTaskStopError, FACTORY_STOP_SCAN_MAX_LIMIT, type FactoryPhysicalStopper, type FactoryPoolStopAcknowledger, type FactoryStopHostKey, type FactoryTaskStopRequest } from "../../factory/task-stops";
 import { FACTORY_USAGE_OPERATIONS_BASIS, FACTORY_USAGE_PROVIDER_ERROR_BASIS, FactoryUsageReconciliation, FactoryUsageSettlements } from "../../factory/usage-settlement";
 import type { FactoryModelFailure } from "../../factory/runner/guest-model-broker";
-import { factoryGuestModelFailure } from "../../factory/runner/guest-model-journal";
+import { createFactoryJournalGuestModelJournal, factoryGuestModelFailure } from "../../factory/runner/guest-model-journal";
 import { persistTransition } from "../../../packages/@ezcorp/factory-orchestrator/src/transition-pages";
 import { createFactoryLiveAttemptWorld, type FactoryLiveAttempt, type FactoryLiveAttemptWorld } from "./factory-live-attempt-world";
 
@@ -151,7 +151,7 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
     const state = await foldedState(attempt, advanced);
     const nodeId = (await sealedAuthority(attempt)).nodeInstanceId;
     const node = state.nodes[nodeId]!;
-    return { unresolved: state.unresolvedUncertainNodeIds, error: node.error, attempt: node.attempts.find(entry => entry.commandId === attempt.attemptId) };
+    return { unresolved: state.unresolvedUncertainNodeIds, error: node.error, status: node.status, attempt: node.attempts.find(entry => entry.commandId === attempt.attemptId) };
   }
   /** Stored settlement revisions, normalized: PostgreSQL returns a BIGINT as a string, PGlite as a number. */
   const settlementRows = async (runId: string) => rows<{ revision: number | string; source: string }>(await fixture.db.execute(sql`SELECT revision, source FROM factory_usage_settlements WHERE run_id=${runId} ORDER BY revision`)).map(row => ({ revision: Number(row.revision), source: row.source }));
@@ -271,10 +271,12 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
   // budget, and ends with the run failed by its typed reason.
   const reserved = () => String(profile.budget.computeMs);
   const zero = { kind: "measured" as const, inputTokens: 0, outputTokens: 0, computeMs: 41, costMicros: "0" };
-  for (const [label, failure, cost, tokens] of [
-    ["unavailable (Ollama's missing model, 404)", { code: "provider_unavailable", message: "The provider did not complete the call: error (404: model 'qwen3:w19a-missing' not found).", evidence: { usage: zero, providerReceiptDigest: "1".repeat(64) } }, "0", "0"],
-    ["auth (a refused credential, 401)", { code: "provider_auth_failed", message: "The provider did not complete the call: error (401 invalid x-api-key).", evidence: { usage: zero, providerReceiptDigest: "2".repeat(64) } }, "0", "0"],
-    ["rate limit after partial consumption (429 mid-stream)", { code: "provider_rate_limited", message: "The provider did not complete the call: error (429 rate limited).", evidence: { usage: { kind: "measured", inputTokens: 11, outputTokens: 7, computeMs: 90, costMicros: "1200" }, providerReceiptDigest: "3".repeat(64) } }, "1200", "18"],
+  // The fixture's reference graph leaves this node attempts to spare, so the node status also shows
+  // the retry rule: a refused credential ends the attempt sequence, the others keep their retry.
+  for (const [label, failure, cost, tokens, nodeStatus] of [
+    ["unavailable (Ollama's missing model, 404)", { code: "provider_unavailable", message: "The provider did not complete the call: error (404: model 'qwen3:w19a-missing' not found).", evidence: { usage: zero, providerReceiptDigest: "1".repeat(64) } }, "0", "0", "retry_wait"],
+    ["auth (a refused credential, 401)", { code: "provider_auth_failed", message: "The provider did not complete the call: error (401 invalid x-api-key).", evidence: { usage: zero, providerReceiptDigest: "2".repeat(64) } }, "0", "0", "failed"],
+    ["rate limit after partial consumption (429 mid-stream)", { code: "provider_rate_limited", message: "The provider did not complete the call: error (429 rate limited).", evidence: { usage: { kind: "measured", inputTokens: 11, outputTokens: 7, computeMs: 90, costMicros: "1200" }, providerReceiptDigest: "3".repeat(64) } }, "1200", "18", "retry_wait"],
   ] as const) {
     test(`W03f: a provider error, ${label}, settles its measured model usage with compute at the reserved bound, and the run ends failed with its typed reason`, async () => {
       const attempt = await launchedAttempt();
@@ -292,6 +294,7 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
       // The kernel holds nothing unresolved: the node carries its typed reason and its attempt stopped certain.
       expect(await foldedNode(attempt, advanced)).toMatchObject({ unresolved: [], error: failure.code, attempt: { stopped: true } });
       expect((await foldedNode(attempt, advanced)).attempt?.uncertain).not.toBe(true);
+      expect((await foldedNode(attempt, advanced)).status).toBe(nodeStatus);
       // Nothing is left for reconciliation to wait on, and a replay settles nothing twice.
       expect((await fixture.db.transaction(transaction => lifecycle.budgets.listUncertainWithCostInTransaction(transaction))).filter(hold => hold.reservationId === attempt.reservationId)).toEqual([]);
       expect(await stops.stop(service, reference)).toEqual(receipt);
@@ -320,6 +323,69 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
     expect(await settlementOf(settlements, attempt)).toBeUndefined();
     // The kernel keeps the node unresolved: this is the hold W19a's missing-model control met.
     expect(await foldedNode(attempt, advanced)).toMatchObject({ unresolved: [(await sealedAuthority(attempt)).nodeInstanceId], attempt: { stopped: true, uncertain: true } });
+  });
+
+  // W03f finding (b): an operator cancel confirmed while a model call is still in flight. The
+  // product's guest-model journal, the one the broker writes through, meets a stop it cannot see.
+  async function inFlightModelCall(attempt: Attempt) {
+    const authority = await sealedAuthority(attempt);
+    const journal = createFactoryJournalGuestModelJournal({
+      journal: attempt.journal,
+      workspace: { checkpoint: async ({ operationIndex }) => ({ artifactId: `w03f-checkpoint-${attempt.run.runId}`, digest: `sha256:${"b".repeat(64)}`, encodedBytes: 1, journalCursor: operationIndex }) },
+    });
+    const request = {
+      schemaVersion: "factory.guest-model-request.v1" as const, operationId: `${attempt.run.runId}:${authority.nodeInstanceId}:${authority.candidateGeneration}:0`, operationIndex: 0,
+      model: { provider: "ollama", model: "qwen3:1.7b", configurationDigest: `sha256:${"a".repeat(64)}`, configuration: {}, policyDigest: `sha256:${"a".repeat(64)}`, policy: {} },
+      messages: [{ role: "user" as const, text: "the primary colours of light" }], maxOutputTokens: 64,
+    };
+    expect(await journal.claim(attempt.request, request)).toEqual({ claimed: true });
+    return { journal, request };
+  }
+  const heldFor = async (attempt: Attempt) => (await fixture.db.transaction(transaction => lifecycle.budgets.listUncertainWithCostInTransaction(transaction))).find(hold => hold.reservationId === attempt.reservationId)!;
+
+  test("W03f (b): a cancel confirmed while a model call is in flight holds by naming it, and the call's late answer settles through reconciliation and clears the kernel", async () => {
+    const attempt = await launchedAttempt();
+    const { journal, request } = await inFlightModelCall(attempt);
+    const { reference, advanced } = await cancelled(attempt);
+    const held = harness(attempt, stopper(async stopRequest => signed(stopRequest)), acknowledger());
+    expect((await held.stops.stop(service, reference)).event).toMatchObject({ kind: "attempt-stopped", uncertain: true });
+    const reconciler = new FactoryUsageReconciliation(fixture.db, tenantId, held.stops, attempt.journal, lifecycle.budgets, held.settlements);
+    const hold = await heldFor(attempt);
+    // The hold names the operation it waits on, not an absent receipt.
+    expect(await reconciler.resolve(hold)).toEqual({ kind: "unknown", reservationId: attempt.reservationId, reason: "operation-not-settled", operationIds: [request.operationId] });
+    // The provider answers after the stop. The attempt is no longer live, so the completed
+    // settlement is refused; the broker's hold keeps the receipt and the cost instead.
+    const answer = { text: "red, green and blue", providerReceiptDigest: "f".repeat(64), usage: { kind: "measured" as const, inputTokens: 12, outputTokens: 5, computeMs: 30, costMicros: "17" } };
+    await expect(journal.record(attempt.request, request, answer)).rejects.toThrow();
+    await journal.hold(attempt.request, request, answer);
+    const resolution = await reconciler.resolve(hold);
+    expect(resolution).toMatchObject({ kind: "resolved", operationId: request.operationId, providerReceiptDigest: answer.providerReceiptDigest, usage: answer.usage });
+    const settled = await reconciler.reconcile(resolution as Extract<typeof resolution, { kind: "resolved" }>);
+    expect(settled).toMatchObject({ source: "reconciliation", knownCostMicros: "17" });
+    expect(await reservationState(attempt.reservationId)).toMatchObject({ state: "settled" });
+    expect(await foldedNode(attempt, advanced)).toMatchObject({ unresolved: [] });
+    expect(await foldedStatus(attempt, advanced)).toBe("cancelled");
+  });
+
+  test("W03f (b): a provider's late error answer settles its measured zero the same way; a late failure with no evidence stays held and named", async () => {
+    const attempt = await launchedAttempt();
+    const { journal, request } = await inFlightModelCall(attempt);
+    const { reference, advanced } = await cancelled(attempt);
+    const held = harness(attempt, stopper(async stopRequest => signed(stopRequest)), acknowledger());
+    await held.stops.stop(service, reference);
+    const reconciler = new FactoryUsageReconciliation(fixture.db, tenantId, held.stops, attempt.journal, lifecycle.budgets, held.settlements);
+    const hold = await heldFor(attempt);
+    // Without evidence the late failure cannot be recorded, and the hold keeps naming the call.
+    await expect(journal.fail(attempt.request, request, { code: "provider_unavailable", message: "socket hang up" })).rejects.toThrow();
+    expect(await reconciler.resolve(hold)).toMatchObject({ kind: "unknown", reason: "operation-not-settled", operationIds: [request.operationId] });
+    // The provider's own error answer carries its measured zero, which settles the hold.
+    const zero = { kind: "measured" as const, inputTokens: 0, outputTokens: 0, computeMs: 9, costMicros: "0" };
+    // Parked, not settled: the late failure names that, so the broker hands the stopped guest no row.
+    await expect(journal.fail(attempt.request, request, { code: "provider_unavailable", message: "The provider did not complete the call: error (404: model not found).", evidence: { usage: zero, providerReceiptDigest: "9".repeat(64) } })).rejects.toThrow("factory_guest_model_evidence_parked");
+    const resolution = await reconciler.resolve(hold);
+    expect(resolution).toMatchObject({ kind: "resolved", providerReceiptDigest: "9".repeat(64), usage: zero });
+    expect(await reconciler.reconcile(resolution as Extract<typeof resolution, { kind: "resolved" }>)).toMatchObject({ source: "reconciliation", knownCostMicros: "0" });
+    expect(await foldedNode(attempt, advanced)).toMatchObject({ unresolved: [] });
   });
 
   test("a bounded stop timeout leaves durable uncertainty and a later receipt settles the same operation", async () => {
@@ -567,7 +633,8 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
     // No receipt has landed on the operation that caused the hold, so the hold
     // stays held rather than settling as zero, and the settled operation's own
     // receipt is not borrowed for it.
-    expect(await reconciler.resolve(hold)).toEqual({ kind: "unknown", reservationId: attempt.reservationId, reason: "no-operation-receipt" });
+    // W03f: the hold names the call it waits on.
+    expect(await reconciler.resolve(hold)).toEqual({ kind: "unknown", reservationId: attempt.reservationId, reason: "operation-not-settled", operationIds: [expect.any(String)] });
 
     // The operation that caused the hold now carries a receipt but no measured
     // usage, which is still unknown, not zero.

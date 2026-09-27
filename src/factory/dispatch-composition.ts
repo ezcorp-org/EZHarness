@@ -139,7 +139,7 @@ export function factoryUsageReconciliationDriver(
     page: (_signal) => database.transaction((transaction) => budgets.listUncertainWithCostInTransaction(transaction, limit === undefined ? {} : { limit })),
     settle: async (hold, signal) => {
       const resolution = await reconciler.resolve(hold, signal);
-      if (resolution.kind !== "resolved") throw new FactoryUnresolvedHoldError(resolution.reason);
+      if (resolution.kind !== "resolved") throw new FactoryUnresolvedHoldError(resolution.operationIds === undefined ? resolution.reason : `${resolution.reason} ${resolution.operationIds.join(", ")}`);
       await reconciler.reconcile({
         reservationId: resolution.reservationId,
         attemptId: resolution.attemptId,
