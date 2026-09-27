@@ -194,3 +194,20 @@ describe("each peer drives only its own tenant's guests (W01i)", () => {
   });
 });
 
+
+describe("the launch route names a device the host does not have (W02d R4)", () => {
+  test("a supervisor's device_unavailable is 422 with its detail, in the reply and in the log", async () => {
+    const detail = "Device /dev/dri/renderD200 granted to worker w is not present on host h.";
+    const reports: FactoryHostLaunchReport[] = [];
+    const refusing: FactoryHostLaunchSupervisor = {
+      launch: async () => { throw new FactoryAttemptRuntimeError("device_unavailable", detail); },
+      attach: async () => { throw new Error("unused"); },
+      result: async () => { throw new Error("unused"); },
+    };
+    const handle = createFactoryHostLaunchRouteHandler({ hostId, peerTenants: factoryLaunchPeerTenants(), supervisor: refusing, report: (entry) => { reports.push(entry); } });
+    const response = await handle(call(FACTORY_HOST_LAUNCH_PATH));
+    expect(response.status).toBe(422);
+    expect(body(response)).toEqual({ error: "device_unavailable", detail });
+    expect(reports).toEqual([{ path: FACTORY_HOST_LAUNCH_PATH, status: 422, error: "device_unavailable", detail, ...named }]);
+  });
+});

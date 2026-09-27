@@ -448,6 +448,6 @@ export function factoryAttemptLaunchIntentFromWire(value: unknown): FactoryAttem
  * `attempt_unknown`: the host holds no record of the attempt, so its answer died with an earlier supervisor.
  */
 export class FactoryAttemptRuntimeError extends Error {
-  constructor(readonly code: "invalid_request" | "invalid_launch" | "launch_conflict" | "launch_corrupt" | "launch_uncertain" | "lease_revoked" | "device_conflict" | "guest_exited" | "attempt_unknown", message: string) { super(message); }
+  constructor(readonly code: "invalid_request" | "invalid_launch" | "launch_conflict" | "launch_corrupt" | "launch_uncertain" | "lease_revoked" | "device_conflict" | "device_unavailable" | "guest_exited" | "attempt_unknown", message: string) { super(message); }
 }
 

@@ -1,3 +1,4 @@
+import { stat } from "node:fs/promises";
 import { executionLimits } from "@ezcorp/extension-runner";
 import type { Runner, RunnerExecution } from "@ezcorp/extension-contract";
 import { validateFactoryRunnerResult, type FactoryRunnerResult } from "@ezcorp/factory-sdk";
@@ -24,6 +25,21 @@ export interface FactoryHostLaunchSupervisorOptions {
   readonly onClosed?: (workerId: string) => void;
   /** How long a settled answer waits here to be collected. */
   readonly retentionMs?: number;
+  /** Whether a granted device node exists on this host; {@link factoryHostDevicePresent} unless a test replaces it. */
+  readonly devicePresent?: (path: string) => Promise<boolean>;
+}
+
+/**
+ * Whether a device node is present on this host: a character or block device at that path (W02d R4). It reads
+ * only `/dev` metadata, so the host's closure stays free of any store.
+ */
+export async function factoryHostDevicePresent(path: string): Promise<boolean> {
+  try {
+    const node = await stat(path);
+    return node.isCharacterDevice() || node.isBlockDevice();
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -85,6 +101,17 @@ function startRequest(intent: FactoryAttemptLaunchIntent, now: () => number) {
 export function createFactoryHostLaunchSupervisor(options: FactoryHostLaunchSupervisorOptions): FactoryHostLaunchSupervisor {
   const now = options.now ?? Date.now;
   const retentionMs = options.retentionMs ?? FACTORY_HOST_RESULT_RETENTION_MS;
+  const devicePresent = options.devicePresent ?? factoryHostDevicePresent;
+
+  /**
+   * A grant that names a node this host does not have is refused by name before any container exists (W02d R4),
+   * rather than failing inside `podman run` with no typed reason.
+   */
+  const assertDevices = async (intent: FactoryAttemptLaunchIntent): Promise<void> => {
+    for (const device of intent.devices.devices) {
+      if (!await devicePresent(device)) throw new FactoryAttemptRuntimeError("device_unavailable", `Device ${device} granted to worker ${intent.workerId} is not present on host ${options.hostId}.`);
+    }
+  };
   const live = new Map<string, HostAttempt>();
   // A start still in flight. A second launch or an attach for the same worker
   // joins it rather than inspecting a container that is half created.
@@ -201,6 +228,7 @@ export function createFactoryHostLaunchSupervisor(options: FactoryHostLaunchSupe
         const inspection = await options.runner.inspect(intent.workerId);
         if (inspection.state === "running") return reconnect(intent);
         if (inspection.state !== "unknown") return handle("terminal", intent);
+        await assertDevices(intent);
         const start = startRequest(intent, now);
         remember(intent, await options.runner.start(start, reverse(intent, start.context)), start.context);
         return handle("started", intent);

@@ -179,6 +179,21 @@ describe("an attempt whose answer will never arrive ends failed, with the reason
 });
 
 describe("a launch the host never confirmed still ends in a durable result", () => {
+  test("a launch the host refuses for a device it does not have ends RUNNER_DEVICE_UNAVAILABLE at once, not retryable (W02d R4)", async () => {
+    const detail = "Device /dev/dri/renderD200 granted to worker w is not present on host h.";
+    const w = await world("attempt-no-device", [], { launch: async () => { w.asked.push("launch"); throw refusal(422, "device_unavailable", detail); } });
+    const opened = await w.open();
+    // The host proved no guest exists, so nothing is attached, acknowledged, or read.
+    expect(w.asked).toEqual(["launch"]);
+    expect(w.acknowledged).toEqual([]);
+    expect(await w.row()).toBe("uncertain");
+    const result = await opened.wait();
+    expect(result).toMatchObject({ status: "failed", error: { code: FACTORY_LOST_RESULT_CODES.device_unavailable, retryable: false } });
+    expect((result as { error: { message: string } }).error.message).toContain("/dev/dri/renderD200");
+    expect(w.stops).toEqual(["failed"]);
+    expect(FACTORY_LOST_RESULT_CODES.device_unavailable).toBe("RUNNER_DEVICE_UNAVAILABLE");
+  });
+
   test("a launch and an attach that both fail leave the start unacknowledged and the attempt collected by name", async () => {
     const w = await world("attempt-unconfirmed", [refusal(409, "attempt_uncertain")], {
       launch: async () => { throw new Error("factory gateway request timed out"); },

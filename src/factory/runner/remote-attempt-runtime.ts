@@ -43,7 +43,12 @@ export const FACTORY_LOST_RESULT_CODES = Object.freeze({
   supervisor_lost: "RUNNER_SUPERVISOR_LOST",
   /** The pool lease that holds the guest's capacity could not be kept alive. */
   lease_lost: "RUNNER_LEASE_LOST",
+  /** The host does not have a device the attempt's lease granted; no guest was started (W02d R4). */
+  device_unavailable: "RUNNER_DEVICE_UNAVAILABLE",
 } as const);
+
+/** The losses another attempt on the same grant would meet again, so the result says a retry cannot help. */
+const FACTORY_LOST_RESULT_FINAL: ReadonlySet<FactoryLostResultReason> = new Set(["device_unavailable"]);
 export type FactoryLostResultReason = keyof typeof FACTORY_LOST_RESULT_CODES;
 
 /** After the attempt's own deadline, how long the product still waits for the host's answer. */
@@ -119,6 +124,12 @@ export class FactoryRemoteAttemptRuntime implements FactoryAttemptRuntime {
       if (error instanceof FactoryAttemptRuntimeError && error.code === "invalid_launch") {
         await this.options.launches.state(attemptId, "uncertain");
         throw error;
+      }
+      // The host refused before any container existed: a granted device it does not have (W02d R4). No guest
+      // exists, so nothing is attached or read; the attempt ends by name, through the same lost-result record.
+      if (error instanceof FactoryHostLaunchRefusal && error.code === "device_unavailable") {
+        await this.options.launches.state(attemptId, "uncertain");
+        return this.settled(tokened, "uncertain", () => this.lost(tokened, "device_unavailable", error.detail));
       }
       // A lost launch response is not an absent guest. Ask the host what it has.
       const attached = await this.options.transport.attach(tokened).catch(() => undefined);
@@ -271,7 +282,7 @@ export class FactoryRemoteAttemptRuntime implements FactoryAttemptRuntime {
     const message = `Factory attempt ended without its guest's answer (${reason}): ${detail}`.slice(0, 4_096);
     this.options.report(`attempt-result-lost:${attemptId}`, new FactoryAttemptRuntimeError("launch_uncertain", message));
     await this.options.stop(intent, "failed").catch(error => { this.options.report(`attempt-stop-unconfirmed:${attemptId}`, error); });
-    const result = failedFactoryRunnerResult(await this.settledJournal(intent), { code: FACTORY_LOST_RESULT_CODES[reason], message, retryable: true });
+    const result = failedFactoryRunnerResult(await this.settledJournal(intent), { code: FACTORY_LOST_RESULT_CODES[reason], message, retryable: !FACTORY_LOST_RESULT_FINAL.has(reason) });
     const recorded = await this.options.launches.recordLostTerminal(attemptId, result);
     if (recorded.state === "recorded") return recorded.result;
     // A stop sealed first owns this attempt's end (W01h fix round): the loss is
