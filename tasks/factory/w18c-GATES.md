@@ -183,6 +183,10 @@ the recorded merge (sha256 prefix b4e6498a65858ac6). Changed records: 24; every 
   extras lcov of 60e3e436a the per-file gate goes from 6 entries to 5; only the kernel-types.ts entry leaves
   (`kernel-types-per-file.txt`).
 - [ ] G2: feature-changed files named by the per-file, patch and CRAP gates are covered by tests.
+  jwt.ts 51 (ruling 2026-09-27): the factory refusal moves into the pure `configuredInstallationId(boot, configured)`
+  in jwt.ts, which installationId() calls with the boot-frozen factoryBootConfig; the import order is unchanged (the
+  added import is type-only). In-process tests in auth-jwt-password.test.ts, red first (the export was missing);
+  factory-boot.test.ts keeps the child-process proof and passes (24 tests).
 - [x] G3: mutation score >= 80 on the files this feature changed, blocking form, with W18d's toolchain.
   RECORD: Stryker at 6eda84a76 under the lock, `BASE_REF=origin/main bun scripts/mutation.ts --changed` without
   --report-only (`heavy/stryker.out`, `receipts/stryker-6eda84a76-report.json`): 97.05, exit 0; 1286 killed,
