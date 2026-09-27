@@ -1,8 +1,8 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildHarnessEnv, makeFsRpcHandler, wireFsHandler, installFsChannelStub } from "../src/test/filesystem";
+import { buildHarnessEnv, gitInDirectory, makeFsRpcHandler, wireFsHandler, installFsChannelStub } from "../src/test/filesystem";
 import { getChannel } from "../src/runtime";
 import type { JsonRpcRequest, JsonRpcResponse } from "../src/types";
 
@@ -63,4 +63,25 @@ test("filesystem harness environment grants are explicit and overridable", () =>
   expect(environment).toMatchObject({ EZCORP_FS_ALLOWED: "1", EZCORP_SHELL_ALLOWED: "1", EZCORP_NETWORK_ALLOWED: "1", EZCORP_PERMITTED_HOSTS: "example.com", EZCORP_PROJECT_ROOT: "/project", CUSTOM: "value" });
   const restricted = buildHarnessEnv(extensionId);
   expect(restricted.EZCORP_FS_ALLOWED).toBeUndefined();
+});
+
+// L2, W18 hygiene item C: gitInDirectory()'s own default `home` (when the
+// caller passes none) used to be created via a default-parameter
+// `mkdtempSync(...)` and never removed — one leaked directory under
+// `os.tmpdir()` per call. Fixed to clean up only the directory IT created;
+// a caller-supplied `home` is left alone (the caller may still need it).
+test("gitInDirectory() removes its own scratch home, but not a caller-supplied one", () => {
+  const before = readdirSync(tmpdir()).filter((n) => n.startsWith("gitInDirectory-"));
+
+  const dir = mkdtempSync(join(tmpdir(), "sdk-git-in-dir-"));
+  roots.push(dir);
+  gitInDirectory(dir, ["rev-parse", "--is-inside-work-tree"]);
+
+  const after = readdirSync(tmpdir()).filter((n) => n.startsWith("gitInDirectory-"));
+  expect(after).toEqual(before);
+
+  const suppliedHome = mkdtempSync(join(tmpdir(), "sdk-git-in-dir-supplied-home-"));
+  roots.push(suppliedHome);
+  gitInDirectory(dir, ["rev-parse", "--is-inside-work-tree"], suppliedHome);
+  expect(existsSync(suppliedHome)).toBe(true);
 });

@@ -330,5 +330,340 @@ residual-fix files) pass individually at their real invocation (`d-src-isolated-
 
 ## Item C — F2: the 27 bare git-init tests
 
-- [ ] GC1: BLOCKED on the integ/w00 hash containing W18a-3 (for `src/__tests__/helpers/scratch-git.ts`),
-  per the spawn brief. Not started.
+- [x] GC1: branch `wp/w18-hygiene-3` created from `integ/w00` at `6cea43e67` (W18a-3 landed as `8a08328fc`,
+  receipts in `6cea43e67`), per the team-lead-supplied hash. Worktree set up per the standing
+  incident-response rule: `git config --worktree core.bare false` + worktree identity set FIRST,
+  confirmed with `git config --show-origin --get-all core.bare` (both the shared `.git/config` and this
+  worktree's own `config.worktree` read `false`, unchanged throughout everything below); `GIT_DIR`,
+  `GIT_INDEX_FILE`, `GIT_WORK_TREE` confirmed clear before every suite.
+
+- [x] GC2: hardened `packages/@ezcorp/sdk/src/test/filesystem.ts`'s `gitInDirectory()` to full isolation.
+  It previously only stripped `GIT_*`; it still read the real user's `~/.gitconfig` and the host's
+  system config. Extracted the isolation rule as a new export `isolatedGitEnv(home, env)` (strip
+  `GIT_*`, drop `XDG_CONFIG_HOME`, set `HOME`, set `GIT_CONFIG_NOSYSTEM=1`) used by both
+  `gitInDirectory()` (default: a fresh scratch `HOME` per call) and `src/__tests__/helpers/scratch-git.ts`'s
+  `scratchGitEnv()`, which now delegates to it instead of duplicating the rule. This is Group 2 (the 2
+  SDK-based files use `gitInDirectory()`/`markGitRepository()` already — no test-file change needed):
+  `docs/extensions/examples/task-stack/index.test.ts`, `packages/@ezcorp/ai-kit/test/unit/cli-install.test.ts`.
+  CHECK: `bun scripts/check-boundaries.ts` and `bun scripts/check-factory-boundaries.ts` (app code
+  importing `@ezcorp/sdk/*` is unrestricted by either); `bun test packages/@ezcorp/sdk/test/fs.test.ts`
+  + the two Group 2 files.
+  EXPECT: both boundary checks 0; 122/0 across the three files.
+  EVIDENCE: commit `d296f0b91`. Verified with the pinned bun 1.3.14 (`.bun-version`); typecheck, lint,
+  gate-integrity all 0; shared `.git/config` `core.bare` unchanged (`false`) before/after.
+
+- [x] GC3: Group 1 (17 confirmed real bare-git-init files) converted to the shared helper. Each file's
+  hand-rolled isolation (several already replaced the child's env wholesale — safe by accident, not by
+  the shared rule — most did not: full `...process.env` spreads, or no `env` override at all, meaning
+  an ambient hook `GIT_DIR` would act on the wrong/real repository). Converted to
+  `scratchRepository()`/`scratchGitEnv()` uniformly; where a file needed a fixed author/committer
+  identity AND date (so previously-pinned object hashes keep reproducing — `git-objects.test.ts`,
+  `reference-code/git-reader.test.ts`), composed `{ ...scratchGitEnv(home), GIT_AUTHOR_DATE: ..., ... }`
+  rather than using `scratchRepository()`'s own (undated) identity path, so no behavior/hash changed.
+  Files: `docs/extensions/examples/docs-updater/index.integration.test.ts`,
+  `src/extensions/first-party-integration/docs-updater/git.test.ts`,
+  `src/extensions/first-party-integration/repo-activity-notify/git.test.ts`,
+  `scripts/check-patch-coverage-typeonly.test.ts`, `src/extensions/project-git-refs.test.ts`,
+  `src/extensions/__tests__/project-git-broker.test.ts`, `src/extensions/__tests__/project-open-pr.test.ts`,
+  `src/extensions/__tests__/source-project-credentials.test.ts`, `src/factory/git-objects.test.ts`,
+  `src/factory/reference-code/git-reader.test.ts`, `src/__tests__/biome-ignores-worktrees.test.ts`,
+  `src/__tests__/git-install.test.ts`, `src/__tests__/security/c3-extension-install.test.ts` (the exact
+  file the 2026-09-24 incident named), `src/__tests__/source-parser-git-coverage.test.ts`,
+  `src/__tests__/source-parser.test.ts`, `src/__tests__/unlanded-branches.test.ts`,
+  `src/__tests__/visual-evidence-select.test.ts`.
+  CHECK: each file alone, then all 17 + the 2 Group 2 files together in one process.
+  EXPECT: alone — 3 batches of 8/4/5 files, 49/0, 42/0, 121/0; combined — 334/0 across 20 files.
+  EVIDENCE: `git status --short` shows exactly the 17 files touched; shared `.git/config` `core.bare`
+  unchanged (`false`) after every run.
+
+- [x] GC4: Group 3 (8 files disclosed as uncertain) verified against this real merged base — all 8 are
+  false positives; none invoke a real git subprocess. Grep evidence per file:
+  `src/__tests__/cli-ext-coverage.test.ts` (only fake `.git@v1.0.0`/`github:` source strings, no spawn);
+  `src/__tests__/ext-docs-validation.test.ts` (only a doc example name `github-stats`);
+  `src/__tests__/ext-init.test.ts` (only `.gitignore` file-content assertions);
+  `src/__tests__/lessons-audit-queries.test.ts`, `src/__tests__/memory-types.test.ts`,
+  `web/src/__tests__/copyable-content.test.ts`, `src/factory/release-git-refs.test.ts` (zero
+  case-insensitive `git` matches in the whole file); `src/__tests__/cli-ext-typed-scaffold.test.ts`
+  (spawns the project's OWN built CLI's `ext init`, which calls `@ezcorp/sdk/scaffold` — confirmed by
+  grep to contain no git invocation at all, pure file scaffolding). No code change; no false-positive
+  filed as real.
+
+- [x] GC5: poisoned-env guard-with-control proof, the pattern `gate-scripts.test.ts` already uses for
+  `scratchRepository()`/`scratchGitEnv()` themselves, run over all 17 Group 1 files: a dummy repository
+  built with `scratchRepository()`, snapshotted (config/index/refs/objects/HEAD), then the SAME 17
+  files run via `bun test` with `GIT_DIR`/`GIT_INDEX_FILE`/`GIT_WORK_TREE`/`GIT_COMMON_DIR`/
+  `GIT_OBJECT_DIRECTORY`/`HOME` all pointed at the dummy (exactly what a pre-commit hook exports).
+  RESULT: the dummy repository's snapshot is BYTE IDENTICAL before and after (my 17 conversions never
+  read or write the poisoned target); the control (the same poisoned env, unprotected) DOES leak into
+  the dummy (`git config user.email` written into its real config), proving the poison in the proof is
+  real and not a no-op.
+  RESIDUAL, CORRECTED (validator-3's F2 finding on the original draft of this entry, which undercounted
+  both the failures and the sites): this item's own scratch poison probe found 13 failures in 3 files
+  and named 3 production wrapper sites; validator-3's later, more rigorous poison run over the full 17
+  Group 1 files plus their siblings found 21 test failures across 7 files, naming FOUR real production
+  wrapper sites, one of which (`repo-activity-notify`) this item's own probe missed entirely. All ONLY
+  on tests that exercise pre-existing PRODUCTION git wrappers this item's scope never touched — these
+  are production runtime code, not test fixtures, outside item C's stated scope ("convert 27 disclosed
+  bare git-init TESTS") — reported to team-lead for a ruling rather than fixed unilaterally; item C's
+  own 17 conversions are unaffected by and do not depend on that ruling. The fixes for all four sites
+  landed later, in item C2 (branch `wp/w18-hygiene-c2`, gates doc GC11-15).
+  POISON RECIPE (validator-3's, `/tmp/factory-platform-evidence/w18-hygiene-validation/itemC/poison.sh`):
+  a real scratch "dummy" repo at `$D`, then every file run as
+  `env GIT_DIR=$D/.git GIT_INDEX_FILE=$D/.git/index GIT_WORK_TREE=$D GIT_COMMON_DIR=$D/.git
+  GIT_OBJECT_DIRECTORY=$D/.git/objects HOME=$H timeout 600 bun test --timeout 60000 ./<file>`, one file
+  per process (no lock needed). A snapshot of `$D` before and after every run, plus an explicit control
+  (the same poison, no protection, does write into `$D`), proves the poison is both harmless-if-ignored
+  and effective-if-not.
+  - `src/extensions/git.ts`'s `gitExec()` (spreads `{...process.env}` with no `GIT_*` stripping — used
+    by its `clone()`/`getCurrentRef()`/`lsRemoteTags()`): 7 failures —
+    `src/__tests__/source-parser-git-coverage.test.ts` (3) + `src/__tests__/source-parser.test.ts` (4).
+  - `scripts/unlanded-branches.ts`'s internal `Bun.spawnSync(["git",...args],{cwd})` (no `env` override
+    at all — exercised by its exported `main()`): 5 failures — `src/__tests__/unlanded-branches.test.ts`.
+  - `docs/extensions/examples/docs-updater/index.ts`'s `HERMETIC_GIT_ENV` (blocks global/system config
+    reads but never strips `GIT_DIR`/`GIT_INDEX_FILE`/`GIT_WORK_TREE` — IS triggered, this entry's
+    original draft said only "found earlier, not triggered"; that was wrong): 7 failures —
+    `docs/extensions/examples/docs-updater/index.integration.test.ts` (3) +
+    `src/extensions/first-party-integration/docs-updater/git.test.ts` (4).
+  - `docs/extensions/examples/repo-activity-notify/index.ts`'s `readGitHead` (undisclosed by this
+    entry's original draft entirely): 1 failure —
+    `src/extensions/first-party-integration/repo-activity-notify/git.test.ts`.
+  Total: 20 real failures across four sites. The 21st (`src/__tests__/git-install.test.ts`, 1 failure)
+  is a METHODOLOGY ARTIFACT, not a fifth site: poisoning `HOME` moves rootless podman's image store,
+  which this test's runner depends on regardless of git isolation — `RunnerError: ...image not known`,
+  unrelated to any git-context bug. Stated explicitly so it is never miscounted as a real site.
+  EVIDENCE: `/tmp/w18-hygiene-3-poison-check.ts`, `/tmp/w18-hygiene-3-poison-check2.ts` (this item's own
+  original, less complete probe; not repo-tracked, scratch proof scripts);
+  `/tmp/factory-platform-evidence/w18-hygiene-validation/itemC/poison-results.txt` and the per-file
+  `poison-*.log` files beside it (validator-3's authoritative run, cited above).
+
+- [x] GC6: bisected leak fix — `src/__tests__/extensions-patch-route.test.ts` and
+  `src/__tests__/extensions-delete-route-policy.test.ts` converted their `extension-lifecycle-service`/
+  `registry`/`db/queries/extensions` mocks to `serverModule()`, plus two structural fixes the bisection
+  required beyond that:
+  1. `ExtensionRegistry.getInstance()` is a cheap in-memory singleton (no I/O) — replacing the whole
+     class/module still freezes on whichever file's registration is active when another file's
+     already-loaded consumer (`scoped-tools.ts`, `context.ts`, both call `ExtensionRegistry.getInstance()`
+     at their own top level) first resolves the alias, breaking every real method the frozen shape
+     omits. Fixed by `spyOn()`-ing the real singleton's `reload`/`killAll` instead of replacing the
+     module, with `ExtensionRegistry.resetInstance()` in `afterAll` (un-spying first, since
+     `resetInstance()` calls the instance's own `killAll()`) so the next `getInstance()` anywhere gets a
+     fresh, unspied instance.
+  2. `getExtensionByRef`/`getExtension` and `getExtensionLifecycle` are gated/proxied rather than
+     wholesale-replaced: `db/queries/extensions` reads fall through to the real, DB-backed function for
+     any id other than the fixture's own; `getExtensionLifecycle()` returns a `Proxy` over the fake
+     (`inspect`/`disable`/`uninstall`) that lazily delegates any OTHER method call to the real service —
+     needed because `installer-idempotent-local.test.ts`'s author-loader calls `.list()`, which the
+     original hand-rolled fake never had. Both real references are snapshotted as standalone function
+     values BEFORE the override is registered — `mock.module()` on the same relative specifier updates
+     properties on the same object in place, so a captured OBJECT reference (not a captured FUNCTION
+     value) would see the override too.
+  BUG FOUND AND FIXED DURING THIS: the lazy-delegate Proxy's `get` trap, if it returns a function for
+  `"then"`, makes the returned object look like a thenable to JS's own promise-resolution machinery —
+  `await getExtensionLifecycle()` then calls `proxy.then(resolve, reject)`, which calls
+  `getExtensionLifecycle()` again to build the fallback, which is also awaited, checking `.then` again:
+  an infinite loop that hung the process (confirmed via a temporary route-file trace: the override was
+  called thousands of times, no test body ever reached). Fixed by excluding `prop === "then"` (and
+  symbols) from the lazy-delegate branch.
+  CHECK (all four required proofs): each file alone; `extensions-patch-route.test.ts` + `phase-2b-e2e.test.ts`;
+  `extensions-delete-route-policy.test.ts` + `phase-2b-e2e.test.ts`; `extensions-delete-route-policy.test.ts`
+  + `installer-idempotent-local.test.ts`.
+  RESULT: alone 11/0 and 9/0; both `phase-2b-e2e.test.ts` pairs fully green (19/0, 17/0) — the disclosed
+  leak for those two pairs is closed. The third pair (`extensions-delete-route-policy.test.ts` +
+  `installer-idempotent-local.test.ts`) still fails the SAME 3 tests the original bisection named, but
+  the proximate error changed (was `TypeError: lifecycle.list is not a function`; now a DB-connection-
+  lifecycle error, `PGlite is closed`, plus one data-content assertion mismatch). CONFIRMED PRE-EXISTING,
+  NOT A REGRESSION: checked out the ORIGINAL, unconverted `extensions-delete-route-policy.test.ts` from
+  HEAD and ran the identical pairing — the SAME 3 test names fail there too (with the pre-fix
+  `.list is not a function` symptom). The pair passes cleanly in the REVERSED order (25/0) and each
+  file passes alone (16/0, 9/0), so this is order-dependent but not caused by anything item C's scope
+  touches — it traces to `installer-idempotent-local.test.ts`'s own `mockDbConnection()` (in
+  `helpers/test-pglite.ts`) registering `../../db/connection`, a second instance of the exact "$server/*
+  alias frozen by load order" class this item fixes, one layer down and in the opposite direction
+  (the VICTIM's own mock can't reach a consumer whose `db/connection` binding another file's earlier
+  load already froze). Reported to the coordinator; not fixed here (out of item C's two-file scope,
+  requires touching `helpers/test-pglite.ts` and/or `installer-idempotent-local.test.ts`).
+  ALSO EXTENDED THE GUARD: added `isCompleteServerFactoryBody()` (serverModule()'s counterpart to the
+  existing `isCompleteLibFactoryBody()`) and a real-file walker guard, analogous to the F1
+  `$lib/server/security/api-keys` one, over every `mock.module($server/extensions/{extension-lifecycle-service,registry})`
+  in the tree. Running it uncovered FIVE more pre-existing offenders beyond the two files fixed here —
+  `src/__tests__/hub-render-pull.test.ts`, `src/__tests__/phase-2b-e2e.test.ts` (its own narrow
+  `ExtensionRegistry.getInstance` override, the same class of bug), `src/__tests__/extension-events-hub-branch.test.ts`,
+  `web/src/routes/api/import/__tests__/commit.test.ts`, `web/src/__tests__/extensions-api.test.ts`,
+  `web/src/__tests__/extensions-events-route.test.ts` — recorded as a `PENDING_ELSEWHERE` exemption list
+  (same pattern as the api-keys guard's own), disclosed to the coordinator as a new candidate survey
+  (same shape as item E), not fixed here.
+  EVIDENCE: `mock-cleanup-coverage.test.ts` 34/34 (was 33/33; the new describe block adds the walker
+  test). Typecheck, lint, gate-integrity, both boundary checks all 0. Shared `.git/config` `core.bare`
+  unchanged (`false`) throughout.
+
+- [x] GC7: `workflow-run-persistence.test.ts`'s `terminalizeOrphanedWorkflowRuns` timing flake fixed.
+  The crash-recovery describe block's `BOOT`/`NOW` (`2026-07-29T12:00:00Z`/`T12:05:00Z`) hoisted to
+  MODULE level — one clock for the whole file, not per-test copies — and reused in all three places:
+  the flaky test itself ("sweeps rows a dead process left running"), the neighbouring
+  "the boot sweep drains a half-written row" test (dropped its `Date.now() - 60_000` margin), and the
+  existing crash-recovery block (unchanged behaviour, now reading the module-level constant instead of
+  its own describe-scoped copy). Both fixed tests now insert with `startedAt: BOOT` and pass explicit
+  cutoffs strictly after it by construction (`BOOT.getTime() + 1000` for the draining sweep, `NOW` —
+  five fixed minutes later — for the half-written test's second cutoff and the "second sweep finds
+  nothing" call) instead of calling `terminalizeOrphanedWorkflowRuns()` with no arguments, which read
+  `new Date()` twice internally. No wall-clock read (`new Date()`/`Date.now()`) in either test.
+  CHECK: the file alone, five consecutive runs.
+  EXPECT/RESULT: 95/0 every time.
+  EVIDENCE: typecheck, lint, gate-integrity, both boundary checks all 0.
+
+- [x] GC8 (L2, from the A+B verdict): the hook's over-cap/skip messages now name the withheld
+  `packages/@ezcorp/factory-orchestrator` run whenever one is staged, and never print an empty list
+  when ONLY orchestrator files are staged with `EZ_SKIP_HOOK_TESTS=1` set. Two bugs fixed in
+  `scripts/lib/hook-lib.sh`'s `run_staged_tests()`:
+  1. `printf '%s\n' "$targets" | wc -l` on an EMPTY `$targets` still emits one (empty) line, so `count`
+     was wrongly `1` instead of `0` whenever only orchestrator files were staged (the exact case this
+     ruling names) — fixed with an explicit `[ -z "$targets" ] && count=0` branch.
+  2. Neither the over-cap "NOT running" list nor the `EZ_SKIP_HOOK_TESTS=1` "skipping" list ever
+     mentioned the orchestrator run, even though both branches `return` before it would run — a hook
+     that silently withholds a real test run without saying so is exactly the bug item B fixed for the
+     cap itself, just for the orchestrator's separate execution path. Both messages now print
+     `packages/@ezcorp/factory-orchestrator (node: bun run test) — also withheld[, blocked by the same
+     cap]` whenever `orchestrator=1` and the function is about to return without running it.
+  Also removed the F1 guard's by-name W18a-3 exemption (`mock-cleanup-coverage.test.ts`'s
+  `PENDING_ELSEWHERE` for the four files fixed on wp/w18a3-quality-r2) now that its merge landed in this
+  package's base — all four already use `webLibModule()`; the guard test re-confirms zero offenders
+  repo-wide with the list gone.
+  CHECK: two new tests in "hook-lib > run_staged_tests > factory-orchestrator" (EZ_SKIP_HOOK_TESTS=1
+  with only an orchestrator file staged; the over-cap block with an orchestrator file staged alongside
+  three real test files); `git-hooks.test.ts`, `gate-scripts.test.ts`, `mock-cleanup-coverage.test.ts`.
+  EXPECT/RESULT: `git-hooks.test.ts` 27/27 (was 25/25); `gate-scripts.test.ts` 210/0;
+  `mock-cleanup-coverage.test.ts` 34/34 with zero api-keys offenders and the exemption list removed.
+  EVIDENCE: typecheck, lint, gate-integrity, both boundary checks all 0.
+
+- [x] GC9: the third pair (`extensions-delete-route-policy.test.ts` + `installer-idempotent-local.test.ts`,
+  GC6's residual) fixed, per the coordinator's ruling that it stays in item C's scope. GC6's own
+  `serverModule()`-plus-lazy-`Proxy` approach for the lifecycle-service/registry aliases is SUPERSEDED —
+  it left this pair red (same 3 tests, "PGlite is closed" instead of the original
+  `TypeError: lifecycle.list is not a function`) and, separately, introduced a `getOwnPropertyDescriptor`
+  bug of its own (a Proxy advertising a real export name via `ownKeys` but reporting a hardcoded
+  `value: undefined` broke Bun's static `import { X }` linking for names outside the override set —
+  confirmed with an isolated reproduction outside this repo before diagnosing it correctly). Replaced
+  with W18c's independently-produced fix, offered as evidence at
+  `/tmp/factory-platform-evidence/w18c/leak-fix-alias-withdrawal.diff` (README and raw results
+  alongside it) and adopted here with attribution:
+  1. The lifecycle service is mocked on its RELATIVE path ONLY — no `$server/extensions/extension-lifecycle-service`
+     alias registration at all. A route resolves that alias NATIVELY to the same record as the relative
+     path when nothing has claimed the alias separately (confirmed empirically — this is why
+     `restoreModuleMocks()`'s existing relative-path restoration, via `MODULE_PATHS`, is sufficient once
+     the alias is never separately claimed). An alias registration, once made, can never be withdrawn;
+     with one in place, `installer-idempotent-local.test.ts`'s own `spyOn()` on the real lifecycle-service
+     namespace stopped reaching its author-loader.
+  2. `db/queries/extensions` keeps its alias (other suites claim it too, so a relative-only mock cannot
+     be relied on) and hands it back to the real module in `afterAll` — claim-and-revert, the exact
+     pattern GC6 already used for this one alias, kept unchanged; this item's own id-gating (fall through
+     to the real, DB-backed function for any id but the fixture's own) stays layered on top, on the real
+     module handed back for the OTHER thing that reads it.
+  3. `ExtensionRegistry`'s `spyOn()` (GC6) is kept, not replaced — it already avoids the alias question
+     entirely.
+  A THIRD bug found and fixed while proving this at a realistic scale (a 25-file random sample of
+  `helpers/test-pglite.ts` consumers run alongside all four polluter/victim files together, per the
+  coordinator's "run every file that uses test-pglite.ts" instruction): `extensions-patch-route.test.ts`'s
+  and `extensions-delete-route-policy.test.ts`'s own `ExtensionRegistry.getInstance()` + `spyOn()` calls
+  were at THIS FILE's own top level — during the shared loading phase, before any file's tests run and
+  before the singleton has been reset by anyone. Two files doing this same thing capture the SAME
+  instance; the first file's own `afterAll` then calls `resetInstance()`, discarding it, so the second
+  file's module-level spy references a stale object `getInstance()` no longer returns — its own
+  assertions silently check nothing, and a LATER real caller (`phase-2b-e2e.test.ts`'s `publish()`)
+  hits whichever spy is still active from whoever spied last ("Route bypassed fenced publication" from
+  the OTHER file's throwing mock). Fixed by moving both files' `ExtensionRegistry.getInstance()` +
+  `spyOn()` calls into `beforeAll` (test-execution time, after every earlier file's own `resetInstance()`
+  has already run), so each file gets the instance actually live for its own run.
+  PROOF (all four required demonstrations plus both orders, superseding GC6's partial result):
+  each file alone; all 4 pair combinations in BOTH orders (`extensions-patch-route.test.ts`/
+  `extensions-delete-route-policy.test.ts` × `installer-idempotent-local.test.ts`/`phase-2b-e2e.test.ts`,
+  forward and reversed); all four files together in one process; a 25-file random sample of
+  `helpers/test-pglite.ts` consumers alongside all four.
+  RESULT: alone 11/0 and 9/0; every pair, both orders, all green (27/0, 27/0, 25/0, 25/0, 19/0, 19/0,
+  17/0, 17/0 — matching W18c's own cited numbers exactly for the four it ran); all four together 44/0.
+  L3 (validator-3 fix round): the original citation here for the 25-file sample plus all four together
+  read "353/0" — a pass/fail count only, with no separate count of LOAD errors (bun reports a module
+  that fails to link as an error distinct from a test failure; a pass/fail count alone can under-state
+  what actually happened, since a file whose module graph never linked contributes neither a pass nor a
+  fail for its own tests). That omission is the bug L3 names, not a specific number now known to be
+  wrong — the raw log from that run is gone. Re-run today (2026-09-27, same worktree, same 25-file
+  list at `/tmp/pglite-sample.txt`, same four files, same order) to replace it with a citation that
+  states both counts explicitly: 413 pass, 0 fail, 0 errors across 29 files
+  (`/tmp/w18-hygiene-3-gc9-sample-rerun.log`; `bun test` prints an explicit "N error(s)" line whenever a
+  module fails to link; its absence here is confirmed, not assumed, by grepping the full run's output
+  for "Unhandled error" / "SyntaxError" / "not found in module", zero matches). Going forward, any
+  citation of a multi-file run's result in this doc states pass, fail, AND error counts together, never
+  pass/fail alone.
+  A DIFFERENT, PRE-EXISTING, UNRELATED issue was reported at the time as surfacing in that 25-file
+  sample (`Export named 'checkRole'/'checkProjectRole'/'requireRole' not found in module
+  '$server/auth/middleware'`), confirmed present identically whether this item's fix is applied or not
+  (reproduced against the pre-GC9 committed head with the same sample) — a latent partial-
+  `auth/middleware`-mock collision among files in that random sample, unrelated to and not caused by
+  this item. It did NOT reproduce in today's re-run (0 errors, confirmed above) — multi-file `bun test`
+  module-load order is not fully pinned by argument order alone, so a collision between two specific
+  mocks can be present in the file set without triggering on every invocation. The underlying bug is
+  independently confirmed elsewhere regardless (item C2's GC12 converts the `$server/auth/middleware`
+  offenders this collision comes from), so its absence from today's specific re-run is not evidence it
+  is fixed on this branch — it isn't; C2 owns that fix, not item C.
+  EVIDENCE: `/tmp/factory-platform-evidence/w18c/leak-fix-alias-withdrawal.{diff,README.txt,results.txt}`.
+  Typecheck, lint, gate-integrity, both boundary checks all 0; shared `.git/config` `core.bare`
+  unchanged (`false`) throughout; `mock-cleanup-coverage.test.ts` still 34/34 (the alias this item's
+  files claim, `$server/db/queries/extensions`, is unchanged, so the guard's own coverage of it is
+  unaffected).
+
+- [x] GC10: the six further offenders GC9's extended F1 guard found — each converted, per the
+  coordinator's ruling, as its own file-level fix, and the guard's by-name `PENDING_ELSEWHERE`
+  exemption removed entirely (an exemption that exists so a new guard passes is an EXCLUDES list,
+  forbidden here). All six shared the same bug shape as GC9's `ExtensionRegistry` piece: a
+  `$server/extensions/registry` alias replacement of the whole module (or, for `phase-2b-e2e.test.ts`,
+  a partial-shape alias factory), which is a PERMANENT registration — any later file's own
+  `getInstance()` call would keep resolving through the earlier file's narrow stub forever. Fix
+  pattern, identical across all six: register no alias at all; `spyOn()` the real, cheap in-memory
+  `ExtensionRegistry.getInstance()` singleton's specific method(s) (`reload`, `killAll`, `getProcess`,
+  as each file needed), inside `beforeAll` (test-execution time, never module top level — GC9's own
+  multi-file stale-spy bug is exactly what top-level placement causes); un-spy and
+  `ExtensionRegistry.resetInstance()` in `afterAll`, un-spying BEFORE the reset so `resetInstance()`'s
+  own `killAll()` call hits the real implementation, not a possibly-throwing spy.
+  - `src/__tests__/hub-render-pull.test.ts`: `spyOn(ExtensionRegistry.getInstance(), "getProcess")`.
+  - `src/__tests__/extension-events-hub-branch.test.ts`: same, delegating to the file's existing
+    `fakeProc`/`spawnShouldFail` fixtures.
+  - `src/__tests__/phase-2b-e2e.test.ts`: `spyOn(ExtensionRegistry.getInstance(), "reload")`
+    (the file's own mock only ever stubbed `reload`).
+  - `web/src/routes/api/import/__tests__/commit.test.ts`: `spyOn(ExtensionRegistry.getInstance(), "reload")`.
+  - `web/src/__tests__/extensions-api.test.ts`: `spyOn(…, "reload")` + `spyOn(…, "killAll")`; its
+    `extension-lifecycle-service` mock also moved off the `$server/*` alias onto the relative path only
+    (spread over `serverModule("extensions/extension-lifecycle-service", {})`), matching GC9's pattern.
+  - `web/src/__tests__/extensions-events-route.test.ts`: `spyOn(ExtensionRegistry.getInstance(), "getProcess")`.
+    This file also had its own, SEPARATE pre-existing bug, found and fixed as directly adjacent work in
+    the same file: its `$server/runtime/sse-conversation-filter` mock called `serverModule(...)`
+    *lazily inside* the `mock.module()` factory callback — since that alias resolves to the same
+    absolute module the relative `require()` inside `serverModule()` reaches, the call landed on this
+    same in-progress mock registration and returned only the override, silently dropping every real
+    export (surfacing as `Export named 'SCOPED_RUNTIME_EVENT_TYPES' not found`). Fixed by precomputing
+    the merged real+override object ONCE, before the `mock.module()` call — the same precompute-once
+    shape `serverModule()`'s own callers elsewhere already use for exactly this reason.
+  PROOF (file alone, then a pair with the file that follows it in the focused order — the order the
+  guard's removed exemption list enumerated them in): `hub-render-pull.test.ts` alone 27/0; paired with
+  `phase-2b-e2e.test.ts` 35/0. `phase-2b-e2e.test.ts` alone 8/0; paired with
+  `extension-events-hub-branch.test.ts` 27/0. `extension-events-hub-branch.test.ts` alone 19/0. A pair
+  with the next file in the order (`commit.test.ts`) is not meaningful as a same-process proof: `web/`
+  runs its own files via a separate `bun test` invocation under `web/bunfig.toml`'s own root, so a
+  `src/__tests__` file and a `web/` file never share a module registry and cannot pollute each other by
+  construction. `commit.test.ts` alone 13/0; paired with `extensions-api.test.ts` 68/0.
+  `extensions-api.test.ts` alone 55/0. `extensions-events-route.test.ts` alone 44/0.
+  The `extensions-api.test.ts` + `extensions-events-route.test.ts` pair, in EITHER order, hits a
+  DIFFERENT, PRE-EXISTING, UNRELATED bug: both files register their own partial
+  `$server/auth/middleware` mock.module() factory (`extensions-api.test.ts` supplies `requireRole`/
+  `checkRole` only; `extensions-events-route.test.ts` supplies `checkProjectRole` only), and the alias
+  registration is permanent — whichever file runs first freezes the other's route on the narrower
+  shape (`checkProjectRole` missing one order, `checkAuth` missing the other). Confirmed unrelated to
+  this item's fix: reproduced identically with the ORIGINAL committed `extensions-api.test.ts` swapped
+  in for the fixed one (still fails, same error), and this exact bug class
+  (`auth/middleware`) is already called out by name in GC9's own guard comment as a separate,
+  previously-disclosed candidate survey out of item C's scope (item E's, not item C's). Not fixed
+  here; reported only.
+  Full-guard re-run after removing `PENDING_ELSEWHERE` entirely: `mock-cleanup-coverage.test.ts` 34/0,
+  zero offenders repo-wide.
+  EVIDENCE: typecheck (backend + web + backend-tests + web-e2e + locked Python `mypy --strict`, all
+  clean), `bun run lint` (5637 files, no fixes needed), `gate-integrity.ts` PASSED, `check-boundaries.ts`
+  (5727 source files, 0 violations), `check-factory-boundaries.ts` PASSED, full backend per-file-isolated
+  pool (`scripts/test.sh`) and full web bun-leg pool (`scripts/test-web.sh`, 3630/0 across 194 files).

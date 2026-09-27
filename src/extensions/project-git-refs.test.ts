@@ -1,25 +1,27 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { GitRefFormatError, MAX_GIT_BRANCH_LENGTH, assertGitBranchName, gitHeadRef, isValidGitBranchName } from "./project-git-refs";
+import { scratchRepository, type ScratchRepository, type GitEnv } from "../__tests__/helpers/scratch-git";
 
 let repository: string;
-const GIT_ENV = {
-  PATH: process.env.PATH ?? "", GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null", HOME: "/nonexistent",
-  GIT_AUTHOR_NAME: "EZCorp", GIT_AUTHOR_EMAIL: "extensions@ezcorp.invalid",
-  GIT_COMMITTER_NAME: "EZCorp", GIT_COMMITTER_EMAIL: "extensions@ezcorp.invalid",
-};
+let scratch: ScratchRepository;
+let scratchRoot: string;
+let GIT_ENV: GitEnv;
 
 beforeAll(async () => {
   // `git check-ref-format --branch` resolves `@`-style shorthands, so it needs a repository.
-  repository = await mkdtemp(join(tmpdir(), "ezcorp-ref-format-"));
-  await Bun.spawn(["git", "init", "-q", "-b", "main", repository], { cwd: repository, env: GIT_ENV, stdout: "ignore", stderr: "ignore" }).exited;
+  scratchRoot = join(tmpdir(), `ezcorp-ref-format-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+  scratch = scratchRepository(scratchRoot, { name: "EZCorp", email: "extensions@ezcorp.invalid" });
+  repository = scratch.dir;
+  GIT_ENV = scratch.env;
+  scratch.git("symbolic-ref", "HEAD", "refs/heads/main");
   // One commit, so `@` has something to resolve to and the HEAD-alias claim is testable.
-  await Bun.spawn(["git", "commit", "-q", "--allow-empty", "-m", "base"], { cwd: repository, env: GIT_ENV, stdout: "ignore", stderr: "ignore" }).exited;
+  scratch.git("commit", "-q", "--allow-empty", "-m", "base");
 });
 
-afterAll(async () => { await rm(repository, { recursive: true, force: true }); });
+afterAll(async () => { await rm(scratchRoot, { recursive: true, force: true }); });
 
 async function git(argv: readonly string[]): Promise<{ readonly exitCode: number; readonly stdout: string }> {
   const child = Bun.spawn(["git", ...argv], { cwd: repository, env: GIT_ENV, stdout: "pipe", stderr: "ignore" });

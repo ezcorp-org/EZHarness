@@ -4943,10 +4943,72 @@ catches the first kind cannot see the second — a narrower reimplementation wit
 through silently until two files' tests happen to run in the same process and one needs the part the
 other dropped.
 
-### Item C — F2 (27 bare git-init tests)
+### Item C — F2 (27 bare git-init tests) plus the leak-fix, offender conversions, workflow-run-persistence,
+### L2, and GC5 (branch `wp/w18-hygiene-3`, from `integ/w00` `6cea43e67`)
 
-Blocked on the integ/w00 hash containing W18a-3 (needs `src/__tests__/helpers/scratch-git.ts`). Not
-started.
+Gates: `tasks/factory/w18-hygiene-GATES.md` (GC1 through GC10). Worktree:
+`/home/dev/work/EZCorp/EZHarness/.worktrees/w18-hygiene-3`.
+
+- [x] Git-init conversions: all 27 disclosed bare git-init test files (17 Group 1, 2 Group 2, 8 Group 3)
+  converted to `scratch-git.ts`'s helpers; `gitInDirectory()` hardened in the SDK
+  (`packages/@ezcorp/sdk/src/test/filesystem.ts`, new exported `isolatedGitEnv()`), with
+  `scratchGitEnv()` delegating to it. Full poisoned-env proof. Committed (`d296f0b91`, `873c433a7`,
+  `eaad4abee`).
+- [x] `workflow-run-persistence.test.ts` flake: module-level fixed clock (`BOOT`/`NOW`), no wall-clock
+  reads, duplicate describe-scoped constant removed. Committed (`a20ddb723`).
+- [x] L2 hook fix: `scripts/lib/hook-lib.sh`'s `run_staged_tests()` count-miscounting and silent
+  orchestrator-withholding both fixed; two new tests in `git-hooks.test.ts`. Committed (`e6ee00ad5`).
+- [x] The two leak-fix route files (`extensions-patch-route.test.ts`,
+  `extensions-delete-route-policy.test.ts`): fixed against both `phase-2b-e2e.test.ts` and
+  `installer-idempotent-local.test.ts`, both orders, per GC9 — adopted W18c's alias-withdrawal pattern
+  (relative-path-only mock for lifecycle-service/registry, claim-and-revert for
+  `db/queries/extensions`) over this item's own superseded GC6 Proxy approach. F1 guard extended to
+  reject partial `extension-lifecycle-service`/`registry` mocks repo-wide.
+- [x] The six further offenders GC9's extended guard found, each converted as its own fix (GC10):
+  `hub-render-pull.test.ts`, `phase-2b-e2e.test.ts`, `extension-events-hub-branch.test.ts`,
+  `web/.../commit.test.ts`, `web/.../extensions-api.test.ts`, `web/.../extensions-events-route.test.ts`.
+  `PENDING_ELSEWHERE` exemption removed entirely — zero offenders repo-wide, no by-name exemption
+  list remains. A separate, pre-existing, out-of-scope (item E) `$server/auth/middleware`
+  partial-mock collision between `extensions-api.test.ts` and `extensions-events-route.test.ts` was
+  found and reported, not fixed here.
+  EVIDENCE: typecheck, lint, gate-integrity, both boundary checks, full backend per-file-isolated pool,
+  full web bun-leg pool (3630/0 across 194 files) all clean. Details in GATES.md GC10.
+- [x] GC5 (production git wrappers): moved to item C2 (branch `wp/w18-hygiene-c2`, from item C's head)
+  per the coordinator's re-sequencing — not on this branch. See `tasks/factory/w18-hygiene-GATES.md`
+  GC11-14 on the C2 branch for the full write-up.
+- [x] Validator-3 fix round on item C (medium F1, medium F2, lows L1-L3):
+  - F1 (identity): all nine commits from `d296f0b91` through the cherry-picked gate-integrity flake fix
+    were authored with a personal address copied from the worktree's inherited git config (the
+    coordinator's own finding; never write that address itself — referred to here only by its config
+    file path, `/home/dev/.config/git/local`). Fixed: set `git config --worktree user.name`/`user.email`
+    explicitly to the project's noreply identity, then `git filter-branch --env-filter` over
+    `6cea43e67..HEAD` to re-author all nine commits, verified by comparing each commit's tree hash
+    before and after (identical for all nine) and `git log --format='%an <%ae> / %cn <%ce>'
+    6cea43e67..HEAD` (noreply identity throughout, both author and committer).
+  - F2 (GC5 disclosure incomplete): the fix itself and its corrected write-up are on the C2 branch,
+    since that is where GC5's code now lives — see that branch's GATES.md entry for the four named
+    wrapper sites, the poison recipe, and the matching counts.
+  - L1: `src/__tests__/git-hooks.test.ts`'s existing "only orchestrator files staged" test gained an
+    assertion that the line right after "skipping the 0 staged test file(s)" is the orchestrator line,
+    not a blank/whitespace-only one — the `count -gt 0` guard around that `printf` was previously
+    unpinned. Verified by removing the guard and confirming the new assertion fails with exactly a
+    four-space blank line, then restoring it.
+  - L2: `packages/@ezcorp/sdk/src/test/filesystem.ts`'s `gitInDirectory()` used to default `home` to a
+    fresh `mkdtempSync(...)` per call and never remove it — one leaked directory under `os.tmpdir()`
+    per caller that didn't supply its own `home`. Fixed to clean up only the directory it created
+    itself (a caller-supplied `home` is left alone). New test in
+    `packages/@ezcorp/sdk/test/filesystem-harness.test.ts`; verified by reverting the fix and confirming
+    the test catches the leaked directory, then restoring it.
+  - L3: the GC9 gates-doc entry's "353/0" citation for the 25-file-sample-plus-four-files run stated a
+    pass/fail count with no separate load-error count, which is not the same claim as "nothing failed
+    to link." Rewritten to require pass/fail/error counts together going forward, and replaced with a
+    fresh 2026-09-27 re-run of the identical file set: 413 pass, 0 fail, 0 errors across 29 files,
+    confirmed by grepping the run's full output for load-error signatures (none found). The originally-
+    reported pre-existing `auth/middleware` collision did not reproduce in this specific re-run — noted
+    as evidence multi-file `bun test` load order is not fully pinned by argument order, not as evidence
+    the underlying bug is fixed (it isn't on this branch; C2 owns that fix).
+  Re-authored head before this fix round's own commit: `a9f46fbb3`. Full details: `tasks/factory/w18-hygiene-GATES.md` (GC9 entry, updated).
+
 ## W12d — reproducible data image build (branch `wp/w12d-reproducible-image`)
 
 Base `wp/w12c-data-image-repin` `7821e5d7c`, merged with `integ/w00` `2b2e12550`. Receipts:

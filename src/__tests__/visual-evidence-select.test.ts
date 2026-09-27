@@ -17,6 +17,7 @@ import { copyFileSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { CoversMap } from "../../scripts/check-visual-evidence.ts";
+import { scratchGitEnv } from "./helpers/scratch-git";
 import {
   escapeSpecPathForPlaywright,
   evidenceTaggedSubset,
@@ -213,8 +214,11 @@ describe("select-specs: main() git wiring", () => {
     for (const dir of sandboxes.splice(0)) rmSync(dir, { recursive: true, force: true });
   });
 
+  // Isolated from the caller's own git context (a hook that exports `GIT_DIR`
+  // and friends would otherwise make these commands, and the select-specs.ts
+  // subprocess below, act on the hook's real repository instead of `root`).
   async function git(root: string, args: string[]): Promise<void> {
-    const proc = Bun.spawn(["git", ...args], { cwd: root, stdout: "ignore", stderr: "ignore" });
+    const proc = Bun.spawn(["git", ...args], { cwd: root, env: scratchGitEnv(join(root, ".git-scratch-home")), stdout: "ignore", stderr: "ignore" });
     const code = await proc.exited;
     if (code !== 0) throw new Error(`git ${args.join(" ")} exited ${code}`);
   }
@@ -261,7 +265,7 @@ describe("select-specs: main() git wiring", () => {
 
     const proc = Bun.spawn(["bun", join(root, "scripts/visual-evidence/select-specs.ts")], {
       cwd: root,
-      env: { ...process.env, BASE_REF: opts.baseRef ?? "main" },
+      env: { ...scratchGitEnv(join(root, ".git-scratch-home")), BASE_REF: opts.baseRef ?? "main" },
       stdout: "pipe",
       stderr: "pipe",
     });
