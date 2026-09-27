@@ -24,7 +24,7 @@ import { test, expect, describe, afterAll, beforeAll, afterEach, mock } from "bu
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync, realpathSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { restoreModuleMocks, webLibModule } from "../helpers/mock-cleanup";
+import { restoreModuleMocks, webLibModule, serverModule } from "../helpers/mock-cleanup";
 import {
   mockServerAlias,
   createMockEvent,
@@ -44,6 +44,20 @@ mock.module("../../../web/src/routes/api/fs/list/$types", () => ({}));
 // are honored; in a bare worktree checkout they may not be. Register the
 // relative specifier (the shape the handler's import actually resolves
 // to after alias substitution) so the mock fires regardless.
+//
+// realAuthMiddleware is captured BEFORE the "../../auth/middleware"
+// registration below — serverModule()'s own require() resolves to that
+// exact same specifier from this file's depth (src/__tests__/security/), so
+// capturing it after that registration would self-recurse onto the partial
+// mock instead of the real module.
+//
+// $server/auth/middleware itself is registered in the beforeAll below
+// (alongside the sandbox fixture setup), not here at module top level —
+// item C2 (W18 hygiene): the alias is claimed by dozens of files repo-wide,
+// so whichever registration is active when a shared-process run resolves
+// it wins for every OTHER file too. afterAll hands the alias back to the
+// real module.
+const realAuthMiddleware = serverModule("auth/middleware", {});
 const authMiddleware = () => ({
   requireAuth: (locals: any) => {
     if (!locals?.user) {
@@ -55,8 +69,6 @@ const authMiddleware = () => ({
     return locals.user;
   },
 });
-mock.module("$server/auth/middleware", authMiddleware);
-mock.module("../../auth/middleware", authMiddleware);
 const apiKeysStub = webLibModule("server/security/api-keys", { requireScope: () => null });
 mock.module("$lib/server/security/api-keys", () => apiKeysStub);
 mock.module("../../../web/src/lib/server/security/api-keys", () => apiKeysStub);
@@ -82,6 +94,9 @@ let outsideFile: string;
 let prevProjectRoot: string | undefined;
 
 beforeAll(() => {
+  mock.module("$server/auth/middleware", () => ({ ...realAuthMiddleware, ...authMiddleware() }));
+  mock.module("../../auth/middleware", () => ({ ...realAuthMiddleware, ...authMiddleware() }));
+
   sandbox = realpathSync(mkdtempSync(join(tmpdir(), "ezcorp-m3-sandbox-")));
   innerDir = join(sandbox, "inside-dir");
   mkdirSync(innerDir);
@@ -117,6 +132,8 @@ afterAll(() => {
     }
   }
   restoreModuleMocks();
+  mock.module("$server/auth/middleware", () => realAuthMiddleware);
+  mock.module("../../auth/middleware", () => realAuthMiddleware);
 });
 
 afterEach(() => {

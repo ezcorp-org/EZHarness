@@ -66,10 +66,10 @@
 //     pinned nowhere until now. The migrate.ts reclaim is pinned too, as a
 //     tripwire on the durability caveat rather than a blessing of it.
 
-import { test, expect, describe, afterAll, beforeEach, mock } from "bun:test";
+import { test, expect, describe, afterAll, beforeAll, beforeEach, mock } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { restoreModuleMocks, webLibModule } from "../helpers/mock-cleanup";
+import { restoreModuleMocks, webLibModule, serverModule } from "../helpers/mock-cleanup";
 import { mockServerAlias, createMockEvent, ADMIN_USER } from "../helpers/mock-request";
 
 // ── Module-level mocks (BEFORE handler imports) ──────────────────
@@ -86,6 +86,20 @@ const apiKeysMock = webLibModule("server/security/api-keys", { requireScope: () 
 mock.module("$lib/server/security/api-keys", () => apiKeysMock);
 mock.module("../../../web/src/lib/server/security/api-keys", () => apiKeysMock);
 
+// realAuthMiddleware is captured BEFORE the "../../auth/middleware"
+// registration below — serverModule()'s own require() resolves to that
+// exact same specifier from this file's depth (src/__tests__/security/), so
+// capturing it after that registration would self-recurse onto the partial
+// mock instead of the real module.
+//
+// $server/auth/middleware itself is registered in beforeAll, not here at
+// module top level — item C2 (W18 hygiene): the alias is claimed by dozens
+// of files repo-wide, so whichever registration is active when a shared-
+// process run resolves it wins for every OTHER file too. beforeAll (test-
+// execution time) plus a complete serverModule() factory make THIS file's
+// own values active for THIS file's own tests; afterAll hands the alias
+// back to the real module.
+const realAuthMiddleware = serverModule("auth/middleware", {});
 const authMiddlewareMock = () => ({
   requireAuth: (locals: any) => {
     if (!locals?.user) throw new Response("Unauthorized", { status: 401 });
@@ -99,8 +113,14 @@ const authMiddlewareMock = () => ({
   // masquerade as an ownership result.
   checkProjectRole: async (locals: any) => locals?.user,
 });
-mock.module("$server/auth/middleware", authMiddlewareMock);
-mock.module("../../auth/middleware", authMiddlewareMock);
+beforeAll(() => {
+  mock.module("$server/auth/middleware", () => ({ ...realAuthMiddleware, ...authMiddlewareMock() }));
+  mock.module("../../auth/middleware", () => ({ ...realAuthMiddleware, ...authMiddlewareMock() }));
+});
+afterAll(() => {
+  mock.module("$server/auth/middleware", () => realAuthMiddleware);
+  mock.module("../../auth/middleware", () => realAuthMiddleware);
+});
 
 // The upload route eagerly imports the local embedder, which drags
 // onnxruntime-node onto the import graph. Stubbed: this suite never uploads.
