@@ -14,7 +14,7 @@ import type { FactoryRunnerResult } from "@ezcorp/factory-sdk";
 import { createFactoryLaunchFixture, factoryLaunchCompletedResult, factoryLaunchLease, factoryLaunchPackage, factoryLaunchPool, factoryLaunchRequest, type FactoryLaunchFixture } from "../../__tests__/helpers/factory-attempt-launch-fixture";
 import { FactoryExecutionJournal } from "../executions";
 import { FactoryHostLaunchRefusal, type FactoryHostLaunchTransport } from "../host-launch-client";
-import { FactoryAttemptRuntimeError, FactoryDatabaseAttemptLaunchStore, type FactoryAttemptLaunchIntent, type FactoryPhysicalStopReason, type FactoryPhysicalStopReceipt } from "./attempt-runtime";
+import { FactoryAttemptRuntimeError, FactoryDatabaseAttemptLaunchStore, type FactoryAttemptLaunchIntent, type FactoryAttemptLaunchStore, type FactoryPhysicalStopReason, type FactoryPhysicalStopReceipt } from "./attempt-runtime";
 import { nativeFactoryJournal, type NativeFactoryJournal } from "./native";
 import { FACTORY_JOURNAL_SETTLE_MS, FACTORY_LOST_RESULT_CODES, FACTORY_RESULT_DEADLINE_GRACE_MS, FACTORY_SUPERVISOR_SILENCE_MS, FactoryRemoteAttemptRuntime } from "./remote-attempt-runtime";
 
@@ -30,7 +30,7 @@ function refusal(statusCode: number, error: string, detail?: string): FactoryHos
 type Step = FactoryRunnerResult | Error;
 
 /** Everything one case observes: what the host was asked, what was stopped and reported, and the clock. */
-async function world(attemptId: string, steps: Step[], overrides: { launch?: FactoryHostLaunchTransport["launch"]; attach?: FactoryHostLaunchTransport["attach"]; stop?: (reason: FactoryPhysicalStopReason) => Promise<void>; journal?: NativeFactoryJournal; clockStepMs?: number; startAtMs?: number; delayAdvancesMs?: number; renew?: () => Promise<never>; schedule?: (task: () => void, ms: number) => () => void; leaseRenewIntervalMs?: number } = {}) {
+async function world(attemptId: string, steps: Step[], overrides: { launch?: FactoryHostLaunchTransport["launch"]; attach?: FactoryHostLaunchTransport["attach"]; stop?: (reason: FactoryPhysicalStopReason) => Promise<void>; journal?: NativeFactoryJournal; clockStepMs?: number; startAtMs?: number; delayAdvancesMs?: number; renew?: () => Promise<never>; schedule?: (task: () => void, ms: number) => () => void; leaseRenewIntervalMs?: number; recordLostTerminal?: FactoryAttemptLaunchStore["recordLostTerminal"] } = {}) {
   const request = factoryLaunchRequest({ attemptId });
   const fixture = await createFactoryLaunchFixture(request);
   fixtures.push(fixture);
@@ -56,7 +56,8 @@ async function world(attemptId: string, steps: Step[], overrides: { launch?: Fac
     },
   };
   const runtime = new FactoryRemoteAttemptRuntime({
-    launches: store, transport,
+    // A replaced lost-result write stands for a stop sealed first, which needs the whole stop fixture to produce.
+    launches: overrides.recordLostTerminal ? Object.assign(Object.create(store) as FactoryDatabaseAttemptLaunchStore, { recordLostTerminal: overrides.recordLostTerminal }) : store, transport,
     readiness: { assertDispatchReady: async () => factoryLaunchPackage(request) },
     mintAttemptToken: async () => "minted-token",
     pool: { acknowledgeStart: async (lease) => { acknowledged.push(lease.reservationId); return {} as never; }, renew: overrides.renew ?? factoryLaunchPool().renew },
@@ -97,6 +98,21 @@ describe("the answer is collected across as many bounded reads as it takes", () 
 });
 
 describe("an attempt whose answer will never arrive ends failed, with the reason by name", () => {
+  test("a stop sealed first keeps the attempt's end: no terminal result, and the loss is reported as that stop's evidence (W01h fix round)", async () => {
+    const detail = "Worker exited before response; container_exited: Container ended with exit code 1";
+    const seen: string[] = [];
+    const w = await world("attempt-after-stop", [refusal(502, "guest_exited", detail)], {
+      recordLostTerminal: async (attemptId) => { seen.push(attemptId); return { state: "stop-sealed", cancelCommandId: "cancel-first", sealedReason: "cancelled" }; },
+    });
+    const lost = await (await w.open()).wait();
+    expect(lost).toMatchObject({ status: "failed", error: { code: FACTORY_LOST_RESULT_CODES.container_exit } });
+    expect(seen).toEqual(["attempt-after-stop"]);
+    expect(await w.store.terminalResult("attempt-after-stop")).toBeUndefined();
+    const evidence = w.reported.find(entry => entry.source === "attempt-exit-after-stop:attempt-after-stop");
+    expect(evidence?.error).toContain("stop cancel-first was sealed first with reason cancelled; recorded as its evidence");
+    expect(evidence?.error).toContain(detail);
+  });
+
   test("a guest that exited is RUNNER_CONTAINER_EXIT, carrying the host's own account", async () => {
     const detail = "extension runner process exited with code 137; state failed; oom_killed: memory limit reached";
     const w = await world("attempt-exited", [refusal(502, "guest_exited", detail)]);
