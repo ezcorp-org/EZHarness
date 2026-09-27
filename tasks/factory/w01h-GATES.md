@@ -27,6 +27,8 @@ Evidence: `/tmp/factory-platform-evidence/w01h/`.
 | `c9baf2f4c` | merge integ/w00 03538e909 (W19b, W16b); only tasks/todo.md conflicted (union); EZ_SKIP_HOOK_TESTS=1 by the merge ruling, its 5 listed suites green in the batch |
 | `a4dc40f3e` | merge integ/w00 97423ce17 (W18a-3, W01k); only tasks/lessons.md conflicted (union); the hook mapped 14 suites (cap 12). EZ_SKIP_HOOK_TESTS=1 on a4dc40f3e; ratified by coordinator ruling 2026-09-26 00:12Z (it was used without a ruling; a skip ruling names one commit): `logs/m4/hook-list.txt` verbatim, 13 unlocked suites exit 0 (`logs/m4/hook/`), factory-compute-admissions under the lock 2/0 (`logs/m4/hook/pg-compute-admissions.log`); shared `.git/config` sha256 `44962525f1ca1a8b…`, core.bare=false, after the git-running suites; typecheck, lint, boundaries, gate-integrity and 25 focused suites exit 0 (`logs/m4/`) |
 | `6f3903666` | merge integ/w00 f7c1290a6 (W03e); only tasks/lessons.md and tasks/todo.md conflicted (union); the hook ran its 4 mapped suites (no skip) |
+| `be1d4530c` | fix round: a stop whose facts no longer verify is a reconciliation item, not a hot loop (stop settlement, migration) |
+| `b254a1a56` | fix round: a stop sealed first owns the attempt's end; a lost result is its evidence (runner) |
 | `942a03dac` | the orchestrator's gateway bounds stay above the private service's slow-stop bound (orchestrator); EZ_SKIP_HOOK_TESTS=1 by the lead's ruling, its 4 listed suites run outside the hook |
 | `702bad45d` | defect 5: a stopped approval settles in place; a denied approval ends its run (kernel) |
 
@@ -239,6 +241,41 @@ projection, in one chain.
   CHECK: lifecycle "a guest that outlives the dispatcher's queue lease ..."
   EXPECT: completion and failure both delivered (red without `99884e9d0`)
   EVIDENCE: `logs/lease-outlived-before-fix.log`, `logs/factory-all3/`, `logs/m3/suites/`
+
+### Fix round (coordinator ruling 2026-09-27, found on W01i's real factory-services lane)
+
+The lane's product log showed `stop-settlement:fault … factory_task_stop_corrupt` 174 times for one attempt. The
+host refused its stop (500 stop_failed), the guest died (container exit 1), the lost-result path recorded a failed
+terminal result, and the stop sealed earlier with reason `cancelled` re-derived `failed` on every retry
+(`task-stops.ts` accept versus the live-authority check). Two defects, both fixed:
+
+- [x] G17: The first writer owns the attempt's end.
+  `recordLostTerminal` takes the launch-row lock a stop's acceptance takes; with a stop sealed first it writes no
+  terminal result and records the loss as audit evidence (`factory.attempt.exit_after_stop`, target the cancel
+  command) without changing anything the stop verifies; with no stop the lost result is terminal, and one already
+  recorded wins. CHECK: `bun test ./src/__tests__/factory-stop-after-loss.test.ts
+  ./src/factory/runner/remote-attempt-runtime.test.ts`. EXPECT: the sealed stop settles `stopped` with reason
+  `cancelled` and the evidence row; red with the stop check removed (2 of 3, `logs/fix4-negative/no-first-writer.log`).
+- [x] G18: A stop whose facts no longer verify is marked once and never retried.
+  The settlement records `reconcile_json` (code, detail, both reasons for a reason conflict), raises one
+  `FactoryStopReconciliationError` naming the stop id, the attempt and both reasons, and the scan skips it.
+  CHECK: the same lifecycle file and `./src/factory/dispatch-composition.test.ts`. EXPECT: one report, no second
+  host call over three more passes; red without the mark (`hot-loop.log`) and with the scan listing marked stops
+  (`scan-lists-marked.log`).
+  EVIDENCE (`w01h-fix4-locked.sh`, one hold, 2026-09-27 11:26Z to 11:29Z, head `b254a1a56`): PostgreSQL task-stops
+  25/0, run-lifecycle 79/0, migration-restart 18/0, executions 7/0, host-launch 1/0; Podman lost-result 1/0;
+  coverage leg 113/0; new-file gate PASSED (the migration, threshold 100), patch gate PASSED, 8 files, against
+  `34b3b0a74` (`logs/fix4/`); typecheck, lint, boundaries exit 0; hooks ran their 3 and 4 suites green.
+
+### Baseline background-role lines (OPEN, pre-existing, owned)
+
+Counted in the W01i lane's product log and in the W14 validator's baseline lane at integ (no W01h code):
+
+| Line | W01i lane | W14 baseline | Owner, and whether a landed package should have removed it |
+| --- | --- | --- | --- |
+| `usage-reconciliation:transient … factory_usage_hold_unresolved: no-operation-receipt` | 157 | 153 | W03f: a failed model operation with no provider receipt keeps its hold; W03e settles only a stop with no operation, so it was not expected to remove this |
+| `usage-reconciliation:fault … Factory run epoch is stale or unavailable` | 15 | 15 | W03f / W15 restore: this is the EXECUTION epoch (`executions.ts` run fence), which the lane's restore case moves; W01h's durable write moves the CANCELLATION epoch only, and the equal baseline count confirms W01h does not cause it. It is a fault retried every pass, the same hot-loop class as G18 |
+| `release-outcome:transient … factory_release_consent_absent` (approval_not_approved, no_consent) | 21 | 17 | W09e / W09c release outcome: a release waiting for human consent is backpressure by design; the lane's releases that never get consent retry every pass |
 
 ### Round 3 gates (the lead's messages after the round 2 approval)
 
