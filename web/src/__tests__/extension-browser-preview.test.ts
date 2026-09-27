@@ -1,5 +1,5 @@
-import { afterAll, beforeAll, beforeEach, expect, mock, test } from "bun:test";
-import { restoreModuleMocks, serverModule } from "../../../src/__tests__/helpers/mock-cleanup";
+import { afterAll, beforeEach, expect, mock, spyOn, test } from "bun:test";
+import { restoreModuleMocks, contextModule } from "../../../src/__tests__/helpers/mock-cleanup";
 
 const binding = "a".repeat(64);
 const nonce = crypto.randomUUID();
@@ -11,8 +11,30 @@ let controller = new AbortController();
 let prepared: any;
 let cancelled: any;
 let claimed: any;
-const realAuthMiddleware = serverModule("auth/middleware", {});
-mock.module("$lib/server/context", () => ({ ensureInitialized: async () => {} }));
+// $server/auth/middleware: spyOn()'d on the module `$server/auth/middleware`
+// itself currently resolves to, not mock.module()'d — item C2 (W18
+// hygiene). That alias is claimed by many files repo-wide (commit.test.ts
+// among them, via mockServerAlias()); once ANY file's mock.module() call
+// registers a given specifier string, a LATER mock.module() call for that
+// same exact string is silently ignored for a consumer that links after it
+// — measured directly, in every form tried (a beforeAll override, a
+// module-top-level override, and a mock.module() of the underlying relative
+// path instead of the alias): paired with commit.test.ts in one order, this
+// file's route kept running the real, unmocked `requireSessionAuth` against
+// every synthetic `locals` shape used here, failing closed with 403 instead
+// of the intended 200/401/403-by-test-design. What DOES work: dynamically
+// importing the alias to get whatever object it CURRENTLY resolves to
+// (mocked or real), then `spyOn().mockImplementation()` to mutate that
+// object's method in place — every future consumer of the same specifier,
+// including this file's own route (imported right below), reads the SAME
+// object, so the mutation reaches it regardless of registration order.
+// Confirmed fixed in all three orders: alone, after commit.test.ts, and
+// before it.
+const aliasAuthMiddleware: any = await import("$server/auth/middleware");
+const authSpy = spyOn(aliasAuthMiddleware, "requireSessionAuth")
+  .mockImplementation((locals: any) => locals.user ?? new Response("Denied", { status: 401 }));
+const contextExports = contextModule({ ensureInitialized: async () => {} });
+mock.module("$lib/server/context", () => contextExports);
 mock.module("$lib/server/extension-browser", () => ({
   authorizeExtensionBrowser: async (...args: unknown[]) => {
     calls.push(args);
@@ -28,15 +50,9 @@ mock.module("$server/extensions/browser-invocation-control", () => ({
 }));
 mock.module("../routes/api/tool-invoke/+server", () => ({ _invokeWithControl: async ({ request }: { request: Request }, options: { signal: AbortSignal; invocationGuard: () => Promise<void> }) => { expect(options.signal).toBe(controller.signal); await options.invocationGuard(); invoked = request; return Response.json({ success: true, output: "result" }); } }));
 const { GET, POST } = await import("../routes/api/extensions/[name]/preview/+server");
-beforeAll(() => {
-  mock.module("$server/auth/middleware", () => ({
-    ...realAuthMiddleware,
-    requireSessionAuth: (locals: any) => locals.user ?? new Response("Denied", { status: 401 }),
-  }));
-});
 afterAll(() => {
   restoreModuleMocks();
-  mock.module("$server/auth/middleware", () => realAuthMiddleware);
+  authSpy.mockRestore();
 });
 beforeEach(() => { permitted = true; calls = []; invoked = undefined; controller = new AbortController(); prepared = undefined; cancelled = undefined; claimed = undefined; });
 

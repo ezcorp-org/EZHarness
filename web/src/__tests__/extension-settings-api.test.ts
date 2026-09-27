@@ -120,7 +120,17 @@ const mockClearSecret = mock(
   async (extId: string, userId: string, storageKey: string) =>
     mockSecretStore.delete(secretKeyOf(extId, userId, storageKey)),
 );
-mock.module("$server/extensions/secret-settings", () => ({
+// Registered in beforeAll below, not here at module top level — item C2
+// (W18 hygiene). Confirmed independently: a raw partial mock here (missing
+// encryptStorageValue and everything else the real module exports) froze
+// whichever OTHER file's route resolved the $server/extensions/secret-settings
+// alias next in the same process on this narrow shape — "Export named
+// 'encryptStorageValue' not found" in extensions-api.test.ts (which reaches
+// this module transitively via extension-lifecycle-service) when it ran
+// after this file.
+const realSecretSettings = serverModule("extensions/secret-settings", {});
+const secretSettingsMock = () => ({
+  ...realSecretSettings,
   setSecretSetting: mockSetSecret,
   clearSecretSetting: mockClearSecret,
   isSecretSettingSet: async (extId: string, userId: string, storageKey: string) =>
@@ -140,7 +150,7 @@ mock.module("$server/extensions/secret-settings", () => ({
     }
     return out;
   },
-}));
+});
 
 // §5.2 — the route delegates held-capability resolution to the search
 // policy module. Mock it so the route's projection is the only thing
@@ -165,10 +175,12 @@ beforeAll(() => {
     ...realDbQueriesExtensions,
     getExtension: mockGetExtension,
   }));
+  mock.module("$server/extensions/secret-settings", secretSettingsMock);
 });
 afterAll(() => {
   mock.module("$server/auth/middleware", () => realAuthMiddleware);
   mock.module("$server/db/queries/extensions", () => realDbQueriesExtensions);
+  mock.module("$server/extensions/secret-settings", () => realSecretSettings);
 });
 
 const settingsRoute = await import(
