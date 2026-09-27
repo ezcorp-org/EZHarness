@@ -15,6 +15,7 @@ import { createFactoryLaunchFixture, factoryLaunchCompletedResult, factoryLaunch
 import { FactoryExecutionJournal } from "../executions";
 import { FactoryHostLaunchRefusal, type FactoryHostLaunchTransport } from "../host-launch-client";
 import { FactoryAttemptRuntimeError, FactoryDatabaseAttemptLaunchStore, type FactoryAttemptLaunchIntent, type FactoryAttemptLaunchStore, type FactoryPhysicalStopReason, type FactoryPhysicalStopReceipt } from "./attempt-runtime";
+import type { FactoryAttemptDeviceAuthorization } from "./attempt-wire";
 import { nativeFactoryJournal, type NativeFactoryJournal } from "./native";
 import { FACTORY_JOURNAL_SETTLE_MS, FACTORY_LOST_RESULT_CODES, FACTORY_RESULT_DEADLINE_GRACE_MS, FACTORY_SUPERVISOR_SILENCE_MS, FactoryRemoteAttemptRuntime } from "./remote-attempt-runtime";
 
@@ -30,7 +31,7 @@ function refusal(statusCode: number, error: string, detail?: string): FactoryHos
 type Step = FactoryRunnerResult | Error;
 
 /** Everything one case observes: what the host was asked, what was stopped and reported, and the clock. */
-async function world(attemptId: string, steps: Step[], overrides: { launch?: FactoryHostLaunchTransport["launch"]; attach?: FactoryHostLaunchTransport["attach"]; stop?: (reason: FactoryPhysicalStopReason) => Promise<void>; journal?: NativeFactoryJournal; clockStepMs?: number; startAtMs?: number; delayAdvancesMs?: number; renew?: () => Promise<never>; schedule?: (task: () => void, ms: number) => () => void; leaseRenewIntervalMs?: number; recordLostTerminal?: FactoryAttemptLaunchStore["recordLostTerminal"] } = {}) {
+async function world(attemptId: string, steps: Step[], overrides: { launch?: FactoryHostLaunchTransport["launch"]; attach?: FactoryHostLaunchTransport["attach"]; stop?: (reason: FactoryPhysicalStopReason) => Promise<void>; journal?: NativeFactoryJournal; clockStepMs?: number; startAtMs?: number; delayAdvancesMs?: number; renew?: () => Promise<never>; schedule?: (task: () => void, ms: number) => () => void; leaseRenewIntervalMs?: number; recordLostTerminal?: FactoryAttemptLaunchStore["recordLostTerminal"]; devices?: FactoryAttemptDeviceAuthorization; renewInput?: unknown[] } = {}) {
   const request = factoryLaunchRequest({ attemptId });
   const fixture = await createFactoryLaunchFixture(request);
   fixtures.push(fixture);
@@ -60,7 +61,7 @@ async function world(attemptId: string, steps: Step[], overrides: { launch?: Fac
     launches: overrides.recordLostTerminal ? Object.assign(Object.create(store) as FactoryDatabaseAttemptLaunchStore, { recordLostTerminal: overrides.recordLostTerminal }) : store, transport,
     readiness: { assertDispatchReady: async () => factoryLaunchPackage(request) },
     mintAttemptToken: async () => "minted-token",
-    pool: { acknowledgeStart: async (lease) => { acknowledged.push(lease.reservationId); return {} as never; }, renew: overrides.renew ?? factoryLaunchPool().renew },
+    pool: { acknowledgeStart: async (lease) => { acknowledged.push(lease.reservationId); return {} as never; }, renew: async (input) => { overrides.renewInput?.push(input); return overrides.renew ? overrides.renew() : factoryLaunchPool().renew(); } },
     stop: async (intent: FactoryAttemptLaunchIntent, reason) => { stops.push(reason); await overrides.stop?.(reason); return { workerId: intent.workerId } as unknown as FactoryPhysicalStopReceipt; },
     journal: overrides.journal ?? nativeFactoryJournal(new FactoryExecutionJournal(fixture.db, async () => {})),
     report: (source, error) => { reported.push({ source, error: String(error) }); },
@@ -69,7 +70,7 @@ async function world(attemptId: string, steps: Step[], overrides: { launch?: Fac
     ...(overrides.schedule === undefined ? {} : { schedule: overrides.schedule }),
     ...(overrides.leaseRenewIntervalMs === undefined ? {} : { leaseRenewIntervalMs: overrides.leaseRenewIntervalMs }),
   });
-  const open = () => runtime.open(request, factoryLaunchLease, factoryLaunchPackage(request));
+  const open = () => runtime.open(request, factoryLaunchLease, factoryLaunchPackage(request), overrides.devices);
   const row = async () => (await store.claimStart(attemptId)).intent.state;
   return { request, store, asked, stops, reported, acknowledged, delays, open, row, steps, remaining: () => steps.length, beforeRead: (hook: () => Promise<void>) => { beforeRead = hook; } };
 }
@@ -250,6 +251,29 @@ describe("the pool lease is liveness, renewed while the guest lives (option 2)",
     expect(w.reported).toEqual([]);
     // Collection ended, so the renewal it had scheduled next was cancelled.
     expect(clockwork.pending.every(entry => entry.cancelled)).toBe(true);
+  });
+
+  test("a GPU attempt's lease renews through the same loop, with the same fence, and lapses the same way (W02d R5)", async () => {
+    const gpu = { devices: ["/dev/dri/renderD128"], cdiDevices: [], gpuHosts: 1 };
+    const fences: unknown[] = [];
+    const cpuFences: unknown[] = [];
+    for (const [devices, seen] of [[gpu, fences], [undefined, cpuFences]] as const) {
+      const clockwork = manualSchedule();
+      const w = await world(`attempt-renew-${devices ? "gpu" : "cpu"}`, [refusal(504, "host_timeout"), refusal(504, "host_timeout"), completed], {
+        renew: async () => ({ deadlineAt: new Date(Date.now() + 30_000) }) as never, schedule: clockwork.schedule, devices, renewInput: seen as unknown[],
+      });
+      w.beforeRead(() => clockwork.tick());
+      expect(await (await w.open()).wait()).toEqual(completed);
+    }
+    // No renewal of its own: the GPU attempt renews as often, and with the same fence, as a CPU one.
+    expect(fences.length).toBe(3);
+    expect(fences).toEqual(cpuFences);
+    const clockwork = manualSchedule();
+    const lapsed = await world("attempt-renew-gpu-lapse", [], { renew: async () => { throw new Error("pool lease expired"); }, schedule: clockwork.schedule, leaseRenewIntervalMs: 1, clockStepMs: 10, devices: gpu });
+    lapsed.steps.push(refusal(504, "host_timeout"), refusal(504, "host_timeout"));
+    lapsed.beforeRead(() => clockwork.tick());
+    expect(await (await lapsed.open()).wait()).toMatchObject({ status: "failed", error: { code: FACTORY_LOST_RESULT_CODES.lease_lost } });
+    expect(lapsed.stops).toEqual(["failed"]);
   });
 
   test("a runtime whose lease lapses stops the guest and records the attempt RUNNER_LEASE_LOST", async () => {
