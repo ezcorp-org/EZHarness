@@ -226,6 +226,39 @@ on main. No test was written for them. The manifest above now makes the runner r
   hotfix. bd2026f45 carries them; the final measurement records them as red at base unless W09g has landed and been
   merged by then.
 
+## Lane, pin and flake fixes, and the last integ merge (2026-09-27 evening)
+
+- 97ac3f12c: the factory-services lane waits for the held stack, not /api/ready. Playwright 1.63 races a webServer's
+  `url` against its stdout `wait`, so the global setup read the stack's state file before it existed (ENOENT). A
+  leftover state file hid it locally; a fresh CI checkout would fail the same way. The lane proof at b3d898f55 failed
+  on it before any journey ran and is void.
+- 2afe5521f and 534395c3e: every browser lane starts its server only when the `bun` and `bunx` that PATH resolves both
+  equal .bun-version (web/playwright-lane-bun.ts in every Playwright config's webServer; scripts/lib/lane-bun.sh in
+  the lane scripts; the factory-services stack checks its own runtime). Red first with the system Bun 1.4.2 first on
+  PATH, and with the pinned bun first but bunx resolving to 1.4.2 (`lane-bun-guard.txt`).
+- DISCLOSURE (bunx): until 19:36Z the pinned directory /tmp/factory-tools/bun-1.3.14/bun-linux-x64 held no `bunx`, so
+  every `bunx` step of the earlier legs resolved the system bunx 1.4.2: the vite builds of the one lane proof at
+  b3d898f55, the web legs of the CI-extras measurement at 60e3e436a, and the vitest entries of the merge-suite runs.
+  Only `bunx --bun vite build` ran on the Bun 1.4.2 runtime; `bunx vitest`, `bunx playwright` and `bunx svelte-kit`
+  ran under Node. No log prints the version for those steps; this is by construction. Every `bun test` log shows
+  1.3.14. The final measurement below runs with bunx fixed and both versions asserted.
+- 8cee345cf: context-register-preview-bus.server.test.ts loads its five lazily imported modules at module scope
+  (cause and fix measured by w15b-fix); under a shared core it went from a 5939 ms timeout to 149 ms
+  (`preview-bus-flake.txt`). No timeout raised.
+- 8baf68403: the gate-scripts parser test decides "no parser" offline (an unreachable registry and an empty cache);
+  Bun's auto-install fetched typescript from the registry and hung to the 30 s timeout. Both fail-closed forms are
+  asserted. C2 (w18-hygiene) adapts its split of this test on top of this version after W18c lands.
+- 0831c7154: gate-integrity reads every head-side file from HEAD, the revision whose diff numbers the added lines
+  (proven by integrator-2 on a staged merge). Red first with a staged shift.
+- Expected gate-integrity finding against integ: "test file RENAMED (R097): web/e2e/real-auth/factory-authoring-flow.spec.ts
+  → web/e2e/factory-authoring-flow.spec.ts … needs the gate-change-approved label". This is the ruled lane move; a
+  maintainer applies the label on the PR (on the user's list). Against origin/main the gate passes.
+- FOLLOW-UP (not changed): the vacuous-test rule does not credit assertions inside nested callbacks, a false-positive
+  class of the AST rule (the old test integrator-2's staged run flagged asserts that way).
+- dbdaf2e3b merges integ a24a619ad (W16d, W09g and receipts addenda) with no conflict, under EZ_SKIP_HOOK_TESTS=1 for
+  that one commit (ruling 20:00Z; 19 mapped, listed in the commit message; config hash unchanged). The 19 suites run
+  outside the hook in the final measurement slot.
+
 ## Follow-up: the reference-data producer runs in no CI job (ruling 2026-09-27 16:36Z)
 
 scripts/factory-reference-data-coverage.sh, and with it tests/postgres/factory-reference-data.test.ts, runs in no
