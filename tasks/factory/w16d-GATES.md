@@ -61,6 +61,11 @@ teardowns), so it does not name the teardown that hung.
   CHECK: `cd web && bunx vitest run src/__tests__/shutdown.server.test.ts src/__tests__/factory-boot.server.test.ts`
   EXPECT: exit 0 (28/0); on the base module the three new tests fail, and the deadline test hangs to its 5 s timeout (red first)
   EVIDENCE: `/tmp/factory-platform-evidence/w16d/receipts/red-first-shutdown-base.log`
-- [ ] G6: Hold (d1 at 23dc9ef53 green for parts A and C; d2 at the part B head): focused suites with lcov, web vitest with lcov, coverage against the merge base (100 percent on changed lines), typecheck, lint, boundaries, gate integrity. Runs on the coordinator's go.
+- [x] G6: Hold: PostgreSQL (pool replacement, migrate lock), focused suites with lcov, web vitest with lcov, boundary suites, coverage against 1a80d3977 (100 percent on changed lines and new files), typecheck, lint, factory boundaries, gate integrity.
   CHECK: `flock --close /tmp/ezcorp-validation-heavy.lock timeout 5400 bash /tmp/factory-platform-evidence/w16/repro/leaf-hold.sh /tmp/factory-platform-evidence/w16d/hold-config.sh <label>`
   EXPECT: every leg exit 0
+  EVIDENCE: hold d3 at 05f6fdc13 (17:01:38Z to 17:02:55Z), `/tmp/factory-platform-evidence/w16d/receipts/d3/`, failed=[]: pg 2/0/0 skip (2 files), focused 172/0 (8 files), web 33/0 (2 files), process boundaries 48/0 (2 files), merge-lcov 1313 files, new-file coverage PASSED (1 new file gated, 14 of 14 lines), patch coverage PASSED (8 files), typecheck, lint, factory boundaries and gate integrity 0; 14 gate readings: disk 120 GB, memory 16 to 17 GiB, swap free at least 6.9 GB. Earlier: d1 at 23dc9ef53 green (parts A and C); d2 at 9a5cad419 red on the new-file gate only (the threshold key, added at 05f6fdc13).
+
+## Known limits (validator-2, low)
+
+- Because `replacing` resets once the replaced pool's close passes its bound, a long run of driver desyncs can leave one abandoned pool behind every 33 s or more (30 s drain plus the 3 s close bound), each holding its connections until the process exits. `recoverFromDriverDesync`'s 10 s interval and the close bound limit it; no code change.
