@@ -40,7 +40,7 @@ import { FactoryDestinationReservations, FactoryStoreSenderFence } from "./relea
 import { factoryReleaseFenceReader } from "./release-fence";
 import { FactoryS3PublicationProvenance, FactoryVerifiedAttemptMaterials } from "./release-s3-scope";
 import { FactoryPublicationOutputReader } from "./release-publication-set";
-import { FactoryReleases } from "./releases";
+import { FactoryReleases, type FactoryCommandApprovalCurrentAuthority } from "./releases";
 import { FactoryNotificationDelivery } from "./notification-delivery";
 import { FactoryTrustedValidators, type FactoryTrustedValidatorRuntime } from "./validator-materials";
 import { loadFactoryValidatorRuntimes } from "./validator-declaration";
@@ -66,6 +66,7 @@ import { factoryPageDriver, type FactoryItemDisposition } from "./role-drivers";
 import type { FactoryRuntimeWorkerCollaborators } from "./runtime-workers";
 import type { FactoryApplication, FactoryApplicationOptions } from "./application";
 import type { TrustedFactoryServiceIdentity } from "./trusted-command-gateway";
+import { FactoryAssuranceCommands } from "./assurance-commands";
 import type { FactoryRoleDriver } from "./runtime-seams";
 import type { FactoryStartedListener } from "./runtime-composition";
 import { composeFactoryGuestBroker, type FactoryGuestBrokerReadiness } from "./guest-broker-composition";
@@ -365,6 +366,25 @@ export function factoryReleaseOperations(
 }
 
 /**
+ * The inbox's approval decisions, over the stores the private service's approval command writes.
+ *
+ * The private service runs `execute` when the kernel asks a human, and `POST
+ * .../runs/{runId}/approvals/{approvalId}` answered `factory_command_approval_unavailable`
+ * because nothing supplied `decide`. Built over the same command authority, inbox and
+ * release store (which delivers the approval notification), a decision written here is
+ * the one the kernel reads.
+ */
+export function factoryCommandApprovals(
+  database: FactoryInstallationHost["database"],
+  tenantId: string,
+  stores: Pick<FactoryInstallationStores, "authority" | "inbox">,
+  releases: FactoryReleases,
+  service: TrustedFactoryServiceIdentity,
+): NonNullable<FactoryApplicationOptions["createCommandApprovals"]> {
+  return (context) => new FactoryAssuranceCommands(database, tenantId, context.grants, stores.authority, stores.inbox, releases, service);
+}
+
+/**
  * The release store, composed from the startup document alone.
  *
  * Every collaborator here landed with the wave-2 integration, and the last one
@@ -400,6 +420,9 @@ async function installationReleases(
   stores: Pick<FactoryApplication, "grants" | "runs" | "journal" | "releaseAuthority">,
   report: (role: string, error: unknown) => void,
   validators: FactoryTrustedValidators,
+  // The inbox lists an approval node's request only after checking it is still the current
+  // command; without this, one such notification made the whole list refuse.
+  commandApprovals?: FactoryCommandApprovalCurrentAuthority,
 ): Promise<FactoryInstallationRelease | undefined> {
   try {
     const assurance = new FactoryAssurance(database, config.tenantId, stores.grants, validators, factoryReleaseFenceReader(stores.runs), validators);
@@ -421,6 +444,7 @@ async function installationReleases(
       new FactoryDestinationReservations({ database, tenantId: config.tenantId }),
       archive,
       new FactoryStoreSenderFence({ database, tenantId: config.tenantId }),
+      undefined, undefined, commandApprovals,
     );
     // Where this installation may publish, from its own document. It is built
     // here rather than beside the roles because it needs the same scoped reader
@@ -658,7 +682,9 @@ export async function startFactoryInstallation(options: FactoryInstallationStart
       blobs,
       runOptions: host.runOptions,
       availableResourceClasses: host.availableResourceClasses,
-      // The public release routes, over the release store composed above.
+      // A human signs a restore report in the console (W14); W15's restore records it.
+      restoreSigner: () => composeFactoryInstallationRestore({ config, host, fence: FACTORY_SIGN_ONLY_FENCE }),
+      // The public release routes and the inbox's approval decisions, over the release store composed above.
       ...composed?.application,
     },
     // The private worker API, and only that. The pool, the supervisor, and the
@@ -689,6 +715,16 @@ export async function startFactoryInstallation(options: FactoryInstallationStart
   const runtime = await bootPhase(trace, "runtime", () => startFactoryRuntime(config, options.databaseUrl, dependencies, options.signal, boot));
   return Object.freeze({ runtime, ...(provider === undefined ? {} : { provider }), stop: () => runtime.stop() });
 }
+
+/**
+ * The fence of a restore composed only to sign its report. Signing closes no
+ * ingress and revokes no credential (the operator's `begin` did, under its own
+ * attestation), so a call here is a composition error, refused by name.
+ */
+const FACTORY_SIGN_ONLY_FENCE: FactoryRestoreFence = {
+  closeIngress: async () => { throw new Error("a restore composed to sign a report never fences"); },
+  revokeCredentials: async () => { throw new Error("a restore composed to sign a report never fences"); },
+};
 
 /**
  * W15: a restore built from this installation's own composition.
@@ -752,7 +788,7 @@ async function installationCollaborators(
   readonly workers: FactoryRuntimeDependencies["workers"];
   readonly seams: FactoryRuntimeDependencies["seams"];
   readonly listeners: readonly FactoryStartedListener[];
-  readonly application: Pick<FactoryApplicationOptions, "createReleaseOperations">;
+  readonly application: Pick<FactoryApplicationOptions, "createReleaseOperations" | "createCommandApprovals">;
   readonly guestBroker: FactoryGuestBrokerReadiness;
 }> {
   const { createFactoryApplication } = await import("./application");
@@ -817,10 +853,10 @@ async function installationCollaborators(
   // composes from the store alone. `release-outcome` composes from the store,
   // this tenant's projects and the run lifecycle — and from a destination the
   // startup document declares, so it holds when none is declared.
-  const release = await installationReleases(config, host.database, blobs, application.artifacts, application, host.report, gateway.validators);
+  const release = await installationReleases(config, host.database, blobs, application.artifacts, application, host.report, gateway.validators, { authority: stores.authority, service });
   const validation = await installationValidatorRoles(config, host, stores, application, release, gateway, signal);
 
-  const attempts = await composeAttemptDispatch(config, host, blobs, stores, application.grants, pool, stopper, validation.composed?.settlement);
+  const attempts = await composeAttemptDispatch(config, host, blobs, stores, application, pool, stopper, validation.composed?.settlement);
   const settlement = await composeSettlement(config, host, stores, service, pool, stopper);
   const notificationInbox = release === undefined ? undefined
     : factoryNotificationInboxDriver(host.database, new FactoryNotificationDelivery(release.releases), config.tenantId);
@@ -878,7 +914,10 @@ async function installationCollaborators(
       ...(privateService === undefined ? [] : [privateService]),
       ...(guestBroker.listener === undefined ? [] : [guestBroker.listener]),
     ],
-    application: release === undefined ? {} : { createReleaseOperations: factoryReleaseOperations(config.tenantId, release, resolver) },
+    application: release === undefined ? {} : {
+      createReleaseOperations: factoryReleaseOperations(config.tenantId, release, resolver),
+      createCommandApprovals: factoryCommandApprovals(host.database, config.tenantId, stores, release.releases, service),
+    },
     guestBroker: guestBroker.readiness,
   };
 }
@@ -969,7 +1008,7 @@ async function composeAttemptDispatch(
   host: FactoryInstallationHost,
   blobs: BlobStore,
   stores: FactoryInstallationStores,
-  grants: FactoryApplication["grants"],
+  application: Pick<FactoryApplication, "grants" | "journal">,
   pool: PoolAdmissionClient | undefined,
   stopper: FactoryHostStopClient | undefined,
   settlement?: FactoryComposedValidators["settlement"],
@@ -989,9 +1028,11 @@ async function composeAttemptDispatch(
       completions: settlement?.completions ?? stores.completions,
       outcomes: settlement?.outcomes ?? stores.outcomes,
       admissions: stores.compute,
-      readiness: factoryPackageReadiness(host.database, config.tenantId, grants, blobs),
+      readiness: factoryPackageReadiness(host.database, config.tenantId, application.grants, blobs),
       pool,
       stopper: stopper.physical,
+      journal: application.journal,
+      report: host.report,
     });
   } catch (error) {
     host.report("attempt-dispatch-composition", error);

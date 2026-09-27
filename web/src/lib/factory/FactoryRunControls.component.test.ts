@@ -26,6 +26,21 @@ async function selectWaitingRun(service: FactoryRunControlApi) {
 }
 
 describe("FactoryRunControls", () => {
+	test("embedded for one run, it reads that run and shows no run list", async () => {
+		const service = api();
+		render(FactoryRunControls, { projectId: "project-1", runId: "run-waiting", api: service });
+		expect(await screen.findByText(/Controlling/)).toHaveTextContent("Controlling run-waiting at revision 4");
+		expect(service.getRun).toHaveBeenCalledWith("project-1", "run-waiting");
+		expect(service.listRuns).not.toHaveBeenCalled();
+		expect(screen.queryByRole("button", { name: "Refresh factory runs" })).toBeNull();
+		expect(screen.queryByText("This project has no factory runs yet.")).toBeNull();
+		await fireEvent.input(screen.getByLabelText("Node"), { target: { value: "node" } });
+		await fireEvent.submit(screen.getByRole("form", { name: "Run control" }));
+		expect(await screen.findByText("Queued repair as repair/one.")).toBeVisible();
+		expect(service.listRuns).not.toHaveBeenCalled();
+		cleanup();
+	});
+
 	test("lists runs, refuses a terminal one, and sends an exact repair at the current revision", async () => {
 		const service = api();
 		await selectWaitingRun(service);

@@ -12,7 +12,7 @@ is required so a container-readable configuration cannot be exposed through
 
 The ordinary and archive services have separate SeaweedFS volumes and separate
 credential file mounts. Each service can read only its own credential file.
-Each service has a 768 MiB memory limit, one CPU, and a 256-process limit. Their S3 and admin ports bind to `127.0.0.1` by default. The
+Each service has a 2 GiB memory limit, one CPU, and a 256-process limit. Their S3 and admin ports bind to `127.0.0.1` by default. The
 script permits only the IPv4 loopback bind address. It checks that the runtime
 directory is owned by the current user with mode 0700. Shutdown accepts only
 a generated credential directory with a matching ownership record. Set the generated directory in
@@ -69,18 +69,75 @@ host can show; without the flag, the receipt's `ordinaryStoreLoss` records
 `bun scripts/verify-factory-archive-writer.ts --help` prints the exact
 wording.
 
-Each SeaweedFS server allows up to 400 volumes of 64 MiB (about 25 GiB). The
-first limit of 100 volumes was exhausted during the ten-tenant campaign because
-every tenant collection grows seven volumes at a time; the master then reported
-"failed to find writable volumes" and every upload failed. Raising the limit
-only changes the server command; the named data volumes and credential files
-are kept. Tests must still delete the objects they create.
+Each SeaweedFS server allows up to 400 volumes of 64 MiB (25 GiB). The
+first limit of 100 volumes was exhausted during the ten-tenant campaign because every tenant collection grows seven
+volumes at a time; the master then reported "failed to find writable volumes"
+and every upload failed. On 2026-09-25 the ordinary store held 308 of its
+400 volumes: 16.95 GiB in 59,888 live keys, of which only three had ever been
+deleted. Two suites held most of it: `ordinary/s3-publication` and
+`ordinary/s3-published` (8.3 GiB each, from a 256 MiB multipart export per
+run). The ceiling must keep the host above its 100 GB disk floor at recreate
+time, so it rises only after the reviewed-manifest prune of that backlog lands,
+with the free space measured then; a raise to 600 volumes (37.5 GiB) would have
+taken the host from 106 GB free to about 86 GB. Raising the limit only changes
+the server command; the named data volumes and credential files are kept.
+
+The buckets are versioned, so deleting a key only adds a delete marker and the
+bytes stay. A proof run must remove every version it wrote. The PostgreSQL
+proofs' helper does this: `createFactoryOrdinaryStorage(prefix, tenant, owns)`
+in `tests/postgres/helpers/factory-storage.ts` takes a run-unique prefix (a
+UUID) and any other run-unique prefixes the run writes to, such as a
+publication destination, and its `close()` permanently removes every version
+and delete marker under them. It refuses a prefix with fewer than two path
+segments, so it never reaches a bucket root or the shared `ordinary/` root that
+installations write to. Every caller must await `close()`. The SeaweedFS master
+compacts the deleted bytes out of each volume with its periodic vacuum. Archive
+objects are immutable and the archive credentials cannot delete them.
+
+Leftovers from earlier runs are removed only with
+`scripts/prune-factory-storage-manifest.ts`, which deletes exactly the object
+versions a reviewed manifest names. Other packages' receipts can point at
+objects in this store, so a prefix or time-window delete is not allowed (see
+`tasks/factory/w07-GATES.md`). The coordinator authorizes each manifest. Run it
+dry first, then with `--apply`.
 
 Each server has a 2 GiB memory limit. The first limit of 768 MiB killed the
 ordinary service (exit 137, `OOMKilled`) after 186 volumes were loaded and a
 256 MiB object arrived through the S3 gateway; the same service idles at about
 211 MiB with those volumes loaded. Raising the limit changes only the container
 configuration. A recreate keeps the named data volumes and the credential files.
+
+### Memory and the host OOM killer
+
+On 2026-09-25 each store's cgroup was sampled every second while the
+PostgreSQL checkpoint and restore suites, one W19a mock pass, and the
+`db-postgres.yml` storage step ran at the same time. The ordinary store peaked
+at 1263 MiB, of which 739 MiB was anonymous memory and the rest page cache,
+with 308 volumes loaded. The archive store peaked at 247 MiB. Neither container
+had an OOM kill, so the 2 GiB limit stays. The receipts are under
+`/tmp/factory-platform-evidence/w15d/`.
+
+The two store kills on 2026-09-23 (ordinary) and 2026-09-25 (archive) were not
+caused by this limit. The kernel log shows a host-wide OOM
+(`constraint=CONSTRAINT_NONE`, `global_oom`): swap was exhausted, and on
+2026-09-25 62 processes named `MainThread`, the name Node gives its main thread,
+held 21.6 GiB. The `weed` process that died
+held under 10 MiB resident. The kernel chose it because its `oom_score_adj` was
+200. On this host that adds about 9 GiB to its OOM score, while test processes
+run at 0.
+
+A store gets 200 when Compose creates it through the rootless Podman socket.
+The socket starts `podman.service`, which the systemd user manager runs with
+`OOMScoreAdjust=200`. An unprivileged process cannot lower its own adjustment,
+so the container inherits 200. An `oom_score_adj` line in the Compose file
+cannot override this: through the socket, a request for 0 or 100 still gives
+200. A container started with `podman` from a login shell gets 0.
+
+Protecting the stores therefore needs one of two host-side measures. One is a
+user drop-in for `podman.service` that sets `OOMScoreAdjust=100`, the lowest
+value the user manager allows. The other is to keep the total of concurrent
+builds, coverage runs, and test pools within the host's memory. Both are
+decisions for the host's owner, not for a single package.
 
 ## Engine, and recovery after a reboot
 

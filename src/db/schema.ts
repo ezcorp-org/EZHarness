@@ -3474,6 +3474,8 @@ export const factoryTaskStops = pgTable("factory_task_stops", {
   source: text("source").notNull().default("terminal-outcome").$type<"terminal-outcome" | "sealed-launch">(),
   state: text("state").notNull().$type<"accepted" | "uncertain" | "stopped">(),
   uncertainEventJson: text("uncertain_event_json"), uncertainEventDigest: text("uncertain_event_digest"), stopReceiptJson: text("stop_receipt_json"), stopReceiptDigest: text("stop_receipt_digest"), stoppedEventJson: text("stopped_event_json"), stoppedEventDigest: text("stopped_event_digest"),
+  // W01h fix round: set once when the stop's facts no longer verify; the settlement scan skips it.
+  reconcileJson: text("reconcile_json"),
   acceptedAtMs: bigint("accepted_at_ms", { mode: "number" }).notNull(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   primaryKey({ columns: [table.tenantId, table.projectId, table.runId, table.interpreterId, table.cancelCommandId] }),

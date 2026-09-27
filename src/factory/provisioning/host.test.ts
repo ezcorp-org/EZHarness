@@ -228,9 +228,10 @@ describe("admission", () => {
     expect(pool.poolId).toBe("pool.w16");
     expect(pool.identities.tenants).toEqual({ "harness.tenant-01": { tenantId: "tenant-01", tokenSubject: "tenant-01" }, "harness.tenant-02": { tenantId: "tenant-02", tokenSubject: "tenant-02" } });
     expect(Object.keys(pool.identities.supervisors)).toEqual(["supervisor.w16"]);
-    const supervisor = bundle.supervisor as { hostId: string; services: { allowedPeers: string[]; port: number } };
+    const supervisor = bundle.supervisor as { hostId: string; services: { peerTenants: Record<string, string>; port: number } };
     expect(supervisor.hostId).toBe("host.w16");
-    expect(supervisor.services.allowedPeers).toEqual(["harness.tenant-01", "harness.tenant-02"]);
+    expect(supervisor.services.peerTenants).toEqual({ "harness.tenant-01": "tenant-01", "harness.tenant-02": "tenant-02" });
+    expect(Object.hasOwn(supervisor.services, "allowedPeers")).toBe(false);
     expect(supervisor.services.port).toBe(32_003);
     // One guest-broker route per admitted installation, keyed by its tenant, at its own port; the trust bundle holds each installation's authority.
     const brokerEndpoint = (port: number) => ({
@@ -301,7 +302,7 @@ describe("admission", () => {
     runtime.calls.length = 0;
     await host.release(two);
     expect(runtime.calls).toEqual([`apply:tenant-01:${BUILD.image.slice(-4)}`, "ready:1"]);
-    expect((runtime.bundles.at(-1)!.supervisor as { services: { allowedPeers: string[] } }).services.allowedPeers).toEqual(["harness.tenant-01"]);
+    expect((runtime.bundles.at(-1)!.supervisor as { services: { peerTenants: Record<string, string> } }).services.peerTenants).toEqual({ "harness.tenant-01": "tenant-01" });
     // A released installation's guest-broker route leaves the supervisor with it.
     expect(Object.keys((runtime.bundles.at(-1)!.supervisor as { services: { guestBrokers: Record<string, unknown> } }).services.guestBrokers)).toEqual(["tenant-01"]);
     await host.release(one);

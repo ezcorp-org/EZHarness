@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtemp, rm, mkdir } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { scaffoldWorkspace } from "@ezcorp/sdk/scaffold";
@@ -16,10 +16,12 @@ import { createUser, getUserById } from "../db/queries/users";
 import { getExtension, getExtensionByName } from "../db/queries/extensions";
 import { getStorageValue, setStorageValue } from "../db/queries/extension-storage";
 import { installFromGit, updateExtension, checkForUpdates } from "../extensions/installer";
+import { scratchRepository, type ScratchRepository } from "./helpers/scratch-git";
 
 mockDbConnection();
 let root: string;
 let repo: string;
+let scratch: ScratchRepository;
 let runner: PodmanRunner;
 let lifecycle: ExtensionLifecycle;
 let ownerId: string;
@@ -31,7 +33,7 @@ let initialApprovalId: string;
 const actor = () => ({ principalId: ownerId, scope: "global", kind: "human" as const });
 
 function git(...args: string[]): Buffer {
-  const process = Bun.spawnSync(["git", ...args], { cwd: repo, env: { ...globalThis.process.env, GIT_CONFIG_NOSYSTEM: "1" } });
+  const process = Bun.spawnSync(["git", ...args], { cwd: repo, env: scratch.env });
   if (process.exitCode !== 0) throw new Error(process.stderr.toString());
   return Buffer.from(process.stdout);
 }
@@ -78,11 +80,9 @@ beforeAll(async () => {
   const owner = await createUser({ email: "git-owner@example.com", name: "Owner", role: "admin", passwordHash: "test" });
   ownerId = owner.id;
   root = await mkdtemp(join(tmpdir(), "git-lifecycle-"));
-  repo = join(root, "source");
-  await mkdir(repo);
-  git("init", "-b", "main");
-  git("config", "user.email", "fixture@example.com");
-  git("config", "user.name", "Fixture");
+  scratch = scratchRepository(join(root, "source"), { name: "Fixture", email: "fixture@example.com" });
+  repo = scratch.dir;
+  git("symbolic-ref", "HEAD", "refs/heads/main");
   const seed = scaffoldWorkspace({ name: "git-source-extension", description: "Git source fixture" }).files;
   for (const [path, source] of Object.entries(seed)) await Bun.write(join(repo, path), source);
   const versionOne = seed["extension.ts"]!.replace('"permissions": {}', '"permissions": {"storage":true,"network":["api.example.com","other.example.com"]}');

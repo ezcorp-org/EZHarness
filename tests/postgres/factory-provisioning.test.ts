@@ -994,7 +994,7 @@ describe("the fleet host: one shared pool and supervisor, and no residue on the 
       expect(both.admitted.map((entry) => entry.tenantId)).toEqual(["tenant-90", "tenant-91"]);
       const tenants = (both.pool as { identities: { tenants: Record<string, { tenantId: string }> } }).identities.tenants;
       expect(Object.fromEntries(Object.entries(tenants).map(([name, entry]) => [name, entry.tenantId]))).toEqual({ "harness.tenant-90": "tenant-90", "harness.tenant-91": "tenant-91" });
-      expect((both.supervisor as { services: { allowedPeers: string[] } }).services.allowedPeers).toEqual(["harness.tenant-90", "harness.tenant-91"]);
+      expect((both.supervisor as { services: { peerTenants: Record<string, string> } }).services.peerTenants).toEqual({ "harness.tenant-90": "tenant-90", "harness.tenant-91": "tenant-91" });
       expect((both.pool as { poolId: string }).poolId).toBe(host.identity.poolId);
       // Each installation's pool token names its own tenant only.
       for (const tenantId of ["tenant-90", "tenant-91"]) {
@@ -1014,7 +1014,7 @@ describe("the fleet host: one shared pool and supervisor, and no residue on the 
       expect((await host.admitted()).map((entry) => entry.tenantId)).toEqual(["tenant-91"]);
       const one = await host.render();
       expect(Object.keys((one.pool as { identities: { tenants: Record<string, unknown> } }).identities.tenants)).toEqual(["harness.tenant-91"]);
-      expect((one.supervisor as { services: { allowedPeers: string[] } }).services.allowedPeers).toEqual(["harness.tenant-91"]);
+      expect((one.supervisor as { services: { peerTenants: Record<string, string> } }).services.peerTenants).toEqual({ "harness.tenant-91": "tenant-91" });
       expect((await factoryRejection(host.decommission())).code).toBe("host_in_use");
 
       await run.teardown("tenant-91", { reason: "left" });

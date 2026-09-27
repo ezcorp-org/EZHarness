@@ -16,6 +16,7 @@ import { validateFactoryRunnerRequest, validateFactoryRunnerResult } from "@ezco
 import { factoryRunnerRequestIdentity } from "@ezcorp/factory-sdk/compiler";
 import { sql } from "drizzle-orm";
 import type { MigrationDb, TransactionalDb } from "../../db/migrations/types";
+import { insertTransactionalAuditEntry } from "../../db/queries/audit-log";
 import { releaseRows } from "../../db/queries/extension-releases";
 import type { FactoryPreparedPackageReceipt, FactoryRunnerDispatchReadiness } from "../package-preparation";
 import type { PoolAdmissionClient } from "../pool/client";
@@ -30,7 +31,8 @@ import type { FactoryGuestBroker } from "./guest-model-broker";
  * product store. Importers of this module are unaffected.
  */
 /** The isolated runtime renews its pool lease on this cadence. */
-const RENEW_INTERVAL_MS = 5_000;
+/** How often a runtime renews the pool lease of a guest it is running: well inside one 30 s lease. */
+export const FACTORY_ATTEMPT_LEASE_RENEW_INTERVAL_MS = 5_000;
 
 export * from "./attempt-wire";
 import {
@@ -52,6 +54,7 @@ import {
   type FactoryAttemptLaunchIntent,
   type FactoryAttemptLaunchState,
   type FactoryAttemptLaunchStore,
+  type FactoryLostTerminal,
   type FactoryAttemptLease,
   type FactoryAttemptOpen,
   type FactoryAttemptRuntime,
@@ -85,6 +88,22 @@ async function assertDevicesExclusive(transaction: MigrationDb, intent: FactoryA
 }
 
 /** Product-database intent store. It contains no broker token because only the durable request identity is stored. */
+/** The attempt's terminal result under the launch row's update lock, which a stop's acceptance also takes. */
+async function lockedTerminalResult(transaction: MigrationDb, attemptId: string): Promise<FactoryRunnerResult | undefined> {
+  const row = releaseRows<Pick<LaunchRow, "terminal_result_json" | "terminal_result_digest">>(await transaction.execute(sql`SELECT terminal_result_json,terminal_result_digest FROM factory_attempt_launches WHERE attempt_id=${attemptId} FOR UPDATE`))[0];
+  if (!row) throw new FactoryAttemptRuntimeError("launch_corrupt", "Factory launch intent is missing.");
+  return storedTerminalResult(row);
+}
+
+/** Writes a terminal result into a launch row that holds none, and reads back exactly what persisted. */
+async function writeTerminalResult(transaction: MigrationDb, attemptId: string, snapshot: FactoryRunnerResult, resultDigest: string): Promise<FactoryRunnerResult> {
+  await transaction.execute(sql`UPDATE factory_attempt_launches SET terminal_result_json=${canonicalJson(snapshot)}::text::jsonb,terminal_result_digest=${resultDigest},state='terminal',updated_at=NOW() WHERE attempt_id=${attemptId} AND terminal_result_json IS NULL`);
+  const saved = releaseRows<Pick<LaunchRow, "terminal_result_json" | "terminal_result_digest">>(await transaction.execute(sql`SELECT terminal_result_json,terminal_result_digest FROM factory_attempt_launches WHERE attempt_id=${attemptId} FOR SHARE`))[0];
+  const durable = saved && storedTerminalResult(saved);
+  if (!durable || factoryTerminalResultDigest(durable) !== resultDigest) throw new FactoryAttemptRuntimeError("launch_conflict", "Factory terminal result did not persist.");
+  return durable;
+}
+
 export class FactoryDatabaseAttemptLaunchStore implements FactoryAttemptLaunchStore {
   constructor(private readonly database: TransactionalDb) {}
 
@@ -124,18 +143,36 @@ export class FactoryDatabaseAttemptLaunchStore implements FactoryAttemptLaunchSt
     const snapshot = snapshotTerminalResult(result);
     const resultDigest = factoryTerminalResultDigest(snapshot);
     return this.database.transaction(async transaction => {
-      const row = releaseRows<Pick<LaunchRow, "terminal_result_json" | "terminal_result_digest">>(await transaction.execute(sql`SELECT terminal_result_json,terminal_result_digest FROM factory_attempt_launches WHERE attempt_id=${attemptId} FOR UPDATE`))[0];
-      if (!row) throw new FactoryAttemptRuntimeError("launch_corrupt", "Factory launch intent is missing.");
-      const existing = storedTerminalResult(row);
+      const existing = await lockedTerminalResult(transaction, attemptId);
       if (existing) {
         if (factoryTerminalResultDigest(existing) !== resultDigest) throw new FactoryAttemptRuntimeError("launch_conflict", "Factory attempt already recorded a different terminal result.");
         return existing;
       }
-      await transaction.execute(sql`UPDATE factory_attempt_launches SET terminal_result_json=${canonicalJson(snapshot)}::text::jsonb,terminal_result_digest=${resultDigest},state='terminal',updated_at=NOW() WHERE attempt_id=${attemptId} AND terminal_result_json IS NULL`);
-      const saved = releaseRows<Pick<LaunchRow, "terminal_result_json" | "terminal_result_digest">>(await transaction.execute(sql`SELECT terminal_result_json,terminal_result_digest FROM factory_attempt_launches WHERE attempt_id=${attemptId} FOR SHARE`))[0];
-      const durable = saved && storedTerminalResult(saved);
-      if (!durable || factoryTerminalResultDigest(durable) !== resultDigest) throw new FactoryAttemptRuntimeError("launch_conflict", "Factory terminal result did not persist.");
-      return durable;
+      return writeTerminalResult(transaction, attemptId, snapshot, resultDigest);
+    });
+  }
+
+  async recordLostTerminal(attemptId: string, result: FactoryRunnerResult): Promise<FactoryLostTerminal> {
+    opaque(attemptId, "attempt id");
+    const snapshot = snapshotTerminalResult(result);
+    const resultDigest = factoryTerminalResultDigest(snapshot);
+    return this.database.transaction(async (transaction): Promise<FactoryLostTerminal> => {
+      // Lock order (FACTORY_STOP_LAUNCH_LOCK_ORDER): this path locks only the
+      // launch row. A stop's acceptance holds that same lock while it inserts
+      // the stop row, so exactly one of the two writes first; the stop row is
+      // then read WITHOUT a lock, because its existence and sealed reason never
+      // change once committed. Locking it here after the launch row inverted the
+      // settlement's order and deadlocked (validator-2, W01i lane, 2026-09-27).
+      const existing = await lockedTerminalResult(transaction, attemptId);
+      if (existing) return Object.freeze({ state: "recorded" as const, result: existing });
+      const stop = releaseRows<{ cancel_command_id: string; request_json: string }>(await transaction.execute(sql`SELECT cancel_command_id,request_json FROM factory_task_stops WHERE attempt_id=${attemptId}`))[0];
+      if (!stop) return Object.freeze({ state: "recorded" as const, result: await writeTerminalResult(transaction, attemptId, snapshot, resultDigest) });
+      const sealedReason = String((JSON.parse(stop.request_json) as { reason?: unknown }).reason);
+      const loss = snapshot.status === "failed" ? snapshot.error : undefined;
+      await insertTransactionalAuditEntry(transaction, `factory-attempt-exit-after-stop:${attemptId}`, null, "factory.attempt.exit_after_stop", stop.cancel_command_id, {
+        attemptId, sealedReason, observedStatus: snapshot.status, ...(loss ? { code: loss.code, message: loss.message } : {}),
+      });
+      return Object.freeze({ state: "stop-sealed" as const, cancelCommandId: stop.cancel_command_id, sealedReason });
     });
   }
 
@@ -175,7 +212,24 @@ export interface FactoryAttemptLaunchFacts {
   readonly terminalResult?: FactoryRunnerResult;
 }
 
-/** Reads one launch record under the caller's transaction and lock. */
+/**
+ * The one lock order for every transaction that touches an attempt's
+ * `factory_task_stops` row and its `factory_attempt_launches` row (W01h fix
+ * round 2):
+ *
+ * 1. the stop row, then the launch row. Every stop settlement (`readSealed`,
+ *    then its live authority) locks them in this order;
+ * 2. a stop's acceptance locks the launch row and then CREATES the stop row. A
+ *    row being created is not a lock any other transaction holds first, so this
+ *    cannot close a cycle;
+ * 3. the lost-result write locks only the launch row and reads the stop row
+ *    unlocked.
+ *
+ * No path may lock an existing stop row after it holds the launch row.
+ */
+export const FACTORY_STOP_LAUNCH_LOCK_ORDER = "factory_task_stops row, then factory_attempt_launches row" as const;
+
+/** Reads one launch record under the caller's transaction and an update lock (see FACTORY_STOP_LAUNCH_LOCK_ORDER). */
 export async function readFactoryAttemptLaunchFacts(transaction: MigrationDb, attemptId: string, candidateGeneration: number, attemptNumber: number): Promise<FactoryAttemptLaunchFacts | undefined> {
   opaque(attemptId, "attempt id");
   const row = releaseRows<LaunchRow>(await transaction.execute(sql`SELECT * FROM factory_attempt_launches WHERE attempt_id=${attemptId} FOR UPDATE`))[0];
@@ -370,7 +424,7 @@ export class IsolatedFactoryAttemptRuntime implements FactoryAttemptRuntime {
           await this.stop(intent, "lease-revoked").catch(() => undefined);
         }
       });
-    }, RENEW_INTERVAL_MS);
+    }, FACTORY_ATTEMPT_LEASE_RENEW_INTERVAL_MS);
     try {
       const value = await execution.request("extension/invoke", { name: intent.request.runner.export, input: guestRequest, context });
       if (renewalFailure) throw new FactoryAttemptRuntimeError("lease_revoked", renewalFailure.message);

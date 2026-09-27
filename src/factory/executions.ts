@@ -114,7 +114,12 @@ export interface FactoryJournalOperationEvidence extends FactoryJournalOperation
 }
 
 /** Runs under the journal row locks immediately before an effect can dispatch. */
-export type FactoryAttemptAuthorizer = (database: MigrationDb, authority: FactoryAttemptAuthority) => Promise<void>;
+/**
+ * The run fence's check of one attempt authority. `expired: "allowed"` relaxes
+ * only the attempt-deadline clause, for a non-success report (defect 3, W01h);
+ * epochs, grant revision, run status and the run deadline stay fully checked.
+ */
+export type FactoryAttemptAuthorizer = (database: MigrationDb, authority: FactoryAttemptAuthority, options?: { readonly expired?: "allowed" }) => Promise<void>;
 
 function assertIdentity(value: FactoryAttemptAuthority): void {
   const counters = [value.attemptNumber, value.grantRevision, value.reservationGeneration, value.cancellationEpoch];
@@ -194,7 +199,8 @@ function durableRunnerRequest(value: unknown, requestHash: string): FactoryDurab
  * status that no longer admits effects). The fence checks those together, so
  * the second code does not say which one moved.
  */
-export type FactoryAttemptLivenessCode = "factory_attempt_unknown" | "factory_attempt_not_live";
+/** `factory_attempt_superseded`: the kernel already stopped the attempt, so a late report changes nothing. */
+export type FactoryAttemptLivenessCode = "factory_attempt_unknown" | "factory_attempt_not_live" | "factory_attempt_superseded";
 
 export class FactoryAttemptLivenessError extends Error {
   constructor(readonly code: FactoryAttemptLivenessCode, message: string) {
@@ -243,6 +249,36 @@ export class FactoryExecutionJournal {
     authority = snapshotAuthority(authority);
     this.assertLiveInput(authority);
     await this.lockLive(database, authority);
+    return this.storedRequestInTransaction(database, authority);
+  }
+
+  /**
+   * The exact request, for a non-success report that may arrive after the
+   * attempt's deadline (defect 3, W01h).
+   *
+   * An attempt that ended at its deadline still ended, and saying it failed
+   * authorizes nothing: no effect, no spend, no forward dispatch. So the run
+   * fence checks everything it checks for a live attempt except the attempt
+   * deadline itself. An attempt the kernel already stopped from its own timer
+   * is `factory_attempt_superseded`: the late report makes no second
+   * transition, and what the host said stays on the attempt's launch record.
+   */
+  async reportedRequestInTransaction(database: MigrationDb, value: FactoryAttemptAuthority): Promise<FactoryDurableRunnerRequest> {
+    const authority = snapshotAuthority(value);
+    assertIdentity(authority);
+    await this.lockRunFence(database, authority);
+    await this.authorizeInTransaction(database, authority, { expired: "allowed" });
+    const row = releaseRows<{ status: string }>(await database.execute(sql`SELECT status FROM factory_executions
+      WHERE attempt_id=${authority.attemptId} AND tenant_id=${authority.tenantId} AND project_id=${authority.projectId} AND run_id=${authority.runId}
+        AND node_instance_id=${authority.nodeInstanceId} AND candidate_generation=${authority.candidateGeneration} AND attempt_number=${authority.attemptNumber}
+        AND grant_revision=${authority.grantRevision} AND reservation_generation=${authority.reservationGeneration} AND execution_epoch=${authority.executionEpoch}
+        AND cancellation_epoch=${authority.cancellationEpoch} AND request_hash=${authority.requestDigest} FOR UPDATE`))[0];
+    if (!row) await this.requireAttempt(database, authority, "Factory attempt is stale or unavailable.", []);
+    if (row!.status !== "admitted" && row!.status !== "running") throw new FactoryAttemptLivenessError("factory_attempt_superseded", "The kernel already stopped this attempt; the late report is kept on its launch record.");
+    return this.storedRequestInTransaction(database, authority);
+  }
+
+  private async storedRequestInTransaction(database: MigrationDb, authority: FactoryAttemptAuthority): Promise<FactoryDurableRunnerRequest> {
     const stored = releaseRows<{ request_hash: string; request_json: unknown }>(await database.execute(sql`SELECT request_hash,request_json FROM factory_executions WHERE attempt_id=${authority.attemptId}`))[0];
     if (stored?.request_hash !== authority.requestDigest) throw new Error("Factory durable runner request is corrupt.");
     return durableRunnerRequest(this.storedJson(stored.request_json), stored.request_hash);

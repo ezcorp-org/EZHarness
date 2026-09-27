@@ -10,6 +10,7 @@ import {
   type FactoryWorkerProcessHandle,
   type TemporalCredentials,
 } from "../src/process.ts";
+import { FACTORY_GATEWAY_REQUEST_TIMEOUT_MAX_MS, FACTORY_GATEWAY_REQUEST_TIMEOUT_MS } from "../src/contracts.ts";
 
 const codec = { encode: async (values) => values, decode: async (values) => values } satisfies PayloadCodec;
 
@@ -114,6 +115,28 @@ describe("production factory orchestrator process", () => {
 
     assert.equal(observed.connections.length, 2);
     assert.deepEqual(states, ["starting:0", "ready:1", "starting:1", "ready:2", "stopping:2"]);
+  });
+
+  it("hands the runtime the ordered gateway bound and refuses one below it", async () => {
+    const controller = new AbortController();
+    const observed = { connections: [] as FactoryTemporalConnection[], workers: [] as FactoryWorkerProcessHandle[], apiKeys: [] as string[], now: 0 };
+    const deps = dependencies([credentials("token")], observed);
+    const bounds: Array<number | undefined> = [];
+    const createRuntime = deps.createRuntime;
+    deps.createRuntime = async (runtime, connection, identity) => {
+      bounds.push(runtime.gateway.requestTimeoutMs);
+      return createRuntime(runtime, connection, identity);
+    };
+    const ready = async (state: Parameters<FactoryOrchestratorProcessOptions["readiness"]["write"]>[0]) => {
+      if (state.lifecycle === "ready") controller.abort(new Error("test complete"));
+      return { schemaVersion: "factory.orchestrator-readiness.v1" as const, installationId: "installation-1", tenantId: "tenant-1", namespace: "tenant-1", taskQueue: "factory-orchestrator", observedAtMs: observed.now, ...state };
+    };
+    await runFactoryOrchestratorProcess(options(controller.signal, ready, async () => credentials("token")), deps);
+    assert.deepEqual(bounds, [FACTORY_GATEWAY_REQUEST_TIMEOUT_MS]);
+    for (const requestTimeoutMs of [30_000, FACTORY_GATEWAY_REQUEST_TIMEOUT_MS - 1, FACTORY_GATEWAY_REQUEST_TIMEOUT_MAX_MS + 1]) {
+      const base = options(new AbortController().signal, ready, async () => credentials("token"));
+      await assert.rejects(runFactoryOrchestratorProcess({ ...base, gateway: { ...base.gateway, requestTimeoutMs } }, deps), /gateway request timeout is invalid/);
+    }
   });
 
   it("fails closed when the authenticated task queue does not list this worker", async () => {

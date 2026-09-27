@@ -26,8 +26,9 @@
  *   --report-only   run and report; a score under the threshold does not exit
  *                   non-zero (pilot mode). ONLY the threshold verdict is
  *                   suppressed: a run that never produced a report — a timed-out
- *                   dry run, a crashed worker, a missing binary — still fails,
- *                   because nothing was measured. See mutationExitCode().
+ *                   dry run, a crashed worker, a missing binary, a mutant that
+ *                   "survived" with zero tests run — still fails, because
+ *                   nothing was measured. See mutationExitCode().
  *   --dry-run       print the resolved Stryker argv and exit
  *
  * Full-suite mutation is far too slow for a PR — hence --changed. Stryker is
@@ -46,6 +47,7 @@ import {
   REPORT_DIR,
   writeReport,
 } from "./quality-gates.ts";
+import type { MutationReport } from "./quality-report.ts";
 
 const WEB_DIR = resolve(REPO_ROOT, "web");
 /** Stryker's derived run config writes here. */
@@ -98,10 +100,24 @@ export function deriveStrykerRunConfig(
  */
 export function mutationExitCode(
   run: StrykerRun,
-  opts: { reportProduced: boolean; reportOnly: boolean },
+  opts: { reportProduced: boolean; reportOnly: boolean; untestedSurvivors?: readonly string[] },
 ): MutationVerdict {
   if (run.signal) {
     return { code: 1, reason: `Stryker was killed by ${run.signal} — nothing was measured` };
+  }
+  const untested = opts.untestedSurvivors ?? [];
+  if (untested.length > 0) {
+    const shown = untested.slice(0, 20).map((at) => `    web/${at}`);
+    if (untested.length > 20) shown.push(`    … and ${untested.length - 20} more`);
+    return {
+      code: 1,
+      reason:
+        `${untested.length} mutant(s) "survived" without a single test run against them — the ` +
+        `test runner selected nothing, so nothing was measured:\n${shown.join("\n")}\n` +
+        "  This is a toolchain failure, not a score, and --report-only does not apply. Check\n" +
+        "  the Stryker vitest runner against the installed Vitest (its per-test name filter;\n" +
+        "  see web/patches/ and stryker-js issue 6210).",
+    };
   }
   const code = run.status ?? 1;
   if (code === 0) return { code: 0, reason: "ok" };
@@ -233,9 +249,34 @@ export function filesWithoutCoverage(report: {
   return out;
 }
 
-async function unmeasuredFiles(): Promise<string[]> {
-  if (!existsSync(MUTATION_REPORT)) return [];
-  return filesWithoutCoverage(JSON.parse(await Bun.file(MUTATION_REPORT).text()));
+/**
+ * Every mutant reported Survived although Stryker ran NO test against it, as
+ * `file:line`.
+ *
+ * A covered mutant that no test ran was never tested, so "Survived" is a
+ * toolchain failure, not a verdict on the tests. Measured: Vitest 5 matches
+ * `testNamePattern` against the suite chain joined with " > ", while Stryker's
+ * vitest runner 10.0.0 filtered with space-joined names. Every test inside a
+ * `describe` was filtered out, 90 of run-format.ts's 99 mutants "survived"
+ * with testsCompleted 0, and the score fell from 97.98% to 9.09% with
+ * unchanged tests (web/patches/ restores the filter; stryker-js issue 6210).
+ * Unlike a low score, this is not something --report-only may hide: nothing
+ * was measured, so mutationExitCode() fails the run on any of them.
+ */
+export function survivorsWithoutTests(report: Pick<MutationReport, "files">): string[] {
+  const out: string[] = [];
+  for (const [file, rec] of Object.entries(report.files)) {
+    for (const m of rec.mutants) {
+      if (m.status === "Survived" && m.testsCompleted === 0) out.push(`${file}:${m.location.start.line}`);
+    }
+  }
+  return out;
+}
+
+/** The run's JSON report, or an empty one when Stryker wrote none. */
+export async function readMutationReport(path: string): Promise<MutationReport> {
+  if (!existsSync(path)) return { files: {} };
+  return JSON.parse(await Bun.file(path).text()) as MutationReport;
 }
 
 async function main(): Promise<void> {
@@ -462,7 +503,8 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const unmeasured = await unmeasuredFiles();
+  const report = await readMutationReport(MUTATION_REPORT);
+  const unmeasured = filesWithoutCoverage(report);
   if (unmeasured.length > 0) {
     console.error(
       `\n✗ ${unmeasured.length} mutated file(s) had NO test coverage at all — the score ` +
@@ -485,7 +527,11 @@ async function main(): Promise<void> {
   if (run.error) console.error(`✗ could not run Stryker: ${run.error.message}`);
   const verdict = mutationExitCode(
     { status: run.status, signal: run.signal },
-    { reportProduced: existsSync(MUTATION_REPORT), reportOnly },
+    {
+      reportProduced: existsSync(MUTATION_REPORT),
+      reportOnly,
+      untestedSurvivors: survivorsWithoutTests(report),
+    },
   );
   if (verdict.code !== 0) console.error(`\n✗ ${verdict.reason}`);
   else if (verdict.reason !== "ok") console.log(`\n(${verdict.reason})`);

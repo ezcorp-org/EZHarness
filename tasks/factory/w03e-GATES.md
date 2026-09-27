@@ -105,5 +105,8 @@ edit the plan; W20 folds dated disclosures into the plan document.
   kernel's uncertain attempt, so that run also stays `cancelling`. Owner: the run kernel's owner
   (W05/W09), as a follow-up package. Suggested change: after `FactoryUsageReconciliation.reconcile`
   settles, enqueue the sealed stop's `attempt-stopped` with `uncertain: false`.
+  RESOLVED by W05b (wp/w05b-reconcile-clear e8ee2f8f2), merged into integ/w00 in the W05b merge commit
+  (coordinator ruling 2026-09-24; integration fix at that merge; the hash is in
+  docs/validation/factory/wave4/w05b-merge.json).
 - A reservation whose reserved cost is zero is never listed by `listUncertainWithCostInTransaction`, so
   it can never be reconciled. Owner: W03. The no-operations case no longer reaches this path.

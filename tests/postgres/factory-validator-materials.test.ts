@@ -6,5 +6,5 @@ import { createFactoryOrdinaryStorage } from "./helpers/factory-storage";
 factoryValidatorMaterialsConformance(async () => {
   const database = await setupFactoryPostgres();
   const storage = await createFactoryOrdinaryStorage(`ordinary/factory-validator-materials/${randomUUID()}`);
-  return { db: database.db, blobs: storage.blobs, close: async () => { storage.close(); await database.close(); } };
+  return { db: database.db, blobs: storage.blobs, close: async () => { try { await storage.close(); } finally { await database.close(); } } };
 });

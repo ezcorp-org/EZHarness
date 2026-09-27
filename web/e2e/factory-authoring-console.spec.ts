@@ -2,12 +2,13 @@ import type { Page } from "@playwright/test";
 import type { FactoryDefinition, FactoryDraftDetails, FactoryDraftSummary, FactoryVersionDetails, FactoryVersionSummary } from "@ezcorp/factory-sdk/types";
 import { expect, test, captureEvidence } from "./fixtures/test-base.js";
 import { makeProject } from "./fixtures/data.js";
+import { factoryGraphProblems } from "./fixtures/factory-layout.js";
 
 const projectId = "factory-project";
 const factoryId = "catalog-enrichment-with-a-deliberately-long-definition-name";
 const digest = "a".repeat(64);
 const definitionDigest = "sha256:" + digest;
-type FailureOperation = "list" | "create" | "import" | "save" | "validate" | "export" | "archive" | "versions" | "publish";
+type FailureOperation = "list" | "create" | "import" | "save" | "validate" | "export" | "archive" | "versions" | "publish" | "start";
 
 function definition(version = "0.2.0"): FactoryDefinition {
 	return {
@@ -60,7 +61,7 @@ function published(source: FactoryDefinition = historicalDefinition()): FactoryV
 	};
 }
 
-async function routeFactoryApi(page: Page, options: { conflictOnce?: boolean; diagnosticsWithoutNode?: boolean; noVersions?: boolean; releaseInbox?: boolean; runs?: boolean } = {}): Promise<{
+async function routeFactoryApi(page: Page, options: { conflictOnce?: boolean; diagnosticsWithoutNode?: boolean; noVersions?: boolean; releaseInbox?: boolean; runs?: boolean; futureDraft?: boolean } = {}): Promise<{
 	requests: Array<{ method: string; path: string; headers: Record<string, string>; body: unknown }>;
 	failNext(operation: FailureOperation): void;
 	conflictNext(): void;
@@ -95,6 +96,16 @@ async function routeFactoryApi(page: Page, options: { conflictOnce?: boolean; di
 		if (url.pathname.endsWith("/release/notifications") && method === "GET") {
 			return respond(envelope({ kind: "release.notification.page", page: { items: releaseInbox } }));
 		}
+		if (url.pathname.includes("/releases/") && url.pathname.endsWith("/reconciliations") && method === "POST") {
+			const operationId = decodeURIComponent(url.pathname.split("/releases/")[1]!.split("/")[0]!);
+			releaseInbox = releaseInbox.filter(item => !("operationId" in item) || item.operationId !== operationId);
+			return respond(envelope({ kind: "release.operation.resource", resource: {
+				operationId, runId: "run-release", nodeInstanceId: "publish", candidateGeneration: 0, decisionId: "decision-1", candidateDigest: definitionDigest, action: "publish",
+				destination: { provider: "s3", account: "tenant-1", object: "release.json" }, estimatedSpendMicros: 1, deadlineMs: 2_000_000_000_000,
+				contractDigest: definitionDigest, executionEpoch: 1, cancellationEpoch: 0, releaseEnableEpoch: 1, destinationDigest: definitionDigest, requestDigest: definitionDigest,
+				state: "succeeded", dispatchGeneration: 2, dispatchStarted: true, archiveReady: true,
+			} }));
+		}
 		if (url.pathname.endsWith("/release/approvals/approval-catalog") && method === "PUT") {
 			releaseInbox = releaseInbox.filter(item => item.notificationId !== "notification-approval");
 			return respond(envelope({ kind: "release.approval.resource", resource: { approvalId: "approval-catalog", operationId: "factory-release:catalog", contextDigest: digest, status: "approved" } }));
@@ -112,8 +123,27 @@ async function routeFactoryApi(page: Page, options: { conflictOnce?: boolean; di
 			runRevision += 1;
 			return respond(envelope({ kind: "mutation.accepted", receipt: { resourceId: "run-remediation", commandId: "factory-control:repair", statusUrl: "/api/factories/projects/" + projectId + "/runs/run-remediation/commands/factory-control:repair" } }), 202);
 		}
+		if (url.pathname.endsWith("/runs/run-remediation/inspection") && method === "GET") {
+			const run = { ...runSummary(), parameters: {}, error: { code: "factory_assurance_claim_failed", message: "A required protected claim failed." } };
+			return respond(envelope({ kind: "run.inspection", resource: {
+				run, cursor: { token: "cursor-remediation", sequence: 3, expiresAtMs: 1_900_000_000_000 }, projectionLag: 0,
+				children: { items: [] }, attempts: { items: [] }, artifacts: { items: [] }, blockers: [], acceptance: [], releases: [],
+				costs: { limitMicros: "0", allocatedMicros: "0", spentMicros: "0", knownCostMicros: "0", unknownCostMicros: "0", admissionBlocked: false, uncertain: false },
+			} }));
+		}
+		if (url.pathname.endsWith("/runs/run-remediation/events") && method === "GET") {
+			return route.fulfill({ status: 200, contentType: "text/event-stream", body: 'event: factory:stream-closed\ndata: {"reason":"drained"}\n\n' });
+		}
 		if (url.pathname.endsWith("/runs/run-remediation") && method === "GET") {
 			return respond(envelope({ kind: "run.details", resource: { ...runSummary(), parameters: {}, error: { code: "factory_assurance_claim_failed", message: "A required protected claim failed." } } }));
+		}
+		if (url.pathname.endsWith("/grants") && method === "GET") {
+			return respond(envelope({ kind: "grant.page", page: { items: [{ principalKind: "user", principalId: "e2e-admin", action: "factory.run", revision: 2, expiresAtMs: null, revoked: false, displayName: "E2E Admin" }] } }));
+		}
+		if (url.pathname.endsWith("/" + encodeURIComponent(factoryId) + "/runs") && method === "POST") {
+			const rejection = reject("start");
+			if (rejection) return rejection;
+			return respond(envelope({ kind: "mutation.accepted", receipt: { resourceId: "run-remediation", commandId: "start-1", statusUrl: "/api/factories/projects/" + projectId + "/runs/run-remediation/commands/start-1" } }), 202);
 		}
 		if (url.pathname.endsWith("/runs") && method === "GET") {
 			return respond(envelope({ kind: "run.page", page: { items: options.runs === false ? [] : [runSummary()] } }));
@@ -123,6 +153,14 @@ async function routeFactoryApi(page: Page, options: { conflictOnce?: boolean; di
 			const rejection = reject("validate");
 			if (rejection) return rejection;
 			return respond(envelope({ kind: "draft.validation", valid: false, diagnostics: [{ code: "output-unbound", message: "Bind the catalog output before publication.", path: ["graph", "outputs"], ...(options.diagnosticsWithoutNode ? {} : { nodeId: "publish-the-normalized-catalog-for-downstream-consumers" }) }] }));
+		}
+		if (options.futureDraft && url.pathname.endsWith("/export") && method === "GET") {
+			const rejection = reject("export");
+			if (rejection) return rejection;
+			return respond(envelope({ kind: "draft.export", format: url.searchParams.get("format") ?? "json", source: JSON.stringify({ schemaVersion: "factory.v9", id: factoryId, futureExecutionField: { mode: "new" } }, null, 2) }));
+		}
+		if (options.futureDraft && url.pathname.endsWith("/" + encodeURIComponent(factoryId)) && method === "GET") {
+			return respond(envelope({ kind: "error", error: { code: "factory_definition_version_unsupported", message: "The definition uses a schema version this server cannot edit. It is read-only; export it to keep a copy.", retryable: false } }), 409);
 		}
 		if (url.pathname.endsWith("/export") && method === "GET") {
 			const rejection = reject("export");
@@ -200,12 +238,27 @@ async function openConsole(page: Page): Promise<void> {
 }
 
 test.describe("factory authoring console", () => {
+	// The operating system's scheme is the opposite of the app theme on purpose: the canvas must follow the app.
+	for (const [theme, system, width, height] of [["dark", "light", 1440, 900], ["light", "dark", 1440, 900], ["dark", "light", 390, 844], ["light", "dark", 390, 844]] as const) {
+		test(`the graph canvas follows the ${theme} app theme over a ${system} system scheme at ${width}px and its labels read @evidence`, async ({ page, mockApi }, testInfo) => {
+			await page.addInitScript(value => localStorage.setItem("ezcorp-theme", value), theme);
+			await page.emulateMedia({ colorScheme: system });
+			await page.setViewportSize({ width, height });
+			await mockApi({ projects: [makeProject({ id: projectId, name: "Product Operations" })] });
+			await routeFactoryApi(page);
+			await openConsole(page);
+			await expect(page.getByTestId("factory-graph").locator(".factory-node-label").first()).toBeVisible();
+			await expect.poll(() => factoryGraphProblems(page)).toEqual([]);
+			await captureEvidence(page, testInfo, `factory-graph-${theme}-over-${system}-${width}`);
+		});
+	}
+
 	test("shows the current-authorized release inbox and records an exact decision @evidence", async ({ page, mockApi }, testInfo) => {
 		await page.addInitScript(() => localStorage.setItem("ezcorp-theme", "light"));
 		await page.setViewportSize({ width: 1440, height: 980 });
 		await mockApi({ projects: [makeProject({ id: projectId, name: "Product Operations" })] });
 		const mocked = await routeFactoryApi(page, { releaseInbox: true });
-		await page.goto("/factories");
+		await page.goto("/factories?view=inbox");
 		await expect(page.getByRole("heading", { name: "Factory inbox" })).toBeVisible();
 		await expect(page.getByText("Factory approval requested")).toBeVisible();
 		await expect(page.getByText("Release approval requested")).toBeVisible();
@@ -226,6 +279,22 @@ test.describe("factory authoring console", () => {
 		expect(commandDecision?.method).toBe("PUT");
 		expect(commandDecision?.headers["if-match"]).toBe("0");
 		expect(commandDecision?.body).toEqual({ contextDigest: digest, choice: "ship" });
+
+		// An uncertain release is reconciled from the inbox at its exact dispatch generation.
+		const uncertainRelease = page.locator("article", { hasText: "Release outcome uncertain" });
+		await uncertainRelease.getByRole("button", { name: "Reconcile" }).click();
+		const form = page.getByRole("form", { name: "Reconcile factory-release:unknown" });
+		await form.getByLabel("Outcome").selectOption("attach_receipt");
+		await form.getByLabel("Reason").fill("The provider shows the object at the recorded digest.");
+		await form.getByLabel("Provider evidence (JSON)").fill('{"lookup":"head-object","found":true}');
+		await form.getByLabel("Provider receipt (JSON)").fill('{"receiptId":"s3-receipt-1"}');
+		await captureEvidence(page, testInfo, "factory-release-reconcile-form");
+		await form.getByRole("button", { name: "Record reconciliation at generation 2" }).click();
+		await expect(page.getByRole("status")).toHaveText("Reconciliation recorded. Release factory-release:unknown is now in the succeeded state.");
+		const reconciliation = mocked.requests.find(item => item.path.endsWith("/reconciliations"));
+		expect(reconciliation?.headers["if-match"]).toBe("2");
+		expect(reconciliation?.body).toEqual({ action: "attach_receipt", reason: "The provider shows the object at the recorded digest.", providerEvidence: { lookup: "head-object", found: true }, receipt: { receiptId: "s3-receipt-1" } });
+		await expect(page.getByText("Release outcome uncertain")).toHaveCount(0);
 	});
 
 	test("requests a bounded repair and refuses a widening replan @evidence", async ({ page, mockApi }, testInfo) => {
@@ -233,10 +302,10 @@ test.describe("factory authoring console", () => {
 		await page.setViewportSize({ width: 1440, height: 1100 });
 		await mockApi({ projects: [makeProject({ id: projectId, name: "Product Operations" })] });
 		const mocked = await routeFactoryApi(page);
-		await page.goto("/factories");
+		await page.goto("/factories?view=runs");
+		await page.getByTestId("factory-run-inspector").getByRole("button", { name: /run-remediation/ }).click();
 		const controls = page.getByTestId("factory-run-controls");
 		await expect(controls.getByRole("heading", { name: "Run controls" })).toBeVisible();
-		await controls.getByRole("button", { name: /run-remediation/ }).click();
 		await expect(controls.getByText("factory_assurance_claim_failed")).toBeVisible();
 
 		await controls.getByLabel("Node").fill("generate-private-candidate");
@@ -337,6 +406,83 @@ test.describe("factory authoring console", () => {
 		const publication = mocked.requests.find(item => item.method === "POST" && item.path.endsWith("/versions"));
 		expect(publication?.headers["if-match"]).toBe("5");
 		expect(publication?.body).toEqual({ version: "0.2.0" });
+	});
+
+	test("starts a run of a published version, refuses bad input, and opens the queued run in Runs @evidence", async ({ page, mockApi }, testInfo) => {
+		await mockApi({ projects: [makeProject({ id: projectId, name: "Product Operations" })] });
+		const mocked = await routeFactoryApi(page);
+		await openConsole(page);
+		await page.getByRole("button", { name: /^Versions/ }).click();
+		const open = page.getByRole("button", { name: "Start a run of 0.1.0" });
+		await open.click();
+		const dialog = page.getByRole("dialog", { name: `Start ${factoryId} 0.1.0` });
+		await expect(dialog).toContainText("The run pins version 0.1.0");
+		const input = dialog.getByLabel(/Run input/);
+		const start = dialog.getByRole("button", { name: "Start run", exact: true });
+		await input.fill("{");
+		await start.click();
+		await expect(dialog.getByRole("alert")).toHaveText("Run input is not valid JSON.");
+		await input.fill("[1]");
+		await start.click();
+		await expect(dialog.getByRole("alert")).toHaveText("Run input must be a JSON object of port names.");
+		await dialog.getByRole("button", { name: "Cancel" }).click();
+		await expect(dialog).toBeHidden();
+		await open.click();
+		await dialog.getByRole("button", { name: "Close start run" }).click();
+		await expect(dialog).toBeHidden();
+
+		await open.click();
+		mocked.failNext("start");
+		await dialog.getByRole("button", { name: "Start run", exact: true }).click();
+		await expect(dialog.getByRole("alert")).toHaveText("start unavailable");
+		await dialog.getByLabel(/Run input/).fill('{"catalog":{"kind":"inline","value":"spring"}}');
+		await dialog.getByRole("button", { name: "Start run", exact: true }).click();
+		await expect(dialog.getByRole("status")).toHaveText("Run run-remediation is queued. Acceptance is not the same as a started run.");
+		await captureEvidence(page, testInfo, "factory-run-start-queued");
+		await page.setViewportSize({ width: 390, height: 844 });
+		await expect(dialog.getByRole("button", { name: "Watch in Runs" })).toBeInViewport();
+		await captureEvidence(page, testInfo, "factory-run-start-queued-narrow");
+		const started = mocked.requests.filter(item => item.method === "POST" && item.path.endsWith("/runs")).at(-1);
+		expect(started?.headers["if-match"]).toBe("0");
+		expect(started?.body).toMatchObject({ factoryVersion: "0.1.0", grantRevision: 2, parameters: { catalog: { kind: "inline", value: "spring" } } });
+		await dialog.getByRole("button", { name: "Watch in Runs" }).click();
+		await expect(page).toHaveURL(/view=runs.*run=run-remediation/);
+		await expect(page.getByTestId("factory-run-inspector").getByRole("heading", { level: 2, name: "reference.code.v1" })).toBeVisible();
+	});
+
+	test("keeps the server's answer when the session record cannot be read", async ({ page, mockApi }) => {
+		await mockApi({ projects: [makeProject({ id: projectId, name: "Product Operations" })] });
+		await routeFactoryApi(page);
+		const errors: string[] = [];
+		page.on("pageerror", error => errors.push(error.message));
+		// A malformed reply: the page keeps the server-rendered answer and raises nothing.
+		await page.route("**/api/auth/me", route => route.fulfill({ status: 200, contentType: "application/json", body: "{" }));
+		await page.goto("/factories");
+		await expect(page.getByTestId("factory-console")).toBeVisible();
+		await expect(page.getByRole("tab", { name: "Authoring" })).toHaveAttribute("aria-selected", "true");
+		expect(errors).toEqual([]);
+	});
+
+	test("a draft a newer server wrote opens read-only and still exports @evidence", async ({ page, mockApi }, testInfo) => {
+		await mockApi({ projects: [makeProject({ id: projectId, name: "Product Operations" })] });
+		const mocked = await routeFactoryApi(page, { futureDraft: true });
+		await page.goto("/factories");
+		const console_ = page.getByTestId("factory-console");
+		// When even the export is refused, the refusal shows and nothing opens for editing.
+		mocked.failNext("export");
+		await console_.getByRole("button", { name: new RegExp(factoryId) }).click();
+		await expect(console_.getByRole("alert")).toContainText("export unavailable");
+		await expect(page.getByLabel("Stored definition source")).toHaveCount(0);
+		await console_.getByRole("button", { name: new RegExp(factoryId) }).click();
+		await expect(page.getByRole("heading", { name: factoryId })).toBeVisible();
+		await expect(page.getByRole("note")).toContainText("cannot edit");
+		await expect(page.getByLabel("Stored definition source")).toHaveValue(/"factory.v9"/);
+		await expect(page.getByRole("button", { name: "Save" })).toHaveCount(0);
+		await captureEvidence(page, testInfo, "factory-read-only-future-draft");
+		const download = page.waitForEvent("download");
+		await page.getByRole("button", { name: "Export JSON" }).click();
+		expect((await download).suggestedFilename()).toContain(factoryId);
+		expect(mocked.requests.filter(item => item.path.includes("/export")).length).toBeGreaterThanOrEqual(2);
 	});
 
 	test("creates and imports through the current membership project", async ({ page, mockApi }) => {

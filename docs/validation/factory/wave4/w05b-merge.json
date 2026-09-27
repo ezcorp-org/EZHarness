@@ -1,0 +1,174 @@
+{
+ "package": "w05b",
+ "branch": "wp/w05b-reconcile-clear",
+ "head": "e8ee2f8f25cd41852de5b012df712ae29aa0ea14",
+ "stackedOn": "W03e c6dbc321c (merged first at 7a9dd5287)",
+ "validatorVerdict": "ACCEPT by validator-4 at proof merge a2a881046 (ref proof/w05b-integ-2b2e12550); copied as w05b-validation.txt",
+ "workerReport": "w05b/report.txt (copied as w05b-worker-report.txt); worker coverage receipts at e8ee2f8f2 under w05b/delta/receipts (new-file and patch exit 0, BASE_REF wp/w03e-usage-settle)",
+ "mergeSha": "37511b1ac6160bc49f7c803d92ba09f23e32c826",
+ "tree": "bd8b1abfc8a6507e2b77a1f82cd7df5f34ed6557",
+ "parents": [
+  "f7c1290a67a1ed859ee09b0f1ee9a0b024fe767d",
+  "e8ee2f8f25cd41852de5b012df712ae29aa0ea14"
+ ],
+ "conflicts": "none",
+ "integrationFix": [
+  {
+   "id": "w03e-gap-1",
+   "what": "tasks/factory/w03e-GATES.md: disclosed gap 1 (a hold that reconciliation later resolves never clears the kernel's uncertain attempt) marked RESOLVED by W05b, pointing at this merge",
+   "diff": "w05b-merge-w03e-gate-text.diff",
+   "ruling": "coordinator 2026-09-24: W03e's disclosed gap 1 is resolved by W05b; mark it in W03e's gate text at merge"
+  }
+ ],
+ "rulings": {
+  "clearingMember": "the clearing member is required (fail closed)",
+  "race": "the race is proven on PostgreSQL"
+ },
+ "checks": [
+  {
+   "name": "registration",
+   "exitCode": 0,
+   "start": "2026-09-26T02:55:19Z",
+   "end": "2026-09-26T02:55:20Z",
+   "command": "bun test --timeout 30000 ./scripts/factory-postgres-suite-registration.test.ts ./src/__tests__/factory-ci-registration.test.ts ./scripts/check-required-checks.test.ts",
+   "logSha256": "29ca674307734555e38d92ef29d22a596766b06949e0fe41181b1810b0dcc885"
+  },
+  {
+   "name": "typecheck",
+   "exitCode": 0,
+   "start": "2026-09-26T02:55:20Z",
+   "end": "2026-09-26T02:56:08Z",
+   "command": "bun run typecheck",
+   "logSha256": "13666e1ea141cd4f223ccb1c82f46bfebc311731c47ff35a42ea9fab3cc919ff"
+  },
+  {
+   "name": "lint",
+   "exitCode": 0,
+   "start": "2026-09-26T02:56:08Z",
+   "end": "2026-09-26T02:56:10Z",
+   "command": "bun run lint",
+   "logSha256": "2baab9b7cd800d26712f30e50228c5d127bf8bd9f0fc3c093b9d1c36440f7405"
+  },
+  {
+   "name": "gate-integrity",
+   "exitCode": 0,
+   "start": "2026-09-26T02:56:10Z",
+   "end": "2026-09-26T02:56:13Z",
+   "command": "bun scripts/gate-integrity.ts",
+   "logSha256": "b1a0297506aab4a182c44b23c41d861c6f4ae88da68848497d810bb39bff6bda"
+  },
+  {
+   "name": "boundaries",
+   "exitCode": 0,
+   "start": "2026-09-26T02:56:13Z",
+   "end": "2026-09-26T02:56:14Z",
+   "command": "bun scripts/check-factory-boundaries.ts",
+   "logSha256": "a701e3a2106adf5e27905c6b5ba03385c3e8490562ff4d2e98236c0403caaf83"
+  },
+  {
+   "name": "schema-drift",
+   "exitCode": 0,
+   "start": "2026-09-26T02:56:14Z",
+   "end": "2026-09-26T02:56:18Z",
+   "command": "bun scripts/check-schema-generate-drift.ts",
+   "logSha256": "58e4fb0d5102f899bd14326e7b9fcbaee5ad91491dec01c137198838c9b29f15"
+  },
+  {
+   "name": "focused-src-__tests__-factory-task-stops-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-26T02:56:18Z",
+   "end": "2026-09-26T02:56:27Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/factory-task-stops.test.ts",
+   "logSha256": "3e1f463e5ffbfd1a3c36073ea93730a9da97b120d9e69b130b114a5b091b6046"
+  },
+  {
+   "name": "focused-src-factory-usage-settlement-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-26T02:56:27Z",
+   "end": "2026-09-26T02:56:27Z",
+   "command": "bun test --timeout 60000 ./src/factory/usage-settlement.test.ts",
+   "logSha256": "51bc51754c79bbdd7e77e456667e392b0f905915ac1883ca7f81731f057b8d18"
+  },
+  {
+   "name": "focused-packages-@ezcorp-factory-sdk-src-kernel-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-26T02:56:27Z",
+   "end": "2026-09-26T02:56:33Z",
+   "command": "bun test --timeout 60000 ./packages/@ezcorp/factory-sdk/src/kernel.test.ts",
+   "logSha256": "ec8884b439ac4635086b7c93b63c1ff30296443b8d147264ae6a97324c151689"
+  },
+  {
+   "name": "focused-src-factory-dispatch-composition-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-26T02:56:33Z",
+   "end": "2026-09-26T02:56:35Z",
+   "command": "bun test --timeout 60000 ./src/factory/dispatch-composition.test.ts",
+   "logSha256": "8051581424db4b84e110b33c53526a5beeee50c3bfe2c5db1efb61d6fcb41eb3"
+  },
+  {
+   "name": "focused-src-__tests__-factory-process-boundaries-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-26T02:56:35Z",
+   "end": "2026-09-26T02:56:39Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/factory-process-boundaries.test.ts",
+   "logSha256": "98da853783be1d8f0124782cc6858236674f876f17cb9de470a1ab17662f3d66"
+  },
+  {
+   "name": "focused-scripts-check-factory-boundaries-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-26T02:56:39Z",
+   "end": "2026-09-26T02:56:40Z",
+   "command": "bun test --timeout 60000 ./scripts/check-factory-boundaries.test.ts",
+   "logSha256": "d7e0009ed1a6dc6c4d52848c26a4ba22e5c85c4b0602b40023f2e3414e7caacc"
+  }
+ ],
+ "heavy": {
+  "summary": [
+   "lock 2026-09-26T03:54:30Z",
+   "batch exit=0",
+   "resource-gate 2026-09-26T03:55:02Z pg-coverage disk=127G memAvailable=17GiB swapFreeKiB=7760312/17173956",
+   "pg coverage exit=0  65 pass 0 fail ",
+   "DONE status=0 end=2026-09-26T03:55:32Z"
+  ],
+  "batch": [
+   "=== heavy batch 2026-09-26T03:54:30Z",
+   "HEAD f7c1290a67a1ed859ee09b0f1ee9a0b024fe767d MERGE_HEAD e8ee2f8f25cd41852de5b012df712ae29aa0ea14 index-tree bd8b1abfc8a6507e2b77a1f82cd7df5f34ed6557 umask 0077",
+   "df: /dev/nvme0n1p2  1.8T  1.6T  127G  93% /",
+   "resource-gate 2026-09-26T03:54:30Z pg-factory-task-stops disk=127G memAvailable=18GiB swapFreeKiB=7756904/17173956",
+   "--- START pg-factory-task-stops 2026-09-26T03:54:30Z",
+   "--- END   pg-factory-task-stops 2026-09-26T03:54:42Z exit=0  29 pass 0 fail ",
+   "resource-gate 2026-09-26T03:54:42Z pg-factory-guest-model-journal disk=127G memAvailable=18GiB swapFreeKiB=7760096/17173956",
+   "--- START pg-factory-guest-model-journal 2026-09-26T03:54:42Z",
+   "--- END   pg-factory-guest-model-journal 2026-09-26T03:54:47Z exit=0  2 pass 0 fail ",
+   "resource-gate 2026-09-26T03:54:47Z pg-factory-budgets disk=127G memAvailable=18GiB swapFreeKiB=7760192/17173956",
+   "--- START pg-factory-budgets 2026-09-26T03:54:47Z",
+   "--- END   pg-factory-budgets 2026-09-26T03:54:52Z exit=0  13 pass 0 fail ",
+   "resource-gate 2026-09-26T03:54:52Z pg-factory-assurance disk=127G memAvailable=18GiB swapFreeKiB=7760224/17173956",
+   "--- START pg-factory-assurance 2026-09-26T03:54:52Z",
+   "--- END   pg-factory-assurance 2026-09-26T03:54:58Z exit=0  17 pass 0 fail ",
+   "resource-gate 2026-09-26T03:54:58Z podman-guest-model-journal.integration disk=127G memAvailable=18GiB swapFreeKiB=7760288/17173956",
+   "--- START podman-guest-model-journal.integration 2026-09-26T03:54:58Z",
+   "--- END   podman-guest-model-journal.integration 2026-09-26T03:55:02Z exit=0  4 pass 0 fail ",
+   "BATCH DONE status=0 2026-09-26T03:55:02Z"
+  ],
+  "postgresTotal": "61 (task-stops 29, guest-model-journal 2, budgets 13, assurance 17), as validator-4 expected"
+ },
+ "coverage": {
+  "proofCommit": "proof/w05b-merge-staged d0ac88c2b4a69757ff05582f230b6528737976e6 (tree bd8b1abfc = the merge tree)",
+  "baseRef": "f7c1290a6",
+  "producers": [
+   {
+    "producer": "focused 6 suites",
+    "result": "149/0"
+   },
+   {
+    "producer": "PostgreSQL 4 suites + guest-model-journal integration with coverage",
+    "result": "65/0"
+   }
+  ],
+  "newFile": "PASSED: no new source files",
+  "patch": "PASSED: all changed executable lines covered (2 files)"
+ },
+ "commitHook": "the hook ran its staged suites itself (under the cap), all pass",
+ "standingSteps": "resource gate at each step (disk 127G, MemAvailable 17 GiB, swap >= 7.7 GB free); config hash 44962525f1ca1a8b"
+}

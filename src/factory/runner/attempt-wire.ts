@@ -185,9 +185,27 @@ export interface FactoryAttemptLaunchStore {
    * the stored copy, and a different result for the same attempt is rejected.
    */
   recordTerminal(attemptId: string, result: FactoryRunnerResult): Promise<FactoryRunnerResult>;
+  /**
+   * Records the result of an attempt whose guest's answer was lost, unless a
+   * stop was sealed for the attempt first.
+   *
+   * The first writer owns the attempt's end (W01h fix round). A stop sealed
+   * before any terminal result carries reason `cancelled`; a lost result written
+   * after it would make every settlement of that stop re-derive `failed` and
+   * refuse the stop as corrupt. So with a stop sealed, no terminal result is
+   * written: the loss is attached to the sealed stop as audit evidence, which
+   * changes nothing the stop verifies. A terminal result already recorded wins
+   * over the lost one and is returned.
+   */
+  recordLostTerminal(attemptId: string, result: FactoryRunnerResult): Promise<FactoryLostTerminal>;
   /** The durable terminal result, if one was recorded. Recovery reads this instead of invoking again. */
   terminalResult(attemptId: string): Promise<FactoryRunnerResult | undefined>;
 }
+
+/** What became of a lost result: the attempt's durable terminal result, or the stop that owns its end. */
+export type FactoryLostTerminal =
+  | { readonly state: "recorded"; readonly result: FactoryRunnerResult }
+  | { readonly state: "stop-sealed"; readonly cancelCommandId: string; readonly sealedReason: string };
 
 /** Canonical digest of a terminal result. The same result always yields the same value. */
 export function factoryTerminalResultDigest(result: FactoryRunnerResult): string {
@@ -425,7 +443,11 @@ export function factoryAttemptLaunchIntentFromWire(value: unknown): FactoryAttem
   return rebuilt;
 }
 
+/**
+ * `guest_exited`: the host ran the guest and it ended without a result.
+ * `attempt_unknown`: the host holds no record of the attempt, so its answer died with an earlier supervisor.
+ */
 export class FactoryAttemptRuntimeError extends Error {
-  constructor(readonly code: "invalid_request" | "invalid_launch" | "launch_conflict" | "launch_corrupt" | "launch_uncertain" | "lease_revoked" | "device_conflict", message: string) { super(message); }
+  constructor(readonly code: "invalid_request" | "invalid_launch" | "launch_conflict" | "launch_corrupt" | "launch_uncertain" | "lease_revoked" | "device_conflict" | "guest_exited" | "attempt_unknown", message: string) { super(message); }
 }
 

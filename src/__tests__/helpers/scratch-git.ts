@@ -12,6 +12,7 @@
  */
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { isolatedGitEnv } from "@ezcorp/sdk/test";
 
 export type GitEnv = Record<string, string>;
 
@@ -26,14 +27,11 @@ export function withoutGitContext(env: Record<string, string | undefined>): GitE
 
 /**
  * `env` with no git context, `home` as HOME, and GIT_CONFIG_NOSYSTEM=1, so
- * neither the global nor the system git config is read.
+ * neither the global nor the system git config is read. Delegates to the
+ * SDK's `isolatedGitEnv`, the one isolation rule both share.
  */
 export function scratchGitEnv(home: string, env: Record<string, string | undefined> = process.env): GitEnv {
-  const out = withoutGitContext(env);
-  delete out.XDG_CONFIG_HOME;
-  out.HOME = home;
-  out.GIT_CONFIG_NOSYSTEM = "1";
-  return out;
+  return isolatedGitEnv(home, env);
 }
 
 export type ScratchRepository = {

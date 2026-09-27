@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/svelte";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/svelte";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import type {
 	FactoryDefinition,
@@ -74,6 +74,11 @@ function api(overrides: Partial<FactoryAuthoringApi> = {}): FactoryAuthoringApi 
 			version: releaseVersion,
 			draftRevision: revision,
 		})),
+		listGrants: vi.fn(async () => ({ items: [
+			{ principalKind: "user" as const, principalId: "someone-else", action: "factory.run" as const, revision: 9, expiresAtMs: null, revoked: false, displayName: "Someone Else" },
+			{ principalKind: "user" as const, principalId: "member-1", action: "factory.run" as const, revision: 4, expiresAtMs: null, revoked: false, displayName: "Member One" },
+		], nextCursor: null })),
+		startRun: vi.fn(async () => ({ resourceId: "run-new", commandId: "start-1", statusUrl: "/api/factories/projects/project-a/runs/run-new/commands/start-1" })),
 		...overrides,
 	};
 }
@@ -84,7 +89,7 @@ async function openDraft(): Promise<void> {
 }
 
 function renderConsole(authoring: FactoryAuthoringApi): ReturnType<typeof render> {
-	return render(FactoryConsole, { projects: [{ id: "project-a", name: "Research" }], projectId: "project-a", onProjectChange: vi.fn(), api: authoring });
+	return render(FactoryConsole, { projectId: "project-a", api: authoring });
 }
 
 async function makeDirty(): Promise<void> {
@@ -92,6 +97,101 @@ async function makeDirty(): Promise<void> {
 	await fireEvent.input(screen.getByLabelText("Factory definition JSON"), { target: { value: JSON.stringify({ ...source(), version: "0.2.0" }) } });
 	await fireEvent.click(screen.getByRole("button", { name: "Apply source" }));
 }
+
+describe("FactoryConsole read-only drafts", () => {
+	beforeEach(() => {
+		vi.stubGlobal("ResizeObserver", class { observe(): void {} unobserve(): void {} disconnect(): void {} });
+	});
+
+	test("a draft a newer server wrote is shown exactly as stored, cannot be edited, and still exports", async () => {
+		const stored = JSON.stringify({ schemaVersion: "factory.v9", id: source().id, futureExecutionField: { mode: "new" } });
+		const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+		vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:x");
+		vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+		const authoring = api({
+			getDraft: vi.fn(async () => { throw new FactoryApiClientError(409, "factory_definition_version_unsupported", "The definition uses a schema version this server cannot edit."); }),
+			exportDraft: vi.fn(async (_project: string, _factory: string, format: "json" | "yaml") => ({ format, source: stored })),
+		});
+		renderConsole(authoring);
+		await fireEvent.click(await screen.findByRole("button", { name: /catalog-long-running-factory-definition/ }));
+		expect(await screen.findByRole("heading", { name: source().id })).toBeVisible();
+		expect(screen.getByRole("note")).toHaveTextContent("A newer factory server wrote this definition with a schema version this console cannot edit.");
+		const stored_ = screen.getByLabelText("Stored definition source") as HTMLTextAreaElement;
+		expect(stored_.value).toContain('"factory.v9"');
+		expect(stored_.readOnly).toBe(true);
+		expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+		expect(screen.queryByLabelText("Factory definition JSON")).toBeNull();
+		await fireEvent.click(screen.getByRole("button", { name: "Export YAML" }));
+		await waitFor(() => expect(click).toHaveBeenCalledTimes(1));
+		expect(authoring.exportDraft).toHaveBeenLastCalledWith("project-a", source().id, "yaml");
+		expect(screen.queryByRole("alert")).toBeNull();
+		vi.restoreAllMocks();
+	});
+
+	test("when even the export is refused, the refusal is shown and nothing is edited", async () => {
+		const authoring = api({
+			getDraft: vi.fn(async () => { throw new FactoryApiClientError(409, "factory_definition_version_unsupported", "unsupported"); }),
+			exportDraft: vi.fn(async () => { throw new FactoryApiClientError(403, "factory_forbidden", "Factory authority is required."); }),
+		});
+		renderConsole(authoring);
+		await fireEvent.click(await screen.findByRole("button", { name: /catalog-long-running-factory-definition/ }));
+		expect(await screen.findByRole("alert")).toBeVisible();
+		expect(screen.queryByLabelText("Stored definition source")).toBeNull();
+		expect(screen.getByText("No draft selected")).toBeVisible();
+	});
+});
+
+describe("FactoryConsole start run", () => {
+	beforeEach(() => {
+		vi.stubGlobal("ResizeObserver", class { observe(): void {} unobserve(): void {} disconnect(): void {} });
+	});
+
+	async function openStart(authoring: FactoryAuthoringApi, onOpenRun = vi.fn(), currentUserId: string | null = "member-1") {
+		render(FactoryConsole, { projectId: "project-a", currentUserId, onOpenRun, api: authoring });
+		await openDraft();
+		await fireEvent.click(screen.getByRole("button", { name: /^Versions/ }));
+		await fireEvent.click(await screen.findByRole("button", { name: "Start a run of 0.0.9" }));
+		return { dialog: await screen.findByRole("dialog", { name: /Start .* 0\.0\.9/ }), onOpenRun };
+	}
+
+	test("queues the exact version with the caller's current run grant, then opens it in Runs", async () => {
+		const authoring = api();
+		const { dialog, onOpenRun } = await openStart(authoring);
+		expect(dialog).toHaveTextContent("The run pins version 0.0.9");
+		await fireEvent.input(within(dialog).getByLabelText(/Run input/), { target: { value: '{"message":{"kind":"inline","value":"hi"}}' } });
+		await fireEvent.click(within(dialog).getByRole("button", { name: "Start run" }));
+		expect(await within(dialog).findByRole("status")).toHaveTextContent("Run run-new is queued. Acceptance is not the same as a started run.");
+		expect(authoring.listGrants).toHaveBeenCalledWith("project-a", { principalKind: "user", action: "factory.run", limit: 200 });
+		expect(authoring.startRun).toHaveBeenCalledWith("project-a", version().factoryId, { factoryVersion: "0.0.9", definitionDigest: version().definitionDigest, grantRevision: 4, parameters: { message: { kind: "inline", value: "hi" } } });
+		await fireEvent.click(within(dialog).getByRole("button", { name: "Watch in Runs" }));
+		expect(onOpenRun).toHaveBeenCalledWith("run-new");
+		expect(screen.queryByRole("dialog", { name: /Start / })).toBeNull();
+	});
+
+	test("refuses bad input, a missing grant, and a failed request, and closes without starting", async () => {
+		const authoring = api({ startRun: vi.fn(async () => { throw new FactoryApiClientError(409, "factory_definition_conflict", "The definition moved."); }) });
+		const { dialog } = await openStart(authoring, vi.fn(), "nobody");
+		const input = within(dialog).getByLabelText(/Run input/);
+		const start = within(dialog).getByRole("button", { name: "Start run" });
+		for (const [text, error] of [["{", "Run input is not valid JSON."], ["[]", "Run input must be a JSON object of port names."], ["null", "Run input must be a JSON object of port names."], ["", "You hold no current factory.run grant in this project."]] as const) {
+			await fireEvent.input(input, { target: { value: text } });
+			await fireEvent.click(start);
+			expect(await within(dialog).findByRole("alert")).toHaveTextContent(error);
+		}
+		expect(authoring.startRun).not.toHaveBeenCalled();
+		cleanup();
+		const failing = await openStart(authoring);
+		await fireEvent.click(within(failing.dialog).getByRole("button", { name: "Start run" }));
+		expect(await within(failing.dialog).findByRole("alert")).toHaveTextContent("The definition moved.");
+		await fireEvent.click(within(failing.dialog).getByRole("button", { name: "Cancel" }));
+		expect(screen.queryByRole("dialog", { name: /Start / })).toBeNull();
+		await fireEvent.click(screen.getByRole("button", { name: "Start a run of 0.0.9" }));
+		await fireEvent.click(await screen.findByRole("button", { name: "Close start run" }));
+		await fireEvent.click(screen.getByRole("button", { name: "Start a run of 0.0.9" }));
+		await fireEvent.click(await screen.findByRole("presentation"));
+		expect(screen.queryByRole("dialog", { name: /Start / })).toBeNull();
+	});
+});
 
 describe("FactoryConsole", () => {
 	beforeEach(() => {
@@ -104,18 +204,10 @@ describe("FactoryConsole", () => {
 
 	test("loads the selected membership project and creates a blank SDK draft", async () => {
 		const authoring = api();
-		const onProjectChange = vi.fn();
-		render(FactoryConsole, {
-			projects: [{ id: "project-a", name: "Research" }, { id: "project-b", name: "Release" }],
-			projectId: "project-a",
-			onProjectChange,
-			api: authoring,
-		});
+		render(FactoryConsole, { projectId: "project-a", api: authoring });
 
 		await screen.findByText(source().id);
 		expect(authoring.listDrafts).toHaveBeenCalledWith("project-a", { archived: false, limit: 200 });
-		await fireEvent.change(screen.getByLabelText("Factory project"), { target: { value: "project-b" } });
-		expect(onProjectChange).toHaveBeenCalledWith("project-b");
 
 		await fireEvent.input(screen.getByLabelText("New factory ID"), { target: { value: "new-pipeline" } });
 		await fireEvent.click(screen.getByRole("button", { name: "Create factory" }));
@@ -128,7 +220,7 @@ describe("FactoryConsole", () => {
 			.mockRejectedValueOnce(new FactoryApiClientError(412, "factory_precondition_failed", "revision changed", 4))
 			.mockResolvedValueOnce(summary(5));
 		const authoring = api({ saveDraft, getDraft: vi.fn(async () => server) });
-		render(FactoryConsole, { projects: [{ id: "project-a", name: "Research" }], projectId: "project-a", onProjectChange: vi.fn(), api: authoring });
+		render(FactoryConsole, { projectId: "project-a", api: authoring });
 		await openDraft();
 
 		await fireEvent.input(screen.getByLabelText("New node ID"), { target: { value: "collect" } });
@@ -153,7 +245,7 @@ describe("FactoryConsole", () => {
 
 	test("shows failed requests and supports source editing without losing the draft", async () => {
 		const authoring = api({ validateDraft: vi.fn(async () => { throw new Error("validation service unavailable"); }) });
-		render(FactoryConsole, { projects: [{ id: "project-a", name: "Research" }], projectId: "project-a", onProjectChange: vi.fn(), api: authoring });
+		render(FactoryConsole, { projectId: "project-a", api: authoring });
 		await openDraft();
 		await fireEvent.click(screen.getByRole("button", { name: "Definition" }));
 		const editor = screen.getByLabelText("Factory definition JSON");

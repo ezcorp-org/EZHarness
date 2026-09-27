@@ -368,7 +368,8 @@ export class FactoryFleetHost {
       hostKeyPath: hostSecret(FACTORY_HOST_FILES.hostKey), hostKeyId: FACTORY_HOST_KEY_ID,
       runnerRoot: this.paths.runnerRoot, readinessFilePath: resolve(this.paths.readinessDirectory, "supervisor", "supervisor.json"), readinessHeartbeatMs: 4_000,
       services: {
-        hostname: "127.0.0.1", port: this.identity.ports.supervisor, allowedPeers: admitted.map((entry) => entry.harnessIdentity),
+        // W01i: each harness peer is bound to its own tenant, so the host refuses a launch it names for another (403 forbidden_tenant).
+        hostname: "127.0.0.1", port: this.identity.ports.supervisor, peerTenants: Object.fromEntries(admitted.map((entry) => [entry.harnessIdentity, entry.tenantId])),
         hostKeyIdPath: hostSecret(FACTORY_HOST_FILES.hostKeyId),
         tls: { caPath: hostSecret(FACTORY_HOST_FILES.trustBundle), certificatePath: hostSecret(FACTORY_HOST_FILES.serverCertificate), privateKeyPath: hostSecret(FACTORY_HOST_FILES.serverKey) },
         pool: {

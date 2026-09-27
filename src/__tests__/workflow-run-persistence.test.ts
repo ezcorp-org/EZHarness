@@ -21,6 +21,14 @@ import { createExtensionPermissionGate } from "../runtime/tools/permissions";
 import type { AgentEvents, WorkflowDefinition, WorkflowStep } from "../types";
 import type { ToolCallResult } from "../extensions/types";
 
+// One clock for the whole file: fixed literal dates, never `new Date()`/
+// `Date.now()`, so nothing here depends on host timing. Shared (not
+// per-test copies) between the two terminalizeOrphanedWorkflowRuns() tests
+// below and the crash-recovery describe block further down, which
+// originally had its own describe-scoped copy.
+const BOOT = new Date("2026-07-29T12:00:00Z");
+const NOW = new Date("2026-07-29T12:05:00Z");
+
 let pglite: PGlite;
 let db: ReturnType<typeof drizzle<typeof schema>>;
 
@@ -679,11 +687,12 @@ describe("workflow-runs query layer", () => {
       id: half,
       workflowName: "half-written",
       input: {},
-      startedAt: new Date(Date.now() - 60_000),
+      startedAt: BOOT,
     });
     await db.execute(sql`UPDATE workflow_runs SET finished_at = NOW() WHERE id = ${half}`);
 
-    const drained = await terminalizeOrphanedWorkflowRuns();
+    // Fixed cutoff strictly after BOOT by construction — no wall-clock read.
+    const drained = await terminalizeOrphanedWorkflowRuns(new Date(BOOT.getTime() + 1000), NOW);
 
     expect(drained).toBeGreaterThanOrEqual(1);
     // Swept, not skipped — which is the property this test exists for.
@@ -712,19 +721,21 @@ describe("workflow-runs query layer", () => {
   test("terminalizeOrphanedWorkflowRuns sweeps rows a dead process left running", async () => {
     const orphan = crypto.randomUUID();
     const healthy = crypto.randomUUID();
-    await insertWorkflowRun({ id: orphan, workflowName: "wf", input: {}, startedAt: new Date() });
-    await insertWorkflowRun({ id: healthy, workflowName: "wf", input: {}, startedAt: new Date() });
+    await insertWorkflowRun({ id: orphan, workflowName: "wf", input: {}, startedAt: BOOT });
+    await insertWorkflowRun({ id: healthy, workflowName: "wf", input: {}, startedAt: BOOT });
     await finalizeWorkflowRunRow(healthy, "success");
 
-    const drained = await terminalizeOrphanedWorkflowRuns();
+    // Fixed cutoff strictly after BOOT by construction — no wall-clock read.
+    const drained = await terminalizeOrphanedWorkflowRuns(new Date(BOOT.getTime() + 1000), NOW);
     expect(drained).toBeGreaterThanOrEqual(1);
 
     const row = await getWorkflowRunRow(orphan);
     expect(row?.status).toBe("suspended");
 
-    // The already-terminal run is untouched, and a second sweep finds nothing.
+    // The already-terminal run is untouched, and a second sweep — with a
+    // later fixed cutoff, not a re-read of the clock — finds nothing.
     expect((await getWorkflowRunRow(healthy))?.status).toBe("success");
-    expect(await terminalizeOrphanedWorkflowRuns()).toBe(0);
+    expect(await terminalizeOrphanedWorkflowRuns(NOW, NOW)).toBe(0);
   });
 });
 
@@ -735,8 +746,6 @@ describe("workflow-runs query layer", () => {
 // directly, and both cutoffs are injected — the established pattern for
 // this table.
 describe("crash recovery — the sweep branches on run_phase", () => {
-  const BOOT = new Date("2026-07-29T12:00:00Z");
-  const NOW = new Date("2026-07-29T12:05:00Z");
 
   async function orphanAt(
     runPhase: "boundary" | "in-batch",

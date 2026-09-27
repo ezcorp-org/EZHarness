@@ -111,6 +111,11 @@ jobs:
           DB_POOL_MAX: "1"
         run: bun test ./tests/postgres/pool-one.test.ts
 
+      # W09f: the external pool can be discarded under a live Drizzle handle
+      # after a driver statement desync (src/db/swappable-bun-sql.ts).
+      - name: Run Bun.sql pool replacement on real PostgreSQL
+        run: FACTORY_TEST_POSTGRES_URL="$DATABASE_URL" bun test --timeout 60000 ./tests/postgres/bun-sql-pool-replacement.test.ts
+
       - name: Run pool service PostgreSQL and Node mTLS coverage producer
         env:
           COV_OUT: coverage-factory-pool
@@ -167,6 +172,7 @@ jobs:
           FACTORY_TEST_POSTGRES_URL="$DATABASE_URL" bun test --timeout 30000
           --coverage --coverage-reporter=lcov --coverage-dir=coverage-factory-storage
           ./tests/postgres/factory-artifacts.test.ts
+          ./tests/postgres/factory-storage-cleanup.test.ts
           ./tests/postgres/factory-artifact-access.test.ts
           ./tests/postgres/factory-artifact-materials.test.ts
           ./tests/postgres/factory-guest-material-broker.test.ts
@@ -175,6 +181,7 @@ jobs:
           ./tests/postgres/factory-boot.test.ts
           ./tests/postgres/factory-run-lifecycle-s3.test.ts
           ./tests/postgres/factory-run-inputs.test.ts
+          ./tests/postgres/factory-console.test.ts
           ./tests/postgres/factory-definitions.test.ts
           ./tests/postgres/factory-private-service.test.ts
           ./tests/postgres/factory-package-preparation.test.ts
@@ -194,6 +201,7 @@ jobs:
           ./tests/postgres/factory-service-credentials.test.ts
           ./tests/postgres/factory-grants.test.ts
           ./tests/postgres/factory-task-stops.test.ts
+          ./tests/postgres/factory-stop-lock-order.test.ts
           ./tests/postgres/factory-package-fence.test.ts
           ./tests/postgres/factory-migration-restart.test.ts
           ./tests/postgres/factory-schema.test.ts

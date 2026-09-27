@@ -1,0 +1,82 @@
+W01h: runner_outcome_unknown leaves a run stuck (worker archy, 2026-09-25)
+Branch wp/w01h-runner-outcome, cut from integ/w00 2b2e12550. Worktree .worktrees/w01h-runner-outcome.
+Gate file tasks/factory/w01h-GATES.md. Reproduction report reproduction.txt (sent before the fix).
+
+COMMITS
+  1812495b6 fix(factory-transport): settle every request under Bun
+  760cf1810 fix(factory): the host keeps a guest's answer until it is collected
+  4cd3f76b4 fix(factory): an attempt whose answer is lost ends failed by name
+  41b1d8a02 fix(factory): a lost attempt waits for its journal to settle before it is recorded
+  4dbe4a1b2 test(factory): W01h on a real Podman guest (committed under the lock)
+  5a927faf1 test(factory): the W01h Podman case asserts what each attempt's terminal row says (under the lock)
+  f8e24804b docs(w01h): gates, review and lessons
+
+ROOT CAUSE (end to end on W19a's own harness, proof/w01h-base-fault, graph/base-fault.*)
+  1. The attempt authority deadline is sealed to the first pool lease deadline, 30 s after admission
+     (pool/ledger.ts leaseMs). The remote runtime never renews it. Under load the prepare guest outlives it;
+     the host runner kills it at the deadline (podman stop + died 137).
+  2. Host: result() ignored its abort, deleted the answer in `finally`, answered a bare 500/409, logged
+     nothing (empty supervisor log).
+  3. Product: the launch client used a 30 s timeout for every call, and under Bun 1.3.14 the transport
+     never rejected on timeout or abort (node:https emits only `close`); remote runtime threw before
+     recordTerminal and never stopped the guest; the dispatcher swallowed the error (`catch {}`) and parked
+     the queue row outcome_unknown. No terminal row, no task outcome, so no `node-failed`: the kernel waits
+     for its own node/run deadline (10 min here).
+  4. At the run deadline the kernel's stop moves only the kernel epoch; the durable fence epoch moves only
+     on a user cancel, so cancel-node is refused factory_command_stale and the run holds in `stopping`
+     (second defect; probe/zz-w01h-deadline-stop.scratch.test.ts). Not fixed here; reported.
+  5. Even with the fix, C02 refuses any report for an attempt past its deadline
+     (run-lifecycle authorizeAttemptInTransaction: deadlineAt <= now -> factory_run_fence_changed), so a
+     guest that dies AT its deadline can never reach the kernel as node-failed. Ruling requested
+     (proposal-report-after-deadline.patch).
+
+FIX (what W01h changes)
+  - transport: rejects on deadline, abort, close-before-response, early response close, oversize, under Bun.
+  - host: keeps a settled answer 15 min, every read returns it; 20 s long-poll window (504 host_timeout);
+    guest_exited (502, runner diagnostics) and attempt_unknown (409) refusals; every refusal one JSON line
+    in the supervisor log; a start is joined, never doubled; first-hand stop knowledge only from a guest that
+    settled on this host.
+  - product: bounded long poll; every lost answer recorded `failed` over the journal's own facts after a
+    best-effort stop: RUNNER_CONTAINER_EXIT / RUNNER_SUPERVISOR_LOST (409 or 120 s silence) /
+    RUNNER_TIMEOUT (deadline + 30 s); waits up to 300 s for in-flight journal operations; unconfirmed launch
+    collected the same way; client timeout 90 s; the dispatcher keeps the runner's error as the cause.
+
+PROOF
+  unit/integration (at 41b1d8a02): 21 focused suites green (logs/focused2-*, focused3-*): transport 4/0,
+    host supervisor 9/0, host route 10/0, remote runtime 11/0, lost-result integration 4/0, transport
+    integration 6/0, services 21/0, lifecycle 74/0 (typed failure -> node-failed -> cancel-node ->
+    attempt-stopped -> retry ... -> fail-run naming RUNNER_CONTAINER_EXIT), task-stops 18/0, C05 15/0,
+    boundaries 31/0; orchestrator Node gateway-activities 11/0.
+  Podman (under the lock): host-launch-e2e 1/0; lost-result 1/0 (container exit -> RUNNER_CONTAINER_EXIT +
+    host log; retry runs; slow guest collected across windows).
+  coverage (logs/heavy-coverage-gates.log): Bun leg + Node/V8 leg merged; new-file: no new source files;
+    patch: all changed lines covered (11 files), BASE_REF=integ/w00.
+  real application, W19a harness:
+    B base + fault: reproduces the incident exactly (outcome_unknown/runner_outcome_unknown, launched, no
+      terminal row, no outcome/stop, supervisor log 0 bytes, run never terminal, cancel-node at run deadline).
+    C1 fix, run.sh all (proof/w01h-fix-w19a): exit 0 - ollama x3, mock x3, both controls.
+    C2 fix + fault (proof/w01h-fix-fault): terminal row failed RUNNER_CONTAINER_EXIT ("Worker closed; state
+      cancelled"), supervisor log line guest_exited, web log names the cause; run still not terminal because
+      of cause 5 (outcome commit refused: FactoryAttemptLivenessError), then cause 4.
+    D W01g harness: void on both trees (server never reported ready, "Setup required", before W01h code ran).
+
+PROOF REFS  proof/w01h-base-fault 4c8a27054, proof/w01h-fix-w19a bd0a6f7d8, proof/w01h-fix-fault 1dec495bc
+OPEN        G7 (the deadline path) on the ruling; the run-deadline epoch defect on its owner; the 30 s sealed
+            deadline (pool/admission owner).
+
+FINAL HEAD f8e24804b (clean tree): logs/final-summary.txt - typecheck 0, lint 0, boundaries 0, gate-integrity 0,
+  22 focused suites all green (incl. C05 15/0, lifecycle 74/0, task-stops 18/0). Podman lost-result rerun 1/0 at the
+  test-fix commit (logs/podman-lost-result-3.log).
+SCRATCH     .worktrees/w01h-proof-fix kept for a G7 rerun after the ruling; .worktrees/w01h-proof-base removed.
+            The run-deadline probe lives at probe/zz-w01h-deadline-stop.scratch.test.ts (moved out of the worktree).
+
+2026-09-26 a4dc40f3e (merge integ/w00 97423ce17, W18a-3 + W01k)
+EZ_SKIP_HOOK_TESTS=1 on a4dc40f3e; ratified by coordinator ruling 2026-09-26 00:12Z.
+Hook list verbatim: logs/m4/hook-list.txt (14 suites). 13 unlocked suites exit 0 outside the hook: logs/m4/hook/.
+factory-compute-admissions under the lock: logs/m4/hook/pg-compute-admissions.log.
+Shared /home/dev/work/EZCorp/EZHarness/.git/config sha256 prefix 44962525f1ca1a8b; core.bare=false.
+factory-compute-admissions under the lock: 2 pass, 0 fail.
+
+2026-09-27 final head 34b3b0a74 (code head 6f3903666, merge of integ/w00 f7c1290a6 with W03e)
+70 s fault pass at 6f3903666: run failed RUNNER_CONTAINER_EXIT 4.3 s after the deadline stop; no-operations settlement, compute at reserved bound; stop certain; reservation settled. graph-merged/.
+The 2026-09-26 04:03Z failure was the driver's missing web build, not the product: logs/merged/delay70-stall/.

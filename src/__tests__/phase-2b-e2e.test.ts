@@ -1,6 +1,7 @@
-import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, mock, spyOn, test } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 import { setupTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglite";
+import { ExtensionRegistry } from "../extensions/registry";
 
 mockDbConnection();
 
@@ -16,19 +17,17 @@ mockDbConnection();
 // route resolves the alias to the same `src/db/connection` record this file
 // has already mocked, which is what it wanted all along.
 
-mock.module("$server/extensions/registry", async () => {
-  // The real registry reloads processes on permission changes. In this
-  // test we don't care about subprocess lifecycle — stub reload to a
-  // no-op so the PUT handler can complete without touching real procs.
-  const actual = await import("../extensions/registry");
-  return {
-    ...actual,
-    ExtensionRegistry: {
-      ...actual.ExtensionRegistry,
-      getInstance: () => ({ reload: async () => {} }),
-    },
-  };
-});
+// The real registry reloads processes on permission changes. In this test we
+// don't care about subprocess lifecycle — stub reload to a no-op so the PUT
+// handler can complete without touching real procs. No `$server/*` alias is
+// registered: that registration is PERMANENT (see the note above this block
+// about `$server/db/connection`), so a later file's own `getInstance()` would
+// keep resolving through this stub forever. Instead we spy on the real,
+// cheap in-memory singleton — set up in `beforeAll` (test-execution time),
+// not at module top level, so an earlier file's own `resetInstance()` (run
+// during the shared load phase) can't leave this spy attached to a discarded
+// instance.
+let reloadSpy: ReturnType<typeof spyOn>;
 
 mock.module("../../web/src/routes/api/extensions/[id]/permissions/$types", () => ({}));
 
@@ -110,6 +109,8 @@ function rpc(method: string, params: Record<string, unknown>, id: number | strin
 }
 
 beforeAll(async () => {
+  reloadSpy = spyOn(ExtensionRegistry.getInstance(), "reload").mockImplementation(async () => {});
+
   await setupTestDb();
   const { _resetTaskTrackingExtensionIdCache } = await import("../runtime/task-tracking-host");
   _resetTaskTrackingExtensionIdCache();
@@ -162,6 +163,8 @@ beforeAll(async () => {
 
 afterAll(async () => {
   restoreModuleMocks();
+  reloadSpy.mockRestore();
+  ExtensionRegistry.resetInstance();
   await closeTestDb();
 });
 
