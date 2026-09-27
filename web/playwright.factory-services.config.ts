@@ -51,9 +51,10 @@ export default defineConfig({
 	webServer: external ? undefined : {
 		command: "bun e2e/factory-services/stack.ts",
 		cwd: __dirname,
-		url: `${baseURL}/api/ready`,
-		// Ready is not enough: the stack also sets up the administrator, the
-		// projects, and the guest release before it says it is held.
+		// No `url`: Playwright RACES a `url` check against `wait`, and /api/ready
+		// answers while the stack is still setting up the administrator, the
+		// projects, and the guest release. Only the "held" line, printed after
+		// the state file is written, may release the global setup.
 		wait: { stdout: /\[factory-services\] held/ },
 		stdout: "pipe",
 		timeout: 1_200_000,

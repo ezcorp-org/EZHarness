@@ -280,6 +280,23 @@ describe("e2e lane manifest", () => {
     expect(block).toMatch(/\[ "\$\{#args\[@\]\}" -gt 0 \]/);
   });
 
+  test("the factory-services journeys start only after the stack says it is held", async () => {
+    // Playwright RACES a webServer's `url` check against its `wait` pattern: the first to resolve releases
+    // globalSetup. The product server answers /api/ready while the stack is still creating the administrator,
+    // so with a `url` the global setup read a state file the stack had not written yet (ENOENT; W18c lane
+    // proof, 2026-09-27). Only the "held" line, printed after the state file exists, may gate the lane.
+    const { default: config } = await import("../../web/playwright.factory-services.config.ts");
+    const server = config.webServer as { url?: string; port?: number; wait?: { stdout?: RegExp } };
+    expect(server.url).toBeUndefined();
+    expect(server.port).toBeUndefined();
+    expect(server.wait?.stdout?.test("[factory-services] held at http://127.0.0.1:4191; logs in /tmp/x")).toBe(true);
+    expect(server.wait?.stdout?.test('{"msg":"ready"}')).toBe(false);
+    const stack = await Bun.file(join(REPO_ROOT, "web/e2e/factory-services/stack.ts")).text();
+    const written = stack.indexOf("await writeFile(FACTORY_SERVICES_STATE_PATH");
+    expect(written).toBeGreaterThan(0);
+    expect(stack.indexOf("[factory-services] held at")).toBeGreaterThan(written);
+  });
+
   test("a lane whose server never enables factories carries no spec that calls /api/factories", async () => {
     // src/factory/boot.ts serves /api/factories only when EZCORP_FACTORY_ENABLED=1. The real-auth and
     // fresh-setup lanes start their server through playwright.real.config.ts and scripts/run-real-e2e.ts,
