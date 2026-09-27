@@ -27,10 +27,10 @@ function inspection(runId: string, overrides: Partial<FactoryRunInspection> = {}
 			{ commandId: "c-2", decision: "accepted", candidateDigest: digest, reasons: [], groupFailures: [], decidedAtMs: 2 },
 		],
 		releases: [
-			{ operationId: "operation-1", nodeInstanceId: "publish", state: "uncertain", action: "factory.release.publish", dispatchGeneration: 2, outcomeCode: "provider_timeout" },
-			{ operationId: "operation-2", nodeInstanceId: "publish", state: "succeeded", action: "factory.release.publish", dispatchGeneration: 1 },
-			{ operationId: "operation-3", nodeInstanceId: "publish", state: "failed", action: "factory.release.publish", dispatchGeneration: 1 },
-			{ operationId: "operation-4", nodeInstanceId: "publish", state: "pending", action: "factory.release.publish", dispatchGeneration: 0 },
+			{ operationId: "operation-1", nodeInstanceId: "publish", state: "uncertain", action: "factory.release.publish", dispatchGeneration: 2, outcomeCode: "provider_timeout" , deadlineMs: 1_900_000_000_000 },
+			{ operationId: "operation-2", nodeInstanceId: "publish", state: "succeeded", action: "factory.release.publish", dispatchGeneration: 1 , deadlineMs: 1_900_000_000_000 },
+			{ operationId: "operation-3", nodeInstanceId: "publish", state: "failed", action: "factory.release.publish", dispatchGeneration: 1 , deadlineMs: 1_900_000_000_000 },
+			{ operationId: "operation-4", nodeInstanceId: "publish", state: "pending", action: "factory.release.publish", dispatchGeneration: 0 , deadlineMs: 1_900_000_000_000 },
 		],
 		...overrides,
 	};

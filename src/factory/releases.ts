@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { canonicalJson } from "@ezcorp/extension-contract";
-import type { JsonValue } from "@ezcorp/factory-sdk";
+import type { FactoryRunReleaseStopEffect, JsonValue } from "@ezcorp/factory-sdk";
 import type { KernelEvent } from "@ezcorp/factory-sdk/kernel-types";
 import { sql } from "drizzle-orm";
 import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
@@ -356,7 +356,7 @@ type NotificationProjectionRow = NotificationRow & {
 };
 
 /** What the release outcome later proved about a stopped release's publish (W09e). */
-export type FactoryReleaseStopOutcome = "no_effect" | "published" | "unknown_at_deadline";
+export type FactoryReleaseStopOutcome = Exclude<FactoryRunReleaseStopEffect, "uncertain">;
 
 /** What a stop found a release's external effect to be when it reached the operation. */
 export type FactoryReleaseStopEffect = "none" | "uncertain" | "published";

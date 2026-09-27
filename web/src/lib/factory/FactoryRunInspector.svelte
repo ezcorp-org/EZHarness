@@ -3,7 +3,7 @@
 	import { onDestroy, tick } from "svelte";
 	import type { FactoryArtifactResource, FactoryAttemptResource, FactoryChildRunResource, FactoryRunEvent, FactoryRunInspection, FactoryRunStatus, FactoryRunSummary } from "@ezcorp/factory-sdk/types";
 	import { FactoryApiClient, FactoryApiClientError, type FactoryRunControlApi, type FactoryRunInspectorApi } from "./client";
-	import { FACTORY_STREAM_LABELS, appendUnique, formatBytes, formatMicros, horizontalRevealOffset, shortDigest, streamSummary } from "./run-format";
+	import { FACTORY_STREAM_LABELS, appendUnique, formatBytes, formatMicros, horizontalRevealOffset, releaseStopSummary, shortDigest, streamSummary } from "./run-format";
 	import { FactoryRunStream, type FactoryRunStreamStatus } from "./run-stream";
 	import FactoryArtifactPreview from "./FactoryArtifactPreview.svelte";
 	import FactoryRunControls from "./FactoryRunControls.svelte";
@@ -355,9 +355,10 @@
 						{#if inspection.releases.length === 0}<p class="empty-copy">No release requested.</p>{/if}
 						<ul class="rows">
 							{#each inspection.releases as release (release.operationId)}
+								{@const stopLine = releaseStopSummary(release)}
 								<li>
 									<span class="chip" data-status={release.state === "succeeded" ? "succeeded" : release.state === "failed" ? "failed" : release.state === "uncertain" ? "uncertain" : "waiting"}>{release.state}</span>
-									<span class="row-copy"><strong>{release.action}</strong><small>{release.nodeInstanceId} · generation {release.dispatchGeneration}{release.outcomeCode ? ` · ${release.outcomeCode}` : ""}</small></span>
+									<span class="row-copy"><strong>{release.action}</strong><small>{release.nodeInstanceId} · generation {release.dispatchGeneration}{release.outcomeCode ? ` · ${release.outcomeCode}` : ""}</small>{#if stopLine}<span class="release-stop" data-effect={release.stop?.effect} data-testid="factory-release-stop">{stopLine}</span>{/if}</span>
 									{#if release.state === "uncertain"}<button class="button-secondary" onclick={onOpenInbox}>Reconcile</button>{/if}
 								</li>
 							{/each}
@@ -470,6 +471,9 @@
 	.run-row.active { box-shadow: inset 3px 0 var(--color-accent); }
 	.run-copy, .row-copy { display: grid; min-width: 0; }
 	.run-copy strong, .row-copy strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+	.release-stop { color: var(--color-text-muted); font-size: 11px; line-height: 1.35; }
+	.release-stop[data-effect="uncertain"], .release-stop[data-effect="unknown_at_deadline"] { color: var(--color-amber-500); }
+	.release-stop[data-effect="published"] { color: var(--color-text-primary); }
 	.run-copy small, .row-copy small { overflow: hidden; color: var(--color-text-muted); font-family: var(--font-mono); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 	.status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--color-text-muted); }
 	.status-dot[data-status="running"], .status-dot[data-status="waiting"] { background: var(--color-accent); }

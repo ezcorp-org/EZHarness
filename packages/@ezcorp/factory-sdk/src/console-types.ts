@@ -176,6 +176,23 @@ export interface FactoryRunReleaseResource {
   readonly dispatchGeneration: number;
   /** @minLength 1 @maxLength 512 */
   readonly outcomeCode?: string;
+  /** The release's own signed deadline: the only timer that bounds its publish and, after a stop, its reconciliation. @minimum 0 @maximum 9007199254740991 */
+  readonly deadlineMs: number;
+  /** Present when the run was stopped while this release was requested (W09e). */
+  readonly stop?: FactoryRunReleaseStopResource;
+}
+
+/**
+ * What a stopped release did at its provider. `uncertain` until the release's outcome is proven: a publish may
+ * have started before the stop. The other three are final: `no_effect` (nothing was published), `published`
+ * (the release was published, though the run stopped) and `unknown_at_deadline` (no answer by the deadline).
+ */
+export type FactoryRunReleaseStopEffect = "no_effect" | "uncertain" | "published" | "unknown_at_deadline";
+
+export interface FactoryRunReleaseStopResource {
+  /** @minimum 0 @maximum 9007199254740991 */
+  readonly requestedAtMs: number;
+  readonly effect: FactoryRunReleaseStopEffect;
 }
 
 /**

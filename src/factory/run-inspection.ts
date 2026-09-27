@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
 import type {
   FactoryAcceptanceResource, FactoryApiPage, FactoryArtifactResource, FactoryAttemptResource, FactoryBlockerResource, FactoryChildRunResource,
-  FactoryInspectionPage, FactoryInspectionQuery, FactoryInspectionSection, FactoryRunCostResource, FactoryRunInspection, FactoryRunReleaseResource, FactoryRunStatus,
+  FactoryInspectionPage, FactoryInspectionQuery, FactoryInspectionSection, FactoryRunCostResource, FactoryRunInspection, FactoryRunReleaseResource, FactoryRunReleaseStopEffect, FactoryRunStatus,
   FactoryValidatorMaterialQuery,
   FactoryValidatorMaterialResource,
 } from "@ezcorp/factory-sdk";
@@ -256,11 +256,14 @@ export class FactoryRunInspections {
   }
 
   private async releases(transaction: MigrationDb, key: FactoryRunKey): Promise<readonly FactoryRunReleaseResource[]> {
-    const found = rows<Row>(await transaction.execute(sql`SELECT operation_id, node_instance_id, state, action, dispatch_generation, outcome_code FROM factory_release_operations
-      WHERE tenant_id=${this.tenantId} AND project_id=${key.projectId} AND run_id=${key.runId} ORDER BY created_at, operation_id LIMIT ${SECTION_CAP}`));
+    const found = rows<Row>(await transaction.execute(sql`SELECT operation_id, node_instance_id, state, action, dispatch_generation, outcome_code, deadline_ms, stop_command_id, stop_requested_at_ms, stop_outcome
+      FROM factory_release_operations WHERE tenant_id=${this.tenantId} AND project_id=${key.projectId} AND run_id=${key.runId} ORDER BY created_at, operation_id LIMIT ${SECTION_CAP}`));
     return found.map(row => ({
       operationId: text(row.operation_id), nodeInstanceId: text(row.node_instance_id), state: text(row.state), action: text(row.action),
       dispatchGeneration: count(row.dispatch_generation), ...(row.outcome_code === null ? {} : { outcomeCode: text(row.outcome_code) }),
+      deadlineMs: count(row.deadline_ms),
+      // A stopped release keeps its effect in view: `cancelled` on the run never hides a publish that may have happened.
+      ...(row.stop_command_id === null ? {} : { stop: { requestedAtMs: count(row.stop_requested_at_ms), effect: row.stop_outcome === null ? "uncertain" as const : text(row.stop_outcome) as FactoryRunReleaseStopEffect } }),
     }));
   }
 }
