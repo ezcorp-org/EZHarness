@@ -1699,3 +1699,4 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
   pattern for the script. A job started with `&` in a tool shell survived the shell, my narrower check missed it,
   and the W15f batch ran twice back to back, holding the shared lock twice for nothing.
 
+- Gate the commit on the typecheck's exit, not on its printed code. W02d R5 printed `tc=1` inside a subshell and the `&&` chain still committed; the fix was an amend. Write `timeout 900 bun run typecheck > log || exit 1` before `git commit`.
