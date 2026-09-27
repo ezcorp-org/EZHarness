@@ -1681,3 +1681,7 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 - A test must measure the code under test, not a package manager: a live `bun install` inside a test's
   budget is a flake under host load. Prepare the install result from a pinned local copy and assert its
   version against the lockfile (W18c 226a3fadb).
+
+## 2026-09-27 — A test leg that ran zero tests must fail loudly (W01h merge)
+
+- `bun test <path>` without a leading `./` treats the path as a name filter. The W01h merge batch listed `tests/postgres/...` and `src/...` bare, so bun matched nothing and its three PostgreSQL legs and its Podman leg ran no tests. Write every listed test path with `./`, and make every test leg assert that it ran at least one test: a count of zero is a failure, whatever the exit code. The integrator's heavy-batch and fast-check scripts now add `./` and fail a zero-test leg with exit 97.

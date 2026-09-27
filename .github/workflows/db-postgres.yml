@@ -198,6 +198,7 @@ jobs:
           ./tests/postgres/factory-package-fence.test.ts
           ./tests/postgres/factory-migration-restart.test.ts
           ./tests/postgres/factory-schema.test.ts
+          ./tests/postgres/migrate-lock.test.ts
           ./tests/postgres/factory-retention.test.ts
           ./tests/postgres/factory-checkpoint.test.ts
           ./tests/postgres/factory-restore.test.ts

@@ -1,0 +1,23 @@
+Checked 8 files in 6ms. No fixes applied.
+── Tests (staged) ─────────────────────────────────
+  bun: scripts/factory-graph-proof/guest-package.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 1 pass
+ 0 fail
+ 9 expect() calls
+Ran 1 test across 1 file. [574.00ms]
+  bun: src/factory/guest-sdk-closure.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 8 pass
+ 0 fail
+ 31 expect() calls
+Ran 8 tests across 1 file. [649.00ms]
+  bun: src/factory/reference-code/guest.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 12 pass
+ 0 fail
+ 46 expect() calls
+Ran 12 tests across 1 file. [651.00ms]
