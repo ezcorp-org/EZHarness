@@ -141,14 +141,18 @@ test("blob helpers preserve canonical identity and reject workspace traversal", 
   expect(() => validatePath("../host-secret")).toThrow();
 });
 
-/** An S3 that never answers until the caller's abort signal fires, and records what each send received. */
+/**
+ * An S3 that never answers until the caller's abort signal fires, and records what each send received.
+ * A request without a signal fails at once by name: a real store would hang, and the test would only
+ * go red at the runner's timeout without naming what broke.
+ */
 class HangingS3 {
   readonly received: Array<{ command: string; signal: AbortSignal | undefined }> = [];
   async send(command: { constructor: { name: string } }, options?: { abortSignal?: AbortSignal }): Promise<Record<string, unknown>> {
     this.received.push({ command: command.constructor.name, signal: options?.abortSignal });
     const signal = options?.abortSignal;
+    if (!signal) throw new Error(`${command.constructor.name} was sent without the caller's abort signal`);
     return new Promise((_, reject) => {
-      if (!signal) return; // no signal: hangs, as a store that never answers would
       if (signal.aborted) reject(signal.reason);
       signal.addEventListener("abort", () => reject(signal.reason), { once: true });
     });
