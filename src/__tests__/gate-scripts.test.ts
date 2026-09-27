@@ -1383,8 +1383,60 @@ describe("merge-lcov: refuses to write an empty merge", () => {
 // A Node/V8 producer writes FNDA for a function and no DA for its header line;
 // a bun producer that only imports the module writes DA:<header>,0. The merge
 // must credit the header from the merged FNDA, and change nothing else.
+// Shared by the merge-lcov attribution tests: run the real merge over sandbox inputs and read the records.
+const MERGE_REPO_ROOT = join(import.meta.dir, "..", "..");
+type LcovRec = { fn: Map<string, number>; fnda: Map<string, number>; da: Map<number, number> };
+function parseRecords(text: string): Map<string, LcovRec> {
+  const out = new Map<string, LcovRec>();
+  let cur: LcovRec | null = null;
+  for (const line of text.split("\n")) {
+    if (line.startsWith("SF:")) {
+      cur = out.get(line.slice(3)) ?? { fn: new Map(), fnda: new Map(), da: new Map() };
+      out.set(line.slice(3), cur);
+    } else if (!cur) continue;
+    else if (line.startsWith("FN:")) {
+      const [n, name] = line.slice(3).split(",");
+      cur.fn.set(name!, Number(n));
+    } else if (line.startsWith("FNDA:")) {
+      const [h, name] = line.slice(5).split(",");
+      cur.fnda.set(name!, (cur.fnda.get(name!) ?? 0) + Number(h));
+    } else if (line.startsWith("DA:")) {
+      const [n, h] = line.slice(3).split(",");
+      cur.da.set(Number(n), (cur.da.get(Number(n)) ?? 0) + Number(h));
+    }
+  }
+  return out;
+}
+
+/** Write the inputs into a sandbox, merge them, and return the merged records. */
+function mergeLcovFixture(inputs: Record<string, string>, sources: Record<string, string>) {
+  const dir = mkdtempSync(join(tmpdir(), "merge-lcov-fn-header-"));
+  try {
+    for (const [rel, text] of Object.entries(sources)) {
+      mkdirSync(join(dir, rel, ".."), { recursive: true });
+      writeFileSync(join(dir, rel), text);
+    }
+    mkdirSync(join(dir, "in"));
+    for (const [name, text] of Object.entries(inputs)) {
+      writeFileSync(join(dir, "in", name), text.replaceAll("@ROOT@", dir));
+    }
+    const out = join(dir, "merged.info");
+    const proc = Bun.spawnSync(["bun", "scripts/merge-lcov.ts", join(dir, "in", "*.lcov"), out], {
+      cwd: MERGE_REPO_ROOT,
+    });
+    expect(proc.exitCode).toBe(0);
+    const strip = (m: Map<string, LcovRec>) =>
+      new Map([...m].map(([sf, r]) => [sf.replace(`${dir}/`, ""), r]));
+    return {
+      merged: strip(parseRecords(readFileSync(out, "utf8"))),
+      inputs: strip(parseRecords(Object.values(inputs).join("\n").replaceAll("@ROOT@", dir))),
+    };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 describe("merge-lcov: a called function's header line counts as hit", () => {
-  const REPO_ROOT_ML = join(import.meta.dir, "..", "..");
   const FIXTURE_DIR = join(import.meta.dir, "fixtures", "merge-lcov-function-headers");
   const SOURCE = [
     "export function called(a: number): number {",
@@ -1397,57 +1449,6 @@ describe("merge-lcov: a called function's header line counts as hit", () => {
     "}",
     "",
   ].join("\n");
-
-  type LcovRec = { fn: Map<string, number>; fnda: Map<string, number>; da: Map<number, number> };
-  function parseRecords(text: string): Map<string, LcovRec> {
-    const out = new Map<string, LcovRec>();
-    let cur: LcovRec | null = null;
-    for (const line of text.split("\n")) {
-      if (line.startsWith("SF:")) {
-        cur = out.get(line.slice(3)) ?? { fn: new Map(), fnda: new Map(), da: new Map() };
-        out.set(line.slice(3), cur);
-      } else if (!cur) continue;
-      else if (line.startsWith("FN:")) {
-        const [n, name] = line.slice(3).split(",");
-        cur.fn.set(name!, Number(n));
-      } else if (line.startsWith("FNDA:")) {
-        const [h, name] = line.slice(5).split(",");
-        cur.fnda.set(name!, (cur.fnda.get(name!) ?? 0) + Number(h));
-      } else if (line.startsWith("DA:")) {
-        const [n, h] = line.slice(3).split(",");
-        cur.da.set(Number(n), (cur.da.get(Number(n)) ?? 0) + Number(h));
-      }
-    }
-    return out;
-  }
-
-  /** Write the inputs into a sandbox, merge them, and return the merged records. */
-  function merge(inputs: Record<string, string>, sources: Record<string, string>) {
-    const dir = mkdtempSync(join(tmpdir(), "merge-lcov-fn-header-"));
-    try {
-      for (const [rel, text] of Object.entries(sources)) {
-        mkdirSync(join(dir, rel, ".."), { recursive: true });
-        writeFileSync(join(dir, rel), text);
-      }
-      mkdirSync(join(dir, "in"));
-      for (const [name, text] of Object.entries(inputs)) {
-        writeFileSync(join(dir, "in", name), text.replaceAll("@ROOT@", dir));
-      }
-      const out = join(dir, "merged.info");
-      const proc = Bun.spawnSync(["bun", "scripts/merge-lcov.ts", join(dir, "in", "*.lcov"), out], {
-        cwd: REPO_ROOT_ML,
-      });
-      expect(proc.exitCode).toBe(0);
-      const strip = (m: Map<string, LcovRec>) =>
-        new Map([...m].map(([sf, r]) => [sf.replace(`${dir}/`, ""), r]));
-      return {
-        merged: strip(parseRecords(readFileSync(out, "utf8"))),
-        inputs: strip(parseRecords(Object.values(inputs).join("\n").replaceAll("@ROOT@", dir))),
-      };
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  }
 
   const V8 = (called: number, neverCalled: number) =>
     [
@@ -1467,7 +1468,7 @@ describe("merge-lcov: a called function's header line counts as hit", () => {
   const BUN_IMPORT_ONLY = ["TN:", "SF:@ROOT@/mod.ts", "DA:1,0", "DA:2,0", "DA:3,0", "DA:5,0", "end_of_record", ""].join("\n");
 
   test("artefact: FNDA above zero in one producer and DA 0 for the header in another → header hit by FNDA", () => {
-    const { merged } = merge({ "v8.lcov": V8(4, 0), "bun.lcov": BUN_IMPORT_ONLY }, { "mod.ts": SOURCE });
+    const { merged } = mergeLcovFixture({ "v8.lcov": V8(4, 0), "bun.lcov": BUN_IMPORT_ONLY }, { "mod.ts": SOURCE });
     const r = merged.get("mod.ts")!;
     expect(r.fnda.get("called")).toBe(4);
     expect(r.da.get(1)).toBe(4);
@@ -1476,7 +1477,7 @@ describe("merge-lcov: a called function's header line counts as hit", () => {
   });
 
   test("no call: FNDA 0 in every producer → the header DA stays 0", () => {
-    const { merged } = merge({ "v8.lcov": V8(4, 0), "bun.lcov": BUN_IMPORT_ONLY }, { "mod.ts": SOURCE });
+    const { merged } = mergeLcovFixture({ "v8.lcov": V8(4, 0), "bun.lcov": BUN_IMPORT_ONLY }, { "mod.ts": SOURCE });
     const r = merged.get("mod.ts")!;
     expect(r.fnda.get("neverCalled")).toBe(0);
     expect(r.da.get(5)).toBe(0);
@@ -1486,14 +1487,14 @@ describe("merge-lcov: a called function's header line counts as hit", () => {
 
   test("not a header: a DA 0 on a line that is no FN start stays 0 next to a called function", () => {
     const v8 = V8(4, 0).replace("DA:3,4", "DA:3,0");
-    const { merged } = merge({ "v8.lcov": v8, "bun.lcov": BUN_IMPORT_ONLY }, { "mod.ts": SOURCE });
+    const { merged } = mergeLcovFixture({ "v8.lcov": v8, "bun.lcov": BUN_IMPORT_ONLY }, { "mod.ts": SOURCE });
     const r = merged.get("mod.ts")!;
     expect(r.da.get(1)).toBe(4);
     expect(r.da.get(3)).toBe(0);
   });
 
   test("no DA record is created for a header that no producer names", () => {
-    const { merged } = merge({ "v8.lcov": V8(4, 2) }, { "mod.ts": SOURCE });
+    const { merged } = mergeLcovFixture({ "v8.lcov": V8(4, 2) }, { "mod.ts": SOURCE });
     const r = merged.get("mod.ts")!;
     expect(r.da.has(1)).toBe(false);
     expect(r.da.has(5)).toBe(false);
@@ -1501,7 +1502,7 @@ describe("merge-lcov: a called function's header line counts as hit", () => {
 
   test("real inputs (cov-shard at aa0a5f2d3): exactly the six header lines flip, every other DA is the plain sum", () => {
     const read = (f: string) => readFileSync(join(FIXTURE_DIR, f), "utf8");
-    const { merged, inputs } = merge(
+    const { merged, inputs } = mergeLcovFixture(
       { "web.lcov": read("web.lcov.txt"), "product.lcov": read("product.lcov.txt"), "cov-shard.lcov": read("cov-shard.lcov.txt") },
       {
         "web/src/lib/server/factory/route-kit.ts": read("route-kit.ts.src"),
@@ -1528,6 +1529,76 @@ describe("merge-lcov: a called function's header line counts as hit", () => {
       "route-kit.ts:326",
       "route-kit.ts:45",
     ]);
+  });
+});
+
+// ── merge-lcov: the clause line of an entered catch ────────────────────────
+// Bun writes DA 0 for a bare `} catch {` line while the catch body's first line has hits; V8 writes no DA for
+// the clause line. A body cannot run unless its clause was entered, so the clause line takes the body's
+// first count (coordinator ruling, 2026-09-27; hooks.server.ts 703 in the W18c final measurement).
+describe("merge-lcov: an entered catch's clause line counts as hit", () => {
+  const FIXTURE_DIR = join(import.meta.dir, "fixtures", "merge-lcov-catch-clauses");
+  const SOURCE = [
+    "export function guarded(run: () => void): string {",
+    "  try {",
+    "    run();",
+    "  } catch {",
+    "    return \"caught\";",
+    "  }",
+    "  try {",
+    "    run();",
+    "  } catch (error) {",
+    "    return String(error);",
+    "  }",
+    "  return \"clean\";",
+    "}",
+    "",
+  ].join("\n");
+  const bun = (lines: Array<[number, number]>) =>
+    ["TN:", "SF:@ROOT@/guarded.ts", ...lines.map(([n, h]) => `DA:${n},${h}`), "end_of_record", ""].join("\n");
+
+  test("artefact: a bare clause line at 0 whose body ran takes the body's first count", () => {
+    const { merged } = mergeLcovFixture({ "bun.lcov": bun([[1, 3], [2, 3], [3, 3], [4, 0], [5, 2], [12, 1]]) }, { "guarded.ts": SOURCE });
+    const r = merged.get("guarded.ts")!;
+    expect(r.da.get(4)).toBe(2);
+    expect(r.da.get(5)).toBe(2);
+  });
+
+  test("the `} catch (error) {` form is credited the same way", () => {
+    const { merged } = mergeLcovFixture({ "bun.lcov": bun([[7, 3], [8, 3], [9, 0], [10, 1]]) }, { "guarded.ts": SOURCE });
+    expect(merged.get("guarded.ts")!.da.get(9)).toBe(1);
+  });
+
+  test("a catch whose body never ran keeps 0, and a zero line that is no catch clause keeps 0", () => {
+    const { merged } = mergeLcovFixture({ "bun.lcov": bun([[2, 3], [3, 0], [4, 0], [5, 0], [12, 0]]) }, { "guarded.ts": SOURCE });
+    const r = merged.get("guarded.ts")!;
+    expect(r.da.get(4)).toBe(0);
+    expect(r.da.get(5)).toBe(0);
+    expect(r.da.get(3)).toBe(0);
+    expect(r.da.get(12)).toBe(0);
+  });
+
+  test("no DA record is invented for a clause line no producer names", () => {
+    const { merged } = mergeLcovFixture({ "v8.lcov": bun([[2, 3], [3, 3], [5, 2]]) }, { "guarded.ts": SOURCE });
+    expect(merged.get("guarded.ts")!.da.has(4)).toBe(false);
+  });
+
+  test("real inputs (dc3b64234): hooks.server.ts 703 and 945 flip, every other DA is the plain sum", () => {
+    const read = (f: string) => readFileSync(join(FIXTURE_DIR, f), "utf8");
+    const { merged, inputs } = mergeLcovFixture(
+      { "cov-shard.lcov": read("cov-shard.lcov.txt"), "product.lcov": read("product.lcov.txt"), "web.lcov": read("web.lcov.txt") },
+      { "web/src/hooks.server.ts": read("hooks.server.ts.src") },
+    );
+    const r = merged.get("web/src/hooks.server.ts")!;
+    const plain = inputs.get("web/src/hooks.server.ts")!;
+    const flipped = [...r.da].filter(([line, hits]) => hits !== plain.da.get(line)).map(([line]) => line);
+    // 703: the loopback `} catch {` (body 706); 945: the rate-limit `} catch {` (body 946). Both bodies ran.
+    expect(flipped).toEqual([703, 945]);
+    for (const [clause, body] of [[703, 706], [945, 946]] as const) {
+      expect(plain.da.get(clause)).toBe(0);
+      expect(r.da.get(body)).toBeGreaterThan(0);
+      expect(r.da.get(clause)).toBe(r.da.get(body));
+    }
   });
 });
 

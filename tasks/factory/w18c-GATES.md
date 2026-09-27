@@ -259,6 +259,130 @@ on main. No test was written for them. The manifest above now makes the runner r
   that one commit (ruling 20:00Z; 19 mapped, listed in the commit message; config hash unchanged). The 19 suites run
   outside the hook in the final measurement slot.
 
+## Tooling fix: merge-lcov credits the clause line of an entered catch (ruling 2026-09-27)
+
+CAUSE. Bun writes `DA:<line>,0` for a bare `} catch {` or `} catch (<identifier>) {` line even when the first line
+of the catch body has hits; V8 writes no DA for the clause line. A catch body cannot run unless its clause was entered,
+so the per-line union read a miss for a clause that ran (web/src/hooks.server.ts 703, the only red gate of the
+dc3b64234 measurement: the patch gate against origin/main).
+
+RULE (scripts/merge-lcov.ts, `enteredCatchClauses`, beside the function-header credit). An emitted DA of 0 on a line
+whose trimmed text is exactly `} catch {` or `} catch (<identifier>) {` takes the hits of the first DA line inside its
+block (before the clause's closing brace) when those are above 0. A catch whose body has 0 keeps 0; a line with any
+other text keeps its value; no DA is created (the V8 producer's absent 703 stays absent). GATE-TOOLING CHANGE,
+disclosed for the PR label decision beside the function-header credit.
+
+TESTS (gate-scripts.test.ts, red first: 3 of 5 failed on the old script). The artefact credited; the `} catch (error) {`
+form; a never-entered catch and a non-catch zero line unchanged; no DA invented; a fixture cut from the real
+hooks.server.ts records of dc3b64234 (cov-shard, product, web; `fixtures/merge-lcov-catch-clauses/`), where exactly 703
+and 945 flip, each to its body's count. 945 is the same artefact (the rate-limit address `} catch {`, body 946 ran).
+
+DIFFERENTIAL (`/tmp/factory-platform-evidence/w18c/catch-clause-diff/`): the 23 saved inputs of the dc3b64234 run
+merged with the old and the new script. This is a tooling differential over a run that is red, not a measurement of
+record. 90 DA records change (my earlier estimate of 94 used a looser pattern and no block check); every one was 0, is
+a bare catch clause, and takes its body's first count; no line set changes; 0 violations.
+  | gate | before, vs a24a619ad | after, vs a24a619ad | before, vs origin/main | after, vs origin/main |
+  |---|---|---|---|---|
+  | global floor | 97.97% | 98.01% | 97.97% | 98.01% |
+  | per-file | pass (2131) | pass (2131) | pass | pass |
+  | new-file | pass | pass | pass (406) | pass (406) |
+  | patch | pass | pass | FAIL hooks.server.ts 703 | pass |
+  | CRAP --changed | pass | pass | pass | pass |
+  Global lines hit rise by 89 for 90 changed records: one changed record is in a file outside the global count.
+  Every changed record (file:line, clause, first body line, its hits):
+  | clause line | text | body line | hits |
+  |---|---|---|---|
+  | docs/extensions/examples/auto-note/lib/vault.ts:102 | `} catch {` | 103 | 3 |
+  | docs/extensions/examples/claude-design/ezcorp.config.ts:15 | `} catch {` | 16 | 3 |
+  | docs/extensions/examples/substack-pilot/lib/substack.ts:229 | `} catch (err) {` | 230 | 15 |
+  | docs/extensions/examples/substack-pilot/lib/substack.ts:330 | `} catch (err) {` | 331 | 6 |
+  | docs/extensions/examples/substack-pilot/lib/substack.ts:341 | `} catch (err) {` | 342 | 6 |
+  | docs/extensions/examples/substack-pilot/lib/substack.ts:402 | `} catch (err) {` | 403 | 6 |
+  | docs/extensions/examples/substack-pipeline/lib/invoke-helpers.ts:69 | `} catch (err) {` | 70 | 2 |
+  | docs/extensions/examples/substack-pipeline/lib/invoke-helpers.ts:79 | `} catch {` | 80 | 2 |
+  | docs/extensions/examples/substack-pipeline/lib/invoke-helpers.ts:111 | `} catch (err) {` | 112 | 2 |
+  | docs/extensions/examples/substack-pipeline/lib/pipeline.ts:121 | `} catch (err) {` | 122 | 2 |
+  | docs/extensions/examples/substack-pipeline/lib/pipeline.ts:138 | `} catch (err) {` | 139 | 2 |
+  | docs/extensions/examples/substack-pipeline/lib/pipeline.ts:160 | `} catch (err) {` | 161 | 4 |
+  | docs/extensions/examples/substack-pipeline/lib/pipeline.ts:180 | `} catch (err) {` | 181 | 2 |
+  | docs/extensions/examples/substack-pipeline/lib/pipeline.ts:190 | `} catch (err) {` | 191 | 2 |
+  | docs/extensions/examples/substack-pipeline/lib/pipeline.ts:212 | `} catch (err) {` | 213 | 4 |
+  | docs/extensions/examples/substack-pipeline/lib/pipeline.ts:234 | `} catch (err) {` | 235 | 2 |
+  | packages/@ezcorp/ai-kit/extension.ts:34 | `} catch (error) {` | 35 | 17 |
+  | packages/@ezcorp/ai-kit/src/cli/doctor.ts:48 | `} catch {` | 50 | 2 |
+  | packages/@ezcorp/ai-kit/test/e2e/_guard.ts:14 | `} catch {` | 15 | 1 |
+  | scripts/browser-coverage-to-lcov.ts:176 | `} catch {` | 177 | 8 |
+  | scripts/browser-coverage-to-lcov.ts:195 | `} catch (error) {` | 196 | 4 |
+  | scripts/lib/shipping-effect-server.ts:89 | `} catch (error) {` | 90 | 3 |
+  | scripts/run-real-e2e.ts:45 | `} catch (error) {` | 46 | 2 |
+  | scripts/visual-evidence/build-manifest.ts:160 | `} catch {` | 161 | 12 |
+  | scripts/visual-evidence/build-manifest.ts:232 | `} catch {` | 233 | 2 |
+  | scripts/visual-evidence/expand-changed-specs.ts:71 | `} catch (err) {` | 73 | 1 |
+  | scripts/visual-evidence/select-specs.ts:177 | `} catch {` | 179 | 3 |
+  | src/__tests__/helpers/factory-key-service-double.ts:73 | `} catch {` | 74 | 6 |
+  | src/chat/attachments/history-rehydrate.ts:126 | `} catch {` | 127 | 41 |
+  | src/db/backup.ts:227 | `} catch {` | 228 | 4 |
+  | src/db/backup.ts:293 | `} catch (err) {` | 294 | 2 |
+  | src/db/backup.ts:354 | `} catch (err) {` | 355 | 2 |
+  | src/db/queries/analytics.ts:169 | `} catch {` | 170 | 2 |
+  | src/db/queries/analytics.ts:189 | `} catch {` | 190 | 2 |
+  | src/db/queries/ez-drafts.ts:291 | `} catch {` | 292 | 2 |
+  | src/db/queries/ez-drafts.ts:305 | `} catch (err) {` | 306 | 2 |
+  | src/extensions/checksum.ts:74 | `} catch {` | 75 | 12 |
+  | src/extensions/ez-code-coder-agent.ts:155 | `} catch (err) {` | 158 | 2 |
+  | src/extensions/fs-handler.ts:176 | `} catch (e) {` | 177 | 6 |
+  | src/extensions/fs-handler.ts:244 | `} catch (e) {` | 245 | 10 |
+  | src/extensions/fs-handler.ts:264 | `} catch (e) {` | 265 | 8 |
+  | src/extensions/fs-handler.ts:334 | `} catch (e) {` | 335 | 1952 |
+  | src/extensions/fs-handler.ts:435 | `} catch {` | 436 | 6 |
+  | src/extensions/fs-handler.ts:447 | `} catch {` | 448 | 6 |
+  | src/extensions/fs-handler.ts:842 | `} catch {` | 843 | 1952 |
+  | src/extensions/lessons-handler.ts:89 | `} catch (err) {` | 90 | 10 |
+  | src/extensions/llm-handler.ts:212 | `} catch (err) {` | 213 | 4 |
+  | src/extensions/llm-quota.ts:143 | `} catch (err) {` | 144 | 12 |
+  | src/extensions/mcp-bridge.ts:158 | `} catch {` | 159 | 2 |
+  | src/extensions/mcp-sandbox.ts:169 | `} catch {` | 170 | 6 |
+  | src/extensions/runtime/sandbox-preload.ts:381 | `} catch {` | 384 | 4 |
+  | src/providers/kilo.ts:288 | `} catch {` | 289 | 1974 |
+  | src/providers/kilo.ts:305 | `} catch {` | 306 | 1974 |
+  | src/runtime/audit/cache.ts:46 | `} catch {` | 47 | 2 |
+  | src/runtime/audit/precheck.ts:115 | `} catch {` | 116 | 4 |
+  | src/runtime/commands/discovery.ts:104 | `} catch {` | 105 | 8 |
+  | src/runtime/commands/discovery.ts:138 | `} catch {` | 139 | 8 |
+  | src/runtime/commands/discovery.ts:146 | `} catch {` | 147 | 8 |
+  | src/runtime/executor-helpers.ts:371 | `} catch (err) {` | 372 | 5 |
+  | src/runtime/fs/scan-fs.ts:89 | `} catch {` | 90 | 8 |
+  | src/runtime/import/skill-runner.template.ts:94 | `} catch {` | 95 | 4 |
+  | src/runtime/loader.ts:31 | `} catch (err) {` | 32 | 42 |
+  | src/runtime/scan/feature-scan.ts:171 | `} catch {` | 172 | 4 |
+  | src/runtime/scan/feature-scan.ts:302 | `} catch {` | 305 | 18 |
+  | src/runtime/stream-chat/auto-spin-up.ts:174 | `} catch (spinErr) {` | 175 | 8 |
+  | src/runtime/stream-chat/finalize.ts:259 | `} catch (err) {` | 260 | 16 |
+  | src/runtime/stream-chat/setup-tools.ts:1871 | `} catch (scratchpadWireErr) {` | 1872 | 80 |
+  | src/runtime/stream-chat/setup-tools.ts:1939 | `} catch (agentWireErr) {` | 1940 | 351 |
+  | src/runtime/yaml-loader.ts:27 | `} catch (err) {` | 28 | 42 |
+  | src/startup/background-timers.ts:292 | `} catch (e) {` | 293 | 2 |
+  | src/startup/background-timers.ts:737 | `} catch (e) {` | 738 | 4 |
+  | src/startup/background-timers.ts:758 | `} catch (e) {` | 759 | 4 |
+  | src/startup/background-timers.ts:766 | `} catch (e) {` | 767 | 4 |
+  | src/startup/background-timers.ts:774 | `} catch (e) {` | 775 | 4 |
+  | src/startup/background-timers.ts:805 | `} catch (e) {` | 806 | 2 |
+  | web/playwright-lane-bun.ts:29 | `} catch {` | 30 | 2 |
+  | web/src/hooks.server.ts:703 | `} catch {` | 706 | 5 |
+  | web/src/hooks.server.ts:945 | `} catch {` | 946 | 9 |
+  | web/src/lib/api.ts:1597 | `} catch {` | 1598 | 9 |
+  | web/src/lib/api.ts:1669 | `} catch {` | 1670 | 9 |
+  | web/src/lib/oauth.ts:136 | `} catch {` | 138 | 2 |
+  | web/src/lib/server/command-resolver.ts:24 | `} catch {` | 25 | 8 |
+  | web/src/routes/(auth)/login/+page.server.ts:34 | `} catch {` | 37 | 12 |
+  | web/src/routes/(auth)/signup/[token]/+page.server.ts:20 | `} catch {` | 21 | 12 |
+  | web/src/routes/api/auth/oauth/+server.ts:117 | `} catch {` | 118 | 6 |
+  | web/src/routes/api/extensions/[name]/data/[...path]/+server.ts:173 | `} catch {` | 174 | 2 |
+  | web/src/routes/api/fs/list/+server.ts:28 | `} catch {` | 29 | 4 |
+  | web/src/routes/api/fs/list/+server.ts:54 | `} catch {` | 55 | 2 |
+  | web/src/routes/api/mentions/search/+server.ts:154 | `} catch {` | 155 | 4 |
+  | web/src/routes/api/tool-invoke/+server.ts:45 | `} catch {` | 46 | 3 |
+
 ## Final measurement at dc3b64234 (2026-09-27, 20:02Z to 23:50Z)
 
 Driver `heavy/final-measure.sh`, three locked parts with a resource gate before each; bun and bunx 1.3.14 asserted.
@@ -282,6 +406,8 @@ Driver `heavy/final-measure.sh`, three locked parts with a resource gate before 
    same build under the Bun guards: 13 passed, exit 0 (the moved authoring spec included). CI does not merge the
    factory-services receipt into coverage, so it is a pass/fail lane here too.
 
+VOID (coordinator ruling): the gates below were taken from the runner's lcov past a red exit; the fail-closed rule
+stands, so this table is not a result. The whole measurement reruns at the final head with the fixed runner.
 Merge by hand with the runner's re-rooting rules (the runner skips its merge on any red, and expects lcov.info in
 each manifest leg while cov-shard, cov-extras and web-security write lcov_*.info): 23 inputs,
 `heavy/final-gates-dc3b64234/` (merged lcov sha256 prefix e6b87c61e1639d0e).
@@ -294,7 +420,7 @@ each manifest leg while cov-shard, cov-extras and web-security write lcov_*.info
   | CRAP --changed | pass | pass (429 files, none above 30) | fail (3 functions over 30; mixed-age inputs) |
 The one red, hooks.server.ts 703, is a `} catch {` line: the Bun producers write DA 703 = 0 while the catch body at
 706 ran (DA 2); the V8 producer writes none. Across the merged lcov, 94 zero-hit bare catch lines have an executed
-first body line (109 more are true misses). A tooling fix like the header rule is proposed to the coordinator.
+first body line (109 more are true misses). The catch-clause credit above was accepted as a tooling correction.
 Lane hygiene found here: f59f330ca, the stack removes the restore request it served.
 Runner tool gaps reported to the coordinator: the zero-count guard's formats and the manifest-leg lcov names.
 
