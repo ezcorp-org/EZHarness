@@ -79,6 +79,22 @@ a provider receipt, named `factory_usage_hold_unresolved: no-operation-receipt` 
   EXPECT: 100 percent of the new migration and every changed line; all exit 0
   EVIDENCE: `receipts/cov-*.json`, `receipts/gate-*.json`, `receipts/static-*.json`
 
+## Why W03f adds no timer (lead ruling), and what bounds a model call today
+
+Checked against the code at this head:
+- The host's guest-broker transport waits at most `FACTORY_GUEST_MODEL_REQUEST_TIMEOUT_MS` (300 s)
+  for the product to answer a model request, then fails the guest's call. That timeout is on the
+  host side only: the product's broker is not told, and it keeps waiting on the provider. The
+  one-hop provider has no deadline of its own.
+- So the journal learns an outcome only from the provider. An answer after the stop is parked for
+  reconciliation (finding (b)). A provider that threw without an answer settles the operation
+  `failed` with no usage.
+- Every hold now names what it waits on: `operation-not-settled` (prepared or dispatched) or
+  `operation-cost-unknown` (failed with no measured usage), each with the operation ids. Before, the
+  second resolved as the unnamed `no-operation-receipt` (red: `receipts/unpriced-red.attempt-1.json`).
+- Open, pending a ruling: a call that never answers, or whose product process dies, leaves a named
+  hold that nothing settles. No code settles such a hold at the reserved bound today.
+
 ## Disclosed
 
 - Credential misdirection (lead ruling, record it): M1 attempt 1's `w14-repro.sh` sourced a file

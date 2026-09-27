@@ -323,6 +323,11 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
     expect(await settlementOf(settlements, attempt)).toBeUndefined();
     // The kernel keeps the node unresolved: this is the hold W19a's missing-model control met.
     expect(await foldedNode(attempt, advanced)).toMatchObject({ unresolved: [(await sealedAuthority(attempt)).nodeInstanceId], attempt: { stopped: true, uncertain: true } });
+    // The hold names the call whose cost nothing measured, never an absent receipt (a provider
+    // that threw without an answer, such as a dropped connection or a transport timeout).
+    const reconciler = new FactoryUsageReconciliation(fixture.db, tenantId, stops, attempt.journal, lifecycle.budgets, settlements);
+    const [operation] = await attempt.journal.operations(await sealedAuthority(attempt));
+    expect(await reconciler.resolve(await heldFor(attempt))).toEqual({ kind: "unknown", reservationId: attempt.reservationId, reason: "operation-cost-unknown", operationIds: [operation!.operationId] });
   });
 
   // W03f finding (b): an operator cancel confirmed while a model call is still in flight. The

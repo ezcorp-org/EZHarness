@@ -162,6 +162,11 @@ export type FactoryUncertainHoldUnknownReason =
   | "no-operation-receipt"
   /** W03f: an operation is still prepared or dispatched; the resolution names each one. */
   | "operation-not-settled"
+  /**
+   * W03f: every operation settled, but a failed one carries no measured usage
+   * (a provider that threw without an answer); the resolution names each one.
+   */
+  | "operation-cost-unknown"
   | "usage-still-unknown";
 
 /**
@@ -512,6 +517,8 @@ export class FactoryUsageReconciliation implements FactoryUsageReconciler {
       // A call still in flight is what the hold waits on, so the answer names it.
       const unsettled = operations.filter(operation => operation.state === "prepared" || operation.state === "dispatched").map(operation => operation.operationId);
       if (unsettled.length > 0) return Object.freeze({ kind: "unknown" as const, reservationId, reason: "operation-not-settled" as const, operationIds: Object.freeze(unsettled) });
+      const unpriced = operations.filter(operation => operation.state === "failed" && (operation.usage as { kind?: unknown } | undefined)?.kind !== "measured").map(operation => operation.operationId);
+      if (unpriced.length > 0) return Object.freeze({ kind: "unknown" as const, reservationId, reason: "operation-cost-unknown" as const, operationIds: Object.freeze(unpriced) });
       return Object.freeze({ kind: "unknown" as const, reservationId, reason: "no-operation-receipt" as const });
     }
     const usage = validateFactoryOperationUsage(candidate.usage);
