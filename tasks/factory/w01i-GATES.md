@@ -100,6 +100,8 @@ The same `entry.tenantId` already keys `guestBrokers`, so both sections name the
 | `2f1f2791e` | the real-lane stack (`web/e2e/factory-services/stack.ts`) writes `peerTenants: { "tenant-a": TENANT }` |
 | `124f7043e` | the runtime's post-result stop names its tenant without a cancel command (the lane-found defect below; hook ran its 3 suites under the lock) |
 | `b0152056b` | merge W01h's fix round `aefcf828f` (a stop sealed first owns the attempt's end; no stop-settlement hot loop), the fix for the loop this lane found; clean; the hook ran its 7 suites green; typecheck, boundaries, and W01i's host-route, supervisor, composition and C05 suites green after it; transport suites under the lock at `4d2b76a84`: guest-broker 13/0, host-launch 6/0, host-stop 2/0, lost-result 4/0 (`logs/remerge2/transport-driver.log`) |
+| `0f82ee10c` | merge W01h fix round 2 `e676e6190` (one lock order for an attempt's stop and launch rows, validator-2's D1 on this lane); tasks/lessons.md union; hook ran attempt-runtime 18/0 and the PostgreSQL lock-order test 1/0 under the lock; typecheck, boundaries, W01i's own and C05 suites, stop-after-loss and the four transport suites green (`logs/remerge3/`) |
+| `9abaab082` | merge W01h `5296c2ef0` (the lock-order test made deterministic and driven through the real settlement, validator-2's two low notes); test-only; clean; hook ran the lock-order test 1/0 |
 
 ## The real lane (the coordinator's condition for the e2e stack)
 
