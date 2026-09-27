@@ -1,0 +1,50 @@
+=== heavy 2026-09-27T16:15:09Z
+HEAD 1a80d39771312f1157837af4cc22c277a18cee9f MERGE_HEAD 5296c2ef0ac6be8de4a66255c758be842d7d9ca6 index-tree 79c770977c8fe9aea07e201bc867bbca27abbd27
+resource-gate 2026-09-27T16:15:09Z pg-factory-task-stops disk=121G memAvailable=17GiB swapFreeKiB=6668040/17173956
+--- START pg-factory-task-stops 2026-09-27T16:15:09Z
+--- END   pg-factory-task-stops 2026-09-27T16:15:22Z exit=0  29 pass 0 fail 
+resource-gate 2026-09-27T16:15:22Z pg-factory-compute-admissions disk=121G memAvailable=17GiB swapFreeKiB=6668196/17173956
+--- START pg-factory-compute-admissions 2026-09-27T16:15:22Z
+--- END   pg-factory-compute-admissions 2026-09-27T16:15:28Z exit=0  2 pass 0 fail 
+resource-gate 2026-09-27T16:15:28Z pg-factory-run-lifecycle disk=121G memAvailable=17GiB swapFreeKiB=6668224/17173956
+--- START pg-factory-run-lifecycle 2026-09-27T16:15:28Z
+--- END   pg-factory-run-lifecycle 2026-09-27T16:16:01Z exit=0  80 pass 0 fail 
+resource-gate 2026-09-27T16:16:01Z pg-factory-executions disk=121G memAvailable=16GiB swapFreeKiB=6668592/17173956
+--- START pg-factory-executions 2026-09-27T16:16:01Z
+--- END   pg-factory-executions 2026-09-27T16:16:06Z exit=0  7 pass 0 fail 
+resource-gate 2026-09-27T16:16:06Z pg-factory-migration-restart disk=121G memAvailable=16GiB swapFreeKiB=6668592/17173956
+--- START pg-factory-migration-restart 2026-09-27T16:16:06Z
+--- END   pg-factory-migration-restart 2026-09-27T16:16:26Z exit=0  18 pass 0 fail 
+resource-gate 2026-09-27T16:16:26Z pg-factory-host-launch disk=121G memAvailable=17GiB swapFreeKiB=6668792/17173956
+--- START pg-factory-host-launch 2026-09-27T16:16:26Z
+--- END   pg-factory-host-launch 2026-09-27T16:16:41Z exit=0  1 pass 0 fail 
+resource-gate 2026-09-27T16:16:41Z pg-factory-stop-lock-order disk=122G memAvailable=17GiB swapFreeKiB=6669060/17173956
+--- START pg-factory-stop-lock-order 2026-09-27T16:16:41Z
+--- END   pg-factory-stop-lock-order 2026-09-27T16:16:48Z exit=0  1 pass 0 fail 
+resource-gate 2026-09-27T16:16:48Z podman-host-launch-e2e.podman.integration disk=122G memAvailable=17GiB swapFreeKiB=6669124/17173956
+--- START podman-host-launch-e2e.podman.integration 2026-09-27T16:16:48Z
+--- END   podman-host-launch-e2e.podman.integration 2026-09-27T16:16:59Z exit=0  1 pass 0 fail 
+resource-gate 2026-09-27T16:16:59Z podman-host-launch-lost-result.podman.integration disk=122G memAvailable=17GiB swapFreeKiB=6669244/17173956
+--- START podman-host-launch-lost-result.podman.integration 2026-09-27T16:16:59Z
+--- END   podman-host-launch-lost-result.podman.integration 2026-09-27T16:17:21Z exit=0  1 pass 0 fail 
+resource-gate 2026-09-27T16:17:21Z remote-attempt-runtime disk=122G memAvailable=17GiB swapFreeKiB=6666800/17173956
+--- START remote-attempt-runtime 2026-09-27T16:17:21Z
+--- END   remote-attempt-runtime 2026-09-27T16:17:41Z exit=0  14 pass 0 fail 
+resource-gate 2026-09-27T16:17:41Z coverage-bun disk=122G memAvailable=16GiB swapFreeKiB=6667608/17173956
+--- START coverage-bun 2026-09-27T16:17:41Z
+--- END   coverage-bun 2026-09-27T16:21:13Z exit=0  580 pass 0 fail 
+resource-gate 2026-09-27T16:21:13Z coverage-node disk=121G memAvailable=17GiB swapFreeKiB=6852736/17173956
+--- START coverage-node 2026-09-27T16:21:13Z
+--- END   coverage-node 2026-09-27T16:23:17Z exit=0 ℹ pass 91 ℹ fail 0 
+resource-gate 2026-09-27T16:23:17Z coverage-merge disk=121G memAvailable=16GiB swapFreeKiB=6852236/17173956
+--- START coverage-merge 2026-09-27T16:23:17Z
+--- END   coverage-merge 2026-09-27T16:23:17Z exit=0 
+resource-gate 2026-09-27T16:23:17Z web-build disk=121G memAvailable=16GiB swapFreeKiB=6852236/17173956
+--- START web-build 2026-09-27T16:23:17Z
+--- END   web-build 2026-09-27T16:23:55Z exit=0 
+resource-gate 2026-09-27T16:23:55Z graph-mock-pass disk=121G memAvailable=16GiB swapFreeKiB=6851284/17173956
+--- START graph-mock-pass 2026-09-27T16:23:55Z
+--- END   graph-mock-pass 2026-09-27T16:24:45Z exit=0 
+no retained database or run in /tmp/factory-platform-evidence/w00/w01h-merge3/graph/w01h-merge3-mock.json; nothing to dump
+mock pass w01h-merge3-mock outcome: passed
+HEAVY DONE status=0 dirty=0 2026-09-27T16:24:45Z
