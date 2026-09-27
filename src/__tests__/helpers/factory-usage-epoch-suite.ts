@@ -278,5 +278,10 @@ export function factoryUsageEpochConformance(createFixture: () => Promise<Factor
     await fixture.db.execute(sql`UPDATE factory_executions SET status = 'running' WHERE attempt_id = ${journaled.sealed.attemptId}`);
     await expect(fixture.db.transaction(transaction => readSupersededOperationsInTransaction(transaction, TENANT, journaled.reservationId))).rejects.toMatchObject({ code: "factory_attempt_not_superseded", reason: "attempt-not-superseded" });
     await fixture.db.execute(sql`UPDATE factory_executions SET status = 'superseded' WHERE attempt_id = ${journaled.sealed.attemptId}`);
+
+    // A record whose epoch is not the superseded execution's own (tampered or corrupt) is not proof either.
+    await fixture.db.execute(sql`UPDATE factory_attempt_supersessions SET superseded_epoch = ${previous - 1} WHERE tenant_id = ${TENANT} AND attempt_id = ${journaled.sealed.attemptId}`);
+    await expect(fixture.db.transaction(transaction => readSupersededOperationsInTransaction(transaction, TENANT, journaled.reservationId))).rejects.toMatchObject({ code: "factory_attempt_not_superseded", reason: "attempt-not-superseded" });
+    await fixture.db.execute(sql`UPDATE factory_attempt_supersessions SET superseded_epoch = ${previous} WHERE tenant_id = ${TENANT} AND attempt_id = ${journaled.sealed.attemptId}`);
   });
 }
