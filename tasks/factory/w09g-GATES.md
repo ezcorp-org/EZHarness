@@ -13,7 +13,9 @@ the factories console and factories routes, route-kit and console-dispatch.
 
 ## The fix and why this one
 
-`initPostgres` takes the class from the runtime: `const SQL = bunSqlClass();`. The new exported resolver
+`initPostgres` takes the class from the runtime, inside the default pool opener: `new (bunSqlClass())(options)`.
+A test's pool override (`openBunSqlPoolOverride`) therefore never needs the Bun runtime (validator-4's note, fixed in
+the third commit rather than commented). The new exported resolver
 `bunSqlClass(runtime = globalThis.Bun)` returns `Bun.SQL`. If the runtime has no `SQL` class, it throws by name:
 "the external PostgreSQL pool needs the Bun runtime (Bun.SQL is unavailable)". `Bun.SQL` is the same class as the
 `SQL` export of "bun" (checked on the pinned Bun 1.3.14: `Bun.SQL === (await import("bun")).SQL` is true).

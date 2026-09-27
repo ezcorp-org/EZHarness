@@ -795,14 +795,15 @@ async function initPostgres(): Promise<void> {
   // The pool sits behind a swap point so a desynchronized driver connection
   // can be discarded without rebuilding every holder of `db` (W09f; see
   // swappable-bun-sql.ts and recoverFromDriverDesync below).
-  const SQL = bunSqlClass();
+  // The class is resolved inside the default opener, so a test's pool override never needs the Bun runtime.
   const poolOptions = { url: DATABASE_URL!, max: poolMax };
-  const openPool = openBunSqlPoolOverride ?? ((options: typeof poolOptions) => new SQL(options) as unknown as BunSqlLike);
+  const openPool =
+    openBunSqlPoolOverride ?? ((options: typeof poolOptions) => new (bunSqlClass())(options) as unknown as BunSqlLike);
   const externalPool = swappableBunSql(() => openPool(poolOptions), {
     drainSeconds: REPLACED_POOL_DRAIN_SECONDS,
     onCloseError: (err) => log.warn("replaced Bun.sql pool did not close cleanly", { error: String(err) }),
   });
-  const db = drizzle({ client: externalPool.client as unknown as InstanceType<typeof SQL>, schema });
+  const db = drizzle({ client: externalPool.client as unknown as InstanceType<typeof Bun.SQL>, schema });
   _externalPool = externalPool;
   _lastDesyncRecoveryMs = 0;
   _pglite = null;
