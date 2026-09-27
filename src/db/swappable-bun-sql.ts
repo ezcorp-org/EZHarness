@@ -14,7 +14,16 @@
  * transaction already running on the old pool holds the old pool's reserved
  * connection and finishes there; the drain timeout bounds how long that is
  * allowed to take.
+ *
+ * The old pool's close is also raced against its own deadline (the drain time
+ * plus `DB_POOL_CLOSE_DEADLINE_MS`). A close that never returns, which Bun
+ * 1.3.14 can do when a queued request was never written, is reported and left
+ * behind. Without that bound the pending close kept `replace()` returning the
+ * same finished-looking promise, so every later replacement was silently
+ * skipped (W16d).
  */
+import { DB_POOL_CLOSE_DEADLINE_MS, withinDeadline } from "../shutdown-deadlines";
+
 export interface BunSqlLike {
   (...args: unknown[]): unknown;
   close(options?: { timeout?: number }): Promise<unknown>;
@@ -34,6 +43,8 @@ export interface SwappableBunSqlOptions {
   readonly drainSeconds: number;
   /** Where a failure to close the old pool is reported; it never fails the replacement. */
   readonly onCloseError: (error: unknown) => void;
+  /** How long the old pool's close may take in all; defaults to the drain time plus `DB_POOL_CLOSE_DEADLINE_MS`. */
+  readonly closeDeadlineMs?: number;
 }
 
 export function swappableBunSql<Client extends BunSqlLike>(open: () => Client, options: SwappableBunSqlOptions): SwappableBunSql<Client> {
@@ -56,8 +67,11 @@ export function swappableBunSql<Client extends BunSqlLike>(open: () => Client, o
     const old = current;
     current = open();
     generation += 1;
-    replacing = old.close({ timeout: options.drainSeconds })
-      .then(() => undefined, (error: unknown) => { options.onCloseError(error); })
+    const deadlineMs = options.closeDeadlineMs ?? options.drainSeconds * 1_000 + DB_POOL_CLOSE_DEADLINE_MS;
+    replacing = withinDeadline(old.close({ timeout: options.drainSeconds }), deadlineMs)
+      .then(({ settled }) => {
+        if (!settled) options.onCloseError(new Error(`the replaced pool did not close within ${deadlineMs} ms; left to the process exit`));
+      }, (error: unknown) => { options.onCloseError(error); })
       .finally(() => { replacing = null; });
     return replacing;
   };

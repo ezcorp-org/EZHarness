@@ -32,6 +32,12 @@ export interface FactoryPhysicalStopExpectation {
   readonly allocationGeneration: number;
   readonly hostId: string;
   readonly reason: FactoryPhysicalStopReason;
+  /**
+   * The guest's tenant, which the host checks against the calling peer (W01i).
+   * A cancelling stop names it in its cancel command instead; the runtime's
+   * post-result stop, which has no cancel command, names it here.
+   */
+  readonly tenantId?: string;
 }
 
 /** One host certificate the product trusts for physical observations. */

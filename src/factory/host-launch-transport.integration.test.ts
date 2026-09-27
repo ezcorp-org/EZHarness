@@ -12,7 +12,7 @@ import { createFactoryHostLaunchSupervisor } from "./runner/host-launch-supervis
 import { FactoryRemoteAttemptRuntime } from "./runner/remote-attempt-runtime";
 import { FactoryDatabaseAttemptLaunchStore, type FactoryAttemptLaunchIntent, type FactoryPhysicalStopReceipt } from "./runner/attempt-runtime";
 import { certificates, type Certificates } from "../__tests__/helpers/factory-certificates";
-import { createFactoryLaunchFixture, factoryLaunchCompletedResult, factoryLaunchLease, factoryLaunchPackage, factoryLaunchRequest, factoryLaunchPool } from "../__tests__/helpers/factory-attempt-launch-fixture";
+import { createFactoryLaunchFixture, factoryLaunchCompletedResult, factoryLaunchLease, factoryLaunchPackage, factoryLaunchRequest, factoryLaunchPool, factoryLaunchPeerTenants } from "../__tests__/helpers/factory-attempt-launch-fixture";
 import { privateHttpsCall } from "../__tests__/helpers/factory-private-https-client";
 
 const directories: string[] = [];
@@ -89,7 +89,7 @@ test("an attempt launches, runs, and settles across a real mutual-TLS host bound
 
   // The supervisor process: a container runner and host identity, nothing else.
   const supervisorA = createFactoryHostLaunchSupervisor({ runner: runnerA, hostId, broker: { invoke: async (_request, input) => { brokerCalls.push(input); return { accepted: true }; } } });
-  const service = startFactoryPrivateHttps({ tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca }, handle: createFactoryHostLaunchRouteHandler({ hostId, allowedPeers: ["tenant-a"], supervisor: supervisorA }) });
+  const service = startFactoryPrivateHttps({ tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca }, handle: createFactoryHostLaunchRouteHandler({ hostId, peerTenants: factoryLaunchPeerTenants(), supervisor: supervisorA }) });
   try {
     const paths = await clientSecrets(root, certs);
     const transport = await createFactoryHostLaunchClient({ baseUrl: service.url, tls: paths, serverName: "localhost", hostId });
@@ -134,7 +134,7 @@ test("a gateway that restarts mid-launch rejoins the running attempt instead of 
   const fixture = await createFactoryLaunchFixture(request);
   const runner = new HostRunner();
   const supervisor = createFactoryHostLaunchSupervisor({ runner, hostId, broker: { invoke: async () => ({ accepted: true }) } });
-  const service = startFactoryPrivateHttps({ tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca }, handle: createFactoryHostLaunchRouteHandler({ hostId, allowedPeers: ["tenant-a"], supervisor }) });
+  const service = startFactoryPrivateHttps({ tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca }, handle: createFactoryHostLaunchRouteHandler({ hostId, peerTenants: factoryLaunchPeerTenants(), supervisor }) });
   try {
     const paths = await clientSecrets(root, certs);
     const transport = await createFactoryHostLaunchClient({ baseUrl: service.url, tls: paths, serverName: "localhost", hostId });
@@ -182,7 +182,7 @@ test("a lost launch response reconnects instead of starting a second guest, and 
   const fixture = await createFactoryLaunchFixture(request);
   const runner = new HostRunner();
   const supervisor = createFactoryHostLaunchSupervisor({ runner, hostId, broker: { invoke: async () => ({ accepted: true }) } });
-  const service = startFactoryPrivateHttps({ tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca }, handle: createFactoryHostLaunchRouteHandler({ hostId, allowedPeers: ["tenant-a"], supervisor }) });
+  const service = startFactoryPrivateHttps({ tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca }, handle: createFactoryHostLaunchRouteHandler({ hostId, peerTenants: factoryLaunchPeerTenants(), supervisor }) });
   try {
     const paths = await clientSecrets(root, certs);
     const real = await createFactoryHostLaunchClient({ baseUrl: service.url, tls: paths, serverName: "localhost", hostId });
@@ -219,7 +219,7 @@ test("a lost launch response reconnects instead of starting a second guest, and 
     // A restarted supervisor remembers nothing and must rebuild the identities
     // from the intent alone, which is why attach carries the whole intent.
     const restarted = createFactoryHostLaunchSupervisor({ runner, hostId, broker: { invoke: async () => ({ accepted: true }) } });
-    const second = startFactoryPrivateHttps({ tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca }, handle: createFactoryHostLaunchRouteHandler({ hostId, allowedPeers: ["tenant-a"], supervisor: restarted }) });
+    const second = startFactoryPrivateHttps({ tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca }, handle: createFactoryHostLaunchRouteHandler({ hostId, peerTenants: factoryLaunchPeerTenants(), supervisor: restarted }) });
     try {
       const client = await createFactoryHostLaunchClient({ baseUrl: second.url, tls: paths, serverName: "localhost", hostId });
       const intent = (await store.claimStart("attempt-lost")).intent;
@@ -292,7 +292,7 @@ test("the host refuses an unauthorized peer, another host's intent, and an inten
   const fixture = await createFactoryLaunchFixture(request);
   const runner = new HostRunner();
   const supervisor = createFactoryHostLaunchSupervisor({ runner, hostId, broker: { invoke: async () => ({ accepted: true }) } });
-  const service = startFactoryPrivateHttps({ tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca }, handle: createFactoryHostLaunchRouteHandler({ hostId, allowedPeers: ["tenant-a"], supervisor }) });
+  const service = startFactoryPrivateHttps({ tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca }, handle: createFactoryHostLaunchRouteHandler({ hostId, peerTenants: factoryLaunchPeerTenants(), supervisor }) });
   try {
     const store = new FactoryDatabaseAttemptLaunchStore(fixture.db);
     const intent = await store.prepare(request, factoryLaunchLease, factoryLaunchPackage(request));

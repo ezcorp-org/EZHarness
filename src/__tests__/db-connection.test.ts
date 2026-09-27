@@ -40,6 +40,19 @@ describe("getDbPath — real module (no DATABASE_URL in this process)", () => {
   });
 });
 
+describe("bunSqlClass — the pool class comes from the runtime, not import(\"bun\") (W09g)", () => {
+  test("under Bun it is the SQL class the \"bun\" module exports", async () => {
+    const { SQL } = await import("bun");
+    expect(conn.bunSqlClass()).toBe(SQL);
+  });
+
+  test("a runtime without a SQL class is refused by name", () => {
+    const refusal = "the external PostgreSQL pool needs the Bun runtime (Bun.SQL is unavailable)";
+    expect(() => conn.bunSqlClass(null)).toThrow(refusal);
+    expect(() => conn.bunSqlClass({ SQL: "not a class" })).toThrow(refusal);
+  });
+});
+
 describe("closeDb — Bun.sql pool drain (external-Postgres branch)", () => {
   test("awaits $client.close() then clears module state", async () => {
     let closed = 0;

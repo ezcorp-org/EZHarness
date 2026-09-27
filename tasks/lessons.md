@@ -1685,6 +1685,19 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 - A skip ruling names one commit. EZ_SKIP_HOOK_TESTS=1 on the a4dc40f3e merge was used under an earlier merge's ruling and needed a retroactive ratification (coordinator, 2026-09-26 00:12Z). Ask the coordinator for the ruling before every skip commit, and name that ruling in the commit message.
 - W19a's `run.sh pass` starts `web/build/index.js` as it finds it; only `run.sh all` builds the web server. A fresh proof tree for a lone pass needs `bun run --cwd web build` first, and the driver must stop if the build is missing. On 2026-09-26 the W01h 70 s pass ran without it: the web process exited at once, the orchestrator got ECONNREFUSED 107 times, and the pass read like a boot stall.
 - Report a job's end to the coordinator within ten minutes, red or green, and read the process logs before naming a cause.
+- Before a shared client reads a new field, list every caller and the exact shape each one passes. W01i's host stop client read `request.cancelReference.tenantId`, but W01h's post-result stop calls the same client through `factoryIntentPhysicalStop` with only the physical coordinates. Every unit and transport suite stayed green; only the real factory-services lane found it (2026-09-27).
 - A lock-order claim needs a concurrent test, not a sequential one. W01h's "the launch row lock orders the lost result against the stop" held in `factory-stop-after-loss.test.ts`, which runs the two transactions one after the other, and deadlocked on the proof server under the lane (validator-2, 2026-09-27). Before adding a second lock to a path, list every path that locks both rows and its order, and drive the interleaving on real PostgreSQL with two connections.
 - Pin `bunx` with `bun`. `/tmp/factory-tools/bun-1.3.14/bun-linux-x64/` holds only `bun`, so `bunx` fell through to the system Bun 1.4.2 and the web build, preview and tests ran under it; the preview server then crashed (ERR_STREAM_WRITE_AFTER_END) in 2 of 4 repeat runs (W09e, 2026-09-27). Put a `bunx` link to the pinned `bun` first on PATH and log `bunx --version` in every driver.
 - A test world that persists a transition must also project it. W09e's R6 case committed a cancel transition and never applied it, and PGlite's "oldest pending run" projection case failed on that run a commit later.
+
+## 2026-09-27 — Build JSON in SQL, and let a filter on it fail open (W15f)
+
+- Write a JSONB value with `jsonb_build_object` from typed parameters, not a JSON text parameter cast to `jsonb`. On
+  real PostgreSQL the text parameter arrived as a JSON string; PGlite stored an object, so only the PostgreSQL leg
+  caught it. Assert `jsonb_typeof(...) = 'object'` in the test.
+- A scan that skips rows by a stored mark must compare with `IS DISTINCT FROM`, so a mark it cannot read keeps the row
+  (and its loud report) rather than hiding it: `NULL <> value` is not true, and the row vanishes in silence.
+- Before relaunching a background job, look at the flock queue itself (`pgrep -af 'flock --close'`), not only a
+  pattern for the script. A job started with `&` in a tool shell survived the shell, my narrower check missed it,
+  and the W15f batch ran twice back to back, holding the shared lock twice for nothing.
+

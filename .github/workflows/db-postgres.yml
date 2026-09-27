@@ -196,6 +196,7 @@ jobs:
           ./tests/postgres/factory-host-launch.test.ts
           ./tests/postgres/factory-execution-gateway.test.ts
           ./tests/postgres/factory-guest-model-journal.test.ts
+          ./tests/postgres/factory-usage-epoch.test.ts
           ./tests/postgres/factory-guest-model-route.test.ts
           ./tests/postgres/factory-service-credentials.test.ts
           ./tests/postgres/factory-grants.test.ts

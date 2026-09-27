@@ -33,6 +33,7 @@ import type { Runner } from "@ezcorp/extension-contract";
 import { startFactoryPrivateHttps, type FactoryPrivateRequest, type FactoryPrivateResponse } from "../private-https";
 import { FACTORY_HOST_ATTACH_PATH, FACTORY_HOST_LAUNCH_PATH, FACTORY_HOST_RESULT_PATH, createFactoryHostLaunchRouteHandler } from "./host-launch-service";
 import { createFactoryHostLaunchSupervisor } from "./host-launch-supervisor";
+import { FactoryHostGuestTenants, type FactoryHostPeerTenants } from "./host-peer-tenants";
 import type { FactoryGuestBroker } from "./guest-model-broker";
 import type { FactorySupervisorPoolClient } from "./supervisor-pool-client";
 import {
@@ -138,8 +139,8 @@ export function factoryHostStopSupervisor(
 
 export interface FactoryHostServiceOptions {
   readonly hostId: string;
-  /** mTLS peer identities allowed to drive or stop attempts on this host. */
-  readonly allowedPeers: readonly string[];
+  /** Each mTLS peer allowed to drive or stop attempts on this host, bound to the one tenant it acts for. */
+  readonly peerTenants: FactoryHostPeerTenants;
   readonly runner: Runner;
   readonly signingKey: FactoryHostSigningKeySource;
   readonly broker?: FactoryGuestBroker;
@@ -173,9 +174,13 @@ export function createFactoryHostServiceRouter(options: FactoryHostServiceOption
   // ran to a result and closed. The launch half is the only thing that knows
   // it, and the stop half is the only thing that needs it.
   const finished = new Set<string>();
+  // And which tenant each guest belongs to: the launch half records it once the
+  // peer's tenant matched the intent's, and the stop half checks a stop against it.
+  const guestTenants = new FactoryHostGuestTenants();
   const launch = createFactoryHostLaunchRouteHandler({
     hostId: options.hostId,
-    allowedPeers: options.allowedPeers,
+    peerTenants: options.peerTenants,
+    guestTenants,
     supervisor: createFactoryHostLaunchSupervisor({
       runner: options.runner,
       hostId: options.hostId,
@@ -189,7 +194,8 @@ export function createFactoryHostServiceRouter(options: FactoryHostServiceOption
   });
   const stop = createFactoryHostStopRouteHandler({
     hostId: options.hostId,
-    allowedPeers: options.allowedPeers,
+    peerTenants: options.peerTenants,
+    guestTenants,
     supervisor: factoryHostStopSupervisor(options.runner, options.now, undefined, (workerId) => finished.has(workerId)),
     signingKey: options.signingKey,
   });

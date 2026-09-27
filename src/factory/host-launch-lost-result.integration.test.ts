@@ -16,7 +16,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Runner, RunnerExecution, RunnerInspection, StartRequest } from "@ezcorp/extension-contract";
 import { certificates, type Certificates } from "../__tests__/helpers/factory-certificates";
-import { createFactoryLaunchFixture, factoryLaunchCompletedResult, factoryLaunchLease, factoryLaunchPackage, factoryLaunchRequest, factoryLaunchPool } from "../__tests__/helpers/factory-attempt-launch-fixture";
+import { createFactoryLaunchFixture, factoryLaunchCompletedResult, factoryLaunchLease, factoryLaunchPackage, factoryLaunchRequest, factoryLaunchPool, factoryLaunchPeerTenants } from "../__tests__/helpers/factory-attempt-launch-fixture";
 import { FactoryExecutionJournal } from "./executions";
 import { createFactoryHostLaunchClient } from "./host-launch-client";
 import { startFactoryPrivateHttps } from "./private-https";
@@ -83,7 +83,7 @@ async function boundary(attemptId: string, runner: Runner, timeouts: { clientMs:
   const productLog: string[] = [];
   const stops: FactoryPhysicalStopReason[] = [];
   let supervisor: FactoryHostLaunchSupervisor = createFactoryHostLaunchSupervisor({ runner, hostId, broker: { invoke: async () => ({}) } });
-  const service = startFactoryPrivateHttps({ tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca }, handle: incoming => createFactoryHostLaunchRouteHandler({ hostId, allowedPeers: ["tenant-a"], supervisor, resultTimeoutMs: timeouts.windowMs, report: (entry) => { hostLog.push(entry); } })(incoming) });
+  const service = startFactoryPrivateHttps({ tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca }, handle: incoming => createFactoryHostLaunchRouteHandler({ hostId, peerTenants: factoryLaunchPeerTenants(), supervisor, resultTimeoutMs: timeouts.windowMs, report: (entry) => { hostLog.push(entry); } })(incoming) });
   const transport = await createFactoryHostLaunchClient({ baseUrl: service.url, tls: await clientSecrets(root, certs), serverName: "localhost", hostId, requestTimeoutMs: timeouts.clientMs });
   const store = new FactoryDatabaseAttemptLaunchStore(fixture.db);
   const runtime = new FactoryRemoteAttemptRuntime({

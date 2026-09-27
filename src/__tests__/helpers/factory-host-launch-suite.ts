@@ -18,7 +18,7 @@ import { FactoryAttemptQueue } from "../../factory/attempt-queue";
 import { FactoryExecutionJournal, type FactoryAttemptAuthority } from "../../factory/executions";
 import type { TrustedFactoryCommandReference, TrustedFactoryServiceIdentity } from "../../factory/trusted-command-gateway";
 import { certificates, type Certificates } from "./factory-certificates";
-import { createFactoryLaunchFixture, factoryLaunchLease, factoryLaunchPackage, factoryLaunchRequest, type FactoryLaunchFixtureSource, factoryLaunchPool } from "./factory-attempt-launch-fixture";
+import { createFactoryLaunchFixture, factoryLaunchLease, factoryLaunchPackage, factoryLaunchRequest, type FactoryLaunchFixtureSource, factoryLaunchPool, factoryLaunchPeerTenants } from "./factory-attempt-launch-fixture";
 import { provision } from "../../../packages/@ezcorp/extension-runner/tests/helpers";
 
 const directories: string[] = [];
@@ -78,7 +78,7 @@ async function hostLaunchWorld(guestBody: string, source?: FactoryLaunchFixtureS
 
     // The supervisor process: the container runner and host identity only.
     const supervisor = createFactoryHostLaunchSupervisor({ runner, hostId, broker: { invoke: async (_request, input) => { brokerCalls.push(input); return { accepted: true }; } } });
-    service = startFactoryPrivateHttps({ tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca }, handle: createFactoryHostLaunchRouteHandler({ hostId, allowedPeers: ["tenant-a"], supervisor, report: (entry) => { hostLog.push(entry); }, ...(timeouts.windowMs === undefined ? {} : { resultTimeoutMs: timeouts.windowMs }) }) });
+    service = startFactoryPrivateHttps({ tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca }, handle: createFactoryHostLaunchRouteHandler({ hostId, peerTenants: factoryLaunchPeerTenants(), supervisor, report: (entry) => { hostLog.push(entry); }, ...(timeouts.windowMs === undefined ? {} : { resultTimeoutMs: timeouts.windowMs }) }) });
     const transport = await createFactoryHostLaunchClient({ baseUrl: service.url, tls: await clientSecrets(secrets, certs), serverName: "localhost", hostId, ...(timeouts.clientMs === undefined ? {} : { requestTimeoutMs: timeouts.clientMs }) });
 
     // The product process: every durable record, and no container.
