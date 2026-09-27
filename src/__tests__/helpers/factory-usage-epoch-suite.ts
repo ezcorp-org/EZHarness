@@ -170,10 +170,11 @@ export function factoryUsageEpochConformance(createFixture: () => Promise<Factor
     const [current] = releaseRows<{ execution_epoch: number | string }>(await fixture.db.execute(sql`SELECT execution_epoch FROM factory_installation WHERE tenant_id = ${TENANT}`));
     const previous = Number(current!.execution_epoch), next = previous + 1;
     const held = await holdIn("superseded", previous);
-    // The dispatch queue row the attempt came from names its interpreter and reservation.
+    // The dispatch queue row the attempt came from names its interpreter and reservation. It is stored as a
+    // JSON string, as a real server holds the queue's reference, so both engines prove the supersession unwraps it.
     const reference = { attemptId: held.sealed.attemptId, reservationId: held.reservationId, command: { tenantId: TENANT, projectId: PROJECT, logicalRunId: held.runId, interpreterId: "superseded-interpreter", commandId: held.sealed.attemptId } };
     await fixture.db.execute(sql`INSERT INTO factory_attempt_queue (tenant_id, project_id, attempt_id, run_id, deduplication_id, input_hash, state, attempts, max_attempts, available_at, lease_until, reference_json)
-      VALUES (${TENANT}, ${PROJECT}, ${held.sealed.attemptId}, ${held.runId}, ${`dedup-${held.sealed.attemptId}`}, ${FACTORY_TEST_DIGEST}, 'delivered', 1, 3, 0, 0, ${JSON.stringify(reference)}::jsonb)`);
+      VALUES (${TENANT}, ${PROJECT}, ${held.sealed.attemptId}, ${held.runId}, ${`dedup-${held.sealed.attemptId}`}, ${FACTORY_TEST_DIGEST}, 'delivered', 1, 3, 0, 0, to_jsonb(${JSON.stringify(reference)}::text))`);
     // A restore opens: the installation moves on, and the hold is marked once.
     await fixture.db.execute(sql`UPDATE factory_installation SET execution_epoch = ${next} WHERE tenant_id = ${TENANT}`);
     const marking: { role: string; error: unknown }[] = [];

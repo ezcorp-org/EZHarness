@@ -53,10 +53,13 @@ export async function supersedeEpochAttemptsInTransaction(
   counter(input.previousEpoch, 1);
   counter(input.atMs);
   if (!Number.isSafeInteger(input.executionEpoch) || input.executionEpoch <= input.previousEpoch || !/^sha256:[0-9a-f]{64}$/.test(input.restoreDigest)) throw new Error("factory_supersession_invalid");
+  // The queue stores its reference as JSONB, which a real server can hold as a
+  // JSON string (the queue unwraps it the same way when it reads it back).
+  const reference = sql`(CASE WHEN jsonb_typeof(queue.reference_json) = 'string' THEN (queue.reference_json #>> '{}')::jsonb ELSE queue.reference_json END)`;
   const live = rows<{ attempt_id: string; project_id: string; run_id: string; node_instance_id: string; candidate_generation: number | string; attempt_number: number | string; reservation_id: string | null; interpreter_id: string | null }>(await transaction.execute(sql`
     SELECT execution.attempt_id, execution.project_id, execution.run_id, execution.node_instance_id, execution.candidate_generation, execution.attempt_number,
-      COALESCE(launch.reservation_id, queue.reference_json->>'reservationId') AS reservation_id,
-      queue.reference_json->'command'->>'interpreterId' AS interpreter_id
+      COALESCE(launch.reservation_id, ${reference}->>'reservationId') AS reservation_id,
+      ${reference}->'command'->>'interpreterId' AS interpreter_id
     FROM factory_executions execution
     LEFT JOIN factory_attempt_queue queue ON queue.tenant_id = execution.tenant_id AND queue.project_id = execution.project_id AND queue.attempt_id = execution.attempt_id
     LEFT JOIN factory_attempt_launches launch ON launch.attempt_id = execution.attempt_id
@@ -71,9 +74,13 @@ export async function supersedeEpochAttemptsInTransaction(
       candidateGeneration: Number(attempt.candidate_generation), attempt: Number(attempt.attempt_number), uncertain: true,
     });
     await transaction.execute(sql`UPDATE factory_executions SET status = 'superseded', updated_at = NOW() WHERE tenant_id = ${input.tenantId} AND attempt_id = ${attempt.attempt_id}`);
+    // The event is built in SQL from typed values: a JSON text parameter can
+    // reach a real server as a JSON string rather than an object.
+    const eventJson = event === null ? sql`NULL` : sql`jsonb_build_object('kind', ${event.kind}::text, 'id', ${event.id}::text, 'atMs', ${event.atMs}::bigint,
+      'nodeId', ${event.nodeId}::text, 'commandId', ${event.commandId}::text, 'candidateGeneration', ${event.candidateGeneration}::bigint, 'attempt', ${event.attempt}::bigint, 'uncertain', true)`;
     await transaction.execute(sql`INSERT INTO factory_attempt_supersessions (tenant_id, project_id, run_id, attempt_id, reservation_id, interpreter_id, superseded_epoch, execution_epoch, restore_id, restore_digest, event_json, superseded_at_ms)
       VALUES (${input.tenantId}, ${attempt.project_id}, ${attempt.run_id}, ${attempt.attempt_id}, ${attempt.reservation_id}, ${attempt.interpreter_id}, ${input.previousEpoch}, ${input.executionEpoch}, ${input.restoreId}, ${input.restoreDigest},
-        ${event === null ? null : JSON.stringify(event)}::jsonb, ${input.atMs})`);
+        ${eventJson}, ${input.atMs})`);
     if (event !== null) await inbox.enqueueInTransaction(transaction, { projectId: attempt.project_id, runId: attempt.run_id, interpreterId: attempt.interpreter_id! }, event);
   }
   return live.length;
