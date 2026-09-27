@@ -5042,12 +5042,15 @@ its reason.
 
 Base `integ/w00` `d2bc674c7`. Gates: `tasks/factory/w03f-GATES.md`. Receipts: `/tmp/factory-platform-evidence/w03f/`.
 
-- [ ] M1: say which path W14's quarantine-under-live-attempt hold takes on this base (W03e no-operations stop, or a W02 dispatch refusal with a held lease), from a run on this base.
-- [ ] SDK: `provider_auth_failed` and `provider_rate_limited` beside `provider_unavailable`; the refused response may carry the settled `operation`; generated schema and Python validator follow.
-- [ ] Provider: an error answer becomes a typed failure carrying the measured usage from the provider's message; an unclassifiable error maps to `provider_unavailable`.
-- [ ] Broker and journal: the failed operation carries the typed code and measured usage; the refusal carries that operation verbatim.
-- [ ] Stop: for a non-completed outcome, settle from the journal. Zero operations keeps W03e's rule; all operations terminal with measured usage settles the measured model usage with compute at the reserved bound and a named basis; anything else keeps the hold.
-- [ ] Migration: widen the settlement source and basis CHECKs; schema test for the widened values; PostgreSQL parity.
-- [ ] Lifecycle cases per error class (unavailable, pin mismatch, auth, rate limit), each with a negative control on today's behaviour; partial consumption settles the measured usage, never zero.
+- [x] M1: say which path W14's quarantine-under-live-attempt hold takes on this base (W03e no-operations stop, or a W02 dispatch refusal with a held lease), from a run on this base.
+- [x] SDK: `provider_auth_failed` and `provider_rate_limited` beside `provider_unavailable`; the refused response may carry the settled `operation`; generated schema and Python validator follow.
+- [x] Provider: an error answer becomes a typed failure carrying the measured usage from the provider's message; an unclassifiable error maps to `provider_unavailable`.
+- [x] Broker and journal: the failed operation carries the typed code and measured usage; the refusal carries that operation verbatim.
+- [x] Stop: for a non-completed outcome, settle from the journal. Zero operations keeps W03e's rule; all operations terminal with measured usage settles the measured model usage with compute at the reserved bound and a named basis; anything else keeps the hold.
+- [x] Migration: widen the settlement source and basis CHECKs; schema test for the widened values; PostgreSQL parity.
+- [x] Lifecycle cases per error class (unavailable, pin mismatch, auth, rate limit), each with a negative control on today's behaviour; partial consumption settles the measured usage, never zero.
 - [ ] Graph proof: the guest mirrors the refusal's operation; `control-missing-model` ends failed; runbook and summary criteria follow; eb7b8b8c5's guest-claimed zero recorded as superseded.
 - [ ] Coverage, boundaries, static checks, gates against `d2bc674c7`; receipts at the M1 standard.
+- [x] Finding (a): the kernel does not retry `provider_auth_failed`; red first (`retry-red.attempt-1`).
+- [x] Finding (b): a hold names its unsettled operations; a late answer after a cancel parks its evidence for reconciliation; red first (`hold-red.attempt-1/2`).
+- [x] Condition: a guest that rebuilds or alters the settled operation is refused by the journal.

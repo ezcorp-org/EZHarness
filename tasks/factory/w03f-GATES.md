@@ -30,23 +30,44 @@ a provider receipt, named `factory_usage_hold_unresolved: no-operation-receipt` 
 - Migration `add-factory-usage-operations` widens the three settlement CHECKs, after the fence and
   regrant migrations, before recovery.
 - Graph proof: both W19a controls end `failed`, settled; `eb7b8b8c5`'s guest-claimed zero is superseded.
+- Kernel (finding (a), lead ruling): a node failed with `provider_auth_failed` is not retried while
+  attempts remain; `provider_rate_limited` and `provider_unavailable` keep the retry and its backoff.
+- Late answers (finding (b), lead ruling): a hold whose operations are still prepared or dispatched
+  names them (`operation-not-settled` with their ids). A provider that answers after the attempt's
+  stop was confirmed parks its receipt and usage on the dispatched operation through
+  `reconcileLate`; reconciliation settles it and W05b clears the kernel. No evidence: the hold stays, named.
+- Closes the W01e/W03 follow-up "settled operation evidence on the model response" (handoff
+  2026-09-24): a provider refusal carries the operation the host settled, and the guest copies it.
 
 ## Gates
 
-- [ ] G1: M1, W14's quarantine-under-live-attempt hold is identified by path on this base.
+- [x] G1: M1, W14's quarantine-under-live-attempt hold is identified by path.
   CHECK: `w14-repro.sh` under the heavy lock (the 12-test lane, then the product database read before the stack stops)
   EXPECT: the quarantined run's stop is `no-operations` settled (W03e path), and web.log names no hold
-  EVIDENCE: `receipts/m1-w14-repro.attempt-*.json`, `logs/m1-w14-repro.attempt-*.log`
+  EVIDENCE: `receipts/m1-w14-repro.attempt-2.json` at `1c8a9a23e`: 12/12; run `b9525101`'s stop `sealed-launch`
+  `stopped`, one settlement `no-operations` with its basis, known 0; every reservation settled; 0 holds.
+  Attempt 1 (log evidence only: 12/12, 0 holds against 158 before W03e) had a void read, below.
 
-- [ ] G2: Lifecycle cases per error class, with the negative control on today's behaviour.
+- [x] G2: Lifecycle cases per error class, with the negative control on today's behaviour.
   CHECK: `bun test ./src/__tests__/factory-task-stops.test.ts`; `negative-control.sh`
-  EXPECT: 34 pass at the head; with only the base `task-stops.ts`, exactly the five W03f expectations fail
-  EVIDENCE: `receipts/negative-control.attempt-1.json`
+  EXPECT: all pass at the head; with only the base `task-stops.ts`, exactly the five W03f expectations fail
+  EVIDENCE: `receipts/negative-control.attempt-1.json` (29/5 base, 34/0 head at `4ba07e94f`)
 
-- [ ] G3: Real PostgreSQL producers and schema parity.
-  CHECK: `tests/postgres/factory-task-stops`, `factory-migration-restart`, `factory-schema`, `factory-guest-model-journal`, `factory-guest-model-route` under the heavy lock
+- [ ] G2b: Findings (a) and (b), red first.
+  CHECK: `retry-red.sh` and `hold-red.sh` before the fix; the kernel and stop suites after; the guest-model-journal unit test
+  EXPECT: red on exactly the new cases (auth retried; hold unnamed, then the late hold refused); green after
+  EVIDENCE: `receipts/retry-red.attempt-1.json`, `logs/retry-red-kernel-recheck.log`, `receipts/hold-red.attempt-{1,2}.json`; PostgreSQL rerun in the next session
+
+- [ ] G2c: A guest that rebuilds or alters the settled failed operation is refused as a journal mismatch.
+  CHECK: the guest-model route suite
+  EXPECT: the pre-W03f rebuild, a lowered usage and a changed receipt each pass result validation and are refused by the journal
+  EVIDENCE: next session's `pg-factory-guest-model-route` and the coverage leg
+
+- [ ] G3: Real PostgreSQL producers and schema parity, and the reference-data guest (two-packer rule).
+  CHECK: `tests/postgres/factory-task-stops`, `factory-migration-restart`, `factory-schema`, `factory-guest-model-journal`, `factory-guest-model-route`, `factory-reference-data`; `reference-data/journey.integration` on Podman; all under the heavy lock
   EXPECT: all pass
-  EVIDENCE: `receipts/pg-*.attempt-*.json`
+  EVIDENCE: `receipts/pg-*.attempt-*.json`, `receipts/reference-journey.attempt-*.json`. At `1c8a9a23e` (before (a) and (b)):
+  task-stops 34/0, migration-restart 19/0, schema 2/0, guest-model-journal 2/0, guest-model-route 17/0 (attempt 1).
 
 - [ ] G4: The graph proof, both controls ending failed.
   CHECK: `run.sh all` under the heavy lock
@@ -60,9 +81,14 @@ a provider receipt, named `factory_usage_hold_unresolved: no-operation-receipt` 
 
 ## Disclosed
 
-- A node with attempts left retries a typed provider refusal, `provider_auth_failed` included: the
-  kernel does not read `retryable`. The graph proof's nodes allow one attempt. Owner: the kernel's.
-- Found by reading, not reproduced: an operator cancel confirmed while a model call is still
-  `dispatched` keeps the hold, and the product broker may settle that operation afterwards;
-  reconciliation settles only `uncertain` operations, so such a hold would not clear. Pre-existing;
-  not changed here.
+- Credential misdirection (lead ruling, record it): M1 attempt 1's `w14-repro.sh` sourced a file
+  that sets `PGPORT` without exporting it, so `psql` presented the proof database's credentials to
+  the other PostgreSQL on 127.0.0.1:5432 (the user's application container). It stayed on this
+  host and failed authentication. The script now exports `PGPORT` and, before any password is
+  presented, checks that it equals the proof container's published port; otherwise it exits.
+- The graph-proof leg of the first session failed at the guest build (TS2307 on
+  `console-types.ts`), a regression from the W14 merge in `guest-package.ts`, not W03f. It reruns
+  once W14b lands.
+- Retry rule scope: only `provider_auth_failed` is non-retryable, as ruled. `model_pin_mismatch` is
+  refused before any claim and fails the same way on a retry too; the graph proof's nodes allow one
+  attempt, so it is unchanged here.
