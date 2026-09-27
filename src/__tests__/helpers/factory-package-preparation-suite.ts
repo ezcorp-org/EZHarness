@@ -17,7 +17,9 @@ export interface FactoryPackagePreparationFixture { readonly db: TransactionalDb
 const tenantId = "package-tenant";
 const projectId = "package-project";
 const admin: FactoryPrincipal = { kind: "user", id: "package-admin", authentication: "session" };
-const reference: RunnerReference = { package: "@ezcorp/package-runner", manifestName: "package-runner", version: "1.0.0", digest: `sha256:${"a".repeat(64)}`, export: "echo" };
+/** Shared with suites that bind a real installed release (the console package journey). */
+export const factoryPackageTestReference: RunnerReference = { package: "@ezcorp/package-runner", manifestName: "package-runner", version: "1.0.0", digest: `sha256:${"a".repeat(64)}`, export: "echo" };
+const reference = factoryPackageTestReference;
 const secondReference: RunnerReference = { ...reference, model: "model-b", configurationDigest: `sha256:${"c".repeat(64)}` };
 const limits: ResourceLimits = { memoryBytes: 64 * 1024 * 1024, cpuMillis: 1000, pids: 16, tmpBytes: 1024 * 1024, outputBytes: 1024 * 1024, timeoutMs: 10_000 };
 

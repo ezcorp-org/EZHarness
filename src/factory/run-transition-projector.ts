@@ -6,7 +6,9 @@ import { assertFactoryIdentity, FactoryRecords, type FactoryAuditBatch, type Fac
 import type { FactoryRunLifecycle, FactoryRunProjectionState } from "./run-lifecycle";
 import type { FactoryTransitionArtifacts } from "./transition-artifacts";
 
-const CONSUMER_ID = "factory-run-status.v1";
+/** The status projection's consumer. Its cursor is the snapshot sequence the console streams from. */
+export const FACTORY_RUN_STATUS_CONSUMER_ID = "factory-run-status.v1";
+const CONSUMER_ID = FACTORY_RUN_STATUS_CONSUMER_ID;
 const ROOT_INTERPRETER_ID = "root";
 
 export interface FactoryRunProjectionProgress {

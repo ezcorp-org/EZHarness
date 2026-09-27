@@ -1446,6 +1446,12 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
   good one.
 - Bun's isolated store keeps a STALE version after a lockfile change, and an incremental `bun install --frozen-lockfile` does not remove it. After merging main's dependency bump my worktree held `zod@4.5.2` next to `zod@4.5.4`, and 25 typecheck errors appeared in a package I had never touched. I proved the SOURCE trees were byte-identical against staging and reported the red as inherited — which was wrong, because a tree diff says nothing about the installed graph. Staging, reinstalled clean, was green at the same merge base with the same SDK. After merging a dependency bump: `rm -rf node_modules web/node_modules`, reinstall both, rebuild the workspace packages, THEN judge a red.
 - Attributing a failure away from yourself needs a stronger proof than attributing one to yourself. "The files are identical" is evidence about one input; a build has several. Before telling someone a red is theirs, reproduce it somewhere they control, or rule out every input you own.
+- A Svelte `<script module>` export is invisible to plain `tsc`. svelte-check and Vitest both passed while `bash scripts/typecheck.sh` failed on the component tests that imported those helpers. Put a pure helper in a `.ts` module next to the component, and run the full typecheck script, not only svelte-check, before a commit.
+- Register an `@evidence` spec in `web/e2e/evidence-covers.json` in the same commit that adds the tag. The visual-evidence meta test fails on any unmapped tagged spec, and I only found the gap in a later sweep.
+- The Temporal Java test server cannot report task-queue pollers, so the factory orchestrator's readiness never opens against it (an orchestrator test asserts exactly this). A service-backed stack needs the Temporal CLI dev server. Probe what the real consumer calls before trusting that a pinned binary "is Temporal".
+- `getByRole("button", { name: "Start run" })` in Playwright is a case-insensitive substring match, so it also matched "Close start run". Use `exact: true` for any button label that another label contains.
+- Queue at most one job on the shared heavy lock. I queued mutation and the journeys together; I had to stop one. Chain the heavy work into one script instead.
+- zsh does not word-split an unquoted `$var`, and `pkill -f <pattern>` kills the calling shell when the pattern is in its own command line. Use `bash -c` for arrays, and stop a server by its port.
 
 ## 2026-09-22 — W01g round 2
 - Check the merge base yourself before you trust a stated one. The handoff said `integ/w00` was merged at the W09b merge; `git merge-base HEAD integ/w00` showed an older commit, and the file the whole round depended on was absent.
@@ -1529,6 +1535,23 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 - A behaviour-free split can still be proved by more than the existing tests. Run the old function and the new one
   side by side on generated inputs, and compare exact outputs, including error lists. That is cheap, and it found
   nothing to fix here, which is the point.
+- Replacing a suffix-based error mapping with explicit code lists silently drops any code built outside a literal `new XError("code")`. My search for thrown codes missed `unavailable()`, a helper in another file, and a real journey caught the 500. Before removing a pattern rule, list every code the class can carry, including helper-built ones, or keep a test per code the old rule matched.
+- Never edit a shell script while a job is executing it. Bash reads a running script incrementally, so shifted bytes can make it re-run or skip steps. Write the new version to a new file.
+
+## 2026-09-22 — W18b pool fixes
+
+- A failure label copied from a test name is a hypothesis, not a cause. W15 recorded the launcher failure as a Unix socket path limit because the test is named for it; the real error was a `TimeoutError` from a one-second readiness probe. Run the failing file under the pool's concurrency (six copies at once reproduced it 1 in 24) and read the error before naming a cause.
+- A "hard expiry" date in code is a scheduled behaviour change with no deploy. Once the date passes, retire the dead branch rather than keep a clock comparison that only looks alive. Source-regex gates that match indentation broke silently on a refactor; pin the behaviour on the real handler instead.
+- A project-root walk must accept only a real repository marker. `existsSync(".git")` also matched a stray empty `/tmp/.git`, which git itself rejects. Ask "what does git say?" and plant the stray marker inside the test's own tree so the case holds whatever the host's /tmp contains.
+- A git hook exports `GIT_DIR` and `GIT_INDEX_FILE`. Any `git` a test or tool spawns from inside a hook acts on the hook's repository, so `rev-parse` reports "inside a repository" everywhere and `git init <dir>` targets the wrong place. Drop the caller's `GIT_*` variables when git must discover from a directory.
+
+## 2026-09-23 — W14 round 2
+
+- A receipt proves a head only if nothing changed the tree while it ran. Commit every fix before queueing the heavy job, and draft documents outside the worktree until the job ends; an edit during the run mixes two heads in one receipt.
+- `waitForLoadState("networkidle")` never settles on a page that holds a live stream (SSE). Bound every idle wait in a shared capture helper; a journey that watches a waiting run otherwise spends its whole timeout before the screenshot.
+- Check `scripts/coverage-config.ts` before adding a test for an uncovered Svelte line. A browser-canonical source takes coverage only from browser journeys, so a component test that already exercises the line does not count.
+- In a serial Playwright file one failure skips every later journey. Read "did not run" as untested, not as passed, and rerun the whole file after the fix.
+
 - Verify live state before you answer a factual question about it. When the user asked which model the subagents run on, the first answer came from the spawn parameter, not from evidence. Ask the agents (or read the source) first, then answer with the evidence named.
 - An outer `timeout` around a command that waits for a lock counts the wait. The first W18a-2 combined run waited about 1.6 hours for the heavy lock inside `timeout 9000` and was killed (exit 124) in its node leg. Put the timeout inside the lock (`flock ... timeout N cmd`), or rely on the runner's own per-leg bound.
 - Never pipe a command that must run to completion into a reader that can close early (head, a limited grep). A closed pipe kills git commit with SIGPIPE and nothing is committed. Write to a file, then summarize from the file.
@@ -1602,6 +1625,40 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 - A temporary worktree for a producer run needs a real `bun install --frozen-lockfile` at the root and in web/; symlinking node_modules misses the workspace packages' own node_modules (integrator, W18a-3 merge, 2026-09-25: six producers failed on "cannot find zod / @temporalio").
 - The backend pool (`bash scripts/test.sh`) runs WITHOUT DATABASE_URL and FACTORY_TEST_POSTGRES_URL; exporting them fails the db-connection and EZCORP_DB_PATH tests (integrator, W18a-3 merge, 2026-09-25).
 - A background job's completion notification can be missed; set a timed check on its exit file instead of waiting (integrator, W18a-3 merge, 2026-09-25: a finished rerun sat unread for hours).
+
+## 2026-09-23 — W03e usage settlement for stops with no operations
+
+- A proof check must encode the product's rule, including its conditions. The kernel needs an explicit `uncertain: false` only after an earlier uncertain stop event; my first harness demanded it always, and one real pass failed a correct run. Derive the expected event from the observed history, then rerun the passes rather than re-scoring a recorded one.
+- Read the consumer before emitting an event. The kernel ignores a certain `attempt-stopped` for an attempt it already holds as uncertain unless the event says `uncertain: false`, so a late stop receipt had never cleared anything, in the measured path too. The real stop went through `stop-uncertain` first on the base run, which is exactly the case that stayed stuck.
+- PostgreSQL returns BIGINT as a string and PGlite as a number. Normalize numeric columns in shared conformance suites, or the PostgreSQL leg fails a correct change.
+- In zsh an unquoted `$files` does not word-split; a loop over it runs once with the whole list. Use `${=files}` or a bash script.
+- The pre-commit hook runs real-PostgreSQL suites for staged test helpers; those belong under the heavy lock, so a scratch proof commit skips only the hook's test step and says so.
+
+## 2026-09-24 — W05b reconciliation clearing
+
+- A proof check must describe the promise, not the path I expected. The check "one `:usage-resolved` event" failed two of three passes in which the run ended correctly, because the real server took the reverse order: the stop confirmed after reconciliation and cleared the attempt through its own event. Count the outcome the kernel sees (one `uncertain: false` after the uncertain stop), not the id of the path.
+- When a worktree's git suddenly says "must be run in a work tree", read the shared config. With `extensions.worktreeConfig` on, a shared `core.bare = true` makes every worktree without its own `core.bare = false` stop being a work tree, and tests that shell out to `git grep` or `git check-ignore` fail at any commit. Set it per worktree (`git config --worktree core.bare false`); never edit the shared config.
+
+## 2026-09-25 — Search for a prior decision before building a destructive tool (W15d)
+
+- Before writing a delete or prune tool, search the repository for an existing one and its history. I
+  drafted a prefix-and-age prune for the shared store, then found `scripts/prune-factory-storage-manifest.ts`
+  and `tasks/factory/w07-GATES.md`: a window deleter had removed another package's evidence, and the
+  project replaced it with a manifest-only tool. A run may delete only what it wrote, under its own
+  unique prefix; anything older needs a reviewed manifest.
+- Never raise `EZ_PRECOMMIT_TEST_MAX`, even to run more suites. A staged suite that spawns git inherits
+  the hook's `GIT_DIR`, which re-initialised the shared repository twice. Above the cap, ask the
+  coordinator for the skip ruling and run the listed suites yourself with `GIT_DIR`, `GIT_INDEX_FILE`,
+  and `GIT_WORK_TREE` cleared.
+- A resource ceiling must keep the host above its disk floor at recreate time, counting what is already
+  stored. Measure free space against the full ceiling, not the growth you expect.
+- A kernel OOM record names its constraint. `CONSTRAINT_MEMCG` is the container limit; `CONSTRAINT_NONE`
+  with `global_oom` is the host. Read it before raising a container limit.
+
+
+## 2026-09-25 — A fail-closed gate that has never passed is untested (W15e)
+
+- Run each gate green by hand once before the real run of a destructive tool. The first approved W15e prune stopped at its own SHA256SUMS gate, because the sums listed `manifests/<name>` while the gate checked from inside `manifests/`, so it could never pass. It failed closed and nothing was deleted, but the approved run was lost and the script had to change after approval. Before queueing, pass each gate by hand: the checksum check, the memory gate, one dry run of the destructive tool (it must report deleted 0 and applied false), and the census code on existing data.
 
 ## 2026-09-26 — No bypass and no heavy run without the lock and a ruling (W18c)
 

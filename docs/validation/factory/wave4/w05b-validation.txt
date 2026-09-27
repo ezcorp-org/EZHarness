@@ -1,0 +1,13 @@
+2026-09-25 ~02:00Z validator-4 on W05b e8ee2f8f2 (wp/w05b-reconcile-clear): ACCEPT for the W05b legs. Merges after W03e (stacked on c6dbc321c).
+Proof merge a2a88104612e819f74d2ab103d73b74251b12bfc = ref proof/w05b-integ-2b2e12550
+  (parents: W03e proof merge 6943985ff = proof/w03e-integ-2b2e12550 = integ/w00 2b2e12550 + W03e c6dbc321c; and e8ee2f8f2). No conflicts.
+Every leg at a2a881046, clean tree at start (receipts record commit, exit code, log sha256, dirty-at-start; no environment):
+  focused coverage (task-stops, usage-settlement, guest-model-journal integration, factory-sdk kernel, dispatch-composition) 105/0, exit 0
+  PostgreSQL (task-stops, guest-model-journal, budgets, assurance) with coverage 61/0, exit 0
+  merge-lcov 671 files; new-file gate PASSED (no new source files); patch gate PASSED (2 files, all changed lines covered); BASE_REF=6943985ff
+  boundary suites (src/__tests__/factory-process-boundaries.test.ts + scripts/check-factory-boundaries.test.ts) 46/0
+  check-factory-boundaries, gate-integrity, typecheck, lint: exit 0
+Worker coverage receipts /tmp/factory-platform-evidence/w05b/delta/receipts/coverage-*.json (5): all name e8ee2f8f2, exit 0, clean tree, log sha256 match.
+Receipts: /tmp/factory-platform-evidence/w05b-validation/legs-validator-4/receipts/{coverage,static}/*.json
+Heavy holds: coverage leg under flock --close /tmp/ezcorp-validation-heavy.lock, df before 123 GB.
+Findings: none.

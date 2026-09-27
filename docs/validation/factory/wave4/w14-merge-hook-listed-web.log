@@ -1,0 +1,13 @@
+
+ RUN  v5.0.0 /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/web
+
+
+ Test Files  23 passed (23)
+      Tests  230 passed (230)
+   Start at  03:00:48
+   Duration  11.55s (transform 74%, environment 11%, import 8%, tests 4%, setup 3%)
+
+  Transform  transforming modules took 90.76s · 74% of tracked time, re-done on every run
+             persist transforms across runs with fsModuleCache: true
+             learn more: https://vitest.dev/guide/improving-performance#caching-between-reruns
+

@@ -1,0 +1,6 @@
+[journeys] 2026-09-27T06:34:24Z building web at a80a4f9b5de0e037d2739d4d0c42dd595dbf57b0 dirty=0
+[journeys] the stack did not hold
+[factory-services] the stack failed: the pool or the supervisor did not publish ready
+[factory-services] stopping: failure
+[factory-services] kept product database factory_services_product_1790490902705_5ab6bc for diagnosis
+[factory-services] removed 0 published object version(s) under this run's release prefix

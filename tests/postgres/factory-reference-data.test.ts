@@ -15,7 +15,8 @@ import { setupFactoryPostgres } from "./helpers/factory-test-database";
 factoryReferenceDataConformance(async () => {
   const database = await setupFactoryPostgres();
   const label = randomUUID();
-  const ordinary = await createFactoryOrdinaryStorage(`ordinary/reference-data/${label}`);
+  const published = `ordinary/reference-data-published/${label}`;
+  const ordinary = await createFactoryOrdinaryStorage(`ordinary/reference-data/${label}`, "tenant-01", [published]);
   return {
     db: database.db,
     blobs: ordinary.blobs,
@@ -23,13 +24,12 @@ factoryReferenceDataConformance(async () => {
       client: ordinary.client as unknown as S3ClientLike,
       endpoint: factoryStorageEndpoint("ordinary"),
       bucket: ordinary.bucket,
-      prefix: `ordinary/reference-data-published/${label}`,
+      prefix: published,
       credentials: await factoryStorageCredentials("ordinary"),
     },
     large: true,
     async close() {
-      ordinary.close();
-      await database.close();
+      try { await ordinary.close(); } finally { await database.close(); }
     },
   };
 });

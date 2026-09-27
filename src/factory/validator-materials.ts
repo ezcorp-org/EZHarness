@@ -214,6 +214,42 @@ function strictClaimOutcome(content: Uint8Array, validatorId: string): FactoryVa
 }
 
 /** Concrete C04 gateway. It records only compiled material and verified host facts. */
+function materialFromRow(projectId: string, row: MaterialRow): MaterialSnapshot {
+  try {
+    const base = { projectId, factoryId: row.factory_id, factoryVersion: row.factory_version, definitionDigest: row.definition_digest, contractId: row.contract_id, contractVersion: row.contract_version, contractDigest: row.contract_digest, validatorLockDigest: row.validator_lock_digest, mandatoryClaims: parse<FactoryMandatoryClaim[]>(row.mandatory_claims), claimGroups: parse<FactoryClaimGroup[]>(row.claim_groups), validators: parse<ValidatorManifestEntry[]>(row.validators_json) };
+    [base.definitionDigest, base.contractDigest, base.validatorLockDigest, row.material_digest].forEach(digest);
+    text(base.factoryId, base.factoryVersion, base.contractId, base.contractVersion);
+    if (!base.validators.length || base.validators.some(item => item.validatorId.length < 1 || item.runnerDigest !== hash(item.runner) || validateRuntime({ runner: item.runner, resources: item.resources, ...(item.model ? { model: item.model } : {}), brokerAudience: item.brokerAudience, environmentDigest: item.environmentDigest, configurationDigest: item.configurationDigest, maxEvidenceAgeMs: item.maxEvidenceAgeMs }).maxEvidenceAgeMs !== item.maxEvidenceAgeMs) || row.material_digest !== hash(materialFields(base))) throw new Error("invalid");
+    return { ...base, materialDigest: row.material_digest };
+  } catch (error) { if (error instanceof FactoryTrustedValidatorError && error.code === "factory_validator_scope") throw error; throw new FactoryTrustedValidatorError("factory_validator_material_corrupt"); }
+}
+
+function publicMaterial(material: MaterialSnapshot): FactoryValidatorMaterial {
+  const { validators: _validators, materialDigest: _materialDigest, ...value } = material;
+  return snapshot(value);
+}
+
+/** Which registered material to read: a published version's, or the one a validator lock names. */
+export type FactoryValidatorMaterialSelector = { readonly factoryId: string; readonly factoryVersion: string } | { readonly validatorLockDigest: string };
+
+async function readMaterialSnapshot(transaction: MigrationDb, tenantId: string, projectId: string, selector: FactoryValidatorMaterialSelector): Promise<MaterialSnapshot> {
+  const where = "validatorLockDigest" in selector
+    ? sql`validator_lock_digest=${selector.validatorLockDigest}`
+    : sql`factory_id=${selector.factoryId} AND factory_version=${selector.factoryVersion}`;
+  const row = rows<MaterialRow>(await transaction.execute(sql`SELECT factory_id,factory_version,definition_digest,contract_id,contract_version,contract_digest,validator_lock_digest,mandatory_claims,claim_groups,validators_json,material_digest FROM factory_validator_materials WHERE tenant_id=${tenantId} AND project_id=${projectId} AND ${where} FOR SHARE`))[0];
+  if (!row) throw new FactoryTrustedValidatorError("factory_validator_material_missing");
+  return materialFromRow(projectId, row);
+}
+
+/**
+ * The registered material a published version or a validator lock names, as a
+ * contract approval sees it: the contract and its claims, never the validator
+ * runtimes. The caller authorizes the read first.
+ */
+export async function readFactoryValidatorMaterialInTransaction(transaction: MigrationDb, tenantId: string, projectId: string, selector: FactoryValidatorMaterialSelector): Promise<FactoryValidatorMaterial> {
+  return publicMaterial(await readMaterialSnapshot(transaction, tenantId, projectId, selector));
+}
+
 export class FactoryTrustedValidators implements FactoryTrustedValidatorGateway, FactoryCurrentCandidateResolver {
   private readonly runtimes = new Map<string, FactoryTrustedValidatorRuntime>();
 
@@ -265,15 +301,15 @@ export class FactoryTrustedValidators implements FactoryTrustedValidatorGateway,
     const materialBase = { projectId, factoryId: compiled.definition.id, factoryVersion: compiled.definition.version, definitionDigest: compiled.digest, contractId: acceptance.id, contractVersion: acceptance.version, contractDigest, validatorLockDigest: hash(lock), mandatoryClaims, claimGroups, validators };
     const material: MaterialSnapshot = { ...materialBase, materialDigest: hash(materialFields(materialBase)) };
     await transaction.execute(sql`INSERT INTO factory_validator_materials (tenant_id,project_id,factory_id,factory_version,definition_digest,contract_id,contract_version,contract_digest,validator_lock_digest,mandatory_claims,claim_groups,validators_json,material_digest) VALUES (${this.tenantId},${projectId},${material.factoryId},${material.factoryVersion},${material.definitionDigest},${material.contractId},${material.contractVersion},${material.contractDigest},${material.validatorLockDigest},${canonicalJson(material.mandatoryClaims)},${canonicalJson(material.claimGroups)},${canonicalJson(material.validators)},${material.materialDigest}) ON CONFLICT DO NOTHING`);
-    const stored = await this.materialForVersion(transaction, projectId, material.factoryId, material.factoryVersion);
+    const stored = await readMaterialSnapshot(transaction, this.tenantId, projectId, { factoryId: material.factoryId, factoryVersion: material.factoryVersion });
     if (!same(stored, material)) throw new FactoryTrustedValidatorError("factory_validator_material_conflict");
-    return this.publicMaterial(stored);
+    return publicMaterial(stored);
   }
 
   async assertContractInTransaction(transaction: MigrationDb, tenantId: string, contract: FactoryContractRevision): Promise<void> {
     contract = snapshot(contract);
     if (tenantId !== this.tenantId) throw new FactoryTrustedValidatorError("factory_validator_scope");
-    const stored = await this.materialForLock(transaction, contract.projectId, contract.validatorLockDigest);
+    const stored = await readMaterialSnapshot(transaction, this.tenantId, contract.projectId, { validatorLockDigest: contract.validatorLockDigest });
     this.assertConfiguredMaterial(stored);
     if (stored.contractId !== contract.contractId || stored.contractDigest !== contract.contractDigest || !same(stored.mandatoryClaims, contract.mandatoryClaims) || !same(stored.claimGroups, contract.claimGroups)) throw new FactoryTrustedValidatorError("factory_validator_contract_untrusted");
   }
@@ -297,7 +333,7 @@ export class FactoryTrustedValidators implements FactoryTrustedValidatorGateway,
     const plan = await this.lifecycle.readExecutionPlanInTransaction(transaction, request.candidate);
     const candidate = await this.releaseAuthority.lockValidationCandidateInTransaction(transaction, this.tenantId, request.candidate);
     if (plan.compiled.digest !== candidate.definitionDigest || plan.fence.executionEpoch !== candidate.executionEpoch || plan.fence.cancellationEpoch !== candidate.cancellationEpoch) throw new FactoryTrustedValidatorError("factory_validator_candidate_stale");
-    const material = await this.materialForVersion(transaction, request.candidate.projectId, plan.compiled.definition.id, plan.compiled.definition.version);
+    const material = await readMaterialSnapshot(transaction, this.tenantId, request.candidate.projectId, { factoryId: plan.compiled.definition.id, factoryVersion: plan.compiled.definition.version });
     this.assertConfiguredMaterial(material);
     const validators = request.validatorIds.map(validatorId => material.validators.find(item => item.validatorId === validatorId));
     if (validators.some(item => !item) || material.definitionDigest !== candidate.definitionDigest || material.validatorLockDigest !== candidate.validatorLockDigest) throw new FactoryTrustedValidatorError("factory_validator_material_stale");
@@ -335,7 +371,7 @@ export class FactoryTrustedValidators implements FactoryTrustedValidatorGateway,
     const plan = await this.lifecycle.readExecutionPlanInTransaction(transaction, key);
     const candidate = await this.releaseAuthority.lockValidationCandidateInTransaction(transaction, this.tenantId, key);
     if (plan.compiled.digest !== candidate.definitionDigest || plan.fence.executionEpoch !== candidate.executionEpoch || plan.fence.cancellationEpoch !== candidate.cancellationEpoch) throw new FactoryTrustedValidatorError("factory_validator_candidate_stale");
-    const material = await this.materialForVersion(transaction, key.projectId, plan.compiled.definition.id, plan.compiled.definition.version);
+    const material = await readMaterialSnapshot(transaction, this.tenantId, key.projectId, { factoryId: plan.compiled.definition.id, factoryVersion: plan.compiled.definition.version });
     this.assertConfiguredMaterial(material);
     if (material.definitionDigest !== candidate.definitionDigest || material.validatorLockDigest !== candidate.validatorLockDigest) throw new FactoryTrustedValidatorError("factory_validator_material_stale");
     const settled = new Set(rows<{ validator_id: string }>(await transaction.execute(sql`SELECT result.validator_id FROM factory_validator_results result JOIN factory_validator_assignments assignment ON assignment.tenant_id=result.tenant_id AND assignment.project_id=result.project_id AND assignment.validator_attempt_id=result.validator_attempt_id AND assignment.validator_id=result.validator_id WHERE result.tenant_id=${this.tenantId} AND result.project_id=${key.projectId} AND assignment.run_id=${key.runId} AND assignment.candidate_node_instance_id=${key.nodeInstanceId} AND assignment.candidate_generation=${key.candidateGeneration}`)).map(row => row.validator_id));
@@ -499,33 +535,6 @@ export class FactoryTrustedValidators implements FactoryTrustedValidatorGateway,
     const row = rows<AssignmentRow>(await transaction.execute(sql`SELECT project_id,run_id,candidate_node_instance_id,candidate_generation,validator_id,validator_attempt_id,validator_authority_json,definition_digest,validator_lock_digest,candidate_digest,candidate_artifact_id,candidate_artifact_digest,candidate_artifact_bytes,runner_json,runner_digest,environment_digest,configuration_digest,freshness_ms,trust_revision,issuer_grant_revision,assignment_digest FROM factory_validator_assignments WHERE tenant_id=${this.tenantId} AND project_id=${key.projectId} AND run_id=${key.runId} AND candidate_node_instance_id=${key.nodeInstanceId} AND candidate_generation=${key.candidateGeneration} AND validator_id=${validatorId} ${lock}`))[0];
     if (!row) throw new FactoryTrustedValidatorError("factory_validator_assignment_missing");
     return row;
-  }
-
-  private materialFromRow(projectId: string, row: MaterialRow): MaterialSnapshot {
-    try {
-      const base = { projectId, factoryId: row.factory_id, factoryVersion: row.factory_version, definitionDigest: row.definition_digest, contractId: row.contract_id, contractVersion: row.contract_version, contractDigest: row.contract_digest, validatorLockDigest: row.validator_lock_digest, mandatoryClaims: parse<FactoryMandatoryClaim[]>(row.mandatory_claims), claimGroups: parse<FactoryClaimGroup[]>(row.claim_groups), validators: parse<ValidatorManifestEntry[]>(row.validators_json) };
-      [base.definitionDigest, base.contractDigest, base.validatorLockDigest, row.material_digest].forEach(digest);
-      text(base.factoryId, base.factoryVersion, base.contractId, base.contractVersion);
-      if (!base.validators.length || base.validators.some(item => item.validatorId.length < 1 || item.runnerDigest !== hash(item.runner) || validateRuntime({ runner: item.runner, resources: item.resources, ...(item.model ? { model: item.model } : {}), brokerAudience: item.brokerAudience, environmentDigest: item.environmentDigest, configurationDigest: item.configurationDigest, maxEvidenceAgeMs: item.maxEvidenceAgeMs }).maxEvidenceAgeMs !== item.maxEvidenceAgeMs) || row.material_digest !== hash(materialFields(base))) throw new Error("invalid");
-      return { ...base, materialDigest: row.material_digest };
-    } catch (error) { if (error instanceof FactoryTrustedValidatorError && error.code === "factory_validator_scope") throw error; throw new FactoryTrustedValidatorError("factory_validator_material_corrupt"); }
-  }
-
-  private async materialForVersion(transaction: MigrationDb, projectId: string, factoryId: string, factoryVersion: string): Promise<MaterialSnapshot> {
-    const row = rows<MaterialRow>(await transaction.execute(sql`SELECT factory_id,factory_version,definition_digest,contract_id,contract_version,contract_digest,validator_lock_digest,mandatory_claims,claim_groups,validators_json,material_digest FROM factory_validator_materials WHERE tenant_id=${this.tenantId} AND project_id=${projectId} AND factory_id=${factoryId} AND factory_version=${factoryVersion} FOR SHARE`))[0];
-    if (!row) throw new FactoryTrustedValidatorError("factory_validator_material_missing");
-    return this.materialFromRow(projectId, row);
-  }
-
-  private async materialForLock(transaction: MigrationDb, projectId: string, validatorLockDigest: string): Promise<MaterialSnapshot> {
-    const row = rows<MaterialRow>(await transaction.execute(sql`SELECT factory_id,factory_version,definition_digest,contract_id,contract_version,contract_digest,validator_lock_digest,mandatory_claims,claim_groups,validators_json,material_digest FROM factory_validator_materials WHERE tenant_id=${this.tenantId} AND project_id=${projectId} AND validator_lock_digest=${validatorLockDigest} FOR SHARE`))[0];
-    if (!row) throw new FactoryTrustedValidatorError("factory_validator_material_missing");
-    return this.materialFromRow(projectId, row);
-  }
-
-  private publicMaterial(material: MaterialSnapshot): FactoryValidatorMaterial {
-    const { validators: _validators, materialDigest: _materialDigest, ...value } = material;
-    return snapshot(value);
   }
 
   private assertConfiguredMaterial(material: MaterialSnapshot): void {

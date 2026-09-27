@@ -253,18 +253,28 @@ describe("e2e lane manifest", () => {
     expect(job).toContain("browser-v8-factory-services");
   });
 
-  test("factory-services is registered and deliberately unpopulated, and every consumer fails closed on that", async () => {
-    // W14 owns this lane's specs and its Playwright configuration. Recording
-    // the empty state here means populating it is a deliberate edit rather
-    // than something that can drift in unnoticed, and the guards below are
-    // what stop an empty lane from being collected as a pass.
-    expect(lanes["factory-services"]).toEqual([]);
-    expect(() => laneArgs(lanes, "factory-services")).toThrow("lane 'factory-services' is missing/empty in web/e2e/lanes.json");
+  test("factory-services is populated by W14 with its real-application journeys, and every consumer still fails closed on an empty lane", async () => {
+    // W14 populated this lane deliberately: its specs and its Playwright
+    // configuration landed together. The guards below are unchanged and are
+    // what stop an emptied lane from ever being collected as a pass.
+    expect(lanes["factory-services"]).toEqual(["web/e2e/factory-services-console.spec.ts"]);
+    expect(laneArgs(lanes, "factory-services")).toEqual(["e2e/factory-services-console\\.spec\\.ts$"]);
+    expect(() => laneArgs({ ...lanes, "factory-services": [] }, "factory-services")).toThrow("lane 'factory-services' is missing/empty in web/e2e/lanes.json");
+    const config = await Bun.file(join(REPO_ROOT, "web/playwright.factory-services.config.ts")).text();
+    // Every lane member runs through the real stack: no fetch mocks, the real-auth hydration fixture.
+    expect(config).toContain('lanes.lanes["factory-services"]');
+    expect(config).toContain("bun e2e/factory-services/stack.ts");
+    for (const spec of lanes["factory-services"]!) {
+      const source = await Bun.file(join(REPO_ROOT, spec)).text();
+      expect(source).toContain('from "./fixtures/hydration.js"');
+      expect(source).not.toContain("test-base");
+      expect(source).not.toContain("page.route(");
+    }
     const collector = await Bun.file(join(REPO_ROOT, "scripts/collect-browser-route-coverage-lane.sh")).text();
     const block = collector.split("  factory-services)")[1]?.split("\n    ;;")[0] ?? "";
     expect(block).toContain("FACTORY_TEST_POSTGRES_URL:?");
     expect(block).toContain("EZCORP_FACTORY_STORAGE_SECRETS_DIR:?");
-    expect(block).toContain("FACTORY_TEMPORAL_TEST_SERVER:?");
+    expect(block).toContain("FACTORY_TEMPORAL_CLI:?");
     expect(block).toContain("web/playwright.factory-services.config.ts");
     expect(block).toMatch(/\[ "\$\{#args\[@\]\}" -gt 0 \]/);
   });

@@ -17,7 +17,7 @@ async function realFixture(label: string) {
   return {
     db: database.db,
     blobs: storage.blobs,
-    async close() { storage.close(); await database.close(); },
+    async close() { try { await storage.close(); } finally { await database.close(); } },
   };
 }
 

@@ -57,7 +57,16 @@
     "--report-only then hid the exit. The whole vitest suite takes ~12 min in",
     "one process on that runner (3 CI shards x ~4 min), so 30 minutes is 2.5x",
     "that with instrumentation overhead — generous, and still a small slice of",
-    "the nightly's 360-minute budget."
+    "the nightly's 360-minute budget.",
+    "",
+    "PATCHED RUNNER (web/patches/, package.json patchedDependencies): Vitest 5",
+    "matches testNamePattern against the suite chain joined with ' > '; runner",
+    "10.0.0 filters with space-joined names, so every test inside a describe was",
+    "filtered out and covered mutants 'survived' having run zero tests",
+    "(run-format.ts: 97.98% on Vitest 4.1.11, 9.09% on 5.0.0, same tests). The",
+    "patch mirrors the upstream fix (stryker-js issue 6210, PR 6214). Drop it once",
+    "a released runner carries the fix; a version bump that silently drops it is",
+    "caught by scripts/mutation.ts (survivorsWithoutTests fails the run)."
   ],
 
   "packageManager": "npm",

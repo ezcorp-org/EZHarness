@@ -113,6 +113,19 @@ export async function setupTestDb() {
   return { pglite, db };
 }
 
+/**
+ * A second, independent migrated database. `setupTestDb` keeps one shared
+ * instance per process; a test that needs two installations side by side needs
+ * two datadirs, and the caller owns this one's `close()`.
+ */
+export async function setupIsolatedTestDb() {
+  await applyPgliteNulPatches();
+  migratedSnapshot ??= await primeMigratedSnapshot();
+  const isolated = new PGlite({ loadDataDir: migratedSnapshot, extensions: EXTENSIONS });
+  await isolated.waitReady;
+  return { pglite: isolated, db: drizzle(isolated, { schema }) };
+}
+
 export function getTestDb() {
   if (!db) throw new Error("Test DB not initialized — call setupTestDb() first");
   return db;

@@ -276,6 +276,15 @@ export const V8_CANONICAL_SOURCES: readonly string[] = [
   "web/src/lib/factory/download.ts",
   "web/src/lib/factory/layout.ts",
   "web/src/lib/factory/model.ts",
+  "web/src/lib/factory/run-format.ts",
+  "web/src/lib/factory/document-theme.ts",
+  "web/src/lib/factory/run-stream.ts",
+  "web/src/lib/factory/workspace-view.ts",
+  "web/src/lib/factory/preview.ts",
+  "web/src/lib/factory/FactoryWorkspace.svelte",
+  "web/src/lib/factory/FactoryRunInspector.svelte",
+  "web/src/lib/factory/FactoryArtifactPreview.svelte",
+  "web/src/lib/factory/FactoryAdministration.svelte",
   "web/src/routes/(app)/factories/+page.server.ts",
 ];
 

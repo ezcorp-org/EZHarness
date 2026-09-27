@@ -7,6 +7,6 @@ factoryPrivateServiceConformance(async () => {
   const database = await setupFactoryPostgres();
   try {
     const storage = await createFactoryOrdinaryStorage(`ordinary/private-service/${randomUUID()}`);
-    return { db: database.db, blobs: storage.blobs, close: async () => { storage.close(); await database.close(); } };
+    return { db: database.db, blobs: storage.blobs, close: async () => { try { await storage.close(); } finally { await database.close(); } } };
   } catch (error) { await database.close(); throw error; }
 });

@@ -20,13 +20,18 @@
  * Stryker config to ensure its report path cannot diverge from the scripts.
  */
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { mergeMutationReports } from "../../scripts/merge-mutation-reports.ts";
 import {
   deriveStrykerRunConfig,
   filesWithoutCoverage,
   mutationExitCode,
   parseShard,
+  readMutationReport,
   shardOf,
+  survivorsWithoutTests,
 } from "../../scripts/mutation.ts";
 import {
   buildSummary,
@@ -369,6 +374,53 @@ describe("mutationExitCode — --report-only suppresses only the threshold verdi
   test("a non-1 infrastructure exit code is passed through, not normalised", () => {
     expect(mutationExitCode({ status: 127, signal: null }, { reportProduced: false, reportOnly: true }).code).toBe(127);
   });
+
+  test("a survivor no test ran fails even on a clean exit and under --report-only, naming each one", () => {
+    for (const run of [{ status: 0, signal: null }, under]) {
+      for (const reportOnly of [false, true]) {
+        const v = mutationExitCode(run, {
+          reportProduced: true,
+          reportOnly,
+          untestedSurvivors: ["src/lib/factory/run-format.ts:18", "src/lib/factory/model.ts:7"],
+        });
+        expect(v.code).toBe(1);
+        expect(v.reason).toMatch(/^2 mutant\(s\) "survived" without a single test run/);
+        expect(v.reason).toContain("    web/src/lib/factory/run-format.ts:18\n    web/src/lib/factory/model.ts:7\n");
+        expect(v.reason).toMatch(/--report-only does not apply/);
+      }
+    }
+  });
+
+  test("a long list of untested survivors is capped at twenty, with a count of the rest", () => {
+    const many = Array.from({ length: 23 }, (_, i) => `src/lib/a.ts:${i + 1}`);
+    const v = mutationExitCode(under, { reportProduced: true, reportOnly: true, untestedSurvivors: many });
+    expect(v.reason).toContain("    web/src/lib/a.ts:20\n    … and 3 more\n");
+    expect(v.reason).not.toContain("web/src/lib/a.ts:21");
+  });
+
+  test("an empty untested list changes nothing, and a signal still wins", () => {
+    expect(mutationExitCode(under, { reportProduced: true, reportOnly: true, untestedSurvivors: [] }).code).toBe(0);
+    const killed = mutationExitCode(
+      { status: null, signal: "SIGTERM" },
+      { reportProduced: true, reportOnly: true, untestedSurvivors: ["src/lib/a.ts:1"] },
+    );
+    expect(killed.reason).toBe("Stryker was killed by SIGTERM — nothing was measured");
+  });
+});
+
+describe("readMutationReport — what the verdict reads", () => {
+  test("parses the report Stryker wrote, and reads a missing one as empty", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "w18d-mutation-report-"));
+    try {
+      const path = join(dir, "mutation.json");
+      const written: MutationReport = { files: { "src/lib/a.ts": { source: "", mutants: [mutantAt(3, "Survived")] } } };
+      writeFileSync(path, JSON.stringify(written));
+      expect(await readMutationReport(path)).toEqual(written);
+      expect(await readMutationReport(join(dir, "absent.json"))).toEqual({ files: {} });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("mutationTotals — scores the way Stryker does", () => {
@@ -399,6 +451,51 @@ describe("filesWithoutCoverage — the scope-error detector", () => {
     };
     expect(filesWithoutCoverage(report)).toEqual(["src/lib/dead.ts"]);
     expect(filesWithoutCoverage({})).toEqual([]);
+  });
+});
+
+describe("survivorsWithoutTests — a survivor no test ran is a toolchain failure", () => {
+  const ran = (line: number, status: string, testsCompleted?: number) => ({
+    ...mutantAt(line, status),
+    ...(testsCompleted === undefined ? {} : { testsCompleted }),
+  });
+
+  test("names every Survived mutant with testsCompleted 0, as file:line", () => {
+    // The Vitest 5 failure shape: the per-test name filter selected nothing,
+    // so covered mutants "survived" with zero tests (stryker-js issue 6210).
+    const report: MutationReport = {
+      files: {
+        "src/lib/factory/run-format.ts": {
+          source: "",
+          mutants: [ran(18, "Survived", 0), ran(19, "Survived", 0), ran(20, "Killed", 1), ran(21, "Survived", 10)],
+        },
+        "src/lib/factory/model.ts": { source: "", mutants: [ran(7, "Survived", 0)] },
+      },
+    };
+    expect(survivorsWithoutTests(report)).toEqual([
+      "src/lib/factory/run-format.ts:18",
+      "src/lib/factory/run-format.ts:19",
+      "src/lib/factory/model.ts:7",
+    ]);
+  });
+
+  test("a survivor that tests ran is a verdict, and other zero-test statuses are not survivors", () => {
+    const report: MutationReport = {
+      files: {
+        "src/lib/a.ts": {
+          source: "",
+          mutants: [ran(1, "Survived", 3), ran(2, "NoCoverage", 0), ran(3, "Timeout", 0), ran(4, "Killed", 0)],
+        },
+      },
+    };
+    expect(survivorsWithoutTests(report)).toEqual([]);
+  });
+
+  test("a report without testsCompleted (older Stryker) and an empty report flag nothing", () => {
+    expect(survivorsWithoutTests({ files: { "src/lib/a.ts": { source: "", mutants: [ran(1, "Survived")] } } })).toEqual(
+      [],
+    );
+    expect(survivorsWithoutTests({ files: {} })).toEqual([]);
   });
 });
 

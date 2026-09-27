@@ -3545,6 +3545,82 @@ it as an inline UNIQUE, so the database calls it
 `factory_release_operations_tenant_id_project_id_run_id_node_key`. A live probe confirms two unique
 arbiters and only two.
 
+## W14 — Live console, scoped API, and browser journeys (Sol product, branch `wp/w14-console`)
+
+Base `260855e57` (W09b and W13 merged). Evidence: `/tmp/factory-platform-evidence/w14/`. Gate file:
+`tasks/factory/w14-GATES.md`. Files in flight elsewhere are consumed, not edited: `_shared.ts`,
+`private-service.ts`, `task-stops.ts`, `orchestration-process.ts`, `pool/process.ts` (W18a-2);
+`release-declaration.ts` and the profile composition in `installation-startup.ts` (W09c); the guest
+broker, guest SDK, and runner result path (W01g).
+
+- [x] Mutation baseline for `web/src/lib/factory/*` and `web/src/lib/graph/layout.ts`; kill survivors with assertions; record before/after.
+- [x] Run inspection read model: nested runs, attempts, blockers, costs, artifacts, acceptance reasons, releases (new `src/factory/run-inspection.ts`, one scoped read, bounded pages).
+- [x] Snapshot plus contiguous SSE cursor: signed cursor, duplicate/gap handling, 410 on expiry, authority recheck per batch, revocation closes the stream, bounded pages; client state machine with visible lag/disconnect.
+- [x] Package admin routes over W02's `FactoryPackageTrusts`: list, install (bind + publish), quarantine, revoke, affected-run preview; human session plus tenant administrator; audited queued result.
+- [x] Grant administration panel over the existing grant routes (admin scope plus administrator role).
+- [ ] Administrator purge request: human administrator session, preconditions evaluated, audit that will be lost recorded; no destructive action (W19). (Waiting, item 13: the W15 and W16 purge preconditions; the request itself is proven.)
+- [x] Artifact downloads and previews: scoped short-lived ticket, `nosniff` plus attachment, escaped text, no executable SVG/HTML at the origin.
+- [ ] Console UI: run inspector, live stream states, repair/replan, approvals and uncertain release (existing components), packages, grants, purge. (Waiting, items 1 and 2: the approval decision and uncertain release need W09c's web composition, repair and replan need W01g; they are proven in components and the mock tier only.)
+- [x] JSON/YAML/SDK/editor digest parity for every construct; unknown versions read-only and exportable; save/publish race; repeated idempotency keys.
+- [ ] Two installations with overlapping IDs: users, restricted API keys, service principals, expiry, revocation, transactional audit failure; read-sharing grants expose only named bytes. (Waiting, item 9: proven at the service level on two isolated databases only; two HTTP installations need W16.)
+- [x] `factory-services` lane: Playwright config, real-stack boot, specs through the real authenticated application; register lanes, route manifest, evidence surfaces.
+- [x] Inspect real captures at 1440 and 390 pixels, long labels, large maps, light/dark, keyboard-only, reduced motion; fix defects and console errors.
+- [x] Final sweep per common.md plus web check, web Vitest pool, factory Playwright lanes, mutation after; report.
+
+Review (W14): the console is proven through the real authenticated application. The seven
+`factory-services` journeys pass on the real stack at `74ce48d06`: trust grant, bind and trust a
+built guest, publish, a save racing a publish plus idempotency replay, a run started from the
+version list and watched to its terminal status, the scoped API, and a quarantine preview plus
+purge request. Real captures found four defects that mocks had hidden, and all four are fixed:
+a stale "queued" row next to a failed run, a "not yet" acceptance note on a finished run,
+cramped 390 px run cards, and a spaced-out purge count. Mutation on the console library rose
+from 79.74% to 93.30%. The lane needs the Temporal CLI dev server, because the Java test server
+cannot report task-queue pollers; CI now asks for `FACTORY_TEMPORAL_CLI`. Open: package
+preparation has no product route, quarantine fences nothing live (W02), purge preconditions
+exclude W15/W16, and two installations are proven at the service level only. Gate file:
+`tasks/factory/w14-GATES.md`.
+
+Review update (W14, after the coordinator's rulings): the console answers through the shared route
+boundary (W18a-2's route kit plus one additive error-family hook), the raw stream and bytes routes
+are pinned to the principal-and-scope call pair, and W09d's validator-material read and typed
+contract refusal are in. W15 restore signing is deferred until W15 lands; the branch holds no W15
+commits. The real lane passes 7 of 7 at `096fa0944`; mutation is 93.62%; no W14 line is uncovered.
+
+Review update (W14, round 2, head `28a720913` on `d6f143ccb`): the static-review fixes (H1, M1, M2,
+L1 to L3, L5, L7) and the thirteen proof-map items are done or recorded as waiting, each with its
+spec named in `tasks/factory/w14-GATES.md`. The real lane passes 11 of 11 at a clean head
+(`journeys-11`). New through the real application: both fixed save/publish orders, catch-up and 410
+on the event cursor, validator-material reads, no release authority through a share, grant expiry
+and a ticket recheck, a live approval blocker with mid-stream revocation, a read-only future draft
+that still exports, and long labels with a 40-node map at 1440 and 390 px in light and dark. Real
+captures found four more defects, all fixed: the 390 px tab rail, a lone run card, the purge caption
+casing, and an unbounded evidence wait. Mutation is 95.60%; no W14 line is uncovered. Waiting: W15
+(restore, L4, M3), W02c (fence and quarantine commit), W09c (web inbox composition), W01g (a real
+candidate), W16 (two HTTP installations).
+
+Review update (W14, round 3 part 1, head `754d7b29b`): the validator's four findings are fixed. The graph
+canvas follows the app theme and opens at a readable zoom; the real lane checks theme and label size at 1440
+and 390 px in light and dark, and the mock tier proves the check fails on the old canvas. Waiting items are
+unchecked. `run-format.ts` mutants now die by assertion (91.86% to 97.98%, 60 timeouts to 0). The selected
+run scrolls into the narrow strip. Real lane 11 of 11 and sweep green at the clean head. The restore port,
+W02c, W09c, W01g, and W16 items wait for their integ/w00 hashes.
+
+### Round 3, part 2 (worker w14-continue, from `46237000f`)
+
+- [x] Read the lane and sweep queued at `46237000f`: `journeys-14` 12 of 12, `sweep-11` every leg exit 0.
+- [x] Author check: every branch commit is archy's; `754d7b29b` (fixture identity) was rewritten to `5ea00bea8` (same tree) by the 04:02 reset-author rebase.
+- [x] Merge integ/w00 `2b2e12550` (W02c, W01g, W09c, W09d-2, W04b, W12c, W15, W15c).
+- [x] W02c: the console builds its trusts with `createFactoryPackageTrusts`; the preview counts live attempts with the fence's own query; the console shows the affected-run record; the real lane commits a quarantine and lifts it.
+- [x] W04b: the grants panel names each grantee by display name.
+- [x] W09c: the web process composes command approvals beside release operations; the installation's release store can list an approval node's request; the real lane approves a release and denies an approval node in the inbox.
+- [x] W01g: the lane guest stages its output and completes; with W09d's declared validator the run is accepted, released, and `succeeded`.
+- [x] `run-stream.ts`: strict harness and exact assertions. The score is not measurable on the Vitest 5 toolchain (finding in the gate file).
+- [x] Final passes at `4b96f6f77`, one receipt per leg; gate file and review.
+- W16 items (two HTTP installations, W16 purge preconditions) wait until W16 lands.
+- Follow-ups, disclosed: repair, replan, and a real uncertain release need a rejected candidate or an uncertain provider outcome, which the lane cannot produce; they stay proven in components and the mock tier. Findings for other owners: the mutation tooling since Vitest 5 (main), a denied approval that never ends its run (W03 stop path), and the quarantined live attempt that stays cancelling (W02c/W03, known).
+
+Review update (W14, round 3 part 2, code head `4b96f6f77`): the items that waited on W02c, W04b, W09c and W01g are done through the real application. The real lane passes 12 of 12 (`journeys-26`). A run now completes, is accepted by the declared validator, is approved in the console inbox, and is published by the running release-outcome role. A quarantine is committed under a live attempt, and the console shows what the fence stopped. Two product defects surfaced on the real stack and are fixed: the web process composed no command approvals, and one approval-node notification made the whole inbox refuse. Every final leg exits 0 at a clean head, with 100 percent of changed lines covered against `2b2e12550`. The mutation score is not measurable on the current toolchain; that is reported, not fixed here.
+
 ## W09c — compose the release profile set from the declaration (branch `wp/w09c-profiles`)
 
 Worktree `.worktrees/w09c-profiles` from `integ/w00` at `260855e57`. Gate file
@@ -3858,6 +3934,7 @@ test. `initPglite` carried a changed line whose factory branch cannot run, and t
 The global floor (73.88 percent), the per-file thresholds, and the origin/main new-file gate stay red. The cause is
 files that only CI's repository-wide shards or the browser receipt measure. None of those files is one this
 package changed.
+## W18b — six pre-existing backend pool failures (branch `wp/w18b-pool-fixes`)
 
 ## W18a-3 — hook context, initPglite/loadExisting, compute-admissions order, test-path imports, main-origin leaks
 
@@ -3899,6 +3976,36 @@ file this package changed. G6 is rerun after W15b lands.
 ## Product rules (coordinator)
 
 - Every startup document declares the recovery sections; an installation without them stays degraded (factory-checkpoint-barrier-held) and never reports ready.
+
+**Review.** The six failures had three causes, and W15's labels were wrong for two of them. First,
+three tests reported `/tmp` because every `.git` walk accepted any `.git` entry, and this host has an
+empty `/tmp/.git` that git itself rejects. The SDK walk now accepts only a real repository marker, the
+five example copies route through it, and the standalone ai-kit CLI asks git. The same cause also
+failed the SDK and ai-kit legs, which are fixed too. Second, the pi_session tests failed because their
+regexes matched indentation that a hook refactor changed. The 2026-06-01 literal was still a live
+product defect, so the expired bridge is retired: no date in code decides what the hook accepts.
+Third, the "Unix socket path limit" failure was a one-second readiness probe that timed out under pool
+load; the socket paths were already short. Each cause is pinned by a test that fails on the unfixed
+code. At `2d33f46d7` the full backend pool reports 0 fail, and every static and coverage gate passes.
+Two findings are left open outside scope: the ai-kit installer ignores its postinstall exit code, and
+`inspectProductionRunner` keeps a fixed 5-second default for verification commands.
+## W15d — Store memory and capacity (branch `wp/w15d-store-memory`)
+
+Gate file: `tasks/factory/w15d-GATES.md`. Evidence: `/tmp/factory-platform-evidence/w15d/`.
+
+- [x] Measure both stores under the killing load: ordinary 1263 MiB peak (739 MiB anonymous), archive 247 MiB; no container OOM; 2 GiB stays.
+- [x] Name the cause: both past kills were host-wide OOMs; the stores were chosen for `oom_score_adj` 200 from `podman.service`.
+- [x] Document the basis in the compose file and the setup docs; fix the stale 768 MiB line.
+- [x] Census of the ordinary store: 16.95 GiB, all live proof-run objects; publication suites hold 16.6 GB.
+- [x] Proof runs remove every version they wrote (`close()` in the storage helper); tested against the real store.
+- [x] Ordinary `-volume.max` 600 with its disk basis; leftovers only through the manifest prune.
+- [ ] Rerun the load without an OOM after the coordinator recreates the stores.
+- [ ] Host-side protection (`podman.service` `OOMScoreAdjust=100`): the host owner's decision.
+
+Review (W15d): The stores did not die of their 2 GiB limits; the host ran out of memory and the
+kernel chose them because the Podman socket gives every container it creates an OOM adjustment of
+200. The ordinary store was filling because no proof run removed its versioned objects; each run
+now removes its own prefixes on close. The volume cap rises to 600 with room above the disk floor.
 
 ## W15c — Pool service leaf (branch `wp/w15c-pool-leaf`)
 
@@ -4909,3 +5016,41 @@ There is no fallback: an unknown tenant is refused by name. The lease carries
 no tenant, so the tenant comes from the launch intent, and the chosen route's
 attempt-token check still stops a launch that names the wrong tenant.
 
+## W03e — settle a stopped attempt that has no usage operations (branch `wp/w03e-usage-settle`)
+
+Base `integ/w00` `39a7189e0`. Receipts: `/tmp/factory-platform-evidence/w03e/`. Gates: `tasks/factory/w03e-GATES.md`.
+
+- [x] Reproduce on the real application with W02c's harness: a stopped attempt with no operations stays `cancelling` (fence stop and operator cancel).
+- [x] Root fix: a signed stop of an attempt whose journal is empty settles a typed `no-operations` zero in the stop transaction, with one `usage-settled` event and a settled budget; any journaled operation keeps the uncertain-hold path.
+- [x] A certain stop after a durable `stop-uncertain` event carries `uncertain: false`, so the kernel folds it.
+- [x] Migration `add-factory-usage-no-operations` (source, `stop_receipt_digest`, exact-shape CHECKs), schema mirror, restart case, threshold.
+- [x] Tests: success with a kernel fold to `cancelled`, journaled operation stays uncertain, concurrent stops, lost receipt, crash and restart, stale epoch, cross-tenant denial, corrupt certainty; each fails on the unfixed store.
+- [x] Real-application proof: run A (fence) and run O (operator cancel) reach a settled terminal, three passes.
+- [x] Sweep after `git merge --no-edit integ/w00`: typecheck, lint, boundaries, gate integrity, PostgreSQL producers, backend pool, both coverage gates.
+- [x] Gate file, report, review paragraph.
+
+- [x] Rulings (lead, 2026-09-24): (1) a no-operations stop settles compute at its reserved bound, the bound the tenant accepted at admission, and the settlement record names the basis "no-operations: compute at reserved bound" (`7ad032681`); (2) packages do not edit freeze section 4, so the additive change is a dated disclosure in `tasks/factory/w03e-GATES.md` for W20 to fold into the plan; (3) the W02c conflict resolution in the report is for the integrator, who merges W03e after W02c; (4) stops sealed by pre-W03e code stay readable with no back-fill (`33ef581f2`).
+- [x] Interface-freeze disclosure (2026-09-24), freeze section 4: `FactoryUsageSettlementSource` gains `"no-operations"`; `FactoryUsageSettlement` gains `stopReceiptDigest` and `basis` (both present exactly on `no-operations`); `factory_usage_settlements` gains `stop_receipt_digest` and `basis`; a certain stop after `stop-uncertain` carries `uncertain: false`. Consumer: W14's cost views.
+- [ ] Follow-up package (owner: the run kernel's owner, W05/W09): a run whose uncertain operation is later settled by reconciliation stays `cancelling`, because `FactoryUsageReconciliation.reconcile` records the settlement and the budget but never tells the kernel the attempt is no longer uncertain. Exact change: after `reconcile` records a reconciliation settlement for a reservation, enqueue in the same transaction the sealed stop's `attempt-stopped` event with `uncertain: false` (id `${cancelCommandId}:usage-resolved`, the stop's node, attempt command, candidate generation and attempt number, read through `readSettlementScopeInTransaction`); let the stop store's re-derivation accept it; prove it with a stop suite case that folds the events through the real kernel to `cancelled`, and a real run whose model call is lost and later reconciled.
+- [ ] Disclosed gap (owner: W03): a reservation whose reserved cost is zero is never listed by `listUncertainWithCostInTransaction`, so it can never be reconciled.
+
+**Review.** An attempt stopped before its first operation stayed `cancelling` forever. The stop saw no terminal usage and held the budget as uncertain, and reconciliation refused the hold with `no-operation-receipt`, because there was nothing to reconcile. The base run at W02c's head showed this for the package fence's run A and an operator-cancelled run O. C02 journals every operation before its effect, and an accepted cancel can prepare no more, so an empty journal after a signed stop proves zero provider cost. The stop now settles that zero in its own transaction as a typed `no-operations` settlement bound to the stop receipt, with one `usage-settled` event. Compute is charged at its reserved bound because nothing measured it. A second defect sat under it: the kernel only clears an uncertain attempt when a later stop says `uncertain: false`, which nothing emitted. The real stops went through exactly that path. Three passes at the merged head bring both runs to `cancelled`, run A with its typed reason, and the pool, PostgreSQL, coverage and complexity gates are green. Open: a hold that reconciliation later resolves from a provider receipt still never clears the kernel's uncertainty.
+
+## W05b — a reconciled hold lets the cancelled run end (branch `wp/w05b-reconcile-clear`)
+
+Base `wp/w03e-usage-settle` `c6dbc321c`. Receipts: `/tmp/factory-platform-evidence/w05b/`. Gates: `tasks/factory/w05b-GATES.md`.
+
+- [x] Reproduce on the real application with W03e's harness: run U (one uncertain operation, cancelled, reconciled) stays `cancelling` at base.
+- [x] Tests red at base, green at head, including the reverse order (reconciliation before the stop confirms).
+- [x] Fix: reconciliation clears the kernel's uncertain attempt through the sealed stop, exactly once; an unconfirmed stop or an unknown usage is not cleared; a stop confirmed after reconciliation settles as certain.
+- [x] Kernel replay test; `kernel.ts` unchanged.
+- [x] Real-server proof, three passes, both orders; sweep; gate file; report.
+- [x] Validator-3 L1 delta: `clearResolvedStopInTransaction` is a required member; the doubles implement it; a composition test proves the production wiring; a race test proves one clearing event (G6).
+
+**Review.** Reconciliation settled the cost but never told the kernel. The kernel kept the attempt
+stopped-and-uncertain, so a cancelled run never ended. The fix sends the sealed stop's event again with
+`uncertain: false`, from the reconciliation's own transaction, and only when the physical stop is
+confirmed. The real server then showed the reverse order, and it was not rare: reconciliation settled
+first, and the confirming stop failed stale. That stop now treats the settled cost as certain and clears
+the uncertainty itself. Either way the kernel is cleared exactly once, and the run ends `cancelled` with
+its reason.

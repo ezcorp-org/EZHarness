@@ -1,0 +1,63 @@
+{
+  "receipt": "usage-settle-proof-merge-pass-1",
+  "producingCommit": "f2734f574df427f16434ba1d422862d6fdce1073",
+  "dirtyStatusSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "webBuildIndexSha256": "ccfb7b8c4416328c65edc8b00ca7f77caf6b6d48c81f5a14654e146bd5696b09",
+  "command": "W03E_REPO=/home/dev/work/EZCorp/EZHarness/.worktrees/w03e-merge-proof flock --close /tmp/ezcorp-validation-heavy.lock timeout 1800 bash /tmp/factory-platform-evidence/w00/w03e-merge/legs/harness/run-proof-w03e.sh merge-pass-1",
+  "worktree": "/home/dev/work/EZCorp/EZHarness/.worktrees/w03e-merge-proof",
+  "harness": "/tmp/factory-platform-evidence/w00/w03e-merge/legs/harness",
+  "startedAt": "2026-09-25T20:30:57-04:00",
+  "finishedAt": "2026-09-25T20:31:46-04:00",
+  "exitCode": 0,
+  "outcome": "passed",
+  "failure": null,
+  "checks": [
+    {
+      "check": "the stack reached ready and both runs launched a real guest",
+      "held": true
+    },
+    {
+      "check": "run O was cancelled by the operator through the product route",
+      "held": true
+    },
+    {
+      "check": "run O's guest was stopped through W03's stop path, with no operation journaled",
+      "held": true
+    },
+    {
+      "check": "run O reached the terminal cancelled status",
+      "held": true
+    },
+    {
+      "check": "run O settled exactly once as a typed no-operations zero, with one usage-settled event and a settled reservation",
+      "held": true
+    },
+    {
+      "check": "the package was quarantined while run A's guest was running, and the server was killed mid-stop and came back ready",
+      "held": true
+    },
+    {
+      "check": "run A was cancelled once by the fence with the typed reason and is in the affected-run record",
+      "held": true
+    },
+    {
+      "check": "run A's guest was stopped through W03's stop path, with no operation journaled",
+      "held": true
+    },
+    {
+      "check": "run A reached the terminal cancelled status with the typed reason",
+      "held": true
+    },
+    {
+      "check": "run A settled exactly once as a typed no-operations zero, with one usage-settled event and a settled reservation",
+      "held": true
+    }
+  ],
+  "outsideScope": [],
+  "timeouts": null,
+  "notProven": [
+    "the product route that quarantines a package: W14 owns it, so the harness calls the product's own trust store as W02c's proof does"
+  ],
+  "recordPath": "/tmp/factory-platform-evidence/w00/w03e-merge/legs/proof/record-merge-pass-1.json",
+  "recordSha256": "393bd260bacf301acc04f6426c3b49f5bbc691496f635824fa9150513c97e7af"
+}
