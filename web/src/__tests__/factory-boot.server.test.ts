@@ -17,7 +17,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getReadiness, resetReadiness } from "$server/readiness";
 import type { FactoryBootConfig } from "$server/factory/boot";
 import { FACTORY_WORKER_STOP_DEADLINE_MS, type FactoryWorkerStopRecord } from "$server/factory/background-workers";
-import { TEARDOWN_TIMEOUT_MS } from "$lib/server/shutdown";
 
 const startFactoryInstallation = vi.fn();
 
@@ -214,11 +213,6 @@ describe("startFactoryForHost", () => {
       stuck: ["stop-settlement"],
       ms: { "stop-settlement": FACTORY_WORKER_STOP_DEADLINE_MS, "run-projection": 1 },
     });
-  });
-
-  it("bounds the role stop inside the shutdown's per-teardown deadline, so the per-role line lands first", () => {
-    // The shutdown suite pins that the drain plus one teardown deadline stays under the hard timeout.
-    expect(FACTORY_WORKER_STOP_DEADLINE_MS).toBeLessThan(TEARDOWN_TIMEOUT_MS);
   });
 
   it("reports what runs and what is held, so the gap is visible without reading code", async () => {

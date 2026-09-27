@@ -62,6 +62,7 @@
  */
 
 import { logger } from "$server/logger";
+import { TEARDOWN_TIMEOUT_MS, withinDeadline } from "$server/shutdown-deadlines";
 
 const log = logger.child("shutdown");
 
@@ -76,24 +77,12 @@ export const HARD_TIMEOUT_MS = 25_000;
  *  budget. */
 export const DRAIN_TIMEOUT_MS = 10_000;
 
-/** How long one teardown may run before shutdown names it and moves on. It
- *  outlasts the factory roles' own stop deadline (5 s), so their per-role line
- *  lands first, and the drain plus one timed-out teardown stays under
+/** How long one teardown may run before shutdown names it and moves on. Set
+ *  with the other shutdown deadlines in `src/shutdown-deadlines.ts`: it
+ *  outlasts the factory roles' stop and the database close, so their own lines
+ *  land first, and the drain plus one timed-out teardown stays under
  *  `HARD_TIMEOUT_MS`. */
-export const TEARDOWN_TIMEOUT_MS = 6_000;
-
-/** Resolve true when `work` settles within `TEARDOWN_TIMEOUT_MS`, false when the deadline passes first. A rejection propagates. */
-async function settlesBeforeDeadline(work: Promise<void>): Promise<boolean> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const expired = new Promise<boolean>((resolve) => {
-    timer = setTimeout(() => resolve(false), TEARDOWN_TIMEOUT_MS);
-  });
-  try {
-    return await Promise.race([work.then(() => true), expired]);
-  } finally {
-    clearTimeout(timer);
-  }
-}
+export { TEARDOWN_TIMEOUT_MS };
 
 // ── In-flight request drain barrier ────────────────────────────────────────
 //
@@ -265,7 +254,7 @@ export async function shutdown(reason: string): Promise<void> {
     try {
       const running = Promise.resolve().then(t.fn);
       void running.then(() => pending.delete(t.name), () => pending.delete(t.name));
-      if (await settlesBeforeDeadline(running)) {
+      if ((await withinDeadline(running, TEARDOWN_TIMEOUT_MS)).settled) {
         log.info("teardown ok", { name: t.name, ms: Date.now() - start });
       } else {
         // Left running: the next teardowns still get their turn, and the

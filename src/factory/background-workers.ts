@@ -37,6 +37,8 @@
  * genuinely is edge-triggered should use the shared scheduler instead.
  */
 
+import { FACTORY_WORKER_STOP_DEADLINE_MS, withinDeadline } from "../shutdown-deadlines";
+
 /** What one bounded step achieved. `worked` means step again immediately. */
 export type FactoryWorkerProgress = "worked" | "idle";
 
@@ -84,15 +86,8 @@ export interface FactoryWorkerClock {
   wait(milliseconds: number, signal: AbortSignal): Promise<void>;
 }
 
-/**
- * How long a stop waits for in-flight steps before it leaves them behind.
- *
- * The harness gives each shutdown teardown `TEARDOWN_TIMEOUT_MS` (6 s, in
- * `web/src/lib/server/shutdown.ts`) before it names it and moves on. Five
- * seconds stays inside that, so the roles' own stop line, which names a stuck
- * role, lands before the teardown's; a test in `web/` pins the order.
- */
-export const FACTORY_WORKER_STOP_DEADLINE_MS = 5_000;
+/** How long a stop waits for in-flight steps; set with the other shutdown deadlines in `src/shutdown-deadlines.ts`. */
+export { FACTORY_WORKER_STOP_DEADLINE_MS };
 
 /** How one worker's stop ended. */
 export interface FactoryWorkerStopRecord {
@@ -101,16 +96,6 @@ export interface FactoryWorkerStopRecord {
   readonly ms: number;
   /** False when the in-flight step outlived the deadline and was left running. */
   readonly settled: boolean;
-}
-
-/** Resolve true when `work` settles within `milliseconds`, false when the deadline passes first. */
-function settlesWithin(work: Promise<void>, milliseconds: number): Promise<boolean> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const expired = new Promise<boolean>((resolve) => {
-    timer = setTimeout(() => resolve(false), milliseconds);
-    timer.unref?.();
-  });
-  return Promise.race([work.then(() => true), expired]).finally(() => clearTimeout(timer));
 }
 
 const DEFAULT_BATCH = 32;
@@ -283,7 +268,7 @@ export class FactoryBackgroundWorker {
       this.controller = undefined;
       return Object.freeze({ name: this.name_, ms: 0, settled: true });
     }
-    const settled = await settlesWithin(loop, deadlineMs);
+    const { settled } = await withinDeadline(loop, deadlineMs);
     if (settled) release();
     else void loop.then(release);
     return Object.freeze({ name: this.name_, ms: Date.now() - started, settled });

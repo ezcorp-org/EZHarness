@@ -27,6 +27,7 @@ import { composePostgresHint } from "./compose-db-hint";
 import { embeddedDatabasePath } from "./data-path";
 import { errorChain, isDriverStatementDesync } from "./error-chain";
 import { swappableBunSql, type BunSqlLike, type SwappableBunSql } from "./swappable-bun-sql";
+import { DB_OPEN_CONNECTIONS_QUERY_DEADLINE_MS, DB_POOL_CLOSE_DEADLINE_MS, withinDeadline } from "../shutdown-deadlines";
 import { assertFactoryBootConfiguration, factoryBootConfig } from "../factory/boot";
 const log = logger.child("db");
 
@@ -89,6 +90,8 @@ let _pglite: import("@electric-sql/pglite").PGlite | null = null;
 let _initPromise: Promise<void> | null = null;
 /** The external pool's swap point; null under PGlite and before initPostgres(). */
 let _externalPool: SwappableBunSql<BunSqlLike> | null = null;
+/** Opens a one-connection pool on the same database, for the side query a stuck close logs; null under PGlite. */
+let _openDiagnosticPool: (() => BunSqlLike) | null = null;
 /** When the external pool was last replaced after a desync, in epoch ms. */
 let _lastDesyncRecoveryMs = 0;
 /** A desync reported within this window of the last replacement is work that
@@ -657,7 +660,7 @@ async function withPostgresMigrateLock<T>(fn: (db: Database) => Promise<T>, wait
  *  via `.close()` (alias `.end()`). Hoisted to a module-level type so the casts
  *  below stay single executable lines (no multi-line type-annotation
  *  continuation that coverage tooling attributes a spurious uncovered record). */
-type BunSqlPoolClient = { close?: () => Promise<void>; end?: () => Promise<void> };
+type BunSqlPoolClient = { close?: (options?: { timeout?: number }) => Promise<void>; end?: (options?: { timeout?: number }) => Promise<void> };
 
 /**
  * Drain a Bun.sql connection pool, tolerating a driver that exposes only one of
@@ -668,10 +671,10 @@ type BunSqlPoolClient = { close?: () => Promise<void>; end?: () => Promise<void>
  * Shared by `closeDb()` and the stale-pool reclaim in `initPostgres()` so the
  * two paths can never drift on which alias they try.
  */
-async function closeBunSqlPool(client: BunSqlPoolClient | undefined): Promise<void> {
+async function closeBunSqlPool(client: BunSqlPoolClient | undefined, options?: { timeout?: number }): Promise<void> {
   try {
-    if (typeof client?.close === "function") await client.close();
-    else if (typeof client?.end === "function") await client.end();
+    if (typeof client?.close === "function") await client.close(options);
+    else if (typeof client?.end === "function") await client.end(options);
   } catch (err) {
     log.warn("Bun.sql pool close failed", { error: String(err) });
   }
@@ -784,6 +787,7 @@ async function initPostgres(): Promise<void> {
   const { SQL } = await import("bun");
   const poolOptions = { url: DATABASE_URL!, max: poolMax };
   const openPool = openBunSqlPoolOverride ?? ((options: typeof poolOptions) => new SQL(options) as unknown as BunSqlLike);
+  _openDiagnosticPool = () => openPool({ ...poolOptions, max: 1 });
   const externalPool = swappableBunSql(() => openPool(poolOptions), {
     drainSeconds: REPLACED_POOL_DRAIN_SECONDS,
     onCloseError: (err) => log.warn("replaced Bun.sql pool did not close cleanly", { error: String(err) }),
@@ -979,7 +983,18 @@ export async function closeDb(): Promise<void> {
     // process don't leak a full pool each time (exhausting max_connections).
     // drizzle's bun-sql driver exposes the Bun SQL client as `$client`; Bun.SQL
     // closes via `.close()` (alias `.end()`).
-    await closeBunSqlPool((_db as { $client?: BunSqlPoolClient }).$client);
+    //
+    // Bounded (W16d): Bun 1.3.14 can leave a queued request unwritten, and a
+    // close that waits for it never returns, which held W16's harness stops to
+    // the shutdown hard timeout. Past the deadline the close is named, the
+    // connections still open are listed, and the pool is left to the exit.
+    const closing = closeBunSqlPool((_db as { $client?: BunSqlPoolClient }).$client, { timeout: DB_POOL_CLOSE_DEADLINE_MS / 1_000 });
+    if (!(await withinDeadline(closing, DB_POOL_CLOSE_DEADLINE_MS)).settled) {
+      log.error("Bun.sql pool close did not finish within its deadline; the pool is left to the process exit", {
+        timeoutMs: DB_POOL_CLOSE_DEADLINE_MS,
+        openConnections: await listOpenConnections(_openDiagnosticPool),
+      });
+    }
     // We just drained it ourselves, so drop the in-process claim WITHOUT
     // closing again — mirrors the PGlite branch's clearProcessHolder(). Leaving
     // it would hand the next initPostgres() a callback onto an already-dead
@@ -989,7 +1004,29 @@ export async function closeDb(): Promise<void> {
   _pglite = null;
   _db = null;
   _externalPool = null;
+  _openDiagnosticPool = null;
   _initPromise = null;
+}
+
+/**
+ * The connections this database user still has open, read on a fresh
+ * one-connection pool (the stuck pool cannot answer), for the log line a stuck
+ * close writes. Bounded; it never throws, and the side pool is closed without
+ * waiting.
+ */
+async function listOpenConnections(open: (() => BunSqlLike) | null): Promise<unknown> {
+  if (open === null) return "unavailable";
+  let probe: BunSqlLike | undefined;
+  try {
+    probe = open();
+    const rows = probe`SELECT pid, state, wait_event_type, wait_event, left(query, 200) AS query FROM pg_stat_activity WHERE datname = current_database() AND usename = current_user AND pid <> pg_backend_pid() ORDER BY pid` as Promise<unknown>;
+    const outcome = await withinDeadline(rows, DB_OPEN_CONNECTIONS_QUERY_DEADLINE_MS);
+    return outcome.settled ? outcome.value : `the listing did not answer within ${DB_OPEN_CONNECTIONS_QUERY_DEADLINE_MS} ms`;
+  } catch (error) {
+    return `the listing failed: ${String(error)}`;
+  } finally {
+    void probe?.close({ timeout: 0 }).catch(() => {});
+  }
 }
 
 /**
