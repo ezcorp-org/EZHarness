@@ -159,6 +159,22 @@ describe("startFactoryForHost", () => {
     expect(log.error).toHaveBeenCalledWith("[factory] background role failed", { role: "attempt-dispatch", error: "Error: queue unavailable" });
   });
 
+  it("names the database's own failure behind a driver wrapper, not only the query", async () => {
+    startFactoryInstallation.mockResolvedValue(startup().handle);
+    const log = { info: vi.fn(), error: vi.fn() };
+    await startFactoryForHost(dependencies({ log }) as never, {});
+    const passed = startFactoryInstallation.mock.calls[0]![0] as { host: { report: (role: string, error: unknown) => void } };
+    const cause = Object.assign(new Error("bind message supplies 2 parameters, but prepared statement \"Pselect $5\" requires 1"), {
+      code: "ERR_POSTGRES_SERVER_ERROR", errno: "08P01", routine: "exec_bind_message", severity: "ERROR",
+    });
+    passed.host.report("run-projection", new Error("Failed query: SELECT audit.project_id", { cause }));
+    expect(log.error).toHaveBeenCalledWith("[factory] background role failed", {
+      role: "run-projection",
+      error: "Error: Failed query: SELECT audit.project_id",
+      causes: [{ message: "bind message supplies 2 parameters, but prepared statement \"Pselect $5\" requires 1", code: "ERR_POSTGRES_SERVER_ERROR", errno: "08P01", routine: "exec_bind_message", severity: "ERROR" }],
+    });
+  });
+
   it("keeps the composition's own richer readiness rather than replacing it", async () => {
     // `startFactoryRuntime` records which probes failed before it throws. That
     // detail is the operator's only pointer to the fix, so the host must not

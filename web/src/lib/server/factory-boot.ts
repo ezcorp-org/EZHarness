@@ -15,6 +15,7 @@
 import { startFactoryInstallation, type FactoryInstallationStartup } from "$server/factory/installation-startup";
 import { FactoryBootError, factoryBootConfig, type FactoryBootConfig } from "$server/factory/boot";
 import { setReadiness } from "$server/readiness";
+import { errorChain } from "$server/db/error-chain";
 import type { TransactionalDb } from "$server/db/migrations/types";
 
 export interface FactoryHostBootDependencies {
@@ -54,8 +55,11 @@ export async function startFactoryForHost(
         // run-inputs resolver it builds; naming it here would shadow that.
         runOptions: hostRunOptions(env),
         availableResourceClasses: (env.EZCORP_FACTORY_RESOURCE_CLASSES ?? "cpu").split(",").map((value) => value.trim()).filter(Boolean),
+        // The causes carry the server's own words (SQLSTATE, routine); the
+        // top message of a driver error is only the query that failed.
         report: (role, error) => {
-          dependencies.log.error("[factory] background role failed", { role, error: String(error) });
+          const causes = errorChain(error).slice(1);
+          dependencies.log.error("[factory] background role failed", causes.length > 0 ? { role, error: String(error), causes } : { role, error: String(error) });
         },
       },
       databaseUrl: dependencies.databaseUrl,
