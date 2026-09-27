@@ -12,6 +12,14 @@ guest. W14 added `packages/@ezcorp/factory-sdk/src/console-types.ts`, and `types
 W03f, G6 and the combined run. Same class as the W01g reference-data pack that missed
 `factory_materials.py`.
 
+## A second site (reported by W18c's combined run at `6eda84a76`)
+
+`src/factory/reference-code/guest.ts` staged SDK `types.ts` as `factory-sdk-types.ts` and rewrote
+specifiers through a fixed table, so `guest.test.ts` (3) and `pack.test.ts` (1) failed with
+"factory-sdk-types.ts imports './console-types.js', which the guest workspace does not provide".
+Reproduced at `bbdf9f9d3` (the reference-code packager unchanged from the base): 25 pass, 4 fail
+(`logs/refcode-red-at-head.log`).
+
 ## Gates
 
 - [x] G1: Reproduced at the base through the runbook, under the heavy lock.
@@ -20,7 +28,7 @@ W03f, G6 and the combined run. Same class as the W01g reference-data pack that m
   EXPECT: the pass fails with the TS2307 above. Met: gate 14 GiB / 6 GiB / 126 GB, head `146a94829`,
   dirty 0, exit 1.
   EVIDENCE: `logs/reproduce-base.log`, `proof/base-146a94829/base-146a94829.json`.
-- [x] G2: The fix is at the root. `scripts/lib/factory-sdk-closure.ts` finds the SDK files a flat
+- [x] G2: The fix is at the root. `src/factory/guest-sdk-closure.ts` finds the SDK files a flat
   guest needs by following relative imports from the guest's own files. That includes
   `from "./x.js"`, `export * from`, side-effect imports, type-position `import("./x.js")` and
   `./x.json` schemas. It rewrites `.js` specifiers to `.ts` for the flat workspace, and refuses an
@@ -34,22 +42,31 @@ W03f, G6 and the combined run. Same class as the W01g reference-data pack that m
     so the package carries no unused module.
   - **Result.** The staged graph guest is the old set plus `console-types.ts`.
 - [x] G3: A fast guard that fails when a module in the closure is missing from the package.
-  CHECK: `bun test ./scripts/factory-graph-proof/guest-package.test.ts ./scripts/lib/factory-sdk-closure.test.ts`
+  CHECK: `bun test ./scripts/factory-graph-proof/guest-package.test.ts ./src/factory/guest-sdk-closure.test.ts`
   EXPECT: every relative import of every staged file names a staged file, for the graph guest and the
   lane guest on the real SDK; helper cases on a fixture module graph (transitive walk, rewrite forms,
   JSON, seeds never read, a module read once, a missing module refused by name).
   Red on the base package: `["types.ts -> console-types.ts", "types.ts -> console-types.ts"]`, 0 pass,
-  1 fail. Green at the head: 7 pass, 0 fail. The pool runs `scripts/**/*.test.ts`, so CI runs both.
+  1 fail. The pool runs `scripts/**/*.test.ts` and `src/**/*.test.ts`, so CI runs both.
+  - A structural guard covers every packager. Any non-test source that names the SDK source directory
+    and builds a guest workspace (a staged `files[` record, a `feature.test.ts`, or the helper) must be
+    one of the three packagers that call `factorySdkClosure(`, or one of the two Python packagers that
+    stage generated JSON schemas only (checked: they read no SDK `.ts` module). A packager the test does
+    not know fails it by path. Negative control: a temporary fake packager with a fixed SDK list made it
+    fail, naming the file (`logs/packager-guard-negative-control.log`); removed, it passes.
+  - The reference-code guest's own tests now expect every import to resolve, and the staged `types.ts`
+    and `console-types.ts` to be the committed modules with only `.js` specifiers made `.ts`.
   EVIDENCE: `logs/guard-red-at-base.log`, `logs/lib-tests.log`, `receipts/`.
-- [x] G4: The runbook mock pass at the head, under the lock, plus the graph-proof suites and builds.
+- [x] G4: The runbook mock pass at the head under the lock, the reference-code suites and its Podman
+  build, the graph-proof suites, and the builds.
   EVIDENCE: `receipts/runbook-mock.json` (outcome "passed", failure null; gate 17 GiB / 5 GiB / 125 GB; head `bbdf9f9d3`, dirty 0). Every receipt leg exits 0: SDK build, guard 7 pass, graph-proof suites 22 pass, typecheck, lint, boundaries, gate integrity, web build, `receipts/graph-proof-suites.json`, `receipts/sdk-build.json`.
-- [x] G5: Static checks and coverage. Typecheck, lint, factory boundaries and gate integrity pass.
-  The helper is at 100% lines and functions from its own tests. The changed lines of
-  `guest-package.ts` run in the guard. Neither file is in the coverage gate's source set, which
-  does not cover the graph-proof harness.
+- [x] G5: Static checks and coverage. Typecheck, lint, factory boundaries, the boundary suites and gate
+  integrity pass. New-file and patch coverage pass against `146a94829`; the helper
+  (`src/factory/guest-sdk-closure.ts`, threshold 100) is at 100% lines and functions.
   EVIDENCE: `receipts/`.
 
 ## Findings
 
-- No other hand-listed SDK module set remains in the repository (searched for the fixed names across
-  `scripts`, `src`, `web`, `packages` and `tests`).
+- No other packager copies SDK TypeScript sources; the structural guard keeps it that way. My first
+  search, by the graph guest's module names, missed the reference-code guest because it renames
+  `types.ts`. The guard detects packagers by the SDK directory they read instead.

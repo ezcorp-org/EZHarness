@@ -5060,7 +5060,9 @@ its reason.
 Base integ/w00 `146a94829`. Gate file: `tasks/factory/w14b-GATES.md`. Evidence: `/tmp/factory-platform-evidence/w14b/`.
 
 - [x] Reproduce through the runbook's mock pass under the lock: the guest build fails with TS2307 on `./console-types.ts`.
-- [x] Root fix: one shared helper (`scripts/lib/factory-sdk-closure.ts`) derives the SDK files from the guest's own imports; the graph guest and the W14 lane guest both use it; the fixed module and schema lists are gone.
+- [x] Root fix: one shared helper (`src/factory/guest-sdk-closure.ts`) derives the SDK files from the guest's own imports; the graph guest, the W14 lane guest and the reference-code validator guest all use it; the fixed module and schema lists are gone.
+- [x] Second site: the reference-code guest's four failing tests (`guest.test.ts` 3, `pack.test.ts` 1) are green.
+- [x] Structural guard: every packager that copies SDK sources must use the helper or be a named schemas-only Python packager.
 - [x] Guard tests, red on the base package, green at the head; they run in the CI pool.
 - [x] Runbook mock pass at the head under the lock; graph-proof suites; builds; typecheck, lint, boundaries, gate integrity.
 
