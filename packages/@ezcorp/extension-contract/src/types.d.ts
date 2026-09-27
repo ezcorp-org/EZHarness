@@ -288,6 +288,8 @@ export interface RunnerExecution {
   request(method: string, params: unknown): Promise<unknown>;
   close(): Promise<void>;
   onNotification(listener: (method: string, params: unknown) => void): () => void;
+  /** Settles with the worker process's exit code once it has exited, when the runner can see it. */
+  readonly exited?: Promise<number | null>;
 }
 export interface Runner {
   build(input: BuildRequest): Promise<BuildResult>;

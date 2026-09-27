@@ -265,7 +265,9 @@ const supervisorConfig = await writePrivate("supervisor.json", JSON.stringify({
 	hostKeyPath, hostKeyId: "host-key-1", runnerRoot: join(root, "runner"),
 	readinessFilePath: join(readiness, "supervisor.json"), readinessHeartbeatMs: 2_000,
 	services: {
-		hostname: "127.0.0.1", port: hostServicePort, allowedPeers: ["tenant-a"], hostKeyIdPath, tls: serverTls,
+		hostname: "127.0.0.1", port: hostServicePort, hostKeyIdPath, tls: serverTls,
+		// W01i: the product's peer, bound to the one tenant it acts for.
+		peerTenants: { "tenant-a": TENANT },
 		pool: { baseUrl: `https://127.0.0.1:${poolPort}`, serviceTokenPath: supervisorToken, tls: supervisorTls },
 		// W16b: one guest-broker route per tenant; this stack runs one tenant.
 		guestBrokers: { [TENANT]: { baseUrl: `https://127.0.0.1:${guestBrokerPort}`, serviceTokenPath: guestBrokerToken, tls: supervisorTls } },

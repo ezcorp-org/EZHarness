@@ -16,6 +16,7 @@ import { describe, expect, test } from "bun:test";
 import { copyFileSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { scratchGitEnv } from "../src/__tests__/helpers/scratch-git";
 
 const REPO_ROOT = resolve(import.meta.dir, "..");
 const GATE_SCRIPTS = [
@@ -27,8 +28,17 @@ const GATE_SCRIPTS = [
 
 type Sandbox = { root: string; base: string; cleanup: () => void };
 
+/**
+ * Every command below (`git` and `bun`) runs isolated from the caller's own
+ * git context: a hook that exports `GIT_DIR` and friends would otherwise make
+ * `git init`/`git commit` below act on the hook's repository instead of the
+ * sandbox. `home` is colocated under `cwd` so a single `rmSync(root, ...)`
+ * cleans it up with the rest of the sandbox.
+ */
 async function run(cwd: string, command: readonly string[], env: Record<string, string> = {}) {
-  const proc = Bun.spawn([...command], { cwd, env: { ...process.env, ...env }, stdout: "pipe", stderr: "pipe" });
+  const home = join(cwd, ".git-scratch-home");
+  mkdirSync(home, { recursive: true });
+  const proc = Bun.spawn([...command], { cwd, env: { ...scratchGitEnv(home), ...env }, stdout: "pipe", stderr: "pipe" });
   const [stdout, stderr, exitCode] = await Promise.all([
     new Response(proc.stdout).text(),
     new Response(proc.stderr).text(),

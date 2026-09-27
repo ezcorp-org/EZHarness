@@ -15,7 +15,7 @@ import type { TransactionalDb } from "../db/migrations/types";
 import type { FactoryPhysicalStopExpectation } from "./journal-validation";
 import type { FactoryAttemptLaunchIntent, FactoryPhysicalStopReceipt } from "./runner/attempt-runtime";
 import { certificates } from "../__tests__/helpers/factory-certificates";
-import { createFactoryLaunchFixture, factoryLaunchLease, factoryLaunchPackage, factoryLaunchRequest } from "../__tests__/helpers/factory-attempt-launch-fixture";
+import { createFactoryLaunchFixture, factoryLaunchLease, factoryLaunchPackage, factoryLaunchRequest, factoryLaunchPool } from "../__tests__/helpers/factory-attempt-launch-fixture";
 import {
   FACTORY_ATTEMPT_TOKEN_LIFETIME_SECONDS,
   composeFactoryAttemptDispatch,
@@ -137,10 +137,11 @@ describe("factoryIntentPhysicalStop", () => {
     await stop(intent("host-pinned"), "completed");
 
     expect(seen).toHaveLength(1);
-    // The seven fields of `FactoryPhysicalStopExpectation`, and no cancel
+    // The fields of `FactoryPhysicalStopExpectation`, the guest's tenant among
+    // them (W01i: the host binds each peer to one tenant), and no cancel
     // reference or stop source: this caller has neither and does not invent one.
     expect(Object.keys(seen[0]!).sort()).toEqual([
-      "allocationGeneration", "attemptId", "holderGeneration", "hostId", "reason", "reservationId", "workerId",
+      "allocationGeneration", "attemptId", "holderGeneration", "hostId", "reason", "reservationId", "tenantId", "workerId",
     ]);
     expect(seen[0]).toMatchObject({
       attemptId: "attempt-stop",
@@ -150,6 +151,7 @@ describe("factoryIntentPhysicalStop", () => {
       allocationGeneration: factoryLaunchLease.allocationGeneration,
       hostId: "host-pinned",
       reason: "completed",
+      tenantId: factoryLaunchRequest().authority.tenantId,
     });
   });
 
@@ -228,8 +230,10 @@ describe("composeFactoryAttemptDispatch", () => {
         outcomes: { recordInTransaction: async () => ({} as never), readInTransaction: async (_t: MigrationDb) => undefined } as never,
         admissions: { readRetainedAdmittedInTransaction: async () => { throw new Error("no admitted reservation in this test"); } } as never,
         readiness: { assertDispatchReady: async () => factoryLaunchPackage(request) },
-        pool: { acknowledgeStart: async () => ({}) as never },
+        pool: factoryLaunchPool(),
         stopper: async () => ({}) as unknown as FactoryPhysicalStopReceipt,
+        journal,
+        report: () => {},
       });
 
       // Nothing is queued, so the composed dispatcher claims nothing. That is
@@ -257,8 +261,10 @@ describe("composeFactoryAttemptDispatch", () => {
         outcomes: {} as never,
         admissions: {} as never,
         readiness: { assertDispatchReady: async () => factoryLaunchPackage(factoryLaunchRequest()) },
-        pool: { acknowledgeStart: async () => ({}) as never },
+        pool: factoryLaunchPool(),
         stopper: async () => ({}) as unknown as FactoryPhysicalStopReceipt,
+        journal,
+        report: () => {},
       })).rejects.toBeDefined();
     } finally {
       await fixture.close();

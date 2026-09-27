@@ -4,13 +4,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { InvocationContext, Runner, RunnerExecution, RunnerInspection, StartRequest } from "@ezcorp/extension-contract";
 import { startFactoryPrivateHttps } from "./private-https";
-import { createFactoryHostLaunchClient, type FactoryHostLaunchTransport } from "./host-launch-client";
+import { FactoryHostLaunchRefusal, createFactoryHostLaunchClient, type FactoryHostLaunchTransport } from "./host-launch-client";
+import { FactoryExecutionJournal } from "./executions";
+import { nativeFactoryJournal } from "./runner/native";
 import { createFactoryHostLaunchRouteHandler } from "./runner/host-launch-service";
 import { createFactoryHostLaunchSupervisor } from "./runner/host-launch-supervisor";
 import { FactoryRemoteAttemptRuntime } from "./runner/remote-attempt-runtime";
-import { FactoryAttemptRuntimeError, FactoryDatabaseAttemptLaunchStore, type FactoryAttemptLaunchIntent, type FactoryPhysicalStopReceipt } from "./runner/attempt-runtime";
+import { FactoryDatabaseAttemptLaunchStore, type FactoryAttemptLaunchIntent, type FactoryPhysicalStopReceipt } from "./runner/attempt-runtime";
 import { certificates, type Certificates } from "../__tests__/helpers/factory-certificates";
-import { createFactoryLaunchFixture, factoryLaunchCompletedResult, factoryLaunchLease, factoryLaunchPackage, factoryLaunchRequest } from "../__tests__/helpers/factory-attempt-launch-fixture";
+import { createFactoryLaunchFixture, factoryLaunchCompletedResult, factoryLaunchLease, factoryLaunchPackage, factoryLaunchRequest, factoryLaunchPool, factoryLaunchPeerTenants } from "../__tests__/helpers/factory-attempt-launch-fixture";
 import { privateHttpsCall } from "../__tests__/helpers/factory-private-https-client";
 
 const directories: string[] = [];
@@ -18,6 +20,12 @@ afterAll(async () => { await Promise.all(directories.map(directory => rm(directo
 
 const hostId = factoryLaunchLease.hostId;
 const completed = factoryLaunchCompletedResult("transport");
+
+/** What every remote runtime here needs besides its transport: the fixture's own journal, and a report kept for assertions. */
+function runtimeRecords(fixture: { readonly db: ConstructorParameters<typeof FactoryExecutionJournal>[0] }) {
+  const reported: string[] = [];
+  return { journal: nativeFactoryJournal(new FactoryExecutionJournal(fixture.db, async () => {})), report: (source: string) => { reported.push(source); }, reported };
+}
 
 /** A container runner that counts every physical start, reconnect, and invocation. */
 class HostRunner implements Runner {
@@ -81,7 +89,7 @@ test("an attempt launches, runs, and settles across a real mutual-TLS host bound
 
   // The supervisor process: a container runner and host identity, nothing else.
   const supervisorA = createFactoryHostLaunchSupervisor({ runner: runnerA, hostId, broker: { invoke: async (_request, input) => { brokerCalls.push(input); return { accepted: true }; } } });
-  const service = startFactoryPrivateHttps({ tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca }, handle: createFactoryHostLaunchRouteHandler({ hostId, allowedPeers: ["tenant-a"], supervisor: supervisorA }) });
+  const service = startFactoryPrivateHttps({ tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca }, handle: createFactoryHostLaunchRouteHandler({ hostId, peerTenants: factoryLaunchPeerTenants(), supervisor: supervisorA }) });
   try {
     const paths = await clientSecrets(root, certs);
     const transport = await createFactoryHostLaunchClient({ baseUrl: service.url, tls: paths, serverName: "localhost", hostId });
@@ -90,8 +98,9 @@ test("an attempt launches, runs, and settles across a real mutual-TLS host bound
       launches: store, transport: over,
       readiness: { assertDispatchReady: async () => factoryLaunchPackage(request) },
       mintAttemptToken: async () => "minted-transport-token",
-      pool: { acknowledgeStart: async () => ({}) as never },
+      pool: factoryLaunchPool(),
       stop: async (intent) => { stops.push(intent.request.authority.attemptId); return stopReceipt(intent); },
+      ...runtimeRecords(fixture),
     });
 
     const opened = await runtime(transport).open(request, factoryLaunchLease, factoryLaunchPackage(request));
@@ -125,7 +134,7 @@ test("a gateway that restarts mid-launch rejoins the running attempt instead of 
   const fixture = await createFactoryLaunchFixture(request);
   const runner = new HostRunner();
   const supervisor = createFactoryHostLaunchSupervisor({ runner, hostId, broker: { invoke: async () => ({ accepted: true }) } });
-  const service = startFactoryPrivateHttps({ tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca }, handle: createFactoryHostLaunchRouteHandler({ hostId, allowedPeers: ["tenant-a"], supervisor }) });
+  const service = startFactoryPrivateHttps({ tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca }, handle: createFactoryHostLaunchRouteHandler({ hostId, peerTenants: factoryLaunchPeerTenants(), supervisor }) });
   try {
     const paths = await clientSecrets(root, certs);
     const transport = await createFactoryHostLaunchClient({ baseUrl: service.url, tls: paths, serverName: "localhost", hostId });
@@ -134,8 +143,9 @@ test("a gateway that restarts mid-launch rejoins the running attempt instead of 
       launches: store, transport,
       readiness: { assertDispatchReady: async () => factoryLaunchPackage(request) },
       mintAttemptToken: async () => "minted-rejoin-token",
-      pool: { acknowledgeStart: async () => ({}) as never },
+      pool: factoryLaunchPool(),
       stop: async (intent) => stopReceipt(intent),
+      ...runtimeRecords(fixture),
     });
 
     // The first gateway launches and then disappears without ever waiting, so
@@ -172,7 +182,7 @@ test("a lost launch response reconnects instead of starting a second guest, and 
   const fixture = await createFactoryLaunchFixture(request);
   const runner = new HostRunner();
   const supervisor = createFactoryHostLaunchSupervisor({ runner, hostId, broker: { invoke: async () => ({ accepted: true }) } });
-  const service = startFactoryPrivateHttps({ tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca }, handle: createFactoryHostLaunchRouteHandler({ hostId, allowedPeers: ["tenant-a"], supervisor }) });
+  const service = startFactoryPrivateHttps({ tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca }, handle: createFactoryHostLaunchRouteHandler({ hostId, peerTenants: factoryLaunchPeerTenants(), supervisor }) });
   try {
     const paths = await clientSecrets(root, certs);
     const real = await createFactoryHostLaunchClient({ baseUrl: service.url, tls: paths, serverName: "localhost", hostId });
@@ -188,17 +198,19 @@ test("a lost launch response reconnects instead of starting a second guest, and 
       launches: store, transport: lossy,
       readiness: { assertDispatchReady: async () => factoryLaunchPackage(request) },
       mintAttemptToken: async () => "minted-lost-token",
-      pool: { acknowledgeStart: async () => ({}) as never },
+      pool: factoryLaunchPool(),
       stop: async (intent) => stopReceipt(intent),
+      ...runtimeRecords(fixture),
     });
 
     const opened = await runtime.open(request, factoryLaunchLease, factoryLaunchPackage(request));
     // The guest exists exactly once; the reconnect found it rather than starting another.
     expect(runner.starts).toBe(1);
     expect(opened.disposition).toBe("attached");
-    // The product recorded no terminal result, because a host's memory is not a
-    // durable record, so a recovered wait stays uncertain rather than guessing.
-    await expect(opened.wait()).rejects.toThrow("uncertain");
+    // The host kept the answer of the invocation it ran, so the reconnected
+    // wait collects it and makes it durable, instead of ending uncertain.
+    expect(await opened.wait()).toEqual(completed);
+    expect(await store.terminalResult("attempt-lost")).toEqual(completed);
     // The host did invoke the guest before its reply was lost. What must never
     // happen is a SECOND invocation once a fresh supervisor reconnects.
     const invocationsBeforeRestart = runner.invocations;
@@ -207,7 +219,7 @@ test("a lost launch response reconnects instead of starting a second guest, and 
     // A restarted supervisor remembers nothing and must rebuild the identities
     // from the intent alone, which is why attach carries the whole intent.
     const restarted = createFactoryHostLaunchSupervisor({ runner, hostId, broker: { invoke: async () => ({ accepted: true }) } });
-    const second = startFactoryPrivateHttps({ tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca }, handle: createFactoryHostLaunchRouteHandler({ hostId, allowedPeers: ["tenant-a"], supervisor: restarted }) });
+    const second = startFactoryPrivateHttps({ tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca }, handle: createFactoryHostLaunchRouteHandler({ hostId, peerTenants: factoryLaunchPeerTenants(), supervisor: restarted }) });
     try {
       const client = await createFactoryHostLaunchClient({ baseUrl: second.url, tls: paths, serverName: "localhost", hostId });
       const intent = (await store.claimStart("attempt-lost")).intent;
@@ -223,43 +235,54 @@ test("a lost launch response reconnects instead of starting a second guest, and 
   }
 }, 120_000);
 
-test("when the supervisor also restarted and holds nothing, a rejoining gateway stays uncertain", async () => {
-  const request = factoryLaunchRequest({ attemptId: "attempt-double-restart" });
-  const fixture = await createFactoryLaunchFixture(request);
-  try {
-    const store = new FactoryDatabaseAttemptLaunchStore(fixture.db);
-    // Mirrors what host-launch-client.ts returns after a double restart: the
-    // host reconnected to nothing, so it has no in-flight result to give back.
-    const emptied = (disposition: "terminal" | "uncertain"): FactoryHostLaunchTransport => ({
-      launch: async () => { throw new Error("a rejoining gateway must never launch"); },
-      attach: async (intent) => ({ disposition, workerId: intent.workerId, invocationId: intent.invocationId }),
-      result: async () => { throw new Error("this host is not running that attempt"); },
-    });
-    const gateway = (disposition: "terminal" | "uncertain") => new FactoryRemoteAttemptRuntime({
-      launches: store, transport: emptied(disposition),
-      readiness: { assertDispatchReady: async () => factoryLaunchPackage(request) },
-      mintAttemptToken: async () => "minted-double-restart-token",
-      pool: { acknowledgeStart: async () => ({}) as never },
-      stop: async (intent) => stopReceipt(intent),
-    });
+for (const disposition of ["terminal", "uncertain"] as const) {
+  test(`when the supervisor also restarted and holds nothing (${disposition}), a rejoining gateway records the attempt lost by name`, async () => {
+    const request = factoryLaunchRequest({ attemptId: `attempt-double-restart-${disposition}` });
+    const fixture = await createFactoryLaunchFixture(request);
+    try {
+      const store = new FactoryDatabaseAttemptLaunchStore(fixture.db);
+      const stopped: string[] = [];
+      let results = 0;
+      // Mirrors what host-launch-client.ts returns after a double restart: the
+      // host reconnected to nothing, so it has no in-flight result to give back.
+      const emptied: FactoryHostLaunchTransport = {
+        launch: async () => { throw new Error("a rejoining gateway must never launch"); },
+        attach: async (intent) => ({ disposition, workerId: intent.workerId, invocationId: intent.invocationId }),
+        result: async () => { results += 1; throw new FactoryHostLaunchRefusal({ statusCode: 409, headers: {}, body: Buffer.from(JSON.stringify({ error: "attempt_uncertain" })) }); },
+      };
+      const gateway = () => new FactoryRemoteAttemptRuntime({
+        launches: store, transport: emptied,
+        readiness: { assertDispatchReady: async () => factoryLaunchPackage(request) },
+        mintAttemptToken: async () => "minted-double-restart-token",
+        pool: factoryLaunchPool(),
+        stop: async (intent) => { stopped.push(intent.workerId); return stopReceipt(intent); },
+        ...runtimeRecords(fixture),
+      });
 
-    // A prior gateway claimed and launched, then vanished without recording.
-    const intent = await store.prepare(request, factoryLaunchLease, factoryLaunchPackage(request));
-    await store.claimStart(intent.request.authority.attemptId);
-    await store.state(intent.request.authority.attemptId, "launched");
+      // A prior gateway claimed and launched, then vanished without recording.
+      const intent = await store.prepare(request, factoryLaunchLease, factoryLaunchPackage(request));
+      await store.claimStart(intent.request.authority.attemptId);
+      await store.state(intent.request.authority.attemptId, "launched");
 
-    for (const disposition of ["terminal", "uncertain"] as const) {
-      const rejoined = await gateway(disposition).open(request, factoryLaunchLease, factoryLaunchPackage(request));
+      const rejoined = await gateway().open(request, factoryLaunchLease, factoryLaunchPackage(request));
       // The host's own answer survives rather than being reported as attached.
       expect(rejoined.disposition).toBe(disposition);
-      // And nothing is guessed: there is no durable result and the host has none.
-      const refusal = await rejoined.wait().then(() => undefined, (error: unknown) => error);
-      expect(refusal).toBeInstanceOf(FactoryAttemptRuntimeError);
-      expect((refusal as FactoryAttemptRuntimeError).code).toBe("launch_uncertain");
-    }
-    expect(await store.terminalResult(request.authority.attemptId)).toBeUndefined();
-  } finally { await fixture.close(); }
-}, 120_000);
+      // Nothing is guessed and nothing waits for ever: the host holds no answer,
+      // so the attempt ends failed with the reason named, over the journal's own
+      // facts, and the guest is stopped.
+      const lost = await rejoined.wait();
+      expect(lost).toMatchObject({ status: "failed", journalCursor: -1, operations: [], error: { code: "RUNNER_SUPERVISOR_LOST", retryable: true } });
+      expect(lost.status === "failed" && lost.error.message).toContain("the host holds no record of this attempt");
+      expect(await store.terminalResult(request.authority.attemptId)).toEqual(lost);
+      expect(stopped).toEqual([intent.workerId]);
+      // A later gateway reads that record and asks the host nothing.
+      const later = await gateway().open(request, factoryLaunchLease, factoryLaunchPackage(request));
+      expect(later.disposition).toBe("terminal");
+      expect(await later.wait()).toEqual(lost);
+      expect(results).toBe(1);
+    } finally { await fixture.close(); }
+  }, 120_000);
+}
 
 test("the host refuses an unauthorized peer, another host's intent, and an intent that does not bind itself", async () => {
   const root = await mkdtemp(join(tmpdir(), "factory-host-launch-deny-"));
@@ -269,7 +292,7 @@ test("the host refuses an unauthorized peer, another host's intent, and an inten
   const fixture = await createFactoryLaunchFixture(request);
   const runner = new HostRunner();
   const supervisor = createFactoryHostLaunchSupervisor({ runner, hostId, broker: { invoke: async () => ({ accepted: true }) } });
-  const service = startFactoryPrivateHttps({ tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca }, handle: createFactoryHostLaunchRouteHandler({ hostId, allowedPeers: ["tenant-a"], supervisor }) });
+  const service = startFactoryPrivateHttps({ tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca }, handle: createFactoryHostLaunchRouteHandler({ hostId, peerTenants: factoryLaunchPeerTenants(), supervisor }) });
   try {
     const store = new FactoryDatabaseAttemptLaunchStore(fixture.db);
     const intent = await store.prepare(request, factoryLaunchLease, factoryLaunchPackage(request));

@@ -327,11 +327,17 @@ export class FactoryAttemptQueue {
     return Object.freeze({ delivery, request });
   }
 
-  /** Peek identity, lock its run/execution authority, then lock and recheck the queue row. */
-  async readAuthorizedStoredInTransaction(transaction: MigrationDb, projectId: string, attemptId: string): Promise<StoredFactoryAttempt | null> {
+  /**
+   * Peek identity, lock its run/execution authority, then lock and recheck the queue row.
+   *
+   * `reported` is the read of a non-success report, which may arrive after the
+   * attempt's deadline (defect 3): every other check of the live read stays.
+   */
+  async readAuthorizedStoredInTransaction(transaction: MigrationDb, projectId: string, attemptId: string, access: "live" | "reported" = "live"): Promise<StoredFactoryAttempt | null> {
     const candidate = await this.readInTransaction(transaction, projectId, attemptId);
     if (!candidate) return null;
-    const request = await this.journal.requestInTransaction(transaction, factoryAttemptAuthority(candidate.reference));
+    const authority = factoryAttemptAuthority(candidate.reference);
+    const request = access === "reported" ? await this.journal.reportedRequestInTransaction(transaction, authority) : await this.journal.requestInTransaction(transaction, authority);
     const delivery = await new FactoryAttemptStore(transaction, this.tenantId, projectId).findById(scope(this.tenantId, projectId), attemptId);
     if (!delivery || delivery.inputHash !== candidate.inputHash) throw new FactoryAttemptQueueError("factory_attempt_corrupt");
     return Object.freeze({ delivery, request });

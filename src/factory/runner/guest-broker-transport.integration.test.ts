@@ -281,6 +281,21 @@ test("the route authenticates the host and the attempt separately, and refuses e
   const poolToken = await call({ method: "POST", body: { attemptToken: token, payload: frame }, token: fixture.hostToken({ aud: "factory-pool" }), headers: { "x-ezcorp-factory-version": "1" } });
   expect({ status: poolToken.status, body: JSON.parse(poolToken.body.toString("utf8")) }).toEqual({ status: 401, body: { error: "token_audience_refused" } });
 
+  // W01i: only a single string audience. A list that names this route beside
+  // the pool would pass both routes; a list without this route is another
+  // route's token; even a one-entry list is refused. Each is named, while a
+  // list signed by a foreign key stays plain unauthorized.
+  for (const [aud, key, error] of [
+    [["factory-pool", FACTORY_GUEST_BROKER_AUDIENCE], undefined, "token_audience_refused"],
+    [[FACTORY_GUEST_BROKER_AUDIENCE], undefined, "token_audience_refused"],
+    [["factory-pool"], undefined, "token_audience_refused"],
+    [["factory-pool", FACTORY_GUEST_BROKER_AUDIENCE], otherKey, "unauthorized"],
+    [["factory-pool"], otherKey, "unauthorized"],
+  ] as const) {
+    const listed = await call({ method: "POST", body: { attemptToken: token, payload: frame }, token: fixture.hostToken({ aud: [...aud] }, key), headers: { "x-ezcorp-factory-version": "1" } });
+    expect({ aud, status: listed.status, body: JSON.parse(listed.body.toString("utf8")) }).toEqual({ aud, status: 401, body: { error } });
+  }
+
   // The right host, an attempt token that is not this installation's.
   const wrongToken = await call({ method: "POST", body: { attemptToken: "not-a-signed-attempt-token", payload: frame }, headers: { "x-ezcorp-factory-version": "1" } });
   expect(wrongToken.status).toBe(401);

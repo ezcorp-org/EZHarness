@@ -46,6 +46,7 @@ import {
   render,
   scan,
 } from "../../scripts/unlanded-branches.ts";
+import { scratchGitEnv } from "./helpers/scratch-git";
 
 // ── fake git ────────────────────────────────────────────────────────────
 
@@ -379,19 +380,20 @@ describe("degenerate-tip guard", () => {
 const REPO = mkdtempSync(join(tmpdir(), "unlanded-branches-"));
 afterAll(() => rmSync(REPO, { recursive: true, force: true }));
 
+// Isolated from the caller's own git context (a hook that exports `GIT_DIR`
+// and friends would otherwise make every command below act on the hook's
+// real repository instead of REPO). `REPO_GIT_ENV` is reused by the two raw
+// `Bun.spawnSync` probes further down, so the whole file shares one env.
+const REPO_GIT_ENV = {
+  ...scratchGitEnv(join(REPO, ".git-scratch-home")),
+  GIT_AUTHOR_NAME: "t",
+  GIT_AUTHOR_EMAIL: "t@example.invalid",
+  GIT_COMMITTER_NAME: "t",
+  GIT_COMMITTER_EMAIL: "t@example.invalid",
+};
+
 function git(...args: string[]): string {
-  const p = Bun.spawnSync(["git", ...args], {
-    cwd: REPO,
-    env: {
-      ...process.env,
-      GIT_AUTHOR_NAME: "t",
-      GIT_AUTHOR_EMAIL: "t@example.invalid",
-      GIT_COMMITTER_NAME: "t",
-      GIT_COMMITTER_EMAIL: "t@example.invalid",
-      GIT_CONFIG_GLOBAL: "/dev/null",
-      GIT_CONFIG_SYSTEM: "/dev/null",
-    },
-  });
+  const p = Bun.spawnSync(["git", ...args], { cwd: REPO, env: REPO_GIT_ENV });
   if (p.exitCode !== 0) {
     throw new Error(`git ${args.join(" ")} failed:\n${p.stderr.toString()}${p.stdout.toString()}`);
   }
@@ -445,12 +447,12 @@ describe("real git — squash-immunity and the known-good split", () => {
     expect(git("rev-parse", `${MAIN}^{tree}`)).toBe(git("rev-parse", `${INTEGRATION}^{tree}`));
     // …and yet it is not an ancestor — the exact reason ancestry lied.
     expect(
-      Bun.spawnSync(["git", "merge-base", "--is-ancestor", "feat/f1", "main"], { cwd: REPO }).exitCode,
+      Bun.spawnSync(["git", "merge-base", "--is-ancestor", "feat/f1", "main"], { cwd: REPO, env: REPO_GIT_ENV }).exitCode,
     ).not.toBe(0);
   });
 
   test("the failure being guarded: against the SQUASHED trunk, a landed branch still flags", () => {
-    const p = Bun.spawnSync(["git", "cherry", "main", "feat/f1"], { cwd: REPO });
+    const p = Bun.spawnSync(["git", "cherry", "main", "feat/f1"], { cwd: REPO, env: REPO_GIT_ENV });
     const { unlanded } = parseCherry(p.stdout.toString());
     // feat/f1 IS in main's tree, yet every one of its commits reads unlanded.
     expect(unlanded.length).toBeGreaterThan(0);

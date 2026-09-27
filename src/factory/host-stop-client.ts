@@ -2,6 +2,7 @@ import { createGatewayTransport, GatewayStatusError, type GatewayTransportOption
 import { FACTORY_HOST_STOP_PATH } from "./runner/host-stop-service";
 import type { FactoryPhysicalStopReason, FactoryPhysicalStopReceipt } from "./runner/attempt-runtime";
 import { FactoryTaskStopError, type FactoryPhysicalStopper, type FactoryTaskStopRequest } from "./task-stops";
+import type { FactoryPhysicalStopExpectation } from "./journal-validation";
 
 export interface FactoryHostStopClientOptions extends GatewayTransportOptions {
   /** The host this endpoint speaks for. A receipt naming another host is refused. */
@@ -87,10 +88,24 @@ export function parseFactoryHostStopReceipt(value: unknown, hostId: string): Fac
 }
 
 /**
+ * The guest's tenant for the host's peer binding (W01i). A cancelling stop names
+ * it in its cancel command; the runtime's post-result stop reaches this client
+ * with only the physical coordinates and names it in the expectation. With
+ * neither, no tenant is sent and the host decides by the tenant it recorded at
+ * launch.
+ */
+function stopTenant(request: FactoryPhysicalStopExpectation & { readonly cancelReference?: { readonly tenantId: string } }): { readonly tenantId?: string } {
+  const tenantId = request.cancelReference?.tenantId ?? request.tenantId;
+  return tenantId === undefined ? {} : { tenantId };
+}
+
+/**
  * The concrete authenticated host stop transport.
  *
- * It carries only the sealed physical coordinates: the cancel command, the run,
- * and the tenant's own references never leave the product. Mutual TLS is the
+ * It carries only the sealed physical coordinates and the tenant id the host
+ * checks against the calling peer (W01i; the launch intent already carries it):
+ * the cancel command, the run, and the tenant's own references never leave the
+ * product. Mutual TLS is the
  * authentication, and the reply is a fact the host signed with a key this
  * process does not hold.
  */
@@ -103,7 +118,7 @@ export async function createFactoryHostStopClient(options: FactoryHostStopClient
       const body = {
         attemptId: request.attemptId, reservationId: request.reservationId, workerId: request.workerId,
         holderGeneration: request.holderGeneration, allocationGeneration: request.allocationGeneration,
-        hostId: request.hostId, reason: request.reason,
+        hostId: request.hostId, reason: request.reason, ...stopTenant(request),
       };
       let response: Awaited<ReturnType<typeof transport.request>>;
       try {

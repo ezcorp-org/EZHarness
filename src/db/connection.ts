@@ -25,6 +25,8 @@ import { applyPgliteNulPatches, patchJsonColumns, patchTextColumns } from "./nul
 import { APP_DATABASE, CURRENT_PG_MAJOR, assertDatadirCompatible, clearStaleLockFiles } from "./datadir-upgrade";
 import { composePostgresHint } from "./compose-db-hint";
 import { embeddedDatabasePath } from "./data-path";
+import { errorChain, isDriverStatementDesync } from "./error-chain";
+import { swappableBunSql, type BunSqlLike, type SwappableBunSql } from "./swappable-bun-sql";
 import { assertFactoryBootConfiguration, factoryBootConfig } from "../factory/boot";
 const log = logger.child("db");
 
@@ -85,6 +87,18 @@ export type DbTransaction = Database;
 let _db: Database = null;
 let _pglite: import("@electric-sql/pglite").PGlite | null = null;
 let _initPromise: Promise<void> | null = null;
+/** The external pool's swap point; null under PGlite and before initPostgres(). */
+let _externalPool: SwappableBunSql<BunSqlLike> | null = null;
+/** When the external pool was last replaced after a desync, in epoch ms. */
+let _lastDesyncRecoveryMs = 0;
+/** A desync reported within this window of the last replacement is work that
+ *  was already queued on the old pool, not a new poisoning. */
+const DESYNC_RECOVERY_INTERVAL_MS = 10_000;
+/** How long a replaced pool may finish in-flight work before it is closed hard. */
+const REPLACED_POOL_DRAIN_SECONDS = 30;
+/** Opens one Bun.sql pool; null means the real driver. A seam so the unit
+ *  suite can hand out fake pools. */
+let openBunSqlPoolOverride: ((options: { url: string; max: number }) => BunSqlLike) | null = null;
 
 /** Register the just-opened PGlite instance in the process-local holder
  *  registry (globalThis-anchored) so a re-instantiated module — the vite
@@ -764,7 +778,19 @@ async function initPostgres(): Promise<void> {
   // stays at one pool rather than briefly two.
   await closeStaleProcessHolder(EXTERNAL_PG_HOLDER_KEY);
 
-  const db = drizzle({ connection: { url: DATABASE_URL!, max: poolMax }, schema });
+  // The pool sits behind a swap point so a desynchronized driver connection
+  // can be discarded without rebuilding every holder of `db` (W09f; see
+  // swappable-bun-sql.ts and recoverFromDriverDesync below).
+  const { SQL } = await import("bun");
+  const poolOptions = { url: DATABASE_URL!, max: poolMax };
+  const openPool = openBunSqlPoolOverride ?? ((options: typeof poolOptions) => new SQL(options) as unknown as BunSqlLike);
+  const externalPool = swappableBunSql(() => openPool(poolOptions), {
+    drainSeconds: REPLACED_POOL_DRAIN_SECONDS,
+    onCloseError: (err) => log.warn("replaced Bun.sql pool did not close cleanly", { error: String(err) }),
+  });
+  const db = drizzle({ client: externalPool.client as unknown as InstanceType<typeof SQL>, schema });
+  _externalPool = externalPool;
+  _lastDesyncRecoveryMs = 0;
   _pglite = null;
 
   // Publish the just-opened pool so the NEXT module instance can find and drain
@@ -962,7 +988,35 @@ export async function closeDb(): Promise<void> {
   }
   _pglite = null;
   _db = null;
+  _externalPool = null;
   _initPromise = null;
+}
+
+/**
+ * Discard the external pool after a driver statement desync (W09f).
+ *
+ * Bun 1.3.14 can leave a pooled connection whose prepared-statement
+ * bookkeeping no longer matches the server; every request pipelined behind it
+ * then fails with the same 08P01. Retrying on that pool would keep landing on
+ * the poisoned connection, and Bun cannot evict one chosen connection, so the
+ * whole pool is replaced: new work goes to a fresh pool at once and the old one
+ * closes after its in-flight work drains.
+ *
+ * Returns true when it replaced the pool. Anything that is not a desync, a
+ * PGlite process, or a desync reported within DESYNC_RECOVERY_INTERVAL_MS of
+ * the last replacement (work that was already queued on the old pool) returns
+ * false and changes nothing. It never throws for the caller's error: that
+ * error stays the caller's to report.
+ */
+export async function recoverFromDriverDesync(error: unknown, now: () => number = Date.now): Promise<boolean> {
+  const pool = _externalPool;
+  if (!pool || !isDriverStatementDesync(error)) return false;
+  if (now() - _lastDesyncRecoveryMs < DESYNC_RECOVERY_INTERVAL_MS) return false;
+  _lastDesyncRecoveryMs = now();
+  log.warn("Bun.sql statement bookkeeping desynchronized; replacing the connection pool", { causes: errorChain(error) });
+  await pool.replace();
+  log.info("Bun.sql connection pool replaced", { generation: pool.generation });
+  return true;
 }
 
 // Exported for tests. Placed at the end of the module so its object literal
@@ -991,6 +1045,10 @@ export const __test = {
   // coverage shards never do — exposed here so a unit test can drive the
   // Bun.sql branch directly with a mocked driver (no real server).
   initPostgres,
+  /** Hand out fake pools instead of opening Bun.sql ones. */
+  setBunSqlPoolOpener(open: ((options: { url: string; max: number }) => BunSqlLike) | null): void {
+    openBunSqlPoolOverride = open;
+  },
   recoverInterruptedRollback,
   registerProcessHolder,
   writeRollbackMarker,

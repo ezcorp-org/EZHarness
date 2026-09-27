@@ -1,0 +1,60 @@
+2026-09-27 validator-4 on W09f f4419f241781ca19c9d88067abed2afc43396f4b (wp/w09f-run-projection; base integ/w00
+b10b7ea1a; code head af673760e): ACCEPT. No findings. G8 stays open for W12e, as the gates file states.
+
+Identity: git log --format='%an <%ae> / %cn <%ce>' b10b7ea1a..f4419f241 shows archy with the noreply address as author
+and committer on all five commits (ef9ba50f5, c4a5cc1f0, 488b51458, af673760e, f4419f241). f4419f241 changes only
+tasks/ over af673760e. Shared .git/config sha256 prefix 44962525f1ca1a8b before and after.
+Scratch worktree .worktrees/val-w09f at f4419f241: frozen installs at root and web/, packages built, core.bare false at
+worktree level, identity set explicitly, clean at start and after every leg; removed after this verdict.
+
+Test counts per leg (every receipt: commit f4419f241, exit 0, clean at start, log sha256; no environment; no URL in argv)
+  Hold under flock --close, gate before each leg (13-17 GiB available, 5 GiB swap free, 125 GB disk), 11:23-11:26Z:
+    postgres: bun-sql-pool-replacement, factory-run-lifecycle, factory-run-lifecycle-s3, factory-records    159/0
+    unit-coverage: 11 files (error-chain, swappable-bun-sql, snapshot guard, the four isUniqueViolation callers,
+      runtime-workers, installation-startup, runtime-composition, factory-run-lifecycle)                   218/0
+    unit-connection-coverage: cov-fix-connection-postgres alone                                             10/0
+    web-coverage: factory-boot, context-initialization, context-register-preview-bus,
+      context-state-mediator-wiring                                                                         19/19
+    merge-lcov 1284 files; new-file gate PASSED (2 new files gated); patch gate PASSED (6 files); BASE_REF=b10b7ea1a
+  Single-file suites (one file per run, memory gate before each):
+    error-chain 9/0 (error-chain.ts 100 percent lines and functions); swappable-bun-sql 4/0; snapshot guard 1/0;
+    isUniqueViolation callers session-backfill-parity 11, workflow-name-conflict-race 8,
+      workflow-nested-idempotency-conflict 4, db-queries-user-commands-race 2 (total 25/0);
+    db-connection (mock driver) 15/0; cov-fix-connection-postgres (mock driver) 10/0;
+    web factory-boot.server 13/13 (base 10 plus the cause, recovery hand-off and failed-replacement tests);
+    suite registration drift (scripts/factory-postgres-suite-registration.test.ts) 5/0
+  Static: boundary suites (factory-process-boundaries + check-factory-boundaries.test) 48/0; check-factory-boundaries,
+    check-factory-lanes, check-schema-generate-drift, gate-integrity (plain and BASE_REF=b10b7ea1a), typecheck, lint: exit 0
+
+Snapshot guard, red-first by replay (replay.sh, logs/replay-summary.log; private EZ_PGLITE_SNAPSHOT_CACHE_DIR per run;
+mix = cov-fix-connection-postgres then ask-user-answer-durable in one process):
+  head: the mix warns "not caching an incomplete migrated snapshot; missing 151 schema table(s)" and caches nothing;
+    the next clean run passes 4/0 and caches a 67,640,320-byte snapshot; a fresh clean run passes 4/0.
+  mutant (publish check forced true): the mix publishes a 40,373,248-byte unmigrated snapshot; the next clean run on
+    that cache fails 0/4 (relation "users" does not exist). Killed.
+  The guard test (test-pglite-snapshot-guard) checks missingSchemaTables only; the publish decision is proven by this
+  replay. At the head the mix still fails inside its own process; that is the disclosed reason the sweep runs the
+  mocking suite alone.
+
+Mutant table (receipts/mutants.json; each reverted after its run; tree clean after):
+  N1 desync detected on the top link only (error-chain.ts isDriverStatementDesync)        killed (error-chain)
+  N2 no cause-cycle guard (error-chain.ts errorChain)                                    killed (error-chain)
+  N3 no 10 s repeat window (connection.ts recoverFromDriverDesync)                        killed (cov-fix-connection)
+  N4 recovery for any error, not only a desync (connection.ts)                           killed (cov-fix-connection)
+  N5 role report skips recoverDatabase (web factory-boot.ts)                             killed (web factory-boot, 2 tests)
+  N6 role report drops the causes (web factory-boot.ts)                                  killed (web factory-boot)
+  N7 concurrent replacements not shared (swappable-bun-sql.ts replace)                   killed (swappable-bun-sql)
+  N8 old-pool close error not caught (swappable-bun-sql.ts replace)                      killed (swappable-bun-sql)
+  N9 isUniqueViolation reads one link, not two (unique-violation.ts)                     killed (workflow-name-conflict-race, 3 tests)
+  S1 snapshot publish check forced true (test-pglite.ts), by replay                     killed (above)
+  Survivors: none.
+
+Pool replacement against real PostgreSQL (bun-sql-pool-replacement, in the postgres leg): new work reaches the fresh
+pool while an open transaction commits on the old one; the old pool answers "Connection closed" afterwards; the
+Drizzle handle keeps working.
+
+Worker final receipts (/tmp/factory-platform-evidence/w09f/receipts/final-*.json, 14): all name af673760e, exit 0,
+clean at start, log sha256 match. My rerun of the PostgreSQL and unit legs matches (159/0, 218/0, 10/0).
+
+Note (not a finding): pool replacement is triggered only from the factory background-role report, as the gates file
+states. Other database callers that hit a desync are not wired to recoverFromDriverDesync.

@@ -10,8 +10,10 @@ import {
   expect,
   describe,
   beforeEach,
+  beforeAll,
   afterAll,
   mock,
+  spyOn,
 } from "bun:test";
 import { mkdtemp, stat } from "node:fs/promises";
 import { existsSync } from "node:fs";
@@ -19,6 +21,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { workspaceFileBytes, type WorkspaceFiles } from "@ezcorp/extension-contract";
 import { restoreModuleMocks, webLibModule, contextModule, serverModule } from "../../../../../../src/__tests__/helpers/mock-cleanup";
+import { ExtensionRegistry } from "../../../../../../src/extensions/registry";
 import {
   mockServerAlias,
   MEMBER_USER,
@@ -80,16 +83,23 @@ mock.module("$server/extensions/source-import", () => ({
   },
 }));
 
+// ExtensionRegistry.getInstance() is a cheap in-memory singleton (no I/O) —
+// never replace the class/module (item C, W18 hygiene): a $server/* alias
+// registration can never be withdrawn, so it freezes on whichever file's
+// registration is active when another file's already-loaded consumer next
+// resolves it. spyOn() the real instance's reload() instead, fetched in
+// beforeAll (test-execution time), not at this file's own top level —
+// otherwise two files that both call getInstance() during the shared
+// loading phase would capture the SAME instance, and the first file's own
+// resetInstance() would leave the second file's spy on a stale, discarded
+// object.
 let reloadCalled = false;
-mock.module("$server/extensions/registry", () => ({
-  ExtensionRegistry: {
-    getInstance: () => ({
-      reload: async () => {
-        reloadCalled = true;
-      },
-    }),
-  },
-}));
+let reloadSpy: ReturnType<typeof spyOn>;
+beforeAll(() => {
+  reloadSpy = spyOn(ExtensionRegistry.getInstance(), "reload").mockImplementation(async () => {
+    reloadCalled = true;
+  });
+});
 
 let invalidatedFor: string | null = null;
 const contextExports = contextModule({
@@ -103,7 +113,11 @@ mock.module("$lib/server/context", () => contextExports);
 
 const { POST } = await import("../commit/+server");
 
-afterAll(() => restoreModuleMocks());
+afterAll(() => {
+  restoreModuleMocks();
+  reloadSpy.mockRestore();
+  ExtensionRegistry.resetInstance();
+});
 
 beforeEach(async () => {
   scopeResponse = null;

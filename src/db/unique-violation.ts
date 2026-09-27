@@ -1,3 +1,5 @@
+import { errorChain } from "./error-chain";
+
 /**
  * Recognise a Postgres unique violation (SQLSTATE 23505) through drizzle's
  * wrapper, under BOTH drivers.
@@ -26,10 +28,5 @@
  * database still carries `pipeline_definitions_name_key`.
  */
 export function isUniqueViolation(err: unknown): boolean {
-  const matches = (e: unknown): boolean => {
-    if (typeof e !== "object" || e === null) return false;
-    const { code, errno } = e as { code?: unknown; errno?: unknown };
-    return String(code) === "23505" || String(errno) === "23505";
-  };
-  return matches(err) || matches((err as { cause?: unknown } | null)?.cause);
+  return errorChain(err).slice(0, 2).some((link) => link.code === "23505" || link.errno === "23505");
 }

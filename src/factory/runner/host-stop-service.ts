@@ -2,6 +2,7 @@ import { createPrivateKey, type KeyObject } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import type { FactoryPrivateRequest, FactoryPrivateResponse } from "../private-https";
 import { signFactoryPhysicalStopReceipt, type FactoryPhysicalStopReason, type FactoryPhysicalStopReceipt, type FactoryUnsignedPhysicalStopReceipt } from "./attempt-wire";
+import { FACTORY_HOST_FORBIDDEN_TENANT, factoryHostPeerTenantLookup, type FactoryHostGuestTenants, type FactoryHostPeerTenants } from "./host-peer-tenants";
 
 /** The sealed coordinates a gateway may ask a host to stop. */
 export interface FactoryHostStopCommand {
@@ -12,6 +13,8 @@ export interface FactoryHostStopCommand {
   readonly allocationGeneration: number;
   readonly hostId: string;
   readonly reason: FactoryPhysicalStopReason;
+  /** The tenant whose guest this is. Optional on the wire; without it the host uses the tenant it recorded at launch. */
+  readonly tenantId?: string;
 }
 
 /**
@@ -33,8 +36,10 @@ export interface FactoryHostSigningKeySource {
 
 export interface FactoryHostStopServiceOptions {
   readonly hostId: string;
-  /** mTLS peer identities allowed to request a stop on this host. */
-  readonly allowedPeers: readonly string[];
+  /** Each mTLS peer allowed to request a stop on this host, bound to the one tenant it acts for. */
+  readonly peerTenants: FactoryHostPeerTenants;
+  /** The tenant this host recorded for each guest at launch or reattachment. */
+  readonly guestTenants?: FactoryHostGuestTenants;
   readonly supervisor: FactoryHostStopSupervisor;
   readonly signingKey: FactoryHostSigningKeySource;
   readonly stopTimeoutMs?: number;
@@ -61,7 +66,7 @@ function counter(value: unknown, label: string): number {
 }
 
 const REASONS = new Set<FactoryPhysicalStopReason>(["completed", "failed", "cancelled", "lease-revoked"]);
-const COMMAND_FIELDS = ["attemptId", "reservationId", "workerId", "holderGeneration", "allocationGeneration", "hostId", "reason"];
+const COMMAND_FIELDS = ["attemptId", "reservationId", "workerId", "holderGeneration", "allocationGeneration", "hostId", "reason", "tenantId"];
 
 function command(body: unknown, hostId: string): FactoryHostStopCommand {
   if (!body || typeof body !== "object" || Array.isArray(body)) refuse(400, "invalid_request");
@@ -80,6 +85,7 @@ function command(body: unknown, hostId: string): FactoryHostStopCommand {
     allocationGeneration: counter(value.allocationGeneration, "allocation_generation"),
     hostId: named,
     reason: reason as FactoryPhysicalStopReason,
+    ...(value.tenantId === undefined ? {} : { tenantId: text(value.tenantId, "tenant") }),
   });
 }
 
@@ -111,21 +117,29 @@ function json(status: number, value: unknown): FactoryPrivateResponse {
  * Only the mutual-TLS peer identity authorizes the request; nothing in the body
  * names the caller. The response is a physical observation the host signs
  * itself, so a gateway callback can request a stop but can never assert one.
+ *
+ * The guest's tenant must be the one the peer is bound to (W01i). It is the
+ * tenant this host recorded when the guest was launched or reattached, else the
+ * one the request names; a named tenant that disagrees with the recorded one, a
+ * tenant that is not the peer's, or a guest whose tenant is known neither way is
+ * refused `403 forbidden_tenant` before the supervisor is called.
  */
 export function createFactoryHostStopRouteHandler(options: FactoryHostStopServiceOptions): (request: FactoryPrivateRequest) => Promise<FactoryPrivateResponse> {
   const snapshot = Object.freeze({
     hostId: options.hostId,
-    peers: new Set(options.allowedPeers),
+    peers: factoryHostPeerTenantLookup(options.peerTenants),
+    guestTenants: options.guestTenants,
     supervisor: options.supervisor,
     signingKey: Object.freeze({ ...options.signingKey }),
     stopTimeoutMs: options.stopTimeoutMs ?? 20_000,
   });
-  if (!snapshot.peers.size || snapshot.signingKey.hostId !== snapshot.hostId) throw new Error("Factory host stop service needs its own host and at least one authorized peer.");
+  if (snapshot.signingKey.hostId !== snapshot.hostId) throw new Error("Factory host stop service needs its own host and at least one authorized peer.");
   return async request => {
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-      if (!snapshot.peers.has(request.peerIdentity)) refuse(401, "unauthorized");
+      const peerTenant = snapshot.peers.get(request.peerIdentity);
+      if (peerTenant === undefined) refuse(401, "unauthorized");
       if (request.headers["x-ezcorp-factory-version"] !== "1") refuse(400, "invalid_request");
       if (request.method !== "POST" || request.path !== FACTORY_HOST_STOP_PATH) refuse(404, "not_found");
       if (request.headers["content-type"]?.split(";", 1)[0]?.trim().toLowerCase() !== "application/json") refuse(400, "invalid_request");
@@ -133,6 +147,9 @@ export function createFactoryHostStopRouteHandler(options: FactoryHostStopServic
       try { body = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(request.body)); }
       catch { refuse(400, "invalid_request"); }
       const stop = command(body, snapshot.hostId);
+      const recorded = snapshot.guestTenants?.of(stop.workerId);
+      if (recorded !== undefined && stop.tenantId !== undefined && stop.tenantId !== recorded) refuse(403, FACTORY_HOST_FORBIDDEN_TENANT);
+      if ((recorded ?? stop.tenantId) !== peerTenant) refuse(403, FACTORY_HOST_FORBIDDEN_TENANT);
       timer = setTimeout(() => controller.abort(), snapshot.stopTimeoutMs);
       const unsigned = await snapshot.supervisor.stop(stop, controller.signal);
       if (unsigned.attemptId !== stop.attemptId || unsigned.reservationId !== stop.reservationId || unsigned.workerId !== stop.workerId

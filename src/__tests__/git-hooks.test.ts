@@ -563,6 +563,67 @@ describe("hook-lib > run_staged_tests > factory-orchestrator", () => {
     expect(res.out).not.toContain("no test file maps");
   });
 
+  test("EZ_SKIP_HOOK_TESTS=1 with only orchestrator files staged names the withheld run, not an empty list", () => {
+    // $targets is empty here (the orchestrator file is excluded from it by
+    // design), so the skip message must still name the orchestrator run —
+    // otherwise "skipping the 0 staged test file(s) below:" with nothing
+    // printed reads as nothing was withheld at all, when the orchestrator
+    // run is exactly what this branch withholds.
+    const bin = mkdtempSync(join(tmpdir(), "hook-lib-orchestrator-skip-"));
+    try {
+      writeFileSync(join(bin, "bun"), '#!/bin/sh\necho "ran: $* in $(pwd)"\n', { mode: 0o755 });
+      chmodSync(join(bin, "bun"), 0o755);
+      const res = sh(["bash", "-c", `source "${HOOK_LIB}" && run_staged_tests "$@"`, "_", `${ORCHESTRATOR}/src/validation.ts`], {
+        cwd: REPO_ROOT,
+        env: { ...baseEnv, PATH: `${bin}:${baseEnv.PATH}`, EZ_SKIP_HOOK_TESTS: "1" },
+      });
+      expect(res.exitCode).toBe(0);
+      expect(res.out).toContain("skipping the 0 staged test file(s)");
+      expect(res.out).toContain(ORCHESTRATOR);
+      expect(res.out).toContain("also withheld");
+      expect(res.out).not.toContain("ran: run test");
+      // L1 (W18 hygiene item C fix round): `count -gt 0` is the only guard
+      // between `$targets` being genuinely empty and `printf '%s\n' ""`
+      // still running (one empty line, or "    " once `sed 's/^/    /'`
+      // prepends the fixture's leading-space marker to it) — untested until
+      // now, so a regression that dropped or inverted the guard would have
+      // shipped silently. With count=0 the line right after "skipping the 0
+      // staged test file(s) below:" must be the orchestrator line, not a
+      // blank/whitespace-only one.
+      const lines = res.out.split("\n");
+      const skipLineIndex = lines.findIndex((l) => l.includes("skipping the 0 staged test file(s)"));
+      expect(skipLineIndex).toBeGreaterThanOrEqual(0);
+      expect(lines[skipLineIndex + 1]).not.toMatch(/^\s*$/);
+      expect(lines[skipLineIndex + 1]).toContain(ORCHESTRATOR);
+    } finally {
+      rmSync(bin, { recursive: true, force: true });
+    }
+  });
+
+  test("over-cap block also names the withheld orchestrator run when one is staged alongside it", () => {
+    const bin = mkdtempSync(join(tmpdir(), "hook-lib-orchestrator-cap-"));
+    try {
+      writeFileSync(join(bin, "bun"), '#!/bin/sh\necho "ran: $* in $(pwd)"\n', { mode: 0o755 });
+      chmodSync(join(bin, "bun"), 0o755);
+      const res = sh(
+        ["bash", "-c", `source "${HOOK_LIB}" && run_staged_tests "$@"`, "_",
+          `${ORCHESTRATOR}/src/validation.ts`,
+          "src/__tests__/git-hooks.test.ts",
+          "src/__tests__/gate-scripts.test.ts",
+          "src/__tests__/mock-cleanup-coverage.test.ts",
+        ],
+        { cwd: REPO_ROOT, env: { ...baseEnv, PATH: `${bin}:${baseEnv.PATH}`, EZ_PRECOMMIT_TEST_MAX: "2" } },
+      );
+      expect(res.exitCode).toBe(1);
+      expect(res.out).toContain("NOT running");
+      expect(res.out).toContain(ORCHESTRATOR);
+      expect(res.out).toContain("also withheld");
+      expect(res.out).not.toContain("ran: run test");
+    } finally {
+      rmSync(bin, { recursive: true, force: true });
+    }
+  });
+
   test("a failing package script fails the hook", () => {
     const bin = mkdtempSync(join(tmpdir(), "hook-lib-orchestrator-fail-"));
     try {
