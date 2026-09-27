@@ -1615,3 +1615,18 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 
 - A proof check must describe the promise, not the path I expected. The check "one `:usage-resolved` event" failed two of three passes in which the run ended correctly, because the real server took the reverse order: the stop confirmed after reconciliation and cleared the attempt through its own event. Count the outcome the kernel sees (one `uncertain: false` after the uncertain stop), not the id of the path.
 - When a worktree's git suddenly says "must be run in a work tree", read the shared config. With `extensions.worktreeConfig` on, a shared `core.bare = true` makes every worktree without its own `core.bare = false` stop being a work tree, and tests that shell out to `git grep` or `git check-ignore` fail at any commit. Set it per worktree (`git config --worktree core.bare false`); never edit the shared config.
+
+
+
+## 2026-09-25 — W01h runner outcome unknown
+
+- Under Bun 1.3.14, `node:https` `request.destroy(error)` and an aborted `signal` emit only `close`, never `error`. A promise that rejects only from `error` then never settles. Settle explicitly on the deadline, on abort, and on a `close` that arrives before a response. Node emits `error` in all three cases, so a Node-only test cannot see this.
+- A long result wait over one HTTP call is fragile. Use a bounded long poll: the server answers inside its own window (for example 504 `host_timeout`), keeps a settled answer until it is collected, and the client asks again until the attempt deadline.
+- Never delete a result in the handler that returns it. The caller may already be gone, and the result is then lost for good.
+- An unknown outcome with no durable record stops a run for good: the kernel only moves on `node-failed`. Record a typed `failed` result over the journal's own facts, and let the kernel's `cancel-node` decide the retry.
+- The pre-commit hook runs every staged test file, including `*.podman.integration.test.ts`, without the heavy lock. Commit a Podman test on its own, inside `flock --close /tmp/ezcorp-validation-heavy.lock`.
+- The durable run fence epoch (`factory_run_lifecycle.cancellation_epoch`) moves only on a user cancel. A stop the kernel begins itself (run deadline) makes every later `cancel-node` stale. Check a kernel-initiated stop path end to end before you trust it.
+- Never raise EZ_PRECOMMIT_TEST_MAX so the hook runs suites you did not write. On 2026-09-25 the hook ran c3-extension-install.test.ts, whose `git init` inherited the hook's GIT_DIR and set core.bare=true in the shared repository config. Run such suites yourself, outside the hook, with GIT_DIR, GIT_INDEX_FILE and GIT_WORK_TREE cleared.
+- A skip ruling names one commit. EZ_SKIP_HOOK_TESTS=1 on the a4dc40f3e merge was used under an earlier merge's ruling and needed a retroactive ratification (coordinator, 2026-09-26 00:12Z). Ask the coordinator for the ruling before every skip commit, and name that ruling in the commit message.
+- W19a's `run.sh pass` starts `web/build/index.js` as it finds it; only `run.sh all` builds the web server. A fresh proof tree for a lone pass needs `bun run --cwd web build` first, and the driver must stop if the build is missing. On 2026-09-26 the W01h 70 s pass ran without it: the web process exited at once, the orchestrator got ECONNREFUSED 107 times, and the pass read like a boot stall.
+- Report a job's end to the coordinator within ten minutes, red or green, and read the process logs before naming a cause.

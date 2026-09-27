@@ -773,7 +773,7 @@ async function installationCollaborators(
   const release = await installationReleases(config, host.database, blobs, application.artifacts, application, host.report, gateway.validators);
   const validation = await installationValidatorRoles(config, host, stores, application, release, gateway, signal);
 
-  const attempts = await composeAttemptDispatch(config, host, blobs, stores, application.grants, pool, stopper, validation.composed?.settlement);
+  const attempts = await composeAttemptDispatch(config, host, blobs, stores, application, pool, stopper, validation.composed?.settlement);
   const settlement = await composeSettlement(config, host, stores, service, pool, stopper);
   const notificationInbox = release === undefined ? undefined
     : factoryNotificationInboxDriver(host.database, new FactoryNotificationDelivery(release.releases), config.tenantId);
@@ -922,7 +922,7 @@ async function composeAttemptDispatch(
   host: FactoryInstallationHost,
   blobs: BlobStore,
   stores: FactoryInstallationStores,
-  grants: FactoryApplication["grants"],
+  application: Pick<FactoryApplication, "grants" | "journal">,
   pool: PoolAdmissionClient | undefined,
   stopper: FactoryHostStopClient | undefined,
   settlement?: FactoryComposedValidators["settlement"],
@@ -942,9 +942,11 @@ async function composeAttemptDispatch(
       completions: settlement?.completions ?? stores.completions,
       outcomes: settlement?.outcomes ?? stores.outcomes,
       admissions: stores.compute,
-      readiness: factoryPackageReadiness(host.database, config.tenantId, grants, blobs),
+      readiness: factoryPackageReadiness(host.database, config.tenantId, application.grants, blobs),
       pool,
       stopper: stopper.physical,
+      journal: application.journal,
+      report: host.report,
     });
   } catch (error) {
     host.report("attempt-dispatch-composition", error);

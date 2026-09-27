@@ -10,6 +10,10 @@ import { FramedExecution, type FramedTransport, type ReverseRpc } from "./protoc
 import { fetchLockedDependencies } from "./dependencies";
 import { browserBuild, browserBuilderProgram } from "./browser";
 
+/** How long a closed worker's container may take to be marked exited before its removal reads it: 10 x 200 ms. */
+const EXIT_SETTLE_POLLS = 10;
+const EXIT_SETTLE_INTERVAL_MS = 200;
+
 /**
  * The runner image, pinned to the OCI **index** of `oven/bun:1.3.14` rather
  * than to one platform's manifest.
@@ -609,7 +613,7 @@ export class PodmanRunner implements Runner {
         const registered = contexts.get(context.invocationId);
         if (!registered || canonicalJson(registered) !== canonicalJson(context) || Date.now() >= context.deadline || this.operations.get(input.workerId)?.state !== "running") throw new RunnerError("context_expired", "Invocation is no longer active or identity does not match");
         return reverseRpc(method, params);
-      }, () => this.remove(input.workerId), Math.min(limits.outputBytes, 1024 ** 2), limits.timeoutMs, (method, params) => {
+      }, () => this.remove(input.workerId, true), Math.min(limits.outputBytes, 1024 ** 2), limits.timeoutMs, (method, params) => {
         if (method === "extension/discover" || method === "extension/cancel") return () => {};
         const context = structuredClone(validateInvocationContext((params as { context?: unknown })?.context));
         if (["workerId", "releaseId", "principalId", "scopeId"].some(key => context[key as keyof InvocationContext] !== input.context[key as keyof InvocationContext]) || context.deadline <= Date.now() || context.deadline > Date.now() + limits.timeoutMs || contexts.has(context.invocationId)) throw new RunnerError("invalid_context", "Invocation identity, deadline or active ID is invalid");
@@ -624,7 +628,8 @@ export class PodmanRunner implements Runner {
       this.deadlines.set(input.workerId, setTimeout(() => { void this.cancel(input.workerId).catch(cleanupFailed); }, Math.min(limits.timeoutMs, input.context.deadline - Date.now())));
       void execution.exited.then(code => {
         const current = this.operations.get(input.workerId);
-        if (current?.state === "running") this.operations.set(input.workerId, { id: input.workerId, state: code === 0 ? "succeeded" : "failed", diagnostics: code === 0 ? [] : [new RunnerError("worker_exited", `Worker exited ${code}`).diagnostic()] });
+        // What the container's removal already recorded (its own exit code) is kept.
+        if (current?.state === "running") this.operations.set(input.workerId, { id: input.workerId, state: code === 0 ? "succeeded" : "failed", diagnostics: code === 0 ? current.diagnostics : [...current.diagnostics, new RunnerError("worker_exited", `Worker exited ${code}`).diagnostic()] });
       }).finally(async () => {
         clearTimeout(this.deadlines.get(input.workerId));
         this.deadlines.delete(input.workerId);
@@ -680,17 +685,35 @@ export class PodmanRunner implements Runner {
     if (this.lease) { const lease = this.lease; this.lease = undefined; lease.stdin.end(); await new Promise<void>(resolve => lease.once("exit", () => resolve())); }
     this.ready = undefined;
   }
-  protected async remove(id: string): Promise<void> {
+  /**
+   * Removes a worker's container, after reading what it can still say.
+   *
+   * `settled` is a worker whose channel already closed: its process is gone but
+   * Podman may not have marked the container exited yet, so the read waits for
+   * that briefly and records the container's own exit code. A cancel removes a
+   * live container and does not wait.
+   */
+  protected async remove(id: string, settled = false): Promise<void> {
     this.channels.get(id)?.();
     this.channels.delete(id);
     const name = this.containers.get(id);
     if (!name) { await this.discardChannel(id); return; }
     this.containers.delete(id);
     try {
-      const state = JSON.parse(await command(this.podman, ["inspect", "--format={{json .State}}", name]));
+      const read = async () => JSON.parse(await command(this.podman, ["inspect", "--format={{json .State}}", name])) as { Running?: unknown; OOMKilled?: unknown; ExitCode?: unknown };
+      let state = await read();
+      for (let poll = 0; settled && state.Running === true && poll < EXIT_SETTLE_POLLS; poll++) {
+        await new Promise(resolve => setTimeout(resolve, EXIT_SETTLE_INTERVAL_MS));
+        state = await read();
+      }
       if (state.OOMKilled) {
         const current = this.operations.get(id);
         if (current) this.operations.set(id, { ...current, state: "failed", diagnostics: [...current.diagnostics, new RunnerError("memory_limit", "Kernel terminated worker at its memory limit").diagnostic()] });
+      }
+      // The container's own exit code: the client process often ends by signal and reports none.
+      if (state.Running !== true && Number.isInteger(state.ExitCode) && state.ExitCode !== 0) {
+        const current = this.operations.get(id);
+        if (current) this.operations.set(id, { ...current, diagnostics: [...current.diagnostics, new RunnerError("container_exited", `Container ended with exit code ${state.ExitCode}`).diagnostic()] });
       }
     } catch {}
     try { await command(this.podman, ["rm", "--force", "--time=0", "--ignore", name]); } catch (error) { this.containers.set(id, name); throw error; }
