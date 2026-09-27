@@ -275,10 +275,14 @@ terminal result, and the stop sealed earlier with reason `cancelled` re-derived 
   locks the launch row and then creates the stop row, which no transaction can hold first; the lost-result write
   locks only the launch row and reads the stop row unlocked (it never changes once committed). This order was
   chosen because every settlement can reach the launch row only through its stop row, so the one new path adapts.
-  CHECK: under the lock, `tests/postgres/factory-stop-lock-order.test.ts` (real PostgreSQL, two connections: the
-  settlement holds the stop row, the lost result takes the launch row, then the settlement asks for the launch
-  row). EXPECT: red on the previous code with "deadlock detected" captured (`logs/fix5/lock-order-red.log`), green
-  on the fix; `factory-stop-after-loss` 3/0. EVIDENCE (`w01h-fix5-locked.sh`, 2026-09-27 13:05Z to 13:08Z):
+  CHECK: `tests/postgres/factory-stop-lock-order.test.ts` on real PostgreSQL, deterministic after validator-2's two
+  low notes: it drives the REAL paths (`recordLostTerminal`, and `FactoryTaskStops.stop`, whose `readSealed` locks
+  the stop row and then the launch row) and synchronizes on the database: a gate connection holds the launch row,
+  the lost result queues on it, the settlement takes the stop row and queues behind it, each step confirmed in
+  pg_stat_activity (wait_event_type Lock) with a bounded 10 s poll; then the gate releases. EXPECT: red on the
+  previous code with "deadlock detected" (`logs/fix6/lock-order-red.log`), green on the fix three runs in a row
+  (`logs/fix6/lock-order-green-{1,2,3}.log`; the lost result is `stop-sealed`, the stop settles `stopped` with reason
+  `cancelled`); `factory-stop-after-loss` 3/0. The first, sleep-based version's logs are `logs/fix5/`. EVIDENCE (`w01h-fix5-locked.sh`, 2026-09-27 13:05Z to 13:08Z):
   PostgreSQL task-stops 25/0, run-lifecycle 79/0, migration-restart 18/0, executions 7/0, host-launch 1/0; Podman
   lost-result 1/0; coverage leg 54/0; patch gate PASSED, 2 files, against `aefcf828f` (`logs/fix5/`); the commit's
   hook ran attempt-runtime 18/0 and the lock-order test 1/0 under the lock.
