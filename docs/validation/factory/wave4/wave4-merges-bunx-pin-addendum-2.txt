@@ -1,0 +1,29 @@
+Wave4 merges addendum 2: the bunx pin gap, the team's audit (lead, 2026-09-27), completing wave4-merges-bunx-pin-addendum.txt.
+Same disclosure form: steps that ran under Bun 1.4.2 through the system bunx; every server ran under the pinned 1.3.14;
+nothing is void anywhere.
+
+- validator-2: web builds (`bunx --bun vite build`) and the Playwright runner ran under 1.4.2 in the W01i lanes, W14's
+  lanes, W14b's builds, W19a's campaigns, the W01h fault pass and the W15b web-build leg. Every server ran under 1.3.14
+  (web/e2e/factory-services/stack.ts via process.execPath; the graph proof via its own runtime). Disclosure lines are
+  filed in those verdict files.
+- validator-3: only `bunx --bun svelte-kit sync` in scripts/typecheck.sh (alias sync) ran under 1.4.2.
+- validator-4: W03e's web build for its real passes ran under 1.4.2, the servers under the pin. W15f, W09g and W03f had no
+  web build in its runs; their Vitest ran under Node.
+- w15b-fix (W09g): W09g's Vitest ran under Node (Vitest's node shebang; bunx without --bun); only the svelte-kit sync ran
+  under 1.4.2.
+- integrator-2 (this ledger's merge batches): as listed in wave4-merges-bunx-pin-addendum.txt. The web build before each
+  runbook mock pass (W16c, W14b, item C, W09f, W01h, W01i, W15f, W09g, W16d), W01h's fault-pass web build, and W01i's lane
+  web build and `bunx playwright test` runner. Also scripts/typecheck.sh's `bunx --bun svelte-kit sync` inside every fast
+  check's typecheck step (the same alias sync validator-3 names). The merge batches' web Vitest legs use npx vitest (Node).
+
+W09g's own record, taken from wp/w09g-vite-bun-import 64b767f52 (a docs commit over d54f5090d that changes only
+tasks/factory/w09g-GATES.md; archy noreply as author and committer), attributed to W09g. By the lead's ruling, 64b767f52 is
+not merged: this addendum supersedes it. Its paragraph, verbatim:
+
+
+Addendum, Bun pin gap (found by w01g-fix): until 19:36Z the pinned Bun directory had no `bunx`, so every `bunx vitest`
+run here (the reproduction, the red and green logs, and run 1's web pool) was launched by the system bunx, Bun 1.4.2.
+vitest's bin has a node shebang and bunx without `--bun` runs it under Node (v24.14.1); the load test asserts
+`globalThis.Bun` is undefined. So no vitest test ran on Bun 1.4.2. `bunx --bun svelte-kit sync` inside
+scripts/typecheck.sh did run on 1.4.2 (alias sync only). All `bun test` legs ran on 1.3.14. The acceptance evidence for
+the web pool is validator-4's run (npx vitest).
