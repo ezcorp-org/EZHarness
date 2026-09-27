@@ -3,7 +3,8 @@
 	import type { FactoryRunDetails, FactoryRunSummary, FactoryRunRevisionBody, FactoryTransportValue } from "@ezcorp/factory-sdk/types";
 	import { FactoryApiClient, FactoryApiClientError, type FactoryRunControlApi } from "./client";
 
-	let { projectId, api = new FactoryApiClient() }: { projectId: string; api?: FactoryRunControlApi } = $props();
+	/** With `runId`, the controls act on that one run and show no run list (the run inspector embeds them this way). */
+	let { projectId, runId, api = new FactoryApiClient() }: { projectId: string; runId?: string; api?: FactoryRunControlApi } = $props();
 
 	/** Only a live run can take a control; a terminal one needs a new run, not a repair. */
 	const CONTROLLABLE = ["queued", "running", "waiting"] as const;
@@ -30,7 +31,9 @@
 		selected = null;
 		errorMessage = "";
 		receiptMessage = "";
-		if (currentProject) void load(currentProject, version);
+		if (!currentProject) return;
+		if (runId) void select({ runId } as FactoryRunSummary);
+		else void load(currentProject, version);
 	});
 
 	function describe(error: unknown): string {
@@ -44,7 +47,7 @@
 	}
 
 	async function load(currentProject = projectId, version = ++requestVersion): Promise<void> {
-		if (!currentProject) return;
+		if (!currentProject || runId) return;
 		loading = true;
 		errorMessage = "";
 		try {
@@ -113,14 +116,18 @@
 			<p>Bounded remediation</p>
 			<h2 id="run-controls-title">Run controls</h2>
 		</div>
-		<span class="count" aria-label={`${runs.length} factory runs`}>{runs.length}</span>
-		<button class="refresh" aria-label="Refresh factory runs" disabled={loading || !projectId} onclick={() => load()}><span class:spin={loading}><RefreshCw size={15} /></span></button>
+		{#if !runId}
+			<span class="count" aria-label={`${runs.length} factory runs`}>{runs.length}</span>
+			<button class="refresh" aria-label="Refresh factory runs" disabled={loading || !projectId} onclick={() => load()}><span class:spin={loading}><RefreshCw size={15} /></span></button>
+		{/if}
 	</header>
 
 	{#if errorMessage}<div class="control-error" role="alert">{errorMessage}</div>{/if}
 	{#if receiptMessage}<div class="control-receipt" role="status">{receiptMessage}</div>{/if}
 
-	{#if loading && runs.length === 0}
+	{#if runId}
+		<!-- The embedding view already chose the run. -->
+	{:else if loading && runs.length === 0}
 		<p class="empty" aria-live="polite">Reading current runs…</p>
 	{:else if runs.length === 0}
 		<p class="empty">This project has no factory runs yet.</p>
@@ -176,11 +183,11 @@
 	.spin { display: grid; animation: spin 1s linear infinite; }
 	@keyframes spin { to { transform: rotate(360deg); } }
 	.control-error, .control-receipt { margin: 0 28px 10px; border-radius: 8px; padding: 8px 12px; font-size: 12px; }
-	.control-error { border: 1px solid color-mix(in srgb, var(--color-danger) 40%, transparent); background: color-mix(in srgb, var(--color-danger) 12%, transparent); color: var(--color-danger); }
+	.control-error { border: 1px solid color-mix(in srgb, var(--color-red-600) 40%, transparent); background: color-mix(in srgb, var(--color-red-600) 12%, transparent); color: var(--color-red-600); }
 	.control-receipt { border: 1px solid color-mix(in srgb, var(--color-accent) 40%, transparent); background: color-mix(in srgb, var(--color-accent) 10%, transparent); color: var(--color-accent); }
 	.empty { margin: 0; padding: 0 28px 16px; color: var(--color-text-secondary); font-size: 12px; }
 	.runs { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0 28px 14px; list-style: none; }
-	.run { display: grid; width: 100%; grid-template-columns: 1fr auto; gap: 2px 12px; border: 1px solid var(--color-border); border-radius: 10px; padding: 8px 12px; background: var(--color-surface-primary); color: inherit; text-align: left; cursor: pointer; }
+	.run { display: grid; width: 100%; grid-template-columns: 1fr auto; gap: 2px 12px; border: 1px solid var(--color-border); border-radius: 10px; padding: 8px 12px; background: var(--color-surface-elevated); color: inherit; text-align: left; cursor: pointer; }
 	.run:disabled { cursor: default; opacity: .55; }
 	.run.active { border-color: var(--color-accent); }
 	.run code { font-family: var(--font-mono); font-size: 12px; overflow-wrap: anywhere; }
@@ -194,7 +201,7 @@
 	.actions button { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--color-border); border-radius: 8px; padding: 6px 12px; background: transparent; color: var(--color-text-secondary); font-size: 12px; cursor: pointer; }
 	.actions button.chosen { border-color: var(--color-accent); background: color-mix(in srgb, var(--color-accent) 12%, transparent); color: var(--color-accent); }
 	label { display: flex; flex-direction: column; gap: 4px; color: var(--color-text-secondary); font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
-	input, textarea { border: 1px solid var(--color-border); border-radius: 8px; padding: 7px 10px; background: var(--color-surface-primary); color: var(--color-text-primary); font-family: var(--font-mono); font-size: 12px; }
+	input, textarea { border: 1px solid var(--color-border); border-radius: 8px; padding: 7px 10px; background: var(--color-surface-elevated); color: var(--color-text-primary); font-family: var(--font-mono); font-size: 12px; }
 	textarea { resize: vertical; }
 	.submit { align-self: flex-start; border: 1px solid var(--color-accent); border-radius: 8px; padding: 7px 16px; background: color-mix(in srgb, var(--color-accent) 14%, transparent); color: var(--color-accent); font-size: 12px; font-weight: 600; cursor: pointer; }
 	.submit:disabled { cursor: default; opacity: .6; }

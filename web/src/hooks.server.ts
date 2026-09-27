@@ -31,6 +31,7 @@ import { runWithGateInitiator } from "$server/auth/gate-initiator";
 import { isRegisteredFactoryRoute } from "$server/auth/factory-service-routes";
 import { factoryBootConfig } from "$server/factory/boot";
 import { getFactoryApplication } from "$server/factory/application";
+import { registerFactoryConsole } from "$lib/server/factory/console-dispatch";
 
 const log = logger.child("hooks.server");
 
@@ -1025,6 +1026,10 @@ const handleApp: Handle = async ({ event, resolve }) => {
 
   return response;
 };
+
+// The live console's request kinds and error families join the shared factory
+// route boundary before the first request (W14).
+registerFactoryConsole();
 
 // db-audit (connection-health): count every in-flight request so graceful
 // shutdown drains them before closing the DB. `beginRequest()` returns a

@@ -1,0 +1,9 @@
+[journeys] 2026-09-27T06:54:22Z building web at 77c93884467a3c2122ce4960f417b9c23803755e dirty=0
+[journeys] 2026-09-27T06:55:18Z stack held on port 56255
+[journeys] 2026-09-27T06:58:29Z playwright exit=0
+[journeys] stack exit=0
+[factory-services] package prepared: {"package":"@ezcorp/factory-services-guest","manifestName":"factory-services-guest","version":"1.0.0","digest":"sha256:738e250b9bf5897487d41e27711078ada4d2a33113cb6d22352dc072d5be033e","export":"run","configurationDigest":"sha256:84a02926734ccac153648ed8f9fe1e0b9a7ec6548a94cd2286e529c52c02f4f0"}
+[factory-services] draft factory-services.future.v1 rewritten as schema factory.v9
+[factory-services] restore restore-1790492101381_e551ea: the operator command exited 2 with 1 blocked checks
+[factory-services] stopping: SIGTERM
+[factory-services] removed 3 published object version(s) under this run's release prefix

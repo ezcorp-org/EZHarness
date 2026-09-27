@@ -175,6 +175,7 @@ jobs:
           ./tests/postgres/factory-boot.test.ts
           ./tests/postgres/factory-run-lifecycle-s3.test.ts
           ./tests/postgres/factory-run-inputs.test.ts
+          ./tests/postgres/factory-console.test.ts
           ./tests/postgres/factory-definitions.test.ts
           ./tests/postgres/factory-private-service.test.ts
           ./tests/postgres/factory-package-preparation.test.ts

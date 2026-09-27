@@ -3174,4 +3174,12 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
       expect((await nodeHttpsRequest(path, certs, { token, body: { ...request, tenantId: "foreign" } })).status).toBe(403);
     });
   });
+
+  test("a release store without the command authority cannot list an approval node's request; with it the request is listed", async () => {
+    const { item, releases } = await prepareApproval("operator", "authority-listing");
+    // The store the installation composed before c5b14cb49: the same pieces, no command-approval authority.
+    const bare = new FactoryReleases(fixture.db, tenantId, grants, { tenantId } as never, {} as never, {} as never, {} as never, {} as never, {} as never, () => now, 10_000);
+    await expect(bare.listDeliveredNotifications(principal, projectId, { limit: 200 })).rejects.toMatchObject({ code: "factory_command_approval_authority_unavailable" });
+    expect((await releases.listDeliveredNotifications(principal, projectId, { limit: 200 })).items.some(value => value.kind === "command_approval_requested" && value.approvalId === item.approvalId)).toBe(true);
+  });
 }

@@ -31,6 +31,7 @@ import {
   type FactoryDraftDetails,
   type FactoryDraftSummary,
   type FactoryGrantListQuery,
+  type FactoryPackageAffectedRunsQuery,
   type FactoryListQuery,
   type FactoryRunListQuery,
 } from "@ezcorp/factory-sdk";
@@ -71,6 +72,13 @@ const MUTATION_KINDS = new Set([
   "release.policy.put",
   "release.policy.delete",
   "release.reconcile",
+  // The live console's mutations (W14), answered by the registered console dispatcher.
+  "package.install",
+  "package.trust",
+  "purge.request",
+  "artifact.share",
+  "artifact.unshare",
+  "restore.sign",
 ]);
 
 export function readFactoryJson(request: Request): Promise<unknown> {
@@ -89,6 +97,10 @@ export function factoryRunListQuery(url: URL): FactoryRunListQuery {
   return compactQuery(url, ["limit", "cursor", "search", "status", "factoryId"] as const) as FactoryRunListQuery;
 }
 
+export function factoryPackageAffectedRunsQuery(url: URL): FactoryPackageAffectedRunsQuery {
+  return compactQuery(url, ["limit", "cursor", "trustRevision"] as const) as FactoryPackageAffectedRunsQuery;
+}
+
 export function factoryGrantListQuery(url: URL): FactoryGrantListQuery {
   return compactQuery(url, ["limit", "cursor", "principalKind", "action"] as const) as FactoryGrantListQuery;
 }
@@ -98,7 +110,7 @@ function compactQuery(url: URL, keys: readonly string[]): Record<string, unknown
   for (const key of keys) {
     const value = url.searchParams.get(key);
     if (value === null) continue;
-    if (key === "limit") query[key] = Number(value);
+    if (key === "limit" || key === "trustRevision") query[key] = Number(value);
     else if (key === "archived") query[key] = value === "true" ? true : value === "false" ? false : value;
     else query[key] = value;
   }

@@ -61,3 +61,12 @@ export const RUNTIME_EVENT_NAMES = [
 ] as const;
 
 export type RuntimeEventName = (typeof RUNTIME_EVENT_NAMES)[number];
+
+/**
+ * Frames on the factory run event stream (`GET /api/factories/projects/:projectId/runs/:runId/events`).
+ * A separate list because that stream is not the runtime bus: `BUS_EVENTS`
+ * must not subscribe to names the bus never emits.
+ */
+export const FACTORY_STREAM_EVENT_NAMES = ["factory:run-event", "factory:run-status", "factory:stream-closed"] as const;
+
+export type FactoryStreamEventName = (typeof FACTORY_STREAM_EVENT_NAMES)[number];

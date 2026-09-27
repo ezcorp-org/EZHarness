@@ -15,10 +15,54 @@ function api(items: readonly FactoryReleaseNotificationResource[] = [], nextCurs
 		listReleaseNotifications: vi.fn(async () => ({ items, nextCursor })),
 		decideReleaseApproval: vi.fn(async () => ({ approvalId: approval.approvalId, contextDigest: digest, status: "approved" as const })),
 		decideCommandApproval: vi.fn(),
+		reconcileRelease: vi.fn(async (_project: string, operationId: string) => ({ operationId, state: "uncertain" }) as never),
 	};
 }
 
 describe("FactoryReleaseInbox", () => {
+	test("an uncertain release is reconciled at its exact generation, and bad evidence never leaves the page", async () => {
+		const service = api([uncertain]);
+		render(FactoryReleaseInbox, { projectId: "project-1", api: service });
+		const card = (await screen.findByText("Release outcome uncertain")).closest("article")!;
+		await fireEvent.click(within(card).getByRole("button", { name: "Reconcile" }));
+		const form = screen.getByRole("form", { name: "Reconcile release-uncertain" });
+		const submit = within(form).getByRole("button", { name: "Record reconciliation at generation 2" });
+		expect(submit).toBeDisabled();
+		await fireEvent.input(within(form).getByLabelText("Reason"), { target: { value: " Looked up the provider; no object exists " } });
+		await fireEvent.input(within(form).getByLabelText("Provider evidence (JSON)"), { target: { value: "{" } });
+		await fireEvent.click(submit);
+		expect(await screen.findByRole("alert")).toHaveTextContent("The provider evidence is not valid JSON.");
+		await fireEvent.change(within(form).getByLabelText("Outcome"), { target: { value: "attach_receipt" } });
+		await fireEvent.input(within(form).getByLabelText("Provider evidence (JSON)"), { target: { value: '{"lookup":true}' } });
+		await fireEvent.input(within(form).getByLabelText("Provider receipt (JSON)"), { target: { value: "[" } });
+		await fireEvent.click(submit);
+		expect(await screen.findByRole("alert")).toHaveTextContent("The receipt is not valid JSON.");
+		expect(service.reconcileRelease).not.toHaveBeenCalled();
+		await fireEvent.input(within(form).getByLabelText("Provider receipt (JSON)"), { target: { value: '{"receiptId":"r-1"}' } });
+		await fireEvent.click(submit);
+		expect(await screen.findByRole("status")).toHaveTextContent("Reconciliation recorded. Release release-uncertain is now in the uncertain state.");
+		expect(service.reconcileRelease).toHaveBeenCalledWith("project-1", "release-uncertain", 2, { action: "attach_receipt", reason: "Looked up the provider; no object exists", providerEvidence: { lookup: true }, receipt: { receiptId: "r-1" } });
+		expect(service.listReleaseNotifications).toHaveBeenCalledTimes(2);
+	});
+
+	test("a refused reconciliation stays on the form, and cancel closes it", async () => {
+		const service = api([uncertain]);
+		service.reconcileRelease = vi.fn(async () => { throw new Error("A human session is required to reconcile a release."); });
+		render(FactoryReleaseInbox, { projectId: "project-1", api: service });
+		const card = (await screen.findByText("Release outcome uncertain")).closest("article")!;
+		await fireEvent.click(within(card).getByRole("button", { name: "Reconcile" }));
+		const form = screen.getByRole("form", { name: "Reconcile release-uncertain" });
+		await fireEvent.input(within(form).getByLabelText("Reason"), { target: { value: "checked" } });
+		await fireEvent.click(within(form).getByRole("button", { name: /Record reconciliation/ }));
+		expect(await screen.findByRole("alert")).toHaveTextContent("A human session is required to reconcile a release.");
+		expect(service.reconcileRelease).toHaveBeenCalledWith("project-1", "release-uncertain", 2, { action: "keep_uncertain", reason: "checked", providerEvidence: {} });
+		service.reconcileRelease = vi.fn(async () => { throw "nope"; });
+		await fireEvent.click(within(form).getByRole("button", { name: /Record reconciliation/ }));
+		await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("The reconciliation failed."));
+		await fireEvent.click(within(form).getByRole("button", { name: "Cancel" }));
+		expect(screen.queryByRole("form", { name: "Reconcile release-uncertain" })).toBeNull();
+	});
+
 	test("shows each durable notification once and sends the exact approval decision", async () => {
 		const service = api([approval, approval, uncertain, settled]);
 		render(FactoryReleaseInbox, { projectId: "project-1", api: service });
@@ -40,7 +84,7 @@ describe("FactoryReleaseInbox", () => {
 		const decide = vi.fn()
 			.mockRejectedValueOnce(new Error("Decision authority changed."))
 			.mockResolvedValueOnce({ approvalId: approval.approvalId, contextDigest: digest, status: "denied" as const });
-		const service = { listReleaseNotifications: list, decideReleaseApproval: decide, decideCommandApproval: vi.fn() } satisfies FactoryReleaseNotificationApi;
+		const service = { listReleaseNotifications: list, decideReleaseApproval: decide, decideCommandApproval: vi.fn(), reconcileRelease: vi.fn() } satisfies FactoryReleaseNotificationApi;
 		render(FactoryReleaseInbox, { projectId: "project-1", api: service });
 		await screen.findByText("Release outcome uncertain");
 		await fireEvent.click(screen.getByRole("button", { name: "Load more" }));
@@ -74,7 +118,7 @@ describe("FactoryReleaseInbox", () => {
 		const list = vi.fn()
 			.mockRejectedValueOnce(new Error("Inbox unavailable."))
 			.mockResolvedValueOnce({ items: [], nextCursor: null });
-		const service = { listReleaseNotifications: list, decideReleaseApproval: vi.fn(), decideCommandApproval: vi.fn() } satisfies FactoryReleaseNotificationApi;
+		const service = { listReleaseNotifications: list, decideReleaseApproval: vi.fn(), decideCommandApproval: vi.fn(), reconcileRelease: vi.fn() } satisfies FactoryReleaseNotificationApi;
 		render(FactoryReleaseInbox, { projectId: "project-1", api: service });
 		expect(await screen.findByRole("alert")).toHaveTextContent("Inbox unavailable.");
 		await fireEvent.click(screen.getByRole("button", { name: "Refresh factory inbox" }));
