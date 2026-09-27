@@ -149,8 +149,42 @@ Coordinator ruling 2026-09-22: approved for W16; the owner's package inherits it
 | `gpu-profile-lease-consumer` | Disclosed structural gap, owner W02; W02d builds it after W16 lands (coordinator ruling). The pool validates GPU declarations but does not yet authorize devices from them: `factoryHeldAllocationDevices` in `runner/attempt-wire.ts` has no production caller |
 | `restore-lifecycle-step` | Named follow-up, owner W16 (coordinator ruling 2026-09-24): the restore-to-checkpoint lifecycle step, a W16 package after this round (from W14's restore proof against W15). An in-place restore blocks on `database_position_mismatch`, because nothing restores the installation's database to the checkpoint first: the provisioner has no restore lifecycle step (point-in-time recovery to the checkpoint, then the pool restore import) |
 | `W01i (assigned)` | Launch-peer gap from the W16b review: any allowed peer can launch a guest attributed to another tenant. Package W01i, owned by w01g-fix after W01h, lands before the combined run. If W16 has not merged when W01i lands, the live proof adds: a launch from installation N naming tenant M is refused. Also in W01i (coordinator ruling 2026-09-25, from w01g-fix's review of the W16b audience change): (1) the guest-broker route requires a single string `aud`, so a token listing both `factory-pool` and `factory-guest-broker` is refused (a few lines in `runner/guest-broker-service.ts` plus a test); (2) an array `aud` without this route's audience answers `token_audience_refused`, not plain `unauthorized`. Fleet hosts sign one string audience per token today, so neither is open in practice |
+| `W16d-shutdown-runtime-stop` (OPEN) | Pattern A below: the factory-runtime teardown waits without a bound on each background worker's in-flight step. Owner W16d (coordinator ruling 2026-09-27), from integ/w00 146a94829 |
+| `W16d-shutdown-pool-close` (OPEN) | Pattern B below: every teardown finishes, then `pglite-close` (closeDb, the Bun SQL pool close) never returns. Owner W16d, built on W09f's pool replacement after W09f merges |
 | `orchestrator-build-id-versioning` | The orchestrator does not implement Temporal worker build-ID versioning; builds are retained at the image and release level |
 | Production GPU, eight rows | `FACTORY_PRODUCTION_GPU_CRITERIA`, all unmet with the verdicts in `docs/factory-local-gpu.md` |
+
+## Boot stall: root cause (lifecycle holds f6, f7, r1)
+
+Hold r1 captured tenant-07's harness at 03:42Z (`/tmp/factory-platform-evidence/w16/diagnostics-at-failure/2026-09-26T034257.364Z-stuck-starting-ezcorp-factory-w16-tenant-07-harness-1/`). The harness had staged, then blocked before "composed" with no error. Its database sessions sat idle in ClientRead, no lock was held, and its timer loop was live. The captures never named the pending await. W09f reproduced a Bun 1.3.14 PostgreSQL request-queue defect on this host with product queries: with named statements, a request queued behind in-flight ones is sometimes never written, and the client then waits forever while every session sits idle in ClientRead (10 of 10 trials on Bun 1.3.14, 0 of 10 on Bun 1.4.2; Bun issues #32004 and #32005; evidence `/tmp/factory-platform-evidence/w09f/`). That matches the r1 capture, so the most likely cause is a boot-phase database query the driver never wrote. Containment is W16c (merged here): every startup probe has a 15 s named deadline, every boot phase is traced, and a harness that does not compose within 180 s logs the phase and exits 1, so it restarts and the stall names itself. The boot migrate lock waits at most 120 s and names its holder. Proof: f8, r2 and r3 ran the lifecycle 27/27 each with no harness past 150 s in "starting", no probe timeout and no boot-bound line; r3's streams show all 32 boots composed, with a slowest boot phase of 90 ms. The runtime fix, the Bun upgrade, is the user's decision.
+
+## Harness shutdown hangs (OPEN, owner W16d)
+
+The r3 lifecycle streamed every harness with `podman logs -f -t` (`/tmp/factory-platform-evidence/w16/diagnostics-at-failure/streams-2026-09-27T085148.075Z/`). Of 23 harness stops, 14 completed, 6 matched pattern A and 3 matched pattern B. With the old 20 s stop grace, the runtime killed these stops (exit 137): 5 in f6 and 8 in f7. With the 30 s grace (9ba93c809), they reach the harness's own 25 s hard timeout and exit 1.
+
+| Hold | Harness stop grace | Stops that did not finish | Exit |
+| --- | --- | --- | --- |
+| f6 | 20 s | 5 | 137 |
+| f7 | 20 s | 8 | 137 |
+| r3 | 30 s | 9 of 23 (6 pattern A, 3 pattern B) | 1 (forced exit at 25 s) |
+
+Pattern A, tenant-01 at 08:56:22Z: `background-timers` finishes in 2 ms, `factory-runtime` never logs "teardown ok", and the forced exit follows 25 s later. `runtime.stop` awaits `workerSet.workers.stop()`, which awaits each worker's in-flight step with no bound (`src/factory/background-workers.ts`).
+
+```
+08:56:22.373Z graceful shutdown begin  reason=SIGTERM teardownCount=14
+08:56:22.376Z teardown ok  background-timers ms=2
+08:56:47.375Z forced-exit — shutdown teardown exceeded hard timeout  timeoutMs=25000 pending=14
+```
+
+Pattern B, tenant-02 at 09:00:36Z: all 13 teardowns before `pglite-close` finish in 3 ms, then the pool close never returns.
+
+```
+09:00:36.801Z graceful shutdown begin  reason=SIGTERM teardownCount=14
+09:00:36.804Z teardown ok  background-timers ... permission-audit-coalescer (13 teardowns, 0 to 2 ms each)
+09:01:01.802Z forced-exit — shutdown teardown exceeded hard timeout  timeoutMs=25000 pending=14
+```
+
+The forced-exit line reports `pending=14` in both cases, even though 1 and 13 teardowns had finished, so it does not name the culprit. W16d fixes this with a per-teardown deadline and a named log line (coordinator ruling item 3), plus a bounded per-worker stop that names the stuck role (pattern A) and a bounded pool close that logs its still-busy backends (pattern B, after W09f).
 
 ## After W18a-2 (landed at 8949b300b)
 
