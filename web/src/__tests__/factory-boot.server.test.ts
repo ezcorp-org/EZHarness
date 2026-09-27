@@ -17,7 +17,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getReadiness, resetReadiness } from "$server/readiness";
 import type { FactoryBootConfig } from "$server/factory/boot";
 import { FACTORY_WORKER_STOP_DEADLINE_MS, type FactoryWorkerStopRecord } from "$server/factory/background-workers";
-import { DRAIN_TIMEOUT_MS, HARD_TIMEOUT_MS } from "$lib/server/shutdown";
+import { TEARDOWN_TIMEOUT_MS } from "$lib/server/shutdown";
 
 const startFactoryInstallation = vi.fn();
 
@@ -167,9 +167,9 @@ describe("startFactoryForHost", () => {
     });
   });
 
-  it("bounds the role stop inside the shutdown hard timeout, after the request drain", () => {
-    // The database close still runs after this teardown, so the sum must leave room for it.
-    expect(DRAIN_TIMEOUT_MS + FACTORY_WORKER_STOP_DEADLINE_MS).toBeLessThan(HARD_TIMEOUT_MS);
+  it("bounds the role stop inside the shutdown's per-teardown deadline, so the per-role line lands first", () => {
+    // The shutdown suite pins that the drain plus one teardown deadline stays under the hard timeout.
+    expect(FACTORY_WORKER_STOP_DEADLINE_MS).toBeLessThan(TEARDOWN_TIMEOUT_MS);
   });
 
   it("reports what runs and what is held, so the gap is visible without reading code", async () => {

@@ -87,10 +87,10 @@ export interface FactoryWorkerClock {
 /**
  * How long a stop waits for in-flight steps before it leaves them behind.
  *
- * The harness force-exits 25 s after shutdown begins (`HARD_TIMEOUT_MS` in
- * `web/src/lib/server/shutdown.ts`), after a request drain of up to 10 s, and
- * the database close still follows this teardown. Five seconds fits inside that
- * budget with room for the close; a test in `web/` pins the sum.
+ * The harness gives each shutdown teardown `TEARDOWN_TIMEOUT_MS` (6 s, in
+ * `web/src/lib/server/shutdown.ts`) before it names it and moves on. Five
+ * seconds stays inside that, so the roles' own stop line, which names a stuck
+ * role, lands before the teardown's; a test in `web/` pins the order.
  */
 export const FACTORY_WORKER_STOP_DEADLINE_MS = 5_000;
 

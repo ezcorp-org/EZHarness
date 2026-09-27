@@ -29,6 +29,11 @@
  *     remaining teardowns still run. Losing user data is worse than losing
  *     a daemon stop.
  *
+ *   • **Per-teardown deadline.** A teardown still running after
+ *     `TEARDOWN_TIMEOUT_MS` is logged by name ("teardown timed out") and
+ *     shutdown moves on, so one hung teardown cannot keep the database
+ *     close from running.
+ *
  *   • **Hard timeout.** If teardown takes longer than `HARD_TIMEOUT_MS`
  *     (25s), the process force-exits with code 1. Docker's
  *     `stop_grace_period: 30s` in `compose.prod.yml` gives us 5s of
@@ -70,6 +75,25 @@ export const HARD_TIMEOUT_MS = 25_000;
  *  well under `HARD_TIMEOUT_MS` so a stuck request never blows the whole
  *  budget. */
 export const DRAIN_TIMEOUT_MS = 10_000;
+
+/** How long one teardown may run before shutdown names it and moves on. It
+ *  outlasts the factory roles' own stop deadline (5 s), so their per-role line
+ *  lands first, and the drain plus one timed-out teardown stays under
+ *  `HARD_TIMEOUT_MS`. */
+export const TEARDOWN_TIMEOUT_MS = 6_000;
+
+/** Resolve true when `work` settles within `TEARDOWN_TIMEOUT_MS`, false when the deadline passes first. A rejection propagates. */
+async function settlesBeforeDeadline(work: Promise<void>): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<boolean>((resolve) => {
+    timer = setTimeout(() => resolve(false), TEARDOWN_TIMEOUT_MS);
+  });
+  try {
+    return await Promise.race([work.then(() => true), expired]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 // ── In-flight request drain barrier ────────────────────────────────────────
 //
@@ -205,6 +229,14 @@ export async function shutdown(reason: string): Promise<void> {
     log.warn("shutdown signal abort failed", { error: String(err) });
   }
 
+  // Reverse-order: last-registered runs first. ensureInitialized()
+  // registers closeDb FIRST so it runs LAST — every dependent (executor,
+  // dispatchers, daemons) has already let go of their DB handles by then.
+  const ordered = [...teardowns].reverse();
+  // Names of the teardowns not yet finished, including any still running past
+  // its deadline, so a forced exit names the culprit rather than a count.
+  const pending = new Set(ordered.map((t) => t.name));
+
   // Hard timeout. Wraps the whole teardown sequence — if any single
   // teardown hangs (e.g. PGlite stuck in a flush), we still beat
   // Docker's SIGKILL. `process.exit(1)` rather than throwing because the
@@ -212,7 +244,7 @@ export async function shutdown(reason: string): Promise<void> {
   const timeout = setTimeout(() => {
     log.error("forced-exit — shutdown teardown exceeded hard timeout", {
       timeoutMs: HARD_TIMEOUT_MS,
-      pending: teardowns.length,
+      pending: [...pending],
     });
     process.exit(1);
   }, HARD_TIMEOUT_MS);
@@ -228,15 +260,18 @@ export async function shutdown(reason: string): Promise<void> {
   // whole sequence, so a wedged request can never exceed Docker's grace period.
   await drainInFlightRequests(DRAIN_TIMEOUT_MS);
 
-  // Reverse-order: last-registered runs first. ensureInitialized()
-  // registers closeDb FIRST so it runs LAST — every dependent (executor,
-  // dispatchers, daemons) has already let go of their DB handles by then.
-  const ordered = [...teardowns].reverse();
   for (const t of ordered) {
+    const start = Date.now();
     try {
-      const start = Date.now();
-      await t.fn();
-      log.info("teardown ok", { name: t.name, ms: Date.now() - start });
+      const running = Promise.resolve().then(t.fn);
+      void running.then(() => pending.delete(t.name), () => pending.delete(t.name));
+      if (await settlesBeforeDeadline(running)) {
+        log.info("teardown ok", { name: t.name, ms: Date.now() - start });
+      } else {
+        // Left running: the next teardowns still get their turn, and the
+        // hard timeout still bounds the whole sequence.
+        log.error("teardown timed out; continuing", { name: t.name, ms: Date.now() - start, timeoutMs: TEARDOWN_TIMEOUT_MS });
+      }
     } catch (err) {
       // Swallow + log. The whole point of the orchestrator is that one
       // failing teardown does NOT block PGlite close — that's the
