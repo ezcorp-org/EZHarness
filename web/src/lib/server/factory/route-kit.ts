@@ -10,6 +10,12 @@ import { FactoryAssuranceError } from "$server/factory/assurance";
 import { FactoryReleaseError } from "$server/factory/releases";
 import { FactoryAssuranceCommandError } from "$server/factory/assurance-commands";
 import { FactoryRunControlError } from "$server/factory/run-controls";
+import { FactoryArtifactAccessError } from "$server/factory/artifact-access";
+import { FactoryArtifactError } from "$server/factory/artifacts";
+import { FactoryConsoleError } from "$server/factory/console-tokens";
+import { FactoryPackagePreparationError } from "$server/factory/package-preparation";
+import { FactoryTrustedValidatorError } from "$server/factory/validator-materials";
+import { FactoryRestoreError } from "$server/factory/restore";
 import { requireScope } from "$lib/server/security/api-keys";
 import {
   FACTORY_API_RESPONSE_SCHEMA_VERSION,
@@ -108,7 +114,7 @@ export function factoryResponse(value: FactoryApiResponse): Response {
 type FactoryCodedError = Error & { readonly code: string; readonly diagnostics?: unknown };
 
 /** One HTTP answer shared by a set of error codes of one family. */
-interface ErrorAnswer {
+export interface ErrorAnswer {
   readonly status: number;
   readonly message: string;
   readonly codes: ReadonlySet<string>;
@@ -121,15 +127,24 @@ interface ErrorAnswer {
  * to a retryable 500 with the `storage` message, or is rethrown when the family
  * has no such fallback.
  */
-interface ErrorFamily {
+export interface ErrorFamily {
   readonly type: abstract new (...args: never[]) => FactoryCodedError;
   readonly storage: string | null;
   readonly answers: readonly ErrorAnswer[];
 }
 
-function answer(status: number, message: string, ...codes: string[]): ErrorAnswer {
+export function answer(status: number, message: string, ...codes: string[]): ErrorAnswer {
   return { status, message, codes: new Set(codes) };
 }
+
+// An unshared or mismatched artifact read is "unavailable" in the service and a
+// plain 404 here, so it never tells a share apart from nothing (W14 console).
+const CONSOLE_ARTIFACT_ANSWERS = [
+  answer(404, "Artifact not found.", "factory_artifact_not_found", "factory_artifact_grant_not_found", "factory_artifact_unavailable"),
+  answer(403, "A human session is required to share an artifact.", "factory_human_required"),
+  answer(409, "A different share already uses this identity.", "factory_artifact_conflict", "factory_artifact_grant_conflict"),
+  answer(400, "The artifact request is invalid.", "factory_artifact_digest_invalid", "factory_artifact_identity_invalid", "factory_artifact_reference_invalid", "factory_artifact_size_invalid", "factory_artifact_json_invalid", "factory_artifact_grant_invalid"),
+];
 
 // Every error class below extends Error directly, so at most one family
 // matches and the list order does not decide the answer.
@@ -236,11 +251,88 @@ const ERROR_FAMILIES: readonly ErrorFamily[] = [
       answer(412, "The factory definition revision is stale.", "factory_revision_conflict", "factory_revision_invalid"),
       answer(404, "Factory definition not found.", "factory_definition_not_found", "factory_version_not_found"),
       answer(409, "The factory version conflicts with existing content.", "factory_version_conflict"),
+      answer(409, "The definition uses a schema version this server cannot edit. It is read-only; export it to keep a copy.", "factory_definition_version_unsupported"),
       { ...answer(422, "The factory definition is not publishable.", "factory_definition_invalid"), diagnostics: true },
       answer(400, "The factory definition request is invalid.", "factory_definition_schema_invalid", "factory_definition_identity_mismatch", "factory_definition_too_large", "factory_format_invalid", "factory_page_invalid"),
     ],
   },
+  // The live console (W14): cursors, tickets, pages, packages, purge, and artifacts.
+  {
+    type: FactoryConsoleError,
+    storage: null,
+    answers: [
+      answer(400, "The event cursor is not valid for this run.", "factory_cursor_invalid"),
+      answer(410, "The event cursor expired. Take a new snapshot.", "factory_cursor_expired"),
+      answer(400, "The page request is invalid.", "factory_page_invalid"),
+      answer(404, "Runner package not found.", "factory_package_not_found"),
+      answer(403, "A tenant administrator is required.", "factory_package_admin_required"),
+      answer(400, "The confirmation must name this tenant exactly.", "factory_purge_confirmation"),
+      answer(404, "Artifact not found.", "factory_artifact_not_found"),
+      answer(403, "The artifact ticket is not valid for this request.", "factory_ticket_invalid"),
+      answer(410, "The artifact ticket expired.", "factory_ticket_expired"),
+      answer(400, "Name a published version or a validator lock digest, not both.", "factory_material_query_invalid"),
+      answer(404, "No validator material is registered for this version or lock.", "factory_material_not_found"),
+      answer(503, "This installation cannot compose a restore, so no report can be signed here.", "factory_restore_unavailable"),
+    ],
+  },
+  {
+    type: FactoryPackagePreparationError,
+    storage: "Package storage is unavailable.",
+    answers: [
+      answer(412, "The package trust revision is stale or the transition is not allowed.", "factory_package_trust_conflict"),
+      answer(403, "A human tenant administrator session is required.", "factory_package_human_required"),
+      answer(400, "The package request is invalid.", "factory_package_trust_invalid", "factory_package_reference_invalid", "factory_package_manifest_name_invalid"),
+      answer(404, "The installed package release was not found.", "factory_package_release_unavailable", "factory_package_binding_missing"),
+      answer(409, "A different package is already bound to this reference.", "factory_package_binding_conflict"),
+    ],
+  },
+  { type: FactoryArtifactError, storage: "Artifact storage is unavailable.", answers: CONSOLE_ARTIFACT_ANSWERS },
+  { type: FactoryArtifactAccessError, storage: "Artifact storage is unavailable.", answers: CONSOLE_ARTIFACT_ANSWERS },
+  // A release contract naming unregistered, unpublished, unprotected, or untrusted validator material (W09d O4).
+  {
+    type: FactoryTrustedValidatorError,
+    storage: "Trusted validator storage is unavailable.",
+    answers: [
+      answer(422, "The validator lock does not name registered, published, protected material.", "factory_validator_material_missing", "factory_validator_material_unpublished", "factory_validator_material_unprotected", "factory_validator_contract_untrusted"),
+      answer(412, "The validator material is stale.", "factory_validator_material_stale"),
+      answer(409, "Different validator material already uses this identity.", "factory_validator_material_conflict"),
+      answer(403, "Trusted validator authority is required.", "factory_validator_scope"),
+      answer(400, "The validator material request is invalid.", "factory_validator_invalid", "factory_validator_material_invalid"),
+    ],
+  },
+  {
+    type: FactoryRestoreError,
+    storage: null,
+    answers: [
+      answer(400, "The restore signature request is invalid.", "factory_restore_invalid"),
+      answer(404, "Restore not found.", "factory_restore_not_found", "factory_restore_no_checkpoint"),
+      answer(409, "The restore is not awaiting a signature.", "factory_restore_state"),
+      answer(403, "A human tenant administrator must sign the recovery report.", "factory_restore_human_required"),
+      answer(412, "The signed digest does not match the recovery report the server holds.", "factory_restore_report_mismatch"),
+      answer(422, "A recovery report with a blocked check cannot reopen service.", "factory_restore_blocked"),
+    ],
+  },
 ];
+
+const registeredFamilies: ErrorFamily[] = [];
+
+/**
+ * Adds the error family of a registered dispatcher, so its refusals map to a
+ * status like the built-in ones. A family whose class is, extends, or is
+ * extended by a class another family owns is refused by name: `instanceof`
+ * would match both, and the answer would depend on registration order.
+ * Returns the function that removes it.
+ */
+export function registerFactoryErrorFamily(family: ErrorFamily): () => void {
+  const overlaps = (left: ErrorFamily["type"], right: ErrorFamily["type"]) => left === right || left.prototype instanceof right || right.prototype instanceof left;
+  const clash = [...ERROR_FAMILIES, ...registeredFamilies].find(candidate => overlaps(candidate.type, family.type));
+  if (clash) throw new Error(`The factory error family for ${family.type.name} overlaps the one for ${clash.type.name}.`);
+  registeredFamilies.push(family);
+  return () => {
+    const index = registeredFamilies.indexOf(family);
+    if (index >= 0) registeredFamilies.splice(index, 1);
+  };
+}
 
 /**
  * Maps a thrown factory error to its HTTP answer. A 5xx answer is retryable and
@@ -248,7 +340,7 @@ const ERROR_FAMILIES: readonly ErrorFamily[] = [
  */
 export function mappedFactoryError(error: unknown): Response {
   if (error instanceof FactoryParseError) return factoryErrorResponse(400, error.code, error.message);
-  const family = ERROR_FAMILIES.find(candidate => error instanceof candidate.type);
+  const family = [...ERROR_FAMILIES, ...registeredFamilies].find(candidate => error instanceof candidate.type);
   if (!family) throw error;
   const { code, diagnostics } = error as FactoryCodedError;
   const found = family.answers.find(candidate => candidate.codes.has(code));

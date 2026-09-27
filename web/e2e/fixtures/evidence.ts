@@ -11,7 +11,7 @@ import { fontsReady } from "./gestures.js";
  * and the captured attachments are surfaced through Playwright's `blob`
  * reporter (see `playwright.config.ts`).
  *
- * The capture is stabilised before the shot (fonts ready, network idle,
+ * The capture is stabilised before the shot (fonts ready, network idle for up to 5 s,
  * animations + caret disabled, CSS-pixel scale) so successive runs produce
  * comparable images. `opts.mask` blanks volatile regions (timestamps, etc.)
  * and `opts.fullPage` captures beyond the viewport.
@@ -24,7 +24,9 @@ export async function captureEvidence(
 ): Promise<void> {
 	if (process.env.EZCORP_E2E_EVIDENCE !== "1") return; // hard no-op
 	await fontsReady(page);
-	await page.waitForLoadState("networkidle").catch(() => {});
+	// Bounded: a page that holds a live stream open (an SSE run feed) never goes idle, and an
+	// unbounded wait would spend the whole test timeout before the shot.
+	await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => {});
 	const body = await page.screenshot({
 		fullPage: opts.fullPage ?? false,
 		animations: "disabled",

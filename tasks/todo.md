@@ -3545,6 +3545,82 @@ it as an inline UNIQUE, so the database calls it
 `factory_release_operations_tenant_id_project_id_run_id_node_key`. A live probe confirms two unique
 arbiters and only two.
 
+## W14 — Live console, scoped API, and browser journeys (Sol product, branch `wp/w14-console`)
+
+Base `260855e57` (W09b and W13 merged). Evidence: `/tmp/factory-platform-evidence/w14/`. Gate file:
+`tasks/factory/w14-GATES.md`. Files in flight elsewhere are consumed, not edited: `_shared.ts`,
+`private-service.ts`, `task-stops.ts`, `orchestration-process.ts`, `pool/process.ts` (W18a-2);
+`release-declaration.ts` and the profile composition in `installation-startup.ts` (W09c); the guest
+broker, guest SDK, and runner result path (W01g).
+
+- [x] Mutation baseline for `web/src/lib/factory/*` and `web/src/lib/graph/layout.ts`; kill survivors with assertions; record before/after.
+- [x] Run inspection read model: nested runs, attempts, blockers, costs, artifacts, acceptance reasons, releases (new `src/factory/run-inspection.ts`, one scoped read, bounded pages).
+- [x] Snapshot plus contiguous SSE cursor: signed cursor, duplicate/gap handling, 410 on expiry, authority recheck per batch, revocation closes the stream, bounded pages; client state machine with visible lag/disconnect.
+- [x] Package admin routes over W02's `FactoryPackageTrusts`: list, install (bind + publish), quarantine, revoke, affected-run preview; human session plus tenant administrator; audited queued result.
+- [x] Grant administration panel over the existing grant routes (admin scope plus administrator role).
+- [ ] Administrator purge request: human administrator session, preconditions evaluated, audit that will be lost recorded; no destructive action (W19). (Waiting, item 13: the W15 and W16 purge preconditions; the request itself is proven.)
+- [x] Artifact downloads and previews: scoped short-lived ticket, `nosniff` plus attachment, escaped text, no executable SVG/HTML at the origin.
+- [ ] Console UI: run inspector, live stream states, repair/replan, approvals and uncertain release (existing components), packages, grants, purge. (Waiting, items 1 and 2: the approval decision and uncertain release need W09c's web composition, repair and replan need W01g; they are proven in components and the mock tier only.)
+- [x] JSON/YAML/SDK/editor digest parity for every construct; unknown versions read-only and exportable; save/publish race; repeated idempotency keys.
+- [ ] Two installations with overlapping IDs: users, restricted API keys, service principals, expiry, revocation, transactional audit failure; read-sharing grants expose only named bytes. (Waiting, item 9: proven at the service level on two isolated databases only; two HTTP installations need W16.)
+- [x] `factory-services` lane: Playwright config, real-stack boot, specs through the real authenticated application; register lanes, route manifest, evidence surfaces.
+- [x] Inspect real captures at 1440 and 390 pixels, long labels, large maps, light/dark, keyboard-only, reduced motion; fix defects and console errors.
+- [x] Final sweep per common.md plus web check, web Vitest pool, factory Playwright lanes, mutation after; report.
+
+Review (W14): the console is proven through the real authenticated application. The seven
+`factory-services` journeys pass on the real stack at `74ce48d06`: trust grant, bind and trust a
+built guest, publish, a save racing a publish plus idempotency replay, a run started from the
+version list and watched to its terminal status, the scoped API, and a quarantine preview plus
+purge request. Real captures found four defects that mocks had hidden, and all four are fixed:
+a stale "queued" row next to a failed run, a "not yet" acceptance note on a finished run,
+cramped 390 px run cards, and a spaced-out purge count. Mutation on the console library rose
+from 79.74% to 93.30%. The lane needs the Temporal CLI dev server, because the Java test server
+cannot report task-queue pollers; CI now asks for `FACTORY_TEMPORAL_CLI`. Open: package
+preparation has no product route, quarantine fences nothing live (W02), purge preconditions
+exclude W15/W16, and two installations are proven at the service level only. Gate file:
+`tasks/factory/w14-GATES.md`.
+
+Review update (W14, after the coordinator's rulings): the console answers through the shared route
+boundary (W18a-2's route kit plus one additive error-family hook), the raw stream and bytes routes
+are pinned to the principal-and-scope call pair, and W09d's validator-material read and typed
+contract refusal are in. W15 restore signing is deferred until W15 lands; the branch holds no W15
+commits. The real lane passes 7 of 7 at `096fa0944`; mutation is 93.62%; no W14 line is uncovered.
+
+Review update (W14, round 2, head `28a720913` on `d6f143ccb`): the static-review fixes (H1, M1, M2,
+L1 to L3, L5, L7) and the thirteen proof-map items are done or recorded as waiting, each with its
+spec named in `tasks/factory/w14-GATES.md`. The real lane passes 11 of 11 at a clean head
+(`journeys-11`). New through the real application: both fixed save/publish orders, catch-up and 410
+on the event cursor, validator-material reads, no release authority through a share, grant expiry
+and a ticket recheck, a live approval blocker with mid-stream revocation, a read-only future draft
+that still exports, and long labels with a 40-node map at 1440 and 390 px in light and dark. Real
+captures found four more defects, all fixed: the 390 px tab rail, a lone run card, the purge caption
+casing, and an unbounded evidence wait. Mutation is 95.60%; no W14 line is uncovered. Waiting: W15
+(restore, L4, M3), W02c (fence and quarantine commit), W09c (web inbox composition), W01g (a real
+candidate), W16 (two HTTP installations).
+
+Review update (W14, round 3 part 1, head `754d7b29b`): the validator's four findings are fixed. The graph
+canvas follows the app theme and opens at a readable zoom; the real lane checks theme and label size at 1440
+and 390 px in light and dark, and the mock tier proves the check fails on the old canvas. Waiting items are
+unchecked. `run-format.ts` mutants now die by assertion (91.86% to 97.98%, 60 timeouts to 0). The selected
+run scrolls into the narrow strip. Real lane 11 of 11 and sweep green at the clean head. The restore port,
+W02c, W09c, W01g, and W16 items wait for their integ/w00 hashes.
+
+### Round 3, part 2 (worker w14-continue, from `46237000f`)
+
+- [x] Read the lane and sweep queued at `46237000f`: `journeys-14` 12 of 12, `sweep-11` every leg exit 0.
+- [x] Author check: every branch commit is archy's; `754d7b29b` (fixture identity) was rewritten to `5ea00bea8` (same tree) by the 04:02 reset-author rebase.
+- [x] Merge integ/w00 `2b2e12550` (W02c, W01g, W09c, W09d-2, W04b, W12c, W15, W15c).
+- [x] W02c: the console builds its trusts with `createFactoryPackageTrusts`; the preview counts live attempts with the fence's own query; the console shows the affected-run record; the real lane commits a quarantine and lifts it.
+- [x] W04b: the grants panel names each grantee by display name.
+- [x] W09c: the web process composes command approvals beside release operations; the installation's release store can list an approval node's request; the real lane approves a release and denies an approval node in the inbox.
+- [x] W01g: the lane guest stages its output and completes; with W09d's declared validator the run is accepted, released, and `succeeded`.
+- [x] `run-stream.ts`: strict harness and exact assertions. The score is not measurable on the Vitest 5 toolchain (finding in the gate file).
+- [x] Final passes at `4b96f6f77`, one receipt per leg; gate file and review.
+- W16 items (two HTTP installations, W16 purge preconditions) wait until W16 lands.
+- Follow-ups, disclosed: repair, replan, and a real uncertain release need a rejected candidate or an uncertain provider outcome, which the lane cannot produce; they stay proven in components and the mock tier. Findings for other owners: the mutation tooling since Vitest 5 (main), a denied approval that never ends its run (W03 stop path), and the quarantined live attempt that stays cancelling (W02c/W03, known).
+
+Review update (W14, round 3 part 2, code head `4b96f6f77`): the items that waited on W02c, W04b, W09c and W01g are done through the real application. The real lane passes 12 of 12 (`journeys-26`). A run now completes, is accepted by the declared validator, is approved in the console inbox, and is published by the running release-outcome role. A quarantine is committed under a live attempt, and the console shows what the fence stopped. Two product defects surfaced on the real stack and are fixed: the web process composed no command approvals, and one approval-node notification made the whole inbox refuse. Every final leg exits 0 at a clean head, with 100 percent of changed lines covered against `2b2e12550`. The mutation score is not measurable on the current toolchain; that is reported, not fixed here.
+
 ## W09c — compose the release profile set from the declaration (branch `wp/w09c-profiles`)
 
 Worktree `.worktrees/w09c-profiles` from `integ/w00` at `260855e57`. Gate file
@@ -3858,6 +3934,7 @@ test. `initPglite` carried a changed line whose factory branch cannot run, and t
 The global floor (73.88 percent), the per-file thresholds, and the origin/main new-file gate stay red. The cause is
 files that only CI's repository-wide shards or the browser receipt measure. None of those files is one this
 package changed.
+## W18b — six pre-existing backend pool failures (branch `wp/w18b-pool-fixes`)
 
 ## W18a-3 — hook context, initPglite/loadExisting, compute-admissions order, test-path imports, main-origin leaks
 
@@ -3899,6 +3976,19 @@ file this package changed. G6 is rerun after W15b lands.
 ## Product rules (coordinator)
 
 - Every startup document declares the recovery sections; an installation without them stays degraded (factory-checkpoint-barrier-held) and never reports ready.
+
+**Review.** The six failures had three causes, and W15's labels were wrong for two of them. First,
+three tests reported `/tmp` because every `.git` walk accepted any `.git` entry, and this host has an
+empty `/tmp/.git` that git itself rejects. The SDK walk now accepts only a real repository marker, the
+five example copies route through it, and the standalone ai-kit CLI asks git. The same cause also
+failed the SDK and ai-kit legs, which are fixed too. Second, the pi_session tests failed because their
+regexes matched indentation that a hook refactor changed. The 2026-06-01 literal was still a live
+product defect, so the expired bridge is retired: no date in code decides what the hook accepts.
+Third, the "Unix socket path limit" failure was a one-second readiness probe that timed out under pool
+load; the socket paths were already short. Each cause is pinned by a test that fails on the unfixed
+code. At `2d33f46d7` the full backend pool reports 0 fail, and every static and coverage gate passes.
+Two findings are left open outside scope: the ai-kit installer ignores its postinstall exit code, and
+`inspectProductionRunner` keeps a fixed 5-second default for verification commands.
 
 ## W15c — Pool service leaf (branch `wp/w15c-pool-leaf`)
 

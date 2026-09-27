@@ -1446,6 +1446,12 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
   good one.
 - Bun's isolated store keeps a STALE version after a lockfile change, and an incremental `bun install --frozen-lockfile` does not remove it. After merging main's dependency bump my worktree held `zod@4.5.2` next to `zod@4.5.4`, and 25 typecheck errors appeared in a package I had never touched. I proved the SOURCE trees were byte-identical against staging and reported the red as inherited — which was wrong, because a tree diff says nothing about the installed graph. Staging, reinstalled clean, was green at the same merge base with the same SDK. After merging a dependency bump: `rm -rf node_modules web/node_modules`, reinstall both, rebuild the workspace packages, THEN judge a red.
 - Attributing a failure away from yourself needs a stronger proof than attributing one to yourself. "The files are identical" is evidence about one input; a build has several. Before telling someone a red is theirs, reproduce it somewhere they control, or rule out every input you own.
+- A Svelte `<script module>` export is invisible to plain `tsc`. svelte-check and Vitest both passed while `bash scripts/typecheck.sh` failed on the component tests that imported those helpers. Put a pure helper in a `.ts` module next to the component, and run the full typecheck script, not only svelte-check, before a commit.
+- Register an `@evidence` spec in `web/e2e/evidence-covers.json` in the same commit that adds the tag. The visual-evidence meta test fails on any unmapped tagged spec, and I only found the gap in a later sweep.
+- The Temporal Java test server cannot report task-queue pollers, so the factory orchestrator's readiness never opens against it (an orchestrator test asserts exactly this). A service-backed stack needs the Temporal CLI dev server. Probe what the real consumer calls before trusting that a pinned binary "is Temporal".
+- `getByRole("button", { name: "Start run" })` in Playwright is a case-insensitive substring match, so it also matched "Close start run". Use `exact: true` for any button label that another label contains.
+- Queue at most one job on the shared heavy lock. I queued mutation and the journeys together; I had to stop one. Chain the heavy work into one script instead.
+- zsh does not word-split an unquoted `$var`, and `pkill -f <pattern>` kills the calling shell when the pattern is in its own command line. Use `bash -c` for arrays, and stop a server by its port.
 
 ## 2026-09-22 — W01g round 2
 - Check the merge base yourself before you trust a stated one. The handoff said `integ/w00` was merged at the W09b merge; `git merge-base HEAD integ/w00` showed an older commit, and the file the whole round depended on was absent.
@@ -1529,6 +1535,23 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 - A behaviour-free split can still be proved by more than the existing tests. Run the old function and the new one
   side by side on generated inputs, and compare exact outputs, including error lists. That is cheap, and it found
   nothing to fix here, which is the point.
+- Replacing a suffix-based error mapping with explicit code lists silently drops any code built outside a literal `new XError("code")`. My search for thrown codes missed `unavailable()`, a helper in another file, and a real journey caught the 500. Before removing a pattern rule, list every code the class can carry, including helper-built ones, or keep a test per code the old rule matched.
+- Never edit a shell script while a job is executing it. Bash reads a running script incrementally, so shifted bytes can make it re-run or skip steps. Write the new version to a new file.
+
+## 2026-09-22 — W18b pool fixes
+
+- A failure label copied from a test name is a hypothesis, not a cause. W15 recorded the launcher failure as a Unix socket path limit because the test is named for it; the real error was a `TimeoutError` from a one-second readiness probe. Run the failing file under the pool's concurrency (six copies at once reproduced it 1 in 24) and read the error before naming a cause.
+- A "hard expiry" date in code is a scheduled behaviour change with no deploy. Once the date passes, retire the dead branch rather than keep a clock comparison that only looks alive. Source-regex gates that match indentation broke silently on a refactor; pin the behaviour on the real handler instead.
+- A project-root walk must accept only a real repository marker. `existsSync(".git")` also matched a stray empty `/tmp/.git`, which git itself rejects. Ask "what does git say?" and plant the stray marker inside the test's own tree so the case holds whatever the host's /tmp contains.
+- A git hook exports `GIT_DIR` and `GIT_INDEX_FILE`. Any `git` a test or tool spawns from inside a hook acts on the hook's repository, so `rev-parse` reports "inside a repository" everywhere and `git init <dir>` targets the wrong place. Drop the caller's `GIT_*` variables when git must discover from a directory.
+
+## 2026-09-23 — W14 round 2
+
+- A receipt proves a head only if nothing changed the tree while it ran. Commit every fix before queueing the heavy job, and draft documents outside the worktree until the job ends; an edit during the run mixes two heads in one receipt.
+- `waitForLoadState("networkidle")` never settles on a page that holds a live stream (SSE). Bound every idle wait in a shared capture helper; a journey that watches a waiting run otherwise spends its whole timeout before the screenshot.
+- Check `scripts/coverage-config.ts` before adding a test for an uncovered Svelte line. A browser-canonical source takes coverage only from browser journeys, so a component test that already exercises the line does not count.
+- In a serial Playwright file one failure skips every later journey. Read "did not run" as untested, not as passed, and rerun the whole file after the fix.
+
 - Verify live state before you answer a factual question about it. When the user asked which model the subagents run on, the first answer came from the spawn parameter, not from evidence. Ask the agents (or read the source) first, then answer with the evidence named.
 - An outer `timeout` around a command that waits for a lock counts the wait. The first W18a-2 combined run waited about 1.6 hours for the heavy lock inside `timeout 9000` and was killed (exit 124) in its node leg. Put the timeout inside the lock (`flock ... timeout N cmd`), or rely on the runner's own per-leg bound.
 - Never pipe a command that must run to completion into a reader that can close early (head, a limited grep). A closed pipe kills git commit with SIGPIPE and nothing is committed. Write to a file, then summarize from the file.

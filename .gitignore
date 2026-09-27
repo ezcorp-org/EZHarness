@@ -86,6 +86,8 @@ test-results/
 TESTENV/
 web/e2e/.docker-auth.json
 web/e2e/.real-auth.json
+web/e2e/.factory-services-state.json
+web/e2e/.factory-services-auth.json
 web/e2e/.validate-auth.json
 
 # User-created projects. The live location is `.ezcorp/projects` (already

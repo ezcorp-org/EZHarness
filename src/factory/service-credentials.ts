@@ -6,6 +6,7 @@ import { insertTransactionalAuditEntry } from "../db/queries/audit-log";
 import { releaseRows as rows } from "../db/queries/extension-releases";
 import { digestObject } from "../extensions/v4/blobs";
 import type { FactoryGrants, FactoryPrincipal } from "./grants";
+import { factoryTenantAdministratorRefusalInTransaction } from "./tenant-administrator";
 import { FactoryMutations } from "./mutations";
 import { assertFactoryIdentity } from "./records";
 
@@ -152,9 +153,8 @@ export class FactoryServiceCredentials {
   }
 
   private async authorizeIssuer(transaction: MigrationDb, actor: FactoryPrincipal, input: Pick<FactoryServiceCredentialIssue, "projectId" | "serviceAccountId" | "expiresAtMs"> | FactoryServiceCredentialRevoke, issuing: boolean): Promise<void> {
-    const user = rows(await transaction.execute(sql`SELECT u.id FROM users u
-      JOIN factory_projects p ON p.tenant_id=${this.tenantId} AND p.project_id=${input.projectId}
-      WHERE u.id=${actor.id} AND u.status='active' AND u.role='admin' FOR SHARE OF u, p`))[0];
+    const project = rows(await transaction.execute(sql`SELECT 1 FROM factory_projects WHERE tenant_id=${this.tenantId} AND project_id=${input.projectId} FOR SHARE`))[0];
+    const user = project && (await factoryTenantAdministratorRefusalInTransaction(transaction, actor)) === null;
     const account = rows<{ expires_ms: string | number | null }>(await transaction.execute(sql`SELECT FLOOR(EXTRACT(EPOCH FROM expires_at) * 1000) AS expires_ms
       FROM service_accounts WHERE id=${input.serviceAccountId} AND project_id=${input.projectId} ${issuing ? sql`AND enabled=TRUE AND (expires_at IS NULL OR expires_at > NOW())` : sql``} FOR SHARE`))[0];
     if (!user || !account) throw new FactoryServiceCredentialError("factory_service_credential_forbidden");

@@ -6,7 +6,7 @@ import { FactoryDefinitions } from "../../factory/definitions";
 import { FactoryMutations } from "../../factory/mutations";
 import { FactoryGrants, type FactoryPrincipal } from "../../factory/grants";
 import { FactoryRecords } from "../../factory/records";
-import { digestBytes } from "../../extensions/v4/blobs";
+import { digestBytes, digestObject } from "../../extensions/v4/blobs";
 import { releaseRows as rows } from "../../db/queries/extension-releases";
 import type { TransactionalDb } from "../../db/migrations/types";
 import { up } from "../../db/migrations/add-factory-definitions";
@@ -191,6 +191,21 @@ export function factoryDefinitionsConformance(createFixture: () => Promise<Fixtu
     await expect(mutations.execute(request, async () => ({ durable: false }))).rejects.toMatchObject({ code: "factory_receipt_incomplete" });
     await expect(mutations.execute({ ...request, idempotencyKey: "" }, async () => true)).rejects.toMatchObject({ code: "invalid_idempotency_key" });
     await expect(mutations.execute({ ...request, idempotencyKey: "oversize-response" }, async () => "x".repeat(65536))).rejects.toMatchObject({ code: "factory_payload_too_large" });
+  });
+
+  test("a draft a newer server wrote is refused for editing by name, and still exports its exact bytes", async () => {
+    const definition = source("future-draft");
+    await store.save(actor, key(definition.id), 0, "future-create", definition);
+    // A newer server stored this draft; this server does not implement its schema version.
+    const future = { ...definition, schemaVersion: "factory.v9", futureExecutionField: { mode: "new" } };
+    await fixture.db.execute(sql`UPDATE factory_drafts SET source_json=${canonicalJson(future)}, source_digest=${digestObject(future)} WHERE factory_id='future-draft'`);
+    await expect(store.read(actor, key(definition.id))).rejects.toMatchObject({ code: "factory_definition_version_unsupported" });
+    // Validation answers with a named schema diagnostic rather than a definition it cannot check.
+    const validation = await store.validate(actor, key(definition.id));
+    expect(validation.ok ? [] : validation.diagnostics.map(item => item.code)).toContain("FACTORY_SCHEMA");
+    expect(await store.export(actor, key(definition.id))).toEqual({ revision: 1, content: canonicalJson(future) });
+    // Export still needs read authority.
+    await expect(store.export({ kind: "user", id: "definition-stranger", authentication: "session" }, key(definition.id))).rejects.toMatchObject({ code: "factory_forbidden" });
   });
 
   test("storage corruption cannot be read or published as trusted content", async () => {

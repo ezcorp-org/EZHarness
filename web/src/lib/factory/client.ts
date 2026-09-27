@@ -26,6 +26,28 @@ import type {
 	FactoryRunRevisionBody,
 	FactoryRunSummary,
 	RunnerReference,
+	FactoryRunInspection,
+	FactoryInspectionQuery,
+	FactoryInspectionPage,
+	FactoryArtifactTicket,
+	FactoryArtifactShareResource,
+	FactoryPackageResource,
+	FactoryPackageImpact,
+	FactoryPackageAffectedAttempt,
+	FactoryPackageAffectedRunsQuery,
+	FactoryPackageInstallBody,
+	FactoryPackageTransition,
+	FactoryPurgePreview,
+	FactoryRestoreResource,
+	FactoryRestoreSignatureResource,
+	FactoryValidatorMaterialQuery,
+	FactoryValidatorMaterialResource,
+	FactoryPurgeRequestResource,
+	FactoryGrantResource,
+	FactoryGrantListQuery,
+	FactoryAction,
+	FactoryPrincipalKind,
+	FactoryRunStartBody,
 } from "@ezcorp/factory-sdk/types";
 import { validateFactoryApiResponse } from "@ezcorp/factory-sdk/validation";
 
@@ -255,6 +277,12 @@ export class FactoryApiClient {
 		return expectKind(await this.read(path, this.mutationInit("decide-command-approval:" + approvalId, 0, { contextDigest, choice }, "PUT")), "approval.resource").resource;
 	}
 
+	/** Queues a run of an exact published version. The receipt means accepted, not started. */
+	async startRun(projectId: string, factoryId: string, body: FactoryRunStartBody): Promise<FactoryDurableReceipt> {
+		const path = this.definition(projectId, factoryId) + "/runs";
+		return expectKind(await this.read(path, this.mutationInit("start-run:" + factoryId + ":" + body.factoryVersion, 0, body)), "mutation.accepted").receipt;
+	}
+
 	private runs(projectId: string): string {
 		return "/api/factories/projects/" + encoded(projectId) + "/runs";
 	}
@@ -289,6 +317,125 @@ export class FactoryApiClient {
 		return expectKind(await this.read(path, this.mutationInit("delete-release-policy:" + policyId, revision, undefined, "DELETE")), "release.policy.resource").resource;
 	}
 
+	private run(projectId: string, runId: string): string {
+		return this.runs(projectId) + "/" + encoded(runId);
+	}
+
+	/** One bounded snapshot of a run, with the signed cursor its event stream resumes from. */
+	async inspectRun(projectId: string, runId: string, search?: string): Promise<FactoryRunInspection> {
+		return expectKind(await this.read(this.run(projectId, runId) + "/inspection" + queryString({ search })), "run.inspection").resource;
+	}
+
+	async inspectRunSection(projectId: string, runId: string, query: Required<Pick<FactoryInspectionQuery, "section">> & FactoryInspectionQuery): Promise<FactoryInspectionPage> {
+		const path = this.run(projectId, runId) + "/inspection" + queryString({ section: query.section, cursor: query.cursor, limit: query.limit, search: query.search });
+		return expectKind(await this.read(path), "run.inspection.page").resource;
+	}
+
+	/** Opens the run's event stream at `cursor`. The caller owns the body; a refusal throws with its status. */
+	async openRunEvents(projectId: string, runId: string, cursor: string, signal: AbortSignal): Promise<ReadableStream<Uint8Array>> {
+		const response = await this.fetcher(this.run(projectId, runId) + "/events" + queryString({ cursor }), { headers: { accept: "text/event-stream" }, signal });
+		if (!response.ok || response.body === null || !response.headers.get("content-type")?.startsWith("text/event-stream")) {
+			await decodeResponse(response);
+			throw new FactoryApiClientError(response.status, "factory_stream_unavailable", "The run event stream did not open.");
+		}
+		return response.body;
+	}
+
+	async artifactTicket(projectId: string, runId: string, artifactId: string): Promise<FactoryArtifactTicket> {
+		return expectKind(await this.read(this.run(projectId, runId) + "/artifacts/" + encoded(artifactId) + "/ticket", { method: "POST" }), "artifact.ticket").ticket;
+	}
+
+	/** Fetches ticketed bytes, never more than `maxBytes`. The bytes are for a download or an escaped preview only. */
+	async artifactBytes(ticket: FactoryArtifactTicket, maxBytes: number): Promise<Uint8Array> {
+		if (ticket.encodedBytes > maxBytes) throw new FactoryApiClientError(413, "factory_artifact_too_large", "The artifact is larger than the preview limit.");
+		const response = await this.fetcher(ticket.url);
+		if (!response.ok) await decodeResponse(response);
+		const bytes = new Uint8Array(await response.arrayBuffer());
+		if (bytes.byteLength > maxBytes) throw new FactoryApiClientError(413, "factory_artifact_too_large", "The artifact is larger than the preview limit.");
+		return bytes;
+	}
+
+	async shareArtifact(projectId: string, runId: string, artifactId: string, targetProjectId: string, mediaType: string): Promise<FactoryArtifactShareResource> {
+		const path = this.run(projectId, runId) + "/artifacts/" + encoded(artifactId) + "/shares";
+		return expectKind(await this.read(path, this.mutationInit("share-artifact:" + artifactId + ":" + targetProjectId, 0, { targetProjectId, mediaType })), "artifact.share.resource").resource;
+	}
+
+	private packages(projectId: string): string {
+		return "/api/factories/projects/" + encoded(projectId) + "/packages";
+	}
+
+	async listPackages(projectId: string, query: { readonly cursor?: string; readonly limit?: number; readonly search?: string } = {}): Promise<{ readonly items: readonly FactoryPackageResource[]; readonly nextCursor: string | null }> {
+		const response = expectKind(await this.read(this.packages(projectId) + queryString(query)), "package.page");
+		return { items: response.page.items, nextCursor: response.page.nextCursor ?? null };
+	}
+
+	async installPackage(projectId: string, body: FactoryPackageInstallBody): Promise<FactoryPackageResource> {
+		return expectKind(await this.read(this.packages(projectId), this.mutationInit("install-package:" + body.reference.digest + ":" + body.reference.export, 0, body)), "package.resource").resource;
+	}
+
+	async packageImpact(projectId: string, referenceId: string, transition: FactoryPackageTransition): Promise<FactoryPackageImpact> {
+		return expectKind(await this.read(this.packages(projectId) + "/" + encoded(referenceId) + "/impact" + queryString({ transition })), "package.impact").resource;
+	}
+
+	/** What the fence recorded: every attempt a quarantine or revocation of this package reached, oldest decision first. */
+	async packageAffectedRuns(projectId: string, referenceId: string, query: FactoryPackageAffectedRunsQuery = {}): Promise<{ readonly items: readonly FactoryPackageAffectedAttempt[]; readonly nextCursor: string | null }> {
+		const response = expectKind(await this.read(this.packages(projectId) + "/" + encoded(referenceId) + "/affected-runs" + queryString({ trustRevision: query.trustRevision, limit: query.limit, cursor: query.cursor })), "package.affected-runs");
+		return { items: response.page.items, nextCursor: response.page.nextCursor ?? null };
+	}
+
+	async transitionPackage(projectId: string, referenceId: string, transition: FactoryPackageTransition, revision: number): Promise<FactoryPackageResource> {
+		const path = this.packages(projectId) + "/" + encoded(referenceId) + "/trust";
+		return expectKind(await this.read(path, this.mutationInit("package-" + transition + ":" + referenceId + ":" + revision, revision, { transition })), "package.resource").resource;
+	}
+
+	private grants(projectId: string): string {
+		return "/api/factories/projects/" + encoded(projectId) + "/grants";
+	}
+
+	async listGrants(projectId: string, query: FactoryGrantListQuery = {}): Promise<{ readonly items: readonly FactoryGrantResource[]; readonly nextCursor: string | null }> {
+		const response = expectKind(await this.read(this.grants(projectId) + queryString({ limit: query.limit, cursor: query.cursor, principalKind: query.principalKind, action: query.action })), "grant.page");
+		return { items: response.page.items, nextCursor: response.page.nextCursor ?? null };
+	}
+
+	async setGrant(projectId: string, principalKind: FactoryPrincipalKind, principalId: string, action: FactoryAction, revision: number, expiresAtMs: number | null): Promise<FactoryGrantResource> {
+		const path = this.grants(projectId) + "/" + encoded(principalKind) + "/" + encoded(principalId) + "/" + encoded(action);
+		return expectKind(await this.read(path, this.mutationInit("set-grant:" + principalKind + ":" + principalId + ":" + action + ":" + revision, revision, { expiresAtMs }, "PUT")), "grant.resource").resource;
+	}
+
+	async revokeGrant(projectId: string, principalKind: FactoryPrincipalKind, principalId: string, action: FactoryAction, revision: number): Promise<FactoryGrantResource> {
+		const path = this.grants(projectId) + "/" + encoded(principalKind) + "/" + encoded(principalId) + "/" + encoded(action);
+		return expectKind(await this.read(path, this.mutationInit("revoke-grant:" + principalKind + ":" + principalId + ":" + action + ":" + revision, revision, undefined, "DELETE")), "grant.resource").resource;
+	}
+
+	private tenant(tenantId: string): string {
+		return "/api/factories/tenants/" + encoded(tenantId);
+	}
+
+	/** The validator material a published version or a validator lock names: the contract a release approval pins. */
+	async validatorMaterial(projectId: string, query: FactoryValidatorMaterialQuery): Promise<FactoryValidatorMaterialResource> {
+		const path = "/api/factories/projects/" + encoded(projectId) + "/validator-materials" + queryString({ factoryId: query.factoryId, factoryVersion: query.factoryVersion, validatorLockDigest: query.validatorLockDigest });
+		return expectKind(await this.read(path), "validator.material").resource;
+	}
+
+	async purgePreview(tenantId: string): Promise<FactoryPurgePreview> {
+		return expectKind(await this.read(this.tenant(tenantId) + "/purge-preview"), "purge.preview").resource;
+	}
+
+	/** The tenant's restore epochs and their recovery reports, newest first. */
+	async listRestores(tenantId: string): Promise<readonly FactoryRestoreResource[]> {
+		return expectKind(await this.read(this.tenant(tenantId) + "/restores"), "restore.page").page.items;
+	}
+
+	/** Signs one recovery report by the digest the reader was shown; the server re-derives it before recording. */
+	async signRestore(tenantId: string, restoreId: string, reportDigest: string): Promise<FactoryRestoreSignatureResource> {
+		const path = this.tenant(tenantId) + "/restores/" + encoded(restoreId) + "/signatures";
+		return expectKind(await this.read(path, this.mutationInit("sign-restore:" + restoreId, 0, { reportDigest })), "restore.signature").resource;
+	}
+
+	async requestPurge(tenantId: string, reason: string, confirmTenantId: string): Promise<FactoryPurgeRequestResource> {
+		return expectKind(await this.read(this.tenant(tenantId) + "/purge-requests", this.mutationInit("purge:" + tenantId, 0, { reason, confirmTenantId })), "purge.request.resource").resource;
+	}
+
 	async reconcileRelease(projectId: string, operationId: string, dispatchGeneration: number, body: FactoryReleaseReconciliationBody): Promise<FactoryReleaseOperationResource> {
 		const path = this.releases(projectId) + "/" + encoded(operationId) + "/reconciliations";
 		return expectKind(await this.read(path, this.mutationInit("reconcile-release:" + operationId + ":" + dispatchGeneration, dispatchGeneration, body)), "release.operation.resource").resource;
@@ -297,7 +444,7 @@ export class FactoryApiClient {
 
 export type FactoryAuthoringApi = Pick<FactoryApiClient,
 	"listDrafts" | "getDraft" | "createDraft" | "importDraft" | "saveDraft" | "archiveDraft" |
-	"exportDraft" | "validateDraft" | "listVersions" | "getVersion" | "publishVersion"
+	"exportDraft" | "validateDraft" | "listVersions" | "getVersion" | "publishVersion" | "startRun" | "listGrants"
 >;
 
 export type FactoryReleaseAuthorityApi = Pick<FactoryApiClient,
@@ -305,9 +452,15 @@ export type FactoryReleaseAuthorityApi = Pick<FactoryApiClient,
 	"requestReleaseApproval" | "decideReleaseApproval" | "listReleaseNotifications" | "putReleasePolicy" | "deleteReleasePolicy" | "reconcileRelease"
 >;
 
-export type FactoryReleaseNotificationApi = Pick<FactoryApiClient, "listReleaseNotifications" | "decideReleaseApproval" | "decideCommandApproval">;
+export type FactoryReleaseNotificationApi = Pick<FactoryApiClient, "listReleaseNotifications" | "decideReleaseApproval" | "decideCommandApproval" | "reconcileRelease">;
 
 export type FactoryRunControlApi = Pick<FactoryApiClient, "listRuns" | "getRun" | "controlRun">;
+
+export type FactoryRunInspectorApi = Pick<FactoryApiClient, "listRuns" | "inspectRun" | "inspectRunSection" | "openRunEvents" | "artifactTicket" | "artifactBytes">;
+
+export type FactoryAdministrationApi = Pick<FactoryApiClient,
+	"listPackages" | "installPackage" | "packageImpact" | "packageAffectedRuns" | "transitionPackage" | "listGrants" | "setGrant" | "revokeGrant" | "purgePreview" | "requestPurge" | "listRestores" | "signRestore"
+>;
 
 export function blankFactory(factoryId: string): FactoryDefinition {
 	return {
