@@ -381,6 +381,21 @@ describe("e2e lane manifest", () => {
     }
   });
 
+  test("the factory-services stack leaves no request file behind", async () => {
+    // Each journey asks the held stack for work through a request file beside the state file. The stack
+    // deleted the future-draft request after serving it but not the restore request, so every lane run left
+    // an untracked web/e2e/.factory-services-state.json.restore-request (W18c final measurement, 2026-09-27).
+    const stack = await Bun.file(join(REPO_ROOT, "web/e2e/factory-services/stack.ts")).text();
+    const handler = (name: string) => stack.slice(stack.indexOf(`async function ${name}(`), stack.indexOf("\n}\n", stack.indexOf(`async function ${name}(`)));
+    expect(handler("writeFutureDraft")).toContain("await rm(FACTORY_SERVICES_FUTURE_DRAFT_REQUEST_PATH, { force: true });");
+    expect(handler("openRestoreEpoch")).toContain("await rm(FACTORY_SERVICES_RESTORE_REQUEST_PATH, { force: true });");
+    const ignored = Bun.spawnSync(
+      ["git", "check-ignore", "web/e2e/.factory-services-state.json.restore-request", "web/e2e/.factory-services-state.json.future-draft-request", "web/e2e/.factory-services-state.json.stop"],
+      { cwd: REPO_ROOT },
+    );
+    expect(ignored.stdout.toString().trim().split("\n")).toHaveLength(3);
+  });
+
   test("a lane whose server never enables factories carries no spec that calls /api/factories", async () => {
     // src/factory/boot.ts serves /api/factories only when EZCORP_FACTORY_ENABLED=1. The real-auth and
     // fresh-setup lanes start their server through playwright.real.config.ts and scripts/run-real-e2e.ts,

@@ -543,6 +543,7 @@ async function openRestoreEpoch(): Promise<void> {
 	if (result.reportDigest !== undefined) state.restoreReportDigest = result.reportDigest;
 	if (result.blockedChecks !== undefined) state.restoreBlockedChecks = [...result.blockedChecks];
 	await writeFile(FACTORY_SERVICES_STATE_PATH, JSON.stringify(state, null, 2), { mode: 0o600 });
+	await rm(FACTORY_SERVICES_RESTORE_REQUEST_PATH, { force: true });
 	console.log(`[factory-services] restore ${restoreId}: the operator command exited ${exit} with ${result.blockedChecks?.length ?? "no"} blocked checks`);
 }
 while (!stopping && Date.now() < heldUntil && !await Bun.file(STOP_FILE).exists()) {
