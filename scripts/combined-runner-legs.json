@@ -35,6 +35,9 @@
       "id": "factory-reference-data",
       "command": "COV_OUT=coverage-shard bash scripts/factory-reference-data-coverage.sh",
       "runs": ["tests/postgres/factory-reference-data.test.ts"],
+      "owner": "W18c",
+      "reason": "No registry holds the image: pinned.json pins localhost/ezcorp-factory-python-data by a manifest digest built with podman 5.8.2, which CI cannot pull or reproduce.",
+      "decision": "User decision (coordinator ruling 2026-09-27 16:36Z): publish the image by digest to the project's registry, point pinned.json at it, then run this producer in a db-postgres.yml storage job and move this entry to producers.",
       "comment": "CI GAP: no workflow runs this producer, so its real-PostgreSQL leg runs in no CI job. Needs podman, the pinned PyArrow image, FACTORY_TEST_POSTGRES_URL and EZCORP_FACTORY_STORAGE_SECRETS_DIR."
     }
   ],

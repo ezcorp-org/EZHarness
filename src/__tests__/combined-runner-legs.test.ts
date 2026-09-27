@@ -155,6 +155,7 @@ describe("scripts/combined-runner-legs.json", () => {
         expect(ciRun.has(file), `${file}: CI runs it; drop it from ${producer.id}.runs`).toBe(false);
       }
       expect(producer.comment).toStartWith("CI GAP:");
+      for (const field of [producer.owner, producer.reason, producer.decision]) expect(field.trim()).not.toBe("");
     }
   });
 

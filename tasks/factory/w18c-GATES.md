@@ -196,6 +196,21 @@ on main. No test was written for them. The manifest above now makes the runner r
   | web/src/lib/actions/hover-tooltip.ts | 0 measured lines |
   | web/src/lib/components/tool-cards/price-chart-logic.ts | 0 measured lines |
 
+## Follow-up: the reference-data producer runs in no CI job (ruling 2026-09-27 16:36Z)
+
+scripts/factory-reference-data-coverage.sh, and with it tests/postgres/factory-reference-data.test.ts, runs in no
+workflow. CI cannot pull the runner image: no registry holds it (pinned.json pins
+localhost/ezcorp-factory-python-data by a manifest digest built with podman 5.8.2), and a CI build is not proven to
+reproduce that digest. Relaxing the pin for CI was refused. The plan is (a), a user decision: publish the image by
+digest to the project's registry, point pinned.json at it, run the producer in a db-postgres.yml storage job, and move
+the manifest entry to `producers`. Until then (c): the manifest's `localOnlyProducers` entry (owner W18c, reason,
+decision) is the only record. The local combined runner and the wave4f driver run the producer from the manifest.
+scripts/factory-postgres-suite-registration.test.ts now counts a suite as registered only when a workflow, or a
+script a workflow invokes, runs it. It reads the manifest entry and keeps no list of its own. Red first: against the
+current workflows it named only tests/postgres/factory-reference-data.test.ts. Controls
+(`registration-controls.txt`): with the entry removed, the test names that suite; with a workflow adopting the
+producer, both this test and the manifest guard fail by name and ask for the move to `producers`.
+
 ## Leg manifest for the combined runner (ruling 2026-09-27)
 
 `scripts/combined-runner-legs.json` names what the local combined runner and the wave4f driver must run beyond their

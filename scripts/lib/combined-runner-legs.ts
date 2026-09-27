@@ -27,7 +27,15 @@ export type RunnerSuite = { file: string; cwd: "." | "web"; measures: string[]; 
  * it and so the gap stays visible: the guard fails once a workflow adopts it,
  * and the entry must then move to `producers`.
  */
-export type LocalOnlyProducer = { id: string; command: string; runs: string[]; comment: string };
+export type LocalOnlyProducer = {
+  id: string;
+  command: string;
+  runs: string[];
+  owner: string;
+  reason: string;
+  decision: string;
+  comment: string;
+};
 export type RunnerLegs = {
   comment: string;
   producers: RunnerProducer[];
