@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { canonicalJson } from "@ezcorp/extension-contract";
 import type { JsonValue } from "@ezcorp/factory-sdk";
+import type { KernelEvent } from "@ezcorp/factory-sdk/kernel-types";
 import { sql } from "drizzle-orm";
 import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
 import { insertTransactionalAuditEntry } from "../db/queries/audit-log";
@@ -236,6 +237,8 @@ export interface FactoryReleaseOperation extends FactoryReleaseRequest {
   readonly receiptArchive?: FactoryArchiveObject;
   readonly receipt?: FactoryProviderReceipt;
   readonly outcomeCode?: string;
+  /** The stop of this release's run, once the kernel's cancel-node reached it (W09e). */
+  readonly stop?: FactoryReleaseStop;
   /** Git destinations only. The one ref this operation may ever create, derived from its id. */
   readonly destinationRef?: string;
   readonly destinationBranch?: string;
@@ -311,6 +314,7 @@ type OperationRow = {
   intent_archive_json: string | null; material_archive_json: string | null; receipt_archive_json: string | null; receipt_json: string | null; archive_ready: boolean; outcome_code: string | null;
   destination_ref: string | null; destination_branch: string | null;
   profile_input_digest: string | null; profile_result_digest: string | null; profile_resolved_at_ms: number | string | null;
+  stop_command_id: string | null; stop_requested_epoch: number | string | null; stop_requested_at_ms: number | string | null; stop_outcome: FactoryReleaseStopOutcome | null;
 };
 
 type NotificationRow = { payload: string; state: FactoryNotification["state"]; input_hash: string };
@@ -350,6 +354,20 @@ type NotificationProjectionRow = NotificationRow & {
   lifecycle_cancellation_epoch: number | string | null;
   installation_execution_epoch: number | string | null;
 };
+
+/** What the release outcome later proved about a stopped release's publish (W09e). */
+export type FactoryReleaseStopOutcome = "no_effect" | "published" | "unknown_at_deadline";
+
+/** What a stop found a release's external effect to be when it reached the operation. */
+export type FactoryReleaseStopEffect = "none" | "uncertain" | "published";
+
+/** A release's stop: the kernel's cancel-node, the run's cancellation epoch that stop raised, and when. */
+export interface FactoryReleaseStop {
+  readonly commandId: string;
+  readonly epoch: number;
+  readonly requestedAtMs: number;
+  readonly outcome?: FactoryReleaseStopOutcome;
+}
 
 export class FactoryReleaseError extends Error {
   constructor(readonly code: string, message = code) { super(message); this.name = "FactoryReleaseError"; }
@@ -412,6 +430,7 @@ function operationFromRow(row: OperationRow): FactoryReleaseOperation {
     ...(row.destination_ref ? { destinationRef: row.destination_ref } : {}), ...(row.destination_branch ? { destinationBranch: row.destination_branch } : {}),
     ...(row.profile_input_digest ? { profileInputDigest: row.profile_input_digest } : {}), ...(row.profile_result_digest ? { profileResultDigest: row.profile_result_digest } : {}),
     ...(row.profile_resolved_at_ms === null ? {} : { profileResolvedAtMs: Number(row.profile_resolved_at_ms) }),
+    ...(row.stop_command_id === null ? {} : { stop: Object.freeze({ commandId: row.stop_command_id, epoch: Number(row.stop_requested_epoch), requestedAtMs: Number(row.stop_requested_at_ms), ...(row.stop_outcome === null ? {} : { outcome: row.stop_outcome }) }) }),
     ...(row.authority_kind && row.authority_id ? { authority: { kind: row.authority_kind, id: row.authority_id, ...(row.policy_revision === null ? {} : { policyRevision: Number(row.policy_revision) }) } } : {}),
   };
   assertOperation(operation);
@@ -857,6 +876,9 @@ export class FactoryReleases {
       if (!observed) throw new FactoryReleaseError("factory_release_not_claimable");
       const current = await this.authority.lockCurrentInTransaction(transaction, this.tenantId, projectId, observed.runId, observed.nodeInstanceId);
       const operation = await this.readInTransaction(transaction, projectId, operationId, "update");
+      // The stop takes this same row lock (W09e): a stopped release is never claimed, so "pending under the
+      // lock" at stop time proves no publish started.
+      if (operation?.stop) throw new FactoryReleaseError("factory_release_stopped");
       if (operation?.state !== "pending" || !operation.archiveReady || !operation.intentArchive || !operation.materialArchive || operation.deadlineMs <= this.now()) throw new FactoryReleaseError("factory_release_not_claimable");
       // An operation leaves `pending` only with its profile seal, which the database also checks.
       if (!operation.profileResultDigest) throw new FactoryReleaseError("factory_release_profile_stale");
@@ -876,7 +898,7 @@ export class FactoryReleases {
       const senderToken = randomUUID();
       const reserved = rows(await transaction.execute(sql`INSERT INTO factory_release_destination_reservations (tenant_id,project_id,destination_provider,destination_account,destination_object,operation_id,expected_version,dispatch_generation,state) VALUES (${this.tenantId},${projectId},${operation.destination.provider},${operation.destination.account},${operation.destination.object},${operationId},${operation.destination.expectedVersion ?? null},${generation},'held') ON CONFLICT (tenant_id,destination_provider,destination_account,destination_object) DO UPDATE SET project_id=EXCLUDED.project_id,operation_id=EXCLUDED.operation_id,expected_version=EXCLUDED.expected_version,dispatch_generation=EXCLUDED.dispatch_generation,state='held',updated_at=NOW() WHERE factory_release_destination_reservations.state='released' OR factory_release_destination_reservations.operation_id=EXCLUDED.operation_id RETURNING operation_id`));
       if (!reserved.length) throw new FactoryReleaseError("factory_release_destination_reserved");
-      const changed = rows(await transaction.execute(sql`UPDATE factory_release_operations SET state='executing',dispatch_generation=${generation},sender_token=${senderToken},authority_kind=${consent.kind},authority_id=${consent.kind === "approval" ? consent.approvalId : consent.policyId},policy_revision=${policyRevision ?? null},updated_at=NOW() WHERE tenant_id=${this.tenantId} AND project_id=${projectId} AND operation_id=${operationId} AND state='pending' AND dispatch_generation=${operation.dispatchGeneration} RETURNING operation_id`));
+      const changed = rows(await transaction.execute(sql`UPDATE factory_release_operations SET state='executing',dispatch_generation=${generation},sender_token=${senderToken},authority_kind=${consent.kind},authority_id=${consent.kind === "approval" ? consent.approvalId : consent.policyId},policy_revision=${policyRevision ?? null},updated_at=NOW() WHERE tenant_id=${this.tenantId} AND project_id=${projectId} AND operation_id=${operationId} AND state='pending' AND dispatch_generation=${operation.dispatchGeneration} AND stop_command_id IS NULL RETURNING operation_id`));
       if (!changed.length) throw new FactoryReleaseError("factory_release_claim_lost");
       await insertTransactionalAuditEntry(transaction, `factory-release-claimed:${operationId}:${generation}`, requester.kind === "user" ? requester.id : null, "factory.release.claimed", operationId, { tenantId: this.tenantId, projectId, operationId, generation, authorityKind: consent.kind, authorityId: consent.kind === "approval" ? consent.approvalId : consent.policyId, principalKind: requester.kind, principalId: requester.id });
       return { ...(await this.readInTransaction(transaction, projectId, operationId, "share"))!, state: "executing", senderToken, authority: { kind: consent.kind, id: consent.kind === "approval" ? consent.approvalId : consent.policyId, ...(policyRevision === undefined ? {} : { policyRevision }) } };
@@ -1064,6 +1086,40 @@ export class FactoryReleases {
     return { notificationId: notification.id, createdAtMs: notification.createdAt, kind: notification.kind, approvalId: notification.approvalId, runId: approval.runId, commandId: approval.commandId, nodeInstanceId: approval.nodeInstanceId, contextDigest: approval.contextDigest, context, choices, actorScope: approval.actorScope, expiresAtMs: Number(row.command_deadline_at_ms) };
   }
 
+  /**
+   * Records the stop of this release's run on the operation, once (W09e).
+   *
+   * The operation row is taken FOR UPDATE, the lock `claim` takes to move it out of `pending`, so the state
+   * read here is the whole truth about whether a publish can have started:
+   * - `pending` (or already `failed`): no publish started and none can; the operation fails with
+   *   `stopped_before_dispatch` and the effect is certainly none;
+   * - `executing` or `uncertain`: a publish may be in flight at the provider; the effect is uncertain and
+   *   the release outcome later proves it;
+   * - `succeeded`: the effect happened.
+   * The stop is keyed by the kernel's cancel-node: a repeat returns the event recorded the first time, and
+   * a different stop of the same release is refused as stale. The caller enqueues the event in the same
+   * transaction.
+   */
+  async stopInTransaction(transaction: MigrationDb, projectId: string, operationId: string, stop: Omit<FactoryReleaseStop, "outcome">, event: (effect: FactoryReleaseStopEffect) => KernelEvent): Promise<KernelEvent> {
+    text(projectId, operationId, stop.commandId); count(stop.epoch, true); count(stop.requestedAtMs, true);
+    const operation = await this.readInTransaction(transaction, projectId, operationId, "update");
+    if (!operation) throw new FactoryReleaseError("factory_release_corrupt");
+    if (operation.stop) {
+      if (operation.stop.commandId !== stop.commandId) throw new FactoryReleaseError("factory_release_stop_stale");
+      const [recorded] = rows<{ stop_event_json: string }>(await transaction.execute(sql`SELECT stop_event_json FROM factory_release_operations WHERE tenant_id=${this.tenantId} AND project_id=${projectId} AND operation_id=${operationId}`));
+      return JSON.parse(recorded!.stop_event_json) as KernelEvent;
+    }
+    const effect: FactoryReleaseStopEffect = operation.state === "pending" || operation.state === "failed" ? "none" : operation.state === "succeeded" ? "published" : "uncertain";
+    const recorded = event(effect);
+    const outcome: FactoryReleaseStopOutcome | null = effect === "none" ? "no_effect" : effect === "published" ? "published" : null;
+    const beforeDispatch = operation.state === "pending";
+    await transaction.execute(sql`UPDATE factory_release_operations SET stop_command_id=${stop.commandId},stop_requested_epoch=${stop.epoch},stop_requested_at_ms=${stop.requestedAtMs},stop_event_json=${canonicalJson(recorded)},stop_outcome=${outcome},
+      state=${beforeDispatch ? "failed" : operation.state},outcome_code=${beforeDispatch ? "stopped_before_dispatch" : operation.outcomeCode ?? null},updated_at=NOW()
+      WHERE tenant_id=${this.tenantId} AND project_id=${projectId} AND operation_id=${operationId} AND stop_command_id IS NULL`);
+    await insertTransactionalAuditEntry(transaction, `factory-release-stopped:${operationId}`, null, "factory.release.stop_requested", operationId, { tenantId: this.tenantId, projectId, operationId, stopCommandId: stop.commandId, epoch: stop.epoch, state: operation.state, effect });
+    return recorded;
+  }
+
   async inspect(projectId: string, operationId: string): Promise<FactoryReleaseOperation | null> { text(projectId, operationId); return this.readInTransaction(this.database, projectId, operationId, "none"); }
 
   /**
@@ -1172,7 +1228,7 @@ export class FactoryReleases {
     if (limit > 1000) throw new FactoryReleaseError("factory_release_invalid");
     const found = rows<{ project_id: string; operation_id: string; run_id: string; node_instance_id: string; deadline_ms: number | string; dispatch_generation: number | string }>(await transaction.execute(sql`
       SELECT project_id,operation_id,run_id,node_instance_id,deadline_ms,dispatch_generation FROM factory_release_operations
-      WHERE tenant_id=${this.tenantId} AND project_id=${projectId} AND state='pending' AND archive_ready=TRUE
+      WHERE tenant_id=${this.tenantId} AND project_id=${projectId} AND state='pending' AND archive_ready=TRUE AND stop_command_id IS NULL
         AND profile_result_digest IS NOT NULL AND intent_archive_json IS NOT NULL AND material_archive_json IS NOT NULL
         AND deadline_ms>${this.now()}
       ORDER BY deadline_ms,operation_id LIMIT ${limit}`));
@@ -1246,7 +1302,7 @@ export class FactoryReleases {
 
   private async readInTransaction(database: MigrationDb, projectId: string, operationId: string, lock: "update" | "share" | "none"): Promise<FactoryReleaseOperation | null> {
     const clause = lock === "update" ? sql`FOR UPDATE` : lock === "share" ? sql`FOR SHARE` : sql``;
-    const row = rows<OperationRow>(await database.execute(sql`SELECT tenant_id,project_id,operation_id,run_id,node_instance_id,candidate_generation,candidate_digest,decision_id,contract_digest,execution_epoch,cancellation_epoch,release_enable_epoch,action,destination_provider,destination_account,destination_object,expected_destination_version,destination_digest,canonical_request,request_digest,material_json,material_digest,estimated_spend_micros,deadline_ms,state,dispatch_generation,sender_token,dispatch_started,authority_kind,authority_id,policy_revision,intent_archive_json,material_archive_json,receipt_archive_json,receipt_json,archive_ready,outcome_code,destination_ref,destination_branch,profile_input_digest,profile_result_digest,profile_resolved_at_ms FROM factory_release_operations WHERE tenant_id=${this.tenantId} AND project_id=${projectId} AND operation_id=${operationId} ${clause}`))[0];
+    const row = rows<OperationRow>(await database.execute(sql`SELECT tenant_id,project_id,operation_id,run_id,node_instance_id,candidate_generation,candidate_digest,decision_id,contract_digest,execution_epoch,cancellation_epoch,release_enable_epoch,action,destination_provider,destination_account,destination_object,expected_destination_version,destination_digest,canonical_request,request_digest,material_json,material_digest,estimated_spend_micros,deadline_ms,state,dispatch_generation,sender_token,dispatch_started,authority_kind,authority_id,policy_revision,intent_archive_json,material_archive_json,receipt_archive_json,receipt_json,archive_ready,outcome_code,destination_ref,destination_branch,profile_input_digest,profile_result_digest,profile_resolved_at_ms,stop_command_id,stop_requested_epoch,stop_requested_at_ms,stop_outcome FROM factory_release_operations WHERE tenant_id=${this.tenantId} AND project_id=${projectId} AND operation_id=${operationId} ${clause}`))[0];
     return row ? operationFromRow(row) : null;
   }
 }

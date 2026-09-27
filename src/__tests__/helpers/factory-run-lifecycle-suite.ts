@@ -66,6 +66,7 @@ import { FACTORY_S3_MANIFEST_NAME, type FactoryS3ManifestReceipt } from "../../f
 import type { S3ClientLike } from "../../factory/release-adapters";
 import { composeFactoryReleaseDestinations } from "../../factory/release-declaration";
 import { FactoryDestinationReservations, FactoryStoreSenderFence } from "../../factory/release-destinations";
+import { FactoryRememberingProvider } from "./factory-release-world";
 import { factoryReleaseOutcomeDriver } from "../../factory/dispatch-composition";
 import { FactoryReleaseOutcomeDelivery, factoryReleaseOutcomeEventId } from "../../factory/release-outcome-delivery";
 import { FactoryMemoryS3Store } from "./factory-s3-memory-store";
@@ -763,41 +764,121 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     expect(rows(await fixture.db.execute(sql`SELECT operation_id FROM factory_release_operations WHERE tenant_id=${tenantId} AND project_id=${projectId} AND run_id=${completed.task.run.runId}`))).toEqual([]);
   });
 
-  test("W09e R1: a user cancel while a release is in flight ends the run", async () => {
-    // Red-first reproduction (W09e): a release is pending at its provider, the user cancels, and the kernel
-    // answers with a cancel-node for the release node. The execution cancel route resolves a cancel through
-    // the attempt queue, which never holds a release.
+  /**
+   * W09e: a run whose release is prepared (and, per `claimed`/`published`, claimed or published), cancelled by
+   * its user, with the kernel's cancel-node for the release node committed. `stop` drives that cancel through
+   * the production cancel route (`factoryCancelNodeEffect` with the release stop), and `apply` commits the
+   * event it returns and projects the run.
+   */
+  async function releaseStopWorld(phase: "pending" | "claimed" | "published", statements?: string[]) {
     const world = await protectedAcceptance(true);
-    const { releaseReference, acceptedAdvanced } = await acceptedRelease(world);
     const task = world.completed.task;
-    expect(await world.effects.requestRelease(task.service, releaseReference)).toBeNull();
-    const [pending] = rows<{ state: string }>(await fixture.db.execute(sql`SELECT state FROM factory_release_operations WHERE tenant_id=${tenantId} AND project_id=${projectId} AND run_id=${task.run.runId}`));
-    expect(pending?.state).toBe("pending");
-
+    const releases = new FactoryReleases(fixture.db, tenantId, grants, world.assurance, world.releaseAuthority, world.releaseAuthority,
+      new FactoryDestinationReservations({ database: fixture.db, tenantId }), memoryReleaseArchive(), new FactoryStoreSenderFence({ database: fixture.db, tenantId }), Date.now);
+    const effects = new FactoryProtectedCommandEffects(fixture.db, tenantId, task.authority, world.completed.completions, world.releaseAuthority, world.assurance, releases,
+      [factorySynchronousReleaseProfile({ adapter: world.releaseNode.adapter, action: "publish", build(input) { return { destination: { provider: "test", account: "protected", object: `stop-${phase}-${world.completed.task.run.runId}` }, request: { acceptedCandidate: input.acceptedCandidate, destination: input.destination }, estimatedSpendMicros: 42 }; } })]);
+    const { releaseReference, acceptedAdvanced } = await acceptedRelease({ effects, completed: world.completed, acceptanceReference: world.acceptanceReference, candidateAdvanced: world.candidateAdvanced });
+    expect(await effects.requestRelease(task.service, releaseReference)).toBeNull();
+    const operationId = rows<{ operation_id: string }>(await fixture.db.execute(sql`SELECT operation_id FROM factory_release_operations WHERE tenant_id=${tenantId} AND project_id=${projectId} AND run_id=${task.run.runId}`))[0]!.operation_id;
+    if (phase !== "pending") {
+      // A claim passes the checkpoint barrier's effect gate, as every dispatching release test opens it.
+      await openFactoryEffectClaimsForTest(fixture.db, tenantId);
+      const operation = (await releases.inspect(projectId, operationId))!;
+      const approval = await releases.requestApproval(principal, projectId, operationId, Math.min(operation.deadlineMs, Date.now() + 3_600_000), operation.dispatchGeneration, `stop-approval-${phase}-${task.run.runId}`);
+      await world.assurance.decideApproval(principal, projectId, approval.approvalId, approval.contextDigest, true, `stop-decision-${phase}-${task.run.runId}`);
+      const claim = await releases.claim(principal, projectId, operationId, { kind: "approval", approvalId: approval.approvalId });
+      if (phase === "published") expect((await releases.dispatch(claim, new FactoryRememberingProvider())).state).toBe("succeeded");
+    }
     const revision = Number(rows<{ revision: number | string }>(await fixture.db.execute(sql`SELECT revision FROM factory_run_lifecycle WHERE tenant_id=${tenantId} AND project_id=${projectId} AND run_id=${task.run.runId}`))[0]!.revision);
     await cancelRun(principal, runKey(task.run.runId), revision, `w09e-release-cancel-${task.run.runId}`);
     const stored = rows<{ payload: string }>(await fixture.db.execute(sql`SELECT payload FROM factory_inbox_events WHERE tenant_id=${tenantId} AND run_id=${task.run.runId} AND payload::jsonb->>'kind'='cancel'`));
     const cancelEvent = JSON.parse(stored[0]!.payload) as KernelEvent;
     const stopping = advanceKernel(task.compiled, acceptedAdvanced.nextState, cancelEvent);
     const cancelNode = stopping.commands.find(command => command.kind === "cancel-node" && command.nodeId === "release");
-    expect(cancelNode?.kind).toBe("cancel-node");
+    if (cancelNode?.kind !== "cancel-node") throw new Error("the cancel issued no cancel-node for the release");
     await persistTransition(task.identity, 5, cancelEvent, stopping.nextState, stopping.commands, undefined, task.activities);
-
-    // The real stop store, as the execution cancel route drives it. Its physical stopper and pool are never
-    // reached before the refusal, so they fail loudly if they are.
     const { FactoryTaskStops } = await import("../../factory/task-stops");
     const { FactoryUsageSettlements } = await import("../../factory/usage-settlement");
+    const { FactoryReleaseStops } = await import("../../factory/release-stops");
+    const { factoryCancelNodeEffect } = await import("../../factory/private-service-composition");
     const inbox = new FactoryInbox(fixture.db, tenantId, () => now);
+    // The task stop's physical stopper and pool are never reached for a release, so they fail loudly if they are.
     const stops = new FactoryTaskStops(fixture.db, task.authority, task.admissions, task.journal, world.completed.outcomes, task.queue, lifecycle.budgets, inbox,
       new FactoryUsageSettlements(fixture.db, tenantId, inbox, () => now),
       { async stop() { throw new Error("no physical stop exists for a release"); } },
       { async confirmStopped() { throw new Error("no pool lease exists for a release"); } },
       [{ hostId: "release-host", hostKeyId: "release-host-key", publicKey: generateKeyPairSync("rsa", { modulusLength: 2048 }).publicKey }], () => now);
-    const outcome = await stops.stop(task.service, { ...task.identity, commandId: cancelNode!.kind === "cancel-node" ? cancelNode!.id : "" }).then(receipt => receipt.state, (error: { code?: string }) => error.code);
-    await new FactoryRunTransitionProjector(fixture.db, tenantId, task.transitions, lifecycle).project(runKey(task.run.runId));
-    const [row] = rows<{ status: string }>(await fixture.db.execute(sql`SELECT status FROM factory_run_lifecycle WHERE tenant_id=${tenantId} AND project_id=${projectId} AND run_id=${task.run.runId}`));
-    // The ruled outcome (W01h gates, open defect W09e): the stop settles the release node, and the run ends.
-    expect({ stop: outcome, run: row?.status }).toEqual({ stop: "stopped", run: "cancelled" });
+    // With `statements`, every statement the release stop runs in its own transactions is recorded (R6).
+    const { PgDialect } = await import("drizzle-orm/pg-core");
+    const dialect = new PgDialect();
+    const recording = <T extends object>(transaction: T): T => statements === undefined ? transaction : new Proxy(transaction, {
+      get(target, property) {
+        const value = Reflect.get(target, property) as unknown;
+        if (property === "execute") return (query: Parameters<typeof dialect.sqlToQuery>[0]) => { statements.push(dialect.sqlToQuery(query).sql); return (value as (q: unknown) => unknown).call(target, query); };
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    const releaseAuthority = { tenantId: task.authority.tenantId, withCurrentCancellation: (service: never, reference: never, work: (transaction: never, context: never) => Promise<unknown>) => task.authority.withCurrentCancellation(service, reference, (transaction, context) => work(recording(transaction) as never, context as never)) } as unknown as typeof task.authority;
+    const releaseDatabase = { transaction: <R>(work: (transaction: never) => Promise<R>) => fixture.db.transaction(transaction => work(recording(transaction) as never)) } as unknown as typeof fixture.db;
+    const cancel = factoryCancelNodeEffect(stops, new FactoryReleaseStops(releaseDatabase, releaseAuthority, inbox, releases, effects, () => now));
+    const cancelReference = { ...task.identity, commandId: cancelNode.id };
+    const operation = async () => rows<{ state: string; outcome_code: string | null; stop_command_id: string | null; stop_requested_epoch: number | string | null; stop_outcome: string | null }>(await fixture.db.execute(sql`SELECT state,outcome_code,stop_command_id,stop_requested_epoch,stop_outcome FROM factory_release_operations WHERE tenant_id=${tenantId} AND project_id=${projectId} AND operation_id=${operationId}`))[0]!;
+    const apply = async (event: KernelEvent) => {
+      const stopped = advanceKernel(task.compiled, stopping.nextState, event);
+      await persistTransition(task.identity, 6, event, stopped.nextState, stopped.commands, undefined, task.activities);
+      await new FactoryRunTransitionProjector(fixture.db, tenantId, task.transitions, lifecycle).project(runKey(task.run.runId));
+      return { stopped, run: rows<{ status: string }>(await fixture.db.execute(sql`SELECT status FROM factory_run_lifecycle WHERE tenant_id=${tenantId} AND project_id=${projectId} AND run_id=${task.run.runId}`))[0]?.status };
+    };
+    return { task, releases, operationId, cancelNode, cancelReference, stop: () => cancel(task.service, cancelReference), operation, apply };
+  }
+
+  test("W09e R1: a user cancel while a release is in flight ends the run", async () => {
+    // Red first on integ (factory_task_stop_stale, run cancelling): the cancel route resolved every cancel through
+    // the attempt queue, which never holds a release. A release not yet claimed cannot have published.
+    const world = await releaseStopWorld("pending");
+    const event = await world.stop();
+    expect(event).toEqual({ kind: "attempt-stopped", id: `${world.cancelNode.id}:stopped`, atMs: expect.any(Number), nodeId: "release", commandId: world.cancelNode.attemptCommandId, candidateGeneration: world.cancelNode.candidateGeneration, attempt: world.cancelNode.attempt });
+    expect(await world.operation()).toEqual({ state: "failed", outcome_code: "stopped_before_dispatch", stop_command_id: world.cancelNode.id, stop_requested_epoch: expect.anything(), stop_outcome: "no_effect" });
+    expect(Number((await world.operation()).stop_requested_epoch)).toBe(world.cancelNode.cancellationEpoch);
+    // A repeated cancel returns the event recorded the first time and marks nothing again.
+    expect(await world.stop()).toEqual(event);
+    // A stopped release is never claimed afterwards: the run fence refuses first; the operation's own row check
+    // (factory_release_stopped) closes the race with a claim authorized before the stop (PostgreSQL race test).
+    await expect(world.releases.claim(principal, projectId, world.operationId, { kind: "approval", approvalId: "any" })).rejects.toMatchObject({ code: "factory_run_stopped" });
+    const { stopped, run } = await world.apply(event!);
+    expect(run).toBe("cancelled");
+    expect(stopped.nextState.nodes.release).toMatchObject({ status: "cancelled" });
+  });
+
+  test("W09e R2: a release claimed before the stop ends the run with its effect named uncertain", async () => {
+    const world = await releaseStopWorld("claimed");
+    const event = await world.stop();
+    expect(event).toMatchObject({ kind: "attempt-stopped", uncertain: false, effect: "uncertain" });
+    // The publish may be running at the provider: the operation keeps its state and waits for its outcome.
+    expect(await world.operation()).toMatchObject({ state: "executing", stop_command_id: world.cancelNode.id, stop_outcome: null });
+    const { stopped, run } = await world.apply(event!);
+    expect(run).toBe("cancelled");
+    expect(stopped.nextState.nodes.release).toMatchObject({ status: "cancelled", error: "RELEASE_EFFECT_UNCERTAIN" });
+  });
+
+  test("W09e R6: the release stop locks neither an attempt's stop row nor its launch row", async () => {
+    // FACTORY_STOP_LAUNCH_LOCK_ORDER (W01h) orders transactions that lock both rows; a release has neither,
+    // and its stop path never reaches them, so it adds no pair order.
+    const statements: string[] = [];
+    const world = await releaseStopWorld("claimed", statements);
+    expect(await world.stop()).toMatchObject({ effect: "uncertain" });
+    expect(statements.some(statement => /factory_release_operations[\s\S]*for update/i.test(statement))).toBe(true);
+    expect(statements.filter(statement => /factory_attempt_launches/i.test(statement) || /factory_task_stops[\s\S]*for (update|share)/i.test(statement))).toEqual([]);
+  });
+
+  test("W09e R2: a release published before the stop ends the run with its effect named published", async () => {
+    const world = await releaseStopWorld("published");
+    const event = await world.stop();
+    expect(event).toMatchObject({ kind: "attempt-stopped", uncertain: false, effect: "published" });
+    expect(await world.operation()).toMatchObject({ state: "succeeded", stop_command_id: world.cancelNode.id, stop_outcome: "published" });
+    const { stopped, run } = await world.apply(event!);
+    expect(run).toBe("cancelled");
+    expect(stopped.nextState.nodes.release).toMatchObject({ status: "cancelled", error: "RELEASE_PUBLISHED_BEFORE_STOP" });
   });
 
   test("an authorized child still creates exactly one release operation", async () => {

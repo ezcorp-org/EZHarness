@@ -202,6 +202,7 @@ jobs:
           ./tests/postgres/factory-task-stops.test.ts
           ./tests/postgres/factory-stop-lock-order.test.ts
           ./tests/postgres/factory-release-stop-migration.test.ts
+          ./tests/postgres/factory-release-stop-race.test.ts
           ./tests/postgres/factory-package-fence.test.ts
           ./tests/postgres/factory-migration-restart.test.ts
           ./tests/postgres/factory-schema.test.ts

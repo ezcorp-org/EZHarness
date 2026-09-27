@@ -95,6 +95,8 @@ export class FactoryReleaseOutcomeDelivery {
       SELECT o.project_id, o.operation_id FROM factory_release_operations o
       JOIN factory_run_lifecycle r ON r.tenant_id=o.tenant_id AND r.project_id=o.project_id AND r.run_id=o.run_id
       WHERE o.tenant_id=${this.tenantId} AND o.state IN ('succeeded','failed')
+        -- W09e: a stopped release's node already has its stop; its outcome is evidence, never a node event.
+        AND o.stop_command_id IS NULL
         AND r.status NOT IN ('succeeded','failed','cancelled')
         AND EXISTS (SELECT 1 FROM factory_protected_command_effects p WHERE p.tenant_id=o.tenant_id AND p.project_id=o.project_id AND p.run_id=o.run_id AND p.kind='request-release' AND p.receipt_json LIKE '%"operationId":"' || o.operation_id || '"%')
         AND NOT EXISTS (SELECT 1 FROM factory_inbox_events e WHERE e.tenant_id=o.tenant_id AND e.project_id=o.project_id AND e.run_id=o.run_id AND e.event_id='release-outcome:' || o.operation_id)

@@ -47,6 +47,7 @@ import { readPrivateText as readPrivateFileText } from "./private-files";
 import { startFactoryPrivateService } from "./private-service";
 import type { PoolTokenVerifierOptions } from "./pool/service-token";
 import { FactoryProtectedCommandEffects, type FactoryReleaseCommandProfile } from "./protected-command-effects";
+import { FactoryReleaseStops } from "./release-stops";
 import type { FactoryReleases } from "./releases";
 import type { FactoryStartedListener } from "./runtime-composition";
 import type { FactoryInstallationStores } from "./installation-stores";
@@ -121,8 +122,12 @@ export class FactoryPrivateServiceCompositionError extends Error {
  * `stop-settlement` role, which retries it against the same sealed request, and
  * the command completes when a receipt really lands.
  */
-export function factoryCancelNodeEffect(stops: Pick<FactoryTaskStops, "stop">): FactoryPrivateCommandHandler {
+export function factoryCancelNodeEffect(stops: Pick<FactoryTaskStops, "stop">, releaseStops?: Pick<FactoryReleaseStops, "stop">): FactoryPrivateCommandHandler {
   return async (service: TrustedFactoryServiceIdentity, reference: TrustedFactoryCommandReference): Promise<KernelEvent | null> => {
+    // W09e: a release node has no process and no queued attempt; its stop is certain and names its effect.
+    // Every other cancel, and any cancel the release stop does not own, is the task stop's.
+    const released = await releaseStops?.stop(service, reference);
+    if (released !== undefined) return released;
     const receipt = await stops.stop(service, reference);
     return receipt.state === "stopped" ? receipt.event : null;
   };
@@ -256,7 +261,7 @@ export async function composeFactoryPrivateService(options: FactoryPrivateServic
     children: stores.children,
     approvals: new FactoryAssuranceCommands(database, config.tenantId, application.grants, stores.authority, stores.inbox, releases, service),
     effects: {
-      "cancel-node": factoryCancelNodeEffect(options.stops),
+      "cancel-node": factoryCancelNodeEffect(options.stops, new FactoryReleaseStops(database, stores.authority, stores.inbox, releases, protectedEffects)),
       "request-acceptance": options.acceptance ?? protectedEffects.requestAcceptance,
       "request-release": protectedEffects.requestRelease,
       "invalidate-partition": partitions.execute.bind(partitions),

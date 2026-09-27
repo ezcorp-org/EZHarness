@@ -55,6 +55,8 @@ export interface FactoryReleaseRun {
   release(suffix: string): Promise<FactoryReleaseOperation>;
   /** Prepares and claims, leaving the operation executing with its dispatch in flight. */
   claimOnly(suffix: string): Promise<FactoryReleaseClaim>;
+  /** Prepares and approves, leaving the operation pending with its consent in place and nothing claimed. */
+  approveOnly(suffix: string): Promise<{ readonly operationId: string; readonly approvalId: string }>;
 }
 
 export interface FactoryReleaseWorld {
@@ -126,7 +128,7 @@ export async function createFactoryReleaseWorld(options: FactoryReleaseWorldOpti
       const decisionId = (await assurance.accept({ ...candidate(runId), contractId, revision: 1 })).decisionId;
       decisions.set(runId, decisionId);
       const request = (suffix: string): FactoryReleaseRequest => ({ ...candidate(runId), decisionId, candidateDigest: digest("c"), action: "publish", destination: { provider: "fixture", account: "account-a", object: `releases/${runId}/${suffix}` }, request: { body: suffix }, estimatedSpendMicros: 5, deadlineMs: now() + 5_000_000 });
-      const claimOnly = async (suffix: string): Promise<FactoryReleaseClaim> => {
+      const approveOnly = async (suffix: string) => {
         const input = request(suffix);
         const preparation = await releases.resolvePreparation({
           projectId, runId, nodeInstanceId: input.nodeInstanceId, candidateGeneration: input.candidateGeneration, decisionId, candidateDigest: input.candidateDigest,
@@ -135,9 +137,13 @@ export async function createFactoryReleaseWorld(options: FactoryReleaseWorldOpti
         const prepared = await releases.prepare(admin, preparation, key("prepare"));
         const approval = await assurance.requestApproval(admin, { projectId, operationId: prepared.operationId, decisionId, destinationDigest: prepared.destinationDigest, expectedGeneration: prepared.dispatchGeneration + 1, expiresAtMs: now() + 1_000_000 }, key("approval"));
         await assurance.decideApproval(admin, projectId, approval.approvalId, approval.contextDigest, true, key("decision"));
-        return releases.claim(admin, projectId, prepared.operationId, { kind: "approval", approvalId: approval.approvalId });
+        return { operationId: prepared.operationId, approvalId: approval.approvalId };
       };
-      return Object.freeze({ runId, decisionId, claimOnly, async release(suffix: string) { return releases.dispatch(await claimOnly(suffix), provider); } });
+      const claimOnly = async (suffix: string): Promise<FactoryReleaseClaim> => {
+        const { operationId, approvalId } = await approveOnly(suffix);
+        return releases.claim(admin, projectId, operationId, { kind: "approval", approvalId });
+      };
+      return Object.freeze({ runId, decisionId, claimOnly, approveOnly, async release(suffix: string) { return releases.dispatch(await claimOnly(suffix), provider); } });
     },
   });
 }
