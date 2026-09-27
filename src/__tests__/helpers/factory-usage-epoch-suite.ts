@@ -7,6 +7,8 @@ import { FactoryBudgets } from "../../factory/budgets";
 import { factoryUsageReconciliationDriver } from "../../factory/dispatch-composition";
 import { FactoryExecutionJournal, type FactoryAttemptAuthority } from "../../factory/executions";
 import { FactoryInbox } from "../../factory/inbox";
+import { FactoryRestore, factoryRestoreReportDigest, type FactoryRestoreReport } from "../../factory/restore";
+import { clearResolvedSupersessionInTransaction, readAttemptSupersessionInTransaction, supersedeEpochAttemptsInTransaction } from "../../factory/attempt-supersessions";
 import { FactoryUsageReconciliation, FactoryUsageSettlements } from "../../factory/usage-settlement";
 import { FACTORY_TEST_DIGEST, factoryTestAuthority, factoryTestRunnerRequest } from "./factory-attempt-fixtures";
 
@@ -56,7 +58,7 @@ export function factoryUsageEpochConformance(createFixture: () => Promise<Factor
   }
 
   /** A fresh role driver over the real store, as a newly started process builds it. */
-  function driver(reports: { role: string; error: unknown }[]) {
+  function driver(reports: { role: string; error: unknown }[], resolved: string[] = []) {
     const db = fixture.db;
     const journal = new FactoryExecutionJournal(db, async () => {});
     const reconciler = new FactoryUsageReconciliation(db, TENANT, {
@@ -67,10 +69,11 @@ export function factoryUsageEpochConformance(createFixture: () => Promise<Factor
       clearResolvedStopInTransaction: async () => {},
     }, journal, { settleInTransaction: async () => {} }, new FactoryUsageSettlements(db, TENANT, new FactoryInbox(db, TENANT)));
     const budgets = new FactoryBudgets(db, TENANT, async () => {});
-    return factoryUsageReconciliationDriver(db, budgets, reconciler, (role, error) => { reports.push({ role, error }); });
+    const seen = { resolve: (hold: Parameters<typeof reconciler.resolve>[0], signal?: AbortSignal) => { resolved.push(hold.reservationId); return reconciler.resolve(hold, signal); }, reconcile: reconciler.reconcile.bind(reconciler) };
+    return factoryUsageReconciliationDriver(db, budgets, seen, (role, error) => { reports.push({ role, error }); });
   }
 
-  async function passes(count: number, reports: { role: string; error: unknown }[], role = driver(reports)): Promise<void> {
+  async function passes(count: number, reports: { role: string; error: unknown }[], role: { step(signal: AbortSignal): Promise<boolean> } = driver(reports)): Promise<void> {
     for (let pass = 0; pass < count; pass++) await role.step(new AbortController().signal);
   }
 
@@ -144,7 +147,7 @@ export function factoryUsageEpochConformance(createFixture: () => Promise<Factor
     for (const change of [{ attemptEpoch: 0 }, { installationEpoch: 1.5 }, { markedAtMs: -1 }]) await refused(change);
     await expect(fixture.db.transaction(transaction => budgets.markEpochStaleInTransaction(transaction, { ...key, reservationId: "" }, mark))).rejects.toThrow();
     await fixture.db.execute(sql`UPDATE factory_budget_reservations SET state = 'settled' WHERE tenant_id = ${TENANT} AND reservation_id = ${settled.reservationId}`);
-    expect(await fixture.db.transaction(transaction => budgets.markEpochStaleInTransaction(transaction, key, mark))).toBe(false);
+    expect(await fixture.db.transaction(transaction => budgets.markEpochStaleInTransaction(transaction, key, mark))).toBe("settled");
     const [row] = releaseRows<{ epoch_stale_json: unknown }>(await fixture.db.execute(sql`SELECT epoch_stale_json FROM factory_budget_reservations WHERE tenant_id = ${TENANT} AND reservation_id = ${settled.reservationId}`));
     expect(row?.epoch_stale_json).toBeNull();
   });
@@ -161,5 +164,77 @@ export function factoryUsageEpochConformance(createFixture: () => Promise<Factor
     expect(reports.filter(report => report.role === `usage-reconciliation:fault:${unreadable.reservationId}`)).toHaveLength(1);
     const [row] = releaseRows<{ mark_type: string; installation_epoch: string }>(await fixture.db.execute(sql`SELECT jsonb_typeof(epoch_stale_json) AS mark_type, epoch_stale_json->>'installationEpoch' AS installation_epoch FROM factory_budget_reservations WHERE tenant_id = ${TENANT} AND reservation_id = ${unreadable.reservationId}`));
     expect(row).toEqual({ mark_type: "object", installation_epoch: "4" });
+  });
+
+  test("a signed restore supersedes the old epoch's attempts, records the proof, tells the kernel, and offers the marked hold to settlement once the deadline passes", async () => {
+    const [current] = releaseRows<{ execution_epoch: number | string }>(await fixture.db.execute(sql`SELECT execution_epoch FROM factory_installation WHERE tenant_id = ${TENANT}`));
+    const previous = Number(current!.execution_epoch), next = previous + 1;
+    const held = await holdIn("superseded", previous);
+    // The dispatch queue row the attempt came from names its interpreter and reservation.
+    const reference = { attemptId: held.sealed.attemptId, reservationId: held.reservationId, command: { tenantId: TENANT, projectId: PROJECT, logicalRunId: held.runId, interpreterId: "superseded-interpreter", commandId: held.sealed.attemptId } };
+    await fixture.db.execute(sql`INSERT INTO factory_attempt_queue (tenant_id, project_id, attempt_id, run_id, deduplication_id, input_hash, state, attempts, max_attempts, available_at, lease_until, reference_json)
+      VALUES (${TENANT}, ${PROJECT}, ${held.sealed.attemptId}, ${held.runId}, ${`dedup-${held.sealed.attemptId}`}, ${FACTORY_TEST_DIGEST}, 'delivered', 1, 3, 0, 0, ${JSON.stringify(reference)}::jsonb)`);
+    // A restore opens: the installation moves on, and the hold is marked once.
+    await fixture.db.execute(sql`UPDATE factory_installation SET execution_epoch = ${next} WHERE tenant_id = ${TENANT}`);
+    const marking: { role: string; error: unknown }[] = [];
+    await passes(1, marking);
+    expect(marking.filter(report => report.role === `usage-reconciliation:fault:${held.reservationId}`)).toHaveLength(1);
+
+    // The operator signs the restore.
+    const restoreId = "restore-supersession";
+    const report = { schemaVersion: "factory.recovery-report.v1", tenantId: TENANT, installationId: "usage-epoch-installation", restoreId, mode: "tenant", checkpointId: "checkpoint-1", manifestDigest: FACTORY_TEST_DIGEST, previousEpoch: previous, executionEpoch: next, findings: [], blockedChecks: [], blockedRuns: [], blockedSubjects: [], releaseIdentities: { archived: 0, recovered: 0, blocked: 0 } } as unknown as FactoryRestoreReport;
+    const digest = factoryRestoreReportDigest(report);
+    await fixture.db.execute(sql`INSERT INTO factory_restore_epochs (tenant_id, restore_id, mode, checkpoint_id, manifest_digest, previous_epoch, execution_epoch, state, started_at_ms, opened_state_json, report_json, report_digest)
+      VALUES (${TENANT}, ${restoreId}, 'tenant', 'checkpoint-1', ${FACTORY_TEST_DIGEST}, ${previous}, ${next}, 'awaiting_signature', 1, '{}', ${JSON.stringify(report)}, ${digest})`);
+    await fixture.db.execute(sql`INSERT INTO users(id,email,password_hash,name,role) VALUES ('usage-epoch-admin','usage-epoch@example.test','x','Usage Epoch','admin')`);
+    const restore = new FactoryRestore({ database: fixture.db, tenantId: TENANT, installationId: "usage-epoch-installation", hostKeys: new Map(), providers: () => null } as never);
+    const signed = await restore.sign(restoreId, { kind: "user", id: "usage-epoch-admin", authentication: "session" } as never, digest);
+    expect(signed).toMatchObject({ enabled: true, superseded: expect.any(Number) });
+
+    // The old attempt is terminal, superseded, with the signed restore as its proof.
+    const [execution] = releaseRows<{ status: string }>(await fixture.db.execute(sql`SELECT status FROM factory_executions WHERE attempt_id = ${held.sealed.attemptId}`));
+    expect(execution?.status).toBe("superseded");
+    const [record] = releaseRows<{ reservation_id: string; interpreter_id: string; superseded_epoch: string | number; execution_epoch: string | number; restore_id: string; restore_digest: string; event_type: string; event_kind: string; event_uncertain: string }>(await fixture.db.execute(sql`SELECT reservation_id, interpreter_id, superseded_epoch, execution_epoch, restore_id, restore_digest,
+      jsonb_typeof(event_json) AS event_type, event_json->>'kind' AS event_kind, event_json->>'uncertain' AS event_uncertain FROM factory_attempt_supersessions WHERE tenant_id = ${TENANT} AND attempt_id = ${held.sealed.attemptId}`));
+    expect(record).toMatchObject({ reservation_id: held.reservationId, interpreter_id: "superseded-interpreter", restore_id: restoreId, restore_digest: digest, event_type: "object", event_kind: "attempt-stopped", event_uncertain: "true" });
+    expect([Number(record!.superseded_epoch), Number(record!.execution_epoch)]).toEqual([previous, next]);
+    // The kernel learns the attempt ended, in the same transaction.
+    const inbox = releaseRows<{ event_id: string }>(await fixture.db.execute(sql`SELECT event_id FROM factory_inbox_events WHERE tenant_id = ${TENANT} AND run_id = ${held.runId} AND interpreter_id = 'superseded-interpreter'`));
+    expect(inbox.map(row => row.event_id)).toEqual([`${restoreId}:${held.sealed.attemptId}:superseded`]);
+
+    // Before the signed deadline the hold stays skipped; after it, the hold is offered to settlement every pass.
+    const early: { role: string; error: unknown }[] = [], earlySeen: string[] = [];
+    await passes(1, early, driver(early, earlySeen));
+    expect(earlySeen).not.toContain(held.reservationId);
+    await fixture.db.execute(sql`UPDATE factory_executions SET deadline_at = NOW() - INTERVAL '1 minute' WHERE attempt_id = ${held.sealed.attemptId}`);
+    const late: { role: string; error: unknown }[] = [], lateSeen: string[] = [];
+    await passes(2, late, driver(late, lateSeen));
+    expect(lateSeen.filter(id => id === held.reservationId)).toHaveLength(2);
+    // Until the bound settlement lands (W03f) it is backpressure, named, never a fault storm.
+    const awaiting = late.filter(entry => entry.role.endsWith(`:${held.reservationId}`));
+    expect(awaiting.map(entry => entry.role)).toEqual(Array(2).fill(`usage-reconciliation:transient:${held.reservationId}`));
+    expect((awaiting[0]!.error as Error).name).toBe("FactoryUsageHoldAwaitingBoundError");
+  });
+
+  test("an attempt its dispatch named no interpreter for is superseded without a kernel event, and malformed inputs are refused", async () => {
+    const [current] = releaseRows<{ execution_epoch: number | string }>(await fixture.db.execute(sql`SELECT execution_epoch FROM factory_installation WHERE tenant_id = ${TENANT}`));
+    const epoch = Number(current!.execution_epoch);
+    const bare = await holdIn("bare", epoch);
+    const inbox = new FactoryInbox(fixture.db, TENANT);
+    const input = { tenantId: TENANT, previousEpoch: epoch, executionEpoch: epoch + 1, restoreId: "restore-bare", restoreDigest: `sha256:${"b".repeat(64)}`, atMs: 5 };
+    for (const change of [{ previousEpoch: 0 }, { executionEpoch: epoch }, { restoreDigest: "sha256:short" }, { atMs: -1 }]) {
+      await expect(fixture.db.transaction(transaction => supersedeEpochAttemptsInTransaction(transaction, inbox, { ...input, ...change }))).rejects.toThrow("factory_supersession_invalid");
+    }
+    expect(await fixture.db.transaction(transaction => supersedeEpochAttemptsInTransaction(transaction, inbox, input))).toBeGreaterThanOrEqual(1);
+    const [execution] = releaseRows<{ status: string }>(await fixture.db.execute(sql`SELECT status FROM factory_executions WHERE attempt_id = ${bare.sealed.attemptId}`));
+    expect(execution?.status).toBe("superseded");
+    const [record] = releaseRows<{ reservation_id: string | null; interpreter_id: string | null; event_json: unknown }>(await fixture.db.execute(sql`SELECT reservation_id, interpreter_id, event_json FROM factory_attempt_supersessions WHERE tenant_id = ${TENANT} AND attempt_id = ${bare.sealed.attemptId}`));
+    expect(record).toEqual({ reservation_id: null, interpreter_id: null, event_json: null });
+    // No reservation to find it by, and nothing to re-send.
+    expect(await fixture.db.transaction(transaction => readAttemptSupersessionInTransaction(transaction, TENANT, bare.reservationId))).toBeUndefined();
+    expect(await fixture.db.transaction(transaction => clearResolvedSupersessionInTransaction(transaction, inbox, TENANT, bare.reservationId, 6))).toBeUndefined();
+    await expect(fixture.db.transaction(transaction => clearResolvedSupersessionInTransaction(transaction, inbox, TENANT, bare.reservationId, -1))).rejects.toThrow("factory_supersession_invalid");
+    // A second pass finds nothing live to supersede.
+    expect(await fixture.db.transaction(transaction => supersedeEpochAttemptsInTransaction(transaction, inbox, input))).toBe(0);
   });
 }

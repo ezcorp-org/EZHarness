@@ -1224,5 +1224,7 @@
   "src/runtime/sandbox/startup.ts": 100,
   "src/runtime/sandbox/provider-invoker.ts": 100,
   "src/factory/checkpoint-limits.ts": 100,
-  "src/db/migrations/add-factory-usage-epoch-stale.ts": 100
+  "src/db/migrations/add-factory-usage-epoch-stale.ts": 100,
+  "src/factory/attempt-supersessions.ts": 100,
+  "src/db/migrations/add-factory-attempt-supersessions.ts": 100
 }

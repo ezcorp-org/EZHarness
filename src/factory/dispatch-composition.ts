@@ -138,10 +138,24 @@ export class FactoryUsageHoldEpochStaleError extends Error {
   }
 }
 
+/**
+ * A marked hold whose attempt has ended (a signed restore superseded it) and
+ * whose signed deadline has passed: it is offered to settlement again, and until
+ * a bound settlement can price it, that is backpressure with a name, not a
+ * fault (W15f, with W03f's bound settlement).
+ */
+export class FactoryUsageHoldAwaitingBoundError extends Error {
+  readonly code = "factory_usage_hold_awaiting_bound";
+  constructor(readonly reservationId: string, override readonly cause: FactoryRunEpochStaleError) {
+    super(`factory_usage_hold_awaiting_bound: reservation ${reservationId} of run ${cause.runId} belongs to ended attempt ${cause.attemptId} of execution epoch ${cause.attemptEpoch}; it waits for a settlement at the reserved bound.`);
+    this.name = "FactoryUsageHoldAwaitingBoundError";
+  }
+}
+
 export function factoryUsageReconciliationDisposition(error: unknown): FactoryItemDisposition {
-  // A hold whose receipt has not landed is backpressure, not an integrity
-  // fault; anything else needs a person.
-  return error instanceof FactoryUnresolvedHoldError ? "transient" : "fault";
+  // A hold whose receipt has not landed, or that waits for its bound
+  // settlement, is backpressure, not an integrity fault; anything else needs a person.
+  return error instanceof FactoryUnresolvedHoldError || error instanceof FactoryUsageHoldAwaitingBoundError ? "transient" : "fault";
 }
 
 export function factoryUsageReconciliationDriver(
@@ -168,11 +182,13 @@ export function factoryUsageReconciliationDriver(
       } catch (error) {
         if (!(error instanceof FactoryRunEpochStaleError)) throw error;
         // Mark once, then say so once. A hold that settled meanwhile is not
-        // marked, and its refusal is reported as it came.
-        const marked = await database.transaction((transaction) => budgets.markEpochStaleInTransaction(transaction, hold, {
+        // marked, and its refusal is reported as it came; one whose attempt has
+        // ended waits for its bound settlement.
+        const outcome = await database.transaction((transaction) => budgets.markEpochStaleInTransaction(transaction, hold, {
           attemptId: error.attemptId, attemptEpoch: error.attemptEpoch, installationEpoch: error.installationEpoch, markedAtMs: now(),
         }));
-        if (!marked) throw error;
+        if (outcome === "settled") throw error;
+        if (outcome === "terminal") throw new FactoryUsageHoldAwaitingBoundError(hold.reservationId, error);
         throw new FactoryUsageHoldEpochStaleError(hold.reservationId, error);
       }
     },

@@ -2959,6 +2959,7 @@ export const {
   factoryRunLifecycle,
   factoryChildRuns,
   factoryExecutions,
+  factoryAttemptSupersessions,
   factoryAttemptQueue,
   factoryExecutionOperationCursors,
   factoryExecutionOperations,

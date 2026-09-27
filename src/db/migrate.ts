@@ -3144,6 +3144,9 @@ export async function migrate(db: MigrateDb): Promise<void> {
   // W15f: the uncertain-hold mark for an attempt a restore's epoch left behind.
   const { up: addFactoryUsageEpochStale } = await import("./migrations/add-factory-usage-epoch-stale");
   await addFactoryUsageEpochStale(db);
+  // W15f: a signed restore's proven end for every attempt of the epoch it left.
+  const { up: addFactoryAttemptSupersessions } = await import("./migrations/add-factory-attempt-supersessions");
+  await addFactoryAttemptSupersessions(db);
   // Last on purpose: the checkpoint barrier gate attaches to every factory table that exists.
   const { up: addFactoryRecovery } = await import("./migrations/add-factory-recovery");
   await addFactoryRecovery(db);

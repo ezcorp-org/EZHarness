@@ -1,11 +1,12 @@
 import { lockFactoryScope } from "./locks";
-import { sql } from "drizzle-orm";
+import { sql, type SQL } from "drizzle-orm";
 import { isUnsignedDecimal, type BudgetBounds } from "@ezcorp/factory-sdk";
 import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
 import { releaseRows as rows } from "../db/queries/extension-releases";
 import { insertTransactionalAuditEntry } from "../db/queries/audit-log";
 import { digestObject } from "../extensions/v4/blobs";
 import { assertFactoryIdentity, encodeFactoryPayload, type FactoryRunKey } from "./records";
+import { FACTORY_LIVE_EXECUTION_STATUSES } from "./attempt-supersessions";
 
 export interface FactoryBudgetAmount { readonly costMicros: string; readonly tokens: number; readonly computeMs: number }
 export interface FactoryBudgetKey extends FactoryRunKey { readonly envelopeId: string }
@@ -55,6 +56,12 @@ export class FactoryBudgetError extends Error {
 
 function counter(value: number): void {
   if (!Number.isSafeInteger(value) || value < 0) throw new FactoryBudgetError("factory_budget_invalid");
+}
+
+/** SQL: the attempt `attemptId` has ended (it can no longer act) and its signed deadline has passed. */
+function attemptEnded(attemptId: SQL): SQL {
+  return sql`EXISTS (SELECT 1 FROM factory_executions ended WHERE ended.attempt_id = ${attemptId}
+    AND ended.status NOT IN (${sql.join(FACTORY_LIVE_EXECUTION_STATUSES.map(status => sql`${status}`), sql`, `)}) AND ended.deadline_at <= NOW())`;
 }
 
 function amount(value: FactoryBudgetAmount): Vector {
@@ -293,22 +300,32 @@ export class FactoryBudgets {
   /**
    * Records, once, that an uncertain hold's attempt belongs to an execution
    * epoch the installation has left (W15f). The hold stays `uncertain` and its
-   * money stays held; only the scan stops listing it until the epoch moves
-   * again. Returns false when the hold is no longer uncertain, so a hold that
-   * settled meanwhile is never marked.
+   * money stays held; only the scan stops listing it while the epoch is the
+   * same and the attempt has not ended.
+   *
+   * Returns `settled` when the hold is no longer uncertain (nothing is marked),
+   * `terminal` when the marked attempt has ended and its signed deadline has
+   * passed (the hold now waits for a bound settlement and is not re-marked), and
+   * `marked` otherwise.
    */
-  async markEpochStaleInTransaction(transaction: MigrationDb, key: { readonly projectId: string; readonly runId: string; readonly reservationId: string }, mark: { readonly attemptId: string; readonly attemptEpoch: number; readonly installationEpoch: number; readonly markedAtMs: number }): Promise<boolean> {
+  async markEpochStaleInTransaction(transaction: MigrationDb, key: { readonly projectId: string; readonly runId: string; readonly reservationId: string }, mark: { readonly attemptId: string; readonly attemptEpoch: number; readonly installationEpoch: number; readonly markedAtMs: number }): Promise<"marked" | "terminal" | "settled"> {
     assertFactoryIdentity(key.projectId, key.runId, key.reservationId, mark.attemptId);
     for (const value of [mark.attemptEpoch, mark.installationEpoch]) if (!Number.isSafeInteger(value) || value < 1) throw new FactoryBudgetError("factory_budget_invalid");
     counter(mark.markedAtMs);
+    const [row] = rows<{ state: string; ended: boolean }>(await transaction.execute(sql`SELECT reservation.state, ${attemptEnded(sql`${mark.attemptId}`)} AS ended
+      FROM factory_budget_reservations reservation
+      WHERE reservation.tenant_id = ${this.tenantId} AND reservation.project_id = ${key.projectId} AND reservation.run_id = ${key.runId} AND reservation.reservation_id = ${key.reservationId}
+      FOR UPDATE OF reservation`));
+    if (row?.state !== "uncertain") return "settled";
+    if (row.ended) return "terminal";
     // Built in SQL from typed values: a JSON text parameter can reach PostgreSQL
     // as a JSON string rather than an object, and a mark the scan cannot read
     // must never be written.
-    return rows(await transaction.execute(sql`UPDATE factory_budget_reservations SET epoch_stale_json = jsonb_build_object(
+    await transaction.execute(sql`UPDATE factory_budget_reservations SET epoch_stale_json = jsonb_build_object(
         'attemptId', ${mark.attemptId}::text, 'attemptEpoch', ${mark.attemptEpoch}::bigint,
         'installationEpoch', ${mark.installationEpoch}::bigint, 'markedAtMs', ${mark.markedAtMs}::bigint)
-      WHERE tenant_id = ${this.tenantId} AND project_id = ${key.projectId} AND run_id = ${key.runId} AND reservation_id = ${key.reservationId} AND state = 'uncertain'
-      RETURNING reservation_id`)).length > 0;
+      WHERE tenant_id = ${this.tenantId} AND project_id = ${key.projectId} AND run_id = ${key.runId} AND reservation_id = ${key.reservationId}`);
+    return "marked";
   }
 
   /**
@@ -330,7 +347,9 @@ export class FactoryBudgets {
    * `markEpochStaleInTransaction`) is left out: its attempt can never pass the
    * run fence in this epoch, so listing it again would only fail it again. A
    * later epoch lists it once more, and so does a mark the scan cannot read:
-   * an unreadable mark is retried and reported, never silently skipped.
+   * an unreadable mark is retried and reported, never silently skipped. Once
+   * the marked attempt has ended (a signed restore supersedes it) and its signed
+   * deadline has passed, the hold is listed again for a bound settlement.
    */
   async listUncertainWithCostInTransaction(transaction: MigrationDb, options: { readonly limit?: number; readonly after?: FactoryUncertainHoldCursor } = {}): Promise<readonly FactoryUncertainHold[]> {
     const limit = options.limit ?? FACTORY_BUDGET_SCAN_DEFAULT_LIMIT;
@@ -345,7 +364,8 @@ export class FactoryBudgets {
       JOIN factory_runs run ON run.tenant_id = reservation.tenant_id AND run.project_id = reservation.project_id AND run.run_id = reservation.run_id
       JOIN factory_installation installation ON installation.tenant_id = reservation.tenant_id
       WHERE reservation.tenant_id = ${this.tenantId} AND reservation.state = 'uncertain'
-        AND (reservation.epoch_stale_json IS NULL OR (reservation.epoch_stale_json->>'installationEpoch')::bigint IS DISTINCT FROM installation.execution_epoch)
+        AND (reservation.epoch_stale_json IS NULL OR (reservation.epoch_stale_json->>'installationEpoch')::bigint IS DISTINCT FROM installation.execution_epoch
+          OR ${attemptEnded(sql`reservation.epoch_stale_json->>'attemptId'`)})
         AND COALESCE(substring(reservation.amount from '"costMicros":"([0-9]+)"'), '1')::numeric > 0
         AND NOT EXISTS (
           SELECT 1 FROM factory_usage_settlements settlement
