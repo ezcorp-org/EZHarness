@@ -309,3 +309,31 @@ export async function checkPassDiagnostics(diagnostics: PassDiagnostics): Promis
   }
   return { ok: problems.length === 0, processLogs, readiness, problems };
 }
+
+/** A refusal the product itself logged while the pass ran: which background role, and the error it named. */
+export interface ProductRefusal { readonly role: string; readonly error: string }
+
+/**
+ * Every "[factory] background role failed" block in a pass's web log, in order. A pass that fails must name
+ * what the product refused, not only its own teardown error (W02d P2: "Unable to connect" hid an admission
+ * refused factory_budget_exhausted).
+ */
+export function backgroundRefusals(webLog: string): ProductRefusal[] {
+  const refusals: ProductRefusal[] = [];
+  for (const match of webLog.matchAll(/\[factory\] background role failed \{\s*role: "([^"]*)",\s*error: "([^"]*)",?\s*\}/g)) refusals.push({ role: match[1]!, error: match[2]! });
+  return refusals;
+}
+
+const DETAIL_LIMIT = 300;
+
+/** One clause per failing check: its name, what it expected when it says so, and what the pass saw, bounded. */
+export function describeFailedChecks(checks: ReadonlyArray<{ readonly check: string; readonly ok: boolean; readonly expected?: unknown; readonly detail?: unknown }>): string {
+  const shown = (value: unknown) => {
+    const text = JSON.stringify(value) ?? String(value);
+    return text.length > DETAIL_LIMIT ? `${text.slice(0, DETAIL_LIMIT)}…` : text;
+  };
+  return checks.filter((entry) => !entry.ok).map((entry) => {
+    const parts = [...(entry.expected === undefined ? [] : [`expected ${shown(entry.expected)}`]), ...("detail" in entry ? [`saw ${shown(entry.detail)}`] : [])];
+    return parts.length === 0 ? entry.check : `${entry.check} (${parts.join(", ")})`;
+  }).join("; ");
+}

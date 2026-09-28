@@ -6,8 +6,10 @@ import { join } from "node:path";
 import {
   PASS_PROCESSES,
   PASS_READINESS_FILES,
+  backgroundRefusals,
   binaryForms,
   checkPassDiagnostics,
+  describeFailedChecks,
   collectSecretValues,
   openProcessLog,
   preserveStackDiagnostics,
@@ -365,5 +367,45 @@ describe("a failed pass's stack", () => {
     await writeFile(processLogPath(diagnostics, "web"), "");
     await writeFile(join(stackCopyDir(diagnostics), "readiness/supervisor.json"), "");
     expect((await checkPassDiagnostics(diagnostics)).problems).toEqual(["process log pool has no exit line", "process log web is empty", "stack file readiness/supervisor.json is empty"]);
+  });
+});
+
+/**
+ * A failed pass names what the product refused, not the harness's own teardown error (W02d, coordinator ruling).
+ * W02d's P2 base pass (p2-base-1) recorded "harness error: Unable to connect" while the web log held the real
+ * event: the first node's admission refused factory_budget_exhausted. The fixture is that log's block, verbatim.
+ */
+describe("what a failed pass says about itself", () => {
+  const p2Base1WebLog = [
+    '{"ts":"2026-09-28T15:17:43.216Z","level":"info","msg":"Bundled source staged; verified releases require human approval"}',
+    "[factory] background role failed {",
+    '  role: "private-service:POST:/internal/factory/v1/commands/7ac6a54c-37db-433e-b690-a98219a38f30%3Aprepare%3Arequest-admission%3A4",',
+    '  error: "FactoryBudgetError: factory_budget_exhausted",',
+    "}",
+    '{"ts":"2026-09-28T15:21:48.872Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"SIGTERM","teardownCount":14}',
+  ].join("\n");
+
+  test("finds every refusal the product logged, as role and error, in order", () => {
+    expect(backgroundRefusals(p2Base1WebLog)).toEqual([{
+      role: "private-service:POST:/internal/factory/v1/commands/7ac6a54c-37db-433e-b690-a98219a38f30%3Aprepare%3Arequest-admission%3A4",
+      error: "FactoryBudgetError: factory_budget_exhausted",
+    }]);
+    const second = "[factory] background role failed {\n  role: \"attempt-dispatch:outcome-unknown:run:infer:dispatch-node:7\",\n  error: \"GatewayStatusError: factory gateway returned HTTP 409\",\n}";
+    expect(backgroundRefusals(`${p2Base1WebLog}\n${second}`).map((refusal) => refusal.error)).toEqual(["FactoryBudgetError: factory_budget_exhausted", "GatewayStatusError: factory gateway returned HTTP 409"]);
+    expect(backgroundRefusals("[factory] roles stopped { ms: {} }\nnothing refused")).toEqual([]);
+  });
+
+  test("names each failing check with what it expected and what the pass saw, and nothing that passed", () => {
+    const text = describeFailedChecks([
+      { check: "the run projected succeeded", ok: false, expected: "succeeded", detail: ["queued", "running"] },
+      { check: "every node ran once", ok: true },
+      { check: "C never ran", ok: false, detail: { ran: true } },
+    ]);
+    expect(text).toBe('the run projected succeeded (expected "succeeded", saw ["queued","running"]); C never ran (saw {"ran":true})');
+    // A detail too large to read is cut, never dropped: the reader still sees that something was there.
+    const long = describeFailedChecks([{ check: "big", ok: false, detail: "x".repeat(1_000) }]);
+    expect(long.length).toBeLessThan(400);
+    expect(long.startsWith('big (saw "xxx')).toBe(true);
+    expect(long.endsWith("…)")).toBe(true);
   });
 });

@@ -29,6 +29,7 @@ import { combineSummary, GRAPH_GUEST_OUTPUT } from "./guest/graph-guest";
 import { GRAPH_TOPIC, graphDefinition, graphModelPin, graphReferences, graphRunnerProfiles, modePin, OLLAMA_MISSING_MODEL, type GraphProofMode } from "./graph";
 import { buildGraphGuest, installGraphGuest, type GraphGuestBuild } from "./guest-package";
 import { checkSharedStores, startStack, TENANT, type Stack } from "./stack";
+import { backgroundRefusals, describeFailedChecks } from "./diagnostics";
 
 const REPO = process.env.W19A_REPO!;
 const OUT = process.env.W19A_OUT!;
@@ -51,7 +52,13 @@ let stack: Stack | undefined;
 
 async function finish(failure: string | undefined): Promise<never> {
   record.outcome = failure === undefined ? "passed" : "failed";
-  if (failure !== undefined) record.failure = failure;
+  if (failure !== undefined) {
+    // A failed pass names what the product refused, not only its own error: a teardown's "Unable to connect" hid
+    // an admission refused factory_budget_exhausted (W02d P2). Read from the stack, so it works at any point.
+    const refusals = backgroundRefusals(stack?.children.find((entry) => entry.name === "web")?.log.join("") ?? "");
+    if (refusals.length > 0) record.productRefusals = refusals;
+    record.failure = refusals.length === 0 ? failure : `${failure}; the product refused: ${refusals.map((refusal) => `${refusal.role} -> ${refusal.error}`).join("; ")}`;
+  }
   record.finishedAt = new Date().toISOString();
   if (stack) {
     // Every process's output is already on disk in `<label>.process-<name>.log`.
@@ -287,14 +294,14 @@ record.readiness = (record.ready as { body?: { detail?: { factory?: Record<strin
 // ── The verdict for this pass ───────────────────────────────────────────
 type Node = { ran: boolean; stored?: Record<string, unknown> | null; input?: { value?: unknown }; completionEventOutput?: unknown; operations?: Array<Record<string, unknown>>; result?: Record<string, unknown> | null; model?: Record<string, unknown> | null; candidateOutput?: Record<string, unknown> | null };
 const nodes = (evidence.nodes ?? {}) as Record<NodeName, Node>;
-const checks: Array<{ check: string; ok: boolean; detail?: unknown }> = [];
-const expect = (check: string, ok: boolean, detail?: unknown) => { checks.push({ check, ok, ...(ok ? {} : { detail }) }); };
+const checks: Array<{ check: string; ok: boolean; expected?: unknown; detail?: unknown }> = [];
+const expect = (check: string, ok: boolean, detail?: unknown, expected?: unknown) => { checks.push({ check, ok, ...(ok ? {} : { detail, ...(expected === undefined ? {} : { expected }) }) }); };
 // Canonical JSON: a jsonb column returns its keys in its own order.
 const same = (left: unknown, right: unknown) => left !== undefined && right !== undefined && canonicalizeJson(left as JsonValue) === canonicalizeJson(right as JsonValue);
 
 if (CONTROL === "none" || CONTROL === "forced-failure") {
   const [a, b, c] = [nodes.prepare, nodes.infer, nodes.combine];
-  expect("the run projected succeeded", (record.run as { terminal?: string }).terminal === "succeeded", timeline);
+  expect("the run projected succeeded", (record.run as { terminal?: string }).terminal === "succeeded", timeline, "succeeded");
   expect("every node ran once", NODES.every((node) => nodes[node]?.ran === true), Object.fromEntries(NODES.map((node) => [node, nodes[node]?.ran])));
   const count = a?.stored?.count as number | undefined;
   const answer = b?.stored?.answer as string | undefined;
@@ -338,5 +345,4 @@ if (CONTROL === "none" || CONTROL === "forced-failure") {
 // what a failed pass leaves behind is checked afterwards by verify-diagnostics.ts.
 if (CONTROL === "forced-failure") expect("forced failure: the diagnostics control fails this pass on purpose", false);
 record.checks = checks;
-const failed = checks.filter((entry) => !entry.ok).map((entry) => entry.check);
-await finish(failed.length === 0 ? undefined : `checks failed: ${failed.join("; ")}`);
+await finish(checks.every((entry) => entry.ok) ? undefined : `checks failed: ${describeFailedChecks(checks)}`);
