@@ -5270,7 +5270,7 @@ Gate file `tasks/factory/w09h-GATES.md`; evidence `/tmp/factory-platform-evidenc
 - [x] R3 a late grant is refused `factory_compute_admission_attempt_stopped` and released through the worker's authority-loss cancel — `6350b62b3`
 - [x] R4 the hold settles all zero under "no-operations: nothing launched, all zero" (additive CHECK migration, clause-removed test) — `bbf02876a`, corrected by `5d6d398f9`
 - [x] R5 lock order: both contenders take the run lock before the admission row, both orders on real PostgreSQL — `f70c06fbe`
-- [ ] Legs, coverage gates and the graph-proof runbook at the `wp/w09h-admission-stop` head, after W09e lands in integ and these commits are rebased
+- [x] Legs, coverage gates and the graph-proof runbook at the `wp/w09h-admission-stop` head `ef3f64457` (rebased onto `e92d34d45`); validator-5 M1 fixed in `ef3f64457`
 - [ ] W02d follow-up (not in W09h): R8 and R9 move to the shared basis after W09h lands; the queued-host P3/P5 cases rerun
 
 ### Review
