@@ -59,6 +59,12 @@ interface AdmissionRow {
 interface BudgetReservationRow { readonly state: string; readonly compute_allocation: string | null }
 
 interface ClaimedAdmission { readonly row: AdmissionRow; readonly input: FactoryComputeAdmissionRequest; readonly token: string }
+/**
+ * W09h: a pool decision that arrived after its attempt was stopped before admission. The grant is refused by
+ * this name and its capacity released through this worker's cancel; it is never committed or dispatched.
+ */
+export const FACTORY_COMPUTE_ADMISSION_ATTEMPT_STOPPED = "factory_compute_admission_attempt_stopped" as const;
+
 export interface FactoryComputeAdmissionKey { readonly projectId: string; readonly runId: string; readonly reservationId: string }
 /**
  * A protected-validator admission has no kernel node, so it produces no
@@ -73,7 +79,7 @@ export type FactoryComputeAdmissionDispatchResult =
   | { readonly status: "queued"; readonly reservationId: string; readonly retryAtMs: number }
   | { readonly status: "admitted"; readonly reservationId: string; readonly receipt: FactoryComputeAdmissionReceipt }
   | { readonly status: "rejected"; readonly reservationId: string; readonly decision: PoolDecision; readonly event?: AdmissionEvent }
-  | { readonly status: "cancelling" | "cancelled"; readonly reservationId: string }
+  | { readonly status: "cancelling" | "cancelled"; readonly reservationId: string; readonly refused?: typeof FACTORY_COMPUTE_ADMISSION_ATTEMPT_STOPPED }
   | { readonly status: "retry"; readonly reservationId: string; readonly reason: string };
 
 export class FactoryComputeAdmissionError extends Error {
@@ -378,13 +384,14 @@ export class FactoryComputeAdmissions {
     }
     try { return await this.commitDecision(service, claim, decision); }
     catch (error) {
-      if (authorityLost(error) || error instanceof FactoryComputeAdmissionError && error.code === "factory_compute_admission_stale") {
+      if (authorityLost(error) || error instanceof FactoryComputeAdmissionError && (error.code === "factory_compute_admission_stale" || error.code === FACTORY_COMPUTE_ADMISSION_ATTEMPT_STOPPED)) {
         const current = await this.readRow({ projectId: claim.row.project_id, runId: claim.row.run_id, reservationId: claim.row.reservation_id });
         if (current) {
           const terminal = terminalResult(current, decodeRequest(current, this.tenantId));
           if (terminal) return terminal;
         }
-        return this.cancelClaim(claim, signal);
+        // W09h: the attempt was stopped before admission while the pool decided; that decision is refused by name.
+        return this.cancelClaim(claim, signal, current?.stop_command_id ? FACTORY_COMPUTE_ADMISSION_ATTEMPT_STOPPED : undefined);
       }
       await this.release(claim, "queued");
       throw error;
@@ -425,6 +432,9 @@ export class FactoryComputeAdmissions {
     return this.authority.withCurrentAdmission(service, claim.input.reference, claim.input.origin, async (transaction, context) => {
       this.assertContext(claim.input, context);
       const admitted = decision.status === "admitted";
+      // W09h: a stopped attempt's admission is never committed, whatever its authority says; the table agrees.
+      const stopped = rowResult(rows<{ stop_command_id: string | null }>(await transaction.execute(sql`SELECT stop_command_id FROM factory_compute_admissions WHERE tenant_id=${this.tenantId} AND project_id=${claim.row.project_id} AND run_id=${claim.row.run_id} AND reservation_id=${claim.row.reservation_id} FOR UPDATE`)));
+      if (stopped?.stop_command_id) throw new FactoryComputeAdmissionError(FACTORY_COMPUTE_ADMISSION_ATTEMPT_STOPPED);
       if (admitted) await this.budgets.markRunningInTransaction(transaction, { projectId: claim.row.project_id, runId: claim.row.run_id, reservationId: claim.row.reservation_id }, { allocationToken: decision.lease!.allocationToken, reservationGeneration: decision.lease!.allocationGeneration });
       const current = rowResult(rows<AdmissionRow>(await transaction.execute(sql`SELECT * FROM factory_compute_admissions WHERE tenant_id=${this.tenantId} AND project_id=${claim.row.project_id} AND run_id=${claim.row.run_id} AND reservation_id=${claim.row.reservation_id} FOR UPDATE`)));
       if (!current) throw new FactoryComputeAdmissionError("factory_compute_admission_corrupt");
@@ -458,7 +468,8 @@ export class FactoryComputeAdmissions {
     });
   }
 
-  private async cancelClaim(claim: ClaimedAdmission, signal?: AbortSignal): Promise<FactoryComputeAdmissionDispatchResult> {
+  private async cancelClaim(claim: ClaimedAdmission, signal?: AbortSignal, refused?: typeof FACTORY_COMPUTE_ADMISSION_ATTEMPT_STOPPED): Promise<FactoryComputeAdmissionDispatchResult> {
+    const named = refused === undefined ? {} : { refused };
     if (!claim.row.remote_attempted) {
       await this.finishCancellation(claim, undefined, "cancelled");
       return { status: "cancelled", reservationId: claim.row.reservation_id };
@@ -468,14 +479,14 @@ export class FactoryComputeAdmissions {
     catch (error) { await this.releaseCancellation(claim); throw error; }
     if (!status) {
       await this.finishCancellation(claim, undefined, "cancelling");
-      return { status: "cancelling", reservationId: claim.row.reservation_id };
+      return { status: "cancelling", reservationId: claim.row.reservation_id, ...named };
     }
     let cancelled: PoolLeaseStatus;
     try { cancelled = await this.pool.cancel(claim.row.reservation_id, status.allocationGeneration, signal); }
     catch (error) { await this.releaseCancellation(claim); throw error; }
     const state = cancelled.state === "settled" || cancelled.state === "rejected" ? "cancelled" : "cancelling";
     await this.finishCancellation(claim, cancelled, state);
-    return { status: state, reservationId: claim.row.reservation_id };
+    return { status: state, reservationId: claim.row.reservation_id, ...named };
   }
 
   private async releaseCancellation(claim: ClaimedAdmission): Promise<void> {

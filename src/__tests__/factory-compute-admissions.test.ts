@@ -4,7 +4,7 @@ import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
 import { releaseRows as rows } from "../db/queries/extension-releases";
 import { FactoryBudgets } from "../factory/budgets";
 import { type FactoryAuthorizedCommand, type FactoryCommandAuthority, FactoryCommandAuthorityError } from "../factory/command-authority";
-import { FactoryComputeAdmissions } from "../factory/compute-admissions";
+import { FACTORY_COMPUTE_ADMISSION_ATTEMPT_STOPPED, FactoryComputeAdmissions } from "../factory/compute-admissions";
 import { FactoryInbox } from "../factory/inbox";
 import { FactoryCommandOutbox } from "../factory/outbox";
 import type { PoolAdmissionClient } from "../factory/pool/client";
@@ -415,6 +415,19 @@ describe("FactoryComputeAdmissions stop before admission", () => {
     expect(await stopRow(value)).toMatchObject({ state: "admitted", stop_command_id: null });
     const validator = await validatorFixture();
     expect(await stop(validator, { ...stopOf(validator), attemptCommandId: validator.acceptanceCommandId })).toBeUndefined();
+  });
+
+  test("R3: a grant that arrives after the stop is refused by name and released at the pool, never committed", async () => {
+    const value = await fixture();
+    // The authority stays current here, so the refusal comes from the stop itself, not from a lost run.
+    value.pool.leaseStatus = { reservationId: value.input.request.reservationId, tenantId, state: "held", allocationGeneration: 1, holderGeneration: 1, effects: 0, resources: value.input.request.resources };
+    value.pool.decisions.push(async () => { await stop(value); return admitted(value.input); });
+    const result = await value.admissions.dispatchNext(service);
+    expect(result).toEqual({ status: "cancelled", reservationId: value.input.request.reservationId, refused: FACTORY_COMPUTE_ADMISSION_ATTEMPT_STOPPED });
+    expect(value.pool.cancellations).toEqual([{ reservationId: value.input.request.reservationId, generation: 1 }]);
+    expect(await stopRow(value)).toMatchObject({ state: "cancelled", stop_command_id: `cancel-${value.runId}` });
+    expect(await reservationState(value)).toBe("held");
+    expect(rows(await value.db.execute(sql`SELECT event_id FROM factory_inbox_events WHERE run_id=${value.runId} AND payload::jsonb->>'kind'='admission-result'`))).toEqual([]);
   });
 
   test("refuses a malformed stop and a corrupt recorded event by name, and the table refuses an admitted stop", async () => {
