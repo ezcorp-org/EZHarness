@@ -43,6 +43,18 @@ import { setupFactoryPostgres } from "./helpers/factory-test-database";
  * stop's own transaction, through the `no-operations` source under the basis
  * "no-operations: nothing launched, all zero" named on the settlement record,
  * proven by the sealed stop's digest. Nothing was admitted, so no compute ran.
+ *
+ * R5: lock order. A reserved attempt has no stop row and no launch row, so
+ * FACTORY_STOP_LAUNCH_LOCK_ORDER has nothing to order; the admission row is
+ * the stop row, and it is locked under the run lock. The stop and a late
+ * grant's commit both take the run row, then the run's lifecycle row, and only
+ * then the admission row. Both orders run on real PostgreSQL, synchronised on
+ * the database and never on a clock: a gate transaction holds the lifecycle
+ * row, the first contender takes the run row and queues behind the gate, the
+ * second queues on the run row behind the first (pg_blocking_pids names each
+ * blocker), and neither has reached the admission row while it waits. Either
+ * way the run ends cancelled, the hold settles once at zero, the grant is
+ * released at the pool once and never committed, and nothing deadlocks.
  */
 
 const hostKeys = generateKeyPairSync("rsa", { modulusLength: 2048 });
@@ -215,3 +227,121 @@ test("W09h R4: the unused hold settles all zero in the stop's transaction, basis
   expect(await reserved.stop()).toEqual(outcome);
   expect(rows(await fixture.db.execute(sql`SELECT revision FROM factory_usage_settlements WHERE reservation_id=${reserved.key.reservationId}`))).toHaveLength(1);
 });
+
+/** One transaction of this test's database that waits on a lock: who blocks it, and which factory tables it has reached. */
+interface LockWaiter { readonly pid: number; readonly blockedBy: number[]; readonly tables: string[] }
+
+/**
+ * Waits until `count` transactions of this test's own database wait on a lock, and returns them. The database
+ * is created for this file alone, so every waiter in it is a contender. The bound only turns a hang into a
+ * failure that prints what each backend was doing; the synchronisation itself is the database's lock queue.
+ */
+async function waitingOnLocks(count: number): Promise<LockWaiter[]> {
+  const deadline = Date.now() + 10_000;
+  for (;;) {
+    const waiters = rows<{ pid: number | string; blocked_by: Array<number | string>; tables: string[] | null }>(await fixture.db.execute(sql`SELECT a.pid, pg_blocking_pids(a.pid) AS blocked_by,
+        (SELECT array_agg(DISTINCT c.relname ORDER BY c.relname) FROM pg_locks l JOIN pg_class c ON c.oid = l.relation WHERE l.pid = a.pid AND c.relkind = 'r' AND c.relname LIKE 'factory_%') AS tables
+      FROM pg_stat_activity a WHERE a.datname = current_database() AND a.wait_event_type = 'Lock' ORDER BY a.pid`));
+    if (waiters.length >= count) return waiters.map(waiter => ({ pid: Number(waiter.pid), blockedBy: waiter.blocked_by.map(Number), tables: waiter.tables ?? [] }));
+    if (Date.now() > deadline) {
+      const activity = rows(await fixture.db.execute(sql`SELECT pid, state, wait_event_type, wait_event, left(query, 160) AS query FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid()`));
+      throw new Error(`fewer than ${count} transactions waiting on a lock after 10 s: ${JSON.stringify(activity)}`);
+    }
+  }
+}
+
+type Contender = "stop" | "grant";
+
+/**
+ * Drives the stop and the late grant's commit against each other in the given order. A gate transaction holds
+ * the run's lifecycle row. The first contender takes the run row and queues on the lifecycle row behind the
+ * gate; the second then queues on the run row behind the first. Each wait is read from pg_locks, never
+ * inferred from time; then the gate commits and the two run in that order.
+ */
+async function race(first: Contender, second: Contender) {
+  const pool = gatedPool();
+  const reserved = await reservedRun(pool.client);
+  const polling = reserved.admissions.recover(service, reserved.key).then(value => ({ ok: true as const, value }), (error: unknown) => ({ ok: false as const, error }));
+  const request = await pool.reached;
+  const { advanced, cancelNode } = await reserved.cancel();
+  let release!: () => void;
+  const released = new Promise<void>(resolve => { release = resolve; });
+  let held!: (pid: number) => void;
+  const holding = new Promise<number>(resolve => { held = resolve; });
+  const gate = fixture.db.transaction(async transaction => {
+    await transaction.execute(sql`SELECT run_id FROM factory_run_lifecycle WHERE tenant_id=${tenantId} AND run_id=${reserved.run.runId} FOR UPDATE`);
+    held(Number(rows<{ pid: number | string }>(await transaction.execute(sql`SELECT pg_backend_pid() AS pid`))[0]!.pid));
+    await released;
+  });
+  const gatePid = await holding;
+  const results: Partial<Record<Contender, Promise<unknown>>> = {};
+  const start = (contender: Contender) => {
+    if (contender === "stop") results.stop = reserved.stop();
+    // The pool answers; the worker then commits its decision under the run's authority.
+    else { pool.grant(request); results.grant = polling; }
+  };
+  let waits: { readonly gatePid: number; readonly first: LockWaiter; readonly second: LockWaiter };
+  try {
+    start(first);
+    const [firstWaiter] = await waitingOnLocks(1);
+    start(second);
+    const secondWaiter = (await waitingOnLocks(2)).find(waiter => waiter.pid !== firstWaiter!.pid)!;
+    waits = { gatePid, first: firstWaiter!, second: secondWaiter };
+  } finally {
+    release();
+    await gate;
+  }
+  record(`R5 ${first} then ${second}: lock waits`, waits);
+  const stop = await results.stop;
+  const grant = await results.grant;
+  const events = await reserved.events();
+  const folded = events.slice(1).reduce((state, event) => advanceKernel(reserved.compiled, state, event).nextState, advanced.nextState);
+  const facts = {
+    stop, grant, cancellations: pool.cancellations, admission: await reserved.admission(), hold: await reserved.hold(), kinds: events.map(event => event.kind), status: folded.status,
+    settlements: rows<{ source: string; basis: string }>(await fixture.db.execute(sql`SELECT source, basis FROM factory_usage_settlements WHERE reservation_id=${reserved.key.reservationId}`)),
+    stopRows: rows(await fixture.db.execute(sql`SELECT cancel_command_id FROM factory_task_stops WHERE run_id=${reserved.run.runId}`)),
+    launchRows: rows(await fixture.db.execute(sql`SELECT attempt_id FROM factory_attempt_launches WHERE run_id=${reserved.run.runId}`)),
+  };
+  record(`R5 ${first} then ${second}`, facts);
+  return { ...facts, waits, cancelNode, reservationId: reserved.key.reservationId };
+}
+
+/**
+ * What both orders must show. The lock order: each contender takes the run row before anything else, the
+ * first waits on the lifecycle row the gate holds, the second waits on the run row the first holds, and
+ * neither has reached the admission row (the stop row here) while it waits. The end: the run cancelled, the
+ * hold settled once at zero, the grant released at the pool once and never committed, and no deadlock.
+ */
+function expectOrderedSettledAndReleased(facts: Awaited<ReturnType<typeof race>>) {
+  const { gatePid, first, second } = facts.waits;
+  expect(first.blockedBy).toEqual([gatePid]);
+  expect(first.tables).toEqual(expect.arrayContaining(["factory_runs", "factory_run_lifecycle"]));
+  expect(second.blockedBy).toEqual([first.pid]);
+  expect(second.tables).toContain("factory_runs");
+  expect(second.tables).not.toContain("factory_run_lifecycle");
+  expect([...first.tables, ...second.tables]).not.toContain("factory_compute_admissions");
+
+  expect(facts.stop).toMatchObject({ settled: { state: "stopped", event: { stoppedBefore: "admission" } } });
+  expect(facts.grant).toMatchObject({ ok: true, value: { status: "cancelled", reservationId: facts.reservationId } });
+  expect(facts.cancellations).toEqual([[facts.reservationId, 1]]);
+  expect(facts.admission).toMatchObject({ state: "cancelled", stop_command_id: facts.cancelNode.id });
+  expect(facts.hold).toBe("settled");
+  expect(facts.settlements).toEqual([{ source: "no-operations", basis: FACTORY_USAGE_NOTHING_LAUNCHED_BASIS }]);
+  expect(facts.kinds).toEqual(["cancel", "usage-settled", "attempt-stopped"]);
+  expect(facts.status).toBe("cancelled");
+  // Only the admission row was the stop's: there is no stop row and no launch row to order.
+  expect(facts.stopRows).toEqual([]);
+  expect(facts.launchRows).toEqual([]);
+}
+
+test("W09h R5: a stop that takes the run first settles in place; the late grant behind it is refused by name and released", async () => {
+  const facts = await race("stop", "grant");
+  expectOrderedSettledAndReleased(facts);
+  expect(facts.grant).toMatchObject({ value: { refused: FACTORY_COMPUTE_ADMISSION_ATTEMPT_STOPPED } });
+}, 60_000);
+
+test("W09h R5: a grant that takes the run first loses the cancelled run's authority and is released; the stop behind it still settles in place", async () => {
+  const facts = await race("grant", "stop");
+  expectOrderedSettledAndReleased(facts);
+  expect(facts.grant).not.toMatchObject({ value: { refused: FACTORY_COMPUTE_ADMISSION_ATTEMPT_STOPPED } });
+}, 60_000);
