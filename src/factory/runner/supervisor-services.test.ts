@@ -71,7 +71,7 @@ const launchDigest = `sha256:${"a".repeat(64)}`;
  * would be refused; `snapshotIntent` is the only thing that can produce one.
  * Nothing here is durable, which is what keeps this an in-process test.
  */
-function launchIntent(): FactoryAttemptLaunchIntent {
+function launchIntent(devices?: Parameters<typeof snapshotIntent>[3]): FactoryAttemptLaunchIntent {
   const runner = { package: "runner", manifestName: "runner", version: "1", digest: launchDigest, export: "run", model: "m", configurationDigest: launchDigest };
   const runnerRequest: FactoryRunnerRequest = {
     schemaVersion: "factory.runner.request.v1",
@@ -89,6 +89,7 @@ function launchIntent(): FactoryAttemptLaunchIntent {
     runnerRequest,
     { reservationId: "reservation-1", grantRevision: 4, allocationGeneration: 5, holderGeneration: 5, allocationToken: "allocation-1", hostId },
     { projectId: "project-a", reference: runner, trustRevision: 1, packageTrustDigest: launchDigest, releaseDigest: launchDigest, sourceDigest: launchDigest, artifactDigest: "a".repeat(64), imageDigest: launchDigest, manifestDigest: launchDigest, evidenceDigest: launchDigest, buildIdentity: "build-1", receiptDigest: launchDigest },
+    ...(devices === undefined ? [] : [devices]),
   );
 }
 
@@ -304,6 +305,37 @@ describe("a guest this host ran to a result", () => {
     const runner: Runner = { ...fakeRunner(states), async abort() {} };
     await expect(factoryHostStopSupervisor(runner, () => { clock += 4_000; return clock; }, async () => {}, () => false).stop(command, new AbortController().signal))
       .rejects.toMatchObject({ code: "sandbox_stop_unconfirmed" });
+  });
+
+  test("a worker this host refused before any container existed is confirmed absent first-hand (W02d R4)", async () => {
+    // Measured on the real stack (W02d P1 at the head): the host refused a granted device it does not have (422
+    // device_unavailable), then its own stop of that worker answered 500 stop_failed, because an uninspectable worker
+    // reads as present. The lease, the hold and the run stayed open. This host created nothing, and it knows that.
+    const touched: string[] = [];
+    const states = new Map<string, RunnerInspection["state"]>();
+    const runner: Runner = {
+      ...fakeRunner(states),
+      async inspect(id): Promise<RunnerInspection> { touched.push(`inspect:${id}`); return { id, state: "unknown", diagnostics: [] }; },
+      async cancel(id) { touched.push(`cancel:${id}`); },
+      async abort(id) { touched.push(`abort:${id}`); },
+      async start(input) { touched.push(`start:${input.workerId}`); throw new Error("a refused worker is never started"); },
+    };
+    const handle = createFactoryHostServiceRouter({ hostId, peerTenants: { [peer]: peer }, runner, signingKey: await keyMaterial(), devicePresent: async () => false });
+    const intent = launchIntent({ devices: ["/dev/dri/renderD200"], cdiDevices: [], gpuHosts: 1 });
+    const wire = Buffer.from(JSON.stringify({ intent: factoryAttemptLaunchIntentToWire(intent) }));
+    const refused = await handle(request({ path: FACTORY_HOST_LAUNCH_PATH, body: wire }));
+    expect({ status: refused.status, body: body(refused) }).toMatchObject({ status: 422, body: { error: "device_unavailable" } });
+    // The launch looked for an existing worker and started nothing.
+    expect(touched.filter((entry) => !entry.startsWith("inspect:"))).toEqual([]);
+    touched.length = 0;
+    const stop = { ...command, workerId: intent.workerId, reservationId: intent.lease.reservationId, holderGeneration: intent.lease.holderGeneration, allocationGeneration: intent.lease.allocationGeneration };
+    const settled = await handle(request({ path: FACTORY_HOST_STOP_PATH, body: Buffer.from(JSON.stringify(stop)) }));
+    expect(settled.status).toBe(200);
+    expect(body(settled)).toMatchObject({ workerId: intent.workerId, processGroupAbsent: true, hostId, hostKeyId: "host-key-1" });
+    // The stop asked the runtime nothing: no inspect, signal or kill. The absence is this host's own refusal.
+    expect(touched).toEqual([]);
+    // A different worker this host never saw still has to be proved absent.
+    expect(body(await handle(request({ path: FACTORY_HOST_STOP_PATH, body: Buffer.from(JSON.stringify({ ...stop, workerId: "worker-never-seen" })) })))).toEqual({ error: "stop_failed" });
   });
 
   test("the router carries the finish from a guest this host closed to the stop route, and only that", async () => {

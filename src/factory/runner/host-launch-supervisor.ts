@@ -23,6 +23,12 @@ export interface FactoryHostLaunchSupervisorOptions {
   readonly now?: () => number;
   /** Told once, when this host closes a guest's execution, whether the guest answered or died. */
   readonly onClosed?: (workerId: string) => void;
+  /**
+   * Told once, when this host refuses a guest before any container exists (W02d R4): it created nothing for that
+   * worker, so a later stop of it is answered from this first-hand knowledge rather than by inspecting a runtime
+   * that never had it.
+   */
+  readonly onRefused?: (workerId: string) => void;
   /** How long a settled answer waits here to be collected. */
   readonly retentionMs?: number;
   /** Whether a granted device node exists on this host; {@link factoryHostDevicePresent} unless a test replaces it. */
@@ -109,7 +115,10 @@ export function createFactoryHostLaunchSupervisor(options: FactoryHostLaunchSupe
    */
   const assertDevices = async (intent: FactoryAttemptLaunchIntent): Promise<void> => {
     for (const device of intent.devices.devices) {
-      if (!await devicePresent(device)) throw new FactoryAttemptRuntimeError("device_unavailable", `Device ${device} granted to worker ${intent.workerId} is not present on host ${options.hostId}.`);
+      if (!await devicePresent(device)) {
+        options.onRefused?.(intent.workerId);
+        throw new FactoryAttemptRuntimeError("device_unavailable", `Device ${device} granted to worker ${intent.workerId} is not present on host ${options.hostId}.`);
+      }
     }
   };
   const live = new Map<string, HostAttempt>();

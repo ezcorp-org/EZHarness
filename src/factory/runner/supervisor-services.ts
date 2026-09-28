@@ -144,6 +144,8 @@ export interface FactoryHostServiceOptions {
   readonly runner: Runner;
   readonly signingKey: FactoryHostSigningKeySource;
   readonly broker?: FactoryGuestBroker;
+  /** Whether a granted device node exists on this host; the launch supervisor's own check unless a test replaces it. */
+  readonly devicePresent?: (path: string) => Promise<boolean>;
   /**
    * The pool, as the only process allowed to tell it a guest is gone.
    *
@@ -189,6 +191,10 @@ export function createFactoryHostServiceRouter(options: FactoryHostServiceOption
       // when this host closes the execution, and a read of the answer may
       // come later or never.
       onClosed: (workerId) => { finished.add(workerId); },
+      // A guest this host refused before any container existed (W02d R4) is as first-hand an absence as one it
+      // closed: nothing was created, so its stop is signed without asking the runtime to prove it.
+      onRefused: (workerId) => { finished.add(workerId); },
+      ...(options.devicePresent === undefined ? {} : { devicePresent: options.devicePresent }),
       ...(options.now === undefined ? {} : { now: options.now }),
     }),
   });
