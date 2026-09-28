@@ -31,7 +31,7 @@ function refusal(statusCode: number, error: string, detail?: string): FactoryHos
 type Step = FactoryRunnerResult | Error;
 
 /** Everything one case observes: what the host was asked, what was stopped and reported, and the clock. */
-async function world(attemptId: string, steps: Step[], overrides: { launch?: FactoryHostLaunchTransport["launch"]; attach?: FactoryHostLaunchTransport["attach"]; stop?: (reason: FactoryPhysicalStopReason) => Promise<void>; journal?: NativeFactoryJournal; clockStepMs?: number; startAtMs?: number; delayAdvancesMs?: number; renew?: () => Promise<never>; schedule?: (task: () => void, ms: number) => () => void; leaseRenewIntervalMs?: number; recordLostTerminal?: FactoryAttemptLaunchStore["recordLostTerminal"]; devices?: FactoryAttemptDeviceAuthorization; renewInput?: unknown[] } = {}) {
+async function world(attemptId: string, steps: Step[], overrides: { acknowledgeStart?: () => Promise<never>; launch?: FactoryHostLaunchTransport["launch"]; attach?: FactoryHostLaunchTransport["attach"]; stop?: (reason: FactoryPhysicalStopReason) => Promise<void>; journal?: NativeFactoryJournal; clockStepMs?: number; startAtMs?: number; delayAdvancesMs?: number; renew?: () => Promise<never>; schedule?: (task: () => void, ms: number) => () => void; leaseRenewIntervalMs?: number; recordLostTerminal?: FactoryAttemptLaunchStore["recordLostTerminal"]; devices?: FactoryAttemptDeviceAuthorization; renewInput?: unknown[] } = {}) {
   const request = factoryLaunchRequest({ attemptId });
   const fixture = await createFactoryLaunchFixture(request);
   fixtures.push(fixture);
@@ -61,7 +61,7 @@ async function world(attemptId: string, steps: Step[], overrides: { launch?: Fac
     launches: overrides.recordLostTerminal ? Object.assign(Object.create(store) as FactoryDatabaseAttemptLaunchStore, { recordLostTerminal: overrides.recordLostTerminal }) : store, transport,
     readiness: { assertDispatchReady: async () => factoryLaunchPackage(request) },
     mintAttemptToken: async () => "minted-token",
-    pool: { acknowledgeStart: async (lease) => { acknowledged.push(lease.reservationId); return {} as never; }, renew: async (input) => { overrides.renewInput?.push(input); return overrides.renew ? overrides.renew() : factoryLaunchPool().renew(); } },
+    pool: { acknowledgeStart: async (lease) => { if (overrides.acknowledgeStart) return overrides.acknowledgeStart(); acknowledged.push(lease.reservationId); return {} as never; }, renew: async (input) => { overrides.renewInput?.push(input); return overrides.renew ? overrides.renew() : factoryLaunchPool().renew(); } },
     stop: async (intent: FactoryAttemptLaunchIntent, reason) => { stops.push(reason); await overrides.stop?.(reason); return { workerId: intent.workerId } as unknown as FactoryPhysicalStopReceipt; },
     journal: overrides.journal ?? nativeFactoryJournal(new FactoryExecutionJournal(fixture.db, async () => {})),
     report: (source, error) => { reported.push({ source, error: String(error) }); },
@@ -267,6 +267,15 @@ describe("the pool lease is liveness, renewed while the guest lives (option 2)",
   test("a lease is renewed once at claim, before anything launches; an expired one refuses the launch by name and nothing starts (W02d R6)", async () => {
     // Measured red at the base (P2): an attempt admitted beside a 45 s one waited past its 30 s lease, launched on
     // the expired lease, and wedged when the pool refused its start. The claim now renews first.
+    // The pool as P2 met it: the expired lease cannot be renewed, and its start is refused (the gateway's 409).
+    // Without the claim renewal the guest launched and the refused start left no named failure: the wedge.
+    const expired = await world("attempt-claim-expired", [], {
+      renew: async () => { throw new Error("Pool lease is not live."); },
+      acknowledgeStart: async () => { throw new Error("factory gateway returned HTTP 409"); },
+    });
+    await expect(expired.open()).rejects.toMatchObject({ code: "lease_revoked" });
+    expect(expired.asked).toEqual([]);
+    // The negative control: a live lease is renewed once, before the launch, and the attempt runs as before.
     const renewedBeforeLaunch: number[] = [];
     const seen: unknown[] = [];
     const w = await world("attempt-claim-renew", [completed], {
@@ -276,10 +285,6 @@ describe("the pool lease is liveness, renewed while the guest lives (option 2)",
     expect(await (await w.open()).wait()).toEqual(completed);
     expect(renewedBeforeLaunch).toEqual([1]);
     expect(seen[0]).toEqual({ reservationId: factoryLaunchLease.reservationId, grantRevision: factoryLaunchLease.grantRevision, allocationGeneration: factoryLaunchLease.allocationGeneration, allocationToken: factoryLaunchLease.allocationToken });
-    const expired = await world("attempt-claim-expired", [], { renew: async () => { throw new Error("Pool lease is not live."); } });
-    await expect(expired.open()).rejects.toMatchObject({ code: "lease_revoked" });
-    expect(expired.asked).toEqual([]);
-    expect(expired.acknowledged).toEqual([]);
     // No guest exists, so the claim is released, as for every refusal before a launch.
     expect((await expired.store.claimStart("attempt-claim-expired")).claimed).toBe(true);
   });
