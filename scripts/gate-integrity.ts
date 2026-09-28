@@ -30,9 +30,10 @@
  *      (biome falls back to its built-in defaults), or a NESTED biome config
  *      added (biome resolves the nearest config, so one can un-lint a whole
  *      subtree without the root diff showing anything).
- *  11. A coverage GATE TOOL changed — scripts/merge-lcov.ts, the browser
- *      coverage merge, or a coverage gate checker (per-file, global floor,
- *      new-file, patch, web vitest, CRAP). They decide what coverage counts
+ *  11. A coverage GATE TOOL changed — scripts/merge-lcov.ts and its noise
+ *      filter, the browser coverage merge, a raw-coverage-to-lcov converter
+ *      (browser, factory orchestrator, node), or a coverage gate checker
+ *      (per-file, global floor, new-file, patch, web vitest, CRAP). They decide what coverage counts
  *      and how each gate judges it, so any edit, addition, deletion or rename
  *      is a gate change (validator-5, 2026-09-28: two merge-lcov credits
  *      passed this check unseen).
@@ -1294,7 +1295,11 @@ export function biomeConfigFileViolations(nameStatus: string): string[] {
 /** Check 11: the scripts that merge coverage or judge it. See the header. */
 export const COVERAGE_GATE_TOOLS = [
   "scripts/merge-lcov.ts",
+  "scripts/lcov-noise-filter.ts",
   "scripts/merge-browser-route-coverage.sh",
+  "scripts/browser-coverage-to-lcov.ts",
+  "scripts/factory-orchestrator-v8-to-lcov.mjs",
+  "scripts/node-v8-to-lcov.mjs",
   "scripts/check-coverage.ts",
   "scripts/check-global-coverage.ts",
   "scripts/check-new-file-coverage.ts",
