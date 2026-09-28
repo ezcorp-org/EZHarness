@@ -4,8 +4,8 @@ Branch `wp/w02d-gpu-lease`, cut from `integ/w00` at `a24a619ad` (W01h and W01i a
 Evidence: `/tmp/factory-platform-evidence/w02d/`. Brief: `/tmp/factory-platform-evidence/w00/briefs/w02d.md`;
 plan and rulings: `w02d/plan.md`.
 
-Status: IN PROGRESS. R2 and R7b wait for W16 (the profile registry). R8 and one finding wait for the
-coordinator's ruling. R6 is being measured (P2).
+Status: IN PROGRESS. R1–R7, R7b and R9 are in; R8 and R9's basis switch wait for W09h; the task-stops.ts
+attestation refresh waits for W03f. Validator: validator-6.
 
 | Commit | What it is |
 | --- | --- |
@@ -15,6 +15,16 @@ coordinator's ruling. R6 is being measured (P2).
 | `d7b3ae94b` | R5: measured; a GPU attempt's lease renews through W01h's loop unchanged, and lapses the same way |
 | `3428eba36` | R7: a supervisor-confirmed GPU stop confirms and settles; the host stays held for its reimage |
 | `1f7d56010` | R9: a class the pool cannot serve fails its run by name and releases the unused hold |
+| `bfa01a41a` | Merge of integ/w00 `e92d34d45` (W16, W01j, W09e landed), list-bound skip ruling; all 74 withheld suites green |
+| `d8a20ba03` | R2: the pool grants a GPU host only with its registered profile, and the lease carries it |
+| `2a3b7c215` | R7b: a trusted-local GPU host is reused by its one bound tenant without a reimage |
+| `e970fe1e9` | R6: one fenced renewal at claim; a lease already reclaimed refuses the launch by name (`lease_revoked`) |
+| `70206eca3` | Harness (W19a's): a failed graph-proof pass names the product's refusals and each failing check's values |
+| `b2de395af` | R6 test: the red is the wedge P2 measured; a live lease is the negative control |
+| `4d95d9158` | R4 completion: a worker the host refused before any container existed is confirmed absent first-hand, and its stop is signed |
+| `6cab80e44` | R6 completion: a lease reclaimed before claim ends the attempt failed by name (`RUNNER_LEASE_LOST`, "lease_revoked"), no host stop |
+| `db82d8c15` | Harness (W19a's): a graph-proof stack never gives two of its services the same port |
+| `5a48b372f` | Harness (W19a's): a check that meets a non-JSON value reports false instead of crashing the verdict |
 
 ## Base reproductions (G1), on the real stack
 
@@ -27,7 +37,8 @@ on class `gpu` = `{cpu 1, gpu-host 1}`). Under the heavy lock; bun and bunx asse
 | P1 (F1) | `w02d/p1/RECEIPT.txt` | RED: the gpu-host lease launched with `devices: []`; the run succeeded; nothing refused |
 | P3 (F4) | `w02d/p3/RECEIPT.txt` | RED: the GPU stop stayed `uncertain` (pool `awaiting-gpu-reimage`); hold `uncertain`; run stayed `running` |
 | P5 (R9) | `w02d/p5/RECEIPT.txt` | RED: the pool rejected, the kernel cancelled the denied admission, the run stayed `running`, the hold `held` |
-| P2 (R5, R6) | `w02d/p2/` | queued |
+| P2 (R6), p2-base-1 | `w02d/p2/` | VOID as a measurement: the harness's two nodes each reserved costMicros 1000000 against the run's 1000000 limit (web factory-boot), so the second admission was refused `factory_budget_exhausted`; the harness then reported only its teardown error "Unable to connect" (fixed by `70206eca3`) |
+| P2 (R6), p2-base-2 | `w02d/p2-2/` | RED, the measurement: fixture reservation 400000 (a legitimate fixture change, coordinator ruling). infer waited ~45 s behind prepare; its pool row went `uncertain / lease-expired` at admission + 30 s; the dispatcher launched on it, the gateway refused the start (HTTP 409), and the run wedged `running` (`runner_outcome_unknown`). verify-head.py p2: 2/7 hold |
 
 ## Rules
 
@@ -41,6 +52,32 @@ on class `gpu` = `{cpu 1, gpu-host 1}`). Under the heavy lock; bun and bunx asse
 - R7: `poolStopConfirmed` in `pool/ledger.ts`, used by the pool's `acknowledgeStopped` and the task stop's confirm.
   Pool red against the old rule (1), green 25/0 on PGlite and PostgreSQL; stop suite red on the base, green 33/0.
 - R9: kernel red on the base kernel (1), green 11/0 (SDK 234/0); admission release red (1), green 15/0.
+- R2: pool suite on PGlite red 25/1 (a host without a profile was assigned), client red 7/1, process red 9/1; green
+  26/0, 8/0, 10/0, profiles 6/0. Negative controls: profile gate removed 25/1; snapshot removed 25/1. The hook ran
+  PostgreSQL factory-pool-service 5/0. One parser (`parsePoolDeviceProfile`) for the stored row and the wire.
+- R7b: red on a scratch of R2: pool suite 27/3, registry 6/1; green pool 30/0, registry 7/0. Mutants: no reuse
+  branch 29/1; no residue filter 29/1; reuse for any tenant 28/2. Live P3 proves same-tenant reuse; the harness has one
+  tenant, so the cross-tenant wait is proven by the pool suite only.
+- R4 completion (measured at the head, P1 at b2de395af): the host refused `device_unavailable`, then its own stop of
+  that never-created worker answered 500 `stop_failed` (an uninspectable worker reads as present), so the GPU lease,
+  the hold and the run stayed open. The refusal is now first-hand absence. Red: supervisor-services 22/1 through the
+  real router (the 500); green 23/0; negative control (refusal not recorded): 500 again.
+- R6 completion (measured at the head, P2 at b2de395af): the claim renewal refused the reclaimed lease, but the
+  dispatcher records every runner error as `runner_outcome_unknown`, so the run wedged. The attempt now ends failed by
+  name through the lost-result record (`RUNNER_LEASE_LOST`, "lease_revoked: ..."), with no host stop because nothing
+  left the process. Red 16/1 (it threw); green 17/0; with the renewal removed, the P2 wedge (409). `lease_lost` stays
+  retryable; the runbook graph's nodes have `maxAttempts: 1`, so P2's run fails by name.
+- R6: measured RED first (P2, above). Unit red is the wedge: with the claim renewal removed the expired lease launches
+  and ends "Error: factory gateway returned HTTP 409" with no named failure (`logs/r6-red-wedge.log`); green 17/0
+  (refused `lease_revoked` before anything launches); negative control: a live lease renews once and completes.
+  Mutant (renewal failure swallowed) 16/1.
+- R6 semantics (from the code, ledger.ts `withLiveFence` -> `expireLocked`): every fenced pool call first reclaims a
+  lease past its deadline (`uncertain / lease-expired`, generation + 1). There is no expired-but-renewable state: the
+  claim renewal keeps a lease inside its deadline alive, and a lease past it is refused by name. P2 at the head shows
+  the reclaimed path (pool rows: prepare `settled / stopped-confirmed`, infer `uncertain / lease-expired`).
+- Until R8 lands, a `lease_revoked` refusal does NOT release the budget hold; R8's refused-dispatch stop releases it.
+- The renewal is placed after the one-winner claim, before readiness, the attempt token and any launch (not before the
+  intent row exists), so a second dispatcher never renews a lease it does not own.
 
 ## R8: the refused dispatch (parked)
 
@@ -65,8 +102,90 @@ on class `gpu` = `{cpu 1, gpu-host 1}`). Under the heavy lock; bun and bunx asse
   ends: its `cancel-node` names the request-admission command and no stop route settles it. W02d's P3 and P5 head
   runs proceed only when the host is not queued; the queued-host case waits for W09h.
 
+## Merge of integ/w00 e92d34d45 (bfa01a41a)
+
+- Conflicts: `tasks/lessons.md` (both sides whole). `packages/@ezcorp/factory-sdk/src/kernel-run-controls.test.ts`
+  (integrationFix): both sides appended tests at the end of the file; W02d R9's `singleTaskFactory()` and its test
+  first, then W09e's `releasingRun()` and its tests; no existing line changed. The conflict hunk cut W02d's test before
+  their shared closing `});`, which the resolution restores. The file alone: 14/0, every test name of both sides.
+- The hook mapped 73 suites plus the orchestrator package (cap 12): skipped under the coordinator's list-bound ruling
+  (list `w02d/merge-trial-2/hook-list.txt`, sha256 in the commit message; the hook's printed list equal as a set).
+- All 74 ran outside the hook at the merge commit (`w02d/merge-e92d34d45/receipts/`): 60 bun 1203, 6 vitest 40,
+  orchestrator 91, 7 PostgreSQL (gateway-process 1, installation-bootstrap 17, pool-process 3, pool-service 5,
+  provisioning 63, release-stop-migration 1, release-stop-race 4), every count nonzero.
+- PostgreSQL attempt 1 (`pg-attempt-1/`): factory-gateway-process 0/1, "DATABASE_URL must name the gateway's database"
+  (the test reads DATABASE_URL at module load); db-postgres.yml sets DATABASE_URL and passes it as
+  FACTORY_TEST_POSTGRES_URL, and the runner set only the latter. The runner fix is the evidence; attempt 2 is 7/7.
+  Attempt 1 ran in a detached checkout of `bfa01a41a` because the first try had refused a dirty tree (below).
+
+## Cross-package changes
+
+| Change | Owner | Why | Tests |
+| --- | --- | --- | --- |
+| `scripts/factory-graph-proof/diagnostics.ts`, `proof.ts` (`70206eca3`) | W19a | A failed pass hid the product's refusal behind the harness's own teardown error ("Unable to connect" for an admission refused `factory_budget_exhausted`) and listed check names without values | `src/factory/graph-proof-diagnostics.test.ts` (refusal fixture verbatim from p2-base-1's web log; red: failed to load; green 20/0) |
+| `src/factory/pool/gpu-host-profiles.ts`, `pool/process.ts` (R2, R7b) | W16 | The pool loaded the profiles and discarded them; the binding needs one tenant id | `pool/gpu-host-profiles.test.ts`, `pool/process.test.ts` |
+| `scripts/factory-graph-proof/stack-documents.ts`, `stack.ts` (`db82d8c15`) | W19a | Two stack services got one port (EADDRINUSE on 37819; TLS to plain Temporal), so a stack never came ready | `src/factory/graph-proof-diagnostics.test.ts` (red: failed to load; green 22/0) |
+| `scripts/factory-graph-proof/diagnostics.ts`, `proof.ts` (`5a48b372f`) | W19a | A failed node left a value undefined and the proof's comparison threw "Value is not valid I-JSON", replacing every check | `src/factory/graph-proof-diagnostics.test.ts` (red: failed to load; green 23/0) |
+| `src/factory/runner/remote-attempt-runtime.ts` (R6) | W01 / W01h | One renewal at claim, and a reclaimed lease ends the attempt failed by name; W01h's loop unchanged | `runner/remote-attempt-runtime.test.ts` |
+| `src/factory/runner/host-launch-supervisor.ts`, `supervisor-services.ts` (R4) | W01 | A worker refused before any container is first-hand absent | `runner/supervisor-services.test.ts`, `runner/host-launch-supervisor.test.ts` |
+
+## Head runs
+
+The head runs execute in a detached scratch of the head with the head's own graph-proof harness and one W02d patch per
+run type (`w02d/harness-patch/w02d-*-head.patch`): P1 profile names the absent `/dev/dri/renderD200`; P5 no GPU host;
+P2 prepare and infer each 45 s, admitted together, so whichever the dispatcher runs second waits past its lease.
+P3 is NOT run live at the head (coordinator ruling (b)): a gpu-host grant must authorize at least one device
+(attempt-wire.ts), the shared validator allows only `/dev/kfd` and `/dev/dri/renderD<n>`, and ruling A5 forbids a real
+device in a container, so no GPU attempt can run and be cancelled here. R7 and R7b rest on the pool suites (PGlite
+and PostgreSQL) and the unit tests; the live GPU stop path is an open gap. Passing a render node is the user's call. `w02d/verify-head.py` judges each pass by its own expectation and prints every
+check with expected and seen; `w02d/head-runs.sh` runs a smoke of each type first, stops if any type fails to reach
+"ready" (status 200), and exits nonzero on any failed leg.
+
+INTERIM evidence (coordinator ruling, 2026-09-28): the verdicts below re-judge the records of the two-stage run at
+`db82d8c15` (`w02d/head-db82d8c15/`, 22:45–23:34Z) with the verifier as corrected AFTER that run (sha256 prefix
+`f60b9e8db27a3f35`): P1 read a failure from `factory_execution_terminals`, which holds completed results only (the
+durable failure is `factory_task_outcomes.result_json.error`), and P2 now carries the pre-R8 expectation. The
+authoritative run is ONE two-stage run at the final head, after R8, R9's basis switch and the attestation refresh,
+with the full post-R8 P2 expectation (the run fails and the hold settles at zero); it is the evidence of record for
+P1, P2 and P5 together. Output of the interim verdicts: `/tmp/factory-platform-evidence/w02d/head-db82d8c15/rejudged`.
+
+Causes named from that run: P1 records the host's refusal by name at the node (task outcome, launch terminal, the
+kernel's `node-failed`); P2 fails the node the dispatcher runs second by name at claim, deterministically in all four
+passes, and the run stays `running` because the refused reservation's hold has no host receipt
+(`factory_usage_hold_unresolved: no-operation-receipt`) until R8 releases it; `cancel_accepted` on that node is the
+product's own stop of the failed attempt.
+
+| Pass | Checks | Failing |
+| --- | --- | --- |
+| p1-head-1 | 5/5 | all hold |
+| p1-head-2 | 5/5 | all hold |
+| p1-head-3 | 5/5 | all hold |
+| p1-smoke | 5/5 | all hold |
+| p2-head-1 | 6/6 | all hold |
+| p2-head-2 | 6/6 | all hold |
+| p2-head-3 | 6/6 | all hold |
+| p2-smoke | 6/6 | all hold |
+| p5-head-1 | 4/4 | all hold |
+| p5-head-2 | 4/4 | all hold |
+| p5-head-3 | 4/4 | all hold |
+| p5-smoke | 4/4 | all hold |
+
 ## Open
 
-- R2 and R7b: need W16's `pool/gpu-host-profiles.ts` (the registry and its tenant binding).
-- R6: P2 measures a 45 s queue wait after admission.
-- R8: parked until the W09h merge (above).
+- R8: parked until the W09h merge (above); R9's basis switch at the same merge.
+- The queued-host case (P3/P5): blocked on W09h.
+- P3 live at the head: not run under A5 (above); the user decides whether a render node may reach a mock guest.
+- task-stops.ts attestation refresh after W03f lands (W03g's entry pins the file; R7/R8 change it).
+- Design follow-up (coordinator, not this wave): a 30 s lease against a queue wait that can exceed it means every long
+  wait ends in a named failure; a queued attempt should re-admit at claim instead.
+
+## Process lessons this round
+
+- A harness patch made against one head can stop applying at the next (the db82d8c15 import line); the wrapper now
+  dry-runs every patch before any stack, names the failing hunk, and removes untracked leftovers between passes.
+- A proof expectation must match the release path the package has: before R8, a refused reservation's hold cannot
+  settle, so P2 is judged on the node's named failure, not on the run's end.
+- Never queue a runner that checks tree cleanliness against a worktree where a later commit is staged: it refused
+  (exit 4) and ran nothing; the merge-commit suites then ran in a detached checkout of the merge commit.
+- A harness copy's fixture can make a measurement impossible (the per-node reservation equal to the run limit);
+  read the product's refusal before reading the harness's error.

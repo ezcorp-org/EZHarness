@@ -1736,3 +1736,16 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 - A step that starts the web server from `web/build` needs the web build in the same hold.
 - Write a queue script whole, with its label in one variable. A sed-derived copy kept the old label and would have
   deleted the previous hold's receipts; the waiter was stopped before it took the lock.
+
+## 2026-09-28 — A harness that hides the refusal is a silent failure (W02d)
+
+- A failed pass must name what the product refused. P2's first base pass said "Unable to connect" (its own teardown)
+  while the web log held the real event, an admission refused `factory_budget_exhausted`; read the product's refusals
+  before the harness's error, and make the harness print them.
+- A proof expectation belongs to the run type: a run R9 must fail by name cannot be judged by the generic success
+  checks. Give each type its own verdict, print every check with expected and seen, and exit nonzero on any failure.
+- Nothing that starts a stack, a container or a PostgreSQL-backed suite runs outside the heavy lock, a smoke included:
+  a lock-free smoke ran beside another lane's runbook leg, which then failed.
+- A failed pass keeps its product database apart (retainedProductDatabase); clean-up must read it too, or the
+  database stays on the shared server.
+

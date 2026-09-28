@@ -5260,3 +5260,33 @@ both processes a log line that names it. Two causes remain outside this package:
       died with ERR_STREAM_WRITE_AFTER_END in node:_http_server advanceResponsePipeline in 2 of 4 repeat runs of
       factory-live-console.spec.ts; under the pin 1.3.14 it did not reproduce (66 of 66). Evidence:
       /tmp/factory-platform-evidence/w09e/logs/head/e2e-repeat3.log, e2e-measure-fe2199392-bun142.log, e2e-measure.log.
+
+## W02d — the GPU lease consumer (branch `wp/w02d-gpu-lease`; gates `tasks/factory/w02d-GATES.md`)
+
+- [x] R1 startup refuses a runner profile whose gpu-host is not one whole host (a2b7b408d).
+- [x] R2 the pool grants a GPU host only with its registered profile; the lease carries the profile (d8a20ba03).
+- [x] R3 the dispatch preflight grants a held GPU lease its recorded devices, or refuses it by name (4f347dc14).
+- [x] R4 the host refuses a granted device it lacks before any container (0f8bdd8c1); the refused worker is first-hand
+      absent, so its stop is signed (4d95d9158).
+- [x] R5 a GPU lease renews through W01h's loop unchanged (d7b3ae94b).
+- [x] R6 measured red (P2); one fenced renewal at claim (e970fe1e9, b2de395af); a reclaimed lease ends the attempt
+      failed by name (6cab80e44).
+- [x] R7 a supervisor-confirmed GPU stop confirms and settles; the host stays held for its reimage (3428eba36).
+- [x] R7b a trusted-local host is reused by its one bound tenant without a reimage (2a3b7c215).
+- [ ] R8 the refused dispatch releases its lease and hold (parked 92bdc1f22; after "W09h landed").
+- [x] R9 a class the pool cannot serve fails its run by name and releases the unused hold (1f7d56010); basis switch
+      after W09h.
+- [x] Merge of integ/w00 e92d34d45 (bfa01a41a) with all 74 withheld suites green.
+- [ ] task-stops.ts attestation refresh after W03f lands.
+- [ ] The authoritative two-stage head run (P1, P5, P2 with the post-R8 expectation) at the final head.
+- [ ] Coverage gates at the final head.
+
+### Review
+
+The base reproductions were red as briefed. The head runs found two defects the unit suites had not: a worker the
+host refused before creating it could never be stopped (R4), and a lease reclaimed before claim left the attempt
+"outcome unknown" (R6). Both are fixed red-first, and three harness defects the runs exposed (a hidden refusal, a
+port collision, a crashing comparison) are fixed in W19a's harness with tests. The re-judged interim verdicts hold
+for P1, P2 (pre-R8) and P5; the evidence of record is one run at the final head after R8. Open: R8, R9's basis switch,
+the attestation refresh, P3 live (not run under A5; the user's call).
+
