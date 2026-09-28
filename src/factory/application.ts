@@ -20,6 +20,8 @@ import type { FactoryAssuranceCommands } from "./assurance-commands";
 import { FactoryTransitionArtifacts } from "./transition-artifacts";
 import { FactoryTransitionAuthority } from "./transition-authority";
 import { FactoryRunControls } from "./run-controls";
+import { createFactoryConsole, factoryConsoleKey, type FactoryConsoleServices } from "./console";
+import type { FactoryRestoreSigner } from "./restore-console";
 
 export interface FactoryDefinitionAvailability {
   readonly availability: FactoryAvailability;
@@ -39,6 +41,8 @@ export interface FactoryApplication {
   readonly commandApprovals?: FactoryAssuranceCommands;
   readonly runControls?: FactoryRunControls;
   readonly availableResourceClasses: ReadonlySet<string>;
+  /** The live console's read models and administrator actions, composed once on first use. */
+  readonly console: () => Promise<FactoryConsoleServices>;
 }
 
 export interface FactoryApplicationOptions {
@@ -51,6 +55,10 @@ export interface FactoryApplicationOptions {
   readonly createReleaseOperations?: (context: Readonly<Pick<FactoryApplication, "tenantId" | "grants" | "runs" | "artifacts" | "journal" | "releaseAuthority">>) => FactoryReleaseApplication;
   readonly createCommandApprovals?: (context: Readonly<Pick<FactoryApplication, "tenantId" | "grants" | "runs" | "artifacts" | "journal" | "releaseAuthority" | "releaseOperations">>) => FactoryAssuranceCommands;
   readonly createRunControls?: (context: Readonly<Pick<FactoryApplication, "tenantId" | "definitions" | "grants" | "runs" | "artifacts"> & { readonly inputs: FactoryRunInputs; readonly transitions: FactoryTransitionArtifacts; readonly authority: FactoryTransitionAuthority }>) => FactoryRunControls;
+  /** Signs console cursors and artifact tickets. Defaults to a key derived from the installation JWT secret. */
+  readonly consoleKey?: () => Promise<Uint8Array>;
+  /** Composes this installation's restore when a human signs a recovery report (W15). */
+  readonly restoreSigner?: FactoryRestoreSigner;
 }
 
 let configuredApplication: FactoryApplication | null = null;
@@ -112,8 +120,15 @@ export function createFactoryApplication(options: FactoryApplicationOptions): Fa
   const commandApprovals = options.createCommandApprovals?.(Object.freeze({ tenantId: options.tenantId, grants, runs, artifacts, journal, releaseAuthority, ...(releaseOperations ? { releaseOperations } : {}) }));
   if (commandApprovals && commandApprovals.tenantId !== options.tenantId) throw new Error("factory_scope_mismatch");
   if (commandApprovals) Object.freeze(commandApprovals);
+  let consoleServices: Promise<FactoryConsoleServices> | undefined;
+  const composeConsole = () => {
+    consoleServices ??= (options.consoleKey ?? (() => factoryConsoleKey(options.tenantId)))()
+      .then(key => createFactoryConsole({ database: options.database, tenantId: options.tenantId, grants, runs, artifacts, blobs: options.blobs, key, ...(options.restoreSigner === undefined ? {} : { restoreSigner: options.restoreSigner }) }));
+    return consoleServices;
+  };
   return Object.freeze({
     tenantId: options.tenantId,
+    console: composeConsole,
     grants,
     credentials,
     definitions,

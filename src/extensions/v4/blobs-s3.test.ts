@@ -140,3 +140,49 @@ test("blob helpers preserve canonical identity and reject workspace traversal", 
   expect(() => validatePath("nested/result.txt")).not.toThrow();
   expect(() => validatePath("../host-secret")).toThrow();
 });
+
+/**
+ * An S3 that never answers until the caller's abort signal fires, and records what each send received.
+ * A request without a signal fails at once by name: a real store would hang, and the test would only
+ * go red at the runner's timeout without naming what broke.
+ */
+class HangingS3 {
+  readonly received: Array<{ command: string; signal: AbortSignal | undefined }> = [];
+  async send(command: { constructor: { name: string } }, options?: { abortSignal?: AbortSignal }): Promise<Record<string, unknown>> {
+    this.received.push({ command: command.constructor.name, signal: options?.abortSignal });
+    const signal = options?.abortSignal;
+    if (!signal) throw new Error(`${command.constructor.name} was sent without the caller's abort signal`);
+    return new Promise((_, reject) => {
+      if (signal.aborted) reject(signal.reason);
+      signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+    });
+  }
+}
+
+test("a put and a get that never answer are aborted by the caller's signal, and each request carries it", async () => {
+  const client = new HangingS3();
+  const blobs = new S3BlobStore({ endpoint: "http://127.0.0.1:18333", bucket: "tenant-01", prefix: "ordinary/releases", credentials: { accessKeyId: "access", secretAccessKey: "secret" }, client: client as never });
+  for (const [label, run] of [
+    ["put", (signal: AbortSignal) => blobs.put(new Uint8Array([1, 2, 3]), { signal })],
+    ["get", (signal: AbortSignal) => blobs.get("a".repeat(64), { signal })],
+  ] as const) {
+    const controller = new AbortController();
+    const pending = run(controller.signal);
+    controller.abort(new Error(`${label} deadline`));
+    await expect(pending).rejects.toThrow(`${label} deadline`);
+  }
+  expect(client.received.map(({ command, signal }) => ({ command, carried: signal !== undefined }))).toEqual([
+    { command: "PutObjectCommand", carried: true },
+    { command: "GetObjectCommand", carried: true },
+  ]);
+});
+
+test("without a signal, requests go out exactly as before", async () => {
+  const client = new MemoryS3();
+  const received: unknown[] = [];
+  const recording = { send: (command: unknown, options?: unknown) => { received.push(options); return client.send(command); } };
+  const blobs = new S3BlobStore({ endpoint: "http://127.0.0.1:18333", bucket: "tenant-01", prefix: "ordinary/releases", credentials: { accessKeyId: "access", secretAccessKey: "secret" }, client: recording as never });
+  const digest = await blobs.put(new Uint8Array([4, 5, 6]));
+  expect(await blobs.get(digest)).toEqual(new Uint8Array([4, 5, 6]));
+  expect(received).toEqual([undefined, undefined]);
+});

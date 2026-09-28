@@ -9,6 +9,7 @@
 		FilePlus2,
 		GitBranch,
 		History,
+		Play,
 		Plus,
 		Save,
 		Upload,
@@ -21,6 +22,7 @@
 		type FactoryDraftSummary,
 		type FactoryVersionDetails,
 		type FactoryVersionSummary,
+		type FactoryRunStartBody,
 	} from "@ezcorp/factory-sdk/types";
 	import { isFactoryDefinition } from "@ezcorp/factory-sdk/schema";
 	import { FactoryApiClient, FactoryApiClientError, blankFactory, type FactoryAuthoringApi } from "./client";
@@ -46,25 +48,23 @@
 		type GraphScope,
 	} from "./model";
 
-	export interface FactoryConsoleProject {
-		readonly id: string;
-		readonly name: string;
-	}
-
 	let {
-		projects,
 		projectId,
-		onProjectChange,
+		currentUserId = null,
+		onOpenRun,
 		api = new FactoryApiClient(),
 	}: {
-		projects: readonly FactoryConsoleProject[];
 		projectId: string;
-		onProjectChange: (projectId: string) => void;
+		/** The signed-in user, whose current `factory.run` grant revision a run pins. */
+		currentUserId?: string | null;
+		onOpenRun?: (runId: string) => void;
 		api?: FactoryAuthoringApi;
 	} = $props();
 
 	let drafts = $state<readonly FactoryDraftSummary[]>([]);
 	let selected = $state<FactoryDraftDetails | null>(null);
+	/** A draft a newer server wrote: shown as its exported bytes, never edited here. */
+	let readOnlyDraft = $state<{ readonly factoryId: string; readonly source: string } | null>(null);
 	let source = $state<FactoryDefinition | null>(null);
 	let sourceText = $state("");
 	let dirty = $state(false);
@@ -89,6 +89,11 @@
 	let definitionDiff = $state<DefinitionDiff | null>(null);
 	let publishing = $state(false);
 	let conflict = $state<{ mine: FactoryDefinition; server: FactoryDraftDetails } | null>(null);
+	let starting = $state<FactoryVersionSummary | null>(null);
+	let runParameters = $state("{}");
+	let startError = $state("");
+	let startedRunId = $state<string | null>(null);
+	let submittingRun = $state(false);
 	let loadedProject = "";
 	let importInput: HTMLInputElement;
 
@@ -108,6 +113,7 @@
 		loading = true;
 		errorMessage = "";
 		selected = null;
+		readOnlyDraft = null;
 		source = null;
 		try {
 			drafts = await api.listDrafts(targetProject, { archived: false, limit: 200 });
@@ -121,12 +127,23 @@
 	async function openDraft(factoryId: string): Promise<void> {
 		loading = true;
 		errorMessage = "";
+		readOnlyDraft = null;
 		try {
 			const details = await api.getDraft(projectId, factoryId);
 			installDraft(details);
 			versions = await api.listVersions(projectId, factoryId);
 		} catch (error) {
-			errorMessage = describeError(error);
+			if (error instanceof FactoryApiClientError && error.code === "factory_definition_version_unsupported") {
+				selected = null;
+				source = null;
+				try {
+					readOnlyDraft = { factoryId, source: (await api.exportDraft(projectId, factoryId, "json")).source };
+				} catch (exportError) {
+					errorMessage = describeError(exportError);
+				}
+			} else {
+				errorMessage = describeError(error);
+			}
 		} finally {
 			loading = false;
 		}
@@ -231,10 +248,11 @@
 	}
 
 	async function exportDraft(format: "json" | "yaml"): Promise<void> {
-		if (!selected) return;
+		const factoryId = selected?.factoryId ?? readOnlyDraft?.factoryId;
+		if (!factoryId) return;
 		try {
-			const exported = await api.exportDraft(projectId, selected.factoryId, format);
-			downloadFactorySource(selected.factoryId, exported.format, exported.source);
+			const exported = await api.exportDraft(projectId, factoryId, format);
+			downloadFactorySource(factoryId, exported.format, exported.source);
 		} catch (error) {
 			errorMessage = describeError(error);
 		}
@@ -397,27 +415,44 @@
 		message = "Local changes kept on revision " + selected?.revision + ". Save again to apply them.";
 	}
 
+	function openStart(version: FactoryVersionSummary): void {
+		starting = version;
+		runParameters = "{}";
+		startError = "";
+		startedRunId = null;
+	}
+
+	/** Queues a run of the exact published version, pinned to the caller's current run grant. */
+	async function startRun(): Promise<void> {
+		const version = starting;
+		if (!version || !selected) return;
+		let parameters: unknown;
+		try { parameters = JSON.parse(runParameters || "{}"); } catch { startError = "Run input is not valid JSON."; return; }
+		if (!parameters || typeof parameters !== "object" || Array.isArray(parameters)) { startError = "Run input must be a JSON object of port names."; return; }
+		submittingRun = true;
+		startError = "";
+		try {
+			const grants = await api.listGrants(projectId, { principalKind: "user", action: "factory.run", limit: 200 });
+			const grant = grants.items.find(item => item.principalId === currentUserId && !item.revoked);
+			if (!grant) { startError = "You hold no current factory.run grant in this project."; return; }
+			const receipt = await api.startRun(projectId, version.factoryId, {
+				factoryVersion: version.version, definitionDigest: version.definitionDigest, grantRevision: grant.revision,
+				parameters: parameters as FactoryRunStartBody["parameters"],
+			});
+			startedRunId = receipt.resourceId;
+		} catch (error) {
+			startError = describeError(error);
+		} finally {
+			submittingRun = false;
+		}
+	}
+
 	function describeError(error: unknown): string {
 		return error instanceof Error ? error.message : "Factory request failed.";
 	}
 </script>
 
 <section class="factory-console" data-testid="factory-console">
-	<header class="factory-masthead">
-		<div>
-			<p class="eyebrow">Factory control plane</p>
-			<h1>Factories</h1>
-			<p>Compose work, prove it, then publish an immutable definition.</p>
-		</div>
-		<label class="project-control">
-			<span>Project</span>
-			<select value={projectId} onchange={event => onProjectChange(event.currentTarget.value)} aria-label="Factory project">
-				{#each projects as project}
-					<option value={project.id}>{project.name}</option>
-				{/each}
-			</select>
-		</label>
-	</header>
 
 	{#if errorMessage}
 		<div class="notice notice-error" role="alert"><AlertTriangle size={16} /> <span>{errorMessage}</span><button aria-label="Dismiss error" onclick={() => errorMessage = ""}><X size={15} /></button></div>
@@ -515,13 +550,27 @@
 							<p>No versions published yet.</p>
 						{/if}
 						{#each [...versions].sort((a, b) => b.publishedAtMs - a.publishedAtMs) as item}
-							<button onclick={async () => { baselineVersion = item.version; await loadBaseline(); publishOpen = true; }}>
-								<span><strong>{item.version}</strong><small>draft rev {item.draftRevision}</small></span>
-								<code>{item.definitionDigest.slice(0, 18)}…</code>
-							</button>
+							<div class="version-row">
+								<button class="version-compare" onclick={async () => { baselineVersion = item.version; await loadBaseline(); publishOpen = true; }}>
+									<span><strong>{item.version}</strong><small>draft rev {item.draftRevision}</small></span>
+									<code>{item.definitionDigest.slice(0, 18)}…</code>
+								</button>
+								<button class="button-secondary version-start" aria-label={`Start a run of ${item.version}`} onclick={() => openStart(item)}><Play size={14} /> Start run</button>
+							</div>
 						{/each}
 					</div>
 				{/if}
+			{:else if readOnlyDraft}
+				<section class="read-only-draft" aria-labelledby="read-only-title">
+					<p class="eyebrow">Read-only</p>
+					<h2 id="read-only-title">{readOnlyDraft.factoryId}</h2>
+					<p role="note">A newer factory server wrote this definition with a schema version this console cannot edit. It is shown exactly as stored. Export it to keep a copy.</p>
+					<div class="editor-actions">
+						<button class="button-secondary" onclick={() => exportDraft("json")}>Export JSON</button>
+						<button class="button-secondary" onclick={() => exportDraft("yaml")}>Export YAML</button>
+					</div>
+					<textarea class="read-only-source" aria-label="Stored definition source" readonly rows="12" value={readOnlyDraft.source}></textarea>
+				</section>
 			{:else}
 				<div class="editor-empty">
 					<div class="empty-mark"><GitBranch size={28} /></div>
@@ -590,6 +639,34 @@
 	</div>
 </section>
 
+{#if starting && selected}
+	<div class="modal-backdrop" role="presentation" onclick={event => event.target === event.currentTarget && (starting = null)}>
+		<div class="start-modal" role="dialog" aria-modal="true" aria-labelledby="start-title">
+			<header>
+				<div><p class="eyebrow">Queue a run</p><h2 id="start-title">Start {selected.factoryId} {starting.version}</h2></div>
+				<button class="icon-button" aria-label="Close start run" onclick={() => { starting = null; }}><X size={17} /></button>
+			</header>
+			<div class="start-body">
+				<p class="start-pin">The run pins version {starting.version}, digest <code>{starting.definitionDigest.slice(0, 19)}…</code>, and your current run grant.</p>
+				<label for="run-parameters">Run input (JSON, transport values by port)</label>
+				<textarea id="run-parameters" bind:value={runParameters} rows="6" spellcheck="false"></textarea>
+				{#if startError}<p class="start-error" role="alert">{startError}</p>{/if}
+				{#if startedRunId}
+					<p class="start-done" role="status">Run <code>{startedRunId}</code> is queued. Acceptance is not the same as a started run.</p>
+				{/if}
+			</div>
+			<footer>
+				{#if startedRunId && onOpenRun}
+					<button class="button-primary" onclick={() => { const id = startedRunId!; starting = null; onOpenRun(id); }}>Watch in Runs</button>
+				{:else}
+					<button class="button-secondary" onclick={() => { starting = null; }}>Cancel</button>
+					<button class="button-publish" disabled={submittingRun || startedRunId !== null} onclick={startRun}>{submittingRun ? "Queuing…" : "Start run"}</button>
+				{/if}
+			</footer>
+		</div>
+	</div>
+{/if}
+
 {#if publishOpen && source && selected}
 	<div class="modal-backdrop" role="presentation" onclick={event => event.target === event.currentTarget && (publishOpen = false)}>
 		<div class="publish-modal" role="dialog" aria-modal="true" aria-labelledby="publish-title">
@@ -637,11 +714,7 @@
 
 <style>
 	.factory-console { min-height: 100%; background: var(--color-surface); color: var(--color-text-primary); }
-	.factory-masthead { display: flex; align-items: end; justify-content: space-between; gap: 24px; border-bottom: 1px solid var(--color-border); padding: 26px 30px 22px; background: linear-gradient(120deg, color-mix(in srgb, var(--color-accent) 9%, var(--color-surface)) 0%, var(--color-surface) 46%, color-mix(in srgb, var(--color-brand) 7%, var(--color-surface)) 100%); }
-	.factory-masthead h1 { margin: 2px 0; font-size: clamp(28px, 4vw, 44px); font-weight: 780; letter-spacing: -.04em; line-height: 1; }
-	.factory-masthead p:last-child { margin: 8px 0 0; color: var(--color-text-secondary); }
 	.eyebrow { margin: 0; font-family: var(--font-mono); font-size: 10px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; color: var(--color-accent); }
-	.project-control { display: grid; min-width: 210px; gap: 5px; font-size: 11px; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: .09em; }
 	select, input, textarea { box-sizing: border-box; border: 1px solid var(--color-border-strong); border-radius: 3px; background: var(--color-surface-elevated); color: var(--color-text-primary); font: inherit; outline: none; }
 	select:focus, input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
 	select, input { min-height: 36px; padding: 7px 9px; }
@@ -653,7 +726,7 @@
 	.conflict { display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--color-amber-500); background: color-mix(in srgb, var(--color-amber-400) 13%, var(--color-surface)); padding: 11px 28px; }
 	.conflict div { display: grid; margin-right: auto; }
 	.conflict span { color: var(--color-text-secondary); font-size: 12px; }
-	.factory-workspace { display: grid; min-height: calc(100vh - 143px); grid-template-columns: 252px minmax(0, 1fr) 310px; }
+	.factory-workspace { display: grid; min-height: calc(100vh - 188px); grid-template-columns: 252px minmax(0, 1fr) 310px; }
 	.draft-panel, .inspector-panel { min-width: 0; background: var(--color-surface-secondary); }
 	.draft-panel { border-right: 1px solid var(--color-border); }
 	.inspector-panel { border-left: 1px solid var(--color-border); }
@@ -701,6 +774,10 @@
 	.source-editor label { font-size: 12px; font-weight: 700; }
 	.source-editor textarea { min-height: calc(100vh - 345px); resize: vertical; padding: 14px; font-family: var(--font-mono); font-size: 11px; line-height: 1.55; }
 	.source-editor > div { display: flex; justify-content: flex-end; }
+	.read-only-draft { display: grid; gap: 10px; padding: 24px 28px; }
+	.read-only-draft h2 { margin: 0; font-size: 20px; overflow-wrap: anywhere; }
+	.read-only-draft [role="note"] { margin: 0; max-width: 640px; color: var(--color-text-secondary); font-size: 13px; }
+	.read-only-source { box-sizing: border-box; width: 100%; max-height: 520px; resize: vertical; margin: 0; border: 1px solid var(--color-border); border-radius: 3px; background: var(--color-surface-secondary); padding: 12px; color: var(--color-text-primary); font-family: var(--font-mono); font-size: 11px; }
 	.editor-empty { display: grid; min-height: 580px; place-content: center; justify-items: start; padding: 40px; }
 	.editor-empty h2 { max-width: 540px; margin: 8px 0; font-size: clamp(24px, 3vw, 38px); letter-spacing: -.03em; }
 	.editor-empty > p:last-child { max-width: 520px; color: var(--color-text-secondary); }
@@ -728,8 +805,21 @@
 	.inspector-empty { padding-top: 24px; }
 	.version-ledger { display: grid; gap: 8px; padding: 18px; }
 	.ledger-header { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; }
-	.version-ledger > button { display: flex; align-items: center; justify-content: space-between; border: 1px solid var(--color-border); border-left: 3px solid var(--color-brand); border-radius: 3px; background: var(--color-surface-secondary); padding: 12px; text-align: left; color: var(--color-text-primary); }
-	.version-ledger > button span { display: grid; }
+	.version-row { display: flex; align-items: stretch; gap: 8px; }
+	.version-compare { display: flex; min-width: 0; flex: 1; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid var(--color-border); border-left: 3px solid var(--color-brand); border-radius: 3px; background: var(--color-surface-secondary); padding: 12px; text-align: left; color: var(--color-text-primary); }
+	.version-compare span { display: grid; }
+	.version-start { flex: 0 0 auto; }
+	.start-modal { width: min(620px, 100%); border: 1px solid var(--color-border-strong); border-top: 4px solid var(--color-accent); border-radius: 4px; background: var(--color-surface); box-shadow: var(--shadow-2xl); }
+	.start-modal > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--color-border); padding: 14px 18px; }
+	.start-modal h2 { margin: 3px 0 0; font-size: 18px; overflow-wrap: anywhere; }
+	.start-body { display: grid; gap: 8px; padding: 14px 18px; }
+	.start-body label { font-size: 12px; font-weight: 700; }
+	.start-body textarea { min-height: 120px; resize: vertical; padding: 10px; font-family: var(--font-mono); font-size: 11px; }
+	.start-pin { margin: 0; color: var(--color-text-secondary); font-size: 12px; }
+	.start-pin code, .start-done code { font-family: var(--font-mono); font-size: 10px; }
+	.start-error { margin: 0; color: var(--color-red-600); font-size: 12px; }
+	.start-done { margin: 0; color: var(--color-green-700); font-size: 12px; }
+	.start-modal footer { display: flex; justify-content: flex-end; gap: 8px; border-top: 1px solid var(--color-border); padding: 12px 18px; }
 	.version-ledger small, .version-ledger code { color: var(--color-text-muted); font-size: 10px; }
 	.modal-backdrop { position: fixed; inset: 0; z-index: 70; display: grid; overflow: auto; place-items: start center; background: rgb(4 8 18 / .72); padding: 4vh 18px; }
 	.publish-modal { width: min(980px, 100%); border: 1px solid var(--color-border-strong); border-top: 4px solid var(--color-brand); border-radius: 4px; background: var(--color-surface); box-shadow: var(--shadow-2xl); }
@@ -761,8 +851,6 @@
 		.canvas-frame { height: 520px; }
 	}
 	@media (max-width: 700px) {
-		.factory-masthead { align-items: stretch; flex-direction: column; padding: 20px 16px; }
-		.project-control { min-width: 0; }
 		.factory-workspace { display: block; }
 		.draft-panel { border-right: 0; }
 		.draft-list { display: flex; max-height: none; overflow-x: auto; }
@@ -773,6 +861,7 @@
 		.canvas-frame { height: 430px; min-height: 430px; }
 		.inspector-panel { display: block; }
 		.publish-facts, .exact-sources { grid-template-columns: 1fr; }
+		.version-row { flex-direction: column; }
 		.publish-facts > div { border-right: 0; border-bottom: 1px solid var(--color-border); }
 		.publish-modal footer, .diff-summary { align-items: stretch; flex-direction: column; }
 		.publish-modal footer div { display: grid; grid-template-columns: 1fr 1fr; }

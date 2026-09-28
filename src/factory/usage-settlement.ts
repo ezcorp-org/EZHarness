@@ -16,7 +16,24 @@ import { assertFactoryIdentity, encodeFactoryPayload } from "./records";
 
 export const FACTORY_USAGE_SETTLEMENT_SCHEMA_VERSION = "factory.usage-settlement.v1" as const;
 
-export type FactoryUsageSettlementSource = "stop" | "reconciliation";
+/**
+ * Where a settled amount came from. `no-operations` is a stop whose attempt
+ * journaled no model or tool operation: C02 journals every operation before
+ * its possible effect, so a signed physical stop plus an empty journal proves
+ * no provider was ever charged. That zero is a fact, never an unknown.
+ */
+export type FactoryUsageSettlementSource = "stop" | "reconciliation" | "no-operations";
+
+/**
+ * The basis a no-operations settlement records, so an operator can see it and
+ * a later refund policy can act on it: no provider was charged, and compute is
+ * settled at the bound the tenant accepted at admission, because nothing
+ * measured it. Derived from the source, never supplied by a caller.
+ */
+export const FACTORY_USAGE_NO_OPERATIONS_BASIS = "no-operations: compute at reserved bound" as const;
+
+const SETTLEMENT_SOURCES = new Set<FactoryUsageSettlementSource>(["stop", "reconciliation", "no-operations"]);
+const STOP_RECEIPT_DIGEST = /^sha256:[0-9a-f]{64}$/;
 
 export type FactoryUsageSettlementCode =
   | "factory_usage_settlement_invalid"
@@ -59,6 +76,10 @@ export interface FactoryUsageSettlement {
   readonly unknownCostMicros?: string;
   /** Required when source is "reconciliation". */
   readonly providerReceiptDigest?: string;
+  /** Present exactly when source is "no-operations": the signed physical stop that proves the zero. */
+  readonly stopReceiptDigest?: string;
+  /** Present exactly when source is "no-operations": how the settled amounts were decided. */
+  readonly basis?: typeof FACTORY_USAGE_NO_OPERATIONS_BASIS;
   readonly settledAtMs: number;
   /** `sha256:` over the canonical settlement, excluding this field. */
   readonly settlementDigest: string;
@@ -74,6 +95,7 @@ export interface FactoryUsageSettlementInput {
   readonly knownCostMicros: string;
   readonly unknownCostMicros?: string;
   readonly providerReceiptDigest?: string;
+  readonly stopReceiptDigest?: string;
   readonly settledAtMs: number;
 }
 
@@ -140,11 +162,16 @@ export function factoryUsageSettlementDigest(settlement: Omit<FactoryUsageSettle
  */
 export function buildFactoryUsageSettlement(input: FactoryUsageSettlementInput): FactoryUsageSettlement {
   if (!opaqueText(input.reservationId) || !opaqueText(input.attemptId) || !settlementCounter(input.revision, 1) || !settlementCounter(input.settledAtMs, 0)) throw new FactoryUsageSettlementError("factory_usage_settlement_invalid");
-  if (input.source !== "stop" && input.source !== "reconciliation") throw new FactoryUsageSettlementError("factory_usage_settlement_invalid");
+  if (!SETTLEMENT_SOURCES.has(input.source)) throw new FactoryUsageSettlementError("factory_usage_settlement_invalid");
   if (typeof input.knownCostMicros !== "string" || !isUnsignedDecimal(input.knownCostMicros)) throw new FactoryUsageSettlementError("factory_usage_settlement_invalid");
   if (input.unknownCostMicros !== undefined && (typeof input.unknownCostMicros !== "string" || !isUnsignedDecimal(input.unknownCostMicros))) throw new FactoryUsageSettlementError("factory_usage_settlement_invalid");
   if (input.providerReceiptDigest !== undefined && !isFactoryProviderReceiptDigest(input.providerReceiptDigest)) throw new FactoryUsageSettlementError("factory_usage_settlement_receipt_invalid");
   if (input.source === "reconciliation" && input.providerReceiptDigest === undefined) throw new FactoryUsageSettlementError("factory_usage_settlement_receipt_invalid");
+  // A no-operations zero is proven only by its signed stop, and it proves only
+  // a zero: it never carries a provider receipt, a held cost, or a known cost.
+  if ((input.source === "no-operations") !== (input.stopReceiptDigest !== undefined)) throw new FactoryUsageSettlementError("factory_usage_settlement_receipt_invalid");
+  if (input.stopReceiptDigest !== undefined && (typeof input.stopReceiptDigest !== "string" || !STOP_RECEIPT_DIGEST.test(input.stopReceiptDigest))) throw new FactoryUsageSettlementError("factory_usage_settlement_receipt_invalid");
+  if (input.source === "no-operations" && (input.knownCostMicros !== "0" || input.unknownCostMicros !== undefined || input.providerReceiptDigest !== undefined)) throw new FactoryUsageSettlementError("factory_usage_settlement_invalid");
   if (input.attemptId !== input.authority.attemptId) throw new FactoryUsageSettlementError("factory_usage_settlement_invalid");
   const event: FactoryUsageSettledEvent = Object.freeze({
     kind: "usage-settled" as const,
@@ -167,6 +194,8 @@ export function buildFactoryUsageSettlement(input: FactoryUsageSettlementInput):
     knownCostMicros: input.knownCostMicros,
     ...(input.unknownCostMicros === undefined ? {} : { unknownCostMicros: input.unknownCostMicros }),
     ...(input.providerReceiptDigest === undefined ? {} : { providerReceiptDigest: input.providerReceiptDigest }),
+    ...(input.stopReceiptDigest === undefined ? {} : { stopReceiptDigest: input.stopReceiptDigest }),
+    ...(input.source === "no-operations" ? { basis: FACTORY_USAGE_NO_OPERATIONS_BASIS } : {}),
     settledAtMs: input.settledAtMs,
     event,
   } as const;
@@ -207,6 +236,8 @@ interface SettlementRow {
   known_cost_micros: string;
   unknown_cost_micros: string | null;
   provider_receipt_digest: string | null;
+  stop_receipt_digest: string | null;
+  basis: string | null;
   settled_at_ms: number | string;
   settlement_digest: string;
   event_json: string;
@@ -227,6 +258,7 @@ export interface FactoryUsageSettlementAmounts {
   readonly knownCostMicros: string;
   readonly unknownCostMicros?: string;
   readonly providerReceiptDigest?: string;
+  readonly stopReceiptDigest?: string;
 }
 
 /** Reservation states that can hold a settled cost. `held` never started. */
@@ -292,9 +324,10 @@ export class FactoryUsageSettlements {
       knownCostMicros: amounts.knownCostMicros,
       ...(amounts.unknownCostMicros === undefined ? {} : { unknownCostMicros: amounts.unknownCostMicros }),
       ...(amounts.providerReceiptDigest === undefined ? {} : { providerReceiptDigest: amounts.providerReceiptDigest }),
+      ...(amounts.stopReceiptDigest === undefined ? {} : { stopReceiptDigest: amounts.stopReceiptDigest }),
       settledAtMs: this.clock(previous?.settledAtMs ?? 0),
     });
-    await transaction.execute(sql`INSERT INTO factory_usage_settlements (tenant_id,project_id,run_id,reservation_id,revision,attempt_id,source,known_cost_micros,unknown_cost_micros,provider_receipt_digest,settled_at_ms,settlement_digest,event_json,event_digest) VALUES (${this.tenantId},${scope.projectId},${scope.runId},${scope.reservationId},${settlement.revision},${settlement.attemptId},${settlement.source},${settlement.knownCostMicros},${settlement.unknownCostMicros ?? null},${settlement.providerReceiptDigest ?? null},${settlement.settledAtMs},${settlement.settlementDigest},${encodeFactoryPayload(settlement.event)},${`sha256:${digestObject(settlement.event)}`})`);
+    await transaction.execute(sql`INSERT INTO factory_usage_settlements (tenant_id,project_id,run_id,reservation_id,revision,attempt_id,source,known_cost_micros,unknown_cost_micros,provider_receipt_digest,stop_receipt_digest,basis,settled_at_ms,settlement_digest,event_json,event_digest) VALUES (${this.tenantId},${scope.projectId},${scope.runId},${scope.reservationId},${settlement.revision},${settlement.attemptId},${settlement.source},${settlement.knownCostMicros},${settlement.unknownCostMicros ?? null},${settlement.providerReceiptDigest ?? null},${settlement.stopReceiptDigest ?? null},${settlement.basis ?? null},${settlement.settledAtMs},${settlement.settlementDigest},${encodeFactoryPayload(settlement.event)},${`sha256:${digestObject(settlement.event)}`})`);
     await this.inbox.enqueueInTransaction(transaction, { projectId: scope.projectId, runId: scope.runId, interpreterId: scope.interpreterId }, settlement.event);
     return settlement;
   }
@@ -306,7 +339,7 @@ export class FactoryUsageSettlements {
   }
 
   private async rows(transaction: MigrationDb, scope: Pick<FactoryUsageSettlementScope, "projectId" | "runId" | "reservationId">, lock: boolean): Promise<SettlementRow[]> {
-    return rows<SettlementRow>(await transaction.execute(sql`SELECT reservation_id,revision,attempt_id,source,known_cost_micros,unknown_cost_micros,provider_receipt_digest,settled_at_ms,settlement_digest,event_json,event_digest FROM factory_usage_settlements WHERE tenant_id=${this.tenantId} AND project_id=${scope.projectId} AND run_id=${scope.runId} AND reservation_id=${scope.reservationId} ORDER BY revision DESC${lock ? sql` FOR UPDATE` : sql``}`));
+    return rows<SettlementRow>(await transaction.execute(sql`SELECT reservation_id,revision,attempt_id,source,known_cost_micros,unknown_cost_micros,provider_receipt_digest,stop_receipt_digest,basis,settled_at_ms,settlement_digest,event_json,event_digest FROM factory_usage_settlements WHERE tenant_id=${this.tenantId} AND project_id=${scope.projectId} AND run_id=${scope.runId} AND reservation_id=${scope.reservationId} ORDER BY revision DESC${lock ? sql` FOR UPDATE` : sql``}`));
   }
 
   private decode(row: SettlementRow): FactoryUsageSettlement {
@@ -322,6 +355,8 @@ export class FactoryUsageSettlements {
       knownCostMicros: row.known_cost_micros,
       ...(row.unknown_cost_micros === null ? {} : { unknownCostMicros: row.unknown_cost_micros }),
       ...(row.provider_receipt_digest === null ? {} : { providerReceiptDigest: row.provider_receipt_digest }),
+      ...(row.stop_receipt_digest === null ? {} : { stopReceiptDigest: row.stop_receipt_digest }),
+      ...(row.basis === null ? {} : { basis: row.basis as typeof FACTORY_USAGE_NO_OPERATIONS_BASIS }),
       settledAtMs: Number(row.settled_at_ms),
       event,
     } as const;
@@ -338,6 +373,14 @@ export class FactoryUsageSettlements {
  */
 export interface FactoryUsageSettlementAuthority {
   readSettlementScopeInTransaction(transaction: MigrationDb, reservationId: string): Promise<FactoryUsageSettlementScope | undefined>;
+  /**
+   * W05b: once reconciliation has settled a reservation, tell the kernel the
+   * stopped attempt is no longer uncertain. `FactoryTaskStops` implements it.
+   * It is required, so a scope reader cannot silently leave the kernel
+   * holding a cancelled run open: a reader with no stop behind it must say so
+   * by returning nothing.
+   */
+  clearResolvedStopInTransaction(transaction: MigrationDb, reservationId: string, atMs: number): Promise<unknown>;
 }
 
 /** The journal seam a late receipt writes through. It never advances the cursor. */
@@ -449,6 +492,9 @@ export class FactoryUsageReconciliation implements FactoryUsageReconciler {
         // `sha256:` digest of anything this process computed, so it is not what
         // the budget row records.
         await this.budgets.settleInTransaction(transaction, { projectId: scope.projectId, runId: scope.runId, reservationId: scope.reservationId }, { costMicros: input.usage.costMicros, tokens: input.usage.inputTokens + input.usage.outputTokens, computeMs: input.usage.computeMs }, settlement.settlementDigest);
+        // The cost is settled, so the stopped attempt is no longer uncertain.
+        // The kernel learns it from the sealed stop, in this same transaction.
+        await this.scopes.clearResolvedStopInTransaction(transaction, scope.reservationId, settlement.settledAtMs);
       }
       return settlement;
     });

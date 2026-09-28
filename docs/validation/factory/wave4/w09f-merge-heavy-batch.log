@@ -1,0 +1,26 @@
+=== heavy 2026-09-27T16:07:27Z
+HEAD 6f36bbd5f6621ff54c9d3e6aaeade881133aef0c MERGE_HEAD f4419f241781ca19c9d88067abed2afc43396f4b index-tree ee4b9e8e4fac8c1dbee004611515795634040a9f
+resource-gate 2026-09-27T16:07:27Z postgres-lcov disk=123G memAvailable=17GiB swapFreeKiB=6677772/17173956
+--- START postgres-lcov 2026-09-27T16:07:27Z
+--- END   postgres-lcov 2026-09-27T16:08:44Z exit=0  161 pass 0 fail 
+resource-gate 2026-09-27T16:08:44Z unit-lcov disk=123G memAvailable=16GiB swapFreeKiB=6695360/17173956
+--- START unit-lcov 2026-09-27T16:08:44Z
+--- END   unit-lcov 2026-09-27T16:09:29Z exit=0  222 pass 0 fail 
+resource-gate 2026-09-27T16:09:29Z connection-alone-lcov disk=123G memAvailable=16GiB swapFreeKiB=6695720/17173956
+--- START connection-alone-lcov 2026-09-27T16:09:29Z
+--- END   connection-alone-lcov 2026-09-27T16:09:29Z exit=0  10 pass 0 fail 
+resource-gate 2026-09-27T16:09:29Z web-lcov disk=123G memAvailable=16GiB swapFreeKiB=6695720/17173956
+--- START web-lcov 2026-09-27T16:09:29Z
+--- END   web-lcov 2026-09-27T16:09:40Z exit=0  Tests 22 passed (22) 
+resource-gate 2026-09-27T16:09:40Z coverage-merge disk=122G memAvailable=17GiB swapFreeKiB=6671192/17173956
+--- START coverage-merge 2026-09-27T16:09:40Z
+--- END   coverage-merge 2026-09-27T16:09:41Z exit=0 
+resource-gate 2026-09-27T16:09:41Z web-build disk=122G memAvailable=17GiB swapFreeKiB=6671196/17173956
+--- START web-build 2026-09-27T16:09:41Z
+--- END   web-build 2026-09-27T16:10:21Z exit=0 
+resource-gate 2026-09-27T16:10:21Z graph-mock-pass disk=122G memAvailable=15GiB swapFreeKiB=6673588/17173956
+--- START graph-mock-pass 2026-09-27T16:10:21Z
+--- END   graph-mock-pass 2026-09-27T16:10:59Z exit=0 
+no retained database or run in /tmp/factory-platform-evidence/w00/w09f-merge/graph/w09f-merge-mock.json; nothing to dump
+mock pass w09f-merge-mock outcome: passed
+HEAVY DONE status=0 dirty=0 2026-09-27T16:10:59Z

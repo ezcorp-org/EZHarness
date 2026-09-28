@@ -234,6 +234,55 @@ function isNoEvidenceZero(r: FileRec, line: number): boolean {
   return r.straddled.has(line) && r.zeroVerdict.get(line) === "fill";
 }
 
+/**
+ * CALLED-FUNCTION HEADERS. A Node/V8 (Vitest) producer reports a function's
+ * entry count as `FNDA` and writes NO `DA` record for the function's header
+ * line; a bun producer that only imports the same module writes `DA:<header>,0`.
+ * The per-line sum then reads 0 for the header of a function that ran. So an
+ * emitted `DA` record of 0 at the `FN` start line of a function whose merged
+ * `FNDA` is above zero takes that `FNDA` as its hits (the `FNDA` is merged by
+ * the same sum as `DA`). Nothing else changes: a `DA` line that is no `FN`
+ * start keeps its value, no `DA` record is created or restored after the
+ * no-evidence and noise drops, and a function no producer called keeps 0.
+ */
+function calledFunctionHeaders(r: FileRec): Map<number, number> {
+  const credits = new Map<number, number>();
+  for (const [name, line] of r.fn) {
+    const calls = r.fnda.get(name) ?? 0;
+    if (calls > 0) credits.set(line, calls);
+  }
+  return credits;
+}
+
+/**
+ * ENTERED CATCH CLAUSES. Bun writes `DA:<line>,0` for a bare `} catch {` or
+ * `} catch (<identifier>) {` line while the first line of the catch body has
+ * hits; V8 writes no DA for the clause line. A catch body cannot run unless
+ * its clause was entered, so an emitted DA of 0 on such a line takes the hits
+ * of the first DA line inside its block when those are above zero. The block
+ * is the lines up to the clause's closing brace at the clause's indentation.
+ * Nothing else changes: a catch whose body has 0 keeps 0, a line with any
+ * other text keeps its value, and no DA record is created.
+ */
+const CATCH_CLAUSE = /^\} catch(?: \([A-Za-z_$][\w$]*\))? \{$/;
+
+function enteredCatchClauses(src: string[] | null, da: ReadonlyArray<readonly [number, number]>): Map<number, number> {
+  const credits = new Map<number, number>();
+  if (!src) return credits;
+  for (let i = 0; i < da.length - 1; i++) {
+    const [line, hits] = da[i]!;
+    const text = src[line - 1];
+    if (hits !== 0 || text === undefined || !CATCH_CLAUSE.test(text.trim())) continue;
+    const indent = text.length - text.trimStart().length;
+    const [bodyLine, bodyHits] = da[i + 1]!;
+    const closes = src
+      .slice(line, bodyLine - 1)
+      .some((between) => between.trim().startsWith("}") && between.length - between.trimStart().length <= indent);
+    if (!closes && bodyHits > 0) credits.set(line, bodyHits);
+  }
+  return credits;
+}
+
 const [globPat, outPath] = Bun.argv.slice(2);
 if (!globPat || !outPath) {
   console.error("usage: merge-lcov.ts <glob> <output>");
@@ -410,8 +459,11 @@ for (const [sf, r] of sortedFiles) {
     ([lineNo, hits]) => hits > 0 || !isNoEvidenceZero(r, lineNo),
   );
   const filteredDa = await filterNoiseDA(absSrcPath, evidencedDa);
+  const headerCredits = calledFunctionHeaders(r);
+  const catchCredits = enteredCatchClauses(await readSourceLines(absSrcPath), filteredDa);
   let lh = 0;
-  for (const [lineNo, hits] of filteredDa) {
+  for (const [lineNo, merged] of filteredDa) {
+    const hits = merged === 0 ? (headerCredits.get(lineNo) ?? catchCredits.get(lineNo) ?? 0) : merged;
     out.push(`DA:${lineNo},${hits}`);
     if (hits > 0) lh++;
   }

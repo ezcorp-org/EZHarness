@@ -2,6 +2,9 @@
 # Run one existing browser lane against the shared mapped build and save only
 # that lane's worker receipts. CI merges the artifacts after all lanes finish.
 set -euo pipefail
+# The lane's server runs under the `bun` PATH resolves: pin it first (scripts/lib/lane-bun.sh).
+. "$(dirname "${BASH_SOURCE[0]}")/lib/lane-bun.sh"
+lane_bun_pin
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 lane="${1:-}"
@@ -40,14 +43,14 @@ case "$lane" in
   factory-services)
     # Service-backed factory journeys on a labelled runner. Every input is
     # REQUIRED: a missing service must fail readiness, never collect an empty
-    # green lane. W14 owns this lane's specs and its Playwright configuration;
-    # until both land the lane is registered and unpopulated, and the two
-    # guards below say so instead of exiting 0.
+    # green lane. The stack needs the Temporal CLI dev server, because the
+    # Java test server cannot report the task-queue pollers that open the
+    # orchestrator's readiness.
     : "${FACTORY_TEST_POSTGRES_URL:?factory-services requires a real PostgreSQL URL}"
     : "${EZCORP_FACTORY_STORAGE_SECRETS_DIR:?factory-services requires the factory object-storage credential directory}"
-    : "${FACTORY_TEMPORAL_TEST_SERVER:?factory-services requires the pinned Temporal test server}"
+    : "${FACTORY_TEMPORAL_CLI:?factory-services requires the pinned Temporal CLI dev server}"
     config="web/playwright.factory-services.config.ts"
-    [ -f "$repo_root/$config" ] || { echo "factory-services lane requires $config — W14 owns this lane's specs and configuration" >&2; exit 1; }
+    [ -f "$repo_root/$config" ] || { echo "factory-services lane requires $config" >&2; exit 1; }
     mapfile -t args < <(bun scripts/e2e-lane-args.ts "$lane")
     [ "${#args[@]}" -gt 0 ] || { echo "empty browser coverage lane: $lane" >&2; exit 1; }
     (cd web && bunx playwright test --config "$(basename "$config")" --project=chromium --workers=1 --reporter=list "${args[@]}")

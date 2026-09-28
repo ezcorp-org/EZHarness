@@ -95,6 +95,8 @@ export type Mutant = {
   replacement: string;
   status: string;
   location: { start: { line: number; column: number }; end: { line: number; column: number } };
+  /** Tests Stryker actually ran against this mutant (absent in older reports). */
+  testsCompleted?: number;
 };
 export type MutationReport = {
   files: Record<string, { source: string; mutants: Mutant[] }>;

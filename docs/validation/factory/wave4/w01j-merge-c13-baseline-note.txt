@@ -1,0 +1,9 @@
+Wave4 baseline note (lead ruling 2026-09-27): the C13 inventory test is red at integ a24a619ad (and at c9b7bab5b).
+scripts/factory-c13-inventory.test.ts: 12 pass, 1 fail, "every shared module the integrated factory modules import today is
+declared": "src/factory/runner/attempt-runtime.ts imports C13 shared module src/db/queries/audit-log.ts without a
+REQUIRED_SHARED_IMPORTS row". The import came with W01h's 216868819 (merged in a8b467b2c); no merge batch ran this test.
+Fixed by W01j (w19a-graph-proof, wp/w01j-c13-inventory), which merges before W16.
+Baseline run at a24a619ad, one process per suite (guard-baseline-a24a619ad/summary.txt): the other 11 standing guard
+suites green. From the next merge on, every batch's fast checks run the standing guard set (guard-suites.sh: the C13
+inventory, the PostgreSQL suite registration, the CI test-set drift test, every scripts/*-registration.test.ts) plus
+check-factory-boundaries and check-boundaries, and the merge json records the list.

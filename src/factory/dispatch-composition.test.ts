@@ -22,11 +22,13 @@ import { FactoryTaskStops } from "./task-stops";
 import type { PoolAdmissionClient } from "./pool/client";
 import type { FactoryStartupConfig } from "./startup-config";
 import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
-import { FactoryReleaseError, FactoryReleases, type FactoryClaimableRelease, type FactoryReleaseConsentResult, type FactoryReleaseOperation, type FactoryReleaseProvider } from "./releases";
+import { FactoryReleaseError, FactoryReleases, type FactoryClaimableRelease, type FactoryReleaseConsentResult, type FactoryReleaseOperation, type FactoryReleaseProvider, type FactoryStoppedRelease } from "./releases";
 import type { FactoryStoppableAttempt } from "./task-stops";
 import type { FactoryUncertainHold } from "./budgets";
+import { FactoryRunEpochStaleError } from "./executions";
 import type { TrustedFactoryServiceIdentity } from "./trusted-command-gateway";
 import type { FactoryPrincipal } from "./grants";
+import { FACTORY_RELEASE_OUTCOME_BACKOFF_BASE_MS, FACTORY_RELEASE_OUTCOME_BACKOFF_CAP_MS } from "./release-outcome-backoff";
 import {
   FACTORY_RELEASE_CONSENT_FAULT_REASONS,
   FACTORY_RELEASE_OUTCOME_TRANSIENT_CODES,
@@ -34,11 +36,14 @@ import {
   FactoryReleaseConsentAbsentError,
   FactoryUnknownReleaseProviderError,
   FactoryUnresolvedHoldError,
+  FactoryUsageHoldAwaitingBoundError,
+  FactoryUsageHoldEpochStaleError,
   factoryReleaseOutcomeDisposition,
   factoryReleaseOutcomeDriver,
   factoryReleaseProviderResolver,
   factoryStopSettlementDisposition,
   factoryStopSettlementDriver,
+  FactoryStopReconciliationError,
   factoryUsageReconciliationDisposition,
   factoryUsageReconciliationDriver,
   composeFactorySettlement,
@@ -55,9 +60,10 @@ function database(): TransactionalDb {
 
 const failure = (code: string) => Object.assign(new Error(code), { code });
 
+const stoppable = (attemptId: string): FactoryStoppableAttempt =>
+  ({ attemptId, reference: { attemptId }, reservationId: `res-${attemptId}` }) as unknown as FactoryStoppableAttempt;
+
 describe("the stop-settlement step", () => {
-  const stoppable = (attemptId: string): FactoryStoppableAttempt =>
-    ({ attemptId, reference: { attemptId }, reservationId: `res-${attemptId}` }) as unknown as FactoryStoppableAttempt;
 
   test("settles each listed cancellation against the reference the scan returned", async () => {
     const settled: unknown[] = [];
@@ -130,10 +136,49 @@ describe("the stop-settlement step", () => {
         if (reference.attemptId === "bad") throw failure("factory_task_stop_corrupt");
         return { state: "stopped" } as never;
       },
+      async markForReconciliation() {},
     } as never, SERVICE, (role) => { reported.push(role); }, 5);
 
     expect(await driver.step(SIGNAL)).toBe(true);
     expect(reported).toEqual(["stop-settlement:transient:busy", "stop-settlement:fault:bad"]);
+  });
+});
+
+describe("a stop that no longer verifies (W01h fix round)", () => {
+  test("is marked once, reported once by stop id, and not settled again", async () => {
+    const marked = new Set<string>();
+    const stopCalls: string[] = [];
+    const reported: Array<{ role: string; error: unknown }> = [];
+    const cause = Object.assign(new Error("factory_task_stop_corrupt: the stop was sealed with reason cancelled and its durable facts now give failed"), { code: "factory_task_stop_corrupt" });
+    const driver = factoryStopSettlementDriver(database(), {
+      // The scan skips a marked stop, as the store's does.
+      async listStoppableInTransaction() { return [stoppable("lost")].filter(item => !marked.has(item.attemptId)).map(item => ({ ...item, reference: { attemptId: item.attemptId, commandId: "cancel-lost" } })); },
+      async stop(_s: unknown, reference: { attemptId: string }) { stopCalls.push(reference.attemptId); throw cause; },
+      async markForReconciliation(_s: unknown, reference: { attemptId: string }, error: unknown) { expect(error).toBe(cause); marked.add(reference.attemptId); },
+    } as never, SERVICE, (role, error) => { reported.push({ role, error }); });
+
+    expect(await driver.step(SIGNAL)).toBe(false);
+    expect(reported).toHaveLength(1);
+    expect(reported[0]!.role).toBe("stop-settlement:fault:lost");
+    expect(reported[0]!.error).toBeInstanceOf(FactoryStopReconciliationError);
+    expect(reported[0]!.error).toMatchObject({ code: "factory_task_stop_reconciliation", attemptId: "lost", cancelCommandId: "cancel-lost", cause });
+    expect((reported[0]!.error as Error).message).toContain("sealed with reason cancelled and its durable facts now give failed");
+
+    for (let pass = 0; pass < 3; pass += 1) await driver.step(SIGNAL);
+    expect(stopCalls).toEqual(["lost"]);
+    expect(reported).toHaveLength(1);
+    expect(factoryStopSettlementDisposition(reported[0]!.error)).toBe("fault");
+  });
+
+  test("any other refusal is left to the ordinary disposition and marks nothing", async () => {
+    const reported: string[] = [];
+    const driver = factoryStopSettlementDriver(database(), {
+      async listStoppableInTransaction() { return [stoppable("busy")]; },
+      async stop() { throw failure("factory_task_stop_conflict"); },
+      async markForReconciliation() { throw new Error("must not be called"); },
+    } as never, SERVICE, (role) => { reported.push(role); });
+    await driver.step(SIGNAL);
+    expect(reported).toEqual(["stop-settlement:transient:busy"]);
   });
 });
 
@@ -172,6 +217,68 @@ describe("the usage-reconciliation step", () => {
     expect(await driver.step(SIGNAL)).toBe(false);
     expect(reconciled).toBe(0);
     expect(reported).toEqual(["usage-reconciliation:transient:res-9"]);
+  });
+
+  describe("a hold whose attempt a restore's epoch left behind (W15f)", () => {
+    const stale = () => new FactoryRunEpochStaleError("run-1", "attempt-1", 1, 2);
+    function staleDriver(options: { resolveThrows?: boolean; outcome?: "marked" | "terminal" | "settled" }) {
+      const marks: unknown[] = [];
+      const reported: { role: string; error: unknown }[] = [];
+      const driver = factoryUsageReconciliationDriver(database(), {
+        async listUncertainWithCostInTransaction() { return [hold("res-3")]; },
+        async markEpochStaleInTransaction(_transaction: MigrationDb, key: unknown, mark: unknown) { marks.push({ key, mark }); return options.outcome ?? "marked"; },
+      } as never, {
+        async resolve() {
+          if (options.resolveThrows ?? true) throw stale();
+          return { kind: "resolved", reservationId: "res-3", attemptId: "attempt-1", operationId: "op-1", providerReceiptDigest: "sha256:receipt", usage: { costMicros: "1" } } as never;
+        },
+        async reconcile() { throw stale(); },
+      } as never, (role, error) => { reported.push({ role, error }); }, undefined, () => 1_234);
+      return { driver, marks, reported };
+    }
+
+    test("the resolver's fence refusal marks the hold once and reports one named fault with both epochs", async () => {
+      const { driver, marks, reported } = staleDriver({});
+      expect(await driver.step(SIGNAL)).toBe(false);
+      expect(marks).toEqual([{ key: hold("res-3"), mark: { attemptId: "attempt-1", attemptEpoch: 1, installationEpoch: 2, markedAtMs: 1_234 } }]);
+      expect(reported.map(report => report.role)).toEqual(["usage-reconciliation:fault:res-3"]);
+      const error = reported[0]!.error as FactoryUsageHoldEpochStaleError;
+      expect(error).toBeInstanceOf(FactoryUsageHoldEpochStaleError);
+      expect(error.code).toBe("factory_usage_hold_epoch_stale");
+      expect(error.reservationId).toBe("res-3");
+      expect(error.cause).toBeInstanceOf(FactoryRunEpochStaleError);
+      expect(error.message).toBe("factory_usage_hold_epoch_stale: reservation res-3 of run run-1 is held by attempt attempt-1 of execution epoch 1; the installation is at epoch 2, so it cannot be reconciled here. Marked once; not retried until the epoch moves.");
+      expect(factoryUsageReconciliationDisposition(error)).toBe("fault");
+    });
+
+    test("the settlement's own fence refusal is handled the same way", async () => {
+      const { driver, marks, reported } = staleDriver({ resolveThrows: false });
+      await driver.step(SIGNAL);
+      expect(marks).toHaveLength(1);
+      expect(reported[0]!.error).toBeInstanceOf(FactoryUsageHoldEpochStaleError);
+    });
+
+    test("a hold whose attempt has ended waits for its bound settlement: named backpressure, not a fault", async () => {
+      const { driver, reported } = staleDriver({ outcome: "terminal" });
+      await driver.step(SIGNAL);
+      expect(reported.map(report => report.role)).toEqual(["usage-reconciliation:transient:res-3"]);
+      const error = reported[0]!.error as FactoryUsageHoldAwaitingBoundError;
+      expect(error).toBeInstanceOf(FactoryUsageHoldAwaitingBoundError);
+      expect(error.code).toBe("factory_usage_hold_awaiting_bound");
+      expect(error.reservationId).toBe("res-3");
+      expect(error.cause).toBeInstanceOf(FactoryRunEpochStaleError);
+      expect(error.message).toBe("factory_usage_hold_awaiting_bound: reservation res-3 of run run-1 belongs to ended attempt attempt-1 of execution epoch 1; it waits for a settlement at the reserved bound.");
+      expect(factoryUsageReconciliationDisposition(error)).toBe("transient");
+    });
+
+    test("a hold that settled before the mark is not claimed as marked: its refusal is reported as it came", async () => {
+      const { driver, marks, reported } = staleDriver({ outcome: "settled" });
+      await driver.step(SIGNAL);
+      expect(marks).toHaveLength(1);
+      expect(reported).toHaveLength(1);
+      expect(reported[0]!.error).toBeInstanceOf(FactoryRunEpochStaleError);
+      expect(reported[0]!.error).not.toBeInstanceOf(FactoryUsageHoldEpochStaleError);
+    });
   });
 
   test("an unresolved hold is backpressure; anything else needs a person", () => {
@@ -233,9 +340,15 @@ describe("the release-outcome step", () => {
     readonly consent?: FactoryReleaseConsentResult | (() => never);
     readonly inspect?: FactoryReleaseOperation | null;
     readonly claim?: () => unknown;
+    readonly stopped?: (projectId: string) => readonly FactoryStoppedRelease[];
   }) {
-    const calls = { inspected: [] as string[], consents: [] as unknown[][], claims: [] as unknown[][], dispatches: [] as unknown[][] };
+    const calls = { inspected: [] as string[], consents: [] as unknown[][], claims: [] as unknown[][], dispatches: [] as unknown[][], stopSettlements: [] as unknown[][] };
     const releases = {
+      async listStoppedInTransaction(_t: MigrationDb, projectId: string) { return (options.stopped ?? (() => []))(projectId); },
+      async settleStopped(projectId: string, operationId: string, provider: unknown) {
+        calls.stopSettlements.push([projectId, operationId, provider]);
+        return { projectId, operationId } as never;
+      },
       async listClaimableInTransaction(_t: MigrationDb, projectId: string, limit?: number) {
         return (options.claimables ?? ((p: string) => (p === "project-1" ? [claimable("op-1")] : [])))(projectId).map((item) => ({ ...item, ...(limit === undefined ? {} : {}) }));
       },
@@ -328,6 +441,27 @@ describe("the release-outcome step", () => {
     expect(reported).toEqual([]);
   });
 
+  test("a project's stopped releases ride on its claimable page, each asked about once, through its own provider", async () => {
+    const provider = { name: "s3" } as unknown as FactoryReleaseProvider;
+    const { releases, calls } = store({ stopped: (projectId) => (projectId === "project-1" ? [{ projectId, operationId: "op-stopped", runId: "run-1" }] : []) });
+    const driver = factoryReleaseOutcomeDriver(database(), releases, runs(), async () => ["project-1"], factoryReleaseProviderResolver({ s3: provider }), () => {});
+
+    expect(await driver.step(SIGNAL)).toBe(true);
+    expect(calls.claims).toHaveLength(1);
+    expect(calls.stopSettlements).toEqual([["project-1", "op-stopped", provider]]);
+    expect(calls.inspected).toContain("project-1/op-stopped");
+  });
+
+  test("a stopped release that vanished before its question is a named transient, not a fault", async () => {
+    const { releases, calls } = store({ claimables: () => [], stopped: (projectId) => [{ projectId, operationId: "op-gone", runId: "run-1" }], inspect: null });
+    const reported: unknown[][] = [];
+    const driver = factoryReleaseOutcomeDriver(database(), releases, runs(), async () => ["project-1"], factoryReleaseProviderResolver({ s3: {} as never }), (role, error) => { reported.push([role, (error as { code?: unknown }).code]); });
+
+    expect(await driver.step(SIGNAL)).toBe(false);
+    expect(calls.stopSettlements).toEqual([]);
+    expect(reported).toEqual([["release-outcome:transient:op-gone", "factory_release_stop_settlement_stale"]]);
+  });
+
   test("without a delivery, an empty page stays empty", async () => {
     const { releases } = store({ claimables: () => [] });
     const driver = factoryReleaseOutcomeDriver(database(), releases, runs(), async () => ["project-1"], factoryReleaseProviderResolver({ s3: {} as never }), () => {});
@@ -356,9 +490,63 @@ describe("the release-outcome step", () => {
     expect(await driver.step(SIGNAL)).toBe(false);
     expect(calls.claims).toEqual([]);
     expect(calls.dispatches).toEqual([]);
-    expect(reported.map(([role]) => role)).toEqual(["release-outcome:transient:op-1"]);
+    expect(reported.map(([role]) => role)).toEqual(["release-outcome:awaiting_consent:op-1"]);
     expect(reported[0]![1]).toBeInstanceOf(FactoryReleaseConsentAbsentError);
     expect((reported[0]![1] as FactoryReleaseConsentAbsentError).reason).toBe("no_consent");
+  });
+
+  test("the back-off's base interval and five-minute cap are pinned", () => {
+    expect(FACTORY_RELEASE_OUTCOME_BACKOFF_BASE_MS).toBe(5_000);
+    expect(FACTORY_RELEASE_OUTCOME_BACKOFF_CAP_MS).toBe(5 * 60_000);
+  });
+
+  /** One hour of passes at the worker's idle delay, with the lines the role reports and the times it asked. */
+  async function hourOfPasses(settings: Parameters<typeof store>[0], first?: (clock: number) => void) {
+    const reported: [number, string][] = [];
+    let clock = 0;
+    const { releases, calls } = store(settings);
+    const driver = factoryReleaseOutcomeDriver(database(), releases, runs(), async () => ["project-1"], factoryReleaseProviderResolver({ s3: {} as never }), (role) => { reported.push([clock, role]); }, undefined, undefined, () => clock);
+    for (; clock < 60 * 60_000; clock += 250) { first?.(clock); await driver.step(SIGNAL); }
+    return { reported, calls };
+  }
+
+  /** The times a release is tried under the back-off: at once, then after each doubled wait, capped. */
+  function expectedTries(untilMs: number): number[] {
+    const tries: number[] = [];
+    for (let at = 0, wait = FACTORY_RELEASE_OUTCOME_BACKOFF_BASE_MS; at < untilMs; at += wait, wait = Math.min(wait * 2, FACTORY_RELEASE_OUTCOME_BACKOFF_CAP_MS)) tries.push(at);
+    return tries;
+  }
+
+  test("a release waiting for consent is asked once per back-off interval, with one awaiting_consent line each (W09e R5)", async () => {
+    const { reported, calls } = await hourOfPasses({ consent: { kind: "none", reason: "no_consent" } });
+    // 14,400 passes; without a back-off each one read the consent and reported a line.
+    const tries = expectedTries(60 * 60_000);
+    expect(reported).toEqual(tries.map(at => [at, "release-outcome:awaiting_consent:op-1"]));
+    expect(calls.consents).toHaveLength(tries.length);
+    expect(tries.slice(0, 8)).toEqual([0, 5_000, 15_000, 35_000, 75_000, 155_000, 315_000, 615_000]);
+    expect(tries.length).toBeLessThan(20);
+  });
+
+  test("a consent that appears is claimed at the next try, and a later absence starts from the base again", async () => {
+    let consent: FactoryReleaseConsentResult = { kind: "none", reason: "approval_not_approved" };
+    const { reported, calls } = await hourOfPasses({ consent: () => consent as never, claim: () => { consent = { kind: "none", reason: "approval_expired" }; return { operationId: "op-1", destination: { provider: "s3" } }; } }, clock => {
+      if (clock === 20_000) consent = APPROVAL as unknown as FactoryReleaseConsentResult;
+    });
+    // Tries at 0, 5 s and 15 s find no consent; the one at 35 s claims. The release is listed again at the next
+    // pass and its consent has expired: that absence waits the base interval again, not the doubled one.
+    expect(reported.slice(0, 5).map(([at]) => at)).toEqual([0, 5_000, 15_000, 35_250, 40_250]);
+    expect(calls.claims).toHaveLength(1);
+  });
+
+  test("an unanswered stopped-release question backs off the same way, one transient line per interval", async () => {
+    const { releases, calls } = store({ claimables: () => [], stopped: (projectId) => [{ projectId, operationId: "op-stopped", runId: "run-1" }] });
+    const unanswered = Object.assign(releases as object, { async settleStopped(projectId: string, operationId: string) { calls.stopSettlements.push([projectId, operationId]); throw new FactoryReleaseError("factory_release_stop_outcome_unknown"); } });
+    const reported: [number, string][] = [];
+    let clock = 0;
+    const driver = factoryReleaseOutcomeDriver(database(), unanswered as never, runs(), async () => ["project-1"], factoryReleaseProviderResolver({ s3: {} as never }), (role) => { reported.push([clock, role]); }, undefined, undefined, () => clock);
+    for (; clock < 60 * 60_000; clock += 250) await driver.step(SIGNAL);
+    expect(reported).toEqual(expectedTries(60 * 60_000).map(at => [at, "release-outcome:transient:op-stopped"]));
+    expect(calls.stopSettlements).toHaveLength(expectedTries(60 * 60_000).length);
   });
 
   test("an ambiguous policy is untouched, named, and needs a person", async () => {
@@ -484,6 +672,7 @@ describe("the release-outcome step", () => {
     const limits: (number | undefined)[] = [];
     const bad = {
       async listClaimableInTransaction(_t: MigrationDb, _p: string, limit?: number) { limits.push(limit); return [claimable("op-bad")]; },
+      async listStoppedInTransaction() { return []; },
       async inspect() { return operation(); },
       async readConsentInTransaction() { return APPROVAL as unknown as FactoryReleaseConsentResult; },
       async claim() { throw failure("factory_release_conflict"); },
@@ -617,6 +806,57 @@ describe("composeFactorySettlement", () => {
     expect(await composed.stopSettlement.step(SIGNAL)).toBe(false);
     expect(await composed.usageReconciliation.step(SIGNAL)).toBe(false);
     expect(reported).toEqual([]);
+  });
+
+  test("the production reconciler reads its scope from the composed FactoryTaskStops and clears the kernel through it", async () => {
+    const { tls, publicKeyPath } = await material();
+    const db = database();
+    const { stores: real, pool } = settlementStores(db);
+    // Only the evidence a reconciliation reads is supplied here; the stop
+    // store and the reconciler are built by the production composition.
+    const hold: FactoryUncertainHold = { projectId: "project-01", runId: "run-01", reservationId: "reservation-01", envelopeId: "envelope-01", heldCostMicros: "9", uncertainty: "provider outcome lost", cursor: { createdAtMs: 1, runId: "run-01", reservationId: "reservation-01" } };
+    const providerReceiptDigest = "e".repeat(64);
+    const usage = { kind: "measured" as const, inputTokens: 2, outputTokens: 3, computeMs: 4, costMicros: "5" };
+    const settledBudgets: string[] = [];
+    const stores = {
+      ...real,
+      budgets: Object.assign(Object.create(real.budgets), {
+        async listUncertainWithCostInTransaction() { return [hold]; },
+        async settleInTransaction(_transaction: MigrationDb, key: { reservationId: string }) { settledBudgets.push(key.reservationId); },
+      }) as typeof real.budgets,
+      journal: Object.assign(Object.create(real.journal), {
+        async operations() { return [{ operationId: "operation-01", operationIndex: 0, state: "uncertain", providerReceiptDigest, usage }]; },
+        async reconcileLate() {},
+      }) as typeof real.journal,
+      settlements: Object.assign(Object.create(real.settlements), {
+        async readByReceiptInTransaction() { return undefined; },
+        async recordInTransaction() { return { source: "reconciliation", knownCostMicros: "5", providerReceiptDigest, settledAtMs: 42, settlementDigest: `sha256:${"a".repeat(64)}` }; },
+      }) as typeof real.settlements,
+    };
+    const reported: string[] = [];
+    const composed = await composeFactorySettlement({
+      database: db, config: config(tls, publicKeyPath), stores, pool,
+      service: SERVICE, report: (role) => { reported.push(role); },
+    });
+    const read: string[] = [];
+    const cleared: { reservationId: string; atMs: number }[] = [];
+    const clear = composed.stops.clearResolvedStopInTransaction.bind(composed.stops);
+    composed.stops.readSettlementScopeInTransaction = async (_transaction, reservationId) => {
+      read.push(reservationId);
+      return { projectId: hold.projectId, runId: hold.runId, interpreterId: "root", reservationId, authority: { attemptId: "attempt-01" } as never };
+    };
+    composed.stops.clearResolvedStopInTransaction = async (transaction, reservationId, atMs) => {
+      cleared.push({ reservationId, atMs });
+      return clear(transaction, reservationId, atMs);
+    };
+
+    expect(await composed.usageReconciliation.step(SIGNAL)).toBe(true);
+    expect(reported).toEqual([]);
+    // resolve and reconcile each read the scope through this one stop store.
+    expect(read).toEqual([hold.reservationId, hold.reservationId]);
+    expect(settledBudgets).toEqual([hold.reservationId]);
+    // The settlement reaches the stop store that clears the kernel, once.
+    expect(cleared).toEqual([{ reservationId: hold.reservationId, atMs: 42 }]);
   });
 
   test("refuses without the host launch endpoint the stop service lives behind", async () => {

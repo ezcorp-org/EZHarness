@@ -51,7 +51,7 @@ that requests a dedicated label without it.
 | `FACTORY_RUNNER_READ_TOKEN` | `factory-runner-readiness` -> `scripts/check-factory-runners.ts` | The script throws before any API call. The precheck fails, which fails the three dependent lanes. This is the designed state and needs no change to reach. |
 | `FACTORY_TEST_POSTGRES_URL` | `factory-product-e2e` | `collect-browser-route-coverage-lane.sh factory-services` exits non-zero on its `:?` guard |
 | `EZCORP_FACTORY_STORAGE_SECRETS_DIR` | `factory-product-e2e` | Same guard, same exit |
-| `FACTORY_TEMPORAL_TEST_SERVER` | `factory-product-e2e` | Same guard, same exit |
+| `FACTORY_TEMPORAL_CLI` | `factory-product-e2e` | Same guard, same exit. It is the path to the pinned Temporal CLI (`temporal server start-dev`). The Java test server cannot report task-queue pollers, so the orchestrator never reports ready on it. |
 
 `FACTORY_RUNNER_READ_TOKEN` needs only `repo` read scope for
 `actions/runners`. It is a READ token; nothing in CI registers or removes a
@@ -70,7 +70,7 @@ gh api --method POST repos/ezcorp-org/EZHarness/actions/runners/registration-tok
 gh secret set FACTORY_RUNNER_READ_TOKEN --repo ezcorp-org/EZHarness
 gh secret set FACTORY_TEST_POSTGRES_URL --repo ezcorp-org/EZHarness
 gh secret set EZCORP_FACTORY_STORAGE_SECRETS_DIR --repo ezcorp-org/EZHarness
-gh secret set FACTORY_TEMPORAL_TEST_SERVER --repo ezcorp-org/EZHarness
+gh secret set FACTORY_TEMPORAL_CLI --repo ezcorp-org/EZHarness
 ```
 
 Runner registration and secret provisioning are external administrative

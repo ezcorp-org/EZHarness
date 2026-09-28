@@ -1,0 +1,48 @@
+=== heavy 2026-09-27T16:03:26Z
+HEAD 9da0ed9ecd88136016bdd7ce6d17386936cca6c0 MERGE_HEAD 5da8fffedf1f2a976af49605c52a8ea6aa646b11 index-tree ec25f2b514cb06a789eedac14c9fd8c632e03b8f
+resource-gate 2026-09-27T16:03:26Z docs-extensions-examples-docs-updater-index-integration-test-ts disk=122G memAvailable=17GiB swapFreeKiB=6711768/17173956
+--- START docs-extensions-examples-docs-updater-index-integration-test-ts 2026-09-27T16:03:26Z
+--- END   docs-extensions-examples-docs-updater-index-integration-test-ts 2026-09-27T16:03:26Z exit=0  5 pass 0 fail 
+resource-gate 2026-09-27T16:03:26Z src-extensions-first-party-integration-docs-updater-git-test-ts disk=122G memAvailable=17GiB swapFreeKiB=6711772/17173956
+--- START src-extensions-first-party-integration-docs-updater-git-test-ts 2026-09-27T16:03:26Z
+--- END   src-extensions-first-party-integration-docs-updater-git-test-ts 2026-09-27T16:03:27Z exit=0  6 pass 0 fail 
+resource-gate 2026-09-27T16:03:27Z src-extensions-first-party-integration-repo-activity-notify-git-test-ts disk=122G memAvailable=17GiB swapFreeKiB=6711776/17173956
+--- START src-extensions-first-party-integration-repo-activity-notify-git-test-ts 2026-09-27T16:03:27Z
+--- END   src-extensions-first-party-integration-repo-activity-notify-git-test-ts 2026-09-27T16:03:27Z exit=0  2 pass 0 fail 
+resource-gate 2026-09-27T16:03:27Z src-extensions-__tests__-source-project-credentials-test-ts disk=122G memAvailable=17GiB swapFreeKiB=6711776/17173956
+--- START src-extensions-__tests__-source-project-credentials-test-ts 2026-09-27T16:03:27Z
+--- END   src-extensions-__tests__-source-project-credentials-test-ts 2026-09-27T16:03:28Z exit=0  6 pass 0 fail 
+resource-gate 2026-09-27T16:03:28Z src-__tests__-biome-ignores-worktrees-test-ts disk=122G memAvailable=17GiB swapFreeKiB=6711776/17173956
+--- START src-__tests__-biome-ignores-worktrees-test-ts 2026-09-27T16:03:28Z
+--- END   src-__tests__-biome-ignores-worktrees-test-ts 2026-09-27T16:03:32Z exit=0  4 pass 0 fail 
+resource-gate 2026-09-27T16:03:32Z src-__tests__-extension-events-hub-branch-test-ts disk=122G memAvailable=16GiB swapFreeKiB=6711776/17173956
+--- START src-__tests__-extension-events-hub-branch-test-ts 2026-09-27T16:03:32Z
+--- END   src-__tests__-extension-events-hub-branch-test-ts 2026-09-27T16:03:32Z exit=0  19 pass 0 fail 
+resource-gate 2026-09-27T16:03:32Z src-__tests__-git-install-test-ts disk=122G memAvailable=16GiB swapFreeKiB=6711776/17173956
+--- START src-__tests__-git-install-test-ts 2026-09-27T16:03:32Z
+--- END   src-__tests__-git-install-test-ts 2026-09-27T16:03:50Z exit=0  22 pass 0 fail 
+resource-gate 2026-09-27T16:03:50Z src-__tests__-hub-render-pull-test-ts disk=122G memAvailable=17GiB swapFreeKiB=6686888/17173956
+--- START src-__tests__-hub-render-pull-test-ts 2026-09-27T16:03:50Z
+--- END   src-__tests__-hub-render-pull-test-ts 2026-09-27T16:03:50Z exit=0  27 pass 0 fail 
+resource-gate 2026-09-27T16:03:51Z src-__tests__-source-parser-git-coverage-test-ts disk=122G memAvailable=17GiB swapFreeKiB=6686888/17173956
+--- START src-__tests__-source-parser-git-coverage-test-ts 2026-09-27T16:03:51Z
+--- END   src-__tests__-source-parser-git-coverage-test-ts 2026-09-27T16:03:51Z exit=0  24 pass 0 fail 
+resource-gate 2026-09-27T16:03:51Z src-__tests__-source-parser-test-ts disk=122G memAvailable=17GiB swapFreeKiB=6686888/17173956
+--- START src-__tests__-source-parser-test-ts 2026-09-27T16:03:51Z
+--- END   src-__tests__-source-parser-test-ts 2026-09-27T16:03:52Z exit=0  28 pass 0 fail 
+resource-gate 2026-09-27T16:03:52Z src-__tests__-unlanded-branches-test-ts disk=122G memAvailable=17GiB swapFreeKiB=6686888/17173956
+--- START src-__tests__-unlanded-branches-test-ts 2026-09-27T16:03:52Z
+--- END   src-__tests__-unlanded-branches-test-ts 2026-09-27T16:03:53Z exit=0  39 pass 0 fail 
+resource-gate 2026-09-27T16:03:53Z src-__tests__-visual-evidence-select-test-ts disk=122G memAvailable=17GiB swapFreeKiB=6686944/17173956
+--- START src-__tests__-visual-evidence-select-test-ts 2026-09-27T16:03:53Z
+--- END   src-__tests__-visual-evidence-select-test-ts 2026-09-27T16:03:55Z exit=0  27 pass 0 fail 
+resource-gate 2026-09-27T16:03:55Z web-src-routes-api-import-__tests__-commit-test-ts disk=122G memAvailable=17GiB swapFreeKiB=6687044/17173956
+--- START web-src-routes-api-import-__tests__-commit-test-ts 2026-09-27T16:03:55Z
+--- END   web-src-routes-api-import-__tests__-commit-test-ts 2026-09-27T16:03:56Z exit=0  13 pass 0 fail 
+resource-gate 2026-09-27T16:03:56Z web-src-__tests__-extensions-api-test-ts disk=122G memAvailable=17GiB swapFreeKiB=6687068/17173956
+--- START web-src-__tests__-extensions-api-test-ts 2026-09-27T16:03:56Z
+--- END   web-src-__tests__-extensions-api-test-ts 2026-09-27T16:03:56Z exit=0  55 pass 0 fail 
+resource-gate 2026-09-27T16:03:56Z web-src-__tests__-extensions-events-route-test-ts disk=122G memAvailable=17GiB swapFreeKiB=6687068/17173956
+--- START web-src-__tests__-extensions-events-route-test-ts 2026-09-27T16:03:56Z
+--- END   web-src-__tests__-extensions-events-route-test-ts 2026-09-27T16:03:57Z exit=0  44 pass 0 fail 
+HEAVY DONE status=0 dirty=0 2026-09-27T16:03:57Z

@@ -2,6 +2,7 @@ import { defineConfig, devices } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { pinnedWebServer } from "./playwright-lane-bun";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const lanesManifest = JSON.parse(readFileSync(join(__dirname, "e2e", "lanes.json"), "utf8")) as {
@@ -102,7 +103,7 @@ export default defineConfig({
 		{ name: "mobile-chromium", use: { ...devices["Pixel 5"] } },
 	],
 	...(!isDocker && {
-		webServer: {
+		webServer: pinnedWebServer({
 			// EZCORP_PREVIEW_APP_HOST activates the secure-preview origin
 			// dispatch for `*.preview.localhost` hosts (see
 			// e2e/preview-static.spec.ts). Normal app requests (Host=localhost)
@@ -124,6 +125,6 @@ export default defineConfig({
 			// value across fresh processes. The mock lane also changes its server
 			// environment, so its production preview must not reuse that cache.
 			env: { BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0" },
-		},
+		}),
 	}),
 });

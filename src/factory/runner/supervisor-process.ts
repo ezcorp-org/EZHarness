@@ -53,6 +53,7 @@ import { isFactoryGuestMaterialFrame, type FactoryRunnerRequest } from "@ezcorp/
 import { readPrivatePath } from "../private-files";
 import { createFactoryGuestBrokerClient } from "./guest-broker-client";
 import { isFactoryGuestModelPayload, type FactoryGuestBroker } from "./guest-model-broker";
+import { isFactoryHostPeerTenants, type FactoryHostPeerTenants } from "./host-peer-tenants";
 import { FactoryHostBrokerUnavailableError, factoryHostBrokerUnavailable, startFactoryHostServices } from "./supervisor-services";
 import { createFactorySupervisorPoolClient } from "./supervisor-pool-client";
 import {
@@ -109,8 +110,14 @@ export interface FactorySupervisorProcessConfig {
   readonly services?: {
     readonly hostname: string;
     readonly port: number;
-    /** mTLS peer identities allowed to launch or stop on this host. */
-    readonly allowedPeers: readonly string[];
+    /**
+     * Each mTLS peer identity allowed to launch or stop on this host, bound to
+     * the one tenant it acts for (W01i). One host serves every installation of
+     * its fleet, and a request for another tenant's guest is refused
+     * `forbidden_tenant`. It replaces the unbound `allowedPeers` list, which
+     * the parser now refuses by name.
+     */
+    readonly peerTenants: FactoryHostPeerTenants;
     readonly hostKeyIdPath: string;
     readonly tls: { readonly caPath: string; readonly certificatePath: string; readonly privateKeyPath: string };
     /**
@@ -194,14 +201,13 @@ function integer(value: unknown, minimum: number, maximum: number): boolean {
  */
 function serviceSection(value: unknown): boolean {
   if (!record(value)) return false;
-  const required = ["hostname", "port", "allowedPeers", "hostKeyIdPath", "tls"];
+  const required = ["hostname", "port", "peerTenants", "hostKeyIdPath", "tls"];
   // The single host-wide `guestBroker` form is gone: it is an unknown key, so a
   // document that still carries it, alone or beside `guestBrokers`, is refused.
   const allowed = [...required, "pool", "guestBrokers"];
   if (required.some((key) => !Object.hasOwn(value, key)) || Object.keys(value).some((key) => !allowed.includes(key))) return false;
   if (!text(value.hostname) || !integer(value.port, 1, 65_535) || !text(value.hostKeyIdPath)) return false;
-  if (!Array.isArray(value.allowedPeers) || value.allowedPeers.length < 1 || value.allowedPeers.length > 64
-    || value.allowedPeers.some((peer) => !text(peer))) return false;
+  if (!isFactoryHostPeerTenants(value.peerTenants)) return false;
   if ((value.pool !== undefined && !endpointSection(value.pool)) || (value.guestBrokers !== undefined && !guestBrokersSection(value.guestBrokers))) return false;
   return tlsSection(value.tls);
 }
@@ -237,6 +243,11 @@ export function parseFactorySupervisorProcessConfig(value: unknown): FactorySupe
     || !text(value.runnerRoot) || !text(value.readinessFilePath)
     || (value.readinessHeartbeatMs !== undefined && !integer(value.readinessHeartbeatMs, 1_000, 60_000))
     || (value.services !== undefined && !serviceSection(value.services))) {
+    // The unbound peer list is gone. Naming its replacement tells an operator
+    // with an old document what to write instead of a bare refusal.
+    if (record(value) && record(value.services) && Object.hasOwn(value.services, "allowedPeers")) {
+      throw new Error("factory supervisor config is invalid: services.allowedPeers is replaced by services.peerTenants, which binds each peer identity to its tenant");
+    }
     throw new Error("factory supervisor config is invalid");
   }
   return value as unknown as FactorySupervisorProcessConfig;
@@ -356,7 +367,7 @@ export async function startFactoryConfiguredHostServices(
   const broker = await createFactoryConfiguredGuestBroker(services.guestBrokers);
   return startFactoryHostServices({
     hostId: config.hostId,
-    allowedPeers: services.allowedPeers,
+    peerTenants: services.peerTenants,
     runner,
     signingKey: { hostId: config.hostId, privateKeyPath: config.hostKeyPath, keyIdPath: services.hostKeyIdPath },
     tls: { ca: utf8(ca), cert: utf8(cert), key: utf8(key) },
@@ -427,7 +438,6 @@ export const factorySupervisorProductionDependencies: FactorySupervisorProcessDe
   startServices: startFactoryConfiguredHostServices,
   now: Date.now,
   createReadiness: (config) => createFactoryServiceReadinessWriter(factorySupervisorReadinessOptions({
-    installationId: config.installationId,
     hostId: config.hostId,
     readinessFilePath: config.readinessFilePath,
     ...(config.readinessHeartbeatMs === undefined ? {} : { readinessHeartbeatMs: config.readinessHeartbeatMs }),

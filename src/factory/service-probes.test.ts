@@ -3,6 +3,7 @@ import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { FACTORY_REQUIRED_SERVICES } from "./boot";
 import { createFactoryPoolReadinessWriter } from "./pool/readiness";
+import { createFactoryServiceReadinessWriter, factorySupervisorReadinessOptions } from "./service-readiness";
 import {
   availableFactoryServices,
   factoryGatewayProbe,
@@ -12,10 +13,12 @@ import {
   factorySandboxProbe,
   factoryStorageProbe,
   factorySupervisorProbe,
+  factorySupervisorReadinessProbe,
   FactoryServiceProbeError,
   probeFactoryServices,
   unavailableFactoryServices,
   type FactoryProbeIdentity,
+  type FactoryProbeTraceEvent,
   type FactoryServiceProbe,
 } from "./service-probes";
 
@@ -92,6 +95,44 @@ describe("probeFactoryServices", () => {
     ]);
     expect(availableFactoryServices(results)).toEqual(["temporal"]);
     expect(unavailableFactoryServices(results)).toEqual(["object-storage: object_storage_down", "pool-admission: pool_down"]);
+  });
+
+  test("a probe that never answers is reported by name at its own deadline, its signal is aborted, and the rest still run", async () => {
+    let seen: AbortSignal | undefined;
+    const events: FactoryProbeTraceEvent[] = [];
+    const results = await probeFactoryServices([
+      // Ignores its signal entirely: only the deadline race can end it.
+      { service: "object-storage", probe: (signal) => { seen = signal; return new Promise<void>(() => {}); } },
+      { service: "temporal", probe: async () => {} },
+    ], open, { deadlineMs: 50, trace: (event) => events.push(event) });
+    expect(results).toEqual([
+      { service: "object-storage", available: false, detail: "object_storage_probe_timeout" },
+      { service: "temporal", available: true, detail: "ready" },
+    ]);
+    expect(seen?.aborted).toBe(true);
+    expect(events.map(({ service, available, detail }) => ({ service, available, detail }))).toEqual(results as never);
+    expect(events.every((event) => Number.isInteger(event.elapsedMs) && event.elapsedMs >= 0)).toBe(true);
+  });
+
+  test("a probe that honours its signal is aborted with the named timeout", async () => {
+    const results = await probeFactoryServices([{
+      service: "pool-admission",
+      probe: (signal) => new Promise<void>((_, reject) => { signal.addEventListener("abort", () => reject(signal.reason), { once: true }); }),
+    }], open, { deadlineMs: 50 });
+    expect(results).toEqual([{ service: "pool-admission", available: false, detail: "pool_admission_probe_timeout" }]);
+  });
+
+  test("the storage probe hands its signal to the store, so a hanging request is aborted at the deadline", async () => {
+    const aborted: string[] = [];
+    const hanging = {
+      put: (_key: string, _content: Uint8Array, signal?: AbortSignal) => new Promise<unknown>((_, reject) => {
+        signal!.addEventListener("abort", () => { aborted.push("put"); reject(signal!.reason); }, { once: true });
+      }),
+      get: async () => new Uint8Array(),
+    };
+    const results = await probeFactoryServices([factoryStorageProbe(hanging, "factory/readiness/installation-01")], open, { deadlineMs: 50 });
+    expect(results).toEqual([{ service: "object-storage", available: false, detail: "object_storage_probe_timeout" }]);
+    expect(aborted).toEqual(["put"]);
   });
 
   test("reports an aborted run as unavailable rather than as ready", async () => {
@@ -175,15 +216,49 @@ describe("the orchestration and pool probes read live readiness", () => {
     expect(results[2]!.available).toBe(false);
   });
 
-  test("the pool probe passes on a fresh ready record and fails on a foreign pool", async () => {
+  test("the pool probe passes on a fresh ready record and fails closed on a foreign pool", async () => {
     const root = await privateRoot();
     const scope = identity(root);
-    const writer = createFactoryPoolReadinessWriter({ installationId: scope.installationId, poolId: scope.poolId, readinessFilePath: scope.poolReadinessFilePath, readinessHeartbeatMs: 5_000 });
+    const writer = createFactoryPoolReadinessWriter({ poolId: scope.poolId, readinessFilePath: scope.poolReadinessFilePath, readinessHeartbeatMs: 5_000 });
     await writer.write({ lifecycle: "ready", databaseReady: true, schemaReady: true, listenerReady: true });
     expect((await probeFactoryServices([factoryPoolProbe(scope)], open))[0]).toMatchObject({ available: true });
 
     const foreign = await probeFactoryServices([factoryPoolProbe({ ...scope, poolId: "pool-02" })], open);
     expect(foreign[0]).toEqual({ service: "pool-admission", available: false, detail: "factory_pool_unavailable" });
+  });
+});
+
+describe("a pool and a supervisor shared by two installations (C12, coordinator ruling 2026-09-22)", () => {
+  const facts = { hostKeyReady: true, runnerReady: true, hostServicesReady: true };
+
+  async function sharedHost(root: string) {
+    const pool = createFactoryPoolReadinessWriter({ poolId: "pool.host-a", readinessFilePath: join(root, "pool.json"), readinessHeartbeatMs: 5_000 });
+    await pool.write({ lifecycle: "ready", databaseReady: true, schemaReady: true, listenerReady: true });
+    const supervisor = createFactoryServiceReadinessWriter(factorySupervisorReadinessOptions({ hostId: "host-a", readinessFilePath: join(root, "supervisor.json"), readinessHeartbeatMs: 5_000 }));
+    return supervisor.write({ lifecycle: "ready", facts });
+  }
+  const installation = (root: string, installationId: string, tenantId: string): FactoryProbeIdentity => ({ ...identity(root), installationId, tenantId, poolId: "pool.host-a", hostId: "host-a" });
+
+  test("both installations reach ready on one pool record and one supervisor record, which name no installation", async () => {
+    const root = await privateRoot();
+    const record = await sharedHost(root);
+    expect(record).toEqual({ schemaVersion: "factory.supervisor-readiness.v1", service: "host-supervisor", instanceId: "host-a", lifecycle: "ready", observedAtMs: record.observedAtMs, facts });
+    for (const scope of [installation(root, "installation-01", "tenant-01"), installation(root, "installation-02", "tenant-02")]) {
+      expect(await probeFactoryServices([factoryPoolProbe(scope), factorySupervisorReadinessProbe(scope)], open)).toEqual([
+        { service: "pool-admission", available: true, detail: "ready" },
+        { service: "host-supervisor", available: true, detail: "ready" },
+      ]);
+    }
+  });
+
+  test("an installation that names another pool or another host is refused, indistinguishably from a pool or host that is down", async () => {
+    const root = await privateRoot();
+    await sharedHost(root);
+    const misrouted = { ...installation(root, "installation-03", "tenant-03"), poolId: "pool.host-b", hostId: "host-b" };
+    expect(await probeFactoryServices([factoryPoolProbe(misrouted), factorySupervisorReadinessProbe(misrouted)], open)).toEqual([
+      { service: "pool-admission", available: false, detail: "factory_pool_unavailable" },
+      { service: "host-supervisor", available: false, detail: "host-supervisor" },
+    ]);
   });
 });
 
@@ -217,7 +292,12 @@ describe("the storage, gateway, supervisor, and sandbox probes", () => {
     const controller = new AbortController();
     let observed: AbortSignal | undefined;
     await probeFactoryServices([factoryGatewayProbe({ health: async (signal) => { observed = signal; return true; } })], controller.signal);
-    expect(observed).toBe(controller.signal);
+    // The probe runs under the caller's signal combined with its own deadline: aborting the caller aborts it.
+    const signal = observed as AbortSignal;
+    expect(signal.aborted).toBe(false);
+    controller.abort(new Error("caller deadline"));
+    expect(signal.aborted).toBe(true);
+    expect((signal.reason as Error).message).toBe("caller deadline");
   });
 
   test("the supervisor probe reports its preflight verdict", async () => {

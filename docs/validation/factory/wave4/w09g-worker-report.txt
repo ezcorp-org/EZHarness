@@ -1,0 +1,32 @@
+W09g report: src/db/connection.ts loads under Vite (head b40472cbf, base c3da32784)
+
+Commits: 70d24242c (fix), f5f060788 (bun-side test), b40472cbf (resolve Bun.SQL only in the default opener).
+Identity: archy <281643943+EZArchy@users.noreply.github.com> on all three. Bun 1.3.14 = .bun-version on every run.
+Hook: 1, 1 and 0 mapped tests; all run green, the third skipped by name.
+
+Docs head d54f5090d (gates file only on top of the code head b40472cbf) commits the Results section below.
+
+## Results (head b40472cbf, Bun 1.3.14 = .bun-version)
+
+| Gate | Result | Evidence |
+|---|---|---|
+| G1 | red: 4 files, 0 tests, "Failed to resolve import \"bun\"" | w09g/logs/repro-red.log |
+| G2 | red at base (same error, jsdom); green 5 files 52/52 | w09g/logs/load-test-red-jsdom.log, logs/green-five-c3.log |
+| G2b | db-connection.test.ts 21/0 under Bun | hook log of f5f060788 |
+| G3 | full web vitest pool: 623 files loaded, 7747/7748; the one failure is a load flake outside this change (below) | w09g/run1/web-vitest.log |
+| G4 | connection suites under Bun 35/0; pool-replacement on real PostgreSQL 1/0 | validator-4's hold (below) |
+| G5 | typecheck 0, lint 0, gate-integrity 0 vs c3da32784 (run 1); merge-lcov, new-file and patch coverage PASSED vs c3da32784 | run1/receipts; validator-4's hold |
+
+Remaining static "bun" imports: src/factory/pool/process.ts:5 and src/factory/provisioning/local.ts:5 still import SQL
+from "bun". No web test reaches them: run 1's full pool (623 files) has no "Failed to resolve import" line.
+
+Void legs, disclosed: in run 1 the web step ran `cd web` without a subshell, so every later bun leg ran from web/ and
+matched no files (db-connection, real-init, raw-query, swappable-bun-sql, cov-fix-connection-postgres,
+pool-replacement, merge-lcov, new-file, patch). They are void, not failed. By the lead's ruling their evidence is
+validator-4's hold at b40472cbf, receipts under
+/tmp/factory-platform-evidence/w09g-validation/receipts/hold-c3da32784/ (connection-bun.json, postgres.json,
+merge-lcov.json, new-file-coverage.json, patch-coverage.json, web-vitest-pool.json). Run 2 was dequeued before it started.
+
+Web flake, outside this change: context-register-preview-bus.server.test.ts timed out at 5006 ms under pool load
+(1863 ms alone). Five dynamic imports in ensureInitialized are billed to the 5 s budget; 21 ms with module-scope
+imports. The file mocks $server/db/connection, so this change does not reach it. Handed to W18c by the lead's ruling.

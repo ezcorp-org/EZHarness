@@ -485,6 +485,105 @@
         }
       ]
     },
+    "FactoryAcceptanceReason": {
+      "additionalProperties": false,
+      "properties": {
+        "claimId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "reasonCode": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "validatorId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "verdict": {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "claimId",
+        "validatorId",
+        "verdict",
+        "reasonCode"
+      ],
+      "type": "object"
+    },
+    "FactoryAcceptanceResource": {
+      "additionalProperties": false,
+      "properties": {
+        "candidateDigest": {
+          "maxLength": 71,
+          "minLength": 64,
+          "type": "string"
+        },
+        "commandId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "decidedAtMs": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "number"
+        },
+        "decision": {
+          "enum": [
+            "accepted",
+            "rejected"
+          ],
+          "type": "string"
+        },
+        "groupFailures": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "groupId": {
+                "type": "string"
+              },
+              "minimumPasses": {
+                "type": "number"
+              },
+              "passes": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "groupId",
+              "passes",
+              "minimumPasses"
+            ],
+            "type": "object"
+          },
+          "maxItems": 200,
+          "type": "array"
+        },
+        "reasons": {
+          "items": {
+            "$ref": "#/definitions/FactoryAcceptanceReason"
+          },
+          "maxItems": 200,
+          "type": "array"
+        }
+      },
+      "required": [
+        "commandId",
+        "decision",
+        "candidateDigest",
+        "reasons",
+        "groupFailures",
+        "decidedAtMs"
+      ],
+      "type": "object"
+    },
     "FactoryAction": {
       "description": "Exact product permissions. Runtime authority remains a separate product fact.",
       "enum": [
@@ -497,6 +596,37 @@
         "factory.trust"
       ],
       "type": "string"
+    },
+    "FactoryAffectedRun": {
+      "additionalProperties": false,
+      "properties": {
+        "factoryId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "liveAttempts": {
+          "description": "Live attempts the transition would fence.",
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "number"
+        },
+        "runId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/definitions/FactoryRunStatus"
+        }
+      },
+      "required": [
+        "runId",
+        "factoryId",
+        "status",
+        "liveAttempts"
+      ],
+      "type": "object"
     },
     "FactoryApiError": {
       "additionalProperties": false,
@@ -556,6 +686,69 @@
       ],
       "type": "object"
     },
+    "FactoryApiPage<FactoryArtifactResource>": {
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/definitions/FactoryArtifactResource"
+          },
+          "maxItems": 200,
+          "type": "array"
+        },
+        "nextCursor": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "items"
+      ],
+      "type": "object"
+    },
+    "FactoryApiPage<FactoryAttemptResource>": {
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/definitions/FactoryAttemptResource"
+          },
+          "maxItems": 200,
+          "type": "array"
+        },
+        "nextCursor": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "items"
+      ],
+      "type": "object"
+    },
+    "FactoryApiPage<FactoryChildRunResource>": {
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/definitions/FactoryChildRunResource"
+          },
+          "maxItems": 200,
+          "type": "array"
+        },
+        "nextCursor": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "items"
+      ],
+      "type": "object"
+    },
     "FactoryApiPage<FactoryDraftSummary>": {
       "additionalProperties": false,
       "properties": {
@@ -598,12 +791,75 @@
       ],
       "type": "object"
     },
+    "FactoryApiPage<FactoryPackageAffectedAttempt>": {
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/definitions/FactoryPackageAffectedAttempt"
+          },
+          "maxItems": 200,
+          "type": "array"
+        },
+        "nextCursor": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "items"
+      ],
+      "type": "object"
+    },
+    "FactoryApiPage<FactoryPackageResource>": {
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/definitions/FactoryPackageResource"
+          },
+          "maxItems": 200,
+          "type": "array"
+        },
+        "nextCursor": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "items"
+      ],
+      "type": "object"
+    },
     "FactoryApiPage<FactoryReleaseNotificationResource>": {
       "additionalProperties": false,
       "properties": {
         "items": {
           "items": {
             "$ref": "#/definitions/FactoryReleaseNotificationResource"
+          },
+          "maxItems": 200,
+          "type": "array"
+        },
+        "nextCursor": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "items"
+      ],
+      "type": "object"
+    },
+    "FactoryApiPage<FactoryRestoreResource>": {
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/definitions/FactoryRestoreResource"
           },
           "maxItems": 200,
           "type": "array"
@@ -1237,6 +1493,292 @@
         {
           "additionalProperties": false,
           "properties": {
+            "kind": {
+              "const": "run.inspection",
+              "type": "string"
+            },
+            "resource": {
+              "$ref": "#/definitions/FactoryRunInspection"
+            },
+            "schemaVersion": {
+              "const": "factory.api.response.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "resource"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "run.inspection.page",
+              "type": "string"
+            },
+            "resource": {
+              "$ref": "#/definitions/FactoryInspectionPage"
+            },
+            "schemaVersion": {
+              "const": "factory.api.response.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "resource"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "artifact.ticket",
+              "type": "string"
+            },
+            "schemaVersion": {
+              "const": "factory.api.response.v1",
+              "type": "string"
+            },
+            "ticket": {
+              "$ref": "#/definitions/FactoryArtifactTicket"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "ticket"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "package.resource",
+              "type": "string"
+            },
+            "resource": {
+              "$ref": "#/definitions/FactoryPackageResource"
+            },
+            "schemaVersion": {
+              "const": "factory.api.response.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "resource"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "package.page",
+              "type": "string"
+            },
+            "page": {
+              "$ref": "#/definitions/FactoryApiPage%3CFactoryPackageResource%3E"
+            },
+            "schemaVersion": {
+              "const": "factory.api.response.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "page"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "package.impact",
+              "type": "string"
+            },
+            "resource": {
+              "$ref": "#/definitions/FactoryPackageImpact"
+            },
+            "schemaVersion": {
+              "const": "factory.api.response.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "resource"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "package.affected-runs",
+              "type": "string"
+            },
+            "page": {
+              "$ref": "#/definitions/FactoryApiPage%3CFactoryPackageAffectedAttempt%3E"
+            },
+            "schemaVersion": {
+              "const": "factory.api.response.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "page"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "purge.preview",
+              "type": "string"
+            },
+            "resource": {
+              "$ref": "#/definitions/FactoryPurgePreview"
+            },
+            "schemaVersion": {
+              "const": "factory.api.response.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "resource"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "validator.material",
+              "type": "string"
+            },
+            "resource": {
+              "$ref": "#/definitions/FactoryValidatorMaterialResource"
+            },
+            "schemaVersion": {
+              "const": "factory.api.response.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "resource"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "restore.page",
+              "type": "string"
+            },
+            "page": {
+              "$ref": "#/definitions/FactoryApiPage%3CFactoryRestoreResource%3E"
+            },
+            "schemaVersion": {
+              "const": "factory.api.response.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "page"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "restore.signature",
+              "type": "string"
+            },
+            "resource": {
+              "$ref": "#/definitions/FactoryRestoreSignatureResource"
+            },
+            "schemaVersion": {
+              "const": "factory.api.response.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "resource"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "purge.request.resource",
+              "type": "string"
+            },
+            "resource": {
+              "$ref": "#/definitions/FactoryPurgeRequestResource"
+            },
+            "schemaVersion": {
+              "const": "factory.api.response.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "resource"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "artifact.share.resource",
+              "type": "string"
+            },
+            "resource": {
+              "$ref": "#/definitions/FactoryArtifactShareResource"
+            },
+            "schemaVersion": {
+              "const": "factory.api.response.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "resource"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
             "error": {
               "$ref": "#/definitions/FactoryApiError"
             },
@@ -1375,12 +1917,251 @@
       ],
       "type": "object"
     },
+    "FactoryArtifactResource": {
+      "additionalProperties": false,
+      "properties": {
+        "artifactId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "createdAtMs": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "number"
+        },
+        "digest": {
+          "maxLength": 71,
+          "minLength": 64,
+          "type": "string"
+        },
+        "encodedBytes": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "number"
+        },
+        "kind": {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        },
+        "nodeInstanceId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifactId",
+        "kind",
+        "digest",
+        "encodedBytes",
+        "createdAtMs"
+      ],
+      "type": "object"
+    },
+    "FactoryArtifactShareResource": {
+      "additionalProperties": false,
+      "properties": {
+        "artifactId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "digest": {
+          "maxLength": 71,
+          "minLength": 71,
+          "type": "string"
+        },
+        "encodedBytes": {
+          "maximum": 16777216,
+          "minimum": 1,
+          "type": "number"
+        },
+        "mediaType": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "revoked": {
+          "type": "boolean"
+        },
+        "sourceProjectId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "sourceRunId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "targetProjectId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "sourceProjectId",
+        "sourceRunId",
+        "artifactId",
+        "targetProjectId",
+        "digest",
+        "encodedBytes",
+        "mediaType",
+        "revoked"
+      ],
+      "type": "object"
+    },
+    "FactoryArtifactTicket": {
+      "additionalProperties": false,
+      "properties": {
+        "encodedBytes": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "number"
+        },
+        "expiresAtMs": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "number"
+        },
+        "mediaType": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "url": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "expiresAtMs",
+        "mediaType",
+        "encodedBytes"
+      ],
+      "type": "object"
+    },
+    "FactoryAttemptResource": {
+      "additionalProperties": false,
+      "properties": {
+        "attemptId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "attemptNumber": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "number"
+        },
+        "candidateGeneration": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "number"
+        },
+        "nodeInstanceId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "outputArtifactId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "resultDigest": {
+          "maxLength": 71,
+          "minLength": 64,
+          "type": "string"
+        },
+        "startedAtMs": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "number"
+        },
+        "status": {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        },
+        "stoppedAtMs": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "number"
+        },
+        "updatedAtMs": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "number"
+        }
+      },
+      "required": [
+        "attemptId",
+        "nodeInstanceId",
+        "attemptNumber",
+        "candidateGeneration",
+        "status",
+        "startedAtMs",
+        "updatedAtMs"
+      ],
+      "type": "object"
+    },
     "FactoryAvailability": {
       "enum": [
         "available",
         "unavailable"
       ],
       "type": "string"
+    },
+    "FactoryBlockerKind": {
+      "enum": [
+        "approval",
+        "budget",
+        "compute",
+        "release",
+        "stop"
+      ],
+      "type": "string"
+    },
+    "FactoryBlockerResource": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/definitions/FactoryBlockerKind"
+        },
+        "nodeInstanceId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "reason": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "sinceMs": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "number"
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "reason",
+        "sinceMs"
+      ],
+      "type": "object"
     },
     "FactoryBounds": {
       "additionalProperties": false,
@@ -1398,6 +2179,47 @@
       "required": [
         "maxExpandedNodes",
         "maxScopeDepth"
+      ],
+      "type": "object"
+    },
+    "FactoryChildRunResource": {
+      "additionalProperties": false,
+      "properties": {
+        "deadlineMs": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "number"
+        },
+        "factoryId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "factoryVersion": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "runId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "state": {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/definitions/FactoryRunStatus"
+        }
+      },
+      "required": [
+        "runId",
+        "factoryId",
+        "factoryVersion",
+        "state",
+        "deadlineMs"
       ],
       "type": "object"
     },
@@ -1665,6 +2487,33 @@
       ],
       "type": "object"
     },
+    "FactoryEventCursor": {
+      "additionalProperties": false,
+      "description": "A signed, expiring position in one run's contiguous event sequence.",
+      "properties": {
+        "expiresAtMs": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "number"
+        },
+        "sequence": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "number"
+        },
+        "token": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "token",
+        "sequence",
+        "expiresAtMs"
+      ],
+      "type": "object"
+    },
     "FactoryGrantResource": {
       "additionalProperties": false,
       "properties": {
@@ -1735,6 +2584,61 @@
       ],
       "type": "object"
     },
+    "FactoryInspectionPage": {
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "page": {
+              "$ref": "#/definitions/FactoryApiPage%3CFactoryChildRunResource%3E"
+            },
+            "section": {
+              "const": "children",
+              "type": "string"
+            }
+          },
+          "required": [
+            "section",
+            "page"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "page": {
+              "$ref": "#/definitions/FactoryApiPage%3CFactoryAttemptResource%3E"
+            },
+            "section": {
+              "const": "attempts",
+              "type": "string"
+            }
+          },
+          "required": [
+            "section",
+            "page"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "page": {
+              "$ref": "#/definitions/FactoryApiPage%3CFactoryArtifactResource%3E"
+            },
+            "section": {
+              "const": "artifacts",
+              "type": "string"
+            }
+          },
+          "required": [
+            "section",
+            "page"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "FactoryNode": {
       "anyOf": [
         {
@@ -1765,6 +2669,195 @@
           "$ref": "#/definitions/ReleaseNode"
         }
       ]
+    },
+    "FactoryPackageAffectedAttempt": {
+      "additionalProperties": false,
+      "description": "One attempt a quarantine or revocation reached, and what the fence did about it: W02c's sealed affected-run record, written in the decision's transaction.",
+      "properties": {
+        "attemptId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "attemptStatus": {
+          "enum": [
+            "admitted",
+            "running"
+          ],
+          "type": "string"
+        },
+        "cancellationEventId": {
+          "description": "The run's cancel event; absent only when the run had already finished.",
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "disposition": {
+          "enum": [
+            "cancel-requested",
+            "already-cancelling",
+            "run-terminal"
+          ],
+          "type": "string"
+        },
+        "launchState": {
+          "description": "Null when no dispatcher had claimed the attempt yet.",
+          "enum": [
+            "prepared",
+            "launching",
+            "launched",
+            "terminal",
+            "uncertain",
+            null
+          ],
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reason": {
+          "enum": [
+            "factory_package_quarantined",
+            "factory_package_revoked"
+          ],
+          "type": "string"
+        },
+        "recordedAtMs": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "number"
+        },
+        "runId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "quarantined",
+            "revoked"
+          ],
+          "type": "string"
+        },
+        "trustRevision": {
+          "description": "The trust revision of the decision.",
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "type": "number"
+        }
+      },
+      "required": [
+        "runId",
+        "attemptId",
+        "attemptStatus",
+        "launchState",
+        "trustRevision",
+        "state",
+        "reason",
+        "disposition",
+        "recordedAtMs"
+      ],
+      "type": "object"
+    },
+    "FactoryPackageImpact": {
+      "additionalProperties": false,
+      "properties": {
+        "allowed": {
+          "type": "boolean"
+        },
+        "currentRevision": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "number"
+        },
+        "refusal": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "runs": {
+          "items": {
+            "$ref": "#/definitions/FactoryAffectedRun"
+          },
+          "maxItems": 200,
+          "type": "array"
+        },
+        "transition": {
+          "$ref": "#/definitions/FactoryPackageTransition"
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "transition",
+        "currentRevision",
+        "allowed",
+        "runs",
+        "truncated"
+      ],
+      "type": "object"
+    },
+    "FactoryPackageResource": {
+      "additionalProperties": false,
+      "properties": {
+        "boundAtMs": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "number"
+        },
+        "installationId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "reference": {
+          "$ref": "#/definitions/RunnerReference"
+        },
+        "referenceId": {
+          "maxLength": 64,
+          "minLength": 64,
+          "type": "string"
+        },
+        "releaseId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "revision": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "number"
+        },
+        "state": {
+          "$ref": "#/definitions/FactoryPackageTrustState"
+        }
+      },
+      "required": [
+        "referenceId",
+        "reference",
+        "revision",
+        "installationId",
+        "releaseId",
+        "boundAtMs"
+      ],
+      "type": "object"
+    },
+    "FactoryPackageTransition": {
+      "enum": [
+        "publish",
+        "quarantine",
+        "revoke"
+      ],
+      "type": "string"
+    },
+    "FactoryPackageTrustState": {
+      "enum": [
+        "active",
+        "quarantined",
+        "revoked"
+      ],
+      "type": "string"
     },
     "FactoryPrincipalKind": {
       "enum": [
@@ -1832,6 +2925,212 @@
         "providerReceiptId",
         "version",
         "effectDigest"
+      ],
+      "type": "object"
+    },
+    "FactoryPurgePrecondition": {
+      "additionalProperties": false,
+      "properties": {
+        "count": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "number"
+        },
+        "detail": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "satisfied": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "satisfied",
+        "count",
+        "detail"
+      ],
+      "type": "object"
+    },
+    "FactoryPurgePreview": {
+      "additionalProperties": false,
+      "properties": {
+        "auditRowsLost": {
+          "description": "Audit rows that a purge would remove.",
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "number"
+        },
+        "preconditions": {
+          "items": {
+            "$ref": "#/definitions/FactoryPurgePrecondition"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "ready": {
+          "type": "boolean"
+        },
+        "tenantId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "tenantId",
+        "ready",
+        "preconditions",
+        "auditRowsLost"
+      ],
+      "type": "object"
+    },
+    "FactoryPurgeRequestResource": {
+      "additionalProperties": false,
+      "properties": {
+        "auditRowsLost": {
+          "description": "Audit rows that a purge would remove.",
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "number"
+        },
+        "preconditions": {
+          "items": {
+            "$ref": "#/definitions/FactoryPurgePrecondition"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "ready": {
+          "type": "boolean"
+        },
+        "requestId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "requestedAtMs": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "number"
+        },
+        "requestedBy": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "queued",
+            "refused"
+          ],
+          "type": "string"
+        },
+        "tenantId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "auditRowsLost",
+        "preconditions",
+        "ready",
+        "requestId",
+        "requestedAtMs",
+        "requestedBy",
+        "state",
+        "tenantId"
+      ],
+      "type": "object"
+    },
+    "FactoryRecoveryReportResource": {
+      "additionalProperties": false,
+      "description": "The recovery report a human tenant administrator signs, by digest. Findings are bounded; `findingCount` says how many the full report holds.",
+      "properties": {
+        "blockedChecks": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 1000,
+          "type": "array"
+        },
+        "blockedRuns": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 10000,
+          "type": "array"
+        },
+        "checkpointId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "findingCount": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "number"
+        },
+        "findings": {
+          "items": {
+            "$ref": "#/definitions/FactoryRestoreFindingResource"
+          },
+          "maxItems": 200,
+          "type": "array"
+        },
+        "manifestDigest": {
+          "maxLength": 71,
+          "minLength": 71,
+          "type": "string"
+        },
+        "recoveryMs": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "number"
+        },
+        "releaseIdentities": {
+          "additionalProperties": false,
+          "properties": {
+            "archived": {
+              "type": "number"
+            },
+            "blocked": {
+              "type": "number"
+            },
+            "recovered": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "archived",
+            "recovered",
+            "blocked"
+          ],
+          "type": "object"
+        },
+        "reportedAtMs": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "number"
+        }
+      },
+      "required": [
+        "checkpointId",
+        "manifestDigest",
+        "findings",
+        "findingCount",
+        "blockedChecks",
+        "blockedRuns",
+        "releaseIdentities",
+        "recoveryMs",
+        "reportedAtMs"
       ],
       "type": "object"
     },
@@ -2003,6 +3302,15 @@
         "enableEpoch"
       ],
       "type": "object"
+    },
+    "FactoryReleaseCostSource": {
+      "description": "Where a stopped release's cost came from, in the usage settlement vocabulary (W03f).",
+      "enum": [
+        "proven-no-effect",
+        "provider-receipt",
+        "reserved-bound"
+      ],
+      "type": "string"
     },
     "FactoryReleaseDestinationBody": {
       "additionalProperties": false,
@@ -2507,6 +3815,211 @@
       ],
       "type": "object"
     },
+    "FactoryRestoreFindingResource": {
+      "additionalProperties": false,
+      "description": "One verified or reconciled or blocked result of a restore, without its raw detail.",
+      "properties": {
+        "disposition": {
+          "enum": [
+            "verified",
+            "reconciled",
+            "blocked"
+          ],
+          "type": "string"
+        },
+        "findingId": {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        },
+        "reason": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "subjectId": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "type": "string"
+        },
+        "subjectKind": {
+          "enum": [
+            "check",
+            "run",
+            "release",
+            "worker",
+            "pool",
+            "projection"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "findingId",
+        "subjectKind",
+        "subjectId",
+        "disposition",
+        "reason"
+      ],
+      "type": "object"
+    },
+    "FactoryRestoreResource": {
+      "additionalProperties": false,
+      "properties": {
+        "checkpointId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "executionEpoch": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "type": "number"
+        },
+        "mode": {
+          "enum": [
+            "tenant",
+            "cluster"
+          ],
+          "type": "string"
+        },
+        "previousEpoch": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "number"
+        },
+        "report": {
+          "$ref": "#/definitions/FactoryRecoveryReportResource"
+        },
+        "reportDigest": {
+          "description": "The digest a signature names; present once the report is written.",
+          "maxLength": 71,
+          "minLength": 71,
+          "type": "string"
+        },
+        "restoreId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "signedAtMs": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "number"
+        },
+        "signedBy": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "startedAtMs": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "number"
+        },
+        "state": {
+          "enum": [
+            "fenced",
+            "awaiting_signature",
+            "enabled"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "restoreId",
+        "mode",
+        "state",
+        "checkpointId",
+        "previousEpoch",
+        "executionEpoch",
+        "startedAtMs"
+      ],
+      "type": "object"
+    },
+    "FactoryRestoreSignatureResource": {
+      "additionalProperties": false,
+      "properties": {
+        "blockedRuns": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 10000,
+          "type": "array"
+        },
+        "enabled": {
+          "const": true,
+          "type": "boolean"
+        },
+        "rebound": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "number"
+        },
+        "restoreId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "restoreId",
+        "enabled",
+        "rebound",
+        "blockedRuns"
+      ],
+      "type": "object"
+    },
+    "FactoryRunCostResource": {
+      "additionalProperties": false,
+      "description": "Micro-unit amounts are decimal strings so no value loses precision.",
+      "properties": {
+        "admissionBlocked": {
+          "type": "boolean"
+        },
+        "allocatedMicros": {
+          "pattern": "^(0|[1-9][0-9]{0,30})$",
+          "type": "string"
+        },
+        "knownCostMicros": {
+          "pattern": "^(0|[1-9][0-9]{0,30})$",
+          "type": "string"
+        },
+        "limitMicros": {
+          "pattern": "^(0|[1-9][0-9]{0,30})$",
+          "type": "string"
+        },
+        "releases": {
+          "description": "The cost of each release the run was stopped during (W09e). Release spend stays outside the compute budget ledger; these lines are its record, and the figures above include them: a held bound in `unknownCostMicros`, a settled figure in `knownCostMicros`. Absent when no release was stopped.",
+          "items": {
+            "$ref": "#/definitions/FactoryRunReleaseCostResource"
+          },
+          "maxItems": 200,
+          "type": "array"
+        },
+        "spentMicros": {
+          "pattern": "^(0|[1-9][0-9]{0,30})$",
+          "type": "string"
+        },
+        "uncertain": {
+          "type": "boolean"
+        },
+        "unknownCostMicros": {
+          "pattern": "^(0|[1-9][0-9]{0,30})$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "limitMicros",
+        "allocatedMicros",
+        "spentMicros",
+        "knownCostMicros",
+        "unknownCostMicros",
+        "admissionBlocked",
+        "uncertain"
+      ],
+      "type": "object"
+    },
     "FactoryRunDetails": {
       "additionalProperties": false,
       "properties": {
@@ -2597,6 +4110,246 @@
       "required": [
         "code",
         "message"
+      ],
+      "type": "object"
+    },
+    "FactoryRunInspection": {
+      "additionalProperties": false,
+      "properties": {
+        "acceptance": {
+          "items": {
+            "$ref": "#/definitions/FactoryAcceptanceResource"
+          },
+          "maxItems": 200,
+          "type": "array"
+        },
+        "artifacts": {
+          "$ref": "#/definitions/FactoryApiPage%3CFactoryArtifactResource%3E"
+        },
+        "attempts": {
+          "$ref": "#/definitions/FactoryApiPage%3CFactoryAttemptResource%3E"
+        },
+        "blockers": {
+          "items": {
+            "$ref": "#/definitions/FactoryBlockerResource"
+          },
+          "maxItems": 200,
+          "type": "array"
+        },
+        "children": {
+          "$ref": "#/definitions/FactoryApiPage%3CFactoryChildRunResource%3E"
+        },
+        "costs": {
+          "$ref": "#/definitions/FactoryRunCostResource"
+        },
+        "cursor": {
+          "$ref": "#/definitions/FactoryEventCursor"
+        },
+        "parentRunId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "projectionLag": {
+          "description": "Committed events the status projection has not applied yet.",
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "number"
+        },
+        "releases": {
+          "items": {
+            "$ref": "#/definitions/FactoryRunReleaseResource"
+          },
+          "maxItems": 200,
+          "type": "array"
+        },
+        "run": {
+          "$ref": "#/definitions/FactoryRunDetails"
+        },
+        "validatorMaterial": {
+          "$ref": "#/definitions/FactoryValidatorMaterialResource",
+          "description": "The validator material the run's version registered; absent when it registered none."
+        }
+      },
+      "required": [
+        "run",
+        "cursor",
+        "projectionLag",
+        "children",
+        "attempts",
+        "artifacts",
+        "blockers",
+        "costs",
+        "acceptance",
+        "releases"
+      ],
+      "type": "object"
+    },
+    "FactoryRunReleaseCostHeld": {
+      "additionalProperties": false,
+      "properties": {
+        "costMicros": {
+          "pattern": "^(0|[1-9][0-9]{0,30})$",
+          "type": "string"
+        },
+        "hold": {
+          "const": "operation-cost-unknown",
+          "type": "string"
+        },
+        "nodeInstanceId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "operationId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "state": {
+          "const": "held",
+          "type": "string"
+        }
+      },
+      "required": [
+        "costMicros",
+        "hold",
+        "nodeInstanceId",
+        "operationId",
+        "state"
+      ],
+      "type": "object"
+    },
+    "FactoryRunReleaseCostResource": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/FactoryRunReleaseCostHeld"
+        },
+        {
+          "$ref": "#/definitions/FactoryRunReleaseCostSettled"
+        }
+      ],
+      "description": "One stopped release's cost. `held`: its effect is not recorded yet, so its reserved bound (its signed estimated spend) is held as unknown cost under the named hold `operation-cost-unknown`. `settled`: the figure its recorded effect settled at, with the source and the basis."
+    },
+    "FactoryRunReleaseCostSettled": {
+      "additionalProperties": false,
+      "properties": {
+        "basis": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "costMicros": {
+          "pattern": "^(0|[1-9][0-9]{0,30})$",
+          "type": "string"
+        },
+        "nodeInstanceId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "operationId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/definitions/FactoryReleaseCostSource"
+        },
+        "state": {
+          "const": "settled",
+          "type": "string"
+        }
+      },
+      "required": [
+        "basis",
+        "costMicros",
+        "nodeInstanceId",
+        "operationId",
+        "source",
+        "state"
+      ],
+      "type": "object"
+    },
+    "FactoryRunReleaseResource": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "deadlineMs": {
+          "description": "The release's own signed deadline: the only timer that bounds its publish and, after a stop, its reconciliation.",
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "number"
+        },
+        "dispatchGeneration": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "number"
+        },
+        "nodeInstanceId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "operationId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "outcomeCode": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "state": {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        },
+        "stop": {
+          "$ref": "#/definitions/FactoryRunReleaseStopResource",
+          "description": "Present when the run was stopped while this release was requested (W09e)."
+        }
+      },
+      "required": [
+        "operationId",
+        "nodeInstanceId",
+        "state",
+        "action",
+        "dispatchGeneration",
+        "deadlineMs"
+      ],
+      "type": "object"
+    },
+    "FactoryRunReleaseStopEffect": {
+      "description": "What a stopped release did at its provider. `uncertain` until the release's outcome is proven: a publish may have started before the stop. The other three are final: `no_effect` (nothing was published), `published` (the release was published, though the run stopped) and `unknown_at_deadline` (no answer by the deadline).",
+      "enum": [
+        "no_effect",
+        "uncertain",
+        "published",
+        "unknown_at_deadline"
+      ],
+      "type": "string"
+    },
+    "FactoryRunReleaseStopResource": {
+      "additionalProperties": false,
+      "properties": {
+        "effect": {
+          "$ref": "#/definitions/FactoryRunReleaseStopEffect"
+        },
+        "requestedAtMs": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "number"
+        }
+      },
+      "required": [
+        "requestedAtMs",
+        "effect"
       ],
       "type": "object"
     },
@@ -2769,6 +4522,117 @@
           "type": "object"
         }
       ]
+    },
+    "FactoryValidatorMaterialResource": {
+      "additionalProperties": false,
+      "description": "The registered validator material a published version or a validator lock names: the contract a release approval pins, never the validator runtimes.",
+      "properties": {
+        "claimGroups": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "claimIds": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "id": {
+                "type": "string"
+              },
+              "minimumPasses": {
+                "type": "number"
+              },
+              "requireAllDecisive": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "id",
+              "claimIds",
+              "minimumPasses",
+              "requireAllDecisive"
+            ],
+            "type": "object"
+          },
+          "maxItems": 1000,
+          "type": "array"
+        },
+        "contractDigest": {
+          "maxLength": 71,
+          "minLength": 71,
+          "type": "string"
+        },
+        "contractId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "contractVersion": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "definitionDigest": {
+          "maxLength": 71,
+          "minLength": 71,
+          "type": "string"
+        },
+        "factoryId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "factoryVersion": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "mandatoryClaims": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "freshnessMs": {
+                "type": "number"
+              },
+              "id": {
+                "type": "string"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "validatorId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "validatorId",
+              "freshnessMs"
+            ],
+            "type": "object"
+          },
+          "maxItems": 1000,
+          "type": "array"
+        },
+        "validatorLockDigest": {
+          "maxLength": 71,
+          "minLength": 71,
+          "type": "string"
+        }
+      },
+      "required": [
+        "claimGroups",
+        "contractDigest",
+        "contractId",
+        "contractVersion",
+        "definitionDigest",
+        "factoryId",
+        "factoryVersion",
+        "mandatoryClaims",
+        "validatorLockDigest"
+      ],
+      "type": "object"
     },
     "FactoryVersionDetails": {
       "additionalProperties": false,

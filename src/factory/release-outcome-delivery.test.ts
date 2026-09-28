@@ -22,7 +22,7 @@ function database(answers: unknown[][]): TransactionalDb {
   return { execute, transaction: async <T>(work: (transaction: MigrationDb) => Promise<T>) => work(handle) } as unknown as TransactionalDb;
 }
 
-const settled = (over: Record<string, unknown> = {}) => ({ run_id: "run-1", state: "succeeded", request_digest: `sha256:${"a".repeat(64)}`, receipt_json: JSON.stringify({ version: "v1" }), outcome_code: "confirmed", settled_at_ms: "1700000000000", ...over });
+const settled = (over: Record<string, unknown> = {}) => ({ run_id: "run-1", state: "succeeded", request_digest: `sha256:${"a".repeat(64)}`, receipt_json: JSON.stringify({ version: "v1" }), outcome_code: "confirmed", stop_command_id: null, settled_at_ms: "1700000000000", ...over });
 
 function delivery(rows: unknown[][], options: { command?: typeof REFERENCE; port?: Record<string, unknown> } = {}) {
   const enqueued: unknown[] = [];
@@ -44,6 +44,12 @@ describe("FactoryReleaseOutcomeDelivery", () => {
   test("a settled operation whose command no verified receipt names is refused, and nothing is enqueued", async () => {
     const { value, enqueued } = delivery([[settled()]]);
     await expect(value.deliver("project-1", "op-1")).rejects.toMatchObject({ code: "factory_release_outcome_command_missing" });
+    expect(enqueued).toEqual([]);
+  });
+
+  test("a stopped release's late outcome is refused for the node by name, and nothing is enqueued (W09e R4)", async () => {
+    const { value, enqueued } = delivery([[settled({ stop_command_id: "cancel-1" })]], { command: REFERENCE });
+    await expect(value.deliver("project-1", "op-1")).rejects.toMatchObject({ code: "factory_release_stopped" });
     expect(enqueued).toEqual([]);
   });
 

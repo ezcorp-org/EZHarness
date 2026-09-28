@@ -16,6 +16,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getReadiness, resetReadiness } from "$server/readiness";
 import type { FactoryBootConfig } from "$server/factory/boot";
+import { FACTORY_WORKER_STOP_DEADLINE_MS, type FactoryWorkerStopRecord } from "$server/factory/background-workers";
 
 const startFactoryInstallation = vi.fn();
 
@@ -23,7 +24,7 @@ vi.mock("$server/factory/installation-startup", () => ({
   startFactoryInstallation: (...args: unknown[]) => startFactoryInstallation(...args),
 }));
 
-const { startFactoryForHost, startFactoryIfEnabled } = await import("$lib/server/factory-boot");
+const { FACTORY_BOOT_BOUND_MS, startFactoryForHost, startFactoryIfEnabled } = await import("$lib/server/factory-boot");
 
 function report(overrides: Record<string, unknown> = {}) {
   return {
@@ -38,8 +39,8 @@ function report(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function startup() {
-  const stop = vi.fn(async () => {});
+function startup(records: readonly FactoryWorkerStopRecord[] = []) {
+  const stop = vi.fn(async () => records);
   return { stop, handle: { runtime: { report: () => report() }, stop } };
 }
 
@@ -56,6 +57,7 @@ function dependencies(overrides: Record<string, unknown> = {}) {
     boot,
     registerTeardown: vi.fn(),
     log: { info: vi.fn(), error: vi.fn() } as unknown as Pick<Console, "info" | "error">,
+    recoverDatabase: vi.fn(async () => false),
     ...overrides,
   };
 }
@@ -93,6 +95,54 @@ describe("startFactoryIfEnabled", () => {
 });
 
 describe("startFactoryForHost", () => {
+  describe("the boot bound", () => {
+    type Trace = (event: { phase: string; state: "started" | "finished"; elapsedMs: number }) => void;
+    /** A composition that reports config done, starts `collaborators`, and never returns. */
+    const stallInCollaborators = async (options: { host: { trace: Trace } }) => {
+      options.host.trace({ phase: "config", state: "started", elapsedMs: 0 });
+      options.host.trace({ phase: "config", state: "finished", elapsedMs: 3 });
+      options.host.trace({ phase: "collaborators", state: "started", elapsedMs: 0 });
+      return new Promise(() => {});
+    };
+    afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
+
+    it("a boot that outlives its bound logs the phase it stalled in, degrades readiness, and exits non-zero", async () => {
+      vi.useFakeTimers();
+      startFactoryInstallation.mockImplementation(stallInCollaborators);
+      const exit = vi.fn();
+      const log = { info: vi.fn(), error: vi.fn() };
+      void startFactoryForHost(dependencies({ log, exit, bootBoundMs: 1_000 }) as never);
+      await vi.advanceTimersByTimeAsync(999);
+      expect(exit).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(exit).toHaveBeenCalledWith(1);
+      expect(log.error).toHaveBeenCalledWith("[factory] boot exceeded its bound; exiting so the host restarts", { phase: "collaborators", lastFinished: "config", boundMs: 1_000 });
+      expect(getReadiness()).toMatchObject({ state: "degraded", reason: "factory-boot-stalled", detail: { phase: "collaborators", lastFinished: "config", boundMs: 1_000 } });
+      // Every phase is logged as it moves, so the log names where boot was.
+      expect(log.info).toHaveBeenCalledWith("[factory] boot phase", { phase: "config", state: "finished", elapsedMs: 3 });
+    });
+
+    it("a boot that composes clears its bound, so it never exits afterwards", async () => {
+      vi.useFakeTimers();
+      startFactoryInstallation.mockResolvedValue(startup().handle);
+      const exit = vi.fn();
+      await startFactoryForHost(dependencies({ exit, bootBoundMs: 1_000 }) as never);
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(exit).not.toHaveBeenCalled();
+    });
+
+    it("defaults to the three-minute bound and to process.exit", async () => {
+      vi.useFakeTimers();
+      startFactoryInstallation.mockImplementation(stallInCollaborators);
+      const processExit = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never);
+      void startFactoryForHost(dependencies() as never);
+      await vi.advanceTimersByTimeAsync(FACTORY_BOOT_BOUND_MS - 1);
+      expect(processExit).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(processExit).toHaveBeenCalledWith(1);
+    });
+  });
+
   it("hands the composition the host's database, bounds, and stop signal", async () => {
     const running = startup();
     startFactoryInstallation.mockResolvedValue(running.handle);
@@ -139,6 +189,32 @@ describe("startFactoryForHost", () => {
     expect(running.stop).toHaveBeenCalledTimes(1);
   });
 
+  it("logs each role's stop time when the shutdown teardown runs", async () => {
+    const running = startup([{ name: "run-projection", ms: 3, settled: true }, { name: "attempt-dispatch", ms: 0, settled: true }]);
+    startFactoryInstallation.mockResolvedValue(running.handle);
+    const registerTeardown = vi.fn();
+    const log = { info: vi.fn(), error: vi.fn() };
+    await startFactoryForHost(dependencies({ registerTeardown, log }) as never, {});
+
+    await (registerTeardown.mock.calls[0]![1] as () => Promise<void>)();
+    expect(log.info).toHaveBeenCalledWith("[factory] roles stopped", { ms: { "run-projection": 3, "attempt-dispatch": 0 } });
+    expect(log.error).not.toHaveBeenCalled();
+  });
+
+  it("names a role whose in-flight step outlived its stop deadline", async () => {
+    const running = startup([{ name: "stop-settlement", ms: FACTORY_WORKER_STOP_DEADLINE_MS, settled: false }, { name: "run-projection", ms: 1, settled: true }]);
+    startFactoryInstallation.mockResolvedValue(running.handle);
+    const registerTeardown = vi.fn();
+    const log = { info: vi.fn(), error: vi.fn() };
+    await startFactoryForHost(dependencies({ registerTeardown, log }) as never, {});
+
+    await (registerTeardown.mock.calls[0]![1] as () => Promise<void>)();
+    expect(log.error).toHaveBeenCalledWith("[factory] roles stopped; in-flight steps left running past the stop deadline", {
+      stuck: ["stop-settlement"],
+      ms: { "stop-settlement": FACTORY_WORKER_STOP_DEADLINE_MS, "run-projection": 1 },
+    });
+  });
+
   it("reports what runs and what is held, so the gap is visible without reading code", async () => {
     startFactoryInstallation.mockResolvedValue(startup().handle);
     const log = { info: vi.fn(), error: vi.fn() };
@@ -157,6 +233,45 @@ describe("startFactoryForHost", () => {
     const passed = startFactoryInstallation.mock.calls[0]![0] as { host: { report: (role: string, error: unknown) => void } };
     passed.host.report("attempt-dispatch", new Error("queue unavailable"));
     expect(log.error).toHaveBeenCalledWith("[factory] background role failed", { role: "attempt-dispatch", error: "Error: queue unavailable" });
+  });
+
+  it("names the database's own failure behind a driver wrapper, not only the query", async () => {
+    startFactoryInstallation.mockResolvedValue(startup().handle);
+    const log = { info: vi.fn(), error: vi.fn() };
+    await startFactoryForHost(dependencies({ log }) as never, {});
+    const passed = startFactoryInstallation.mock.calls[0]![0] as { host: { report: (role: string, error: unknown) => void } };
+    const cause = Object.assign(new Error("bind message supplies 2 parameters, but prepared statement \"Pselect $5\" requires 1"), {
+      code: "ERR_POSTGRES_SERVER_ERROR", errno: "08P01", routine: "exec_bind_message", severity: "ERROR",
+    });
+    passed.host.report("run-projection", new Error("Failed query: SELECT audit.project_id", { cause }));
+    expect(log.error).toHaveBeenCalledWith("[factory] background role failed", {
+      role: "run-projection",
+      error: "Error: Failed query: SELECT audit.project_id",
+      causes: [{ message: "bind message supplies 2 parameters, but prepared statement \"Pselect $5\" requires 1", code: "ERR_POSTGRES_SERVER_ERROR", errno: "08P01", routine: "exec_bind_message", severity: "ERROR", statement: "Pselect $5" }],
+    });
+  });
+
+  it("hands every role failure to the database recovery, and says when the pool was replaced", async () => {
+    startFactoryInstallation.mockResolvedValue(startup().handle);
+    const log = { info: vi.fn(), error: vi.fn() };
+    const recoverDatabase = vi.fn(async () => true);
+    await startFactoryForHost(dependencies({ log, recoverDatabase }) as never, {});
+    const passed = startFactoryInstallation.mock.calls[0]![0] as { host: { report: (role: string, error: unknown) => void } };
+    const failure = new Error("Failed query: SELECT audit.project_id");
+    passed.host.report("run-projection", failure);
+    expect(recoverDatabase).toHaveBeenCalledWith(failure);
+    await vi.waitFor(() => expect(log.info).toHaveBeenCalledWith("[factory] database pool replaced after a driver statement desync", { role: "run-projection" }));
+  });
+
+  it("reports a failed pool replacement instead of losing it", async () => {
+    startFactoryInstallation.mockResolvedValue(startup().handle);
+    const log = { info: vi.fn(), error: vi.fn() };
+    const recoverDatabase = vi.fn(async () => { throw new Error("pool open failed"); });
+    await startFactoryForHost(dependencies({ log, recoverDatabase }) as never, {});
+    const passed = startFactoryInstallation.mock.calls[0]![0] as { host: { report: (role: string, error: unknown) => void } };
+    passed.host.report("run-projection", new Error("Failed query"));
+    await vi.waitFor(() => expect(log.error).toHaveBeenCalledWith("[factory] database pool replacement failed", { role: "run-projection", error: "Error: pool open failed" }));
+    expect(log.info).not.toHaveBeenCalledWith("[factory] database pool replaced after a driver statement desync", expect.anything());
   });
 
   it("keeps the composition's own richer readiness rather than replacing it", async () => {

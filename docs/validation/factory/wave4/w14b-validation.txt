@@ -1,0 +1,24 @@
+W14b — validator-2 verdict, filed by the coordinator from validator-2's message of 2026-09-27 ~12:32Z
+(validator-2's harness cannot write report files; records: /tmp/factory-platform-evidence/w14b-validation/ heavy.log, heavy2.log, logs/, proof/).
+
+Branch wp/w14b-guest-closure, final head f23ec14d2 (code head dadb54980), base integ/w00 146a94829.
+VERDICT: ACCEPT, one low note.
+
+Commits: all 8 in 146a94829..f23ec14d2 authored and committed as archy <281643943+EZArchy@users.noreply.github.com>; no hook skip.
+f23ec14d2 changes only tasks/factory/w14b-GATES.md over dadb54980; dadb54980 changes only src/factory/guest-sdk-closure.test.ts over 5fc10400d
+(hardening folded in by diff). First-round files identical at the head except the helper and its test, moved from scripts/lib to src/factory/guest-sdk-closure*.
+Shared .git/config sha256 44962525f1ca1a8b before and after both lock legs.
+
+Red at the base 146a94829: run.sh pass mock none → harness error TS2307 './console-types.ts'; reference-code guest.test.ts 3 fail, pack.test.ts 1 fail,
+guest.podman.integration.test.ts 0/1, each "factory-sdk-types.ts imports './console-types.js', which the guest workspace does not provide";
+the new guard with the base packagers: 1 fail naming types.ts -> console-types.ts.
+Green at the head (worktree .worktrees/val-w14b): reference-code guest+pack 29/0; podman reference-code build 1/0 (under the lock); guards 9/0 at f23ec14d2
+(8/0 at 1276e7d33); graph-proof suites 22/0; web build 0; SDK build 0; runbook mock pass passed at 2fa6a4972 and at 1276e7d33 (1276e7d33→dadb54980 is guard-test-only);
+typecheck, lint, check-factory-boundaries.ts, check-boundaries.ts (helper's new home passes both), gate-integrity (BASE 146a94829) 0; boundary suites 48/0;
+helper src/factory/guest-sdk-closure.ts at 100.00% lines and functions.
+Structural guard negative controls (validator's own; fakes removed after, tree clean): at 1276e7d33 a fake with the old markers fails by name; at f23ec14d2 a fake
+with the old markers fails by name; at f23ec14d2 a fake with none of the markers, only join(repo, "packages", "@ezcorp", "factory-sdk", "src"), fails by name →
+detection by any SDK-directory reference works; the earlier low note on text markers is closed by dadb54980.
+Three named non-packagers: check-factory-boundaries.ts names SDK paths for import analysis only; coverage-config.ts holds one coverage glob;
+LOW NOTE: check-schema-generate-drift.ts copies the generated factory-sdk *.schema.json files to a backup folder and restores them (lines 137, 142) — not a guest
+workspace and no SDK TypeScript staged, so the exemption is sound, but the gate text should say "reads and restores its own generated schemas" rather than "only reads".

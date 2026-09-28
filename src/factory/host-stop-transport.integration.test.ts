@@ -69,7 +69,7 @@ test("the host signs a real mutual-TLS stop, rotates its key without a restart, 
       return unsigned(drift ? { ...command, attemptId: "another-attempt" } : command, stoppedAtMs);
     },
   };
-  const handler = createFactoryHostStopRouteHandler({ hostId, allowedPeers: ["tenant-a"], supervisor, signingKey, stopTimeoutMs: 2_000 });
+  const handler = createFactoryHostStopRouteHandler({ hostId, peerTenants: { "tenant-a": "tenant-a" }, supervisor, signingKey, stopTimeoutMs: 2_000 });
   const service = startFactoryPrivateHttps({ tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca }, handle: handler });
   try {
     const paths = await clientSecrets(root, certs);
@@ -101,6 +101,19 @@ test("the host signs a real mutual-TLS stop, rotates its key without a restart, 
     const both = factoryStopHostKeyMap([{ hostId, hostKeyId: "transport-key-1", publicKey: first.publicKey }, { hostId, hostKeyId: "transport-key-2", publicKey: second.publicKey }]);
     expect(validateFactoryStopReceipt(request, receipt, both)).toEqual({ ok: true });
     expect(validateFactoryStopReceipt(request, rotated, both)).toEqual({ ok: true });
+
+    // W01i, found on the real lane: the runtime's post-result stop reaches this
+    // client with the physical coordinates and the tenant, and no cancel
+    // command. It must name the tenant from the expectation, not crash on the
+    // missing cancel reference.
+    const { cancelReference: _cancel, source: _source, ...physical } = request;
+    stops = [];
+    const postResult = await client.stop({ ...physical, tenantId: "tenant-a" } as unknown as FactoryTaskStopRequest, AbortSignal.timeout(10_000));
+    expect(postResult).toMatchObject({ hostId, attemptId, processGroupAbsent: true });
+    expect(stops.map((stop) => stop.tenantId)).toEqual(["tenant-a"]);
+    // With no tenant named and no launch record, the host refuses by name and stops nothing.
+    await expect(client.stop(physical as unknown as FactoryTaskStopRequest, AbortSignal.timeout(10_000))).rejects.toMatchObject({ status: 403, hostError: "forbidden_tenant" });
+    expect(stops).toHaveLength(1);
 
     // A foreign client certificate is refused before any stop is attempted.
     stops = [];
@@ -158,8 +171,8 @@ test("refuses malformed host signing material and every non-receipt reply", asyn
   await expect(loadFactoryHostSigningKey(good)).rejects.toThrow("oversized");
 
   const supervisor = { async stop(command: FactoryHostStopCommand) { return unsigned(command, 1); } };
-  expect(() => createFactoryHostStopRouteHandler({ hostId, allowedPeers: [], supervisor, signingKey: good })).toThrow("authorized peer");
-  expect(() => createFactoryHostStopRouteHandler({ hostId, allowedPeers: ["tenant-a"], supervisor, signingKey: { ...good, hostId: "other" } })).toThrow("authorized peer");
+  expect(() => createFactoryHostStopRouteHandler({ hostId, peerTenants: {}, supervisor, signingKey: good })).toThrow("authorized peer");
+  expect(() => createFactoryHostStopRouteHandler({ hostId, peerTenants: { "tenant-a": "tenant-a" }, supervisor, signingKey: { ...good, hostId: "other" } })).toThrow("authorized peer");
 
   const valid = { schemaVersion: "factory.physical-stop.v1", attemptId, reservationId: "r", workerId: "w", holderGeneration: 1, allocationGeneration: 1, processGroupAbsent: true, stoppedAtMs: 5, reason: "cancelled", hostId, hostKeyId: "k", hostSignature: "s", receiptDigest: "d" };
   expect(parseFactoryHostStopReceipt(valid, hostId)).toMatchObject({ attemptId, hostId });

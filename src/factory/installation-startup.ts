@@ -40,7 +40,7 @@ import { FactoryDestinationReservations, FactoryStoreSenderFence } from "./relea
 import { factoryReleaseFenceReader } from "./release-fence";
 import { FactoryS3PublicationProvenance, FactoryVerifiedAttemptMaterials } from "./release-s3-scope";
 import { FactoryPublicationOutputReader } from "./release-publication-set";
-import { FactoryReleases } from "./releases";
+import { FactoryReleases, type FactoryCommandApprovalCurrentAuthority } from "./releases";
 import { FactoryNotificationDelivery } from "./notification-delivery";
 import { FactoryTrustedValidators, type FactoryTrustedValidatorRuntime } from "./validator-materials";
 import { loadFactoryValidatorRuntimes } from "./validator-declaration";
@@ -61,13 +61,15 @@ import { FactoryReleaseOutcomeDelivery } from "./release-outcome-delivery";
 import { composeFactoryReleaseDestinations, FactoryReleaseDestinationError, type FactoryComposedReleaseDestinations } from "./release-declaration";
 import { FactoryReleaseApplication, type FactoryReleaseProviderResolver } from "./release-application";
 import { startFactoryRuntime, type FactoryRuntime, type FactoryRuntimeDependencies } from "./runtime-composition";
-import type { FactoryStorageProbeTarget } from "./service-probes";
+import type { FactoryProbeTraceEvent, FactoryStorageProbeTarget } from "./service-probes";
 import { factoryPageDriver, type FactoryItemDisposition } from "./role-drivers";
 import type { FactoryRuntimeWorkerCollaborators } from "./runtime-workers";
 import type { FactoryApplication, FactoryApplicationOptions } from "./application";
 import type { TrustedFactoryServiceIdentity } from "./trusted-command-gateway";
+import { FactoryAssuranceCommands } from "./assurance-commands";
 import type { FactoryRoleDriver } from "./runtime-seams";
 import type { FactoryStartedListener } from "./runtime-composition";
+import type { FactoryWorkerStopRecord } from "./background-workers";
 import { composeFactoryGuestBroker, type FactoryGuestBrokerReadiness } from "./guest-broker-composition";
 import type { FactoryPhysicalStopper, FactoryTaskStops } from "./task-stops";
 import { composeFactoryRecoveryRoles } from "./recovery-composition";
@@ -117,6 +119,28 @@ export interface FactoryInstallationHost {
   readonly runOptions: FactoryApplicationOptions["runOptions"];
   readonly availableResourceClasses: Iterable<string>;
   readonly report: (role: string, error: unknown) => void;
+  /**
+   * Receives each boot phase as it starts and finishes, with its duration, and
+   * each startup probe's verdict. A boot that stalls then names the phase it
+   * stalled in, and the host can bound it.
+   */
+  readonly trace?: (event: FactoryBootTraceEvent) => void;
+}
+
+/** One boot phase, started or finished. A probe's phase is `probe:<service>` and carries its verdict. */
+export interface FactoryBootTraceEvent {
+  readonly phase: string;
+  readonly state: "started" | "finished";
+  readonly elapsedMs: number;
+  readonly detail?: string;
+}
+
+/** Run one boot phase, reporting its start and its duration whether it succeeds or throws. */
+async function bootPhase<T>(trace: FactoryInstallationHost["trace"], phase: string, work: () => Promise<T>): Promise<T> {
+  const started = performance.now();
+  trace?.({ phase, state: "started", elapsedMs: 0 });
+  try { return await work(); }
+  finally { trace?.({ phase, state: "finished", elapsedMs: Math.round(performance.now() - started) }); }
 }
 
 export interface FactoryInstallationStartOptions {
@@ -161,23 +185,42 @@ export interface FactoryInstallationStartOptions {
 export function factoryStorageProbeTarget(blobs: BlobStore): FactoryStorageProbeTarget {
   const written = new Map<string, string>();
   return {
-    async put(key: string, content: Uint8Array) {
-      const stored = await blobs.put(content);
+    async put(key: string, content: Uint8Array, signal?: AbortSignal) {
+      const stored = await blobs.put(content, { signal });
       written.set(key, typeof stored === "string" ? stored : (stored as { blobDigest: string }).blobDigest);
     },
-    async get(key: string) {
+    async get(key: string, signal?: AbortSignal) {
       const digest = written.get(key);
       if (digest === undefined) throw new FactoryInstallationStartupError("factory-startup-blobs-missing", "The probe object was never written.");
-      return blobs.get(digest);
+      return blobs.get(digest, { signal });
     },
   };
 }
 
-/** The gateway is live when its own listener terminates TLS and answers. */
+/**
+ * The execution gateway's own answer to a request that names no route.
+ *
+ * The gateway serves no health route. It refuses any request without a route
+ * and an attempt token with 401 `{"error":"unauthorized"}`, after it has
+ * terminated TLS with this installation's material and parsed the request.
+ * Another server's 401 does not carry that body, so it does not count.
+ */
+function isGatewayRouteRefusal(response: { readonly statusCode: number; readonly body: Uint8Array }): boolean {
+  if (response.statusCode !== 401) return false;
+  // Exactly the gateway's body: one `error` key, "unauthorized". Parsed, not
+  // byte-compared, so a byte-level whitespace change in the gateway does not break it.
+  try {
+    const body = JSON.parse(new TextDecoder().decode(response.body)) as unknown;
+    return typeof body === "object" && body !== null && !Array.isArray(body)
+      && Object.keys(body).length === 1 && (body as { error?: unknown }).error === "unauthorized";
+  } catch { return false; }
+}
+
+/** The gateway is live when its own listener terminates TLS and answers with its route-less refusal. */
 export function factoryGatewayProbeTarget(config: FactoryStartupConfig): FactoryRuntimeDependencies["gateway"] {
   return {
     async health(signal) {
-      const { createGatewayTransport } = await import("@ezcorp/factory-transport");
+      const { createGatewayTransport, GatewayStatusError } = await import("@ezcorp/factory-transport");
       const transport = await createGatewayTransport({
         baseUrl: config.gateway.tls === undefined ? "" : `https://${config.gateway.hostname}:${config.gateway.port}`,
         tls: {
@@ -188,11 +231,15 @@ export function factoryGatewayProbeTarget(config: FactoryStartupConfig): Factory
         },
         requestTimeoutMs: 5_000,
       });
-      // Any HTTP answer proves the listener is bound and terminating TLS with
-      // this installation's material. A refused connection or a failed
-      // handshake throws, and the probe reports the transport's own code.
-      const response = await transport.request("GET", "/internal/factory/v1/health", undefined, 64 * 1024, signal);
-      return response.statusCode > 0;
+      // Only the gateway's route-less refusal (or a success, should a route
+      // appear) proves it live: a 5xx is a gateway failing, and any other
+      // answer is not the listener this probe expects. A refused connection or
+      // a failed handshake throws, and the probe reports the transport's own code.
+      try { return (await transport.request("GET", "/internal/factory/v1/health", undefined, 64 * 1024, signal)).statusCode > 0; }
+      catch (error) {
+        if (error instanceof GatewayStatusError) return isGatewayRouteRefusal(error.response);
+        throw error;
+      }
     },
   };
 }
@@ -320,6 +367,25 @@ export function factoryReleaseOperations(
 }
 
 /**
+ * The inbox's approval decisions, over the stores the private service's approval command writes.
+ *
+ * The private service runs `execute` when the kernel asks a human, and `POST
+ * .../runs/{runId}/approvals/{approvalId}` answered `factory_command_approval_unavailable`
+ * because nothing supplied `decide`. Built over the same command authority, inbox and
+ * release store (which delivers the approval notification), a decision written here is
+ * the one the kernel reads.
+ */
+export function factoryCommandApprovals(
+  database: FactoryInstallationHost["database"],
+  tenantId: string,
+  stores: Pick<FactoryInstallationStores, "authority" | "inbox">,
+  releases: FactoryReleases,
+  service: TrustedFactoryServiceIdentity,
+): NonNullable<FactoryApplicationOptions["createCommandApprovals"]> {
+  return (context) => new FactoryAssuranceCommands(database, tenantId, context.grants, stores.authority, stores.inbox, releases, service);
+}
+
+/**
  * The release store, composed from the startup document alone.
  *
  * Every collaborator here landed with the wave-2 integration, and the last one
@@ -355,6 +421,9 @@ async function installationReleases(
   stores: Pick<FactoryApplication, "grants" | "runs" | "journal" | "releaseAuthority">,
   report: (role: string, error: unknown) => void,
   validators: FactoryTrustedValidators,
+  // The inbox lists an approval node's request only after checking it is still the current
+  // command; without this, one such notification made the whole list refuse.
+  commandApprovals?: FactoryCommandApprovalCurrentAuthority,
 ): Promise<FactoryInstallationRelease | undefined> {
   try {
     const assurance = new FactoryAssurance(database, config.tenantId, stores.grants, validators, factoryReleaseFenceReader(stores.runs), validators);
@@ -376,6 +445,7 @@ async function installationReleases(
       new FactoryDestinationReservations({ database, tenantId: config.tenantId }),
       archive,
       new FactoryStoreSenderFence({ database, tenantId: config.tenantId }),
+      undefined, undefined, commandApprovals,
     );
     // Where this installation may publish, from its own document. It is built
     // here rather than beside the roles because it needs the same scoped reader
@@ -556,7 +626,8 @@ export interface FactoryInstallationStartup {
   readonly runtime: FactoryRuntime;
   /** The pinned model broker, when one is configured AND ready. */
   readonly provider?: FactoryProviderComposition;
-  stop(): Promise<void>;
+  /** Stops the runtime; resolves with each role's stop record (see {@link FactoryRuntime.stop}). */
+  stop(): Promise<readonly FactoryWorkerStopRecord[]>;
 }
 
 /**
@@ -568,8 +639,9 @@ export interface FactoryInstallationStartup {
  */
 export async function startFactoryInstallation(options: FactoryInstallationStartOptions): Promise<FactoryInstallationStartup> {
   const boot = options.boot ?? factoryBootConfig;
-  const config = await loadFactoryStartupConfig(options.configPath ?? factoryStartupConfigPath(process.env, boot));
   const host = options.host;
+  const trace = host.trace;
+  const config = await bootPhase(trace, "config", () => loadFactoryStartupConfig(options.configPath ?? factoryStartupConfigPath(process.env, boot)));
 
   // Bind this installation to this tenant before anything else touches the
   // factory tables.
@@ -586,22 +658,22 @@ export async function startFactoryInstallation(options: FactoryInstallationStart
   // database already bound to a different tenant raises
   // `factory_installation_mismatch` here, at boot, instead of letting this
   // process serve another installation's records.
-  await new FactoryRecords(host.database, config.tenantId).bindInstallation();
+  await bootPhase(trace, "bind-installation", () => new FactoryRecords(host.database, config.tenantId).bindInstallation());
 
   // The stores the roles read through. `createFactoryApplication` builds the
   // same ones again inside `startFactoryRuntime`; these are the collaborators
   // the background roles need and the application does not expose.
-  const blobs = options.blobs ?? await productObjectStore(config);
+  const blobs = options.blobs ?? await bootPhase(trace, "object-store", () => productObjectStore(config));
   const artifacts = new FactoryArtifacts(host.database, blobs, config.tenantId);
   const transitions = new FactoryTransitionArtifacts(artifacts);
 
   const supplied = options.dependencies ?? {};
   // Before anything is composed, so a half-configured model pin is a readiness
   // row rather than a surprise at the first guest call.
-  const provider = await composeFactoryProviderBroker(config.modelProvider, options.providerReadiness ?? {});
+  const provider = await bootPhase(trace, "provider-broker", () => composeFactoryProviderBroker(config.modelProvider, options.providerReadiness ?? {}));
   if (provider !== undefined && provider.broker === undefined) host.report("model-provider", new Error(`factory_provider_not_ready: ${JSON.stringify(provider.readiness.failures)}`));
   const composed = supplied.workers === undefined
-    ? await installationCollaborators(config, host, blobs, transitions, options.signal, options.releaseProviders)
+    ? await bootPhase(trace, "collaborators", () => installationCollaborators(config, host, blobs, transitions, options.signal, options.releaseProviders))
     : undefined;
   const storage = supplied.storage ?? factoryStorageProbeTarget(blobs);
   const gateway = supplied.gateway ?? factoryGatewayProbeTarget(config);
@@ -612,7 +684,9 @@ export async function startFactoryInstallation(options: FactoryInstallationStart
       blobs,
       runOptions: host.runOptions,
       availableResourceClasses: host.availableResourceClasses,
-      // The public release routes, over the release store composed above.
+      // A human signs a restore report in the console (W14); W15's restore records it.
+      restoreSigner: () => composeFactoryInstallationRestore({ config, host, fence: FACTORY_SIGN_ONLY_FENCE }),
+      // The public release routes and the inbox's approval decisions, over the release store composed above.
       ...composed?.application,
     },
     // The private worker API, and only that. The pool, the supervisor, and the
@@ -637,11 +711,22 @@ export async function startFactoryInstallation(options: FactoryInstallationStart
     ...(provider === undefined ? {} : { providerReadiness: provider.readiness }),
     ...(composed?.guestBroker === undefined ? {} : { guestBrokerReadiness: composed.guestBroker }),
     report: host.report,
+    ...(trace === undefined ? {} : { probeTrace: (event: FactoryProbeTraceEvent) => trace({ phase: `probe:${event.service}`, state: "finished", elapsedMs: event.elapsedMs, detail: event.detail }) }),
   };
 
-  const runtime = await startFactoryRuntime(config, options.databaseUrl, dependencies, options.signal, boot);
+  const runtime = await bootPhase(trace, "runtime", () => startFactoryRuntime(config, options.databaseUrl, dependencies, options.signal, boot));
   return Object.freeze({ runtime, ...(provider === undefined ? {} : { provider }), stop: () => runtime.stop() });
 }
+
+/**
+ * The fence of a restore composed only to sign its report. Signing closes no
+ * ingress and revokes no credential (the operator's `begin` did, under its own
+ * attestation), so a call here is a composition error, refused by name.
+ */
+const FACTORY_SIGN_ONLY_FENCE: FactoryRestoreFence = {
+  closeIngress: async () => { throw new Error("a restore composed to sign a report never fences"); },
+  revokeCredentials: async () => { throw new Error("a restore composed to sign a report never fences"); },
+};
 
 /**
  * W15: a restore built from this installation's own composition.
@@ -705,7 +790,7 @@ async function installationCollaborators(
   readonly workers: FactoryRuntimeDependencies["workers"];
   readonly seams: FactoryRuntimeDependencies["seams"];
   readonly listeners: readonly FactoryStartedListener[];
-  readonly application: Pick<FactoryApplicationOptions, "createReleaseOperations">;
+  readonly application: Pick<FactoryApplicationOptions, "createReleaseOperations" | "createCommandApprovals">;
   readonly guestBroker: FactoryGuestBrokerReadiness;
 }> {
   const { createFactoryApplication } = await import("./application");
@@ -770,10 +855,10 @@ async function installationCollaborators(
   // composes from the store alone. `release-outcome` composes from the store,
   // this tenant's projects and the run lifecycle — and from a destination the
   // startup document declares, so it holds when none is declared.
-  const release = await installationReleases(config, host.database, blobs, application.artifacts, application, host.report, gateway.validators);
+  const release = await installationReleases(config, host.database, blobs, application.artifacts, application, host.report, gateway.validators, { authority: stores.authority, service });
   const validation = await installationValidatorRoles(config, host, stores, application, release, gateway, signal);
 
-  const attempts = await composeAttemptDispatch(config, host, blobs, stores, application.grants, pool, stopper, validation.composed?.settlement);
+  const attempts = await composeAttemptDispatch(config, host, blobs, stores, application, pool, stopper, validation.composed?.settlement);
   const settlement = await composeSettlement(config, host, stores, service, pool, stopper);
   const notificationInbox = release === undefined ? undefined
     : factoryNotificationInboxDriver(host.database, new FactoryNotificationDelivery(release.releases), config.tenantId);
@@ -831,7 +916,10 @@ async function installationCollaborators(
       ...(privateService === undefined ? [] : [privateService]),
       ...(guestBroker.listener === undefined ? [] : [guestBroker.listener]),
     ],
-    application: release === undefined ? {} : { createReleaseOperations: factoryReleaseOperations(config.tenantId, release, resolver) },
+    application: release === undefined ? {} : {
+      createReleaseOperations: factoryReleaseOperations(config.tenantId, release, resolver),
+      createCommandApprovals: factoryCommandApprovals(host.database, config.tenantId, stores, release.releases, service),
+    },
     guestBroker: guestBroker.readiness,
   };
 }
@@ -922,7 +1010,7 @@ async function composeAttemptDispatch(
   host: FactoryInstallationHost,
   blobs: BlobStore,
   stores: FactoryInstallationStores,
-  grants: FactoryApplication["grants"],
+  application: Pick<FactoryApplication, "grants" | "journal">,
   pool: PoolAdmissionClient | undefined,
   stopper: FactoryHostStopClient | undefined,
   settlement?: FactoryComposedValidators["settlement"],
@@ -942,9 +1030,11 @@ async function composeAttemptDispatch(
       completions: settlement?.completions ?? stores.completions,
       outcomes: settlement?.outcomes ?? stores.outcomes,
       admissions: stores.compute,
-      readiness: factoryPackageReadiness(host.database, config.tenantId, grants, blobs),
+      readiness: factoryPackageReadiness(host.database, config.tenantId, application.grants, blobs),
       pool,
       stopper: stopper.physical,
+      journal: application.journal,
+      report: host.report,
     });
   } catch (error) {
     host.report("attempt-dispatch-composition", error);

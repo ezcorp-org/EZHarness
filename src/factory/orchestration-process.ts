@@ -7,6 +7,7 @@ import {
   type FactoryTemporalProcessOptions,
   type TemporalCredentials,
 } from "../../packages/@ezcorp/factory-orchestrator/src/process.ts";
+import { FACTORY_GATEWAY_REQUEST_TIMEOUT_MAX_MS, FACTORY_GATEWAY_REQUEST_TIMEOUT_MS } from "../../packages/@ezcorp/factory-orchestrator/src/contracts.ts";
 import type { GatewayTransportOptions } from "../../packages/@ezcorp/factory-transport/src/index.ts";
 import type { TemporalPayloadCodec as PayloadCodec } from "./encryption.ts";
 import { loadFactoryTemporalPayloadCodec, type FactoryTemporalPayloadCodecFileConfig } from "./file-key-wraps.ts";
@@ -88,7 +89,7 @@ function validTemporal(temporal: unknown): boolean {
 function validGateway(gateway: unknown): boolean {
   return record(gateway) && optionalKeys(gateway, ["baseUrl", "tls"], ["serverName", "requestTimeoutMs"])
     && text(gateway.baseUrl) && (gateway.serverName === undefined || text(gateway.serverName))
-    && optionalInteger(gateway.requestTimeoutMs, 100, 60_000) && record(gateway.tls)
+    && optionalInteger(gateway.requestTimeoutMs, FACTORY_GATEWAY_REQUEST_TIMEOUT_MS, FACTORY_GATEWAY_REQUEST_TIMEOUT_MAX_MS) && record(gateway.tls)
     && exact(gateway.tls, ["caPath", "certificatePath", "privateKeyPath", "serviceTokenPath"])
     && Object.values(gateway.tls).every((item) => text(item));
 }

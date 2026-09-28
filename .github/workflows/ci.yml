@@ -70,6 +70,8 @@ jobs:
         run: bun run --cwd packages/@ezcorp/factory-sdk build
       - name: Enforce deterministic validation and C13 reuse
         run: bun scripts/check-factory-boundaries.ts
+      - name: Every factory deployment image is pinned by digest
+        run: bun scripts/check-factory-deployment-locks.ts
       # `src/*.schema.json` is generated only (interface freeze, section 12).
       # Nothing regenerates it during the SDK build, so before this step a hand
       # edit to a wire schema shipped green. The gate regenerates, byte-compares,
@@ -193,9 +195,9 @@ jobs:
           if-no-files-found: ignore
 
   # C11 lane 6 of 7. Service-backed browser journeys on the `factory-services`
-  # lane. W18 registers the lane in every consumer; W14 owns its specs and its
-  # Playwright configuration, so the collector fails closed with an explicit
-  # message until both land.
+  # lane (W14). `web/e2e/factory-services/stack.ts` boots the whole real stack.
+  # It needs the Temporal CLI dev server: the Java test server cannot report
+  # task-queue pollers, so the orchestrator's readiness never opens on it.
   factory-product-e2e:
     name: Factory product and domain E2E
     runs-on: [self-hosted, factory-real]
@@ -218,7 +220,7 @@ jobs:
         env:
           FACTORY_TEST_POSTGRES_URL: ${{ secrets.FACTORY_TEST_POSTGRES_URL }}
           EZCORP_FACTORY_STORAGE_SECRETS_DIR: ${{ secrets.EZCORP_FACTORY_STORAGE_SECRETS_DIR }}
-          FACTORY_TEMPORAL_TEST_SERVER: ${{ secrets.FACTORY_TEMPORAL_TEST_SERVER }}
+          FACTORY_TEMPORAL_CLI: ${{ secrets.FACTORY_TEMPORAL_CLI }}
         run: |
           EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST="$(bun scripts/browser-route-coverage-manifest.ts --print)"
           export EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST

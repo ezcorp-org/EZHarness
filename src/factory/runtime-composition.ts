@@ -47,10 +47,11 @@ import {
   type FactoryServiceProbeResult,
   type FactoryStorageProbeTarget,
   type FactorySupervisorProbeTarget,
+  type FactoryProbeTraceEvent,
 } from "./service-probes";
 import { factoryRuntimeSeams, factorySeamStates, type FactoryRuntimeSeamInputs, type FactoryRuntimeSeams, type FactorySeamState } from "./runtime-seams";
 import { registerFactoryRuntimeWorkers, type FactoryHeldWorker, type FactoryRuntimeWorkerCollaborators } from "./runtime-workers";
-import type { FactoryBackgroundWorkers, FactoryBackgroundWorkerState } from "./background-workers";
+import type { FactoryBackgroundWorkers, FactoryBackgroundWorkerState, FactoryWorkerStopRecord } from "./background-workers";
 
 /** Why a held checkpoint barrier keeps readiness degraded. */
 export type FactoryRecoveryReadinessReason = "factory-recovery-not-declared" | "factory-checkpoint-barrier-held";
@@ -103,6 +104,8 @@ export interface FactoryRuntimeDependencies {
   readonly service: FactoryRuntimeWorkerCollaborators["service"];
   readonly seams?: FactoryRuntimeSeamInputs;
   readonly report: (role: string, error: unknown) => void;
+  /** Receives each probe's verdict and duration, for the boot log. */
+  readonly probeTrace?: (event: FactoryProbeTraceEvent) => void;
   /** Additional probes a deployment adds. Never replaces a required one. */
   readonly extraProbes?: readonly FactoryServiceProbe[];
   /**
@@ -176,8 +179,12 @@ export interface FactoryRuntime {
    */
   readonly workers: FactoryBackgroundWorkers;
   report(): FactoryRuntimeReport;
-  /** Reverse of startup, awaiting every step. Idempotent. */
-  stop(): Promise<void>;
+  /**
+   * Reverse of startup. Idempotent. Resolves with each role's stop record; a role
+   * whose in-flight step outlived `FACTORY_WORKER_STOP_DEADLINE_MS` is
+   * named there with `settled: false`, and a repeated call resolves with none.
+   */
+  stop(): Promise<readonly FactoryWorkerStopRecord[]>;
 }
 
 /** The flag is off, so no factory service exists and the API answers 404. */
@@ -258,7 +265,8 @@ export async function startFactoryRuntime(
 
   const seams = factoryRuntimeSeams(dependencies.seams);
   const probes = requiredProbes(config, dependencies, boot);
-  let results = await probeFactoryServices(probes, signal);
+  const probeOptions = dependencies.probeTrace === undefined ? {} : { trace: dependencies.probeTrace };
+  let results = await probeFactoryServices(probes, signal, probeOptions);
 
   const workerSet = registerFactoryRuntimeWorkers({
     ...dependencies.workers,
@@ -326,7 +334,7 @@ export async function startFactoryRuntime(
       for (let round = 0; round < rounds && !signal.aborted; round += 1) {
         await wait(retry.delayMs, signal);
         if (signal.aborted) break;
-        results = await probeFactoryServices(probes, signal);
+        results = await probeFactoryServices(probes, signal, probeOptions);
         try {
           admit();
           openAdmission();
@@ -377,15 +385,15 @@ export async function startFactoryRuntime(
   }
 
   let stopped = false;
-  const stop = async (): Promise<void> => {
-    if (stopped) return;
+  const stop = async (): Promise<readonly FactoryWorkerStopRecord[]> => {
+    if (stopped) return [];
     stopped = true;
     // Reverse of startup. Admission closes first so no new work arrives while
     // the roles drain, then the roles drain, then the listeners close.
     configureFactoryApplication(null);
     admissionOpen = false;
     try {
-      await workerSet.workers.stop();
+      return await workerSet.workers.stop();
     } finally {
       stopListeners();
     }

@@ -15,6 +15,6 @@ factoryArchiveWriterConformance(async () => {
     db: database.db,
     blobs: ordinary.blobs,
     archive,
-    async close() { archive.close(); ordinary.close(); await database.close(); },
+    async close() { archive.close(); try { await ordinary.close(); } finally { await database.close(); } },
   };
 });

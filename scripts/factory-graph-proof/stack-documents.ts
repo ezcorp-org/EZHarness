@@ -62,7 +62,7 @@ export function wrapsDocument(wraps: ReadonlyArray<{ installationId: string; wra
 
 export function poolDocument(layout: StackLayout) {
   return {
-    schemaVersion: "factory.pool-process.v1", installationId: INSTALLATION, poolId: POOL_ID,
+    schemaVersion: "factory.pool-process.v1", poolId: POOL_ID,
     hostname: "127.0.0.1", port: layout.ports.pool,
     database: { credentialsPath: secretPath(layout, "pool-database.json"), expectedDatabase: layout.poolDatabase, expectedRole: decodeURIComponent(new URL(layout.poolUrl).username) },
     tls: { privateKeyPath: secretPath(layout, "server.key"), certificatePath: secretPath(layout, "server.pem"), caPath: secretPath(layout, "ca.pem") },
@@ -83,7 +83,7 @@ export function supervisorDocument(layout: StackLayout) {
     hostKeyPath: secretPath(layout, "host.key"), hostKeyId: "host-key-1",
     runnerRoot: runnerRoot(layout), readinessFilePath: readinessPath(layout, "supervisor.json"), readinessHeartbeatMs: 2_000,
     services: {
-      hostname: "127.0.0.1", port: layout.ports.hostService, allowedPeers: ["tenant-a"], hostKeyIdPath: secretPath(layout, "host.kid"),
+      hostname: "127.0.0.1", port: layout.ports.hostService, peerTenants: { "tenant-a": TENANT }, hostKeyIdPath: secretPath(layout, "host.kid"),
       tls: tls(layout, "server"),
       pool: { baseUrl: `https://127.0.0.1:${layout.ports.pool}`, serviceTokenPath: secretPath(layout, "supervisor.token"), tls: supervisorTls },
       // One route per tenant; this stack runs one tenant.

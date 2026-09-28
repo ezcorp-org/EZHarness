@@ -77,11 +77,8 @@ function graphAt(source: FactoryDefinition, scope: GraphScope): FactoryGraph {
 function replaceGraph(source: FactoryDefinition, scope: GraphScope, graph: FactoryGraph): FactoryDefinition {
 	const result = snapshotFactoryValue(source) as unknown as Record<string, unknown>;
 	let owner: unknown = result;
-	for (const segment of scope.slice(0, -1)) {
-		owner = typeof segment === "number"
-			? (owner as unknown[])[segment]
-			: (owner as Record<string, unknown>)[segment];
-	}
+	// Arrays and objects index the same way; graphAt has already proved the path.
+	for (const segment of scope.slice(0, -1)) owner = (owner as Record<string | number, unknown>)[segment];
 	const last = scope.at(-1);
 	if (last === undefined || !owner || typeof owner !== "object") throw new Error("Factory graph scope is invalid.");
 	if (typeof last === "number") (owner as unknown[])[last] = graph;

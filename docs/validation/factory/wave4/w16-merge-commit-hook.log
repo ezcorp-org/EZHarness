@@ -1,0 +1,62 @@
+Checked 115 files in 62ms. No fixes applied.
+── Tests (staged) ─────────────────────────────────
+  57 test files map to this commit (cap 12) — NOT running:
+    scripts/check-factory-boundaries.test.ts
+    scripts/check-factory-deployment-locks.test.ts
+    scripts/factory-fleet-init-local.test.ts
+    scripts/factory-fleet.test.ts
+    scripts/factory-provisioning-registration.test.ts
+    scripts/factory-temporal-authorizer.test.ts
+    src/factory/gateway-process.test.ts
+    src/factory/graph-proof-diagnostics.test.ts
+    src/factory/installation-startup.test.ts
+    src/factory/pool/gpu-host-profiles.test.ts
+    src/factory/pool/process.test.ts
+    src/factory/pool/readiness.test.ts
+    src/factory/private-files.test.ts
+    src/factory/provisioning/certificates.test.ts
+    src/factory/provisioning/compose-profile.test.ts
+    src/factory/provisioning/control-plane.test.ts
+    src/factory/provisioning/database.test.ts
+    src/factory/provisioning/deployment.test.ts
+    src/factory/provisioning/fleet-cli.test.ts
+    src/factory/provisioning/fleet.test.ts
+    src/factory/provisioning/host.test.ts
+    src/factory/provisioning/ingress-identity.test.ts
+    src/factory/provisioning/ingress.test.ts
+    src/factory/provisioning/installation.test.ts
+    src/factory/provisioning/invitation.test.ts
+    src/factory/provisioning/kubernetes-profile.test.ts
+    src/factory/provisioning/mesh.test.ts
+    src/factory/provisioning/platform.test.ts
+    src/factory/provisioning/purge-approval.test.ts
+    src/factory/provisioning/readiness-check.test.ts
+    src/factory/provisioning/scram.test.ts
+    src/factory/provisioning/secret-env.test.ts
+    src/factory/provisioning/secret-files.test.ts
+    src/factory/provisioning/secrets.test.ts
+    src/factory/provisioning/steps.test.ts
+    src/factory/provisioning/storage.test.ts
+    src/factory/provisioning/temporal-client.test.ts
+    src/factory/provisioning/temporal-namespace.test.ts
+    src/factory/provisioning/temporal.test.ts
+    src/factory/runner/supervisor-process.test.ts
+    src/factory/runtime-composition.test.ts
+    src/factory/service-probes.test.ts
+    src/factory/service-readiness.test.ts
+    src/__tests__/factory-installation-bootstrap.test.ts
+    src/__tests__/migrate.test.ts
+    src/__tests__/readiness.test.ts
+    src/__tests__/scope-enforcement.test.ts
+    tests/postgres/factory-gateway-process.test.ts
+    tests/postgres/factory-installation-bootstrap.test.ts
+    tests/postgres/factory-pool-process.test.ts
+    tests/postgres/factory-pool-service.test.ts
+    tests/postgres/factory-provisioning.test.ts
+    web/src/__tests__/api-auth-setup-invitation.server.test.ts
+    web/src/__tests__/api-installation-bootstrap.server.test.ts
+    web/src/__tests__/api-installation-purge-approval.server.test.ts
+    web/src/__tests__/hooks-server-ingress-identity.server.test.ts
+    web/src/__tests__/route-contract.test.ts
+  EZ_SKIP_HOOK_TESTS=1 set — skipping the 57 file(s) above; continuing with lint.
+[integ/w00 bc22c62b0] merge: wp/w16-provisioning 0bf2fcaa2 into integ/w00 (W16 provisioning)

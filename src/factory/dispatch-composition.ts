@@ -20,8 +20,10 @@ import type { FactoryRoleDriver } from "./runtime-seams";
 import type { TrustedFactoryServiceIdentity } from "./trusted-command-gateway";
 import { FactoryTaskStops, type FactoryPhysicalStopper, type FactoryStopHostKey, type FactoryStoppableAttempt } from "./task-stops";
 import type { FactoryBudgets, FactoryUncertainHold } from "./budgets";
+import { FactoryRunEpochStaleError } from "./executions";
 import { FactoryUsageReconciliation } from "./usage-settlement";
-import type { FactoryClaimableRelease, FactoryReleaseConsentAbsence, FactoryReleaseOperation, FactoryReleaseProvider, FactoryReleases } from "./releases";
+import { FactoryReleaseOutcomeBackoff } from "./release-outcome-backoff";
+import { FACTORY_RELEASE_STOP_OUTCOME_UNKNOWN, FactoryReleaseError, type FactoryClaimableRelease, type FactoryReleaseConsentAbsence, type FactoryReleaseOperation, type FactoryReleaseProvider, type FactoryReleases, type FactoryStoppedRelease } from "./releases";
 import type { FactoryReleaseProviderResolver } from "./release-application";
 import type { FactoryReleaseOutcomeDelivery, FactoryUndeliveredReleaseOutcome } from "./release-outcome-delivery";
 import type { FactoryRunLifecycle } from "./run-lifecycle";
@@ -65,6 +67,24 @@ export class FactoryUncertainStopError extends Error {
   }
 }
 
+/**
+ * A stop whose durable facts no longer verify, taken out of settlement for an
+ * operator (W01h fix round). Raised once, when the stop is marked; the scan
+ * never lists it again, so it cannot become a hot loop.
+ */
+export class FactoryStopReconciliationError extends Error {
+  readonly code = "factory_task_stop_reconciliation";
+  // Explicit fields, not parameter properties, so Node's type stripping can run this file.
+  readonly attemptId: string;
+  readonly cancelCommandId: string;
+  constructor(attemptId: string, cancelCommandId: string, override readonly cause: unknown) {
+    super(`factory_task_stop_reconciliation: stop ${cancelCommandId} of attempt ${attemptId} no longer verifies and is taken out of settlement for an operator: ${cause instanceof Error ? cause.message : String(cause)}`);
+    this.name = "FactoryStopReconciliationError";
+    this.attemptId = attemptId;
+    this.cancelCommandId = cancelCommandId;
+  }
+}
+
 export function factoryStopSettlementDisposition(error: unknown): FactoryItemDisposition {
   // Durable uncertainty is backpressure: the row stays listed and a later pass
   // retries it against the same sealed request.
@@ -75,7 +95,7 @@ export function factoryStopSettlementDisposition(error: unknown): FactoryItemDis
 
 export function factoryStopSettlementDriver(
   database: TransactionalDb,
-  stops: Pick<FactoryTaskStops, "listStoppableInTransaction" | "stop">,
+  stops: Pick<FactoryTaskStops, "listStoppableInTransaction" | "stop" | "markForReconciliation">,
   service: TrustedFactoryServiceIdentity,
   report: (role: string, error: unknown) => void,
   limit?: number,
@@ -91,7 +111,15 @@ export function factoryStopSettlementDriver(
     // as settled is how a run can sit in `stopping` while every pass reports
     // success.
     settle: async (item, _signal) => {
-      const receipt = await stops.stop(service, item.reference);
+      let receipt: Awaited<ReturnType<typeof stops.stop>>;
+      try { receipt = await stops.stop(service, item.reference); }
+      catch (error) {
+        // No retry can succeed on facts that no longer verify: mark the stop
+        // once and say so loudly, instead of failing it again every pass.
+        if ((error as { code?: unknown } | null | undefined)?.code !== "factory_task_stop_corrupt") throw error;
+        await stops.markForReconciliation(service, item.reference, error);
+        throw new FactoryStopReconciliationError(item.attemptId, item.reference.commandId, error);
+      }
       if (receipt.state !== "stopped") throw new FactoryUncertainStopError(item.attemptId, receipt.cause);
     },
     classify: factoryStopSettlementDisposition,
@@ -122,31 +150,74 @@ export class FactoryUnresolvedHoldError extends Error {
   }
 }
 
+/**
+ * An uncertain hold whose attempt belongs to an execution epoch a restore has
+ * left (W15f). Its authority can never pass the run fence in this epoch, so the
+ * role marks the hold once and says so here, naming both epochs; the scan then
+ * skips it until the epoch moves again. It stays a fault: the money is still
+ * held, and a person decides what the old epoch's hold is worth.
+ */
+export class FactoryUsageHoldEpochStaleError extends Error {
+  readonly code = "factory_usage_hold_epoch_stale";
+  constructor(readonly reservationId: string, override readonly cause: FactoryRunEpochStaleError) {
+    super(`factory_usage_hold_epoch_stale: reservation ${reservationId} of run ${cause.runId} is held by attempt ${cause.attemptId} of execution epoch ${cause.attemptEpoch}; the installation is at epoch ${cause.installationEpoch}, so it cannot be reconciled here. Marked once; not retried until the epoch moves.`);
+    this.name = "FactoryUsageHoldEpochStaleError";
+  }
+}
+
+/**
+ * A marked hold whose attempt has ended (a signed restore superseded it) and
+ * whose signed deadline has passed: it is offered to settlement again, and until
+ * a bound settlement can price it, that is backpressure with a name, not a
+ * fault (W15f, with W03f's bound settlement).
+ */
+export class FactoryUsageHoldAwaitingBoundError extends Error {
+  readonly code = "factory_usage_hold_awaiting_bound";
+  constructor(readonly reservationId: string, override readonly cause: FactoryRunEpochStaleError) {
+    super(`factory_usage_hold_awaiting_bound: reservation ${reservationId} of run ${cause.runId} belongs to ended attempt ${cause.attemptId} of execution epoch ${cause.attemptEpoch}; it waits for a settlement at the reserved bound.`);
+    this.name = "FactoryUsageHoldAwaitingBoundError";
+  }
+}
+
 export function factoryUsageReconciliationDisposition(error: unknown): FactoryItemDisposition {
-  // A hold whose receipt has not landed is backpressure, not an integrity
-  // fault; anything else needs a person.
-  return error instanceof FactoryUnresolvedHoldError ? "transient" : "fault";
+  // A hold whose receipt has not landed, or that waits for its bound
+  // settlement, is backpressure, not an integrity fault; anything else needs a person.
+  return error instanceof FactoryUnresolvedHoldError || error instanceof FactoryUsageHoldAwaitingBoundError ? "transient" : "fault";
 }
 
 export function factoryUsageReconciliationDriver(
   database: TransactionalDb,
-  budgets: Pick<FactoryBudgets, "listUncertainWithCostInTransaction">,
+  budgets: Pick<FactoryBudgets, "listUncertainWithCostInTransaction" | "markEpochStaleInTransaction">,
   reconciler: Pick<FactoryUsageReconciliation, "resolve" | "reconcile">,
   report: (role: string, error: unknown) => void,
   limit?: number,
+  now: () => number = Date.now,
 ): FactoryRoleDriver {
   return factoryPageDriver<FactoryUncertainHold>({
     page: (_signal) => database.transaction((transaction) => budgets.listUncertainWithCostInTransaction(transaction, limit === undefined ? {} : { limit })),
     settle: async (hold, signal) => {
-      const resolution = await reconciler.resolve(hold, signal);
-      if (resolution.kind !== "resolved") throw new FactoryUnresolvedHoldError(resolution.reason);
-      await reconciler.reconcile({
-        reservationId: resolution.reservationId,
-        attemptId: resolution.attemptId,
-        operationId: resolution.operationId,
-        providerReceiptDigest: resolution.providerReceiptDigest,
-        usage: resolution.usage,
-      }, signal);
+      try {
+        const resolution = await reconciler.resolve(hold, signal);
+        if (resolution.kind !== "resolved") throw new FactoryUnresolvedHoldError(resolution.reason);
+        await reconciler.reconcile({
+          reservationId: resolution.reservationId,
+          attemptId: resolution.attemptId,
+          operationId: resolution.operationId,
+          providerReceiptDigest: resolution.providerReceiptDigest,
+          usage: resolution.usage,
+        }, signal);
+      } catch (error) {
+        if (!(error instanceof FactoryRunEpochStaleError)) throw error;
+        // Mark once, then say so once. A hold that settled meanwhile is not
+        // marked, and its refusal is reported as it came; one whose attempt has
+        // ended waits for its bound settlement.
+        const outcome = await database.transaction((transaction) => budgets.markEpochStaleInTransaction(transaction, hold, {
+          attemptId: error.attemptId, attemptEpoch: error.attemptEpoch, installationEpoch: error.installationEpoch, markedAtMs: now(),
+        }));
+        if (outcome === "settled") throw error;
+        if (outcome === "terminal") throw new FactoryUsageHoldAwaitingBoundError(hold.reservationId, error);
+        throw new FactoryUsageHoldEpochStaleError(hold.reservationId, error);
+      }
     },
     classify: factoryUsageReconciliationDisposition,
     report: (hold, error, disposition) => { report(`usage-reconciliation:${disposition}:${hold.reservationId}`, error); },
@@ -229,7 +300,20 @@ export const FACTORY_RELEASE_CONSENT_FAULT_REASONS: readonly FactoryReleaseUncla
  * routinely list the same operation and exactly one of them commits it.
  */
 export const FACTORY_RELEASE_OUTCOME_TRANSIENT_CODES: readonly string[] =
-  Object.freeze(["factory_release_claim_lost", "factory_release_not_claimable", "factory_run_stopped"]);
+  Object.freeze(["factory_release_claim_lost", "factory_release_not_claimable", "factory_run_stopped", FACTORY_RELEASE_STOP_OUTCOME_UNKNOWN, "factory_release_stop_settlement_stale"]);
+
+/**
+ * A release that waits for a person: consent that is not there yet. Named apart from other transients (W09e
+ * R5). An operation that left the work list waits for nobody, and the two faults need an operator.
+ */
+function awaitingConsent(error: unknown): boolean {
+  return error instanceof FactoryReleaseConsentAbsentError && error.reason !== "operation_absent" && !FACTORY_RELEASE_CONSENT_FAULT_REASONS.includes(error.reason);
+}
+
+/** The failures that leave a release where it was, so trying it again at once cannot help: it waits (W09e R5). */
+function waitsBeforeRetry(error: unknown): boolean {
+  return awaitingConsent(error) || (error as { code?: unknown } | null | undefined)?.code === FACTORY_RELEASE_STOP_OUTCOME_UNKNOWN;
+}
 
 export function factoryReleaseOutcomeDisposition(error: unknown): FactoryItemDisposition {
   if (error instanceof FactoryReleaseConsentAbsentError) {
@@ -237,6 +321,11 @@ export function factoryReleaseOutcomeDisposition(error: unknown): FactoryItemDis
   }
   const code = (error as { code?: unknown } | null | undefined)?.code;
   return typeof code === "string" && FACTORY_RELEASE_OUTCOME_TRANSIENT_CODES.includes(code) ? "transient" : "fault";
+}
+
+/** A stopped release whose effect the driver asks its provider about, once per pass (W09e R3). */
+export interface FactoryPendingReleaseStop extends FactoryStoppedRelease {
+  readonly stopOnly: true;
 }
 
 /** A settled operation the driver still owes its run an event for. */
@@ -283,23 +372,59 @@ export interface FactoryPendingReleaseDelivery extends FactoryUndeliveredRelease
  * page is the settled operations whose event is still missing. That second
  * source is what makes delivery survive a crash between settlement and
  * enqueue: the operation is found again and delivered once.
+ *
+ * **A release that cannot move waits (W09e R5).** A release waiting for consent, and a stopped release whose
+ * provider has not answered, are tried once and then left alone for a doubling wait
+ * (`FactoryReleaseOutcomeBackoff`), so each reports one line per wait rather than one per pass. A waiting
+ * release is off the page, so it never keeps another from its turn. Consent that is not there yet is
+ * reported as `awaiting_consent`, apart from other transients.
  */
 export function factoryReleaseOutcomeDriver(
   database: TransactionalDb,
-  releases: Pick<FactoryReleases, "listClaimableInTransaction" | "inspect" | "readConsentInTransaction" | "claim" | "dispatch">,
+  releases: Pick<FactoryReleases, "listClaimableInTransaction" | "listStoppedInTransaction" | "inspect" | "readConsentInTransaction" | "claim" | "dispatch" | "settleStopped">,
   runs: Pick<FactoryRunLifecycle, "readExecutionPlanInTransaction">,
   projectIds: () => Promise<readonly string[]>,
   providers: FactoryReleaseProviderResolver,
   report: (role: string, error: unknown) => void,
   limit?: number,
   delivery?: Pick<FactoryReleaseOutcomeDelivery, "deliver" | "undelivered">,
+  now: () => number = Date.now,
 ): FactoryRoleDriver {
-  return factoryPageDriver<FactoryClaimableRelease | FactoryPendingReleaseDelivery>({
+  const backoff = new FactoryReleaseOutcomeBackoff(now);
+  const key = (item: { readonly projectId: string; readonly operationId: string }) => `${item.projectId}\u0000${item.operationId}`;
+  const settleStopped = async (item: FactoryPendingReleaseStop) => {
+    const operation = await releases.inspect(item.projectId, item.operationId);
+    if (operation === null) throw new FactoryReleaseError("factory_release_stop_settlement_stale");
+    await releases.settleStopped(item.projectId, item.operationId, await providers.resolve(operation));
+  };
+  const claimAndDispatch = async (claimable: FactoryClaimableRelease) => {
+    // The operation the consent is read against. `readConsentInTransaction`
+    // re-validates every byte of it and `claim` re-reads it under a lock, so
+    // an operation that moved between the scan and here costs a refusal by
+    // name rather than a wrong claim.
+    const operation = await releases.inspect(claimable.projectId, claimable.operationId);
+    if (operation === null) throw new FactoryReleaseConsentAbsentError("operation_absent");
+    const { requester, consent } = await database.transaction(async (transaction: MigrationDb) => {
+      const { initiator } = await runs.readExecutionPlanInTransaction(transaction, { projectId: claimable.projectId, runId: claimable.runId });
+      return { requester: initiator, consent: await releases.readConsentInTransaction(transaction, initiator, operation) };
+    });
+    if (consent.kind === "none") throw new FactoryReleaseConsentAbsentError(consent.reason);
+    const claim = await releases.claim(requester, claimable.projectId, claimable.operationId, consent.consent);
+    // A claim IS the operation (`FactoryReleaseClaim extends
+    // FactoryReleaseOperation`), so the destination the resolver reads is the
+    // one already persisted against this release.
+    const settled = await releases.dispatch(claim, await providers.resolve(claim));
+    if (delivery !== undefined) await delivery.deliver(settled.projectId, settled.operationId);
+  };
+  return factoryPageDriver<FactoryClaimableRelease | FactoryPendingReleaseDelivery | FactoryPendingReleaseStop>({
     async page(_signal) {
       for (const projectId of await projectIds()) {
-        const claimable = await database.transaction((transaction: MigrationDb) =>
-          releases.listClaimableInTransaction(transaction, projectId, limit));
-        if (claimable.length > 0) return claimable;
+        // A project's stopped releases ride on the same page as its claimable ones, so a release that cannot be
+        // claimed on this pass never keeps a stopped one from its question (W09e R3). A waiting one is off it.
+        const [claimable, stopped] = await database.transaction(async (transaction: MigrationDb) =>
+          [await releases.listClaimableInTransaction(transaction, projectId, limit), await releases.listStoppedInTransaction(transaction, projectId, limit)] as const);
+        const page = [...claimable, ...stopped.map((item) => ({ ...item, stopOnly: true as const }))].filter((item) => !backoff.waiting(key(item)));
+        if (page.length > 0) return page;
       }
       return delivery === undefined ? [] : (await delivery.undelivered()).map((item) => ({ ...item, deliverOnly: true as const }));
     },
@@ -308,27 +433,16 @@ export function factoryReleaseOutcomeDriver(
         await delivery!.deliver(item.projectId, item.operationId);
         return;
       }
-      const claimable = item;
-      // The operation the consent is read against. `readConsentInTransaction`
-      // re-validates every byte of it and `claim` re-reads it under a lock, so
-      // an operation that moved between the scan and here costs a refusal by
-      // name rather than a wrong claim.
-      const operation = await releases.inspect(claimable.projectId, claimable.operationId);
-      if (operation === null) throw new FactoryReleaseConsentAbsentError("operation_absent");
-      const { requester, consent } = await database.transaction(async (transaction: MigrationDb) => {
-        const { initiator } = await runs.readExecutionPlanInTransaction(transaction, { projectId: claimable.projectId, runId: claimable.runId });
-        return { requester: initiator, consent: await releases.readConsentInTransaction(transaction, initiator, operation) };
-      });
-      if (consent.kind === "none") throw new FactoryReleaseConsentAbsentError(consent.reason);
-      const claim = await releases.claim(requester, claimable.projectId, claimable.operationId, consent.consent);
-      // A claim IS the operation (`FactoryReleaseClaim extends
-      // FactoryReleaseOperation`), so the destination the resolver reads is the
-      // one already persisted against this release.
-      const settled = await releases.dispatch(claim, await providers.resolve(claim));
-      if (delivery !== undefined) await delivery.deliver(settled.projectId, settled.operationId);
+      try {
+        await ("stopOnly" in item ? settleStopped(item) : claimAndDispatch(item));
+        backoff.moved(key(item));
+      } catch (error) {
+        if (waitsBeforeRetry(error)) backoff.defer(key(item));
+        throw error;
+      }
     },
     classify: factoryReleaseOutcomeDisposition,
-    report: (claimable, error, disposition) => { report(`release-outcome:${disposition}:${claimable.operationId}`, error); },
+    report: (item, error, disposition) => { report(`release-outcome:${awaitingConsent(error) ? "awaiting_consent" : disposition}:${item.operationId}`, error); },
   });
 }
 

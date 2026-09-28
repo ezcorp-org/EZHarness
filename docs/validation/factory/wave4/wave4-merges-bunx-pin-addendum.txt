@@ -1,0 +1,26 @@
+Wave4 merges addendum: the bunx pin gap (lead ruling 2026-09-27; found by w01g-fix).
+
+The pinned directory /tmp/factory-tools/bun-1.3.14/bun-linux-x64 held `bun` but no `bunx` until 2026-09-27 19:36:56Z
+(link bunx -> bun). With the pin first on PATH, `bunx` still fell through to /run/current-system/sw/bin/bunx (Bun 1.4.2).
+web/package.json's build is `bunx --bun vite build`, so every web build before that time ran Vite under Bun 1.4.2.
+
+Per merge, the steps that ran through bunx under 1.4.2 (disclosed, not void):
+- W16c 6c1e94f67, W14b 40025abc4, item C e4ec2119c, W09f 5bf3bff80, W15f ccee4794e, W09g b944553cd, W16d 6c8d45f25:
+  the web build before the runbook mock pass (heavy leg web-build).
+- W01h a8b467b2c: the web build before the mock pass, and the fault pass's web build in its proof worktree.
+- W01i 4dc6ddc85: the web build before the mock pass, the lane's web build (lane/build.log), and the lane's
+  `bunx playwright test` runner.
+Not affected: every `bun` and `bun test` leg (bun test v1.3.14 in every log); `bun run check` (svelte-kit sync and
+svelte-check, no bunx); the web Vitest legs (npx vitest); every server. The lane stack (web/e2e/factory-services/stack.ts,
+BUN = process.execPath) and the graph proof (scripts/factory-graph-proof/proof.ts, BUN = process.execPath) started the web
+server and every service under the pinned 1.3.14, so the runtime evidence stands and no step is void.
+The only "1.4.2" in any batch log is the package name @types/bun@1.4.2 in an install log, not a runtime.
+From W16d's receipts on: heavy-lib.sh and merge-fast-checks.sh stop with exit 95 unless both `bun --version` and
+`bunx --version` equal .bun-version (tested: pinned 1.3.14 passes; a PATH without the pinned bunx is refused, naming
+/run/current-system/sw/bin/bunx 1.4.2).
+
+Gate-integrity sweep (lead ruling: the cumulative baseline after the staged-numbering artefact found at W16d):
+at integ 2471a9ebf (after W16d and the W09g docs follow-up; merge base with origin/main 96e7ee58c), against origin/main:
+PASSED, 551 changed test files in scope (gate-integrity-sweep-2471a9ebf.log). It covers everything merged up to and
+including c9b7bab5b, so no earlier staged fast-check run hid a finding. The W16d merge commit's own run (6c8d45f25)
+also PASSED against origin/main and c9b7bab5b (w16d-merge-gate-integrity-at-merge.log).

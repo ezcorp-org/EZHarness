@@ -260,6 +260,7 @@ export function buildFactorySchema({ projects, users, serviceAccounts }: Factory
     uncertainty: text("uncertainty"),
     state: text("state").notNull(),
     originKind: text("origin_kind").notNull().default("dispatch-node"),
+    epochStaleJson: jsonb("epoch_stale_json"),
   }, (table) => [
     primaryKey({ columns: [table.tenantId, table.projectId, table.runId, table.reservationId] }),
     foreignKey({ columns: [table.tenantId, table.projectId, table.runId, table.envelopeId], foreignColumns: [factoryBudgetEnvelopes.tenantId, factoryBudgetEnvelopes.projectId, factoryBudgetEnvelopes.runId, factoryBudgetEnvelopes.envelopeId] }).onDelete("restrict"),
@@ -458,7 +459,28 @@ export function buildFactorySchema({ projects, users, serviceAccounts }: Factory
     uniqueIndex("factory_executions_scope_attempt_key").on(table.attemptId, table.tenantId, table.projectId, table.runId),
     index("idx_factory_executions_run").on(table.tenantId, table.projectId, table.runId, table.createdAt),
     foreignKey({ columns: [table.tenantId, table.projectId, table.runId], foreignColumns: [factoryRuns.tenantId, factoryRuns.projectId, factoryRuns.runId] }).onDelete("restrict"),
-    check("factory_executions_status_check", sql`${table.status} IN ('admitted', 'running', 'cancel_accepted', 'stopped', 'failed')`),
+    check("factory_executions_status_check", sql`${table.status} IN ('admitted', 'running', 'completed', 'cancel_accepted', 'stopped', 'failed', 'superseded')`),
+  ]);
+
+  const factoryAttemptSupersessions = pgTable("factory_attempt_supersessions", {
+    ...tenantProjectRunColumns(),
+    attemptId: text("attempt_id").notNull().references((): AnyPgColumn => factoryExecutions.attemptId, { onDelete: "restrict" }),
+    reservationId: text("reservation_id"),
+    interpreterId: text("interpreter_id"),
+    supersededEpoch: bigint("superseded_epoch", { mode: "number" }).notNull(),
+    executionEpoch: bigint("execution_epoch", { mode: "number" }).notNull(),
+    restoreId: text("restore_id").notNull(),
+    restoreDigest: text("restore_digest").notNull(),
+    eventJson: jsonb("event_json"),
+    supersededAtMs: bigint("superseded_at_ms", { mode: "number" }).notNull(),
+  }, (table) => [
+    primaryKey({ columns: [table.tenantId, table.projectId, table.runId, table.attemptId] }),
+    index("factory_attempt_supersessions_reservation_idx").on(table.tenantId, table.reservationId),
+    check("factory_attempt_supersessions_superseded_epoch_check", sql`${table.supersededEpoch} >= 1`),
+    check("factory_attempt_supersessions_epoch_check", sql`${table.executionEpoch} > ${table.supersededEpoch}`),
+    check("factory_attempt_supersessions_restore_digest_check", sql`${table.restoreDigest} ~ '^sha256:[0-9a-f]{64}$'`),
+    check("factory_attempt_supersessions_superseded_at_ms_check", sql`${table.supersededAtMs} >= 0`),
+    check("factory_attempt_supersessions_event_check", sql`(${table.interpreterId} IS NULL) = (${table.eventJson} IS NULL)`),
   ]);
 
   const factoryAttemptQueue = pgTable("factory_attempt_queue", {
@@ -545,6 +567,7 @@ export function buildFactorySchema({ projects, users, serviceAccounts }: Factory
     factoryRunLifecycle,
     factoryChildRuns,
     factoryExecutions,
+    factoryAttemptSupersessions,
     factoryAttemptQueue,
     factoryExecutionOperationCursors,
     factoryExecutionOperations,

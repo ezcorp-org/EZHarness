@@ -59,6 +59,7 @@ class RecordingProvider implements FactoryReleaseProvider {
     if (this.loseResponse) throw new Error("provider response lost after the write");
     return receipt;
   }
+  async lookupReceipt(operation: FactoryReleaseOperation): Promise<FactoryProviderReceipt | null> { return this.receipts.get(`${operation.operationId}:${operation.dispatchGeneration}`) ?? null; }
   async verifyReceipt(operation: FactoryReleaseOperation, receipt: FactoryProviderReceipt): Promise<boolean> {
     this.verifications += 1;
     if (this.productStoreDown) throw new Error("the ordinary object store is unreachable");

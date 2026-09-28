@@ -1201,13 +1201,57 @@ export function validateFactoryValidatorReport(value: unknown): ValidationResult
   return validateValidatorClaims(report.claims, report.error);
 }
 
+/** Mutations whose If-Match may be 0: the creations and pending-state mutations below, plus the upserts. */
+const REVISION_ZERO_ALLOWED: ReadonlySet<string> = new Set([
+  "draft.create",
+  "draft.import",
+  "grant.set",
+  "run.start",
+  "approval.decide",
+  "service-credential.issue",
+  "release.trust.publish",
+  "release.control.set",
+  "release.contract.put",
+  "release.prepare",
+  "release.approval.request",
+  "release.approval.decide",
+  "release.policy.put",
+  "package.install",
+  "package.trust",
+  "purge.request",
+  "artifact.share",
+  "artifact.unshare",
+  "restore.sign",
+]);
+
+/** Resource creations and pending-state mutations: If-Match must be exactly 0. */
+const REVISION_ZERO_REQUIRED: ReadonlySet<string> = new Set([
+  "draft.create",
+  "draft.import",
+  "run.start",
+  "approval.decide",
+  "release.prepare",
+  "release.approval.decide",
+  "release.policy.put",
+  "package.install",
+  "purge.request",
+  "artifact.share",
+  "artifact.unshare",
+  "restore.sign",
+]);
+
 function validateApiPreconditions(request: Extract<FactoryApiRequest, { preconditions: unknown }>): ValidationResult {
   const { idempotencyKey, expectedRevision } = request.preconditions;
   if (!boundedText(idempotencyKey, FACTORY_LIMITS.maxApiIdempotencyKeyLength)) return issue("API_IDEMPOTENCY_KEY", "Idempotency-Key must be a nonempty bounded value without control characters.", ["preconditions", "idempotencyKey"]);
   if (!validDigest(request.preconditions.payloadDigest, false)) return issue("API_PAYLOAD_DIGEST", "Mutation payload digest must be lowercase sha256.", ["preconditions", "payloadDigest"]);
-  const allowsZero = request.kind === "draft.create" || request.kind === "draft.import" || request.kind === "grant.set" || request.kind === "run.start" || request.kind === "approval.decide" || request.kind === "service-credential.issue" || request.kind === "release.trust.publish" || request.kind === "release.control.set" || request.kind === "release.contract.put" || request.kind === "release.prepare" || request.kind === "release.approval.request" || request.kind === "release.approval.decide" || request.kind === "release.policy.put";
+  return validateExpectedRevision(request.kind, expectedRevision);
+}
+
+/** If-Match: a safe revision, at least 1 unless the kind allows 0, and exactly 0 where the kind requires it. */
+function validateExpectedRevision(kind: string, expectedRevision: number): ValidationResult {
+  const allowsZero = REVISION_ZERO_ALLOWED.has(kind);
   if (!safeCounter(expectedRevision, allowsZero ? 0 : 1) || (!allowsZero && expectedRevision === 0)) return issue("API_EXPECTED_REVISION", "If-Match must contain a supported safe revision.", ["preconditions", "expectedRevision"]);
-  if ((request.kind === "draft.create" || request.kind === "draft.import" || request.kind === "run.start" || request.kind === "approval.decide" || request.kind === "release.prepare" || request.kind === "release.approval.decide" || request.kind === "release.policy.put") && expectedRevision !== 0) return issue("API_EXPECTED_REVISION", "Resource creation or pending-state mutation requires revision 0.", ["preconditions", "expectedRevision"]);
+  if (REVISION_ZERO_REQUIRED.has(kind) && expectedRevision !== 0) return issue("API_EXPECTED_REVISION", "Resource creation or pending-state mutation requires revision 0.", ["preconditions", "expectedRevision"]);
   return { ok: true };
 }
 

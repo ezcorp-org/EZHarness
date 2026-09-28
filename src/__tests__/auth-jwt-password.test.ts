@@ -6,7 +6,7 @@
  */
 
 import { test, expect, describe } from "bun:test";
-import { signInstallationToken, signJWT, verifyJWT } from "../auth/jwt";
+import { configuredInstallationId, signInstallationToken, signJWT, verifyJWT } from "../auth/jwt";
 import { hashPassword, verifyPassword } from "../auth/password";
 import type { AuthUser } from "../auth/types";
 
@@ -155,6 +155,30 @@ describe("signJWT / verifyJWT round-trip", () => {
 		expect(d1?.jti).toBeString();
 		expect(d2?.jti).toBeString();
 		expect(d1?.jti).not.toBe(d2?.jti);
+	});
+});
+
+// The boot-frozen factory policy decides the installation id in-process;
+// factory-boot.test.ts keeps the child-process proof of the frozen import.
+describe("configuredInstallationId", () => {
+	const FACTORY = { enabled: true } as const;
+	const SELF_HOSTED = { enabled: false } as const;
+
+	test("a configured id wins whatever the factory policy", () => {
+		expect(configuredInstallationId(FACTORY, "inst-1")).toBe("inst-1");
+		expect(configuredInstallationId(SELF_HOSTED, "inst-1")).toBe("inst-1");
+	});
+
+	test("a factory boot without an id refuses with the variable name", () => {
+		const refusal = "Factory JWT requires EZCORP_INSTALLATION_ID.";
+		expect(() => configuredInstallationId(FACTORY, undefined)).toThrow(refusal);
+		expect(() => configuredInstallationId(FACTORY, "")).toThrow(refusal);
+		expect(() => configuredInstallationId(FACTORY, "  \t")).toThrow(refusal);
+	});
+
+	test("a self-hosted boot without an id gets no id, so the caller derives the local one", () => {
+		expect(configuredInstallationId(SELF_HOSTED, undefined)).toBeUndefined();
+		expect(configuredInstallationId(SELF_HOSTED, " ")).toBeUndefined();
 	});
 });
 

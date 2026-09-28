@@ -2959,6 +2959,7 @@ export const {
   factoryRunLifecycle,
   factoryChildRuns,
   factoryExecutions,
+  factoryAttemptSupersessions,
   factoryAttemptQueue,
   factoryExecutionOperationCursors,
   factoryExecutionOperations,
@@ -3259,6 +3260,37 @@ export const factoryReleaseApprovals = pgTable("factory_release_approvals", {
   tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), approvalId: text("approval_id").notNull(), operationId: text("operation_id").notNull(), contextDigest: text("context_digest").notNull(), decisionId: text("decision_id").notNull(), principalId: text("principal_id").notNull().references(() => users.id, { onDelete: "restrict" }), grantRevision: bigint("grant_revision", { mode: "number" }).notNull(), expectedGeneration: bigint("expected_generation", { mode: "number" }).notNull(), expiresAtMs: bigint("expires_at_ms", { mode: "number" }).notNull(), status: text("status").notNull().$type<"pending" | "approved" | "rejected" | "consumed" | "revoked">(), approvedBy: text("approved_by").references(() => users.id, { onDelete: "restrict" }), approvedGrantRevision: bigint("approved_grant_revision", { mode: "number" }), consumedAt: timestamp("consumed_at", { withTimezone: true }), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [primaryKey({ columns: [table.tenantId, table.projectId, table.approvalId] }), uniqueIndex("idx_factory_release_approvals_operation_generation").on(table.tenantId, table.projectId, table.operationId, table.expectedGeneration), foreignKey({ columns: [table.tenantId, table.projectId, table.decisionId], foreignColumns: [factoryAcceptanceDecisions.tenantId, factoryAcceptanceDecisions.projectId, factoryAcceptanceDecisions.decisionId] }).onDelete("restrict")]);
 
+/** The installation's first-administrator redemption and explicit bootstrap consent (C01, C12 step 7). */
+export const factoryInstallationBootstrap = pgTable("factory_installation_bootstrap", {
+  installationId: text("installation_id").primaryKey(),
+  tenantId: text("tenant_id").notNull(),
+  invitationId: text("invitation_id").notNull(),
+  adminUserId: text("admin_user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  state: text("state").notNull().$type<"redeemed" | "consented">(),
+  projectId: text("project_id"),
+  consentDigest: text("consent_digest"),
+  redeemedAt: timestamp("redeemed_at", { withTimezone: true }).notNull().defaultNow(),
+  consentedAt: timestamp("consented_at", { withTimezone: true }),
+}, (table) => [
+  foreignKey({ name: "factory_installation_bootstrap_project_fkey", columns: [table.tenantId, table.projectId], foreignColumns: [factoryProjects.tenantId, factoryProjects.projectId] }).onDelete("restrict"),
+  check("factory_installation_bootstrap_state_check", sql`${table.state} IN ('redeemed', 'consented')`),
+  check("factory_installation_bootstrap_consent_digest_check", sql`${table.consentDigest} ~ '^sha256:[0-9a-f]{64}$'`),
+  check("factory_installation_bootstrap_consent_check", sql`(${table.state} = 'consented') = (${table.projectId} IS NOT NULL AND ${table.consentDigest} IS NOT NULL AND ${table.consentedAt} IS NOT NULL)`),
+]);
+
+/** An administrator's session-issued approval to purge this installation; read by the operator's provisioner at purge. */
+export const factoryInstallationPurgeApprovals = pgTable("factory_installation_purge_approvals", {
+  approvalId: text("approval_id").primaryKey(),
+  installationId: text("installation_id").notNull(),
+  approvedByUserId: text("approved_by_user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  reason: text("reason").notNull(),
+  approvedAt: timestamp("approved_at", { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+}, (table) => [
+  check("factory_installation_purge_approvals_reason_check", sql`char_length(${table.reason}) BETWEEN 1 AND 256`),
+  check("factory_installation_purge_approvals_expiry_check", sql`${table.expiresAt} > ${table.approvedAt}`),
+]);
+
 /** Retained encrypted wraps for one installation data key; plaintext master keys never enter this schema. */
 export const factoryInstallationKeyWraps = pgTable("factory_installation_key_wraps", {
   installationId: text("installation_id").notNull(),
@@ -3360,6 +3392,8 @@ export const factoryReleaseOperations = pgTable("factory_release_operations", {
   decisionId: text("decision_id").notNull(), contractDigest: text("contract_digest").notNull(), executionEpoch: bigint("execution_epoch", { mode: "number" }).notNull(), cancellationEpoch: bigint("cancellation_epoch", { mode: "number" }).notNull(), releaseEnableEpoch: bigint("release_enable_epoch", { mode: "number" }).notNull(),
   action: text("action").notNull(), destinationProvider: text("destination_provider").notNull(), destinationAccount: text("destination_account").notNull(), destinationObject: text("destination_object").notNull(), expectedDestinationVersion: text("expected_destination_version"), destinationDigest: text("destination_digest").notNull(), canonicalRequest: text("canonical_request").notNull(), requestDigest: text("request_digest").notNull(), materialJson: text("material_json").notNull(), materialDigest: text("material_digest").notNull(), estimatedSpendMicros: bigint("estimated_spend_micros", { mode: "number" }).notNull(), deadlineMs: bigint("deadline_ms", { mode: "number" }).notNull(),
   state: text("state").notNull().$type<"pending" | "executing" | "succeeded" | "failed" | "uncertain">(), dispatchGeneration: bigint("dispatch_generation", { mode: "number" }).notNull().default(0), senderToken: text("sender_token"), dispatchStarted: boolean("dispatch_started").notNull().default(false), authorityKind: text("authority_kind").$type<"approval" | "policy">(), authorityId: text("authority_id"), policyRevision: bigint("policy_revision", { mode: "number" }), intentArchiveJson: text("intent_archive_json"), materialArchiveJson: text("material_archive_json"), receiptArchiveJson: text("receipt_archive_json"), receiptJson: text("receipt_json"), archiveReady: boolean("archive_ready").notNull().default(false), outcomeCode: text("outcome_code"),
+  // W09e: the stop of a release in flight, and what became of its effect.
+  stopCommandId: text("stop_command_id"), stopRequestedEpoch: bigint("stop_requested_epoch", { mode: "number" }), stopRequestedAtMs: bigint("stop_requested_at_ms", { mode: "number" }), stopEventJson: text("stop_event_json"), stopOutcome: text("stop_outcome").$type<"no_effect" | "published" | "unknown_at_deadline">(), lateEvidenceJson: text("late_evidence_json"), stopCostMicros: bigint("stop_cost_micros", { mode: "number" }), stopCostSource: text("stop_cost_source").$type<"proven-no-effect" | "provider-receipt" | "reserved-bound">(), stopCostBasis: text("stop_cost_basis"),
   profileInputDigest: text("profile_input_digest"), profileResultDigest: text("profile_result_digest"), profileResolvedAtMs: bigint("profile_resolved_at_ms", { mode: "number" }), destinationRef: text("destination_ref"), destinationBranch: text("destination_branch"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [primaryKey({ columns: [table.tenantId, table.projectId, table.operationId] }), uniqueIndex("idx_factory_release_operations_identity").on(table.tenantId, table.projectId, table.runId, table.nodeInstanceId, table.candidateGeneration, table.action, table.destinationProvider, table.destinationAccount, table.destinationObject), foreignKey({ columns: [table.tenantId, table.projectId, table.decisionId], foreignColumns: [factoryAcceptanceDecisions.tenantId, factoryAcceptanceDecisions.projectId, factoryAcceptanceDecisions.decisionId] }).onDelete("restrict"), foreignKey({ columns: [table.tenantId, table.projectId, table.runId], foreignColumns: [factoryRuns.tenantId, factoryRuns.projectId, factoryRuns.runId] }).onDelete("restrict"),
@@ -3369,7 +3403,10 @@ export const factoryReleaseOperations = pgTable("factory_release_operations", {
   check("factory_release_operations_profile_resolved_at_check", sql`${table.profileResolvedAtMs} IS NULL OR ${table.profileResolvedAtMs} > 0`),
   check("factory_release_operations_destination_ref_check", sql`${table.destinationRef} IS NULL OR ${table.destinationRef} LIKE 'refs/heads/ezcorp-factory/%'`),
   check("factory_release_operations_destination_branch_check", sql`(${table.destinationRef} IS NULL) = (${table.destinationBranch} IS NULL)`),
-  check("factory_release_operations_profile_claimed_check", sql`${table.state} = 'pending' OR ${table.profileResultDigest} IS NOT NULL`)]);
+  check("factory_release_operations_profile_claimed_check", sql`${table.state} = 'pending' OR ${table.profileResultDigest} IS NOT NULL`),
+  check("factory_release_operations_stop_outcome_check", sql`${table.stopOutcome} IS NULL OR ${table.stopOutcome} IN ('no_effect','published','unknown_at_deadline')`),
+  check("factory_release_operations_stop_fields_check", sql`(${table.stopCommandId} IS NULL) = (${table.stopRequestedEpoch} IS NULL) AND (${table.stopCommandId} IS NULL) = (${table.stopRequestedAtMs} IS NULL) AND (${table.stopCommandId} IS NULL) = (${table.stopEventJson} IS NULL) AND (${table.stopOutcome} IS NULL OR ${table.stopCommandId} IS NOT NULL) AND (${table.stopRequestedEpoch} IS NULL OR ${table.stopRequestedEpoch} >= 1)`),
+  check("factory_release_operations_stop_cost_check", sql`(${table.stopOutcome} IS NULL) = (${table.stopCostSource} IS NULL) AND (${table.stopCostSource} IS NULL) = (${table.stopCostMicros} IS NULL) AND (${table.stopCostSource} IS NULL) = (${table.stopCostBasis} IS NULL) AND (${table.stopCostSource} IS NULL OR ${table.stopCostSource} IN ('proven-no-effect','provider-receipt','reserved-bound')) AND (${table.stopCostMicros} IS NULL OR ${table.stopCostMicros} >= 0) AND (${table.stopOutcome} IS DISTINCT FROM 'no_effect' OR (${table.stopCostSource} = 'proven-no-effect' AND ${table.stopCostMicros} = 0)) AND (${table.stopOutcome} IS DISTINCT FROM 'unknown_at_deadline' OR ${table.stopCostSource} = 'reserved-bound') AND (${table.stopOutcome} IS DISTINCT FROM 'published' OR ${table.stopCostSource} IN ('provider-receipt','reserved-bound'))`)]);
 
 export const factoryReleaseDestinationReservations = pgTable("factory_release_destination_reservations", {
   tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), destinationProvider: text("destination_provider").notNull(), destinationAccount: text("destination_account").notNull(), destinationObject: text("destination_object").notNull(), operationId: text("operation_id").notNull(), expectedVersion: text("expected_version"), dispatchGeneration: bigint("dispatch_generation", { mode: "number" }).notNull(), state: text("state").notNull().$type<"held" | "confirmed" | "released">(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -3401,10 +3438,12 @@ export const factoryUsageSettlements = pgTable("factory_usage_settlements", {
   tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), runId: text("run_id").notNull(),
   reservationId: text("reservation_id").notNull(), revision: bigint("revision", { mode: "number" }).notNull(),
   attemptId: text("attempt_id").notNull(),
-  source: text("source").notNull().$type<"stop" | "reconciliation">(),
+  source: text("source").notNull().$type<"stop" | "reconciliation" | "no-operations">(),
   knownCostMicros: text("known_cost_micros").notNull(),
   unknownCostMicros: text("unknown_cost_micros"),
   providerReceiptDigest: text("provider_receipt_digest"),
+  stopReceiptDigest: text("stop_receipt_digest"),
+  basis: text("basis"),
   settledAtMs: bigint("settled_at_ms", { mode: "number" }).notNull(),
   settlementDigest: text("settlement_digest").notNull(),
   eventJson: text("event_json").notNull(), eventDigest: text("event_digest").notNull(),
@@ -3413,7 +3452,7 @@ export const factoryUsageSettlements = pgTable("factory_usage_settlements", {
   primaryKey({ columns: [table.tenantId, table.projectId, table.runId, table.reservationId, table.revision] }),
   foreignKey({ columns: [table.tenantId, table.projectId, table.runId, table.reservationId], foreignColumns: [factoryBudgetReservations.tenantId, factoryBudgetReservations.projectId, factoryBudgetReservations.runId, factoryBudgetReservations.reservationId] }).onDelete("restrict"),
   check("factory_usage_settlements_revision_check", sql`${table.revision} >= 1`),
-  check("factory_usage_settlements_source_check", sql`${table.source} IN ('stop','reconciliation')`),
+  check("factory_usage_settlements_source_check", sql`${table.source} IN ('stop','reconciliation','no-operations')`),
   check("factory_usage_settlements_known_cost_check", sql`${table.knownCostMicros} ~ '^[0-9]+$'`),
   check("factory_usage_settlements_unknown_cost_check", sql`${table.unknownCostMicros} IS NULL OR ${table.unknownCostMicros} ~ '^[0-9]+$'`),
   // C02 form: bare 64-character lowercase hex, matching the SDK result
@@ -3423,6 +3462,10 @@ export const factoryUsageSettlements = pgTable("factory_usage_settlements", {
   check("factory_usage_settlements_settlement_digest_check", sql`${table.settlementDigest} ~ '^sha256:[0-9a-f]{64}$'`),
   check("factory_usage_settlements_event_digest_check", sql`${table.eventDigest} ~ '^sha256:[0-9a-f]{64}$'`),
   check("factory_usage_settlements_reconciliation_check", sql`${table.source} <> 'reconciliation' OR ${table.providerReceiptDigest} IS NOT NULL`),
+  // W03e: a no-operations zero carries exactly its signed stop receipt, and is only ever a known zero.
+  check("factory_usage_settlements_stop_receipt_check", sql`${table.stopReceiptDigest} IS NULL OR ${table.stopReceiptDigest} ~ '^sha256:[0-9a-f]{64}$'`),
+  check("factory_usage_settlements_basis_check", sql`(${table.source} = 'no-operations') = (${table.basis} IS NOT NULL) AND (${table.basis} IS NULL OR ${table.basis} = 'no-operations: compute at reserved bound')`),
+  check("factory_usage_settlements_no_operations_check", sql`(${table.source} = 'no-operations') = (${table.stopReceiptDigest} IS NOT NULL) AND (${table.source} <> 'no-operations' OR (${table.knownCostMicros} = '0' AND ${table.unknownCostMicros} IS NULL AND ${table.providerReceiptDigest} IS NULL))`),
 ]);
 
 /**
@@ -3435,8 +3478,11 @@ export const factoryTaskStops = pgTable("factory_task_stops", {
   cancelCommandId: text("cancel_command_id").notNull(), attemptCommandId: text("attempt_command_id"), attemptId: text("attempt_id").notNull(), reservationId: text("reservation_id").notNull(),
   requestJson: text("request_json").notNull(), requestDigest: text("request_digest").notNull(),
   source: text("source").notNull().default("terminal-outcome").$type<"terminal-outcome" | "sealed-launch">(),
-  state: text("state").notNull().$type<"accepted" | "uncertain" | "stopped">(),
+  state: text("state").notNull().$type<"accepted" | "uncertain" | "stopped" | "superseded">(),
+  supersededRestoreId: text("superseded_restore_id"),
   uncertainEventJson: text("uncertain_event_json"), uncertainEventDigest: text("uncertain_event_digest"), stopReceiptJson: text("stop_receipt_json"), stopReceiptDigest: text("stop_receipt_digest"), stoppedEventJson: text("stopped_event_json"), stoppedEventDigest: text("stopped_event_digest"),
+  // W01h fix round: set once when the stop's facts no longer verify; the settlement scan skips it.
+  reconcileJson: text("reconcile_json"),
   acceptedAtMs: bigint("accepted_at_ms", { mode: "number" }).notNull(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   primaryKey({ columns: [table.tenantId, table.projectId, table.runId, table.interpreterId, table.cancelCommandId] }),
@@ -3447,13 +3493,14 @@ export const factoryTaskStops = pgTable("factory_task_stops", {
   foreignKey({ columns: [table.tenantId, table.projectId, table.runId, table.interpreterId, table.cancelCommandId], foreignColumns: [factoryTransitionCommands.tenantId, factoryTransitionCommands.projectId, factoryTransitionCommands.runId, factoryTransitionCommands.interpreterId, factoryTransitionCommands.commandId] }).onDelete("restrict"),
   check("factory_task_stops_request_digest_check", sql`${table.requestDigest} ~ '^sha256:[0-9a-f]{64}$'`),
   check("factory_task_stops_source_check", sql`${table.source} IN ('terminal-outcome','sealed-launch')`),
-  check("factory_task_stops_state_check", sql`${table.state} IN ('accepted','uncertain','stopped')`),
+  check("factory_task_stops_state_check", sql`${table.state} IN ('accepted','uncertain','stopped','superseded')`),
+  check("factory_task_stops_superseded_check", sql`(${table.state} = 'superseded') = (${table.supersededRestoreId} IS NOT NULL)`),
   check("factory_task_stops_accepted_at_ms_check", sql`${table.acceptedAtMs} >= 0`),
   check("factory_task_stops_uncertain_event_digest_check", sql`${table.uncertainEventDigest} IS NULL OR ${table.uncertainEventDigest} ~ '^sha256:[0-9a-f]{64}$'`),
   check("factory_task_stops_stop_receipt_digest_check", sql`${table.stopReceiptDigest} IS NULL OR ${table.stopReceiptDigest} ~ '^sha256:[0-9a-f]{64}$'`),
   check("factory_task_stops_stopped_event_digest_check", sql`${table.stoppedEventDigest} IS NULL OR ${table.stoppedEventDigest} ~ '^sha256:[0-9a-f]{64}$'`),
   check("factory_task_stops_outcome_source_check", sql`${table.source} <> 'terminal-outcome' OR ${table.attemptCommandId} IS NOT NULL`),
-  check("factory_task_stops_accepted_state_check", sql`(${table.state} = 'accepted') = (${table.uncertainEventJson} IS NULL AND ${table.uncertainEventDigest} IS NULL AND ${table.stopReceiptJson} IS NULL AND ${table.stopReceiptDigest} IS NULL AND ${table.stoppedEventJson} IS NULL AND ${table.stoppedEventDigest} IS NULL)`),
+  check("factory_task_stops_accepted_state_check", sql`(${table.state} = 'accepted') = (${table.uncertainEventJson} IS NULL AND ${table.uncertainEventDigest} IS NULL AND ${table.stopReceiptJson} IS NULL AND ${table.stopReceiptDigest} IS NULL AND ${table.stoppedEventJson} IS NULL AND ${table.stoppedEventDigest} IS NULL) OR ${table.state} = 'superseded'`),
   check("factory_task_stops_uncertain_pair_check", sql`(${table.uncertainEventJson} IS NULL) = (${table.uncertainEventDigest} IS NULL)`),
   check("factory_task_stops_receipt_pair_check", sql`(${table.stopReceiptJson} IS NULL) = (${table.stopReceiptDigest} IS NULL)`),
   check("factory_task_stops_stopped_pair_check", sql`(${table.stoppedEventJson} IS NULL) = (${table.stoppedEventDigest} IS NULL)`),

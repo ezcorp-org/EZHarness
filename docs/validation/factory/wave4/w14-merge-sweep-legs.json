@@ -1,0 +1,554 @@
+[
+ {
+  "leg": "build-extension-contract",
+  "exitCode": 0,
+  "counts": {},
+  "start": "2026-09-27T06:20:54Z",
+  "end": "2026-09-27T06:20:54Z",
+  "logSha256": "c283b8569451d5ebac87ea96ecac71133ac2bae3657ff7b133e3e1ab5779c591"
+ },
+ {
+  "leg": "build-sdk",
+  "exitCode": 0,
+  "counts": {},
+  "start": "2026-09-27T06:20:54Z",
+  "end": "2026-09-27T06:20:54Z",
+  "logSha256": "781a10af5b6d2c1214f2be00467fa8dde4ce30fefcc5665279ba2750a69a0754"
+ },
+ {
+  "leg": "build-factory-sdk",
+  "exitCode": 0,
+  "counts": {},
+  "start": "2026-09-27T06:20:54Z",
+  "end": "2026-09-27T06:20:54Z",
+  "logSha256": "781a10af5b6d2c1214f2be00467fa8dde4ce30fefcc5665279ba2750a69a0754"
+ },
+ {
+  "leg": "build-factory-transport",
+  "exitCode": 0,
+  "counts": {},
+  "start": "2026-09-27T06:20:54Z",
+  "end": "2026-09-27T06:20:54Z",
+  "logSha256": "c283b8569451d5ebac87ea96ecac71133ac2bae3657ff7b133e3e1ab5779c591"
+ },
+ {
+  "leg": "build-factory-orchestrator",
+  "exitCode": 0,
+  "counts": {},
+  "start": "2026-09-27T06:20:54Z",
+  "end": "2026-09-27T06:20:55Z",
+  "logSha256": "2a079915bcf10755fd5d9f5fab9aadfd16ab3ab86b3d74c2dd9d98dda7556fe3"
+ },
+ {
+  "leg": "build-harness-client",
+  "exitCode": 0,
+  "counts": {},
+  "start": "2026-09-27T06:20:56Z",
+  "end": "2026-09-27T06:20:56Z",
+  "logSha256": "781a10af5b6d2c1214f2be00467fa8dde4ce30fefcc5665279ba2750a69a0754"
+ },
+ {
+  "leg": "lint",
+  "exitCode": 0,
+  "counts": {},
+  "start": "2026-09-27T06:20:56Z",
+  "end": "2026-09-27T06:20:57Z",
+  "logSha256": "0a6d9fa0c503ce4f7a8a4a56682aeafac5d8ede9962b1b4738701d3425ea34ad"
+ },
+ {
+  "leg": "typecheck",
+  "exitCode": 0,
+  "counts": {},
+  "start": "2026-09-27T06:20:57Z",
+  "end": "2026-09-27T06:21:38Z",
+  "logSha256": "bc58e91fe82539ca5bbd23e77e111ad610da4977abe1843fb99b8f5e1c4173cb"
+ },
+ {
+  "leg": "boundaries",
+  "exitCode": 0,
+  "counts": {},
+  "start": "2026-09-27T06:21:38Z",
+  "end": "2026-09-27T06:21:39Z",
+  "logSha256": "a701e3a2106adf5e27905c6b5ba03385c3e8490562ff4d2e98236c0403caaf83"
+ },
+ {
+  "leg": "gate-integrity",
+  "exitCode": 0,
+  "counts": {},
+  "start": "2026-09-27T06:21:39Z",
+  "end": "2026-09-27T06:21:42Z",
+  "logSha256": "b1a0297506aab4a182c44b23c41d861c6f4ae88da68848497d810bb39bff6bda"
+ },
+ {
+  "leg": "schema-drift",
+  "exitCode": 0,
+  "counts": {},
+  "start": "2026-09-27T06:21:42Z",
+  "end": "2026-09-27T06:21:46Z",
+  "logSha256": "58e4fb0d5102f899bd14326e7b9fcbaee5ad91491dec01c137198838c9b29f15"
+ },
+ {
+  "leg": "sdk-tests",
+  "exitCode": 0,
+  "counts": {
+   "bunPass": 227,
+   "bunFail": 0
+  },
+  "start": "2026-09-27T06:21:46Z",
+  "end": "2026-09-27T06:22:04Z",
+  "logSha256": "a838519b9e4918adf20794d89157bcf4bc346911f743d3103e2229e461c7f8a4"
+ },
+ {
+  "leg": "bun-console",
+  "exitCode": 0,
+  "counts": {
+   "bunPass": 3,
+   "bunFail": 0
+  },
+  "start": "2026-09-27T06:22:04Z",
+  "end": "2026-09-27T06:22:05Z",
+  "logSha256": "96556f647fae98e4b38763ccad624fa3d11a094922f695595acbe01c11f46ba3"
+ },
+ {
+  "leg": "bun-console-integration",
+  "exitCode": 0,
+  "counts": {
+   "bunPass": 25,
+   "bunFail": 0
+  },
+  "start": "2026-09-27T06:22:05Z",
+  "end": "2026-09-27T06:22:10Z",
+  "logSha256": "84b1537e1fc60eb911c4f6456654ddd045e9a354b6c6aa443aeb80b44d1ab576"
+ },
+ {
+  "leg": "bun-pg-console",
+  "exitCode": 0,
+  "counts": {
+   "bunPass": 25,
+   "bunFail": 0
+  },
+  "start": "2026-09-27T06:22:10Z",
+  "end": "2026-09-27T06:22:38Z",
+  "logSha256": "e7e53b047aaa5ebd16bfed8e4b11bea6fc3521b0a47cb1041d39e77845ac5817"
+ },
+ {
+  "leg": "bun-package-fence",
+  "exitCode": 0,
+  "counts": {
+   "bunPass": 17,
+   "bunFail": 0
+  },
+  "start": "2026-09-27T06:22:38Z",
+  "end": "2026-09-27T06:22:49Z",
+  "logSha256": "93caaf230328ac6c5678d678504a2ed8af33d87bc8ddb471930fa02413f89e92"
+ },
+ {
+  "leg": "bun-pg-package-fence",
+  "exitCode": 0,
+  "counts": {
+   "bunPass": 17,
+   "bunFail": 0
+  },
+  "start": "2026-09-27T06:22:49Z",
+  "end": "2026-09-27T06:24:11Z",
+  "logSha256": "fc4483da26e91c2c325a2a5db47604a11d681659c8793c224864ffe3074b1e4f"
+ },
+ {
+  "leg": "bun-package-preparation",
+  "exitCode": 0,
+  "counts": {
+   "bunPass": 22,
+   "bunFail": 0
+  },
+  "start": "2026-09-27T06:24:11Z",
+  "end": "2026-09-27T06:24:19Z",
+  "logSha256": "5bf99309c3c45f3534abbb5a03ed3d80f34b71c3879549bf3ab2cf30b3b897c8"
+ },
+ {
+  "leg": "bun-pg-package-preparation",
+  "exitCode": 0,
+  "counts": {
+   "bunPass": 22,
+   "bunFail": 0
+  },
+  "start": "2026-09-27T06:24:19Z",
+  "end": "2026-09-27T06:26:00Z",
+  "logSha256": "dcaddff1c2160c143865108b71c731efc20d0c1647adf93151dfdc33eec60061"
+ },
+ {
+  "leg": "bun-installation-startup",
+  "exitCode": 0,
+  "counts": {
+   "bunPass": 51,
+   "bunFail": 0
+  },
+  "start": "2026-09-27T06:26:01Z",
+  "end": "2026-09-27T06:26:07Z",
+  "logSha256": "cdd6ecbfbe16605953d669ad04dff2eb3c3ab4c0d0f2decdbd38972d62b9921d"
+ },
+ {
+  "leg": "bun-startup-config",
+  "exitCode": 0,
+  "counts": {
+   "bunPass": 49,
+   "bunFail": 0
+  },
+  "start": "2026-09-27T06:26:07Z",
+  "end": "2026-09-27T06:26:07Z",
+  "logSha256": "83b03033315b77854e9e1666c5b82ecdde84e437d340bfc72dec14bbfa8709a6"
+ },
+ {
+  "leg": "bun-application",
+  "exitCode": 0,
+  "counts": {
+   "bunPass": 6,
+   "bunFail": 0
+  },
+  "start": "2026-09-27T06:26:08Z",
+  "end": "2026-09-27T06:26:08Z",
+  "logSha256": "56a55f5bf1889d7a0f78a7d772684be3e4659c53e46dc2cf1e9ce3954fec77d5"
+ },
+ {
+  "leg": "bun-attempt-composition",
+  "exitCode": 0,
+  "counts": {
+   "bunPass": 14,
+   "bunFail": 0
+  },
+  "start": "2026-09-27T06:26:08Z",
+  "end": "2026-09-27T06:26:13Z",
+  "logSha256": "3a5fca400bbc837920fe778809c8a4609c1afd9eda17c0c9c53f25d90edd7c7d"
+ },
+ {
+  "leg": "bun-validator-materials",
+  "exitCode": 0,
+  "counts": {
+   "bunPass": 10,
+   "bunFail": 0
+  },
+  "start": "2026-09-27T06:26:13Z",
+  "end": "2026-09-27T06:26:16Z",
+  "logSha256": "05a7b05a40c35cd2f2a74273847f3edd2e9f73470bdec77a254642a71b2c5fde"
+ },
+ {
+  "leg": "bun-pg-validator-materials",
+  "exitCode": 0,
+  "counts": {
+   "bunPass": 10,
+   "bunFail": 0
+  },
+  "start": "2026-09-27T06:26:16Z",
+  "end": "2026-09-27T06:26:24Z",
+  "logSha256": "2994abde3f2448f4bcb2fdd0b175ab837e9f8be6ac91fcc88a1d7348697a9685"
+ },
+ {
+  "leg": "bun-run-lifecycle",
+  "exitCode": 0,
+  "counts": {
+   "bunPass": 74,
+   "bunFail": 0
+  },
+  "start": "2026-09-27T06:26:24Z",
+  "end": "2026-09-27T06:26:54Z",
+  "logSha256": "4d915282dd10e0228e55ea582a5baded752536e319f0b41b7bb48b88991851f6"
+ },
+ {
+  "leg": "bun-pg-run-lifecycle",
+  "exitCode": 0,
+  "counts": {
+   "bunPass": 74,
+   "bunFail": 0
+  },
+  "start": "2026-09-27T06:26:54Z",
+  "end": "2026-09-27T06:27:24Z",
+  "logSha256": "b96b254fcbdb9a2c1a06812255efb04aea315574a0eb8e18446e1d2147814249"
+ },
+ {
+  "leg": "bun-definitions",
+  "exitCode": 0,
+  "counts": {
+   "bunPass": 11,
+   "bunFail": 0
+  },
+  "start": "2026-09-27T06:27:24Z",
+  "end": "2026-09-27T06:27:27Z",
+  "logSha256": "c8992d46c806ff6b20d7a9e1db8a525ee47ffb1b1a27a1b492917bb3d364505c"
+ },
+ {
+  "leg": "bun-pg-definitions",
+  "exitCode": 0,
+  "counts": {
+   "bunPass": 12,
+   "bunFail": 0
+  },
+  "start": "2026-09-27T06:27:27Z",
+  "end": "2026-09-27T06:27:38Z",
+  "logSha256": "34e2ccac9159e6edb4ee896675697a6f691c034b19cce5a9beeda16a598d24d5"
+ },
+ {
+  "leg": "bun-pg-restore",
+  "exitCode": 0,
+  "counts": {
+   "bunPass": 17,
+   "bunFail": 0
+  },
+  "start": "2026-09-27T06:27:38Z",
+  "end": "2026-09-27T06:28:15Z",
+  "logSha256": "61e0651f010b08878efda653cfafa7eb388805ce3221a0c20d8fee79c99cc1cf"
+ },
+ {
+  "leg": "bun-keyset-cursor",
+  "exitCode": 0,
+  "counts": {
+   "bunPass": 2,
+   "bunFail": 0
+  },
+  "start": "2026-09-27T06:28:15Z",
+  "end": "2026-09-27T06:28:16Z",
+  "logSha256": "b5fb94cd055b84ea46754f2cfa170044f6c91db42a51a19f17fae09614df5039"
+ },
+ {
+  "leg": "bun-tenant-administrator",
+  "exitCode": 0,
+  "counts": {
+   "bunPass": 3,
+   "bunFail": 0
+  },
+  "start": "2026-09-27T06:28:16Z",
+  "end": "2026-09-27T06:28:17Z",
+  "logSha256": "3c8211a2332915fa6e28c2ec9dab61843b7e717496c803526b9c3339ec2ccd21"
+ },
+ {
+  "leg": "bun-grants",
+  "exitCode": 0,
+  "counts": {
+   "bunPass": 13,
+   "bunFail": 0
+  },
+  "start": "2026-09-27T06:28:17Z",
+  "end": "2026-09-27T06:28:18Z",
+  "logSha256": "04abf471ea66b30245c95e4f62e0bf0c887695f38598996bcc926fa7df312f16"
+ },
+ {
+  "leg": "bun-service-credentials",
+  "exitCode": 0,
+  "counts": {
+   "bunPass": 5,
+   "bunFail": 0
+  },
+  "start": "2026-09-27T06:28:18Z",
+  "end": "2026-09-27T06:28:19Z",
+  "logSha256": "a73b7c7d620a66b1b4f7a87f617cfb429683f0afcfe42e9cae7701e4764271eb"
+ },
+ {
+  "leg": "bun-scope-enforcement",
+  "exitCode": 0,
+  "counts": {
+   "bunPass": 8,
+   "bunFail": 0
+  },
+  "start": "2026-09-27T06:28:19Z",
+  "end": "2026-09-27T06:28:20Z",
+  "logSha256": "b27c17cdb6fb2f6e78b02591321e1228dca5338ece0632edba5fd394736db89e"
+ },
+ {
+  "leg": "bun-session-scope",
+  "exitCode": 0,
+  "counts": {
+   "bunPass": 13,
+   "bunFail": 0
+  },
+  "start": "2026-09-27T06:28:20Z",
+  "end": "2026-09-27T06:28:21Z",
+  "logSha256": "479aa500596a0d2acbad74a88e3f9467ca3aa41cc23dd03014c7ca12d83713eb"
+ },
+ {
+  "leg": "bun-api-docs",
+  "exitCode": 0,
+  "counts": {
+   "bunPass": 5,
+   "bunFail": 0
+  },
+  "start": "2026-09-27T06:28:21Z",
+  "end": "2026-09-27T06:28:21Z",
+  "logSha256": "5bd328b0cb61c4b87674814a81e66db4e076710d0e83d0f46719698de94ad8db"
+ },
+ {
+  "leg": "bun-openapi",
+  "exitCode": 0,
+  "counts": {
+   "bunPass": 8,
+   "bunFail": 0
+  },
+  "start": "2026-09-27T06:28:21Z",
+  "end": "2026-09-27T06:28:22Z",
+  "logSha256": "34c007da36627aa36f79f22bb21c40428e3e0e9b1e460cf9ff79b0a54772962b"
+ },
+ {
+  "leg": "bun-route-contract",
+  "exitCode": 0,
+  "counts": {
+   "bunPass": 29,
+   "bunFail": 0
+  },
+  "start": "2026-09-27T06:28:22Z",
+  "end": "2026-09-27T06:28:23Z",
+  "logSha256": "9ba1716298a67ab4e217063de0681ae708795bad1bd2051fbe84968bb20cfb65"
+ },
+ {
+  "leg": "bun-e2e-lanes",
+  "exitCode": 0,
+  "counts": {
+   "bunPass": 24,
+   "bunFail": 0
+  },
+  "start": "2026-09-27T06:28:23Z",
+  "end": "2026-09-27T06:28:30Z",
+  "logSha256": "a4e29dbe62c04d749e271056f3966c54cc465cdc9c0c1c540c99d6dbbbdaf361"
+ },
+ {
+  "leg": "bun-evidence-covers",
+  "exitCode": 0,
+  "counts": {
+   "bunPass": 7,
+   "bunFail": 0
+  },
+  "start": "2026-09-27T06:28:30Z",
+  "end": "2026-09-27T06:28:31Z",
+  "logSha256": "eb027d0d71d717bca6a77fd4e5a846a6412e7389c10e2bd72cc339e11e50ef80"
+ },
+ {
+  "leg": "bun-c13-inventory",
+  "exitCode": 0,
+  "counts": {
+   "bunPass": 13,
+   "bunFail": 0
+  },
+  "start": "2026-09-27T06:28:31Z",
+  "end": "2026-09-27T06:28:32Z",
+  "logSha256": "116c587de118197b59e2476e77d5f1643a8c58e9bebc4aa44288b5b7a13f221b"
+ },
+ {
+  "leg": "bun-process-boundaries",
+  "exitCode": 0,
+  "counts": {
+   "bunPass": 17,
+   "bunFail": 0
+  },
+  "start": "2026-09-27T06:28:32Z",
+  "end": "2026-09-27T06:28:37Z",
+  "logSha256": "194f524f0435fa9e59cff88c134ea04d43c00bc0656ac5d0f7c09913af2c376d"
+ },
+ {
+  "leg": "bun-boundaries-test",
+  "exitCode": 0,
+  "counts": {
+   "bunPass": 31,
+   "bunFail": 0
+  },
+  "start": "2026-09-27T06:28:37Z",
+  "end": "2026-09-27T06:28:39Z",
+  "logSha256": "2f27bf479c2d32962b911236639b5c73a7ba1be122233564894639330519df2c"
+ },
+ {
+  "leg": "web-check",
+  "exitCode": 0,
+  "counts": {},
+  "start": "2026-09-27T06:28:39Z",
+  "end": "2026-09-27T06:28:48Z",
+  "logSha256": "d178ff76c68b01eca3c955cc19548b414213f052679efbb81370c12d5550ddbe"
+ },
+ {
+  "leg": "web-vitest",
+  "exitCode": 0,
+  "counts": {
+   "vitestFailed": 0,
+   "vitestPassed": 7741
+  },
+  "start": "2026-09-27T06:28:48Z",
+  "end": "2026-09-27T06:33:24Z",
+  "logSha256": "5bbb8da76b23908e3a90dca44fb5cc23bd5b3061ea62baa84fdb76d2e274e05a"
+ },
+ {
+  "leg": "web-vitest-check",
+  "exitCode": 0,
+  "counts": {},
+  "start": "2026-09-27T06:33:24Z",
+  "end": "2026-09-27T06:33:24Z",
+  "logSha256": "aa46238af25de5e746067c7e4a6534f5ca7a18da3a3253788c441f19da9396ec"
+ },
+ {
+  "leg": "browser-build",
+  "exitCode": 0,
+  "counts": {},
+  "start": "2026-09-27T06:33:24Z",
+  "end": "2026-09-27T06:34:04Z",
+  "logSha256": "3035b1464a81dee6f622f7337126f05660f8adcd93325dee845ebcc2241d5337"
+ },
+ {
+  "leg": "browser-factory-specs",
+  "exitCode": 0,
+  "counts": {
+   "playwrightPassed": 24
+  },
+  "start": "2026-09-27T06:34:04Z",
+  "end": "2026-09-27T06:34:22Z",
+  "logSha256": "64fc3aeb4c7cd2b23d7205b8a750dd51650f038f763a930e0334d5d85aa3fe93"
+ },
+ {
+  "leg": "browser-merge",
+  "exitCode": 0,
+  "counts": {},
+  "start": "2026-09-27T06:34:22Z",
+  "end": "2026-09-27T06:34:23Z",
+  "logSha256": "05aa59c4f90c14b932addfaaba5bff5680da066775cc610c8efa54763fb1b045"
+ },
+ {
+  "leg": "browser-focus",
+  "exitCode": 0,
+  "counts": {},
+  "start": "2026-09-27T06:34:23Z",
+  "end": "2026-09-27T06:34:23Z",
+  "logSha256": "220fdaf122788058afbc6dac5887925ca4e48f8ebabc93425ae97d08693f3ecb"
+ },
+ {
+  "leg": "browser-lcov",
+  "exitCode": 0,
+  "counts": {},
+  "start": "2026-09-27T06:34:23Z",
+  "end": "2026-09-27T06:34:24Z",
+  "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+ },
+ {
+  "leg": "real-lane",
+  "exitCode": 3,
+  "counts": {},
+  "start": "2026-09-27T06:34:24Z",
+  "end": "2026-09-27T06:36:43Z",
+  "logSha256": "62c96b4ff7e2860af509b11f45592ad7fe5762afce660f7fe047118a773424a2"
+ },
+ {
+  "leg": "merge-lcov",
+  "exitCode": 0,
+  "counts": {},
+  "start": "2026-09-27T06:36:43Z",
+  "end": "2026-09-27T06:36:45Z",
+  "logSha256": "0a727902c35e9d828af6e0ab14323a5a2204db62afe7c9b8988e45b53bce36e1"
+ },
+ {
+  "leg": "new-file-coverage",
+  "exitCode": 0,
+  "counts": {},
+  "start": "2026-09-27T06:36:45Z",
+  "end": "2026-09-27T06:36:45Z",
+  "logSha256": "ff9a893f51d94bcdbf883c61797d625ff215000f5beb88a74e4be20ba4623d57"
+ },
+ {
+  "leg": "patch-coverage",
+  "exitCode": 0,
+  "counts": {},
+  "start": "2026-09-27T06:36:45Z",
+  "end": "2026-09-27T06:36:45Z",
+  "logSha256": "a4b4f2f6667ab6eeb7f9dc198918b732b5b283eadaf5719a55bc7b8072f23922"
+ }
+]

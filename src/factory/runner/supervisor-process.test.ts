@@ -226,7 +226,7 @@ describe("runConfiguredFactorySupervisor", () => {
     await writeHostKey(root);
     const path = await writeConfig(root);
     abortController = new AbortController();
-    const scope = factorySupervisorReadinessOptions({ installationId: "installation-01", hostId: "host-01", readinessFilePath: join(root, "supervisor.json"), readinessHeartbeatMs: 1_000 });
+    const scope = factorySupervisorReadinessOptions({ hostId: "host-01", readinessFilePath: join(root, "supervisor.json"), readinessHeartbeatMs: 1_000 });
 
     let observed: unknown;
     let probes = 0;
@@ -512,7 +512,9 @@ describe("factorySupervisorProductionDependencies", () => {
     const root = await privateRoot();
     const writer = factorySupervisorProductionDependencies.createReadiness(parseFactorySupervisorProcessConfig(config(root)));
     const published = await writer.write({ lifecycle: "ready", facts: { hostKeyReady: true, runnerReady: true , hostServicesReady: false } });
-    expect(published).toMatchObject({ service: "host-supervisor", installationId: "installation-01", instanceId: "host-01" });
+    // The supervisor serves every installation on its host: its record names the host and no installation.
+    expect(published).toMatchObject({ service: "host-supervisor", instanceId: "host-01" });
+    expect(Object.keys(published)).not.toContain("installationId");
 
     const noHeartbeat = factorySupervisorProductionDependencies.createReadiness(parseFactorySupervisorProcessConfig(config(root, { readinessHeartbeatMs: undefined })));
     expect(await noHeartbeat.write({ lifecycle: "starting", facts: { hostKeyReady: false, runnerReady: false , hostServicesReady: false } })).toMatchObject({ lifecycle: "starting" });
@@ -523,7 +525,7 @@ describe("the host services this supervisor publishes", () => {
   const services = (root: string) => ({
     hostname: "127.0.0.1",
     port: 8600,
-    allowedPeers: ["tenant-a"],
+    peerTenants: { "tenant-a": "tenant-01" },
     hostKeyIdPath: join(root, "host.kid"),
     tls: { caPath: join(root, "ca.pem"), certificatePath: join(root, "server.pem"), privateKeyPath: join(root, "server.key") },
   });
@@ -540,8 +542,14 @@ describe("the host services this supervisor publishes", () => {
       { ...complete, hostname: "" },
       { ...complete, port: 0 },
       { ...complete, port: 70_000 },
-      { ...complete, allowedPeers: [] },
-      { ...complete, allowedPeers: ["ok", ""] },
+      { ...complete, peerTenants: {} },
+      { ...complete, peerTenants: { ok: "" } },
+      { ...complete, peerTenants: { "": "tenant-01" } },
+      { ...complete, peerTenants: { " padded": "tenant-01" } },
+      { ...complete, peerTenants: { ok: "tenant-01 " } },
+      { ...complete, peerTenants: { ok: 7 } },
+      { ...complete, peerTenants: ["tenant-a"] },
+      { ...complete, peerTenants: Object.fromEntries(Array.from({ length: 65 }, (_, index) => [`peer-${index}`, "tenant-01"])) },
       { ...complete, hostKeyIdPath: "" },
       { ...complete, tls: { caPath: "a", certificatePath: "b" } },
       { ...complete, tls: { ...complete.tls, extra: "x" } },
@@ -550,6 +558,18 @@ describe("the host services this supervisor publishes", () => {
     ]) {
       expect(() => parseFactorySupervisorProcessConfig(config(root, { services: broken } as never))).toThrow("factory supervisor config is invalid");
     }
+  });
+
+  test("the unbound allowedPeers list is refused by name, alone or beside peerTenants (W01i)", async () => {
+    const root = await privateRoot();
+    const { peerTenants, ...rest } = services(root);
+    for (const old of [{ ...rest, allowedPeers: ["tenant-a"] }, { ...rest, peerTenants, allowedPeers: ["tenant-a"] }]) {
+      expect(() => parseFactorySupervisorProcessConfig(config(root, { services: old } as never)))
+        .toThrow("services.allowedPeers is replaced by services.peerTenants, which binds each peer identity to its tenant");
+    }
+    // Sixty-four peers, one per installation a host may serve, is the bound.
+    const full = Object.fromEntries(Array.from({ length: 64 }, (_, index) => [`peer-${index}`, `tenant-${index}`]));
+    expect(parseFactorySupervisorProcessConfig(config(root, { services: { ...rest, peerTenants: full } } as never)).services?.peerTenants).toEqual(full);
   });
 
   test("the pool and guest broker sections are each optional, complete, or refused", async () => {

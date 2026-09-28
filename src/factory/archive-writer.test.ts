@@ -357,6 +357,7 @@ function receiptFor(operation: FactoryReleaseOperation): FactoryProviderReceipt 
 
 const idleProvider: FactoryReleaseProvider = {
   async publish() { throw new Error("recovery must never dispatch"); },
+  async lookupReceipt() { return null; },
   async verifyReceipt() { return true; },
   async proveNoEffect() { return false; },
 };

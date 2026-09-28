@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { rm } from "node:fs/promises";
 import { certificates, rawTls, type Certificates } from "../__tests__/helpers/factory-certificates";
 import { privateHttpsCall } from "../__tests__/helpers/factory-private-https-client";
@@ -33,6 +33,57 @@ test("a real Node client receives exact immutable bytes and the Bun handler rece
     expect(Buffer.from(received.body, "base64")).toEqual(page);
     expect(peers).toEqual(["tenant-a"]);
   } finally { server.stop(); }
+});
+
+describe("only a client certificate the listener's authority issued, and that is still valid, reaches the handler (W01k)", () => {
+  // Bun.listen does not enforce rejectUnauthorized: it completes the handshake
+  // and reports each failure below only as authorizationError. The listener's
+  // handshake callback is the check.
+  let trusted: Certificates;
+  let outsider: Certificates;
+  let server: { url: string; stop(): void };
+  const peers: string[] = [];
+  beforeAll(async () => {
+    trusted = await certificates(directories, "tenant-a", { untrustedClients: true });
+    // Same subject, unrelated authority: an impersonation attempt.
+    outsider = await certificates(directories, "tenant-a");
+    server = startFactoryPrivateHttps({
+      tls: { key: trusted.serverKey, cert: trusted.serverCert, ca: trusted.ca },
+      async handle(request) { peers.push(request.peerIdentity); return { status: 200, body: Buffer.from('{"reached":true}') }; },
+    });
+  });
+  afterAll(() => { server.stop(); });
+  const as = (cert: string | undefined, key: string | undefined) => rawTls(server.url, { ...trusted, clientCert: cert as string, clientKey: key as string }, ["GET /identity HTTP/1.1\r\n\r\n"]);
+  const answer = (response: string) => ({ status: response.split("\r\n")[0], body: response.slice(response.indexOf("\r\n\r\n") + 4) });
+
+  test("a trusted client reaches the handler with its own identity", async () => {
+    peers.length = 0;
+    expect(answer(await as(trusted.clientCert, trusted.clientKey)).status).toBe("HTTP/1.1 200 OK");
+    expect(peers).toEqual(["tenant-a"]);
+  });
+
+  const refused = { status: "HTTP/1.1 401 Unauthorized", body: '{"error":"unauthorized"}' };
+  for (const [label, pick] of [
+    ["from an unrelated authority (unable to verify the first certificate)", () => ({ cert: outsider.clientCert, key: outsider.clientKey })],
+    ["expired (certificate has expired)", () => trusted.untrusted!.expired],
+    ["not yet valid (certificate is not yet valid)", () => trusted.untrusted!.notYetValid],
+    ["for serverAuth only (unsupported certificate purpose)", () => trusted.untrusted!.serverAuthOnly],
+    ["self-signed (self signed certificate)", () => trusted.untrusted!.selfSigned],
+  ] as const) {
+    test(`a client certificate ${label} is refused 401 before any handler`, async () => {
+      peers.length = 0;
+      const { cert, key } = pick();
+      expect(answer(await as(cert, key))).toEqual(refused);
+      expect(peers).toEqual([]);
+    });
+  }
+
+  test("a client with no certificate fails the handshake itself and reaches no handler", async () => {
+    peers.length = 0;
+    // Bun reports success=false and closes with no response: refused earlier than a 401.
+    expect(await as(undefined, undefined)).toBe("");
+    expect(peers).toEqual([]);
+  });
 });
 
 test("the read deadline applies to incomplete requests and not to accepted handler work", async () => {

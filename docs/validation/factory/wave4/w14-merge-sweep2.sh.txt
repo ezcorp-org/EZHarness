@@ -1,0 +1,117 @@
+#!/usr/bin/env bash
+# W14 MERGE sweep (integrator copy of validator-2's sweep2.sh): the staged merge tree via proof/w14-merge-staged, run once under the heavy lock.
+# Changes: REPO/E/BASE repointed; the shared resource gate (100 GB disk, 6 GiB available, 2 GiB swap free) before every leg; the F1 negative control dropped.
+# One JSON receipt per leg under $E/receipts/: leg, commit, dirty-at-start, exit code, log sha256,
+# counts, start/end, command. No environment is recorded. The disk is checked before every leg;
+# below 100 GB free the sweep stops and says so.
+set -u
+REPO=/home/dev/work/EZCorp/EZHarness/.worktrees/w14-merge-proof
+E=/tmp/factory-platform-evidence/w00/w14-merge
+OUT=$E/${SWEEP_TAG:-final-12}
+R=$E/receipts
+BASE=b10b7ea1a
+: "${EZCORP_FACTORY_STORAGE_SECRETS_DIR:?export EZCORP_FACTORY_STORAGE_SECRETS_DIR before this script}"; export EZCORP_FACTORY_STORAGE_SECRETS_DIR
+. "$E/repro/pg-env.sh"
+rm -rf "$OUT"; mkdir -p "$OUT/lcov" "$R"
+cd "$REPO"
+SHA=$(git rev-parse HEAD)
+unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE
+. /tmp/factory-platform-evidence/w00/resource-gate.sh
+
+leg() {
+  local name=$1; shift
+  resource_gate "$name" "$OUT/resource-gate.log" || { echo "[sweep] stopped before $name: resource gate" | tee -a "$OUT/driver.log"; exit 4; }
+  local free; free=$(df --output=avail -BG /home | tail -1 | tr -dc '0-9')
+  if [ "$free" -lt 100 ]; then
+    echo "[sweep] stopped before $name: /home has ${free} GB free (floor 100 GB)" | tee -a "$OUT/driver.log"
+    python3 "$E/repro/receipt.py" "$R/$name.json" "$name" "$SHA" "$(git status --porcelain | wc -l)" "disk-floor" "" "" "" "$*"
+    exit 4
+  fi
+  local dirty; dirty=$(git status --porcelain | wc -l)
+  local start; start=$(date -u +%FT%TZ)
+  "$@" > "$OUT/$name.log" 2>&1
+  local ec=$?
+  python3 "$E/repro/receipt.py" "$R/$name.json" "$name" "$SHA" "$dirty" "$ec" "$start" "$(date -u +%FT%TZ)" "$OUT/$name.log" "$*" | tee -a "$OUT/driver.log"
+}
+
+bun_lcov() {
+  local name=$1 file=$2
+  leg "bun-$name" bun test --timeout 120000 --coverage --coverage-reporter=lcov --coverage-dir "$OUT/cov-$name" "./$file"
+  [ -s "$OUT/cov-$name/lcov.info" ] && cp "$OUT/cov-$name/lcov.info" "$OUT/lcov/bun-$name.lcov"
+}
+
+# ── Builds and static gates ──────────────────────────────────────────
+for pkg in extension-contract sdk factory-sdk factory-transport factory-orchestrator harness-client; do
+  leg "build-$pkg" bun run --cwd "packages/@ezcorp/$pkg" build
+done
+leg lint bun run lint
+leg typecheck bun run typecheck
+leg boundaries bun scripts/check-factory-boundaries.ts
+leg gate-integrity bun scripts/gate-integrity.ts
+leg schema-drift bun scripts/check-schema-generate-drift.ts
+leg sdk-tests bun test --coverage --coverage-reporter=lcov --coverage-dir "$OUT/cov-sdk" ./packages/@ezcorp/factory-sdk/src
+[ -s "$OUT/cov-sdk/lcov.info" ] && cp "$OUT/cov-sdk/lcov.info" "$OUT/lcov/bun-sdk.lcov"
+
+# ── Console and scoped-API suites, PGlite and PostgreSQL, with the producers the diff touches ──
+bun_lcov console src/factory/console.test.ts
+bun_lcov console-integration src/factory/console.integration.test.ts
+bun_lcov pg-console tests/postgres/factory-console.test.ts
+bun_lcov package-fence src/__tests__/factory-package-fence.test.ts
+bun_lcov pg-package-fence tests/postgres/factory-package-fence.test.ts
+bun_lcov package-preparation src/factory/package-preparation.integration.test.ts
+bun_lcov pg-package-preparation tests/postgres/factory-package-preparation.test.ts
+bun_lcov installation-startup src/factory/installation-startup.test.ts
+bun_lcov startup-config src/factory/startup-config.test.ts
+bun_lcov application src/factory/application.test.ts
+bun_lcov attempt-composition src/factory/attempt-composition.test.ts
+bun_lcov validator-materials src/factory/validator-materials.test.ts
+bun_lcov pg-validator-materials tests/postgres/factory-validator-materials.test.ts
+bun_lcov run-lifecycle src/__tests__/factory-run-lifecycle.test.ts
+bun_lcov pg-run-lifecycle tests/postgres/factory-run-lifecycle.test.ts
+bun_lcov definitions src/__tests__/factory-definitions.test.ts
+bun_lcov pg-definitions tests/postgres/factory-definitions.test.ts
+bun_lcov pg-restore tests/postgres/factory-restore.test.ts
+bun_lcov keyset-cursor src/factory/keyset-cursor.test.ts
+bun_lcov tenant-administrator src/factory/tenant-administrator.test.ts
+bun_lcov grants src/__tests__/factory-grants.test.ts
+bun_lcov service-credentials src/__tests__/factory-service-credentials.test.ts
+bun_lcov scope-enforcement src/__tests__/scope-enforcement.test.ts
+bun_lcov session-scope src/__tests__/session-scope-surface.test.ts
+bun_lcov api-docs src/__tests__/api-docs.test.ts
+bun_lcov openapi src/__tests__/openapi.test.ts
+bun_lcov route-contract web/src/__tests__/route-contract.test.ts
+bun_lcov e2e-lanes src/__tests__/e2e-lanes.test.ts
+bun_lcov evidence-covers src/__tests__/visual-evidence-covers.test.ts
+bun_lcov c13-inventory scripts/factory-c13-inventory.test.ts
+bun_lcov process-boundaries src/__tests__/factory-process-boundaries.test.ts
+bun_lcov boundaries-test scripts/check-factory-boundaries.test.ts
+
+# ── Web: Svelte check, the Vitest pool under coverage, and the factory browser specs ──
+leg web-check bash -c 'cd web && bun run check'
+leg web-vitest bash scripts/web-vitest-coverage.sh --output "$OUT/web-vitest"
+[ -s "$OUT/web-vitest/lcov.info" ] && cp "$OUT/web-vitest/lcov.info" "$OUT/lcov/web-vitest.lcov"
+leg web-vitest-check bun scripts/check-web-vitest-coverage.ts "$OUT/web-vitest/lcov.info"
+leg browser-build bash scripts/browser-coverage-build.sh
+MANIFEST=$(bun scripts/browser-route-coverage-manifest.ts --print)
+PORT=$(python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1])')
+leg browser-factory-specs env PI_E2E_MOCK_BASE_URL="http://localhost:$PORT" EZCORP_BROWSER_COVERAGE=1 EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST="$MANIFEST" \
+  EZCORP_BROWSER_COVERAGE_SOURCE_REVISION="$SHA" EZCORP_BROWSER_COVERAGE_OUTPUT="$OUT/browser-raw" \
+  bash -c 'cd web && bunx playwright test --project=chromium --workers=2 --reporter=list e2e/factory-authoring-console.spec.ts e2e/factory-live-console.spec.ts'
+mapfile -t RAW < <(find "$OUT/browser-raw" -type f -name 'chromium-worker-*.json' | sort)
+if [ "${#RAW[@]}" -gt 0 ]; then
+  leg browser-merge bun scripts/browser-coverage-to-lcov.ts --merge-raw "$OUT/browser-merged.json" "${RAW[@]}"
+  leg browser-focus bun "$E/repro/focus-browser-raw.ts" "$OUT/browser-merged.json" "$OUT/browser-merged-factory.json"
+  leg browser-lcov bun scripts/browser-coverage-to-lcov.ts "$OUT/browser-merged-factory.json" "$OUT/lcov/browser-factory.lcov"
+fi
+
+# ── The real lane (factory-services), through the real authenticated application ──
+leg real-lane env TAG=${LANE_TAG:-journeys-16} bash "$E/repro/journeys.sh"
+podman image prune -f > "$OUT/image-prune.log" 2>&1
+
+# ── Coverage gates: 100 percent of new files and changed lines, against integ/w00 at $BASE ──
+leg merge-lcov bun scripts/merge-lcov.ts "$OUT/lcov/*.lcov" coverage/lcov.info
+leg new-file-coverage env BASE_REF=$BASE bun scripts/check-new-file-coverage.ts
+leg patch-coverage env BASE_REF=$BASE bun scripts/check-patch-coverage.ts
+
+echo "[sweep] done at $SHA" | tee -a "$OUT/driver.log"
+

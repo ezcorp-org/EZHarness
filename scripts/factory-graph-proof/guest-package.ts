@@ -13,6 +13,7 @@
  * this harness ships is the guest that suite proves.
  */
 import { join } from "node:path";
+import { factorySdkClosure } from "../../src/factory/guest-sdk-closure";
 import { GRAPH_GUEST_MANIFEST, GRAPH_GUEST_PACKAGE, GRAPH_GUEST_VERSION, type GraphGuestPackage } from "./graph";
 
 const EXPORTS = ["prepare", "infer", "combine"] as const;
@@ -27,19 +28,6 @@ const MANIFEST = {
   tools: EXPORTS.map(name => ({ name, description: `The graph's ${name} task`, inputSchema: { type: "object" }, outputSchema: { type: "object" } })),
 };
 
-/** The import closure of `graph-guest.ts` inside the SDK: `guest-materials.ts` and what it reaches. */
-const SDK_MODULES = ["guest-materials.ts", "canonical.ts", "page-bytes.ts", "validation.ts", "schema.ts", "types.ts", "api.ts", "expressions.ts"];
-const SDK_SCHEMAS = [
-  "factory-guest-material-request.schema.json", "factory-guest-material-response.schema.json",
-  "factory-runner-request.schema.json", "factory-runner-result.schema.json",
-  "factory-api-request.schema.json", "factory-api-response.schema.json",
-  "compiled-factory.schema.json", "compiled-execution-manifest.schema.json",
-  "compiled-partition-artifact.schema.json", "factory-definition.schema.json",
-  "factory-durable-input.schema.json", "factory-guest-model-request.schema.json",
-  "factory-guest-model-response.schema.json", "factory-validator-claims.schema.json",
-  "factory-validator-report.schema.json",
-];
-
 /** Package specifiers rewritten to the flat files that carry them. */
 const FLAT = [
   [/from "@ezcorp\/factory-sdk\/canonical"/g, 'from "./canonical.ts"'],
@@ -49,10 +37,7 @@ const FLAT = [
 
 /** The exact bytes the guest is built from. */
 export async function graphGuestSource(repo: string): Promise<Record<string, string>> {
-  const sdk = join(repo, "packages/@ezcorp/factory-sdk/src");
   const files: Record<string, string> = {};
-  for (const name of SDK_MODULES) files[name] = (await Bun.file(join(sdk, name)).text()).replaceAll(/from "\.\/([a-z-]+)\.js"/g, 'from "./$1.ts"');
-  for (const name of SDK_SCHEMAS) files[name] = await Bun.file(join(sdk, name)).text();
   let guest = await Bun.file(join(repo, "scripts/factory-graph-proof/guest/graph-guest.ts")).text();
   for (const [pattern, flat] of FLAT) guest = guest.replaceAll(pattern, flat);
   files["graph-guest.ts"] = guest;
@@ -79,7 +64,9 @@ test('the staged guest carries the graph logic the harness recomputes', () => {
   expect(combineSummary(3, 'y')).toBe('3 words in; the model said: y');
 });
 `;
-  return files;
+  // The SDK files come from the imports themselves: whatever the guest's own files reach, and whatever
+  // those reach, schemas included. A module the SDK gains is staged as soon as something imports it.
+  return { ...await factorySdkClosure(join(repo, "packages/@ezcorp/factory-sdk/src"), files), ...files };
 }
 
 export interface GraphGuestBuild {

@@ -3115,6 +3115,8 @@ export async function migrate(db: MigrateDb): Promise<void> {
   await addFactoryUsageSettlements(db);
   const { up: addFactoryUsageReceiptC02Form } = await import("./migrations/add-factory-usage-receipt-c02-form");
   await addFactoryUsageReceiptC02Form(db);
+  const { up: addFactoryUsageNoOperations } = await import("./migrations/add-factory-usage-no-operations");
+  await addFactoryUsageNoOperations(db);
   const { up: addFactoryAdmissionOrigin } = await import("./migrations/add-factory-admission-origin");
   await addFactoryAdmissionOrigin(db);
   const { up: addFactoryValidatorAdmissionEvent } = await import("./migrations/add-factory-validator-admission-event");
@@ -3131,6 +3133,8 @@ export async function migrate(db: MigrateDb): Promise<void> {
   await addFactoryChildArtifactAliases(db);
   const { up: addFactoryLegacyWorkflowAdapters } = await import("./migrations/add-factory-legacy-workflow-adapters");
   await addFactoryLegacyWorkflowAdapters(db);
+  const { up: addFactoryInstallationBootstrap } = await import("./migrations/add-factory-installation-bootstrap");
+  await addFactoryInstallationBootstrap(db);
   // W02c: the package fence's affected-run record. Depends only on the package
   // trust revisions and the execution journal, both created above.
   const { up: addFactoryPackageFenceRuns } = await import("./migrations/add-factory-package-fence-runs");
@@ -3139,6 +3143,19 @@ export async function migrate(db: MigrateDb): Promise<void> {
   // add-factory-artifact-read-grants, registered above.
   const { up: allowFactoryArtifactRegrant } = await import("./migrations/allow-factory-artifact-regrant");
   await allowFactoryArtifactRegrant(db);
+  // W01h fix round: a stop whose facts no longer verify becomes a reconciliation
+  // item. Depends only on add-factory-task-stops, registered above.
+  const { up: addFactoryTaskStopReconciliation } = await import("./migrations/add-factory-task-stop-reconciliation");
+  await addFactoryTaskStopReconciliation(db);
+  // W15f: the uncertain-hold mark for an attempt a restore's epoch left behind.
+  const { up: addFactoryUsageEpochStale } = await import("./migrations/add-factory-usage-epoch-stale");
+  await addFactoryUsageEpochStale(db);
+  // W15f: a signed restore's proven end for every attempt of the epoch it left.
+  const { up: addFactoryAttemptSupersessions } = await import("./migrations/add-factory-attempt-supersessions");
+  await addFactoryAttemptSupersessions(db);
+  // W09e: a release's stop and its effect. Depends only on add-factory-releases, registered above.
+  const { up: addFactoryReleaseStop } = await import("./migrations/add-factory-release-stop");
+  await addFactoryReleaseStop(db);
   // Last on purpose: the checkpoint barrier gate attaches to every factory table that exists.
   const { up: addFactoryRecovery } = await import("./migrations/add-factory-recovery");
   await addFactoryRecovery(db);

@@ -1,0 +1,29 @@
+=== heavy 2026-09-27T19:33:50Z
+HEAD c9b7bab5b8512f0bd232e5bbaef521b493bb3937 MERGE_HEAD df37f77ef3c83788a2511d535c5aa48ec7f436d3 index-tree e872390ed6f4fbdb3ec37fbced08009052e373e0
+resource-gate 2026-09-27T19:33:50Z pg-lcov disk=112G memAvailable=15GiB swapFreeKiB=6783576/17173956
+--- START pg-lcov 2026-09-27T19:33:50Z
+--- END   pg-lcov 2026-09-27T19:34:01Z exit=0  2 pass 0 fail 
+resource-gate 2026-09-27T19:34:01Z focused-lcov disk=112G memAvailable=16GiB swapFreeKiB=6782612/17173956
+--- START focused-lcov 2026-09-27T19:34:01Z
+--- END   focused-lcov 2026-09-27T19:34:08Z exit=0  163 pass 0 fail 
+resource-gate 2026-09-27T19:34:08Z covfix-alone-lcov disk=112G memAvailable=16GiB swapFreeKiB=6782668/17173956
+--- START covfix-alone-lcov 2026-09-27T19:34:08Z
+--- END   covfix-alone-lcov 2026-09-27T19:34:12Z exit=0  11 pass 0 fail 
+resource-gate 2026-09-27T19:34:12Z web-w16d-lcov disk=112G memAvailable=16GiB swapFreeKiB=6782688/17173956
+--- START web-w16d-lcov 2026-09-27T19:34:12Z
+--- END   web-w16d-lcov 2026-09-27T19:34:19Z exit=0  Tests 33 passed (33) 
+resource-gate 2026-09-27T19:34:19Z web-server-lcov disk=112G memAvailable=16GiB swapFreeKiB=6780408/17173956
+--- START web-server-lcov 2026-09-27T19:34:19Z
+--- END   web-server-lcov 2026-09-27T19:34:40Z exit=0  Tests 166 passed (166) 
+resource-gate 2026-09-27T19:34:40Z coverage-merge disk=112G memAvailable=15GiB swapFreeKiB=6779744/17173956
+--- START coverage-merge 2026-09-27T19:34:40Z
+--- END   coverage-merge 2026-09-27T19:34:40Z exit=0 
+resource-gate 2026-09-27T19:34:40Z web-build disk=112G memAvailable=15GiB swapFreeKiB=6779744/17173956
+--- START web-build 2026-09-27T19:34:40Z
+--- END   web-build 2026-09-27T19:35:21Z exit=0 
+resource-gate 2026-09-27T19:35:21Z graph-mock-pass disk=112G memAvailable=16GiB swapFreeKiB=6780312/17173956
+--- START graph-mock-pass 2026-09-27T19:35:21Z
+--- END   graph-mock-pass 2026-09-27T19:36:12Z exit=0 
+no retained database or run in /tmp/factory-platform-evidence/w00/w16d-merge/graph/w16d-merge-mock.json; nothing to dump
+mock pass w16d-merge-mock outcome: passed
+HEAVY DONE status=0 dirty=0 2026-09-27T19:36:12Z

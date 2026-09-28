@@ -21,6 +21,9 @@ function partitionFor(factory: KernelFactoryPlan, partitionId: string) {
   return factory.partitions.find((candidate) => candidate.id === partitionId);
 }
 
+/** The external effects a release node's certain stop may name (W09e), and the node error each records. */
+export const FACTORY_ATTEMPT_STOP_EFFECTS = Object.freeze({ uncertain: "RELEASE_EFFECT_UNCERTAIN", published: "RELEASE_PUBLISHED_BEFORE_STOP" } as const);
+
 export class FactoryKernelError extends Error {
   constructor(message: string) {
     super(message);
@@ -489,6 +492,10 @@ function remainingRepairs(node: Extract<FactoryNode, { kind: "acceptance" }>, ca
 function applyStopped(factory: KernelFactoryPlan, state: KernelState, event: Extract<KernelEvent, { kind: "attempt-stopped" }>, commands: KernelCommand[]): KernelState {
   const runtime = state.nodes[event.nodeId];
   const node = nodeFor(factory, event.nodeId);
+  // A named effect is only ever a release's, and only on a certain stop: an uncertain stop still waits.
+  if (event.effect !== undefined && (!Object.hasOwn(FACTORY_ATTEMPT_STOP_EFFECTS, event.effect) || event.uncertain === true || (node !== undefined && node.kind !== "release"))) {
+    throw new FactoryKernelError("an attempt-stopped effect names a release's external effect and needs a certain stop");
+  }
   if (!runtime || !node || runtime.candidateGeneration !== event.candidateGeneration) return state;
   const attempt = runtime.attempts.find((candidate) => candidate.commandId === event.commandId && candidate.attempt === event.attempt);
   if (!attempt || (attempt.stopped && (!attempt.uncertain || event.uncertain !== false))) return state;
@@ -500,7 +507,13 @@ function applyStopped(factory: KernelFactoryPlan, state: KernelState, event: Ext
   }
   next = { ...next, unresolvedUncertainNodeIds: next.unresolvedUncertainNodeIds.filter(id => id !== event.nodeId || attempts.some(candidate => candidate.uncertain)) };
   if (runtime.discarded || state.status === "stopping") {
-    next = withNode(next, event.nodeId, { ...next.nodes[event.nodeId]!, status: runtime.failureHandled && runtime.error ? "failed" : runtime.discarded || state.stopKind === "cancelled" ? "cancelled" : "failed", timer: undefined });
+    next = withNode(next, event.nodeId, {
+      ...next.nodes[event.nodeId]!,
+      status: runtime.failureHandled && runtime.error ? "failed" : runtime.discarded || state.stopKind === "cancelled" ? "cancelled" : "failed",
+      timer: undefined,
+      // The stop is certain; the release's external effect is named on the node so a status never hides it.
+      ...(event.effect === undefined ? {} : { error: FACTORY_ATTEMPT_STOP_EFFECTS[event.effect] }),
+    });
     if (state.status !== "stopping") next = activateReady(factory, next, commands, successorsFor(factory, event.nodeId));
     return progressContainingScopes(factory, next, event.nodeId, commands);
   }
@@ -926,11 +939,18 @@ function predecessorRuntime(state: KernelState, nodeId: string): KernelNodeState
  * activity and kills the run. An acceptance therefore settles in place on every stop path, and it
  * loses nothing by doing so because only a task may declare a retry.
  *
- * Approval and release attempts have the same shape and the same defect. Changing them would change
- * cancellation semantics this package does not own, so they are unchanged here and filed instead.
+ * An approval attempt is a human request in the inbox, and nothing runs for it either (W01h). Its
+ * stop used to reach the cancel route as a `cancel-node`, which the attempt queue refused as stale,
+ * so a denied approval, and every other stop of a waiting approval, held the run in `stopping` for
+ * ever. It settles in place too. Its pending request cannot be answered late: the approval row
+ * carries the cancellation epoch this stop raised, so a decision after it is refused as stale.
+ *
+ * A release attempt has the same shape, but its effect may be in flight at a provider, so settling
+ * it in place could hide a publish. It keeps the ordinary stop until that is ruled on.
  */
 function physicalNode(factory: KernelFactoryPlan, nodeId: string): boolean {
-  return nodeFor(factory, nodeId)?.kind !== "acceptance";
+  const kind = nodeFor(factory, nodeId)?.kind;
+  return kind !== "acceptance" && kind !== "approval";
 }
 
 function terminalStatus(status: KernelNodeState["status"]): boolean {

@@ -213,6 +213,13 @@ export type KernelEvent =
       readonly candidateGeneration: number;
       readonly attempt: number;
       readonly uncertain?: boolean;
+      /**
+       * A release node's external effect when its stop is certain but its publish may not be (W09e): the
+       * node is stopped, the run can end, and the effect is `uncertain` until the release outcome settles
+       * it, or already `published`. Only a release node's certain stop may carry it; see
+       * `FACTORY_ATTEMPT_STOP_EFFECTS`.
+       */
+      readonly effect?: "uncertain" | "published";
     })
   | (KernelEventBase & {
       readonly kind: "usage-settled";

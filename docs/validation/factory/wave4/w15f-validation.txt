@@ -1,0 +1,58 @@
+2026-09-27 validator-4 on W15f 930c90331 (wp/w15f-stale-epoch; base integ/w00 29f8f2d4b; code head 5572295ab): ACCEPT.
+Findings raised during review, all closed at this head: M1 (medium, a stop accepted before a restore stranded its
+run) fixed in 5572295ab; L1 (low, the reader's epoch comparison untested) fixed by the test-only 930c90331.
+
+Identity: git log --format='%an <%ae> / %cn <%ce>' 29f8f2d4b..930c90331 shows eight commits, all archy with the
+noreply address as author and committer. 930c90331 changes only src/__tests__/helpers/factory-usage-epoch-suite.ts and
+tasks/factory/w15f-GATES.md over 5572295ab. Shared .git/config sha256 prefix 44962525f1ca1a8b before, at the commit,
+and after.
+
+Proof merge: 5ab3aca6f0a5534ae0fba9181894b3b7fcaa74f8 = ref proof/w15f-integ-c3da32784 (parents integ/w00 c3da32784,
+W15f 930c90331). Two conflicts, both sides kept:
+  - src/db/migrate.ts: integ's add-factory-task-stop-reconciliation first, then W15f's add-factory-usage-epoch-stale
+    and add-factory-attempt-supersessions, all before add-factory-recovery.
+  - tasks/lessons.md: union.
+  No semantic clash: W01h's migration adds only reconcile_json (no CHECK); listStoppableInTransaction keeps both
+  exclusions (reconcile_json IS NULL; the state list without 'superseded'). Commit hook: 8 mapped suites, all green.
+  The hook's tests/postgres/factory-usage-epoch.test.ts alone on the proof PostgreSQL ran 6 pass, 0 fail
+  (logs/hold/commit-merge.log). That is the epoch suite's own nonzero count, including the L1 case.
+
+Hold under flock --close (16:58:47Z to 17:01:38Z; gate before every leg: 15-16 GiB available, 6 GiB swap, 120 GB):
+  postgres (10 suites, lcov): usage-epoch, executions, budgets, task-stops, compute-admissions, restore, checkpoint,
+    schema, guest-model-journal, migration-restart                                             111/0
+  unit-coverage (12 PGlite files: usage-epoch integration, both migration tests, attempt-supersessions, dispatch-
+    composition, executions integration, factory-budgets, factory-task-stops, guest-model-journal integration,
+    factory-schema, migrate, suite registration)                                               120/0
+  merge-lcov 780 files; new-file gate PASSED (3 new files); patch gate PASSED (11 files); BASE_REF=c3da32784
+  The PostgreSQL lcov shows every line of attempt-supersessions.ts hit, including readSupersededOperationsInTransaction
+  (lines 160-173), which only the epoch suite calls.
+Static on the committed merge 5ab3aca6f: boundary suites (factory-process-boundaries + check-factory-boundaries.test)
+  48/0; check-factory-boundaries, gate-integrity, typecheck, lint, schema drift exit 0. Static at the branch head
+  930c90331: the same, all 0.
+
+Red-first:
+  M1, my own probe (scratch copy of the stop suite on PGlite): at c89ed5034 the stop stayed uncertain, was listed
+    again, and the clear returned nothing; at 930c90331 the stop is 'superseded' naming the restore, not listed, and
+    the clear returns <restoreId>:<attemptId>:usage-resolved with uncertain false.
+  Mutants, all killed, trees clean after:
+    tree review at c89ed5034 (receipts/mutants.json): P1-P8 (skip rule, IS DISTINCT FROM, reference unwrap,
+      supersede on sign, awaiting-bound class, clear fallback, marking a settled hold);
+    reader at 2a2d5ae58 (receipts/mutants-reader.json): R1 and R3 killed; R2 (epoch comparison) survived there -> L1;
+    head 930c90331 (receipts/mutants-m1.json): S1 supersede leaves the stops, S2 accepted stops not superseded,
+      S3 clear only without a row, S4 accepted_state CHECK not widened (the second defect, 3 cases), S5 = R2 epoch
+      comparison removed (now killed).
+
+Rulings met: ruling 1 (skip only while the epoch is unchanged and the attempt is live; re-offered once terminal and
+past the signed deadline; awaiting-bound is transient; the mark answers marked, terminal or settled); ruling 2
+(the signing transaction supersedes every live attempt of the previous epoch, records restore id, report digest,
+both epochs, reservation, interpreter and the uncertain attempt-stopped event, and enqueues it; W05b's clear falls
+back to the supersession whenever the stop is not 'stopped' and re-sends the event with uncertain false); the reader
+is gated by the supersession record at the record's epoch, takes no caller epoch, and writes nothing; one row
+mapping.
+
+Observation (not a finding): a repeated stops.stop() on a superseded stop still answers state "uncertain". It is not
+a loop, because the stop scan excludes the stop by state.
+Joint note for W03f (merges second): call readSupersededOperationsInTransaction by reservation id, check that its
+attemptId equals the scope's attempt, and handle a null interpreterId.
+
+Report timing: the hold ended 17:01:38Z. This verdict came after the lead's 17:53Z prompt, so the report was late.

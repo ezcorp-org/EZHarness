@@ -6,6 +6,7 @@ import { SQL } from "bun";
 import { privateDirectory, readPrivateBounded } from "../private-files";
 import { type FactoryPoolReadinessWriter, createFactoryPoolReadinessWriter } from "./readiness";
 import type { PoolResourceClass, PoolSql } from "./ledger";
+import { loadFactoryGpuHostProfiles } from "./gpu-host-profiles";
 import { PoolAdmissionService, type PoolAdmissionIdentityConfig } from "./service";
 import { startBunPoolAdmissionHttps, type BunPoolAdmissionHttpsOptions } from "./service-server";
 
@@ -19,7 +20,7 @@ interface PoolListener { readonly url: string; stop(): void }
 
 export interface FactoryPoolProcessConfig {
   readonly schemaVersion: typeof CONFIG_SCHEMA;
-  readonly installationId: string;
+  /** The pool's own identity. A pool may serve many installations (C12), so it names none of them. */
   readonly poolId: string;
   readonly hostname: string;
   readonly port: number;
@@ -47,6 +48,12 @@ export interface FactoryPoolProcessConfig {
      * still cannot be.
      */
     readonly hosts?: readonly string[];
+    /**
+     * The GPU host profile declaration (`gpu-host-profiles.ts`): which devices
+     * one whole-host allocation of each GPU host carries. Absent, no GPU host
+     * authorizes any device. Loaded and validated before the listener binds.
+     */
+    readonly gpuProfilesPath?: string;
   };
   readonly readinessFilePath: string;
   readonly readinessHeartbeatMs?: number;
@@ -63,7 +70,7 @@ export interface FactoryPoolMainDependencies {
   readonly runConfigured: (configPath: string, signal: AbortSignal) => Promise<void>;
   readonly once: (event: "SIGINT" | "SIGTERM", listener: () => void) => void;
   readonly removeListener: (event: "SIGINT" | "SIGTERM", listener: () => void) => void;
-  readonly fail: () => void;
+  readonly fail: (error: unknown) => void;
 }
 
 function record(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
@@ -89,8 +96,8 @@ function identityConfig(value: unknown, knownHosts: ReadonlySet<string>): value 
 type PoolResourcesConfig = FactoryPoolProcessConfig["resources"];
 
 function validRoot(value: unknown): value is Record<string, unknown> {
-  const required = ["schemaVersion", "installationId", "poolId", "hostname", "port", "database", "tls", "tokens", "identities", "resources", "readinessFilePath"];
-  return record(value) && exact(value, required, ["readinessHeartbeatMs"]) && value.schemaVersion === CONFIG_SCHEMA && text(value.installationId) && text(value.poolId) && text(value.hostname, 253) && integer(value.port, 1, 65_535) && absolutePath(value.readinessFilePath) && (value.readinessHeartbeatMs === undefined || integer(value.readinessHeartbeatMs, 1_000, 60_000));
+  const required = ["schemaVersion", "poolId", "hostname", "port", "database", "tls", "tokens", "identities", "resources", "readinessFilePath"];
+  return record(value) && exact(value, required, ["readinessHeartbeatMs"]) && value.schemaVersion === CONFIG_SCHEMA && text(value.poolId) && text(value.hostname, 253) && integer(value.port, 1, 65_535) && absolutePath(value.readinessFilePath) && (value.readinessHeartbeatMs === undefined || integer(value.readinessHeartbeatMs, 1_000, 60_000));
 }
 function validDatabase(database: unknown): boolean {
   return record(database) && exact(database, ["credentialsPath", "expectedDatabase", "expectedRole"]) && absolutePath(database.credentialsPath) && text(database.expectedDatabase, 256) && text(database.expectedRole, 256);
@@ -106,7 +113,7 @@ function hostList(value: unknown): value is string[] {
   return Array.isArray(value) && value.length <= 10_000 && value.every(host => text(host, 256)) && new Set(value).size === value.length;
 }
 function validResources(resources: unknown): resources is PoolResourcesConfig {
-  if (!record(resources) || !exact(resources, ["capacities", "gpuHosts"], ["hosts"]) || !record(resources.capacities) || Object.keys(resources.capacities).some(key => !(CAPACITY_CLASSES as readonly string[]).includes(key)) || Object.values(resources.capacities).some(capacity => !integer(capacity, 0, 1_000_000)) || !hostList(resources.gpuHosts) || Object.values(resources.capacities).every(value => value === 0) && resources.gpuHosts.length === 0) return false;
+  if (!record(resources) || !exact(resources, ["capacities", "gpuHosts"], ["hosts", "gpuProfilesPath"]) || (resources.gpuProfilesPath !== undefined && !absolutePath(resources.gpuProfilesPath)) || !record(resources.capacities) || Object.keys(resources.capacities).some(key => !(CAPACITY_CLASSES as readonly string[]).includes(key)) || Object.values(resources.capacities).some(capacity => !integer(capacity, 0, 1_000_000)) || !hostList(resources.gpuHosts) || Object.values(resources.capacities).every(value => value === 0) && resources.gpuHosts.length === 0) return false;
   const ordinaryHosts = resources.hosts;
   if (ordinaryHosts !== undefined && !hostList(ordinaryHosts)) return false;
   const gpuHosts = new Set(resources.gpuHosts);
@@ -180,10 +187,17 @@ async function verifyDatabase(database: PoolDatabase, config: FactoryPoolProcess
 async function bindPoolIdentity(database: PoolDatabase, config: FactoryPoolProcessConfig): Promise<void> {
   await database.begin(async transaction => {
     await transaction.unsafe("SELECT pg_advisory_xact_lock(hashtext('factory-pool-process-identity-v1'))");
-    await transaction.unsafe("CREATE TABLE IF NOT EXISTS factory_pool_identity(singleton boolean PRIMARY KEY DEFAULT TRUE CHECK(singleton), installation_id text NOT NULL, pool_id text NOT NULL)");
-    await transaction.unsafe("INSERT INTO factory_pool_identity(singleton,installation_id,pool_id) VALUES(TRUE,$1,$2) ON CONFLICT(singleton) DO NOTHING", [config.installationId, config.poolId]);
-    const identity = rows<{ installation_id: string; pool_id: string }>(await transaction.unsafe("SELECT installation_id,pool_id FROM factory_pool_identity WHERE singleton=TRUE FOR UPDATE"))[0];
-    if (!identity || identity.installation_id !== config.installationId || identity.pool_id !== config.poolId) throw new Error("factory pool database identity is invalid");
+    // One pool serves every installation on its host (C12): the database is bound
+    // to the pool's own id and no installation. A table in the earlier singleton
+    // shape (singleton, installation_id, pool_id) is upgraded in place, keeping
+    // its pool_id, so a pool database that served another pool is still refused.
+    await transaction.unsafe("CREATE TABLE IF NOT EXISTS factory_pool_identity(pool_id text PRIMARY KEY)");
+    await transaction.unsafe("ALTER TABLE factory_pool_identity DROP COLUMN IF EXISTS installation_id");
+    await transaction.unsafe("ALTER TABLE factory_pool_identity DROP COLUMN IF EXISTS singleton");
+    await transaction.unsafe("DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'factory_pool_identity'::regclass AND contype = 'p') THEN ALTER TABLE factory_pool_identity ADD PRIMARY KEY (pool_id); END IF; END $$");
+    await transaction.unsafe("INSERT INTO factory_pool_identity(pool_id) SELECT $1 WHERE NOT EXISTS (SELECT 1 FROM factory_pool_identity)", [config.poolId]);
+    const identity = rows<{ pool_id: string }>(await transaction.unsafe("SELECT pool_id FROM factory_pool_identity FOR UPDATE"));
+    if (identity.length !== 1 || identity[0]!.pool_id !== config.poolId) throw new Error("factory pool database identity is invalid");
   });
 }
 
@@ -244,6 +258,8 @@ export async function runConfiguredFactoryPoolProcess(configPath: string, signal
     const service = new PoolAdmissionService(database);
     await service.setup();
     await configureResources(database, service, config); schemaReady = true;
+    phase = "gpu_profiles_unavailable";
+    if (config.resources.gpuProfilesPath !== undefined) await loadFactoryGpuHostProfiles(config.resources.gpuProfilesPath, config.resources.gpuHosts);
     await readiness.write({ lifecycle: "starting", databaseReady, schemaReady, listenerReady: false });
     if (signal.aborted) return;
     phase = "listener_unavailable";
@@ -267,11 +283,12 @@ export async function runConfiguredFactoryPoolProcess(configPath: string, signal
   if (failureCode !== undefined) throw new Error(`factory pool process failed: ${failureCode}`);
 }
 
-const productionMainDependencies: FactoryPoolMainDependencies = {
+export const productionMainDependencies: FactoryPoolMainDependencies = {
   runConfigured: runConfiguredFactoryPoolProcess,
   once: (event, listener) => process.once(event, listener),
   removeListener: (event, listener) => process.removeListener(event, listener),
-  fail: () => { process.exitCode = 1; },
+  // Every error the run raises is a generic message by design, so the line names it and carries nothing else.
+  fail: error => { console.error(`[factory-pool] failed to start: ${error instanceof Error ? error.message : "unknown failure"}`); process.exitCode = 1; },
 };
 
 export async function runFactoryPoolMain(argv: readonly string[], dependencies: FactoryPoolMainDependencies = productionMainDependencies): Promise<void> {

@@ -1,0 +1,94 @@
+{
+  "comment": "Extra legs the local combined runner and the wave4f driver load beyond their own leg lists, so a local measurement sees the gated sources CI measures. ci.yml stays the authority for CI. Producers are CI jobs run as-is (their lcov goes to COV_OUT). Suites are single test files for a focused run; every one is also loaded by a CI producer. src/__tests__/combined-runner-legs.test.ts guards drift.",
+  "producers": [
+    {
+      "id": "cov-shard",
+      "workflow": ".github/workflows/ci.yml",
+      "ciJob": "cov-shard",
+      "command": "SHARD_INDEX=0 SHARD_TOTAL=1 COV_OUT=coverage-shard bash scripts/test-coverage.sh",
+      "comment": "The whole coverage host set in one shard: src, the extension packages, factory-sdk, worker, extensions, docs/extensions/examples, the scoped web bun files and scripts."
+    },
+    {
+      "id": "cov-extras",
+      "workflow": ".github/workflows/ci.yml",
+      "ciJob": "cov-extras",
+      "command": "COVERAGE_LEGS_ONLY=1 EZCORP_RUN_PODMAN_TESTS=1 COV_OUT=coverage-shard bash scripts/test-coverage.sh",
+      "comment": "The bun legs of legs-only mode: sdk, harness-client, suggest, ai-kit, providers, api-client, empty-node-shim, worker and web-utility. The Web Vitest and Python legs are not in this mode; the runner has its own."
+    },
+    {
+      "id": "web-security-coverage",
+      "workflow": ".github/workflows/ci.yml",
+      "ciJob": "web-security-coverage",
+      "command": "COV_OUT=coverage-shard bash scripts/security-coverage.sh",
+      "comment": "web/src/lib/server/security sources through the bun-only security suites."
+    },
+    {
+      "id": "factory-temporal",
+      "workflow": ".github/workflows/ci.yml",
+      "ciJob": "factory-temporal",
+      "command": "COV_OUT=coverage-shard bash scripts/factory-orchestrator-coverage.sh",
+      "comment": "packages/@ezcorp/factory-orchestrator under the pinned Temporal test server (needs FACTORY_TEMPORAL_TEST_SERVER)."
+    }
+  ],
+  "localOnlyProducers": [
+    {
+      "id": "factory-reference-data",
+      "command": "COV_OUT=coverage-shard bash scripts/factory-reference-data-coverage.sh",
+      "runs": ["tests/postgres/factory-reference-data.test.ts"],
+      "owner": "W18c",
+      "reason": "No registry holds the image: pinned.json pins localhost/ezcorp-factory-python-data by a manifest digest built with podman 5.8.2, which CI cannot pull or reproduce.",
+      "decision": "User decision (coordinator ruling 2026-09-27 16:36Z): publish the image by digest to the project's registry, point pinned.json at it, then run this producer in a db-postgres.yml storage job and move this entry to producers.",
+      "comment": "CI GAP: no workflow runs this producer, so its real-PostgreSQL leg runs in no CI job. Needs podman, the pinned PyArrow image, FACTORY_TEST_POSTGRES_URL and EZCORP_FACTORY_STORAGE_SECRETS_DIR."
+    }
+  ],
+  "suites": [
+    {
+      "file": "src/factory/temporal-retention.test.ts",
+      "cwd": ".",
+      "measures": ["src/factory/temporal-retention.ts"],
+      "comment": "Temporal history retention policy."
+    },
+    {
+      "file": "src/__tests__/preview-token.test.ts",
+      "cwd": ".",
+      "measures": ["src/runtime/preview/preview-token.ts"],
+      "comment": "Preview token signing and verification."
+    },
+    {
+      "file": "scripts/check-factory-runners.test.ts",
+      "cwd": ".",
+      "measures": ["scripts/check-factory-runners.ts"],
+      "comment": "The factory runner readiness check that ci.yml runs."
+    },
+    {
+      "file": "packages/@ezcorp/harness-client/src/index.test.ts",
+      "cwd": ".",
+      "measures": ["packages/@ezcorp/harness-client/src/index.ts"],
+      "comment": "The harness client package entry."
+    },
+    {
+      "file": "src/factory/runner/native.integration.test.ts",
+      "cwd": ".",
+      "measures": ["src/factory/runner/native.ts", "src/runtime/factory-execution.ts"],
+      "comment": "The native runner through the factory execution path."
+    },
+    {
+      "file": "src/factory/runner/provider-one-hop.test.ts",
+      "cwd": ".",
+      "measures": ["src/factory/runner/provider-one-hop.ts"],
+      "comment": "The one-hop provider bridge for runner attempts."
+    },
+    {
+      "file": "src/providers/factory-broker.test.ts",
+      "cwd": ".",
+      "measures": ["src/providers/factory-broker.ts"],
+      "comment": "The factory credential broker."
+    },
+    {
+      "file": "web/src/__tests__/mock-llm-store.test.ts",
+      "cwd": "web",
+      "measures": ["web/src/lib/server/mock-llm.ts"],
+      "comment": "The mock LLM store; runs from web/, so its lcov SF paths need the web/ prefix."
+    }
+  ]
+}

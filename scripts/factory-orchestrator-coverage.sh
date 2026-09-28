@@ -20,8 +20,11 @@ if [ "${#FACTORY_ORCHESTRATOR_TESTS[@]}" -eq 0 ]; then
   echo "factory orchestrator test set is empty" >&2
   exit 1
 fi
+source scripts/lib/test-totals.sh
 node_modules/.bin/tsc -b packages/@ezcorp/factory-transport/tsconfig.build.json --force
 node_modules/.bin/tsc -b packages/@ezcorp/factory-orchestrator/tsconfig.build.json --force
+# The spec reporter writes to a file, so this log would show no count: print node's totals after the run, pass or fail.
+set +e
 NODE_V8_COVERAGE="$TEMP_ROOT/v8" \
 FACTORY_BUNDLE_CODE_PATH="$TEMP_ROOT/workflow-bundle.js" \
 FACTORY_BUNDLE_MAP_PATH="$TEMP_ROOT/workflow-bundle.map.json" \
@@ -35,6 +38,10 @@ timeout --signal=TERM --kill-after=30s 600s \
   --test-reporter=spec --test-reporter-destination="$COV_OUT/test-progress.log" \
   --test-reporter=lcov --test-reporter-destination="$TEMP_ROOT/direct.lcov" \
   "${FACTORY_ORCHESTRATOR_TESTS[@]}"
+node_status=$?
+set -e
+print_node_totals "$COV_OUT/test-progress.log"
+[ "$node_status" -eq 0 ] || exit "$node_status"
 
 node scripts/factory-orchestrator-v8-to-lcov.mjs \
   "$TEMP_ROOT/v8" "$TEMP_ROOT/workflow-bundle.js" "$TEMP_ROOT/workflow-bundle.map.json" "$TEMP_ROOT/workflow.lcov"

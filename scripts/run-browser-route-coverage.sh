@@ -3,6 +3,9 @@
 # same strict aggregation path as CI. This is the complete local route-coverage
 # command, not a mock-only diagnostic.
 set -euo pipefail
+# The lane's server runs under the `bun` PATH resolves: pin it first (scripts/lib/lane-bun.sh).
+. "$(dirname "${BASH_SOURCE[0]}")/lib/lane-bun.sh"
+lane_bun_pin
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 output_dir="${EZCORP_BROWSER_COVERAGE_OUTPUT:-$repo_root/tasks/testing-gaps/browser/v8-coverage/full}"

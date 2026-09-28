@@ -114,7 +114,12 @@ export interface FactoryJournalOperationEvidence extends FactoryJournalOperation
 }
 
 /** Runs under the journal row locks immediately before an effect can dispatch. */
-export type FactoryAttemptAuthorizer = (database: MigrationDb, authority: FactoryAttemptAuthority) => Promise<void>;
+/**
+ * The run fence's check of one attempt authority. `expired: "allowed"` relaxes
+ * only the attempt-deadline clause, for a non-success report (defect 3, W01h);
+ * epochs, grant revision, run status and the run deadline stay fully checked.
+ */
+export type FactoryAttemptAuthorizer = (database: MigrationDb, authority: FactoryAttemptAuthority, options?: { readonly expired?: "allowed" }) => Promise<void>;
 
 function assertIdentity(value: FactoryAttemptAuthority): void {
   const counters = [value.attemptNumber, value.grantRevision, value.reservationGeneration, value.cancellationEpoch];
@@ -194,12 +199,26 @@ function durableRunnerRequest(value: unknown, requestHash: string): FactoryDurab
  * status that no longer admits effects). The fence checks those together, so
  * the second code does not say which one moved.
  */
-export type FactoryAttemptLivenessCode = "factory_attempt_unknown" | "factory_attempt_not_live";
+/** `factory_attempt_superseded`: the kernel already stopped the attempt, so a late report changes nothing. */
+export type FactoryAttemptLivenessCode = "factory_attempt_unknown" | "factory_attempt_not_live" | "factory_attempt_superseded";
 
 export class FactoryAttemptLivenessError extends Error {
   constructor(readonly code: FactoryAttemptLivenessCode, message: string) {
     super(message);
     this.name = "FactoryAttemptLivenessError";
+  }
+}
+
+/**
+ * The run fence refused an attempt whose authority names an execution epoch the
+ * installation has left (a restore opened a new one). It is a liveness refusal
+ * like any other — same code, same message — and it carries both epochs so a
+ * caller that must not retry forever can say which epochs, and stop (W15f).
+ */
+export class FactoryRunEpochStaleError extends FactoryAttemptLivenessError {
+  constructor(readonly runId: string, readonly attemptId: string, readonly attemptEpoch: number, readonly installationEpoch: number) {
+    super("factory_attempt_not_live", "Factory run epoch is stale or unavailable.");
+    this.name = "FactoryRunEpochStaleError";
   }
 }
 
@@ -243,6 +262,36 @@ export class FactoryExecutionJournal {
     authority = snapshotAuthority(authority);
     this.assertLiveInput(authority);
     await this.lockLive(database, authority);
+    return this.storedRequestInTransaction(database, authority);
+  }
+
+  /**
+   * The exact request, for a non-success report that may arrive after the
+   * attempt's deadline (defect 3, W01h).
+   *
+   * An attempt that ended at its deadline still ended, and saying it failed
+   * authorizes nothing: no effect, no spend, no forward dispatch. So the run
+   * fence checks everything it checks for a live attempt except the attempt
+   * deadline itself. An attempt the kernel already stopped from its own timer
+   * is `factory_attempt_superseded`: the late report makes no second
+   * transition, and what the host said stays on the attempt's launch record.
+   */
+  async reportedRequestInTransaction(database: MigrationDb, value: FactoryAttemptAuthority): Promise<FactoryDurableRunnerRequest> {
+    const authority = snapshotAuthority(value);
+    assertIdentity(authority);
+    await this.lockRunFence(database, authority);
+    await this.authorizeInTransaction(database, authority, { expired: "allowed" });
+    const row = releaseRows<{ status: string }>(await database.execute(sql`SELECT status FROM factory_executions
+      WHERE attempt_id=${authority.attemptId} AND tenant_id=${authority.tenantId} AND project_id=${authority.projectId} AND run_id=${authority.runId}
+        AND node_instance_id=${authority.nodeInstanceId} AND candidate_generation=${authority.candidateGeneration} AND attempt_number=${authority.attemptNumber}
+        AND grant_revision=${authority.grantRevision} AND reservation_generation=${authority.reservationGeneration} AND execution_epoch=${authority.executionEpoch}
+        AND cancellation_epoch=${authority.cancellationEpoch} AND request_hash=${authority.requestDigest} FOR UPDATE`))[0];
+    if (!row) await this.requireAttempt(database, authority, "Factory attempt is stale or unavailable.", []);
+    if (row!.status !== "admitted" && row!.status !== "running") throw new FactoryAttemptLivenessError("factory_attempt_superseded", "The kernel already stopped this attempt; the late report is kept on its launch record.");
+    return this.storedRequestInTransaction(database, authority);
+  }
+
+  private async storedRequestInTransaction(database: MigrationDb, authority: FactoryAttemptAuthority): Promise<FactoryDurableRunnerRequest> {
     const stored = releaseRows<{ request_hash: string; request_json: unknown }>(await database.execute(sql`SELECT request_hash,request_json FROM factory_executions WHERE attempt_id=${authority.attemptId}`))[0];
     if (stored?.request_hash !== authority.requestDigest) throw new Error("Factory durable runner request is corrupt.");
     return durableRunnerRequest(this.storedJson(stored.request_json), stored.request_hash);
@@ -538,12 +587,7 @@ export class FactoryExecutionJournal {
   }
 
   private async operationEvidenceInTransaction(database: MigrationDb, attemptId: string): Promise<{ operations: FactoryJournalOperationEvidence[]; journalCursor: number }> {
-    const stored = releaseRows<{ operation_id: string; operation_index: number | string; kind: "model" | "tool"; state: FactoryOperationState; request_digest: string; result_digest: string | null; provider_receipt_digest: string | null; usage_json: unknown; workspace_checkpoint: unknown }>(await database.execute(sql`SELECT operation_id,operation_index,kind,state,request_digest,result_digest,provider_receipt_digest,usage_json,workspace_checkpoint FROM factory_execution_operations WHERE attempt_id=${attemptId} ORDER BY operation_index`));
-    const operations = stored.map(operation => ({ operationId: operation.operation_id, operationIndex: Number(operation.operation_index), kind: operation.kind, state: operation.state, requestDigest: operation.request_digest, ...(operation.result_digest === null ? {} : { resultDigest: operation.result_digest }), ...(operation.provider_receipt_digest === null ? {} : { providerReceiptDigest: operation.provider_receipt_digest }), ...(operation.usage_json === null ? {} : { usage: this.storedJson(operation.usage_json) as JsonValue }), ...(operation.workspace_checkpoint === null ? {} : { workspaceCheckpoint: this.storedJson(operation.workspace_checkpoint) as JsonValue }) } satisfies FactoryJournalOperationEvidence));
-    const row = releaseRows<{ journal_cursor: number | string }>(await database.execute(sql`SELECT journal_cursor FROM factory_executions WHERE attempt_id=${attemptId}`))[0];
-    const journalCursor = Number(row?.journal_cursor);
-    if (!Number.isSafeInteger(journalCursor) || journalCursor < -1) throw new Error("Factory journal cursor is corrupt.");
-    return { operations, journalCursor };
+    return readFactoryOperationEvidenceInTransaction(database, attemptId);
   }
 
   private canonicalStoredJson(value: unknown): string {
@@ -552,8 +596,7 @@ export class FactoryExecutionJournal {
   }
 
   private storedJson(value: unknown): unknown {
-    if (typeof value !== "string") return value;
-    try { return JSON.parse(value); } catch { throw new Error("Factory operation result is corrupt."); }
+    return storedJournalJson(value);
   }
 
   private assertLiveInput(authority: FactoryAttemptAuthority): void {
@@ -603,11 +646,31 @@ export class FactoryExecutionJournal {
     const message = "Factory run epoch is stale or unavailable.";
     const installation = await lockFactoryScope(database, authority.tenantId, authority.projectId);
     if (installation === null) throw new FactoryAttemptLivenessError("factory_attempt_unknown", message);
-    if (installation.executionEpoch !== authority.executionEpoch) throw new FactoryAttemptLivenessError("factory_attempt_not_live", message);
+    if (installation.executionEpoch !== authority.executionEpoch) throw new FactoryRunEpochStaleError(authority.runId, authority.attemptId, authority.executionEpoch, installation.executionEpoch);
     const run = releaseRows(await database.execute(sql`SELECT run_id FROM factory_runs WHERE tenant_id=${authority.tenantId} AND project_id=${authority.projectId} AND run_id=${authority.runId} AND execution_epoch=${authority.executionEpoch} FOR UPDATE`));
     if (run.length) return;
     const known = releaseRows(await database.execute(sql`SELECT run_id FROM factory_runs WHERE tenant_id=${authority.tenantId} AND project_id=${authority.projectId} AND run_id=${authority.runId}`));
     throw new FactoryAttemptLivenessError(known.length ? "factory_attempt_not_live" : "factory_attempt_unknown", message);
   }
 
+}
+
+function storedJournalJson(value: unknown): unknown {
+  if (typeof value !== "string") return value;
+  try { return JSON.parse(value); } catch { throw new Error("Factory operation result is corrupt."); }
+}
+
+/**
+ * An attempt's journaled operations and committed cursor, in operation order.
+ * It takes no lock and checks no authority: every caller supplies the proof that
+ * lets it read — the journal's scoped read under the run fence, or a restore's
+ * supersession record for an attempt of an epoch the restore left (W15f).
+ */
+export async function readFactoryOperationEvidenceInTransaction(database: MigrationDb, attemptId: string): Promise<{ operations: FactoryJournalOperationEvidence[]; journalCursor: number }> {
+  const stored = releaseRows<{ operation_id: string; operation_index: number | string; kind: "model" | "tool"; state: FactoryOperationState; request_digest: string; result_digest: string | null; provider_receipt_digest: string | null; usage_json: unknown; workspace_checkpoint: unknown }>(await database.execute(sql`SELECT operation_id,operation_index,kind,state,request_digest,result_digest,provider_receipt_digest,usage_json,workspace_checkpoint FROM factory_execution_operations WHERE attempt_id=${attemptId} ORDER BY operation_index`));
+  const operations = stored.map(operation => ({ operationId: operation.operation_id, operationIndex: Number(operation.operation_index), kind: operation.kind, state: operation.state, requestDigest: operation.request_digest, ...(operation.result_digest === null ? {} : { resultDigest: operation.result_digest }), ...(operation.provider_receipt_digest === null ? {} : { providerReceiptDigest: operation.provider_receipt_digest }), ...(operation.usage_json === null ? {} : { usage: storedJournalJson(operation.usage_json) as JsonValue }), ...(operation.workspace_checkpoint === null ? {} : { workspaceCheckpoint: storedJournalJson(operation.workspace_checkpoint) as JsonValue }) } satisfies FactoryJournalOperationEvidence));
+  const row = releaseRows<{ journal_cursor: number | string }>(await database.execute(sql`SELECT journal_cursor FROM factory_executions WHERE attempt_id=${attemptId}`))[0];
+  const journalCursor = Number(row?.journal_cursor);
+  if (!Number.isSafeInteger(journalCursor) || journalCursor < -1) throw new Error("Factory journal cursor is corrupt.");
+  return { operations, journalCursor };
 }

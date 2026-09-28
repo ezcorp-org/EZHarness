@@ -86,6 +86,10 @@ test-results/
 TESTENV/
 web/e2e/.docker-auth.json
 web/e2e/.real-auth.json
+web/e2e/.factory-services-state.json
+web/e2e/.factory-services-auth.json
+# The held stack's request and stop files, beside its state file (web/e2e/factory-services/state.ts).
+web/e2e/.factory-services-state.json.*
 web/e2e/.validate-auth.json
 
 # User-created projects. The live location is `.ezcorp/projects` (already

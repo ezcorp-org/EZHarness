@@ -7,6 +7,6 @@ factoryRunInputsConformance(async () => {
   const storage = await createFactoryOrdinaryStorage(`ordinary/factory-run-inputs/${randomUUID()}`);
   try {
     const database = await setupFactoryPostgres();
-    return { db: database.db, blobs: storage.blobs, async close() { try { await database.close(); } finally { storage.close(); } } };
-  } catch (error) { storage.close(); throw error; }
+    return { db: database.db, blobs: storage.blobs, async close() { try { await database.close(); } finally { await storage.close(); } } };
+  } catch (error) { await storage.close(); throw error; }
 });

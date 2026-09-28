@@ -1,7 +1,8 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, jest, test } from "bun:test";
 import { generateKeyPairSync } from "node:crypto";
 import { certificates } from "../__tests__/helpers/factory-certificates";
 import { FACTORY_WORKER_ROLES } from "./runtime-workers";
+import { startFactoryExecutionGateway } from "./execution-gateway";
 import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
@@ -9,12 +10,14 @@ import type { FactorySettleableChild } from "./child-runs";
 import type { TrustedFactoryServiceIdentity } from "./trusted-command-gateway";
 import type { BlobStore } from "../extensions/v4/types";
 import { getReadiness, resetReadiness } from "../readiness";
+import { FACTORY_PROBE_DEADLINE_MS } from "./service-probes";
 import { configureFactoryApplication, getFactoryApplication } from "./application";
 import type { FactoryBootConfig } from "./boot";
 import { createFactoryPoolReadinessWriter } from "./pool/readiness";
 import { createFactoryServiceReadinessWriter, factorySupervisorReadinessOptions } from "./service-readiness";
 import { FACTORY_STARTUP_CONFIG_SCHEMA } from "./startup-config";
 import { FactoryReleaseApplication } from "./release-application";
+import { FactoryAssuranceCommands } from "./assurance-commands";
 import {
   FACTORY_CHILD_SETTLEMENT_TRANSIENT_CODES,
   factoryChildSettlementDisposition,
@@ -27,8 +30,7 @@ import {
   startFactoryInstallation,
   factoryReleaseOperations,
   type FactoryInstallationHost,
-  type FactoryInstallationStartupError,
-} from "./installation-startup";
+  type FactoryInstallationStartupError, type FactoryBootTraceEvent } from "./installation-startup";
 
 // This suite composes the real installation, which checks C11's bound against
 // the interval the host maintenance daemon will really use. An installation
@@ -38,7 +40,7 @@ process.env.EZCORP_PERM_SWEEP_INTERVAL_MS = "30000";
 
 const roots: string[] = [];
 const reported: Array<{ role: string; error: unknown }> = [];
-const started: Array<{ stop(): Promise<void> }> = [];
+const started: Array<{ stop(): Promise<unknown> }> = [];
 
 afterEach(async () => {
   for (const startup of started.splice(0)) await startup.stop();
@@ -116,10 +118,10 @@ async function writeReadyRecords(root: string): Promise<void> {
   const path = join(root, "orchestration.json");
   await writeFile(path, JSON.stringify(orchestration), { mode: 0o600 });
   await chmod(path, 0o600);
-  await createFactoryPoolReadinessWriter({ installationId: "installation-01", poolId: "pool-01", readinessFilePath: join(root, "pool.json"), readinessHeartbeatMs: 5_000 })
+  await createFactoryPoolReadinessWriter({ poolId: "pool-01", readinessFilePath: join(root, "pool.json"), readinessHeartbeatMs: 5_000 })
     .write({ lifecycle: "ready", databaseReady: true, schemaReady: true, listenerReady: true });
   await createFactoryServiceReadinessWriter(factorySupervisorReadinessOptions({
-    installationId: "installation-01", hostId: "host-01", readinessFilePath: join(root, "supervisor.json"), readinessHeartbeatMs: 5_000,
+    hostId: "host-01", readinessFilePath: join(root, "supervisor.json"), readinessHeartbeatMs: 5_000,
   })).write({ lifecycle: "ready", facts: { hostKeyReady: true, runnerReady: true , hostServicesReady: false } });
 }
 
@@ -227,6 +229,54 @@ describe("factoryStorageProbeTarget", () => {
 });
 
 describe("factoryGatewayProbeTarget", () => {
+  /** The probe's mutual-TLS material, and a target pointed at `port`. */
+  async function material() {
+    const root = await privateRoot();
+    const certs = await certificates(roots, "harness.tenant-01");
+    const file = async (name: string, text: string) => { const path = join(root, "secrets", name); await writeFile(path, text, { mode: 0o600 }); await chmod(path, 0o600); return path; };
+    const tls = { caPath: await file("ca.pem", certs.ca), certificatePath: await file("client.pem", certs.clientCert), privateKeyPath: await file("client.key", certs.clientKey) };
+    await writeFile(join(root, "pool-token"), "token\n", { mode: 0o600 });
+    return { certs, target: (port: number) => factoryGatewayProbeTarget({ ...document(root), gateway: { hostname: "127.0.0.1", port, tls } } as never) };
+  }
+
+  /** A real mutual-TLS listener answering `status` with `body`. */
+  async function listener(status: number, body: string | null = null) {
+    const { certs, target } = await material();
+    const server = Bun.serve({ hostname: "127.0.0.1", port: 0, tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca, requestCert: true }, fetch: () => new Response(body, { status }) });
+    return { target: target(server.port!), stop: () => server.stop(true) };
+  }
+
+  test("the real execution gateway's route-less refusal proves it live", async () => {
+    const { certs, target } = await material();
+    // The gateway itself, not a stand-in: a route-less request never reaches
+    // the journal or the attempt authority, so neither is exercised.
+    const gateway = startFactoryExecutionGateway({
+      journal: {} as never,
+      authorizeAttempt: async () => { throw new Error("a route-less request must not reach attempt authority"); },
+      jwtSecret: "gateway-probe-test-secret-that-is-long-enough",
+      installationId: "installation-01",
+      tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca },
+      hostname: "127.0.0.1",
+      port: 0,
+    });
+    try { expect(await target(Number(new URL(gateway.url).port)).health(new AbortController().signal)).toBe(true); }
+    finally { gateway.stop(); }
+  });
+
+  test("a success proves it live, should the gateway ever serve the route", async () => {
+    const { target, stop } = await listener(200);
+    try { expect(await target.health(new AbortController().signal)).toBe(true); }
+    finally { stop(); }
+  });
+
+  test("a failing gateway's 5xx, any other status, or another server's 401 reports it down", async () => {
+    for (const [status, body] of [[503, null], [500, null], [403, null], [404, null], [401, null], [401, "not json"], [401, '{"error":"forbidden"}'], [401, "null"], [401, '["unauthorized"]'], [401, '{"error":"unauthorized","detail":"x"}']] as const) {
+      const { target, stop } = await listener(status, body);
+      try { expect({ status, body, live: await target.health(new AbortController().signal) }).toEqual({ status, body, live: false }); }
+      finally { stop(); }
+    }
+  });
+
   test("reports the transport's own failure when the gateway is not listening", async () => {
     const root = await privateRoot();
     const target = factoryGatewayProbeTarget({ ...document(root), gateway: { hostname: "127.0.0.1", port: 1, tls: tlsMaterial } } as never);
@@ -261,6 +311,99 @@ describe("startFactoryInstallation", () => {
     expect(report.probes.every((probe) => probe.available)).toBe(true);
     expect(report.workers.map((worker) => worker.name)).toContain("run-projection");
     expect(report.workers.every((worker) => worker.running)).toBe(true);
+  });
+
+  test("traces every boot phase in order with its duration, and each startup probe's verdict", async () => {
+    const root = await privateRoot();
+    await writeReadyRecords(root);
+    const events: FactoryBootTraceEvent[] = [];
+    const startup = await startFactoryInstallation({
+      host: host({ trace: (event) => events.push(event) }),
+      blobs: memoryBlobs(),
+      databaseUrl: "postgres://product",
+      signal: new AbortController().signal,
+      configPath: await writeConfig(root),
+      boot: bootConfig(root),
+      dependencies: { gateway: { health: async () => true }, workers: { projections: { projectPending: async () => ({ runs: [] }) } } },
+    });
+    started.push(startup);
+    const phases = events.filter((event) => !event.phase.startsWith("probe:")).map(({ phase, state }) => `${state}:${phase}`);
+    // The store and the workers are supplied here, so those two phases do not run.
+    expect(phases).toEqual([
+      "started:config", "finished:config", "started:bind-installation", "finished:bind-installation",
+      "started:provider-broker", "finished:provider-broker", "started:runtime", "finished:runtime",
+    ]);
+    // Each probe's verdict lands inside the runtime phase, named by service.
+    const probes = events.filter((event) => event.phase.startsWith("probe:"));
+    expect(probes.map((event) => event.phase).sort()).toEqual(startup.runtime.report().probes.map((probe) => `probe:${probe.service}`).sort());
+    expect(probes.every((event) => event.state === "finished" && event.detail === "ready")).toBe(true);
+    expect(events.every((event) => Number.isInteger(event.elapsedMs) && event.elapsedMs >= 0)).toBe(true);
+  });
+
+  test("a store that never answers its probe times out by name, and boot still composes with admission closed", async () => {
+    const root = await privateRoot();
+    await writeReadyRecords(root);
+    const events: FactoryBootTraceEvent[] = [];
+    const puts: AbortSignal[] = [];
+    // The probe's put never answers and ignores its abort signal, the worst case: only the
+    // deadline race can end the probe. Fake timers run only from the runtime phase to that put,
+    // so the deadline passes at once instead of after fifteen real seconds.
+    const silent = {
+      ...memoryBlobs(),
+      put(_content: Uint8Array, options?: { signal?: AbortSignal }) {
+        const signal = options?.signal;
+        if (!signal) throw new Error("the storage probe sent its put without a signal");
+        puts.push(signal);
+        queueMicrotask(() => { jest.advanceTimersByTime(FACTORY_PROBE_DEADLINE_MS); jest.useRealTimers(); });
+        return new Promise<never>(() => {});
+      },
+    } as unknown as BlobStore;
+    const controller = new AbortController();
+    try {
+      const startup = await startFactoryInstallation({
+        host: host({ trace: (event) => { events.push(event); if (event.phase === "runtime" && event.state === "started") jest.useFakeTimers(); } }),
+        blobs: silent,
+        databaseUrl: "postgres://product",
+        signal: controller.signal,
+        configPath: await writeConfig(root, { readinessRetry: { delayMs: 60_000, windowMs: 300_000 } }),
+        boot: bootConfig(root),
+        dependencies: { gateway: { health: async () => true }, workers: { projections: { projectPending: async () => ({ runs: [] }) } } },
+      });
+      started.push(startup);
+
+      // The deadline also aborted the put's signal, so a store that honours it stops its request.
+      expect(puts).toHaveLength(1);
+      expect(puts[0]!.aborted).toBe(true);
+      expect(String(puts[0]!.reason)).toContain("object_storage_probe_timeout");
+      // Every probe after the stuck one still ran, and the runtime phase finished.
+      const report = startup.runtime.report();
+      expect(report.admissionOpen).toBe(false);
+      expect(report.probes.map(({ service, available, detail }) => ({ service, available, detail }))).toEqual(report.probes.map(({ service }) => (
+        service === "object-storage"
+          ? { service, available: false, detail: "object_storage_probe_timeout" }
+          : { service, available: true, detail: "ready" })));
+      expect(report.probes.map(({ service }) => service)).toContain("required-sandbox");
+      expect(events.filter((event) => event.phase === "probe:object-storage").map(({ state, detail }) => `${state}:${detail}`)).toEqual(["finished:object_storage_probe_timeout"]);
+      expect(events.some((event) => event.phase === "runtime" && event.state === "finished")).toBe(true);
+      expect(getReadiness()).toMatchObject({ state: "degraded", reason: "factory-services-unavailable", detail: { missing: ["object-storage"] } });
+    } finally {
+      jest.useRealTimers();
+      controller.abort();
+    }
+  }, 10_000);
+
+  test("a phase that throws still reports that it finished, so a failed boot names where it failed", async () => {
+    const root = await privateRoot();
+    const events: FactoryBootTraceEvent[] = [];
+    await expect(startFactoryInstallation({
+      host: host({ trace: (event) => events.push(event) }),
+      blobs: memoryBlobs(),
+      databaseUrl: "postgres://product",
+      signal: new AbortController().signal,
+      configPath: join(root, "missing-startup.json"),
+      boot: bootConfig(root),
+    })).rejects.toBeDefined();
+    expect(events.map(({ phase, state }) => `${state}:${phase}`)).toEqual(["started:config", "finished:config"]);
   });
 
   test("reads the host supervisor's own record when this process holds no runner", async () => {
@@ -828,6 +971,8 @@ describe("the roles this installation assembles", () => {
     // The public release routes compose with the store even so: a contract is
     // approved before anything publishes.
     expect(startup.runtime.application.releaseOperations?.tenantId).toBe("tenant-01");
+    // So do the inbox's approval decisions: a human answers an approval node through them.
+    expect(startup.runtime.application.commandApprovals?.tenantId).toBe("tenant-01");
   });
 
   test("a release store that did not compose holds the role on the store, not on the provider", async () => {
@@ -844,6 +989,7 @@ describe("the roles this installation assembles", () => {
     expect(held.get("release-outcome")).toContain("release-store role");
     // No store, no release routes: they answer factory_release_application_unavailable.
     expect(startup.runtime.application.releaseOperations).toBeUndefined();
+    expect(startup.runtime.application.commandApprovals).toBeUndefined();
   });
 
   test("a declared destination registers release-outcome from the document alone", async () => {
@@ -880,6 +1026,19 @@ describe("the roles this installation assembles", () => {
     expect(getFactoryApplication()).toBe(startup.runtime.application);
     expect(getFactoryApplication()?.releaseOperations).toBeInstanceOf(FactoryReleaseApplication);
     expect(getFactoryApplication()?.releaseOperations?.tenantId).toBe("tenant-01");
+    // The release store the inbox lists through carries the installation's command authority and service
+    // identity (c5b14cb49). Without them, one approval node's request made the whole notification list
+    // refuse factory_command_approval_authority_unavailable (reproduced in the real lane, journeys-22).
+    const application = getFactoryApplication();
+    if (!application) throw new Error("the installation configured no factory application");
+    const store = (application.releaseOperations as unknown as { releases: { commandApprovalCurrent?: { authority: { tenantId: string }; service: unknown } } }).releases;
+    expect(store.commandApprovalCurrent?.service).toEqual({ subject: "factory-private", tenantId: "tenant-01" });
+    expect(store.commandApprovalCurrent?.authority.tenantId).toBe("tenant-01");
+    // The approval decisions are the real command store: a decision is judged by its rules, not refused as unavailable.
+    const approvals = getFactoryApplication()?.commandApprovals;
+    expect(approvals).toBeInstanceOf(FactoryAssuranceCommands);
+    await expect(approvals!.decide({ kind: "user", id: "owner-1", authentication: "session" }, "project-1", "run-1", "approval-1", "0".repeat(64), "approve", 1, "decide-1"))
+      .rejects.toMatchObject({ code: "factory_command_approval_invalid" });
   });
 
   test("a declared destination whose credential file anyone can read holds the release store by name", async () => {

@@ -1,0 +1,51 @@
+W16 (wp/w16-provisioning): ACCEPT at 0bf2fcaa2 (code head ddfdce468). validator-5, 2026-09-28. Base d65886b9a.
+F1 from the REJECT at 319f6f3bd (verdict-validator-5.txt) is closed. No finding above low remains open.
+
+F1 CLOSED:
+- The diff over 319f6f3bd is exactly scripts/check-factory-deployment-locks.test.ts and tasks/factory/w16-GATES.md. The code
+  change is one line: `} finally { process.exitCode = previous ?? 0; print.mockRestore(); } // Bun 1.3.14 keeps the 3 when
+  handed undefined`.
+- Red-first, measured by me: the file alone at 0bf2fcaa2 is 11/0 with exit 0. The same run with 319f6f3bd's copy of the
+  file is 11/0 with exit 3.
+- The unit pool (the same 50 files and order as the hold) under the lock, 07:57:48Z to 07:58:24Z: 1097 pass, 0 fail,
+  5650 expect() calls, exit 0. It was exit 3 at 319f6f3bd.
+- Coverage gates against d65886b9a: merge-lcov over 1386 source files (the new unit lcov, plus the PostgreSQL and web lcov
+  from hold-319f6f3bd, whose sources did not change). New-file coverage PASSED (37 new source files gated). Patch
+  coverage PASSED (every changed executable line covered, 53 files).
+- Lock-free at 0bf2fcaa2, all exit 0: typecheck, lint, check-factory-boundaries, check-boundaries, gate-integrity against
+  origin/main and against d65886b9a, and gitleaks on the changed files.
+- Identity: all 79 commits in d65886b9a..0bf2fcaa2 are archy <281643943+EZArchy@users.noreply.github.com>, as author and
+  as committer.
+- Shared .git/config sha256 was 44962525f1ca1a8b at the start and end of every phase. The tree was clean after every
+  phase. bun and bunx were asserted at 1.3.14. A gate ran before every leg (memory 17 GiB available, swap 5 GiB free,
+  disk 164 GB).
+- Receipts: /tmp/factory-platform-evidence/w16-validation/recheck-0bf2fcaa2/ and recheck-heavy-0bf2fcaa2.out.
+
+CARRIED OVER from the 319f6f3bd hold (the code outside the one test file is the same; receipts in hold-319f6f3bd/):
+- Red-first:
+  - my five mutants, each red by assertion
+  - the owner's 13 temporalHttp guard removals, all RED
+  - 317a0d622: 18/0 at the head, and red when reverted
+  - cb2680fbe: 10/0 at the head, and 8/2 with the silent fail restored
+- Tree review, 131 files: the 6 gate-tooling rows only add or tighten. The compose deletion is replaced by
+  deploy/factory/compose/platform.yml.
+- Heavy legs, each count nonzero:
+  - PostgreSQL: provisioning coverage 64/0, pool coverage 92/0, installation-bootstrap 17/0, grants 13/0, schema 2/0
+  - Podman: supervisor-process 3/0, guest-broker-transport 13/0, package-preparation 1/0
+  - Temporal route proof: unmodified passed, and all 7 guard removals failed
+  - route-contract 29/0
+  - guard set 59/0
+  - web vitest 185 passed
+  - web build 0
+  - factory-services lane in external mode: 12 passed
+  - runbook mock pass: passed
+- Static checks: deployment locks 0, schema drift 0.
+- The owner's r5c and r5d receipts: ACCEPTED at the code head cb2680fbe, under the rule that the commits above it change
+  only docs. That covers image, Kubernetes, candidates, live fleet, self-hosted outcome 51/51, lifecycle outcome 27/27,
+  runbook, unit 1036/0, and the 7 PostgreSQL legs. The W01i probe gave 403 forbidden_tenant on cross-tenant launch and
+  attach, and 200 on own attach, on all 10 tenants. ddfdce468 changes one test line only, which does not touch those
+  legs.
+
+OPEN, LOW (not blocking): L1, evidence script only. The self-hosted proof's peer-tenant probe reads the host CA from the
+host's source path, and the harness certificate and key from the installation bundle. It does not read them from the
+harness delivery directory the process uses.
