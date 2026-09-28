@@ -82,7 +82,7 @@ test("the default output prints a line and sets the process exit code", () => {
     factoryLockCheckIo.exit(3);
     expect(print).toHaveBeenCalledWith("line");
     expect(process.exitCode).toBe(3);
-  } finally { process.exitCode = previous; print.mockRestore(); }
+  } finally { process.exitCode = previous ?? 0; print.mockRestore(); } // Bun 1.3.14 keeps the 3 when handed undefined
 });
 
 test("the default root is the repository", async () => {
