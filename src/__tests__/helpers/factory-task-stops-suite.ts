@@ -19,7 +19,7 @@ import type { FactoryPhysicalStopReceipt, } from "../../factory/runner/attempt-r
 import { FactoryTaskAdmission, type FactoryTaskResourceProfile } from "../../factory/task-admission";
 import { FactoryTaskOutcomes } from "../../factory/task-outcomes";
 import { FactoryTaskStops, FactoryTaskStopError, FACTORY_STOP_SCAN_MAX_LIMIT, type FactoryPhysicalStopper, type FactoryPoolStopAcknowledger, type FactoryStopHostKey, type FactoryTaskStopRequest } from "../../factory/task-stops";
-import { FactoryUsageReconciliation, FactoryUsageSettlements } from "../../factory/usage-settlement";
+import { FACTORY_USAGE_NOTHING_LAUNCHED_BASIS, FactoryUsageReconciliation, FactoryUsageSettlements } from "../../factory/usage-settlement";
 import { readAttemptSupersessionInTransaction, supersedeEpochAttemptsInTransaction } from "../../factory/attempt-supersessions";
 import { persistTransition } from "../../../packages/@ezcorp/factory-orchestrator/src/transition-pages";
 import { createFactoryLiveAttemptWorld, type FactoryLiveAttempt, type FactoryLiveAttemptWorld } from "./factory-live-attempt-world";
@@ -622,8 +622,11 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
     expect(stopMarks.map(mark => ({ stopCommandId: mark.stop_command_id, epoch: Number(mark.stop_requested_epoch) }))).toEqual([{ stopCommandId: cancelCommand!.id, epoch: advanced.nextState.cancellationEpoch }]);
     expect(rows(await fixture.db.execute(sql`SELECT cancel_command_id FROM factory_task_stops WHERE run_id=${run.runId}`))).toEqual([]);
     expect(rows(await fixture.db.execute(sql`SELECT attempt_id FROM factory_attempt_launches WHERE run_id=${run.runId}`))).toEqual([]);
-    // No capacity was ever claimed: the hold never left `held`.
-    expect(await reservationState(reserved.reservationId)).toMatchObject({ state: "held" });
+    // No capacity was ever claimed and nothing was launched, so the unused hold
+    // settles all zero, compute too, in the stop's own transaction, under the
+    // no-operations basis that says so (W09h R4).
+    expect(await reservationState(reserved.reservationId)).toEqual({ state: "settled", actual: JSON.stringify({ computeMs: "0", costMicros: "0", tokens: "0" }) });
+    expect(rows(await fixture.db.execute(sql`SELECT source, known_cost_micros, basis FROM factory_usage_settlements WHERE reservation_id=${reserved.reservationId}`))).toEqual([{ source: "no-operations", known_cost_micros: "0", basis: FACTORY_USAGE_NOTHING_LAUNCHED_BASIS }]);
   });
 
   test("lists exactly the accepted cancellations a stop worker must still drive", async () => {

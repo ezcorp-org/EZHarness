@@ -20,7 +20,7 @@ import { factoryAttemptWorkerId, readFactoryAttemptLaunchFacts, type FactoryAtte
 import { factoryTaskReservationId } from "./task-admission";
 import type { FactoryTaskOutcomes, FactoryVerifiedTaskOutcome } from "./task-outcomes";
 import type { TrustedFactoryCommandReference, TrustedFactoryServiceIdentity } from "./trusted-command-gateway";
-import type { FactoryUsageSettlementAuthority, FactoryUsageSettlements, FactoryUsageSettlementScope } from "./usage-settlement";
+import { FACTORY_USAGE_NOTHING_LAUNCHED_BASIS, type FactoryUsageSettlementAuthority, type FactoryUsageSettlements, type FactoryUsageSettlementScope } from "./usage-settlement";
 import { clearResolvedSupersessionInTransaction } from "./attempt-supersessions";
 
 /** C02: abort, then at most this much cleanup, then kill the whole sandbox. */
@@ -511,6 +511,11 @@ export class FactoryTaskStops implements FactoryUsageSettlementAuthority {
    * `attempt-stopped` with `stoppedBefore: "admission"`, so the run reaches its terminal without the pool.
    * Only the admission row is locked (after the run): a reserved attempt has no stop row and no launch row,
    * so FACTORY_STOP_LAUNCH_LOCK_ORDER has nothing to order. Anything else is still refused stale.
+   *
+   * R4: in the same transaction the unused hold settles all zero through the `no-operations` source, under
+   * the basis FACTORY_USAGE_NOTHING_LAUNCHED_BASIS: nothing was admitted, so no process ran and cost, tokens
+   * and compute are all known zeros. It is proven by the digest of this sealed stop, since no host signs a
+   * stop for an attempt that never ran.
    */
   private async settleBeforeAdmission(transaction: MigrationDb, reference: TrustedFactoryCommandReference, context: FactoryAuthorizedCancellationCommand): Promise<FactoryTaskStopReceipt> {
     const { command, attempt, state, fence } = context;
@@ -521,7 +526,13 @@ export class FactoryTaskStops implements FactoryUsageSettlementAuthority {
     const key = { projectId: reference.projectId, runId: reference.logicalRunId, reservationId: factoryTaskReservationId(reference, context) };
     const stopped = await this.compute.stopInTransaction(transaction, key, { commandId: reference.commandId, attemptCommandId: command.attemptCommandId, epoch: fence.cancellationEpoch, requestedAtMs: atMs }, event);
     if (!stopped) throw new FactoryTaskStopError("factory_task_stop_stale");
-    if (stopped.created) await this.inbox.enqueueInTransaction(transaction, { projectId: reference.projectId, runId: reference.logicalRunId, interpreterId: reference.interpreterId }, stopped.event);
+    if (stopped.created) {
+      const stopDigest = stopHash({ schemaVersion: "factory.admission-stop.v1", reservationId: key.reservationId, epoch: fence.cancellationEpoch, event: stopped.event });
+      await this.budgets.settleWithoutOperationsInTransaction(transaction, key, stopDigest, FACTORY_USAGE_NOTHING_LAUNCHED_BASIS);
+      const settledAttempt = { attemptId: attempt.commandId, nodeInstanceId: command.nodeId, candidateGeneration: attempt.candidateGeneration, attemptNumber: attempt.attempt };
+      await this.settlements.recordInTransaction(transaction, { ...key, interpreterId: reference.interpreterId, authority: settledAttempt }, { source: "no-operations", knownCostMicros: "0", stopReceiptDigest: stopDigest, basis: FACTORY_USAGE_NOTHING_LAUNCHED_BASIS });
+      await this.inbox.enqueueInTransaction(transaction, { projectId: reference.projectId, runId: reference.logicalRunId, interpreterId: reference.interpreterId }, stopped.event);
+    }
     return Object.freeze({ state: "stopped" as const, event: Object.freeze(stopped.event) });
   }
 

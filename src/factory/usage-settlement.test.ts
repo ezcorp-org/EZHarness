@@ -10,6 +10,7 @@ import {
   factoryUsageSettlementEventId,
   factoryUsageSettlementIsIntact,
   FACTORY_USAGE_NO_OPERATIONS_BASIS,
+  FACTORY_USAGE_NOTHING_LAUNCHED_BASIS,
   FACTORY_USAGE_SETTLEMENT_CODES,
   FACTORY_USAGE_SETTLEMENT_SCHEMA_VERSION,
   FactoryUsageSettlementError,
@@ -155,4 +156,21 @@ test("seals a no-operations zero bound to its signed stop, and nothing else unde
   expect(rejection({ source: "stop", stopReceiptDigest })).toBe("factory_usage_settlement_receipt_invalid");
   expect(rejection({ source: "reconciliation", providerReceiptDigest: receipt, stopReceiptDigest })).toBe("factory_usage_settlement_receipt_invalid");
   expect(rejection({ source: "estimate" as never })).toBe("factory_usage_settlement_invalid");
+});
+
+test("seals the nothing-launched zero under no-operations only when the caller names that basis", () => {
+  const stopReceiptDigest = `sha256:${"c".repeat(64)}`;
+  expect(FACTORY_USAGE_NOTHING_LAUNCHED_BASIS).toBe("no-operations: nothing launched, all zero");
+  const settlement = buildFactoryUsageSettlement(input({ source: "no-operations", knownCostMicros: "0", stopReceiptDigest, basis: FACTORY_USAGE_NOTHING_LAUNCHED_BASIS }));
+  expect(settlement).toMatchObject({ source: "no-operations", knownCostMicros: "0", stopReceiptDigest, basis: FACTORY_USAGE_NOTHING_LAUNCHED_BASIS });
+  expect(factoryUsageSettlementIsIntact(settlement)).toBe(true);
+  // The basis is sealed: the same zero under the other basis is another record.
+  const reservedBound = buildFactoryUsageSettlement(input({ source: "no-operations", knownCostMicros: "0", stopReceiptDigest, basis: FACTORY_USAGE_NO_OPERATIONS_BASIS }));
+  expect(reservedBound.basis).toBe(FACTORY_USAGE_NO_OPERATIONS_BASIS);
+  expect(reservedBound.settlementDigest).not.toBe(settlement.settlementDigest);
+  expect(factoryUsageSettlementIsIntact({ ...settlement, basis: FACTORY_USAGE_NO_OPERATIONS_BASIS })).toBe(false);
+  // A basis rides only on a no-operations zero, and only a named one.
+  expect(rejection({ source: "stop", basis: FACTORY_USAGE_NOTHING_LAUNCHED_BASIS })).toBe("factory_usage_settlement_invalid");
+  expect(rejection({ source: "reconciliation", providerReceiptDigest: receipt, basis: FACTORY_USAGE_NO_OPERATIONS_BASIS })).toBe("factory_usage_settlement_invalid");
+  expect(rejection({ source: "no-operations", knownCostMicros: "0", stopReceiptDigest, basis: "no-operations: compute refunded" as never })).toBe("factory_usage_settlement_invalid");
 });

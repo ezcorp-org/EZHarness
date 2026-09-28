@@ -14,7 +14,7 @@ import type { PoolAdmissionRequest } from "../../src/factory/pool/service";
 import { FactoryTaskAdmission, type FactoryTaskResourceProfile } from "../../src/factory/task-admission";
 import { FactoryTaskOutcomes } from "../../src/factory/task-outcomes";
 import { FactoryTaskStops } from "../../src/factory/task-stops";
-import { FactoryUsageSettlements } from "../../src/factory/usage-settlement";
+import { FACTORY_USAGE_NOTHING_LAUNCHED_BASIS, FactoryUsageSettlements } from "../../src/factory/usage-settlement";
 import { persistTransition } from "../../packages/@ezcorp/factory-orchestrator/src/transition-pages";
 import { createFactoryLiveAttemptWorld, type FactoryLiveAttemptWorld } from "../../src/__tests__/helpers/factory-live-attempt-world";
 import { setupFactoryPostgres } from "./helpers/factory-test-database";
@@ -38,6 +38,11 @@ import { setupFactoryPostgres } from "./helpers/factory-test-database";
  * the admission worker late: it is refused by name, released at the pool
  * through the worker's own cancel (no new trust path), and never committed,
  * so the kernel never gets an admission result and never dispatches.
+ *
+ * R4: the budget hold settles all zero, cost, tokens and compute, in the
+ * stop's own transaction, through the `no-operations` source under the basis
+ * "no-operations: nothing launched, all zero" named on the settlement record,
+ * proven by the sealed stop's digest. Nothing was admitted, so no compute ran.
  */
 
 const hostKeys = generateKeyPairSync("rsa", { modulusLength: 2048 });
@@ -182,4 +187,31 @@ test("W09h R3: a grant the pool decides while the stop settles is refused by nam
   expect(await reserved.hold()).not.toBe("running");
   expect(folded.status).toBe("cancelled");
   expect(Object.values(folded.nodes).flatMap(node => node.attempts).filter(attempt => attempt.commandId.includes(":dispatch-node:"))).toEqual([]);
+});
+
+test("W09h R4: the unused hold settles all zero in the stop's transaction, basis \"nothing launched, all zero\"", async () => {
+  const reserved = await reservedRun();
+  expect(await reserved.hold()).toBe("held");
+  const { advanced } = await reserved.cancel();
+  const outcome = await reserved.stop();
+  expect(outcome).toMatchObject({ settled: { state: "stopped" } });
+  const budget = rows<{ state: string; actual: string; receipt_digest: string; xmin: string }>(await fixture.db.execute(sql`SELECT state, actual, receipt_digest, xmin::text AS xmin FROM factory_budget_reservations WHERE reservation_id=${reserved.key.reservationId}`))[0]!;
+  const settlements = rows<{ source: string; known_cost_micros: string; unknown_cost_micros: string | null; stop_receipt_digest: string; basis: string; attempt_id: string; xmin: string }>(await fixture.db.execute(sql`SELECT source, known_cost_micros, unknown_cost_micros, stop_receipt_digest, basis, attempt_id, xmin::text AS xmin FROM factory_usage_settlements WHERE reservation_id=${reserved.key.reservationId}`));
+  const admissionXmin = rows<{ xmin: string }>(await fixture.db.execute(sql`SELECT xmin::text AS xmin FROM factory_compute_admissions WHERE reservation_id=${reserved.key.reservationId}`))[0]!.xmin;
+  record("R4 hold after the stop", budget);
+  record("R4 settlements", settlements);
+  // All zero, compute too: nothing was admitted, so nothing ran. Proven by the sealed stop, not a host.
+  expect(budget.state).toBe("settled");
+  expect(JSON.parse(budget.actual)).toEqual({ costMicros: "0", tokens: "0", computeMs: "0" });
+  expect(settlements).toEqual([{ source: "no-operations", known_cost_micros: "0", unknown_cost_micros: null, stop_receipt_digest: budget.receipt_digest, basis: FACTORY_USAGE_NOTHING_LAUNCHED_BASIS, attempt_id: reserved.admissionCommandId, xmin: budget.xmin }]);
+  // One transaction: the stop mark, the hold and its settlement were all written by the same one.
+  expect(admissionXmin).toBe(budget.xmin);
+  // The kernel gets the settlement before the stop; both fold, and the run ends.
+  const events = await reserved.events();
+  expect(events.map(event => event.kind)).toEqual(["cancel", "usage-settled", "attempt-stopped"]);
+  const folded = events.slice(1).reduce((state, event) => advanceKernel(reserved.compiled, state, event).nextState, advanced.nextState);
+  expect(folded.status).toBe("cancelled");
+  // A repeat settles nothing twice.
+  expect(await reserved.stop()).toEqual(outcome);
+  expect(rows(await fixture.db.execute(sql`SELECT revision FROM factory_usage_settlements WHERE reservation_id=${reserved.key.reservationId}`))).toHaveLength(1);
 });

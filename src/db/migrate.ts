@@ -3159,6 +3159,9 @@ export async function migrate(db: MigrateDb): Promise<void> {
   // W09h: a task attempt stopped before compute admission. Depends only on add-factory-compute-admissions, registered above.
   const { up: addFactoryComputeAdmissionStop } = await import("./migrations/add-factory-compute-admission-stop");
   await addFactoryComputeAdmissionStop(db);
+  // W09h: the no-operations basis "nothing launched, all zero". Depends only on add-factory-usage-no-operations, registered above.
+  const { up: addFactoryUsageNothingLaunchedBasis } = await import("./migrations/add-factory-usage-nothing-launched-basis");
+  await addFactoryUsageNothingLaunchedBasis(db);
   // Last on purpose: the checkpoint barrier gate attaches to every factory table that exists.
   const { up: addFactoryRecovery } = await import("./migrations/add-factory-recovery");
   await addFactoryRecovery(db);
