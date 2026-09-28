@@ -53,6 +53,7 @@ const BUN = process.execPath;
 // Every process this stack starts runs under this Bun (BUN above), so this Bun must be the pin.
 const PINNED_BUN = (await Bun.file(join(REPO, ".bun-version")).text()).trim();
 if (Bun.version !== PINNED_BUN) throw new Error(`lane Bun mismatch: the factory-services stack runs under bun ${Bun.version}, .bun-version pins ${PINNED_BUN}`);
+console.error(`lane Bun: the factory-services stack runs under bun ${Bun.version} (${BUN})`);
 
 function required(name: string): string {
 	const value = process.env[name];

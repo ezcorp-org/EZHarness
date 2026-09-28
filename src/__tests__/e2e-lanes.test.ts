@@ -381,6 +381,41 @@ describe("e2e lane manifest", () => {
     }
   });
 
+  test("every lane guard names the Bun it asserted, so a lane log shows its runtime", async () => {
+    // The guards printed nothing on a pass, so no log of the W18c final browser run at dc3b64234 named the Bun
+    // its servers ran under, and a driver that read the runtime from the log found nothing (2026-09-27). Each
+    // guard now prints one "lane Bun:" line on a pass; the Playwright guard also names the runner's runtime.
+    const pinned = (await Bun.file(join(REPO_ROOT, ".bun-version")).text()).trim();
+    const pinDir = dirname(process.execPath);
+    const bash = Bun.which("bash")!;
+    const shell = Bun.spawnSync([bash, "-c", ". scripts/lib/lane-bun.sh; lane_bun_pin"], {
+      cwd: REPO_ROOT,
+      env: { HOME: tmpdir(), PATH: `${dirname(bash)}:/usr/bin:/bin`, EZCORP_PINNED_BUN_DIR: pinDir },
+    });
+    expect(shell.exitCode).toBe(0);
+    expect(shell.stderr.toString().trim()).toBe(`lane Bun: bun ${pinned} (${pinDir}/bun), bunx ${pinned} (${pinDir}/bunx)`);
+
+    const { pinnedWebServer } = await import("../../web/playwright-lane-bun.ts");
+    const server = { command: "bun e2e/factory-services/stack.ts" };
+    const env = { ...process.env, PATH: `${pinDir}:${process.env.PATH}` };
+    delete env.TEST_WORKER_INDEX;
+    const printed: string[] = [];
+    expect(pinnedWebServer(server, env, (line) => printed.push(line))).toBe(server);
+    const runner = process.versions.bun ? `bun ${process.versions.bun}` : `node ${process.versions.node}`;
+    expect(printed).toEqual([
+      `lane Bun: bun ${pinned} (${pinDir}/bun), bunx ${pinned} (${pinDir}/bunx); Playwright runner ${runner} (${process.execPath})`,
+    ]);
+    // Playwright loads the config again in every worker; only the main process prints.
+    const workerPrinted: string[] = [];
+    expect(pinnedWebServer(server, { ...env, TEST_WORKER_INDEX: "0" }, (line) => workerPrinted.push(line))).toBe(server);
+    expect(workerPrinted).toEqual([]);
+
+    const stack = await Bun.file(join(REPO_ROOT, "web/e2e/factory-services/stack.ts")).text();
+    const check = stack.indexOf("if (Bun.version !== PINNED_BUN) throw");
+    const named = stack.search(/console\.error\(`lane Bun: the factory-services stack runs under bun \$\{Bun\.version\} \(\$\{BUN\}\)`\);/);
+    expect(named).toBeGreaterThan(check);
+  });
+
   test("the factory-services stack leaves no request file behind", async () => {
     // Each journey asks the held stack for work through a request file beside the state file. The stack
     // deleted the future-draft request after serving it but not the restore request, so every lane run left

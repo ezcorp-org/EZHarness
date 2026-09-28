@@ -9,8 +9,8 @@
  * for the lane scripts, which also put the pinned Bun first on PATH.
  */
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { readFileSync, statSync } from "node:fs";
+import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -31,10 +31,27 @@ export function resolvedBunVersion(tool: string, env: NodeJS.ProcessEnv = proces
 	}
 }
 
-/** Returns the webServer block unchanged, or throws before Playwright can start it under the wrong Bun. */
-export function pinnedWebServer<T>(server: T, env: NodeJS.ProcessEnv = process.env): T {
+/** The first executable named `tool` on env.PATH, as the webServer's shell would resolve it. */
+function resolvedPath(tool: string, env: NodeJS.ProcessEnv): string {
+	const executable = (path: string) => ((statSync(path, { throwIfNoEntry: false })?.mode ?? 0) & 0o111) !== 0;
+	const dir = (env.PATH ?? "").split(delimiter).find((entry) => executable(join(entry, tool)));
+	return dir === undefined ? `no ${tool}` : join(dir, tool);
+}
+
+/**
+ * Returns the webServer block unchanged, or throws before Playwright can start it under the wrong Bun. On a
+ * pass the main Playwright process prints one "lane Bun:" line naming what was asserted and the runner's own
+ * runtime, so the lane log records them (workers load the config again and stay silent).
+ */
+export function pinnedWebServer<T>(server: T, env: NodeJS.ProcessEnv = process.env, print: (line: string) => void = console.error): T {
 	const pinned = readFileSync(join(REPO, ".bun-version"), "utf8").trim();
-	const refusals = LANE_BUN_TOOLS.map((tool) => laneBunMismatch(tool, pinned, resolvedBunVersion(tool, env))).filter(Boolean);
+	const resolved = LANE_BUN_TOOLS.map((tool) => ({ tool, version: resolvedBunVersion(tool, env) }));
+	const refusals = resolved.map(({ tool, version }) => laneBunMismatch(tool, pinned, version)).filter(Boolean);
 	if (refusals.length > 0) throw new Error(refusals.join("\n"));
+	if (env.TEST_WORKER_INDEX === undefined) {
+		const tools = resolved.map(({ tool, version }) => `${tool} ${version} (${resolvedPath(tool, env)})`).join(", ");
+		const runner = process.versions.bun ? `bun ${process.versions.bun}` : `node ${process.versions.node}`;
+		print(`lane Bun: ${tools}; Playwright runner ${runner} (${process.execPath})`);
+	}
 	return server;
 }

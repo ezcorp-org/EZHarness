@@ -21,13 +21,16 @@ lane_bun_pin() {
       break
     fi
   done
-  local tool status=0
+  local tool status=0 record=()
   for tool in bun bunx; do
     have="$("$tool" --version 2>/dev/null || echo "none (no $tool on PATH)")"
     if [ "$have" != "$want" ]; then
       echo "lane Bun mismatch: PATH resolves $tool $have ($(command -v "$tool" || echo "no $tool")), .bun-version pins $want. Set EZCORP_PINNED_BUN_DIR to a directory holding bun and bunx $want." >&2
       status=1
     fi
+    record+=("$tool $have ($(command -v "$tool"))")
   done
+  # On a pass, name what was asserted: the lane log is the only record of the runtime its servers ran under.
+  [ "$status" -ne 0 ] || echo "lane Bun: ${record[0]}, ${record[1]}" >&2
   return "$status"
 }
