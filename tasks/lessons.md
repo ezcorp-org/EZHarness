@@ -1720,6 +1720,7 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 
 ## 2026-09-28 — A stricter config parser breaks every writer of that config (W16)
 
+- A harness document is a product input; parse it with the product parser in a test.
 - When a change makes a parser refuse a key, find every writer of that schema (`git grep` its schema string) and
   change them in the same commit. W16 dropped the pool's installationId; the graph-proof stack and the
   factory-services e2e stack still wrote it, and only a live runbook pass showed it. Pin it with a test that parses

@@ -447,6 +447,18 @@ Not run in r5b to r5d, by the same ruling: the Podman suites, the Temporal route
 proof, coverage and the static set. Validator-2's hold and the merge batch run
 them at the head.
 
+### Hold script changes this round (accepted by the coordinator, 2026-09-28)
+
+All under `/tmp/factory-platform-evidence/w16/repro/`, each with its backup beside it.
+
+| Change | Exit code | Backup |
+| --- | --- | --- |
+| Short mode runs image-independent steps first (unit, web build, runbook mock pass, factory-services lane), then the image with Kubernetes, then candidates with the live fleet. A step blocked by an earlier one writes a refusal receipt naming it (`final-hold.sh`, `blocked` in `legs-lib.sh`) | 99 | `final-hold.sh.bak-pre-w16-2-20260928T001120Z`, `legs-lib.sh.bak-pre-w16-2-20260928T001120Z` |
+| Zero-test rule: every PostgreSQL, hook PostgreSQL, unit and lane leg runs with `TEST_LEG=1`, and `w00/test-count.sh` fails a leg that ran no test | 97 | as above |
+| The commit wrapper checks disk, memory and swap after the veto, before the hook runs (`commit-with-postgres.sh`) | 90 | `commit-with-postgres.sh.bak-pre-w16-2-20260928T001120Z` |
+| Web build before the runbook pass; the factory-services lane in external mode (`lane-lib.sh`, new) | - | `final-hold.sh.bak-pre-webbuild-20260928T005823Z` |
+| The self-hosted proof reads the host CA from the host's own directory, and compares peerTenants independently of key order (`prove-selfhosted.ts`) | - | `prove-selfhosted.ts.bak-pre-hostca-20260928` |
+
 ## Pre-commit hook skip (disclosed)
 
 Commit 9c5d24400 (first made as fbdf8819d) skipped the pre-commit hook's PostgreSQL test
