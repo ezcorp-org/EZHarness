@@ -279,8 +279,22 @@ and 945 flip, each to its body's count. 945 is the same artefact (the rate-limit
 
 DIFFERENTIAL (`/tmp/factory-platform-evidence/w18c/catch-clause-diff/`): the 23 saved inputs of the dc3b64234 run
 merged with the old and the new script. This is a tooling differential over a run that is red, not a measurement of
-record. 90 DA records change (my earlier estimate of 94 used a looser pattern and no block check); every one was 0, is
-a bare catch clause, and takes its body's first count; no line set changes; 0 violations.
+record. 90 DA records change; every one was 0, is a bare catch clause, and takes its body's first count; no line set
+changes; 0 violations. validator-5 reproduced it exactly (w18c-validation/hold-c93a71e89/diff/).
+THE EARLIER 94 (ruling 2a, 2026-09-28). The estimate used the pattern `} catch( (…))? {` at DA 0 with the next DA above
+0, and no block check; it reproduces exactly (203 clauses at 0, 94 of them followed by a hit). The rule's block check
+excludes four of the 94. In each, the first DA after the clause lies past the catch block's closing brace: the body has
+no DA line of its own, so nothing shows that it ran, and the clause keeps 0.
+  | clause line | body | next DA (outside the block) |
+  |---|---|---|
+  | docs/extensions/examples/claude-design/lib/tokens.ts:213 `} catch {` | a comment only | 216, hits 6 |
+  | src/extensions/mcp-sandbox.ts:1074 `} catch {` | a comment only | 1077, hits 12 |
+  | src/extensions/memory-handler.ts:60 `} catch {` | `return new Array…` at 63, which has no DA | 67 (the next function), hits 18 |
+  | src/runtime/import/skill-runner.template.ts:254 `} catch {` | a comment only | 258, hits 1 |
+  With the block check removed these four take false credits (validator-5, F2). 833e682a6 guards it with a test cut
+  from tokens.ts 213 (red with `!closes` removed: 213 read 6; green with it).
+  CORRECTION: with the rule's exact clause shape (an identifier only), 200 bare catch clauses are at 0 before the
+  credit and 110 after it; the earlier "109 true misses" used the looser pattern.
   | gate | before, vs a24a619ad | after, vs a24a619ad | before, vs origin/main | after, vs origin/main |
   |---|---|---|---|---|
   | global floor | 97.97% | 98.01% | 97.97% | 98.01% |
@@ -420,7 +434,8 @@ each manifest leg while cov-shard, cov-extras and web-security write lcov_*.info
   | CRAP --changed | pass | pass (429 files, none above 30) | fail (3 functions over 30; mixed-age inputs) |
 The one red, hooks.server.ts 703, is a `} catch {` line: the Bun producers write DA 703 = 0 while the catch body at
 706 ran (DA 2); the V8 producer writes none. Across the merged lcov, 94 zero-hit bare catch lines have an executed
-first body line (109 more are true misses). The catch-clause credit above was accepted as a tooling correction.
+first body line (109 more are true misses; corrected in the catch-clause section: 90 credited, 110 left at 0). The
+catch-clause credit above was accepted as a tooling correction.
 Lane hygiene found here: f59f330ca, the stack removes the restore request it served.
 Runner tool gaps reported to the coordinator: the zero-count guard's formats and the manifest-leg lcov names.
 
@@ -594,6 +609,112 @@ the recorded merge (sha256 prefix b4e6498a65858ac6). Changed records: 24; every 
 
   The per-file reds that remain in this 20-input set are the producer gaps the CI extras close (see G4).
 
+## Commits after 3bb6713b3 and their hook counts (2026-09-27/28)
+
+Every commit is red first and carries the archy noreply identity. The mapped counts of the first two were rebuilt with
+scripts/lib/hook-lib.sh's staged_test_targets over each commit's files; neither message has a skip note, and no
+commit in this table used EZ_SKIP_HOOK_TESTS.
+  | commit | subject | hook suites | red, then green |
+  |---|---|---|---|
+  | f77a3c112 | the two silent coverage producers print their test totals | 1 (rebuilt) | test-totals 0/3, 3/3 |
+  | 77a925423 | merge-lcov credits the clause line of an entered catch | 1 (rebuilt) | gate-scripts 3 of 5 new tests red |
+  | c93a71e89 | every lane Bun guard names the Bun it asserted | 1 | e2e-lanes 28/1, 29/0 |
+  | cd5b68139 | the in-process fs stub grants for the calling test only | 1 | filesystem-harness 7/2, 9/0 |
+  | 12d33fc70 | docs: browser-leg runtimes, docs-updater cause, contamination | 0 | docs only |
+  | 920d128b9 | gate-integrity watches the coverage gate tools (check 11) | 1 | gate-scripts did not load, 232/0 |
+  | 2423e1505 | merge integ/w00 d65886b9a (W01j landed) | 1 | check-factory-boundaries 31/0 |
+  | e2e87cb2b | the lane-guard test types the main-process env (validator-5 F1) | 1 | typecheck TS2339, 0 errors |
+  | 833e682a6 | a catch block with no DA of its own keeps its clause at 0 (F2) | 1 | red with `!closes` removed, 233/0 |
+  | 36fcf0fcc | check 11 also watches the lcov converters and the noise filter | 1 | check 11 3/1, 233/0 |
+  | a9b8aa779 | the dev stack masks the factory-services lane's browser session | 1 | compose-podman-masks 11/2, 13/0 |
+  | fbf979d11 | the factory-services lane removes its saved browser session | 1 | e2e-lanes 29/1, 30/0 |
+  | 82ddcc147 | the factory-services stack removes its state file when it stops | 1 | e2e-lanes 30/1, 31/0 |
+From e2e87cb2b on, typecheck and lint ran to 0 before every commit.
+
+## Final measurement at 82ddcc147 (2026-09-28)
+
+BASE d65886b9a (integ/w00 after W01j). Driver `heavy/final-measure.sh` (INTEG_BASE, RUN_PREFIX, REUSE_FROM, PARTS);
+the runner's plan is recorded and checked (legs-from-manifest.py plan-check) before the lock; LOCK_LANE=w18a3-continue.
+The runner is the coordinator's w00/combined-integration.py with the wave4f draft's argument forms.
+EARLIER RUNS, NOT RESULTS. w18c-final at 36fcf0fcc: six legs never ran (exit 96, the disk gate needed 120 GB and 117 to
+118 GB were free), pool-one ran without its CI step env (a runner defect, fixed by the coordinator: pgStepEnv), so no
+merge. w18c-final2 at 36fcf0fcc: manifest-cov-shard 28692/1 on the derived mask test (the factory-services lane had left
+web/e2e/.factory-services-auth.json on disk); fixed in a9b8aa779, fbf979d11 and 82ddcc147. The dc3b64234 table above
+stays VOID.
+RUNNER PART w18c-final3 (13:30Z start; 38 legs; exit 1 with gate-integrity the only red, by design until the approval
+below): every test leg counted by w00/test-count.sh, all nonzero.
+  | leg | tests | leg | tests |
+  |---|---|---|---|
+  | sdk-tests | 233 | focused (80 files; the C13 red gone with W01j) | 1288 |
+  | web-coverage (vitest) | 7783 | web-bun-coverage | 78 |
+  | postgres (pooled, with migrate-lock) | 560 | postgres-pool-one (DB_POOL_MAX=1) | 1 |
+  | postgres-bun-sql-pool-replacement | 1 | postgres-factory-assurance | 17 |
+  | node-coverage (now printing its totals) | 91 | pool / compute / provisioning coverage | 86 / 97 / 5 |
+  | python-coverage | 872 | auto-extra 0-9 (385 files, one process each) | 5182 |
+  | podman: podman / attempt-runtime / supervisor / package-preparation | 19 / 7 / 2 / 1 | manifest-cov-shard | 28695 |
+  | manifest-cov-extras | 1452 | manifest-web-security-coverage (now printing its totals) | 378 |
+  | manifest-factory-reference-data | 113 | types, lint, boundaries, builds | exit 0 |
+INTERIM GATES (the runner's own merge of its 411 inputs): patch PASSED against both bases, new-file PASSED against
+d65886b9a, global floor and CRAP exit 0, new-file against origin/main FAILED on five files with no measured coverage:
+web/src/lib/factory/FactoryConsole.svelte, FactoryGraph.svelte, FactoryGraphBoundary.svelte, FactoryNode.svelte and
+web/src/routes/(app)/factories/+page.svelte. By design: all five are in BROWSER_CANONICAL_SOURCES
+(scripts/coverage-config.ts), so Chromium's browser route coverage is their one canonical producer. The vitest includes
+cover them, but filter-web-vitest-lcov.ts keeps only canonicalWebVitestSources() so that no source is counted from two
+maps. At dc3b64234 they came only from browser-0.lcov (the merged browser lanes). The runner's merge cannot hold that
+coverage because the browser part runs after it; the final gates below merge both.
+BROWSER PART at 82ddcc147 (2026-09-28T15:34:40Z to 2026-09-28T16:12:35Z; rc 0; `heavy/final-browser-82ddcc147/summary.txt`):
+build, transfer-roundtrip, transfer-check exit 0; mock-gate 259, mock-full 1448, evidence 393, fresh-setup 7,
+real-auth 107 passed; merge exit 0; factory-services 13 passed; "factory-services left no new ignored file under
+web/e2e". Every lane leg records "lane Bun: bun 1.3.14 (/tmp/factory-tools/bun-1.3.14/bun-linux-x64/bun), bunx 1.3.14
+(…/bunx)" from lane_bun_pin and from pinnedWebServer, and "Playwright runner node 24.14.1 (…/nodejs-slim-24.14.1/bin/node)";
+the factory-services leg adds "the factory-services stack runs under bun 1.3.14". The Playwright CLI runs under Node
+by its shebang, which is normal (coordinator ruling); the pin binds the servers and the bun and bunx the lanes invoke.
+Build, the transfer checks and the merge run no lane guard; they run under the driver's PATH, which the header records
+(bun 1.3.14, bunx 1.3.14). The lane logic is now the shared w00/browser-part.sh (sha256 c6edb4843f272b3b…, one source with
+wave4f, agreed with integrator-3); heavy/final-browser.sh is its thin caller.
+FINAL GATES, AUTHORITATIVE (`heavy/final-gates-82ddcc147/`, 18:53:21Z to 18:53:33Z, dirty 0): the runner's 411 inputs
+plus the browser lanes' merged lcov, 412 inputs, merged by this checkout's merge-lcov.ts (merged lcov sha256 prefix
+aa795ff835fe4caf); no absolute SF path outside /tmp is left.
+  | gate | vs d65886b9a | vs origin/main |
+  |---|---|---|
+  | merge | exit 0 | exit 0 |
+  | global floor | 98.00% (204169/208326 lines, 2260 files), floor 90 | same merge |
+  | per-file thresholds | 2131 enforced files, pass | same merge |
+  | new-file | pass (no new source files) | pass (406 gated) |
+  | patch | pass (3 files) | pass (454 files) |
+  | CRAP --changed | – | pass (no touched function above 30) |
+CROSS-LANE NOTE (coordinator 2026-09-28). At this head the factory-services stack still writes installationId in the
+pool config (stack.ts) and the pool still requires it (src/factory/pool/process.ts), so the lane runs a matching pair.
+W16 removes the key from both sides (c58d31d4e the pool, 317a0d622 the stack); W16 lands first, and integrator-3
+re-trials this merge onto the integ head after it.
+
+## Disclosure: gate-tooling changes under the user's one-commit approval (2026-09-28)
+
+gate-integrity at 82ddcc147 (`gate-integrity-82ddcc147.txt`), with this head's script and with origin/main's:
+  | script | vs d65886b9a | vs origin/main |
+  |---|---|---|
+  | origin/main's | 1 finding: the R097 rename | PASSED |
+  | this head's (check 11) | 4 findings, below | 7 findings: the three W18c tool edits and four inherited |
+THE FOUR W18c FINDINGS, approved for W18c's merge commit by the user's decision
+(/tmp/factory-platform-evidence/w00/user-decisions-2026-09-28T0645Z.txt); integrator-3 writes the decision file that
+sets GATE_CHANGE_APPROVED for that one commit.
+  1. The R097 rename: web/e2e/real-auth/factory-authoring-flow.spec.ts moves to web/e2e/ (the ruled lane move).
+  2. scripts/merge-lcov.ts: the function-header credit (73c6d1203) and the catch-clause credit (77a925423), each
+     described with its differential in its own section above.
+  3. scripts/check-coverage.ts (33a765974): the per-file gate skips an exact threshold key when the file is type-only
+     and has no lcov record.
+  4. scripts/check-new-file-coverage.ts (a927c4bca): the new-file gate passes a new type-only file.
+  In 3 and 4 the shared structural test decides (isDeclarationOnlyTypeScript in coverage-config.ts): a file that
+  compiles to no JavaScript has no executable line, and an enum, const or function in the file makes it gated again.
+INHERITED THROUGH integ/w00, seen only against origin/main, not W18c's: scripts/check-patch-coverage.ts (b6cfa4798),
+scripts/merge-browser-route-coverage.sh (9bc39a30c), scripts/factory-orchestrator-v8-to-lcov.mjs (7dc977525,
+1f22734ff), scripts/node-v8-to-lcov.mjs (1d4fb8bd4); integrator-3's trace. The user's one-commit approval covers them
+mechanically on the origin/main leg, and they carry to the PR-level label under their owners' names.
+CHECK 11 ITSELF (920d128b9, 36fcf0fcc; validator-5's finding): gate-integrity now treats any added, modified, deleted or
+renamed coverage gate tool as a finding: scripts/merge-lcov.ts and its lcov-noise-filter.ts, the browser coverage
+merge, the three raw-coverage converters (browser, factory orchestrator, node), and the gate checkers (per-file,
+global floor, new-file, patch, web vitest, CRAP). The whole-record source filters stay outside.
+
 ## Gates
 
 - [ ] G1: every feature-new file has direct behaviour tests (routes, components, kernel-types, two scripts).
@@ -665,5 +786,7 @@ the recorded merge (sha256 prefix b4e6498a65858ac6). Changed records: 24; every 
   | client.ts:101:113 | StringLiteral fallback message -> `""` | same: issues[0].message always exists, so the fallback is never read |
   Other survivors are in W14's files (preview 4, run-format 2, run-stream 15, workspace-view 1); every file is
   above 80 and the gate passes. W14's six client survivors were real and are killed in 049b48d53.
-- [ ] G4: the full producer set (runner legs plus browser producers) merged; the gates against origin/main
+- [x] G4: the full producer set (runner legs plus browser producers) merged; the gates against origin/main
   exit 0, or each remaining red names only pre-existing main files, listed per file.
+  RECORD 82ddcc147: every gate exit 0 against both origin/main and d65886b9a over 412 inputs (section "Final
+  measurement at 82ddcc147").
