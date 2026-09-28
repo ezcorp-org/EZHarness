@@ -72,6 +72,11 @@ export interface PoolGpuHostProfile {
   readonly tier: "trusted-local" | "production";
   readonly devices: readonly string[];
   readonly cdiDevices: readonly string[];
+  /**
+   * W02d R7b: the one tenant a `trusted-local` host is bound to. That tenant may reuse the host after its own
+   * supervisor-confirmed stop without a reimage; every other tenant, and every `production` host, needs the reimage.
+   */
+  readonly tenantId?: string;
 }
 export interface PoolHostRegistration { hostId: string; profile?: PoolGpuHostProfile }
 export interface PoolGpuReimageReceipt {
@@ -178,7 +183,8 @@ function compareCodeUnits(left: string, right: string): number {
   return left === right ? 0 : left < right ? -1 : 1;
 }
 
-function validOpaque(value: string): boolean {
+/** An opaque identifier the pool stores: 1 to 256 characters, no control character. */
+export function validOpaque(value: string): boolean {
   return value.length > 0 && value.length <= 256 && ![...value].some(character => character.codePointAt(0)! < 32);
 }
 
@@ -210,15 +216,32 @@ const PROFILE_TIERS: readonly string[] = ["trusted-local", "production"];
 const profileNames = (value: unknown): value is string[] =>
   Array.isArray(value) && value.length <= 64 && value.every((entry) => typeof entry === "string" && entry.length > 0 && entry.length <= 256) && new Set(value).size === value.length;
 
-/** A host profile with exactly its three fields, each well formed; anything else is refused by name. */
-function validProfile(value: unknown): value is PoolGpuHostProfile {
+/**
+ * A host profile with exactly its fields, each well formed; anything else is refused by name. A tenant binding
+ * (W02d R7b) is one opaque tenant id, on a `trusted-local` host only; a lease's snapshot never carries one.
+ */
+function validProfile(value: unknown, binding: "allowed" | "absent" = "absent"): value is PoolGpuHostProfile {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const profile = value as Record<string, unknown>;
-  return Object.keys(profile).sort().join(",") === "cdiDevices,devices,tier" && typeof profile.tier === "string" && PROFILE_TIERS.includes(profile.tier) && profileNames(profile.devices) && profileNames(profile.cdiDevices);
+  const bound = profile.tenantId !== undefined;
+  if (bound && (binding === "absent" || profile.tier !== "trusted-local" || typeof profile.tenantId !== "string" || !validOpaque(profile.tenantId))) return false;
+  return Object.keys(profile).sort().join(",") === (bound ? "cdiDevices,devices,tenantId,tier" : "cdiDevices,devices,tier") && typeof profile.tier === "string" && PROFILE_TIERS.includes(profile.tier) && profileNames(profile.devices) && profileNames(profile.cdiDevices);
 }
 
+/** What a lease holds of a profile: the devices and the tier, never the host's tenant binding. */
 function profileJson(profile: PoolGpuHostProfile): string {
   return JSON.stringify({ tier: profile.tier, devices: [...profile.devices], cdiDevices: [...profile.cdiDevices] });
+}
+
+/** What the host row keeps: the lease's part and the tenant binding, if any. */
+function hostProfileJson(profile: PoolGpuHostProfile): string {
+  return JSON.stringify({ ...JSON.parse(profileJson(profile)) as object, ...(profile.tenantId === undefined ? {} : { tenantId: profile.tenantId }) });
+}
+
+function storedHostProfile(value: unknown): PoolGpuHostProfile {
+  const stored = typeof value === "string" ? JSON.parse(value) as unknown : value;
+  if (!validProfile(stored, "allowed")) throw new Error("Pool GPU host profile is malformed.");
+  return stored;
 }
 
 /**
@@ -412,8 +435,8 @@ export class FactoryPoolLedger {
   /** Register a GPU host, or change its profile. The profile governs future assignments only (W02d R2). */
   async registerGpuHost(input: PoolHostRegistration): Promise<void> {
     assertOpaque(input.hostId, "host id");
-    if (input.profile !== undefined && !validProfile(input.profile)) throw new Error("Pool GPU host profile is malformed.");
-    const profile = input.profile === undefined ? null : profileJson(input.profile);
+    if (input.profile !== undefined && !validProfile(input.profile, "allowed")) throw new Error("Pool GPU host profile is malformed.");
+    const profile = input.profile === undefined ? null : hostProfileJson(input.profile);
     await this.database.begin(async (transaction) => {
       await this.lock(transaction);
       const prior = rows<HostRow>(await transaction.unsafe("SELECT host_id, state, reservation_id, holder_generation FROM factory_pool_hosts WHERE host_id = $1 FOR UPDATE", [input.hostId]))[0];
@@ -508,12 +531,12 @@ export class FactoryPoolLedger {
       let deviceProfile: string | null = null;
       if (vector["gpu-host"] !== undefined) {
         // Only a host with a registered profile can be granted (W02d R2): a host without one authorizes no device.
-        const host = rows<HostRow & { profile_json: unknown }>(await transaction.unsafe("SELECT host_id, state, reservation_id, holder_generation, profile_json FROM factory_pool_hosts WHERE state = 'available' AND profile_json IS NOT NULL ORDER BY host_id FOR UPDATE LIMIT 1"))[0];
+        // A host that still holds a tenant's residue after a trusted-local reuse stop goes to that tenant only
+        // (W02d R7b); any other tenant waits for the reimage, which clears the residue.
+        const host = rows<HostRow & { profile_json: unknown }>(await transaction.unsafe("SELECT host_id, state, reservation_id, holder_generation, profile_json FROM factory_pool_hosts WHERE state = 'available' AND profile_json IS NOT NULL AND (tenant_id IS NULL OR tenant_id = $1) ORDER BY host_id FOR UPDATE LIMIT 1", [candidate.tenant_id]))[0];
         if (!host) return this.blockedDecision(candidate, now, capacities, "gpu-host");
         hostId = host.host_id;
-        const stored = typeof host.profile_json === "string" ? JSON.parse(host.profile_json) as unknown : host.profile_json;
-        if (!validProfile(stored)) throw new Error("Pool GPU host profile is malformed.");
-        deviceProfile = JSON.stringify({ hostId, ...JSON.parse(profileJson(stored)) as object });
+        deviceProfile = JSON.stringify({ hostId, ...JSON.parse(profileJson(storedHostProfile(host.profile_json))) as object });
       }
       const token = randomUUID();
       const generation = Number(candidate.allocation_generation);
@@ -639,6 +662,16 @@ export class FactoryPoolLedger {
         if (units !== undefined && resourceClass !== "gpu-host") await transaction.unsafe("UPDATE factory_pool_resources SET allocated_units = allocated_units - $1 WHERE resource_class = $2 AND allocated_units >= $1", [units, resourceClass]);
       }
       if (row.host_id) {
+        // W02d R7b: the stop of the tenant a trusted-local host is bound to returns the host to that tenant alone.
+        // The residue stays recorded on the host (tenant_id, the reservation and its generation) until a reimage.
+        const host = rows<HostRow & { profile_json: unknown }>(await transaction.unsafe("SELECT host_id, state, reservation_id, holder_generation, profile_json FROM factory_pool_hosts WHERE host_id = $1 AND reservation_id = $2 AND holder_generation = $3 FOR UPDATE", [row.host_id, row.reservation_id, row.holder_generation]))[0];
+        const profile = host?.profile_json === null || host?.profile_json === undefined ? undefined : storedHostProfile(host.profile_json);
+        if (profile?.tier === "trusted-local" && profile.tenantId === row.tenant_id) {
+          await transaction.unsafe("UPDATE factory_pool_resources SET allocated_units = allocated_units - 1 WHERE resource_class = 'gpu-host' AND allocated_units > 0");
+          await transaction.unsafe("UPDATE factory_pool_hosts SET state = 'available' WHERE host_id = $1", [row.host_id]);
+          const reused = rows<RequestRow>(await transaction.unsafe("UPDATE factory_pool_requests SET state = 'settled', effects = 0, reason = 'stopped-confirmed-trusted-local' WHERE reservation_id = $1 RETURNING *", [row.reservation_id]))[0];
+          return readRequest(reused!);
+        }
         await transaction.unsafe("UPDATE factory_pool_hosts SET state = 'reimage_required' WHERE host_id = $1 AND reservation_id = $2 AND holder_generation = $3", [row.host_id, row.reservation_id, row.holder_generation]);
         const updated = rows<RequestRow>(await transaction.unsafe("UPDATE factory_pool_requests SET state = 'uncertain', effects = 0, reason = 'awaiting-gpu-reimage' WHERE reservation_id = $1 RETURNING *", [row.reservation_id]))[0];
         return readRequest(updated!);
@@ -653,10 +686,13 @@ export class FactoryPoolLedger {
     return this.database.begin(async (transaction) => {
       await this.lock(transaction);
       const row = rows<RequestRow>(await transaction.unsafe("SELECT * FROM factory_pool_requests WHERE reservation_id = $1 FOR UPDATE", [input.reservationId]))[0];
-      if (!row || row.host_id !== input.hostId || Number(row.holder_generation) !== input.holderGeneration || row.state !== "uncertain") throw new Error("GPU reimage confirmation is stale.");
+      // W02d R7b: a trusted-local host its bound tenant released is already free for that tenant; its reimage only
+      // clears the residue so another tenant may have it, and releases no capacity a second time.
+      const residue = row?.state === "settled" && row.reason === "stopped-confirmed-trusted-local";
+      if (!row || row.host_id !== input.hostId || Number(row.holder_generation) !== input.holderGeneration || (row.state !== "uncertain" && !residue)) throw new Error("GPU reimage confirmation is stale.");
       const host = rows<HostRow>(await transaction.unsafe("SELECT host_id, state, reservation_id, holder_generation FROM factory_pool_hosts WHERE host_id = $1 FOR UPDATE", [input.hostId]))[0];
-      if (host?.state !== "reimage_required" || host.reservation_id !== input.reservationId || Number(host.holder_generation) !== input.holderGeneration) throw new Error("GPU host cannot be reused yet.");
-      await transaction.unsafe("UPDATE factory_pool_resources SET allocated_units = allocated_units - 1 WHERE resource_class = 'gpu-host' AND allocated_units > 0");
+      if (host?.state !== (residue ? "available" : "reimage_required") || host.reservation_id !== input.reservationId || Number(host.holder_generation) !== input.holderGeneration) throw new Error(residue ? "GPU reimage confirmation is stale." : "GPU host cannot be reused yet.");
+      if (!residue) await transaction.unsafe("UPDATE factory_pool_resources SET allocated_units = allocated_units - 1 WHERE resource_class = 'gpu-host' AND allocated_units > 0");
       await transaction.unsafe("UPDATE factory_pool_hosts SET state = 'available', reservation_id = NULL, tenant_id = NULL, holder_generation = NULL, reimage_receipt = $1 WHERE host_id = $2", [input.receipt, input.hostId]);
       const updated = rows<RequestRow>(await transaction.unsafe("UPDATE factory_pool_requests SET state = 'settled', reason = 'gpu-reimage-confirmed' WHERE reservation_id = $1 RETURNING *", [input.reservationId]))[0];
       return readRequest(updated!);

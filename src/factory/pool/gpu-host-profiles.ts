@@ -24,7 +24,7 @@
 import { basename, dirname, resolve } from "node:path";
 import { privateDirectory, readPrivateBounded } from "../private-files";
 import { factoryAttemptDeviceGrant, type FactoryGpuHostProfile } from "../runner/attempt-wire";
-import type { PoolGpuHostProfile } from "./ledger";
+import { validOpaque, type PoolGpuHostProfile } from "./ledger";
 
 export const FACTORY_GPU_HOST_PROFILES_SCHEMA = "factory.gpu-host-profiles.v1";
 
@@ -47,6 +47,11 @@ export interface FactoryGpuHostDeclaration {
   readonly tier: "trusted-local" | "production";
   readonly devices: readonly string[];
   readonly cdiDevices: readonly string[];
+  /**
+   * W02d R7b: the one tenant a `trusted-local` host is bound to, which may reuse the host after its own
+   * supervisor-confirmed stop without a reimage. Refused on a `production` host.
+   */
+  readonly tenantId?: string;
   /** Criterion -> the path of the evidence that proves it. Required for every criterion at the production tier. */
   readonly evidence?: Readonly<Partial<Record<FactoryProductionGpuCriterion, string>>>;
 }
@@ -91,11 +96,12 @@ export class FactoryGpuHostProfiles {
     for (const entry of document.hosts as unknown[]) {
       const host = entry as Partial<FactoryGpuHostDeclaration> | null;
       const keys = host && typeof host === "object" ? Object.keys(host).sort().join(",") : "";
-      if (!host || !["cdiDevices,devices,hostId,tier", "cdiDevices,devices,evidence,hostId,tier"].includes(keys) || typeof host.hostId !== "string" || !HOST.test(host.hostId)
-        || (host.tier !== "trusted-local" && host.tier !== "production") || !Array.isArray(host.devices) || !Array.isArray(host.cdiDevices)) throw new FactoryGpuHostProfileError("gpu_profiles_invalid");
+      if (!host || !["cdiDevices,devices,hostId,tier", "cdiDevices,devices,evidence,hostId,tier", "cdiDevices,devices,hostId,tenantId,tier"].includes(keys) || typeof host.hostId !== "string" || !HOST.test(host.hostId)
+        || (host.tier !== "trusted-local" && host.tier !== "production") || !Array.isArray(host.devices) || !Array.isArray(host.cdiDevices)
+        || (host.tenantId !== undefined && (host.tier !== "trusted-local" || typeof host.tenantId !== "string" || !validOpaque(host.tenantId)))) throw new FactoryGpuHostProfileError("gpu_profiles_invalid");
       if (!offered.has(host.hostId)) throw new FactoryGpuHostProfileError("gpu_profile_unknown_host");
       if (declarations.has(host.hostId)) throw new FactoryGpuHostProfileError("gpu_profile_duplicate");
-      const declaration = Object.freeze({ hostId: host.hostId, tier: host.tier, devices: Object.freeze([...host.devices]), cdiDevices: Object.freeze([...host.cdiDevices]), ...(host.evidence ? { evidence: Object.freeze({ ...host.evidence }) } : {}) }) as FactoryGpuHostDeclaration;
+      const declaration = Object.freeze({ hostId: host.hostId, tier: host.tier, devices: Object.freeze([...host.devices]), cdiDevices: Object.freeze([...host.cdiDevices]), ...(host.evidence ? { evidence: Object.freeze({ ...host.evidence }) } : {}), ...(host.tenantId === undefined ? {} : { tenantId: host.tenantId }) }) as FactoryGpuHostDeclaration;
       assertDevices(declaration);
       if (declaration.tier === "production" && FACTORY_PRODUCTION_GPU_CRITERIA.some((criterion) => typeof declaration.evidence?.[criterion] !== "string" || declaration.evidence[criterion]!.length === 0)) throw new FactoryGpuHostProfileError("gpu_profile_unproven_production");
       declarations.set(host.hostId, declaration);
@@ -112,7 +118,7 @@ export class FactoryGpuHostProfiles {
   /** What the pool records for a host so its leases carry it (W02d R2); undefined for a host with no profile. */
   registration(hostId: string): PoolGpuHostProfile | undefined {
     const declaration = this.declarations.get(hostId);
-    return declaration ? Object.freeze({ tier: declaration.tier, devices: declaration.devices, cdiDevices: declaration.cdiDevices }) : undefined;
+    return declaration ? Object.freeze({ tier: declaration.tier, devices: declaration.devices, cdiDevices: declaration.cdiDevices, ...(declaration.tenantId === undefined ? {} : { tenantId: declaration.tenantId }) }) : undefined;
   }
 
   /** One named row per production criterion per host. A trusted-local host is unmet on every row by definition. */

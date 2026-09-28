@@ -21,6 +21,21 @@ describe("GPU host profile registration", () => {
     expect(factoryHeldAllocationDevices(lease("gpu-local"), {}, profiles.profile("gpu-local"))).toEqual({ devices: [], cdiDevices: [], gpuHosts: 0 });
   });
 
+  test("a trusted-local host may be bound to exactly one tenant, and the pool records that binding with its profile (W02d R7b)", () => {
+    const bound = { ...local, tenantId: "tenant-a" };
+    const profiles = FactoryGpuHostProfiles.register(["gpu-local", "gpu-other"], document([bound]));
+    expect(profiles.registration("gpu-local")).toEqual({ tier: "trusted-local", devices: local.devices, cdiDevices: [], tenantId: "tenant-a" });
+    expect(FactoryGpuHostProfiles.register(["gpu-local"], document([local])).registration("gpu-local")).toEqual({ tier: "trusted-local", devices: local.devices, cdiDevices: [] });
+    expect(profiles.registration("gpu-other")).toBeUndefined();
+    // The binding never widens what a lease is granted: the device grant is the same with or without it.
+    expect(profiles.profile("gpu-local")).toEqual({ hostId: "gpu-local", devices: local.devices, cdiDevices: [] });
+    // Two tenants, an empty or malformed tenant, and a binding on a production host are all refused.
+    expect(code(() => FactoryGpuHostProfiles.register(["gpu-local"], document([{ ...local, tenantId: ["tenant-a", "tenant-b"] }])))).toBe("gpu_profiles_invalid");
+    expect(code(() => FactoryGpuHostProfiles.register(["gpu-local"], document([{ ...local, tenantId: "" }])))).toBe("gpu_profiles_invalid");
+    expect(code(() => FactoryGpuHostProfiles.register(["gpu-local"], document([{ ...local, tenantId: "tenant\u0001a" }])))).toBe("gpu_profiles_invalid");
+    expect(code(() => FactoryGpuHostProfiles.register(["gpu-nvidia"], document([{ hostId: "gpu-nvidia", tier: "production", devices: [], cdiDevices: ["nvidia.com/gpu=0"], evidence, tenantId: "tenant-a" }])))).toBe("gpu_profiles_invalid");
+  });
+
   test("a trusted-local profile is unmet on every production criterion, by name", () => {
     const profiles = FactoryGpuHostProfiles.register(["gpu-local"], document([local]));
     const rows = profiles.readiness();
