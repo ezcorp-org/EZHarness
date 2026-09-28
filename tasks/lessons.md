@@ -1718,3 +1718,16 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
   pattern for the script. A job started with `&` in a tool shell survived the shell, my narrower check missed it,
   and the W15f batch ran twice back to back, holding the shared lock twice for nothing.
 
+## 2026-09-28 — A stricter config parser breaks every writer of that config (W16)
+
+- When a change makes a parser refuse a key, find every writer of that schema (`git grep` its schema string) and
+  change them in the same commit. W16 dropped the pool's installationId; the graph-proof stack and the
+  factory-services e2e stack still wrote it, and only a live runbook pass showed it. Pin it with a test that parses
+  each harness document with the parser of the process it starts.
+- A process that fails to start prints why, by its generic message. The pool exited 1 with an empty log, and the
+  cause had to be read from the harness instead.
+- In a hold, keep steps that do not need the image ahead of the image steps. The runbook pass and Kubernetes sat
+  behind the candidates step, so a disk refusal there hid both for two holds.
+- A step that starts the web server from `web/build` needs the web build in the same hold.
+- Write a queue script whole, with its label in one variable. A sed-derived copy kept the old label and would have
+  deleted the previous hold's receipts; the waiter was stopped before it took the lock.

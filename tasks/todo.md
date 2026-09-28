@@ -3573,8 +3573,12 @@ Base: `260855e57` (W09b merged). Assumptions are stated in the gate file.
 - [x] P21 Final hold f3 at a1ba5d95b: PostgreSQL producers first, Podman suites, route proof, live Compose fleet and lifecycle, Kubernetes, boundary suites, coverage vs 2b2e12550; all 32 legs exit 0 (G15).
 - [x] P22 Render W01g's guestBroker route for every installation (ruled a defect): installation side at d77d70cc8 (G16 unit proof; live pending).
 - [x] P22b The host side of the guest-broker route: W16b (keyed services.guestBrokers) merged; the supervisor renders one entry per admitted installation.
-- [ ] P23 Final hold at the head that renders guestBroker (after the W19a merge hash).
+- [x] P23 Final hold at the head that renders guestBroker, short form by ruling: r5c and r5d at cb2680fbe green (live fleet 51/51 and 27/27 with the W01i peer checks, Kubernetes, runbook mock pass, factory-services lane 12/12). The Podman suites, route proof, coverage and static set run in validator-2's hold.
 - [ ] P24 Disclosed follow-up owned by W16: the restore-to-checkpoint lifecycle step.
+- [x] P25 Merge integ/w00 97423ce17 (41d67cc48), c3da32784 (4785687be, peerTenants renderer; 123 suites plus the orchestrator package, the 124th, all run outside the hook), c9b7bab5b (e1d118c7c) and d65886b9a (2fa3443fa, hook 10/10 green).
+- [x] P26 Every pool config writer drops installationId (317a0d622): the runbook stack and the factory-services e2e stack; a test parses each runbook process document with its process's parser.
+- [x] P27 A pool that cannot start prints why (cb2680fbe).
+- [x] P28 Holds r5, r5b, r5c and r5d recorded in the gate file with every refusal and red named.
 
 ### Review
 
@@ -3598,6 +3602,15 @@ passed every leg (self-hosted 42/42, lifecycle 27/27), after a live run
 exposed a gateway probe that accepted only a 404 the real gateway never sends.
 Open: the host side of the guestBroker route (a defect, blocked on a design
 ruling) and the restore-to-checkpoint lifecycle step (disclosed follow-up).
+
+2026-09-28: W16's product code was green through r5 except for integ's own C13 row, which W01j fixed. The first
+live runbook pass (r5b) found a real W16 defect: the stricter pool config broke two harness writers that no test tied
+to the parser. The fix and a guard test landed red-first, and the pool now says why it fails. r5c and r5d then passed
+every short-form step at cb2680fbe, including the first live run of the W01i cross-tenant checks. That run also needed
+two fixes outside the product: the proof read the host CA from the wrong directory, and W18c's lane race was avoided
+with the lane's external mode. Open: P24 (restore lifecycle step) and G15's Podman, route, coverage and static parts
+in validator-2's hold.
+
 ## W14 — Live console, scoped API, and browser journeys (Sol product, branch `wp/w14-console`)
 
 Base `260855e57` (W09b and W13 merged). Evidence: `/tmp/factory-platform-evidence/w14/`. Gate file:

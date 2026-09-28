@@ -127,12 +127,12 @@ Coordinator ruling 2026-09-22: approved for W16; the owner's package inherits it
 - [ ] G15: Final hold at the final code head after the 2b2e12550 merge: PostgreSQL producers first, then the Podman suites the diff touches, the Temporal route proof, the live Compose fleet and lifecycle, Kubernetes, the boundary suites, and the fast and coverage legs with `BASE_REF=2b2e12550`.
   CHECK: `flock --close /tmp/ezcorp-validation-heavy.lock timeout 14400 bash /tmp/factory-platform-evidence/w16/repro/final-hold.sh <label>`
   EXPECT: every leg exit 0; one receipt per leg
-  EVIDENCE: PENDING the rerun at the head that renders guestBroker (after the W19a merge hash). Prior record, hold f3 at a1ba5d95b, 06:16Z-06:48Z, `/tmp/factory-platform-evidence/w16/receipts/f3/` (32 receipts, all exit 0, all clean at start). PostgreSQL first: provisioning+gateway 64, bootstrap 17, pool 8, grants 13, schema 2, grants importers 16, restore 13. Podman: supervisor-process 3, guest-broker-transport 8, package-preparation 1. Route proof 8/8 as expected. Live: self-hosted 42/42, lifecycle 27/27. Kubernetes 19 valid, kind admission as labelled. Unit 951/0, boundary suites 46/0 (factory-process-boundaries and check-factory-boundaries), web 19. New-file 36 files, patch 52 files. Earlier holds f1 (b09f210b0: every non-live leg green, candidate builder anchor defect) and f2 (b09f210b0: live found the gateway probe defect fixed in a1ba5d95b) are kept as evidence under `receipts/f1`, `receipts/f2`
+  EVIDENCE: short form by the coordinator's ruling of 2026-09-27 22:50Z, at cb2680fbe: r5c and r5d, all green (see "Holds r5c and r5d at cb2680fbe"). PENDING at the final head: the Podman suites, the Temporal route proof, coverage and the static set, which validator-2's hold runs. Prior record, hold f3 at a1ba5d95b, 06:16Z-06:48Z, `/tmp/factory-platform-evidence/w16/receipts/f3/` (32 receipts, all exit 0, all clean at start). PostgreSQL first: provisioning+gateway 64, bootstrap 17, pool 8, grants 13, schema 2, grants importers 16, restore 13. Podman: supervisor-process 3, guest-broker-transport 8, package-preparation 1. Route proof 8/8 as expected. Live: self-hosted 42/42, lifecycle 27/27. Kubernetes 19 valid, kind admission as labelled. Unit 951/0, boundary suites 46/0 (factory-process-boundaries and check-factory-boundaries), web 19. New-file 36 files, patch 52 files. Earlier holds f1 (b09f210b0: every non-live leg green, candidate builder anchor defect) and f2 (b09f210b0: live found the gateway probe defect fixed in a1ba5d95b) are kept as evidence under `receipts/f1`, `receipts/f2`
 
-- [ ] G16: Every installation binds W01g's guest-broker route and the fleet supervisor reaches each one: the rendered startup document declares `guestBroker` (host authority, fleet supervisor identity, host token key, port `+3`; audience and scope from the contract leaf), the product parser accepts it, and W01g's own composer binds it; the supervisor document names one `services.guestBrokers` entry per admitted installation (W16b), trusted through the host trust bundle, with a host-minted guest-broker token that only the supervisor's delivery holds; live readiness names each route `bound`; only the fleet supervisor's certificate completes its TLS; the supervisor's broker token passes the host checks and its pool token is refused; a frame for tenant N reaches N's route; the same frame signed by another installation is refused there; a frame for an unlisted tenant is refused on the host.
+- [x] G16: Every installation binds W01g's guest-broker route and the fleet supervisor reaches each one: the rendered startup document declares `guestBroker` (host authority, fleet supervisor identity, host token key, port `+3`; audience and scope from the contract leaf), the product parser accepts it, and W01g's own composer binds it; the supervisor document names one `services.guestBrokers` entry per admitted installation (W16b), trusted through the host trust bundle, with a host-minted guest-broker token that only the supervisor's delivery holds; live readiness names each route `bound`; only the fleet supervisor's certificate completes its TLS; the supervisor's broker token passes the host checks and its pool token is refused; a frame for tenant N reaches N's route; the same frame signed by another installation is refused there; a frame for an unlisted tenant is refused on the host.
   CHECK: `bun test --timeout 60000 ./src/factory/provisioning/deployment.test.ts ./src/factory/provisioning/host.test.ts`; the live self-hosted proof
   EXPECT: exit 0; red without the section; every live check passes on all ten
-  EVIDENCE: unit: deployment.test.ts red without the section 0/2 (`/tmp/factory-platform-evidence/w16/logs/guest-broker-render-red.log`); host.test.ts checks the token claims, one entry per admitted tenant, and the entry removed on release. Live: PENDING the final hold
+  EVIDENCE: unit: deployment.test.ts red without the section 0/2 (`/tmp/factory-platform-evidence/w16/logs/guest-broker-render-red.log`); host.test.ts checks the token claims, one entry per admitted tenant, and the entry removed on release. Live: r5d at cb2680fbe, self-hosted 51/51 on all ten installations: every route bound; only the fleet supervisor's certificate completes its TLS (405 on GET; the tenant's harness certificate 401); the supervisor's broker token passes the host checks and its pool token is refused; a frame for tenant N reaches N's route; the same frame signed by another installation is refused; a frame for an unlisted tenant is refused on the host by name (`/tmp/factory-platform-evidence/w16/selfhosted-r5d.json`)
 
 ## Named readiness rows that stay open on this host
 
@@ -148,11 +148,10 @@ Coordinator ruling 2026-09-22: approved for W16; the owner's package inherits it
 | `hosted-host-identity-shared` | The Kubernetes supervisor DaemonSet holds one fleet-wide host identity (as the Compose fleet host now does too) |
 | `gpu-profile-lease-consumer` | Disclosed structural gap, owner W02; W02d builds it after W16 lands (coordinator ruling). The pool validates GPU declarations but does not yet authorize devices from them: `factoryHeldAllocationDevices` in `runner/attempt-wire.ts` has no production caller |
 | `restore-lifecycle-step` | Named follow-up, owner W16 (coordinator ruling 2026-09-24): the restore-to-checkpoint lifecycle step, a W16 package after this round (from W14's restore proof against W15). An in-place restore blocks on `database_position_mismatch`, because nothing restores the installation's database to the checkpoint first: the provisioner has no restore lifecycle step (point-in-time recovery to the checkpoint, then the pool restore import) |
-| `W01i (assigned)` | Launch-peer gap from the W16b review: any allowed peer can launch a guest attributed to another tenant. Package W01i, owned by w01g-fix after W01h, lands before the combined run. If W16 has not merged when W01i lands, the live proof adds: a launch from installation N naming tenant M is refused. Also in W01i (coordinator ruling 2026-09-25, from w01g-fix's review of the W16b audience change): (1) the guest-broker route requires a single string `aud`, so a token listing both `factory-pool` and `factory-guest-broker` is refused (a few lines in `runner/guest-broker-service.ts` plus a test); (2) an array `aud` without this route's audience answers `token_audience_refused`, not plain `unauthorized`. Fleet hosts sign one string audience per token today, so neither is open in practice |
-| `W16d-shutdown-runtime-stop` (OPEN) | Pattern A below: the factory-runtime teardown waits without a bound on each background worker's in-flight step. Owner W16d (coordinator ruling 2026-09-27), from integ/w00 146a94829 |
-| `W16d-shutdown-pool-close` (OPEN) | Pattern B below: every teardown finishes, then `pglite-close` (closeDb, the Bun SQL pool close) never returns. Owner W16d, built on W09f's pool replacement after W09f merges |
 | `orchestrator-build-id-versioning` | The orchestrator does not implement Temporal worker build-ID versioning; builds are retained at the image and release level |
 | Production GPU, eight rows | `FACTORY_PRODUCTION_GPU_CRITERIA`, all unmet with the verdicts in `docs/factory-local-gpu.md` |
+
+Closed since: `W01i` landed at c3da32784; W16 renders `services.peerTenants` (4785687be), and r5d proves the cross-tenant refusals live. `W16d-shutdown-runtime-stop` and `W16d-shutdown-pool-close` closed when W16d landed at 6c8d45f25 (bounded worker stops and a bounded pool close that names what is stuck).
 
 ## Boot stall: root cause (lifecycle holds f6, f7, r1)
 
@@ -170,7 +169,7 @@ The consent route calls `requireSessionAuth` before it reads its body, so its 40
 
 Hypothesis (not proven): the session lookup received an empty result under Bun 1.3.14's PostgreSQL request-queue defect, so the hook answered "Session revoked". This makes it the third member of the W09f family, after the boot stall and the run-projection bind error (evidence `/tmp/factory-platform-evidence/w09f/`). Holds r1, r2 and r3 recorded no refusal. The self-hosted proof now records the first 200 characters of each refused body and, after any 401 on the project request, the status and body of GET /api/auth/me with the same cookie, so a recurrence names its verdict and shows whether it persists. No W16 code change (coordinator ruling 2026-09-27).
 
-## Harness shutdown hangs (OPEN, owner W16d)
+## Harness shutdown hangs (closed by W16d, landed at 6c8d45f25)
 
 The r3 lifecycle streamed every harness with `podman logs -f -t` (`/tmp/factory-platform-evidence/w16/diagnostics-at-failure/streams-2026-09-27T085148.075Z/`). Of 23 harness stops, 14 completed, 6 matched pattern A and 3 matched pattern B. With the old 20 s stop grace, the runtime killed these stops (exit 137): 5 in f6 and 8 in f7. With the 30 s grace (9ba93c809), they reach the harness's own 25 s hard timeout and exit 1.
 
@@ -326,6 +325,127 @@ installation; the audience comes from `runner/guest-broker-contract.ts` and the
 copy in `provisioning/mesh.ts` is gone; the port derivation lives in the leaf
 `provisioning/ports.ts` (threshold 100), re-exported from `deployment.ts`,
 because the host may not import the renderer.
+
+## After integ/w00 97423ce17, c3da32784, c9b7bab5b and d65886b9a
+
+| Merge | integ/w00 | Brings | Hook |
+| --- | --- | --- | --- |
+| 41d67cc48 | 97423ce17 | W18a-3, W01k (the private HTTPS listener verifies client certificates) | 14 mapped; skip ruling 2026-09-25 23:55Z; all 14 outside the hook (`merge-97423ce17/`) |
+| 4785687be | c3da32784 | W01i (peer-to-tenant binding) | 123 mapped; skip ruling 2026-09-27 17:09Z; see below |
+| e1d118c7c | c9b7bab5b | W15f, W09g | 10 mapped, run by the hook under the lock, all green |
+| 2fa3443fa | d65886b9a | W01j (C13 inventory row) | 10 mapped, run by the hook under the lock, all green |
+
+4785687be carries a required integration fix: W01i's supervisor parser refuses
+`services.allowedPeers` by name, so `provisioning/host.ts` renders
+`services.peerTenants` from `admitted[].harnessIdentity` mapped to `tenantId`
+(red first: 12 host tests fail with the by-name refusal). The hook withheld
+123 mapped suites (97 bun, 26 vitest; 18 real PostgreSQL, 1 Podman) and, by the
+same cap, the orchestrator package's own `bun run test`. The package is the
+124th entry of that merge's list. All 124 ran outside the hook:
+
+| Where | Suites | Tests | Receipt |
+| --- | --- | --- | --- |
+| r5 lock-free at e1d118c7c, 19:32–19:40Z | 78 bun | 1425/0 | `w16/r5-lockfree/results.tsv` |
+| r5 lock-free, vitest rerun under the pinned bunx, 21:04–21:07Z | 26 vitest (27 files) | 249/0 | `w16/r5-vitest-rerun/results.tsv` |
+| r5 lock-free (the 124th entry) | orchestrator package, node runner | 91/0 | `w16/r5-lockfree/results.tsv` |
+| r5 locked at e1d118c7c | 18 PostgreSQL | 339/0 | `w16/receipts/r5/hook-tests_postgres_*.json` |
+| r5 locked at e1d118c7c | 1 Podman (host-launch-lost-result) | 1/0 | `w16/receipts/r5/hook-src_factory_host-launch-lost-result_podman_integration_test_ts.json` |
+
+The first run of that list, hold r4 at 4785687be (110 receipts, stopped at
+17:43Z during the image build), had three reds. Two were W16's route lists
+(`scope-enforcement` 7/1, `route-contract` 28/1), fixed at 3da2dd552. The third
+was the four web files that could not load `connection.ts` on integ c3da32784,
+fixed by W09g, which landed before e1d118c7c.
+
+### Holds r5, r5b and r5c
+
+r5 (final-hold.sh r5 at e1d118c7c, 19:41–20:25:51Z, `receipts/r5/`): PostgreSQL
+producers, the 18 hook PostgreSQL suites, the Podman suites, the route proof, the
+image build, the static set and coverage were green. Two legs failed. The unit
+leg was 1033/1: `scripts/factory-c13-inventory.test.ts` failed on integ itself
+(attempt-runtime's audit-log import had no inventory row), fixed by W01j.
+Candidates was refused by the disk gate (116 GB floor), and that hold's helper
+wrote no receipt for the refusal (`logs/final-r5.out` line 71).
+
+r5b (short form by the coordinator's ruling of 2026-09-27 22:50Z; 2fa3443fa;
+00:19:41–00:51:25Z; `receipts/r5b/`, all clean at start):
+
+| Leg | Result |
+| --- | --- |
+| PostgreSQL: provisioning+gateway, bootstrap, pool, grants, schema, importers, restore | 64, 17, 8, 13, 2, 17, 17 pass; 0 fail |
+| Provisioning unit suite | 1034/0 |
+| Runbook mock pass | RED: the pool refused its config (below) and the web server had no build |
+| Image build | 0 |
+| Kubernetes | kubeconform 19 valid, 0 invalid; kind admission smoke exit 0 |
+| Candidates | refused: disk 107 GB free, floor 116 GB (100 plus the step's 16 GB peak) |
+| Live fleet, self-hosted outcome, lifecycle outcome | refused: `dependency:candidates` (exit 99) |
+
+The runbook red is a W16 defect. c58d31d4e made the pool config name no
+installation, and the parser accepts exact keys only, but two writers still wrote
+`installationId`: the graph-proof stack and the factory-services e2e stack. The
+pool exited 1 in silence and readiness stayed "orchestration starting, pool null".
+No earlier hold reached the runbook (r4 stopped before the live steps, r5 at the
+candidates gate), and no test parsed the harness documents with the product
+parsers. Fixed at 317a0d622 (both writers, the pool doc, and a case that parses
+every runbook process document with its process's parser: red "factory pool
+config is invalid", green 18/0) and cb2680fbe (the pool prints
+`[factory-pool] failed to start: <generic message>`; red 8/2 with the real process
+exiting 1 on empty stderr, green 10/0). Typecheck 0 and lint 0 at cb2680fbe.
+
+The hold changed with it: short mode builds web before the runbook pass (r5b had
+no `web/build`), runs the factory-services lane after the pass as proof of the e2e
+stack fix, and keeps image-independent steps ahead of the image, candidates and
+fleet. A step blocked by an earlier one writes a refusal receipt naming it
+(exit 99), and every test leg fails on a zero test count (exit 97).
+
+### Holds r5c and r5d at cb2680fbe
+
+r5c (short form, 04:18:09–05:01:47Z, `receipts/r5c/`) and r5d (short form,
+live-only after r5c, gated on r5c's PostgreSQL receipts at the same head,
+05:39:16–06:10:44Z, `receipts/r5d/`). Every receipt is clean at start.
+
+| Leg | r5c | r5d |
+| --- | --- | --- |
+| PostgreSQL: provisioning+gateway, bootstrap, pool, grants, schema, importers, restore | 64, 17, 8, 13, 2, 17, 17 pass; 0 fail | gate: r5c's receipts |
+| Provisioning unit suite | 1036/0 | 1036/0 |
+| Web build | 0 | 0 |
+| Runbook mock pass and outcome | passed | passed |
+| factory-services lane | 97: zero tests (below) | 12 passed, external mode |
+| Image build | 0 | 0 |
+| Kubernetes | 19 valid, 0 invalid; kind 0 | 19 valid, 0 invalid; kind 0 |
+| Candidates | 0 (disk 161 GB, floor 116) | 0 |
+| Live self-hosted proof | 31 checks passed, then the proof script crashed (below) | 51/51 |
+| Live lifecycle | 24/25 (knock-on) | 27/27 |
+
+r5c's two reds were in the test harnesses, not in W16's product code:
+
+- The factory-services lane config waits on both `/api/ready` and the stack's
+  "held" line. Playwright races them, and global setup read the state file
+  before the stack wrote it. This is W18c's known defect, fixed at 97ac3f12c on
+  W18c's branch only. The hold now runs the lane in the config's documented
+  external mode: the stack starts on its own, and Playwright attaches after
+  "held" (`repro/lane-lib.sh`). In r5d the stack held, which it does only after
+  every service, the pool included, is ready, and the 12 journeys passed.
+- The self-hosted proof's new W01i probe read `host-ca.crt` from an
+  installation's bundle. The deployment delivers that file from the host's own
+  secret directory (`deployment.ts`, `host.facts().caCertificatePath`), so the
+  proof now reads it there. The lifecycle red was the recorded knock-on of an
+  aborted self-hosted run: the bootstrap never created tenant-10's administrator.
+
+In r5d, all ten installations passed the W01i checks:
+
+- The supervisor document binds each admitted harness to its own tenant
+  (`services.peerTenants`) and carries no `allowedPeers`.
+- A launch and an attach that tenant N's harness names for tenant N+1 are each
+  refused with `403 forbidden_tenant`.
+- The same harness's attach for its own tenant passes the check (200).
+
+Receipts: `selfhosted-r5d.json` and `lifecycle-r5d.json`. The candidate images
+were pruned after the hold (20 GB freed).
+
+Not run in r5b to r5d, by the same ruling: the Podman suites, the Temporal route
+proof, coverage and the static set. Validator-2's hold and the merge batch run
+them at the head.
 
 ## Pre-commit hook skip (disclosed)
 
