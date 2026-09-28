@@ -1,0 +1,28 @@
+W09e merge 3f4acd1c5: the hook's withheld orchestrator line and the run that answers it (lead decision (a), 2026-09-28).
+Addendum to w09e-merge.json (whose SHA256SUMS line is not rewritten; SHA256SUMS is append-only).
+Withheld by the hook: packages/@ezcorp/factory-orchestrator (node: bun run test)
+  = the package's "test" script: tsc -b tsconfig.build.json --force && node --test --experimental-strip-types test/*.test.ts
+Run in the merge batch (leg orchestrator-node): scripts/factory-orchestrator-coverage.sh (the package's "test:coverage"):
+  node_modules/.bin/tsc -b packages/@ezcorp/factory-transport/tsconfig.build.json --force
+  node_modules/.bin/tsc -b packages/@ezcorp/factory-orchestrator/tsconfig.build.json --force
+  node --test --test-concurrency=1 --experimental-strip-types --experimental-test-coverage (coverage includes) over
+  factory_orchestrator_test_files (scripts/lib/test-file-sets.sh: find packages/@ezcorp/factory-orchestrator/test -name "*.test.ts")
+File sets compared with cmp at the merge commit: equal (14 files).
+  packages/@ezcorp/factory-orchestrator/test/definition-pages.test.ts
+  packages/@ezcorp/factory-orchestrator/test/dispatcher.test.ts
+  packages/@ezcorp/factory-orchestrator/test/encryption-codec.test.ts
+  packages/@ezcorp/factory-orchestrator/test/file-key-wraps.test.ts
+  packages/@ezcorp/factory-orchestrator/test/gateway-activities.test.ts
+  packages/@ezcorp/factory-orchestrator/test/inbox.test.ts
+  packages/@ezcorp/factory-orchestrator/test/index.test.ts
+  packages/@ezcorp/factory-orchestrator/test/partition-plan.test.ts
+  packages/@ezcorp/factory-orchestrator/test/process-launcher.test.ts
+  packages/@ezcorp/factory-orchestrator/test/process.test.ts
+  packages/@ezcorp/factory-orchestrator/test/readiness-writer.test.ts
+  packages/@ezcorp/factory-orchestrator/test/temporal-replay.test.ts
+  packages/@ezcorp/factory-orchestrator/test/transition-pages.test.ts
+  packages/@ezcorp/factory-orchestrator/test/validation.test.ts
+Count: ℹ tests 91, ℹ pass 91, ℹ fail 0 (w09e-merge-heavy-batch.log, leg orchestrator-node, exit 0).
+Lead decision: the producer run satisfies the ruling's orchestrator package run; it adds coverage, serial concurrency and
+the factory-transport build, which makes it stricter, not weaker. A literal bun run test leg (queued behind W18c's runner)
+was withdrawn before it took the lock.
