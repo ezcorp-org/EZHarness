@@ -39,8 +39,8 @@ answer for each prompt digest.
 1. Use the pinned toolchain.
 
    ```sh
-   export PATH=/tmp/factory-tools/bun-1.3.14/bun-linux-x64:$PATH
-   bun --version    # 1.3.14
+   export PATH=/tmp/factory-tools/bun-$(cat .bun-version)/bun-linux-x64:$PATH
+   bun --version    # equals .bun-version (1.4.2); run.sh asserts bun and bunx
    node --version   # v24.14.1
    ```
 

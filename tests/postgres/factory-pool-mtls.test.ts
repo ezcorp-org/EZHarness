@@ -6,10 +6,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterAll, beforeAll, expect, test } from "bun:test";
+import { pinnedBun } from "./helpers/pinned-bun";
 
 const execFile = promisify(execFileCallback); const keys = generateKeyPairSync("rsa", { modulusLength: 2048 });
 let root: string; let port: number; let child: ReturnType<typeof spawn>;
-const bun = "/tmp/factory-tools/bun-1.4.2/bun-linux-x64/bun";
+const bun = pinnedBun;
 const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
 const token = (subject: string, scope: string[]) => { const input = `${encode({ alg: "RS256", kid: "test" })}.${encode({ sub: subject, iss: "factory-test", aud: "factory-pool", exp: Math.floor(Date.now() / 1000) + 60, scope })}`; const signer = createSign("RSA-SHA256"); signer.update(input); signer.end(); return `${input}.${signer.sign(keys.privateKey).toString("base64url")}`; };
 async function certificate(name: string): Promise<void> { await execFile("openssl", ["req", "-newkey", "rsa:2048", "-nodes", "-keyout", join(root, `${name}.key`), "-out", join(root, `${name}.csr`), "-subj", `/CN=${name}`]); await execFile("openssl", ["x509", "-req", "-in", join(root, `${name}.csr`), "-CA", join(root, "ca.crt"), "-CAkey", join(root, "ca.key"), "-CAcreateserial", "-out", join(root, `${name}.crt`), "-days", "1"]); }

@@ -7,6 +7,8 @@ env:
 # cold-cache `--frozen-lockfile` installs until the @types devDeps fix.
 # 1.3.14 verified green 2026-06-11 (full local job sweep + cold-cache
 # clean-clone install). Bump deliberately, with a local re-verification.
+# 1.4.2 (W12e, 2026-09): fixes 1.3.14's Bun.sql request-queue defect; its
+# acceptance is tests/postgres/bun-sql-request-queue.test.ts (db-postgres.yml).
 #
 # The bun pin is SINGLE-SOURCED in the top-level `.bun-version` file: the
 # composite action .github/actions/setup and every direct setup-bun call

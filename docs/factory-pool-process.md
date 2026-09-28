@@ -5,7 +5,7 @@ The factory pool is an independent Bun process. It uses the existing PostgreSQL 
 Start it with the pinned Bun binary and one private configuration file:
 
 ```sh
-/tmp/factory-tools/bun-1.3.14/bun-linux-x64/bun src/factory/pool/process.ts /run/ezharness/factory-pool/pool-process.json
+/tmp/factory-tools/bun-$(cat .bun-version)/bun-linux-x64/bun src/factory/pool/process.ts /run/ezharness/factory-pool/pool-process.json
 ```
 
 The configuration file and every referenced file must use an absolute path. Each file must be owned by the process user and have no group or other permissions. Its parent directory must also be private.
