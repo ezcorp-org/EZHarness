@@ -273,8 +273,13 @@ describe("the pool lease is liveness, renewed while the guest lives (option 2)",
       renew: async () => { throw new Error("Pool lease is not live."); },
       acknowledgeStart: async () => { throw new Error("factory gateway returned HTTP 409"); },
     });
-    await expect(expired.open()).rejects.toMatchObject({ code: "lease_revoked" });
+    // The attempt ends failed by name: its lease was reclaimed before claim, nothing left this process, so no stop
+    // is asked of the host and nothing is left "outcome unknown" for the dispatcher (measured at the head: P2).
+    const refused = await (await expired.open()).wait();
+    expect(refused).toMatchObject({ status: "failed", error: { code: FACTORY_LOST_RESULT_CODES.lease_lost, message: expect.stringContaining("lease_revoked") } });
     expect(expired.asked).toEqual([]);
+    expect(expired.stops).toEqual([]);
+    expect(expired.reported.map((entry) => entry.source)).toEqual(["attempt-lease-revoked:attempt-claim-expired"]);
     // The negative control: a live lease is renewed once, before the launch, and the attempt runs as before.
     const renewedBeforeLaunch: number[] = [];
     const seen: unknown[] = [];
@@ -285,8 +290,8 @@ describe("the pool lease is liveness, renewed while the guest lives (option 2)",
     expect(await (await w.open()).wait()).toEqual(completed);
     expect(renewedBeforeLaunch).toEqual([1]);
     expect(seen[0]).toEqual({ reservationId: factoryLaunchLease.reservationId, grantRevision: factoryLaunchLease.grantRevision, allocationGeneration: factoryLaunchLease.allocationGeneration, allocationToken: factoryLaunchLease.allocationToken });
-    // No guest exists, so the claim is released, as for every refusal before a launch.
-    expect((await expired.store.claimStart("attempt-claim-expired")).claimed).toBe(true);
+    // The failure is the attempt's durable terminal result: a later open reads it and launches nothing.
+    expect(await expired.store.terminalResult("attempt-claim-expired")).toMatchObject({ status: "failed", error: { code: FACTORY_LOST_RESULT_CODES.lease_lost } });
   });
 
   test("a GPU attempt's lease renews through the same loop, with the same fence, and lapses the same way (W02d R5)", async () => {

@@ -106,12 +106,13 @@ export class FactoryRemoteAttemptRuntime implements FactoryAttemptRuntime {
     if (!claim.claimed) return this.reconnect(claim.intent);
 
     const claimed = claim.intent;
+    // W02d R6: an attempt can wait in the queue past its 30 s lease (measured: P2). One fenced renewal at claim,
+    // before anything launches, keeps a live lease live. A lease the pool already reclaimed ends the attempt failed by
+    // name; W01h's renewal loop that follows a launch is unchanged.
+    const renewal = await this.options.pool.renew(this.fence(claimed)).then(() => undefined, (error: unknown) => error ?? new Error("renewal refused"));
+    if (renewal !== undefined) return this.leaseGoneAtClaim(claimed, renewal);
     let tokened: FactoryAttemptLaunchIntent;
     try {
-      // W02d R6: an attempt can wait in the queue past its 30 s lease (measured: P2). One fenced renewal at claim,
-      // before anything launches, keeps a live lease live; a lease already gone refuses the launch by name. The
-      // renewal loop that follows is W01h's, unchanged.
-      await this.options.pool.renew(this.fence(claimed)).catch((error: unknown) => { throw new FactoryAttemptRuntimeError("lease_revoked", `The pool lease for attempt ${attemptId} was not live at claim: ${error instanceof Error ? error.message : String(error)}`); });
       await this.assertReady(claimed);
       tokened = this.withToken(claimed, await this.options.mintAttemptToken(claimed.request));
     } catch (error) {
@@ -150,6 +151,21 @@ export class FactoryRemoteAttemptRuntime implements FactoryAttemptRuntime {
     await this.options.pool.acknowledgeStart(this.fence(claimed));
     await this.options.launches.state(attemptId, "launched");
     return this.settled(tokened, handle.disposition, () => this.collect(tokened));
+  }
+
+  /**
+   * The lease was reclaimed before this claim (W02d R6). Nothing left this process, so no stop is asked of the host;
+   * the attempt ends failed by name, recorded as its durable terminal result, instead of reaching the dispatcher as an
+   * error it could only record as an unknown outcome. Releasing the reservation and the hold is R8's.
+   */
+  private async leaseGoneAtClaim(intent: FactoryAttemptLaunchIntent, cause: unknown): Promise<FactoryAttemptOpen> {
+    const attemptId = intent.request.authority.attemptId;
+    const message = `lease_revoked: the pool lease for attempt ${attemptId} was not live at claim: ${cause instanceof Error ? cause.message : String(cause)}`.slice(0, 4_096);
+    this.options.report(`attempt-lease-revoked:${attemptId}`, new FactoryAttemptRuntimeError("lease_revoked", message));
+    const result = failedFactoryRunnerResult(await this.settledJournal(intent), { code: FACTORY_LOST_RESULT_CODES.lease_lost, message, retryable: !FACTORY_LOST_RESULT_FINAL.has("lease_lost") });
+    const recorded = await this.options.launches.recordLostTerminal(attemptId, result);
+    const final = recorded.state === "recorded" ? recorded.result : result;
+    return this.settled(intent, "terminal", async () => final);
   }
 
   /** The pool fence of an intent's lease: the one shape every pool call of this runtime sends. */
