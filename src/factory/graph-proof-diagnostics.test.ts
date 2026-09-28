@@ -19,7 +19,7 @@ import {
   stackCopyDir,
 } from "../../scripts/factory-graph-proof/diagnostics";
 import { graphReferences, graphRunnerProfiles, modePin } from "../../scripts/factory-graph-proof/graph";
-import { orchestratorDocument, poolDatabaseDocument, poolDocument, startupDocument, supervisorDocument, wrapsDocument, type StackLayout } from "../../scripts/factory-graph-proof/stack-documents";
+import { distinctPortPicker, orchestratorDocument, poolDatabaseDocument, poolDocument, startupDocument, supervisorDocument, wrapsDocument, type StackLayout } from "../../scripts/factory-graph-proof/stack-documents";
 import { parseFactoryOrchestratorProcessConfig } from "./orchestration-process";
 import { parseFactoryPoolProcessConfig } from "./pool/process";
 import { parseFactorySupervisorProcessConfig } from "./runner/supervisor-process";
@@ -407,5 +407,24 @@ describe("what a failed pass says about itself", () => {
     expect(long.length).toBeLessThan(400);
     expect(long.startsWith('big (saw "xxx')).toBe(true);
     expect(long.endsWith("…)")).toBe(true);
+  });
+});
+
+/**
+ * A stack never gives two of its services the same port. The OS may hand out a just-closed port again, and in W02d's
+ * p5-smoke the TLS terminator got Temporal's own port (37819, EADDRINUSE), so the orchestrator spoke TLS to plain
+ * Temporal (InvalidContentType) and the stack never came ready.
+ */
+describe("the stack's ports", () => {
+  test("are distinct: a port the source repeats is drawn again, never handed out twice", () => {
+    const drawn = [37819, 37819, 40591, 37819, 40592];
+    const pick = distinctPortPicker(() => drawn.shift()!);
+    expect([pick(), pick(), pick()]).toEqual([37819, 40591, 40592]);
+  });
+
+  test("a source that only repeats itself is refused by name instead of reused", () => {
+    const pick = distinctPortPicker(() => 41000, 3);
+    expect(pick()).toBe(41000);
+    expect(() => pick()).toThrow("no distinct free port");
   });
 });

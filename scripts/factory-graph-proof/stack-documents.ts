@@ -143,3 +143,19 @@ export function orchestratorDocument(layout: StackLayout) {
     readinessFilePath: readinessPath(layout, "orchestration.json"), readinessHeartbeatMs: 5_000,
   };
 }
+
+/**
+ * A port source that never hands out the same port twice in one stack. The operating system can return a port it
+ * just released, and two of the stack's services on one port meant a TLS client speaking to plain Temporal (W02d
+ * p5-smoke: EADDRINUSE on 37819, then InvalidContentType). A repeat is drawn again, a bounded number of times.
+ */
+export function distinctPortPicker(pick: () => number, attempts = 50): () => number {
+  const given = new Set<number>();
+  return () => {
+    for (let attempt = 0; attempt < attempts; attempt++) {
+      const port = pick();
+      if (!given.has(port)) { given.add(port); return port; }
+    }
+    throw new Error(`the stack found no distinct free port in ${attempts} draws`);
+  };
+}

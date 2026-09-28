@@ -34,7 +34,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { SQL } from "bun";
 import type { JsonValue } from "@ezcorp/factory-sdk";
 import { collectSecretValues, openProcessLog, preserveStackDiagnostics, redactStreamedLogs, type PassDiagnostics, type ProcessLog } from "./diagnostics";
-import { GUEST_BROKER_ISSUER, INSTALLATION, MASTER_KEY_ID, NAMESPACE, SUPERVISOR_SUBJECT, TENANT, orchestratorDocument, poolDatabaseDocument, poolDocument, startupDocument, supervisorDocument, wrapsDocument, type StackLayout } from "./stack-documents";
+import { GUEST_BROKER_ISSUER, INSTALLATION, distinctPortPicker, MASTER_KEY_ID, NAMESPACE, SUPERVISOR_SUBJECT, TENANT, orchestratorDocument, poolDatabaseDocument, poolDocument, startupDocument, supervisorDocument, wrapsDocument, type StackLayout } from "./stack-documents";
 import { FACTORY_GUEST_BROKER_AUDIENCE } from "../../src/factory/runner/guest-broker-contract";
 
 export { HOST_ID, INSTALLATION, TENANT } from "./stack-documents";
@@ -78,12 +78,14 @@ export interface Stack {
   stop(keepProduct: boolean, keepDiagnostics?: boolean): Promise<void>;
 }
 
-function freePort(): number {
+function anyFreePort(): number {
   const server = Bun.listen({ hostname: "127.0.0.1", port: 0, socket: { data() {} } });
   const port = server.port;
   server.stop(true);
   return port;
 }
+/** Every port of this stack, distinct: the OS may hand a just-released port out again. */
+const freePort = distinctPortPicker(anyFreePort);
 
 async function reachable(port: number): Promise<boolean> {
   return new Promise((settle) => {
