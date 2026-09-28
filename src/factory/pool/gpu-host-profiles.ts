@@ -24,6 +24,7 @@
 import { basename, dirname, resolve } from "node:path";
 import { privateDirectory, readPrivateBounded } from "../private-files";
 import { factoryAttemptDeviceGrant, type FactoryGpuHostProfile } from "../runner/attempt-wire";
+import type { PoolGpuHostProfile } from "./ledger";
 
 export const FACTORY_GPU_HOST_PROFILES_SCHEMA = "factory.gpu-host-profiles.v1";
 
@@ -106,6 +107,12 @@ export class FactoryGpuHostProfiles {
   profile(hostId: string): FactoryGpuHostProfile | undefined {
     const declaration = this.declarations.get(hostId);
     return declaration ? Object.freeze({ hostId, devices: declaration.devices, cdiDevices: declaration.cdiDevices }) : undefined;
+  }
+
+  /** What the pool records for a host so its leases carry it (W02d R2); undefined for a host with no profile. */
+  registration(hostId: string): PoolGpuHostProfile | undefined {
+    const declaration = this.declarations.get(hostId);
+    return declaration ? Object.freeze({ tier: declaration.tier, devices: declaration.devices, cdiDevices: declaration.cdiDevices }) : undefined;
   }
 
   /** One named row per production criterion per host. A trusted-local host is unmet on every row by definition. */

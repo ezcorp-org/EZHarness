@@ -10,7 +10,7 @@ const supervisor: PoolPrincipal = { kind: "supervisor", supervisorId: "gpu-super
 const request = (reservationId: string, resources: import("../../src/factory/pool/ledger").PoolResourceVector = { cpu: 1 }) => ({ reservationId, grantRevision: 1, grantScope: "tenant-01:grant-a", resources, admissionDeadline: new Date(Date.now() + 60_000).toISOString() });
 
 beforeAll(async () => {
-  ({ client, close } = await setupFactoryPoolPostgres()); service = new PoolAdmissionService(client); await service.setup(); await service.ledger.configureCapacity("cpu", 10); await service.ledger.registerGpuHost({ hostId: "gpu-a" });
+  ({ client, close } = await setupFactoryPoolPostgres()); service = new PoolAdmissionService(client); await service.setup(); await service.ledger.configureCapacity("cpu", 10); await service.ledger.registerGpuHost({ hostId: "gpu-a", profile: { tier: "trusted-local", devices: ["/dev/dri/renderD128"], cdiDevices: [] } });
 
 });
 afterAll(async () => { await close?.(); });

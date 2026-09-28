@@ -67,7 +67,13 @@ export interface PoolStopConfirmation {
   holderGeneration: number;
   hostId?: string;
 }
-export interface PoolHostRegistration { hostId: string }
+/** What a GPU host grants one whole-host allocation (W02d R2). Without one the host is never assigned. */
+export interface PoolGpuHostProfile {
+  readonly tier: "trusted-local" | "production";
+  readonly devices: readonly string[];
+  readonly cdiDevices: readonly string[];
+}
+export interface PoolHostRegistration { hostId: string; profile?: PoolGpuHostProfile }
 export interface PoolGpuReimageReceipt {
   reservationId: string;
   hostId: string;
@@ -200,6 +206,33 @@ export function normalizePoolResourceVector(vector: PoolResourceVector): PoolRes
   return output;
 }
 
+const PROFILE_TIERS: readonly string[] = ["trusted-local", "production"];
+const profileNames = (value: unknown): value is string[] =>
+  Array.isArray(value) && value.length <= 64 && value.every((entry) => typeof entry === "string" && entry.length > 0 && entry.length <= 256) && new Set(value).size === value.length;
+
+/** A host profile with exactly its three fields, each well formed; anything else is refused by name. */
+function validProfile(value: unknown): value is PoolGpuHostProfile {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const profile = value as Record<string, unknown>;
+  return Object.keys(profile).sort().join(",") === "cdiDevices,devices,tier" && typeof profile.tier === "string" && PROFILE_TIERS.includes(profile.tier) && profileNames(profile.devices) && profileNames(profile.cdiDevices);
+}
+
+function profileJson(profile: PoolGpuHostProfile): string {
+  return JSON.stringify({ tier: profile.tier, devices: [...profile.devices], cdiDevices: [...profile.cdiDevices] });
+}
+
+/**
+ * The device profile a lease carries, for the host the lease holds (W02d R2). One parser for the pool's stored
+ * snapshot and for a lease read off the wire: a profile that is malformed or names another host is refused by name.
+ */
+export function parsePoolDeviceProfile(value: unknown, hostId: string | null | undefined): PoolDeviceProfile {
+  const decoded = typeof value === "string" ? (() => { try { return JSON.parse(value) as unknown; } catch { return undefined; } })() : value;
+  if (!decoded || typeof decoded !== "object" || Array.isArray(decoded)) throw new Error("Pool lease device profile is invalid.");
+  const { hostId: recorded, ...profile } = decoded as Record<string, unknown>;
+  if (typeof hostId !== "string" || recorded !== hostId || !validProfile(profile)) throw new Error("Pool lease device profile is invalid.");
+  return Object.freeze({ hostId, tier: profile.tier, devices: Object.freeze([...profile.devices]), cdiDevices: Object.freeze([...profile.cdiDevices]) });
+}
+
 function decodeVector(value: unknown): PoolResourceVector {
   const decoded = typeof value === "string" ? JSON.parse(value) : value;
   return normalizePoolResourceVector(decoded as PoolResourceVector);
@@ -242,6 +275,7 @@ interface RequestRow {
   priority: number | string; ready_sequence: number | string; node_id: string; queued_at: unknown;
   admission_deadline: unknown; state: PoolLeaseState; allocation_generation: number | string; holder_generation: number | string;
   allocation_token: string | null; fence: string; lease_deadline: unknown | null; host_id: string | null; effects: number | string; reason: string | null;
+  device_profile_json?: unknown;
 }
 interface HostRow { host_id: string; state: string; reservation_id: string | null; holder_generation: number | string | null }
 
@@ -272,6 +306,7 @@ function toLease(row: RequestRow): PoolLease {
     deadlineAt: asDate(row.lease_deadline),
     resources: decodeVector(row.resources_json),
     ...(row.host_id ? { hostId: row.host_id } : {}),
+    ...(row.device_profile_json === null || row.device_profile_json === undefined ? {} : { deviceProfile: parsePoolDeviceProfile(row.device_profile_json, row.host_id) }),
   };
 }
 
@@ -312,6 +347,8 @@ export async function setupFactoryPoolLedger(database: Pick<PoolSql, "unsafe">):
     holder_generation integer,
     reimage_receipt text
   )`);
+  // W02d R2: the host's registered profile; a GPU host without one is never assigned.
+  await database.unsafe("ALTER TABLE factory_pool_hosts ADD COLUMN IF NOT EXISTS profile_json jsonb");
   await database.unsafe(`CREATE TABLE IF NOT EXISTS factory_pool_requests (
     reservation_id text PRIMARY KEY,
     tenant_id text NOT NULL,
@@ -332,6 +369,8 @@ export async function setupFactoryPoolLedger(database: Pick<PoolSql, "unsafe">):
     effects integer NOT NULL DEFAULT 0 CHECK (effects >= 0),
     reason text
   )`);
+  // W02d R2: the held host's profile, copied at assignment, so a later profile change never alters a held lease.
+  await database.unsafe("ALTER TABLE factory_pool_requests ADD COLUMN IF NOT EXISTS device_profile_json jsonb");
   await database.unsafe("CREATE INDEX IF NOT EXISTS factory_pool_requests_queue ON factory_pool_requests (state, queued_at, priority DESC, ready_sequence, node_id)");
   await database.unsafe("CREATE INDEX IF NOT EXISTS factory_pool_requests_tenant_queue ON factory_pool_requests (tenant_id, state)");
 }
@@ -370,13 +409,19 @@ export class FactoryPoolLedger {
     });
   }
 
+  /** Register a GPU host, or change its profile. The profile governs future assignments only (W02d R2). */
   async registerGpuHost(input: PoolHostRegistration): Promise<void> {
     assertOpaque(input.hostId, "host id");
+    if (input.profile !== undefined && !validProfile(input.profile)) throw new Error("Pool GPU host profile is malformed.");
+    const profile = input.profile === undefined ? null : profileJson(input.profile);
     await this.database.begin(async (transaction) => {
       await this.lock(transaction);
       const prior = rows<HostRow>(await transaction.unsafe("SELECT host_id, state, reservation_id, holder_generation FROM factory_pool_hosts WHERE host_id = $1 FOR UPDATE", [input.hostId]))[0];
-      if (prior) return;
-      await transaction.unsafe("INSERT INTO factory_pool_hosts(host_id, state) VALUES ($1, 'available')", [input.hostId]);
+      if (prior) {
+        if (profile !== null) await transaction.unsafe("UPDATE factory_pool_hosts SET profile_json = $1::jsonb WHERE host_id = $2", [profile, input.hostId]);
+        return;
+      }
+      await transaction.unsafe("INSERT INTO factory_pool_hosts(host_id, state, profile_json) VALUES ($1, 'available', $2::jsonb)", [input.hostId, profile]);
       await transaction.unsafe("INSERT INTO factory_pool_resources(resource_class, total_units, allocated_units) VALUES ('gpu-host', 1, 0) ON CONFLICT(resource_class) DO UPDATE SET total_units = factory_pool_resources.total_units + 1");
     });
   }
@@ -460,10 +505,15 @@ export class FactoryPoolLedger {
       const vector = decodeVector(candidate.resources_json);
       if (!await this.respectsReservedMinimums(transaction, candidate.tenant_id, vector, capacities)) return this.blockedDecision(candidate, now, capacities);
       let hostId: string | undefined;
+      let deviceProfile: string | null = null;
       if (vector["gpu-host"] !== undefined) {
-        const host = rows<HostRow>(await transaction.unsafe("SELECT host_id, state, reservation_id, holder_generation FROM factory_pool_hosts WHERE state = 'available' ORDER BY host_id FOR UPDATE LIMIT 1"))[0];
+        // Only a host with a registered profile can be granted (W02d R2): a host without one authorizes no device.
+        const host = rows<HostRow & { profile_json: unknown }>(await transaction.unsafe("SELECT host_id, state, reservation_id, holder_generation, profile_json FROM factory_pool_hosts WHERE state = 'available' AND profile_json IS NOT NULL ORDER BY host_id FOR UPDATE LIMIT 1"))[0];
         if (!host) return this.blockedDecision(candidate, now, capacities, "gpu-host");
         hostId = host.host_id;
+        const stored = typeof host.profile_json === "string" ? JSON.parse(host.profile_json) as unknown : host.profile_json;
+        if (!validProfile(stored)) throw new Error("Pool GPU host profile is malformed.");
+        deviceProfile = JSON.stringify({ hostId, ...JSON.parse(profileJson(stored)) as object });
       }
       const token = randomUUID();
       const generation = Number(candidate.allocation_generation);
@@ -472,7 +522,7 @@ export class FactoryPoolLedger {
         const units = vector[resourceClass];
         if (units !== undefined) await transaction.unsafe("UPDATE factory_pool_resources SET allocated_units = allocated_units + $1 WHERE resource_class = $2 AND allocated_units + $1 <= total_units", [units, resourceClass]);
       }
-      const updated = rows<RequestRow>(await transaction.unsafe("UPDATE factory_pool_requests SET state = 'held', holder_generation = allocation_generation, allocation_token = $1, lease_deadline = $2, host_id = $3, reason = NULL WHERE reservation_id = $4 AND state = 'queued' RETURNING *", [token, iso(deadline), hostId ?? null, candidate.reservation_id]))[0];
+      const updated = rows<RequestRow>(await transaction.unsafe("UPDATE factory_pool_requests SET state = 'held', holder_generation = allocation_generation, allocation_token = $1, lease_deadline = $2, host_id = $3, device_profile_json = $4::jsonb, reason = NULL WHERE reservation_id = $5 AND state = 'queued' RETURNING *", [token, iso(deadline), hostId ?? null, deviceProfile, candidate.reservation_id]))[0];
       if (!updated) throw new Error("Pool admission changed while scheduled.");
       if (hostId) await transaction.unsafe("UPDATE factory_pool_hosts SET state = 'assigned', reservation_id = $1, tenant_id = $2, holder_generation = $3, reimage_receipt = NULL WHERE host_id = $4 AND state = 'available'", [candidate.reservation_id, candidate.tenant_id, generation, hostId]);
       for (const resourceClass of POOL_RESOURCE_CLASSES) if (vector[resourceClass] !== undefined) await transaction.unsafe("INSERT INTO factory_pool_round_members(resource_class, tenant_id) VALUES ($1, $2) ON CONFLICT DO NOTHING", [resourceClass, candidate.tenant_id]);

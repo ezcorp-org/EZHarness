@@ -6,7 +6,7 @@ import { SQL } from "bun";
 import { privateDirectory, readPrivateBounded } from "../private-files";
 import { type FactoryPoolReadinessWriter, createFactoryPoolReadinessWriter } from "./readiness";
 import type { PoolResourceClass, PoolSql } from "./ledger";
-import { loadFactoryGpuHostProfiles } from "./gpu-host-profiles";
+import { loadFactoryGpuHostProfiles, type FactoryGpuHostProfiles } from "./gpu-host-profiles";
 import { PoolAdmissionService, type PoolAdmissionIdentityConfig } from "./service";
 import { startBunPoolAdmissionHttps, type BunPoolAdmissionHttpsOptions } from "./service-server";
 
@@ -201,7 +201,7 @@ async function bindPoolIdentity(database: PoolDatabase, config: FactoryPoolProce
   });
 }
 
-async function configureResources(database: PoolDatabase, service: PoolAdmissionService, config: FactoryPoolProcessConfig): Promise<void> {
+async function configureResources(database: PoolDatabase, service: PoolAdmissionService, config: FactoryPoolProcessConfig, profiles: FactoryGpuHostProfiles | undefined): Promise<void> {
   const existingResources = rows<{ resource_class: string }>(await database.unsafe("SELECT resource_class FROM factory_pool_resources ORDER BY resource_class"));
   const configuredResources = new Set([...Object.keys(config.resources.capacities), ...(config.resources.gpuHosts.length ? ["gpu-host"] : [])]);
   if (existingResources.some(row => !configuredResources.has(row.resource_class))) throw new Error("factory pool resource configuration conflicts with durable state");
@@ -212,7 +212,10 @@ async function configureResources(database: PoolDatabase, service: PoolAdmission
     const total = config.resources.capacities[resourceClass];
     if (total !== undefined) await service.ledger.configureCapacity(resourceClass, total);
   }
-  for (const hostId of config.resources.gpuHosts) await service.ledger.registerGpuHost({ hostId });
+  for (const hostId of config.resources.gpuHosts) {
+    const profile = profiles?.registration(hostId);
+    await service.ledger.registerGpuHost(profile === undefined ? { hostId } : { hostId, profile });
+  }
   const finalHosts = rows<{ host_id: string }>(await database.unsafe("SELECT host_id FROM factory_pool_hosts ORDER BY host_id"));
   if (finalHosts.length !== configuredHosts.size || finalHosts.some(row => !configuredHosts.has(row.host_id))) throw new Error("factory pool resource configuration conflicts with durable state");
 }
@@ -257,9 +260,12 @@ export async function runConfiguredFactoryPoolProcess(configPath: string, signal
     phase = "schema_unavailable";
     const service = new PoolAdmissionService(database);
     await service.setup();
-    await configureResources(database, service, config); schemaReady = true;
+    // The declared profiles are read before any host is registered, so each GPU host is registered with its own
+    // (W02d R2); a bad declaration still keeps the pool degraded before its listener binds.
     phase = "gpu_profiles_unavailable";
-    if (config.resources.gpuProfilesPath !== undefined) await loadFactoryGpuHostProfiles(config.resources.gpuProfilesPath, config.resources.gpuHosts);
+    const profiles = config.resources.gpuProfilesPath === undefined ? undefined : await loadFactoryGpuHostProfiles(config.resources.gpuProfilesPath, config.resources.gpuHosts);
+    phase = "schema_unavailable";
+    await configureResources(database, service, config, profiles); schemaReady = true;
     await readiness.write({ lifecycle: "starting", databaseReady, schemaReady, listenerReady: false });
     if (signal.aborted) return;
     phase = "listener_unavailable";

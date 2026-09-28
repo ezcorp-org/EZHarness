@@ -1,5 +1,5 @@
 import { createGatewayTransport, GatewayStatusError, type GatewayResponse, type GatewayTransport, type GatewayTransportOptions } from "@ezcorp/factory-transport";
-import { POOL_LEASE_STATES, POOL_QUEUE_FULL_HTTP_STATUS, POOL_QUEUE_FULL_REASON, POOL_RESOURCE_CLASSES, type PoolDecision, type PoolLease, type PoolLeaseState, type PoolLeaseStatus, type PoolResourceClass, type PoolResourceVector } from "./ledger";
+import { parsePoolDeviceProfile, POOL_LEASE_STATES, POOL_QUEUE_FULL_HTTP_STATUS, POOL_QUEUE_FULL_REASON, POOL_RESOURCE_CLASSES, type PoolDecision, type PoolLease, type PoolLeaseState, type PoolLeaseStatus, type PoolResourceClass, type PoolResourceVector } from "./ledger";
 import type { PoolCheckpointPage, PoolCheckpointSlot } from "./checkpoint";
 import type { PoolAdmissionRequest, PoolLeaseFenceInput, PoolStopInput } from "./service";
 import { parseWireJson, POOL_HTTP_BYTES_LIMIT, wireCounter, wireExact, wireIsoDate, wireRecord, wireResources, wireText } from "./wire";
@@ -60,7 +60,7 @@ function sameResources(left: PoolResourceVector, right: PoolResourceVector): boo
 
 function lease(value: unknown): PoolLease {
   const input = wireRecord(value, "lease");
-  wireExact(input, ["reservationId", "tenantId", "grantRevision", "allocationGeneration", "holderGeneration", "allocationToken", "fence", "deadlineAt", "resources", "hostId"], "lease");
+  wireExact(input, ["reservationId", "tenantId", "grantRevision", "allocationGeneration", "holderGeneration", "allocationToken", "fence", "deadlineAt", "resources", "hostId", "deviceProfile"], "lease");
   return {
     reservationId: wireText(input.reservationId, "lease reservation id"),
     tenantId: wireText(input.tenantId, "lease tenant id"),
@@ -72,6 +72,7 @@ function lease(value: unknown): PoolLease {
     deadlineAt: wireIsoDate(input.deadlineAt, "lease deadline"),
     resources: wireResources(input.resources),
     ...(input.hostId === undefined ? {} : { hostId: wireText(input.hostId, "lease host id") }),
+    ...(input.deviceProfile === undefined ? {} : { deviceProfile: parsePoolDeviceProfile(input.deviceProfile, input.hostId as string | undefined) }),
   };
 }
 
