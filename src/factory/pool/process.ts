@@ -70,7 +70,7 @@ export interface FactoryPoolMainDependencies {
   readonly runConfigured: (configPath: string, signal: AbortSignal) => Promise<void>;
   readonly once: (event: "SIGINT" | "SIGTERM", listener: () => void) => void;
   readonly removeListener: (event: "SIGINT" | "SIGTERM", listener: () => void) => void;
-  readonly fail: () => void;
+  readonly fail: (error: unknown) => void;
 }
 
 function record(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
@@ -283,11 +283,12 @@ export async function runConfiguredFactoryPoolProcess(configPath: string, signal
   if (failureCode !== undefined) throw new Error(`factory pool process failed: ${failureCode}`);
 }
 
-const productionMainDependencies: FactoryPoolMainDependencies = {
+export const productionMainDependencies: FactoryPoolMainDependencies = {
   runConfigured: runConfiguredFactoryPoolProcess,
   once: (event, listener) => process.once(event, listener),
   removeListener: (event, listener) => process.removeListener(event, listener),
-  fail: () => { process.exitCode = 1; },
+  // Every error the run raises is a generic message by design, so the line names it and carries nothing else.
+  fail: error => { console.error(`[factory-pool] failed to start: ${error instanceof Error ? error.message : "unknown failure"}`); process.exitCode = 1; },
 };
 
 export async function runFactoryPoolMain(argv: readonly string[], dependencies: FactoryPoolMainDependencies = productionMainDependencies): Promise<void> {

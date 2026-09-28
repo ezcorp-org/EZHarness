@@ -3,7 +3,7 @@ import { generateKeyPairSync } from "node:crypto";
 import { chmod, copyFile, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { certificates } from "../../__tests__/helpers/factory-certificates";
-import { parseFactoryPoolProcessConfig, runConfiguredFactoryPoolProcess, runFactoryPoolMain, startFactoryPoolMain, type FactoryPoolProcessDependencies } from "./process";
+import { parseFactoryPoolProcessConfig, productionMainDependencies, runConfiguredFactoryPoolProcess, runFactoryPoolMain, startFactoryPoolMain, type FactoryPoolProcessDependencies } from "./process";
 import type { FactoryPoolReadinessUpdate } from "./readiness";
 
 const directories: string[] = [];
@@ -239,4 +239,24 @@ test("main binds both stop signals, removes them, and marks failures", async () 
   startFactoryPoolMain(["bun", new URL(import.meta.url).pathname, "/private/pool.json"], import.meta.url, { ...main, runConfigured: async () => { throw new Error("failed"); } });
   await Bun.sleep(0);
   expect(failed).toBe(1);
+});
+
+// A pool that cannot start says why. It exited 1 in silence when the graph-proof stack wrote a
+// config key the pool refuses (W16 r5b), so its log was empty. Every error the run raises is a
+// generic message by design; the line carries that message only, never a stack or a cause.
+test("main prints why the pool could not start, by the error's generic message, and exits 1", () => {
+  const lines: string[] = []; const printError = console.error; const exitCode = process.exitCode;
+  console.error = (...values: unknown[]) => { lines.push(values.join(" ")); };
+  try {
+    productionMainDependencies.fail(new Error("factory pool config is unavailable", { cause: new Error("secret cause") }));
+    productionMainDependencies.fail("not an error");
+    expect(process.exitCode).toBe(1);
+  } finally { console.error = printError; process.exitCode = exitCode ?? 0; } // Bun keeps a 1 when handed undefined
+  expect(lines).toEqual(["[factory-pool] failed to start: factory pool config is unavailable", "[factory-pool] failed to start: unknown failure"]);
+});
+
+test("the pool process started on a config it cannot read prints the reason and exits 1", async () => {
+  const child = Bun.spawn([process.execPath, new URL("./process.ts", import.meta.url).pathname, "/nonexistent/w16-pool/pool.json"], { stdout: "pipe", stderr: "pipe" });
+  const [code, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);
+  expect({ code, stderr: stderr.trim() }).toEqual({ code: 1, stderr: "[factory-pool] failed to start: factory pool config is unavailable" });
 });
