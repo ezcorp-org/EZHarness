@@ -223,6 +223,16 @@ describe("a launch the host never confirmed still ends in a durable result", () 
   });
 });
 
+/** A pool whose lease is live at claim (W02d R6) and lapses afterwards: every later renewal fails. */
+function liveAtClaimOnly(): () => Promise<never> {
+  let calls = 0;
+  return async () => {
+    calls += 1;
+    if (calls === 1) return { deadlineAt: new Date(Date.now() + 30_000) } as never;
+    throw new Error("pool lease expired");
+  };
+}
+
 /** A schedule the test drives: each renewal waits here until the case runs it. */
 function manualSchedule() {
   const pending: Array<{ task: () => void; cancelled: boolean }> = [];
@@ -247,10 +257,31 @@ describe("the pool lease is liveness, renewed while the guest lives (option 2)",
     const opened = await w.open();
     expect(opened.disposition).toBe("started");
     expect(await opened.wait()).toEqual(completed);
-    expect(renewals).toBe(4);
+    // One renewal at claim (W02d R6), then four from the loop.
+    expect(renewals).toBe(5);
     expect(w.reported).toEqual([]);
     // Collection ended, so the renewal it had scheduled next was cancelled.
     expect(clockwork.pending.every(entry => entry.cancelled)).toBe(true);
+  });
+
+  test("a lease is renewed once at claim, before anything launches; an expired one refuses the launch by name and nothing starts (W02d R6)", async () => {
+    // Measured red at the base (P2): an attempt admitted beside a 45 s one waited past its 30 s lease, launched on
+    // the expired lease, and wedged when the pool refused its start. The claim now renews first.
+    const renewedBeforeLaunch: number[] = [];
+    const seen: unknown[] = [];
+    const w = await world("attempt-claim-renew", [completed], {
+      renewInput: seen,
+      launch: async (intent) => { renewedBeforeLaunch.push(seen.length); return { disposition: "started", workerId: intent.workerId, invocationId: intent.invocationId }; },
+    });
+    expect(await (await w.open()).wait()).toEqual(completed);
+    expect(renewedBeforeLaunch).toEqual([1]);
+    expect(seen[0]).toEqual({ reservationId: factoryLaunchLease.reservationId, grantRevision: factoryLaunchLease.grantRevision, allocationGeneration: factoryLaunchLease.allocationGeneration, allocationToken: factoryLaunchLease.allocationToken });
+    const expired = await world("attempt-claim-expired", [], { renew: async () => { throw new Error("Pool lease is not live."); } });
+    await expect(expired.open()).rejects.toMatchObject({ code: "lease_revoked" });
+    expect(expired.asked).toEqual([]);
+    expect(expired.acknowledged).toEqual([]);
+    // No guest exists, so the claim is released, as for every refusal before a launch.
+    expect((await expired.store.claimStart("attempt-claim-expired")).claimed).toBe(true);
   });
 
   test("a GPU attempt's lease renews through the same loop, with the same fence, and lapses the same way (W02d R5)", async () => {
@@ -265,11 +296,12 @@ describe("the pool lease is liveness, renewed while the guest lives (option 2)",
       w.beforeRead(() => clockwork.tick());
       expect(await (await w.open()).wait()).toEqual(completed);
     }
-    // No renewal of its own: the GPU attempt renews as often, and with the same fence, as a CPU one.
-    expect(fences.length).toBe(3);
+    // No renewal of its own: the GPU attempt renews as often, and with the same fence, as a CPU one (one at claim,
+    // W02d R6, then three from the loop).
+    expect(fences.length).toBe(4);
     expect(fences).toEqual(cpuFences);
     const clockwork = manualSchedule();
-    const lapsed = await world("attempt-renew-gpu-lapse", [], { renew: async () => { throw new Error("pool lease expired"); }, schedule: clockwork.schedule, leaseRenewIntervalMs: 1, clockStepMs: 10, devices: gpu });
+    const lapsed = await world("attempt-renew-gpu-lapse", [], { renew: liveAtClaimOnly(), schedule: clockwork.schedule, leaseRenewIntervalMs: 1, clockStepMs: 10, devices: gpu });
     lapsed.steps.push(refusal(504, "host_timeout"), refusal(504, "host_timeout"));
     lapsed.beforeRead(() => clockwork.tick());
     expect(await (await lapsed.open()).wait()).toMatchObject({ status: "failed", error: { code: FACTORY_LOST_RESULT_CODES.lease_lost } });
@@ -279,7 +311,7 @@ describe("the pool lease is liveness, renewed while the guest lives (option 2)",
   test("a runtime whose lease lapses stops the guest and records the attempt RUNNER_LEASE_LOST", async () => {
     const clockwork = manualSchedule();
     const w = await world("attempt-lease-lost", [], {
-      renew: async () => { throw new Error("pool lease expired"); },
+      renew: liveAtClaimOnly(),
       schedule: clockwork.schedule,
       leaseRenewIntervalMs: 1,
       clockStepMs: 10,

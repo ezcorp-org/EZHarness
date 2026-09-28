@@ -108,6 +108,10 @@ export class FactoryRemoteAttemptRuntime implements FactoryAttemptRuntime {
     const claimed = claim.intent;
     let tokened: FactoryAttemptLaunchIntent;
     try {
+      // W02d R6: an attempt can wait in the queue past its 30 s lease (measured: P2). One fenced renewal at claim,
+      // before anything launches, keeps a live lease live; a lease already gone refuses the launch by name. The
+      // renewal loop that follows is W01h's, unchanged.
+      await this.options.pool.renew(this.fence(claimed)).catch((error: unknown) => { throw new FactoryAttemptRuntimeError("lease_revoked", `The pool lease for attempt ${attemptId} was not live at claim: ${error instanceof Error ? error.message : String(error)}`); });
       await this.assertReady(claimed);
       tokened = this.withToken(claimed, await this.options.mintAttemptToken(claimed.request));
     } catch (error) {
@@ -143,9 +147,14 @@ export class FactoryRemoteAttemptRuntime implements FactoryAttemptRuntime {
       }
       handle = attached;
     }
-    await this.options.pool.acknowledgeStart({ reservationId: claimed.lease.reservationId, grantRevision: claimed.lease.grantRevision, allocationGeneration: claimed.lease.allocationGeneration, allocationToken: claimed.lease.allocationToken });
+    await this.options.pool.acknowledgeStart(this.fence(claimed));
     await this.options.launches.state(attemptId, "launched");
     return this.settled(tokened, handle.disposition, () => this.collect(tokened));
+  }
+
+  /** The pool fence of an intent's lease: the one shape every pool call of this runtime sends. */
+  private fence(intent: FactoryAttemptLaunchIntent) {
+    return { reservationId: intent.lease.reservationId, grantRevision: intent.lease.grantRevision, allocationGeneration: intent.lease.allocationGeneration, allocationToken: intent.lease.allocationToken };
   }
 
   private withToken(intent: FactoryAttemptLaunchIntent, token: string): FactoryAttemptLaunchIntent {
@@ -219,7 +228,7 @@ export class FactoryRemoteAttemptRuntime implements FactoryAttemptRuntime {
    */
   private keepLeaseAlive(intent: FactoryAttemptLaunchIntent): { readonly signal: AbortSignal; lost(): string | undefined; stop(): void } {
     const controller = new AbortController();
-    const fence = { reservationId: intent.lease.reservationId, grantRevision: intent.lease.grantRevision, allocationGeneration: intent.lease.allocationGeneration, allocationToken: intent.lease.allocationToken };
+    const fence = this.fence(intent);
     let validUntil = this.now() + this.renewIntervalMs;
     let lostDetail: string | undefined;
     let cancel: () => void = () => {};
