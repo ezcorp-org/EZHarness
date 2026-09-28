@@ -459,6 +459,26 @@ All under `/tmp/factory-platform-evidence/w16/repro/`, each with its backup besi
 | Web build before the runbook pass; the factory-services lane in external mode (`lane-lib.sh`, new) | - | `final-hold.sh.bak-pre-webbuild-20260928T005823Z` |
 | The self-hosted proof reads the host CA from the host's own directory, and compares peerTenants independently of key order (`prove-selfhosted.ts`) | - | `prove-selfhosted.ts.bak-pre-hostca-20260928` |
 
+### Validator-5 finding F1 (fixed at ddfdce468)
+
+validator-5 rejected 319f6f3bd on one finding, with every other leg green
+(`/tmp/factory-platform-evidence/w16-validation/verdict-validator-5.txt`).
+`scripts/check-factory-deployment-locks.test.ts` set exit code 3 in "the default
+output prints a line and sets the process exit code" and restored it with
+`process.exitCode = previous`, where previous was undefined. Bun 1.3.14 keeps
+the 3 when handed undefined. The file alone therefore exited 3 with every test
+passing, and a pool that ran it could fail depending on file order (r5d's unit
+leg exited 0; the validator's sorted pool exited 3). The restore is now
+`previous ?? 0`, the form other process tests already use.
+
+| Run | Tests | Exit | Log |
+| --- | --- | --- | --- |
+| File alone at 319f6f3bd (red) | 11 pass, 0 fail | 3 | `/tmp/factory-platform-evidence/w16/logs/f1-exitcode-red.log` |
+| File alone at ddfdce468 (green) | 11 pass, 0 fail | 0 | `/tmp/factory-platform-evidence/w16/logs/f1-exitcode-green.log` |
+
+Typecheck 0 and lint 0 before the commit. The hook ran the one mapped suite,
+11/0.
+
 ## Pre-commit hook skip (disclosed)
 
 Commit 9c5d24400 (first made as fbdf8819d) skipped the pre-commit hook's PostgreSQL test
