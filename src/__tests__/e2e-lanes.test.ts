@@ -397,8 +397,8 @@ describe("e2e lane manifest", () => {
 
     const { pinnedWebServer } = await import("../../web/playwright-lane-bun.ts");
     const server = { command: "bun e2e/factory-services/stack.ts" };
-    const env = { ...process.env, PATH: `${pinDir}:${process.env.PATH}` };
-    delete env.TEST_WORKER_INDEX;
+    // The main Playwright process: no TEST_WORKER_INDEX, whatever the caller's environment holds.
+    const env: NodeJS.ProcessEnv = { ...process.env, PATH: `${pinDir}:${process.env.PATH}`, TEST_WORKER_INDEX: undefined };
     const printed: string[] = [];
     expect(pinnedWebServer(server, env, (line) => printed.push(line))).toBe(server);
     const runner = process.versions.bun ? `bun ${process.versions.bun}` : `node ${process.versions.node}`;
