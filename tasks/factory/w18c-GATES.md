@@ -424,6 +424,77 @@ first body line (109 more are true misses). The catch-clause credit above was ac
 Lane hygiene found here: f59f330ca, the stack removes the restore request it served.
 Runner tool gaps reported to the coordinator: the zero-count guard's formats and the manifest-leg lcov names.
 
+## Runtime of each browser leg at dc3b64234 (ruling 4, 2026-09-28)
+
+No log of the dc3b64234 browser run names the Bun its servers or the Playwright runner ran under. The driver's
+`bun-runtime=` field read "Bun v1.x" banners, which Bun prints only on a crash, and it was empty on every leg; the lane
+guards (lane_bun_pin, pinnedWebServer, the factory-services stack) refuse a wrong Bun but printed nothing on a pass.
+The driver header shows bun and bunx 1.3.14 at its start, and a guard that had refused would have stopped the leg,
+but that is inference, not a record. Playwright's CLI has a `#!/usr/bin/env node` shebang and the lanes call
+`bunx playwright test` without `--bun`, so the runner ran under Node; its version is not in the logs.
+  | leg | server | Playwright runner | status |
+  |---|---|---|---|
+  | build, transfer-roundtrip, transfer-check, merge | no server lane; the wrapper's PATH (pin first) | none | VOID: no runtime line |
+  | mock-gate, mock-full, evidence | `bunx --bun vite preview`: not in the log | Node, version not in the log | VOID |
+  | fresh-setup, real-auth | the real config's guarded webServer: not in the log | Node, version not in the log | VOID |
+  | factory-services | the stack's Bun.version check: not in the log | Node, version not in the log | VOID |
+Every leg is VOID as runtime evidence. The rerun at the final head replaces all of them. FIX c93a71e89 (red first,
+e2e-lanes.test.ts 28/1 before, 29/0 after): on a pass each guard prints one "lane Bun:" line to stderr with bun and
+bunx, their versions and paths; pinnedWebServer adds the runner's runtime (main process only); the stack prints its
+Bun.version and executable. The driver's field now lists every "lane Bun:" line in the leg's log
+(`heavy/final-browser.sh`; the old copy kept as `final-browser.sh.bak-*`).
+
+## The docs-updater 30 s timeouts in the pooled focused leg (ruling 5, 2026-09-28)
+
+CAUSE. A leaked filesystem grant. `installFsChannelStub` (packages/@ezcorp/sdk/src/test/filesystem.ts) set
+`EZCORP_FS_ALLOWED=1` and nothing cleared it; the shared preload resets the SDK channel after each test, not the env.
+After docs/extensions/examples/auto-note/index.test.ts (a stub user) ran in the 462-file process, docs-updater's
+loop wrote its run log through `fsMkdir`, which passed the grant check and sent `ezcorp/fs.mkdir` to stdout for a
+host that did not exist (the request lines are in `w18c-final-focused.log`; the SDK waits 300 s). The approve and
+decline flows timed out at 30 s. The "git add … not a git repository" error is a consequence: the timed-out decline
+body ran on after afterEach had removed its scratch repository. Alone the grant is unset, the write fails soft at once,
+and the file passes.
+PROOF (unlocked, one or two files, no coverage).
+  | run | result |
+  |---|---|
+  | docs-updater alone | 5 pass, 0 fail, 0.7 s |
+  | docs-updater alone with EZCORP_FS_ALLOWED=1 | 3 pass, 2 fail (the same two, 30 s each, the same git error) |
+  | auto-note then docs-updater, one process, before the fix | 122 pass, 2 fail, 61 s |
+  | the same pair after the fix | 124 pass, 0 fail, 1.2 s |
+FIX cd5b68139: the stub puts back the value the process had when the calling test finishes (onTestFinished). Red
+first: filesystem-harness.test.ts 7/2 before, 9/0 after; that suite's own manual restore, which hid the leak, is gone.
+
+## Follow-up: pooled-run contamination, second round (ruling 2026-09-27 21:39Z)
+
+The focused leg at dc3b64234 ran 462 files in one bun process: 6274 pass, 111 fail across 20 files. The runner no
+longer pools them (focused = the curated pool and the manifest suites; auto-extra runs one process per file). Every
+failing file passes alone, except the C13 inventory test (red at the base, fixed by W01j) and the orchestrator's
+gateway-activities test (a node --test file; the runner now excludes node --test packages):
+  | file | alone |
+  |---|---|
+  | src/factory/runner/attempt-recovery.test.ts | 17/0 |
+  | src/__tests__/extension-events-hub-branch.test.ts | 19/0 |
+  | src/factory/runner/remote-attempt-runtime.test.ts | 14/0 |
+  | src/factory/runner/attempt-devices.test.ts | 12/0 |
+  | src/factory/legacy-engine.test.ts | 11/0 |
+  | src/__tests__/test-pglite-snapshot-guard.test.ts | 1/0 |
+  | src/__tests__/security/c1-settings-api.test.ts | 13/0 |
+  | src/__tests__/workflow-nested-idempotency-conflict.test.ts | 4/0 |
+  | src/factory/attempt-composition.test.ts | 14/0 |
+  | src/factory/runner/attempt-dispatch-driver.test.ts | 4/0 |
+  | src/factory/host-launch-transport.integration.test.ts | 6/0 |
+  | src/factory/host-launch-lost-result.integration.test.ts | 4/0 |
+  | src/factory/runner/attempt-runtime.integration.test.ts | 7/0 |
+  | src/factory/runner/guest-model-journal.integration.test.ts | 4/0 |
+  | src/factory/runner/guest-model-route.integration.test.ts | 17/0 |
+  | src/factory/usage-epoch.integration.test.ts | 6/0 |
+  | src/factory/runner/supervisor.integration.test.ts | 1/0 |
+  | docs/extensions/examples/docs-updater/index.integration.test.ts | 5/0; cause found and fixed, above |
+Sources: `focused-triage.txt` (unit files) and `heavy/focused-triage-integration-dc3b64234/summary.txt`
+(integration files, under the lock). The causes of the other 17 are not diagnosed. They go to the second round of
+the pooled-run contamination work (item C's class), after C2, with w18-hygiene. In the same run the manifest
+cov-shard leg (CI's shard script, 1942 files) showed only the C13 red.
+
 ## Follow-up: the reference-data producer runs in no CI job (ruling 2026-09-27 16:36Z)
 
 scripts/factory-reference-data-coverage.sh, and with it tests/postgres/factory-reference-data.test.ts, runs in no
