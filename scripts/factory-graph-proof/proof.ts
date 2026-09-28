@@ -23,13 +23,12 @@
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { SQL } from "bun";
-import type { FactoryModelPin, JsonValue } from "@ezcorp/factory-sdk";
-import { canonicalizeJson } from "@ezcorp/factory-sdk/canonical";
+import type { FactoryModelPin } from "@ezcorp/factory-sdk";
 import { combineSummary, GRAPH_GUEST_OUTPUT } from "./guest/graph-guest";
 import { GRAPH_TOPIC, graphDefinition, graphModelPin, graphReferences, graphRunnerProfiles, modePin, OLLAMA_MISSING_MODEL, type GraphProofMode } from "./graph";
 import { buildGraphGuest, installGraphGuest, type GraphGuestBuild } from "./guest-package";
 import { checkSharedStores, startStack, TENANT, type Stack } from "./stack";
-import { backgroundRefusals, describeFailedChecks } from "./diagnostics";
+import { backgroundRefusals, canonicallyEqual, describeFailedChecks } from "./diagnostics";
 
 const REPO = process.env.W19A_REPO!;
 const OUT = process.env.W19A_OUT!;
@@ -296,8 +295,8 @@ type Node = { ran: boolean; stored?: Record<string, unknown> | null; input?: { v
 const nodes = (evidence.nodes ?? {}) as Record<NodeName, Node>;
 const checks: Array<{ check: string; ok: boolean; expected?: unknown; detail?: unknown }> = [];
 const expect = (check: string, ok: boolean, detail?: unknown, expected?: unknown) => { checks.push({ check, ok, ...(ok ? {} : { detail, ...(expected === undefined ? {} : { expected }) }) }); };
-// Canonical JSON: a jsonb column returns its keys in its own order.
-const same = (left: unknown, right: unknown) => left !== undefined && right !== undefined && canonicalizeJson(left as JsonValue) === canonicalizeJson(right as JsonValue);
+// Canonical JSON, and a value that cannot be canonical JSON is not equal (diagnostics.ts canonicallyEqual).
+const same = canonicallyEqual;
 
 if (CONTROL === "none" || CONTROL === "forced-failure") {
   const [a, b, c] = [nodes.prepare, nodes.infer, nodes.combine];

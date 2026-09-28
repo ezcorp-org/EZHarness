@@ -8,6 +8,7 @@ import {
   PASS_READINESS_FILES,
   backgroundRefusals,
   binaryForms,
+  canonicallyEqual,
   checkPassDiagnostics,
   describeFailedChecks,
   collectSecretValues,
@@ -426,5 +427,20 @@ describe("the stack's ports", () => {
     const pick = distinctPortPicker(() => 41000, 3);
     expect(pick()).toBe(41000);
     expect(() => pick()).toThrow("no distinct free port");
+  });
+});
+
+/**
+ * A check never crashes the verdict. W02d's P2 at db82d8c15: a failed node left A.count undefined, and the proof's
+ * comparison canonicalized { count: undefined, answer } and threw "Value is not valid I-JSON", so the pass reported a
+ * harness error instead of its failing checks.
+ */
+describe("the proof's comparison", () => {
+  test("compares canonical JSON, and a value that cannot be canonical JSON is simply not equal", () => {
+    expect(canonicallyEqual({ b: 1, a: [2] }, { a: [2], b: 1 })).toBe(true);
+    expect(canonicallyEqual({ a: 1 }, { a: 2 })).toBe(false);
+    expect(canonicallyEqual({ count: undefined, answer: "x" }, { answer: "x" })).toBe(false);
+    expect(canonicallyEqual(undefined, undefined)).toBe(false);
+    expect(canonicallyEqual(Number.NaN, Number.NaN)).toBe(false);
   });
 });

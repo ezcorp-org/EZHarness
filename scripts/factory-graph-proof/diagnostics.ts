@@ -28,6 +28,8 @@
 import { closeSync, openSync, readFileSync, writeFileSync, writeSync, type Dirent } from "node:fs";
 import { copyFile, mkdir, readdir, readFile, stat } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
+import { canonicalizeJson } from "@ezcorp/factory-sdk/canonical";
+import type { JsonValue } from "@ezcorp/factory-sdk";
 
 export interface PassDiagnostics {
   /** The pass's output directory. */
@@ -336,4 +338,15 @@ export function describeFailedChecks(checks: ReadonlyArray<{ readonly check: str
     const parts = [...(entry.expected === undefined ? [] : [`expected ${shown(entry.expected)}`]), ...("detail" in entry ? [`saw ${shown(entry.detail)}`] : [])];
     return parts.length === 0 ? entry.check : `${entry.check} (${parts.join(", ")})`;
   }).join("; ");
+}
+
+/**
+ * Whether two values are the same canonical JSON (a jsonb column returns its keys in its own order). A value that
+ * cannot be canonical JSON, such as a field left undefined by a node that failed, is simply not equal: a check must
+ * report false, never crash the verdict (W02d P2: "Value is not valid I-JSON" replaced every failing check).
+ */
+export function canonicallyEqual(left: unknown, right: unknown): boolean {
+  if (left === undefined || right === undefined) return false;
+  try { return canonicalizeJson(left as JsonValue) === canonicalizeJson(right as JsonValue); }
+  catch { return false; }
 }
