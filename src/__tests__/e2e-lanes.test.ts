@@ -431,6 +431,20 @@ describe("e2e lane manifest", () => {
     expect(config).not.toContain("globalTeardown");
   });
 
+  test("the factory-services stack removes its state file and its request files when it stops", async () => {
+    // The state file holds the stack administrator's email and password, and the stack never removed it, so a
+    // lane run left it in the checkout (W18c, 2026-09-28: validator-5's hold lists the ignored files under web/e2e
+    // before and after the lane and fails any new one). stop() runs on the webServer's SIGTERM, on a failure and
+    // when the hold ends; it now removes every file the stack keeps beside the state file.
+    const stack = await Bun.file(join(REPO_ROOT, "web/e2e/factory-services/stack.ts")).text();
+    const start = stack.indexOf("async function stop(");
+    const body = stack.slice(start, stack.indexOf("\n}\n", start));
+    expect(start).toBeGreaterThan(0);
+    expect(body).toContain(
+      "await Promise.all([FACTORY_SERVICES_STATE_PATH, STOP_FILE, FACTORY_SERVICES_FUTURE_DRAFT_REQUEST_PATH, FACTORY_SERVICES_RESTORE_REQUEST_PATH].map(path => rm(path, { force: true })));",
+    );
+  });
+
   test("the factory-services stack leaves no request file behind", async () => {
     // Each journey asks the held stack for work through a request file beside the state file. The stack
     // deleted the future-draft request after serving it but not the restore request, so every lane run left

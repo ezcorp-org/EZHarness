@@ -111,6 +111,8 @@ async function stop(reason: string): Promise<void> {
 		await dropDatabases().catch(error => console.error("[factory-services] database cleanup failed:", error));
 		await removePublished().catch(error => console.error("[factory-services] release cleanup failed:", error));
 		await rm(root, { recursive: true, force: true });
+		// The state file holds the administrator's password: nothing the stack keeps beside it outlives the stack.
+		await Promise.all([FACTORY_SERVICES_STATE_PATH, STOP_FILE, FACTORY_SERVICES_FUTURE_DRAFT_REQUEST_PATH, FACTORY_SERVICES_RESTORE_REQUEST_PATH].map(path => rm(path, { force: true })));
 	})();
 	return stopping;
 }
