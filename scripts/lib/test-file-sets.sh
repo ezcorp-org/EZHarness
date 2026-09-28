@@ -237,6 +237,7 @@ web_utility_coverage_files() {
     web/src/lib/__tests__/select-mode.test.ts \
     web/src/lib/__tests__/shortcuts.test.ts \
     web/src/lib/__tests__/theme.test.ts \
+    web/src/lib/build/preview-pipeline-guard.test.ts \
     web/src/lib/chat/page-handlers/__tests__/inline-tool-handlers.test.ts \
     web/src/lib/components/tool-cards/price-chart-logic.test.ts \
     web/src/lib/workers/__tests__/agent-fuzzy-search-bridge.test.ts \

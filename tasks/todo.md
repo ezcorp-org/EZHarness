@@ -5370,7 +5370,7 @@ Gates: tasks/factory/w12e-GATES.md. Evidence: /tmp/factory-platform-evidence/w12
 - [x] Re-apply 2aa24b5b3 on the current integ head; resolve the two config conflicts (workflow, moved compose file).
 - [x] Update every pin consumer the first commit missed (G5), and fix the pinned-bun helper's zsh defect red-first (F1).
 - [ ] G1 acceptance red on 1.3.14, green on 1.4.2.
-- [ ] G2 the 1.4.2 preview-server crash reproduced and fixed at root, or refuted.
+- [x] G2 the 1.4.2 preview-server crash reproduced (oven-sh/bun#40350) and worked around in vite preview, red first.
 - [ ] G3 the full runner and the browser set green under 1.4.2.
 - [ ] G4 the coverage defect re-probed under 1.4.2.
 - [ ] Move both commits to the integ head after W02d lands; rerun G3 there.

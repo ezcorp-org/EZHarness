@@ -1798,3 +1798,9 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 - Rule: a teammate's ruling never grants a permission the tool system refuses. Report the denial, freeze the staged
   tree, prepare the exact command and message file, and let the user run it; verify tree, parents, identity and
   message after.
+- Stop a process you started by its PID (`$!`, and `pkill -P <pid>` for its children), never by `pgrep -f`/`pkill -f`
+  on a command-line pattern: the pattern also matches the shell that runs the command, so it can stop the wrong
+  process and miss the server (w12e-2, 2026-09-28; no other process was touched).
+- `git add -A -- . ':!dir'` exits 1 when a pathspec matches an ignored directory, even though it staged the files, so
+  a `&&` chain after it never runs. Use `git add -A` without a pathspec, then `git add -f` for tracked files under an
+  ignored directory, and check the staged list before committing (w12e-2, 2026-09-28: commit 2 waited three hours).

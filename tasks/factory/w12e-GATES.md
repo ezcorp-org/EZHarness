@@ -17,9 +17,10 @@ head with the same patch-ids.
 
 ## Gates
 
-- [ ] G1: the acceptance regression is red on Bun 1.3.14 and green on Bun 1.4.2.
+- [x] G1: the acceptance regression is red on Bun 1.3.14 and green on Bun 1.4.2.
   CHECK: tests/postgres/bun-sql-request-queue.test.ts on real PostgreSQL, once with each Bun, same tree.
-  EXPECT: 1.3.14 fails; 1.4.2 passes 3 of 3. EVIDENCE: w12e-2/logs/g1-*.log, w12e-2/receipts/g1.json
+  EXPECT: 1.3.14 fails; 1.4.2 passes 3 of 3. EVIDENCE: w12e-2/logs/g1-*.log and commit-and-g1.run.log. RESULT at
+  d503d22c8, 2026-09-28 18:37-18:39Z: 1.3.14 exit 1 (0 pass, 2 fail); 1.4.2 exit 0 three times (2 pass, 0 fail).
 - [ ] G2: the preview-server crash seen under 1.4.2 (ERR_STREAM_WRITE_AFTER_END, factory-live-console e2e) is
   reproduced end to end at the head and fixed at its root, or refuted with the runs that refute it.
   CHECK: the factory-live-console Playwright lane under 1.4.2 (bun and bunx asserted), repeated.
@@ -68,3 +69,52 @@ Kept on purpose: comments and gate records that say what was measured on 1.3.14 
   that is the main checkout, whose .bun-version (1.3.14) then passed the assertion. The install that ran this way
   was void and was rerun under bash. The helper now refuses without its own path. Red 6/1, green 7/0
   (w12e-2/logs/pinned-bun-red.log, pinned-bun-green.log).
+
+## G2: the preview-server crash under Bun 1.4.2 (upstream defect, proven workaround)
+
+- Defect: oven-sh/bun#40350, a regression that began in Bun 1.4.0. Bun's node:http queues a pipelined response behind the one
+  in flight. When that one finishes, advanceResponsePipeline replays the queued writes through the public
+  `res.write` / `res.end`. vite preview's compression middleware (@polka/compression, bundled in vite 8.3.0) has
+  patched those to feed a gzip stream that already ended. The replay throws ERR_STREAM_WRITE_AFTER_END
+  uncaught and the server exits, or the queued response never finishes. The upstream fix, oven-sh/bun#43557
+  (5d5f03ff4), merged 2026-09-26, 418 commits after bun-v1.4.2. No release carries it.
+- Reproduction (Bun 1.4.2, no Playwright): our real vite preview (web build under 1.4.2) died on the first
+  pipelined round with W09e's stack. Receipts: w12e-2/logs/g2-preview-explore-142-server.log. Bun's own
+  regression script crashed 2 of 3 times on 1.4.2; the third run hung. It never crashed on 1.3.14
+  (w12e-2/logs/g2-upstream-*.log). At the clean pin head d503d22c8 the same client killed the real preview again
+  (w12e-2/logs/g2-preview-head-d503d22c8-noguard.log and its server log). The factory-live-console Playwright lane
+  at d503d22c8 did NOT crash in 2 rounds of 66 (w12e-2/logs/g2-head142-round*.log). The browser only hits the
+  race sometimes; W09e saw it in 2 of 4 runs. So the deterministic red is the pipelined client, not the lane.
+- Workaround: web/src/lib/build/preview-pipeline-guard.ts, a vite plugin in web/vite.config.ts. Only on the Bun
+  releases in PIPELINE_REPLAY_DEFECT_BUNS, exactly 1.4.0, 1.4.1 and 1.4.2, it removes Accept-Encoding before
+  vite's compression middleware sees the request. Vite runs a plugin's configurePreviewServer body before it
+  installs compression, so the guard runs first. Compression then leaves res.write / res.end unpatched.
+- Inert outside Bun 1.4.0-1.4.2: the test "it installs its middleware only on an affected Bun, and the middleware
+  drops Accept-Encoding" (preview-pipeline-guard.test.ts) installs nothing for 1.3.14, 1.4.3 and '' (Node).
+  "the default version is the running Bun" ties the default to the running Bun. The guard is removed once the
+  pin moves past a Bun release that carries oven-sh/bun#43557 (see the follow-up below).
+- Why preview-only: production never serves through vite. The app image runs `bun run web/build/index.js`
+  (Dockerfile CMD) and the factory image `bun web/build/index.js` (deploy/factory/Dockerfile CMD). That file is
+  svelte-adapter-bun's server (web/svelte.config.js), which calls `Bun.serve` (build/index.js line 22), not
+  node:http. Measured: the same 20 pipelined gzip pairs against web/build/index.js under 1.4.2 were all answered
+  with the right bytes and the server stayed up (w12e-2/logs/g2-production-pipeline.log).
+- Red/green: preview-pipeline-guard.test.ts runs the real vite preview in a child Bun and sends two pipelined gzip
+  requests at once, over fresh connections. With the guard disabled (an empty release list) it is red 1/3
+  and shows W09e's stack (w12e-2/logs/g2-guard-red-noop.log). With the guard it is green 4/0, 6 times in a row
+  (w12e-2/logs/g2-guard-green-dev.log). The commit hook's run is the committed green.
+
+## Follow-up
+
+- [ ] Remove the preview pipeline guard when a Bun release carries oven-sh/bun#43557. On the bump that moves
+  .bun-version to that release, preview-pipeline-guard.test.ts ("without it, this Bun leaves a pipelined pair
+  unanswered exactly when the guard's release list names it") shows whether that release still fails. If it
+  answers every pair, the guard is obsolete; delete the plugin, its vite.config.ts entry, its test, its
+  test-file-sets entry and its threshold key together. If it still fails, the test goes red until the release
+  is added to PIPELINE_REPLAY_DEFECT_BUNS.
+
+## G4a: a minimal probe of the coverage defect (not reproduced)
+
+A six-line probe (w12e-2/g4-probe/: an executed async method whose last statement is followed by a method that
+never runs) did NOT reproduce the defect on either Bun. Both 1.3.14 and 1.4.2 credit its last statement
+(w12e-2/logs/g4-probe-1.3.14.log, g4-probe-1.4.2.log). So this probe proves nothing about the defect. G4 rests on
+re-probing the attested line of src/factory/task-stops.ts at the final base, once W03g and W03f are on integ.
