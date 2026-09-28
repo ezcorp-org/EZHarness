@@ -5,9 +5,10 @@
 #   ${FACTORY_TOOLS_DIR:-/tmp/factory-tools}/bun-<.bun-version>/bun-linux-x64
 # Bun's release zip ships only `bun`; Bun's own installer adds `bunx` as a link to it. Without that link `bunx`
 # falls through to whatever Bun is next on PATH, so a pinned-first PATH still ran the system Bun for every
-# `bunx vite` / `bunx vitest` (the 2026-09-27 pin gap). use_pinned_bun makes the link when it is missing, puts
-# the directory first on PATH, and asserts that BOTH `bun --version` and `bunx --version` equal the pin,
-# failing by name (return 1) otherwise.
+# `bunx vite` / `bunx vitest` (the 2026-09-27 pin gap). The directory is shared and hash-verified, so this helper
+# never writes into it: a missing `bunx` is refused by name, and provisioning adds the link
+# (`ln -s bun <dir>/bunx`, see tasks/factory/w12e-GATES.md). use_pinned_bun puts the directory first on PATH and
+# asserts that BOTH `bun --version` and `bunx --version` equal the pin, failing by name (return 1) otherwise.
 
 pinned_bun_version() {
   local root self=${BASH_SOURCE[0]:-}
@@ -33,7 +34,10 @@ use_pinned_bun() {
     echo "pinned Bun missing: $dir/bun (download bun-v$want bun-linux-x64.zip and verify it against SHASUMS256.txt)" >&2
     return 1
   fi
-  [ -e "$dir/bunx" ] || ln -s bun "$dir/bunx"
+  if [ ! -e "$dir/bunx" ]; then
+    echo "pinned bunx missing at $dir/bunx; provision it (ln -s bun $dir/bunx)" >&2
+    return 1
+  fi
   export PATH="$dir:$PATH"
   bun_seen=$(bun --version)
   bunx_seen=$(bunx --version)

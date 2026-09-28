@@ -36,9 +36,13 @@ answer for each prompt digest.
 
 ## Before you start
 
-1. Use the pinned toolchain.
+1. Provision the pinned toolchain once per host, then use it. Download `bun-linux-x64.zip` for the version in
+   `.bun-version`, check it against the release's `SHASUMS256.txt`, and unpack it. The zip ships only `bun`, so add
+   the `bunx` link yourself; the repository scripts refuse a directory without it and never create it.
 
    ```sh
+   dir=/tmp/factory-tools/bun-$(cat .bun-version)/bun-linux-x64
+   [ -e "$dir/bunx" ] || ln -s bun "$dir/bunx"
    export PATH=/tmp/factory-tools/bun-$(cat .bun-version)/bun-linux-x64:$PATH
    bun --version    # equals .bun-version (1.4.2); run.sh asserts bun and bunx
    node --version   # v24.14.1

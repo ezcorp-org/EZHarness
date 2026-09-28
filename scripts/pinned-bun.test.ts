@@ -1,10 +1,11 @@
 /**
- * scripts/lib/pinned-bun.sh: the tool directory comes from .bun-version, the bunx link is made when Bun's
- * release zip left it out, and BOTH bun and bunx must report the pin. A fake tool directory
+ * scripts/lib/pinned-bun.sh: the tool directory comes from .bun-version, a missing bunx is refused by name (the
+ * helper never writes into the shared, hash-verified tool directory; provisioning adds the link), and BOTH bun and
+ * bunx must report the pin. A fake tool directory
  * (FACTORY_TOOLS_DIR) stands in for /tmp/factory-tools, so no real Bun is replaced.
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -48,14 +49,13 @@ describe("scripts/lib/pinned-bun.sh", () => {
     expect(run.stdout.toString()).toBe(`/opt/tools/bun-${PIN}/bun-linux-x64\n`);
   });
 
-  test("a release-zip layout (bun only) gets the bunx link, and both resolve to the pinned directory", () => {
+  test("a release-zip layout (bun only) is refused by name, and nothing is written into the tool directory", () => {
     const { tools, dir } = toolsWith({ bun: PIN });
     const result = usePinnedBun(tools);
-    expect(result.stderr).toBe("");
-    expect(result.exitCode).toBe(0);
-    expect(lstatSync(join(dir, "bunx")).isSymbolicLink()).toBe(true);
-    expect(readlinkSync(join(dir, "bunx"))).toBe("bun");
-    expect(result.stdout).toBe(`${join(dir, "bun")}\n${join(dir, "bunx")}\n`);
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain(`pinned bunx missing at ${dir}/bunx; provision it`);
+    expect(existsSync(join(dir, "bunx"))).toBe(false);
+    expect(readdirSync(dir)).toEqual(["bun"]);
   });
 
   test("a missing pinned Bun fails by name", () => {
@@ -67,7 +67,8 @@ describe("scripts/lib/pinned-bun.sh", () => {
   });
 
   test("a bun that reports another version fails by name", () => {
-    const { tools } = toolsWith({ bun: "9.9.9" });
+    const { tools, dir } = toolsWith({ bun: "9.9.9" });
+    symlinkSync("bun", join(dir, "bunx"));
     const result = usePinnedBun(tools);
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain(`pinned Bun mismatch: bun 9.9.9, bunx 9.9.9, .bun-version ${PIN}`);
@@ -100,11 +101,13 @@ describe("scripts/lib/pinned-bun.sh", () => {
     expect(run.stderr.toString()).toContain("pinned-bun.sh: no source path; source this file from bash");
   });
 
-  test("an existing correct bunx link is kept as it is", () => {
+  test("a provisioned bunx link is used as it is, and both resolve to the pinned directory", () => {
     const { tools, dir } = toolsWith({ bun: PIN });
     symlinkSync("bun", join(dir, "bunx"));
     const result = usePinnedBun(tools);
-    expect(result.exitCode, result.stderr).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.exitCode).toBe(0);
     expect(readlinkSync(join(dir, "bunx"))).toBe("bun");
+    expect(result.stdout).toBe(`${join(dir, "bun")}\n${join(dir, "bunx")}\n`);
   });
 });

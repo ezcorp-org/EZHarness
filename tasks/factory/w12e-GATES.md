@@ -50,17 +50,29 @@ head with the same patch-ids.
 | .github/workflows/db-postgres.yml request-queue step | 1 |
 | deploy/factory/Dockerfile BUN_IMAGE and BUN_RUNTIME_IMAGE (linux/amd64 manifests of 1.4.2 and 1.4.2-slim) | 2 |
 | packages/@ezcorp/sdk/src/v4/mcp.test.ts runner digest | 2 |
-| scripts/lib/pinned-bun.sh (tool directory from .bun-version, bunx link, both asserted; refuses a missing source path) | 2 |
+| scripts/lib/pinned-bun.sh (tool directory from .bun-version, bun and bunx both asserted; refuses a missing source path; refuses a missing bunx, commit 4) | 2, 4 |
 | scripts/build-factory-image-guest.sh, scripts/factory-graph-proof/run.sh, scripts/run-factory-postgres-suite.sh | 2 |
 | tests/postgres/factory-pool-mtls.test.ts, factory-pool-process.test.ts (tests/postgres/helpers/pinned-bun.ts) | 2 |
 | README.md, docs/factory-deployment.md, docs/factory-graph-proof.md, docs/factory-pool-process.md, docs/features/platform/dev-lifecycle-and-gates.md, docs/macos-local-dev.md | 2 |
 | .github/dependabot.yml and .github/workflows/ci.yml pin comments | 2 |
 
-Outside the tree: /tmp/factory-tools/bun-1.4.2/bun-linux-x64 (bun sha256 checked against SHASUMS256.txt; bunx link),
+Outside the tree: /tmp/factory-tools/bun-1.4.2/bun-linux-x64 (bun sha256 checked against SHASUMS256.txt; bunx link
+provisioned, see "Provisioning the pinned Bun" below),
 docker.io/oven/bun@sha256:9114c058…6895 pulled on this host, and the w00 rule that derives every lane's PATH from
 .bun-version.
 
 Kept on purpose: comments and gate records that say what was measured on 1.3.14 (they are history, not pins).
+
+## Provisioning the pinned Bun (once per host, before any repository script)
+
+1. Download bun-v<.bun-version>/bun-linux-x64.zip and SHASUMS256.txt from the Bun release. Check the zip's sha256
+   against SHASUMS256.txt, then unpack it into /tmp/factory-tools/bun-<.bun-version>/.
+2. Add the link Bun's installer would add: `ln -s bun /tmp/factory-tools/bun-<.bun-version>/bun-linux-x64/bunx`.
+3. Check: `bun --version` and `bunx --version` from that directory both print the pin.
+
+scripts/lib/pinned-bun.sh never writes into this shared, hash-verified directory. A missing bunx is refused by
+name ("pinned bunx missing at <path>; provision it"), and the lane stops. The same steps are in
+docs/factory-graph-proof.md ("Before you start").
 
 ## Findings
 
@@ -118,3 +130,8 @@ A six-line probe (w12e-2/g4-probe/: an executed async method whose last statemen
 never runs) did NOT reproduce the defect on either Bun. Both 1.3.14 and 1.4.2 credit its last statement
 (w12e-2/logs/g4-probe-1.3.14.log, g4-probe-1.4.2.log). So this probe proves nothing about the defect. G4 rests on
 re-probing the attested line of src/factory/task-stops.ts at the final base, once W03g and W03f are on integ.
+- F2 (validator-6, fixed in commit 4, red first): scripts/lib/pinned-bun.sh created the bunx link inside the shared
+  tool directory when it was missing. A repository script must not write into the shared, hash-verified
+  toolchain. It now refuses by name, creates nothing, and provisioning adds the link (above). Red: with only bun
+  present, the helper made the link and returned 0 (6/1, w12e-2/logs/pinned-bun-bunx-red.log). Green 7/0
+  (pinned-bun-bunx-green.log).
