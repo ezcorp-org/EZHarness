@@ -13,6 +13,11 @@
  * only when it is `ready`, for the exact identity asked for, and fresh. Every
  * other case is one error: a probe must not be able to tell a stale record from
  * a foreign one and act differently.
+ *
+ * A service one installation owns names that installation. A SHARED host
+ * service (the host supervisor, C12) names only its own instance: its record
+ * carries no installation, and a reader for a shared service accepts no record
+ * that does.
  */
 import { basename, dirname, resolve } from "node:path";
 import { privateDirectory, readPrivateBounded, writePrivateBoundedAtomic } from "./private-files";
@@ -28,7 +33,8 @@ export interface FactoryServiceReadinessRecord {
   readonly schemaVersion: string;
   /** The C09 required-service name this record speaks for. */
   readonly service: string;
-  readonly installationId: string;
+  /** The owning installation. Absent for a shared host service, which names only its instance. */
+  readonly installationId?: string;
   /** The publishing instance: a host id, a pool id, a worker id. */
   readonly instanceId: string;
   readonly lifecycle: FactoryServiceLifecycle;
@@ -41,7 +47,8 @@ export interface FactoryServiceReadinessRecord {
 export interface FactoryServiceReadinessOptions {
   readonly schemaVersion: string;
   readonly service: string;
-  readonly installationId: string;
+  /** Omit for a shared host service: its record then names no installation. */
+  readonly installationId?: string;
   readonly instanceId: string;
   readonly readinessFilePath: string;
   readonly readinessHeartbeatMs?: number;
@@ -74,9 +81,11 @@ function heartbeat(value: unknown): value is number {
   return Number.isSafeInteger(value) && (value as number) >= 1_000 && (value as number) <= 60_000;
 }
 
-function snapshotOptions(options: FactoryServiceReadinessOptions): Required<FactoryServiceReadinessOptions> {
+type ReadinessExpectation = Omit<Required<FactoryServiceReadinessOptions>, "installationId"> & { readonly installationId?: string };
+
+function snapshotOptions(options: FactoryServiceReadinessOptions): ReadinessExpectation {
   const result = { ...options, readinessHeartbeatMs: options.readinessHeartbeatMs ?? 5_000 };
-  if (!text(result.schemaVersion) || !SERVICE_NAME.test(result.service) || !text(result.installationId) || !text(result.instanceId)
+  if (!text(result.schemaVersion) || !SERVICE_NAME.test(result.service) || (result.installationId !== undefined && !text(result.installationId)) || !text(result.instanceId)
     || !pathText(result.readinessFilePath) || !heartbeat(result.readinessHeartbeatMs)
     || !Array.isArray(result.factNames) || result.factNames.length < 1 || result.factNames.length > 32
     || result.factNames.some((name) => !FACT_NAME.test(name)) || new Set(result.factNames).size !== result.factNames.length) {
@@ -85,13 +94,15 @@ function snapshotOptions(options: FactoryServiceReadinessOptions): Required<Fact
   return result;
 }
 
-function validRecord(value: unknown, expected: Required<FactoryServiceReadinessOptions>): value is FactoryServiceReadinessRecord {
+function validRecord(value: unknown, expected: ReadinessExpectation): value is FactoryServiceReadinessRecord {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
   const record = value as Record<string, unknown>;
   const allowed = new Set(["schemaVersion", "service", "installationId", "instanceId", "lifecycle", "observedAtMs", "facts", "errorCode"]);
   if (Object.keys(record).some((key) => !allowed.has(key))) return false;
   if (record.schemaVersion !== expected.schemaVersion || record.service !== expected.service) return false;
-  if (!text(record.installationId) || !text(record.instanceId)) return false;
+  // An owned service's record names its installation; a shared service's record names none.
+  if (expected.installationId === undefined ? "installationId" in record : !text(record.installationId)) return false;
+  if (!text(record.instanceId)) return false;
   if (!["starting", "ready", "degraded", "stopped"].includes(record.lifecycle as string)) return false;
   if (!Number.isSafeInteger(record.observedAtMs) || (record.observedAtMs as number) < 0) return false;
   if (record.errorCode !== undefined && (typeof record.errorCode !== "string" || !ERROR_CODE.test(record.errorCode))) return false;
@@ -113,7 +124,7 @@ export function createFactoryServiceReadinessWriter(
       const record = {
         schemaVersion: expected.schemaVersion,
         service: expected.service,
-        installationId: expected.installationId,
+        ...(expected.installationId === undefined ? {} : { installationId: expected.installationId }),
         instanceId: expected.instanceId,
         lifecycle: update.lifecycle,
         observedAtMs: clock(),
@@ -175,8 +186,12 @@ export const FACTORY_SUPERVISOR_READINESS_SCHEMA = "factory.supervisor-readiness
  */
 export const FACTORY_SUPERVISOR_FACTS = Object.freeze(["hostKeyReady", "runnerReady", "hostServicesReady"] as const);
 
+/**
+ * The host supervisor serves every installation on its host (C12), so its
+ * record names its own host id and no installation; each installation's
+ * startup document names the hostId it relies on.
+ */
 export function factorySupervisorReadinessOptions(input: {
-  readonly installationId: string;
   readonly hostId: string;
   readonly readinessFilePath: string;
   readonly readinessHeartbeatMs?: number;
@@ -184,7 +199,6 @@ export function factorySupervisorReadinessOptions(input: {
   return {
     schemaVersion: FACTORY_SUPERVISOR_READINESS_SCHEMA,
     service: "host-supervisor",
-    installationId: input.installationId,
     instanceId: input.hostId,
     readinessFilePath: input.readinessFilePath,
     ...(input.readinessHeartbeatMs === undefined ? {} : { readinessHeartbeatMs: input.readinessHeartbeatMs }),

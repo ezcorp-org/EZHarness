@@ -1,28 +1,34 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { generateKeyPairSync } from "node:crypto";
 import { chmod, copyFile, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { certificates } from "../../__tests__/helpers/factory-certificates";
-import { parseFactoryPoolProcessConfig, runConfiguredFactoryPoolProcess, runFactoryPoolMain, startFactoryPoolMain, type FactoryPoolProcessDependencies } from "./process";
+import { parseFactoryPoolProcessConfig, productionMainDependencies, runConfiguredFactoryPoolProcess, runFactoryPoolMain, startFactoryPoolMain, type FactoryPoolProcessDependencies } from "./process";
 import type { FactoryPoolReadinessUpdate } from "./readiness";
 
 const directories: string[] = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map(path => rm(path, { recursive: true, force: true }))); });
 
+// Key generation is the slow part of a fixture, and a fixture only reads these, so one set serves the file.
+const shared: string[] = [];
+let certs: Awaited<ReturnType<typeof certificates>>;
+const rsaKeys = () => generateKeyPairSync("rsa", { modulusLength: 2048 });
+let keys: ReturnType<typeof rsaKeys>;
+beforeAll(async () => { certs = await certificates(shared); keys = rsaKeys(); });
+afterAll(async () => { await Promise.all(shared.map(path => rm(path, { recursive: true, force: true }))); });
+
 async function fixture(overrides: Record<string, unknown> = {}) {
-  const certs = await certificates(directories);
-  const certificateRoot = directories.at(-1)!;
+  const certificateRoot = shared[0]!;
   const root = await mkdtemp(join(process.env.HOME!, ".factory-pool-process-")); directories.push(root);
   await Promise.all(["server.key", "server.pem", "ca.pem"].map(name => copyFile(join(certificateRoot, name), join(root, name))));
   await Promise.all(["server.key", "server.pem", "ca.pem"].map(name => chmod(join(root, name), 0o600)));
-  const keys = generateKeyPairSync("rsa", { modulusLength: 2048 });
   const paths = { config: join(root, "pool.json"), database: join(root, "database.json"), publicKey: join(root, "token.pem"), readiness: join(root, "ready.json") };
   await Promise.all([
     writeFile(paths.database, JSON.stringify({ databaseUrl: "postgres://pool_role:private-secret@localhost:5432/pool_db" }), { mode: 0o600 }),
     writeFile(paths.publicKey, keys.publicKey.export({ type: "pkcs1", format: "pem" }), { mode: 0o600 }),
   ]);
   const config = {
-    schemaVersion: "factory.pool-process.v1", installationId: "installation-a", poolId: "pool-a", hostname: "127.0.0.1", port: 8443,
+    schemaVersion: "factory.pool-process.v1", poolId: "pool-a", hostname: "127.0.0.1", port: 8443,
     database: { credentialsPath: paths.database, expectedDatabase: "pool_db", expectedRole: "pool_role" },
     tls: { privateKeyPath: join(root, "server.key"), certificatePath: join(root, "server.pem"), caPath: join(root, "ca.pem") },
     tokens: { issuer: "factory-test", audience: "factory-pool", publicKeyPaths: { test: paths.publicKey } },
@@ -37,7 +43,7 @@ async function fixture(overrides: Record<string, unknown> = {}) {
 class ProcessDatabase {
   readonly resources = new Map<string, number>();
   readonly hosts = new Set<string>();
-  identity: { installation_id: string; pool_id: string } | undefined;
+  identity: { pool_id: string } | undefined;
   databaseChecks = 0;
   closed = false;
   failCheckAfter = Number.POSITIVE_INFINITY;
@@ -47,8 +53,8 @@ class ProcessDatabase {
   async begin<Result>(work: (database: ProcessDatabase) => Promise<Result>): Promise<Result> { return work(this); }
   async unsafe(query: string, params: readonly unknown[] = []): Promise<unknown> {
     if (query.includes("current_database")) { this.databaseChecks++; if (this.databaseChecks > this.failCheckAfter) throw new Error("secret database error"); if (this.invalidRows) return {}; const value = [{ database: "pool_db", role: "pool_role" }]; return this.resultRowsObject ? { rows: value } : value; }
-    if (query.startsWith("INSERT INTO factory_pool_identity")) { this.identity ??= { installation_id: String(params[0]), pool_id: String(params[1]) }; return []; }
-    if (query.startsWith("SELECT installation_id")) return this.identity ? [this.identity] : [];
+    if (query.startsWith("INSERT INTO factory_pool_identity")) { this.identity ??= { pool_id: String(params[0]) }; return []; }
+    if (query.startsWith("SELECT pool_id FROM factory_pool_identity")) return this.identity ? [this.identity] : [];
     if (query === "SELECT resource_class FROM factory_pool_resources ORDER BY resource_class") return [...this.resources.keys()].map(resource_class => ({ resource_class }));
     if (query === "SELECT host_id FROM factory_pool_hosts ORDER BY host_id") return [...this.hosts].map(host_id => ({ host_id }));
     if (query.includes("FROM factory_pool_resources WHERE resource_class = $1 FOR UPDATE")) { const total = this.resources.get(String(params[0])); return total === undefined ? [] : [{ resource_class: params[0], total_units: total, allocated_units: 0 }]; }
@@ -65,7 +71,7 @@ function dependencies(database: ProcessDatabase, controller: AbortController, up
   if (options.heartbeatError) database.failCheckAfter = 1;
   return {
     connect: () => database,
-    readiness: () => ({ async write(update) { updates.push(update); return { schemaVersion: "factory.pool-readiness.v1", installationId: "i", poolId: "p", observedAtMs: 1, ...update }; } }),
+    readiness: () => ({ async write(update) { updates.push(update); return { schemaVersion: "factory.pool-readiness.v2", poolId: "p", observedAtMs: 1, ...update }; } }),
     start: async input => { expect(input).toMatchObject({ hostname: "127.0.0.1", port: 8443 }); if (options.startError) throw new Error("secret listener error"); if (options.heartbeatSuccess) setTimeout(() => controller.abort(), 1_010); else if (!options.heartbeatError) controller.abort(); return { url: "https://127.0.0.1:8443", stop() { if (options.stopError) throw new Error("secret listener close failure"); updates.push({ lifecycle: "stopped", databaseReady: false, schemaReady: false, listenerReady: false }); } }; },
     ...(options.heartbeatSuccess ? {} : { wait: async (_milliseconds: number, signal: AbortSignal) => { if (!signal.aborted && !options.heartbeatError) controller.abort(); } }),
   };
@@ -75,14 +81,17 @@ describe("factory pool process config", () => {
   test("snapshots the exact bounded reference-only configuration", async () => {
     const { config } = await fixture();
     const parsed = parseFactoryPoolProcessConfig(config);
-    config.installationId = "mutated";
-    expect(parsed).toMatchObject({ installationId: "installation-a", resources: { capacities: { cpu: 4 }, gpuHosts: [] } });
+    config.poolId = "mutated";
+    expect(parsed).toMatchObject({ poolId: "pool-a", resources: { capacities: { cpu: 4 }, gpuHosts: [] } });
+    // A pool serves every installation of its fleet (C12), so its config names none.
+    expect(parseFactoryPoolProcessConfig({ ...config, poolId: "pool-a" })).not.toHaveProperty("installationId");
   });
 
   test("rejects unknown, relative, empty, oversized, ambiguous, and unsupported configuration", async () => {
     const { config } = await fixture();
     const invalid = [
-      { ...config, extra: true }, { ...config, schemaVersion: "other" }, { ...config, installationId: "" }, { ...config, port: 0 },
+      { ...config, extra: true }, { ...config, schemaVersion: "other" }, { ...config, installationId: "installation-a" }, { ...config, poolId: "" }, { ...config, port: 0 },
+      { ...config, resources: { ...config.resources, gpuProfilesPath: "relative.json" } },
       { ...config, readinessFilePath: "relative.json" }, { ...config, readinessHeartbeatMs: 999 },
       { ...config, database: { ...config.database, credentialsPath: "relative.json" } },
       { ...config, tls: { ...config.tls, caPath: "relative.pem" } },
@@ -114,7 +123,7 @@ describe("factory pool process config", () => {
     // every signed stop was refused with "cannot be acknowledged before a
     // supervisor confirms it". Measured on a real run.
     const base = {
-      schemaVersion: "factory.pool-process.v1", installationId: "installation-a", poolId: "pool-a",
+      schemaVersion: "factory.pool-process.v1", poolId: "pool-a",
       hostname: "127.0.0.1", port: 8443,
       database: { credentialsPath: "/tmp/pool-db.json", expectedDatabase: "pool", expectedRole: "pool" },
       tls: { privateKeyPath: "/tmp/server.key", certificatePath: "/tmp/server.pem", caPath: "/tmp/ca.pem" },
@@ -141,7 +150,8 @@ describe("factory pool process lifecycle", () => {
     const { paths } = await fixture({ resources: { capacities: { cpu: 4, memory: 8 }, gpuHosts: ["gpu-a"] }, identities: { tenants: { "tenant-a": { tenantId: "tenant-a", tokenSubject: "tenant-a" } }, supervisors: { supervisor: { supervisorId: "supervisor-a", tokenSubject: "supervisor", hostIds: ["gpu-a"] } } } });
     const database = new ProcessDatabase(); const controller = new AbortController(); const updates: FactoryPoolReadinessUpdate[] = [];
     await runConfiguredFactoryPoolProcess(paths.config, controller.signal, dependencies(database, controller, updates));
-    expect(database.identity).toEqual({ installation_id: "installation-a", pool_id: "pool-a" });
+    // The pool database is bound to the pool alone: one pool serves every installation on its host.
+    expect(database.identity).toEqual({ pool_id: "pool-a" });
     expect(Object.fromEntries(database.resources)).toEqual({ cpu: 4, memory: 8, "gpu-host": 1 });
     expect([...database.hosts]).toEqual(["gpu-a"]);
     expect(database.closed).toBe(true);
@@ -171,6 +181,18 @@ describe("factory pool process lifecycle", () => {
     const mismatchController = new AbortController(); const mismatchUpdates: FactoryPoolReadinessUpdate[] = [];
     await expect(runConfiguredFactoryPoolProcess(mismatch.paths.config, mismatchController.signal, dependencies(mismatchDatabase, mismatchController, mismatchUpdates))).rejects.toThrow("schema_unavailable");
 
+    // GPU host profiles load before the listener binds: a missing or invalid declaration keeps the pool degraded by name.
+    const profiles = await fixture(); const profilesPath = join(profiles.paths.database, "..", "gpu-profiles.json");
+    const invalidProfiles = await fixture({ resources: { capacities: { cpu: 4 }, gpuHosts: [], gpuProfilesPath: profilesPath } });
+    await writeFile(profilesPath, JSON.stringify({ schemaVersion: "factory.gpu-host-profiles.v1", hosts: [{ hostId: "gpu-unoffered", tier: "trusted-local", devices: [], cdiDevices: [] }] }), { mode: 0o600 });
+    const profilesController = new AbortController(); const profilesUpdates: FactoryPoolReadinessUpdate[] = [];
+    await expect(runConfiguredFactoryPoolProcess(invalidProfiles.paths.config, profilesController.signal, dependencies(new ProcessDatabase(), profilesController, profilesUpdates))).rejects.toThrow("gpu_profiles_unavailable");
+    expect(profilesUpdates.at(-1)).toMatchObject({ lifecycle: "degraded", errorCode: "gpu_profiles_unavailable", listenerReady: false });
+    await writeFile(profilesPath, JSON.stringify({ schemaVersion: "factory.gpu-host-profiles.v1", hosts: [] }), { mode: 0o600 });
+    const validController = new AbortController(); const validUpdates: FactoryPoolReadinessUpdate[] = [];
+    await runConfiguredFactoryPoolProcess(invalidProfiles.paths.config, validController.signal, dependencies(new ProcessDatabase(), validController, validUpdates));
+    expect(validUpdates.some((update) => update.lifecycle === "ready" && update.listenerReady)).toBe(true);
+
     const listener = await fixture(); const listenerDatabase = new ProcessDatabase(); const listenerController = new AbortController(); const listenerUpdates: FactoryPoolReadinessUpdate[] = [];
     await expect(runConfiguredFactoryPoolProcess(listener.paths.config, listenerController.signal, dependencies(listenerDatabase, listenerController, listenerUpdates, { startError: true }))).rejects.toThrow("listener_unavailable");
 
@@ -186,7 +208,7 @@ describe("factory pool process lifecycle", () => {
     const credentialController = new AbortController(); const credentialUpdates: FactoryPoolReadinessUpdate[] = [];
     await expect(runConfiguredFactoryPoolProcess(badCredential.paths.config, credentialController.signal, dependencies(new ProcessDatabase(), credentialController, credentialUpdates))).rejects.toThrow("configuration_unavailable");
 
-    const wrongPool = await fixture(); const wrongPoolDatabase = new ProcessDatabase(); wrongPoolDatabase.identity = { installation_id: "other", pool_id: "other" };
+    const wrongPool = await fixture(); const wrongPoolDatabase = new ProcessDatabase(); wrongPoolDatabase.identity = { pool_id: "other" };
     const wrongPoolController = new AbortController(); const wrongPoolUpdates: FactoryPoolReadinessUpdate[] = [];
     await expect(runConfiguredFactoryPoolProcess(wrongPool.paths.config, wrongPoolController.signal, dependencies(wrongPoolDatabase, wrongPoolController, wrongPoolUpdates))).rejects.toThrow("database_unavailable");
 
@@ -217,4 +239,24 @@ test("main binds both stop signals, removes them, and marks failures", async () 
   startFactoryPoolMain(["bun", new URL(import.meta.url).pathname, "/private/pool.json"], import.meta.url, { ...main, runConfigured: async () => { throw new Error("failed"); } });
   await Bun.sleep(0);
   expect(failed).toBe(1);
+});
+
+// A pool that cannot start says why. It exited 1 in silence when the graph-proof stack wrote a
+// config key the pool refuses (W16 r5b), so its log was empty. Every error the run raises is a
+// generic message by design; the line carries that message only, never a stack or a cause.
+test("main prints why the pool could not start, by the error's generic message, and exits 1", () => {
+  const lines: string[] = []; const printError = console.error; const exitCode = process.exitCode;
+  console.error = (...values: unknown[]) => { lines.push(values.join(" ")); };
+  try {
+    productionMainDependencies.fail(new Error("factory pool config is unavailable", { cause: new Error("secret cause") }));
+    productionMainDependencies.fail("not an error");
+    expect(process.exitCode).toBe(1);
+  } finally { console.error = printError; process.exitCode = exitCode ?? 0; } // Bun keeps a 1 when handed undefined
+  expect(lines).toEqual(["[factory-pool] failed to start: factory pool config is unavailable", "[factory-pool] failed to start: unknown failure"]);
+});
+
+test("the pool process started on a config it cannot read prints the reason and exits 1", async () => {
+  const child = Bun.spawn([process.execPath, new URL("./process.ts", import.meta.url).pathname, "/nonexistent/w16-pool/pool.json"], { stdout: "pipe", stderr: "pipe" });
+  const [code, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);
+  expect({ code, stderr: stderr.trim() }).toEqual({ code: 1, stderr: "[factory-pool] failed to start: factory pool config is unavailable" });
 });

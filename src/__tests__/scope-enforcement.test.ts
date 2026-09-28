@@ -89,6 +89,12 @@ describe("scope enforcement coverage", () => {
     // limiter, slug shape gate and body-size caps, all before dispatch.
     // Session scopes cannot apply — the caller is an external system.
     "/hooks/[extensionId]/[slug]/+server.ts",
+    // A provisioned installation's bootstrap state (C12 step 7, W16), read by
+    // the operator's control plane from outside through the ingress before any
+    // person exists. It answers only a state and the invitation it concerns
+    // (no person, project or grant), and 404 on an installation that was not
+    // provisioned. Public in the API registry and in the hook's PUBLIC_PATHS.
+    "/installation/bootstrap/status/+server.ts",
   ]);
 
   test("all non-auth API routes contain a scope, role, or auth gate", async () => {

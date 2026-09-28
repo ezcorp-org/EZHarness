@@ -153,13 +153,30 @@ export class FactoryGrants {
     });
   }
 
-  private async mutate(actor: FactoryPrincipal, update: FactoryGrantUpdate, revoke: boolean, idempotencyKey?: string): Promise<FactoryGrantRevision> {
+  /**
+   * `set`, inside the caller's transaction, for a record that must commit or
+   * roll back WITH its grants — the installation's bootstrap consent. Same
+   * validation, same authorization, same transactional audit entry.
+   */
+  async setInTransaction(transaction: MigrationDb, actor: FactoryPrincipal, update: FactoryGrantUpdate): Promise<FactoryGrantRevision> {
     actor = snapshotPrincipal(actor);
     update = snapshotUpdate(update);
+    this.validateMutation(actor, update, false);
+    await this.authorizeMutation(transaction, actor, update, false);
+    return this.applyMutation(transaction, actor, update, false);
+  }
+
+  private validateMutation(actor: FactoryPrincipal, update: FactoryGrantUpdate, revoke: boolean): void {
     this.action(update.action);
     if (!revoke && update.principal.kind === "service" && update.expiresAtMs === null) throw new FactoryGrantError("factory_grant_invalid");
     if (actor.kind !== "user" || actor.authentication !== "session") throw new FactoryGrantError("factory_human_required");
     if (!Number.isSafeInteger(update.expectedRevision) || update.expectedRevision < 0 || (!revoke && update.expiresAtMs !== null && (!Number.isSafeInteger(update.expiresAtMs) || update.expiresAtMs <= this.now()))) throw new FactoryGrantError("factory_grant_invalid");
+  }
+
+  private async mutate(actor: FactoryPrincipal, update: FactoryGrantUpdate, revoke: boolean, idempotencyKey?: string): Promise<FactoryGrantRevision> {
+    actor = snapshotPrincipal(actor);
+    update = snapshotUpdate(update);
+    this.validateMutation(actor, update, revoke);
     if (idempotencyKey === undefined) return this.database.transaction(async transaction => {
       await this.authorizeMutation(transaction, actor, update, revoke);
       return this.applyMutation(transaction, actor, update, revoke);

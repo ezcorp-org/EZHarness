@@ -3133,6 +3133,8 @@ export async function migrate(db: MigrateDb): Promise<void> {
   await addFactoryChildArtifactAliases(db);
   const { up: addFactoryLegacyWorkflowAdapters } = await import("./migrations/add-factory-legacy-workflow-adapters");
   await addFactoryLegacyWorkflowAdapters(db);
+  const { up: addFactoryInstallationBootstrap } = await import("./migrations/add-factory-installation-bootstrap");
+  await addFactoryInstallationBootstrap(db);
   // W02c: the package fence's affected-run record. Depends only on the package
   // trust revisions and the execution journal, both created above.
   const { up: addFactoryPackageFenceRuns } = await import("./migrations/add-factory-package-fence-runs");
