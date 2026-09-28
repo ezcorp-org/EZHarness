@@ -491,6 +491,7 @@
   "src/db/unique-violation.ts": 100,
   "src/db/error-chain.ts": 100,
   "src/db/swappable-bun-sql.ts": 100,
+  "src/shutdown-deadlines.ts": 100,
   "src/idempotency.ts": 100,
   "src/db/session-sync.ts": 100,
   "src/db/queries/conversation-metadata.ts": 100,

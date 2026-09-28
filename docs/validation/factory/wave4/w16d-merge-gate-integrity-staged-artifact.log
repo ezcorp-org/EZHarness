@@ -1,0 +1,4 @@
+Gate integrity FAILED (1 finding(s)):
+  src/__tests__/cov-fix-connection-postgres.test.ts: vacuous test (no assertion) near line 397: test("a nested tx.transaction() (savepoint) handle is normalized too", async () 
+
+If a change here is legitimate, a maintainer must apply the `gate-change-approved` label (sets GATE_CHANGE_APPROVED=1).

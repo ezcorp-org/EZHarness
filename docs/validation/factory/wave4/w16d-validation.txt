@@ -1,0 +1,11 @@
+
+=== VERDICT, W16d at df37f77ef (code head 05f6fdc13), filed by the coordinator on behalf of validator-2 (validator-2's harness cannot write files); text verbatim from validator-2's message of 2026-09-27 ~17:55Z ===
+It ran green: the batch finished at 17:52:50Z (w16d-validation/batch.log). W16d verdict: ACCEPT at df37f77ef (code head 05f6fdc13).
+- Head: wp/w16d-bounded-shutdown = df37f77ef. The only commit over 05f6fdc13 is by archy noreply and changes only tasks/factory/w16d-GATES.md (+6, -1): the G6 tick with hold d3, and the low note on abandoned pools as one line. All 44 commits in 146a94829..05f6fdc13 are archy noreply.
+- Shared .git/config sha256 was 44962525f1ca1a8b before and after.
+- Heavy legs, worktree .worktrees/val-w16d, under the lock, gated before each leg (disk at least 100 GB, 6 GiB available, 2 GiB swap free, all logged):
+  - At 05f6fdc13: typecheck, lint, check-factory-boundaries and gate-integrity (BASE 1a80d3977) exit 0. Boundary suites 48/0. The eight focused files 172/0 (shutdown-deadlines, swappable-bun-sql, cov-fix-connection-postgres, db-connection, background-workers, runtime-workers, runtime-composition, installation-startup). PostgreSQL bun-sql-pool-replacement plus migrate-lock 2/0. Web vitest factory-boot.server plus shutdown.server 33 passed.
+  - At the proof merge onto integ c3da32784, bbd6083de on proof/w16d-integ-c3da32784 (archy noreply; git's clean merge, tree e3df414de): typecheck 0; the coverage producers (focused 172/0, PostgreSQL 2/0, web 33 passed); merge-lcov 0; new-file passes (1 file: src/shutdown-deadlines.ts); patch passes (8 files, every changed line covered) against c3da32784.
+- The tree review from earlier stands: parts A and B are as described, the W09f semantics are intact (recoverFromDriverDesync byte-identical to f4419f241, replacement only through recoverDatabase), and the red-first proofs hold (the worker's four logs, plus validator-2's own replace red).
+- Low note: now recorded in the gate file by the worker.
+- Records: /tmp/factory-platform-evidence/w16d-validation/ (batch.log, results.jsonl, logs/, cov/).
