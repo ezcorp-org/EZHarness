@@ -5260,3 +5260,23 @@ both processes a log line that names it. Two causes remain outside this package:
       died with ERR_STREAM_WRITE_AFTER_END in node:_http_server advanceResponsePipeline in 2 of 4 repeat runs of
       factory-live-console.spec.ts; under the pin 1.3.14 it did not reproduce (66 of 66). Evidence:
       /tmp/factory-platform-evidence/w09e/logs/head/e2e-repeat3.log, e2e-measure-fe2199392-bun142.log, e2e-measure.log.
+
+## W09h — a stop during compute admission settles in place (branch `wp/w09h-admission-stop`)
+
+Gate file `tasks/factory/w09h-GATES.md`; evidence `/tmp/factory-platform-evidence/w09h/`.
+
+- [x] R1 reproduce first: a cancel while a node waits for admission leaves the run `stopping` and the hold `held` (real PostgreSQL, red on `a24a619ad` and `ef0868738`)
+- [x] R2 the stop settles the reserved attempt in place, records the stop on the admission row, kernel `stoppedBefore: "admission"`; the old pin replaced red first — `b109144fa`
+- [x] R3 a late grant is refused `factory_compute_admission_attempt_stopped` and released through the worker's authority-loss cancel — `6350b62b3`
+- [x] R4 the hold settles all zero under "no-operations: nothing launched, all zero" (additive CHECK migration, clause-removed test) — `bbf02876a`, corrected by `5d6d398f9`
+- [x] R5 lock order: both contenders take the run lock before the admission row, both orders on real PostgreSQL — `f70c06fbe`
+- [ ] Legs, coverage gates and the graph-proof runbook at the `wp/w09h-admission-stop` head, after W09e lands in integ and these commits are rebased
+- [ ] W02d follow-up (not in W09h): R8 and R9 move to the shared basis after W09h lands; the queued-host P3/P5 cases rerun
+
+### Review
+
+A run cancelled while a node waited for compute admission never ended: the cancel named the request-admission
+command, the task stop found no queued attempt and refused it stale. W09h settles that attempt in the stop's own
+transaction (no claim, no capacity), records the stop on the admission row, releases the unused hold at zero under a
+true basis, and refuses a late grant by name. The first R4 form charged compute at the reserved bound, a false basis
+for an attempt that never ran; it is corrected, not amended, so the reported SHAs stay valid.
