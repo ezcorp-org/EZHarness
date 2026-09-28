@@ -13,7 +13,6 @@ The configuration file and every referenced file must use an absolute path. Each
 ```json
 {
   "schemaVersion": "factory.pool-process.v1",
-  "installationId": "installation-01",
   "poolId": "local-pool-01",
   "hostname": "127.0.0.1",
   "port": 9443,
@@ -61,12 +60,12 @@ The database credential file has one field:
 {"databaseUrl":"postgresql://ROLE:PASSWORD@HOST:5432/factory_pool"}
 ```
 
-Provision the database and role before process startup. The process checks `current_database()` and `current_user` against the configuration before it creates the additive pool schema. It then binds that database to the exact installation and pool IDs. A later process with different IDs fails closed.
+Provision the database and role before process startup. The process checks `current_database()` and `current_user` against the configuration before it creates the additive pool schema. It then binds that database to the pool ID alone, because one pool serves every installation on its host. A later process with a different pool ID fails closed. A table left in the earlier shape, which also held an installation ID, is upgraded in place and keeps its pool ID.
 
 `resources.capacities` accepts `cpu`, `memory`, and `provider`. GPU capacity comes only from the explicit `gpuHosts` list. A restart can add resources or increase capacity. It cannot remove a durable resource or GPU host. It cannot reduce capacity below live allocations or tenant minima. This rule retains queued work and live allocations during restart.
 
 Each tenant or supervisor key is an allowed client certificate common name. Its signed RS256 token must match the configured subject, issuer, audience, and exact pool scopes. Supervisors can name only GPU hosts in `resources.gpuHosts`.
 
-The readiness file uses schema `factory.pool-readiness.v1`. Consumers must call `readFactoryPoolReadiness` with the expected installation, pool, path, and heartbeat. The reader accepts only a fresh `ready` record whose database, schema, and listener fields are all true. Startup writes `starting`. A runtime probe failure writes `degraded` after the listener stops. `SIGINT` or `SIGTERM` stops the listener, closes PostgreSQL, and writes `stopped`.
+The readiness file uses schema `factory.pool-readiness.v1`. Consumers must call `readFactoryPoolReadiness` with the expected pool ID, path, and heartbeat. The reader accepts only a fresh `ready` record whose database, schema, and listener fields are all true. Startup writes `starting`. A runtime probe failure writes `degraded` after the listener stops. `SIGINT` or `SIGTERM` stops the listener, closes PostgreSQL, and writes `stopped`.
 
 The process writes no configuration or credential values to standard output or standard error. Startup errors contain only a phase code. The service manager should restart on a nonzero exit and should use the readiness reader for traffic admission.
