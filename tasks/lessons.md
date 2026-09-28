@@ -1599,6 +1599,19 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 - A Node service may import only leaf modules from the product. `src/db/queries/*` and anything that
   reaches them (records, auth) pull in `db/connection` and the Bun SQL driver. Put shared constants and
   types in a leaf, and let `check-factory-boundaries.ts` (`NODE_SERVICE_BOUNDARIES`) guard the entry.
+
+## 2026-09-24 — An empty test list turns a targeted run into a root run (W16)
+
+- Under zsh, an unmatched glob such as `--include=*.test.ts` fails the whole command substitution, so
+  `bun test --timeout N $T` received no file and ran every test at the repo root. Build a test list in
+  bash with `mapfile`, quote the pattern, and exit before `bun test` when the list is empty.
+
+## 2026-09-25 — Never pass --no-verify, not even in a scratch worktree (W16)
+
+- A scratch merge was started with `git merge --no-verify`. It stopped on a conflict, so nothing was
+  committed, but the rule is absolute: no `--no-verify` on any git command, in any worktree. If a hook
+  is in the way, the scratch tree is the wrong tool; merge without the flag and resolve, or do the work
+  on the real branch after the ruling that allows it.
 ## 2026-09-24 — W19a graph proof
 
 - Under Bun, `ClientRequest.destroy(error)` emits `close` and never `error`. A promise that waits on
@@ -1633,6 +1646,10 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 - PostgreSQL returns BIGINT as a string and PGlite as a number. Normalize numeric columns in shared conformance suites, or the PostgreSQL leg fails a correct change.
 - In zsh an unquoted `$files` does not word-split; a loop over it runs once with the whole list. Use `${=files}` or a bash script.
 - The pre-commit hook runs real-PostgreSQL suites for staged test helpers; those belong under the heavy lock, so a scratch proof commit skips only the hook's test step and says so.
+- Cite only captures you have read. I named W01h's failed graph-proof pass as a second site of the boot stall from its symptom alone; its web process had exited 2 ms after start with "Module not found build/index.js", so no product code ran. Before calling another run the same defect, read its logs and find the same signature.
+- In zsh, `echo ===` fails ("== not found") and aborts the rest of a `;` chain; `=word` expands to a command path. Quote separators: `echo '---'`.
+- A deadline test must make the probe ignore its signal. A fake that honours the abort passes even with the deadline race removed, because the deadline also aborts the signal.
+- Bun 1.3.14's `jest.useFakeTimers()` can leave the next test file in the same run hanging with no output, even after `useRealTimers()`. Run every test file combination in both orders before trusting a fake-timer test. Prefer an injected short deadline on real timers.
 
 ## 2026-09-24 — W05b reconciliation clearing
 
@@ -1687,6 +1704,10 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 - Report a job's end to the coordinator within ten minutes, red or green, and read the process logs before naming a cause.
 - Before a shared client reads a new field, list every caller and the exact shape each one passes. W01i's host stop client read `request.cancelReference.tenantId`, but W01h's post-result stop calls the same client through `factoryIntentPhysicalStop` with only the physical coordinates. Every unit and transport suite stayed green; only the real factory-services lane found it (2026-09-27).
 - A lock-order claim needs a concurrent test, not a sequential one. W01h's "the launch row lock orders the lost result against the stop" held in `factory-stop-after-loss.test.ts`, which runs the two transactions one after the other, and deadlocked on the proof server under the lane (validator-2, 2026-09-27). Before adding a second lock to a path, list every path that locks both rows and its order, and drive the interleaving on real PostgreSQL with two connections.
+- Build the workspace packages before any suite in a hold, not in the late fast steps. After a merge, a suite that imports a package's built output reads the stale dist and fails for a reason that is not in the code (r4: client-requests.unit.test.ts, 18 tests).
+- A suite that no hold of mine runs is still mine when my routes break it. The scope and route-contract scans had failed on W16's routes since the bootstrap work, and only a merge's hook list ran them.
+- Pin `bunx` with `bun`. `/tmp/factory-tools/bun-1.3.14/bun-linux-x64/` holds only `bun`, so `bunx` fell through to the system Bun 1.4.2 and the web build, preview and tests ran under it; the preview server then crashed (ERR_STREAM_WRITE_AFTER_END) in 2 of 4 repeat runs (W09e, 2026-09-27). Put a `bunx` link to the pinned `bun` first on PATH and log `bunx --version` in every driver.
+- A test world that persists a transition must also project it. W09e's R6 case committed a cancel transition and never applied it, and PGlite's "oldest pending run" projection case failed on that run a commit later.
 
 ## 2026-09-27 — Build JSON in SQL, and let a filter on it fail open (W15f)
 
@@ -1700,3 +1721,18 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
   and the W15f batch ran twice back to back, holding the shared lock twice for nothing.
 
 - Gate the commit on the typecheck's exit, not on its printed code. W02d R5 printed `tc=1` inside a subshell and the `&&` chain still committed; the fix was an amend. Write `timeout 900 bun run typecheck > log || exit 1` before `git commit`.
+
+## 2026-09-28 — A stricter config parser breaks every writer of that config (W16)
+
+- A harness document is a product input; parse it with the product parser in a test.
+- When a change makes a parser refuse a key, find every writer of that schema (`git grep` its schema string) and
+  change them in the same commit. W16 dropped the pool's installationId; the graph-proof stack and the
+  factory-services e2e stack still wrote it, and only a live runbook pass showed it. Pin it with a test that parses
+  each harness document with the parser of the process it starts.
+- A process that fails to start prints why, by its generic message. The pool exited 1 with an empty log, and the
+  cause had to be read from the harness instead.
+- In a hold, keep steps that do not need the image ahead of the image steps. The runbook pass and Kubernetes sat
+  behind the candidates step, so a disk refusal there hid both for two holds.
+- A step that starts the web server from `web/build` needs the web build in the same hold.
+- Write a queue script whole, with its label in one variable. A sed-derived copy kept the old label and would have
+  deleted the previous hold's receipts; the waiter was stopped before it took the lock.

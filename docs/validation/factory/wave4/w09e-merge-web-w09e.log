@@ -1,0 +1,15 @@
+
+ RUN  v5.0.0 /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/web
+      Coverage enabled with v8
+
+
+ Test Files  2 passed (2)
+      Tests  21 passed (21)
+   Start at  09:41:03
+   Duration  13.78s (transform 70%, tests 13%, import 9%, environment 6%, setup 2%)
+
+  Transform  transforming modules took 7.90s · 70% of tracked time, re-done on every run
+             persist transforms across runs with fsModuleCache: true
+             learn more: https://vitest.dev/guide/improving-performance#caching-between-reruns
+
+kept 582 configured Node/V8 product-source records → /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/coverage/w09e-merge/webw09e/lcov.info

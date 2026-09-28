@@ -1,0 +1,61 @@
+/**
+ * The retention and archival every tenant namespace is created with (C06, W15).
+ *
+ * W15 owns the settings: `factoryTemporalNamespaceArguments` in
+ * `src/factory/temporal-retention.ts` returns the arguments for `temporal
+ * operator namespace create`. The provisioner registers namespaces over gRPC,
+ * so `factoryTemporalRegisterRequest` translates exactly those arguments into
+ * the RegisterNamespace request, and an argument it does not recognise is
+ * refused rather than dropped.
+ */
+import { FactoryProvisioningError } from "./steps";
+
+export { FACTORY_TEMPORAL_HISTORY_RETENTION_DAYS, factoryTemporalNamespaceArguments } from "../temporal-retention";
+
+/** Temporal's ArchivalState enum. */
+const ARCHIVAL_ENABLED = 2;
+
+export interface FactoryTemporalRegisterRequest {
+  readonly namespace: string;
+  readonly description: string;
+  readonly workflowExecutionRetentionPeriod: { readonly seconds: number };
+  readonly historyArchivalState: number;
+  readonly historyArchivalUri: string;
+  readonly visibilityArchivalState: number;
+  readonly visibilityArchivalUri: string;
+}
+
+/** The RegisterNamespace request those arguments describe. Every argument must be known and present once. */
+export function factoryTemporalRegisterRequest(args: readonly string[], description: string): FactoryTemporalRegisterRequest {
+  const refuse = (detail: string): never => { throw new FactoryProvisioningError("temporal_namespace_arguments_invalid", `Namespace arguments are not translatable: ${detail}.`); };
+  if (args.length % 2 !== 0) refuse("an option has no value");
+  const values = new Map<string, string>();
+  for (let index = 0; index < args.length; index += 2) {
+    const [flag, value] = [args[index]!, args[index + 1]!];
+    if (!["--namespace", "--retention", "--history-archival-state", "--history-uri", "--visibility-archival-state", "--visibility-uri"].includes(flag)) refuse(`unknown option ${flag}`);
+    if (values.has(flag)) refuse(`${flag} is repeated`);
+    values.set(flag, value);
+  }
+  const retention = /^(\d+)h$/.exec(values.get("--retention") ?? "");
+  if (!retention) refuse("the retention is not whole hours");
+  for (const flag of ["--history-archival-state", "--visibility-archival-state"]) if (values.get(flag) !== "enabled") refuse(`${flag} is not enabled`);
+  const namespace = values.get("--namespace"), history = values.get("--history-uri"), visibility = values.get("--visibility-uri");
+  if (!namespace || !history || !visibility) refuse("the namespace or an archive URI is missing");
+  return Object.freeze({
+    namespace: namespace!, description,
+    workflowExecutionRetentionPeriod: { seconds: Number(retention![1]) * 3_600 },
+    historyArchivalState: ARCHIVAL_ENABLED, historyArchivalUri: history!,
+    visibilityArchivalState: ARCHIVAL_ENABLED, visibilityArchivalUri: visibility!,
+  });
+}
+
+/**
+ * Where a namespace's archive lives. The local platform's Temporal writes a
+ * file-store archive inside its own container (`temporal-archival-local`
+ * readiness row: it does not survive the container). A hosted Temporal names
+ * durable URIs instead.
+ */
+export function factoryTemporalLocalArchiveUris(namespace: string): { readonly history: string; readonly visibility: string } {
+  return Object.freeze({ history: `file:///tmp/factory-temporal-archival/history/${namespace}`, visibility: `file:///tmp/factory-temporal-archival/visibility/${namespace}` });
+}
+

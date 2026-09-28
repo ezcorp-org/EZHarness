@@ -121,6 +121,44 @@ export interface FactoryRunCostResource {
   readonly unknownCostMicros: string;
   readonly admissionBlocked: boolean;
   readonly uncertain: boolean;
+  /**
+   * The cost of each release the run was stopped during (W09e). Release spend stays outside the compute budget
+   * ledger; these lines are its record, and the figures above include them: a held bound in
+   * `unknownCostMicros`, a settled figure in `knownCostMicros`. Absent when no release was stopped.
+   * @maxItems 200
+   */
+  readonly releases?: readonly FactoryRunReleaseCostResource[];
+}
+
+/** Where a stopped release's cost came from, in the usage settlement vocabulary (W03f). */
+export type FactoryReleaseCostSource = "proven-no-effect" | "provider-receipt" | "reserved-bound";
+
+/**
+ * One stopped release's cost. `held`: its effect is not recorded yet, so its reserved bound (its signed
+ * estimated spend) is held as unknown cost under the named hold `operation-cost-unknown`. `settled`: the figure
+ * its recorded effect settled at, with the source and the basis.
+ */
+export type FactoryRunReleaseCostResource = FactoryRunReleaseCostHeld | FactoryRunReleaseCostSettled;
+
+interface FactoryRunReleaseCostLine {
+  /** @minLength 1 @maxLength 512 */
+  readonly operationId: string;
+  /** @minLength 1 @maxLength 512 */
+  readonly nodeInstanceId: string;
+  /** @pattern ^(0|[1-9][0-9]{0,30})$ */
+  readonly costMicros: string;
+}
+
+export interface FactoryRunReleaseCostHeld extends FactoryRunReleaseCostLine {
+  readonly state: "held";
+  readonly hold: "operation-cost-unknown";
+}
+
+export interface FactoryRunReleaseCostSettled extends FactoryRunReleaseCostLine {
+  readonly state: "settled";
+  readonly source: FactoryReleaseCostSource;
+  /** @minLength 1 @maxLength 512 */
+  readonly basis: string;
 }
 
 export interface FactoryArtifactResource {
@@ -176,6 +214,23 @@ export interface FactoryRunReleaseResource {
   readonly dispatchGeneration: number;
   /** @minLength 1 @maxLength 512 */
   readonly outcomeCode?: string;
+  /** The release's own signed deadline: the only timer that bounds its publish and, after a stop, its reconciliation. @minimum 0 @maximum 9007199254740991 */
+  readonly deadlineMs: number;
+  /** Present when the run was stopped while this release was requested (W09e). */
+  readonly stop?: FactoryRunReleaseStopResource;
+}
+
+/**
+ * What a stopped release did at its provider. `uncertain` until the release's outcome is proven: a publish may
+ * have started before the stop. The other three are final: `no_effect` (nothing was published), `published`
+ * (the release was published, though the run stopped) and `unknown_at_deadline` (no answer by the deadline).
+ */
+export type FactoryRunReleaseStopEffect = "no_effect" | "uncertain" | "published" | "unknown_at_deadline";
+
+export interface FactoryRunReleaseStopResource {
+  /** @minimum 0 @maximum 9007199254740991 */
+  readonly requestedAtMs: number;
+  readonly effect: FactoryRunReleaseStopEffect;
 }
 
 /**

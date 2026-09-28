@@ -68,7 +68,7 @@ async function writeReadyRecords(root: string): Promise<void> {
   const path = join(root, "orchestration.json");
   await writeFile(path, JSON.stringify(state), { mode: 0o600 });
   await chmod(path, 0o600);
-  const writer = createFactoryPoolReadinessWriter({ installationId: "installation-01", poolId: "pool-01", readinessFilePath: join(root, "pool.json"), readinessHeartbeatMs: 5_000 });
+  const writer = createFactoryPoolReadinessWriter({ poolId: "pool-01", readinessFilePath: join(root, "pool.json"), readinessHeartbeatMs: 5_000 });
   await writer.write({ lifecycle: "ready", databaseReady: true, schemaReady: true, listenerReady: true });
 }
 

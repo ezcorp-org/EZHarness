@@ -238,7 +238,7 @@ const validatorMaterialDigest = `sha256:${createHash("sha256").update(await read
 // ── Pool admission ────────────────────────────────────────────────────
 const poolPort = freePort();
 const poolConfig = await writePrivate("pool.json", JSON.stringify({
-	schemaVersion: "factory.pool-process.v1", installationId: INSTALLATION, poolId: POOL, hostname: "127.0.0.1", port: poolPort,
+	schemaVersion: "factory.pool-process.v1", poolId: POOL, hostname: "127.0.0.1", port: poolPort,
 	database: { credentialsPath: poolCredentials, expectedDatabase: poolDatabase, expectedRole: decodeURIComponent(poolUrl.username) },
 	tls: serverTls,
 	tokens: { issuer: "factory-services", audience: "factory-pool", publicKeyPaths: { stack: tokenPublicKey } },

@@ -3303,6 +3303,15 @@
       ],
       "type": "object"
     },
+    "FactoryReleaseCostSource": {
+      "description": "Where a stopped release's cost came from, in the usage settlement vocabulary (W03f).",
+      "enum": [
+        "proven-no-effect",
+        "provider-receipt",
+        "reserved-bound"
+      ],
+      "type": "string"
+    },
     "FactoryReleaseDestinationBody": {
       "additionalProperties": false,
       "properties": {
@@ -3980,6 +3989,14 @@
           "pattern": "^(0|[1-9][0-9]{0,30})$",
           "type": "string"
         },
+        "releases": {
+          "description": "The cost of each release the run was stopped during (W09e). Release spend stays outside the compute budget ledger; these lines are its record, and the figures above include them: a held bound in `unknownCostMicros`, a settled figure in `knownCostMicros`. Absent when no release was stopped.",
+          "items": {
+            "$ref": "#/definitions/FactoryRunReleaseCostResource"
+          },
+          "maxItems": 200,
+          "type": "array"
+        },
         "spentMicros": {
           "pattern": "^(0|[1-9][0-9]{0,30})$",
           "type": "string"
@@ -4168,6 +4185,92 @@
       ],
       "type": "object"
     },
+    "FactoryRunReleaseCostHeld": {
+      "additionalProperties": false,
+      "properties": {
+        "costMicros": {
+          "pattern": "^(0|[1-9][0-9]{0,30})$",
+          "type": "string"
+        },
+        "hold": {
+          "const": "operation-cost-unknown",
+          "type": "string"
+        },
+        "nodeInstanceId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "operationId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "state": {
+          "const": "held",
+          "type": "string"
+        }
+      },
+      "required": [
+        "costMicros",
+        "hold",
+        "nodeInstanceId",
+        "operationId",
+        "state"
+      ],
+      "type": "object"
+    },
+    "FactoryRunReleaseCostResource": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/FactoryRunReleaseCostHeld"
+        },
+        {
+          "$ref": "#/definitions/FactoryRunReleaseCostSettled"
+        }
+      ],
+      "description": "One stopped release's cost. `held`: its effect is not recorded yet, so its reserved bound (its signed estimated spend) is held as unknown cost under the named hold `operation-cost-unknown`. `settled`: the figure its recorded effect settled at, with the source and the basis."
+    },
+    "FactoryRunReleaseCostSettled": {
+      "additionalProperties": false,
+      "properties": {
+        "basis": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "costMicros": {
+          "pattern": "^(0|[1-9][0-9]{0,30})$",
+          "type": "string"
+        },
+        "nodeInstanceId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "operationId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/definitions/FactoryReleaseCostSource"
+        },
+        "state": {
+          "const": "settled",
+          "type": "string"
+        }
+      },
+      "required": [
+        "basis",
+        "costMicros",
+        "nodeInstanceId",
+        "operationId",
+        "source",
+        "state"
+      ],
+      "type": "object"
+    },
     "FactoryRunReleaseResource": {
       "additionalProperties": false,
       "properties": {
@@ -4175,6 +4278,12 @@
           "maxLength": 512,
           "minLength": 1,
           "type": "string"
+        },
+        "deadlineMs": {
+          "description": "The release's own signed deadline: the only timer that bounds its publish and, after a stop, its reconciliation.",
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "number"
         },
         "dispatchGeneration": {
           "maximum": 9007199254740991,
@@ -4200,6 +4309,10 @@
           "maxLength": 64,
           "minLength": 1,
           "type": "string"
+        },
+        "stop": {
+          "$ref": "#/definitions/FactoryRunReleaseStopResource",
+          "description": "Present when the run was stopped while this release was requested (W09e)."
         }
       },
       "required": [
@@ -4207,7 +4320,36 @@
         "nodeInstanceId",
         "state",
         "action",
-        "dispatchGeneration"
+        "dispatchGeneration",
+        "deadlineMs"
+      ],
+      "type": "object"
+    },
+    "FactoryRunReleaseStopEffect": {
+      "description": "What a stopped release did at its provider. `uncertain` until the release's outcome is proven: a publish may have started before the stop. The other three are final: `no_effect` (nothing was published), `published` (the release was published, though the run stopped) and `unknown_at_deadline` (no answer by the deadline).",
+      "enum": [
+        "no_effect",
+        "uncertain",
+        "published",
+        "unknown_at_deadline"
+      ],
+      "type": "string"
+    },
+    "FactoryRunReleaseStopResource": {
+      "additionalProperties": false,
+      "properties": {
+        "effect": {
+          "$ref": "#/definitions/FactoryRunReleaseStopEffect"
+        },
+        "requestedAtMs": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "number"
+        }
+      },
+      "required": [
+        "requestedAtMs",
+        "effect"
       ],
       "type": "object"
     },

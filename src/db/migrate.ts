@@ -3133,6 +3133,8 @@ export async function migrate(db: MigrateDb): Promise<void> {
   await addFactoryChildArtifactAliases(db);
   const { up: addFactoryLegacyWorkflowAdapters } = await import("./migrations/add-factory-legacy-workflow-adapters");
   await addFactoryLegacyWorkflowAdapters(db);
+  const { up: addFactoryInstallationBootstrap } = await import("./migrations/add-factory-installation-bootstrap");
+  await addFactoryInstallationBootstrap(db);
   // W02c: the package fence's affected-run record. Depends only on the package
   // trust revisions and the execution journal, both created above.
   const { up: addFactoryPackageFenceRuns } = await import("./migrations/add-factory-package-fence-runs");
@@ -3151,6 +3153,9 @@ export async function migrate(db: MigrateDb): Promise<void> {
   // W15f: a signed restore's proven end for every attempt of the epoch it left.
   const { up: addFactoryAttemptSupersessions } = await import("./migrations/add-factory-attempt-supersessions");
   await addFactoryAttemptSupersessions(db);
+  // W09e: a release's stop and its effect. Depends only on add-factory-releases, registered above.
+  const { up: addFactoryReleaseStop } = await import("./migrations/add-factory-release-stop");
+  await addFactoryReleaseStop(db);
   // Last on purpose: the checkpoint barrier gate attaches to every factory table that exists.
   const { up: addFactoryRecovery } = await import("./migrations/add-factory-recovery");
   await addFactoryRecovery(db);

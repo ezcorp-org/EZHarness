@@ -251,3 +251,57 @@ test("a denied admission ends its attempt: the run fails by name and cancels not
   expect(denied.nextState.nodes.candidate!.attempts.every(attempt => attempt.stopped)).toBe(true);
   expect(denied.nextState.status).toBe("failed");
 });
+
+/** An accepted candidate whose release is in flight: the run's only physical-free external effect (W09e). */
+function releasingRun(runId: string) {
+  const definition = structuredClone(taskFactory().definition);
+  const releaseTemplate = referenceCodeV1.graph.nodes.find(node => node.kind === "release")!;
+  const artifact = { digest: `sha256:${"a".repeat(64)}`, mediaType: "application/json", storage: "immutable" };
+  definition.graph = {
+    nodes: [
+      { id: "accept", kind: "acceptance", contract: referenceCodeV1.acceptance.id, candidate: { kind: "literal", value: artifact }, evidence: { kind: "literal", value: null }, outputPorts: { acceptedCandidate: { type: "object", additionalProperties: true } } },
+      { ...releaseTemplate, id: "release", dependsOn: ["accept"], acceptedCandidate: { kind: "ref", root: "node", name: "accept", path: ["acceptedCandidate"] }, destination: { kind: "literal", value: "destination" } },
+    ],
+    outputs: {},
+  };
+  definition.outputPorts = {};
+  const factory = compiled(definition);
+  const started = advanceKernel(factory, createKernelState(factory, runId, { source: "source" }, 0), { kind: "start", id: "start", atMs: 0 });
+  const acceptance = started.commands.find(command => command.kind === "request-acceptance")!;
+  const releasing = advanceKernel(factory, started.nextState, { kind: "node-result", id: "accepted", atMs: 1, nodeId: "accept", commandId: acceptance.id, candidateGeneration: 0, attempt: 1, output: { acceptedCandidate: artifact } });
+  const release = releasing.commands.find(command => command.kind === "request-release")!;
+  const cancelled = advanceKernel(factory, releasing.nextState, { kind: "cancel", id: "user-cancel", atMs: 2, reason: "user stop" });
+  const cancel = cancelled.commands.find((command): command is Extract<KernelCommand, { kind: "cancel-node" }> => command.kind === "cancel-node")!;
+  return { factory, state: cancelled.nextState, release, cancel };
+}
+
+const releaseStop = (cancel: Extract<KernelCommand, { kind: "cancel-node" }>, values: Record<string, unknown>) =>
+  ({ kind: "attempt-stopped", id: `${cancel.id}:stopped`, atMs: 3, nodeId: cancel.nodeId, commandId: cancel.attemptCommandId, candidateGeneration: cancel.candidateGeneration, attempt: cancel.attempt, ...values }) as never;
+
+// W09e R2: a release's stop is certain (the node stops, the run ends) while its external effect may not be.
+test.each([
+  ["uncertain", "RELEASE_EFFECT_UNCERTAIN"],
+  ["published", "RELEASE_PUBLISHED_BEFORE_STOP"],
+] as const)("a release stopped with its effect %s ends the run and names the effect on the node", (effect, error) => {
+  const { factory, state, cancel } = releasingRun(`release-${effect}`);
+  expect(cancel).toMatchObject({ nodeId: "release" });
+  const ended = advanceKernel(factory, state, releaseStop(cancel, { uncertain: false, effect }));
+  expect(ended.nextState.status).toBe("cancelled");
+  expect(ended.commands).toContainEqual(expect.objectContaining({ kind: "cancel-run" }));
+  expect(ended.nextState.nodes.release).toMatchObject({ status: "cancelled", error });
+  expect(ended.nextState.unresolvedUncertainNodeIds).toEqual([]);
+});
+
+test("a stop effect is refused unless it is a known effect on a release node's certain stop", () => {
+  const { factory, state, cancel } = releasingRun("release-refusals");
+  for (const values of [{ effect: "maybe" }, { uncertain: true, effect: "uncertain" }]) {
+    expect(() => advanceKernel(factory, state, releaseStop(cancel, values))).toThrow("an attempt-stopped effect names a release's external effect and needs a certain stop");
+  }
+  const tasks = taskFactory();
+  const started = start(tasks, "task-effect");
+  const admission = started.commands.find(command => command.kind === "request-admission" && command.nodeId === "hold")!;
+  const admitted = advanceKernel(tasks, started.state, { kind: "admission-result", id: "admitted", atMs: 1, nodeId: "hold", commandId: admission.id, candidateGeneration: 0, granted: true });
+  const dispatch = admitted.commands.find((command): command is Extract<KernelCommand, { kind: "dispatch-node" }> => command.kind === "dispatch-node")!;
+  expect(() => advanceKernel(tasks, admitted.nextState, { kind: "attempt-stopped", id: "task-effect", atMs: 2, nodeId: "hold", commandId: dispatch.id, candidateGeneration: 0, attempt: dispatch.attempt, effect: "uncertain" } as never))
+    .toThrow("an attempt-stopped effect names a release's external effect and needs a certain stop");
+});

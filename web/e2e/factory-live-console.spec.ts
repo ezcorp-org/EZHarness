@@ -41,7 +41,20 @@ function gradientPng(width: number, height: number): Buffer {
 }
 const PNG_GRADIENT = gradientPng(96, 48);
 
-function runSummary(runId: string, status: FactoryRunSummary["status"], factoryId = longFactory): FactoryRunSummary {
+/** A run the user stopped while two of its releases were in flight (W09e). */
+const STOPPED_RUN = "run-stopped-during-release";
+const RELEASE_DEADLINE_MS = 1_900_000_000_000;
+
+function runStatus(runId: string): FactoryRunSummary["status"] {
+	return runId === "run-finished" ? "succeeded" : runId === "run-failed" ? "failed" : runId === STOPPED_RUN ? "cancelled" : "running";
+}
+
+/** The definition each listed run belongs to, the same in the list, the run read and the inspection. */
+function factoryOf(runId: string): string {
+	return ({ "run-finished": "nightly-inventory-refresh", "run-failed": "image-thumbnails", [STOPPED_RUN]: "catalog-publisher" } as Record<string, string>)[runId] ?? longFactory;
+}
+
+function runSummary(runId: string, status: FactoryRunSummary["status"], factoryId = factoryOf(runId)): FactoryRunSummary {
 	return { runId, factoryId, factoryVersion: "2.4.0", definitionDigest: digest("a"), grantRevision: 3, revision: 7, status, createdAtMs: 1_789_000_000_000, updatedAtMs: 1_789_000_100_000 };
 }
 
@@ -75,16 +88,29 @@ function inspection(runId: string, status: FactoryRunSummary["status"]): Factory
 		children: { items: [{ runId: "run-child-inventory-sync-with-a-long-identifier", factoryId: "inventory-sync-child-factory", factoryVersion: "1.3.0", state: "open", status: "running", deadlineMs: 1_900_000_000_000 }] },
 		attempts: { items: attempts(50), nextCursor: "attempts-page-2" },
 		artifacts: { items: ARTIFACTS },
-		blockers: [
+		// A stopped run waits on nothing; its releases say what they did instead.
+		blockers: status === "cancelled" ? [] : [
 			{ kind: "approval", id: "approval-ship", nodeInstanceId: "approve-the-release-candidate", reason: "Waiting for an approval decision", sinceMs: 1 },
 			{ kind: "release", id: "operation-catalog", nodeInstanceId: "publish-catalog", reason: "Release outcome is uncertain and needs reconciliation", sinceMs: 2 },
 		],
-		costs: { limitMicros: "25000000", allocatedMicros: "12500000", spentMicros: "9870000", knownCostMicros: "9870000", unknownCostMicros: "420000", admissionBlocked: false, uncertain: true },
+		costs: status === "cancelled" ? {
+			// Stopped releases: one held at its bound until its effect is known, one charged at the bound, one proven free.
+			limitMicros: "25000000", allocatedMicros: "12500000", spentMicros: "9870000", knownCostMicros: "14070000", unknownCostMicros: "4200000", admissionBlocked: false, uncertain: true,
+			releases: [
+				{ operationId: "operation-catalog-archive", nodeInstanceId: "archive-catalog", state: "settled", costMicros: "0", source: "proven-no-effect", basis: "proven: the provider shows no publication and the sender is stopped" },
+				{ operationId: "operation-catalog-mirror", nodeInstanceId: "mirror-catalog-to-the-secondary-region", state: "settled", costMicros: "4200000", source: "reserved-bound", basis: "bound: the provider reports no spend" },
+				{ operationId: "operation-catalog-publish", nodeInstanceId: "publish-catalog", state: "held", costMicros: "4200000", hold: "operation-cost-unknown" },
+			],
+		} : { limitMicros: "25000000", allocatedMicros: "12500000", spentMicros: "9870000", knownCostMicros: "9870000", unknownCostMicros: "420000", admissionBlocked: false, uncertain: true },
 		acceptance: [
 			{ commandId: "cmd-accept-1", decision: "rejected", candidateDigest: digest("f"), reasons: [{ claimId: "tests-pass", validatorId: "validator.unit-tests", verdict: "FAIL", reasonCode: "TESTS_FAILED" }, { claimId: "coverage-at-least-ninety-percent-of-changed-lines", validatorId: "validator.coverage", verdict: "FAIL", reasonCode: "COVERAGE_BELOW_THRESHOLD" }], groupFailures: [{ groupId: "quality", passes: 1, minimumPasses: 2 }], decidedAtMs: 1 },
 			{ commandId: "cmd-accept-2", decision: "accepted", candidateDigest: digest("9"), reasons: [], groupFailures: [], decidedAtMs: 2 },
 		],
-		releases: [{ operationId: "operation-catalog", nodeInstanceId: "publish-catalog", state: "uncertain", action: "factory.release.publish", dispatchGeneration: 2, outcomeCode: "provider_timeout" }],
+		releases: status === "cancelled" ? [
+			{ operationId: "operation-catalog-publish", nodeInstanceId: "publish-catalog", state: "executing", action: "factory.release.publish", dispatchGeneration: 1, deadlineMs: RELEASE_DEADLINE_MS, stop: { requestedAtMs: 1_789_000_090_000, effect: "uncertain" } },
+			{ operationId: "operation-catalog-mirror", nodeInstanceId: "mirror-catalog-to-the-secondary-region", state: "succeeded", action: "factory.release.publish", dispatchGeneration: 1, deadlineMs: RELEASE_DEADLINE_MS, stop: { requestedAtMs: 1_789_000_090_000, effect: "published" } },
+			{ operationId: "operation-catalog-archive", nodeInstanceId: "archive-catalog", state: "failed", action: "factory.release.publish", dispatchGeneration: 1, outcomeCode: "stopped_no_effect", deadlineMs: RELEASE_DEADLINE_MS, stop: { requestedAtMs: 1_789_000_090_000, effect: "no_effect" } },
+		] : [{ operationId: "operation-catalog", nodeInstanceId: "publish-catalog", state: "uncertain", action: "factory.release.publish", dispatchGeneration: 2, outcomeCode: "provider_timeout", deadlineMs: RELEASE_DEADLINE_MS }],
 	};
 }
 
@@ -111,7 +137,7 @@ async function routeConsole(page: Page, scenario: Scenario = {}) {
 		const json = (value: FactoryApiResponse, status = 200) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(value) });
 		const path = url.pathname;
 		if (path.endsWith("/runs") && method === "GET") {
-			return json(envelope({ kind: "run.page", page: { items: [runSummary("run-live-catalog", "running"), runSummary("run-finished", "succeeded", "nightly-inventory-refresh"), runSummary("run-failed", "failed", "image-thumbnails")] } }));
+			return json(envelope({ kind: "run.page", page: { items: [runSummary("run-live-catalog", "running"), runSummary("run-finished", "succeeded"), runSummary("run-failed", "failed"), runSummary(STOPPED_RUN, "cancelled")] } }));
 		}
 		const runRead = /\/runs\/([^/]+)$/.exec(path);
 		if (runRead && method === "GET") {
@@ -125,15 +151,15 @@ async function routeConsole(page: Page, scenario: Scenario = {}) {
 				const items = search ? attempts(120).filter(item => item.nodeInstanceId.includes(search)) : attempts(50, 50);
 				return json(envelope({ kind: "run.inspection.page", resource: { section: "attempts", page: search ? { items } : { items, nextCursor: url.searchParams.get("cursor") === "attempts-page-2" ? "attempts-page-3" : undefined } } }));
 			}
-			const status = runId === "run-finished" ? "succeeded" : runId === "run-failed" ? "failed" : "running";
-			return json(envelope({ kind: "run.inspection", resource: inspection(runId, status) }));
+			return json(envelope({ kind: "run.inspection", resource: inspection(runId, runStatus(runId)) }));
 		}
-		if (/\/runs\/[^/]+\/events$/.test(path)) {
+		const events = /\/runs\/([^/]+)\/events$/.exec(path);
+		if (events) {
 			if (scenario.revokeStream) {
 				return route.fulfill({ status: 200, contentType: "text/event-stream", body: sse([frame("factory:stream-closed", { reason: "revoked" })]) });
 			}
 			const event = (sequence: number) => frame("factory:run-event", { schemaVersion: "factory.run-event.v1", runId: "run", sequence, eventId: "7".repeat(64), payloadBytes: 188, payload: { kind: "node-completed" } }, `cursor-${sequence}`);
-			return route.fulfill({ status: 200, contentType: "text/event-stream", body: sse([event(42), event(43), frame("factory:run-status", { status: "succeeded", sequence: 43, drained: true }, "cursor-43"), frame("factory:stream-closed", { reason: "drained" })]) });
+			return route.fulfill({ status: 200, contentType: "text/event-stream", body: sse([event(42), event(43), frame("factory:run-status", { status: decodeURIComponent(events[1]!) === STOPPED_RUN ? "cancelled" : "succeeded", sequence: 43, drained: true }, "cursor-43"), frame("factory:stream-closed", { reason: "drained" })]) });
 		}
 		const ticket = /\/runs\/([^/]+)\/artifacts\/([^/]+)\/ticket$/.exec(path);
 		if (ticket) {
@@ -223,6 +249,38 @@ test.describe("factory live console", () => {
 			expect(errors).toEqual([]);
 		});
 	}
+
+	test("a run stopped during its releases shows what each release did and its deadline @evidence", async ({ page, mockApi }, testInfo) => {
+		await mockApi({ projects: [makeProject({ id: projectId, name: "Product Operations" })] });
+		await openRuns(page, "light", 1440);
+		const inspector = page.getByTestId("factory-run-inspector");
+		await inspector.getByRole("button", { name: new RegExp(STOPPED_RUN) }).click();
+		await expect(inspector.getByRole("heading", { level: 2, name: "catalog-publisher" })).toBeVisible();
+		const stops = inspector.getByTestId("factory-release-stop");
+		await expect(stops).toHaveText([
+			"Stopped during publish · effect uncertain · deadline 2030-03-17 17:46 UTC",
+			"Stopped after publish · the release was published · deadline 2030-03-17 17:46 UTC",
+			"Stopped before publish · nothing was published · deadline 2030-03-17 17:46 UTC",
+		]);
+		// The cost of each: settled at zero with its proof, settled at the bound, and held at the bound until known.
+		const costs = inspector.getByTestId("factory-release-cost");
+		await expect(costs).toHaveText([
+			/archive-catalog\s*proven-no-effect · proven: the provider shows no publication and the sender is stopped\s*0\.0000/,
+			/mirror-catalog-to-the-secondary-region\s*reserved-bound · bound: the provider reports no spend\s*4\.2000/,
+			/publish-catalog\s*held at its bound · operation-cost-unknown\s*4\.2000/,
+		]);
+		await expect(costs.last()).toHaveAttribute("data-state", "held");
+		await expect(stops.first()).toHaveAttribute("data-effect", "uncertain");
+		await stops.first().evaluate(element => element.scrollIntoView({ block: "center" }));
+		await captureEvidence(page, testInfo, "factory-run-stopped-release-1440-light");
+		await page.setViewportSize({ width: 390, height: 844 });
+		await expect(stops.last()).toBeVisible();
+		expect(await factoryLayoutOverflow(page)).toEqual([]);
+		await stops.last().evaluate(element => element.scrollIntoView({ block: "center" }));
+		await captureEvidence(page, testInfo, "factory-run-stopped-release-390-light");
+		await costs.first().evaluate(element => element.scrollIntoView({ block: "center" }));
+		await captureEvidence(page, testInfo, "factory-run-stopped-release-costs-390-light");
+	});
 
 	test("filters attempts on the server and walks into a nested run and back", async ({ page, mockApi }) => {
 		await mockApi({ projects: [makeProject({ id: projectId, name: "Product Operations" })] });
