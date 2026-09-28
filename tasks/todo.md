@@ -5249,3 +5249,14 @@ the answer, the product swallowed the error, and the kernel heard nothing until 
 stop was then refused as stale. W01h makes every lost answer a durable, typed failure the kernel acts on, and gives
 both processes a log line that names it. Two causes remain outside this package: the 30 s sealed attempt deadline
 (pool lease, never renewed by the remote runtime), after which C02 refuses any report, and the run-deadline epoch.
+
+## W09e follow-ups (recorded by name, not in W09e)
+
+- [ ] **release spend into the budget ledger**: a ledger entry kind for releases, so a release reserves its signed
+      estimated spend at claim and a stopped one settles through the usage settlement (coordinator ruling, W09e
+      cost). Until then a stopped release's cost lives on its stop outcome (`stop_cost_micros`, `stop_cost_source`,
+      `stop_cost_basis`) and the run inspection adds it to the run's figures.
+- [ ] **Bun 1.4.2 preview-server crash (for the W12e upgrade decision)**: under the system Bun 1.4.2 the vite preview
+      died with ERR_STREAM_WRITE_AFTER_END in node:_http_server advanceResponsePipeline in 2 of 4 repeat runs of
+      factory-live-console.spec.ts; under the pin 1.3.14 it did not reproduce (66 of 66). Evidence:
+      /tmp/factory-platform-evidence/w09e/logs/head/e2e-repeat3.log, e2e-measure-fe2199392-bun142.log, e2e-measure.log.

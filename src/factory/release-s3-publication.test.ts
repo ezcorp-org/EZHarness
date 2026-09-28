@@ -512,10 +512,10 @@ test("the live directory describes the publication it actually holds, and nothin
   const members = [member(world.reader, "a.txt", [text("first")])];
   const operation = claim({ request: request(members) });
 
-  expect(await world.provider.describePublication(operation)).toBeNull();
+  expect(await world.provider.lookupReceipt(operation)).toBeNull();
   const receipt = await world.provider.publish(operation) as FactoryS3ManifestReceipt;
-  expect(canonicalJson(await world.provider.describePublication(operation))).toBe(canonicalJson(receipt));
+  expect(canonicalJson(await world.provider.lookupReceipt(operation))).toBe(canonicalJson(receipt));
   // A store that will not name the manifest's version supports no receipt at all.
   world.store.omitVersions = true;
-  await expect(world.provider.describePublication(operation)).rejects.toMatchObject({ code: "factory_s3_version_missing" });
+  await expect(world.provider.lookupReceipt(operation)).rejects.toMatchObject({ code: "factory_s3_version_missing" });
 });

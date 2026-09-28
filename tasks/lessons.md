@@ -1706,6 +1706,8 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 - A lock-order claim needs a concurrent test, not a sequential one. W01h's "the launch row lock orders the lost result against the stop" held in `factory-stop-after-loss.test.ts`, which runs the two transactions one after the other, and deadlocked on the proof server under the lane (validator-2, 2026-09-27). Before adding a second lock to a path, list every path that locks both rows and its order, and drive the interleaving on real PostgreSQL with two connections.
 - Build the workspace packages before any suite in a hold, not in the late fast steps. After a merge, a suite that imports a package's built output reads the stale dist and fails for a reason that is not in the code (r4: client-requests.unit.test.ts, 18 tests).
 - A suite that no hold of mine runs is still mine when my routes break it. The scope and route-contract scans had failed on W16's routes since the bootstrap work, and only a merge's hook list ran them.
+- Pin `bunx` with `bun`. `/tmp/factory-tools/bun-1.3.14/bun-linux-x64/` holds only `bun`, so `bunx` fell through to the system Bun 1.4.2 and the web build, preview and tests ran under it; the preview server then crashed (ERR_STREAM_WRITE_AFTER_END) in 2 of 4 repeat runs (W09e, 2026-09-27). Put a `bunx` link to the pinned `bun` first on PATH and log `bunx --version` in every driver.
+- A test world that persists a transition must also project it. W09e's R6 case committed a cancel transition and never applied it, and PGlite's "oldest pending run" projection case failed on that run a commit later.
 
 ## 2026-09-27 — Build JSON in SQL, and let a filter on it fail open (W15f)
 
