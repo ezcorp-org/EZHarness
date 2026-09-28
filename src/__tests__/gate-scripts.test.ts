@@ -1602,6 +1602,25 @@ describe("merge-lcov: an entered catch's clause line counts as hit", () => {
       expect(r.da.get(clause)).toBe(r.da.get(body));
     }
   });
+
+  test("real inputs (dc3b64234): a catch whose block holds no DA line keeps 0, whatever runs after its brace", () => {
+    // claude-design tokens.ts 213: `} catch {` over a comment-only body; the next DA, 216, lies past the block's
+    // closing brace and ran. Without the block check the clause took that count, a false credit (validator-5, F2:
+    // four such records in the dc3b64234 inputs, tokens.ts 213 among them).
+    const read = (f: string) => readFileSync(join(FIXTURE_DIR, f), "utf8");
+    const file = "docs/extensions/examples/claude-design/lib/tokens.ts";
+    const { merged, inputs } = mergeLcovFixture(
+      { "cov-shard.lcov": read("tokens.cov-shard.lcov.txt"), "product.lcov": read("tokens.product.lcov.txt") },
+      { [file]: read("tokens.ts.src") },
+    );
+    const r = merged.get(file)!;
+    const plain = inputs.get(file)!;
+    expect(read("tokens.ts.src").split("\n")[212]!.trim()).toBe("} catch {");
+    expect(plain.da.get(213)).toBe(0);
+    expect(r.da.get(216)).toBeGreaterThan(0);
+    expect(r.da.get(213)).toBe(0);
+    expect([...r.da].filter(([line, hits]) => hits !== plain.da.get(line))).toEqual([]);
+  });
 });
 
 // ── check-coverage: wildcard whole-tree dropout ─────────────────────────────
