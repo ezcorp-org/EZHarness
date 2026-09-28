@@ -416,6 +416,21 @@ describe("e2e lane manifest", () => {
     expect(named).toBeGreaterThan(check);
   });
 
+  test("the factory-services lane removes its saved browser session when the run ends", async () => {
+    // The global setup saves the administrator's session (a live cookie) to web/e2e/.factory-services-auth.json
+    // and nothing removed it, so every lane run left a credential file in the checkout (W18c measurement at
+    // 36fcf0fcc: the derived mask test found it). Playwright runs the function a globalSetup returns as the
+    // global teardown; the setup returns one that removes the file it wrote.
+    const setup = await Bun.file(join(REPO_ROOT, "web/e2e/factory-services/global-setup.ts")).text();
+    expect(setup).toMatch(/export default async function globalSetup\(\): Promise<\(\) => Promise<void>>/);
+    const saved = setup.indexOf("await context.storageState({ path: FACTORY_SERVICES_AUTH_PATH });");
+    const teardown = setup.indexOf("return async () => {\n\t\tawait rm(FACTORY_SERVICES_AUTH_PATH, { force: true });\n\t};");
+    expect(saved).toBeGreaterThan(0);
+    expect(teardown).toBeGreaterThan(saved);
+    const config = await Bun.file(join(REPO_ROOT, "web/playwright.factory-services.config.ts")).text();
+    expect(config).not.toContain("globalTeardown");
+  });
+
   test("the factory-services stack leaves no request file behind", async () => {
     // Each journey asks the held stack for work through a request file beside the state file. The stack
     // deleted the future-draft request after serving it but not the restore request, so every lane run left
