@@ -31,6 +31,8 @@ import {
   addedExcludes,
   biomeConfigFileViolations,
   biomeGateWeakenings,
+  COVERAGE_GATE_TOOLS,
+  coverageGateToolViolations,
   deletedOrRenamedTests,
   forbiddenTestAdditions,
   isPathAbsentAtRev,
@@ -2620,6 +2622,82 @@ describe("gate-integrity: biome CONFIG FILE moves (check 10)", () => {
     ].join("\n");
     expect(biomeConfigFileViolations(quiet)).toEqual([]);
   });
+});
+
+// Check 11 (ruling 2026-09-28, validator-5's finding): the lcov merge and the coverage gate checkers decide what
+// coverage counts and how each gate judges it, so an edit to them changes the gate as surely as a lowered
+// threshold. The W18c FN-header and catch-clause credits in merge-lcov.ts passed this gate unseen.
+describe("gate-integrity: coverage gate tools (check 11)", () => {
+  test("the watched set is the merge and every coverage gate checker, and each exists", () => {
+    expect([...COVERAGE_GATE_TOOLS].sort()).toEqual([
+      "scripts/check-coverage.ts",
+      "scripts/check-global-coverage.ts",
+      "scripts/check-new-file-coverage.ts",
+      "scripts/check-patch-coverage.ts",
+      "scripts/check-web-vitest-coverage.ts",
+      "scripts/crap-score.ts",
+      "scripts/merge-browser-route-coverage.sh",
+      "scripts/merge-lcov.ts",
+    ]);
+    for (const tool of COVERAGE_GATE_TOOLS) expect(existsSync(join(import.meta.dir, "..", "..", tool)), tool).toBe(true);
+  });
+
+  test("an edit, a deletion, an addition or a rename of a tool is a finding", () => {
+    const v = coverageGateToolViolations(
+      ["M\tscripts/merge-lcov.ts", "D\tscripts/crap-score.ts", "A\tscripts/check-global-coverage.ts", "R095\tscripts/check-patch-coverage.ts\tscripts/patch.ts", "R100\tscripts/old.ts\tscripts/check-coverage.ts"].join("\n"),
+    );
+    expect(v).toEqual([
+      "coverage gate tool changed (M): scripts/merge-lcov.ts — it decides what coverage counts or how a coverage gate judges it",
+      "coverage gate tool changed (D): scripts/crap-score.ts — it decides what coverage counts or how a coverage gate judges it",
+      "coverage gate tool changed (A): scripts/check-global-coverage.ts — it decides what coverage counts or how a coverage gate judges it",
+      "coverage gate tool changed (R095): scripts/check-patch-coverage.ts — it decides what coverage counts or how a coverage gate judges it",
+      "coverage gate tool changed (R100): scripts/check-coverage.ts — it decides what coverage counts or how a coverage gate judges it",
+    ]);
+  });
+
+  test("other paths, look-alikes and blank rows are silent", () => {
+    const quiet = [
+      "M\tscripts/test-coverage.sh",
+      "M\tweb/scripts/merge-lcov.ts",
+      "M\tscripts/merge-lcov.test.ts",
+      "R100\tsrc/a.ts\tsrc/b.ts",
+      "",
+      "X",
+    ].join("\n");
+    expect(coverageGateToolViolations(quiet)).toEqual([]);
+  });
+
+  test("the real gate: a planted edit in merge-lcov.ts fails, the unchanged tool set passes", () => {
+    const fixtureRoot = mkdtempSync(join(tmpdir(), "gate-integrity-tools-"));
+    try {
+      const { fixture, git, runGate, installLockedParser } = gateIntegrityFixture(fixtureRoot);
+      const repoRoot = join(import.meta.dir, "..", "..");
+      cpSync(join(repoRoot, "scripts/merge-lcov.ts"), join(fixture, "scripts/merge-lcov.ts"));
+      git("add", ".");
+      git("commit", "--quiet", "-m", "base");
+      git("branch", "gate-base");
+      const parserPath = installLockedParser();
+
+      writeFileSync(join(fixture, "README.md"), "unrelated change\n");
+      git("add", "README.md");
+      git("commit", "--quiet", "-m", "unrelated");
+      const clean = runGate(parserPath);
+      expect(clean.exitCode, clean.stderr.toString()).toBe(0);
+      expect(clean.stdout.toString()).toContain("Gate integrity PASSED");
+
+      const mergePath = join(fixture, "scripts/merge-lcov.ts");
+      writeFileSync(mergePath, `${readFileSync(mergePath, "utf8")}\n// planted: credit every zero line\n`);
+      git("add", "scripts/merge-lcov.ts");
+      git("commit", "--quiet", "-m", "planted edit");
+      const planted = runGate(parserPath);
+      expect(planted.exitCode).toBe(1);
+      expect(planted.stderr.toString()).toContain(
+        "coverage gate tool changed (M): scripts/merge-lcov.ts — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label",
+      );
+    } finally {
+      rmSync(fixtureRoot, { recursive: true, force: true });
+    }
+  }, 30_000);
 });
 
 // ── check-boundaries ────────────────────────────────────────────────────────

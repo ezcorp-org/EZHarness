@@ -30,6 +30,12 @@
  *      (biome falls back to its built-in defaults), or a NESTED biome config
  *      added (biome resolves the nearest config, so one can un-lint a whole
  *      subtree without the root diff showing anything).
+ *  11. A coverage GATE TOOL changed — scripts/merge-lcov.ts, the browser
+ *      coverage merge, or a coverage gate checker (per-file, global floor,
+ *      new-file, patch, web vitest, CRAP). They decide what coverage counts
+ *      and how each gate judges it, so any edit, addition, deletion or rename
+ *      is a gate change (validator-5, 2026-09-28: two merge-lcov credits
+ *      passed this check unseen).
  *
  * All checks are DIFF-SCOPED (only what the PR adds is judged) so the 19
  * pre-existing `.skip`s and 365 mock files in the tree don't false-positive.
@@ -1285,6 +1291,32 @@ export function biomeConfigFileViolations(nameStatus: string): string[] {
   return out;
 }
 
+/** Check 11: the scripts that merge coverage or judge it. See the header. */
+export const COVERAGE_GATE_TOOLS = [
+  "scripts/merge-lcov.ts",
+  "scripts/merge-browser-route-coverage.sh",
+  "scripts/check-coverage.ts",
+  "scripts/check-global-coverage.ts",
+  "scripts/check-new-file-coverage.ts",
+  "scripts/check-patch-coverage.ts",
+  "scripts/check-web-vitest-coverage.ts",
+  "scripts/crap-score.ts",
+] as const;
+
+/** Every name-status row that touches a coverage gate tool, on either side of a rename. */
+export function coverageGateToolViolations(nameStatus: string): string[] {
+  const tools = new Set<string>(COVERAGE_GATE_TOOLS);
+  const out: string[] = [];
+  for (const line of nameStatus.split("\n")) {
+    const [status, ...rawPaths] = line.split("\t");
+    const touched = rawPaths.map(unquotePath).filter((path): path is string => path !== undefined && tools.has(path));
+    for (const path of touched) {
+      out.push(`coverage gate tool changed (${status}): ${path} — it decides what coverage counts or how a coverage gate judges it`);
+    }
+  }
+  return out;
+}
+
 // ── git wiring + main() ────────────────────────────────────────────────────
 
 async function gitRun(args: string[]): Promise<{ code: number; out: string; err: string }> {
@@ -1417,6 +1449,11 @@ async function main(): Promise<void> {
 
   // 10. biome CONFIG FILE moves (root deleted/renamed, nested config added).
   for (const v of biomeConfigFileViolations(nameStatus)) {
+    violations.push(`${v} — needs the gate-change-approved label`);
+  }
+
+  // 11. Coverage gate tools (the lcov merge and the gate checkers).
+  for (const v of coverageGateToolViolations(nameStatus)) {
     violations.push(`${v} — needs the gate-change-approved label`);
   }
 
