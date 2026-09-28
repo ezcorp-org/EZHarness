@@ -21,15 +21,24 @@ head with the same patch-ids.
   CHECK: tests/postgres/bun-sql-request-queue.test.ts on real PostgreSQL, once with each Bun, same tree.
   EXPECT: 1.3.14 fails; 1.4.2 passes 3 of 3. EVIDENCE: w12e-2/logs/g1-*.log and commit-and-g1.run.log. RESULT at
   d503d22c8, 2026-09-28 18:37-18:39Z: 1.3.14 exit 1 (0 pass, 2 fail); 1.4.2 exit 0 three times (2 pass, 0 fail).
-- [ ] G2: the preview-server crash seen under 1.4.2 (ERR_STREAM_WRITE_AFTER_END, factory-live-console e2e) is
+- [x] G2: the preview-server crash seen under 1.4.2 (ERR_STREAM_WRITE_AFTER_END, factory-live-console e2e) is
   reproduced end to end at the head and fixed at its root, or refuted with the runs that refute it.
   CHECK: the factory-live-console Playwright lane under 1.4.2 (bun and bunx asserted), repeated.
-  EXPECT: no crash in every run after the fix (or in every run, if refuted). EVIDENCE: w12e-2/logs/g2-*.log
+  EXPECT: no crash in every run after the fix (or in every run, if refuted). EVIDENCE: w12e-2/logs/g2-*.log. RESULT
+  (see "G2" below): red at d503d22c8 (the pipelined client killed the real preview); at 99278bee9 the lane ran
+  66/66 twice with 0 crashes, and the pipelined client got 20/20 answered with the server up
+  (c3-commit-and-g2.run.log, g2-preview-head-guarded.log).
 - [ ] G3: the full runner and the browser set are green under 1.4.2 at the head.
   CHECK: w00/combined-integration.py --repo <worktree> --prefix w12e-scratch --podman --auto-extra-base <base>
   --legs-manifest scripts/combined-runner-legs.json (LOCK_LANE=w15b-fix), plus the browser lanes after
   w18c/heavy/final-browser.sh. EXPECT: every leg green; every red root-caused and fixed red-first here.
   EVIDENCE: w12e-2/runner/, w12e-2/browser/
+  INTERIM (lead ruling 2026-09-28): the scratch runner at db441b977 ended 19:48:01Z with rc 1. 25 legs exited 0;
+  node-coverage exited 97 (zero count), so the runner blocked the coverage merge and gates by design. The cause is
+  not W12e's: at base e92d34d45 the node/orchestrator coverage producer prints no totals to stdout (they go to
+  test-progress.log), and W18c's f77a3c112 fixes the producer. W12e is not changed for it and it is not rerun here.
+  The browser lanes at this head are held by a scheduling veto. The authoritative G3 runs once at the final head,
+  rebased after W02d lands, which includes W18c (w12e-2/logs/g3-runner.run.log).
 - [ ] G4: the coverage defect is re-probed under 1.4.2: the attested line of src/factory/task-stops.ts is still
   uncredited (a function's last statement is credited to the line before), and the attestation's Bun field is
   refreshed. CHECK: the W03g probe under 1.4.2. EXPECT: DA 0 on the attested line with the line proven executed.
