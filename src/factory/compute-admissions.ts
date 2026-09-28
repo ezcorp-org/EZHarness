@@ -21,6 +21,18 @@ const activeStates = ["pending", "queued", "cancelling"] as const;
 type ActiveState = typeof activeStates[number];
 type AdmissionState = ActiveState | "admitted" | "rejected" | "cancelled";
 type AdmissionEvent = Extract<KernelEvent, { kind: "admission-result" }>;
+type AdmissionStopEvent = Extract<KernelEvent, { kind: "attempt-stopped" }>;
+
+/** A stop of the attempt an admission serves, recorded before the attempt was ever admitted (W09h). */
+export interface FactoryComputeAdmissionStop {
+  /** The kernel's cancel-node command. */
+  readonly commandId: string;
+  /** The `request-admission` command the cancel names as its attempt. */
+  readonly attemptCommandId: string;
+  /** The run's cancellation epoch that stop raised. */
+  readonly epoch: number;
+  readonly requestedAtMs: number;
+}
 
 interface AdmissionRow {
   tenant_id: string;
@@ -41,6 +53,8 @@ interface AdmissionRow {
   origin_kind: string;
   origin_json: string | null;
   origin_digest: string | null;
+  stop_command_id: string | null;
+  stop_event_json: string | null;
 }
 interface BudgetReservationRow { readonly state: string; readonly compute_allocation: string | null }
 
@@ -138,6 +152,14 @@ function decodeEvent(row: AdmissionRow): AdmissionEvent {
   catch { throw new FactoryComputeAdmissionError("factory_compute_admission_corrupt"); }
   if (durableInputHash(value) !== row.event_digest || (value as AdmissionEvent).kind !== "admission-result") throw new FactoryComputeAdmissionError("factory_compute_admission_corrupt");
   return value as AdmissionEvent;
+}
+
+function decodeStopEvent(row: AdmissionRow): AdmissionStopEvent {
+  let value: AdmissionStopEvent;
+  try { value = JSON.parse(row.stop_event_json!) as AdmissionStopEvent; }
+  catch { throw new FactoryComputeAdmissionError("factory_compute_admission_corrupt"); }
+  if (value?.kind !== "attempt-stopped" || value.stoppedBefore !== "admission" || value.id !== `${row.stop_command_id}:stopped`) throw new FactoryComputeAdmissionError("factory_compute_admission_corrupt");
+  return value;
 }
 
 function decodeDecision(row: AdmissionRow): PoolDecision {
@@ -268,6 +290,39 @@ export class FactoryComputeAdmissions {
     if (terminal) return terminal;
     const claim = await this.claim(key);
     return claim ? this.process(service, claim, signal) : { status: "busy", reservationId: key.reservationId };
+  }
+
+  /**
+   * Records a stop on the admission of an attempt that was never admitted (W09h), under the admission row lock.
+   *
+   * Returns undefined when this admission is not that attempt's: the cancel names a dispatched attempt, a
+   * validator owns the row, or the pool already answered (`admitted` or `rejected`), so the ordinary task stop
+   * decides it. A repeat of the same cancel returns the event it recorded first; `created` says whether this
+   * call recorded it. Nothing here speaks to the pool: the capacity side is released by this worker's
+   * authority-loss cancel, which a stopped admission always reaches (W03c: no new trust path).
+   */
+  async stopInTransaction(transaction: MigrationDb, key: FactoryComputeAdmissionKey, stop: FactoryComputeAdmissionStop, event: AdmissionStopEvent): Promise<{ readonly event: AdmissionStopEvent; readonly created: boolean } | undefined> {
+    assertFactoryIdentity(key.projectId, key.runId, key.reservationId, stop.commandId, stop.attemptCommandId);
+    if (!Number.isSafeInteger(stop.epoch) || stop.epoch < 1 || !Number.isSafeInteger(stop.requestedAtMs) || stop.requestedAtMs < 0) throw new FactoryComputeAdmissionError("factory_compute_admission_invalid");
+    const row = rowResult(rows<AdmissionRow>(await transaction.execute(sql`SELECT * FROM factory_compute_admissions WHERE tenant_id=${this.tenantId} AND project_id=${key.projectId} AND run_id=${key.runId} AND reservation_id=${key.reservationId} FOR UPDATE`)));
+    if (!row) return undefined;
+    const input = decodeRequest(row, this.tenantId);
+    if (input.origin?.kind === "protected-validator" || input.reference.commandId !== stop.attemptCommandId) return undefined;
+    if (row.stop_command_id !== null) {
+      if (row.stop_command_id !== stop.commandId) throw new FactoryComputeAdmissionError("factory_compute_admission_conflict");
+      return { event: decodeStopEvent(row), created: false };
+    }
+    if (row.state === "admitted" || row.state === "rejected") return undefined;
+    const encoded = canonical(event);
+    await transaction.execute(sql`UPDATE factory_compute_admissions SET stop_command_id=${stop.commandId}, stop_requested_epoch=${stop.epoch}, stop_requested_at_ms=${stop.requestedAtMs}, stop_event_json=${encoded.json}, updated_at=NOW() WHERE tenant_id=${this.tenantId} AND project_id=${key.projectId} AND run_id=${key.runId} AND reservation_id=${key.reservationId}`);
+    return { event: encoded.value, created: true };
+  }
+
+  /** The event a cancel command recorded when it stopped an attempt before admission (W09h), if it did. */
+  async readStopInTransaction(transaction: MigrationDb, key: { readonly projectId: string; readonly runId: string; readonly stopCommandId: string }): Promise<AdmissionStopEvent | undefined> {
+    assertFactoryIdentity(key.projectId, key.runId, key.stopCommandId);
+    const row = rowResult(rows<AdmissionRow>(await transaction.execute(sql`SELECT * FROM factory_compute_admissions WHERE tenant_id=${this.tenantId} AND project_id=${key.projectId} AND run_id=${key.runId} AND stop_command_id=${key.stopCommandId}`)));
+    return row ? decodeStopEvent(row) : undefined;
   }
 
   /** Read an admitted allocation while the caller holds the run authority transaction. */

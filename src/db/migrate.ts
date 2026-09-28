@@ -3156,6 +3156,9 @@ export async function migrate(db: MigrateDb): Promise<void> {
   // W09e: a release's stop and its effect. Depends only on add-factory-releases, registered above.
   const { up: addFactoryReleaseStop } = await import("./migrations/add-factory-release-stop");
   await addFactoryReleaseStop(db);
+  // W09h: a task attempt stopped before compute admission. Depends only on add-factory-compute-admissions, registered above.
+  const { up: addFactoryComputeAdmissionStop } = await import("./migrations/add-factory-compute-admission-stop");
+  await addFactoryComputeAdmissionStop(db);
   // Last on purpose: the checkpoint barrier gate attaches to every factory table that exists.
   const { up: addFactoryRecovery } = await import("./migrations/add-factory-recovery");
   await addFactoryRecovery(db);

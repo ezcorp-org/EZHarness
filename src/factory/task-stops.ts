@@ -8,7 +8,7 @@ import { releaseRows as rows } from "../db/queries/extension-releases";
 import { digestObject } from "../extensions/v4/blobs";
 import { factoryAttemptAuthority, type FactoryAttemptQueue } from "./attempt-queue";
 import type { FactoryBudgets } from "./budgets";
-import type { FactoryCommandAuthority } from "./command-authority";
+import type { FactoryAuthorizedCancellationCommand, FactoryCommandAuthority } from "./command-authority";
 import type { FactoryComputeAdmissions } from "./compute-admissions";
 import type { FactoryAttemptAuthority, FactoryExecutionJournal } from "./executions";
 import type { FactoryInbox } from "./inbox";
@@ -17,6 +17,7 @@ import { lockFactoryScope } from "./locks";
 import type { PoolLeaseStatus } from "./pool/ledger";
 import { assertFactoryIdentity, encodeFactoryPayload } from "./records";
 import { factoryAttemptWorkerId, readFactoryAttemptLaunchFacts, type FactoryAttemptLaunchState, type FactoryPhysicalStopReason, type FactoryPhysicalStopReceipt } from "./runner/attempt-runtime";
+import { factoryTaskReservationId } from "./task-admission";
 import type { FactoryTaskOutcomes, FactoryVerifiedTaskOutcome } from "./task-outcomes";
 import type { TrustedFactoryCommandReference, TrustedFactoryServiceIdentity } from "./trusted-command-gateway";
 import type { FactoryUsageSettlementAuthority, FactoryUsageSettlements, FactoryUsageSettlementScope } from "./usage-settlement";
@@ -317,11 +318,13 @@ export class FactoryTaskStops implements FactoryUsageSettlementAuthority {
   async stop(valueService: TrustedFactoryServiceIdentity, valueReference: TrustedFactoryCommandReference): Promise<FactoryTaskStopReceipt> {
     const service = stopCopy(valueService);
     const reference = stopCopy(valueReference);
-    const prior = await this.database.transaction(transaction => this.readSealed(transaction, service, reference, true));
+    const prior = await this.database.transaction(async transaction => await this.readSealed(transaction, service, reference, true) ?? await this.readStoppedBeforeAdmission(transaction, reference));
+    if (prior && !isSealedStop(prior)) return prior;
     // Only a settled stop is terminal. Durable uncertainty is retryable: the
     // sealed request is reused, so a retry never mints a second stop identity.
     if (prior?.receipt?.state === "stopped") return prior.receipt;
     const accepted = prior ?? await this.accept(service, reference);
+    if (!isSealedStop(accepted)) return accepted;
     try {
       const physical = await this.withDeadline(signal => this.stopper.stop(accepted.request, signal));
       return await this.confirm(service, reference, physical);
@@ -461,14 +464,15 @@ export class FactoryTaskStops implements FactoryUsageSettlementAuthority {
     return Object.freeze({ projectId: row.project_id, runId: row.run_id, interpreterId: row.interpreter_id, reservationId, authority });
   }
 
-  private async accept(service: TrustedFactoryServiceIdentity, reference: TrustedFactoryCommandReference): Promise<SealedStop> {
+  private async accept(service: TrustedFactoryServiceIdentity, reference: TrustedFactoryCommandReference): Promise<SealedStop | FactoryTaskStopReceipt> {
     return this.authority.withCurrentCancellation(service, reference, async (transaction, context) => {
       const attemptReference = Object.freeze({ ...reference, commandId: context.command.attemptCommandId });
       // The queue names the attempt the cancel command fences; the durable
       // execution row is the sealed authority. A stop requires both to agree
       // and never re-authorizes forward dispatch on a cancelling run.
       const delivery = await this.attempts.readInTransaction(transaction, reference.projectId, context.command.attemptCommandId);
-      if (!delivery) throw new FactoryTaskStopError("factory_task_stop_stale");
+      // No queued attempt: the cancel may name an attempt still waiting for compute admission (W09h).
+      if (!delivery) return this.settleBeforeAdmission(transaction, reference, context);
       const queued = factoryAttemptAuthority(delivery.reference);
       const authority = await this.journal.readAuthorityInTransaction(transaction, { tenantId: reference.tenantId, projectId: reference.projectId, runId: reference.logicalRunId, attemptId: queued.attemptId });
       if (!authority || canonicalJson(stopAuthorityFacts(authority)) !== canonicalJson(stopAuthorityFacts(queued))) throw new FactoryTaskStopError("factory_task_stop_stale");
@@ -496,6 +500,35 @@ export class FactoryTaskStops implements FactoryUsageSettlementAuthority {
       if (!saved || saved.request_digest !== requestDigest || saved.request_json !== requestJson) throw new FactoryTaskStopError("factory_task_stop_conflict");
       return { request, liveAuthority, acceptedAtMs: Number(saved.accepted_at_ms) };
     });
+  }
+
+  /**
+   * W09h: stops an attempt that never reached compute admission, in place, in the cancel's own transaction.
+   *
+   * The kernel's cancel-node for a `reserved` node names its `request-admission` command. That attempt was
+   * never queued, never claimed and never held capacity, so there is no process to stop and no host to ask:
+   * the stop is recorded on its admission, carrying the cancellation epoch it raised, and the kernel gets
+   * `attempt-stopped` with `stoppedBefore: "admission"`, so the run reaches its terminal without the pool.
+   * Only the admission row is locked (after the run): a reserved attempt has no stop row and no launch row,
+   * so FACTORY_STOP_LAUNCH_LOCK_ORDER has nothing to order. Anything else is still refused stale.
+   */
+  private async settleBeforeAdmission(transaction: MigrationDb, reference: TrustedFactoryCommandReference, context: FactoryAuthorizedCancellationCommand): Promise<FactoryTaskStopReceipt> {
+    const { command, attempt, state, fence } = context;
+    // The reservation is keyed by the node's last attempt, so only that attempt can be this one.
+    if (state.nodes[command.nodeId]?.attempts.at(-1) !== attempt) throw new FactoryTaskStopError("factory_task_stop_stale");
+    const atMs = this.clock(state.nowMs);
+    const event: StopEvent = Object.freeze({ kind: "attempt-stopped", id: `${reference.commandId}:stopped`, atMs, nodeId: command.nodeId, commandId: attempt.commandId, candidateGeneration: attempt.candidateGeneration, attempt: attempt.attempt, stoppedBefore: "admission" });
+    const key = { projectId: reference.projectId, runId: reference.logicalRunId, reservationId: factoryTaskReservationId(reference, context) };
+    const stopped = await this.compute.stopInTransaction(transaction, key, { commandId: reference.commandId, attemptCommandId: command.attemptCommandId, epoch: fence.cancellationEpoch, requestedAtMs: atMs }, event);
+    if (!stopped) throw new FactoryTaskStopError("factory_task_stop_stale");
+    if (stopped.created) await this.inbox.enqueueInTransaction(transaction, { projectId: reference.projectId, runId: reference.logicalRunId, interpreterId: reference.interpreterId }, stopped.event);
+    return Object.freeze({ state: "stopped" as const, event: Object.freeze(stopped.event) });
+  }
+
+  /** A stop this cancel already settled in place before admission (W09h), answered again without the kernel. */
+  private async readStoppedBeforeAdmission(transaction: MigrationDb, reference: TrustedFactoryCommandReference): Promise<FactoryTaskStopReceipt | undefined> {
+    const event = await this.compute.readStopInTransaction(transaction, { projectId: reference.projectId, runId: reference.logicalRunId, stopCommandId: reference.commandId });
+    return event && Object.freeze({ state: "stopped" as const, event: Object.freeze(event) });
   }
 
   /**
@@ -713,6 +746,11 @@ export class FactoryTaskStops implements FactoryUsageSettlementAuthority {
     try { return await Promise.race([work(controller.signal), timeout]); }
     finally { if (timer) clearTimeout(timer); }
   }
+}
+
+/** A sealed stop still to drive, as opposed to a receipt already final (a stop settled in place, W09h). */
+function isSealedStop(value: SealedStop | FactoryTaskStopReceipt): value is SealedStop {
+  return "request" in value;
 }
 
 /** The one terminal usage a stop may settle: the outcome's, else the durable launch result's. */

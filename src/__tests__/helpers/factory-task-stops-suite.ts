@@ -586,9 +586,11 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
     expect(rows(await fixture.db.execute(sql`SELECT revision FROM factory_usage_settlements WHERE run_id=${attempt.run.runId}`))).toHaveLength(1);
   });
 
-  test("cancelling during admission claims no capacity and leaves no stop to settle", async () => {
+  test("cancelling during admission settles the attempt in place, with no claim and no capacity", async () => {
     // The run is cancelled while the compute request is still queued, so no
     // attempt was ever dispatched and there is nothing physical to stop.
+    // W09h replaced the old pin here ("... leaves no stop to settle"), which
+    // expected `factory_task_stop_stale` and left the run `stopping` for ever.
     const { run, identity, compiled, authority, first, activities, admissionCommandId } = await world.startRun();
     const admissionCommand = { id: admissionCommandId };
     const inbox = new FactoryInbox(fixture.db, tenantId, () => now);
@@ -608,14 +610,19 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
     expect(cancelCommand).toMatchObject({ attemptCommandId: admissionCommand.id });
     await persistTransition(identity, 2, cancelEvent, advanced.nextState, advanced.commands, undefined, activities);
 
-    // The physical stop refuses it: there is no sealed launch, so there is no
-    // holder to fence and nothing to sign. It never fabricates a stop fact.
+    // The stop settles it in place (W09h): no host is asked and no capacity is
+    // released, because none was ever claimed. It fabricates no physical stop:
+    // there is no task stop row and no launch row, and the event names why.
     const stopped = new FactoryTaskStops(fixture.db, authority, admissions, new FactoryExecutionJournal(fixture.db, lifecycle.authorizeAttemptInTransaction), new FactoryTaskOutcomes(fixture.db, authority, admissions, new FactoryExecutionJournal(fixture.db, lifecycle.authorizeAttemptInTransaction), new FactoryAttemptQueue(fixture.db, new FactoryExecutionJournal(fixture.db, lifecycle.authorizeAttemptInTransaction), tenantId, () => now), lifecycle.budgets, inbox, () => now), new FactoryAttemptQueue(fixture.db, new FactoryExecutionJournal(fixture.db, lifecycle.authorizeAttemptInTransaction), tenantId, () => now), lifecycle.budgets, inbox, new FactoryUsageSettlements(fixture.db, tenantId, inbox, () => now), stopper(async () => { throw new Error("an unadmitted attempt has no host to stop"); }), acknowledger({}, () => { throw new Error("an unadmitted attempt never released capacity"); }), [{ hostId, hostKeyId: "stop-host-key-1", publicKey: hostKeys.publicKey }], () => now, 20_000);
-    await expect(stopped.stop(service, { ...identity, commandId: cancelCommand!.id })).rejects.toMatchObject({ code: "factory_task_stop_stale" });
+    const receipt = await stopped.stop(service, { ...identity, commandId: cancelCommand!.id });
+    expect(receipt).toEqual({ state: "stopped", event: { kind: "attempt-stopped", id: `${cancelCommand!.id}:stopped`, atMs: now, nodeId: cancelCommand!.nodeId, commandId: admissionCommand.id, candidateGeneration: cancelCommand!.candidateGeneration, attempt: cancelCommand!.attempt, stoppedBefore: "admission" } });
+    expect((await inboxKinds(run.runId)).filter(kind => kind === "attempt-stopped")).toHaveLength(1);
+    expect(advanceKernel(compiled, advanced.nextState, receipt.event).nextState.status).toBe("cancelled");
+    const stopMarks = rows<{ stop_command_id: string; stop_requested_epoch: number | string }>(await fixture.db.execute(sql`SELECT stop_command_id, stop_requested_epoch FROM factory_compute_admissions WHERE reservation_id=${reserved.reservationId}`));
+    expect(stopMarks.map(mark => ({ stopCommandId: mark.stop_command_id, epoch: Number(mark.stop_requested_epoch) }))).toEqual([{ stopCommandId: cancelCommand!.id, epoch: advanced.nextState.cancellationEpoch }]);
     expect(rows(await fixture.db.execute(sql`SELECT cancel_command_id FROM factory_task_stops WHERE run_id=${run.runId}`))).toEqual([]);
     expect(rows(await fixture.db.execute(sql`SELECT attempt_id FROM factory_attempt_launches WHERE run_id=${run.runId}`))).toEqual([]);
-    // No capacity was ever claimed, and the unused hold is still the admission
-    // path's to release: `factory_budget_reservations` never left `held`.
+    // No capacity was ever claimed: the hold never left `held`.
     expect(await reservationState(reserved.reservationId)).toMatchObject({ state: "held" });
   });
 
