@@ -75,9 +75,9 @@ for f in "${FILES[@]}"; do
   rel="${f#web/}"
   (
     set +e
-    OUTPUT=$( cd "$REPO_ROOT/web" && bun test --timeout 30000 --coverage --coverage-reporter=lcov --coverage-dir="$covdir" "./$rel" 2>&1 )
+    ( cd "$REPO_ROOT/web" && bun test --timeout 30000 --coverage --coverage-reporter=lcov --coverage-dir="$covdir" "./$rel" ) > "$TMPDIR/full_$IDX" 2>&1
     echo "$?" > "$TMPDIR/code_$IDX"
-    echo "$OUTPUT" | tail -3 > "$TMPDIR/out_$IDX"
+    tail -3 "$TMPDIR/full_$IDX" > "$TMPDIR/out_$IDX"
   ) &
   IDX=$((IDX + 1))
   RUNNING=$((RUNNING + 1))
@@ -96,6 +96,10 @@ for ((i = 0; i < ${#FILES[@]}; i++)); do
     FAILED=1
   fi
 done
+
+# Every shard's count, on this script's own stdout (the shards' output is captured above).
+source "$REPO_ROOT/scripts/lib/test-totals.sh"
+print_bun_totals "${#FILES[@]} security suites" "$TMPDIR"/full_*
 
 # Re-root web SF paths: bun (run from web/) emits `SF:src/...`; the gate keys
 # on `web/src/...`. Backend imports appear as `SF:../src/...` and are left

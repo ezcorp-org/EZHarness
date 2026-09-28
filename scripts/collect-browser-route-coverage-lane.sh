@@ -2,6 +2,9 @@
 # Run one existing browser lane against the shared mapped build and save only
 # that lane's worker receipts. CI merges the artifacts after all lanes finish.
 set -euo pipefail
+# The lane's server runs under the `bun` PATH resolves: pin it first (scripts/lib/lane-bun.sh).
+. "$(dirname "${BASH_SOURCE[0]}")/lib/lane-bun.sh"
+lane_bun_pin
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 lane="${1:-}"

@@ -33,6 +33,17 @@ const excludeGlobs = EXCLUDES.map((p) => new Glob(escapeGlob(p)));
 
 const perFile = parseLcov(await Bun.file(LCOV_PATH).text());
 
+/**
+ * Type-only source files compile to no JavaScript, so no producer has an
+ * executable statement to measure. LCOV may keep an SF header with LF:0 when
+ * another source imports their declarations, or have no record at all. This
+ * is structural, not a path exemption: an enum or value export still fails.
+ */
+async function isDeclarationOnlySource(file: string): Promise<boolean> {
+  const source = Bun.file(resolve(REPO_ROOT, file));
+  return file.endsWith(".ts") && (await source.exists()) && isDeclarationOnlyTypeScript(await source.text());
+}
+
 const violations: string[] = [];
 const matchedThresholds = new Set<string>();
 let enforced = 0;
@@ -43,14 +54,7 @@ for (const [file, cov] of perFile) {
   matchedThresholds.add(match.pat);
   enforced++;
   if (cov.totalLines === 0) {
-    // Type-only source files compile to no JavaScript. LCOV may retain an SF
-    // header with LF:0 when another source imports their declarations, but
-    // there is no executable statement for a producer to measure. This is
-    // structural, not a path exemption: an enum or value export still fails.
-    const source = Bun.file(resolve(REPO_ROOT, file));
-    if (file.endsWith(".ts") && await source.exists() && isDeclarationOnlyTypeScript(await source.text())) {
-      continue;
-    }
+    if (await isDeclarationOnlySource(file)) continue;
     violations.push(
       `${file}: 0 measured lines (file in lcov but no DA records) — ` +
         `coverage script doesn't measure this path. Either add coverage ` +
@@ -85,6 +89,7 @@ for (const t of thresholdGlobs) {
   // pattern. Exact-file keys fail-loud here; wildcard keys get the
   // whole-tree-dropout check below instead.
   if (t.pat.includes("*")) continue;
+  if (await isDeclarationOnlySource(t.pat)) continue;
   violations.push(
     `${t.pat}: listed in thresholds but no lcov data — ` +
       `coverage script doesn't measure this path. Either add coverage ` +

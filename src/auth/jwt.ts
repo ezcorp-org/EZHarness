@@ -1,7 +1,7 @@
 import type { AuthUser, JWTPayload } from "./types";
 import { getSetting, upsertSetting } from "../db/queries/settings";
 import { encrypt, decrypt } from "../providers/encryption";
-import { factoryBootConfig } from "../factory/boot";
+import { type FactoryBootConfig, factoryBootConfig } from "../factory/boot";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -43,13 +43,24 @@ async function importKey(secret: string): Promise<CryptoKey> {
   );
 }
 
-async function installationId(secret: string, supplied?: string): Promise<string> {
-  const configured = supplied ?? process.env.EZCORP_INSTALLATION_ID;
+/**
+ * The installation id a token binds to, decided by the boot-frozen factory
+ * policy: a configured id wins; a factory boot without one is refused; a
+ * self-hosted boot without one gets `undefined`, so the caller derives a
+ * local id from its secret.
+ */
+export function configuredInstallationId(
+  boot: Pick<FactoryBootConfig, "enabled">,
+  configured: string | undefined,
+): string | undefined {
   if (configured?.trim()) return configured;
+  if (boot.enabled) throw new Error("Factory JWT requires EZCORP_INSTALLATION_ID.");
+  return undefined;
+}
 
-  if (factoryBootConfig.enabled) {
-    throw new Error("Factory JWT requires EZCORP_INSTALLATION_ID.");
-  }
+async function installationId(secret: string, supplied?: string): Promise<string> {
+  const configured = configuredInstallationId(factoryBootConfig, supplied ?? process.env.EZCORP_INSTALLATION_ID);
+  if (configured) return configured;
 
   // Self-hosted installations may not yet have a provisioned identifier. A
   // one-way value derived from their distinct JWT secret still binds tokens to

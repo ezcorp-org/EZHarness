@@ -24,6 +24,7 @@ import { defineConfig } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { pinnedWebServer } from "./playwright-lane-bun";
 
 // Resolve the project root (the worktree containing `.git`). The
 // webServer must run with cwd = projectRoot so the in-process
@@ -117,7 +118,7 @@ export default defineConfig({
   // Keep zero retries and failure traces: a browser/version change alone does
   // not establish the cause or prove that the intermittent crash is resolved.
   projects: requestedBrowserProjects.map(name => ({ name, use: browserProjects[name as keyof typeof browserProjects] })),
-  webServer: {
+  webServer: pinnedWebServer({
     // Use Vite preview against the production build, identical to the
     // default config — but WITHOUT `PI_SKIP_INIT`, so the DB layer
     // initialises, auth runs end-to-end, and `/api/auth/*` handlers
@@ -208,5 +209,5 @@ export default defineConfig({
       // for a preview to use this invocation's generated PGlite directory.
       BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0",
     },
-  },
+  }),
 });

@@ -105,3 +105,122 @@ describe("factory graph model", () => {
 		expect(diff.contractChanged).toBe(true);
 	});
 });
+
+// Exact values, edge inputs, and the smaller helpers. W18d's Stryker run left
+// 89 mutants alive in model.ts because the suite above checked shapes, not
+// values; each test here pins the value a mutant would change.
+describe("factory graph model: exact values and edges", () => {
+	const digest = "sha256:" + "a".repeat(64);
+	const empty = { nodes: [], outputs: {} };
+
+	test("every new node carries its kind's exact editable defaults", () => {
+		expect(FACTORY_NODE_KINDS.map(kind => newFactoryNode(kind, "n"))).toEqual([
+			{ id: "n", dependsOn: [], kind: "task", runner: { package: "package-name", manifestName: "package-name", version: "1.0.0", digest, export: "run" } },
+			{ id: "n", dependsOn: [], kind: "branch", condition: { kind: "literal", value: true }, then: empty, else: empty },
+			{ id: "n", dependsOn: [], kind: "join", mode: "all", predecessors: [] },
+			{ id: "n", dependsOn: [], kind: "map", collection: { kind: "literal", value: [] }, itemSchema: {}, body: empty, mode: "all", maxItems: 100, maxConcurrency: 4 },
+			{
+				id: "n", dependsOn: [], kind: "loop", initialInput: { kind: "literal", value: null }, carriedSchema: {}, resultSchema: {}, body: empty,
+				until: { kind: "literal", value: false }, nextInput: { kind: "literal", value: null }, maxIterations: 3, maxElapsedMs: 3_600_000, onExhausted: "fail",
+			},
+			{ id: "n", dependsOn: [], kind: "subfactory", factory: { id: "factory-id", version: "1.0.0", digest }, releaseMode: "none", grants: [] },
+			{
+				id: "n", dependsOn: [], kind: "approval", choices: ["approve", "deny"], context: { kind: "literal", value: null }, actorScope: "project-member",
+				expiresInMs: 86_400_000, onDenied: "fail", onExpired: "fail",
+			},
+			{ id: "n", dependsOn: [], kind: "acceptance", contract: "contract-id", candidate: { kind: "literal", value: null }, evidence: { kind: "literal", value: [] } },
+			{
+				id: "n", dependsOn: [], kind: "release", adapter: { package: "release-adapter", manifestName: "release-adapter", version: "1.0.0", digest, export: "release" },
+				acceptedCandidate: { kind: "literal", value: null }, destination: { kind: "literal", value: null },
+			},
+		]);
+		expect(newFactoryNode("task", "a")).not.toBe(newFactoryNode("task", "a"));
+	});
+
+	test("map and loop bodies, and branch arms, are addressed by exact scopes", () => {
+		let source = blankFactory("scopes");
+		for (const node of [newFactoryNode("task", "first"), newFactoryNode("branch", "choose"), newFactoryNode("map", "each"), newFactoryNode("loop", "again")]) {
+			source = addFactoryNode(source, ROOT_GRAPH_SCOPE, node);
+		}
+		expect(projectFactoryGraph(source, ROOT_GRAPH_SCOPE).childGraphs).toEqual([
+			{ label: "choose / then", scope: ["graph", "nodes", 1, "then"] },
+			{ label: "choose / else", scope: ["graph", "nodes", 1, "else"] },
+			{ label: "each / body", scope: ["graph", "nodes", 2, "body"] },
+			{ label: "again / body", scope: ["graph", "nodes", 3, "body"] },
+		]);
+		// A node in the else arm is found only by searching past the empty then arm.
+		source = addFactoryNode(source, ["graph", "nodes", 1, "else"], newFactoryNode("task", "fallback"));
+		source = addFactoryNode(source, ["graph", "nodes", 3, "body"], newFactoryNode("task", "repeat"));
+		expect(findFactoryNodeScope(source, "fallback")).toEqual(["graph", "nodes", 1, "else"]);
+		expect(findFactoryNodeScope(source, "repeat")).toEqual(["graph", "nodes", 3, "body"]);
+		expect(projectFactoryGraph(source, ["graph", "nodes", 1, "else"]).nodes.map(node => node.id)).toEqual(["fallback"]);
+	});
+
+	test("an invalid scope names itself, including an index into a non-array", () => {
+		expect(() => projectFactoryGraph(definition(), ["graph", 0])).toThrow(new Error("Factory graph scope is invalid."));
+		expect(() => projectFactoryGraph(definition(), ["graph", 0, "nodes"])).toThrow(new Error("Factory graph scope is invalid."));
+	});
+
+	test("edges skip dependencies outside the graph and nodes without a dependency list", () => {
+		let source = blankFactory("edges");
+		source = addFactoryNode(source, ROOT_GRAPH_SCOPE, newFactoryNode("task", "a"));
+		source = addFactoryNode(source, ROOT_GRAPH_SCOPE, { ...newFactoryNode("task", "b"), dependsOn: ["a", "elsewhere"] } as FactoryNode);
+		const { dependsOn: _dropped, ...bare } = newFactoryNode("task", "c");
+		source = addFactoryNode(source, ROOT_GRAPH_SCOPE, bare as FactoryNode);
+		const projected = projectFactoryGraph(source, ROOT_GRAPH_SCOPE);
+		expect(projected.edges).toEqual([{ id: "a->b", source: "a", target: "b" }]);
+		expect(projected.nodes.map(node => node.diagnosticCount)).toEqual([0, 0, 0]);
+	});
+
+	test("a node without a dependency list gets no edge, whatever ids its neighbours have", () => {
+		// Node ids are free text, so a fallback list that named any id would invent an edge.
+		let source = blankFactory("free-ids");
+		source = addFactoryNode(source, ROOT_GRAPH_SCOPE, newFactoryNode("task", "Stryker was here"));
+		const { dependsOn: _dropped, ...bare } = newFactoryNode("task", "loner");
+		source = addFactoryNode(source, ROOT_GRAPH_SCOPE, bare as FactoryNode);
+		expect(projectFactoryGraph(source, ROOT_GRAPH_SCOPE).edges).toEqual([]);
+	});
+
+	test("the first node can be replaced, and replacing keeps its position", () => {
+		const replaced = replaceFactoryNode(definition(), ROOT_GRAPH_SCOPE, "collect", newFactoryNode("join", "gather"));
+		expect(replaced.graph.nodes.map(node => [node.id, node.kind])).toEqual([["gather", "join"], ["choose", "branch"]]);
+	});
+
+	test("connecting needs both ends, and adds to a node that has no dependency list", () => {
+		expect(() => connectFactoryNodes(definition(), ROOT_GRAPH_SCOPE, "collect", "missing")).toThrow("not found");
+		let source = blankFactory("connect");
+		source = addFactoryNode(source, ROOT_GRAPH_SCOPE, newFactoryNode("task", "a"));
+		const { dependsOn: _dropped, ...bare } = newFactoryNode("task", "b");
+		source = addFactoryNode(source, ROOT_GRAPH_SCOPE, bare as FactoryNode);
+		const connected = connectFactoryNodes(source, ROOT_GRAPH_SCOPE, "a", "b");
+		expect(readFactoryNode(connected, ROOT_GRAPH_SCOPE, "b")?.dependsOn).toEqual(["a"]);
+	});
+
+	test("disconnecting removes only that edge and ignores a missing node or dependency list", () => {
+		let source = blankFactory("disconnect");
+		for (const id of ["a", "b"]) source = addFactoryNode(source, ROOT_GRAPH_SCOPE, newFactoryNode("task", id));
+		source = addFactoryNode(source, ROOT_GRAPH_SCOPE, { ...newFactoryNode("task", "c"), dependsOn: ["a", "b"] } as FactoryNode);
+		const { dependsOn: _dropped, ...bare } = newFactoryNode("task", "d");
+		source = addFactoryNode(source, ROOT_GRAPH_SCOPE, bare as FactoryNode);
+		expect(readFactoryNode(removeFactoryEdge(source, ROOT_GRAPH_SCOPE, "a", "c"), ROOT_GRAPH_SCOPE, "c")?.dependsOn).toEqual(["b"]);
+		expect(removeFactoryEdge(source, ROOT_GRAPH_SCOPE, "a", "missing")).toBe(source);
+		expect(removeFactoryEdge(source, ROOT_GRAPH_SCOPE, "a", "d")).toBe(source);
+	});
+
+	test("the diff names each changed path in sorted, typed notation", () => {
+		const base = { a: 1, list: [1, 2], nested: { z: 1, y: 2 }, shape: ["x"], swap: { k: 1 }, gone: null } as unknown as FactoryDefinition;
+		const next = { a: 1, list: [1, 3, 4], nested: { y: 3, z: 1 }, shape: "x", swap: "text", gone: { now: true } } as unknown as FactoryDefinition;
+		expect(diffFactoryDefinitions(base, next)).toEqual({
+			paths: ["$.gone", "$.list[1]", "$.list[2]", "$.nested.y", "$.shape", "$.swap"],
+			contractChanged: false,
+		});
+		expect(diffFactoryDefinitions({ a: "text" } as unknown as FactoryDefinition, { a: { b: 1 } } as unknown as FactoryDefinition).paths).toEqual(["$.a"]);
+		expect(diffFactoryDefinitions(1 as unknown as FactoryDefinition, 2 as unknown as FactoryDefinition).paths).toEqual(["$"]);
+	});
+
+	test("replacing the whole acceptance section counts as a contract change; a lookalike key does not", () => {
+		const before = definition();
+		expect(diffFactoryDefinitions(before, { ...before, acceptance: null } as unknown as FactoryDefinition)).toEqual({ paths: ["$.acceptance"], contractChanged: true });
+		expect(diffFactoryDefinitions(before, { ...before, acceptanceNotes: "x" } as unknown as FactoryDefinition)).toEqual({ paths: ["$.acceptanceNotes"], contractChanged: false });
+	});
+});

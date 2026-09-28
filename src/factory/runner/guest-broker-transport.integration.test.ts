@@ -268,7 +268,9 @@ test("the route authenticates the host and the attempt separately, and refuses e
   // The right certificate with no bearer token, or one that does not hold: a
   // foreign key, another subject, no route scope, or expired.
   const otherKey = generateKeyPairSync("rsa", { modulusLength: 2048 }).privateKey;
-  for (const bearer of [undefined, fixture.hostToken({}, otherKey), fixture.hostToken({ sub: "tenant-b" }), fixture.hostToken({ scope: ["factory:orchestrate"] }), fixture.hostToken({ exp: 1 })]) {
+  // Also refused plainly, never as "token_audience_refused": a token naming another audience that does not
+  // verify under it either (a foreign key), and a token whose payload is not JSON at all.
+  for (const bearer of [undefined, fixture.hostToken({}, otherKey), fixture.hostToken({ sub: "tenant-b" }), fixture.hostToken({ scope: ["factory:orchestrate"] }), fixture.hostToken({ exp: 1 }), fixture.hostToken({ aud: "factory-pool" }, otherKey), "not.a-json-payload.token"]) {
     const refused = await call({ method: "POST", body: { attemptToken: token, payload: frame }, token: bearer, headers: { "x-ezcorp-factory-version": "1" } });
     expect(refused.status).toBe(401);
     expect(JSON.parse(refused.body.toString("utf8"))).toEqual({ error: "unauthorized" });
