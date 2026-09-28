@@ -219,7 +219,11 @@ const CREDENTIAL_PATTERNS = [
 
 describe("mask completeness — derived from git, not from memory", () => {
   test("real browser session credentials stay masked even between test runs", async () => {
-    expect(isCovered("/repo/web/e2e/.real-auth.json", allMaskedPaths(await parse("docker-compose.yml")))).toBe(true);
+    const masked = allMaskedPaths(await parse("docker-compose.yml"));
+    expect(isCovered("/repo/web/e2e/.real-auth.json", masked)).toBe(true);
+    // The factory-services lane's Playwright storage state (a live session cookie; W18c measurement at
+    // 36fcf0fcc: left on disk by the lane, it was the one unmasked ignored credential).
+    expect(isCovered("/repo/web/e2e/.factory-services-auth.json", masked)).toBe(true);
   });
   test("every ignored credential path under /repo is masked", async () => {
     // THE POINT OF THIS TEST. Every other assertion in this file compares
