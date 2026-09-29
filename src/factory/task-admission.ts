@@ -34,8 +34,11 @@ export interface FactoryTaskAdmissionReceipt {
   readonly outboxCommandId: string;
 }
 
-/** Admission and dispatch identify the same task attempt without using mutable caller input. */
-export function factoryTaskReservationId(reference: TrustedFactoryCommandReference, context: FactoryAuthorizedCommand): string {
+/**
+ * Admission and dispatch identify the same task attempt without using mutable caller input. It reads only the
+ * command's node and generation and the node's last attempt, so a cancel-node for that attempt names it too (W09h).
+ */
+export function factoryTaskReservationId(reference: TrustedFactoryCommandReference, context: Pick<FactoryAuthorizedCommand, "state"> & { readonly command: { readonly nodeId: string; readonly candidateGeneration: number } }): string {
   const attempt = context.state.nodes[context.command.nodeId]!.attempts.at(-1)!;
   return `factory-reservation:${digestObject({ tenantId: reference.tenantId, projectId: reference.projectId, logicalRunId: reference.logicalRunId, interpreterId: reference.interpreterId, nodeId: context.command.nodeId, candidateGeneration: context.command.candidateGeneration, attempt: attempt.attempt }).slice(7)}`;
 }

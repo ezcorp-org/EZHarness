@@ -24,7 +24,6 @@ async function privateRoot(): Promise<string> {
 function options(root: string, overrides: Partial<FactoryServiceReadinessOptions> = {}): FactoryServiceReadinessOptions {
   return {
     ...factorySupervisorReadinessOptions({
-      installationId: "installation-01",
       hostId: "host-01",
       readinessFilePath: join(root, "supervisor.json"),
       readinessHeartbeatMs: 1_000,
@@ -37,11 +36,13 @@ const ready = { lifecycle: "ready" as const, facts: { hostKeyReady: true, runner
 
 describe("factorySupervisorReadinessOptions", () => {
   test("names the service, its schema, and exactly the facts a supervisor observes", () => {
-    const built = factorySupervisorReadinessOptions({ installationId: "i", hostId: "h", readinessFilePath: "/run/s.json" });
+    const built = factorySupervisorReadinessOptions({ hostId: "h", readinessFilePath: "/run/s.json" });
     expect(built).toMatchObject({ schemaVersion: FACTORY_SUPERVISOR_READINESS_SCHEMA, service: "host-supervisor", instanceId: "h" });
     expect(built.factNames).toEqual([...FACTORY_SUPERVISOR_FACTS]);
     expect(built.readinessHeartbeatMs).toBeUndefined();
-    expect(factorySupervisorReadinessOptions({ installationId: "i", hostId: "h", readinessFilePath: "/run/s.json", readinessHeartbeatMs: 2_000 }).readinessHeartbeatMs).toBe(2_000);
+    // Shared by every installation on the host: the options name no installation.
+    expect("installationId" in built).toBe(false);
+    expect(factorySupervisorReadinessOptions({ hostId: "h", readinessFilePath: "/run/s.json", readinessHeartbeatMs: 2_000 }).readinessHeartbeatMs).toBe(2_000);
   });
 });
 
@@ -120,7 +121,7 @@ describe("readFactoryServiceReadiness", () => {
     const root = await privateRoot();
     const scope = options(root);
     for (const body of ["{not json", "[]", '"text"', JSON.stringify({ schemaVersion: "other" }),
-      JSON.stringify({ ...{ schemaVersion: FACTORY_SUPERVISOR_READINESS_SCHEMA, service: "host-supervisor", installationId: "installation-01", instanceId: "host-01", lifecycle: "ready", observedAtMs: 1, facts: { hostKeyReady: true, runnerReady: true , hostServicesReady: false } }, surprise: 1 })]) {
+      JSON.stringify({ ...{ schemaVersion: FACTORY_SUPERVISOR_READINESS_SCHEMA, service: "host-supervisor", instanceId: "host-01", lifecycle: "ready", observedAtMs: 1, facts: { hostKeyReady: true, runnerReady: true , hostServicesReady: false } }, surprise: 1 })]) {
       await writeFile(scope.readinessFilePath, body, { mode: 0o600 });
       await chmod(scope.readinessFilePath, 0o600);
       await expect(readFactoryServiceReadiness(scope, () => 1)).rejects.toBeInstanceOf(FactoryServiceReadinessError);
@@ -133,7 +134,7 @@ describe("readFactoryServiceReadiness", () => {
     for (const observedAtMs of [-1, 1.5, "1"]) {
       await writeFile(scope.readinessFilePath, JSON.stringify({
         schemaVersion: FACTORY_SUPERVISOR_READINESS_SCHEMA, service: "host-supervisor",
-        installationId: "installation-01", instanceId: "host-01", lifecycle: "ready",
+        instanceId: "host-01", lifecycle: "ready",
         observedAtMs, facts: { hostKeyReady: true, runnerReady: true , hostServicesReady: false },
       }), { mode: 0o600 });
       await chmod(scope.readinessFilePath, 0o600);
@@ -145,5 +146,31 @@ describe("readFactoryServiceReadiness", () => {
     await expect(readFactoryServiceReadiness({
       schemaVersion: "v1", service: "BAD", installationId: "i", instanceId: "h", readinessFilePath: "/run/s.json", factNames: ["ok"],
     })).rejects.toBeInstanceOf(FactoryServiceReadinessError);
+  });
+});
+
+describe("owned and shared services", () => {
+  const owned = (root: string): FactoryServiceReadinessOptions => ({
+    schemaVersion: "factory.owned-readiness.v1", service: "owned-service", installationId: "installation-01",
+    instanceId: "worker-01", readinessFilePath: join(root, "owned.json"), readinessHeartbeatMs: 1_000, factNames: ["ok"],
+  });
+
+  test("an owned service names its installation, and only that installation reads it", async () => {
+    const root = await privateRoot();
+    const published = await createFactoryServiceReadinessWriter(owned(root), () => 5_000).write({ lifecycle: "ready", facts: { ok: true } });
+    expect(published.installationId).toBe("installation-01");
+    expect(await readFactoryServiceReadiness(owned(root), () => 5_000)).toEqual(published);
+    await expect(readFactoryServiceReadiness({ ...owned(root), installationId: "installation-02" }, () => 5_000)).rejects.toBeInstanceOf(FactoryServiceReadinessError);
+    // A reader for a shared service accepts no record that names an installation.
+    const { installationId: _installation, ...shared } = owned(root);
+    await expect(readFactoryServiceReadiness(shared, () => 5_000)).rejects.toBeInstanceOf(FactoryServiceReadinessError);
+  });
+
+  test("a shared service's record names no installation, and an owned reader refuses it", async () => {
+    const root = await privateRoot();
+    const scope = options(root);
+    const published = await createFactoryServiceReadinessWriter(scope, () => 5_000).write(ready);
+    expect("installationId" in published).toBe(false);
+    await expect(readFactoryServiceReadiness({ ...scope, installationId: "installation-01" }, () => 5_000)).rejects.toBeInstanceOf(FactoryServiceReadinessError);
   });
 });

@@ -35,6 +35,7 @@
  * `docs/extensions/examples/** -> src/**`) are a separate change.
  */
 import { resolve, dirname, relative } from "node:path";
+import { currentRepositoryGitContext } from "@ezcorp/sdk/git";
 
 export const REPO_ROOT = resolve(import.meta.dir, "..");
 
@@ -221,7 +222,11 @@ export function formatViolations(violations: readonly Violation[]): string {
 const SOURCE_RE = /\.(?:ts|tsx|js|mjs|cjs|svelte)$/;
 
 async function main(): Promise<void> {
-  const proc = Bun.spawnSync(["git", "ls-files"], { cwd: REPO_ROOT, stdout: "pipe" });
+  // Item C2 (W18 hygiene): this walks the CURRENT checkout's tracked files
+  // as invoked, not some other named repository, so it keeps the invoking
+  // git context (currentRepositoryGitContext(), never withoutGitContext() --
+  // stripping here would be wrong, not merely unneeded).
+  const proc = Bun.spawnSync(["git", "ls-files"], { cwd: REPO_ROOT, stdout: "pipe", env: currentRepositoryGitContext(process.env) });
   const files = proc.stdout.toString().split("\n").filter((f) => SOURCE_RE.test(f));
   // A glob that matched nothing would make this gate silently vacuous.
   if (files.length < 100) {

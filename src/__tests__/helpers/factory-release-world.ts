@@ -41,10 +41,51 @@ export class FactoryRememberingProvider implements FactoryReleaseProvider {
     this.receipts.set(claim.operationId, receipt);
     return receipt;
   }
+  async lookupReceipt(operation: FactoryReleaseOperation): Promise<FactoryProviderReceipt | null> { return this.receipts.get(operation.operationId) ?? null; }
   async verifyReceipt(operation: FactoryReleaseOperation, receipt: FactoryProviderReceipt): Promise<boolean> {
     return canonicalJson(this.receipts.get(operation.operationId) ?? null) === canonicalJson(receipt);
   }
   async proveNoEffect(operation: FactoryReleaseOperation): Promise<boolean> { return !this.receipts.has(operation.operationId); }
+}
+
+/** How a gated publish ends: published; published with its response lost; or failed before any write. */
+export type FactoryGatedPublishAnswer = "published" | "lost" | "failed";
+
+/**
+ * A remembering provider whose publish waits until the test answers it, so a test can act while a publish is
+ * in flight (W09e). `started` resolves when a publish is called; `lookedUp` lists the operation of each status
+ * question, and the questions fail while `lookupFails` is set.
+ */
+export class FactoryGatedProvider extends FactoryRememberingProvider {
+  readonly lookedUp: string[] = [];
+  lookupFails = false;
+  /** When set, the provider's receipt carries this spend. */
+  spendMicros?: number;
+  readonly started: Promise<void>;
+  #start!: () => void;
+  #answer!: (answer: FactoryGatedPublishAnswer) => void;
+  readonly #answered: Promise<FactoryGatedPublishAnswer>;
+  constructor() {
+    super();
+    this.started = new Promise(resolve => { this.#start = resolve; });
+    this.#answered = new Promise(resolve => { this.#answer = resolve; });
+  }
+  answer(answer: FactoryGatedPublishAnswer): void { this.#answer(answer); }
+  override async publish(claim: FactoryReleaseClaim): Promise<FactoryProviderReceipt> {
+    this.#start();
+    const answer = await this.#answered;
+    if (answer === "failed") { this.calls += 1; throw new Error("provider refused before any write"); }
+    const published = await super.publish(claim);
+    const receipt = this.spendMicros === undefined ? published : { ...published, spendMicros: this.spendMicros };
+    this.receipts.set(claim.operationId, receipt);
+    if (answer === "lost") throw new Error("provider response lost after the write");
+    return receipt;
+  }
+  override async lookupReceipt(operation: FactoryReleaseOperation): Promise<FactoryProviderReceipt | null> {
+    this.lookedUp.push(operation.operationId);
+    if (this.lookupFails) throw new Error("provider status unavailable");
+    return super.lookupReceipt(operation);
+  }
 }
 
 /** One accepted run: its decision and the two ways to drive a release of it. */
@@ -55,6 +96,8 @@ export interface FactoryReleaseRun {
   release(suffix: string): Promise<FactoryReleaseOperation>;
   /** Prepares and claims, leaving the operation executing with its dispatch in flight. */
   claimOnly(suffix: string): Promise<FactoryReleaseClaim>;
+  /** Prepares and approves, leaving the operation pending with its consent in place and nothing claimed. */
+  approveOnly(suffix: string): Promise<{ readonly operationId: string; readonly approvalId: string }>;
 }
 
 export interface FactoryReleaseWorld {
@@ -126,7 +169,7 @@ export async function createFactoryReleaseWorld(options: FactoryReleaseWorldOpti
       const decisionId = (await assurance.accept({ ...candidate(runId), contractId, revision: 1 })).decisionId;
       decisions.set(runId, decisionId);
       const request = (suffix: string): FactoryReleaseRequest => ({ ...candidate(runId), decisionId, candidateDigest: digest("c"), action: "publish", destination: { provider: "fixture", account: "account-a", object: `releases/${runId}/${suffix}` }, request: { body: suffix }, estimatedSpendMicros: 5, deadlineMs: now() + 5_000_000 });
-      const claimOnly = async (suffix: string): Promise<FactoryReleaseClaim> => {
+      const approveOnly = async (suffix: string) => {
         const input = request(suffix);
         const preparation = await releases.resolvePreparation({
           projectId, runId, nodeInstanceId: input.nodeInstanceId, candidateGeneration: input.candidateGeneration, decisionId, candidateDigest: input.candidateDigest,
@@ -135,9 +178,13 @@ export async function createFactoryReleaseWorld(options: FactoryReleaseWorldOpti
         const prepared = await releases.prepare(admin, preparation, key("prepare"));
         const approval = await assurance.requestApproval(admin, { projectId, operationId: prepared.operationId, decisionId, destinationDigest: prepared.destinationDigest, expectedGeneration: prepared.dispatchGeneration + 1, expiresAtMs: now() + 1_000_000 }, key("approval"));
         await assurance.decideApproval(admin, projectId, approval.approvalId, approval.contextDigest, true, key("decision"));
-        return releases.claim(admin, projectId, prepared.operationId, { kind: "approval", approvalId: approval.approvalId });
+        return { operationId: prepared.operationId, approvalId: approval.approvalId };
       };
-      return Object.freeze({ runId, decisionId, claimOnly, async release(suffix: string) { return releases.dispatch(await claimOnly(suffix), provider); } });
+      const claimOnly = async (suffix: string): Promise<FactoryReleaseClaim> => {
+        const { operationId, approvalId } = await approveOnly(suffix);
+        return releases.claim(admin, projectId, operationId, { kind: "approval", approvalId });
+      };
+      return Object.freeze({ runId, decisionId, claimOnly, approveOnly, async release(suffix: string) { return releases.dispatch(await claimOnly(suffix), provider); } });
     },
   });
 }

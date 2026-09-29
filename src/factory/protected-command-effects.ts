@@ -484,6 +484,17 @@ export class FactoryProtectedCommandEffects {
     return undefined;
   }
 
+  /**
+   * The release operation a `request-release` command prepared, or undefined when it prepared none (the
+   * effect never ran, or it was an acceptance-only release). W09e: a release's stop finds its operation
+   * through the command's own verified receipt, never by guessing from the node.
+   */
+  async releaseOperationIdInTransaction(transaction: MigrationDb, reference: TrustedFactoryCommandReference): Promise<string | undefined> {
+    if (reference.tenantId !== this.tenantId) throw new FactoryProtectedCommandEffectError("factory_protected_effect_scope");
+    const receipt = await this.readReceipt(transaction, reference, "request-release");
+    return receipt && !isAcceptanceOnlyReceipt(receipt) ? (receipt as ReleaseReceipt).operationId : undefined;
+  }
+
   private capture(serviceValue: TrustedFactoryServiceIdentity, referenceValue: TrustedFactoryCommandReference): { service: TrustedFactoryServiceIdentity; reference: TrustedFactoryCommandReference } {
     const captured = snapshot({ service: serviceValue, reference: referenceValue });
     this.authority.assertService(captured.service);

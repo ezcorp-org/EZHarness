@@ -72,6 +72,29 @@ test("S3 response loss exposes uncertainty and an exact live lookup proves effec
   expect(await provider.proveNoEffect(absent, { operationId: "foreign", reason: "operator lookup" })).toBe(false);
 });
 
+test("S3 status lookup by the operation's own key rebuilds a lost receipt, reads absence as null, and refuses a foreign object", async () => {
+  const client = new FactoryMemoryS3Store();
+  const provider = new S3FactoryReleaseProvider({ endpoint: "http://127.0.0.1", bucket: "ordinary", account: "tenant-a", credentials: { accessKeyId: "ordinary-id", secretAccessKey: "ordinary-secret" }, client });
+  const lost = claim({ destination: { provider: "s3", account: "tenant-a", object: "lost-lookup.txt" } });
+  client.losePutResponse = true;
+  await expect(provider.publish(lost)).rejects.toThrow("response lost");
+  client.losePutResponse = false;
+  const controller = new AbortController();
+  const found = await provider.lookupReceipt(lost, controller.signal);
+  expect(found).toMatchObject({ provider: "s3", object: "lost-lookup.txt", operationId: lost.operationId, version: "version-1" });
+  expect(client.lastAbortSignal).toBe(controller.signal);
+  expect(await provider.verifyReceipt(lost, found!, {})).toBe(true);
+  expect(await provider.lookupReceipt(claim({ destination: { provider: "s3", account: "tenant-a", object: "never-written.txt" } }))).toBeNull();
+  // Another write at the key is not this operation's publication, so its outcome stays unknown.
+  await client.send(new PutObjectCommand({ Bucket: "ordinary", Key: "foreign-lookup.txt", Body: new TextEncoder().encode("someone else's bytes") }));
+  await expect(provider.lookupReceipt(claim({ destination: { provider: "s3", account: "tenant-a", object: "foreign-lookup.txt" } }))).rejects.toMatchObject({ code: "factory_s3_receipt_corrupt" });
+  client.omitVersions = true;
+  await expect(provider.lookupReceipt(lost)).rejects.toMatchObject({ code: "factory_s3_receipt_missing" });
+  client.omitVersions = false;
+  client.failHeadWith = { name: "ServiceUnavailable", $metadata: { httpStatusCode: 503 } };
+  await expect(provider.lookupReceipt(lost)).rejects.toMatchObject({ name: "ServiceUnavailable" });
+});
+
 
 test("S3 reconciliation verifies a provider receipt against exact version bytes without another write", async () => {
   const client = new FactoryMemoryS3Store();

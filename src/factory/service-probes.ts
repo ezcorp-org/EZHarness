@@ -201,8 +201,8 @@ export function factoryOrchestrationProbes(identity: FactoryProbeIdentity): read
 
 export function factoryPoolProbe(identity: FactoryProbeIdentity): FactoryServiceProbe {
   return probeOf("pool-admission", async () => {
+    // The pool is shared by every installation on its host: match the pool this installation names.
     await readFactoryPoolReadiness({
-      installationId: identity.installationId,
       poolId: identity.poolId,
       readinessFilePath: identity.poolReadinessFilePath,
       ...(identity.readinessHeartbeatMs === undefined ? {} : { readinessHeartbeatMs: identity.readinessHeartbeatMs }),
@@ -245,8 +245,8 @@ export function factorySupervisorProbe(target: FactorySupervisorProbeTarget): Fa
  */
 export function factorySupervisorReadinessProbe(identity: FactoryProbeIdentity): FactoryServiceProbe {
   return probeOf("host-supervisor", async () => {
+    // The supervisor is shared by every installation on its host: match the host this installation names.
     await readFactoryServiceReadiness(factorySupervisorReadinessOptions({
-      installationId: identity.installationId,
       hostId: identity.hostId,
       readinessFilePath: identity.supervisorReadinessFilePath,
       ...(identity.readinessHeartbeatMs === undefined ? {} : { readinessHeartbeatMs: identity.readinessHeartbeatMs }),

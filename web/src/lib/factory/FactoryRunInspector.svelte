@@ -3,7 +3,7 @@
 	import { onDestroy, tick } from "svelte";
 	import type { FactoryArtifactResource, FactoryAttemptResource, FactoryChildRunResource, FactoryRunEvent, FactoryRunInspection, FactoryRunStatus, FactoryRunSummary } from "@ezcorp/factory-sdk/types";
 	import { FactoryApiClient, FactoryApiClientError, type FactoryRunControlApi, type FactoryRunInspectorApi } from "./client";
-	import { FACTORY_STREAM_LABELS, appendUnique, formatBytes, formatMicros, horizontalRevealOffset, shortDigest, streamSummary } from "./run-format";
+	import { FACTORY_STREAM_LABELS, appendUnique, formatBytes, formatMicros, horizontalRevealOffset, releaseCostNote, releaseStopSummary, shortDigest, streamSummary } from "./run-format";
 	import { FactoryRunStream, type FactoryRunStreamStatus } from "./run-stream";
 	import FactoryArtifactPreview from "./FactoryArtifactPreview.svelte";
 	import FactoryRunControls from "./FactoryRunControls.svelte";
@@ -310,6 +310,16 @@
 							{#if inspection.costs.uncertain}Some provider usage is not settled yet.{:else}All reported usage is settled.{/if}
 							{#if inspection.costs.admissionBlocked} New work is held by the budget.{/if}
 						</p>
+						{#if inspection.costs.releases?.length}
+							<ul class="release-costs" aria-label="Stopped release costs">
+								{#each inspection.costs.releases as line (line.operationId)}
+									<li data-state={line.state} data-testid="factory-release-cost">
+										<span class="release-cost-copy"><strong title={line.operationId}>{line.nodeInstanceId}</strong><span class="release-cost-note">{releaseCostNote(line)}</span></span>
+										<span class="release-cost-figure">{formatMicros(line.costMicros)}</span>
+									</li>
+								{/each}
+							</ul>
+						{/if}
 					</section>
 
 					<section class="card" aria-labelledby="acceptance-title">
@@ -355,9 +365,10 @@
 						{#if inspection.releases.length === 0}<p class="empty-copy">No release requested.</p>{/if}
 						<ul class="rows">
 							{#each inspection.releases as release (release.operationId)}
+								{@const stopLine = releaseStopSummary(release)}
 								<li>
 									<span class="chip" data-status={release.state === "succeeded" ? "succeeded" : release.state === "failed" ? "failed" : release.state === "uncertain" ? "uncertain" : "waiting"}>{release.state}</span>
-									<span class="row-copy"><strong>{release.action}</strong><small>{release.nodeInstanceId} · generation {release.dispatchGeneration}{release.outcomeCode ? ` · ${release.outcomeCode}` : ""}</small></span>
+									<span class="row-copy"><strong>{release.action}</strong><small>{release.nodeInstanceId} · generation {release.dispatchGeneration}{release.outcomeCode ? ` · ${release.outcomeCode}` : ""}</small>{#if stopLine}<span class="release-stop" data-effect={release.stop?.effect} data-testid="factory-release-stop">{stopLine.effect} · deadline <span class="deadline">{stopLine.deadline}</span></span>{/if}</span>
 									{#if release.state === "uncertain"}<button class="button-secondary" onclick={onOpenInbox}>Reconcile</button>{/if}
 								</li>
 							{/each}
@@ -470,6 +481,11 @@
 	.run-row.active { box-shadow: inset 3px 0 var(--color-accent); }
 	.run-copy, .row-copy { display: grid; min-width: 0; }
 	.run-copy strong, .row-copy strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+	.release-stop { color: var(--color-text-muted); font-size: 11px; line-height: 1.35; }
+	.release-stop .deadline { white-space: nowrap; }
+	/* Small text: the warning hue mixed toward the theme's text colour, so it stays readable in both themes. */
+	.release-stop[data-effect="uncertain"], .release-stop[data-effect="unknown_at_deadline"] { color: color-mix(in srgb, var(--color-amber-500) 65%, var(--color-text-primary)); }
+	.release-stop[data-effect="published"] { color: var(--color-text-primary); }
 	.run-copy small, .row-copy small { overflow: hidden; color: var(--color-text-muted); font-family: var(--font-mono); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 	.status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--color-text-muted); }
 	.status-dot[data-status="running"], .status-dot[data-status="waiting"] { background: var(--color-accent); }
@@ -541,6 +557,13 @@
 	.figures dt { color: var(--color-text-muted); font-size: 10px; letter-spacing: .06em; text-transform: uppercase; }
 	.figures dd { margin: 2px 0 0; overflow: hidden; font-family: var(--font-mono); font-size: 15px; font-weight: 700; text-overflow: ellipsis; }
 	.figures dd.warn { color: var(--color-amber-500); }
+	.release-costs { display: grid; gap: 8px; margin: 12px 0 0; padding: 10px 0 0; border-top: 1px solid var(--color-border); list-style: none; }
+	.release-costs li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 10px; }
+	.release-cost-copy { display: grid; min-width: 0; }
+	.release-cost-copy strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+	.release-cost-note { color: var(--color-text-muted); font-size: 11px; line-height: 1.35; }
+	.release-cost-figure { font-family: var(--font-mono); font-size: 12px; font-weight: 700; }
+	.release-costs li[data-state="held"] .release-cost-figure { color: color-mix(in srgb, var(--color-amber-500) 65%, var(--color-text-primary)); }
 	.card-note { margin: 10px 0 0; color: var(--color-text-secondary); font-size: 11px; }
 	.decision { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
 	.contract { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; margin: 12px 0 0; border-top: 1px solid var(--color-border); padding-top: 10px; font-size: 11px; }

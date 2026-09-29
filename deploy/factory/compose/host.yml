@@ -1,0 +1,42 @@
+# The fleet host's shared pool on the self-hosted Compose profile (rootless Podman).
+#
+# One per fleet (coordinator ruling 2026-09-22): every installation of the fleet
+# is admitted to this pool and to the one host supervisor, which C05 places
+# outside every container as a host systemd unit. Rendered by the provisioner
+# (`host.ts`) from `compose.env`, which holds references only. The pool mounts
+# its own delivery (host server certificate, the trust bundle of every admitted
+# installation's authority, its database URL, its config) and its own readiness
+# directory, which each installation's harness mounts read-only.
+name: ${EZCORP_FACTORY_PROJECT:?rendered by the provisioner}
+
+services:
+  pool:
+    userns_mode: keep-id
+    user: "${EZCORP_FACTORY_UID:?}:${EZCORP_FACTORY_GID:?}"
+    read_only: true
+    tmpfs: ["/tmp:rw,noexec,nosuid,nodev,size=64m"]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    restart: unless-stopped
+    stop_grace_period: 20s
+    labels:
+      ezcorp.factory.fleet: ${EZCORP_FACTORY_FLEET:?}
+      ezcorp.factory.host: pool
+      ezcorp.factory.revision: ${EZCORP_FACTORY_REVISION:?}
+    image: ${EZCORP_FACTORY_POOL_IMAGE:?}
+    network_mode: ${EZCORP_FACTORY_POOL_NETWORK:?}
+    ports: ["127.0.0.1:${EZCORP_FACTORY_POOL_PORT:?}:${EZCORP_FACTORY_POOL_PORT:?}"]
+    command: ["bun", "src/factory/pool/process.ts", "/run/ezcorp/secrets/pool.json"]
+    env_file: ["${EZCORP_FACTORY_POOL_ENV:?}"]
+    volumes:
+      - { type: bind, source: "${EZCORP_FACTORY_DELIVER_POOL:?}", target: /run/ezcorp/secrets, read_only: true, bind: { create_host_path: false } }
+      - { type: bind, source: "${EZCORP_FACTORY_READINESS_POOL:?}", target: /run/ezcorp/readiness/pool, bind: { create_host_path: false } }
+    healthcheck:
+      test: ["CMD", "bun", "src/factory/provisioning/readiness-check.ts", "/run/ezcorp/readiness/pool/pool.json"]
+      interval: 3s
+      timeout: 5s
+      retries: 40
+      start_period: 5s
+    mem_limit: 512m
+    cpus: 1.0
+    pids_limit: 256

@@ -1,0 +1,8 @@
+W18c cross-check review, run 2 at dbb2c71d2 (integrator-3, 2026-09-28T22:42:02Z):
+- new side reproduces merged-final.lcov: yes
+- lcov differences: catch-clause=51 fn-header=17 OTHER=0; the 58 not in W18c's documented lists are ACCEPTED by the lead's ruling
+  (the binding rule is the shape: a bare catch clause or an FN header at 0 takes its body's first count, and 0 OTHER; W18c's
+  documented lists were the lines its own inputs exposed, not an exhaustive set). Same file:line set as run 1.
+- gate-integrity base leg: new tooling adds exactly findings 2-4 (merge-lcov.ts, check-coverage.ts, check-new-file-coverage.ts)
+  over R097; origin/main leg: old PASS, new = W18c's 3 + the 4 inherited (attributed). Both as ruled.
+- new-file and patch verdicts: same under old and new tooling (both PASSED at run 2).

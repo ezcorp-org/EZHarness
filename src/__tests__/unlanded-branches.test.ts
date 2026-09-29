@@ -23,7 +23,7 @@
  * so this file needs no coverage-thresholds key — same as
  * src/__tests__/e2e-lanes.test.ts for scripts/e2e-lane-args.ts.
  */
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 // Synchronous fixture setup runs at module top level, so the file writes must
 // be synchronous too — `Bun.write` returns a promise and `git add` would race it.
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -514,5 +514,68 @@ describe("real git — squash-immunity and the known-good split", () => {
     expect(r.exitCode).toBe(EXIT_UNUSABLE);
     expect(r.stderr).toContain("unknown flag");
     expect(r.stderr).toContain("usage: bun run branches:unlanded");
+  });
+});
+
+// ── realGit – poisoned-env guard-with-control (item C, W18 hygiene GC5) ──
+//
+// realGit()'s internal `run()` used to spawn `Bun.spawnSync(["git",
+// ...args], { cwd })` with NO `env` key at all — Bun's default "inherit"
+// behavior for an omitted `env` reads the process's OWN environ block as it
+// was at startup, not a live view of `process.env` (confirmed: mutating
+// `process.env.GIT_DIR` in-process after startup does NOT reach a child
+// spawned with `env` omitted — only an explicit `{...process.env}` spread
+// re-reads it). So the real threat — a git hook that already set GIT_DIR
+// before this CLI's own bun process started — has to be simulated as a
+// REAL child process launched with a poisoned environment from the start,
+// not by mutating this test's own `process.env`. This mirrors the existing
+// convention in `dev-image-provenance.test.ts` / `podman-compose-wrapper.test.ts`.
+//
+// The control: FOREIGN_REPO is a real, different repository where
+// INTEGRATION's SHA does not even exist — so an unguarded realGit() would
+// report "does not resolve" instead of the real verdict, and this test
+// would fail without the fix.
+describe("unlanded-branches CLI — ambient GIT_DIR poisoning is neutralized", () => {
+  const scriptPath = join(import.meta.dir, "..", "..", "scripts", "unlanded-branches.ts");
+  let foreignRepo: string;
+  let foreignGitDir: string;
+
+  beforeAll(() => {
+    foreignRepo = mkdtempSync(join(tmpdir(), "unlanded-branches-foreign-"));
+    const env = { ...scratchGitEnv(join(foreignRepo, ".git-scratch-home")), GIT_AUTHOR_NAME: "f", GIT_AUTHOR_EMAIL: "f@example.invalid", GIT_COMMITTER_NAME: "f", GIT_COMMITTER_EMAIL: "f@example.invalid" };
+    const git = (...args: string[]) => Bun.spawnSync(["git", ...args], { cwd: foreignRepo, env });
+    git("init", "-q", "-b", "main");
+    writeFileSync(join(foreignRepo, "unrelated.txt"), "nothing to do with REPO\n");
+    git("add", "-A");
+    git("commit", "--no-verify", "-q", "-m", "unrelated foreign commit");
+    foreignGitDir = join(foreignRepo, ".git");
+  });
+
+  afterAll(() => {
+    rmSync(foreignRepo, { recursive: true, force: true });
+  });
+
+  test("the CLI, run in REPO, ignores a GIT_DIR poisoned from process startup toward a foreign repo", () => {
+    const proc = Bun.spawnSync(
+      [process.execPath, scriptPath, INTEGRATION, "--pattern=feat/*"],
+      {
+        cwd: REPO,
+        env: {
+          ...process.env,
+          GIT_DIR: foreignGitDir,
+          GIT_WORK_TREE: foreignRepo,
+          GIT_INDEX_FILE: join(foreignGitDir, "index"),
+        },
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    );
+    const stdout = proc.stdout.toString();
+    const stderr = proc.stderr.toString();
+    expect(stderr).not.toContain("does not resolve");
+    expect(proc.exitCode).toBe(EXIT_UNLANDED);
+    expect(stderr).toContain("examined=4 branch(es)");
+    expect(stderr).toContain("flagged=1");
+    expect(stdout).toContain("feat/dropped — 1 unlanded commit(s)");
   });
 });

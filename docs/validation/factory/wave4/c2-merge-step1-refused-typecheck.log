@@ -1,0 +1,23 @@
+$ bash scripts/typecheck.sh
+→ Typechecking backend (src/)...
+
+→ Typechecking web (SvelteKit)...
+../src/extensions/git.ts(6,35): error TS2307: Cannot find module '@ezcorp/sdk/git' or its corresponding type declarations.
+
+→ Typechecking backend-tests (0 ratcheted file(s) excluded)...
+→ Typechecking web-e2e (0 ratcheted file(s) excluded)...
+✓ tests-typecheck passed (backend tests + web/e2e).
+
+→ Typechecking the locked Python distribution (mypy --strict)...
+Resolved 14 packages in 0.68ms
+Checked 13 packages in 0.12ms
+Resolved 7 packages in 0.59ms
+Checked 6 packages in 0.06ms
+→ mypy --strict (locked src/factory/runner/python)
+Success: no issues found in 21 source files
+→ mypy --strict (locked src/factory/reference-image/python)
+Success: no issues found in 16 source files
+✓ Python typecheck passed (2 locked project(s): src/factory/runner/python src/factory/reference-image/python; interpreter 3.13.12)
+
+✗ Web typecheck failed.
+error: script "typecheck" exited with code 1

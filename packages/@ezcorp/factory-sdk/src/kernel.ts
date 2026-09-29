@@ -21,6 +21,12 @@ function partitionFor(factory: KernelFactoryPlan, partitionId: string) {
   return factory.partitions.find((candidate) => candidate.id === partitionId);
 }
 
+/** The external effects a release node's certain stop may name (W09e), and the node error each records. */
+export const FACTORY_ATTEMPT_STOP_EFFECTS = Object.freeze({ uncertain: "RELEASE_EFFECT_UNCERTAIN", published: "RELEASE_PUBLISHED_BEFORE_STOP" } as const);
+
+/** The node error a task attempt stopped before compute admission records (W09h): it never held capacity or ran. */
+export const FACTORY_ATTEMPT_STOPPED_BEFORE_ADMISSION = "STOPPED_BEFORE_ADMISSION" as const;
+
 export class FactoryKernelError extends Error {
   constructor(message: string) {
     super(message);
@@ -489,6 +495,14 @@ function remainingRepairs(node: Extract<FactoryNode, { kind: "acceptance" }>, ca
 function applyStopped(factory: KernelFactoryPlan, state: KernelState, event: Extract<KernelEvent, { kind: "attempt-stopped" }>, commands: KernelCommand[]): KernelState {
   const runtime = state.nodes[event.nodeId];
   const node = nodeFor(factory, event.nodeId);
+  // A named effect is only ever a release's, and only on a certain stop: an uncertain stop still waits.
+  if (event.effect !== undefined && (!Object.hasOwn(FACTORY_ATTEMPT_STOP_EFFECTS, event.effect) || event.uncertain === true || (node !== undefined && node.kind !== "release"))) {
+    throw new FactoryKernelError("an attempt-stopped effect names a release's external effect and needs a certain stop");
+  }
+  // Stopped before admission is only ever a task's, only on a certain stop, and never beside a release effect.
+  if (event.stoppedBefore !== undefined && (event.stoppedBefore !== "admission" || event.uncertain === true || event.effect !== undefined || (node !== undefined && node.kind !== "task"))) {
+    throw new FactoryKernelError("an attempt-stopped before admission names a task's certain stop and no effect");
+  }
   if (!runtime || !node || runtime.candidateGeneration !== event.candidateGeneration) return state;
   const attempt = runtime.attempts.find((candidate) => candidate.commandId === event.commandId && candidate.attempt === event.attempt);
   if (!attempt || (attempt.stopped && (!attempt.uncertain || event.uncertain !== false))) return state;
@@ -500,7 +514,14 @@ function applyStopped(factory: KernelFactoryPlan, state: KernelState, event: Ext
   }
   next = { ...next, unresolvedUncertainNodeIds: next.unresolvedUncertainNodeIds.filter(id => id !== event.nodeId || attempts.some(candidate => candidate.uncertain)) };
   if (runtime.discarded || state.status === "stopping") {
-    next = withNode(next, event.nodeId, { ...next.nodes[event.nodeId]!, status: runtime.failureHandled && runtime.error ? "failed" : runtime.discarded || state.stopKind === "cancelled" ? "cancelled" : "failed", timer: undefined });
+    next = withNode(next, event.nodeId, {
+      ...next.nodes[event.nodeId]!,
+      status: runtime.failureHandled && runtime.error ? "failed" : runtime.discarded || state.stopKind === "cancelled" ? "cancelled" : "failed",
+      timer: undefined,
+      // The stop is certain; the release's external effect is named on the node so a status never hides it.
+      ...(event.effect === undefined ? {} : { error: FACTORY_ATTEMPT_STOP_EFFECTS[event.effect] }),
+      ...(event.stoppedBefore === undefined ? {} : { error: FACTORY_ATTEMPT_STOPPED_BEFORE_ADMISSION }),
+    });
     if (state.status !== "stopping") next = activateReady(factory, next, commands, successorsFor(factory, event.nodeId));
     return progressContainingScopes(factory, next, event.nodeId, commands);
   }

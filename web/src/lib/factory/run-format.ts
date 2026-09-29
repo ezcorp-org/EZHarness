@@ -1,4 +1,5 @@
 /** Plain-language formatting for the run inspector. Pure, so it is tested directly. */
+import type { FactoryRunReleaseCostResource, FactoryRunReleaseResource, FactoryRunReleaseStopEffect } from "@ezcorp/factory-sdk/types";
 import type { FactoryRunStreamStatus, FactoryStreamState } from "./run-stream";
 
 /** Plain words for every stream state; none of them claims a status it has not seen. */
@@ -20,6 +21,36 @@ export function streamSummary(status: FactoryRunStreamStatus): string {
 	if (status.gaps > 0) parts.push(`${status.gaps} gap${status.gaps === 1 ? "" : "s"} recovered`);
 	if (status.reconnects > 0) parts.push(`${status.reconnects} reconnect${status.reconnects === 1 ? "" : "s"}`);
 	return parts.join(" · ");
+}
+
+/** What a stopped release did at its provider, in plain words: a stopped run never hides a publish. */
+export const FACTORY_RELEASE_STOP_LABELS: Readonly<Record<FactoryRunReleaseStopEffect, string>> = {
+	no_effect: "Stopped before publish · nothing was published",
+	uncertain: "Stopped during publish · effect uncertain",
+	published: "Stopped after publish · the release was published",
+	unknown_at_deadline: "Stopped during publish · no answer by the deadline, effect unknown",
+};
+
+/** An instant in UTC to the minute, the same for every viewer. */
+export function formatInstant(ms: number): string {
+	return `${new Date(ms).toISOString().slice(0, 16).replace("T", " ")} UTC`;
+}
+
+/**
+ * The stop line of a release in two parts, the effect and the deadline, so a narrow view never breaks inside
+ * the date; undefined when its run was not stopped during it.
+ */
+export function releaseStopSummary(release: Pick<FactoryRunReleaseResource, "stop" | "deadlineMs">): { readonly effect: string; readonly deadline: string } | undefined {
+	if (!release.stop) return undefined;
+	return { effect: FACTORY_RELEASE_STOP_LABELS[release.stop.effect], deadline: formatInstant(release.deadlineMs) };
+}
+
+/**
+ * What a stopped release's cost line says beside its figure: a held bound names its hold; a settled figure
+ * names its source and basis, so the reader sees how it was decided.
+ */
+export function releaseCostNote(line: FactoryRunReleaseCostResource): string {
+	return line.state === "held" ? `held at its bound · ${line.hold}` : `${line.source} · ${line.basis}`;
 }
 
 export function formatMicros(value: string): string {

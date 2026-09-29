@@ -18,6 +18,10 @@ import {
 } from "../../scripts/factory-graph-proof/diagnostics";
 import { graphReferences, graphRunnerProfiles, modePin } from "../../scripts/factory-graph-proof/graph";
 import { orchestratorDocument, poolDatabaseDocument, poolDocument, startupDocument, supervisorDocument, wrapsDocument, type StackLayout } from "../../scripts/factory-graph-proof/stack-documents";
+import { parseFactoryOrchestratorProcessConfig } from "./orchestration-process";
+import { parseFactoryPoolProcessConfig } from "./pool/process";
+import { parseFactorySupervisorProcessConfig } from "./runner/supervisor-process";
+import { parseFactoryStartupConfig } from "./startup-config";
 
 /**
  * What a graph-proof pass leaves behind, proved on real files.
@@ -148,6 +152,27 @@ describe("every JSON document the stack writes under secrets/", () => {
         const leaves = jsonStringLeaves(JSON.parse(JSON.stringify(document)));
         expect(leaves.length).toBeGreaterThan(0);
         for (const leaf of leaves) expect({ file, at: leaf.at, secret: leaf.secret }).toEqual({ file, at: leaf.at, secret: SECRET_KEYS.has(leaf.key ?? "") });
+      }
+    }
+  });
+
+  /**
+   * Each process document is accepted by the parser of the process it starts.
+   * W16 dropped the pool's installationId (one pool serves many installations)
+   * while the stack still wrote it, so the pool refused its config and the
+   * runbook pass never became ready; only a live pass showed it.
+   */
+  test("has each process document accepted by the parser of the process it starts", () => {
+    const parsers = {
+      "pool.json": parseFactoryPoolProcessConfig,
+      "supervisor.json": parseFactorySupervisorProcessConfig,
+      "orchestrator.json": parseFactoryOrchestratorProcessConfig,
+      "factory-startup.json": parseFactoryStartupConfig,
+    } as const;
+    for (const mode of ["mock", "ollama", "none"] as const) {
+      const files = documents(mode);
+      for (const [file, parse] of Object.entries(parsers)) {
+        expect({ mode, file, accepted: (() => { try { parse(JSON.parse(JSON.stringify(files[file]))); return true; } catch (error) { return String(error); } })() }).toEqual({ mode, file, accepted: true });
       }
     }
   });

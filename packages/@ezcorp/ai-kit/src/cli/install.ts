@@ -5,6 +5,7 @@
 
 import * as nodePath from "node:path";
 import * as nodeFs from "node:fs";
+import { withoutGitContext } from "@ezcorp/sdk/git";
 
 export type InstallTarget = "claude-code" | "cursor" | "zed" | "windsurf" | "ezcorp";
 
@@ -126,12 +127,17 @@ async function copySkills(destBase: string, dryRun: boolean): Promise<void> {
  * The git repository enclosing `startDir`, as git itself reports it. Asking
  * git (rather than probing for any `.git` entry) ignores a stray empty `.git`
  * directory above the project, such as one left in a shared `/tmp`. The
- * caller's `GIT_*` variables are dropped so git discovers from `startDir`
- * even when this runs inside a git hook, which exports `GIT_DIR`. The CLI
- * runs outside EZCorp, so it cannot rely on the SDK's walk.
+ * caller's `GIT_*` variables are dropped (via `@ezcorp/sdk/git`'s
+ * `withoutGitContext` — the ai-kit package already lists `@ezcorp/sdk` as a
+ * peer dependency; this reuses that one canonical definition rather than a
+ * second hand-rolled copy of the same filter, item C2, W18 hygiene) so git
+ * discovers from `startDir` even when this runs inside a git hook, which
+ * exports `GIT_DIR`. The CLI runs outside EZCorp, so it cannot rely on the
+ * SDK's walk — that is a separate function (`findProjectRoot`), not this
+ * env-isolation rule.
  */
 function gitProjectRoot(startDir: string): string | null {
-  const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith("GIT_")));
+  const env = withoutGitContext(process.env);
   const git = Bun.spawnSync(["git", "rev-parse", "--show-toplevel"], { cwd: nodePath.resolve(startDir), env, stdout: "pipe", stderr: "ignore" });
   return git.exitCode === 0 ? git.stdout.toString().trim() : null;
 }

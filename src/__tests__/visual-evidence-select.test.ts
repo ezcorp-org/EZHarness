@@ -17,6 +17,7 @@ import { copyFileSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { CoversMap } from "../../scripts/check-visual-evidence.ts";
+import { currentRepositoryGitContext as visualEvidenceGitContext } from "../../scripts/check-visual-evidence.ts";
 import { scratchGitEnv } from "./helpers/scratch-git";
 import {
   escapeSpecPathForPlaywright,
@@ -199,6 +200,26 @@ describe("select-specs: evidenceTaggedSubset", () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+});
+
+// item C2 (W18 hygiene), validator-3 M3: check-visual-evidence.ts cannot
+// import @ezcorp/sdk/git's currentRepositoryGitContext() (its own
+// runScenario() below copies the script into a bare, node_modules-free
+// fixture, where that workspace import cannot resolve), so it carries a
+// LOCAL, identically-named copy instead. Pin that the copy really is the
+// identity function the SDK's own is, checked for reference equality —
+// the repo-wide git-spawn guard only checks that SOME function named
+// currentRepositoryGitContext is called, never what it does, so a drifted
+// local copy would defeat the whole class-B contract silently.
+describe("check-visual-evidence: currentRepositoryGitContext (local copy)", () => {
+  test("returns env unchanged, GIT_* included", () => {
+    const env = { PATH: "/usr/bin", GIT_DIR: "/tmp/x/.git", GIT_INDEX_FILE: "/tmp/x/.git/index", HOME: "/home/x" };
+    expect(visualEvidenceGitContext(env)).toBe(env);
+  });
+
+  test("defaults to process.env when called with no argument", () => {
+    expect(visualEvidenceGitContext()).toBe(process.env);
   });
 });
 

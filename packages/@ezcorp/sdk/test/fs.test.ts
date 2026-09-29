@@ -18,6 +18,7 @@ import {
   saveJSON,
 } from "../src/runtime/fs";
 import { markGitRepository, outsideAnyGitRepository } from "../src/test/filesystem";
+import { withToolContext } from "../src/runtime/tool-context";
 
 // ── Temp-dir scaffolding ───────────────────────────────────────────
 
@@ -114,6 +115,16 @@ describe("getExtensionDataDir", () => {
   test("creates the dir if missing", () => {
     const dir = getExtensionDataDir("auto-note", { projectRoot: workDir });
     expect(existsSync(dir)).toBe(true);
+  });
+
+  test("inside an invocation, the extension's own namespace is the mounted /data, and another one is refused", async () => {
+    const invocation = { invocationId: "call", workerId: "worker", releaseId: "release", principalId: "user", scopeId: "scope", token: "t", deadline: Date.now() + 1000 };
+    await withToolContext({ invocation, extensionName: "notes" } as never, () => {
+      expect(getExtensionDataDir("notes", { projectRoot: workDir })).toBe("/data");
+      expect(() => getExtensionDataDir("other", { projectRoot: workDir })).toThrow("Extension data namespace does not match the active invocation");
+    });
+    // Nothing was created on the host for either name.
+    expect(existsSync(join(workDir, ".ezcorp", "extension-data", "notes"))).toBe(false);
   });
 
   test("is idempotent on a second call", () => {

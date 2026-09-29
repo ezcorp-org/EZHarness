@@ -2,6 +2,7 @@ import { FACTORY_LAZY_INPUT_SCHEMA_VERSION, FACTORY_LIMITS, type CompiledFactory
 import { firstValidationIssue, validateCompiledFactory } from "@ezcorp/factory-sdk/validation";
 import { decodeFactoryPageBase64 } from "@ezcorp/factory-sdk/page-bytes";
 import type { KernelEvent } from "@ezcorp/factory-sdk/kernel-types";
+import { FACTORY_ATTEMPT_STOP_EFFECTS } from "@ezcorp/factory-sdk/kernel";
 import { MAX_ACTIVITY_PAYLOAD_BYTES, MAX_COMMAND_BATCH_BYTES, MAX_DEFINITION_PAGES, MAX_PAGE_BYTES } from "./contracts.ts";
 import type {
   FactoryContinuation,
@@ -148,6 +149,14 @@ export function validateInboxEvent(value: JsonValue): asserts value is JsonValue
   if (typeof value.id !== "string" || value.id.length === 0 || value.id.length > 512) throw new Error("inbox event requires a stable ID");
   if (!Number.isSafeInteger(value.atMs) || (value.atMs as number) < 0) throw new Error(`inbox event ${String(value.id)} requires a recorded timestamp`);
   if (typeof value.kind !== "string") throw new Error("inbox event requires a kind");
+  // W09e: a release stop's external effect is an explicit enum, never an arbitrary field.
+  if (value.kind === "attempt-stopped" && value.effect !== undefined && (typeof value.effect !== "string" || !Object.hasOwn(FACTORY_ATTEMPT_STOP_EFFECTS, value.effect))) {
+    throw new Error("attempt-stopped effect must be uncertain or published");
+  }
+  // W09h: a stop before compute admission is named by one value, never an arbitrary field.
+  if (value.kind === "attempt-stopped" && value.stoppedBefore !== undefined && value.stoppedBefore !== "admission") {
+    throw new Error("attempt-stopped stoppedBefore must be admission");
+  }
   if (value.kind === "repair" || value.kind === "replan") {
     requiredIdentity(typeof value.nodeId === "string" ? value.nodeId : "", "run control node ID");
     if (value.reason !== undefined) requiredIdentity(typeof value.reason === "string" ? value.reason : "", "run control reason");

@@ -1,6 +1,6 @@
 import { describe, expect, test, vi } from "vitest";
 import type { FactoryApiResponse } from "@ezcorp/factory-sdk";
-import { FactoryApiClient, type FactoryApiClientError, blankFactory } from "./client";
+import { FactoryApiClient, FactoryApiClientError, blankFactory } from "./client";
 
 /**
  * Every client method, pinned to the exact request it sends: method, encoded
@@ -148,6 +148,22 @@ describe("streams and bytes", () => {
 		expect(bodiless).toMatchObject({ code: "factory_invalid_response" });
 	});
 
+	test("only a successful, bodied response that is an event stream opens the stream", async () => {
+		const open = (reply: Response) =>
+			new FactoryApiClient({ fetch: vi.fn(async () => reply) as unknown as typeof fetch }).openRunEvents("p", "r", "c", new AbortController().signal);
+		const body = new ReadableStream<Uint8Array>();
+		// A parameterised media type is still an event stream.
+		expect(await open(new Response(body, { status: 200, headers: { "content-type": "text/event-stream; charset=utf-8" } }))).toBe(body);
+		// A failure is a failure even when it claims to be a stream.
+		await expect(open(new Response("gateway down", { status: 502, headers: { "content-type": "text/event-stream" } })))
+			.rejects.toMatchObject({ status: 502, code: "factory_invalid_response" });
+		// A success with no body cannot be read as a stream.
+		await expect(open(new Response(null, { status: 200, headers: { "content-type": "text/event-stream" } })))
+			.rejects.toMatchObject({ status: 200, code: "factory_invalid_response" });
+		// No content type at all is a client error, not a crash.
+		await expect(open(new Response(new Uint8Array([1]), { status: 200 }))).rejects.toBeInstanceOf(FactoryApiClientError);
+	});
+
 	test("artifact bytes are bounded before and after the download", async () => {
 		const fetcher = vi.fn(async () => new Response(new Uint8Array([1, 2, 3, 4])));
 		const api = new FactoryApiClient({ fetch: fetcher as unknown as typeof fetch });
@@ -155,7 +171,8 @@ describe("streams and bytes", () => {
 		expect(fetcher).toHaveBeenCalledWith("/download?ticket=t");
 		await expect(api.artifactBytes({ ...ticket, encodedBytes: 5 }, 4)).rejects.toMatchObject({ status: 413, code: "factory_artifact_too_large", message: "The artifact is larger than the preview limit." });
 		expect(fetcher).toHaveBeenCalledTimes(1);
-		await expect(api.artifactBytes({ ...ticket, encodedBytes: 3 }, 3)).rejects.toMatchObject({ status: 413, code: "factory_artifact_too_large" });
+		// The ticket understated the size: the bytes that arrived are checked too, with the same answer.
+		await expect(api.artifactBytes({ ...ticket, encodedBytes: 3 }, 3)).rejects.toMatchObject({ status: 413, code: "factory_artifact_too_large", message: "The artifact is larger than the preview limit." });
 		const refused = new FactoryApiClient({ fetch: vi.fn(async () => Response.json(envelope({ kind: "error", error: { code: "factory_ticket_expired", message: "expired", retryable: false } }), { status: 410 })) as unknown as typeof fetch });
 		await expect(refused.artifactBytes(ticket, 10)).rejects.toMatchObject({ status: 410, code: "factory_ticket_expired" });
 	});

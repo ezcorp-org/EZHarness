@@ -7,6 +7,7 @@ import { insertTransactionalAuditEntry } from "../db/queries/audit-log";
 import { digestObject } from "../extensions/v4/blobs";
 import { assertFactoryIdentity, encodeFactoryPayload, type FactoryRunKey } from "./records";
 import { FACTORY_LIVE_EXECUTION_STATUSES } from "./attempt-supersessions";
+import { FACTORY_USAGE_NO_OPERATIONS_BASIS, FACTORY_USAGE_NOTHING_LAUNCHED_BASIS, type FactoryUsageNoOperationsBasis } from "./usage-settlement";
 
 export interface FactoryBudgetAmount { readonly costMicros: string; readonly tokens: number; readonly computeMs: number }
 export interface FactoryBudgetKey extends FactoryRunKey { readonly envelopeId: string }
@@ -258,18 +259,21 @@ export class FactoryBudgets {
   }
 
   /**
-   * Settles a reservation whose stopped attempt journaled no operation.
+   * Settles a reservation whose stopped attempt journaled no operation, by the
+   * basis its settlement record names, so the amount and the basis text agree.
    *
-   * No provider was called, so zero cost and zero tokens are facts. Compute is
-   * different: the process ran until the signed stop and reported nothing, so
-   * its compute is charged at the reserved bound. An unmeasured dimension is
-   * never settled below what the attempt may have used.
+   * No provider was called, so zero cost and zero tokens are facts. Compute
+   * depends on the basis. By default the process ran until the signed stop and
+   * reported nothing, so its compute is charged at the reserved bound: an
+   * unmeasured dimension is never settled below what the attempt may have used.
+   * Under "nothing launched, all zero" no process ever ran, so compute is a
+   * known zero too.
    */
-  async settleWithoutOperationsInTransaction(transaction: MigrationDb, value: FactoryBudgetReservationKey, receiptDigest: string): Promise<FactoryBudgetAmount> {
+  async settleWithoutOperationsInTransaction(transaction: MigrationDb, value: FactoryBudgetReservationKey, receiptDigest: string, basis: FactoryUsageNoOperationsBasis = FACTORY_USAGE_NO_OPERATIONS_BASIS): Promise<FactoryBudgetAmount> {
     const key = { ...value };
     await this.lockRun(transaction, key);
     const reserved = decode((await this.reservation(transaction, key))!.amount);
-    const actual = Object.freeze({ costMicros: "0", tokens: 0, computeMs: Number(reserved.computeMs) });
+    const actual = Object.freeze({ costMicros: "0", tokens: 0, computeMs: basis === FACTORY_USAGE_NOTHING_LAUNCHED_BASIS ? 0 : Number(reserved.computeMs) });
     await this.settleInTransaction(transaction, key, actual, receiptDigest);
     return actual;
   }

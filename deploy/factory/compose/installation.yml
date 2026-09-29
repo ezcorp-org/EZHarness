@@ -1,0 +1,119 @@
+# One factory installation on the self-hosted Compose profile (rootless Podman).
+#
+# Rendered per installation by the provisioner (C12 step 5): every ${...} below
+# comes from that installation's `compose.env`, which holds references only —
+# ports, paths, identities, the pinned image. No secret appears here or in the
+# env file. Each service mounts its OWN private delivery directory and nothing
+# else, so the wrapped data key and master key reach the orchestrator alone.
+#
+# Networking is least-privilege by construction. Every service runs in its own
+# pasta namespace and can reach exactly the host loopback ports it forwards
+# with `-T`, and nothing else on loopback: the harness reaches its database,
+# its two stores, its gateway, and the fleet host's shared pool and supervisor;
+# the gateway reaches only the database; the orchestrator reaches only Temporal
+# and its own harness's private service. Listeners publish on 127.0.0.1 only,
+# and the ingress is the one component that fronts the harness for a browser.
+#
+# The pool and the host supervisor are the fleet host's, shared by every
+# installation (host.yml and a host systemd unit); the harness reads their
+# readiness records read-only.
+name: ${EZCORP_FACTORY_PROJECT:?rendered by the provisioner}
+
+# Each service names its own pinned image, because a fleet upgrade moves the
+# components one group at a time in C12 order (host, orchestration, harness).
+x-factory-service: &factory-service
+  # The host user's own uid inside the container: the private-file reader
+  # requires every secret to be owned by the process that reads it.
+  userns_mode: keep-id
+  user: "${EZCORP_FACTORY_UID:?}:${EZCORP_FACTORY_GID:?}"
+  read_only: true
+  tmpfs: ["/tmp:rw,noexec,nosuid,nodev,size=64m"]
+  security_opt: ["no-new-privileges:true"]
+  cap_drop: ["ALL"]
+  restart: unless-stopped
+  stop_grace_period: 20s
+  labels:
+    ezcorp.factory.fleet: ${EZCORP_FACTORY_FLEET:?}
+    ezcorp.factory.tenant: ${EZCORP_FACTORY_TENANT:?}
+    ezcorp.factory.installation: ${EZCORP_FACTORY_INSTALLATION:?}
+    ezcorp.factory.revision: ${EZCORP_FACTORY_REVISION:?}
+
+services:
+  gateway:
+    <<: *factory-service
+    image: ${EZCORP_FACTORY_GATEWAY_IMAGE:?}
+    network_mode: ${EZCORP_FACTORY_GATEWAY_NETWORK:?}
+    ports: ["127.0.0.1:${EZCORP_FACTORY_GATEWAY_PORT:?}:${EZCORP_FACTORY_GATEWAY_PORT:?}"]
+    command: ["bun", "src/factory/gateway-process.ts", "/run/ezcorp/secrets/gateway.json"]
+    env_file: ["${EZCORP_FACTORY_GATEWAY_ENV:?}"]
+    volumes:
+      - { type: bind, source: "${EZCORP_FACTORY_DELIVER_GATEWAY:?}", target: /run/ezcorp/secrets, read_only: true, bind: { create_host_path: false } }
+    healthcheck:
+      test: ["CMD", "bun", "src/factory/provisioning/readiness-check.ts", "--tcp", "127.0.0.1:${EZCORP_FACTORY_GATEWAY_PORT:?}"]
+      interval: 3s
+      timeout: 5s
+      retries: 40
+      start_period: 5s
+    mem_limit: 384m
+    cpus: 0.5
+    pids_limit: 128
+
+  harness:
+    <<: *factory-service
+    image: ${EZCORP_FACTORY_HARNESS_IMAGE:?}
+    # Above the harness's own 25 s shutdown hard timeout (web/src/lib/server/shutdown.ts),
+    # so a slow drain ends by its own deadline, closing the database, rather than by SIGKILL.
+    stop_grace_period: 30s
+    network_mode: ${EZCORP_FACTORY_HARNESS_NETWORK:?}
+    ports:
+      - "127.0.0.1:${EZCORP_FACTORY_HARNESS_PORT:?}:${EZCORP_FACTORY_HARNESS_PORT:?}"
+      - "127.0.0.1:${EZCORP_FACTORY_PRIVATE_SERVICE_PORT:?}:${EZCORP_FACTORY_PRIVATE_SERVICE_PORT:?}"
+      # W01g's guest-broker route; only the fleet host's supervisor reaches it, on loopback.
+      - "127.0.0.1:${EZCORP_FACTORY_GUEST_BROKER_PORT:?}:${EZCORP_FACTORY_GUEST_BROKER_PORT:?}"
+    command: ["bun", "src/factory/provisioning/secret-env.ts", "/run/ezcorp/secrets/secret-env.json", "--", "bun", "web/build/index.js"]
+    env_file: ["${EZCORP_FACTORY_HARNESS_ENV:?}"]
+    depends_on:
+      gateway: { condition: service_healthy }
+    volumes:
+      - { type: bind, source: "${EZCORP_FACTORY_DELIVER_HARNESS:?}", target: /run/ezcorp/secrets, read_only: true, bind: { create_host_path: false } }
+      # Read-only: this installation's orchestration record, and the fleet host's pool and supervisor records.
+      - { type: bind, source: "${EZCORP_FACTORY_READINESS_ORCHESTRATION:?}", target: /run/ezcorp/readiness/orchestration, read_only: true, bind: { create_host_path: false } }
+      - { type: bind, source: "${EZCORP_FACTORY_HOST_READINESS_POOL:?}", target: /run/ezcorp/readiness/pool, read_only: true, bind: { create_host_path: false } }
+      - { type: bind, source: "${EZCORP_FACTORY_HOST_READINESS_SUPERVISOR:?}", target: /run/ezcorp/readiness/supervisor, read_only: true, bind: { create_host_path: false } }
+      # A host directory owned by the installation's uid rather than a named
+      # volume: a named volume is created owned by the container's root, which
+      # the keep-id user cannot write. Purge removes it with the runtime root.
+      - { type: bind, source: "${EZCORP_FACTORY_HARNESS_DATA:?}", target: /var/lib/ezcorp, bind: { create_host_path: false } }
+      # The product's daemons keep state under `.ezcorp` in their working directory, /app, which the read-only root refuses.
+      - { type: bind, source: "${EZCORP_FACTORY_HARNESS_APP_STATE:?}", target: /app/.ezcorp, bind: { create_host_path: false } }
+    healthcheck:
+      test: ["CMD", "bun", "src/factory/provisioning/readiness-check.ts", "--http", "http://127.0.0.1:${EZCORP_FACTORY_HARNESS_PORT:?}/api/ready"]
+      interval: 5s
+      timeout: 5s
+      retries: 120
+      start_period: 20s
+    mem_limit: 1536m
+    cpus: 1.0
+    pids_limit: 512
+
+  orchestrator:
+    <<: *factory-service
+    image: ${EZCORP_FACTORY_ORCHESTRATOR_IMAGE:?}
+    network_mode: ${EZCORP_FACTORY_ORCHESTRATOR_NETWORK:?}
+    # Its readiness depends on reaching the harness's private service, and it
+    # exits when that peer goes away; `restart` is the daemon supervisor here.
+    command: ["node", "src/factory/orchestration-process.ts", "/run/ezcorp/secrets/orchestrator.json"]
+    env_file: ["${EZCORP_FACTORY_ORCHESTRATOR_ENV:?}"]
+    volumes:
+      - { type: bind, source: "${EZCORP_FACTORY_DELIVER_ORCHESTRATOR:?}", target: /run/ezcorp/secrets, read_only: true, bind: { create_host_path: false } }
+      - { type: bind, source: "${EZCORP_FACTORY_READINESS_ORCHESTRATION:?}", target: /run/ezcorp/readiness/orchestration, bind: { create_host_path: false } }
+    healthcheck:
+      test: ["CMD", "bun", "src/factory/provisioning/readiness-check.ts", "/run/ezcorp/readiness/orchestration/orchestration.json"]
+      interval: 5s
+      timeout: 5s
+      retries: 120
+      start_period: 10s
+    mem_limit: 512m
+    cpus: 0.5
+    pids_limit: 256
+

@@ -23,8 +23,8 @@
  * web/src/lib/server/hub-render-pull.run-variant.unit.test.ts; here we prove the
  * ROUTE hands the params off correctly.
  */
-import { test, expect, describe, beforeEach, afterAll, mock } from "bun:test";
-import { restoreModuleMocks, webLibModule } from "../../../../../../../../src/__tests__/helpers/mock-cleanup";
+import { test, expect, describe, beforeEach, beforeAll, afterAll, mock } from "bun:test";
+import { restoreModuleMocks, webLibModule, serverModule } from "../../../../../../../../src/__tests__/helpers/mock-cleanup";
 import {
   MEMBER_USER,
   createMockEvent,
@@ -47,14 +47,14 @@ mock.module("$lib/server/http-errors", () => ({
     }),
 }));
 
-// requireAuth: returns the locals user, throws a 401 Response when absent
-// (mirrors the real middleware's contract closely enough for the handler).
-mock.module("$server/auth/middleware", () => ({
-  requireAuth: (locals: { user?: typeof MEMBER_USER }) => {
-    if (!locals?.user) throw new Response("Unauthorized", { status: 401 });
-    return locals.user;
-  },
-}));
+// auth/middleware: registered in beforeAll below, not here at module top
+// level — item C2 (W18 hygiene). The $server/auth/middleware alias is
+// claimed by dozens of files repo-wide, so whichever file's registration is
+// active when a shared-process run resolves the alias wins for every OTHER
+// file too. beforeAll (test-execution time) plus a complete serverModule()
+// factory make THIS file's own requireAuth override active for THIS file's
+// own tests, and afterAll hands the alias back to the real module.
+const realAuthMiddleware = serverModule("auth/middleware", {});
 
 // Scope gate: allowed by default; overridable per-test.
 let scopeResponse: Response | null = null;
@@ -124,10 +124,25 @@ mock.module("$server/logger", () => ({
   logger: { child: () => ({ warn() {}, info() {}, error() {} }) },
 }));
 
+beforeAll(() => {
+  // requireAuth: returns the locals user, throws a 401 Response when absent
+  // (mirrors the real middleware's contract closely enough for the handler).
+  mock.module("$server/auth/middleware", () => ({
+    ...realAuthMiddleware,
+    requireAuth: (locals: { user?: typeof MEMBER_USER }) => {
+      if (!locals?.user) throw new Response("Unauthorized", { status: 401 });
+      return locals.user;
+    },
+  }));
+});
+
 // Import the handler AFTER the mocks are registered.
 const { GET } = await import("../+server");
 
-afterAll(() => restoreModuleMocks());
+afterAll(() => {
+  restoreModuleMocks();
+  mock.module("$server/auth/middleware", () => realAuthMiddleware);
+});
 
 beforeEach(() => {
   scopeResponse = null;
