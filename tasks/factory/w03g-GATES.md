@@ -104,3 +104,9 @@ and the two end-to-end runs without and with the label. Red first: 3 pass, 9 fai
 attestation-file cases; the patch gate was already watched); green 12/0; gate-scripts.test.ts 248/0 with the watched-set
 equality extended by the json. The finding text is now "coverage gate tool changed (<status>): <path> — it decides what
 coverage counts or how a coverage gate judges it".
+ENTRY REMOVED (scripts/coverage-attestations.json is now `[]`, not deleted): the task-stops.ts:370 entry pins the file
+as W03f's branch has it (sha256 15da47f8…), which is not on integ, and the patch gate checks an entry's file facts
+whenever that file is anywhere in the diff, so against origin/main (which has no task-stops.ts) it read "stale
+attestation src/factory/task-stops.ts:370: the file changed since it was proved (SHA-256 differs)"; with `[]` the
+finding is gone (w03g-fold/attest-red-origin_main.log, attest-green-origin_main.log). W03f re-adds the entry in its own
+branch, with the re-probe at its merged head, after it merges the post-W03g integ.
