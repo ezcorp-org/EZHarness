@@ -151,7 +151,8 @@ export function createFactoryHostStopRouteHandler(options: FactoryHostStopServic
       if (recorded !== undefined && stop.tenantId !== undefined && stop.tenantId !== recorded) refuse(403, FACTORY_HOST_FORBIDDEN_TENANT);
       if ((recorded ?? stop.tenantId) !== peerTenant) refuse(403, FACTORY_HOST_FORBIDDEN_TENANT);
       timer = setTimeout(() => controller.abort(), snapshot.stopTimeoutMs);
-      const unsigned = await snapshot.supervisor.stop(stop, controller.signal);
+      // The tenant is the peer's own, checked above; the supervisor scopes a tombstone to it (W02d R8).
+      const unsigned = await snapshot.supervisor.stop({ ...stop, tenantId: peerTenant }, controller.signal);
       if (unsigned.attemptId !== stop.attemptId || unsigned.reservationId !== stop.reservationId || unsigned.workerId !== stop.workerId
         || unsigned.holderGeneration !== stop.holderGeneration || unsigned.allocationGeneration !== stop.allocationGeneration
         || unsigned.hostId !== stop.hostId || unsigned.reason !== stop.reason || unsigned.processGroupAbsent !== true) refuse(409, "conflict");

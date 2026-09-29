@@ -1,8 +1,8 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { generateKeyPairSync } from "node:crypto";
-import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { Runner, RunnerInspection, WorkspaceFiles } from "@ezcorp/extension-contract";
 import type { FactoryRunnerRequest } from "@ezcorp/factory-sdk";
 import type { FactoryPrivateRequest } from "../private-https";
@@ -11,6 +11,7 @@ import { certificates } from "../../__tests__/helpers/factory-certificates";
 import { factoryLaunchCompletedResult } from "../../__tests__/helpers/factory-attempt-launch-fixture";
 import { FACTORY_HOST_LAUNCH_PATH, FACTORY_HOST_ATTACH_PATH, FACTORY_HOST_RESULT_PATH } from "./host-launch-service";
 import { FACTORY_HOST_STOP_PATH } from "./host-stop-service";
+import { FACTORY_HOST_TOMBSTONES_FILE, FactoryHostTombstones } from "./host-tombstones";
 import {
   FactoryHostBrokerUnavailableError,
   createFactoryHostServiceRouter,
@@ -471,3 +472,46 @@ describe("the two routes share which tenant each guest belongs to (W01i)", () =>
   });
 });
 
+/**
+ * A worker this host never saw (W02d R8 and R6's release; coordinator ruling (A), 2026-09-29). Measured live: a stop
+ * for a dispatch refused before launch, or a lease reclaimed before claim, named a worker this host never ran; the
+ * runtime showed no container, "unknown" read as present, and the stop answered 500 stop_failed forever, so the pool
+ * never released and the hold never settled. The host now tombstones such a worker durably, then signs its absence,
+ * and refuses it from then on.
+ */
+describe("a worker this host never saw", () => {
+  const neverSeen = () => {
+    const touched: string[] = [];
+    const runner: Runner = {
+      ...fakeRunner(new Map()),
+      async inspect(id): Promise<RunnerInspection> { touched.push(`inspect:${id}`); return { id, state: "unknown", diagnostics: [] }; },
+      async cancel(id) { touched.push(`cancel:${id}`); },
+      async abort(id) { touched.push(`abort:${id}`); },
+      async start(input) { touched.push(`start:${input.workerId}`); throw new Error("a tombstoned worker is never started"); },
+    };
+    return { runner, touched };
+  };
+
+  test("is tombstoned durably and signed absent, and a later launch or attach of it is refused worker_stopped (W02d R8)", async () => {
+    const { runner, touched } = neverSeen();
+    const signingKey = await keyMaterial();
+    const tombstones = await FactoryHostTombstones.open(signingKey);
+    const handle = createFactoryHostServiceRouter({ hostId, peerTenants: { [peer]: peer }, runner, signingKey, tombstones });
+    const intent = launchIntent();
+    const wire = Buffer.from(JSON.stringify({ intent: factoryAttemptLaunchIntentToWire(intent) }));
+    const stop = { ...command, workerId: intent.workerId, reservationId: intent.lease.reservationId, holderGeneration: intent.lease.holderGeneration, allocationGeneration: intent.lease.allocationGeneration };
+    const settled = await handle(request({ path: FACTORY_HOST_STOP_PATH, body: Buffer.from(JSON.stringify(stop)) }));
+    expect({ status: settled.status, body: body(settled) }).toMatchObject({ status: 200, body: { workerId: intent.workerId, processGroupAbsent: true, hostId, hostKeyId: "host-key-1" } });
+    // The runtime was asked once whether a container exists; nothing was signalled or killed.
+    expect(touched).toEqual([`inspect:${intent.workerId}`]);
+    // Written before the signature: the host's own durable record, beside its key.
+    const written = (await readFile(join(dirname(signingKey.privateKeyPath), FACTORY_HOST_TOMBSTONES_FILE), "utf8")).trim().split("\n").map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(written).toMatchObject([{ hostId, tenantId: peer, workerId: intent.workerId, attemptId: command.attemptId, reservationId: intent.lease.reservationId }]);
+    // From now on this worker is never started or attached here.
+    for (const path of [FACTORY_HOST_LAUNCH_PATH, FACTORY_HOST_ATTACH_PATH]) {
+      const refused = await handle(request({ path, body: wire }));
+      expect({ path, status: refused.status, error: (body(refused) as { error?: string }).error }).toEqual({ path, status: 409, error: "worker_stopped" });
+    }
+    expect(touched.filter((entry) => !entry.startsWith("inspect:"))).toEqual([]);
+  });
+});

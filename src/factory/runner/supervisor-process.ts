@@ -55,6 +55,7 @@ import { createFactoryGuestBrokerClient } from "./guest-broker-client";
 import { isFactoryGuestModelPayload, type FactoryGuestBroker } from "./guest-model-broker";
 import { isFactoryHostPeerTenants, type FactoryHostPeerTenants } from "./host-peer-tenants";
 import { FactoryHostBrokerUnavailableError, factoryHostBrokerUnavailable, startFactoryHostServices } from "./supervisor-services";
+import { FactoryHostTombstones } from "./host-tombstones";
 import { createFactorySupervisorPoolClient } from "./supervisor-pool-client";
 import {
   createFactoryServiceReadinessWriter,
@@ -365,11 +366,16 @@ export async function startFactoryConfiguredHostServices(
     : await createFactorySupervisorPoolClient({ hostId: config.hostId, ...endpointTransport(services.pool) });
   // Built before the listener binds for the same reason.
   const broker = await createFactoryConfiguredGuestBroker(services.guestBrokers);
+  const signingKey = { hostId: config.hostId, privateKeyPath: config.hostKeyPath, keyIdPath: services.hostKeyIdPath };
+  // The host's durable tombstones, beside its key, loaded before the listener binds (W02d R8, coordinator ruling (A)):
+  // a worker stopped here without ever running stays refused across a restart.
+  const tombstones = await FactoryHostTombstones.open(signingKey);
   return startFactoryHostServices({
     hostId: config.hostId,
     peerTenants: services.peerTenants,
     runner,
-    signingKey: { hostId: config.hostId, privateKeyPath: config.hostKeyPath, keyIdPath: services.hostKeyIdPath },
+    signingKey,
+    tombstones,
     tls: { ca: utf8(ca), cert: utf8(cert), key: utf8(key) },
     hostname: services.hostname,
     port: services.port,
