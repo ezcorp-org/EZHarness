@@ -35,6 +35,19 @@ export const FACTORY_HOST_TOMBSTONE_RETENTION_MS = FACTORY_LIMITS.maximumRunDead
 const SCHEMA = "factory.host-worker-tombstone.v1";
 const MAX_FILE_BYTES = 16 * 1024 * 1024;
 
+/** Makes a folder's entries durable: fsync of the folder itself. */
+async function syncFolder(path: string): Promise<void> {
+  const handle = await open(path, "r");
+  try { await handle.sync(); } finally { await handle.close(); }
+}
+
+export interface FactoryHostTombstonesOptions {
+  readonly now?: () => number;
+  readonly retentionMs?: number;
+  /** Syncs the folder that holds the file; the production one fsyncs it. */
+  readonly syncDirectory?: (path: string) => Promise<void>;
+}
+
 export interface FactoryHostTombstoneInput {
   readonly tenantId: string;
   readonly workerId: string;
@@ -61,20 +74,28 @@ export class FactoryHostTombstones {
   private readonly honoured = new Map<string, TombstoneEntry>();
   private readonly pending = new Set<string>();
   private refusedCount = 0;
+  /** Whether the file exists: the write that creates it must also make the folder entry durable. */
+  private exists = false;
+  private readonly now: () => number;
+  private readonly retentionMs: number;
+  private readonly syncDirectory: (path: string) => Promise<void>;
 
   private constructor(
     private readonly hostId: string,
     private readonly path: string,
     private readonly key: { readonly hostKeyId: string; readonly privateKey: KeyObject; readonly publicKey: KeyObject },
-    private readonly now: () => number,
-    private readonly retentionMs: number,
-  ) {}
+    options: FactoryHostTombstonesOptions,
+  ) {
+    this.now = options.now ?? Date.now;
+    this.retentionMs = options.retentionMs ?? FACTORY_HOST_TOMBSTONE_RETENTION_MS;
+    this.syncDirectory = options.syncDirectory ?? syncFolder;
+  }
 
   /** Opens the host's tombstones, honouring only unexpired entries this host signed for itself. */
-  static async open(source: FactoryHostSigningKeySource, now: () => number = Date.now, retentionMs = FACTORY_HOST_TOMBSTONE_RETENTION_MS): Promise<FactoryHostTombstones> {
+  static async open(source: FactoryHostSigningKeySource, options: FactoryHostTombstonesOptions = {}): Promise<FactoryHostTombstones> {
     const signing = await loadFactoryHostSigningKey(source);
     const store = new FactoryHostTombstones(source.hostId, join(dirname(source.privateKeyPath), FACTORY_HOST_TOMBSTONES_FILE),
-      { ...signing, publicKey: createPublicKey(signing.privateKey) }, now, retentionMs);
+      { ...signing, publicKey: createPublicKey(signing.privateKey) }, options);
     await store.load();
     return store;
   }
@@ -101,7 +122,10 @@ export class FactoryHostTombstones {
     return () => { this.pending.delete(key); };
   }
 
-  /** Writes the signed tombstone durably (appended and synced) before any stop is signed; a failed write throws. */
+  /**
+   * Writes the signed tombstone durably (appended and synced; the write that creates the file also syncs its folder,
+   * so the first entry survives a crash) before any stop is signed. A failed write throws and honours nothing.
+   */
   async record(input: FactoryHostTombstoneInput): Promise<void> {
     if (!text(input.tenantId) || !text(input.workerId) || !text(input.attemptId) || !text(input.reservationId)) throw new Error("Factory host tombstone is malformed.");
     const recordedAtMs = this.now();
@@ -112,6 +136,10 @@ export class FactoryHostTombstones {
       await handle.write(`${JSON.stringify({ ...entry, hostKeyId: this.key.hostKeyId, signature })}\n`);
       await handle.sync();
     } finally { await handle.close(); }
+    if (!this.exists) {
+      await this.syncDirectory(dirname(this.path));
+      this.exists = true;
+    }
     this.honoured.set(scopeKey(entry.tenantId, entry.workerId), entry);
   }
 
@@ -122,6 +150,7 @@ export class FactoryHostTombstones {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
       throw error;
     }
+    this.exists = true;
     if (content.length > MAX_FILE_BYTES) throw new Error("Factory host tombstones are oversized.");
     for (const line of content.split("\n")) {
       if (line.trim() === "") continue;

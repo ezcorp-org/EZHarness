@@ -83,12 +83,12 @@ describe("a host tombstone is honoured only when this host wrote it, for this te
   test("a tombstone past its retention is no longer honoured, in memory or after a restart", async () => {
     const key = await hostKey();
     let now = 1_000_000;
-    const store = await FactoryHostTombstones.open(key, () => now);
+    const store = await FactoryHostTombstones.open(key, { now: () => now });
     await store.record(tombstone);
     expect(store.stopped(tombstone.tenantId, tombstone.workerId)).toBe(true);
     now += FACTORY_HOST_TOMBSTONE_RETENTION_MS;
     expect(store.stopped(tombstone.tenantId, tombstone.workerId)).toBe(false);
-    const restarted = await FactoryHostTombstones.open(key, () => now);
+    const restarted = await FactoryHostTombstones.open(key, { now: () => now });
     expect({ stopped: restarted.stopped(tombstone.tenantId, tombstone.workerId), refused: restarted.refused }).toEqual({ stopped: false, refused: 1 });
   });
 
@@ -169,5 +169,35 @@ describe("the tombstone's retention (gates: W02d tombstone retention)", () => {
     if (!result.ok) throw new Error(result.diagnostics.map((diagnostic) => diagnostic.code).join(", "));
     const longestDeadline = createKernelState(result.factory, "tombstone-retention", {}, 0).runDeadlineAtMs;
     expect(FACTORY_HOST_TOMBSTONE_RETENTION_MS).toBe(longestDeadline + FACTORY_HOST_TOMBSTONE_GRACE_MS);
+  });
+});
+
+describe("a host tombstone's file is durable from its first entry (validator-6 D3)", () => {
+  test("the write that creates the file also syncs its folder, once; later writes append without it", async () => {
+    const key = await hostKey();
+    const synced: string[] = [];
+    const store = await FactoryHostTombstones.open(key, { syncDirectory: async (path) => { synced.push(path); } });
+    await store.record(tombstone);
+    expect(synced).toEqual([key.directory]);
+    await store.record({ ...tombstone, workerId: "worker-second" });
+    expect(synced).toEqual([key.directory]);
+    // A host that finds the file already there never needs to sync the folder for it.
+    const restarted = await FactoryHostTombstones.open(key, { syncDirectory: async (path) => { synced.push(`restart:${path}`); } });
+    await restarted.record({ ...tombstone, workerId: "worker-third" });
+    expect(synced).toEqual([key.directory]);
+  });
+
+  test("a folder that cannot be synced fails the write: nothing is honoured, so no stop is signed on it", async () => {
+    const key = await hostKey();
+    const store = await FactoryHostTombstones.open(key, { syncDirectory: async () => { throw new Error("the folder could not be synced"); } });
+    await expect(store.record(tombstone)).rejects.toThrow("the folder could not be synced");
+    expect(store.stopped(tombstone.tenantId, tombstone.workerId)).toBe(false);
+  });
+
+  test("the production folder sync runs on a real folder", async () => {
+    const key = await hostKey();
+    const store = await FactoryHostTombstones.open(key);
+    await store.record(tombstone);
+    expect((await FactoryHostTombstones.open(key)).stopped(tombstone.tenantId, tombstone.workerId)).toBe(true);
   });
 });
