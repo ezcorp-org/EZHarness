@@ -219,6 +219,35 @@ describe("the usage-reconciliation step", () => {
     expect(reported).toEqual(["usage-reconciliation:transient:res-9"]);
   });
 
+  test("W03f ruling B: a hold the resolver bounds is settled at its reserved bound, and nothing is reconciled", async () => {
+    const bounded: unknown[] = [];
+    const driver = factoryUsageReconciliationDriver(database(), {
+      async listUncertainWithCostInTransaction() { return [hold("res-8")]; },
+    } as never, {
+      async resolve() { return { kind: "bound", reservationId: "res-8", attemptId: "attempt-8", reason: "operation-cost-unknown", operationIds: ["run-1:infer:0:0"] } as never; },
+      async settleAtBound(resolution: unknown) { bounded.push(resolution); return {} as never; },
+      async reconcile() { throw new Error("must not reconcile"); },
+    } as never, () => { throw new Error("must not report"); });
+
+    expect(await driver.step(SIGNAL)).toBe(true);
+    expect(bounded).toEqual([{ kind: "bound", reservationId: "res-8", attemptId: "attempt-8", reason: "operation-cost-unknown", operationIds: ["run-1:infer:0:0"] }]);
+  });
+
+  test("W03f: a hold waiting on calls in flight names each one in its report", async () => {
+    const errors: unknown[] = [];
+    const driver = factoryUsageReconciliationDriver(database(), {
+      async listUncertainWithCostInTransaction() { return [hold("res-7")]; },
+    } as never, {
+      async resolve() { return { kind: "unknown", reservationId: "res-7", reason: "operation-not-settled", operationIds: ["run-1:infer:0:0", "run-1:infer:0:1"] } as never; },
+      async reconcile() { throw new Error("must not reconcile"); },
+    } as never, (_role, error) => { errors.push(error); });
+
+    expect(await driver.step(SIGNAL)).toBe(false);
+    expect(errors).toHaveLength(1);
+    expect((errors[0] as Error).message).toBe("factory_usage_hold_unresolved: operation-not-settled run-1:infer:0:0, run-1:infer:0:1");
+    expect(factoryUsageReconciliationDisposition(errors[0])).toBe("transient");
+  });
+
   describe("a hold whose attempt a restore's epoch left behind (W15f)", () => {
     const stale = () => new FactoryRunEpochStaleError("run-1", "attempt-1", 1, 2);
     function staleDriver(options: { resolveThrows?: boolean; outcome?: "marked" | "terminal" | "settled" }) {

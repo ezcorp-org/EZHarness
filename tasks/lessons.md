@@ -1742,6 +1742,17 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
   pattern for the script. A job started with `&` in a tool shell survived the shell, my narrower check missed it,
   and the W15f batch ran twice back to back, holding the shared lock twice for nothing.
 
+
+## 2026-09-27 — W03f: scratch snapshots and hook skips (coordinator correction)
+
+- Mistake: to snapshot a detached scratch worktree I ran `git commit` with `EZ_SKIP_HOOK_TESTS=1`
+  and no per-commit ruling (9178be47c, never merged).
+- Rule: a snapshot of a scratch or detached worktree is `git add -A && git write-tree` then
+  `git commit-tree <tree> -p <parents>`: no hooks, no refs. `EZ_SKIP_HOOK_TESTS` is never set
+  without a per-commit ruling, on any commit, scratch or not.
+- Also from this package: a suite that needs no database must not get `--pg` (DATABASE_URL changes
+  its behaviour), and a vitest file runs under `bunx vitest run`, never `bun test`; count tests with
+  the shared counter, and treat a zero count as red.
 ## 2026-09-28 — A stricter config parser breaks every writer of that config (W16)
 
 - A harness document is a product input; parse it with the product parser in a test.

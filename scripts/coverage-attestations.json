@@ -1,1 +1,20 @@
-[]
+[
+  {
+    "file": "src/factory/task-stops.ts",
+    "line": 373,
+    "text": "    return factoryJournalStopSettlement(await this.journal.operations(liveAuthority.authority));",
+    "fileSha256": "ee44eb3570d88a8a82eb01c14c23b4782b67b411bbe65e981c322088acfc4e19",
+    "bunVersion": "1.3.14",
+    "reason": "The last statement of stopSettlement runs in every stop settlement, but Bun 1.3.14 coverage credits it to the line before it (DA 373 = 0, DA 372 = 176, on PGlite and on PostgreSQL); a throw planted on it fails 34 of 43 stop-suite tests on both. Re-proved at the W03f merge of integ afbca4d88 (tree of ef99d1120, file unchanged since the probe of the staged ae3240dd7 merge); first proved at 9c954b11a line 370 (W03f, user decision A).",
+    "proof": [
+      "/tmp/factory-platform-evidence/w03f/custody/logs/probe-merge-ae3240dd7/coverage-pglite.lcov.info",
+      "/tmp/factory-platform-evidence/w03f/custody/logs/probe-merge-ae3240dd7/coverage-pg.lcov.info",
+      "/tmp/factory-platform-evidence/w03f/custody/logs/probe-merge-ae3240dd7/coverage-pglite.log",
+      "/tmp/factory-platform-evidence/w03f/custody/logs/probe-merge-ae3240dd7/coverage-pg.log",
+      "/tmp/factory-platform-evidence/w03f/custody/logs/probe-merge-ae3240dd7/throw-pglite.log",
+      "/tmp/factory-platform-evidence/w03f/custody/logs/probe-merge-ae3240dd7/throw-pg.log",
+      "/tmp/factory-platform-evidence/w03f/custody/logs/probe-merge-ae3240dd7/planted-throw.diff",
+      "/tmp/factory-platform-evidence/w03f/custody/logs/probe-merge-ae3240dd7.summary.log"
+    ]
+  }
+]

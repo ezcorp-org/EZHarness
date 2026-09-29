@@ -3438,11 +3438,12 @@ export const factoryUsageSettlements = pgTable("factory_usage_settlements", {
   tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), runId: text("run_id").notNull(),
   reservationId: text("reservation_id").notNull(), revision: bigint("revision", { mode: "number" }).notNull(),
   attemptId: text("attempt_id").notNull(),
-  source: text("source").notNull().$type<"stop" | "reconciliation" | "no-operations">(),
+  source: text("source").notNull().$type<"stop" | "reconciliation" | "no-operations" | "operations" | "reserved-bound">(),
   knownCostMicros: text("known_cost_micros").notNull(),
   unknownCostMicros: text("unknown_cost_micros"),
   providerReceiptDigest: text("provider_receipt_digest"),
   stopReceiptDigest: text("stop_receipt_digest"),
+  restoreDigest: text("restore_digest"),
   basis: text("basis"),
   settledAtMs: bigint("settled_at_ms", { mode: "number" }).notNull(),
   settlementDigest: text("settlement_digest").notNull(),
@@ -3452,7 +3453,7 @@ export const factoryUsageSettlements = pgTable("factory_usage_settlements", {
   primaryKey({ columns: [table.tenantId, table.projectId, table.runId, table.reservationId, table.revision] }),
   foreignKey({ columns: [table.tenantId, table.projectId, table.runId, table.reservationId], foreignColumns: [factoryBudgetReservations.tenantId, factoryBudgetReservations.projectId, factoryBudgetReservations.runId, factoryBudgetReservations.reservationId] }).onDelete("restrict"),
   check("factory_usage_settlements_revision_check", sql`${table.revision} >= 1`),
-  check("factory_usage_settlements_source_check", sql`${table.source} IN ('stop','reconciliation','no-operations')`),
+  check("factory_usage_settlements_source_check", sql`${table.source} IN ('stop','reconciliation','no-operations','operations','reserved-bound')`),
   check("factory_usage_settlements_known_cost_check", sql`${table.knownCostMicros} ~ '^[0-9]+$'`),
   check("factory_usage_settlements_unknown_cost_check", sql`${table.unknownCostMicros} IS NULL OR ${table.unknownCostMicros} ~ '^[0-9]+$'`),
   // C02 form: bare 64-character lowercase hex, matching the SDK result
@@ -3462,11 +3463,14 @@ export const factoryUsageSettlements = pgTable("factory_usage_settlements", {
   check("factory_usage_settlements_settlement_digest_check", sql`${table.settlementDigest} ~ '^sha256:[0-9a-f]{64}$'`),
   check("factory_usage_settlements_event_digest_check", sql`${table.eventDigest} ~ '^sha256:[0-9a-f]{64}$'`),
   check("factory_usage_settlements_reconciliation_check", sql`${table.source} <> 'reconciliation' OR ${table.providerReceiptDigest} IS NOT NULL`),
-  // W03e: a no-operations zero carries exactly its signed stop receipt, and is only ever a known zero.
+  // W03e and W03f: a stop-proven amount (no-operations, operations, reserved-bound) carries exactly its signed stop
+  // receipt and its basis, never a held cost or a provider receipt; a no-operations one is only a zero.
   check("factory_usage_settlements_stop_receipt_check", sql`${table.stopReceiptDigest} IS NULL OR ${table.stopReceiptDigest} ~ '^sha256:[0-9a-f]{64}$'`),
-  // W09h: an attempt stopped before compute admission launched nothing, so it settles all zero under its own basis.
-  check("factory_usage_settlements_basis_check", sql`(${table.source} = 'no-operations') = (${table.basis} IS NOT NULL) AND (${table.basis} IS NULL OR ${table.basis} IN ('no-operations: compute at reserved bound', 'no-operations: nothing launched, all zero'))`),
-  check("factory_usage_settlements_no_operations_check", sql`(${table.source} = 'no-operations') = (${table.stopReceiptDigest} IS NOT NULL) AND (${table.source} <> 'no-operations' OR (${table.knownCostMicros} = '0' AND ${table.unknownCostMicros} IS NULL AND ${table.providerReceiptDigest} IS NULL))`),
+  // W09h: an attempt stopped before compute admission launched nothing, so its no-operations zero may name "nothing launched, all zero".
+  check("factory_usage_settlements_basis_check", sql`(${table.source} IN ('no-operations','operations','reserved-bound')) = (${table.basis} IS NOT NULL) AND (${table.basis} IS NULL OR (${table.source} = 'no-operations' AND ${table.basis} IN ('no-operations: compute at reserved bound', 'no-operations: nothing launched, all zero')) OR (${table.source} = 'operations' AND ${table.basis} IN ('provider-error: model usage measured, compute at reserved bound', 'operations: model usage measured, compute at reserved bound')) OR (${table.source} = 'reserved-bound' AND ${table.stopReceiptDigest} IS NOT NULL AND ${table.basis} = 'unknown: charged at reserved bound; ended by stop') OR (${table.source} = 'reserved-bound' AND ${table.restoreDigest} IS NOT NULL AND ${table.basis} = 'unknown: charged at reserved bound; ended by restore supersession'))`),
+  check("factory_usage_settlements_no_operations_check", sql`(CASE WHEN ${table.source} IN ('no-operations','operations') THEN ${table.stopReceiptDigest} IS NOT NULL AND ${table.restoreDigest} IS NULL WHEN ${table.source} = 'reserved-bound' THEN (${table.stopReceiptDigest} IS NULL) <> (${table.restoreDigest} IS NULL) ELSE ${table.stopReceiptDigest} IS NULL AND ${table.restoreDigest} IS NULL END) AND (${table.source} NOT IN ('no-operations','operations','reserved-bound') OR (${table.unknownCostMicros} IS NULL AND ${table.providerReceiptDigest} IS NULL)) AND (${table.source} <> 'no-operations' OR ${table.knownCostMicros} = '0')`),
+  // W15f's signed restore that superseded the attempt, the second proof a reserved-bound settlement may rest on.
+  check("factory_usage_settlements_restore_digest_check", sql`${table.restoreDigest} IS NULL OR ${table.restoreDigest} ~ '^sha256:[0-9a-f]{64}$'`),
 ]);
 
 /**

@@ -3147,6 +3147,10 @@ export async function migrate(db: MigrateDb): Promise<void> {
   // item. Depends only on add-factory-task-stops, registered above.
   const { up: addFactoryTaskStopReconciliation } = await import("./migrations/add-factory-task-stop-reconciliation");
   await addFactoryTaskStopReconciliation(db);
+  // W03f: a stop settles from its journal's measured operations. Widens the three
+  // settlement CHECKs add-factory-usage-no-operations installed, registered above.
+  const { up: addFactoryUsageOperations } = await import("./migrations/add-factory-usage-operations");
+  await addFactoryUsageOperations(db);
   // W15f: the uncertain-hold mark for an attempt a restore's epoch left behind.
   const { up: addFactoryUsageEpochStale } = await import("./migrations/add-factory-usage-epoch-stale");
   await addFactoryUsageEpochStale(db);

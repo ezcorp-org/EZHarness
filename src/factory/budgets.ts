@@ -270,10 +270,41 @@ export class FactoryBudgets {
    * known zero too.
    */
   async settleWithoutOperationsInTransaction(transaction: MigrationDb, value: FactoryBudgetReservationKey, receiptDigest: string, basis: FactoryUsageNoOperationsBasis = FACTORY_USAGE_NO_OPERATIONS_BASIS): Promise<FactoryBudgetAmount> {
+    if (basis !== FACTORY_USAGE_NOTHING_LAUNCHED_BASIS) return this.settleAtComputeBoundInTransaction(transaction, value, { costMicros: "0", tokens: 0 }, receiptDigest);
+    const actual = Object.freeze({ costMicros: "0", tokens: 0, computeMs: 0 });
+    await this.settleInTransaction(transaction, { ...value }, actual, receiptDigest);
+    return actual;
+  }
+
+  /**
+   * Settles a reservation at its reserved bound in every dimension (W03f,
+   * coordinator ruling B): the attempt stopped and its deadline passed while
+   * an operation's cost was still unknown, so it is charged exactly what the
+   * tenant accepted at admission, never less. The budget holds one vector, so
+   * tokens are charged at the bound too; the settlement record carries only
+   * costs, so it claims no measured token count.
+   */
+  async settleAtReservedBoundInTransaction(transaction: MigrationDb, value: FactoryBudgetReservationKey, receiptDigest: string): Promise<FactoryBudgetAmount> {
     const key = { ...value };
     await this.lockRun(transaction, key);
     const reserved = decode((await this.reservation(transaction, key))!.amount);
-    const actual = Object.freeze({ costMicros: "0", tokens: 0, computeMs: basis === FACTORY_USAGE_NOTHING_LAUNCHED_BASIS ? 0 : Number(reserved.computeMs) });
+    const actual = Object.freeze({ costMicros: String(reserved.costMicros), tokens: Number(reserved.tokens), computeMs: Number(reserved.computeMs) });
+    await this.settleInTransaction(transaction, key, actual, receiptDigest);
+    return actual;
+  }
+
+  /**
+   * Settles a reservation from its journal's measured model usage (W03f).
+   *
+   * The cost and the tokens are what the journal measured; compute is the
+   * reserved bound, for the same reason as above: an attempt that did not
+   * complete reported no compute the host measured.
+   */
+  async settleAtComputeBoundInTransaction(transaction: MigrationDb, value: FactoryBudgetReservationKey, model: { readonly costMicros: string; readonly tokens: number }, receiptDigest: string): Promise<FactoryBudgetAmount> {
+    const key = { ...value };
+    await this.lockRun(transaction, key);
+    const reserved = decode((await this.reservation(transaction, key))!.amount);
+    const actual = Object.freeze({ costMicros: model.costMicros, tokens: model.tokens, computeMs: Number(reserved.computeMs) });
     await this.settleInTransaction(transaction, key, actual, receiptDigest);
     return actual;
   }

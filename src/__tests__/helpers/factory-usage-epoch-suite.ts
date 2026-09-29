@@ -67,9 +67,9 @@ export function factoryUsageEpochConformance(createFixture: () => Promise<Factor
         return hold && { projectId: PROJECT, runId: hold.runId, interpreterId: "root", reservationId, authority: hold.sealed };
       },
       clearResolvedStopInTransaction: async () => {},
-    }, journal, { settleInTransaction: async () => {} }, new FactoryUsageSettlements(db, TENANT, new FactoryInbox(db, TENANT)));
+    }, journal, { settleInTransaction: async () => {}, settleAtReservedBoundInTransaction: async () => { throw new Error("not reached in this suite"); } }, new FactoryUsageSettlements(db, TENANT, new FactoryInbox(db, TENANT)));
     const budgets = new FactoryBudgets(db, TENANT, async () => {});
-    const seen = { resolve: (hold: Parameters<typeof reconciler.resolve>[0], signal?: AbortSignal) => { resolved.push(hold.reservationId); return reconciler.resolve(hold, signal); }, reconcile: reconciler.reconcile.bind(reconciler) };
+    const seen = { resolve: (hold: Parameters<typeof reconciler.resolve>[0], signal?: AbortSignal) => { resolved.push(hold.reservationId); return reconciler.resolve(hold, signal); }, reconcile: reconciler.reconcile.bind(reconciler), settleAtBound: reconciler.settleAtBound.bind(reconciler) };
     return factoryUsageReconciliationDriver(db, budgets, seen, (role, error) => { reports.push({ role, error }); });
   }
 

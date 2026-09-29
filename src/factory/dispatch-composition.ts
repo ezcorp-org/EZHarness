@@ -188,7 +188,7 @@ export function factoryUsageReconciliationDisposition(error: unknown): FactoryIt
 export function factoryUsageReconciliationDriver(
   database: TransactionalDb,
   budgets: Pick<FactoryBudgets, "listUncertainWithCostInTransaction" | "markEpochStaleInTransaction">,
-  reconciler: Pick<FactoryUsageReconciliation, "resolve" | "reconcile">,
+  reconciler: Pick<FactoryUsageReconciliation, "resolve" | "reconcile" | "settleAtBound">,
   report: (role: string, error: unknown) => void,
   limit?: number,
   now: () => number = Date.now,
@@ -198,7 +198,9 @@ export function factoryUsageReconciliationDriver(
     settle: async (hold, signal) => {
       try {
         const resolution = await reconciler.resolve(hold, signal);
-        if (resolution.kind !== "resolved") throw new FactoryUnresolvedHoldError(resolution.reason);
+        // W03f ruling B: an ended attempt past its deadline is charged its reserved bound.
+        if (resolution.kind === "bound") { await reconciler.settleAtBound(resolution); return; }
+        if (resolution.kind !== "resolved") throw new FactoryUnresolvedHoldError(resolution.operationIds === undefined ? resolution.reason : `${resolution.reason} ${resolution.operationIds.join(", ")}`);
         await reconciler.reconcile({
           reservationId: resolution.reservationId,
           attemptId: resolution.attemptId,
