@@ -45,10 +45,27 @@ const apiKeysExports = webLibModule("server/security/api-keys", {
 mock.module("$lib/server/security/api-keys", () => apiKeysExports);
 
 let projectRoot: string;
-mock.module("$server/db/queries/projects", () => ({
-  getProject: async (id: string) =>
-    id === "missing" ? undefined : { id, name: "p", path: projectRoot },
-}));
+// $server/db/queries/projects: spyOn()'d on the module the alias currently
+// resolves to, not mock.module()'d directly — item C2 (W18 hygiene, real
+// OPEN-2 fix). This alias is claimed by mockServerAlias() above AND by this
+// file's sibling preview.test.ts (both mock only `getProject`, a partial
+// factory), and shared through common.ts's resolveProjectRoot(). Once
+// EITHER file's mock.module() call registers this exact specifier string, a
+// LATER mock.module() call for that same string is silently ignored for a
+// consumer that links after it (same class of bug as the $server/auth
+// /middleware fix in extension-browser-preview.test.ts) — measured directly:
+// paired with preview.test.ts in either order, whichever file loaded SECOND
+// kept resolving the FIRST file's stale getProject (missing the other
+// file's cases, and closed over the other file's now-long-gone tmpdir),
+// producing an unrelated-looking spray of 400/410/failed-json errors.
+// Dynamically importing the alias to get whatever it currently resolves to,
+// then spyOn().mockImplementation() to mutate that one method in place,
+// reaches every future consumer of the specifier regardless of
+// registration order. Confirmed fixed in both orders.
+const aliasDbQueriesProjects: any = await import("$server/db/queries/projects");
+const getProjectSpy = spyOn(aliasDbQueriesProjects, "getProject").mockImplementation(
+  async (id: string) => (id === "missing" ? undefined : { id, name: "p", path: projectRoot }),
+);
 
 let createCalls: any[] = [];
 let createImpl: (i: any) => Promise<{ name: string }> = async (i) => ({
@@ -116,6 +133,7 @@ const { POST } = await import("../commit/+server");
 afterAll(() => {
   restoreModuleMocks();
   reloadSpy.mockRestore();
+  getProjectSpy.mockRestore();
   ExtensionRegistry.resetInstance();
 });
 

@@ -220,6 +220,12 @@ export type KernelEvent =
        * `FACTORY_ATTEMPT_STOP_EFFECTS`.
        */
       readonly effect?: "uncertain" | "published";
+      /**
+       * The attempt was stopped while it waited for compute admission (W09h): it never held capacity and never
+       * ran, so its stop settles in place. Only a task node's certain stop may carry it, never beside `effect`;
+       * see `FACTORY_ATTEMPT_STOPPED_BEFORE_ADMISSION`.
+       */
+      readonly stoppedBefore?: "admission";
     })
   | (KernelEventBase & {
       readonly kind: "usage-settled";

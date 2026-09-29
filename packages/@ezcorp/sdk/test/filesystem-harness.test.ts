@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,8 +10,6 @@ const roots: string[] = [];
 const priorGrant = process.env.EZCORP_FS_ALLOWED;
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
-  if (priorGrant === undefined) delete process.env.EZCORP_FS_ALLOWED;
-  else process.env.EZCORP_FS_ALLOWED = priorGrant;
 });
 
 test("filesystem harness preserves validation, containment and file operation envelopes", () => {
@@ -54,6 +52,30 @@ test("in-process filesystem stub rejects unrelated host calls", async () => {
   } finally {
     (request as typeof request & { mockRestore(): void }).mockRestore();
   }
+});
+
+// The in-process stub's grant lasted past its test: installFsChannelStub set EZCORP_FS_ALLOWED=1 and nothing
+// cleared it, so in a pooled bun process every later file ran with a filesystem grant it never asked for. The
+// docs-updater integration test then sent its run-log mkdir to a host that did not exist and timed out at 30 s
+// (W18c measurement at dc3b64234; reproduced with auto-note/index.test.ts before it in one process).
+describe("installFsChannelStub grants for the calling test only", () => {
+  test("the grant holds while the test runs", () => {
+    installFsChannelStub(tmpdir());
+    expect(process.env.EZCORP_FS_ALLOWED).toBe("1");
+  });
+  test("the next test sees the grant the process had before", () => {
+    expect(process.env.EZCORP_FS_ALLOWED).toBe(priorGrant);
+  });
+  test("a grant value the process already had is put back, not deleted", () => {
+    process.env.EZCORP_FS_ALLOWED = "host-set";
+    installFsChannelStub(tmpdir());
+    expect(process.env.EZCORP_FS_ALLOWED).toBe("1");
+  });
+  test("after that test the earlier value is back", () => {
+    expect(process.env.EZCORP_FS_ALLOWED).toBe("host-set");
+    if (priorGrant === undefined) delete process.env.EZCORP_FS_ALLOWED;
+    else process.env.EZCORP_FS_ALLOWED = priorGrant;
+  });
 });
 
 test("filesystem harness environment grants are explicit and overridable", () => {

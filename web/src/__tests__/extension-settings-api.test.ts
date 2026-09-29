@@ -9,8 +9,9 @@
  * test.
  */
 
-import { test, expect, describe, beforeEach, mock } from "bun:test";
+import { test, expect, describe, beforeEach, beforeAll, afterAll, mock } from "bun:test";
 import { makeRequestEvent } from "./helpers/server-route-test-utils";
+import { serverModule } from "../../../src/__tests__/helpers/mock-cleanup";
 
 let mockUser: { id: string; role: string } | null = {
   id: "user-1",
@@ -19,14 +20,14 @@ let mockUser: { id: string; role: string } | null = {
   role: "member",
 } as never;
 
-mock.module("$server/auth/middleware", () => ({
-  requireAuth: () => {
-    if (!mockUser) {
-      throw new Response(JSON.stringify({ error: "auth" }), { status: 401 });
-    }
-    return mockUser;
-  },
-}));
+// auth/middleware: registered in beforeAll below, not here at module top
+// level — item C2 (W18 hygiene). The $server/auth/middleware alias is
+// claimed by dozens of files repo-wide, so whichever file's registration is
+// active when a shared-process run resolves the alias wins for every OTHER
+// file too. beforeAll (test-execution time) plus a complete serverModule()
+// factory make THIS file's own requireAuth override active for THIS file's
+// own tests, and afterAll hands the alias back to the real module.
+const realAuthMiddleware = serverModule("auth/middleware", {});
 
 mock.module("$lib/server/http-errors", () => ({
   errorJson: (status: number, message: string) =>
@@ -59,9 +60,14 @@ let mockExt:
   | { id: string; manifest: { settings?: unknown } | null }
   | null = null;
 const mockGetExtension = mock(async (_id: string) => mockExt);
-mock.module("$server/db/queries/extensions", () => ({
-  getExtension: mockGetExtension,
-}));
+// Registered in beforeAll below, not here at module top level — item C2
+// (W18 hygiene). Confirmed independently on the original committed pair: a
+// raw partial mock here (missing disableExtension and everything else the
+// real module exports) froze whichever OTHER file's route resolved the
+// $server/db/queries/extensions alias next in the same process on this
+// narrow shape — "Export named 'disableExtension' not found" in
+// extensions-api.test.ts when it ran after this file.
+const realDbQueriesExtensions = serverModule("db/queries/extensions", {});
 
 let mockUserValues: Record<string, unknown> = {};
 let mockResolved: Record<string, unknown> = {};
@@ -114,7 +120,17 @@ const mockClearSecret = mock(
   async (extId: string, userId: string, storageKey: string) =>
     mockSecretStore.delete(secretKeyOf(extId, userId, storageKey)),
 );
-mock.module("$server/extensions/secret-settings", () => ({
+// Registered in beforeAll below, not here at module top level — item C2
+// (W18 hygiene). Confirmed independently: a raw partial mock here (missing
+// encryptStorageValue and everything else the real module exports) froze
+// whichever OTHER file's route resolved the $server/extensions/secret-settings
+// alias next in the same process on this narrow shape — "Export named
+// 'encryptStorageValue' not found" in extensions-api.test.ts (which reaches
+// this module transitively via extension-lifecycle-service) when it ran
+// after this file.
+const realSecretSettings = serverModule("extensions/secret-settings", {});
+const secretSettingsMock = () => ({
+  ...realSecretSettings,
   setSecretSetting: mockSetSecret,
   clearSecretSetting: mockClearSecret,
   isSecretSettingSet: async (extId: string, userId: string, storageKey: string) =>
@@ -134,7 +150,7 @@ mock.module("$server/extensions/secret-settings", () => ({
     }
     return out;
   },
-}));
+});
 
 // §5.2 — the route delegates held-capability resolution to the search
 // policy module. Mock it so the route's projection is the only thing
@@ -144,6 +160,28 @@ const mockGetHeldCapabilities = mock(async (_granted: unknown) => mockCapabiliti
 mock.module("$server/search/policy", () => ({
   getHeldCapabilities: mockGetHeldCapabilities,
 }));
+
+beforeAll(() => {
+  mock.module("$server/auth/middleware", () => ({
+    ...realAuthMiddleware,
+    requireAuth: () => {
+      if (!mockUser) {
+        throw new Response(JSON.stringify({ error: "auth" }), { status: 401 });
+      }
+      return mockUser;
+    },
+  }));
+  mock.module("$server/db/queries/extensions", () => ({
+    ...realDbQueriesExtensions,
+    getExtension: mockGetExtension,
+  }));
+  mock.module("$server/extensions/secret-settings", secretSettingsMock);
+});
+afterAll(() => {
+  mock.module("$server/auth/middleware", () => realAuthMiddleware);
+  mock.module("$server/db/queries/extensions", () => realDbQueriesExtensions);
+  mock.module("$server/extensions/secret-settings", () => realSecretSettings);
+});
 
 const settingsRoute = await import(
   "../routes/api/extensions/[id]/settings/+server"

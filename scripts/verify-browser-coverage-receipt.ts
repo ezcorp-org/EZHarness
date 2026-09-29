@@ -6,6 +6,7 @@ import { REPO_ROOT } from "./coverage-config.ts";
 import { coverageToLcovFromBuild, type RawCoverage } from "./browser-coverage-to-lcov.ts";
 import { assertBrowserCanonicalSources, assertCompleteRouteInventory } from "./browser-route-coverage-manifest.ts";
 import { assertCleanGitWorktree } from "./git-worktree-clean.ts";
+import { currentRepositoryGitContext } from "@ezcorp/sdk/git";
 
 export type BrowserCoverageReceiptVerifier = {
   repoRoot: string;
@@ -27,7 +28,10 @@ export function browserCoverageReceiptVerifierForRoot(
 ): BrowserCoverageReceiptVerifier {
   return {
     repoRoot,
-    currentHead: () => Bun.spawnSync(["git", "rev-parse", "HEAD"], { cwd: repoRoot }).stdout.toString().trim(),
+    // Item C2 (W18 hygiene): this reads repoRoot's OWN current HEAD as
+    // invoked, so it keeps the invoking git context
+    // (currentRepositoryGitContext(), never withoutGitContext()).
+    currentHead: () => Bun.spawnSync(["git", "rev-parse", "HEAD"], { cwd: repoRoot, env: currentRepositoryGitContext(process.env) }).stdout.toString().trim(),
     assertCleanWorktree: () => assertCleanGitWorktree(repoRoot),
     readManifest: () => Bun.file(resolve(repoRoot, "web/build/client/manifest.json")).arrayBuffer(),
     remap: coverageToLcovFromBuild,

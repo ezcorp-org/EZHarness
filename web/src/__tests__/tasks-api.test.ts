@@ -1,5 +1,5 @@
-import { test, expect, describe, beforeEach, mock } from "bun:test";
-import { webLibModule } from "../../../src/__tests__/helpers/mock-cleanup";
+import { test, expect, describe, beforeEach, beforeAll, afterAll, mock } from "bun:test";
+import { webLibModule, serverModule } from "../../../src/__tests__/helpers/mock-cleanup";
 import type { TaskSnapshot } from "../../../src/runtime/task-tracking-host";
 import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
@@ -39,9 +39,16 @@ mock.module("$server/runtime/task-tracking-host", () => ({
 const mockUser: { id: string; email: string; name: string; role: string } = {
   id: "user-1", email: "test@test.com", name: "Test", role: "member",
 };
-mock.module("$server/auth/middleware", () => ({
-  requireAuth: (locals: any) => locals?.user ?? mockUser,
-}));
+const realAuthMiddleware = serverModule("auth/middleware", {});
+beforeAll(() => {
+  mock.module("$server/auth/middleware", () => ({
+    ...realAuthMiddleware,
+    requireAuth: (locals: any) => locals?.user ?? mockUser,
+  }));
+});
+afterAll(() => {
+  mock.module("$server/auth/middleware", () => realAuthMiddleware);
+});
 
 let mockScopeResponse: Response | null = null;
 const apiKeysExports = webLibModule("server/security/api-keys", {

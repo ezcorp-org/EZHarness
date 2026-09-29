@@ -1,0 +1,68 @@
+W18 hygiene item C2 — validator-3 verdict
+Branch wp/w18-hygiene-c2, head 4500e1e2f341eb047b228a3d435ec60e6a5b7ea1 (rebased onto item C's final 5da8fffed),
+integ base for the gates c3da32784 (contains item C). Scratch worktree .worktrees/val3-c2b, frozen installs, core.bare
+false (worktree), archy noreply identity, GIT_* cleared, GIT_CONFIG_NOSYSTEM=1, bun and bunx both asserted 1.3.14
+before every hold. Evidence: /tmp/factory-platform-evidence/w18-hygiene-validation/{c2,c2-fixed,c2-final}/.
+Shared /home/dev/work/EZCorp/EZHarness/.git/config sha256 44962525f1ca1a8b before and after every run.
+
+VERDICT: ACCEPT at aa224afa2 (heavy legs at 4500e1e2f carry over: aa224afa2 changes only the mock guard test, two pair-test
+labels and the gates doc). L1 closed at aa224afa2; one cosmetic label item and an informational note remain; W18c rebase note below.
+
+VERIFIED
+- Identity: all 17 commits over 5da8fffed author and committer archy <281643943+EZArchy@users.noreply.github.com>.
+- Rebase: the pre-fix rebased tip 0b69f9140 differs from the pre-rebase 58269bbe6 only in the gates doc, which holds
+  item C's F2 text and C2's GC11-15 with no conflict markers.
+- Class A: src/extensions/git.ts gitExec, scripts/unlanded-branches.ts, docs-updater and repo-activity-notify use
+  withoutGitContext(); my poison run over the six previously failing files passes (25, 28, 40, 5, 9, 2; 0 fail),
+  dummy byte-identical, control leaks.
+- Class B (M3): the six gate scripts call currentRepositoryGitContext() (withoutGitContext only in comments); the
+  hook-like GIT_INDEX_FILE test in git-worktree-clean.test.ts goes red when the script strips (6 pass / 1 fail);
+  each of the three local copies made to strip turns its suite red (2 fails each). GC15 now names the import cause.
+- Git-spawn guard (L1): 19/0; adding ...process.env to git-reader.ts's node spawn or to createProjectCommandRunner's
+  environment turns it red (17 pass / 2 fail each).
+- Mock guard: 41/0, no exemption list; a lazy inline serverModule("auth/middleware") planted in a web test is refused.
+- OPEN-1 (extensions-api -> extension-settings-api, read-only key 200 instead of 403): fixed in 7705cb1cf; the committed
+  web-mock-pair-pollution.test.ts now has that direction, asserting the two scope tests by name.
+- OPEN-2 (import commit <-> preview via web/src/routes/api/import/common.ts): fixed in b873960b6 (spyOn on the alias's
+  object, restored in afterAll), both orders in the committed test.
+- Red proof of the committed pair test (copied from 4500e1e2f into each pre-fix commit, under the lock):
+  8275cccd4 0 pass / 5 fail (OPEN-1 security case included); 73dece901 1 pass / 4 fail (the security case, fixed
+  earlier, is the pass); 0b69f9140 3 pass / 2 fail (both OPEN-2 orders). Head 5 pass / 0 fail.
+- Heavy legs at 4500e1e2f under the lock, gate before each leg (c2-final/results.txt, 20:42:24Z):
+  focused producer (same 405 files and order) 5705 pass / 6 skip / 0 fail, 0 load errors; the split gate-scripts
+  cases passed under load. Web pool 3630 pass / 0 fail / 194 files. Item C's eight pair orderings (27, 27, 19, 19,
+  25, 25, 17, 17, all 0 fail), four together 44/0. Small suites (git-spawn guard, git-worktree-clean, sdk/git,
+  git-hooks) 61/0. typecheck, lint, gate-integrity (BASE_REF=c3da32784), check-boundaries (5731 files, 0 violations),
+  check-factory-boundaries: 0. New-file coverage PASSED (1 new file gated).
+- gate-scripts split: one spawn per case with a 60 s bound and the stall-at-fork cause written beside it; no
+  elapsed-time assertion.
+
+PATCH GATE: PASSED (producer artefact at first run, resolved)
+  First run (focused lcov only) named docs/extensions/examples/docs-updater/index.ts,
+  docs/extensions/examples/repo-activity-notify/index.ts and scripts/git-worktree-clean.ts (no lcov data), and
+  packages/@ezcorp/sdk/src/git/index.ts lines 102-104 (the SDK's currentRepositoryGitContext()). The suites that load
+  them are outside the 405-file focused list. Proof leg under the lock (c2-final/patch2-run.log, 22:33:13Z): those five
+  suites with coverage (git-worktree-clean, sdk/git index, docs-updater git + index.integration, repo-activity-notify
+  git) 31 pass / 0 fail, merged onto the focused lcov (1071 source files): patch coverage vs c3da32784 PASSED, all
+  changed executable lines covered (7 files); new-file PASSED. Not a C2 gap.
+
+FINDINGS
+L1 (low, DRY) — CLOSED at aa224afa2: one predicate isLazyUnresolvedHelperCall(body, scope: "web" | "root"),
+   "root" never refusing; isCompleteServerFactoryBody delegates to it and the web-wide scan passes "web". Plants at
+   aa224afa2 with the real helper names: web/ lazy serverModule refused (43/1), web/ lazy webLibModule refused (43/1),
+   repo-root lazy serverModule accepted (44/0); mock guard 44/0 unplanted; typecheck, lint, gate-integrity
+   (BASE_REF=c3da32784) 0; tree clean; shared config 44962525f1ca1a8b.
+L2 (cosmetic, residual): aa224afa2 relabelled BOTH OPEN-1 cases to $lib/server/security/api-keys. That is right for the
+   by-name case (extensions-api then extension-settings-api), but the reverse-order case (extension-settings-api then
+   extensions-api) is the $server/extensions/secret-settings collision fixed in 0b69f9140; its old label was correct.
+N1 (informational): the lazy-shape check is textual ("serverModule(" / "webLibModule("). A helper imported under
+   another name (import { webLibModule as x }) passes unseen. No file does this today; a rename-proof check is optional.
+
+NOTE FOR THE REBASE ONTO W18c: W18c (wp/w18c-mainline-gates 8cee345cf) changed the same gate-scripts "isolated
+parser dependency" test (registry auto-install of typescript in a node_modules-free fixture; offline fixture with an
+unreachable registry and an empty install cache). The final form after C2 rebases must keep W18c's offline fixture,
+with C2's per-case spawns and bounds on top and both causes named.
+
+2026-09-27 pre-diff 2e7b2850c (over aa224afa2; archy noreply): one line in src/__tests__/web-mock-pair-pollution.test.ts;
+the reverse-order OPEN-1 case label back to $server/extensions/secret-settings, the by-name OPEN-1 case unchanged at
+$lib/server/security/api-keys. L2 CLOSED. Remaining: N1 (informational only). Final re-diff follows the rebase onto W18c.

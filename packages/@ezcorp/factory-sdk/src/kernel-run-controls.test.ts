@@ -305,3 +305,38 @@ test("a stop effect is refused unless it is a known effect on a release node's c
   expect(() => advanceKernel(tasks, admitted.nextState, { kind: "attempt-stopped", id: "task-effect", atMs: 2, nodeId: "hold", commandId: dispatch.id, candidateGeneration: 0, attempt: dispatch.attempt, effect: "uncertain" } as never))
     .toThrow("an attempt-stopped effect names a release's external effect and needs a certain stop");
 });
+
+/** Both task nodes wait for compute admission when the user cancels; each gets a cancel-node naming its admission. */
+function cancelledWhileReserved(runId: string) {
+  const factory = taskFactory();
+  const started = start(factory, runId);
+  const cancelled = advanceKernel(factory, started.state, { kind: "cancel", id: `${runId}:cancel`, atMs: 1, reason: "user stop" });
+  const cancels = cancelled.commands.filter((command): command is Extract<KernelCommand, { kind: "cancel-node" }> => command.kind === "cancel-node");
+  return { factory, started, state: cancelled.nextState, cancels };
+}
+
+const stoppedBeforeAdmission = (cancel: Extract<KernelCommand, { kind: "cancel-node" }>, values: Record<string, unknown> = {}) =>
+  ({ kind: "attempt-stopped", id: `${cancel.id}:stopped`, atMs: 2, nodeId: cancel.nodeId, commandId: cancel.attemptCommandId, candidateGeneration: cancel.candidateGeneration, attempt: cancel.attempt, stoppedBefore: "admission", ...values }) as never;
+
+// W09h R2: a node stopped while it waits for compute admission settles in place; the run ends without the pool.
+test("a task stopped before compute admission is cancelled by name and the run ends", () => {
+  const { factory, started, state, cancels } = cancelledWhileReserved("admission-stop");
+  const admissions = started.commands.filter(command => command.kind === "request-admission");
+  expect(cancels.map(cancel => cancel.attemptCommandId).sort()).toEqual(admissions.map(command => command.id).sort());
+  expect(state.status).toBe("stopping");
+  const ended = cancels.reduce((current, cancel) => advanceKernel(factory, current, stoppedBeforeAdmission(cancel)).nextState, state);
+  expect(ended.status).toBe("cancelled");
+  for (const cancel of cancels) expect(ended.nodes[cancel.nodeId]).toMatchObject({ status: "cancelled", error: "STOPPED_BEFORE_ADMISSION" });
+  expect(ended.unresolvedUncertainNodeIds).toEqual([]);
+});
+
+test("stopped before admission is refused unless it is a task's certain stop with no release effect", () => {
+  const { factory, state, cancels } = cancelledWhileReserved("admission-stop-refusals");
+  for (const values of [{ stoppedBefore: "dispatch" }, { uncertain: true }]) {
+    expect(() => advanceKernel(factory, state, stoppedBeforeAdmission(cancels[0]!, values))).toThrow("an attempt-stopped before admission names a task's certain stop and no effect");
+  }
+  // A release effect on a task is already refused by W09e's rule, before this one is reached.
+  expect(() => advanceKernel(factory, state, stoppedBeforeAdmission(cancels[0]!, { uncertain: false, effect: "uncertain" }))).toThrow("an attempt-stopped effect names a release's external effect and needs a certain stop");
+  const { factory: releases, state: releasing, cancel } = releasingRun("admission-stop-release");
+  expect(() => advanceKernel(releases, releasing, stoppedBeforeAdmission(cancel))).toThrow("an attempt-stopped before admission names a task's certain stop and no effect");
+});

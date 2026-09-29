@@ -1,5 +1,5 @@
-import { test, expect, describe, beforeEach, afterAll, mock } from "bun:test";
-import { restoreModuleMocks, webLibModule } from "./helpers/mock-cleanup";
+import { test, expect, describe, beforeEach, beforeAll, afterAll, mock } from "bun:test";
+import { restoreModuleMocks, webLibModule, serverModule } from "./helpers/mock-cleanup";
 import { mockServerAlias, createMockEvent } from "./helpers/mock-request";
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -12,14 +12,29 @@ mock.module("../../web/src/routes/api/ext-files/[name]/[...path]/$types", () => 
 
 // Stub auth helpers — the route's security model is tested via the
 // `name` allowlist + path traversal, not the cookie flow.
-mock.module("$server/auth/middleware", () => ({
-  requireAuth: (locals: any) => {
-    if (!locals?.user) {
-      const res = new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
-      throw res;
-    }
-  },
-}));
+// auth/middleware: registered in beforeAll below, not here at module top
+// level — item C2 (W18 hygiene). A raw object literal here is a partial
+// mock (missing checkAuth/requireRole/checkProjectRole/etc.), and the
+// $server/auth/middleware alias is claimed by dozens of files repo-wide, so
+// whichever registration is active when a shared-process run resolves the
+// alias wins for every OTHER file too. beforeAll (test-execution time) plus
+// a complete serverModule() factory make THIS file's own values active for
+// THIS file's own tests; afterAll hands the alias back to the real module.
+const realAuthMiddleware = serverModule("auth/middleware", {});
+beforeAll(() => {
+  mock.module("$server/auth/middleware", () => ({
+    ...realAuthMiddleware,
+    requireAuth: (locals: any) => {
+      if (!locals?.user) {
+        const res = new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
+        throw res;
+      }
+    },
+  }));
+});
+afterAll(() => {
+  mock.module("$server/auth/middleware", () => realAuthMiddleware);
+});
 mock.module("$lib/server/security/api-keys", () => webLibModule("server/security/api-keys", {
   requireScope: () => null,
 }));

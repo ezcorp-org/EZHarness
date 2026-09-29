@@ -13,17 +13,11 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { isolatedGitEnv } from "@ezcorp/sdk/test";
+// The one production definition (item C, W18 hygiene GC5) every host-side
+// git wrapper and test helper delegates to — never reimplemented here.
+export { withoutGitContext } from "@ezcorp/sdk/git";
 
 export type GitEnv = Record<string, string>;
-
-/** Every variable except the `GIT_*` context a hook (or a parent git) exports. */
-export function withoutGitContext(env: Record<string, string | undefined>): GitEnv {
-  const out: GitEnv = {};
-  for (const [name, value] of Object.entries(env)) {
-    if (value !== undefined && !name.startsWith("GIT_")) out[name] = value;
-  }
-  return out;
-}
 
 /**
  * `env` with no git context, `home` as HOME, and GIT_CONFIG_NOSYSTEM=1, so

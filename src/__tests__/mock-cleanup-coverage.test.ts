@@ -914,11 +914,100 @@ function isCompleteLibFactoryBody(body: string): boolean {
  * LATER file's route module first resolved the alias froze that later file
  * on the narrow shape).
  */
-function isCompleteServerFactoryBody(body: string): boolean {
+/**
+ * Is `body` a LAZY, INLINE `() => serverModule(...)` / `() =>
+ * webLibModule(...)` factory call — the item-A self-recursion hazard,
+ * SHARED between `isCompleteServerFactoryBody()` below (validator-3 L2;
+ * `serverModule()` only, checked repo-wide including the root) and the
+ * web/-wide guard further down (validator-3 L-b; both helpers, `web/`
+ * only). One predicate, not two that can silently disagree — the two used
+ * to be separate functions, and did disagree: this one refused the lazy
+ * shape at the repo root too, where the evidence below shows it is safe.
+ *
+ * `serverModule()`/`webLibModule()` call `require()` on the relative path
+ * fresh, every time they run, and an INLINE call has no guarantee it runs
+ * BEFORE the alias's own `mock.module()` registration takes hold, unlike a
+ * PRECOMPUTED `const realX = serverModule(...)` at module top level, which
+ * always runs first, synchronously, at module load. If the alias and the
+ * relative `require()` ever resolve to the SAME module, an inline call can
+ * self-recurse against its own half-registered value.
+ *
+ * SCOPED, because that self-recursion is not universal — it is a property
+ * of `web/`'s OWN module resolution (`.svelte-kit/tsconfig.json` maps
+ * `$server/*`/`$lib/*` to the SAME files the two helpers `require()`
+ * relatively), not of the helpers themselves. MEASURED directly (standby
+ * plants, `/tmp/factory-platform-evidence/w18-hygiene-c2-standby/`, one
+ * alias per helper, lazy vs. precomputed, `web/` vs. the repo root):
+ *
+ * | helper       | alias                          | root | shape       | result                              |
+ * |--------------|---------------------------------|------|-------------|-------------------------------------|
+ * | serverModule | `$server/auth/middleware`       | web/ | lazy        | `keys=[]`, `overrideApplied=false`  |
+ * | serverModule | `$server/auth/middleware`       | web/ | precomputed | 9 real keys, `overrideApplied=true` |
+ * | serverModule | `$server/auth/middleware`       | root | lazy        | 9 real keys, `overrideApplied=true` |
+ * | serverModule | `$server/auth/middleware`       | root | precomputed | 9 real keys, `overrideApplied=true` |
+ * | webLibModule | `$lib/server/security/api-keys` | web/ | lazy        | `keys=[]`, `overrideApplied=false`  |
+ * | webLibModule | `$lib/server/security/api-keys` | web/ | precomputed | 12 real keys, `overrideApplied=true`|
+ * | webLibModule | `$lib/server/security/api-keys` | root | lazy        | 12 real keys, `overrideApplied=true`|
+ * | webLibModule | `$lib/server/security/api-keys` | root | precomputed | 12 real keys, `overrideApplied=true`|
+ *
+ * Under `web/`, BOTH helpers self-recurse to an EMPTY module for the lazy
+ * shape — worse than a partial factory (`Object.keys(mod)` is empty,
+ * `overrideApplied` is false). At the repo root, the SAME lazy shape —
+ * for the SAME alias this predicate's `serverModule()` half already
+ * covered repo-wide — comes back complete either way. So: `root` never
+ * refuses (this predicate's OLD, repo-wide `serverModule()` refusal of the
+ * root-side lazy shape was therefore a FALSE POSITIVE, not a rule item C
+ * relied on for some other reason — its own real fix,
+ * `extension-event-end-to-end.test.ts`'s conversion to the precomputed
+ * form, remains a genuine improvement regardless of whether this predicate
+ * enforces it structurally at root); `web` always does.
+ */
+function isLazyUnresolvedHelperCall(body: string, scope: "web" | "root"): boolean {
+  if (scope === "root") return false;
   const b = body.trim();
-  if (b.includes("serverModule(")) return true;
+  return /^\(\)\s*=>/.test(b) && (b.includes("serverModule(") || b.includes("webLibModule("));
+}
+
+/**
+ * `serverModule()`'s counterpart to `isCompleteLibFactoryBody` above, for a
+ * `$server/*` alias backed by a real `src/` module (rather than a `$lib/*`
+ * one). Same rule: a raw object literal freezes the export list to whatever
+ * keys the test author wrote down — the item C leak (extensions-patch-route.test.ts,
+ * extensions-delete-route-policy.test.ts once mocked extension-lifecycle-service
+ * and registry this way; whichever file's registration was active when a
+ * LATER file's route module first resolved the alias froze that later file
+ * on the narrow shape). `scope` defaults to `"web"` (the stricter of the
+ * two — every existing unit fixture below that doesn't pass one is testing
+ * a scope-independent rule, so the default never changes their answer);
+ * the repo-wide scan below passes the real scope per file.
+ */
+function isCompleteServerFactoryBody(body: string, source?: string, scope: "web" | "root" = "web"): boolean {
+  const b = body.trim();
+  if (!isLazyUnresolvedHelperCall(b, scope) && b.includes("serverModule(")) return true;
   if (/^\(\)\s*=>\s*require\(\s*"[^"]+"\s*\)\s*,?\s*$/.test(b)) return true;
   if (/\{\s*\.\.\.\s*require\(\s*"[^"]+"\s*\)/.test(b)) return true;
+  // A precomputed identifier spread — `{ ...realThing, override: ... }` —
+  // is complete when the identifier's own `const NAME = <expr>;`
+  // declaration is itself one of the shapes above. This is the
+  // precompute-once pattern (item C2, W18 hygiene): a caller that KEEPS an
+  // alias registered (auth/middleware is claimed by dozens of files, so
+  // withdrawing it repo-wide is not viable the way it was for
+  // extension-lifecycle-service/registry) and needs its overrides re-applied
+  // inside `beforeAll` cannot inline `serverModule(...)` in the factory body
+  // itself — that would recompute the real module fresh on every
+  // `beforeAll`, which is harmless but pointless, and more importantly the
+  // established convention elsewhere in this file is always to precompute
+  // once, outside any mock.module() factory, to avoid the self-recursion
+  // hazard when the alias and the relative require() resolve to the same
+  // module. The walker must recognize that shape as complete too, not only
+  // an inline call.
+  if (source) {
+    const spreadIdent = /\{\s*\.\.\.\s*([A-Za-z_$][\w$]*)/.exec(b);
+    if (spreadIdent) {
+      const resolved = resolveConstDecl(stripCommentLines(source), spreadIdent[1]!);
+      if (resolved !== null && isCompleteServerFactoryBody(resolved, undefined, scope)) return true;
+    }
+  }
   return false;
 }
 
@@ -1075,6 +1164,93 @@ describe("$lib/* factory completeness detector (general rule, pinned by fixture)
   });
 });
 
+describe("$server/* factory completeness detector (general rule, pinned by fixture)", () => {
+  test("a LAZY, INLINE serverModule(...) call — never precomputed — is INCOMPLETE (item A self-recursion hazard, validator-3 L2)", () => {
+    // This exact string used to be pinned as COMPLETE (true) here — that was
+    // the bug: it mentions serverModule( just like the safe precomputed
+    // shape below, but was never assigned to a const before the
+    // mock.module() registration, so nothing guarantees it runs before the
+    // alias's own registration takes hold. A real repo offender existed at
+    // this shape when this was fixed (extension-event-end-to-end.test.ts,
+    // three call sites, converted to the precomputed form alongside this
+    // test).
+    expect(
+      isCompleteServerFactoryBody('() => serverModule("auth/middleware", { requireAuth: () => null })'),
+    ).toBe(false);
+  });
+
+  test("a precomputed serverModule(...) call, already resolved through its own const declaration, is complete", () => {
+    // The safe counterpart to the fixture above: same call, but the text
+    // here is what extractLibFactoryBodies() (or the spreadIdent branch)
+    // hands back AFTER resolving a preceding `const NAME = serverModule(...)`
+    // declaration — no `() =>` wrapper survives that resolution, which is
+    // exactly the signal isCompleteServerFactoryBody() uses to tell the two
+    // apart.
+    expect(
+      isCompleteServerFactoryBody('serverModule("auth/middleware", { requireAuth: () => null })'),
+    ).toBe(true);
+  });
+
+  test("a bare require(...) passthrough factory is complete, single- and multi-line", () => {
+    expect(isCompleteServerFactoryBody('() => require("../../auth/middleware")')).toBe(true);
+    expect(isCompleteServerFactoryBody('() =>\n  require("../../auth/middleware"),')).toBe(true);
+  });
+
+  test("an object literal that spreads a require(...) passthrough under overrides is complete", () => {
+    expect(
+      isCompleteServerFactoryBody('() => ({ ...require("../../auth/middleware"), requireAuth: () => null })'),
+    ).toBe(true);
+  });
+
+  test("a raw object literal with no spread of the real module is PARTIAL — rejected", () => {
+    expect(isCompleteServerFactoryBody("() => ({ requireAuth: () => null })")).toBe(false);
+  });
+
+  test("a precomputed identifier spread resolves through its own const declaration (item C2 shape)", () => {
+    // The pattern every beforeAll-scoped auth/middleware fix uses: precompute
+    // the real+override merge ONCE at module top level (never lazily inside
+    // the mock.module() factory, which would self-recurse when the alias
+    // and the relative require() resolve to the same module — see
+    // extensions-api.test.ts's own comment), then spread the CONSTANT inside
+    // beforeAll. The walker must resolve `realAuthMiddleware` back through
+    // its own declaration rather than only recognizing an inline call.
+    const complete = [
+      'const realAuthMiddleware = serverModule("auth/middleware", {});',
+      'mock.module("$server/auth/middleware", () => ({ ...realAuthMiddleware, requireAuth: mockRequireAuth }));',
+    ].join("\n");
+    const partial = [
+      "const realAuthMiddleware = { requireAuth: () => null };", // NOT a real-module spread
+      'mock.module("$server/auth/middleware", () => ({ ...realAuthMiddleware, requireAuth: mockRequireAuth }));',
+    ].join("\n");
+
+    const completeBodies = extractLibFactoryBodies(complete, "$server/auth/middleware");
+    expect(completeBodies).toHaveLength(1);
+    expect(isCompleteServerFactoryBody(completeBodies[0]!, complete)).toBe(true);
+    // Without the source parameter, the walker can't resolve the identifier
+    // and must not silently pass it — this is the exact gap that motivated
+    // the source-aware branch, pinned here so it can't regress unnoticed.
+    expect(isCompleteServerFactoryBody(completeBodies[0]!)).toBe(false);
+
+    const partialBodies = extractLibFactoryBodies(partial, "$server/auth/middleware");
+    expect(partialBodies).toHaveLength(1);
+    expect(isCompleteServerFactoryBody(partialBodies[0]!, partial)).toBe(false);
+  });
+
+  test("a bare-identifier factory (pre-F1 shape) resolves to its declaration", () => {
+    const complete = [
+      'const authMock = serverModule("auth/middleware", { requireAuth: () => null });',
+      'mock.module("$server/auth/middleware", authMock);',
+    ].join("\n");
+    const partial = [
+      "const authMock = () => ({ requireAuth: () => null });",
+      'mock.module("$server/auth/middleware", authMock);',
+    ].join("\n");
+
+    expect(isCompleteServerFactoryBody(extractLibFactoryBodies(complete, "$server/auth/middleware")[0]!)).toBe(true);
+    expect(isCompleteServerFactoryBody(extractLibFactoryBodies(partial, "$server/auth/middleware")[0]!)).toBe(false);
+  });
+});
+
 describe("F1 guard: every $lib/server/security/api-keys mock is complete (W18 hygiene)", () => {
   const TARGET = "$lib/server/security/api-keys";
 
@@ -1117,6 +1293,73 @@ describe("F1 guard: every $lib/server/security/api-keys mock is complete (W18 hy
   });
 });
 
+/**
+ * validator-3 L-b: the two F1-guard blocks above (and GC17's fix) only ever
+ * checked a short, hand-kept list of aliases known ahead of time to have
+ * been broken once (api-keys; extension-lifecycle-service/registry/auth-
+ * middleware). The self-recursion hazard `isLazyUnresolvedHelperCall()`
+ * (above, shared with `isCompleteServerFactoryBody()`) checks for is not
+ * specific to those aliases — it is a property of `web/`'s OWN module
+ * resolution, so this scans every `web/` test file for every
+ * `$server/*`/`$lib/*` alias, not a hand-kept list. 0 offenders today
+ * (verified below); the root-side lazy shape is safe by the SAME
+ * measurement (see that function's doc for the full table) and stays
+ * permitted there — root-side inline `webLibModule()` alone is 25 files
+ * repo-wide today, cataloged, out of scope for this guard.
+ */
+function extractAllAliasFactories(source: string): Array<{ alias: string; body: string }> {
+  const stripped = stripCommentLines(source);
+  const aliases = new Set<string>();
+  for (const m of stripped.matchAll(/mock\.module\(\s*"(\$(?:server|lib)\/[^"]+)"/g)) aliases.add(m[1]!);
+  const out: Array<{ alias: string; body: string }> = [];
+  for (const alias of aliases) {
+    for (const body of extractLibFactoryBodies(source, alias)) out.push({ alias, body });
+  }
+  return out;
+}
+
+describe("web/-wide lazy inline helper factory guard (validator-3 L-b)", () => {
+  test("no \\$server/* or \\$lib/* mock.module factory in web/ test files is a lazy, unresolved serverModule()/webLibModule() call", () => {
+    const webRoot = join(import.meta.dir, "..", "..", "web", "src");
+    const repoRoot = join(import.meta.dir, "..", "..");
+    const files = listTestFiles(webRoot);
+
+    const offenders: string[] = [];
+    for (const file of files) {
+      const source = readFileSync(file, "utf8");
+      for (const { alias, body } of extractAllAliasFactories(source)) {
+        if (isLazyUnresolvedHelperCall(body, "web")) {
+          offenders.push(`${relative(repoRoot, file)} (${alias})`);
+        }
+      }
+    }
+
+    if (offenders.length > 0) {
+      console.error(
+        `Lazy, unresolved serverModule()/webLibModule() mock.module factory in: ${offenders.join(", ")}. ` +
+          `Precompute the real+override merge in a const BEFORE any mock.module() registration for the ` +
+          `same alias (e.g. const realX = serverModule('path', {}); mock.module(alias, () => ({ ` +
+          `...realX, ...overrides }));"), never call serverModule()/webLibModule() directly inside the ` +
+          `factory itself — under web/, that self-recurses and comes back with no exports at all.`,
+      );
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  test("the detector itself, web scope: lazy is refused, precomputed (resolved, no wrapper) is accepted", () => {
+    expect(isLazyUnresolvedHelperCall('() => serverModule("auth/middleware", { requireAuth: () => null })', "web")).toBe(true);
+    expect(isLazyUnresolvedHelperCall('() => webLibModule("server/security/api-keys", { requireScope: () => null })', "web")).toBe(true);
+    expect(isLazyUnresolvedHelperCall('serverModule("auth/middleware", { requireAuth: () => null })', "web")).toBe(false);
+    expect(isLazyUnresolvedHelperCall('webLibModule("server/security/api-keys", { requireScope: () => null })', "web")).toBe(false);
+    expect(isLazyUnresolvedHelperCall('() => ({ ...realThing, requireAuth: () => null })', "web")).toBe(false);
+  });
+
+  test("the detector itself, root scope: the SAME lazy shape is accepted — the plant evidence's root-side result, not a separate rule", () => {
+    expect(isLazyUnresolvedHelperCall('() => serverModule("auth/middleware", { requireAuth: () => null })', "root")).toBe(false);
+    expect(isLazyUnresolvedHelperCall('() => webLibModule("server/security/api-keys", { requireScope: () => null })', "root")).toBe(false);
+  });
+});
+
 // Item C: extensions-patch-route.test.ts and extensions-delete-route-policy.test.ts
 // once mocked these two `$server/*` aliases with hand-rolled partial object
 // literals. Whichever file's registration was active when a LATER file's
@@ -1134,7 +1377,7 @@ describe("F1 guard: every $lib/server/security/api-keys mock is complete (W18 hy
 // module. No by-name exemption list remains: one exists only so a new guard
 // can pass, which makes it an EXCLUDES list, and those are forbidden here.
 describe("F1 guard: every extension-lifecycle-service/registry mock is complete (W18 hygiene item C)", () => {
-  const TARGETS = ["$server/extensions/extension-lifecycle-service", "$server/extensions/registry"] as const;
+  const TARGETS = ["$server/extensions/extension-lifecycle-service", "$server/extensions/registry", "$server/auth/middleware"] as const;
 
   test("every mock.module($server/extensions/{extension-lifecycle-service,registry}, …) factory is complete", () => {
     const roots = [
@@ -1153,10 +1396,15 @@ describe("F1 guard: every extension-lifecycle-service/registry mock is complete 
     const offenders: string[] = [];
     for (const file of files) {
       const rel = relative(repoRoot, file);
+      // The lazy-inline-serverModule() self-recursion hazard is web/-only
+      // (see isLazyUnresolvedHelperCall()'s doc) — scope this check per
+      // file so a root-side file isn't held to a rule the plant evidence
+      // shows does not apply to it.
+      const scope: "web" | "root" = rel.startsWith("web/") ? "web" : "root";
       const src = readFileSync(file, "utf8");
       for (const target of TARGETS) {
         for (const body of extractLibFactoryBodies(src, target)) {
-          if (!isCompleteServerFactoryBody(body)) offenders.push(`${rel} (${target})`);
+          if (!isCompleteServerFactoryBody(body, src, scope)) offenders.push(`${rel} (${target})`);
         }
       }
     }

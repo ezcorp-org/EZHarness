@@ -5057,7 +5057,7 @@ Gates: `tasks/factory/w18-hygiene-GATES.md` (GC1 through GC10). Worktree:
   full web bun-leg pool (3630/0 across 194 files) all clean. Details in GATES.md GC10.
 - [x] GC5 (production git wrappers): moved to item C2 (branch `wp/w18-hygiene-c2`, from item C's head)
   per the coordinator's re-sequencing — not on this branch. See `tasks/factory/w18-hygiene-GATES.md`
-  GC11-14 on the C2 branch for the full write-up.
+  GC11-15 on the C2 branch for the full write-up.
 - [x] Validator-3 fix round on item C (medium F1, medium F2, lows L1-L3):
   - F1 (identity): all nine commits from `d296f0b91` through the cherry-picked gate-integrity flake fix
     were authored with a personal address copied from the worktree's inherited git config (the
@@ -5090,6 +5090,38 @@ Gates: `tasks/factory/w18-hygiene-GATES.md` (GC1 through GC10). Worktree:
     as evidence multi-file `bun test` load order is not fully pinned by argument order, not as evidence
     the underlying bug is fixed (it isn't on this branch; C2 owns that fix).
   Re-authored head before this fix round's own commit: `a9f46fbb3`. Full details: `tasks/factory/w18-hygiene-GATES.md` (GC9 entry, updated).
+
+### Item C2 (branch `wp/w18-hygiene-c2`, from item C's accepted head)
+
+- [x] GC12: `$server/auth/middleware` added to the F1 walker's guarded modules; every partial mock
+  converted (38 files, found via the real walker, not the 2 originally named); 10 of those also had a
+  second, relative-path "dual-specifier" registration, fixed identically. Walker itself extended to
+  recognize the beforeAll + precomputed-`serverModule()`-variable shape (a gap every prior TARGET had
+  never exercised, since GC9's fix for extension-lifecycle-service/registry drops the alias entirely
+  instead of keeping and completing it). Zero offenders, no exemption list. Files that mock ONLY a
+  relative path (never the alias) are outside the walker's stated target and were not chased — reported,
+  not expanded into.
+- [x] GC13: `docs/extensions/examples/repo-activity-notify/index.ts` — the fourth weak-pattern instance
+  found during GC5 — now delegates to `withoutGitContext()`. One pre-existing, unrelated test failure
+  (`extension.test.ts`'s `ContractError`) confirmed present on the unmodified file, reported not fixed.
+- [x] GC14: new repo-wide guard (`src/__tests__/git-spawn-context-guard.test.ts`) that every production
+  `git` subprocess spawn goes through `withoutGitContext()`. Found and fixed 8 further real instances
+  beyond the four named wrappers: six `scripts/*.ts` gate/coverage scripts, and
+  `packages/@ezcorp/ai-kit/src/cli/install.ts`'s `gitProjectRoot()` (a third independent reimplementation
+  of the same GIT_*-strip filter, now delegating to the canonical helper via ai-kit's already-declared
+  `@ezcorp/sdk` peer dependency). Guard-with-control: reverted one fix, confirmed the guard fails
+  naming the exact offender, restored it.
+- [x] GC15: validator-3 found the regression GC14's first draft introduced — the six gate/coverage
+  scripts needed the invoking git context KEPT (a pre-commit hook's staged view, a checkout's own
+  state), not stripped; converting them to `withoutGitContext()` broke ten tests. Fixed with a second
+  named class, `currentRepositoryGitContext()`, and reverted all six to it; three of them also needed a
+  local, non-imported copy of that function since they're each copied into a bare, `node_modules`-free
+  test fixture where a workspace-package import cannot resolve (found while fixing the first issue).
+  All ten originally-regressed tests green, plus the visual-evidence suite (broken the same way, not
+  previously reported) and the extended guard itself.
+  Full details, evidence, the poison recipe and matching counts for GC5's corrected four-site
+  disclosure (validator-3's other finding, folded into GC11 above): `tasks/factory/w18-hygiene-GATES.md`
+  GC11 (correction), GC12-15.
 
 ## W12d — reproducible data image build (branch `wp/w12d-reproducible-image`)
 
@@ -5290,3 +5322,22 @@ port collision, a crashing comparison) are fixed in W19a's harness with tests. T
 for P1, P2 (pre-R8) and P5; the evidence of record is one run at the final head after R8. Open: R8, R9's basis switch,
 the attestation refresh, P3 live (not run under A5; the user's call).
 
+## W09h — a stop during compute admission settles in place (branch `wp/w09h-admission-stop`)
+
+Gate file `tasks/factory/w09h-GATES.md`; evidence `/tmp/factory-platform-evidence/w09h/`.
+
+- [x] R1 reproduce first: a cancel while a node waits for admission leaves the run `stopping` and the hold `held` (real PostgreSQL, red on `a24a619ad` and `ef0868738`)
+- [x] R2 the stop settles the reserved attempt in place, records the stop on the admission row, kernel `stoppedBefore: "admission"`; the old pin replaced red first — `b109144fa`
+- [x] R3 a late grant is refused `factory_compute_admission_attempt_stopped` and released through the worker's authority-loss cancel — `6350b62b3`
+- [x] R4 the hold settles all zero under "no-operations: nothing launched, all zero" (additive CHECK migration, clause-removed test) — `bbf02876a`, corrected by `5d6d398f9`
+- [x] R5 lock order: both contenders take the run lock before the admission row, both orders on real PostgreSQL — `f70c06fbe`
+- [x] Legs, coverage gates and the graph-proof runbook at the `wp/w09h-admission-stop` head `ef3f64457` (rebased onto `e92d34d45`); validator-5 M1 fixed in `ef3f64457`
+- [ ] W02d follow-up (not in W09h): R8 and R9 move to the shared basis after W09h lands; the queued-host P3/P5 cases rerun
+
+### Review
+
+A run cancelled while a node waited for compute admission never ended: the cancel named the request-admission
+command, the task stop found no queued attempt and refused it stale. W09h settles that attempt in the stop's own
+transaction (no claim, no capacity), records the stop on the admission row, releases the unused hold at zero under a
+true basis, and refuses a late grant by name. The first R4 form charged compute at the reserved bound, a false basis
+for an attempt that never ran; it is corrected, not amended, so the reported SHAs stay valid.

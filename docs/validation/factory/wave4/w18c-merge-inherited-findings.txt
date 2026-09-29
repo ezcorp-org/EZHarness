@@ -1,0 +1,17 @@
+Inherited gate-integrity findings (head script vs origin/main only), for w18c-merge.json. Lead ruling: record each as
+inherited through integ with its originating commit and package; not in W18c's approval text; the user's one-commit
+approval at the merge commit covers them mechanically on the origin/main leg; they carry to the PR-level label under
+their owners' names. Origin traced lock-free on integ d65886b9a (first first-parent commit of integ containing the change):
+- scripts/check-patch-coverage.ts (M): b6cfa4798 "fix(coverage): recognize type-only source files" (2026-09-13),
+  entered integ via bd2cedcc9 "merge: integrate authorized run repair/replan controls checkpoint (3a84d4867) and
+  type-only coverage correction (b6cfa4798)" - the W00 integration base checkpoint.
+- scripts/merge-browser-route-coverage.sh (M): 9bc39a30c "feat(e2e): register the factory-services browser lane in every
+  consumer" (2026-09-13), entered integ via c3e6d479a "merge: integrate W18 wave-1 coverage and CI framework
+  (wp/w18-ci-coverage)" - package W18 wave 1.
+- scripts/factory-orchestrator-v8-to-lcov.mjs (A): 7dc977525 "feat(factory): add Temporal orchestration lane" (2026-09-12),
+  changed by 1f22734ff "fix(factory): resolve coverage tools from owning workspace"; both direct commits on the feature
+  branch's first-parent line (pre-wave base).
+- scripts/node-v8-to-lcov.mjs (A): 1d4fb8bd4 "test(factory): register pool service coverage" (2026-09-13), direct commit on
+  the feature branch's first-parent line (pre-wave base).
+Re-check at the merge: the finding list the head script prints against origin/main must be exactly these four plus W18c's
+own four; any other finding goes to the lead.

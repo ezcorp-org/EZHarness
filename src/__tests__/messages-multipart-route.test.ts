@@ -2,7 +2,7 @@ import { test, expect, describe, beforeAll, afterAll, beforeEach, mock } from "b
 import { mkdtemp, rm, access } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { restoreModuleMocks, webLibModule, contextModule } from "./helpers/mock-cleanup";
+import { restoreModuleMocks, webLibModule, contextModule, serverModule } from "./helpers/mock-cleanup";
 import { setupTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglite";
 import { mockServerAlias, ADMIN_USER } from "./helpers/mock-request";
 
@@ -27,10 +27,16 @@ mock.module("$server/db/queries/conversation-extensions", () => ({
   },
 }));
 
-// Stubs for security + auth middleware that don't exist in src/ (they live in web/).
-mock.module("$server/auth/middleware", () => ({
-  requireAuth: (_locals: any) => ADMIN_USER,
-}));
+// auth/middleware: registered in beforeAll below, not here at module top
+// level — item C2 (W18 hygiene). A raw object literal here is a partial
+// mock (missing checkAuth/requireRole/checkProjectRole/etc.), and the
+// $server/auth/middleware alias is claimed by dozens of files repo-wide, so
+// whichever file's registration is active when a shared-process run
+// resolves the alias wins for every OTHER file too. beforeAll (test-execution
+// time) plus a complete serverModule() factory make THIS file's own values
+// active for THIS file's own tests, and afterAll hands the alias back to the
+// real module so a later file in the same process starts from a clean slate.
+const realAuthMiddleware = serverModule("auth/middleware", {});
 const streamChatCalls: any[] = [];
 const contextExports = contextModule({
   getExecutor: () => ({
@@ -110,6 +116,10 @@ function resetExecutorCalls() {
 
 
 beforeAll(async () => {
+  mock.module("$server/auth/middleware", () => ({
+    ...realAuthMiddleware,
+    requireAuth: (_locals: any) => ADMIN_USER,
+  }));
   await setupTestDb();
   projectRoot = await mkdtemp(join(tmpdir(), "ezcorp-mp-"));
   const project = await createProject({ name: "MP Test", path: projectRoot });
@@ -130,6 +140,7 @@ beforeEach(async () => {
 
 afterAll(async () => {
   restoreModuleMocks();
+  mock.module("$server/auth/middleware", () => realAuthMiddleware);
   await closeTestDb();
   await rm(projectRoot, { recursive: true, force: true }).catch(() => {});
 });

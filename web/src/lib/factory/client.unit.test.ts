@@ -266,6 +266,80 @@ describe("FactoryApiClient", () => {
 		expect(conflict.currentRevision).toBe(2);
 	});
 
+	// Every mutating call, exactly: the path, the verb, the whole header set
+	// (If-Match, the operation named in the Idempotency-Key, and a JSON type only
+	// when there is a body), and the body. A wrong operation name would let two
+	// different requests share one idempotency record on the server.
+	test("sends each mutation with its exact path, verb, headers, operation, and body", async () => {
+		const client = new FactoryApiClient({ fetch: fetcher as unknown as typeof fetch, idempotencyKey: operation => "key:" + operation });
+		const contractBody = { contractDigest: releaseContract.contractDigest, validatorLockDigest: releaseContract.validatorLockDigest, mandatoryClaims: [], claimGroups: [] };
+		const reconcileBody = { action: "keep_uncertain", reason: "Still unknown", providerEvidence: { lookup: true } } as const;
+		const expected: Array<{ call: () => Promise<unknown>; path: string; method: string; revision: number; operation: string; body?: unknown }> = [
+			{ call: () => client.createDraft("p/1", source), path: "/api/factories/projects/p%2F1/definitions", method: "POST", revision: 0, operation: "create:factory one", body: { source } },
+			{ call: () => client.importDraft("p/1", "json", "{}"), path: "/api/factories/projects/p%2F1/definitions/import", method: "POST", revision: 0, operation: "import", body: { format: "json", source: "{}" } },
+			{ call: () => client.saveDraft("p/1", "f/1", 3, source), path: "/api/factories/projects/p%2F1/definitions/f%2F1", method: "PUT", revision: 3, operation: "save:f/1", body: { source } },
+			{ call: () => client.archiveDraft("p/1", "f/1", 4), path: "/api/factories/projects/p%2F1/definitions/f%2F1", method: "DELETE", revision: 4, operation: "archive:f/1" },
+			{ call: () => client.publishVersion("p/1", "f/1", 5, "1.2.3"), path: "/api/factories/projects/p%2F1/definitions/f%2F1/versions", method: "POST", revision: 5, operation: "publish:f/1:1.2.3", body: { version: "1.2.3" } },
+			{ call: () => client.issueServiceCredential("p/1", "s/1", ["read"], 61_000), path: "/api/factories/projects/p%2F1/service-accounts/s%2F1/credentials", method: "POST", revision: 0, operation: "issue-credential:s/1", body: { scopes: ["read"], expiresAtMs: 61_000 } },
+			{ call: () => client.revokeServiceCredential("p/1", "s/1", "c/1", 6), path: "/api/factories/projects/p%2F1/service-accounts/s%2F1/credentials/c%2F1", method: "DELETE", revision: 6, operation: "revoke-credential:c/1" },
+			{ call: () => client.publishReleaseTrust("p/1", 7, packageLock, "sha256:" + digest), path: "/api/factories/projects/p%2F1/release/trust", method: "PUT", revision: 7, operation: "publish-release-trust:p/1", body: { packageLock, validatorTrustDigest: "sha256:" + digest } },
+			{ call: () => client.revokeReleaseTrust("p/1", 8), path: "/api/factories/projects/p%2F1/release/trust", method: "DELETE", revision: 8, operation: "revoke-release-trust:p/1" },
+			{ call: () => client.setReleaseEnabled("p/1", false, 9), path: "/api/factories/projects/p%2F1/release/control", method: "PUT", revision: 9, operation: "set-release-enabled:p/1", body: { enabled: false } },
+			{ call: () => client.putReleaseContract("p/1", "k/1", contractBody, 10), path: "/api/factories/projects/p%2F1/release/contracts/k%2F1", method: "PUT", revision: 10, operation: "put-release-contract:k/1", body: contractBody },
+			{ call: () => client.prepareRelease("p/1", releaseBody), path: "/api/factories/projects/p%2F1/releases", method: "POST", revision: 0, operation: "prepare-release:run-1:node-1", body: releaseBody },
+			{ call: () => client.requestReleaseApproval("p/1", "o/1", 70_000, 11), path: "/api/factories/projects/p%2F1/releases/o%2F1/approvals", method: "POST", revision: 11, operation: "request-release-approval:o/1", body: { expiresAtMs: 70_000 } },
+			{ call: () => client.decideReleaseApproval("p/1", "a/1", digest, "denied"), path: "/api/factories/projects/p%2F1/release/approvals/a%2F1", method: "PUT", revision: 0, operation: "decide-release-approval:a/1", body: { contextDigest: digest, decision: "denied" } },
+			{ call: () => client.decideCommandApproval("p/1", "r/1", "a/2", digest, "ship"), path: "/api/factories/projects/p%2F1/runs/r%2F1/approvals/a%2F2", method: "PUT", revision: 0, operation: "decide-command-approval:a/2", body: { contextDigest: digest, choice: "ship" } },
+			{ call: () => client.putReleasePolicy("p/1", "y/1", releasePolicy), path: "/api/factories/projects/p%2F1/release/policies/y%2F1", method: "PUT", revision: 0, operation: "put-release-policy:y/1", body: releasePolicy },
+			{ call: () => client.deleteReleasePolicy("p/1", "y/1", 12), path: "/api/factories/projects/p%2F1/release/policies/y%2F1", method: "DELETE", revision: 12, operation: "delete-release-policy:y/1" },
+			{ call: () => client.reconcileRelease("p/1", "o/1", 13, reconcileBody), path: "/api/factories/projects/p%2F1/releases/o%2F1/reconciliations", method: "POST", revision: 13, operation: "reconcile-release:o/1:13", body: reconcileBody },
+		];
+		for (const item of expected) await item.call();
+		// toStrictEqual: a body key that is present but undefined is a different request.
+		expect(calls.map(call => ({ path: call.path, init: call.init }))).toStrictEqual(expected.map(item => ({
+			path: item.path,
+			init: {
+				method: item.method,
+				headers: {
+					"If-Match": String(item.revision),
+					"Idempotency-Key": "key:" + item.operation,
+					...(item.body === undefined ? {} : { "content-type": "application/json" }),
+				},
+				...(item.body === undefined ? {} : { body: JSON.stringify(item.body) }),
+			},
+		})));
+		for (const call of calls) {
+			if (call.init?.body === undefined) expect(Object.keys(call.init?.headers ?? {})).not.toContain("content-type");
+		}
+	});
+
+	test("validates a draft with one plain JSON POST and no mutation headers", async () => {
+		const client = new FactoryApiClient({ fetch: fetcher as unknown as typeof fetch, idempotencyKey: operation => "key:" + operation });
+		await client.validateDraft("p/1", "f/1", source);
+		expect(calls).toStrictEqual([{
+			path: "/api/factories/projects/p%2F1/definitions/f%2F1/validate",
+			init: { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ source }) },
+		}]);
+	});
+
+	test("names each client-side failure exactly", async () => {
+		const failure = async (reply: Response) =>
+			new FactoryApiClient({ fetch: vi.fn(async () => reply) as unknown as typeof fetch }).getDraft("project", source.id).then(
+				() => { throw new Error("expected the request to fail"); },
+				error => error as FactoryApiClientError,
+			);
+		const invalidJson = await failure(new Response("not json", { status: 502 }));
+		expect([invalidJson.status, invalidJson.code, invalidJson.message]).toEqual([502, "factory_invalid_response", "The factory service returned invalid JSON."]);
+		const invalidShape = await failure(Response.json({ kind: "unknown" }));
+		expect(invalidShape.code).toBe("factory_invalid_response");
+		expect(invalidShape.message).not.toBe("The factory service returned an invalid response.");
+		expect(invalidShape.message.length).toBeGreaterThan(0);
+		const httpFailure = await failure(api(response("draft.page"), 500));
+		expect([httpFailure.status, httpFailure.code, httpFailure.message]).toEqual([500, "factory_http_error", "The factory request failed."]);
+		const wrongKind = await failure(api(response("draft.summary")));
+		expect([wrongKind.status, wrongKind.code, wrongKind.message]).toEqual([502, "factory_response_kind", "The factory service returned draft.summary instead of draft.details."]);
+	});
+
 	test("creates a complete SDK-shaped empty draft", () => {
 		expect(blankFactory("first.factory")).toEqual({
 			schemaVersion: "factory.v1",

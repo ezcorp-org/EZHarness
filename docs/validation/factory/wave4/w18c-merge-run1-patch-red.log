@@ -1,0 +1,4 @@
+Patch coverage gate FAILED (1 file(s) with uncovered changes):
+  packages/@ezcorp/factory-sdk/src/validation.ts: 3 changed line(s) uncovered: 1251,1252,1254
+
+Add tests covering the changed lines above, then re-run the coverage pipeline.

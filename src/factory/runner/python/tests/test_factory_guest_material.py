@@ -11,6 +11,7 @@ requests.
 from __future__ import annotations
 
 import base64
+import copy
 import hashlib
 import io
 import json
@@ -33,7 +34,7 @@ from factory_validation import (
     validate_factory_guest_material_request,
     validate_factory_guest_material_response,
 )
-from guest import Guest, GuestError, HostChannel, serve
+from guest import GUEST_VERSION, Guest, GuestError, HostChannel, serve
 from tests import load
 
 Json = Any
@@ -540,6 +541,75 @@ class StageExportTest(unittest.TestCase):
         self.assertIsNone(Guest(RUNNER_REQUEST_SCHEMA, RUNNER_RESULT_SCHEMA).verdict("result", result).get("code"))
         self.assertEqual(host.frames[0]["objectName"], "result.json")
         self.assertEqual(host.frames[-1]["objectName"], "workspace/attempt.json")
+
+    def test_a_guest_whose_result_contract_disagrees_refuses_to_answer(self) -> None:
+        # A pack that staged a result schema from another contract version: the
+        # guest stages the bytes, then refuses to send a result that contract
+        # would not admit, rather than let the host find out.
+        skewed = copy.deepcopy(RUNNER_RESULT_SCHEMA)
+        for variant in skewed["definitions"]["FactoryRunnerResult"]["anyOf"]:
+            variant["properties"]["schemaVersion"]["const"] = "factory.runner.result.v2"
+        host = HostDouble()
+
+        class Scripted(HostChannel):
+            def call(self, method: str, params: Json) -> Json:
+                return host(params["input"])
+
+        guest = Guest(RUNNER_REQUEST_SCHEMA, skewed, None, None, REQUEST_SCHEMA, RESPONSE_SCHEMA)
+        guest.attach(Scripted(io.StringIO(""), io.StringIO()))
+        with self.assertRaises(GuestError) as raised:
+            guest.invoke(
+                {
+                    "name": "stage",
+                    "input": {"operationId": OPERATION_ID, "operationIndex": 0, "value": {"a": 1}},
+                    "context": {},
+                }
+            )
+        self.assertEqual(str(raised.exception), "Python guest built an invalid completed result: RUNNER_RESULT_SCHEMA")
+        self.assertEqual(host.frames[-1]["objectName"], "workspace/attempt.json")
+
+    def test_the_verdict_on_each_staging_envelope_is_the_contracts_verdict(self) -> None:
+        host = HostDouble()
+        answers: list[Json] = []
+
+        def recording(frame: dict[str, Json]) -> Json:
+            answers.append(host(frame))
+            return answers[-1]
+
+        FactoryGuestStaging(recording, OPERATION_ID, 0, REQUEST_SCHEMA, RESPONSE_SCHEMA).stage_output(
+            "report.bin", b"a staged python report"
+        )
+        self.assertEqual(len(host.frames), 3)
+        guest = self.guest()
+        admitted = {"ok": True, "runtime": GUEST_VERSION}
+        for frame in host.frames:
+            self.assertEqual(
+                guest.verdict("guest-material-request", frame), {**admitted, "schemaId": REQUEST_SCHEMA["$id"]}
+            )
+        for answer in answers:
+            self.assertEqual(
+                guest.verdict("guest-material-response", answer), {**admitted, "schemaId": RESPONSE_SCHEMA["$id"]}
+            )
+        broken_request = {**host.frames[1], "index": -1}
+        broken_response = {**answers[1], "digest": "not-a-digest"}
+        cases = (
+            ("guest-material-request", broken_request, validate_factory_guest_material_request, REQUEST_SCHEMA),
+            ("guest-material-response", broken_response, validate_factory_guest_material_response, RESPONSE_SCHEMA),
+            ("guest-material-request", answers[0], validate_factory_guest_material_request, REQUEST_SCHEMA),
+        )
+        for kind, value, validate, schema in cases:
+            issue = validate(value, schema).issue
+            assert issue is not None
+            self.assertEqual(
+                guest.verdict(kind, value),
+                {
+                    "ok": False,
+                    "schemaId": schema["$id"],
+                    "runtime": GUEST_VERSION,
+                    "code": issue.code,
+                    "path": list(issue.path),
+                },
+            )
 
     def test_serve_attaches_the_channel_so_a_served_guest_can_stage(self) -> None:
         sink = io.StringIO()

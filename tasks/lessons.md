@@ -1677,6 +1677,28 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 
 - Run each gate green by hand once before the real run of a destructive tool. The first approved W15e prune stopped at its own SHA256SUMS gate, because the sums listed `manifests/<name>` while the gate checked from inside `manifests/`, so it could never pass. It failed closed and nothing was deleted, but the approved run was lost and the script had to change after approval. Before queueing, pass each gate by hand: the checksum check, the memory gate, one dry run of the destructive tool (it must report deleted 0 and applied false), and the census code on existing data.
 
+## 2026-09-26 — No bypass and no heavy run without the lock and a ruling (W18c)
+
+- No hook bypass without a coordinator ruling, even for a scratch or proof commit. `EZ_SKIP_HOOKS=1` on
+  the measurement merge 303e2b33b was a deviation; `EZ_PRECOMMIT_TEST_MAX=0` on a merge is a hook-test
+  skip by another name. The only skip is `EZ_SKIP_HOOK_TESTS=1`, with the ruling in the commit message.
+- Any bun or vitest run of more than ten files, any coverage run, any Stryker run, and any suite that
+  starts containers runs only under the heavy lock. A 178-file bun process run outside the lock
+  coincided with the host-wide OOM of 2026-09-26 00:37Z, which killed the user's app container.
+- Before every leg: at least 6 GiB available, at least 2 GiB swap free, and at least 100 GB disk, and the
+  leg's own peak must fit (the backend pool alone peaks near 15 GiB). A 256 MB swap floor let a
+  near-exhausted host through.
+- After any host OOM, stop everything, report, and restart nothing without the coordinator's word.
+  Re-read the coordinator's latest messages before restarting any job; a smaller rerun is still a rerun.
+- A failure set another package owns is reported, not bisected or fixed: check the owner's recorded
+  OPEN set (for example docs/validation/factory/wave4/*-merge.json .OPEN) first.
+- Kill a process by its PID, never by a `pkill -f` pattern: the pattern also matches the shell that runs it.
+- Run typecheck before every commit, not only the changed suite: vitest and bun run TypeScript without
+  checking types, so a green suite can hide type errors (W18c 4e1f1541e carried 12; fixed in 376278d17).
+- A test must measure the code under test, not a package manager: a live `bun install` inside a test's
+  budget is a flake under host load. Prepare the install result from a pinned local copy and assert its
+  version against the lockfile (W18c 226a3fadb).
+
 ## 2026-09-27 — A test leg that ran zero tests must fail loudly (W01h merge)
 
 - `bun test <path>` without a leading `./` treats the path as a name filter. The W01h merge batch listed `tests/postgres/...` and `src/...` bare, so bun matched nothing and its three PostgreSQL legs and its Podman leg ran no tests. Write every listed test path with `./`, and make every test leg assert that it ran at least one test: a count of zero is a failure, whatever the exit code. The integrator's heavy-batch and fast-check scripts now add `./` and fail a zero-test leg with exit 97.
@@ -1749,3 +1771,11 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 - A failed pass keeps its product database apart (retainedProductDatabase); clean-up must read it too, or the
   database stays on the shared server.
 
+## 2026-09-28 — Check the latest ruling before committing, and prove lock waits by blocker (W09h)
+
+- Before committing a rule, re-read the brief and the handoff lines for the package: a ruling can replace a design
+  line mid-task. W09h's first R4 commit used a settlement basis the lead had withdrawn half an hour earlier, so a
+  correcting commit had to follow it.
+- In a concurrency test, identify each lock waiter by `pg_blocking_pids` in a database of its own, not by matching
+  query text: the second contender often waits on an earlier row (the run row) than the one the gate holds. Release
+  the gate in a `finally`, or a failed probe leaves the gate open and the fixture's teardown hangs.

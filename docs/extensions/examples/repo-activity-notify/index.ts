@@ -24,6 +24,7 @@
 
 import { getToolContext } from "@ezcorp/sdk/runtime";
 import { getInvocationContext } from "@ezcorp/sdk/v4";
+import { withoutGitContext } from "@ezcorp/sdk/git";
 import {
   defineLoop,
   getChannel,
@@ -83,8 +84,12 @@ export function parseGitHead(stdout: string, exitCode: number): GitHead | null {
  * messy HTML). Returns `null` when the repo has no commits or `git` fails
  * (missing repo, not a checkout) so the check degrades to a clean skip.
  *
- * The env pins git hermetic (no user/system config) — a stray global config
- * line must not make git fatal.
+ * The env pins git hermetic (no user/system config, and — item C2, W18
+ * hygiene — no inherited GIT_DIR/GIT_WORK_TREE/GIT_INDEX_FILE either, which
+ * would otherwise silently redirect this `-C repoPath`-scoped command onto a
+ * poisoned ambient repository instead of `repoPath`; see @ezcorp/sdk/git's
+ * `withoutGitContext` docblock for the full threat model) — a stray global
+ * config line, or an inherited hook context, must not make git act wrong.
  */
 export async function readGitHead(repoPath: string): Promise<GitHead | null> {
   if (getInvocationContext()) return getChannel().request<GitHead | null>("ezcorp/project.gitHead", {});
@@ -94,7 +99,7 @@ export async function readGitHead(repoPath: string): Promise<GitHead | null> {
       stdout: "pipe",
       stderr: "pipe",
       env: {
-        ...process.env,
+        ...withoutGitContext(process.env),
         GIT_CONFIG_GLOBAL: "/dev/null",
         GIT_CONFIG_SYSTEM: "/dev/null",
       },

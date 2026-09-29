@@ -35,8 +35,13 @@ const apiKeysExports = webLibModule("server/security/api-keys", {
 });
 mock.module("$lib/server/security/api-keys", () => apiKeysExports);
 
-import * as middlewareActual from "../../../../../../src/auth/middleware";
-mock.module("$server/auth/middleware", () => middlewareActual);
+// auth/middleware: this route wants the REAL requireAuth/checkRole logic (no
+// override at all), but the alias is claimed by dozens of files repo-wide —
+// item C2 (W18 hygiene) requires the serverModule() precompute-once shape so
+// the repo-wide guard recognizes this as complete, same as every overriding
+// file's beforeAll-scoped registration.
+const realAuthMiddleware = serverModule("auth/middleware", {});
+mock.module("$server/auth/middleware", () => realAuthMiddleware);
 
 let extensionsById: Record<string, { id: string; name: string }> = {};
 const dbExtensionsExports = serverModule("db/queries/extensions", {

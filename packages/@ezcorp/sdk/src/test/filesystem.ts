@@ -42,8 +42,9 @@ import {
   rmSync,
 } from "node:fs";
 import { join } from "node:path";
-import { spyOn } from "bun:test";
+import { onTestFinished, spyOn } from "bun:test";
 import { getChannel, JsonRpcError } from "../runtime";
+import { withoutGitContext } from "../git";
 import type { JsonRpcRequest, JsonRpcResponse } from "../types";
 
 /** Minimal structural view of `ExtensionProcess` — avoids a value import. */
@@ -237,12 +238,19 @@ export function wireFsHandler(
  * call the extension's vault/store functions directly.
  *
  * Sets `EZCORP_FS_ALLOWED=1` (satisfies the SDK pre-flight; the stub IS the
- * host). Must be RE-CALLED in `beforeEach`: the shared `src/__tests__/preload.ts`
- * runs `__resetChannelForTests()` after every test, dropping the singleton.
- * Non-fs methods throw so unrelated RPC usage stays loud.
+ * host) for the calling test only: the value the process had comes back when
+ * that test finishes, so a later test or file in the same process never runs
+ * with a grant it did not ask for. Must be RE-CALLED in `beforeEach`: the shared
+ * `src/__tests__/preload.ts` runs `__resetChannelForTests()` after every test,
+ * dropping the singleton. Non-fs methods throw so unrelated RPC usage stays loud.
  */
 export function installFsChannelStub(fsRoot: string): void {
+  const granted = process.env.EZCORP_FS_ALLOWED;
   process.env.EZCORP_FS_ALLOWED = "1";
+  onTestFinished(() => {
+    if (granted === undefined) delete process.env.EZCORP_FS_ALLOWED;
+    else process.env.EZCORP_FS_ALLOWED = granted;
+  });
   const ch = getChannel();
   spyOn(ch, "request").mockImplementation((async (method: string, params: unknown): Promise<unknown> => {
     if (!method.startsWith("ezcorp/fs.")) {
@@ -273,17 +281,18 @@ export function markGitRepository(dir: string): void {
  * this reads neither the caller's repository context (a git hook exports
  * `GIT_DIR` and friends, which would make the command act on the hook's
  * repository instead of discovering one from `cwd`), nor the real user's
- * global config, nor the host's system config. The single isolation rule
- * shared with `src/__tests__/helpers/scratch-git.ts`, which delegates to it.
+ * global config, nor the host's system config. Layers this test-specific
+ * full isolation (a scratch `HOME`, so no real identity/config is ever
+ * visible — needed here because a test may WRITE, e.g. `git init`/`git
+ * config`) on top of `withoutGitContext` (`../git`), the one production
+ * definition of the repository-redirection defense this and
+ * `src/__tests__/helpers/scratch-git.ts` both delegate to.
  */
 export function isolatedGitEnv(
   home: string,
   env: Record<string, string | undefined> = process.env,
 ): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const [name, value] of Object.entries(env)) {
-    if (value !== undefined && !name.startsWith("GIT_")) out[name] = value;
-  }
+  const out = withoutGitContext(env);
   delete out.XDG_CONFIG_HOME;
   out.HOME = home;
   out.GIT_CONFIG_NOSYSTEM = "1";
