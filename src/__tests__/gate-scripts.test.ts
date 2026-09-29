@@ -2720,7 +2720,7 @@ describe("gate-integrity: biome CONFIG FILE moves (check 10)", () => {
 // coverage counts and how each gate judges it, so an edit to them changes the gate as surely as a lowered
 // threshold. The W18c FN-header and catch-clause credits in merge-lcov.ts passed this gate unseen.
 describe("gate-integrity: coverage gate tools (check 11)", () => {
-  test("the watched set is the merge, its noise filter, the raw-coverage converters and every gate checker, and each exists", () => {
+  test("the watched set is the merge, its noise filter, the raw-coverage converters, every gate checker and the attestation file, and each exists", () => {
     expect([...COVERAGE_GATE_TOOLS].sort()).toEqual([
       "scripts/browser-coverage-to-lcov.ts",
       "scripts/check-coverage.ts",
@@ -2728,6 +2728,7 @@ describe("gate-integrity: coverage gate tools (check 11)", () => {
       "scripts/check-new-file-coverage.ts",
       "scripts/check-patch-coverage.ts",
       "scripts/check-web-vitest-coverage.ts",
+      "scripts/coverage-attestations.json",
       "scripts/crap-score.ts",
       "scripts/factory-orchestrator-v8-to-lcov.mjs",
       "scripts/lcov-noise-filter.ts",
