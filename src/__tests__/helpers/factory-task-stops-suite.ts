@@ -335,6 +335,17 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
     expect(await reservationState(attempt.reservationId)).toMatchObject({ state: "settled" });
   });
 
+  test("a pool confirmation that names another host is refused, and nothing settles (the pool confirmation's host clause)", async () => {
+    const attempt = await launchedAttempt();
+    const { reference } = await cancelled(attempt);
+    const elsewhere = harness(attempt, stopper(async request => signed(request)), acknowledger({ hostId: "host-elsewhere" }));
+    expect(await elsewhere.stops.stop(service, reference)).toMatchObject({ state: "uncertain", cause: { code: "factory_task_stop_pool_mismatch" } });
+    expect(await reservationState(attempt.reservationId)).toMatchObject({ state: "uncertain" });
+    expect(await settlementRows(attempt.run.runId)).toEqual([]);
+    // A pool with no host recorded (a CPU reservation) has no opinion, which is not a contradiction.
+    expect((await harness(attempt, stopper(async request => signed(request)), acknowledger({ hostId: undefined })).stops.stop(service, reference)).state).toBe("stopped");
+  });
+
   test("a rotated host key signs new stops while the retired key is refused", async () => {
     const first = await launchedAttempt();
     const firstReference = (await cancelled(first)).reference;
