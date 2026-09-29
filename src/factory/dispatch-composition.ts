@@ -13,12 +13,12 @@
  * a cost this file inferred; a release dispatches to the provider the
  * operation's persisted destination names, never to a default.
  */
-import { basename, dirname, resolve as resolvePath } from "node:path";
 import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
 import { factoryPageDriver, type FactoryItemDisposition } from "./role-drivers";
 import type { FactoryRoleDriver } from "./runtime-seams";
 import type { TrustedFactoryServiceIdentity } from "./trusted-command-gateway";
-import { FactoryTaskStops, type FactoryPhysicalStopper, type FactoryStopHostKey, type FactoryStoppableAttempt } from "./task-stops";
+import { FactoryTaskStops, type FactoryPhysicalStopper, type FactoryStoppableAttempt } from "./task-stops";
+import { FactoryStopCompositionError, loadFactoryStopHostKeys } from "./stop-host-keys";
 import type { FactoryBudgets, FactoryUncertainHold } from "./budgets";
 import { FactoryRunEpochStaleError } from "./executions";
 import { FactoryUsageReconciliation } from "./usage-settlement";
@@ -29,7 +29,6 @@ import type { FactoryReleaseOutcomeDelivery, FactoryUndeliveredReleaseOutcome } 
 import type { FactoryRunLifecycle } from "./run-lifecycle";
 import { createFactoryHostStopClient } from "./host-stop-client";
 import { FactoryDispatchRefusedStops, factoryNothingLaunchedSettle, type FactoryDispatchRefusedStop } from "./dispatch-refused-stops";
-import { privateDirectory, readPrivateBounded } from "./private-files";
 import type { PoolAdmissionClient } from "./pool/client";
 import type { FactoryInstallationStores } from "./installation-stores";
 import type { FactoryStartupConfig } from "./startup-config";
@@ -453,45 +452,7 @@ export function factoryReleaseOutcomeDriver(
   });
 }
 
-/** A host public key file. Not a secret, read through the same bounded reader. */
-const MAX_HOST_PUBLIC_KEY_BYTES = 16 * 1024;
-
-export class FactoryStopCompositionError extends Error {
-  constructor(readonly code: "factory_stop_host_keys_missing" | "factory_stop_transport_missing", message: string) {
-    super(message);
-    this.name = "FactoryStopCompositionError";
-  }
-}
-
-/**
- * The host public keys a physical-stop receipt is verified against.
- *
- * By reference in the document and by value only here, for the length of one
- * composition. `FactoryTaskStops` takes the PEM text and calls
- * `createPublicKey` itself, so this reads bytes and decides nothing: a key that
- * is not a key fails there, by name, rather than being silently skipped and
- * leaving a host whose receipts can never verify.
- */
-export async function loadFactoryStopHostKeys(
-  configured: readonly { readonly hostId: string; readonly hostKeyId: string; readonly publicKeyPath: string }[],
-): Promise<readonly FactoryStopHostKey[]> {
-  if (configured.length === 0) {
-    throw new FactoryStopCompositionError("factory_stop_host_keys_missing",
-      "Settling a stop needs at least one configured host public key.");
-  }
-  const keys = await Promise.all(configured.map(async (entry) => {
-    const absolute = resolvePath(entry.publicKeyPath);
-    const directory = await privateDirectory(dirname(absolute));
-    let bytes: Uint8Array;
-    try {
-      bytes = await readPrivateBounded(directory, basename(absolute), MAX_HOST_PUBLIC_KEY_BYTES);
-    } finally {
-      await directory.close();
-    }
-    return Object.freeze({ hostId: entry.hostId, hostKeyId: entry.hostKeyId, publicKey: new TextDecoder("utf-8", { fatal: true }).decode(bytes) });
-  }));
-  return Object.freeze(keys);
-}
+export { FactoryStopCompositionError, loadFactoryStopHostKeys } from "./stop-host-keys";
 
 /** What both settlement roles need beyond the stores they share. */
 export interface FactorySettlementCompositionOptions {

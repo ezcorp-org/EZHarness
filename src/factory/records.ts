@@ -1,4 +1,6 @@
 import { lockFactoryScope } from "./locks";
+import { FactoryRecordError, assertFactoryIdentity as identity } from "./factory-identity";
+export { FactoryRecordError } from "./factory-identity";
 import { sql } from "drizzle-orm";
 import { canonicalJson, assertJson } from "@ezcorp/extension-contract";
 import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
@@ -44,16 +46,7 @@ export interface FactoryProjection {
 export interface FactoryProjectionUpdate extends FactoryProjection { readonly applied: boolean; }
 export interface FactoryPendingProjectionRun extends FactoryRunKey {}
 
-export class FactoryRecordError extends Error {
-  constructor(readonly code: string) {
-    super(code);
-    this.name = "FactoryRecordError";
-  }
-}
 
-function identity(...values: readonly string[]): void {
-  if (values.some((value) => typeof value !== "string" || value.length === 0 || value.length > 512 || value.includes("\0"))) throw new FactoryRecordError("factory_identity_invalid");
-}
 
 function positive(value: number): void {
   if (!Number.isSafeInteger(value) || value < 1) throw new FactoryRecordError("factory_sequence_invalid");

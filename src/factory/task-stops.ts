@@ -1,4 +1,3 @@
-import { createPublicKey, type KeyLike } from "node:crypto";
 import { canonicalJson } from "@ezcorp/extension-contract";
 import type { FactoryRunnerResult, FactoryUsage } from "@ezcorp/factory-sdk";
 import type { KernelEvent } from "@ezcorp/factory-sdk/kernel-types";
@@ -16,6 +15,10 @@ import { firstFactoryJournalIssue, validateFactoryStopReceipt, type FactoryJourn
 import { lockFactoryScope } from "./locks";
 import { poolStopConfirmed, type PoolLeaseStatus } from "./pool/ledger";
 import { assertFactoryIdentity, encodeFactoryPayload } from "./records";
+import { FactoryTaskStopError } from "./task-stop-error";
+import { factoryStopHostKeyMap, type FactoryStopHostKey } from "./stop-host-keys";
+export { FACTORY_TASK_STOP_CODES, FactoryTaskStopError, type FactoryTaskStopCode } from "./task-stop-error";
+export { factoryStopHostKeyMap, type FactoryStopHostKey } from "./stop-host-keys";
 import { factoryAttemptWorkerId, readFactoryAttemptLaunchFacts, type FactoryAttemptLaunchState, type FactoryPhysicalStopReason, type FactoryPhysicalStopReceipt } from "./runner/attempt-runtime";
 import { factoryTaskReservationId } from "./task-admission";
 import type { FactoryTaskOutcomes, FactoryVerifiedTaskOutcome } from "./task-outcomes";
@@ -83,11 +86,6 @@ export interface FactoryPoolStopAcknowledger {
   confirmStopped(input: { readonly reservationId: string; readonly holderGeneration: number; readonly hostId: string }, signal?: AbortSignal): Promise<PoolLeaseStatus>;
 }
 
-export interface FactoryStopHostKey {
-  readonly hostId: string;
-  readonly hostKeyId: string;
-  readonly publicKey: string | Buffer | KeyLike;
-}
 
 export type FactoryTaskStopState = "accepted" | "uncertain" | "stopped";
 
@@ -108,34 +106,6 @@ export interface FactoryTaskStopReceipt {
   readonly cause?: unknown;
 }
 
-/** Widened from `string`. W14 maps each member to an HTTP status. */
-export type FactoryTaskStopCode =
-  | "factory_task_stop_scope"
-  | "factory_task_stop_key_invalid"
-  | "factory_task_stop_invalid"
-  | "factory_task_stop_corrupt"
-  | "factory_task_stop_not_found"
-  | "factory_task_stop_conflict"
-  | "factory_task_stop_stale"
-  | "factory_task_stop_pool_mismatch"
-  | "factory_task_stop_proof_invalid"
-  | "factory_task_stop_clock_invalid"
-  | "factory_task_stop_timeout";
-
-/** Every member of `FactoryTaskStopCode`, so W14 can prove its mapping is total. */
-export const FACTORY_TASK_STOP_CODES: readonly FactoryTaskStopCode[] = Object.freeze([
-  "factory_task_stop_scope",
-  "factory_task_stop_key_invalid",
-  "factory_task_stop_invalid",
-  "factory_task_stop_corrupt",
-  "factory_task_stop_not_found",
-  "factory_task_stop_conflict",
-  "factory_task_stop_stale",
-  "factory_task_stop_pool_mismatch",
-  "factory_task_stop_proof_invalid",
-  "factory_task_stop_clock_invalid",
-  "factory_task_stop_timeout",
-]);
 
 /** Keyset position of one scanned stop. Pass the last item's cursor to continue. */
 export interface FactoryStoppableCursor {
@@ -161,9 +131,6 @@ export const FACTORY_STOP_SCAN_MAX_LIMIT = 1_000;
 const STOPPABLE_STATES = new Set<FactoryTaskStopState>(["accepted", "uncertain"]);
 const STOP_SOURCES = new Set<FactoryStopSource>(["terminal-outcome", "sealed-launch"]);
 
-export class FactoryTaskStopError extends Error {
-  constructor(readonly code: FactoryTaskStopCode) { super(code); this.name = "FactoryTaskStopError"; }
-}
 
 /**
  * A sealed stop whose reason the durable facts no longer give: still
@@ -786,13 +753,3 @@ function terminalStopUsage(liveAuthority: FactoryLiveStopAuthority): FactoryUsag
   return liveAuthority.terminalOutcome?.result.usage ?? liveAuthority.terminalResult?.usage;
 }
 
-/** Loads the configured supervisor certificates once, rejecting duplicates and bad material. */
-export function factoryStopHostKeyMap(hostKeys: readonly FactoryStopHostKey[]): ReadonlyMap<string, FactoryJournalHostKey> {
-  const entries = hostKeys.map(key => {
-    assertFactoryIdentity(key.hostId, key.hostKeyId);
-    try { return [key.hostKeyId, Object.freeze({ hostId: key.hostId, publicKey: typeof key.publicKey === "string" || Buffer.isBuffer(key.publicKey) ? createPublicKey(key.publicKey) : key.publicKey })] as const; }
-    catch { throw new FactoryTaskStopError("factory_task_stop_key_invalid"); }
-  });
-  if (new Set(entries.map(([id]) => id)).size !== entries.length) throw new FactoryTaskStopError("factory_task_stop_key_invalid");
-  return new Map(entries);
-}
