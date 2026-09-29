@@ -28,6 +28,7 @@ import type { FactoryReleaseProviderResolver } from "./release-application";
 import type { FactoryReleaseOutcomeDelivery, FactoryUndeliveredReleaseOutcome } from "./release-outcome-delivery";
 import type { FactoryRunLifecycle } from "./run-lifecycle";
 import { createFactoryHostStopClient } from "./host-stop-client";
+import { FactoryDispatchRefusedStops, factoryNothingLaunchedSettle, type FactoryDispatchRefusedStop } from "./dispatch-refused-stops";
 import { privateDirectory, readPrivateBounded } from "./private-files";
 import type { PoolAdmissionClient } from "./pool/client";
 import type { FactoryInstallationStores } from "./installation-stores";
@@ -99,9 +100,14 @@ export function factoryStopSettlementDriver(
   service: TrustedFactoryServiceIdentity,
   report: (role: string, error: unknown) => void,
   limit?: number,
+  refused?: Pick<FactoryDispatchRefusedStops, "listInTransaction" | "stop">,
 ): FactoryRoleDriver {
-  return factoryPageDriver<FactoryStoppableAttempt>({
-    page: (_signal) => database.transaction((transaction) => stops.listStoppableInTransaction(transaction, limit === undefined ? {} : { limit })),
+  return factoryPageDriver<FactoryStoppableAttempt | (FactoryDispatchRefusedStop & { readonly refused: true })>({
+    // A refused dispatch's stop (W02d R8) rides on the same page: the same host, the same pool, the same role.
+    page: (_signal) => database.transaction(async (transaction) => [
+      ...await stops.listStoppableInTransaction(transaction, limit === undefined ? {} : { limit }),
+      ...(refused === undefined ? [] : (await refused.listInTransaction(transaction, limit)).map((item) => ({ ...item, refused: true as const }))),
+    ]),
     // The scan returns the cancel command reference `stop` itself takes, so the
     // settle half needs nothing this file derived.
     //
@@ -111,6 +117,7 @@ export function factoryStopSettlementDriver(
     // as settled is how a run can sit in `stopping` while every pass reports
     // success.
     settle: async (item, _signal) => {
+      if ("refused" in item) { await refused!.stop(item); return; }
       let receipt: Awaited<ReturnType<typeof stops.stop>>;
       try { receipt = await stops.stop(service, item.reference); }
       catch (error) {
@@ -124,7 +131,7 @@ export function factoryStopSettlementDriver(
     },
     classify: factoryStopSettlementDisposition,
     report: (item, error, disposition) => {
-      report(`stop-settlement:${disposition}:${item.attemptId}`, error instanceof FactoryUncertainStopError ? (error.cause ?? error) : error);
+      report(`stop-settlement:${disposition}:${"refused" in item ? item.dispatchCommandId : item.attemptId}`, error instanceof FactoryUncertainStopError ? (error.cause ?? error) : error);
     },
   });
 }
@@ -543,6 +550,7 @@ export async function composeFactorySettlement(options: FactorySettlementComposi
       serviceTokenPath: config.hostLaunch.tls.serviceTokenPath,
     },
   });
+  const hostKeys = await loadFactoryStopHostKeys(config.hostStopKeys ?? []);
   const stops = new FactoryTaskStops(
     options.database,
     stores.authority,
@@ -555,8 +563,9 @@ export async function composeFactorySettlement(options: FactorySettlementComposi
     stores.settlements,
     stopper,
     options.pool,
-    await loadFactoryStopHostKeys(config.hostStopKeys ?? []),
+    hostKeys,
   );
+  const refused = new FactoryDispatchRefusedStops(options.database, config.tenantId, stopper, options.pool, hostKeys, factoryNothingLaunchedSettle(stores));
   const reconciliation = new FactoryUsageReconciliation(
     options.database,
     config.tenantId,
@@ -567,7 +576,7 @@ export async function composeFactorySettlement(options: FactorySettlementComposi
   );
   return Object.freeze({
     stops,
-    stopSettlement: factoryStopSettlementDriver(options.database, stops, options.service, options.report),
+    stopSettlement: factoryStopSettlementDriver(options.database, stops, options.service, options.report, undefined, refused),
     usageReconciliation: factoryUsageReconciliationDriver(options.database, stores.budgets, reconciliation, options.report),
   });
 }

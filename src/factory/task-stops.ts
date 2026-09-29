@@ -20,7 +20,7 @@ import { factoryAttemptWorkerId, readFactoryAttemptLaunchFacts, type FactoryAtte
 import { factoryTaskReservationId } from "./task-admission";
 import type { FactoryTaskOutcomes, FactoryVerifiedTaskOutcome } from "./task-outcomes";
 import type { TrustedFactoryCommandReference, TrustedFactoryServiceIdentity } from "./trusted-command-gateway";
-import { FACTORY_USAGE_NOTHING_LAUNCHED_BASIS, type FactoryUsageSettlementAuthority, type FactoryUsageSettlements, type FactoryUsageSettlementScope } from "./usage-settlement";
+import { settleFactoryNothingLaunchedInTransaction, type FactoryUsageSettlementAuthority, type FactoryUsageSettlements, type FactoryUsageSettlementScope } from "./usage-settlement";
 import { clearResolvedSupersessionInTransaction } from "./attempt-supersessions";
 
 /** C02: abort, then at most this much cleanup, then kill the whole sandbox. */
@@ -29,7 +29,7 @@ export { FACTORY_SANDBOX_ABORT_GRACE_MS as FACTORY_STOP_ABORT_GRACE_MS } from ".
 export const FACTORY_PHYSICAL_STOP_TIMEOUT_MS = 20_000;
 
 /** Where the stop authority came from. `sealed-launch` is the live path. */
-export type FactoryStopSource = "terminal-outcome" | "sealed-launch";
+export type FactoryStopSource = "terminal-outcome" | "sealed-launch" | "dispatch-refused";
 
 /**
  * Stop authority derived from the exact sealed admission plus the durable
@@ -403,7 +403,7 @@ export class FactoryTaskStops implements FactoryUsageSettlementAuthority {
     const scanned = rows<Pick<StopRow, "tenant_id" | "project_id" | "run_id" | "interpreter_id" | "cancel_command_id" | "attempt_id" | "reservation_id" | "source" | "state" | "accepted_at_ms">>(await transaction.execute(sql`
       SELECT tenant_id, project_id, run_id, interpreter_id, cancel_command_id, attempt_id, reservation_id, source, state, accepted_at_ms
       FROM factory_task_stops
-      WHERE tenant_id = ${this.authority.tenantId} AND state IN ('accepted', 'uncertain') AND reconcile_json IS NULL${keyset}
+      WHERE tenant_id = ${this.authority.tenantId} AND state IN ('accepted', 'uncertain') AND reconcile_json IS NULL AND source <> 'dispatch-refused'${keyset}
       ORDER BY accepted_at_ms, cancel_command_id
       LIMIT ${limit}`));
     return Object.freeze(scanned.map(row => {
@@ -529,9 +529,8 @@ export class FactoryTaskStops implements FactoryUsageSettlementAuthority {
     if (!stopped) throw new FactoryTaskStopError("factory_task_stop_stale");
     if (stopped.created) {
       const stopDigest = stopHash({ schemaVersion: "factory.admission-stop.v1", reservationId: key.reservationId, epoch: fence.cancellationEpoch, event: stopped.event });
-      await this.budgets.settleWithoutOperationsInTransaction(transaction, key, stopDigest, FACTORY_USAGE_NOTHING_LAUNCHED_BASIS);
-      const settledAttempt = { attemptId: attempt.commandId, nodeInstanceId: command.nodeId, candidateGeneration: attempt.candidateGeneration, attemptNumber: attempt.attempt };
-      await this.settlements.recordInTransaction(transaction, { ...key, interpreterId: reference.interpreterId, authority: settledAttempt }, { source: "no-operations", knownCostMicros: "0", stopReceiptDigest: stopDigest, basis: FACTORY_USAGE_NOTHING_LAUNCHED_BASIS });
+      await settleFactoryNothingLaunchedInTransaction(transaction, { budgets: this.budgets, settlements: this.settlements }, { ...key, interpreterId: reference.interpreterId }, stopDigest,
+        { attemptId: attempt.commandId, nodeInstanceId: command.nodeId, candidateGeneration: attempt.candidateGeneration, attemptNumber: attempt.attempt });
       await this.inbox.enqueueInTransaction(transaction, { projectId: reference.projectId, runId: reference.logicalRunId, interpreterId: reference.interpreterId }, stopped.event);
     }
     return Object.freeze({ state: "stopped" as const, event: Object.freeze(stopped.event) });
@@ -751,18 +750,23 @@ export class FactoryTaskStops implements FactoryUsageSettlementAuthority {
     return value;
   }
 
-  private async withDeadline<Result>(work: (signal: AbortSignal) => Promise<Result>): Promise<Result> {
-    const controller = new AbortController();
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const timeout = new Promise<never>((_resolve, reject) => { timer = setTimeout(() => { controller.abort(); reject(new FactoryTaskStopError("factory_task_stop_timeout")); }, this.stopTimeoutMs); });
-    try { return await Promise.race([work(controller.signal), timeout]); }
-    finally { if (timer) clearTimeout(timer); }
+  private withDeadline<Result>(work: (signal: AbortSignal) => Promise<Result>): Promise<Result> {
+    return factoryStopWithDeadline(this.stopTimeoutMs, work);
   }
 }
 
 /** A sealed stop still to drive, as opposed to a receipt already final (a stop settled in place, W09h). */
 function isSealedStop(value: SealedStop | FactoryTaskStopReceipt): value is SealedStop {
   return "request" in value;
+}
+
+/** Runs one call to the host or the pool, aborted and refused `factory_task_stop_timeout` after `timeoutMs`. */
+export async function factoryStopWithDeadline<Result>(timeoutMs: number, work: (signal: AbortSignal) => Promise<Result>): Promise<Result> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => { timer = setTimeout(() => { controller.abort(); reject(new FactoryTaskStopError("factory_task_stop_timeout")); }, timeoutMs); });
+  try { return await Promise.race([work(controller.signal), timeout]); }
+  finally { if (timer) clearTimeout(timer); }
 }
 
 /** The one terminal usage a stop may settle: the outcome's, else the durable launch result's. */

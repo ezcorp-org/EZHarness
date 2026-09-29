@@ -5,7 +5,8 @@ import { sql } from "drizzle-orm";
 import type { MigrationDb } from "../db/migrations/types";
 import type { FactoryAttemptDelivery, FactoryAttemptQueue } from "./attempt-queue";
 import type { FactoryAuthorizedCommand, FactoryCommandAuthority } from "./command-authority";
-import type { FactoryComputeAdmissionMaterial, FactoryComputeAdmissions } from "./compute-admissions";
+import { FactoryComputeAdmissionError, type FactoryComputeAdmissionMaterial, type FactoryComputeAdmissions } from "./compute-admissions";
+import type { FactoryDispatchRefusedStopRecorder } from "./dispatch-refused-stops";
 import type { FactoryDurableAttemptAdmission, FactoryExecutionJournal } from "./executions";
 import type { FactoryPrincipal } from "./grants";
 import { factoryErrorCode } from "./plain-values";
@@ -137,6 +138,8 @@ export class FactoryTaskExecutionAdmission {
     private readonly attemptQueue: FactoryAttemptQueue,
     private readonly runnerPolicy: FactoryTaskRunnerPolicy,
     private readonly now: () => number = Date.now,
+    /** Records the stop that releases a refused dispatch's admitted lease (W02d R8). */
+    private readonly refusedStops?: Pick<FactoryDispatchRefusedStopRecorder, "recordInTransaction">,
   ) {}
 
   async admit(service: TrustedFactoryServiceIdentity, value: TrustedFactoryCommandReference): Promise<FactoryTaskExecutionAdmissionReceipt> {
@@ -166,9 +169,31 @@ export class FactoryTaskExecutionAdmission {
         if (!code?.startsWith("factory_")) throw error;
         await transaction.execute(sql`ROLLBACK TO SAVEPOINT factory_task_dispatch`);
         const stored = await this.attemptQueue.readStoredInTransaction(transaction, reference.projectId, context.command.id);
+        if (stored === null) await this.recordRefusedStopInTransaction(transaction, reference, context);
         return { refused: code, queued: stored !== null };
       }
     });
+  }
+
+  /**
+   * Nothing is queued, so nothing will ever run this dispatch; but its compute may already be admitted, and only a
+   * supervisor's signed word frees an admitted lease (C03). So the refusal's own transaction records the stop that
+   * gets that word (W02d R8). A dispatch whose compute was never admitted holds nothing and records nothing.
+   */
+  private async recordRefusedStopInTransaction(transaction: MigrationDb, reference: TrustedFactoryCommandReference, context: FactoryAuthorizedCommand): Promise<void> {
+    if (this.refusedStops === undefined || context.command.kind !== "dispatch-node") return;
+    const reservationId = factoryTaskReservationId(reference, context);
+    let admitted: Awaited<ReturnType<FactoryComputeAdmissions["readAdmittedInTransaction"]>>;
+    try { admitted = await this.computeAdmissions.readAdmittedInTransaction(transaction, { projectId: reference.projectId, runId: reference.logicalRunId, reservationId }); }
+    catch (error) {
+      // Never admitted: nothing is held, nothing to release. Any other fault is not a refusal's to hide.
+      if (error instanceof FactoryComputeAdmissionError && error.code === "factory_compute_admission_not_admitted") return;
+      throw error;
+    }
+    // The node attempt the hold belongs to, as the reservation id names it (the kernel's last attempt of this node).
+    const attempt = context.state.nodes[context.command.nodeId]!.attempts.at(-1)!;
+    await this.refusedStops.recordInTransaction(transaction, reference, reservationId, admitted.receipt.lease,
+      { attemptId: attempt.commandId, nodeInstanceId: context.command.nodeId, candidateGeneration: context.command.candidateGeneration, attemptNumber: attempt.attempt });
   }
 
   private async admitInTransaction(transaction: MigrationDb, reference: TrustedFactoryCommandReference, context: FactoryAuthorizedCommand): Promise<FactoryTaskExecutionAdmissionReceipt> {

@@ -3476,9 +3476,12 @@ export const factoryUsageSettlements = pgTable("factory_usage_settlements", {
  */
 export const factoryTaskStops = pgTable("factory_task_stops", {
   tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), runId: text("run_id").notNull(), interpreterId: text("interpreter_id").notNull(),
-  cancelCommandId: text("cancel_command_id").notNull(), attemptCommandId: text("attempt_command_id"), attemptId: text("attempt_id").notNull(), reservationId: text("reservation_id").notNull(),
+  cancelCommandId: text("cancel_command_id").notNull(), attemptCommandId: text("attempt_command_id"), attemptId: text("attempt_id"), reservationId: text("reservation_id").notNull(),
+  // W02d R8: the worker a dispatch-refused stop addresses, and the node attempt whose usage it settles; present
+  // exactly for that source, whose attempt_id is NULL.
+  workerId: text("worker_id"), attemptAuthorityJson: text("attempt_authority_json"),
   requestJson: text("request_json").notNull(), requestDigest: text("request_digest").notNull(),
-  source: text("source").notNull().default("terminal-outcome").$type<"terminal-outcome" | "sealed-launch">(),
+  source: text("source").notNull().default("terminal-outcome").$type<"terminal-outcome" | "sealed-launch" | "dispatch-refused">(),
   state: text("state").notNull().$type<"accepted" | "uncertain" | "stopped" | "superseded">(),
   supersededRestoreId: text("superseded_restore_id"),
   uncertainEventJson: text("uncertain_event_json"), uncertainEventDigest: text("uncertain_event_digest"), stopReceiptJson: text("stop_receipt_json"), stopReceiptDigest: text("stop_receipt_digest"), stoppedEventJson: text("stopped_event_json"), stoppedEventDigest: text("stopped_event_digest"),
@@ -3493,7 +3496,8 @@ export const factoryTaskStops = pgTable("factory_task_stops", {
   foreignKey({ columns: [table.tenantId, table.projectId, table.runId, table.interpreterId, table.attemptCommandId], foreignColumns: [factoryTaskOutcomes.tenantId, factoryTaskOutcomes.projectId, factoryTaskOutcomes.runId, factoryTaskOutcomes.interpreterId, factoryTaskOutcomes.commandId] }).onDelete("restrict"),
   foreignKey({ columns: [table.tenantId, table.projectId, table.runId, table.interpreterId, table.cancelCommandId], foreignColumns: [factoryTransitionCommands.tenantId, factoryTransitionCommands.projectId, factoryTransitionCommands.runId, factoryTransitionCommands.interpreterId, factoryTransitionCommands.commandId] }).onDelete("restrict"),
   check("factory_task_stops_request_digest_check", sql`${table.requestDigest} ~ '^sha256:[0-9a-f]{64}$'`),
-  check("factory_task_stops_source_check", sql`${table.source} IN ('terminal-outcome','sealed-launch')`),
+  check("factory_task_stops_source_check", sql`${table.source} IN ('terminal-outcome','sealed-launch','dispatch-refused')`),
+  check("factory_task_stops_dispatch_refused_check", sql`(${table.source} = 'dispatch-refused') = (${table.attemptId} IS NULL) AND (${table.source} = 'dispatch-refused') = (${table.workerId} IS NOT NULL) AND (${table.source} = 'dispatch-refused') = (${table.attemptAuthorityJson} IS NOT NULL)`),
   check("factory_task_stops_state_check", sql`${table.state} IN ('accepted','uncertain','stopped','superseded')`),
   check("factory_task_stops_superseded_check", sql`(${table.state} = 'superseded') = (${table.supersededRestoreId} IS NOT NULL)`),
   check("factory_task_stops_accepted_at_ms_check", sql`${table.acceptedAtMs} >= 0`),

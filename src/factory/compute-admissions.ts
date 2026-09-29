@@ -7,7 +7,7 @@ import { assertFactoryAdmissionOrigin, factoryAdmissionOriginDigest, factoryRese
 import type { FactoryBudgets } from "./budgets";
 import { type FactoryAuthorizedAdmissionCommand, type FactoryAuthorizedCommand, FactoryCommandAuthorityError, type FactoryCommandAuthority } from "./command-authority";
 import type { FactoryInbox } from "./inbox";
-import { FACTORY_USAGE_NOTHING_LAUNCHED_BASIS, FactoryUsageSettlements } from "./usage-settlement";
+import { FactoryUsageSettlements, settleFactoryNothingLaunchedInTransaction } from "./usage-settlement";
 import { FactoryInstallationCommandOutbox, type FactoryCommandDelivery } from "./outbox";
 import { parsePoolDecision, type PoolAdmissionClient } from "./pool/client";
 import { normalizePoolResourceVector, POOL_RESOURCE_CLASSES, type PoolDecision, type PoolLease, type PoolLeaseStatus } from "./pool/ledger";
@@ -467,13 +467,9 @@ export class FactoryComputeAdmissions {
       // as its receipt (C03: failure before compute assignment releases the hold; W02d R9), through W09h's shared
       // no-operations basis "nothing launched, all zero", recorded as the node attempt's usage settlement.
       if (!admitted) {
-        const key = { projectId: current.project_id, runId: current.run_id, reservationId: current.reservation_id };
-        await this.budgets.settleWithoutOperationsInTransaction(transaction, key, encodedDecision.digest, FACTORY_USAGE_NOTHING_LAUNCHED_BASIS);
         const attempt = context.command.kind === "request-admission" ? context.state.nodes[context.command.nodeId]?.attempts.at(-1) : undefined;
-        if (context.command.kind === "request-admission" && attempt) {
-          await this.settlements.recordInTransaction(transaction, { ...key, interpreterId: claim.input.reference.interpreterId, authority: { attemptId: context.command.id, nodeInstanceId: context.command.nodeId, candidateGeneration: context.command.candidateGeneration, attemptNumber: attempt.attempt } },
-            { source: "no-operations", knownCostMicros: "0", stopReceiptDigest: encodedDecision.digest, basis: FACTORY_USAGE_NOTHING_LAUNCHED_BASIS });
-        }
+        await settleFactoryNothingLaunchedInTransaction(transaction, { budgets: this.budgets, settlements: this.settlements }, { projectId: current.project_id, runId: current.run_id, reservationId: current.reservation_id, interpreterId: claim.input.reference.interpreterId }, encodedDecision.digest,
+          context.command.kind === "request-admission" && attempt ? { attemptId: context.command.id, nodeInstanceId: context.command.nodeId, candidateGeneration: context.command.candidateGeneration, attemptNumber: attempt.attempt } : undefined);
       }
       const encodedEvent = event === undefined ? undefined : canonical(event);
       if (encodedEvent) await this.inbox.enqueueInTransaction(transaction, { projectId: current.project_id, runId: current.run_id, interpreterId: claim.input.reference.interpreterId }, encodedEvent.value);

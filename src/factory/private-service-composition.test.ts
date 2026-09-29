@@ -175,6 +175,7 @@ describe("composeFactoryPrivateService", () => {
       config: {
         schemaVersion: FACTORY_STARTUP_CONFIG_SCHEMA,
         installationId: "installation-private",
+        hostId: "host-private",
         tenantId,
         privateService: {
           hostname: "127.0.0.1",
