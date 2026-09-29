@@ -14,7 +14,7 @@
  * signature: the stop stays unconfirmed rather than claiming what the host cannot keep.
  */
 import { createPublicKey, sign, verify, type KeyObject } from "node:crypto";
-import { open, readFile } from "node:fs/promises";
+import { open, readFile, rename } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { canonicalJson } from "@ezcorp/extension-contract";
 import { FACTORY_LIMITS } from "@ezcorp/factory-sdk";
@@ -33,6 +33,10 @@ export const FACTORY_HOST_TOMBSTONE_GRACE_MS = 24 * 60 * 60 * 1_000;
  */
 export const FACTORY_HOST_TOMBSTONE_RETENTION_MS = FACTORY_LIMITS.maximumRunDeadlineMs + FACTORY_HOST_TOMBSTONE_GRACE_MS;
 const SCHEMA = "factory.host-worker-tombstone.v1";
+/**
+ * The file's bound. Compaction keeps only the live window in it, so the bound counts tombstones recorded within one
+ * retention span, not over the host's life: at a few hundred bytes each, tens of thousands per 31 days.
+ */
 const MAX_FILE_BYTES = 16 * 1024 * 1024;
 
 /** Makes a folder's entries durable: fsync of the folder itself. */
@@ -44,6 +48,8 @@ async function syncFolder(path: string): Promise<void> {
 export interface FactoryHostTombstonesOptions {
   readonly now?: () => number;
   readonly retentionMs?: number;
+  /** The file's bound in bytes (tests shrink it). */
+  readonly maxFileBytes?: number;
   /** Syncs the folder that holds the file; the production one fsyncs it. */
   readonly syncDirectory?: (path: string) => Promise<void>;
 }
@@ -71,13 +77,17 @@ function entryOf(value: FactoryHostTombstoneInput & { hostId: string; recordedAt
 }
 
 export class FactoryHostTombstones {
-  private readonly honoured = new Map<string, TombstoneEntry>();
+  /** Each honoured tombstone with its signed line, as the file holds it. */
+  private readonly honoured = new Map<string, { readonly entry: TombstoneEntry; readonly line: string }>();
+  /** The file's size in bytes. */
+  private bytes = 0;
   private readonly pending = new Set<string>();
   private refusedCount = 0;
   /** Whether the file exists: the write that creates it must also make the folder entry durable. */
   private exists = false;
   private readonly now: () => number;
   private readonly retentionMs: number;
+  private readonly maxFileBytes: number;
   private readonly syncDirectory: (path: string) => Promise<void>;
 
   private constructor(
@@ -88,6 +98,7 @@ export class FactoryHostTombstones {
   ) {
     this.now = options.now ?? Date.now;
     this.retentionMs = options.retentionMs ?? FACTORY_HOST_TOMBSTONE_RETENTION_MS;
+    this.maxFileBytes = options.maxFileBytes ?? MAX_FILE_BYTES;
     this.syncDirectory = options.syncDirectory ?? syncFolder;
   }
 
@@ -107,7 +118,7 @@ export class FactoryHostTombstones {
   stopped(tenantId: string, workerId: string): boolean {
     const key = scopeKey(tenantId, workerId);
     if (this.pending.has(key)) return true;
-    const entry = this.honoured.get(key);
+    const entry = this.honoured.get(key)?.entry;
     return entry !== undefined && entry.expiresAtMs > this.now();
   }
 
@@ -124,23 +135,47 @@ export class FactoryHostTombstones {
 
   /**
    * Writes the signed tombstone durably (appended and synced; the write that creates the file also syncs its folder,
-   * so the first entry survives a crash) before any stop is signed. A failed write throws and honours nothing.
+   * so the first entry survives a crash) before any stop is signed. A write that would pass the file's bound first
+   * drops the expired entries; a live window that is still full refuses the write. A failed write throws and honours
+   * nothing.
    */
   async record(input: FactoryHostTombstoneInput): Promise<void> {
     if (!text(input.tenantId) || !text(input.workerId) || !text(input.attemptId) || !text(input.reservationId)) throw new Error("Factory host tombstone is malformed.");
     const recordedAtMs = this.now();
     const entry = entryOf({ ...input, hostId: this.hostId, recordedAtMs, expiresAtMs: recordedAtMs + this.retentionMs });
     const signature = sign("RSA-SHA256", Buffer.from(canonicalJson(entry)), this.key.privateKey).toString("base64url");
+    const line = `${JSON.stringify({ ...entry, hostKeyId: this.key.hostKeyId, signature })}\n`;
+    const size = Buffer.byteLength(line);
+    if (this.bytes + size > this.maxFileBytes) await this.compact();
+    if (this.bytes + size > this.maxFileBytes) throw new Error("Factory host tombstones are full.");
     const handle = await open(this.path, "a", 0o600);
     try {
-      await handle.write(`${JSON.stringify({ ...entry, hostKeyId: this.key.hostKeyId, signature })}\n`);
+      await handle.write(line);
       await handle.sync();
     } finally { await handle.close(); }
+    this.bytes += size;
     if (!this.exists) {
       await this.syncDirectory(dirname(this.path));
       this.exists = true;
     }
-    this.honoured.set(scopeKey(entry.tenantId, entry.workerId), entry);
+    this.honoured.set(scopeKey(entry.tenantId, entry.workerId), { entry, line });
+  }
+
+  /** Rewrites the file with the unexpired entries only: written aside, synced, renamed over it, the folder synced. */
+  private async compact(): Promise<void> {
+    const now = this.now();
+    for (const [key, { entry }] of this.honoured) if (entry.expiresAtMs <= now) this.honoured.delete(key);
+    const content = [...this.honoured.values()].map(({ line }) => line).join("");
+    const aside = `${this.path}.compact`;
+    const handle = await open(aside, "w", 0o600);
+    try {
+      await handle.write(content);
+      await handle.sync();
+    } finally { await handle.close(); }
+    await rename(aside, this.path);
+    await this.syncDirectory(dirname(this.path));
+    this.exists = true;
+    this.bytes = Buffer.byteLength(content);
   }
 
   private async load(): Promise<void> {
@@ -151,13 +186,18 @@ export class FactoryHostTombstones {
       throw error;
     }
     this.exists = true;
-    if (content.length > MAX_FILE_BYTES) throw new Error("Factory host tombstones are oversized.");
+    this.bytes = Buffer.byteLength(content);
+    if (this.bytes > this.maxFileBytes) throw new Error("Factory host tombstones are oversized.");
+    let superseded = 0;
     for (const line of content.split("\n")) {
       if (line.trim() === "") continue;
       const entry = this.verified(line);
-      if (entry) this.honoured.set(scopeKey(entry.tenantId, entry.workerId), entry);
-      else this.refusedCount += 1;
+      if (!entry) { this.refusedCount += 1; continue; }
+      const key = scopeKey(entry.tenantId, entry.workerId);
+      if (this.honoured.has(key)) superseded += 1;
+      this.honoured.set(key, { entry, line: `${line}\n` });
     }
+    if (this.refusedCount + superseded > 0) await this.compact();
   }
 
   private verified(line: string): TombstoneEntry | undefined {

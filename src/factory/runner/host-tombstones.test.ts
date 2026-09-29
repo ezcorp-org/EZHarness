@@ -201,3 +201,50 @@ describe("a host tombstone's file is durable from its first entry (validator-6 D
     expect((await FactoryHostTombstones.open(key)).stopped(tombstone.tenantId, tombstone.workerId)).toBe(true);
   });
 });
+
+describe("a long-lived host can always start: its tombstone file keeps only the live window (validator-6 D2)", () => {
+  const lines = async (key: { directory: string }) => (await readFile(fileOf(key), "utf8")).trim().split("\n").filter(Boolean).map((line) => (JSON.parse(line) as { workerId: string }).workerId);
+
+  test("loading drops expired, refused and superseded lines, and rewrites the file with only the live ones", async () => {
+    const key = await hostKey();
+    let now = 1_000_000;
+    const store = await FactoryHostTombstones.open(key, { now: () => now });
+    await store.record({ ...tombstone, workerId: "worker-expired" });
+    now += FACTORY_HOST_TOMBSTONE_RETENTION_MS / 2;
+    await store.record({ ...tombstone, workerId: "worker-live" });
+    await store.record({ ...tombstone, workerId: "worker-live" });
+    await appendFile(fileOf(key), "not json\n");
+    now += FACTORY_HOST_TOMBSTONE_RETENTION_MS / 2;
+    const synced: string[] = [];
+    const restarted = await FactoryHostTombstones.open(key, { now: () => now, syncDirectory: async (path) => { synced.push(path); } });
+    expect({ live: restarted.stopped(tombstone.tenantId, "worker-live"), expired: restarted.stopped(tombstone.tenantId, "worker-expired"), refused: restarted.refused })
+      .toEqual({ live: true, expired: false, refused: 2 });
+    // The rewrite replaces the file by rename, so the folder entry is synced as well.
+    expect({ file: await lines(key), synced }).toEqual({ file: ["worker-live"], synced: [key.directory] });
+    // A file with nothing to drop is not rewritten.
+    const again = await FactoryHostTombstones.open(key, { now: () => now, syncDirectory: async (path) => { synced.push(`again:${path}`); } });
+    expect({ refused: again.refused, synced }).toEqual({ refused: 0, synced: [key.directory] });
+  });
+
+  test("a full file drops its expired entries before it appends; a live window that is truly full refuses the write and signs nothing", async () => {
+    const key = await hostKey();
+    let now = 1_000_000;
+    const probe = await FactoryHostTombstones.open(key, { now: () => now });
+    await probe.record({ ...tombstone, workerId: "worker-a" });
+    const lineBytes = (await readFile(fileOf(key))).byteLength;
+    await rm(fileOf(key));
+    // Room for two entries and a half.
+    const store = await FactoryHostTombstones.open(key, { now: () => now, maxFileBytes: lineBytes * 2 + lineBytes / 2 });
+    await store.record({ ...tombstone, workerId: "worker-a" });
+    await store.record({ ...tombstone, workerId: "worker-b" });
+    now += FACTORY_HOST_TOMBSTONE_RETENTION_MS;
+    await store.record({ ...tombstone, workerId: "worker-c" });
+    expect(await lines(key)).toEqual(["worker-c"]);
+    await store.record({ ...tombstone, workerId: "worker-d" });
+    await expect(store.record({ ...tombstone, workerId: "worker-e" })).rejects.toThrow("Factory host tombstones are full.");
+    expect({ e: store.stopped(tombstone.tenantId, "worker-e"), file: await lines(key) }).toEqual({ e: false, file: ["worker-c", "worker-d"] });
+    // The host still starts: the file never grows past its bound.
+    const restarted = await FactoryHostTombstones.open(key, { now: () => now, maxFileBytes: lineBytes * 2 + lineBytes / 2 });
+    expect(restarted.stopped(tombstone.tenantId, "worker-d")).toBe(true);
+  });
+});
