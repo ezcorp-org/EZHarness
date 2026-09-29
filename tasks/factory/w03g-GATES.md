@@ -86,3 +86,21 @@ ignores the new side, a surface without the patch gate, and a matcher without un
 
 Hook: commit 1 mapped 2 tests (26/0, 7/0), commit 2 mapped 1 (12/0), this docs commit maps 0. CI runs both new
 suites: scripts/lib/test-file-sets.sh collects every scripts/*.test.ts.
+
+## Fold into check 11 and the integ merge (w18c-2, 2026-09-29; coordinator ruling)
+
+MERGE 508cc28dd: integ/w00 ad22592da (after W18c, C2, W09e and W09h) into this branch. The one conflict,
+scripts/gate-integrity.ts, was resolved as the union so that gate-integrity-rule11.test.ts still loads at that commit:
+W18c's check 11 (coverage gate tools) as integ has it, and this package's attestation-surface check kept unchanged as
+check 12. The hook mapped 159 suites; the coordinator's list-bound skip (w03g-fold/ruling-hook-skip-merge-ad22592da.txt,
+with its addendum: the hook prints the orchestrator file as one package line) applied, and all 159 ran outside the hook
+under the lock, green with nonzero counts (w03g-fold/merge-suites-508cc28dd/ 158 suites; the orchestrator package's node
+runner, 91 tests, in w03g-fold/merge-suites-508cc28dd-factory-orchestrator_/; shared git config hash unchanged).
+FOLD (one watched set): scripts/coverage-attestations.json joins COVERAGE_GATE_TOOLS (scripts/check-patch-coverage.ts
+was already in it); check 12's list, function and call are removed. gate-integrity-rule11.test.ts is rewritten in place,
+not deleted (a deleted test file is itself a gate-integrity finding), and keeps every case in check 11's form: the
+watched set holds both files, the seven name-status statuses including C100, the silent neighbours, the C-quoted path,
+and the two end-to-end runs without and with the label. Red first: 3 pass, 9 fail on the union (only the
+attestation-file cases; the patch gate was already watched); green 12/0; gate-scripts.test.ts 248/0 with the watched-set
+equality extended by the json. The finding text is now "coverage gate tool changed (<status>): <path> — it decides what
+coverage counts or how a coverage gate judges it".

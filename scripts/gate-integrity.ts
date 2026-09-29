@@ -36,12 +36,9 @@
  *      (per-file, global floor, new-file, patch, web vitest, CRAP). They decide what coverage counts
  *      and how each gate judges it, so any edit, addition, deletion or rename
  *      is a gate change (validator-5, 2026-09-28: two merge-lcov credits
- *      passed this check unseen).
- *  12. The patch gate's ATTESTATION surface changed — any change to
- *      scripts/check-patch-coverage.ts (which holds the attestation schema and
- *      decides what an attested line may skip) or to
- *      scripts/coverage-attestations.json (W03g). An attestation lets one
- *      uncovered line pass, so it is un-gating in the same way EXCLUDES is.
+ *      passed this check unseen). The patch gate's attestation file
+ *      (scripts/coverage-attestations.json, W03g) is in the same set: an
+ *      attestation lets one uncovered line pass, so it un-gates as EXCLUDES does.
  *
  * All checks are DIFF-SCOPED (only what the PR adds is judged) so the 19
  * pre-existing `.skip`s and 365 mock files in the tree don't false-positive.
@@ -1329,6 +1326,7 @@ export const COVERAGE_GATE_TOOLS = [
   "scripts/check-global-coverage.ts",
   "scripts/check-new-file-coverage.ts",
   "scripts/check-patch-coverage.ts",
+  "scripts/coverage-attestations.json",
   "scripts/check-web-vitest-coverage.ts",
   "scripts/crap-score.ts",
 ] as const;
@@ -1342,31 +1340,6 @@ export function coverageGateToolViolations(nameStatus: string): string[] {
     const touched = rawPaths.map(unquotePath).filter((path): path is string => path !== undefined && tools.has(path));
     for (const path of touched) {
       out.push(`coverage gate tool changed (${status}): ${path} — it decides what coverage counts or how a coverage gate judges it`);
-    }
-  }
-  return out;
-}
-
-/**
- * Check 12 (W03g; renumbered at the integ merge, folded into check 11 next): the patch gate's attestation surface. Any added, modified,
- * deleted, renamed or copied path that is the patch gate itself (it holds the
- * attestation schema and the rule for what an attested line may skip) or the
- * attestation file needs the gate-change-approved label. Removing an entry is
- * still a change here: the label is the review, whichever way the entry moves.
- */
-export const ATTESTATION_SURFACE: readonly string[] = ["scripts/check-patch-coverage.ts", "scripts/coverage-attestations.json"];
-
-export function attestationSurfaceViolations(nameStatus: string): string[] {
-  const out: string[] = [];
-  for (const line of nameStatus.split("\n")) {
-    if (!line.trim()) continue;
-    const [status, rawOld, rawNew] = line.split("\t");
-    const oldPath = unquotePath(rawOld);
-    if (!status || !oldPath) continue;
-    const newPath = unquotePath(rawNew) ?? oldPath;
-    const touched = [...new Set([oldPath, newPath])].filter((path) => ATTESTATION_SURFACE.includes(path));
-    for (const path of touched) {
-      out.push(`patch-gate attestation surface changed (${status[0]} ${path}) — an attestation lets an uncovered line pass`);
     }
   }
   return out;
@@ -1514,11 +1487,6 @@ async function main(): Promise<void> {
 
   // 11. Coverage gate tools (the lcov merge and the gate checkers).
   for (const v of coverageGateToolViolations(nameStatus)) {
-    violations.push(`${v} — needs the gate-change-approved label`);
-  }
-
-  // 12. The patch gate's attestation surface (W03g).
-  for (const v of attestationSurfaceViolations(nameStatus)) {
     violations.push(`${v} — needs the gate-change-approved label`);
   }
 
