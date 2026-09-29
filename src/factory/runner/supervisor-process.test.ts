@@ -906,8 +906,8 @@ const listener = await startFactoryConfiguredHostServices(config, runner);
 process.on("SIGTERM", () => { listener.stop(); process.exit(0); });
 console.log("bound");
 `, { mode: 0o600 });
-    /** Runs one host process for `during`, then stops it. */
-    const withHost = async (configPath: string, during: () => Promise<void>) => {
+    /** Runs one host process for `during`, stops it, and returns what `during` returned. */
+    const withHost = async <Result>(configPath: string, during: () => Promise<Result>): Promise<Result> => {
       const child = Bun.spawn([process.execPath, script, configPath], { stdout: "pipe", stderr: "pipe" });
       try {
         const reader = child.stdout.getReader();
@@ -920,7 +920,7 @@ console.log("bound");
         }
         reader.releaseLock();
         if (!seen.includes("bound")) throw new Error(`the host process did not bind: ${seen}${await new Response(child.stderr).text()}`);
-        await during();
+        return await during();
       } finally { child.kill(); await child.exited; }
     };
     const transport = await createGatewayTransport({
@@ -946,36 +946,29 @@ console.log("bound");
     const configPath = await host.configure();
     const intent = factoryHostLaunchIntent("host-01");
     // The first host process never saw the worker: it tombstones it and signs its absence, then stops.
-    await host.withHost(configPath, async () => {
-      expect(await host.call(FACTORY_HOST_STOP_PATH, host.stopOf(intent))).toMatchObject({ status: 200, body: { workerId: intent.workerId, processGroupAbsent: true } });
-    });
+    const stopped = await host.withHost(configPath, () => host.call(FACTORY_HOST_STOP_PATH, host.stopOf(intent)));
+    expect(stopped).toMatchObject({ status: 200, body: { workerId: intent.workerId, processGroupAbsent: true } });
     // The restarted host process refuses the worker before anything starts.
-    await host.withHost(configPath, async () => {
-      expect(await host.launch(intent)).toEqual({ status: 409, body: { error: "worker_stopped" } });
-    });
+    expect(await host.withHost(configPath, () => host.launch(intent))).toEqual({ status: 409, body: { error: "worker_stopped" } });
   }, 60_000);
 
   test("after a key rotation, the retained key keeps the refusal, and only that worker is refused (W02d D6)", async () => {
     const host = await hostFixture();
     const intent = factoryHostLaunchIntent("host-01");
     const other = factoryHostLaunchIntent("host-01", undefined, "attempt-other");
-    await host.withHost(await host.configure(), async () => {
-      expect(await host.call(FACTORY_HOST_STOP_PATH, host.stopOf(intent))).toMatchObject({ status: 200 });
-    });
+    expect(await host.withHost(await host.configure(), () => host.call(FACTORY_HOST_STOP_PATH, host.stopOf(intent)))).toMatchObject({ status: 200 });
     // Rotate: the retired key's public half stays trusted by name; the host signs with a new key from now on.
     const retiredPath = join(host.root, "host-key-1.pub");
     await writeFile(retiredPath, createPublicKey(await readFile(join(host.root, "host.key"), "utf8")).export({ type: "spki", format: "pem" }) as string, { mode: 0o600 });
     await writeHostKey(host.root);
     await writeFile(join(host.root, "host.kid"), "host-key-2", { mode: 0o600 });
-    await host.withHost(await host.configure({ retainedHostKeys: [{ hostKeyId: "host-key-1", publicKeyPath: retiredPath }] }), async () => {
-      expect(await host.launch(intent)).toEqual({ status: 409, body: { error: "worker_stopped" } });
-      // Another worker is not refused by the tombstone: the host is not failing closed.
-      expect((await host.launch(other)).body.error).not.toBe("worker_stopped");
-    });
+    const retained = await host.withHost(await host.configure({ retainedHostKeys: [{ hostKeyId: "host-key-1", publicKeyPath: retiredPath }] }),
+      async () => ({ stopped: await host.launch(intent), other: await host.launch(other) }));
+    expect(retained.stopped).toEqual({ status: 409, body: { error: "worker_stopped" } });
+    // Another worker is not refused by the tombstone: the host is not failing closed.
+    expect(retained.other.body.error).not.toBe("worker_stopped");
     // Without the retained key the same entry is unverifiable: every launch is refused, the other worker's too.
-    await host.withHost(await host.configure(), async () => {
-      expect(await host.launch(other)).toEqual({ status: 409, body: { error: "worker_stopped" } });
-    });
+    expect(await host.withHost(await host.configure(), () => host.launch(other))).toEqual({ status: 409, body: { error: "worker_stopped" } });
   }, 90_000);
 });
 
