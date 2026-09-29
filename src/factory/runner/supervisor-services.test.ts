@@ -570,6 +570,28 @@ describe("a worker this host never saw", () => {
     expect({ written: await tombstoneWritten(signingKey), stopped: tombstones.stopped(peer, intent.workerId) }).toEqual({ written: false, stopped: false });
   });
 
+  test("a launch that races the stop is refused from before the first await, so a worker is never both started and tombstoned", async () => {
+    const { runner, touched } = neverSeen();
+    let answer!: () => void;
+    const answered = new Promise<void>((resolve) => { answer = resolve; });
+    let asked!: () => void;
+    const inspecting = new Promise<void>((resolve) => { asked = resolve; });
+    // The runtime answers only after the launch has arrived.
+    const slow: Runner = { ...runner, async inspect(id) { asked(); await answered; return runner.inspect(id); } };
+    const signingKey = await keyMaterial();
+    const tombstones = await FactoryHostTombstones.open(signingKey);
+    const handle = createFactoryHostServiceRouter({ hostId, peerTenants: { [peer]: peer }, runner: slow, signingKey, tombstones });
+    const intent = launchIntent();
+    const stopping = handle(request({ path: FACTORY_HOST_STOP_PATH, body: Buffer.from(JSON.stringify(stopOf(intent))) }));
+    await inspecting;
+    const raced = await handle(request({ path: FACTORY_HOST_LAUNCH_PATH, body: Buffer.from(JSON.stringify({ intent: factoryAttemptLaunchIntentToWire(intent) })) }));
+    expect({ status: raced.status, error: (body(raced) as { error?: string }).error }).toEqual({ status: 409, error: "worker_stopped" });
+    answer();
+    const settled = await stopping;
+    expect({ status: settled.status, body: body(settled) }).toMatchObject({ status: 200, body: { workerId: intent.workerId, processGroupAbsent: true } });
+    expect(touched.filter((entry) => entry.startsWith("start:"))).toEqual([]);
+  });
+
   test("a runtime that cannot answer is never read as no container: no tombstone, no signature (C03)", async () => {
     const { runner } = neverSeen();
     const signingKey = await keyMaterial();
