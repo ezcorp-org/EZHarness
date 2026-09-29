@@ -414,11 +414,13 @@ suggest_leg_files() {
 }
 
 # SDK leg: top-level test/ + co-located entities/__tests__/ (the canonical
-# coverage for entities/{validate,tools,storage,slug}.ts).
+# coverage for entities/{validate,tools,storage,slug}.ts) + v4/ + browser/ +
+# git/ (item C, W18 hygiene GC5 — withoutGitContext(), the one production
+# git-context-isolation rule every host-side git wrapper delegates to).
 sdk_leg_files() {
   {
     set +e
-    find packages/@ezcorp/sdk/test packages/@ezcorp/sdk/src/entities/__tests__ packages/@ezcorp/sdk/src/v4 packages/@ezcorp/sdk/src/browser -name "*.test.ts"
+    find packages/@ezcorp/sdk/test packages/@ezcorp/sdk/src/entities/__tests__ packages/@ezcorp/sdk/src/v4 packages/@ezcorp/sdk/src/browser packages/@ezcorp/sdk/src/git -name "*.test.ts"
   } 2>/dev/null | sort -u
 }
 

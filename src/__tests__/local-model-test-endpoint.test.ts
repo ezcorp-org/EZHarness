@@ -1,4 +1,4 @@
-import { test, expect, describe, beforeEach, afterAll, mock } from "bun:test";
+import { test, expect, describe, beforeEach, beforeAll, afterAll, mock } from "bun:test";
 import { restoreModuleMocks, webLibModule, serverModule } from "./helpers/mock-cleanup";
 import { mockServerAlias, createMockEvent, jsonFromResponse, ADMIN_USER, MEMBER_USER } from "./helpers/mock-request";
 
@@ -27,11 +27,6 @@ const mockCheckLocalModel = mock(async () => ({
   latencyMs: 42,
 }));
 
-mock.module("../auth/middleware", () => ({
-  requireAuth: mockRequireAuth,
-  requireRole: mockRequireRole,
-}));
-
 const localModelExports = serverModule("providers/local-model-check", {
   checkLocalModel: mockCheckLocalModel,
 });
@@ -41,10 +36,33 @@ mock.module("../providers/local-model-check", () => localModelExports);
 mockServerAlias();
 
 // Override $server aliases with mock implementations
-mock.module("$server/auth/middleware", () => ({
-  requireAuth: mockRequireAuth,
-  requireRole: mockRequireRole,
-}));
+// auth/middleware: registered in beforeAll below, not here at module top
+// level — item C2 (W18 hygiene). A raw object literal here is a partial
+// mock (missing checkAuth/checkProjectRole/etc.), and the
+// $server/auth/middleware alias is claimed by dozens of files repo-wide, so
+// whichever registration is active when a shared-process run resolves the
+// alias wins for every OTHER file too. beforeAll (test-execution time) plus
+// a complete serverModule() factory make THIS file's own values active for
+// THIS file's own tests; afterAll hands the alias back to the real module.
+const realAuthMiddleware = serverModule("auth/middleware", {});
+beforeAll(() => {
+  mock.module("$server/auth/middleware", () => ({
+    ...realAuthMiddleware,
+    requireAuth: mockRequireAuth,
+    requireRole: mockRequireRole,
+  }));
+  // Dual-specifier lesson: the relative path is the identical literal
+  // specifier other src/__tests__/ files at this depth resolve to.
+  mock.module("../auth/middleware", () => ({
+    ...realAuthMiddleware,
+    requireAuth: mockRequireAuth,
+    requireRole: mockRequireRole,
+  }));
+});
+afterAll(() => {
+  mock.module("$server/auth/middleware", () => realAuthMiddleware);
+  mock.module("../auth/middleware", () => realAuthMiddleware);
+});
 mock.module("$server/providers/local-model-check", () => localModelExports);
 
 // F2: the REAL `requireScope` — not a `() => null` stub — so the scope axis is

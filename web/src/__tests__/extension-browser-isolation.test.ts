@@ -1,4 +1,4 @@
-import { afterAll, expect, mock, test } from "bun:test";
+import { afterAll, beforeAll, expect, mock, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -9,7 +9,7 @@ import { restoreModuleMocks, webLibModule, serverModule } from "../../../src/__t
 
 const directory = await mkdtemp(join(tmpdir(), "ez-browser-boundary-"));
 const rateLimiterExports = await import("../lib/server/security/rate-limiter");
-mock.module("$server/auth/middleware", () => ({ requireAuth: (locals: { user?: unknown }) => { if (!locals.user) throw new Error("Unauthenticated"); return locals.user; } }));
+const realAuthMiddleware = serverModule("auth/middleware", {});
 const apiKeysExports = webLibModule("server/security/api-keys", { requireScope: () => null });
 mock.module("$lib/server/security/api-keys", () => apiKeysExports);
 mock.module("$lib/server/http-errors", () => ({ errorJson: (status: number, error: string) => Response.json({ error }, { status }) }));
@@ -18,7 +18,17 @@ const dbExtensionsExports = serverModule("db/queries/extensions", { getExtension
 mock.module("$server/db/queries/extensions", () => dbExtensionsExports);
 mock.module("$lib/server/security/rate-limiter", () => rateLimiterExports);
 const { GET } = await import("../routes/api/extensions/[name]/data/[...path]/+server");
-afterAll(async () => { restoreModuleMocks(); await rm(directory, { recursive: true, force: true }); });
+beforeAll(() => {
+  mock.module("$server/auth/middleware", () => ({
+    ...realAuthMiddleware,
+    requireAuth: (locals: { user?: unknown }) => { if (!locals.user) throw new Error("Unauthenticated"); return locals.user; },
+  }));
+});
+afterAll(async () => {
+  restoreModuleMocks();
+  mock.module("$server/auth/middleware", () => realAuthMiddleware);
+  await rm(directory, { recursive: true, force: true });
+});
 
 test("served extension HTML cannot read its authenticated parent or use app session APIs", async () => {
   const session = randomUUID();

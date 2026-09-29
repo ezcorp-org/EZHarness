@@ -6,6 +6,7 @@
 
 import { test, expect, describe, beforeAll, afterAll } from "bun:test";
 import { mkdtemp, rm } from "fs/promises";
+import { mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 
@@ -286,5 +287,73 @@ describe("git.ts – coverage gaps", () => {
     clone(`file://${bareRepoDir}`, dest);
     const ref = getCurrentRef(dest);
     expect(ref).toMatch(/^[a-f0-9]{40}$/);
+  });
+});
+
+// ── gitExec – poisoned-env guard-with-control (item C, W18 hygiene GC5) ──
+//
+// gitExec() used to spawn with `env: { ...process.env }` — a bare
+// pass-through of the caller's ambient environment. A GIT_DIR/GIT_WORK_TREE/
+// GIT_INDEX_FILE inherited from, say, a git hook overrides an explicit
+// `cwd`: git prefers the env vars over repository discovery. The control
+// here is that the poisoned values point at a REAL, different repository
+// with a DISTINGUISHABLE commit — so an unguarded gitExec() would return the
+// wrong (foreign) answer, and this test would fail without the fix.
+describe("gitExec – ambient GIT_DIR poisoning is neutralized", () => {
+  let sandbox: string;
+  let targetDir: string;
+  let foreignGitDir: string;
+  let foreignWorkTree: string;
+  let foreignIndexFile: string;
+
+  function commit(dir: string, file: string, body: string, message: string): void {
+    writeFileSync(join(dir, file), body);
+    Bun.spawnSync(["git", "add", "-A"], { cwd: dir, env: scratchGitEnv(join(sandbox, ".git-scratch-home")) });
+    Bun.spawnSync(
+      ["git", "-c", "user.email=t@example.invalid", "-c", "user.name=t", "commit", "-q", "-m", message],
+      { cwd: dir, env: scratchGitEnv(join(sandbox, ".git-scratch-home")) },
+    );
+  }
+
+  beforeAll(async () => {
+    sandbox = await mkdtemp(join(tmpdir(), "git-poison-"));
+    targetDir = join(sandbox, "target");
+    const foreignDir = join(sandbox, "foreign");
+    mkdirSync(targetDir, { recursive: true });
+    mkdirSync(foreignDir, { recursive: true });
+    const scratchEnv = scratchGitEnv(join(sandbox, ".git-scratch-home"));
+    Bun.spawnSync(["git", "init", "-q"], { cwd: targetDir, env: scratchEnv });
+    Bun.spawnSync(["git", "init", "-q"], { cwd: foreignDir, env: scratchEnv });
+    commit(targetDir, "file.txt", "target\n", "target commit");
+    commit(foreignDir, "file.txt", "foreign\n", "FOREIGN commit — must never surface for target");
+    foreignGitDir = join(foreignDir, ".git");
+    foreignWorkTree = foreignDir;
+    foreignIndexFile = join(foreignGitDir, "index");
+  });
+
+  afterAll(async () => {
+    await rm(sandbox, { recursive: true, force: true }).catch(() => {});
+  });
+
+  test("a git command scoped to targetDir ignores an ambient GIT_DIR pointing at a foreign repo", () => {
+    const saved = {
+      GIT_DIR: process.env.GIT_DIR,
+      GIT_WORK_TREE: process.env.GIT_WORK_TREE,
+      GIT_INDEX_FILE: process.env.GIT_INDEX_FILE,
+    };
+    process.env.GIT_DIR = foreignGitDir;
+    process.env.GIT_WORK_TREE = foreignWorkTree;
+    process.env.GIT_INDEX_FILE = foreignIndexFile;
+    try {
+      const result = gitExec(["log", "--oneline", "-1"], { cwd: targetDir });
+      expect(result.ok).toBe(true);
+      expect(result.stdout).toContain("target commit");
+      expect(result.stdout).not.toContain("FOREIGN commit");
+    } finally {
+      for (const [key, value] of Object.entries(saved)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
   });
 });

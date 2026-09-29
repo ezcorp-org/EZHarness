@@ -64,6 +64,26 @@ import { parseUnifiedDiff } from "./unified-diff.ts";
 export { parseUnifiedDiff, type DiffFile } from "./unified-diff.ts";
 
 /**
+ * A LOCAL copy of `@ezcorp/sdk/git`'s `currentRepositoryGitContext()` —
+ * deliberately not imported (item C2, W18 hygiene). This file is one of two
+ * (the other is `git-output.ts`) copied into a bare, `node_modules`-free
+ * scratch fixture by its own test (`src/__tests__/gate-scripts.test.ts`'s
+ * "isolated parser dependency" describe block, which explicitly asserts no
+ * `node_modules` exists there) — a workspace-package import cannot resolve
+ * in that context, which is exactly the regression importing
+ * `@ezcorp/sdk/git` here caused. The function is a one-line identity
+ * (`return env` unchanged); duplicating it carries no real drift risk, and
+ * keeping the SAME name here is what lets the repo-wide git-spawn guard
+ * (`src/__tests__/git-spawn-context-guard.test.ts`) still recognize this as
+ * a declared class-B (current-repository) spawn.
+ */
+export function currentRepositoryGitContext(
+  env: Record<string, string | undefined> = process.env,
+): Record<string, string | undefined> {
+  return env;
+}
+
+/**
  * The vacuous-test check needs TypeScript's AST, not a lossy text heuristic.
  * CI installs this isolated, locked dependency before running the gate.
  */
@@ -1325,7 +1345,12 @@ export function coverageGateToolViolations(nameStatus: string): string[] {
 // ── git wiring + main() ────────────────────────────────────────────────────
 
 async function gitRun(args: string[]): Promise<{ code: number; out: string; err: string }> {
-  const proc = Bun.spawn(["git", ...args], { cwd: REPO_ROOT, stdout: "pipe", stderr: "pipe" });
+  // Item C2 (W18 hygiene): this gate diffs/inspects the CURRENT checkout
+  // (including staged, not-yet-committed state under the pre-commit hook)
+  // as invoked, so it keeps the invoking git context
+  // (currentRepositoryGitContext(), never withoutGitContext() -- stripping
+  // GIT_INDEX_FILE here would make a staged-only check see the wrong tree).
+  const proc = Bun.spawn(["git", ...args], { cwd: REPO_ROOT, stdout: "pipe", stderr: "pipe", env: currentRepositoryGitContext(process.env) });
   const [out, err, code] = await Promise.all([
     new Response(proc.stdout).text(),
     new Response(proc.stderr).text(),

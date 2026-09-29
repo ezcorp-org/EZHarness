@@ -5057,7 +5057,7 @@ Gates: `tasks/factory/w18-hygiene-GATES.md` (GC1 through GC10). Worktree:
   full web bun-leg pool (3630/0 across 194 files) all clean. Details in GATES.md GC10.
 - [x] GC5 (production git wrappers): moved to item C2 (branch `wp/w18-hygiene-c2`, from item C's head)
   per the coordinator's re-sequencing — not on this branch. See `tasks/factory/w18-hygiene-GATES.md`
-  GC11-14 on the C2 branch for the full write-up.
+  GC11-15 on the C2 branch for the full write-up.
 - [x] Validator-3 fix round on item C (medium F1, medium F2, lows L1-L3):
   - F1 (identity): all nine commits from `d296f0b91` through the cherry-picked gate-integrity flake fix
     were authored with a personal address copied from the worktree's inherited git config (the
@@ -5090,6 +5090,38 @@ Gates: `tasks/factory/w18-hygiene-GATES.md` (GC1 through GC10). Worktree:
     as evidence multi-file `bun test` load order is not fully pinned by argument order, not as evidence
     the underlying bug is fixed (it isn't on this branch; C2 owns that fix).
   Re-authored head before this fix round's own commit: `a9f46fbb3`. Full details: `tasks/factory/w18-hygiene-GATES.md` (GC9 entry, updated).
+
+### Item C2 (branch `wp/w18-hygiene-c2`, from item C's accepted head)
+
+- [x] GC12: `$server/auth/middleware` added to the F1 walker's guarded modules; every partial mock
+  converted (38 files, found via the real walker, not the 2 originally named); 10 of those also had a
+  second, relative-path "dual-specifier" registration, fixed identically. Walker itself extended to
+  recognize the beforeAll + precomputed-`serverModule()`-variable shape (a gap every prior TARGET had
+  never exercised, since GC9's fix for extension-lifecycle-service/registry drops the alias entirely
+  instead of keeping and completing it). Zero offenders, no exemption list. Files that mock ONLY a
+  relative path (never the alias) are outside the walker's stated target and were not chased — reported,
+  not expanded into.
+- [x] GC13: `docs/extensions/examples/repo-activity-notify/index.ts` — the fourth weak-pattern instance
+  found during GC5 — now delegates to `withoutGitContext()`. One pre-existing, unrelated test failure
+  (`extension.test.ts`'s `ContractError`) confirmed present on the unmodified file, reported not fixed.
+- [x] GC14: new repo-wide guard (`src/__tests__/git-spawn-context-guard.test.ts`) that every production
+  `git` subprocess spawn goes through `withoutGitContext()`. Found and fixed 8 further real instances
+  beyond the four named wrappers: six `scripts/*.ts` gate/coverage scripts, and
+  `packages/@ezcorp/ai-kit/src/cli/install.ts`'s `gitProjectRoot()` (a third independent reimplementation
+  of the same GIT_*-strip filter, now delegating to the canonical helper via ai-kit's already-declared
+  `@ezcorp/sdk` peer dependency). Guard-with-control: reverted one fix, confirmed the guard fails
+  naming the exact offender, restored it.
+- [x] GC15: validator-3 found the regression GC14's first draft introduced — the six gate/coverage
+  scripts needed the invoking git context KEPT (a pre-commit hook's staged view, a checkout's own
+  state), not stripped; converting them to `withoutGitContext()` broke ten tests. Fixed with a second
+  named class, `currentRepositoryGitContext()`, and reverted all six to it; three of them also needed a
+  local, non-imported copy of that function since they're each copied into a bare, `node_modules`-free
+  test fixture where a workspace-package import cannot resolve (found while fixing the first issue).
+  All ten originally-regressed tests green, plus the visual-evidence suite (broken the same way, not
+  previously reported) and the extended guard itself.
+  Full details, evidence, the poison recipe and matching counts for GC5's corrected four-site
+  disclosure (validator-3's other finding, folded into GC11 above): `tasks/factory/w18-hygiene-GATES.md`
+  GC11 (correction), GC12-15.
 
 ## W12d — reproducible data image build (branch `wp/w12d-reproducible-image`)
 

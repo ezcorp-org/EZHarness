@@ -1,5 +1,5 @@
-import { test, expect, describe, beforeEach, afterAll, mock } from "bun:test";
-import { restoreModuleMocks } from "./helpers/mock-cleanup";
+import { test, expect, describe, beforeEach, beforeAll, afterAll, mock } from "bun:test";
+import { restoreModuleMocks, serverModule } from "./helpers/mock-cleanup";
 import { mockServerAlias, createMockEvent, jsonFromResponse, ADMIN_USER } from "./helpers/mock-request";
 
 // ── Module-level mocks (BEFORE handler imports) ──────────────────
@@ -25,22 +25,26 @@ mock.module("../providers/encryption", () => ({
   _resetKeyCache: () => {},
 }));
 
-mock.module("../auth/middleware", () => ({
-  requireAuth: mock(() => {}),
-}));
-
 // Register $server aliases for SvelteKit route handler imports
 mockServerAlias();
 
-// Map $server aliases to the mock implementations directly
+// Map remaining $server aliases to the mock implementations directly
 mock.module("$server/providers/encryption", () => ({
   encrypt: mock((plaintext: string) => `enc:${plaintext}`),
   decrypt: mock((ciphertext: string) => ciphertext.replace(/^enc:/, "")),
   _resetKeyCache: () => {},
 }));
-mock.module("$server/auth/middleware", () => ({
-  requireAuth: mock(() => {}),
-}));
+
+// auth/middleware: registered in beforeAll below, not here at module top
+// level — item C2 (W18 hygiene). A raw object literal here is a partial
+// mock (missing checkAuth/requireRole/checkProjectRole/etc.), and the
+// $server/auth/middleware alias is claimed by dozens of files repo-wide, so
+// whichever file's registration is active when a shared-process run
+// resolves the alias wins for every OTHER file too. beforeAll (test-execution
+// time) plus a complete serverModule() factory make THIS file's own values
+// active for THIS file's own tests, and afterAll hands the alias back to the
+// real module so a later file in the same process starts from a clean slate.
+const realAuthMiddleware = serverModule("auth/middleware", {});
 
 // Mock $types for the route
 mock.module("../../web/src/routes/api/providers/$types", () => ({}));
@@ -49,7 +53,21 @@ mock.module("../../web/src/routes/api/providers/$types", () => ({}));
 
 import { GET } from "../../web/src/routes/api/providers/+server";
 
-afterAll(() => restoreModuleMocks());
+beforeAll(() => {
+  mock.module("$server/auth/middleware", () => ({
+    ...realAuthMiddleware,
+    requireAuth: mock(() => {}),
+  }));
+  mock.module("../auth/middleware", () => ({
+    ...realAuthMiddleware,
+    requireAuth: mock(() => {}),
+  }));
+});
+afterAll(() => {
+  restoreModuleMocks();
+  mock.module("$server/auth/middleware", () => realAuthMiddleware);
+  mock.module("../auth/middleware", () => realAuthMiddleware);
+});
 
 beforeEach(() => {
   settingsStore = {};
