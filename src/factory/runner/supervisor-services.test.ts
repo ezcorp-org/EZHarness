@@ -570,6 +570,18 @@ describe("a worker this host never saw", () => {
     expect({ written: await tombstoneWritten(signingKey), stopped: tombstones.stopped(peer, intent.workerId) }).toEqual({ written: false, stopped: false });
   });
 
+  test("a runtime that cannot answer is never read as no container: no tombstone, no signature (C03)", async () => {
+    const { runner } = neverSeen();
+    const signingKey = await keyMaterial();
+    const tombstones = await FactoryHostTombstones.open(signingKey);
+    const failing: Runner = { ...runner, async inspect() { throw new Error("the runtime did not answer"); } };
+    const handle = createFactoryHostServiceRouter({ hostId, peerTenants: { [peer]: peer }, runner: failing, signingKey, tombstones });
+    const intent = launchIntent();
+    const refused = await handle(request({ path: FACTORY_HOST_STOP_PATH, body: Buffer.from(JSON.stringify(stopOf(intent))) }));
+    expect({ status: refused.status, body: body(refused) }).toEqual({ status: 500, body: { error: "stop_failed" } });
+    expect({ written: await tombstoneWritten(signingKey), stopped: tombstones.stopped(peer, intent.workerId) }).toEqual({ written: false, stopped: false });
+  });
+
   test("a stop that names no tenant for a worker this host never saw is refused, and scopes no tombstone", async () => {
     const { runner } = neverSeen();
     const signingKey = await keyMaterial();
