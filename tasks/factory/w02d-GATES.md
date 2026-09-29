@@ -186,8 +186,18 @@ plus `FACTORY_HOST_TOMBSTONE_GRACE_MS` (1 day), 31 days from its write. The reas
   the bound first drops the expired entries. So the bound counts tombstones within one retention span, tens of
   thousands per 31 days, not over the host's life. A live window that is still full refuses the write, and no stop is
   signed on it. A file above the bound can only come from outside this code, and the host refuses to start on it.
-- Caveat: entries are verified with the current host key. A key rotation makes older entries unverifiable, so they
-  are refused, counted and dropped at the next load. Rotate the key only on a host with no open run.
+- Key rotation (validator-6 D6, coordinator ruling (a)+(c)): an entry verifies against the same retained key set the
+  product's stop verifier keeps. The current key is always in it; `services.retainedHostKeys` names the retired ones,
+  loaded by the same loader as the product's `hostStopKeys` (`stop-host-keys.ts`, moved there with no database behind
+  it so the supervisor can use it, C05). A live entry for this host that no retained key verifies is poison.
+- Fail closed, chosen: while any poison entry is inside its window, the host refuses EVERY launch and attach
+  (`worker_stopped`), and keeps answering stops. Refusing to start was the other option; it was not chosen because a
+  stop only ever releases capacity, so a host that still answers stops lets the pool free what it can, while a launch
+  is the one action a tombstone guards. The operator lifts it by listing the retired key; otherwise it lapses when the
+  entry's own window ends. Compaction never deletes a live poison entry; an expired one, verifiable or not, is dropped.
+  Re-signing at rotation and documenting only were rejected by the ruling.
+- A forged entry (another key, this host, live) is now poison too, so it fails the host closed instead of being
+  dropped: it cannot be told from a rotated-away genuine one.
 
 ## The queued-host case
 

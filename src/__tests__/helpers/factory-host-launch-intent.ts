@@ -10,12 +10,12 @@ const launchDigest = `sha256:${"a".repeat(64)}`;
  * would be refused; `snapshotIntent` is the only thing that can produce one.
  * Nothing here is durable. Its tenant is "tenant-a".
  */
-export function factoryHostLaunchIntent(hostId: string, devices?: Parameters<typeof snapshotIntent>[3]): FactoryAttemptLaunchIntent {
+export function factoryHostLaunchIntent(hostId: string, devices?: Parameters<typeof snapshotIntent>[3], attemptId = "attempt-1"): FactoryAttemptLaunchIntent {
   const runner = { package: "runner", manifestName: "runner", version: "1", digest: launchDigest, export: "run", model: "m", configurationDigest: launchDigest };
   const runnerRequest: FactoryRunnerRequest = {
     schemaVersion: "factory.runner.request.v1",
     authority: {
-      attemptId: "attempt-1", tenantId: "tenant-a", projectId: "project-a", runId: "run-a", nodeInstanceId: "node-a",
+      attemptId, tenantId: "tenant-a", projectId: "project-a", runId: "run-a", nodeInstanceId: "node-a",
       candidateGeneration: 2, attemptNumber: 3, grantRevision: 4, reservationGeneration: 5, executionEpoch: 6,
       cancellationEpoch: 0, deadlineAtMs: 4_102_444_800_000, nextOperationIndex: 0,
     },

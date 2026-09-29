@@ -18,6 +18,8 @@ import { open, readFile, rename } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { canonicalJson } from "@ezcorp/extension-contract";
 import { FACTORY_LIMITS } from "@ezcorp/factory-sdk";
+import type { FactoryJournalHostKey } from "../journal-validation";
+import { factoryStopHostKeyMap, type FactoryStopHostKey } from "../stop-host-keys";
 import { loadFactoryHostSigningKey, type FactoryHostSigningKeySource } from "./host-stop-service";
 
 export const FACTORY_HOST_TOMBSTONES_FILE = "host-worker-tombstones.jsonl";
@@ -48,6 +50,11 @@ async function syncFolder(path: string): Promise<void> {
 export interface FactoryHostTombstonesOptions {
   readonly now?: () => number;
   readonly retentionMs?: number;
+  /**
+   * The host's retired public keys still trusted (the retained trust policy, the same set the product's stop verifier
+   * keeps). The current key is always trusted. What a retained key signed still verifies after a rotation.
+   */
+  readonly retainedKeys?: readonly FactoryStopHostKey[];
   /** The file's bound in bytes (tests shrink it). */
   readonly maxFileBytes?: number;
   /** Syncs the folder that holds the file; the production one fsyncs it. */
@@ -83,6 +90,12 @@ export class FactoryHostTombstones {
   private bytes = 0;
   private readonly pending = new Set<string>();
   private refusedCount = 0;
+  /**
+   * Live entries for this host that no trusted key verifies (validator-6 D6, coordinator ruling (a)+(c)). One cannot
+   * be told from a genuine tombstone whose key was rotated away, so while any is inside its window the host refuses
+   * every launch, compaction keeps it for the operator, and it lapses only when its own window ends.
+   */
+  private readonly poison: { readonly expiresAtMs: number; readonly line: string }[] = [];
   /** Whether the file exists: the write that creates it must also make the folder entry durable. */
   private exists = false;
   private readonly now: () => number;
@@ -93,7 +106,8 @@ export class FactoryHostTombstones {
   private constructor(
     private readonly hostId: string,
     private readonly path: string,
-    private readonly key: { readonly hostKeyId: string; readonly privateKey: KeyObject; readonly publicKey: KeyObject },
+    private readonly key: { readonly hostKeyId: string; readonly privateKey: KeyObject },
+    private readonly trusted: ReadonlyMap<string, FactoryJournalHostKey>,
     options: FactoryHostTombstonesOptions,
   ) {
     this.now = options.now ?? Date.now;
@@ -105,19 +119,25 @@ export class FactoryHostTombstones {
   /** Opens the host's tombstones, honouring only unexpired entries this host signed for itself. */
   static async open(source: FactoryHostSigningKeySource, options: FactoryHostTombstonesOptions = {}): Promise<FactoryHostTombstones> {
     const signing = await loadFactoryHostSigningKey(source);
-    const store = new FactoryHostTombstones(source.hostId, join(dirname(source.privateKeyPath), FACTORY_HOST_TOMBSTONES_FILE),
-      { ...signing, publicKey: createPublicKey(signing.privateKey) }, options);
+    const trusted = factoryStopHostKeyMap([{ hostId: source.hostId, hostKeyId: signing.hostKeyId, publicKey: createPublicKey(signing.privateKey) }, ...(options.retainedKeys ?? [])]);
+    const store = new FactoryHostTombstones(source.hostId, join(dirname(source.privateKeyPath), FACTORY_HOST_TOMBSTONES_FILE), signing, trusted, options);
     await store.load();
     return store;
   }
 
-  /** Lines refused at load: not this host's signature, another host, malformed, or expired. */
+  /** Lines dropped at load: malformed, another host's, or expired. */
   get refused(): number { return this.refusedCount; }
+
+  /** Live entries no trusted key verifies; while any exists, every launch is refused. */
+  get poisoned(): number {
+    const now = this.now();
+    return this.poison.filter((entry) => entry.expiresAtMs > now).length;
+  }
 
   /** Whether a launch or attach of this worker, for this tenant, must be refused. */
   stopped(tenantId: string, workerId: string): boolean {
     const key = scopeKey(tenantId, workerId);
-    if (this.pending.has(key)) return true;
+    if (this.pending.has(key) || this.poisoned > 0) return true;
     const entry = this.honoured.get(key)?.entry;
     return entry !== undefined && entry.expiresAtMs > this.now();
   }
@@ -161,11 +181,16 @@ export class FactoryHostTombstones {
     this.honoured.set(scopeKey(entry.tenantId, entry.workerId), { entry, line });
   }
 
-  /** Rewrites the file with the unexpired entries only: written aside, synced, renamed over it, the folder synced. */
+  /**
+   * Rewrites the file with the unexpired entries only, the unverifiable live ones included: written aside, synced,
+   * renamed over it, the folder synced.
+   */
   private async compact(): Promise<void> {
     const now = this.now();
     for (const [key, { entry }] of this.honoured) if (entry.expiresAtMs <= now) this.honoured.delete(key);
-    const content = [...this.honoured.values()].map(({ line }) => line).join("");
+    const poison = this.poison.splice(0).filter((entry) => entry.expiresAtMs > now);
+    this.poison.push(...poison);
+    const content = [...this.honoured.values(), ...poison].map(({ line }) => line).join("");
     const aside = `${this.path}.compact`;
     const handle = await open(aside, "w", 0o600);
     try {
@@ -191,8 +216,10 @@ export class FactoryHostTombstones {
     let superseded = 0;
     for (const line of content.split("\n")) {
       if (line.trim() === "") continue;
-      const entry = this.verified(line);
-      if (!entry) { this.refusedCount += 1; continue; }
+      const verdict = this.verified(line);
+      if (!verdict) { this.refusedCount += 1; continue; }
+      if (verdict.kind === "poison") { this.poison.push({ expiresAtMs: verdict.expiresAtMs, line: `${line}\n` }); continue; }
+      const entry = verdict.entry;
       const key = scopeKey(entry.tenantId, entry.workerId);
       if (this.honoured.has(key)) superseded += 1;
       this.honoured.set(key, { entry, line: `${line}\n` });
@@ -200,16 +227,22 @@ export class FactoryHostTombstones {
     if (this.refusedCount + superseded > 0) await this.compact();
   }
 
-  private verified(line: string): TombstoneEntry | undefined {
+  /**
+   * A line's verdict: dropped (undefined) when malformed, another host's, or expired; honoured when a trusted key of
+   * this host verifies it; otherwise poison, a live entry this host cannot vouch for.
+   */
+  private verified(line: string): { readonly kind: "honoured"; readonly entry: TombstoneEntry } | { readonly kind: "poison"; readonly expiresAtMs: number } | undefined {
     let value: Record<string, unknown>;
     try { value = JSON.parse(line) as Record<string, unknown>; }
     catch { return undefined; }
     if (!value || typeof value !== "object" || value.schemaVersion !== SCHEMA || value.hostId !== this.hostId || !text(value.tenantId) || !text(value.workerId)
-      || !text(value.attemptId) || !text(value.reservationId) || !counter(value.recordedAtMs) || !counter(value.expiresAtMs) || typeof value.signature !== "string") return undefined;
+      || !text(value.attemptId) || !text(value.reservationId) || !counter(value.recordedAtMs) || !counter(value.expiresAtMs) || !text(value.hostKeyId) || typeof value.signature !== "string") return undefined;
     const entry = entryOf(value as unknown as TombstoneEntry);
+    if (entry.expiresAtMs <= this.now()) return undefined;
+    const key = this.trusted.get(value.hostKeyId);
     let valid = false;
-    try { valid = verify("RSA-SHA256", Buffer.from(canonicalJson(entry)), this.key.publicKey, Buffer.from(value.signature, "base64url")); }
+    try { valid = key?.hostId === this.hostId && verify("RSA-SHA256", Buffer.from(canonicalJson(entry)), key.publicKey, Buffer.from(value.signature, "base64url")); }
     catch { valid = false; }
-    return valid && entry.expiresAtMs > this.now() ? entry : undefined;
+    return valid ? { kind: "honoured", entry } : { kind: "poison", expiresAtMs: entry.expiresAtMs };
   }
 }

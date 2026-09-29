@@ -56,6 +56,7 @@ import { isFactoryGuestModelPayload, type FactoryGuestBroker } from "./guest-mod
 import { isFactoryHostPeerTenants, type FactoryHostPeerTenants } from "./host-peer-tenants";
 import { FactoryHostBrokerUnavailableError, factoryHostBrokerUnavailable, startFactoryHostServices } from "./supervisor-services";
 import { FactoryHostTombstones } from "./host-tombstones";
+import { loadFactoryStopHostKeys } from "../stop-host-keys";
 import { createFactorySupervisorPoolClient } from "./supervisor-pool-client";
 import {
   createFactoryServiceReadinessWriter,
@@ -150,6 +151,13 @@ export interface FactorySupervisorProcessConfig {
      * calls a model is unaffected.
      */
     readonly guestBrokers?: Readonly<Record<string, FactorySupervisorEndpoint>>;
+    /**
+     * This host's retired public keys, still trusted under the retained trust policy (W02d D6): the tombstones they
+     * signed keep refusing their workers after a key rotation. The same shape and loader as the product's
+     * `hostStopKeys`, for this host. Optional: without it only the current key verifies, and a live tombstone signed by
+     * a rotated-away key holds every launch refused until its window ends or its key is listed here.
+     */
+    readonly retainedHostKeys?: readonly { readonly hostKeyId: string; readonly publicKeyPath: string }[];
   };
 }
 
@@ -205,12 +213,20 @@ function serviceSection(value: unknown): boolean {
   const required = ["hostname", "port", "peerTenants", "hostKeyIdPath", "tls"];
   // The single host-wide `guestBroker` form is gone: it is an unknown key, so a
   // document that still carries it, alone or beside `guestBrokers`, is refused.
-  const allowed = [...required, "pool", "guestBrokers"];
+  const allowed = [...required, "pool", "guestBrokers", "retainedHostKeys"];
   if (required.some((key) => !Object.hasOwn(value, key)) || Object.keys(value).some((key) => !allowed.includes(key))) return false;
   if (!text(value.hostname) || !integer(value.port, 1, 65_535) || !text(value.hostKeyIdPath)) return false;
   if (!isFactoryHostPeerTenants(value.peerTenants)) return false;
   if ((value.pool !== undefined && !endpointSection(value.pool)) || (value.guestBrokers !== undefined && !guestBrokersSection(value.guestBrokers))) return false;
+  if (value.retainedHostKeys !== undefined && !retainedHostKeysSection(value.retainedHostKeys)) return false;
   return tlsSection(value.tls);
+}
+
+/** One to sixteen retired keys, each exactly a key id and a public key path. */
+function retainedHostKeysSection(value: unknown): boolean {
+  const keys = ["hostKeyId", "publicKeyPath"];
+  return Array.isArray(value) && value.length >= 1 && value.length <= 16
+    && value.every((entry) => record(entry) && keys.every((key) => text(entry[key])) && Object.keys(entry).every((key) => keys.includes(key)));
 }
 
 const TLS_KEYS = ["caPath", "certificatePath", "privateKeyPath"];
@@ -369,7 +385,9 @@ export async function startFactoryConfiguredHostServices(
   const signingKey = { hostId: config.hostId, privateKeyPath: config.hostKeyPath, keyIdPath: services.hostKeyIdPath };
   // The host's durable tombstones, beside its key, loaded before the listener binds (W02d R8, coordinator ruling (A)):
   // a worker stopped here without ever running stays refused across a restart.
-  const tombstones = await FactoryHostTombstones.open(signingKey);
+  const retainedKeys = services.retainedHostKeys === undefined ? []
+    : await loadFactoryStopHostKeys(services.retainedHostKeys.map((key) => ({ hostId: config.hostId, ...key })));
+  const tombstones = await FactoryHostTombstones.open(signingKey, { retainedKeys });
   return startFactoryHostServices({
     hostId: config.hostId,
     peerTenants: services.peerTenants,
