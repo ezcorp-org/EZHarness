@@ -3,7 +3,8 @@ import { generateKeyPairSync } from "node:crypto";
 import { appendFile, chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { FACTORY_HOST_TOMBSTONE_RETENTION_MS, FACTORY_HOST_TOMBSTONES_FILE, FactoryHostTombstones } from "./host-tombstones";
+import { FACTORY_LIMITS, compileFactory, createKernelState, referenceCodeV1 } from "@ezcorp/factory-sdk";
+import { FACTORY_HOST_TOMBSTONE_GRACE_MS, FACTORY_HOST_TOMBSTONE_RETENTION_MS, FACTORY_HOST_TOMBSTONES_FILE, FactoryHostTombstones } from "./host-tombstones";
 
 const directories: string[] = [];
 afterAll(async () => { await Promise.all(directories.map((path) => rm(path, { recursive: true, force: true }))); });
@@ -154,5 +155,19 @@ describe("a host tombstone is honoured only when this host wrote it, for this te
     await store.record(tombstone);
     recorded();
     expect(store.stopped(tombstone.tenantId, tombstone.workerId)).toBe(true);
+  });
+});
+
+describe("the tombstone's retention (gates: W02d tombstone retention)", () => {
+  test("outlives the longest run deadline the kernel allows, plus the grace", () => {
+    // The longest deadline a definition may ask for, as the kernel grants it to a run started at 0.
+    const result = compileFactory({
+      schemaVersion: "factory.v1", id: "tombstone-retention", version: "1", interpreterCompatibility: "1", inputPorts: {}, outputPorts: {},
+      graph: { nodes: [], outputs: {} }, acceptance: referenceCodeV1.acceptance, packages: [...referenceCodeV1.packages], capabilities: [], effects: ["none"],
+      bounds: { maxExpandedNodes: 100, maxScopeDepth: 16, runDeadlineMs: FACTORY_LIMITS.maximumRunDeadlineMs },
+    });
+    if (!result.ok) throw new Error(result.diagnostics.map((diagnostic) => diagnostic.code).join(", "));
+    const longestDeadline = createKernelState(result.factory, "tombstone-retention", {}, 0).runDeadlineAtMs;
+    expect(FACTORY_HOST_TOMBSTONE_RETENTION_MS).toBe(longestDeadline + FACTORY_HOST_TOMBSTONE_GRACE_MS);
   });
 });

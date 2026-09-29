@@ -5305,10 +5305,13 @@ both processes a log line that names it. Two causes remain outside this package:
       failed by name (6cab80e44).
 - [x] R7 a supervisor-confirmed GPU stop confirms and settles; the host stays held for its reimage (3428eba36).
 - [x] R7b a trusted-local host is reused by its one bound tenant without a reimage (2a3b7c215).
-- [ ] R8 the refused dispatch releases its lease and hold (parked 92bdc1f22; after "W09h landed").
-- [x] R9 a class the pool cannot serve fails its run by name and releases the unused hold (1f7d56010); basis switch
-      after W09h.
+- [x] Host tombstone (ruling (A)): a never-seen worker is tombstoned, signed absent and refused (f01dc399c); restart
+      (a0c96ae8c); negative controls (8d3ed5eb5); retention 31 days, proposed with its reason in the gates file.
+- [x] R8 the refused dispatch releases its lease and hold on W09h's basis (26951f125, from 92bdc1f22).
+- [x] R9 a class the pool cannot serve fails its run by name and releases the unused hold (1f7d56010); on W09h's
+      basis (31bee42a9).
 - [x] Merge of integ/w00 e92d34d45 (bfa01a41a) with all 74 withheld suites green.
+- [x] Merge of integ/w00 ad22592da (7a499e4e1) with all 89 withheld suites green.
 - [ ] task-stops.ts attestation refresh after W03f lands.
 - [ ] The authoritative two-stage head run (P1, P5, P2 with the post-R8 expectation) at the final head.
 - [ ] Coverage gates at the final head.
@@ -5319,8 +5322,9 @@ The base reproductions were red as briefed. The head runs found two defects the 
 host refused before creating it could never be stopped (R4), and a lease reclaimed before claim left the attempt
 "outcome unknown" (R6). Both are fixed red-first, and three harness defects the runs exposed (a hidden refusal, a
 port collision, a crashing comparison) are fixed in W19a's harness with tests. The re-judged interim verdicts hold
-for P1, P2 (pre-R8) and P5; the evidence of record is one run at the final head after R8. Open: R8, R9's basis switch,
-the attestation refresh, P3 live (not run under A5; the user's call).
+for P1, P2 (pre-R8) and P5; the evidence of record is one run at the final head after R8. R8 needed a host that can
+sign a never-seen worker's absence, so the host now tombstones it (ruling (A)). Open: the attestation refresh, the
+head run, and R6's release basis. P3 is not run live: the user decided (b).
 
 ## W09h — a stop during compute admission settles in place (branch `wp/w09h-admission-stop`)
 
@@ -5332,7 +5336,7 @@ Gate file `tasks/factory/w09h-GATES.md`; evidence `/tmp/factory-platform-evidenc
 - [x] R4 the hold settles all zero under "no-operations: nothing launched, all zero" (additive CHECK migration, clause-removed test) — `bbf02876a`, corrected by `5d6d398f9`
 - [x] R5 lock order: both contenders take the run lock before the admission row, both orders on real PostgreSQL — `f70c06fbe`
 - [x] Legs, coverage gates and the graph-proof runbook at the `wp/w09h-admission-stop` head `ef3f64457` (rebased onto `e92d34d45`); validator-5 M1 fixed in `ef3f64457`
-- [ ] W02d follow-up (not in W09h): R8 and R9 move to the shared basis after W09h lands; the queued-host P3/P5 cases rerun
+- [x] W02d follow-up (not in W09h): R8 and R9 moved to the shared basis (26951f125, 31bee42a9); the queued-host case is not rerun (P3 not run under the user's decision (b); P5 has no GPU host)
 
 ### Review
 

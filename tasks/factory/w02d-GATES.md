@@ -4,8 +4,8 @@ Branch `wp/w02d-gpu-lease`, cut from `integ/w00` at `a24a619ad` (W01h and W01i a
 Evidence: `/tmp/factory-platform-evidence/w02d/`. Brief: `/tmp/factory-platform-evidence/w00/briefs/w02d.md`;
 plan and rulings: `w02d/plan.md`.
 
-Status: IN PROGRESS. R1–R7, R7b and R9 are in; R8 and R9's basis switch wait for W09h; the task-stops.ts
-attestation refresh waits for W03f. Validator: validator-6.
+Status: IN PROGRESS. R1–R9 and R7b are in, R8 and R9 on W09h's basis, with the host tombstone of ruling (A). The
+task-stops.ts attestation refresh waits for W03f; the authoritative head run follows it. Validator: validator-6.
 
 | Commit | What it is |
 | --- | --- |
@@ -25,6 +25,12 @@ attestation refresh waits for W03f. Validator: validator-6.
 | `6cab80e44` | R6 completion: a lease reclaimed before claim ends the attempt failed by name (`RUNNER_LEASE_LOST`, "lease_revoked"), no host stop |
 | `db82d8c15` | Harness (W19a's): a graph-proof stack never gives two of its services the same port |
 | `5a48b372f` | Harness (W19a's): a check that meets a non-JSON value reports false instead of crashing the verdict |
+| `7a499e4e1` | Merge of integ/w00 `ad22592da` (W09h, W18c, C2 landed), list-bound skip ruling; all 89 withheld suites green |
+| `31bee42a9` | R9 basis: a rejected admission settles as "nothing launched, all zero" and records the attempt's usage settlement |
+| `f01dc399c` | Tombstone (i): a worker this host never saw is tombstoned durably, then signed absent, and refused `worker_stopped` |
+| `a0c96ae8c` | Tombstone (ii): a tombstone written by one host process refuses the worker after a process-level restart |
+| `8d3ed5eb5` | Tombstone (iii): the negative controls |
+| `26951f125` | R8: a dispatch refused after admission releases its lease and hold through the host's signed stop, on W09h's basis |
 
 ## Base reproductions (G1), on the real stack
 
@@ -75,16 +81,30 @@ on class `gpu` = `{cpu 1, gpu-host 1}`). Under the heavy lock; bun and bunx asse
   lease past its deadline (`uncertain / lease-expired`, generation + 1). There is no expired-but-renewable state: the
   claim renewal keeps a lease inside its deadline alive, and a lease past it is refused by name. P2 at the head shows
   the reclaimed path (pool rows: prepare `settled / stopped-confirmed`, infer `uncertain / lease-expired`).
-- Until R8 lands, a `lease_revoked` refusal does NOT release the budget hold; R8's refused-dispatch stop releases it.
+- Release after `lease_revoked`: the attempt's terminal stop asks the host, which now tombstones the never-seen worker
+  and signs its absence; the pool confirms a reclaimed lease (only the allocation generation moved). The stop has no
+  durable fact that nothing launched (the launch row is `terminal` either way, and `RUNNER_LEASE_LOST` also ends a
+  launched attempt), so the hold settles at cost zero under the reserved-bound compute basis, not "nothing launched".
+  The head run measures this path.
 - The renewal is placed after the one-winner claim, before readiness, the attempt token and any launch (not before the
   intent row exists), so a second dispatcher never renews a lease it does not own.
 
-## R8: the refused dispatch (parked)
+## R8: the refused dispatch (`26951f125`)
 
-- Built red first and parked as `92bdc1f22` on the local branch `wip/w02d-r8`; it commits onto this branch after
-  integ is merged with W09h, whose no-operations basis "nothing launched, all zero" replaces the provisional
-  budget settle (coordinator ruling). Red: stop suite with the recorder a no-op, 2 fail; migration with the worker
-  clause removed, 1 fail. Green: stop suite 37/0 (PGlite), PostgreSQL old-shape migration 1/0.
+- Built red first and parked as `92bdc1f22` (red: stop suite with the recorder a no-op, 2 fail; migration with the
+  worker clause removed, 1 fail). Cherry-picked onto the tombstone commits; one conflict in `task-stops.ts`, where
+  both sides added a distinct function and both stay.
+- On W09h's basis: the refusal stores the node attempt's authority on the stop row (`attempt_authority_json`, tied
+  to the `dispatch-refused` source by the CHECK), so the settle records the attempt's usage settlement ("nothing
+  launched, all zero", proved by the host's signed stop) and its kernel event. The test applies that event to the
+  run's kernel state and gets a known zero for the dispatched attempt. Red: no settlement row
+  (`logs/r8d-red.log`). Green: PGlite task-stops 38/0; PostgreSQL task-stops 38/0, compute-admissions 2/0,
+  migration 1/0 (`r8-basis/logs/`). A tampered or malformed authority is refused `factory_task_stop_corrupt` and
+  never recorded.
+- One helper, `settleFactoryNothingLaunchedInTransaction`, serves the three "nothing launched" paths: W09h's
+  in-place stop, R9's pool rejection and R8.
+- The hook mapped 6 suites, one of them PostgreSQL, so the commit ran under the heavy lock (veto `w01g-fix` first,
+  the database URL loaded inside the script): all 6 green.
 - Q5 revised (coordinator, 2026-09-27): Q5 said "no stop row". C03 decides it: capacity is freed only on a
   supervisor's signed word, and a held lease does not prove nothing started, because the remote runtime launches
   before acknowledgeStart. So the mechanism that already carries a signed host stop, the stop row and the existing
@@ -93,14 +113,51 @@ on class `gpu` = `{cpu 1, gpu-host 1}`). Under the heavy lock; bun and bunx asse
   `cancel_command_id` = the refused `dispatch-node` command, tied together by a CHECK.
 - Lock order: the refused-dispatch stop locks only its stop row. There is no launch row, so
   FACTORY_STOP_LAUNCH_LOCK_ORDER (the stop row, then the launch row) holds.
-- R9 switches its zero settlement to the same W09h basis at that merge (coordinator ruling): today it settles the
-  budget hold all zero with the pool's rejection digest and records no usage settlement or basis.
+- R9 is on the same basis (`31bee42a9`): the pool's rejection settles the hold "nothing launched, all zero" and
+  records the attempt's usage settlement; the admission test expects the events `usage-settled`, `admission-result`.
 
-## Blocked on W09h (w19a)
+## Tombstones: a worker the host never saw (ruling (A))
 
-- A run stopped while a node waits for compute admission (for example a GPU host queued behind a reimage) never
-  ends: its `cancel-node` names the request-admission command and no stop route settles it. W02d's P3 and P5 head
-  runs proceed only when the host is not queued; the queued-host case waits for W09h.
+- (i) `f01dc399c`. Red through the real router: the stop of a never-seen worker answered 500 `stop_failed`
+  (`logs/r8a-red.log`). Green: one runtime inspect, a signed tombstone line beside the host key, then the signed
+  absence; a later launch or attach of that worker is refused 409 `worker_stopped`. The launch is refused from the
+  moment the stop reserves the worker, before anything is awaited.
+- (ii) `a0c96ae8c`. A spawned host process records the tombstone and exits; the next process loads it and refuses
+  the worker. Red with the load removed: 0/1.
+- (iii) `8d3ed5eb5`. Refused: a tombstone signed with another key, one for another host, one past its retention (in
+  memory and after a restart), 11 malformed or tampered lines; another tenant's worker of the same id is not refused.
+  A malformed input is never written; a failed write throws and signs nothing; an oversized file stops the host
+  from starting. Never tombstoned: a worker the runtime still shows, a starting worker (the runtime shows nothing
+  yet), a live one. A stop naming no tenant for a never-seen worker is 403 `forbidden_tenant`. Each guard removed
+  once fails its control (`logs/r8c-red-*.log`). `host-tombstones.ts` is at 100% lines and functions.
+
+### Retention (proposal)
+
+A tombstone is honoured for the longest run deadline plus one day: `FACTORY_LIMITS.maximumRunDeadlineMs` (30 days)
+plus `FACTORY_HOST_TOMBSTONE_GRACE_MS` (1 day), 31 days from its write. The reason:
+
+- A launch naming a stopped worker comes only from an attempt of that worker's run. The kernel caps every run's
+  deadline at 30 days from its start, and a tombstone is written after its run started. So 30 days from the write
+  outlives every deadline that run's attempts can carry, and so the run's terminal record.
+- The host does not refuse a launch whose deadline has passed, so the tombstone must cover the whole span itself.
+- The day of grace covers clock skew between product and host and the stop's own settlement.
+- The retention derives from the SDK's limit, and a test holds it against the kernel's granted deadline, so a
+  longer cap raises it. Red with the old value (30 days, no grace): the test fails (`logs/r8e-retention-red.log`).
+- Cost: one entry is a few hundred bytes; the file is capped at 16 MiB and the host refuses to start above it.
+- Caveat: entries are verified with the current host key. A key rotation makes older entries unverifiable, so they
+  are refused and counted; rotate the key only on a host with no open run, or re-sign the live entries first.
+
+## The queued-host case
+
+- W09h landed at `7a499e4e1`: a run stopped while a node waits for compute admission now settles in place. W02d's
+  head runs do not rerun that case: P3 is not run (the user's decision (b), below) and P5 has no GPU host.
+
+## Merge of integ/w00 ad22592da (7a499e4e1)
+
+- W09h, W18c and C2's hygiene landed. The hook withheld 89 suites (cap 12) under the list-bound skip ruling; all
+  89 ran outside the hook at the merge commit (`w02d/merge-ad22592da/receipts/`): 80 bun, 8 vitest and the
+  orchestrator package, 1920 passed, 0 failed, every count nonzero. The typecheck after the merge needed the
+  `@ezcorp/sdk` package built first; nothing in the tree changed for it.
 
 ## Merge of integ/w00 e92d34d45 (bfa01a41a)
 
@@ -128,6 +185,8 @@ on class `gpu` = `{cpu 1, gpu-host 1}`). Under the heavy lock; bun and bunx asse
 | `scripts/factory-graph-proof/diagnostics.ts`, `proof.ts` (`5a48b372f`) | W19a | A failed node left a value undefined and the proof's comparison threw "Value is not valid I-JSON", replacing every check | `src/factory/graph-proof-diagnostics.test.ts` (red: failed to load; green 23/0) |
 | `src/factory/runner/remote-attempt-runtime.ts` (R6) | W01 / W01h | One renewal at claim, and a reclaimed lease ends the attempt failed by name; W01h's loop unchanged | `runner/remote-attempt-runtime.test.ts` |
 | `src/factory/runner/host-launch-supervisor.ts`, `supervisor-services.ts` (R4) | W01 | A worker refused before any container is first-hand absent | `runner/supervisor-services.test.ts`, `runner/host-launch-supervisor.test.ts` |
+| `src/factory/runner/host-tombstones.ts` (new), `host-launch-supervisor.ts`, `host-launch-service.ts`, `host-stop-service.ts`, `supervisor-services.ts`, `supervisor-process.ts`, `attempt-wire.ts` (tombstone (i)–(iii)) | W01 (changed by W02d under ruling (A)) | A never-seen worker's stop could never be signed; the host now tombstones it durably and refuses it from then on | `runner/host-tombstones.test.ts`, `runner/supervisor-services.test.ts` |
+| `src/factory/usage-settlement.ts`, `task-stops.ts`, `compute-admissions.ts` (R8, R9) | W09h (the basis) | One shared "nothing launched" settlement for W09h's stop, R9 and R8 | `__tests__/factory-task-stops.test.ts`, `__tests__/factory-compute-admissions.test.ts`, their PostgreSQL twins |
 
 ## Head runs
 
@@ -137,7 +196,8 @@ P2 prepare and infer each 45 s, admitted together, so whichever the dispatcher r
 P3 is NOT run live at the head (coordinator ruling (b)): a gpu-host grant must authorize at least one device
 (attempt-wire.ts), the shared validator allows only `/dev/kfd` and `/dev/dri/renderD<n>`, and ruling A5 forbids a real
 device in a container, so no GPU attempt can run and be cancelled here. R7 and R7b rest on the pool suites (PGlite
-and PostgreSQL) and the unit tests; the live GPU stop path is an open gap. Passing a render node is the user's call. `w02d/verify-head.py` judges each pass by its own expectation and prints every
+and PostgreSQL) and the unit tests. The user decided (b): A5 stands for this wave, no render node enters any
+container, and P3 is not run live. `w02d/verify-head.py` judges each pass by its own expectation and prints every
 check with expected and seen; `w02d/head-runs.sh` runs a smoke of each type first, stops if any type fails to reach
 "ready" (status 200), and exits nonzero on any failed leg.
 
@@ -172,10 +232,10 @@ product's own stop of the failed attempt.
 
 ## Open
 
-- R8: parked until the W09h merge (above); R9's basis switch at the same merge.
-- The queued-host case (P3/P5): blocked on W09h.
-- P3 live at the head: not run under A5 (above); the user decides whether a render node may reach a mock guest.
 - task-stops.ts attestation refresh after W03f lands (W03g's entry pins the file; R7/R8 change it).
+- The authoritative two-stage head run at the final head, after the refresh.
+- R6's release basis (above): cost zero under the reserved-bound compute basis; "nothing launched" would need a
+  durable claim-time fact on the launch row. The coordinator decides whether that is in scope.
 - Design follow-up (coordinator, not this wave): a 30 s lease against a queue wait that can exceed it means every long
   wait ends in a named failure; a queued attempt should re-admit at claim instead.
 

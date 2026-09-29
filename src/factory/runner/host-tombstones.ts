@@ -17,15 +17,21 @@ import { createPublicKey, sign, verify, type KeyObject } from "node:crypto";
 import { open, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { canonicalJson } from "@ezcorp/extension-contract";
+import { FACTORY_LIMITS } from "@ezcorp/factory-sdk";
 import { loadFactoryHostSigningKey, type FactoryHostSigningKeySource } from "./host-stop-service";
 
 export const FACTORY_HOST_TOMBSTONES_FILE = "host-worker-tombstones.jsonl";
+/** The margin a tombstone keeps past the longest run deadline: clock skew between product and host, and the stop's settlement. */
+export const FACTORY_HOST_TOMBSTONE_GRACE_MS = 24 * 60 * 60 * 1_000;
 /**
- * How long a tombstone is honoured. A launch for a stopped worker can only come from a product-side attempt that is
- * still open, and no attempt outlives its run's deadline plus the product's stop settlement; thirty days is far past
- * any run deadline this platform allows, and an entry is a few hundred bytes (the gates file states the reasoning).
+ * How long a tombstone is honoured. A launch naming a stopped worker comes only from an attempt of that worker's run,
+ * and the kernel caps every run's deadline at FACTORY_LIMITS.maximumRunDeadlineMs (30 days) from its start. A
+ * tombstone is written after its run started, so that span from the write plus the grace outlives every deadline that
+ * run's attempts can carry. The host does not
+ * refuse a launch whose deadline has passed, so the tombstone itself must cover the whole span. The test holds this
+ * against the kernel's own cap. An entry is a few hundred bytes; the gates file states the reasoning.
  */
-export const FACTORY_HOST_TOMBSTONE_RETENTION_MS = 30 * 24 * 60 * 60 * 1_000;
+export const FACTORY_HOST_TOMBSTONE_RETENTION_MS = FACTORY_LIMITS.maximumRunDeadlineMs + FACTORY_HOST_TOMBSTONE_GRACE_MS;
 const SCHEMA = "factory.host-worker-tombstone.v1";
 const MAX_FILE_BYTES = 16 * 1024 * 1024;
 
