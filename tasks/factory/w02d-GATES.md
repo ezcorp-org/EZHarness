@@ -97,7 +97,26 @@ on class `gpu` = `{cpu 1, gpu-host 1}`). Under the heavy lock; bun and bunx asse
   in P2 the host signed through the tombstone and the pool settled the lease `stopped-confirmed`, but the product
   refused the pool's answer `factory_task_stop_pool_mismatch`: the reclaim moved the allocation generation from 1 to 2
   for the same holder, and the product requires them equal. The stop, the hold and the run stayed open, and the
-  refusal was retried every pass (1912 and 1929 times). A fix is prepared and waits for the coordinator's ruling.
+  refusal was retried every pass (1912 and 1929 times).
+- The pool confirmation (coordinator ruling, approved with conditions): one shared check,
+  `assertFactoryPoolConfirmsStop` in `task-stops.ts`, serves the task stop and the refused-dispatch stop. It accepts a
+  settled confirmation for the same reservation and holder at the same or a LATER allocation generation. It refuses a
+  lower allocation generation, another holder, another host, and an unconfirmed state.
+  - Why a later generation is safe: the pool grants only a queued request, the grant sets the holder generation to the
+    allocation generation, and nothing moves a request back to queued. Every later bump (cancel, revoke, ledger
+    recovery, lease expiry) fences that one holder. The pool suite pins it: "a reservation has one holder: its grant
+    takes the allocation generation, and a fenced reservation is never granted again". Its mutant that grants a
+    fenced reservation again is red. The mutant that sets the holder generation to 1 survives and is equivalent: a
+    queued request always has allocation generation 1.
+  - The pinned case "staleGeneration" changed meaning. It used allocation generation 9, higher than the receipt's,
+    and expected a refusal. A higher generation now means the pool fenced the same holder, which confirms the stop.
+    The case now uses the receipt's generation minus 1, which is stale. A new control refuses another holder.
+  - Red: the reclaimed-lease test ended `uncertain`. The mutant without the allocation check fails the lower-generation
+    control.
+  - F-R8a (validator-6): a refused-dispatch stop whose pool answer is unconfirmed (`uncertain / lease-expired`, or
+    `running`) is refused `factory_task_stop_pool_mismatch`. The hold stays `running`, the stop stays `accepted`, and
+    no settlement row exists. Both mutants are red: the check not called in the refused-dispatch stop, and the
+    `poolStopConfirmed` clause dropped.
 - The renewal is placed after the one-winner claim, before readiness, the attempt token and any launch (not before the
   intent row exists), so a second dispatcher never renews a lease it does not own.
 
@@ -210,6 +229,9 @@ plus `FACTORY_HOST_TOMBSTONE_GRACE_MS` (1 day), 31 days from its write. The reas
 | `src/factory/runner/host-launch-supervisor.ts`, `supervisor-services.ts` (R4) | W01 | A worker refused before any container is first-hand absent | `runner/supervisor-services.test.ts`, `runner/host-launch-supervisor.test.ts` |
 | `src/factory/runner/host-tombstones.ts` (new), `host-launch-supervisor.ts`, `host-launch-service.ts`, `host-stop-service.ts`, `supervisor-services.ts`, `supervisor-process.ts`, `attempt-wire.ts` (tombstone (i)–(iii)) | W01 (changed by W02d under ruling (A)) | A never-seen worker's stop could never be signed; the host now tombstones it durably and refuses it from then on | `runner/host-tombstones.test.ts`, `runner/supervisor-services.test.ts` |
 | `src/factory/usage-settlement.ts`, `task-stops.ts`, `compute-admissions.ts` (R8, R9) | W09h (the basis) | One shared "nothing launched" settlement for W09h's stop, R9 and R8 | `__tests__/factory-task-stops.test.ts`, `__tests__/factory-compute-admissions.test.ts`, their PostgreSQL twins |
+| `src/factory/task-stops.ts` (the pool confirmation) | W01h (the stop path); W03 (the file's coverage attestation) | A pool that reclaimed a lease confirmed the stop at a later allocation generation, and the stop refused it forever (P2 trial) | `__tests__/factory-task-stops.test.ts` and its PostgreSQL twin |
+| `src/factory/dispatch-refused-stops.ts` (the pool confirmation) | W02d (R8) | The same check, shared; F-R8a pins that an unconfirmed pool settles nothing | `__tests__/factory-task-stops.test.ts` and its PostgreSQL twin |
+| `src/__tests__/helpers/factory-pool-suite.ts` | W16 (the pool) | Pins one holder per reservation, the fact the confirmation rests on | `pool/ledger.integration.test.ts` and its PostgreSQL twin |
 
 ## Head runs
 
@@ -257,7 +279,10 @@ product's own stop of the failed attempt.
 
 - task-stops.ts attestation refresh after W03f lands (W03g's entry pins the file; R7/R8 change it).
 - The authoritative two-stage head run at the final head, after the refresh.
-- The pool-confirmation fix for P2 (above): waits for the coordinator's ruling. Without it, P2 cannot settle its hold.
+- Follow-up, unchanged this wave (coordinator ruling): the stop settlement role classifies
+  `factory_task_stop_pool_mismatch` as transient and retries it on every pass with no bound (1912 and 1929 retries in
+  the two P2 trial passes). It needs a bounded back-off.
+- The final merge of integ after W03f must re-resolve `task-stops.ts`: W03f's custody merge changes it too.
 - Follow-up, owner W02d, not this wave (coordinator ruling): a durable claim-time fact on the launch row, so a lease
   lost before launch can settle under "no-operations: nothing launched, all zero".
 - Design follow-up (coordinator, not this wave): a 30 s lease against a queue wait that can exceed it means every long

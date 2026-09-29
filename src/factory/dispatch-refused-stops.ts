@@ -5,11 +5,11 @@ import { releaseRows as rows } from "../db/queries/extension-releases";
 import { digestObject } from "../extensions/v4/blobs";
 import type { FactoryBudgets } from "./budgets";
 import { firstFactoryJournalIssue, validateFactoryStopReceipt, type FactoryJournalHostKey } from "./journal-validation";
-import { poolStopConfirmed, type PoolLease } from "./pool/ledger";
+import type { PoolLease } from "./pool/ledger";
 import { assertFactoryIdentity } from "./records";
 import { factoryAttemptWorkerId, type FactoryPhysicalStopReceipt } from "./runner/attempt-runtime";
 import {
-  FACTORY_PHYSICAL_STOP_TIMEOUT_MS, FactoryTaskStopError, factoryStopHostKeyMap, factoryStopWithDeadline,
+  FACTORY_PHYSICAL_STOP_TIMEOUT_MS, FactoryTaskStopError, assertFactoryPoolConfirmsStop, factoryStopHostKeyMap, factoryStopWithDeadline,
   type FactoryPhysicalStopper, type FactoryPoolStopAcknowledger, type FactoryStopHostKey, type FactoryTaskStopRequest,
 } from "./task-stops";
 import type { TrustedFactoryCommandReference } from "./trusted-command-gateway";
@@ -145,7 +145,7 @@ export class FactoryDispatchRefusedStops {
     const physical = await factoryStopWithDeadline(this.stopTimeoutMs, signal => this.stopper.stop(recorded.request, signal));
     this.assertReceipt(recorded.request, physical, Number(recorded.row.accepted_at_ms));
     const acknowledged = await factoryStopWithDeadline(this.stopTimeoutMs, signal => this.pool.confirmStopped({ reservationId: physical.reservationId, holderGeneration: physical.holderGeneration, hostId: physical.hostId }, signal));
-    if (acknowledged.reservationId !== physical.reservationId || !poolStopConfirmed(acknowledged) || acknowledged.holderGeneration !== physical.holderGeneration || acknowledged.allocationGeneration !== physical.allocationGeneration || (acknowledged.hostId !== undefined && acknowledged.hostId !== physical.hostId)) throw new FactoryTaskStopError("factory_task_stop_pool_mismatch");
+    assertFactoryPoolConfirmsStop(acknowledged, physical);
     return this.database.transaction(async transaction => {
       const locked = await this.read(transaction, stop, true);
       if (locked.row.state === "stopped") return "stopped";

@@ -344,12 +344,7 @@ export class FactoryTaskStops implements FactoryUsageSettlementAuthority {
     }
     this.assertHostReceipt(current, receipt);
     const acknowledged = await this.withDeadline(signal => this.pool.confirmStopped({ reservationId: receipt.reservationId, holderGeneration: receipt.holderGeneration, hostId: receipt.hostId }, signal));
-    // The pool records a host only for an allocation that binds a whole one, so
-    // a CPU reservation has none. The host binding is proven by the signed
-    // receipt this method already verified; the pool must not contradict it,
-    // and having no opinion is not a contradiction.
-    // A GPU host's stop confirms while the host waits for its reimage (W02d R7); no other uncertainty does.
-    if (acknowledged.reservationId !== receipt.reservationId || !poolStopConfirmed(acknowledged) || acknowledged.holderGeneration !== receipt.holderGeneration || acknowledged.allocationGeneration !== receipt.allocationGeneration || (acknowledged.hostId !== undefined && acknowledged.hostId !== receipt.hostId)) throw new FactoryTaskStopError("factory_task_stop_pool_mismatch");
+    assertFactoryPoolConfirmsStop(acknowledged, receipt);
     // A stop with no terminal usage settles as a known zero only when the
     // attempt journaled no operation. The journal is final here: the sealed
     // stop exists, so the cancellation was accepted, and an accepted attempt
@@ -753,6 +748,23 @@ export class FactoryTaskStops implements FactoryUsageSettlementAuthority {
   private withDeadline<Result>(work: (signal: AbortSignal) => Promise<Result>): Promise<Result> {
     return factoryStopWithDeadline(this.stopTimeoutMs, work);
   }
+}
+
+/**
+ * Refuses `factory_task_stop_pool_mismatch` unless the pool's answer confirms this signed stop.
+ *
+ * The holder generation names the holder the host stopped. The pool moves the allocation generation forward only to
+ * fence that holder (cancel, revoke, ledger recovery, an expired lease), and a new holder always gets a new holder
+ * generation. So a confirmation for the same holder at the same or a later allocation generation is this holder's:
+ * the pool reclaimed the lease before the stop reached it (W02d R6, measured in P2), and still confirmed it. A lower
+ * one is not about this allocation. The pool records a host only for an allocation that binds a whole one, so a CPU
+ * reservation has none: the signed receipt proves the host binding, the pool must not contradict it, and having no
+ * opinion is not a contradiction. A GPU host's stop confirms while the host waits for its reimage (W02d R7); no other
+ * uncertainty does.
+ */
+export function assertFactoryPoolConfirmsStop(acknowledged: PoolLeaseStatus, receipt: Pick<FactoryPhysicalStopReceipt, "reservationId" | "holderGeneration" | "allocationGeneration" | "hostId">): void {
+  if (acknowledged.reservationId !== receipt.reservationId || !poolStopConfirmed(acknowledged) || acknowledged.holderGeneration !== receipt.holderGeneration
+    || acknowledged.allocationGeneration < receipt.allocationGeneration || (acknowledged.hostId !== undefined && acknowledged.hostId !== receipt.hostId)) throw new FactoryTaskStopError("factory_task_stop_pool_mismatch");
 }
 
 /** A sealed stop still to drive, as opposed to a receipt already final (a stop settled in place, W09h). */

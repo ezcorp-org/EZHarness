@@ -214,6 +214,22 @@ describe(`factory C03 pool admission ledger on ${fixture.name}`, () => {
     await expect(pool.request(request("unknown", "tenant-a", { provider: 1 }, clock))).resolves.toMatchObject({ status: "rejected" });
   });
 
+  test("a reservation has one holder: its grant takes the allocation generation, and a fenced reservation is never granted again", async () => {
+    // A task stop accepts the pool's confirmation for the same holder at a later allocation generation (W02d R6): the
+    // pool moves that generation only to fence the holder, and a second holder would need a second grant. Both hold here.
+    await pool.configureCapacity("cpu", 2);
+    await pool.request(request("one-holder", "tenant-a", { cpu: 1 }, clock));
+    const lease = await admitted(pool);
+    expect(lease.holderGeneration).toBe(lease.allocationGeneration);
+    await pool.acknowledgeStart(fence(lease));
+    clock.advance(30_001);
+    expect(await pool.expire()).toBe(1);
+    // Capacity is free for it, yet the fenced reservation is not scheduled again: no new holder exists.
+    expect(await pool.schedule()).toBeUndefined();
+    expect(await pool.status("one-holder")).toMatchObject({ state: "uncertain", allocationGeneration: lease.allocationGeneration + 1, holderGeneration: lease.holderGeneration });
+    expect(await pool.confirmStopped({ reservationId: "one-holder", holderGeneration: lease.holderGeneration })).toMatchObject({ state: "settled", allocationGeneration: lease.allocationGeneration + 1, holderGeneration: lease.holderGeneration });
+  });
+
   test("expiry increments allocation generation, rejects old heartbeats, and retains capacity until positive stop proof", async () => {
     await pool.configureCapacity("cpu", 1);
     await pool.request(request("lease", "tenant-a", { cpu: 1 }, clock));

@@ -313,12 +313,26 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
     expect((await forged.stops.stop(service, reference)).state).toBe("uncertain");
     const mismatched = harness(attempt, stopper(async request => signed(request)), acknowledger({ state: "running" }));
     expect((await mismatched.stops.stop(service, reference)).state).toBe("uncertain");
-    const staleGeneration = harness(attempt, stopper(async request => signed(request)), acknowledger({ allocationGeneration: 9 }));
+    // The pool's allocation generation never moves back: an answer below the signed one is not about this allocation.
+    const staleGeneration = harness(attempt, stopper(async request => signed(request)), acknowledger({ allocationGeneration: attempt.lease.allocationGeneration - 1 }));
     expect((await staleGeneration.stops.stop(service, reference)).state).toBe("uncertain");
+    // Nor is an answer for another holder of the reservation.
+    const otherHolder = harness(attempt, stopper(async request => signed(request)), acknowledger({ holderGeneration: attempt.lease.holderGeneration + 1 }));
+    expect((await otherHolder.stops.stop(service, reference)).state).toBe("uncertain");
     expect(await reservationState(attempt.reservationId)).toMatchObject({ state: "uncertain" });
     expect(await executionStatus(attempt.attemptId)).toBe("cancel_accepted");
     const accepted = harness(attempt, stopper(async request => signed(request)), acknowledger());
     expect((await accepted.stops.stop(service, reference)).state).toBe("stopped");
+  });
+
+  test("W02d R6: a stop the pool confirms after it reclaimed the lease from the same holder settles (measured: P2 at db3e5682c)", async () => {
+    // The pool reclaimed the expired lease (allocation generation + 1, same holder), then confirmed the host's signed
+    // stop of that holder. Refusing it left the hold uncertain forever and retried every pass.
+    const attempt = await launchedAttempt();
+    const { reference } = await cancelled(attempt);
+    const reclaimed = harness(attempt, stopper(async request => signed(request)), acknowledger({ allocationGeneration: attempt.lease.allocationGeneration + 1 }));
+    expect((await reclaimed.stops.stop(service, reference)).state).toBe("stopped");
+    expect(await reservationState(attempt.reservationId)).toMatchObject({ state: "settled" });
   });
 
   test("a rotated host key signs new stops while the retired key is refused", async () => {
@@ -718,6 +732,22 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
     expect(await refusedRows(run.run.runId)).toHaveLength(1);
     // Left settled through its own refused stop, as every case leaves the shared tenant.
     expect(await stops.stop(item!)).toBe("stopped");
+  });
+
+  test("W02d R8: a pool that has not confirmed the stop settles nothing: the hold stays held and the stop stays accepted (C03)", async () => {
+    const run = await world.dispatchable();
+    await refusedDispatch(run);
+    for (const unconfirmed of [{ state: "uncertain", reason: "lease-expired" }, { state: "running" }] as const) {
+      const stops = refusedStops(stopper(async request => signed(request)), acknowledger(unconfirmed));
+      const [item] = (await fixture.db.transaction(transaction => stops.listInTransaction(transaction))).filter(entry => entry.runId === run.run.runId);
+      await expect(stops.stop(item!)).rejects.toMatchObject({ code: "factory_task_stop_pool_mismatch" });
+      expect(await reservationState(run.reservationId)).toMatchObject({ state: "running" });
+      expect((await refusedRows(run.run.runId))[0]!.state).toBe("accepted");
+      expect(rows(await fixture.db.execute(sql`SELECT source FROM factory_usage_settlements WHERE reservation_id=${run.reservationId}`))).toEqual([]);
+    }
+    // Left settled through its own refused stop, as every case leaves the shared tenant.
+    const stops = refusedStops(stopper(async request => signed(request)), acknowledger());
+    for (const item of (await fixture.db.transaction(transaction => stops.listInTransaction(transaction))).filter(entry => entry.runId === run.run.runId)) await stops.stop(item);
   });
 
   test("W02d R8: a refusal for compute that was never admitted records no stop (negative control)", async () => {
