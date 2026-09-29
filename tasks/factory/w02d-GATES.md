@@ -31,6 +31,12 @@ task-stops.ts attestation refresh waits for W03f; the authoritative head run fol
 | `a0c96ae8c` | Tombstone (ii): a tombstone written by one host process refuses the worker after a process-level restart |
 | `8d3ed5eb5` | Tombstone (iii): the negative controls |
 | `26951f125` | R8: a dispatch refused after admission releases its lease and hold through the host's signed stop, on W09h's basis |
+| `db3e5682c` | Docs; the tombstone retention derived from the SDK's run deadline limit plus one day |
+| `0165ae64f` | Tombstone (validator-6 P1): a runtime that cannot answer is never read as no container |
+| `1d148f7a3` | Tombstone (validator-6 P2): a launch racing the stop of the same worker is refused; nothing starts |
+| `cb4e90bc6` | Tombstone (validator-6 P3): a restarted supervisor process refuses the worker's launch over mutual TLS |
+| `2b71b3d0b` | Tombstone (validator-6 D3): the write that creates the file also syncs its folder |
+| `8e3d92a7c` | Tombstone (validator-6 D2): the file keeps only the live window, so a long-lived host can always start |
 
 ## Base reproductions (G1), on the real stack
 
@@ -81,11 +87,17 @@ on class `gpu` = `{cpu 1, gpu-host 1}`). Under the heavy lock; bun and bunx asse
   lease past its deadline (`uncertain / lease-expired`, generation + 1). There is no expired-but-renewable state: the
   claim renewal keeps a lease inside its deadline alive, and a lease past it is refused by name. P2 at the head shows
   the reclaimed path (pool rows: prepare `settled / stopped-confirmed`, infer `uncertain / lease-expired`).
-- Release after `lease_revoked`: the attempt's terminal stop asks the host, which now tombstones the never-seen worker
-  and signs its absence; the pool confirms a reclaimed lease (only the allocation generation moved). The stop has no
-  durable fact that nothing launched (the launch row is `terminal` either way, and `RUNNER_LEASE_LOST` also ends a
-  launched attempt), so the hold settles at cost zero under the reserved-bound compute basis, not "nothing launched".
-  The head run measures this path.
+- Release after `lease_revoked` (coordinator ruling): the claim-time loss ends the run by name and settles its hold at
+  cost zero through the host's signed stop and the pool's confirmation. The settlement row's basis is
+  "no-operations: compute at reserved bound" (FACTORY_USAGE_NO_OPERATIONS_BASIS, the default for a `no-operations`
+  settlement with no basis named), at known cost zero. It is not "no-operations: nothing launched, all zero", because
+  the code has no durable fact that nothing launched: the launch row is `terminal` either way, and `RUNNER_LEASE_LOST`
+  also ends a launched attempt.
+- Trial head run at `db3e5682c` (`w02d/head-db3e5682c-trial/`, smoke plus one pass, not the evidence of record):
+  in P2 the host signed through the tombstone and the pool settled the lease `stopped-confirmed`, but the product
+  refused the pool's answer `factory_task_stop_pool_mismatch`: the reclaim moved the allocation generation from 1 to 2
+  for the same holder, and the product requires them equal. The stop, the hold and the run stayed open, and the
+  refusal was retried every pass (1912 and 1929 times). A fix is prepared and waits for the coordinator's ruling.
 - The renewal is placed after the one-winner claim, before readiness, the attempt token and any launch (not before the
   intent row exists), so a second dispatcher never renews a lease it does not own.
 
@@ -124,6 +136,11 @@ on class `gpu` = `{cpu 1, gpu-host 1}`). Under the heavy lock; bun and bunx asse
   moment the stop reserves the worker, before anything is awaited.
 - (ii) `a0c96ae8c`. A spawned host process records the tombstone and exits; the next process loads it and refuses
   the worker. Red with the load removed: 0/1.
+- validator-6's review, each red by a mutant: an inspect that throws signs nothing and writes nothing (`0165ae64f`;
+  the podman runner answers "unknown" only for "no such container", and throws otherwise); a launch that arrives
+  while the stop inspects is refused and never starts (`1d148f7a3`); two spawned supervisor processes over mutual TLS,
+  where the restarted one refuses the launch, and the mutant that does not pass the tombstones to the host services
+  is red (`cb4e90bc6`); the first write syncs the folder (`2b71b3d0b`); compaction (`8e3d92a7c`, below).
 - (iii) `8d3ed5eb5`. Refused: a tombstone signed with another key, one for another host, one past its retention (in
   memory and after a restart), 11 malformed or tampered lines; another tenant's worker of the same id is not refused.
   A malformed input is never written; a failed write throws and signs nothing; an oversized file stops the host
@@ -141,11 +158,17 @@ plus `FACTORY_HOST_TOMBSTONE_GRACE_MS` (1 day), 31 days from its write. The reas
   outlives every deadline that run's attempts can carry, and so the run's terminal record.
 - The host does not refuse a launch whose deadline has passed, so the tombstone must cover the whole span itself.
 - The day of grace covers clock skew between product and host and the stop's own settlement.
-- The retention derives from the SDK's limit, and a test holds it against the kernel's granted deadline, so a
-  longer cap raises it. Red with the old value (30 days, no grace): the test fails (`logs/r8e-retention-red.log`).
-- Cost: one entry is a few hundred bytes; the file is capped at 16 MiB and the host refuses to start above it.
+- The retention derives from the SDK's limit, and a test holds it against the kernel's granted deadline: it builds
+  the kernel's state for a definition at the limit and compares the deadline the kernel grants. The kernel caps with
+  its own constant, so the test also pins the two equal. Red with the old value (30 days, no grace): the test fails
+  (`logs/r8e-retention-red.log`).
+- Size: one entry is a few hundred bytes, and the file is bounded at 16 MiB. Loading drops expired, refused and
+  superseded lines and rewrites the file (written aside, synced, renamed, the folder synced). A write that would pass
+  the bound first drops the expired entries. So the bound counts tombstones within one retention span, tens of
+  thousands per 31 days, not over the host's life. A live window that is still full refuses the write, and no stop is
+  signed on it. A file above the bound can only come from outside this code, and the host refuses to start on it.
 - Caveat: entries are verified with the current host key. A key rotation makes older entries unverifiable, so they
-  are refused and counted; rotate the key only on a host with no open run, or re-sign the live entries first.
+  are refused, counted and dropped at the next load. Rotate the key only on a host with no open run.
 
 ## The queued-host case
 
@@ -234,8 +257,9 @@ product's own stop of the failed attempt.
 
 - task-stops.ts attestation refresh after W03f lands (W03g's entry pins the file; R7/R8 change it).
 - The authoritative two-stage head run at the final head, after the refresh.
-- R6's release basis (above): cost zero under the reserved-bound compute basis; "nothing launched" would need a
-  durable claim-time fact on the launch row. The coordinator decides whether that is in scope.
+- The pool-confirmation fix for P2 (above): waits for the coordinator's ruling. Without it, P2 cannot settle its hold.
+- Follow-up, owner W02d, not this wave (coordinator ruling): a durable claim-time fact on the launch row, so a lease
+  lost before launch can settle under "no-operations: nothing launched, all zero".
 - Design follow-up (coordinator, not this wave): a 30 s lease against a queue wait that can exceed it means every long
   wait ends in a named failure; a queued attempt should re-admit at claim instead.
 
