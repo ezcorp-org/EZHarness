@@ -36,7 +36,9 @@
  *      (per-file, global floor, new-file, patch, web vitest, CRAP). They decide what coverage counts
  *      and how each gate judges it, so any edit, addition, deletion or rename
  *      is a gate change (validator-5, 2026-09-28: two merge-lcov credits
- *      passed this check unseen).
+ *      passed this check unseen). The patch gate's attestation file
+ *      (scripts/coverage-attestations.json, W03g) is in the same set: an
+ *      attestation lets one uncovered line pass, so it un-gates as EXCLUDES does.
  *
  * All checks are DIFF-SCOPED (only what the PR adds is judged) so the 19
  * pre-existing `.skip`s and 365 mock files in the tree don't false-positive.
@@ -1324,6 +1326,7 @@ export const COVERAGE_GATE_TOOLS = [
   "scripts/check-global-coverage.ts",
   "scripts/check-new-file-coverage.ts",
   "scripts/check-patch-coverage.ts",
+  "scripts/coverage-attestations.json",
   "scripts/check-web-vitest-coverage.ts",
   "scripts/crap-score.ts",
 ] as const;

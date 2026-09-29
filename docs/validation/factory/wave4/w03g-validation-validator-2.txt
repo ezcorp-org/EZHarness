@@ -1,0 +1,26 @@
+=== VERDICT, W03g at 18b650957, filed by the coordinator on behalf of validator-2 (validator-2's harness cannot write files); text verbatim from validator-2's message of 2026-09-27 ~21:20Z ===
+W03g verdict: READY TO MERGE ON DECISION A, at 18b650957, with one low finding. Merge only with the gate-change-approved label, as its gate doc says.
+- Identity: all 4 commits over a24a619ad (93d6a3a43, 77c860dcf, 8bbfa99eb, 18b650957) are exactly archy noreply.
+- Worktree .worktrees/val-w03g at 18b650957: real installs (root, web, .github/gate-integrity-deps), packages built, bun and bunx asserted 1.3.14. Logs: /tmp/factory-platform-evidence/w03g-validation/logs/.
+THE ATTESTATION (scripts/check-patch-coverage.ts, code read):
+- The Bun pin is checked on every run; a .bun-version change stales every entry by name.
+- A file not in the diff leaves the entry inactive: printed, credits nothing.
+- A file in the diff: a whole-file SHA-256 mismatch, a missing file, or a changed line text each fails the gate by name. A line not changed in this diff is inactive. A line coverage now credits fails as no longer needed.
+- Only then is exactly that one line removed from the uncovered set, printed as "<file>:<line> attested (Bun 1.3.14 coverage defect): <reason> Proof: <paths>", and counted in PASSED.
+- Schema: exact keys, typed values, 64-hex hash, non-empty proof list, no duplicates; a breach throws, so the gate fails closed. A missing file means no attestations, which is stricter, and rule 11 flags a deletion.
+- It cannot hide another package's uncovered line in task-stops.ts. Any diff that changes the file to any content other than the proved one stales the entry by name. When the content is exactly the proved one, only line 370 can be credited, and every other added line is judged as before.
+- No other exemption path: there is no environment switch. The only other skips (.svelte, type-only through the shared isDeclarationOnlyTypeScript, and EXCLUDES) predate W03g.
+GATE-INTEGRITY RULE 11:
+- Any A/M/D/R/C to scripts/check-patch-coverage.ts or scripts/coverage-attestations.json, old and new path of a rename, needs the label. CODEOWNERS covers both files.
+- Against a24a619ad without the label: exit 1 with exactly the two findings (M scripts/check-patch-coverage.ts, A scripts/coverage-attestations.json). With GATE_CHANGE_APPROVED=1: exit 0, both logged as "(bypassed)". So the package itself is a gate change the gate now flags.
+TESTS: attestation 26/0, type-only 7/0, rule 11 12/0, typecheck 0, lint 0.
+- The first rule-11 run gave 10 pass, 2 fail with "TypeScript AST parser is unavailable", and the first typecheck failed on a missing web/.svelte-kit. Both were the validator's worktree lacking the web and .github/gate-integrity-deps installs; after the installs, 12/0 and exit 0. Not findings. Note that the rule-11 end-to-end cases need gate-integrity-deps installed, as CI provides.
+THE ENTRY:
+- task-stops.ts:370 text and SHA-256 15da47f8…c3aa match the file at W03f 9c954b11a, at W03f's final head 3a023745e, and in W03f 3a023745e merged onto integ a24a619ad (git merge-tree). The refactor-proof commits a4c07dca5 and 86330b87c differ, as the gate doc says. So on decision A with W03f at 3a023745e, the entry is active and exact.
+- All 11 proof paths exist.
+- The merge conditions (decision A only, the label, the Bun 1.4.2 probe recorded with DA 370 = 156 and 371 = 0, the entry never carried over a Bun bump) are stated in tasks/factory/w03g-GATES.md.
+L1 (low): the proof list names w03f/receipts/attribution-before.attempt-2.json and attribution-after.attempt-2.json (86330b87c, the promise-returning refactor), but not attribution-after.attempt-1.json (a4c07dca5, the two-statement refactor). The fix is to add "/tmp/factory-platform-evidence/w03f/receipts/attribution-after.attempt-1.json" to `proof`. That is a change to coverage-attestations.json, so rule 11 flags it under the same label.
+A correction to the validator's own working: one intermediate hash check read the wrong content (a zsh modifier on `$c:src/...`) and briefly suggested the hash matched no version. Rechecked with braced variables, it matches as stated above. No finding came of it.
+
+=== ADDENDUM, filed by the coordinator for validator-2 (2026-09-27 ~21:26Z) ===
+validator-2, 2026-09-27: final head dca1308c6 (archy noreply) is READY TO MERGE ON DECISION A with the gate-change-approved label. Over 18b650957 it changes only scripts/coverage-attestations.json, one added line (/tmp/factory-platform-evidence/w03f/receipts/attribution-after.attempt-1.json in `proof`). The file parses with the gate's own parseAttestations (1 entry, 12 proof paths, all present). L1 is fixed; no open findings.

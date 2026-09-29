@@ -1,0 +1,83 @@
+Checked 8 files in 34ms. No fixes applied.
+── Tests (staged) ─────────────────────────────────
+  bun: scripts/check-patch-coverage-attestation.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 26 pass
+ 0 fail
+ 53 expect() calls
+Ran 26 tests across 1 file. [1.95s]
+  bun: scripts/check-patch-coverage-typeonly.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 7 pass
+ 0 fail
+ 28 expect() calls
+Ran 7 tests across 1 file. [2.56s]
+  bun: scripts/gate-integrity-rule11.test.ts
+bun test v1.3.14 (0d9b296a)
+
+scripts/gate-integrity-rule11.test.ts:
+ 95 |   test("without the label, a new attestation file fails the gate by name", () => {
+ 96 |     const result = gateAfterAttestationChange(false);
+ 97 |     expect(result.output).toContain(
+ 98 |       `coverage gate tool changed (A): scripts/coverage-attestations.json — ${LABEL_HINT} — needs the gate-change-approved label`,
+ 99 |     );
+100 |     expect(result.exitCode, result.output).toBe(1);
+                                                 ^
+error: Gate integrity: 1 finding(s) BYPASSED via GATE_CHANGE_APPROVED (maintainer label):
+  (bypassed) coverage gate tool changed (A): scripts/coverage-attestations.json — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label
+
+
+Expected: 1
+Received: 0
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/scripts/gate-integrity-rule11.test.ts:100:44)
+(fail) gate-integrity check 11 end to end > without the label, a new attestation file fails the gate by name [653.40ms]
+
+ 11 pass
+ 1 fail
+ 15 expect() calls
+Ran 12 tests across 1 file. [1.91s]
+  bun: src/__tests__/gate-scripts.test.ts
+bun test v1.3.14 (0d9b296a)
+
+src/__tests__/gate-scripts.test.ts:
+236 |     ].join("\n"));
+237 |     gate.git("add", "src/__tests__/fixture.test.ts");
+238 |     gate.git("commit", "--quiet", "-m", "vacuous test");
+239 | 
+240 |     const vacuousTest = gate.runGate(parserPath);
+241 |     expect(vacuousTest.exitCode).toBe(1);
+                                       ^
+error: expect(received).toBe(expected)
+
+Expected: 1
+Received: 0
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/src/__tests__/gate-scripts.test.ts:241:34)
+(fail) gate-integrity: isolated parser dependency > fails closed on a vacuous (unasserted) test, parser available [385.01ms]
+2798 |     const mergePath = join(fixture, "scripts/merge-lcov.ts");
+2799 |     writeFileSync(mergePath, `${readFileSync(mergePath, "utf8")}\n// planted: credit every zero line\n`);
+2800 |     git("add", "scripts/merge-lcov.ts");
+2801 |     git("commit", "--quiet", "-m", "planted edit");
+2802 |     const planted = realGate.runGate(realGateParser);
+2803 |     expect(planted.exitCode).toBe(1);
+                                    ^
+error: expect(received).toBe(expected)
+
+Expected: 1
+Received: 0
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/src/__tests__/gate-scripts.test.ts:2803:30)
+(fail) gate-integrity: coverage gate tools (check 11) > the real gate: a planted edit in merge-lcov.ts fails [401.94ms]
+
+ 246 pass
+ 2 fail
+ 622 expect() calls
+Ran 248 tests across 1 file. [6.69s]
+
+✗ pre-commit: a unit test covering your staged changes failed, or too many map to this commit
+  fix:    bun test --timeout 30000 <file>   (or: EZ_SKIP_HOOK_TESTS=1 git commit …)
+  bypass: git commit --no-verify   (or EZ_SKIP_HOOKS=1 git commit …)
+  note:   CI enforces this same check — bypassing only defers it.
