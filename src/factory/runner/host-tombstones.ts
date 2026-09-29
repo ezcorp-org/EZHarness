@@ -93,7 +93,8 @@ export class FactoryHostTombstones {
   /**
    * Live entries for this host that no trusted key verifies (validator-6 D6, coordinator ruling (a)+(c)). One cannot
    * be told from a genuine tombstone whose key was rotated away, so while any is inside its window the host refuses
-   * every launch, compaction keeps it for the operator, and it lapses only when its own window ends.
+   * every launch, compaction keeps it for the operator, and it lapses when its own window ends, or one retention span
+   * after the load that found it if that is sooner: its expiry is unverified.
    */
   private readonly poison: { readonly expiresAtMs: number; readonly line: string }[] = [];
   /** Whether the file exists: the write that creates it must also make the folder entry durable. */
@@ -214,11 +215,13 @@ export class FactoryHostTombstones {
     this.bytes = Buffer.byteLength(content);
     if (this.bytes > this.maxFileBytes) throw new Error("Factory host tombstones are oversized.");
     let superseded = 0;
+    const loadedAtMs = this.now();
     for (const line of content.split("\n")) {
       if (line.trim() === "") continue;
       const verdict = this.verified(line);
       if (!verdict) { this.refusedCount += 1; continue; }
-      if (verdict.kind === "poison") { this.poison.push({ expiresAtMs: verdict.expiresAtMs, line: `${line}\n` }); continue; }
+      // Its expiry is unverified, so it holds no longer than a genuine entry written now could (validator-6 L1).
+      if (verdict.kind === "poison") { this.poison.push({ expiresAtMs: Math.min(verdict.expiresAtMs, loadedAtMs + this.retentionMs), line: `${line}\n` }); continue; }
       const entry = verdict.entry;
       const key = scopeKey(entry.tenantId, entry.workerId);
       if (this.honoured.has(key)) superseded += 1;

@@ -309,6 +309,18 @@ describe("tombstones survive a host key rotation under the retained trust policy
     expect(store.stopped("tenant-b", "worker-fresh")).toBe(false);
   });
 
+  test("an unverifiable entry cannot claim a longer window than a genuine one: it lapses one retention span after load (validator-6 L1)", async () => {
+    const key = await hostKey();
+    let now = 1_000_000;
+    const genuine = JSON.parse(await recordedLine(key)) as Record<string, number>;
+    // Its own expiry is unverified: a corrupt or forged line could name any time.
+    await writeFile(fileOf(key), `${JSON.stringify({ ...genuine, expiresAtMs: now + 10 * FACTORY_HOST_TOMBSTONE_RETENTION_MS })}\n`, { mode: 0o600 });
+    const store = await FactoryHostTombstones.open(key, { now: () => now });
+    expect(store.stopped("tenant-b", "worker-fresh")).toBe(true);
+    now += FACTORY_HOST_TOMBSTONE_RETENTION_MS;
+    expect({ poisoned: store.poisoned, anyWorker: store.stopped("tenant-b", "worker-fresh") }).toEqual({ poisoned: 0, anyWorker: false });
+  });
+
   test("the retained set is the stop verifier's: a duplicate key id or a key that is not a key refuses to open", async () => {
     const key = await hostKey();
     const current = { hostId: key.hostId, hostKeyId: "host-key-1", publicKey: createPublicKey(await readFile(key.privateKeyPath, "utf8")).export({ type: "spki", format: "pem" }) as string };

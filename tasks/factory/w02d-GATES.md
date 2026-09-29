@@ -194,7 +194,8 @@ plus `FACTORY_HOST_TOMBSTONE_GRACE_MS` (1 day), 31 days from its write. The reas
   (`worker_stopped`), and keeps answering stops. Refusing to start was the other option; it was not chosen because a
   stop only ever releases capacity, so a host that still answers stops lets the pool free what it can, while a launch
   is the one action a tombstone guards. The operator lifts it by listing the retired key; otherwise it lapses when the
-  entry's own window ends. Compaction never deletes a live poison entry; an expired one, verifiable or not, is dropped.
+  entry's own window ends, or one retention span after the load that found it if sooner: its expiry is unverified, so
+  a corrupt or forged line cannot hold the host closed longer than a genuine entry written then (validator-6 L1). Compaction never deletes a live poison entry; an expired one, verifiable or not, is dropped.
   Re-signing at rotation and documenting only were rejected by the ruling.
 - A forged entry (another key, this host, live) is now poison too, so it fails the host closed instead of being
   dropped: it cannot be told from a rotated-away genuine one.
