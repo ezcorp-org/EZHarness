@@ -7,6 +7,7 @@ import { assertFactoryAdmissionOrigin, factoryAdmissionOriginDigest, factoryRese
 import type { FactoryBudgets } from "./budgets";
 import { type FactoryAuthorizedAdmissionCommand, type FactoryAuthorizedCommand, FactoryCommandAuthorityError, type FactoryCommandAuthority } from "./command-authority";
 import type { FactoryInbox } from "./inbox";
+import { FACTORY_USAGE_NOTHING_LAUNCHED_BASIS, FactoryUsageSettlements } from "./usage-settlement";
 import { FactoryInstallationCommandOutbox, type FactoryCommandDelivery } from "./outbox";
 import { parsePoolDecision, type PoolAdmissionClient } from "./pool/client";
 import { normalizePoolResourceVector, POOL_RESOURCE_CLASSES, type PoolDecision, type PoolLease, type PoolLeaseStatus } from "./pool/ledger";
@@ -97,8 +98,6 @@ function canonical<T>(value: T): { readonly value: T; readonly json: string; rea
   return { value: JSON.parse(json) as T, json, digest: durableInputHash(JSON.parse(json)) };
 }
 
-/** What a reservation the pool never assigned used: nothing, in every dimension. */
-const NOTHING_ASSIGNED = Object.freeze({ costMicros: "0", tokens: 0, computeMs: 0 });
 
 function canonicalDecision(value: PoolDecision): ReturnType<typeof canonical<unknown>> {
   if (value.status !== "admitted") return canonical(value);
@@ -240,12 +239,14 @@ function decodeAllocation(row: BudgetReservationRow): { readonly allocationToken
 /** Product-side scheduler for exact, recoverable C03 pool admissions. */
 export class FactoryComputeAdmissions {
   private readonly outbox: FactoryInstallationCommandOutbox;
+  private readonly settlements: FactoryUsageSettlements;
 
   constructor(private readonly database: TransactionalDb, readonly tenantId: string, private readonly authority: FactoryCommandAuthority, private readonly budgets: FactoryBudgets, private readonly inbox: FactoryInbox, private readonly pool: PoolAdmissionClient, private readonly now: () => number = Date.now) {
     assertFactoryIdentity(tenantId);
     if (authority.tenantId !== tenantId || inbox.tenantId !== tenantId) throw new FactoryComputeAdmissionError("factory_compute_admission_scope");
     nowValue(now);
     this.outbox = new FactoryInstallationCommandOutbox(database, tenantId, now, "pool");
+    this.settlements = new FactoryUsageSettlements(database, tenantId, inbox, now);
   }
 
   /** Called only inside the task-admission budget transaction. */
@@ -462,9 +463,18 @@ export class FactoryComputeAdmissions {
         granted: admitted,
       };
       const encodedDecision = canonicalDecision(decision);
-      // A rejection assigned nothing, so nothing ran: the unused hold settles at a known zero, with the pool's own
-      // rejection as its receipt (C03: failure before compute assignment releases the hold; W02d R9).
-      if (!admitted) await this.budgets.settleInTransaction(transaction, { projectId: current.project_id, runId: current.run_id, reservationId: current.reservation_id }, NOTHING_ASSIGNED, encodedDecision.digest);
+      // A rejection assigned nothing, so nothing ran: the unused hold settles all zero, with the pool's own rejection
+      // as its receipt (C03: failure before compute assignment releases the hold; W02d R9), through W09h's shared
+      // no-operations basis "nothing launched, all zero", recorded as the node attempt's usage settlement.
+      if (!admitted) {
+        const key = { projectId: current.project_id, runId: current.run_id, reservationId: current.reservation_id };
+        await this.budgets.settleWithoutOperationsInTransaction(transaction, key, encodedDecision.digest, FACTORY_USAGE_NOTHING_LAUNCHED_BASIS);
+        const attempt = context.command.kind === "request-admission" ? context.state.nodes[context.command.nodeId]?.attempts.at(-1) : undefined;
+        if (context.command.kind === "request-admission" && attempt) {
+          await this.settlements.recordInTransaction(transaction, { ...key, interpreterId: claim.input.reference.interpreterId, authority: { attemptId: context.command.id, nodeInstanceId: context.command.nodeId, candidateGeneration: context.command.candidateGeneration, attemptNumber: attempt.attempt } },
+            { source: "no-operations", knownCostMicros: "0", stopReceiptDigest: encodedDecision.digest, basis: FACTORY_USAGE_NOTHING_LAUNCHED_BASIS });
+        }
+      }
       const encodedEvent = event === undefined ? undefined : canonical(event);
       if (encodedEvent) await this.inbox.enqueueInTransaction(transaction, { projectId: current.project_id, runId: current.run_id, interpreterId: claim.input.reference.interpreterId }, encodedEvent.value);
       await transaction.execute(sql`UPDATE factory_compute_admissions SET state=${admitted ? "admitted" : "rejected"}, response_digest=${encodedDecision.digest}, response_json=${encodedDecision.json}, event_digest=${encodedEvent?.digest ?? null}, event_json=${encodedEvent?.json ?? null}, next_poll_at=0, poll_lease_until=0, poll_lease_token=NULL, updated_at=NOW() WHERE tenant_id=${this.tenantId} AND project_id=${current.project_id} AND run_id=${current.run_id} AND reservation_id=${current.reservation_id}`);
