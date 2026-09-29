@@ -1,9 +1,9 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { generateKeyPairSync } from "node:crypto";
-import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { appendFile, chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { FactoryHostTombstones } from "./host-tombstones";
+import { FACTORY_HOST_TOMBSTONE_RETENTION_MS, FACTORY_HOST_TOMBSTONES_FILE, FactoryHostTombstones } from "./host-tombstones";
 
 const directories: string[] = [];
 afterAll(async () => { await Promise.all(directories.map((path) => rm(path, { recursive: true, force: true }))); });
@@ -43,5 +43,116 @@ console.log(store.stopped(${JSON.stringify(tombstone.tenantId)}, ${JSON.stringif
     expect(restarted.stopped(tombstone.tenantId, tombstone.workerId)).toBe(true);
     expect(restarted.stopped(tombstone.tenantId, "worker-never-stopped")).toBe(false);
     expect(restarted.refused).toBe(0);
+  });
+});
+
+const fileOf = (key: { directory: string }) => join(key.directory, FACTORY_HOST_TOMBSTONES_FILE);
+
+/** One genuine line, recorded by a host with this key and host id. */
+async function recordedLine(key: Awaited<ReturnType<typeof hostKey>>, as: { hostId?: string; input?: typeof tombstone } = {}) {
+  const store = await FactoryHostTombstones.open({ ...key, hostId: as.hostId ?? key.hostId });
+  await store.record(as.input ?? tombstone);
+  const lines = (await readFile(fileOf(key), "utf8")).trim().split("\n");
+  return lines[lines.length - 1]!;
+}
+
+describe("a host tombstone is honoured only when this host wrote it, for this tenant, and it is unexpired (ruling (A) iii)", () => {
+  test("a forged tombstone, signed with another key, is refused", async () => {
+    const key = await hostKey();
+    const forger = await hostKey();
+    await writeFile(fileOf(key), `${await recordedLine(forger)}\n`, { mode: 0o600 });
+    const store = await FactoryHostTombstones.open(key);
+    expect({ stopped: store.stopped(tombstone.tenantId, tombstone.workerId), refused: store.refused }).toEqual({ stopped: false, refused: 1 });
+  });
+
+  test("a stale tombstone, written for another host with the same key, is refused", async () => {
+    const key = await hostKey();
+    await recordedLine(key, { hostId: "host-elsewhere" });
+    const store = await FactoryHostTombstones.open(key);
+    expect({ stopped: store.stopped(tombstone.tenantId, tombstone.workerId), refused: store.refused }).toEqual({ stopped: false, refused: 1 });
+  });
+
+  test("a tombstone refuses only its own tenant: another tenant's worker of the same id still launches", async () => {
+    const key = await hostKey();
+    await recordedLine(key);
+    const store = await FactoryHostTombstones.open(key);
+    expect({ own: store.stopped(tombstone.tenantId, tombstone.workerId), other: store.stopped("tenant-b", tombstone.workerId) }).toEqual({ own: true, other: false });
+  });
+
+  test("a tombstone past its retention is no longer honoured, in memory or after a restart", async () => {
+    const key = await hostKey();
+    let now = 1_000_000;
+    const store = await FactoryHostTombstones.open(key, () => now);
+    await store.record(tombstone);
+    expect(store.stopped(tombstone.tenantId, tombstone.workerId)).toBe(true);
+    now += FACTORY_HOST_TOMBSTONE_RETENTION_MS;
+    expect(store.stopped(tombstone.tenantId, tombstone.workerId)).toBe(false);
+    const restarted = await FactoryHostTombstones.open(key, () => now);
+    expect({ stopped: restarted.stopped(tombstone.tenantId, tombstone.workerId), refused: restarted.refused }).toEqual({ stopped: false, refused: 1 });
+  });
+
+  test("malformed and tampered lines are refused one by one; genuine lines around them are honoured", async () => {
+    const key = await hostKey();
+    const genuine = await recordedLine(key);
+    const entry = JSON.parse(genuine) as Record<string, unknown>;
+    const tampered = [
+      "not json",
+      "null",
+      JSON.stringify({ ...entry, schemaVersion: "factory.host-worker-tombstone.v0" }),
+      JSON.stringify({ ...entry, tenantId: "" }),
+      JSON.stringify({ ...entry, workerId: "worker\u0001" }),
+      JSON.stringify({ ...entry, attemptId: 7 }),
+      JSON.stringify({ ...entry, reservationId: "r".repeat(513) }),
+      JSON.stringify({ ...entry, recordedAtMs: -1 }),
+      JSON.stringify({ ...entry, expiresAtMs: 1.5 }),
+      JSON.stringify({ ...entry, signature: 7 }),
+      JSON.stringify({ ...entry, workerId: "worker-renamed" }),
+    ];
+    await appendFile(fileOf(key), `\n${tampered.join("\n")}\n${await recordedLine(key, { input: { ...tombstone, workerId: "worker-second" } })}\n`);
+    const store = await FactoryHostTombstones.open(key);
+    expect({
+      first: store.stopped(tombstone.tenantId, tombstone.workerId),
+      second: store.stopped(tombstone.tenantId, "worker-second"),
+      renamed: store.stopped(tombstone.tenantId, "worker-renamed"),
+      refused: store.refused,
+    }).toEqual({ first: true, second: true, renamed: false, refused: tampered.length });
+  });
+
+  test("a malformed tombstone is never written", async () => {
+    const key = await hostKey();
+    const store = await FactoryHostTombstones.open(key);
+    for (const field of ["tenantId", "workerId", "attemptId", "reservationId"] as const) {
+      await expect(store.record({ ...tombstone, [field]: "" })).rejects.toThrow("Factory host tombstone is malformed.");
+    }
+    expect(await Bun.file(fileOf(key)).exists()).toBe(false);
+  });
+
+  test("a write that fails throws and honours nothing, so no stop is signed on it (fail-closed)", async () => {
+    const key = await hostKey();
+    const store = await FactoryHostTombstones.open(key);
+    // The tombstones' path is taken by a directory: neither the append nor a later load can succeed.
+    await mkdir(fileOf(key));
+    await expect(store.record(tombstone)).rejects.toThrow();
+    expect(store.stopped(tombstone.tenantId, tombstone.workerId)).toBe(false);
+    await expect(FactoryHostTombstones.open(key)).rejects.toThrow();
+  });
+
+  test("an oversized tombstone file stops the host from starting rather than being read in part", async () => {
+    const key = await hostKey();
+    await writeFile(fileOf(key), "x".repeat(16 * 1024 * 1024 + 1), { mode: 0o600 });
+    await expect(FactoryHostTombstones.open(key)).rejects.toThrow("Factory host tombstones are oversized.");
+  });
+
+  test("a reservation refuses the worker until it is released; a recorded one keeps refusing", async () => {
+    const key = await hostKey();
+    const store = await FactoryHostTombstones.open(key);
+    const release = store.reserve(tombstone.tenantId, tombstone.workerId);
+    expect(store.stopped(tombstone.tenantId, tombstone.workerId)).toBe(true);
+    release();
+    expect(store.stopped(tombstone.tenantId, tombstone.workerId)).toBe(false);
+    const recorded = store.reserve(tombstone.tenantId, tombstone.workerId);
+    await store.record(tombstone);
+    recorded();
+    expect(store.stopped(tombstone.tenantId, tombstone.workerId)).toBe(true);
   });
 });

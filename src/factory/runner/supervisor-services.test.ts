@@ -514,4 +514,70 @@ describe("a worker this host never saw", () => {
     }
     expect(touched.filter((entry) => !entry.startsWith("inspect:"))).toEqual([]);
   });
+
+  /** The negative controls (ruling (A) iii): each stop below must leave no tombstone behind. */
+  const tombstoneWritten = (signingKey: { privateKeyPath: string }) => Bun.file(join(dirname(signingKey.privateKeyPath), FACTORY_HOST_TOMBSTONES_FILE)).exists();
+  const stopOf = (intent: FactoryAttemptLaunchIntent) => ({ ...command, workerId: intent.workerId, reservationId: intent.lease.reservationId, holderGeneration: intent.lease.holderGeneration, allocationGeneration: intent.lease.allocationGeneration });
+
+  test("a worker the runtime still shows is stopped through the runtime, never tombstoned", async () => {
+    const states = new Map<string, RunnerInspection["state"]>();
+    const intent = launchIntent();
+    states.set(intent.workerId, "running");
+    const signingKey = await keyMaterial();
+    const tombstones = await FactoryHostTombstones.open(signingKey);
+    const handle = createFactoryHostServiceRouter({ hostId, peerTenants: { [peer]: peer }, runner: fakeRunner(states), signingKey, tombstones });
+    const settled = await handle(request({ path: FACTORY_HOST_STOP_PATH, body: Buffer.from(JSON.stringify(stopOf(intent))) }));
+    expect({ status: settled.status, body: body(settled) }).toMatchObject({ status: 200, body: { workerId: intent.workerId, processGroupAbsent: true } });
+    // The runtime proved it gone by stopping it; the host has no reason to refuse it later.
+    expect(states.get(intent.workerId)).toBe("cancelled");
+    expect({ written: await tombstoneWritten(signingKey), stopped: tombstones.stopped(peer, intent.workerId) }).toEqual({ written: false, stopped: false });
+  });
+
+  test("a worker this host is starting or runs is never tombstoned, even when the runtime shows nothing yet", async () => {
+    const states = new Map<string, RunnerInspection["state"]>();
+    let admit!: () => void;
+    const admitted = new Promise<void>((resolve) => { admit = resolve; });
+    let entered!: () => void;
+    const starting = new Promise<void>((resolve) => { entered = resolve; });
+    // The runtime stops only a container that exists: a start still on its way leaves "unknown", which proves nothing.
+    const runner: Runner = {
+      ...fakeRunner(states, { abortable: false, onTerminate: (id) => { if (states.get(id) === "running") states.set(id, "cancelled"); } }),
+      async start(input) {
+        entered();
+        await admitted;
+        states.set(input.workerId, "running");
+        return { workerId: input.workerId, request: async () => factoryLaunchCompletedResult("live"), close: async () => { states.set(input.workerId, "succeeded"); }, onNotification: () => () => {} };
+      },
+    };
+    const signingKey = await keyMaterial();
+    const tombstones = await FactoryHostTombstones.open(signingKey);
+    const handle = createFactoryHostServiceRouter({ hostId, peerTenants: { [peer]: peer }, runner, signingKey, tombstones });
+    const intent = launchIntent();
+    const wire = Buffer.from(JSON.stringify({ intent: factoryAttemptLaunchIntentToWire(intent) }));
+    const stop = Buffer.from(JSON.stringify(stopOf(intent)));
+    // Starting: the runtime has no container yet ("unknown"), but the host holds the start, so absence is not signed.
+    const launching = handle(request({ path: FACTORY_HOST_LAUNCH_PATH, body: wire }));
+    await starting;
+    const duringStart = await handle(request({ path: FACTORY_HOST_STOP_PATH, body: stop }));
+    expect({ status: duringStart.status, body: body(duringStart) }).toEqual({ status: 500, body: { error: "stop_failed" } });
+    expect(tombstones.stopped(peer, intent.workerId)).toBe(false);
+    admit();
+    const launched = await launching;
+    expect({ status: launched.status, error: (body(launched) as { error?: string }).error }).toEqual({ status: 200, error: undefined });
+    // Live: the stop goes through the runtime, and still writes nothing.
+    const live = await handle(request({ path: FACTORY_HOST_STOP_PATH, body: stop }));
+    expect({ status: live.status, body: body(live) }).toMatchObject({ status: 200, body: { workerId: intent.workerId, processGroupAbsent: true } });
+    expect({ written: await tombstoneWritten(signingKey), stopped: tombstones.stopped(peer, intent.workerId) }).toEqual({ written: false, stopped: false });
+  });
+
+  test("a stop that names no tenant for a worker this host never saw is refused, and scopes no tombstone", async () => {
+    const { runner } = neverSeen();
+    const signingKey = await keyMaterial();
+    const tombstones = await FactoryHostTombstones.open(signingKey);
+    const handle = createFactoryHostServiceRouter({ hostId, peerTenants: { [peer]: peer }, runner, signingKey, tombstones });
+    const { tenantId: _named, ...unnamed } = stopOf(launchIntent());
+    const refused = await handle(request({ path: FACTORY_HOST_STOP_PATH, body: Buffer.from(JSON.stringify(unnamed)) }));
+    expect({ status: refused.status, body: body(refused) }).toEqual({ status: 403, body: { error: "forbidden_tenant" } });
+    expect(await tombstoneWritten(signingKey)).toBe(false);
+  });
 });
