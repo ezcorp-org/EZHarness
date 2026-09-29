@@ -1,5 +1,5 @@
-import { test, expect, describe, beforeEach, mock } from "bun:test";
-import { webLibModule, contextModule } from "../../../src/__tests__/helpers/mock-cleanup";
+import { test, expect, describe, beforeEach, beforeAll, afterAll, mock } from "bun:test";
+import { webLibModule, contextModule, serverModule } from "../../../src/__tests__/helpers/mock-cleanup";
 import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 // ── Shared state used by mocks ─────────────────────────────────────
@@ -51,9 +51,14 @@ mock.module("$server/db/queries/agent-configs", () => ({
 
 // ── Mock auth + scope ──────────────────────────────────────────────
 
-mock.module("$server/auth/middleware", () => ({
-  requireAuth: (locals: any) => locals?.user ?? mockUser,
-}));
+// auth/middleware: registered in beforeAll below, not here at module top
+// level — item C2 (W18 hygiene). The $server/auth/middleware alias is
+// claimed by dozens of files repo-wide, so whichever file's registration is
+// active when a shared-process run resolves the alias wins for every OTHER
+// file too. beforeAll (test-execution time) plus a complete serverModule()
+// factory make THIS file's own requireAuth override active for THIS file's
+// own tests, and afterAll hands the alias back to the real module.
+const realAuthMiddleware = serverModule("auth/middleware", {});
 
 const apiKeysExports = webLibModule("server/security/api-keys", {
   requireScope: () => mockScopeResponse,
@@ -101,6 +106,16 @@ mock.module("$server/runtime/pending-messages", () => ({
 }));
 
 mock.module("$server/types", () => ({ CURRENT_MODEL_SENTINEL: "__current__" }));
+
+beforeAll(() => {
+  mock.module("$server/auth/middleware", () => ({
+    ...realAuthMiddleware,
+    requireAuth: (locals: any) => locals?.user ?? mockUser,
+  }));
+});
+afterAll(() => {
+  mock.module("$server/auth/middleware", () => realAuthMiddleware);
+});
 
 // ── Import handler AFTER mocks ─────────────────────────────────────
 

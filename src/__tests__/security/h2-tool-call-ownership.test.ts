@@ -41,8 +41,8 @@
 //
 // Tests fix(sec-H2): 1d7b12b
 
-import { test, expect, describe, afterAll, beforeEach, mock } from "bun:test";
-import { restoreModuleMocks, webLibModule } from "../helpers/mock-cleanup";
+import { test, expect, describe, afterAll, beforeAll, beforeEach, mock } from "bun:test";
+import { restoreModuleMocks, webLibModule, serverModule } from "../helpers/mock-cleanup";
 import {
   mockServerAlias,
   createMockEvent,
@@ -69,6 +69,21 @@ mock.module("../../../web/src/lib/server/security/api-keys", () => apiKeysMock);
 // Dual-specifier per the Bun mock-cache lesson (handler imports via
 // $server/*; tool-permission.ts would import via ../auth/middleware if it
 // did, so we shadow both).
+//
+// realAuthMiddleware is captured BEFORE the "../../auth/middleware"
+// registration below — serverModule()'s own require() resolves to that
+// exact same specifier from this file's depth (src/__tests__/security/), so
+// capturing it after that registration would self-recurse onto the partial
+// mock instead of the real module.
+//
+// $server/auth/middleware itself is registered in beforeAll, not here at
+// module top level — item C2 (W18 hygiene): the alias is claimed by dozens
+// of files repo-wide, so whichever registration is active when a shared-
+// process run resolves it wins for every OTHER file too. beforeAll (test-
+// execution time) plus a complete serverModule() factory make THIS file's
+// own values active for THIS file's own tests; afterAll hands the alias
+// back to the real module.
+const realAuthMiddleware = serverModule("auth/middleware", {});
 const authMiddlewareMock = () => ({
   requireAuth: (locals: any) => {
     if (!locals?.user) {
@@ -80,8 +95,14 @@ const authMiddlewareMock = () => ({
     return locals.user;
   },
 });
-mock.module("$server/auth/middleware", authMiddlewareMock);
-mock.module("../../auth/middleware", authMiddlewareMock);
+beforeAll(() => {
+  mock.module("$server/auth/middleware", () => ({ ...realAuthMiddleware, ...authMiddlewareMock() }));
+  mock.module("../../auth/middleware", () => ({ ...realAuthMiddleware, ...authMiddlewareMock() }));
+});
+afterAll(() => {
+  mock.module("$server/auth/middleware", () => realAuthMiddleware);
+  mock.module("../../auth/middleware", () => realAuthMiddleware);
+});
 
 // Conversation store — user-a owns conv-a; nothing else.
 type Conv = {

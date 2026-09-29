@@ -507,7 +507,7 @@ export class S3FactoryManifestReleaseProvider implements FactoryReleaseProvider 
    * manifest write but before the receipt reached the archive, so an operator
    * attaches the effect that exists instead of publishing a second one.
    */
-  async describePublication(operation: FactoryReleaseOperation, signal?: AbortSignal): Promise<FactoryS3ManifestReceipt | null> {
+  async lookupReceipt(operation: FactoryReleaseOperation, signal?: AbortSignal): Promise<FactoryS3ManifestReceipt | null> {
     const head = await this.head(this.manifestKey(this.directory(operation)), signal);
     if (!head) return null;
     if (!head.VersionId) throw new FactoryReleaseError("factory_s3_version_missing");

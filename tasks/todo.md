@@ -3545,6 +3545,72 @@ it as an inline UNIQUE, so the database calls it
 `factory_release_operations_tenant_id_project_id_run_id_node_key`. A live probe confirms two unique
 arbiters and only two.
 
+## W16 — Complete provisioner and deployment profiles (Terra deployment, branch `wp/w16-provisioning`)
+
+Evidence: `/tmp/factory-platform-evidence/w16/`. Gate file: `tasks/factory/w16-GATES.md`.
+Base: `260855e57` (W09b merged). Assumptions are stated in the gate file.
+
+- [x] P1 Phase model and step ledger: resources prepared, deployment ready, invitation issued, human bootstrap complete; seven ordered C12 steps with explicit owner, attempt, and failure record per step. Extends `src/factory/provisioning/local.ts`; no second workflow.
+- [x] P2 Step 2: product and independent archive storage credentials written per installation at 0600, prefix scope verified read-only (inside 404, outside 403, foreign 403).
+- [x] P3 Step 3: Temporal namespace with a namespace-scoped client certificate and token; the local gateway refuses a foreign namespace.
+- [x] P4 Step 4: JWT and encryption secrets plus a wrapped data key under an operator master key held outside every grantable root; format, mode, and owner verified; a base64 application secret is refused as a master key.
+- [x] P5 Step 5: per-installation harness, orchestrator, and gateway deployment bundle (startup document, process configs, secret delivery), wrapped key and master key only to the orchestrator.
+- [x] P6 Step 6: trusted hostname ingress bound to the installation ID; the harness refuses a foreign or missing host; a partial tenant serves no traffic.
+- [x] P7 Step 7 and bootstrap: first-admin invitation gates first-run setup; explicit bootstrap consent writes trust grants and the bootstrap record with a transactional audit entry.
+- [x] P8 Fault every step; recover or tear down only owned resources; credential rotation and revocation; rerun idempotence.
+- [x] P9 Operator-only control plane and tenant directory (routing, membership, resource references only; no tenant route, no product authority).
+- [x] P10 Compose self-hosted profile (pinned images, secrets by file, health checks, bounded resources, loopback-only networking) and Kubernetes hosted manifests (validated; kind/k3d smoke only if tools exist).
+- [x] P11 Supervisors outside harnesses: ONE shared host systemd unit per fleet (Compose profile, coordinator ruling 2026-09-22) and a privileged DaemonSet (Kubernetes); only they hold runtime access and host identity; separation tested in both profiles.
+- [x] P12 Fleet upgrades: canary first, C12 order, old build retention, failure-stopped waves, reverse-order additive rollback; teardown keeps the release archive; human-admin purge after active and uncertain work closes.
+- [x] P13 GPU host profile registration in a new file; production GPU criteria stay a named readiness row.
+- [x] P14 Ten local installations through the Compose profile on rootless Podman with distinct identities and credentials.
+- [x] P15 Operator documentation: prerequisites, image and runtime locks, secret references, recovery, drain, upgrades, rollback, CPU-only availability.
+- [x] P16 Sweep per common.md after `git merge --no-edit integ/w00`.
+- [x] P17 Review-1 fixes (H1-H4, M1-M9, L1-L11), the static live-path review's defects, W15's namespace settings and restore scope, and no fleet role residue on the cluster.
+- [x] P18 Shared pool and supervisor per the ruling: readiness keyed on the service's own identity (product side) and the fleet host (provisioner side).
+- [x] P19 Merge integ/w00 2b2e12550 (70def1355): both sides kept in migrate.ts and todo.md; W01g's supervisor fixture by ruling; W15/W15c items recorded in the gate file.
+- [x] P20 Gateway probe accepts the execution gateway's own route-less 401 (a1ba5d95b), found by the live fleet; the test runs the real gateway.
+- [x] P21 Final hold f3 at a1ba5d95b: PostgreSQL producers first, Podman suites, route proof, live Compose fleet and lifecycle, Kubernetes, boundary suites, coverage vs 2b2e12550; all 32 legs exit 0 (G15).
+- [x] P22 Render W01g's guestBroker route for every installation (ruled a defect): installation side at d77d70cc8 (G16 unit proof; live pending).
+- [x] P22b The host side of the guest-broker route: W16b (keyed services.guestBrokers) merged; the supervisor renders one entry per admitted installation.
+- [x] P23 Final hold at the head that renders guestBroker, short form by ruling: r5c and r5d at cb2680fbe green (live fleet 51/51 and 27/27 with the W01i peer checks, Kubernetes, runbook mock pass, factory-services lane 12/12). The Podman suites, route proof, coverage and static set run in validator-2's hold.
+- [ ] P24 Disclosed follow-up owned by W16: the restore-to-checkpoint lifecycle step.
+- [x] P25 Merge integ/w00 97423ce17 (41d67cc48), c3da32784 (4785687be, peerTenants renderer; 123 suites plus the orchestrator package, the 124th, all run outside the hook), c9b7bab5b (e1d118c7c) and d65886b9a (2fa3443fa, hook 10/10 green).
+- [x] P26 Every pool config writer drops installationId (317a0d622): the runbook stack and the factory-services e2e stack; a test parses each runbook process document with its process's parser.
+- [x] P27 A pool that cannot start prints why (cb2680fbe).
+- [x] P28 Holds r5, r5b, r5c and r5d recorded in the gate file with every refusal and red named.
+
+### Review
+
+W16 lands the C12 provisioner in seven owned steps and four phases. The fleet
+host runs one pool and one host supervisor that every installation shares
+(coordinator ruling 2026-09-22): readiness keys on the shared service's own
+identity, and tenant scoping stays in the pool's certificate map. Around them
+are the Compose profile on rootless Podman, the Kubernetes manifests, fleet
+upgrades, session-issued purge approval, and operator documentation. Live
+evidence on this host, at head db8acda26 in one heavy-lock hold: ten
+installations, one shared pool and supervisor, 36 of 36 self-hosted checks;
+23 of 23 lifecycle checks (rotation, canary waves with walk-back and additive
+rollback, teardown, purge); the Kubernetes manifests schema-valid and admitted
+by a local kind cluster (labelled, not a hosted pass); and the common.md sweep
+all green. The live runs found and fixed real defects the unit tests could not
+see: Bun's JSON and array binding, a precedence bug, a gateway probe that
+treated 404 as down, unbounded product database pools, unreadable image files
+under a private umask, Envoy's user, the unconfigured extensions, and daemons
+failing on the read-only root. After the 2b2e12550 merge the final hold at a1ba5d95b
+passed every leg (self-hosted 42/42, lifecycle 27/27), after a live run
+exposed a gateway probe that accepted only a 404 the real gateway never sends.
+Open: the host side of the guestBroker route (a defect, blocked on a design
+ruling) and the restore-to-checkpoint lifecycle step (disclosed follow-up).
+
+2026-09-28: W16's product code was green through r5 except for integ's own C13 row, which W01j fixed. The first
+live runbook pass (r5b) found a real W16 defect: the stricter pool config broke two harness writers that no test tied
+to the parser. The fix and a guard test landed red-first, and the pool now says why it fails. r5c and r5d then passed
+every short-form step at cb2680fbe, including the first live run of the W01i cross-tenant checks. That run also needed
+two fixes outside the product: the proof read the host CA from the wrong directory, and W18c's lane race was avoided
+with the lane's external mode. Open: P24 (restore lifecycle step) and G15's Podman, route, coverage and static parts
+in validator-2's hold.
+
 ## W14 — Live console, scoped API, and browser journeys (Sol product, branch `wp/w14-console`)
 
 Base `260855e57` (W09b and W13 merged). Evidence: `/tmp/factory-platform-evidence/w14/`. Gate file:
@@ -4991,7 +5057,7 @@ Gates: `tasks/factory/w18-hygiene-GATES.md` (GC1 through GC10). Worktree:
   full web bun-leg pool (3630/0 across 194 files) all clean. Details in GATES.md GC10.
 - [x] GC5 (production git wrappers): moved to item C2 (branch `wp/w18-hygiene-c2`, from item C's head)
   per the coordinator's re-sequencing — not on this branch. See `tasks/factory/w18-hygiene-GATES.md`
-  GC11-14 on the C2 branch for the full write-up.
+  GC11-15 on the C2 branch for the full write-up.
 - [x] Validator-3 fix round on item C (medium F1, medium F2, lows L1-L3):
   - F1 (identity): all nine commits from `d296f0b91` through the cherry-picked gate-integrity flake fix
     were authored with a personal address copied from the worktree's inherited git config (the
@@ -5024,6 +5090,38 @@ Gates: `tasks/factory/w18-hygiene-GATES.md` (GC1 through GC10). Worktree:
     as evidence multi-file `bun test` load order is not fully pinned by argument order, not as evidence
     the underlying bug is fixed (it isn't on this branch; C2 owns that fix).
   Re-authored head before this fix round's own commit: `a9f46fbb3`. Full details: `tasks/factory/w18-hygiene-GATES.md` (GC9 entry, updated).
+
+### Item C2 (branch `wp/w18-hygiene-c2`, from item C's accepted head)
+
+- [x] GC12: `$server/auth/middleware` added to the F1 walker's guarded modules; every partial mock
+  converted (38 files, found via the real walker, not the 2 originally named); 10 of those also had a
+  second, relative-path "dual-specifier" registration, fixed identically. Walker itself extended to
+  recognize the beforeAll + precomputed-`serverModule()`-variable shape (a gap every prior TARGET had
+  never exercised, since GC9's fix for extension-lifecycle-service/registry drops the alias entirely
+  instead of keeping and completing it). Zero offenders, no exemption list. Files that mock ONLY a
+  relative path (never the alias) are outside the walker's stated target and were not chased — reported,
+  not expanded into.
+- [x] GC13: `docs/extensions/examples/repo-activity-notify/index.ts` — the fourth weak-pattern instance
+  found during GC5 — now delegates to `withoutGitContext()`. One pre-existing, unrelated test failure
+  (`extension.test.ts`'s `ContractError`) confirmed present on the unmodified file, reported not fixed.
+- [x] GC14: new repo-wide guard (`src/__tests__/git-spawn-context-guard.test.ts`) that every production
+  `git` subprocess spawn goes through `withoutGitContext()`. Found and fixed 8 further real instances
+  beyond the four named wrappers: six `scripts/*.ts` gate/coverage scripts, and
+  `packages/@ezcorp/ai-kit/src/cli/install.ts`'s `gitProjectRoot()` (a third independent reimplementation
+  of the same GIT_*-strip filter, now delegating to the canonical helper via ai-kit's already-declared
+  `@ezcorp/sdk` peer dependency). Guard-with-control: reverted one fix, confirmed the guard fails
+  naming the exact offender, restored it.
+- [x] GC15: validator-3 found the regression GC14's first draft introduced — the six gate/coverage
+  scripts needed the invoking git context KEPT (a pre-commit hook's staged view, a checkout's own
+  state), not stripped; converting them to `withoutGitContext()` broke ten tests. Fixed with a second
+  named class, `currentRepositoryGitContext()`, and reverted all six to it; three of them also needed a
+  local, non-imported copy of that function since they're each copied into a bare, `node_modules`-free
+  test fixture where a workspace-package import cannot resolve (found while fixing the first issue).
+  All ten originally-regressed tests green, plus the visual-evidence suite (broken the same way, not
+  previously reported) and the extended guard itself.
+  Full details, evidence, the poison recipe and matching counts for GC5's corrected four-site
+  disclosure (validator-3's other finding, folded into GC11 above): `tasks/factory/w18-hygiene-GATES.md`
+  GC11 (correction), GC12-15.
 
 ## W12d — reproducible data image build (branch `wp/w12d-reproducible-image`)
 
@@ -5200,3 +5298,34 @@ the answer, the product swallowed the error, and the kernel heard nothing until 
 stop was then refused as stale. W01h makes every lost answer a durable, typed failure the kernel acts on, and gives
 both processes a log line that names it. Two causes remain outside this package: the 30 s sealed attempt deadline
 (pool lease, never renewed by the remote runtime), after which C02 refuses any report, and the run-deadline epoch.
+
+## W09e follow-ups (recorded by name, not in W09e)
+
+- [ ] **release spend into the budget ledger**: a ledger entry kind for releases, so a release reserves its signed
+      estimated spend at claim and a stopped one settles through the usage settlement (coordinator ruling, W09e
+      cost). Until then a stopped release's cost lives on its stop outcome (`stop_cost_micros`, `stop_cost_source`,
+      `stop_cost_basis`) and the run inspection adds it to the run's figures.
+- [ ] **Bun 1.4.2 preview-server crash (for the W12e upgrade decision)**: under the system Bun 1.4.2 the vite preview
+      died with ERR_STREAM_WRITE_AFTER_END in node:_http_server advanceResponsePipeline in 2 of 4 repeat runs of
+      factory-live-console.spec.ts; under the pin 1.3.14 it did not reproduce (66 of 66). Evidence:
+      /tmp/factory-platform-evidence/w09e/logs/head/e2e-repeat3.log, e2e-measure-fe2199392-bun142.log, e2e-measure.log.
+
+## W09h — a stop during compute admission settles in place (branch `wp/w09h-admission-stop`)
+
+Gate file `tasks/factory/w09h-GATES.md`; evidence `/tmp/factory-platform-evidence/w09h/`.
+
+- [x] R1 reproduce first: a cancel while a node waits for admission leaves the run `stopping` and the hold `held` (real PostgreSQL, red on `a24a619ad` and `ef0868738`)
+- [x] R2 the stop settles the reserved attempt in place, records the stop on the admission row, kernel `stoppedBefore: "admission"`; the old pin replaced red first — `b109144fa`
+- [x] R3 a late grant is refused `factory_compute_admission_attempt_stopped` and released through the worker's authority-loss cancel — `6350b62b3`
+- [x] R4 the hold settles all zero under "no-operations: nothing launched, all zero" (additive CHECK migration, clause-removed test) — `bbf02876a`, corrected by `5d6d398f9`
+- [x] R5 lock order: both contenders take the run lock before the admission row, both orders on real PostgreSQL — `f70c06fbe`
+- [x] Legs, coverage gates and the graph-proof runbook at the `wp/w09h-admission-stop` head `ef3f64457` (rebased onto `e92d34d45`); validator-5 M1 fixed in `ef3f64457`
+- [ ] W02d follow-up (not in W09h): R8 and R9 move to the shared basis after W09h lands; the queued-host P3/P5 cases rerun
+
+### Review
+
+A run cancelled while a node waited for compute admission never ended: the cancel named the request-admission
+command, the task stop found no queued attempt and refused it stale. W09h settles that attempt in the stop's own
+transaction (no claim, no capacity), records the stop on the admission row, releases the unused hold at zero under a
+true basis, and refuses a late grant by name. The first R4 form charged compute at the reserved bound, a false basis
+for an attempt that never ran; it is corrected, not amended, so the reported SHAs stay valid.

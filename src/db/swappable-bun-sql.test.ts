@@ -9,8 +9,8 @@ interface FakePool extends BunSqlLike {
   label?: string;
 }
 
-/** Opens numbered fake pools; `closeFails` makes a pool's close reject. */
-function opener(closeFails = false) {
+/** Opens numbered fake pools; `closeFails` makes a pool's close reject, `closeHangs` makes it never return. */
+function opener(closeFails = false, closeHangs = false) {
   const pools: FakePool[] = [];
   let release: (() => void) | undefined;
   const open = (): FakePool => {
@@ -24,6 +24,7 @@ function opener(closeFails = false) {
       close(options?: { timeout?: number }) {
         pool.closedWith.push(options);
         if (closeFails) return Promise.reject(new Error(`pool ${id} would not close`));
+        if (closeHangs) return new Promise<void>(() => {});
         return new Promise<void>((resolve) => { release = resolve; });
       },
     }) as FakePool;
@@ -83,5 +84,18 @@ describe("swappableBunSql", () => {
     await swappable.replace();
     expect(reported).toEqual(["pool 1 would not close"]);
     expect(swappable.client.unsafe("q")).toBe("q@2");
+  });
+
+  test("an old pool whose close never returns is reported after its deadline, and the next replacement still happens", async () => {
+    const { open, pools } = opener(false, true);
+    const reported: string[] = [];
+    const swappable = swappableBunSql(open, { drainSeconds: 30, closeDeadlineMs: 5, onCloseError: (error) => { reported.push((error as Error).message); } });
+    await swappable.replace();
+    expect(reported).toEqual(["the replaced pool did not close within 5 ms; left to the process exit"]);
+    // Before the bound, this call returned the stuck replacement and opened nothing.
+    await swappable.replace();
+    expect(pools).toHaveLength(3);
+    expect(swappable.generation).toBe(3);
+    expect(swappable.client.unsafe("q")).toBe("q@3");
   });
 });

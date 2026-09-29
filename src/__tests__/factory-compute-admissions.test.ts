@@ -4,7 +4,7 @@ import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
 import { releaseRows as rows } from "../db/queries/extension-releases";
 import { FactoryBudgets } from "../factory/budgets";
 import { type FactoryAuthorizedCommand, type FactoryCommandAuthority, FactoryCommandAuthorityError } from "../factory/command-authority";
-import { FactoryComputeAdmissions } from "../factory/compute-admissions";
+import { FACTORY_COMPUTE_ADMISSION_ATTEMPT_STOPPED, FactoryComputeAdmissions } from "../factory/compute-admissions";
 import { FactoryInbox } from "../factory/inbox";
 import { FactoryCommandOutbox } from "../factory/outbox";
 import type { PoolAdmissionClient } from "../factory/pool/client";
@@ -380,5 +380,65 @@ describe("FactoryComputeAdmissions", () => {
     expect((await value.admissions.dispatchNext(service)).status).toBe("admitted");
     await value.db.execute(sql`UPDATE factory_budget_reservations SET compute_allocation=${JSON.stringify({ allocationToken: "other", reservationGeneration: 1 })} WHERE run_id=${value.runId}`);
     await expect(value.db.transaction(transaction => value.admissions.readAdmittedInTransaction(transaction, { projectId, runId: value.runId, reservationId: value.input.request.reservationId }))).rejects.toMatchObject({ code: "factory_compute_admission_corrupt" });
+  });
+});
+
+/** W09h: the stop of an attempt that never reached admission, recorded on its admission. */
+describe("FactoryComputeAdmissions stop before admission", () => {
+  const stopOf = (value: Fixture, commandId = `cancel-${value.runId}`) => ({ commandId, attemptCommandId: value.reference.commandId, epoch: 1, requestedAtMs: value.now });
+  const eventOf = (value: Fixture, commandId = `cancel-${value.runId}`) => ({ kind: "attempt-stopped", id: `${commandId}:stopped`, atMs: value.now, nodeId: "task-node", commandId: value.reference.commandId, candidateGeneration: 0, attempt: 1, stoppedBefore: "admission" }) as const;
+  const keyOf = (value: Fixture, reservationId = value.input.request.reservationId) => ({ projectId, runId: value.runId, reservationId });
+  const stop = (value: Fixture, stopValue = stopOf(value), event: ReturnType<typeof eventOf> = eventOf(value), key = keyOf(value)) => value.db.transaction(transaction => value.admissions.stopInTransaction(transaction, key, stopValue, event));
+  const read = (value: Fixture, stopCommandId = `cancel-${value.runId}`) => value.db.transaction(transaction => value.admissions.readStopInTransaction(transaction, { projectId, runId: value.runId, stopCommandId }));
+  const stopRow = async (value: Fixture) => rows<{ state: string; stop_command_id: string | null; stop_requested_epoch: string | number | null; stop_requested_at_ms: string | number | null }>(await value.db.execute(sql`SELECT state, stop_command_id, stop_requested_epoch, stop_requested_at_ms FROM factory_compute_admissions WHERE run_id=${value.runId} AND reservation_id=${value.input.request.reservationId}`))[0];
+
+  test("records the stop with its cancellation epoch once, and a repeat answers the recorded event", async () => {
+    const value = await fixture();
+    expect(await read(value)).toBeUndefined();
+    expect(await stop(value)).toEqual({ event: eventOf(value), created: true });
+    expect(await stopRow(value)).toMatchObject({ state: "pending", stop_command_id: `cancel-${value.runId}` });
+    expect(Number((await stopRow(value))!.stop_requested_epoch)).toBe(1);
+    expect(await stop(value)).toEqual({ event: eventOf(value), created: false });
+    expect(await read(value)).toEqual(eventOf(value));
+    expect(await read(value, "another-cancel")).toBeUndefined();
+    await expect(stop(value, stopOf(value, "another-cancel"), eventOf(value, "another-cancel"))).rejects.toMatchObject({ code: "factory_compute_admission_conflict" });
+  });
+
+  test("leaves every admission that is not the named attempt's to the task stop", async () => {
+    const value = await fixture();
+    expect(await stop(value, stopOf(value), eventOf(value), keyOf(value, "another-reservation"))).toBeUndefined();
+    expect(await stop(value, { ...stopOf(value), attemptCommandId: "dispatch-command" })).toBeUndefined();
+    // The pool already answered: a granted or refused attempt is not stopped before admission.
+    value.pool.decisions.push(admitted(value.input));
+    expect((await value.admissions.dispatchNext(service)).status).toBe("admitted");
+    expect(await stop(value)).toBeUndefined();
+    expect(await stopRow(value)).toMatchObject({ state: "admitted", stop_command_id: null });
+    const validator = await validatorFixture();
+    expect(await stop(validator, { ...stopOf(validator), attemptCommandId: validator.acceptanceCommandId })).toBeUndefined();
+  });
+
+  test("R3: a grant that arrives after the stop is refused by name and released at the pool, never committed", async () => {
+    const value = await fixture();
+    // The authority stays current here, so the refusal comes from the stop itself, not from a lost run.
+    value.pool.leaseStatus = { reservationId: value.input.request.reservationId, tenantId, state: "held", allocationGeneration: 1, holderGeneration: 1, effects: 0, resources: value.input.request.resources };
+    value.pool.decisions.push(async () => { await stop(value); return admitted(value.input); });
+    const result = await value.admissions.dispatchNext(service);
+    expect(result).toEqual({ status: "cancelled", reservationId: value.input.request.reservationId, refused: FACTORY_COMPUTE_ADMISSION_ATTEMPT_STOPPED });
+    expect(value.pool.cancellations).toEqual([{ reservationId: value.input.request.reservationId, generation: 1 }]);
+    expect(await stopRow(value)).toMatchObject({ state: "cancelled", stop_command_id: `cancel-${value.runId}` });
+    expect(await reservationState(value)).toBe("held");
+    expect(rows(await value.db.execute(sql`SELECT event_id FROM factory_inbox_events WHERE run_id=${value.runId} AND payload::jsonb->>'kind'='admission-result'`))).toEqual([]);
+  });
+
+  test("refuses a malformed stop and a corrupt recorded event by name, and the table refuses an admitted stop", async () => {
+    const value = await fixture();
+    for (const bad of [{ epoch: 0 }, { epoch: 1.5 }, { requestedAtMs: -1 }]) await expect(stop(value, { ...stopOf(value), ...bad })).rejects.toMatchObject({ code: "factory_compute_admission_invalid" });
+    await stop(value);
+    for (const corrupt of ["not json", JSON.stringify({ ...eventOf(value), stoppedBefore: undefined }), JSON.stringify({ ...eventOf(value), id: "other:stopped" }), "null"]) {
+      await value.db.execute(sql`UPDATE factory_compute_admissions SET stop_event_json=${corrupt} WHERE run_id=${value.runId}`);
+      await expect(read(value)).rejects.toMatchObject({ code: "factory_compute_admission_corrupt" });
+    }
+    // Every other check holds (an admitted row carries its event), so only the stop check can refuse it.
+    await expect((async () => value.db.execute(sql`UPDATE factory_compute_admissions SET state='admitted', event_json='{}', event_digest=${`sha256:${"e".repeat(64)}`} WHERE run_id=${value.runId}`))()).rejects.toMatchObject({ cause: { message: expect.stringContaining("factory_compute_admissions_stop_check") } });
   });
 });

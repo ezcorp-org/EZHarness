@@ -1,10 +1,24 @@
 import { describe, expect, test } from "vitest";
-import { FACTORY_STREAM_LABELS, appendUnique, formatBytes, formatMicros, horizontalRevealOffset, shortDigest, streamSummary } from "./run-format";
+import { FACTORY_RELEASE_STOP_LABELS, FACTORY_STREAM_LABELS, appendUnique, formatBytes, formatInstant, formatMicros, horizontalRevealOffset, releaseCostNote, releaseStopSummary, shortDigest, streamSummary } from "./run-format";
 import type { FactoryRunStreamStatus } from "./run-stream";
 
 const status = (overrides: Partial<FactoryRunStreamStatus> = {}): FactoryRunStreamStatus => ({ state: "live", applied: 7, lag: 0, duplicates: 0, gaps: 0, reconnects: 0, ...overrides }) as FactoryRunStreamStatus;
 
 describe("run formatting", () => {
+	test("a stopped release names its effect and its deadline; a release its run did not stop has no stop line", () => {
+		expect(Object.keys(FACTORY_RELEASE_STOP_LABELS).sort()).toEqual(["no_effect", "published", "uncertain", "unknown_at_deadline"]);
+		expect(new Set(Object.values(FACTORY_RELEASE_STOP_LABELS)).size).toBe(4);
+		expect(formatInstant(1_900_000_000_000)).toBe("2030-03-17 17:46 UTC");
+		expect(releaseStopSummary({ deadlineMs: 1_900_000_000_000, stop: { requestedAtMs: 1, effect: "unknown_at_deadline" } })).toEqual({ effect: "Stopped during publish · no answer by the deadline, effect unknown", deadline: "2030-03-17 17:46 UTC" });
+		expect(releaseStopSummary({ deadlineMs: 1_900_000_000_000 })).toBeUndefined();
+	});
+
+	test("a stopped release's cost names its hold while unrecorded, and its source and basis once settled", () => {
+		const line = { operationId: "op", nodeInstanceId: "publish", costMicros: "42" };
+		expect(releaseCostNote({ ...line, state: "held", hold: "operation-cost-unknown" })).toBe("held at its bound · operation-cost-unknown");
+		expect(releaseCostNote({ ...line, state: "settled", source: "reserved-bound", basis: "unknown: charged at reserved bound; ended by stop" })).toBe("reserved-bound · unknown: charged at reserved bound; ended by stop");
+	});
+
 	test("every stream state has its own plain label", () => {
 		expect(FACTORY_STREAM_LABELS).toEqual({
 			connecting: "Connecting",

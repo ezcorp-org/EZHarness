@@ -40,7 +40,7 @@ export type FactoryUsageSettlementSource = "stop" | "reconciliation" | "no-opera
  * The basis a no-operations settlement records, so an operator can see it and
  * a later refund policy can act on it: no provider was charged, and compute is
  * settled at the bound the tenant accepted at admission, because nothing
- * measured it. Derived from the source, never supplied by a caller.
+ * measured it. A no-operations settlement that names no basis records this one.
  */
 export const FACTORY_USAGE_NO_OPERATIONS_BASIS = "no-operations: compute at reserved bound" as const;
 
@@ -62,16 +62,29 @@ export const FACTORY_USAGE_OPERATIONS_BASIS = "operations: model usage measured,
  */
 export const FACTORY_USAGE_RESERVED_BOUND_BASIS = "unknown: charged at reserved bound; ended by stop" as const;
 export const FACTORY_USAGE_RESERVED_BOUND_RESTORE_BASIS = "unknown: charged at reserved bound; ended by restore supersession" as const;
-export type FactoryUsageSettlementBasis = typeof FACTORY_USAGE_NO_OPERATIONS_BASIS | typeof FACTORY_USAGE_PROVIDER_ERROR_BASIS | typeof FACTORY_USAGE_OPERATIONS_BASIS | typeof FACTORY_USAGE_RESERVED_BOUND_BASIS | typeof FACTORY_USAGE_RESERVED_BOUND_RESTORE_BASIS;
+/**
+ * The basis of a no-operations settlement for an attempt that was never launched (W09h): it was stopped
+ * before compute admission, so no process ran and no provider was called. Cost, tokens and compute are all
+ * zero as facts; there is no unmeasured dimension to bound.
+ */
+export const FACTORY_USAGE_NOTHING_LAUNCHED_BASIS = "no-operations: nothing launched, all zero" as const;
+
+export type FactoryUsageNoOperationsBasis = typeof FACTORY_USAGE_NO_OPERATIONS_BASIS | typeof FACTORY_USAGE_NOTHING_LAUNCHED_BASIS;
+export type FactoryUsageSettlementBasis = FactoryUsageNoOperationsBasis | typeof FACTORY_USAGE_PROVIDER_ERROR_BASIS | typeof FACTORY_USAGE_OPERATIONS_BASIS | typeof FACTORY_USAGE_RESERVED_BOUND_BASIS | typeof FACTORY_USAGE_RESERVED_BOUND_RESTORE_BASIS;
 
 const SETTLEMENT_SOURCES = new Set<FactoryUsageSettlementSource>(["stop", "reconciliation", "no-operations", "operations", "reserved-bound"]);
 const OPERATIONS_BASES = new Set<string>([FACTORY_USAGE_PROVIDER_ERROR_BASIS, FACTORY_USAGE_OPERATIONS_BASIS]);
+const NO_OPERATIONS_BASES = new Set<string>([FACTORY_USAGE_NO_OPERATIONS_BASIS, FACTORY_USAGE_NOTHING_LAUNCHED_BASIS]);
 /** The sources a signed physical stop proves, and so carry its receipt digest and a basis. */
 const STOP_PROVEN_SOURCES = new Set<FactoryUsageSettlementSource>(["no-operations", "operations", "reserved-bound"]);
-/** The basis a source derives from its proof; operations names one of its two itself. */
-function derivedBasis(input: Pick<FactoryUsageSettlementInput, "source" | "restoreDigest">): FactoryUsageSettlementBasis | undefined {
-  if (input.source === "no-operations") return FACTORY_USAGE_NO_OPERATIONS_BASIS;
+/**
+ * The basis a settlement records. reserved-bound derives its one from its proof; no-operations and operations
+ * each name one of their two (no-operations defaults to the reserved-bound one); no other source has any.
+ */
+function settlementBasis(input: Pick<FactoryUsageSettlementInput, "source" | "restoreDigest" | "basis">): FactoryUsageSettlementBasis | undefined {
   if (input.source === "reserved-bound") return input.restoreDigest === undefined ? FACTORY_USAGE_RESERVED_BOUND_BASIS : FACTORY_USAGE_RESERVED_BOUND_RESTORE_BASIS;
+  if (input.source === "no-operations") return input.basis ?? FACTORY_USAGE_NO_OPERATIONS_BASIS;
+  if (input.source === "operations") return input.basis;
   return undefined;
 }
 const STOP_RECEIPT_DIGEST = /^sha256:[0-9a-f]{64}$/;
@@ -163,10 +176,16 @@ export interface FactoryUsageSettlement {
   readonly event: FactoryUsageSettledEvent;
 }
 
+/**
+ * The attempt facts a settlement and its kernel event name. A dispatched attempt passes its whole sealed
+ * authority; an attempt stopped before compute admission (W09h) has no execution row and passes only these.
+ */
+export type FactoryUsageSettlementAttempt = Pick<FactoryAttemptAuthority, "attemptId" | "nodeInstanceId" | "candidateGeneration" | "attemptNumber">;
+
 export interface FactoryUsageSettlementInput {
   readonly reservationId: string;
   readonly attemptId: string;
-  readonly authority: FactoryAttemptAuthority;
+  readonly authority: FactoryUsageSettlementAttempt;
   readonly revision: number;
   readonly source: FactoryUsageSettlementSource;
   readonly knownCostMicros: string;
@@ -174,7 +193,7 @@ export interface FactoryUsageSettlementInput {
   readonly providerReceiptDigest?: string;
   readonly stopReceiptDigest?: string;
   readonly restoreDigest?: string;
-  /** Required for "operations", which has two; "no-operations" derives its one. */
+  /** Required for "operations", which has two; "no-operations" names one of its two (the reserved-bound one when omitted). */
   readonly basis?: FactoryUsageSettlementBasis;
   readonly settledAtMs: number;
 }
@@ -277,9 +296,12 @@ export function buildFactoryUsageSettlement(input: FactoryUsageSettlementInput):
   }
   if (stopProven && (input.unknownCostMicros !== undefined || input.providerReceiptDigest !== undefined)) throw new FactoryUsageSettlementError("factory_usage_settlement_invalid");
   if (input.source === "no-operations" && input.knownCostMicros !== "0") throw new FactoryUsageSettlementError("factory_usage_settlement_invalid");
-  // no-operations and reserved-bound derive their one basis, operations names one of its two, and no other source has any.
-  const basis = derivedBasis(input) ?? (input.source === "operations" ? input.basis : undefined);
-  if (input.source === "operations" ? !OPERATIONS_BASES.has(basis as string) : input.basis !== undefined && input.basis !== basis) throw new FactoryUsageSettlementError("factory_usage_settlement_invalid");
+  // Each source's basis is one it may record; a derived basis may be restated but never replaced.
+  const basis = settlementBasis(input);
+  const allowed = input.source === "operations" ? OPERATIONS_BASES.has(basis as string)
+    : input.source === "no-operations" ? NO_OPERATIONS_BASES.has(basis as string)
+    : input.basis === undefined || input.basis === basis;
+  if (!allowed) throw new FactoryUsageSettlementError("factory_usage_settlement_invalid");
   if (input.attemptId !== input.authority.attemptId) throw new FactoryUsageSettlementError("factory_usage_settlement_invalid");
   const event: FactoryUsageSettledEvent = Object.freeze({
     kind: "usage-settled" as const,
@@ -377,6 +399,7 @@ export interface FactoryUsageSettlementAmounts {
   readonly providerReceiptDigest?: string;
   readonly stopReceiptDigest?: string;
   readonly restoreDigest?: string;
+  /** Required for "operations"; "no-operations" names one of its two (the reserved-bound one when omitted). */
   readonly basis?: FactoryUsageSettlementBasis;
 }
 
@@ -418,7 +441,7 @@ export class FactoryUsageSettlements {
    * receipt returns the stored settlement; an unchanged amount returns the
    * current revision; neither emits a second event.
    */
-  async recordInTransaction(transaction: MigrationDb, value: FactoryUsageSettlementScope, valueAmounts: FactoryUsageSettlementAmounts): Promise<FactoryUsageSettlement> {
+  async recordInTransaction(transaction: MigrationDb, value: Omit<FactoryUsageSettlementScope, "authority"> & { readonly authority: FactoryUsageSettlementAttempt }, valueAmounts: FactoryUsageSettlementAmounts): Promise<FactoryUsageSettlement> {
     // A scope with no interpreter has no run inbox to report into (W15f): nothing is recorded for it.
     const interpreterId = value.interpreterId;
     if (interpreterId === null) throw new FactoryUsageSettlementError("factory_usage_settlement_scope");

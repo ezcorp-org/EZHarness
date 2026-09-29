@@ -22,12 +22,13 @@ import { FactoryTaskStops } from "./task-stops";
 import type { PoolAdmissionClient } from "./pool/client";
 import type { FactoryStartupConfig } from "./startup-config";
 import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
-import { FactoryReleaseError, FactoryReleases, type FactoryClaimableRelease, type FactoryReleaseConsentResult, type FactoryReleaseOperation, type FactoryReleaseProvider } from "./releases";
+import { FactoryReleaseError, FactoryReleases, type FactoryClaimableRelease, type FactoryReleaseConsentResult, type FactoryReleaseOperation, type FactoryReleaseProvider, type FactoryStoppedRelease } from "./releases";
 import type { FactoryStoppableAttempt } from "./task-stops";
 import type { FactoryUncertainHold } from "./budgets";
 import { FactoryRunEpochStaleError } from "./executions";
 import type { TrustedFactoryServiceIdentity } from "./trusted-command-gateway";
 import type { FactoryPrincipal } from "./grants";
+import { FACTORY_RELEASE_OUTCOME_BACKOFF_BASE_MS, FACTORY_RELEASE_OUTCOME_BACKOFF_CAP_MS } from "./release-outcome-backoff";
 import {
   FACTORY_RELEASE_CONSENT_FAULT_REASONS,
   FACTORY_RELEASE_OUTCOME_TRANSIENT_CODES,
@@ -368,9 +369,15 @@ describe("the release-outcome step", () => {
     readonly consent?: FactoryReleaseConsentResult | (() => never);
     readonly inspect?: FactoryReleaseOperation | null;
     readonly claim?: () => unknown;
+    readonly stopped?: (projectId: string) => readonly FactoryStoppedRelease[];
   }) {
-    const calls = { inspected: [] as string[], consents: [] as unknown[][], claims: [] as unknown[][], dispatches: [] as unknown[][] };
+    const calls = { inspected: [] as string[], consents: [] as unknown[][], claims: [] as unknown[][], dispatches: [] as unknown[][], stopSettlements: [] as unknown[][] };
     const releases = {
+      async listStoppedInTransaction(_t: MigrationDb, projectId: string) { return (options.stopped ?? (() => []))(projectId); },
+      async settleStopped(projectId: string, operationId: string, provider: unknown) {
+        calls.stopSettlements.push([projectId, operationId, provider]);
+        return { projectId, operationId } as never;
+      },
       async listClaimableInTransaction(_t: MigrationDb, projectId: string, limit?: number) {
         return (options.claimables ?? ((p: string) => (p === "project-1" ? [claimable("op-1")] : [])))(projectId).map((item) => ({ ...item, ...(limit === undefined ? {} : {}) }));
       },
@@ -463,6 +470,27 @@ describe("the release-outcome step", () => {
     expect(reported).toEqual([]);
   });
 
+  test("a project's stopped releases ride on its claimable page, each asked about once, through its own provider", async () => {
+    const provider = { name: "s3" } as unknown as FactoryReleaseProvider;
+    const { releases, calls } = store({ stopped: (projectId) => (projectId === "project-1" ? [{ projectId, operationId: "op-stopped", runId: "run-1" }] : []) });
+    const driver = factoryReleaseOutcomeDriver(database(), releases, runs(), async () => ["project-1"], factoryReleaseProviderResolver({ s3: provider }), () => {});
+
+    expect(await driver.step(SIGNAL)).toBe(true);
+    expect(calls.claims).toHaveLength(1);
+    expect(calls.stopSettlements).toEqual([["project-1", "op-stopped", provider]]);
+    expect(calls.inspected).toContain("project-1/op-stopped");
+  });
+
+  test("a stopped release that vanished before its question is a named transient, not a fault", async () => {
+    const { releases, calls } = store({ claimables: () => [], stopped: (projectId) => [{ projectId, operationId: "op-gone", runId: "run-1" }], inspect: null });
+    const reported: unknown[][] = [];
+    const driver = factoryReleaseOutcomeDriver(database(), releases, runs(), async () => ["project-1"], factoryReleaseProviderResolver({ s3: {} as never }), (role, error) => { reported.push([role, (error as { code?: unknown }).code]); });
+
+    expect(await driver.step(SIGNAL)).toBe(false);
+    expect(calls.stopSettlements).toEqual([]);
+    expect(reported).toEqual([["release-outcome:transient:op-gone", "factory_release_stop_settlement_stale"]]);
+  });
+
   test("without a delivery, an empty page stays empty", async () => {
     const { releases } = store({ claimables: () => [] });
     const driver = factoryReleaseOutcomeDriver(database(), releases, runs(), async () => ["project-1"], factoryReleaseProviderResolver({ s3: {} as never }), () => {});
@@ -491,9 +519,63 @@ describe("the release-outcome step", () => {
     expect(await driver.step(SIGNAL)).toBe(false);
     expect(calls.claims).toEqual([]);
     expect(calls.dispatches).toEqual([]);
-    expect(reported.map(([role]) => role)).toEqual(["release-outcome:transient:op-1"]);
+    expect(reported.map(([role]) => role)).toEqual(["release-outcome:awaiting_consent:op-1"]);
     expect(reported[0]![1]).toBeInstanceOf(FactoryReleaseConsentAbsentError);
     expect((reported[0]![1] as FactoryReleaseConsentAbsentError).reason).toBe("no_consent");
+  });
+
+  test("the back-off's base interval and five-minute cap are pinned", () => {
+    expect(FACTORY_RELEASE_OUTCOME_BACKOFF_BASE_MS).toBe(5_000);
+    expect(FACTORY_RELEASE_OUTCOME_BACKOFF_CAP_MS).toBe(5 * 60_000);
+  });
+
+  /** One hour of passes at the worker's idle delay, with the lines the role reports and the times it asked. */
+  async function hourOfPasses(settings: Parameters<typeof store>[0], first?: (clock: number) => void) {
+    const reported: [number, string][] = [];
+    let clock = 0;
+    const { releases, calls } = store(settings);
+    const driver = factoryReleaseOutcomeDriver(database(), releases, runs(), async () => ["project-1"], factoryReleaseProviderResolver({ s3: {} as never }), (role) => { reported.push([clock, role]); }, undefined, undefined, () => clock);
+    for (; clock < 60 * 60_000; clock += 250) { first?.(clock); await driver.step(SIGNAL); }
+    return { reported, calls };
+  }
+
+  /** The times a release is tried under the back-off: at once, then after each doubled wait, capped. */
+  function expectedTries(untilMs: number): number[] {
+    const tries: number[] = [];
+    for (let at = 0, wait = FACTORY_RELEASE_OUTCOME_BACKOFF_BASE_MS; at < untilMs; at += wait, wait = Math.min(wait * 2, FACTORY_RELEASE_OUTCOME_BACKOFF_CAP_MS)) tries.push(at);
+    return tries;
+  }
+
+  test("a release waiting for consent is asked once per back-off interval, with one awaiting_consent line each (W09e R5)", async () => {
+    const { reported, calls } = await hourOfPasses({ consent: { kind: "none", reason: "no_consent" } });
+    // 14,400 passes; without a back-off each one read the consent and reported a line.
+    const tries = expectedTries(60 * 60_000);
+    expect(reported).toEqual(tries.map(at => [at, "release-outcome:awaiting_consent:op-1"]));
+    expect(calls.consents).toHaveLength(tries.length);
+    expect(tries.slice(0, 8)).toEqual([0, 5_000, 15_000, 35_000, 75_000, 155_000, 315_000, 615_000]);
+    expect(tries.length).toBeLessThan(20);
+  });
+
+  test("a consent that appears is claimed at the next try, and a later absence starts from the base again", async () => {
+    let consent: FactoryReleaseConsentResult = { kind: "none", reason: "approval_not_approved" };
+    const { reported, calls } = await hourOfPasses({ consent: () => consent as never, claim: () => { consent = { kind: "none", reason: "approval_expired" }; return { operationId: "op-1", destination: { provider: "s3" } }; } }, clock => {
+      if (clock === 20_000) consent = APPROVAL as unknown as FactoryReleaseConsentResult;
+    });
+    // Tries at 0, 5 s and 15 s find no consent; the one at 35 s claims. The release is listed again at the next
+    // pass and its consent has expired: that absence waits the base interval again, not the doubled one.
+    expect(reported.slice(0, 5).map(([at]) => at)).toEqual([0, 5_000, 15_000, 35_250, 40_250]);
+    expect(calls.claims).toHaveLength(1);
+  });
+
+  test("an unanswered stopped-release question backs off the same way, one transient line per interval", async () => {
+    const { releases, calls } = store({ claimables: () => [], stopped: (projectId) => [{ projectId, operationId: "op-stopped", runId: "run-1" }] });
+    const unanswered = Object.assign(releases as object, { async settleStopped(projectId: string, operationId: string) { calls.stopSettlements.push([projectId, operationId]); throw new FactoryReleaseError("factory_release_stop_outcome_unknown"); } });
+    const reported: [number, string][] = [];
+    let clock = 0;
+    const driver = factoryReleaseOutcomeDriver(database(), unanswered as never, runs(), async () => ["project-1"], factoryReleaseProviderResolver({ s3: {} as never }), (role) => { reported.push([clock, role]); }, undefined, undefined, () => clock);
+    for (; clock < 60 * 60_000; clock += 250) await driver.step(SIGNAL);
+    expect(reported).toEqual(expectedTries(60 * 60_000).map(at => [at, "release-outcome:transient:op-stopped"]));
+    expect(calls.stopSettlements).toHaveLength(expectedTries(60 * 60_000).length);
   });
 
   test("an ambiguous policy is untouched, named, and needs a person", async () => {
@@ -619,6 +701,7 @@ describe("the release-outcome step", () => {
     const limits: (number | undefined)[] = [];
     const bad = {
       async listClaimableInTransaction(_t: MigrationDb, _p: string, limit?: number) { limits.push(limit); return [claimable("op-bad")]; },
+      async listStoppedInTransaction() { return []; },
       async inspect() { return operation(); },
       async readConsentInTransaction() { return APPROVAL as unknown as FactoryReleaseConsentResult; },
       async claim() { throw failure("factory_release_conflict"); },

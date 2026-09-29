@@ -3,6 +3,9 @@
 # fixture-owned temporary root. The latter is removed only after the preview
 # command has exited, so PGlite is never removed while it is open.
 set -euo pipefail
+# The lane's server runs under the `bun` PATH resolves: pin it first (scripts/lib/lane-bun.sh).
+. "$(dirname "${BASH_SOURCE[0]}")/../../scripts/lib/lane-bun.sh"
+lane_bun_pin
 
 if (($# == 0)); then
   echo 'run-real-auth-fixture.sh: missing preview command' >&2

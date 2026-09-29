@@ -1,5 +1,5 @@
-import { test, expect, describe, beforeEach, mock } from "bun:test";
-import { webLibModule, contextModule } from "../../../src/__tests__/helpers/mock-cleanup";
+import { test, expect, describe, beforeEach, beforeAll, afterAll, mock } from "bun:test";
+import { webLibModule, contextModule, serverModule } from "../../../src/__tests__/helpers/mock-cleanup";
 import { taskSnapshotPort, taskAssignmentPort } from "./helpers/task-state-port";
 import type {
   TaskSnapshot,
@@ -93,9 +93,16 @@ mock.module("$server/db/queries/agent-configs", () => ({
 
 // ── Mock auth + scope middleware ────────────────────────────────────
 
-mock.module("$server/auth/middleware", () => ({
-  requireAuth: (locals: any) => locals?.user ?? mockUser,
-}));
+const realAuthMiddleware = serverModule("auth/middleware", {});
+beforeAll(() => {
+  mock.module("$server/auth/middleware", () => ({
+    ...realAuthMiddleware,
+    requireAuth: (locals: any) => locals?.user ?? mockUser,
+  }));
+});
+afterAll(() => {
+  mock.module("$server/auth/middleware", () => realAuthMiddleware);
+});
 
 const apiKeysExports = webLibModule("server/security/api-keys", {
   requireScope: () => mockScopeResponse,

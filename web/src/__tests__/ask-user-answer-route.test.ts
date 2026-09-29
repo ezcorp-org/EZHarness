@@ -18,8 +18,8 @@
  * Mirrors `human-input-route.test.ts` for the legacy endpoint.
  */
 
-import { test, expect, describe, beforeEach, mock } from "bun:test";
-import { webLibModule, contextModule } from "../../../src/__tests__/helpers/mock-cleanup";
+import { test, expect, describe, beforeEach, beforeAll, afterAll, mock } from "bun:test";
+import { webLibModule, contextModule, serverModule } from "../../../src/__tests__/helpers/mock-cleanup";
 import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 // ── Mock auth + scope middleware ──────────────────────────────────
@@ -30,14 +30,14 @@ const apiKeysExports = webLibModule("server/security/api-keys", {
 });
 mock.module("$lib/server/security/api-keys", () => apiKeysExports);
 
-mock.module("$server/auth/middleware", () => ({
-  requireAuth: () => ({
-    id: "user-1",
-    email: "t@t.com",
-    name: "T",
-    role: "member",
-  }),
-}));
+// auth/middleware: registered in beforeAll below, not here at module top
+// level — item C2 (W18 hygiene). The $server/auth/middleware alias is
+// claimed by dozens of files repo-wide, so whichever file's registration is
+// active when a shared-process run resolves the alias wins for every OTHER
+// file too. beforeAll (test-execution time) plus a complete serverModule()
+// factory make THIS file's own requireAuth override active for THIS file's
+// own tests, and afterAll hands the alias back to the real module.
+const realAuthMiddleware = serverModule("auth/middleware", {});
 
 // ── Mock bus via $lib/server/context ───────────────────────────────
 
@@ -71,6 +71,21 @@ mock.module("$lib/server/http-errors", () => ({
 
 // SvelteKit's `json()` is normally re-exported from @sveltejs/kit;
 // preload.ts already mocks it project-wide. No additional mock needed.
+
+beforeAll(() => {
+  mock.module("$server/auth/middleware", () => ({
+    ...realAuthMiddleware,
+    requireAuth: () => ({
+      id: "user-1",
+      email: "t@t.com",
+      name: "T",
+      role: "member",
+    }),
+  }));
+});
+afterAll(() => {
+  mock.module("$server/auth/middleware", () => realAuthMiddleware);
+});
 
 // ── Import handler AFTER mocks ─────────────────────────────────────
 

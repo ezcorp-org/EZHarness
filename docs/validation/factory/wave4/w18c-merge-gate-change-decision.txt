@@ -1,0 +1,21 @@
+USER GATE-CHANGE DECISION for merge-commit-gates.sh (third argument), W18c merge commit ONLY.
+Source: the user's decision of 2026-09-28 ~06:45Z, recorded at /tmp/factory-platform-evidence/w00/user-decisions-2026-09-28T0645Z.txt (sha256 fa81c257f734264fd11434dac0a79ae0176de4a19485f37980833c4a012802c2), item 1, as read by the coordinator
+(team-lead, session ezcorp-3a). The user's words: "if they are ready admin merge them if not fix all issues and merge them".
+Scope: exactly one commit: the --no-ff merge of W18c (wp/w18c-mainline-gates, final head named by the lead's order) into
+integ/w00. GATE_CHANGE_APPROVED=1 is set for the approved gate-integrity runs of that one commit and for nothing else.
+The approval names W18c's four findings (gate-integrity with the head's script against the integ base):
+  1. test file RENAMED (R097): web/e2e/real-auth/factory-authoring-flow.spec.ts -> web/e2e/factory-authoring-flow.spec.ts
+     (the ruled lane move).
+  2. scripts/merge-lcov.ts: the FN-header credit and the catch-clause credit (attribution corrections).
+  3. scripts/check-coverage.ts, 33a765974: the per-file gate exempts an exact key for a declaration-only file with no lcov
+     record.
+  4. scripts/check-new-file-coverage.ts, a927c4bca: the new-file gate passes a type-only file.
+Inherited findings on the origin/main leg only, NOT W18c's: covered mechanically by this one-commit approval; attributed to
+their owners and carried to the PR-level label under their names (w18c-merge/inherited-findings.txt):
+  scripts/check-patch-coverage.ts (M, b6cfa4798 via bd2cedcc9, W00 base checkpoint);
+  scripts/merge-browser-route-coverage.sh (M, 9bc39a30c via c3e6d479a, W18 wave 1);
+  scripts/factory-orchestrator-v8-to-lcov.mjs (A, 7dc977525 / 1f22734ff, feature-branch base);
+  scripts/node-v8-to-lcov.mjs (A, 1d4fb8bd4, feature-branch base).
+Any finding outside these eight goes to the lead before the merge is reported done; this file does not cover it.
+Written by integrator-3, 2026-09-28T13:13:03Z. No personal address is recorded here; the source file is cited by path and hash only.
+Citation updated 2026-09-28T13:16:13Z: the lead redacted the address from the source file; new sha256 above.

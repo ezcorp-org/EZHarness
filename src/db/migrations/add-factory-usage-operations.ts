@@ -11,6 +11,8 @@ const PROVIDER_ERROR_BASIS = "provider-error: model usage measured, compute at r
 const OPERATIONS_BASIS = "operations: model usage measured, compute at reserved bound";
 const RESERVED_BOUND_BASIS = "unknown: charged at reserved bound; ended by stop";
 const RESERVED_BOUND_RESTORE_BASIS = "unknown: charged at reserved bound; ended by restore supersession";
+// W09h's no-operations basis for an attempt stopped before compute admission (add-factory-usage-nothing-launched-basis).
+const NOTHING_LAUNCHED_BASIS = "no-operations: nothing launched, all zero";
 
 /**
  * W03f: a stop settles from its journal, and an unknown only at its bound.
@@ -31,6 +33,13 @@ const RESERVED_BOUND_RESTORE_BASIS = "unknown: charged at reserved bound; ended 
  * installed is replaced only while its narrower form is installed (its
  * marker below is absent), so a boot after this one changes nothing. Nothing
  * existing is rewritten: every stored row satisfies the wider CHECKs.
+ *
+ * The basis CHECK is shared with W09h, whose landed migration added the
+ * no-operations basis "nothing launched, all zero" and replaces the CHECK while
+ * that marker is absent. So this one installs the union of both (lead ruling
+ * 2026-09-28) and replaces the CHECK while either marker is absent: from W03e's
+ * form, from W09h's, or from its own earlier form. W09h's migration then finds
+ * its marker and changes nothing, in either registration order.
  */
 export async function up(database: MigrationDb): Promise<void> {
   await database.execute(sql`ALTER TABLE factory_usage_settlements ADD COLUMN IF NOT EXISTS restore_digest TEXT`);
@@ -61,14 +70,14 @@ export async function up(database: MigrationDb): Promise<void> {
             AND (source <> 'no-operations' OR known_cost_micros = '0'));
       END IF;
       IF EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'factory_usage_settlements'::regclass AND contype = 'c'
-        AND conname = ${sql.raw(`'${BASIS_CHECK}'`)} AND pg_get_constraintdef(oid) NOT LIKE '%restore supersession%') THEN
+        AND conname = ${sql.raw(`'${BASIS_CHECK}'`)} AND (pg_get_constraintdef(oid) NOT LIKE '%restore supersession%' OR pg_get_constraintdef(oid) NOT LIKE '%nothing launched, all zero%')) THEN
         ALTER TABLE factory_usage_settlements DROP CONSTRAINT ${sql.raw(BASIS_CHECK)};
       END IF;
       IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'factory_usage_settlements'::regclass AND contype = 'c' AND conname = ${sql.raw(`'${BASIS_CHECK}'`)}) THEN
         ALTER TABLE factory_usage_settlements ADD CONSTRAINT ${sql.raw(BASIS_CHECK)}
           CHECK ((source IN ('no-operations','operations','reserved-bound')) = (basis IS NOT NULL)
             AND (basis IS NULL
-              OR (source = 'no-operations' AND basis = 'no-operations: compute at reserved bound')
+              OR (source = 'no-operations' AND basis IN ('no-operations: compute at reserved bound', ${sql.raw(`'${NOTHING_LAUNCHED_BASIS}'`)}))
               OR (source = 'operations' AND basis IN (${sql.raw(`'${PROVIDER_ERROR_BASIS}'`)}, ${sql.raw(`'${OPERATIONS_BASIS}'`)}))
               OR (source = 'reserved-bound' AND stop_receipt_digest IS NOT NULL AND basis = ${sql.raw(`'${RESERVED_BOUND_BASIS}'`)})
               OR (source = 'reserved-bound' AND restore_digest IS NOT NULL AND basis = ${sql.raw(`'${RESERVED_BOUND_RESTORE_BASIS}'`)})));

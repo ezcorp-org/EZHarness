@@ -287,6 +287,11 @@ export function buildFactorySchema({ projects, users, serviceAccounts }: Factory
     originDigest: text("origin_digest"),
     createdAt: createdAtColumn(),
     updatedAt: updatedAtColumn(),
+    // W09h: the stop of an attempt that never reached admission, with the cancellation epoch it raised.
+    stopCommandId: text("stop_command_id"),
+    stopRequestedEpoch: bigint("stop_requested_epoch", { mode: "number" }),
+    stopRequestedAtMs: bigint("stop_requested_at_ms", { mode: "number" }),
+    stopEventJson: text("stop_event_json"),
   }, (table) => [
     primaryKey({ columns: [table.tenantId, table.projectId, table.runId, table.reservationId] }),
     uniqueIndex("uq_factory_validator_admission_identity").on(table.tenantId, table.projectId, table.runId, table.originDigest).where(sql`${table.originKind} = 'protected-validator'`),
@@ -307,6 +312,7 @@ export function buildFactorySchema({ projects, users, serviceAccounts }: Factory
     check("factory_compute_admissions_origin_body_check", sql`(${table.originKind} = 'protected-validator') = (${table.originJson} IS NOT NULL)`),
     check("factory_compute_admissions_origin_seal_check", sql`(${table.originJson} IS NULL) = (${table.originDigest} IS NULL)`),
     check("factory_compute_admissions_origin_bytes_check", sql`${table.originJson} IS NULL OR octet_length(${table.originJson}) <= 1048576`),
+    check("factory_compute_admissions_stop_check", sql`(${table.stopCommandId} IS NULL) = (${table.stopRequestedEpoch} IS NULL) AND (${table.stopCommandId} IS NULL) = (${table.stopRequestedAtMs} IS NULL) AND (${table.stopCommandId} IS NULL) = (${table.stopEventJson} IS NULL) AND (${table.stopRequestedEpoch} IS NULL OR ${table.stopRequestedEpoch} >= 1) AND (${table.stopRequestedAtMs} IS NULL OR ${table.stopRequestedAtMs} >= 0) AND (${table.stopCommandId} IS NULL OR ${table.state} <> 'admitted')`),
   ]);
 
   const factoryMutationReceipts = pgTable("factory_mutation_receipts", {

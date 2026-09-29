@@ -124,10 +124,32 @@ async function seedSections(installation: Omit<ConsoleInstallation, "artifactId"
       VALUES (${tenantId},${PROJECT},'contract',1,${sha("contract")},${sha("lock")},'[]','[]',${OWNER.id},1,${sha("snapshot")})`);
     await transaction.execute(sql`INSERT INTO factory_acceptance_decisions (tenant_id,project_id,decision_id,contract_id,contract_revision,contract_digest,candidate_digest,evidence_set_digest,decision_digest,contract_snapshot_digest)
       VALUES (${tenantId},${PROJECT},'decision-1','contract',1,${sha("contract")},${sha("candidate")},${sha("evidence")},${sha("decision")},${sha("snapshot")})`);
-    await transaction.execute(sql`INSERT INTO factory_release_operations (tenant_id,project_id,operation_id,run_id,node_instance_id,candidate_generation,candidate_digest,decision_id,contract_digest,execution_epoch,cancellation_epoch,release_enable_epoch,action,destination_provider,destination_account,destination_object,destination_digest,canonical_request,request_digest,material_json,material_digest,estimated_spend_micros,deadline_ms,state,dispatch_generation,outcome_code,profile_input_digest,profile_result_digest,profile_resolved_at_ms)
-      VALUES (${tenantId},${PROJECT},'operation-1',${runId},'node-a',0,${sha("candidate")},'decision-1',${sha("contract")},1,0,1,'factory.release.publish','s3','acct','obj',${sha("dest")},'{}',${sha("request")},'{}',${sha("material")},10,${installation.clock.now + 60_000},'uncertain',2,'provider_timeout',${sha("profile-in")},${sha("profile-out")},${installation.clock.now})`);
+    await seedRelease(transaction, { tenantId, runId, operationId: "operation-1", state: "uncertain", outcomeCode: "provider_timeout", now: installation.clock.now });
+    // The child run was stopped during three releases (W09e): one whose publish may have started (its cost held),
+    // one that published with no spend on its receipt (charged at the bound), one proven to have published nothing.
+    for (const [operationId, state, outcome, cost] of [
+      ["operation-stopped-uncertain", "executing", null, null],
+      ["operation-stopped-published", "succeeded", "published", { micros: 10, source: "reserved-bound", basis: "bound: the provider reports no spend" }],
+      ["operation-stopped-no-effect", "failed", "no_effect", { micros: 0, source: "proven-no-effect", basis: "proven: the provider shows no publication and the sender is stopped" }],
+    ] as const) {
+      await seedRelease(transaction, { tenantId, runId: installation.childRunId, operationId, state, now: installation.clock.now, stop: { commandId: `cancel-${operationId}`, outcome, cost } });
+    }
   });
   return artifact.artifactId;
+}
+
+interface SeededRelease {
+  readonly tenantId: string; readonly runId: string; readonly operationId: string; readonly state: string; readonly now: number;
+  readonly outcomeCode?: string;
+  readonly stop?: { readonly commandId: string; readonly outcome: string | null; readonly cost: { readonly micros: number; readonly source: string; readonly basis: string } | null };
+}
+
+/** One release operation of a console run, due a minute after `now`; with `stop`, the run was stopped during it at `now`. */
+async function seedRelease(transaction: MigrationDb, release: SeededRelease): Promise<void> {
+  const stop = release.stop;
+  await transaction.execute(sql`INSERT INTO factory_release_operations (tenant_id,project_id,operation_id,run_id,node_instance_id,candidate_generation,candidate_digest,decision_id,contract_digest,execution_epoch,cancellation_epoch,release_enable_epoch,action,destination_provider,destination_account,destination_object,destination_digest,canonical_request,request_digest,material_json,material_digest,estimated_spend_micros,deadline_ms,state,dispatch_generation,outcome_code,profile_input_digest,profile_result_digest,profile_resolved_at_ms,stop_command_id,stop_requested_epoch,stop_requested_at_ms,stop_event_json,stop_outcome,stop_cost_micros,stop_cost_source,stop_cost_basis)
+    VALUES (${release.tenantId},${PROJECT},${release.operationId},${release.runId},'node-a',0,${sha("candidate")},'decision-1',${sha("contract")},1,0,1,'factory.release.publish','s3','acct',${release.operationId},${sha(release.operationId)},'{}',${sha("request")},'{}',${sha("material")},10,${release.now + 60_000},${release.state},2,${release.outcomeCode ?? null},${sha("profile-in")},${sha("profile-out")},${release.now},
+      ${stop?.commandId ?? null},${stop ? 1 : null},${stop ? release.now : null},${stop ? "{}" : null},${stop?.outcome ?? null},${stop?.cost?.micros ?? null},${stop?.cost?.source ?? null},${stop?.cost?.basis ?? null})`);
 }
 
 export function factoryConsoleConformance(create: () => Promise<FactoryConsoleFixture>): void {
@@ -155,7 +177,31 @@ export function factoryConsoleConformance(create: () => Promise<FactoryConsoleFi
       expect(view.blockers.find(item => item.kind === "release")!.reason).toContain("uncertain");
       expect(view.costs).toMatchObject({ knownCostMicros: "250", unknownCostMicros: "7", admissionBlocked: true, uncertain: true, limitMicros: "5000" });
       expect(view.acceptance).toEqual([{ commandId: "cmd-accept", decision: "rejected", candidateDigest: sha("candidate"), reasons: [{ claimId: "tests-pass", validatorId: "validator.tests", verdict: "FAIL", reasonCode: "TESTS_FAILED" }], groupFailures: [{ groupId: "quality", passes: 1, minimumPasses: 2 }], decidedAtMs: expect.any(Number) }]);
-      expect(view.releases).toEqual([{ operationId: "operation-1", nodeInstanceId: "node-a", state: "uncertain", action: "factory.release.publish", dispatchGeneration: 2, outcomeCode: "provider_timeout" }]);
+      expect(view.releases).toEqual([{ operationId: "operation-1", nodeInstanceId: "node-a", state: "uncertain", action: "factory.release.publish", dispatchGeneration: 2, outcomeCode: "provider_timeout", deadlineMs: a.clock.now + 60_000 }]);
+    });
+
+    test("a release the run was stopped during shows its effect and its deadline, not only the stop", async () => {
+      const view = await a.console.inspections.inspect(OWNER, { projectId: PROJECT, runId: a.childRunId }) as FactoryRunInspection;
+      const stopped = { requestedAtMs: a.clock.now };
+      expect(view.releases.map(release => [release.operationId, release.state, release.deadlineMs, release.stop]).sort()).toEqual([
+        ["operation-stopped-no-effect", "failed", a.clock.now + 60_000, { ...stopped, effect: "no_effect" }],
+        ["operation-stopped-published", "succeeded", a.clock.now + 60_000, { ...stopped, effect: "published" }],
+        ["operation-stopped-uncertain", "executing", a.clock.now + 60_000, { ...stopped, effect: "uncertain" }],
+      ]);
+    });
+
+    test("a stopped release's cost is held at its bound until its effect is recorded, then shown with its source (W09e)", async () => {
+      const view = await a.console.inspections.inspect(OWNER, { projectId: PROJECT, runId: a.childRunId }) as FactoryRunInspection;
+      expect(view.costs.releases).toEqual([
+        { operationId: "operation-stopped-no-effect", nodeInstanceId: "node-a", state: "settled", costMicros: "0", source: "proven-no-effect", basis: "proven: the provider shows no publication and the sender is stopped" },
+        { operationId: "operation-stopped-published", nodeInstanceId: "node-a", state: "settled", costMicros: "10", source: "reserved-bound", basis: "bound: the provider reports no spend" },
+        { operationId: "operation-stopped-uncertain", nodeInstanceId: "node-a", state: "held", costMicros: "10", hold: "operation-cost-unknown" },
+      ]);
+      // Release spend stays outside the compute ledger; the run's figures add it: the held bound as unknown, the
+      // settled figures as known.
+      expect(view.costs).toMatchObject({ knownCostMicros: "10", unknownCostMicros: "10", uncertain: true });
+      // A run with no stopped release lists none.
+      expect((await a.console.inspections.inspect(OWNER, key()) as FactoryRunInspection).costs.releases).toBeUndefined();
     });
 
     test("a child run names its parent", async () => {

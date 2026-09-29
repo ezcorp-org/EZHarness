@@ -1,3 +1,4 @@
+import { factoryIngressResponse } from "$server/factory/provisioning/ingress-identity";
 import type { Handle, HandleServerError, RequestEvent } from "@sveltejs/kit";
 import { redirect } from "@sveltejs/kit";
 import { ensureInitialized } from "$lib/server/context";
@@ -522,7 +523,7 @@ async function applyOnboardingGate(locals: App.Locals, url: URL): Promise<void> 
 /** How the hook resolves a request once the bounded-payload and scope checks have run. */
 type BoundedResolve = (event: RequestEvent) => Promise<Response> | Response;
 
-const PUBLIC_PATHS = ["/login", "/setup", "/signup", "/reset-password", "/api/auth/login", "/api/auth/setup", "/api/health", "/api/ready", "/api/version"];
+const PUBLIC_PATHS = ["/login", "/setup", "/signup", "/reset-password", "/api/auth/login", "/api/auth/setup", "/api/health", "/api/ready", "/api/version", "/api/installation/bootstrap/status"];
 // Public on SUB-PATHS ONLY — the bare path stays authenticated.
 //
 // F5: `/api/auth/invite` used to sit in PUBLIC_PATHS above, and the
@@ -1037,6 +1038,10 @@ registerFactoryConsole();
 // `throw redirect(...)` — so the whole handler runs inside try/finally. The
 // wrapper adds nothing to the hot path but a counter increment/decrement.
 export const handle: Handle = async (input) => {
+  // C01 trusted ingress: a provisioned installation answers only requests its
+  // own ingress route forwarded. Before request accounting and before auth.
+  const misdirected = await factoryIngressResponse(input.event.request);
+  if (misdirected) return misdirected;
   const done = beginRequest();
   try {
     return await handleApp(input);

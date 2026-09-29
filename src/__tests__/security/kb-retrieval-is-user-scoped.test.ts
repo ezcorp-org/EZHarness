@@ -40,7 +40,7 @@
  * execution, so `retrieval === detail === list` is a closed chain.
  */
 import { test, expect, describe, beforeAll, afterAll } from "bun:test";
-import { webLibModule } from "../helpers/mock-cleanup";
+import { webLibModule, serverModule } from "../helpers/mock-cleanup";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { setupTestDb, closeTestDb, mockDbConnection } from "../helpers/test-pglite";
@@ -68,7 +68,13 @@ mock.module("../../../web/src/lib/server/security/api-keys", () => apiKeysMock);
 // real session). `checkProjectRole` — the membership gate the share route
 // applies — is the REAL one, running against the same PGlite, so nothing about
 // who may share is faked here.
-const realAuthMiddleware = await import("../../auth/middleware");
+//
+// realAuthMiddleware is captured BEFORE the "../../auth/middleware"
+// registration below — serverModule()'s own require() resolves to that
+// exact same specifier from this file's depth (src/__tests__/security/), so
+// capturing it after that registration would self-recurse onto the partial
+// mock instead of the real module.
+const realAuthMiddleware = serverModule("auth/middleware", {});
 const authMiddlewareMock = () => ({
   ...realAuthMiddleware,
   requireAuth: (locals: any) => {
@@ -76,8 +82,6 @@ const authMiddlewareMock = () => ({
     return locals.user;
   },
 });
-mock.module("$server/auth/middleware", authMiddlewareMock);
-mock.module("../../auth/middleware", authMiddlewareMock);
 
 const { insertKBFile, updateKBFile, insertKBChunk, hasKBChunks } =
   await import("../../db/queries/knowledge-base");
@@ -120,6 +124,18 @@ async function readyFileWithChunk(
 }
 
 beforeAll(async () => {
+  // $server/auth/middleware: registered here, not at module top level —
+  // item C2 (W18 hygiene). The alias is claimed by dozens of files repo-
+  // wide, so whichever registration is active when a shared-process run
+  // resolves it wins for every OTHER file too. beforeAll (test-execution
+  // time) makes THIS file's own values active for THIS file's own tests;
+  // afterAll hands the alias back to the real module. The relative path
+  // moves with it: it's the identical "../../auth/middleware" literal
+  // specifier every other src/__tests__/security/ file resolves to, so
+  // leaving it registered at module top level would reintroduce the same
+  // cross-file leak for whichever of those files shares this process.
+  mock.module("$server/auth/middleware", authMiddlewareMock);
+  mock.module("../../auth/middleware", authMiddlewareMock);
   await setupTestDb();
   projectId = (await createProject({ name: "kb-scope", path: "/tmp/kb-scope" })).id;
   otherProjectId = (await createProject({ name: "kb-scope-b", path: "/tmp/kb-scope-b" })).id;
@@ -143,6 +159,8 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await closeTestDb();
+  mock.module("$server/auth/middleware", () => realAuthMiddleware);
+  mock.module("../../auth/middleware", () => realAuthMiddleware);
 });
 
 // ── The two probes: same question, two surfaces ──────────────────

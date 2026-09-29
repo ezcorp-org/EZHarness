@@ -785,6 +785,9 @@ describe("registry ⇄ filesystem parity", () => {
       "POST /api/factories/tenants/:tenantId/purge-requests",
       "POST /api/factories/tenants/:tenantId/restores/:restoreId/signatures",
       "POST /api/import/commit",
+      // C12 step 7 (W16): the first administrator's bootstrap consent and the post-teardown purge approval.
+      "POST /api/installation/bootstrap",
+      "POST /api/installation/purge-approval",
       "POST /api/marketplace/:id/install",
       "POST /api/mcp-servers",
       "POST /api/mcp-servers/:id/refresh",

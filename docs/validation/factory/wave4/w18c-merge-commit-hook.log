@@ -1,0 +1,30 @@
+Checked 44 files in 42ms. No fixes applied.
+── Tests (staged) ─────────────────────────────────
+  25 test files map to this commit (cap 12) — NOT running:
+    packages/@ezcorp/factory-sdk/src/validation.test.ts
+    packages/@ezcorp/sdk/test/filesystem-harness.test.ts
+    packages/@ezcorp/sdk/test/fs-host-mediated.test.ts
+    packages/@ezcorp/sdk/test/fs.test.ts
+    scripts/factory-postgres-suite-registration.test.ts
+    src/factory/runner/guest-broker-transport.integration.test.ts
+    src/runtime/factory-execution.test.ts
+    src/__tests__/auth-jwt-password.test.ts
+    src/__tests__/combined-runner-legs.test.ts
+    src/__tests__/compose-podman-masks.test.ts
+    src/__tests__/coverage-gate.test.ts
+    src/__tests__/e2e-lanes.test.ts
+    src/__tests__/factory-shell-required.test.ts
+    src/__tests__/gate-scripts.test.ts
+    src/__tests__/hooks-public-path-identity.test.ts
+    src/__tests__/test-totals.test.ts
+    src/__tests__/web-vitest-coverage-guard.test.ts
+    web/src/lib/factory/client-requests.unit.test.ts
+    web/src/lib/factory/client.unit.test.ts
+    web/src/lib/factory/download.unit.test.ts
+    web/src/lib/factory/FactoryGraph.component.test.ts
+    web/src/lib/factory/layout.unit.test.ts
+    web/src/lib/factory/model.unit.test.ts
+    web/src/routes/(app)/factories/factories-page.component.test.ts
+    web/src/__tests__/context-register-preview-bus.server.test.ts
+  EZ_SKIP_HOOK_TESTS=1 set — skipping the 25 file(s) above; continuing with lint.
+[detached HEAD dbb2c71d2] merge: wp/w18c-mainline-gates f3027d991 into integ/w00 (W18c mainline gates)

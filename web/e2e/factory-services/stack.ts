@@ -50,6 +50,10 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, "..", "..", "..");
 const WEB = join(REPO, "web");
 const BUN = process.execPath;
+// Every process this stack starts runs under this Bun (BUN above), so this Bun must be the pin.
+const PINNED_BUN = (await Bun.file(join(REPO, ".bun-version")).text()).trim();
+if (Bun.version !== PINNED_BUN) throw new Error(`lane Bun mismatch: the factory-services stack runs under bun ${Bun.version}, .bun-version pins ${PINNED_BUN}`);
+console.error(`lane Bun: the factory-services stack runs under bun ${Bun.version} (${BUN})`);
 
 function required(name: string): string {
 	const value = process.env[name];
@@ -107,6 +111,8 @@ async function stop(reason: string): Promise<void> {
 		await dropDatabases().catch(error => console.error("[factory-services] database cleanup failed:", error));
 		await removePublished().catch(error => console.error("[factory-services] release cleanup failed:", error));
 		await rm(root, { recursive: true, force: true });
+		// The state file holds the administrator's password: nothing the stack keeps beside it outlives the stack.
+		await Promise.all([FACTORY_SERVICES_STATE_PATH, STOP_FILE, FACTORY_SERVICES_FUTURE_DRAFT_REQUEST_PATH, FACTORY_SERVICES_RESTORE_REQUEST_PATH].map(path => rm(path, { force: true })));
 	})();
 	return stopping;
 }
@@ -238,7 +244,7 @@ const validatorMaterialDigest = `sha256:${createHash("sha256").update(await read
 // ── Pool admission ────────────────────────────────────────────────────
 const poolPort = freePort();
 const poolConfig = await writePrivate("pool.json", JSON.stringify({
-	schemaVersion: "factory.pool-process.v1", installationId: INSTALLATION, poolId: POOL, hostname: "127.0.0.1", port: poolPort,
+	schemaVersion: "factory.pool-process.v1", poolId: POOL, hostname: "127.0.0.1", port: poolPort,
 	database: { credentialsPath: poolCredentials, expectedDatabase: poolDatabase, expectedRole: decodeURIComponent(poolUrl.username) },
 	tls: serverTls,
 	tokens: { issuer: "factory-services", audience: "factory-pool", publicKeyPaths: { stack: tokenPublicKey } },
@@ -526,7 +532,7 @@ async function openRestoreEpoch(): Promise<void> {
 	const restoreToken = await writePrivate("restore.token", serviceToken(TENANT, [`pool:tenant:${TENANT}`, `pool:grant:${TENANT}:factory`, `pool:restore:${TENANT}`]));
 	const startup = JSON.parse(await readFile(startupPath, "utf8")) as { pool: Record<string, unknown> };
 	const restoreStartup = await writePrivate("factory-restore-startup.json", JSON.stringify({ ...startup, pool: { ...startup.pool, serviceTokenPath: restoreToken } }));
-	const command = Bun.spawn(["bun", join(REPO, "scripts/factory-restore.ts"), "begin", "--restore-id", restoreId, "--fence", fence, "--config", restoreStartup], {
+	const command = Bun.spawn([BUN, join(REPO, "scripts/factory-restore.ts"), "begin", "--restore-id", restoreId, "--fence", fence, "--config", restoreStartup], {
 		cwd: REPO, env: { ...process.env, DATABASE_URL: productUrl.toString() }, stdout: "pipe", stderr: "pipe",
 	});
 	const [out, err, exit] = await Promise.all([new Response(command.stdout).text(), new Response(command.stderr).text(), command.exited]);
@@ -540,6 +546,7 @@ async function openRestoreEpoch(): Promise<void> {
 	if (result.reportDigest !== undefined) state.restoreReportDigest = result.reportDigest;
 	if (result.blockedChecks !== undefined) state.restoreBlockedChecks = [...result.blockedChecks];
 	await writeFile(FACTORY_SERVICES_STATE_PATH, JSON.stringify(state, null, 2), { mode: 0o600 });
+	await rm(FACTORY_SERVICES_RESTORE_REQUEST_PATH, { force: true });
 	console.log(`[factory-services] restore ${restoreId}: the operator command exited ${exit} with ${result.blockedChecks?.length ?? "no"} blocked checks`);
 }
 while (!stopping && Date.now() < heldUntil && !await Bun.file(STOP_FILE).exists()) {

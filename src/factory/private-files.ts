@@ -28,7 +28,8 @@ export async function privateDirectory(path: string, options: PrivateDirectoryOp
       try { child = await open(`/proc/self/fd/${directory.fd}/${component}`, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW); }
       catch (error) {
         if (!options.createLeaf || (error as NodeJS.ErrnoException).code !== "ENOENT" || !reachedOwnedDirectory) throw error;
-        await mkdir(`/proc/self/fd/${directory.fd}/${component}`, { mode: 0o700 });
+        // A concurrent writer may create the leaf first; the checks below still apply to it.
+        await mkdir(`/proc/self/fd/${directory.fd}/${component}`, { mode: 0o700 }).catch((mkdirError: NodeJS.ErrnoException) => { if (mkdirError.code !== "EEXIST") throw mkdirError; });
         child = await open(`/proc/self/fd/${directory.fd}/${component}`, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
       }
       const status = await child.stat();

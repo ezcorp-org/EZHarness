@@ -1599,6 +1599,19 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 - A Node service may import only leaf modules from the product. `src/db/queries/*` and anything that
   reaches them (records, auth) pull in `db/connection` and the Bun SQL driver. Put shared constants and
   types in a leaf, and let `check-factory-boundaries.ts` (`NODE_SERVICE_BOUNDARIES`) guard the entry.
+
+## 2026-09-24 — An empty test list turns a targeted run into a root run (W16)
+
+- Under zsh, an unmatched glob such as `--include=*.test.ts` fails the whole command substitution, so
+  `bun test --timeout N $T` received no file and ran every test at the repo root. Build a test list in
+  bash with `mapfile`, quote the pattern, and exit before `bun test` when the list is empty.
+
+## 2026-09-25 — Never pass --no-verify, not even in a scratch worktree (W16)
+
+- A scratch merge was started with `git merge --no-verify`. It stopped on a conflict, so nothing was
+  committed, but the rule is absolute: no `--no-verify` on any git command, in any worktree. If a hook
+  is in the way, the scratch tree is the wrong tool; merge without the flag and resolve, or do the work
+  on the real branch after the ruling that allows it.
 ## 2026-09-24 — W19a graph proof
 
 - Under Bun, `ClientRequest.destroy(error)` emits `close` and never `error`. A promise that waits on
@@ -1633,6 +1646,10 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 - PostgreSQL returns BIGINT as a string and PGlite as a number. Normalize numeric columns in shared conformance suites, or the PostgreSQL leg fails a correct change.
 - In zsh an unquoted `$files` does not word-split; a loop over it runs once with the whole list. Use `${=files}` or a bash script.
 - The pre-commit hook runs real-PostgreSQL suites for staged test helpers; those belong under the heavy lock, so a scratch proof commit skips only the hook's test step and says so.
+- Cite only captures you have read. I named W01h's failed graph-proof pass as a second site of the boot stall from its symptom alone; its web process had exited 2 ms after start with "Module not found build/index.js", so no product code ran. Before calling another run the same defect, read its logs and find the same signature.
+- In zsh, `echo ===` fails ("== not found") and aborts the rest of a `;` chain; `=word` expands to a command path. Quote separators: `echo '---'`.
+- A deadline test must make the probe ignore its signal. A fake that honours the abort passes even with the deadline race removed, because the deadline also aborts the signal.
+- Bun 1.3.14's `jest.useFakeTimers()` can leave the next test file in the same run hanging with no output, even after `useRealTimers()`. Run every test file combination in both orders before trusting a fake-timer test. Prefer an injected short deadline on real timers.
 
 ## 2026-09-24 — W05b reconciliation clearing
 
@@ -1659,6 +1676,28 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 ## 2026-09-25 — A fail-closed gate that has never passed is untested (W15e)
 
 - Run each gate green by hand once before the real run of a destructive tool. The first approved W15e prune stopped at its own SHA256SUMS gate, because the sums listed `manifests/<name>` while the gate checked from inside `manifests/`, so it could never pass. It failed closed and nothing was deleted, but the approved run was lost and the script had to change after approval. Before queueing, pass each gate by hand: the checksum check, the memory gate, one dry run of the destructive tool (it must report deleted 0 and applied false), and the census code on existing data.
+
+## 2026-09-26 — No bypass and no heavy run without the lock and a ruling (W18c)
+
+- No hook bypass without a coordinator ruling, even for a scratch or proof commit. `EZ_SKIP_HOOKS=1` on
+  the measurement merge 303e2b33b was a deviation; `EZ_PRECOMMIT_TEST_MAX=0` on a merge is a hook-test
+  skip by another name. The only skip is `EZ_SKIP_HOOK_TESTS=1`, with the ruling in the commit message.
+- Any bun or vitest run of more than ten files, any coverage run, any Stryker run, and any suite that
+  starts containers runs only under the heavy lock. A 178-file bun process run outside the lock
+  coincided with the host-wide OOM of 2026-09-26 00:37Z, which killed the user's app container.
+- Before every leg: at least 6 GiB available, at least 2 GiB swap free, and at least 100 GB disk, and the
+  leg's own peak must fit (the backend pool alone peaks near 15 GiB). A 256 MB swap floor let a
+  near-exhausted host through.
+- After any host OOM, stop everything, report, and restart nothing without the coordinator's word.
+  Re-read the coordinator's latest messages before restarting any job; a smaller rerun is still a rerun.
+- A failure set another package owns is reported, not bisected or fixed: check the owner's recorded
+  OPEN set (for example docs/validation/factory/wave4/*-merge.json .OPEN) first.
+- Kill a process by its PID, never by a `pkill -f` pattern: the pattern also matches the shell that runs it.
+- Run typecheck before every commit, not only the changed suite: vitest and bun run TypeScript without
+  checking types, so a green suite can hide type errors (W18c 4e1f1541e carried 12; fixed in 376278d17).
+- A test must measure the code under test, not a package manager: a live `bun install` inside a test's
+  budget is a flake under host load. Prepare the install result from a pinned local copy and assert its
+  version against the lockfile (W18c 226a3fadb).
 
 ## 2026-09-27 — A test leg that ran zero tests must fail loudly (W01h merge)
 
@@ -1687,6 +1726,10 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 - Report a job's end to the coordinator within ten minutes, red or green, and read the process logs before naming a cause.
 - Before a shared client reads a new field, list every caller and the exact shape each one passes. W01i's host stop client read `request.cancelReference.tenantId`, but W01h's post-result stop calls the same client through `factoryIntentPhysicalStop` with only the physical coordinates. Every unit and transport suite stayed green; only the real factory-services lane found it (2026-09-27).
 - A lock-order claim needs a concurrent test, not a sequential one. W01h's "the launch row lock orders the lost result against the stop" held in `factory-stop-after-loss.test.ts`, which runs the two transactions one after the other, and deadlocked on the proof server under the lane (validator-2, 2026-09-27). Before adding a second lock to a path, list every path that locks both rows and its order, and drive the interleaving on real PostgreSQL with two connections.
+- Build the workspace packages before any suite in a hold, not in the late fast steps. After a merge, a suite that imports a package's built output reads the stale dist and fails for a reason that is not in the code (r4: client-requests.unit.test.ts, 18 tests).
+- A suite that no hold of mine runs is still mine when my routes break it. The scope and route-contract scans had failed on W16's routes since the bootstrap work, and only a merge's hook list ran them.
+- Pin `bunx` with `bun`. `/tmp/factory-tools/bun-1.3.14/bun-linux-x64/` holds only `bun`, so `bunx` fell through to the system Bun 1.4.2 and the web build, preview and tests ran under it; the preview server then crashed (ERR_STREAM_WRITE_AFTER_END) in 2 of 4 repeat runs (W09e, 2026-09-27). Put a `bunx` link to the pinned `bun` first on PATH and log `bunx --version` in every driver.
+- A test world that persists a transition must also project it. W09e's R6 case committed a cancel transition and never applied it, and PGlite's "oldest pending run" projection case failed on that run a commit later.
 
 ## 2026-09-27 — Build JSON in SQL, and let a filter on it fail open (W15f)
 
@@ -1710,3 +1753,26 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 - Also from this package: a suite that needs no database must not get `--pg` (DATABASE_URL changes
   its behaviour), and a vitest file runs under `bunx vitest run`, never `bun test`; count tests with
   the shared counter, and treat a zero count as red.
+## 2026-09-28 — A stricter config parser breaks every writer of that config (W16)
+
+- A harness document is a product input; parse it with the product parser in a test.
+- When a change makes a parser refuse a key, find every writer of that schema (`git grep` its schema string) and
+  change them in the same commit. W16 dropped the pool's installationId; the graph-proof stack and the
+  factory-services e2e stack still wrote it, and only a live runbook pass showed it. Pin it with a test that parses
+  each harness document with the parser of the process it starts.
+- A process that fails to start prints why, by its generic message. The pool exited 1 with an empty log, and the
+  cause had to be read from the harness instead.
+- In a hold, keep steps that do not need the image ahead of the image steps. The runbook pass and Kubernetes sat
+  behind the candidates step, so a disk refusal there hid both for two holds.
+- A step that starts the web server from `web/build` needs the web build in the same hold.
+- Write a queue script whole, with its label in one variable. A sed-derived copy kept the old label and would have
+  deleted the previous hold's receipts; the waiter was stopped before it took the lock.
+
+## 2026-09-28 — Check the latest ruling before committing, and prove lock waits by blocker (W09h)
+
+- Before committing a rule, re-read the brief and the handoff lines for the package: a ruling can replace a design
+  line mid-task. W09h's first R4 commit used a settlement basis the lead had withdrawn half an hour earlier, so a
+  correcting commit had to follow it.
+- In a concurrency test, identify each lock waiter by `pg_blocking_pids` in a database of its own, not by matching
+  query text: the second contender often waits on an earlier row (the run row) than the one the gate holds. Release
+  the gate in a `finally`, or a failed probe leaves the gate open and the fixture's teardown hangs.

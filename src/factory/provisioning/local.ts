@@ -1,185 +1,398 @@
-import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { constants } from "node:fs";
-import { open, readFile, type FileHandle } from "node:fs/promises";
-import { basename, join, resolve } from "node:path";
+/**
+ * The C12 provisioner: one code path for every installation, hosted or
+ * self-hosted, walking the seven steps in order.
+ *
+ * This extends the v1 provisioner rather than standing beside it: the same
+ * `factory_installations` ledger, the same per-tenant advisory lock, the same
+ * crash-recoverable database step (now `database.ts`), and the same rule that
+ * a resource is adopted only with this installation's recorded provenance.
+ * What v1 called `ready` — "its infrastructure resources exist" — is now the
+ * first of four separate phases (`steps.ts`), and the six steps v1 did not
+ * have are drivers the deployment profile supplies.
+ *
+ * Failure is recorded, never swallowed. A step that throws is written `failed`
+ * with its code and message on the ledger's own connection, so the record
+ * outlives the fault; the next `provision` resumes at that step, and every
+ * completed step before it is re-verified against its live service first. A
+ * partial installation's route stays held, so it serves no traffic.
+ */
+import { randomUUID } from "node:crypto";
 import { SQL } from "bun";
-import { privateDirectory, readPrivateBounded } from "../private-files";
+import { FactoryProvisioningLedger, type FactoryInstallationRecord, type FactoryStepRecord } from "./ledger";
+import { assertFactoryInstallationRequest, factoryInstallationNames, type FactoryInstallationContext, type FactoryInstallationRequest, type FactoryProvisioningDriver, type FactoryStepResources } from "./installation";
+import { escrowFactoryArchiveKey } from "./secrets";
+import { FACTORY_PROVISIONING_STEPS, FactoryProvisioningError, factoryPhaseServesTraffic, factoryStepFailure, type FactoryInstallationPhase, type FactoryProvisioningStepName, type FactoryStepFailure } from "./steps";
 
-export interface LocalInstallationRequest { tenantId: string; hostname: string; administratorEmail: string }
-export interface TemporalNamespaces { create(input: { tenantId: string; namespace: string; secretDirectory: string }): Promise<void> }
-export interface LocalProvisionerOptions { controlDatabaseUrl: string; productDatabaseAdminUrl: string; ordinaryConfigPath: string; archiveConfigPath: string; secretsRoot: string; temporal: TemporalNamespaces; afterExternalResourceCreated?: (resource: "role" | "database") => Promise<void> }
-export interface LocalInstallation { tenantId: string; installationId: string; productDatabase: string; productRole: string; temporalNamespace: string; secretBundlePath: string; state: "ready" | "partial" }
-interface S3Identity { name: string; credentials: Array<{ accessKey: string; secretKey: string }> }
-interface S3Config { identities: S3Identity[] }
-interface SecretBundle { installationId: string; tenantId: string; product: { database: string; role: string; credentialsPath: string }; storage: { ordinaryCredentialsPath: string; archiveCredentialsPath: string }; application: { jwtSecretPath: string; encryptionSecretPath: string }; temporal: { namespace: string; credentialsPath: string }; invitationId: string }
-interface InstallationRecord extends Record<string, string | undefined> { role_oid?: string; database_oid?: string; role_plan?: string; database_plan?: string }
-type ProvisionOutcome = { installation: LocalInstallation } | { failure: string };
+/** v1 names, kept so existing callers still compile against the extended provisioner. */
+export type LocalInstallationRequest = FactoryInstallationRequest;
 
-const quote = (identifier: string) => `"${identifier.replaceAll('"', '""')}"`;
-const localName = (prefix: string, tenantId: string) => `${prefix}_${createHash("sha256").update(tenantId).digest("hex").slice(0, 20)}`;
-const secret = () => randomBytes(32).toString("base64url");
-const resourceMarker = (kind: "role" | "database", record: InstallationRecord): string => kind === "role" ? `factory-provisioner-role:${stored(record, "installation_id")}:${stored(record, "role_plan")}:${stored(record, "database_plan")}` : `factory-provisioner-database:${stored(record, "installation_id")}:${stored(record, "database_plan")}`;
-const stored = (record: Record<string, string | undefined>, field: string): string => { const value = record[field]; if (!value) throw new Error(`Installation record has no ${field}.`); return value; };
-function assertRequest(request: LocalInstallationRequest): void { if (!/^tenant-\d{2}$/.test(request.tenantId)) throw new Error("Local provisioner requires a generated tenant-XX identity."); if (!/^[a-z0-9][a-z0-9.-]{0,252}$/.test(request.hostname)) throw new Error("Installation hostname is malformed."); if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(request.administratorEmail)) throw new Error("First administrator email is malformed."); }
-async function privateFile(directory: FileHandle, name: string, value?: string): Promise<void> {
-  if (basename(name) !== name) throw new Error("Provisioner secret leaf is invalid.");
-  const path = `/proc/self/fd/${directory.fd}/${name}`;
-  let handle: FileHandle;
-  try { handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK); }
-  catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT" || value === undefined) throw error;
-    handle = await open(path, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
-    try { await handle.writeFile(value); } finally { await handle.close(); }
-    return;
-  }
-  try {
-    const status = await handle.stat();
-    if (!status.isFile() || status.uid !== process.getuid?.() || (status.mode & 0o077) !== 0) throw new Error("Provisioner secret file must be private and owned by this user.");
-  } finally { await handle.close(); }
+export interface FactoryIngressDriver extends FactoryProvisioningDriver {
+  readonly step: "ingress";
+  serve(installation: FactoryInstallationContext): Promise<void>;
+  hold(installation: FactoryInstallationContext): Promise<void>;
 }
-async function readPrivate(directory: FileHandle, name: string): Promise<string> { return new TextDecoder("utf-8", { fatal: true }).decode(await readPrivateBounded(directory, name, 64 * 1024)); }
-async function writePrivateJson(directory: FileHandle, name: string, value: unknown): Promise<void> { await privateFile(directory, name, `${JSON.stringify(value)}\n`); }
-async function writePrivateText(directory: FileHandle, name: string): Promise<void> { await privateFile(directory, name, `${secret()}\n`); }
-async function identity(path: string, tenantId: string): Promise<{ accessKey: string; secretKey: string }> { const config = JSON.parse(await readFile(path, "utf8")) as S3Config; const credential = config.identities.find((entry) => entry.name === tenantId)?.credentials[0]; if (!credential?.accessKey || !credential.secretKey) throw new Error(`Storage identity for ${tenantId} is unavailable.`); return { accessKey: credential.accessKey, secretKey: credential.secretKey }; }
 
-/** C12 resource provisioning. A ready record only means its infrastructure resources exist; application boot status belongs to product composition. */
+export interface FactoryPurgeableDriver extends FactoryProvisioningDriver {
+  purge(installation: FactoryInstallationContext, resources: FactoryStepResources): Promise<void>;
+}
+
+/** Step 5 also re-delivers every file the other steps hand to a running service, and rotates the mesh. */
+export interface FactoryDeploymentDriver extends FactoryPurgeableDriver {
+  readonly step: "deployment";
+  redeliver(installation: FactoryInstallationContext, resources: FactoryStepResources): Promise<void>;
+  rotate(installation: FactoryInstallationContext, resources: FactoryStepResources): Promise<FactoryStepResources>;
+}
+
+export interface FactoryProvisioningDrivers {
+  readonly database: FactoryPurgeableDriver & { readonly step: "database" };
+  readonly storage: FactoryPurgeableDriver & { readonly step: "storage" };
+  readonly temporal: FactoryProvisioningDriver & { readonly step: "temporal" };
+  readonly secrets: FactoryProvisioningDriver & { readonly step: "secrets" };
+  readonly deployment: FactoryDeploymentDriver;
+  readonly ingress: FactoryIngressDriver;
+  readonly invitation: FactoryProvisioningDriver & { readonly step: "invitation" };
+}
+
+/** What a human bootstrap looks like from outside the installation: routing and membership facts only. */
+export interface FactoryBootstrapObservation { readonly complete: boolean; readonly invitationId?: string }
+export interface FactoryBootstrapObserver { observe(installation: FactoryInstallationContext): Promise<FactoryBootstrapObservation> }
+
+/** Aggregate counts of work that must close before a purge. Counts only; never a product fact. */
+export interface FactoryWorkCensus { count(installation: FactoryInstallationContext): Promise<{ readonly active: number; readonly uncertain: number }> }
+
+export interface LocalProvisionerOptions {
+  readonly fleetId: string;
+  readonly controlDatabaseUrl: string;
+  readonly secretsRoot: string;
+  readonly operatorRoot: string;
+  readonly drivers: FactoryProvisioningDrivers;
+  /** Fault injection: throw from here to fail a step before or after its effect. Tests only. */
+  readonly fault?: (step: FactoryProvisioningStepName, point: "before" | "after") => Promise<void>;
+}
+
+export interface LocalInstallation {
+  readonly tenantId: string;
+  readonly installationId: string;
+  readonly hostname: string;
+  readonly phase: FactoryInstallationPhase;
+  readonly productDatabase: string;
+  readonly productRole: string;
+  readonly temporalNamespace: string;
+  readonly secretBundlePath: string;
+  readonly steps: readonly FactoryStepRecord[];
+  /** v1 compatibility: `ready` once the resources exist, `partial` before. */
+  readonly state: "ready" | "partial";
+}
+
+export interface FactoryTeardownOutcome {
+  readonly installation: LocalInstallation;
+  /** Steps whose teardown completed everything it could but left a named residue, e.g. an unrevocable seeded store identity. */
+  readonly residues: readonly { readonly step: FactoryProvisioningStepName; readonly failure: FactoryStepFailure }[];
+}
+
+/**
+ * A purge approval the installation itself issued to an administrator's
+ * session (`purge-approval.ts`). The operator names it; the provisioner reads
+ * it from the retained product database. The operator cannot mint one.
+ */
+export interface FactoryPurgeRequest {
+  readonly approvalId: string;
+  readonly reason: string;
+}
+
+export interface FactoryVerifiedPurgeApproval {
+  /** The approving administrator's membership reference, `admin:<email>`. */
+  readonly approvedBy: string;
+}
+
+export interface FactoryPurgeApprovals { verify(installation: FactoryInstallationContext, approvalId: string): Promise<FactoryVerifiedPurgeApproval> }
+
+/** What must hold before a purge: closed work and an installation-issued approval. */
+export interface FactoryPurgeChecks {
+  readonly census: FactoryWorkCensus;
+  readonly approvals: FactoryPurgeApprovals;
+}
+
+/** Who asked for an operation: a named operator certificate, or the local operator account. Recorded on the ledger. */
+export interface FactoryOperationActor { readonly actor?: string }
+
+/** What purge cannot remove on this host, stated in the audit-loss record rather than implied. */
+export const FACTORY_PURGE_RETAINED = Object.freeze({
+  releaseArchive: "retained",
+  archiveKeyEscrow: "retained",
+  temporalNamespaceHistory: "retained_until_namespace_retention",
+  ordinaryObjects: "retained_storage_revocation_unsupported",
+});
+
+const PHASE_RANK: Readonly<Record<FactoryInstallationPhase, number>> = { recorded: 0, resources_prepared: 1, deployment_ready: 2, invitation_issued: 3, bootstrap_complete: 4, tearing_down: 5, torn_down: 6, purged: 7 };
+
 export class LocalFactoryProvisioner {
+  readonly ledger: FactoryProvisioningLedger;
   private readonly control: SQL;
-  private readonly productAdmin: SQL;
-  constructor(private readonly options: LocalProvisionerOptions) { this.control = new SQL(options.controlDatabaseUrl, { max: 4 }); this.productAdmin = new SQL(options.productDatabaseAdminUrl, { max: 2 }); }
-  async close(): Promise<void> { await this.control.close(); await this.productAdmin.close(); }
-  async setup(): Promise<void> {
-    await this.control.begin(async (control) => {
-      await control.unsafe("SELECT pg_advisory_xact_lock(hashtext('factory-provisioner-schema-v1'))");
-      await control.unsafe("CREATE TABLE IF NOT EXISTS factory_installations (tenant_id text PRIMARY KEY, installation_id text NOT NULL UNIQUE, hostname text NOT NULL UNIQUE, administrator_email text NOT NULL, product_database text NOT NULL UNIQUE, product_role text NOT NULL UNIQUE, temporal_namespace text NOT NULL UNIQUE, secret_bundle_path text NOT NULL, state text NOT NULL CHECK (state IN ('partial','ready')), current_step text NOT NULL, invitation_id text NOT NULL, role_oid oid, database_oid oid, role_plan text, database_plan text)");
-      await control.unsafe("ALTER TABLE factory_installations ADD COLUMN IF NOT EXISTS role_oid oid");
-      await control.unsafe("ALTER TABLE factory_installations ADD COLUMN IF NOT EXISTS database_oid oid");
-      await control.unsafe("ALTER TABLE factory_installations ADD COLUMN IF NOT EXISTS role_plan text");
-      await control.unsafe("ALTER TABLE factory_installations ADD COLUMN IF NOT EXISTS database_plan text");
+  constructor(private readonly options: LocalProvisionerOptions) {
+    this.control = new SQL(options.controlDatabaseUrl, { max: 8 });
+    this.ledger = new FactoryProvisioningLedger(this.control);
+  }
+
+  async close(): Promise<void> { await this.control.close(); }
+  async setup(): Promise<void> { await this.ledger.setup(); }
+
+  private driver(step: FactoryProvisioningStepName): FactoryProvisioningDriver {
+    const driver = this.options.drivers[step];
+    if (driver.step !== step) throw new FactoryProvisioningError("provisioning_driver_mismatch", `The ${step} driver reports itself as ${driver.step}.`);
+    return driver;
+  }
+
+  private context(record: FactoryInstallationRecord): FactoryInstallationContext {
+    return Object.freeze({
+      tenantId: record.tenantId, hostname: record.hostname, administratorEmail: record.administratorEmail, fleetId: record.fleetId,
+      installationId: record.installationId, invitationId: record.invitationId, productDatabase: record.productDatabase, productRole: record.productRole,
+      temporalNamespace: record.temporalNamespace, secretDirectory: record.secretDirectory, operatorDirectory: record.operatorDirectory,
     });
   }
-  async provision(request: LocalInstallationRequest): Promise<LocalInstallation> {
-    assertRequest(request); await this.setup();
-    const database = localName("factory_product", request.tenantId), role = localName("factory_role", request.tenantId), namespace = request.tenantId, directory = resolve(this.options.secretsRoot, request.tenantId);
-    // This commit is the durable intent that makes an external DDL crash recoverable.
-    await this.control`INSERT INTO factory_installations(tenant_id, installation_id, hostname, administrator_email, product_database, product_role, temporal_namespace, secret_bundle_path, state, current_step, invitation_id, role_plan, database_plan) VALUES (${request.tenantId}, ${randomUUID()}, ${request.hostname}, ${request.administratorEmail}, ${database}, ${role}, ${namespace}, ${directory}, 'partial', 'recorded', ${randomUUID()}, ${randomUUID()}, ${randomUUID()}) ON CONFLICT (tenant_id) DO NOTHING`;
-    const outcome = await this.control.begin<ProvisionOutcome>(async (control) => {
-      await control`SELECT pg_advisory_xact_lock(hashtextextended(${`factory-provisioner-v1:${request.tenantId}`}::text, 0))`;
-      try {
-      const existing = (await control`SELECT tenant_id, installation_id, hostname, administrator_email, product_database, product_role, temporal_namespace, secret_bundle_path, state, current_step, invitation_id, role_oid::text, database_oid::text, role_plan, database_plan FROM factory_installations WHERE tenant_id = ${request.tenantId}`)[0] as InstallationRecord | undefined;
-      if (existing?.hostname && (existing.hostname !== request.hostname || existing.administrator_email !== request.administratorEmail)) throw new Error("Provisioning request conflicts with its persisted tenant identity.");
-      if (existing?.state === "ready") { await this.verifyReady(existing); await this.options.temporal.create({ tenantId: stored(existing, "tenant_id"), namespace: stored(existing, "temporal_namespace"), secretDirectory: stored(existing, "secret_bundle_path") }); return { installation: this.ready(existing) }; }
-      const persisted = existing;
-      if (!persisted || persisted.hostname !== request.hostname || persisted.administrator_email !== request.administratorEmail || persisted.product_database !== database || persisted.product_role !== role || persisted.temporal_namespace !== namespace || persisted.secret_bundle_path !== directory) throw new Error("Concurrent provisioning record conflicts with its deterministic tenant resources.");
-      const stableInstallationId = stored(persisted, "installation_id"), stableInvitationId = stored(persisted, "invitation_id");
-      const secrets = await privateDirectory(directory, { createLeaf: true, repairOwnedLeaf: true });
-      try {
-        const credentials = await this.writeSecretBundle(secrets, request, { directory, database, role, namespace, installationId: stableInstallationId, invitationId: stableInvitationId });
-        await this.ensureProductRole(persisted, request.tenantId, role, credentials.password);
-        await this.ensureProductDatabase(persisted, request.tenantId, database, role, credentials.password);
-        await this.productAdmin.unsafe(`REVOKE ALL ON DATABASE ${quote(database)} FROM PUBLIC`); await this.productAdmin.unsafe(`GRANT CONNECT, TEMPORARY ON DATABASE ${quote(database)} TO ${quote(role)}`);
-        await this.verifyProductLogin(database, role, credentials.password);
-      } finally { await secrets.close(); }
-      await this.options.temporal.create({ tenantId: request.tenantId, namespace, secretDirectory: directory });
-      await control`UPDATE factory_installations SET state = 'ready', current_step = 'invitation' WHERE tenant_id = ${request.tenantId}`;
-      return { installation: { tenantId: request.tenantId, installationId: stableInstallationId, productDatabase: database, productRole: role, temporalNamespace: namespace, secretBundlePath: directory, state: "ready" } };
-      } catch (error) { return { failure: error instanceof Error ? error.message : String(error) }; }
+
+  /** The recorded installation, or the named refusal for a tenant nothing was recorded for. */
+  private async recorded(tenantId: string): Promise<FactoryInstallationRecord> {
+    const record = await this.ledger.installation(tenantId);
+    if (!record) throw new FactoryProvisioningError("provisioning_unknown_tenant", `No installation is recorded for ${tenantId}.`);
+    return record;
+  }
+
+  /** One installation's context, as every driver sees it. */
+  async installation(tenantId: string): Promise<FactoryInstallationContext> {
+    return this.context(await this.recorded(tenantId));
+  }
+
+  private async summary(tenantId: string): Promise<LocalInstallation> {
+    const record = await this.recorded(tenantId);
+    const steps = await this.ledger.steps(tenantId);
+    return Object.freeze({
+      tenantId: record.tenantId, installationId: record.installationId, hostname: record.hostname, phase: record.phase,
+      productDatabase: record.productDatabase, productRole: record.productRole, temporalNamespace: record.temporalNamespace, secretBundlePath: record.secretDirectory,
+      steps, state: PHASE_RANK[record.phase] >= PHASE_RANK.resources_prepared && PHASE_RANK[record.phase] <= PHASE_RANK.bootstrap_complete ? "ready" : "partial",
     });
-    if ("failure" in outcome) throw new Error(outcome.failure);
-    return outcome.installation;
-  }
-  /**
-   * Writes the tenant's secret bundle and hands back the product credential it generated.
-   *
-   * Every file is written before the bundle that names them, and the product credential is read
-   * BACK from disk rather than kept in memory: a bundle that cannot be re-read is not a bundle the
-   * installation can boot from.
-   */
-  private async writeSecretBundle(secrets: FileHandle, request: LocalInstallationRequest, names: { directory: string; database: string; role: string; namespace: string; installationId: string; invitationId: string }): Promise<{ password: string }> {
-    const { directory, database, role, namespace } = names;
-    const files = { bundle: "installation.json", product: "product-database.json", ordinary: "ordinary-storage.json", archive: "archive-storage.json", jwt: "application-jwt-secret", encryption: "application-encryption-secret", temporal: "temporal.json" } as const;
-    await writePrivateJson(secrets, files.product, { role, password: secret() }); await writePrivateJson(secrets, files.ordinary, await identity(this.options.ordinaryConfigPath, request.tenantId)); await writePrivateJson(secrets, files.archive, await identity(this.options.archiveConfigPath, request.tenantId)); await writePrivateText(secrets, files.jwt); await writePrivateText(secrets, files.encryption);
-    await writePrivateJson(secrets, files.bundle, { installationId: names.installationId, tenantId: request.tenantId, product: { database, role, credentialsPath: join(directory, files.product) }, storage: { ordinaryCredentialsPath: join(directory, files.ordinary), archiveCredentialsPath: join(directory, files.archive) }, application: { jwtSecretPath: join(directory, files.jwt), encryptionSecretPath: join(directory, files.encryption) }, temporal: { namespace, credentialsPath: join(directory, files.temporal) }, invitationId: names.invitationId } satisfies SecretBundle);
-    const credentials = JSON.parse(await readPrivate(secrets, files.product)) as { password: string }; if (!/^[A-Za-z0-9_-]{43}$/.test(credentials.password)) throw new Error("Product credential has an invalid format.");
-    return credentials;
   }
 
-  /**
-   * Brings the product role into existence exactly once, and records its oid.
-   *
-   * The control updates here deliberately run on `this.control`, OUTSIDE the provisioning
-   * transaction: an oid recorded only on commit would be lost by a fault between the external DDL
-   * and the commit, and the next attempt would meet a role it could not prove it created.
-   */
-  private async ensureProductRole(persisted: InstallationRecord, tenantId: string, role: string, password: string): Promise<void> {
-    const expectedRoleMarker = resourceMarker("role", persisted);
-    let roleRecord = (await this.productAdmin`SELECT oid::text, rolcanlogin, shobj_description(oid, 'pg_authid') AS marker FROM pg_roles WHERE rolname = ${role}`)[0] as { oid: string; rolcanlogin: boolean; marker: string | null } | undefined;
-    if (roleRecord && (!roleRecord.rolcanlogin || roleRecord.marker !== expectedRoleMarker || (persisted.role_oid && persisted.role_oid !== roleRecord.oid))) throw new Error("Product role exists without recorded provisioning provenance.");
-    if (!roleRecord) {
-      const statements = (await this.productAdmin`SELECT format('CREATE ROLE %I LOGIN PASSWORD %L', ${role}::text, ${password}::text) AS create_statement, format('COMMENT ON ROLE %I IS %L', ${role}::text, ${expectedRoleMarker}::text) AS marker_statement`)[0] as { create_statement: string; marker_statement: string };
-      // Roles are transactional. A fault after CREATE but before COMMENT rolls both back.
-      await this.productAdmin.begin(async (product) => { await product.unsafe(statements.create_statement); await this.options.afterExternalResourceCreated?.("role"); await product.unsafe(statements.marker_statement); });
-      roleRecord = (await this.productAdmin`SELECT oid::text, rolcanlogin, shobj_description(oid, 'pg_authid') AS marker FROM pg_roles WHERE rolname = ${role}`)[0] as { oid: string; rolcanlogin: boolean; marker: string | null } | undefined;
-      if (!roleRecord?.rolcanlogin || roleRecord.marker !== expectedRoleMarker) throw new Error("Product role creation did not persist its trusted marker.");
-    }
-    if (!roleRecord) throw new Error("Product role creation did not persist.");
-    if (persisted.role_oid !== roleRecord.oid) { await this.control`UPDATE factory_installations SET current_step = 'role', role_oid = ${roleRecord.oid}::oid WHERE tenant_id = ${tenantId}`; persisted.role_oid = roleRecord.oid; persisted.current_step = "role"; }
-  }
+  async status(tenantId: string): Promise<LocalInstallation> { return this.summary(tenantId); }
 
   /**
-   * Brings the product database into existence exactly once, and records its oid.
+   * Provision, or resume provisioning, one installation.
    *
-   * `CREATE DATABASE` cannot share a transaction with its `COMMENT`, so the interrupted case is
-   * recognised rather than guessed: the recorded phase, a marked role, and an actual credential
-   * login together identify a creation this provisioner started and nothing else.
+   * `through` stops after the named step: the ledger then shows exactly the
+   * phase the completed steps establish, which is how a partial tenant is
+   * produced on purpose and proven to serve nothing.
    */
-  private async ensureProductDatabase(persisted: InstallationRecord, tenantId: string, database: string, role: string, password: string): Promise<void> {
-    const expectedDatabaseMarker = resourceMarker("database", persisted);
-    let databaseRecord = (await this.productAdmin`SELECT oid::text, pg_get_userbyid(datdba) AS owner, shobj_description(oid, 'pg_database') AS marker FROM pg_database WHERE datname = ${database}`)[0] as { oid: string; owner: string; marker: string | null } | undefined;
-    const mayReconcileUnmarkedDatabase = databaseRecord?.owner === role && databaseRecord.marker === null && !persisted.database_oid && persisted.current_step === "database-creating";
-    if (databaseRecord && !mayReconcileUnmarkedDatabase && (databaseRecord.owner !== role || databaseRecord.marker !== expectedDatabaseMarker || (persisted.database_oid && persisted.database_oid !== databaseRecord.oid))) throw new Error("Product database exists without recorded provisioning provenance.");
-    if (mayReconcileUnmarkedDatabase) {
-      await this.verifyProductLogin(database, role, password);
-      const markerStatement = (await this.productAdmin`SELECT format('COMMENT ON DATABASE %I IS %L', ${database}::text, ${expectedDatabaseMarker}::text) AS statement`)[0] as { statement: string };
-      await this.productAdmin.unsafe(markerStatement.statement);
-      databaseRecord = (await this.productAdmin`SELECT oid::text, pg_get_userbyid(datdba) AS owner, shobj_description(oid, 'pg_database') AS marker FROM pg_database WHERE datname = ${database}`)[0] as { oid: string; owner: string; marker: string | null } | undefined;
-    }
-    if (!databaseRecord) {
-      // Commit the precise pre-DDL phase before CREATE DATABASE; unlike roles, databases cannot use a transaction for CREATE plus COMMENT.
-      await this.control`UPDATE factory_installations SET current_step = 'database-creating' WHERE tenant_id = ${tenantId} AND state = 'partial' AND database_oid IS NULL`;
-      persisted.current_step = "database-creating";
-      const statements = (await this.productAdmin`SELECT format('CREATE DATABASE %I OWNER %I', ${database}::text, ${role}::text) AS create_statement, format('COMMENT ON DATABASE %I IS %L', ${database}::text, ${expectedDatabaseMarker}::text) AS marker_statement`)[0] as { create_statement: string; marker_statement: string };
-      await this.productAdmin.unsafe(statements.create_statement); await this.options.afterExternalResourceCreated?.("database"); await this.productAdmin.unsafe(statements.marker_statement);
-      databaseRecord = (await this.productAdmin`SELECT oid::text, pg_get_userbyid(datdba) AS owner, shobj_description(oid, 'pg_database') AS marker FROM pg_database WHERE datname = ${database}`)[0] as { oid: string; owner: string; marker: string | null } | undefined;
-      if (!databaseRecord || databaseRecord.owner !== role || databaseRecord.marker !== expectedDatabaseMarker) throw new Error("Product database creation did not persist its trusted marker.");
-    }
-    if (!databaseRecord || databaseRecord.marker !== expectedDatabaseMarker) throw new Error("Product database creation did not persist its trusted marker.");
-    if (persisted.database_oid !== databaseRecord.oid) { await this.control`UPDATE factory_installations SET current_step = 'database', database_oid = ${databaseRecord.oid}::oid WHERE tenant_id = ${tenantId}`; persisted.database_oid = databaseRecord.oid; persisted.current_step = "database"; }
+  async provision(request: FactoryInstallationRequest, options: { readonly through?: FactoryProvisioningStepName; readonly planLimits?: Readonly<Record<string, number>> } & FactoryOperationActor = {}): Promise<LocalInstallation> {
+    assertFactoryInstallationRequest(request);
+    await this.setup();
+    const names = factoryInstallationNames(this.options.fleetId, request.tenantId, { secretsRoot: this.options.secretsRoot, operatorRoot: this.options.operatorRoot });
+    // The durable intent, committed before any external effect so a crash in step 1 is recoverable.
+    await this.ledger.record({
+      tenantId: request.tenantId, fleetId: this.options.fleetId, installationId: randomUUID(), hostname: request.hostname, administratorEmail: request.administratorEmail.toLowerCase(),
+      invitationId: randomUUID(), ...names, rolePlan: randomUUID(), databasePlan: randomUUID(), ...(options.planLimits ? { planLimits: options.planLimits } : {}),
+    });
+    return this.ledger.locked(request.tenantId, async () => {
+      const record = await this.ledger.installation(request.tenantId);
+      if (!record || record.hostname !== request.hostname || record.administratorEmail !== request.administratorEmail.toLowerCase() || record.fleetId !== this.options.fleetId
+        || record.productDatabase !== names.productDatabase || record.productRole !== names.productRole || record.temporalNamespace !== names.temporalNamespace
+        || record.secretDirectory !== names.secretDirectory || record.operatorDirectory !== names.operatorDirectory) {
+        throw new FactoryProvisioningError("provisioning_request_conflict", "Provisioning request conflicts with its persisted tenant identity.");
+      }
+      if (PHASE_RANK[record.phase] >= PHASE_RANK.tearing_down) throw new FactoryProvisioningError("provisioning_torn_down", `Installation ${request.tenantId} is ${record.phase} and cannot be provisioned.`);
+      const installation = this.context(record);
+      await this.attribute(request.tenantId, "provision", options, options.through ? { through: options.through } : {});
+      const through = options.through === undefined ? undefined : FACTORY_PROVISIONING_STEPS.find((spec) => spec.step === options.through)!.ordinal;
+      const steps = new Map((await this.ledger.steps(request.tenantId)).map((step) => [step.step, step]));
+      for (const spec of FACTORY_PROVISIONING_STEPS) {
+        if (through !== undefined && spec.ordinal > through) break;
+        const recorded = steps.get(spec.step)!;
+        if (recorded.state === "complete") await this.verifyStep(installation, spec.step, recorded.resources);
+        else {
+          // The ledger's own order guard: a step that never ran while a later one is complete is refused, never
+          // skipped past. A step that failed its re-verification resumes here; the later steps re-verify after it.
+          if (recorded.state === "pending" && FACTORY_PROVISIONING_STEPS.some((later) => later.ordinal > spec.ordinal && steps.get(later.step)!.state === "complete")) {
+            throw new FactoryProvisioningError("provisioning_ledger_out_of_order", `Step ${spec.step} of ${installation.tenantId} never ran, but a later step is complete.`, spec.step);
+          }
+          await this.runStep(installation, spec.step, recorded.resources);
+          steps.set(spec.step, { ...recorded, state: "complete" });
+        }
+        if (spec.completes) await this.advance(installation.tenantId, spec.completes);
+      }
+      if ((through === undefined || through === FACTORY_PROVISIONING_STEPS.length)) {
+        // The route opens only once every step, the invitation included, is complete.
+        await this.options.drivers.ingress.serve(installation);
+        await this.advance(installation.tenantId, "invitation_issued");
+      }
+      return this.summary(request.tenantId);
+    });
   }
 
-  private async verifyProductLogin(database: string, role: string, password: string): Promise<void> {
-    const productUrl = new URL(this.options.productDatabaseAdminUrl); productUrl.pathname = `/${database}`; productUrl.username = role; productUrl.password = password;
-    const product = new SQL(productUrl.toString(), { max: 1 }); try { const row = (await product`SELECT current_database() AS name`)[0] as { name: string } | undefined; if (row?.name !== database) throw new Error("Product credential connected to the wrong database."); } finally { await product.close(); }
+  /** Attribute an operation to whoever asked for it. */
+  private async attribute(tenantId: string, operation: string, who: FactoryOperationActor | undefined, detail: Readonly<Record<string, string>> = {}): Promise<void> {
+    await this.ledger.event({ tenantId, step: null, event: `operation.${operation}`, detail: { actor: (who?.actor ?? "unattributed").slice(0, 128), ...detail } });
   }
-  private ready(existing: InstallationRecord): LocalInstallation { return { tenantId: stored(existing, "tenant_id"), installationId: stored(existing, "installation_id"), productDatabase: stored(existing, "product_database"), productRole: stored(existing, "product_role"), temporalNamespace: stored(existing, "temporal_namespace"), secretBundlePath: stored(existing, "secret_bundle_path"), state: "ready" }; }
-  private async verifyReady(existing: InstallationRecord): Promise<void> {
-    const directory = stored(existing, "secret_bundle_path"), role = stored(existing, "product_role"), database = stored(existing, "product_database");
-    const secrets = await privateDirectory(directory);
+
+  private async advance(tenantId: string, phase: FactoryInstallationPhase): Promise<void> {
+    const current = (await this.ledger.installation(tenantId))!.phase;
+    if (PHASE_RANK[current] < PHASE_RANK[phase]) await this.ledger.setPhase(tenantId, phase);
+  }
+
+  private async runStep(installation: FactoryInstallationContext, step: FactoryProvisioningStepName, recorded: FactoryStepResources): Promise<void> {
+    await this.ledger.stepStarted(installation.tenantId, step);
     try {
-      for (const file of ["installation.json", "product-database.json", "ordinary-storage.json", "archive-storage.json", "application-jwt-secret", "application-encryption-secret", "temporal.json", "temporal-token"]) await privateFile(secrets, file);
-      const manifest = JSON.parse(await readPrivate(secrets, "installation.json")) as SecretBundle;
-      if (manifest.installationId !== stored(existing, "installation_id") || manifest.tenantId !== stored(existing, "tenant_id") || manifest.invitationId !== stored(existing, "invitation_id") || manifest.product.database !== database || manifest.product.role !== role || manifest.temporal.namespace !== stored(existing, "temporal_namespace")) throw new Error("Ready installation bundle does not match its persisted identity.");
-      const credentials = JSON.parse(await readPrivate(secrets, "product-database.json")) as { role: string; password: string };
-      if (credentials.role !== role || !/^[A-Za-z0-9_-]{43}$/.test(credentials.password)) throw new Error("Ready installation product credentials are invalid.");
-      const ordinary = JSON.parse(await readPrivate(secrets, "ordinary-storage.json")) as { accessKey?: string; secretKey?: string };
-      const archive = JSON.parse(await readPrivate(secrets, "archive-storage.json")) as { accessKey?: string; secretKey?: string };
-      const expectedOrdinary = await identity(this.options.ordinaryConfigPath, stored(existing, "tenant_id")); const expectedArchive = await identity(this.options.archiveConfigPath, stored(existing, "tenant_id"));
-      if (ordinary.accessKey !== expectedOrdinary.accessKey || ordinary.secretKey !== expectedOrdinary.secretKey || archive.accessKey !== expectedArchive.accessKey || archive.secretKey !== expectedArchive.secretKey) throw new Error("Ready installation storage credentials are invalid.");
-      await this.verifyProductLogin(database, role, credentials.password);
-    } finally { await secrets.close(); }
-    const roleRecord = (await this.productAdmin`SELECT oid::text, rolcanlogin, shobj_description(oid, 'pg_authid') AS marker FROM pg_roles WHERE rolname = ${role}`)[0] as { oid: string; rolcanlogin: boolean; marker: string | null } | undefined;
-    const databaseRecord = (await this.productAdmin`SELECT oid::text, pg_get_userbyid(datdba) AS owner, shobj_description(oid, 'pg_database') AS marker FROM pg_database WHERE datname = ${database}`)[0] as { oid: string; owner: string; marker: string | null } | undefined;
-    if (!roleRecord?.rolcanlogin || roleRecord.oid !== existing.role_oid || roleRecord.marker !== resourceMarker("role", existing) || !databaseRecord || databaseRecord.oid !== existing.database_oid || databaseRecord.owner !== role || databaseRecord.marker !== resourceMarker("database", existing)) throw new Error("Ready installation lost verified product resources.");
-    await this.productAdmin.unsafe(`REVOKE ALL ON DATABASE ${quote(database)} FROM PUBLIC`); await this.productAdmin.unsafe(`GRANT CONNECT, TEMPORARY ON DATABASE ${quote(database)} TO ${quote(role)}`);
+      await this.options.fault?.(step, "before");
+      const resources = await this.driver(step).ensure(installation, Object.keys(recorded).length > 0 ? recorded : undefined);
+      await this.options.fault?.(step, "after");
+      await this.ledger.stepCompleted(installation.tenantId, step, resources);
+    } catch (error) {
+      await this.ledger.stepFailed(installation.tenantId, step, factoryStepFailure(error));
+      throw error;
+    }
+  }
+
+  private async verifyStep(installation: FactoryInstallationContext, step: FactoryProvisioningStepName, resources: FactoryStepResources): Promise<void> {
+    try { await this.driver(step).verify(installation, resources); }
+    catch (error) {
+      await this.ledger.stepFailed(installation.tenantId, step, factoryStepFailure(error));
+      throw error;
+    }
+  }
+
+  /**
+   * Record a human bootstrap observed from outside the installation.
+   *
+   * The observer reports routing and membership facts only: whether the
+   * installation's first administrator completed bootstrap, and under which
+   * invitation. The invited email becomes a membership REFERENCE in the
+   * directory.
+   */
+  async observeBootstrap(tenantId: string, observer: FactoryBootstrapObserver, who?: FactoryOperationActor): Promise<LocalInstallation> {
+    return this.ledger.locked(tenantId, async () => {
+      const record = await this.recorded(tenantId);
+      if (record.phase === "bootstrap_complete") return this.summary(tenantId);
+      if (record.phase !== "invitation_issued") throw new FactoryProvisioningError("provisioning_phase_forbidden", `Bootstrap cannot be observed while ${tenantId} is ${record.phase}.`);
+      await this.attribute(tenantId, "observe", who);
+      const observation = await observer.observe(this.context(record));
+      if (!observation.complete) return this.summary(tenantId);
+      // Setup admits only the invited email with this invitation's token, so
+      // the invitation identity is what ties the consent to the invited human.
+      if (observation.invitationId !== record.invitationId) throw new FactoryProvisioningError("bootstrap_admin_mismatch", "The bootstrap was completed under a different invitation.");
+      await this.ledger.addMembershipReference(tenantId, `admin:${record.administratorEmail}`);
+      await this.ledger.setPhase(tenantId, "bootstrap_complete", { administrator: record.administratorEmail });
+      return this.summary(tenantId);
+    });
+  }
+
+  /**
+   * Replace one step's credential, re-deliver it, and restart onto it.
+   *
+   * The superseded credential must stop working before this returns; each
+   * driver's `rotate` proves that for its own credential. Only a COMPLETE step
+   * rotates, so an invitation is never issued ahead of its deployment and
+   * route. `deployment` rotates the mesh certificates and service tokens and
+   * re-delivers everything; any other step's new credential is re-delivered
+   * through step 5 once step 5 exists. The invitation delivers its own file.
+   * A failure is recorded on the ledger and leaves the step `complete` with
+   * its previous resources: every driver's rotation either finishes or leaves
+   * the old credential in force.
+   */
+  async rotate(tenantId: string, step: Exclude<FactoryProvisioningStepName, "ingress">, who?: FactoryOperationActor): Promise<LocalInstallation> {
+    return this.ledger.locked(tenantId, async () => {
+      const record = await this.ledger.installation(tenantId);
+      if (!record || PHASE_RANK[record.phase] < PHASE_RANK.resources_prepared || PHASE_RANK[record.phase] >= PHASE_RANK.tearing_down) throw new FactoryProvisioningError("provisioning_phase_forbidden", `Credentials of ${tenantId} cannot be rotated in its current phase.`);
+      const installation = this.context(record);
+      const steps = new Map((await this.ledger.steps(tenantId)).map((entry) => [entry.step, entry]));
+      const driver = this.driver(step);
+      if (!driver.rotate) throw new FactoryProvisioningError("provisioning_rotation_unsupported", `Step ${step} has no credential to rotate.`);
+      if (steps.get(step)!.state !== "complete") throw new FactoryProvisioningError("provisioning_phase_forbidden", `Step ${step} of ${tenantId} is not complete and cannot be rotated.`);
+      await this.attribute(tenantId, "rotate", who, { step });
+      const deployment = steps.get("deployment")!;
+      try {
+        const rotated = await driver.rotate(installation, steps.get(step)!.resources);
+        await this.ledger.stepCompleted(tenantId, step, rotated);
+        if (step !== "deployment" && step !== "invitation" && deployment.state === "complete") await this.options.drivers.deployment.redeliver(installation, deployment.resources);
+      } catch (error) {
+        await this.ledger.event({ tenantId, step, event: "step.rotation_failed", detail: { code: factoryStepFailure(error).code } });
+        throw error;
+      }
+      await this.ledger.event({ tenantId, step, event: "step.rotated", detail: {} });
+      return this.summary(tenantId);
+    });
+  }
+
+  /**
+   * Tombstone the tenant: stop its traffic, stop its processes, withdraw every
+   * credential, keep its release archive.
+   *
+   * Runs in reverse step order, and only over steps that created something.
+   * The route is HELD first, so nothing reaches the installation while it is
+   * dismantled. A step whose teardown finished but left a residue it has no
+   * authority to remove (a seeded store identity) is recorded by name and the
+   * teardown continues; any other failure stops the teardown with the tenant
+   * still `tearing_down`, and a rerun resumes it.
+   */
+  async teardown(tenantId: string, input: { readonly reason: string } & FactoryOperationActor): Promise<FactoryTeardownOutcome> {
+    return this.ledger.locked(tenantId, async () => {
+      const record = await this.recorded(tenantId);
+      if (record.phase === "torn_down" || record.phase === "purged") return { installation: await this.summary(tenantId), residues: [] };
+      await this.attribute(tenantId, "teardown", input);
+      await this.ledger.setPhase(tenantId, "tearing_down", { reason: input.reason.slice(0, 256) });
+      const installation = this.context(record);
+      const steps = new Map((await this.ledger.steps(tenantId)).map((entry) => [entry.step, entry]));
+      if (steps.get("ingress")!.state !== "pending") await this.options.drivers.ingress.hold(installation);
+      const residues: { step: FactoryProvisioningStepName; failure: FactoryStepFailure }[] = [];
+      for (const spec of [...FACTORY_PROVISIONING_STEPS].reverse()) {
+        const recorded = steps.get(spec.step)!;
+        if (recorded.state === "pending" || recorded.state === "torn_down") continue;
+        try { await this.driver(spec.step).teardown(installation, recorded.resources); }
+        catch (error) {
+          if (error instanceof FactoryProvisioningError && error.code.endsWith("_unsupported")) residues.push({ step: spec.step, failure: factoryStepFailure(error) });
+          else { await this.ledger.event({ tenantId, step: spec.step, event: "teardown.failed", detail: { code: factoryStepFailure(error).code } }); throw error; }
+        }
+        await this.ledger.stepTornDown(tenantId, spec.step, residues.find((residue) => residue.step === spec.step) ? { residue: residues.find((residue) => residue.step === spec.step)!.failure.code } : {});
+      }
+      await this.ledger.setPhase(tenantId, "torn_down");
+      return { installation: await this.summary(tenantId), residues };
+    });
+  }
+
+  /**
+   * Delete what teardown kept, once an administrator approved it and no work
+   * is open.
+   *
+   * The approval is one the installation issued to an administrator's session
+   * before teardown; the operator only names it. Purge drops the databases,
+   * the runtime volumes, and the installation's delivered secrets. It NEVER
+   * touches the release archive, and because an archived record may be
+   * encrypted under the installation's data key, the master key and the
+   * escrowed wrap stay in the operator's directory. It refuses while any work
+   * is active or uncertain, because deleting the only record of an uncertain
+   * effect would turn "we do not know" into "it never happened". The census
+   * counts and everything purge cannot remove are the C06 audit-loss record.
+   */
+  async purge(tenantId: string, request: FactoryPurgeRequest & FactoryOperationActor, checks: FactoryPurgeChecks): Promise<LocalInstallation> {
+    return this.ledger.locked(tenantId, async () => {
+      const record = await this.ledger.installation(tenantId);
+      if (record?.phase !== "torn_down") throw new FactoryProvisioningError("provisioning_phase_forbidden", `Only a torn-down installation can be purged; ${tenantId} is ${record?.phase ?? "unknown"}.`);
+      const installation = this.context(record);
+      await this.attribute(tenantId, "purge", request, { approvalId: request.approvalId.slice(0, 64) });
+      const approval = await checks.approvals.verify(installation, request.approvalId);
+      const open = await checks.census.count(installation);
+      if (open.active > 0 || open.uncertain > 0) throw new FactoryProvisioningError("purge_work_open", `Purge refused: ${open.active} active and ${open.uncertain} uncertain records are still open.`);
+      const steps = new Map((await this.ledger.steps(tenantId)).map((entry) => [entry.step, entry]));
+      await this.options.drivers.deployment.purge(installation, steps.get("deployment")!.resources);
+      await this.options.drivers.database.purge(installation, steps.get("database")!.resources);
+      await this.options.drivers.storage.purge(installation, steps.get("storage")!.resources);
+      await escrowFactoryArchiveKey(installation);
+      await this.ledger.event({ tenantId, step: null, event: "purge.audit_loss", detail: { approvedBy: approval.approvedBy, approvalId: request.approvalId, reason: request.reason.slice(0, 256), activeAtPurge: String(open.active), uncertainAtPurge: String(open.uncertain), ...FACTORY_PURGE_RETAINED } });
+      await this.ledger.setPhase(tenantId, "purged", { approvedBy: approval.approvedBy });
+      return this.summary(tenantId);
+    });
+  }
+
+  /** Whether the ledger lets this installation receive traffic. The ingress route is the enforcement; this is the statement. */
+  async servesTraffic(tenantId: string): Promise<boolean> {
+    const record = await this.ledger.installation(tenantId);
+    return record !== undefined && factoryPhaseServesTraffic(record.phase);
   }
 }
