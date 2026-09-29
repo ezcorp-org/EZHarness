@@ -28,9 +28,20 @@ export type FactoryUsageSettlementSource = "stop" | "reconciliation" | "no-opera
  * The basis a no-operations settlement records, so an operator can see it and
  * a later refund policy can act on it: no provider was charged, and compute is
  * settled at the bound the tenant accepted at admission, because nothing
- * measured it. Derived from the source, never supplied by a caller.
+ * measured it. A no-operations settlement that names no basis records this one.
  */
 export const FACTORY_USAGE_NO_OPERATIONS_BASIS = "no-operations: compute at reserved bound" as const;
+
+/**
+ * The basis of a no-operations settlement for an attempt that was never launched (W09h): it was stopped
+ * before compute admission, so no process ran and no provider was called. Cost, tokens and compute are all
+ * zero as facts; there is no unmeasured dimension to bound.
+ */
+export const FACTORY_USAGE_NOTHING_LAUNCHED_BASIS = "no-operations: nothing launched, all zero" as const;
+
+export type FactoryUsageNoOperationsBasis = typeof FACTORY_USAGE_NO_OPERATIONS_BASIS | typeof FACTORY_USAGE_NOTHING_LAUNCHED_BASIS;
+
+const NO_OPERATIONS_BASES = new Set<FactoryUsageNoOperationsBasis>([FACTORY_USAGE_NO_OPERATIONS_BASIS, FACTORY_USAGE_NOTHING_LAUNCHED_BASIS]);
 
 const SETTLEMENT_SOURCES = new Set<FactoryUsageSettlementSource>(["stop", "reconciliation", "no-operations"]);
 const STOP_RECEIPT_DIGEST = /^sha256:[0-9a-f]{64}$/;
@@ -79,23 +90,31 @@ export interface FactoryUsageSettlement {
   /** Present exactly when source is "no-operations": the signed physical stop that proves the zero. */
   readonly stopReceiptDigest?: string;
   /** Present exactly when source is "no-operations": how the settled amounts were decided. */
-  readonly basis?: typeof FACTORY_USAGE_NO_OPERATIONS_BASIS;
+  readonly basis?: FactoryUsageNoOperationsBasis;
   readonly settledAtMs: number;
   /** `sha256:` over the canonical settlement, excluding this field. */
   readonly settlementDigest: string;
   readonly event: FactoryUsageSettledEvent;
 }
 
+/**
+ * The attempt facts a settlement and its kernel event name. A dispatched attempt passes its whole sealed
+ * authority; an attempt stopped before compute admission (W09h) has no execution row and passes only these.
+ */
+export type FactoryUsageSettlementAttempt = Pick<FactoryAttemptAuthority, "attemptId" | "nodeInstanceId" | "candidateGeneration" | "attemptNumber">;
+
 export interface FactoryUsageSettlementInput {
   readonly reservationId: string;
   readonly attemptId: string;
-  readonly authority: FactoryAttemptAuthority;
+  readonly authority: FactoryUsageSettlementAttempt;
   readonly revision: number;
   readonly source: FactoryUsageSettlementSource;
   readonly knownCostMicros: string;
   readonly unknownCostMicros?: string;
   readonly providerReceiptDigest?: string;
   readonly stopReceiptDigest?: string;
+  /** Only with source "no-operations"; the reserved-bound basis when omitted. */
+  readonly basis?: FactoryUsageNoOperationsBasis;
   readonly settledAtMs: number;
 }
 
@@ -172,6 +191,7 @@ export function buildFactoryUsageSettlement(input: FactoryUsageSettlementInput):
   if ((input.source === "no-operations") !== (input.stopReceiptDigest !== undefined)) throw new FactoryUsageSettlementError("factory_usage_settlement_receipt_invalid");
   if (input.stopReceiptDigest !== undefined && (typeof input.stopReceiptDigest !== "string" || !STOP_RECEIPT_DIGEST.test(input.stopReceiptDigest))) throw new FactoryUsageSettlementError("factory_usage_settlement_receipt_invalid");
   if (input.source === "no-operations" && (input.knownCostMicros !== "0" || input.unknownCostMicros !== undefined || input.providerReceiptDigest !== undefined)) throw new FactoryUsageSettlementError("factory_usage_settlement_invalid");
+  if (input.basis !== undefined && (input.source !== "no-operations" || !NO_OPERATIONS_BASES.has(input.basis))) throw new FactoryUsageSettlementError("factory_usage_settlement_invalid");
   if (input.attemptId !== input.authority.attemptId) throw new FactoryUsageSettlementError("factory_usage_settlement_invalid");
   const event: FactoryUsageSettledEvent = Object.freeze({
     kind: "usage-settled" as const,
@@ -195,7 +215,7 @@ export function buildFactoryUsageSettlement(input: FactoryUsageSettlementInput):
     ...(input.unknownCostMicros === undefined ? {} : { unknownCostMicros: input.unknownCostMicros }),
     ...(input.providerReceiptDigest === undefined ? {} : { providerReceiptDigest: input.providerReceiptDigest }),
     ...(input.stopReceiptDigest === undefined ? {} : { stopReceiptDigest: input.stopReceiptDigest }),
-    ...(input.source === "no-operations" ? { basis: FACTORY_USAGE_NO_OPERATIONS_BASIS } : {}),
+    ...(input.source === "no-operations" ? { basis: input.basis ?? FACTORY_USAGE_NO_OPERATIONS_BASIS } : {}),
     settledAtMs: input.settledAtMs,
     event,
   } as const;
@@ -259,6 +279,8 @@ export interface FactoryUsageSettlementAmounts {
   readonly unknownCostMicros?: string;
   readonly providerReceiptDigest?: string;
   readonly stopReceiptDigest?: string;
+  /** Only with source "no-operations"; the reserved-bound basis when omitted. */
+  readonly basis?: FactoryUsageNoOperationsBasis;
 }
 
 /** Reservation states that can hold a settled cost. `held` never started. */
@@ -299,7 +321,7 @@ export class FactoryUsageSettlements {
    * receipt returns the stored settlement; an unchanged amount returns the
    * current revision; neither emits a second event.
    */
-  async recordInTransaction(transaction: MigrationDb, value: FactoryUsageSettlementScope, valueAmounts: FactoryUsageSettlementAmounts): Promise<FactoryUsageSettlement> {
+  async recordInTransaction(transaction: MigrationDb, value: Omit<FactoryUsageSettlementScope, "authority"> & { readonly authority: FactoryUsageSettlementAttempt }, valueAmounts: FactoryUsageSettlementAmounts): Promise<FactoryUsageSettlement> {
     const scope = Object.freeze({ projectId: value.projectId, runId: value.runId, interpreterId: value.interpreterId, reservationId: value.reservationId, authority: value.authority });
     const amounts = Object.freeze({ ...valueAmounts });
     assertFactoryIdentity(scope.projectId, scope.runId, scope.interpreterId, scope.reservationId);
@@ -325,6 +347,7 @@ export class FactoryUsageSettlements {
       ...(amounts.unknownCostMicros === undefined ? {} : { unknownCostMicros: amounts.unknownCostMicros }),
       ...(amounts.providerReceiptDigest === undefined ? {} : { providerReceiptDigest: amounts.providerReceiptDigest }),
       ...(amounts.stopReceiptDigest === undefined ? {} : { stopReceiptDigest: amounts.stopReceiptDigest }),
+      ...(amounts.basis === undefined ? {} : { basis: amounts.basis }),
       settledAtMs: this.clock(previous?.settledAtMs ?? 0),
     });
     await transaction.execute(sql`INSERT INTO factory_usage_settlements (tenant_id,project_id,run_id,reservation_id,revision,attempt_id,source,known_cost_micros,unknown_cost_micros,provider_receipt_digest,stop_receipt_digest,basis,settled_at_ms,settlement_digest,event_json,event_digest) VALUES (${this.tenantId},${scope.projectId},${scope.runId},${scope.reservationId},${settlement.revision},${settlement.attemptId},${settlement.source},${settlement.knownCostMicros},${settlement.unknownCostMicros ?? null},${settlement.providerReceiptDigest ?? null},${settlement.stopReceiptDigest ?? null},${settlement.basis ?? null},${settlement.settledAtMs},${settlement.settlementDigest},${encodeFactoryPayload(settlement.event)},${`sha256:${digestObject(settlement.event)}`})`);
@@ -356,7 +379,7 @@ export class FactoryUsageSettlements {
       ...(row.unknown_cost_micros === null ? {} : { unknownCostMicros: row.unknown_cost_micros }),
       ...(row.provider_receipt_digest === null ? {} : { providerReceiptDigest: row.provider_receipt_digest }),
       ...(row.stop_receipt_digest === null ? {} : { stopReceiptDigest: row.stop_receipt_digest }),
-      ...(row.basis === null ? {} : { basis: row.basis as typeof FACTORY_USAGE_NO_OPERATIONS_BASIS }),
+      ...(row.basis === null ? {} : { basis: row.basis as FactoryUsageNoOperationsBasis }),
       settledAtMs: Number(row.settled_at_ms),
       event,
     } as const;

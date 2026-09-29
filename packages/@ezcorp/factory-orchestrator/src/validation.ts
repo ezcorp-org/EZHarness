@@ -153,6 +153,10 @@ export function validateInboxEvent(value: JsonValue): asserts value is JsonValue
   if (value.kind === "attempt-stopped" && value.effect !== undefined && (typeof value.effect !== "string" || !Object.hasOwn(FACTORY_ATTEMPT_STOP_EFFECTS, value.effect))) {
     throw new Error("attempt-stopped effect must be uncertain or published");
   }
+  // W09h: a stop before compute admission is named by one value, never an arbitrary field.
+  if (value.kind === "attempt-stopped" && value.stoppedBefore !== undefined && value.stoppedBefore !== "admission") {
+    throw new Error("attempt-stopped stoppedBefore must be admission");
+  }
   if (value.kind === "repair" || value.kind === "replan") {
     requiredIdentity(typeof value.nodeId === "string" ? value.nodeId : "", "run control node ID");
     if (value.reason !== undefined) requiredIdentity(typeof value.reason === "string" ? value.reason : "", "run control reason");

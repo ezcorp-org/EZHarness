@@ -1756,3 +1756,12 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 - A step that starts the web server from `web/build` needs the web build in the same hold.
 - Write a queue script whole, with its label in one variable. A sed-derived copy kept the old label and would have
   deleted the previous hold's receipts; the waiter was stopped before it took the lock.
+
+## 2026-09-28 — Check the latest ruling before committing, and prove lock waits by blocker (W09h)
+
+- Before committing a rule, re-read the brief and the handoff lines for the package: a ruling can replace a design
+  line mid-task. W09h's first R4 commit used a settlement basis the lead had withdrawn half an hour earlier, so a
+  correcting commit had to follow it.
+- In a concurrency test, identify each lock waiter by `pg_blocking_pids` in a database of its own, not by matching
+  query text: the second contender often waits on an earlier row (the run row) than the one the gate holds. Release
+  the gate in a `finally`, or a failed probe leaves the gate open and the fixture's teardown hangs.
