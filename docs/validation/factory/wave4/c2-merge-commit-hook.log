@@ -1,0 +1,59 @@
+Checked 66 files in 41ms. No fixes applied.
+── Tests (staged) ─────────────────────────────────
+  54 test files map to this commit (cap 12) — NOT running:
+    docs/extensions/examples/docs-updater/index.test.ts
+    docs/extensions/examples/repo-activity-notify/index.test.ts
+    packages/@ezcorp/sdk/src/git/index.test.ts
+    src/extensions/first-party-integration/docs-updater/git.test.ts
+    src/__tests__/attachments-admin-audit.test.ts
+    src/__tests__/attachments-cross-user-security.test.ts
+    src/__tests__/attachments-gc.test.ts
+    src/__tests__/attachments-serve-route.test.ts
+    src/__tests__/extension-event-end-to-end.test.ts
+    src/__tests__/ext-files-route.test.ts
+    src/__tests__/gate-scripts.test.ts
+    src/__tests__/git-spawn-context-guard.test.ts
+    src/__tests__/git-worktree-clean.test.ts
+    src/__tests__/local-model-test-endpoint.test.ts
+    src/__tests__/messages-multipart-route.test.ts
+    src/__tests__/mock-cleanup-coverage.test.ts
+    src/__tests__/provider-api-crud.test.ts
+    src/__tests__/provider-status-api.test.ts
+    src/__tests__/provider-test-connection.test.ts
+    src/__tests__/security/h2-tool-call-ownership.test.ts
+    src/__tests__/security/h3b-conversation-subroutes-idor.test.ts
+    src/__tests__/security/h3-conversations-memories-idor.test.ts
+    src/__tests__/security/kb-ownerless-rows-are-shared.test.ts
+    src/__tests__/security/kb-retrieval-is-user-scoped.test.ts
+    src/__tests__/security/m3-fs-list-sandbox.test.ts
+    src/__tests__/source-parser-git-coverage.test.ts
+    src/__tests__/unlanded-branches.test.ts
+    src/__tests__/verify-browser-coverage-receipt.test.ts
+    src/__tests__/visual-evidence-select.test.ts
+    src/__tests__/web-mock-pair-pollution.test.ts
+    web/src/routes/api/extensions/__tests__/secrets-route.test.ts
+    web/src/routes/api/extensions/__tests__/triggers-route.test.ts
+    web/src/routes/api/hub/pages/[id]/__tests__/run-variant-route.test.ts
+    web/src/routes/api/import/__tests__/commit.test.ts
+    web/src/routes/api/import/__tests__/preview.test.ts
+    web/src/routes/api/integrations/github-projects/__tests__/handlers.test.ts
+    web/src/__tests__/agent-chat-api.test.ts
+    web/src/__tests__/ask-user-answer-route.test.ts
+    web/src/__tests__/extension-browser-isolation.test.ts
+    web/src/__tests__/extension-browser-page.test.ts
+    web/src/__tests__/extension-browser-preview.test.ts
+    web/src/__tests__/extensions-api.test.ts
+    web/src/__tests__/extensions-data-route.test.ts
+    web/src/__tests__/extension-settings-api.test.ts
+    web/src/__tests__/extensions-events-route.test.ts
+    web/src/__tests__/memories-api-post.test.ts
+    web/src/__tests__/mention-search-cmd-api.test.ts
+    web/src/__tests__/mention-search-file-api.test.ts
+    web/src/__tests__/messages-ownership-api.test.ts
+    web/src/__tests__/messages-ownership-baseline-api.test.ts
+    web/src/__tests__/tasks-api.test.ts
+    web/src/__tests__/tasks-assignment-api.test.ts
+    web/src/__tests__/tasks-stop-retry-api.test.ts
+    web/src/__tests__/team-panel-refresh-flow.test.ts
+  EZ_SKIP_HOOK_TESTS=1 set — skipping the 54 file(s) above; continuing with lint.
+[detached HEAD 54f331460] merge: wp/w18-hygiene-c2 7ad678bb3 into integ/w00 (item C2 hygiene)
