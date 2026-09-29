@@ -241,6 +241,9 @@ message and in `logs/final-merge-hook-list-verbatim.log`, and run as leg 0 of th
 
 ## task-stops.ts:370, a proven-executed line Bun 1.3.14 does not credit (pending the user's ruling)
 
+Superseded (2026-09-29): after the custody merges the statement is line 373 and is re-attested in `1e8f08279`;
+see "Custody: the W09h and W03g merges and the re-added attestation" below.
+
 The final leg at `9c954b11a` is green except the patch-coverage gate (`BASE_REF=94edd1e30`), which
 reports one uncovered changed line: `src/factory/task-stops.ts:370`,
 `return factoryJournalStopSettlement(await this.journal.operations(liveAuthority.authority));`, the
@@ -285,6 +288,77 @@ All four reran green under the fixed pin at `a4c07dca5`, whose code differs from
 the two lines of `stopSettlement` (vitest 1, 1 and 16 tests; web build exit 0). The runbook mock
 pass used the earlier build; per the coordinator the graph proof stands. `receipt.sh` asserts both
 `bun --version` and `bunx --version` against `.bun-version`.
+
+## Custody: the W09h and W03g merges and the re-added attestation (w09h-2, 2026-09-29)
+
+W03f's owner was gone; w09h-2 took custody (lead ruling). Evidence: `/tmp/factory-platform-evidence/w03f/custody/` (receipts under `receipts/`, logs under
+`logs/`; `C` below). Identity: every commit below is authored and committed by archy noreply.
+
+| Commit | What it is | Hook |
+| --- | --- | --- |
+| `f5a93ffd0` | merge integ/w00 `ad22592da` (W09h landed, receipts): seven conflicts resolved, the combined basis CHECK | EZ_SKIP_HOOK_TESTS=1 by the lead's ruling (`C/ruling-hook-skip-merge-ad22592da.txt`), 169 suites run outside: 169/169 green |
+| `ef99d1120` | merge integ/w00 `afbca4d88` (W03g landed, receipts): no conflicts; the attestation file arrives as `[]` | 4 suites, 293/0 |
+| `1e8f08279` | the task-stops.ts attestation re-added at line 373 | 0 suites |
+
+### The W09h merge (`f5a93ffd0`)
+
+- Conflicts: `tasks/lessons.md` by union; `usage-settlement.ts` (a no-operations settlement names one of its two bases,
+  the reserved bound by default or W09h's "no-operations: nothing launched, all zero"; operations names one of its two;
+  reserved-bound derives its own); `budgets.ts` (`settleWithoutOperationsInTransaction` keeps W09h's basis argument:
+  "nothing launched" settles all zero, anything else W03f's compute-bound settle); `schema.ts` (the combined CHECK
+  mirrored); `usage-settlement.test.ts`, `factory-task-stops-suite.ts` and `task-stops.ts` (both sides kept).
+- The shared basis CHECK (lead ruling 2026-09-28): W09h's landed migration replaced the CHECK while "nothing launched"
+  was missing and W03f's while "restore supersession" was missing, each installing its own form, so the two swapped
+  the CHECK on every boot. W03f's `add-factory-usage-operations` now installs the union of every basis and replaces the
+  CHECK while either marker is missing; W09h's migration then finds its marker and changes nothing. W09h's shared
+  migration suite (PGlite and PostgreSQL) carries five cases: fresh boot, a W09h-shaped database, both registration
+  orders, a repeated boot keeping the same `pg_constraint` oid, and a W03f-only CHECK (on no landed installation)
+  converging.
+  EVIDENCE: red first `C/receipts/combined-red-pglite` 2/5 (W03f's own migrate() case included); green
+  `combined-green-pglite` 9/0; each added clause removed: `combined-clause-removed-1` (the nothing-launched value) 1/6,
+  `-2` (the nothing-launched marker condition) 6/1, `-3` (the restore-supersession marker condition) 5/2.
+- The 169 hook-mapped suites outside the hook (`C/receipts/hook-list-f5a93ffd0.jsonl`, 3346 tests): 168 green in the
+  locked run; `src/__tests__/db-connection.test.ts` was red because the runner exported DATABASE_URL to every suite
+  (the test asserts it absent); the runner now sets both URL variables only for `tests/postgres/*`, and the suite
+  alone is 21/0 (`C/receipts/hook-list-db-connection-rerun.attempt-1.json`; cause in
+  `C/receipts/hook-list-f5a93ffd0.CAUSE.txt`). Printed set == ruled set at commit time; shared git config
+  `44962525f1ca1a8b` before and after.
+
+### The W03g merge (`ef99d1120`) and the re-added attestation (`1e8f08279`)
+
+- The attested statement `    return factoryJournalStopSettlement(await this.journal.operations(liveAuthority.authority));`
+  is line 373 (was 370); `src/factory/task-stops.ts` sha256 `ee44eb3570d88a8a82eb01c14c23b4782b67b411bbe65e981c322088acfc4e19`.
+- Re-probe under the lock, Bun 1.3.14, at the staged merge of `ae3240dd7` (the same code tree as `ef99d1120`;
+  `afbca4d88` adds docs only), `C/w03f-probe.sh`, `C/logs/probe-merge-ae3240dd7/`: the stop suite with coverage 43/0
+  on PGlite and on PostgreSQL, `DA:372,176` then `DA:373,0` on both (lcov kept); the line replaced by a throw fails
+  34 of 43 on both; the file restored by checksum.
+- Red first, the patch gate `BASE_REF=origin/main` on the re-probe lcov: with `[]` task-stops.ts lists 15 uncovered
+  changed lines including 373 (`C/logs/attest-red-probe-lcov.log`); with the entry it prints
+  "src/factory/task-stops.ts:373 attested (Bun 1.3.14 coverage defect)" and 373 leaves the list
+  (`C/logs/attest-green-probe-lcov.log`). That input covers the stop suites only, so the gate is red for unrelated
+  files in both runs: it is the attestation proof, not the gate result (below).
+- Gate integrity check 11 names `scripts/coverage-attestations.json` ("needs the gate-change-approved label"). The
+  finding is expected; the decision file `/tmp/factory-platform-evidence/w00/w03f-merge/gate-change-decision.txt`
+  covers it at the integ merge. Nothing on the branch applies or simulates the label.
+
+## Legs at the head `1e8f08279`
+
+Base `afbca4d88`. Under the lock with `lock_veto w19a-graph-proof` first and the gate before every leg
+(`C/w03f-head-legs.sh`), 02:44Z to 02:56Z on 2026-09-29; summary `C/logs/legs-head-1e8f08279.summary.log`, one log per
+leg under `C/logs/legs-head-1e8f08279/`. Dirty 0 at start; shared git config `44962525f1ca1a8b` before and after.
+
+| Leg | Result |
+| --- | --- |
+| SDK (`packages/@ezcorp/factory-sdk`) | 245/0 |
+| orchestrator (`bun run test`) | 91/0 |
+| PGlite, 25 files (guest-model 5+11+12+4+18+4, usage-settlement 12, task-stops 43, compute-admissions 19, budgets 13, run-lifecycle 92, migrate 8, migration-restart 19, factory-schema 2, the four settlement and admission migrations 2+5+2+2, dispatch-composition 50, usage-epoch 6, attempt-supersessions 1, attestation 26, rule 11 12) | all 0 fail |
+| PostgreSQL, 12 suites (task-stops 43, guest-model-route 18, guest-model-journal 2, usage-epoch 6, admission-stop 5, usage-basis-migration 5, compute-admissions 2, run-lifecycle 92, budgets 13, schema 2, migration-restart 19, stop-lock-order 1) | all 0 fail |
+| coverage producers: unit 368, PostgreSQL 81, SDK 245, orchestrator 182 (counted from the runner's own report) | all 0 fail |
+| new-file coverage gate vs `afbca4d88` | PASSED (1 file) |
+| patch coverage gate vs `afbca4d88`, full merged lcov | PASSED (14 files); `src/factory/task-stops.ts:373 attested (Bun 1.3.14 coverage defect)` printed |
+| typecheck, lint, factory boundaries; web build | green |
+| gate integrity vs `afbca4d88` | 1 finding, expected: check 11 on `scripts/coverage-attestations.json` (decision file above) |
+| graph-proof runbook `pass mock none` | passed (`C/graph/w03f-head-1e8f08279.json`) |
 
 ## Disclosed
 
