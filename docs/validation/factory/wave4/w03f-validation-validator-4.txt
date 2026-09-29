@@ -1,0 +1,46 @@
+2026-09-28 validator-4 on W03f 3a023745ebc39c022fd5b1171cfc47c818416300 (wp/w03f-provider-settle; = 9c954b11a, the
+merge of integ 94edd1e30, plus one docs-only commit): ACCEPT ON THE CODE, with one recorded gate red that is a tooling
+defect, not a code defect: the patch-coverage gate against 94edd1e30 reports exactly src/factory/task-stops.ts line
+370 uncovered. That line executes (proof below). The merge waits only on the user's ruling: option A, the W03g
+attestation, or hold.
+
+Identity: all 17 first-parent commits over 9da0ed9ec are archy with the noreply address as author and committer.
+3a023745e changes only tasks/factory/w03f-GATES.md over 9c954b11a (git diff 9c954b11a 3a023745e -- . ':!tasks' is
+empty). Shared .git/config sha256 prefix 44962525f1ca1a8b before and after the hold.
+
+Tree review (tree-review-0ac18b37d.txt and its re-diff at 2e7a9eecf): rulings B and C, the refused-response operation,
+named holds, restore_digest with the supersession reader, and the kernel retry rule all met. L1 (parkLate on
+non-liveness refusals) closed at 2e7a9eecf, red-first verified (3/1 on 0ac18b37d's journal, 4/0 at head). L3 (receipt
+test counts) closed. L2 withdrawn as the validator's error: the merge message is the ruling's prescribed text. At the
+final head W03f consumes W15f's readAttemptSupersessionInTransaction by reservation id (the lead's joint-merge
+ruling).
+
+Hold under flock --close at 3a023745e, BASE_REF=94edd1e30 (23:45:56Z to 23:47:49Z; gate before every leg: 14-16 GiB
+available, 6 GiB swap, 113 GB; bun and bunx asserted 1.3.14; dirty after 0; receipts/hold/, logs/hold/):
+  unit-coverage, 14 PGlite files (guest-model-response, provider-one-hop, guest-model-broker, guest-model-journal
+    integration, guest-model-route integration, usage-settlement, factory-task-stops, add-factory-usage-operations,
+    factory-migration-restart, guest-model-journal, dispatch-composition, factory-sdk kernel, usage-epoch integration,
+    attempt-supersessions)                                                                     210/0
+  postgres, 6 suites with lcov (factory-task-stops, factory-guest-model-journal, factory-guest-model-route,
+    factory-migration-restart, factory-schema, factory-usage-epoch)                              90/0
+  race-postgres (scratch copy of the stop suite on the proof PostgreSQL; removed after): settleAtBound, decided on
+    stale facts, raced against reconcile of a late receipt, both start orders                    2/0
+    bound-first: one fulfilled, the other refused factory_usage_settlement_state
+    reconcile-first: one fulfilled, the other refused factory_usage_settlement_state
+    each case asserts one settlement row, one usage-settled event, the reservation settled
+  merge-lcov 736 files; new-file gate PASSED (1 new source file); patch gate FAILED:
+    "src/factory/task-stops.ts: 1 changed line(s) uncovered: 370"; no other file or line.
+
+Line 370 (`return factoryJournalStopSettlement(await this.journal.operations(liveAuthority.authority));`, the last
+statement of stopSettlement, unchanged since 4ba07e94f) executes. Evidence (logs/attr/):
+  - a throw on that line fails 34 of the stop suite's 43 tests;
+  - Bun 1.3.14 credits 0 hits to the last statement of that method in every form tried: the original (370: 0, 369:
+    176); `.then(factoryJournalStopSettlement)` (0); a braced early return above it (0, hits on the brace); a
+    synchronous helper (call line 115, helper body 0, hits on its signature); a one-line helper (0); both statements
+    on one line (0);
+  - the worker's Bun 1.4.2 probe (w03f/logs/w12e-bun142-probe.log) also gives the line 0, so the upgrade does not
+    credit it either.
+
+Carried over from 9c954b11a (code identical): the worker's leg 0 (74 files plus the orchestrator package), the
+PostgreSQL producers, the web build and the graph-proof runbook mock pass. Bunx disclosure: the worker's web build ran
+before the bunx pin fix; the lead's ruling applies (the servers ran under the pin).
