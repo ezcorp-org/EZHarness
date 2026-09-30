@@ -189,6 +189,30 @@ reproduction under 1.4.2 against 1.3.14 and a fix red first.
 4. The runtime now detaches its own abort listener for the node:https `signal` option (1.3.14 leaked it); the settle
    test's `removed === 3` encoded the leak. Fixed in afdd9cd0c (net zero, plus a mid-request abort case).
 
+Found by the full backend pool at 5670a39c6 (below), each root-caused with a minimal repro on both Buns:
+
+5. A paused socket surfaces a peer's FIN only once read (as in Node 24). setup-podman.test.ts's silent runner socket
+   never read, so server.close() never finished (60 s timeout). Test fix 435410dfc (drain, write nothing; destroy
+   accepted sockets). Likely oven-sh/bun#33974, found by title, not bisected (w12e-2/sub/setup-podman/).
+6. Bun.listen now enforces rejectUnauthorized: an untrusted client certificate fails the TLS handshake, and the
+   client reads zero bytes; 1.3.14 completed the handshake and the product answered 401 {"error":"unauthorized"}.
+   ERROR-SURFACE CHANGE: the private service's refusal of an untrusted client certificate moves from an HTTP 401 to a
+   handshake failure. No section of the interface freeze (docs/plans/2026-09-13-composable-factory-platform-interfaces.md)
+   covers the private service's error surface. Acceptance is unchanged: the trusted certificate reaches the handler on
+   both Buns (w12e-2/mtls/probe.out). Tests and product comment 0eb10d8f4; the handshake callback stays as defence in
+   depth. The upstream change was not identified.
+7. terminate() on a TLS socket sends a bare reset (oven-sh/bun#39632), reported as ECONNRESET (#39600). Test 0eb10d8f4
+   accepts either close signal; zero bytes, the bound and one handler call are still asserted.
+8. end() on a Bun.listen TLS socket closes only the sending side (oven-sh/bun#31155). PRODUCT fix 96eaaa3c3: the
+   private listener's timer stays armed after the response, so a peer that keeps writing is cut after requestTimeoutMs.
+
+Also found by the full pool, not Bun changes:
+- Pre-existing integ red: add-factory-usage-settlements.test.ts lacked restore_digest, added by 60cf34635 (landed with
+  W03f); red on 1.3.14 too. Fixed in e8018c3a1.
+- Test premise: e2e-lanes.test.ts's stand-in for "another Bun" was 1.4.2, now the pin. Fixed in 4024d938e.
+- Environment: this worktree lacked `bun install --cwd .github/gate-integrity-deps --frozen-lockfile --ignore-scripts`,
+  so scripts/gate-integrity-rule11.test.ts could not parse; installed, rerun at the final head.
+
 ## Bun.SQL on 1.4.2: the pipelining guard
 
 - Mechanism, measured on the wire (w12e-2/option3/probe-*.json; a proxy counts outstanding Syncs for 20 concurrent
@@ -207,7 +231,9 @@ reproduction under 1.4.2 against 1.3.14 and a fix red first.
 - The acceptance test is unchanged; it runs green in the product's configuration, with the flag at start.
 - The list is closed upward (lead, 2026-09-30): src/db/bun-sql-pipelining-defect.json carries `affected`
   (1.4.0, 1.4.1, 1.4.2) and `provenClean` (empty today; the canary 1.4.3-canary.1+bf42a525d is evidence, not a
-  version). Below 1.4.0 is outside the defect's known range. A pin at or above 1.4.0 in neither list fails
+  version). A provenClean entry is {release, bun (version+build), record, trials, errors, stalls}; the record is the
+  harness JSONL under docs/validation/factory/, and the test refuses a name alone, a missing record, fewer than 3000
+  trials, any error or stall, or a record not run with pipelining on (2c5f3903e). Below 1.4.0 is outside the defect's known range. A pin at or above 1.4.0 in neither list fails
   src/db/bun-sql-pipelining.test.ts by name: "Bun <v> is neither affected nor proven clean for the request-queue defect
   (oven-sh/bun#32088, #43187): run the 3000-trial harness and record the result".
 - The proof a release needs before it enters provenClean: the harness at 3000 trials, WITHOUT the flag, on the proof
@@ -232,3 +258,26 @@ reproduction under 1.4.2 against 1.3.14 and a fix red first.
 | src/factory/provisioning/ingress.ts factoryHttpsIngressProbe | servername is the installation's DNS hostname, which its certificate must name: safe |
 | src/factory/key-composition.ts transit KMS | fetch to its configured endpoint with a CA; no pinned IP, no Host header: safe |
 | Temporal gRPC client, mcp-proxy CONNECT tunnel | not Bun TLS clients: not affected |
+
+## Full backend pool under 1.4.2 at 5670a39c6 (2026-09-30, interim)
+
+integrator-3's invocation (w00/full-pool-run.sh w12e-full w15b-fix; the wave4f runner: 37 checks, manifest cov-shard =
+the whole backend pool, 311 auto-extra files in 8 chunks). Receipts: /tmp/factory-platform-evidence/w12e-full-*.
+
+- Green (26): sdk-build, transport-build, sdk-tests, focused, web-bun-coverage, postgres and its four steps (the
+  acceptance test included), types, lint, boundaries, orchestrator-build, node, pool, compute, provisioning and python
+  coverage, auto-extra-2, -6, -7, the four podman legs. The guard set, run separately: 60/0.
+- Red, fixed above: auto-extra-0 (gate-integrity-rule11, environment), -1 (e2e-lanes), -3 (setup-podman), -4 (the
+  migration test), -5 (private-https). gate-integrity exit 1 is judged by its expected set in the final gates.
+- VOID, not run (the runner's gate, 15 GiB available and 2 GiB swap, timed out after 1200 s each; the host held
+  10-14 GiB): web-coverage, manifest-cov-shard, manifest-cov-extras, manifest-web-security-coverage,
+  manifest-factory-reference-data. Rerun at the final head; none counts as passed.
+- WITHDRAWN (lead order, 19:47:13Z): the browser part, idle at its resource gate since 19:22:35Z (swap 0.35 GB free).
+
+The authoritative set runs at the final head: the void legs, the chunks holding changed suites (private-https and its
+importers), the guard set, the browser part and the final gates.
+
+## Shared-file ownership note
+
+9db142cbf added an optional `serverAltNames` to src/__tests__/helpers/factory-certificates.ts, which the interface
+freeze (section 12) assigns to the coordinator (W09). The default is unchanged; every existing caller behaves as before.
