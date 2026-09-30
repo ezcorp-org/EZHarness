@@ -8,7 +8,7 @@ import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
 import { releaseRows as rows } from "../db/queries/extension-releases";
 import { digestObject } from "../extensions/v4/blobs";
 import type { FactoryAttemptAuthority, FactoryJournalOperationEvidence } from "./executions";
-import type { FactoryUncertainHold } from "./budgets";
+import type { FactoryBudgets, FactoryUncertainHold } from "./budgets";
 import { isFactoryProviderReceiptDigest, validateFactoryOperationUsage } from "./journal-validation";
 import { readSupersededOperationsInTransaction } from "./attempt-supersessions";
 import type { FactoryInbox } from "./inbox";
@@ -86,6 +86,26 @@ function settlementBasis(input: Pick<FactoryUsageSettlementInput, "source" | "re
   if (input.source === "no-operations") return input.basis ?? FACTORY_USAGE_NO_OPERATIONS_BASIS;
   if (input.source === "operations") return input.basis;
   return undefined;
+}
+
+/**
+ * W09h's one settlement for a hold whose attempt never launched: the hold settles all zero under the basis
+ * FACTORY_USAGE_NOTHING_LAUNCHED_BASIS, proved by `proofDigest` (the sealed stop, the pool's rejection, or the host's
+ * signed absence), and, when the node attempt is known, the same zero is recorded as that attempt's usage
+ * settlement, whose event reaches the kernel in this transaction. Every "nothing launched" path goes through here.
+ */
+export async function settleFactoryNothingLaunchedInTransaction(
+  transaction: MigrationDb,
+  stores: { readonly budgets: Pick<FactoryBudgets, "settleWithoutOperationsInTransaction">; readonly settlements: Pick<FactoryUsageSettlements, "recordInTransaction"> },
+  scope: { readonly projectId: string; readonly runId: string; readonly reservationId: string; readonly interpreterId: string },
+  proofDigest: string,
+  authority: FactoryUsageSettlementAttempt | undefined,
+): Promise<void> {
+  const key = { projectId: scope.projectId, runId: scope.runId, reservationId: scope.reservationId };
+  await stores.budgets.settleWithoutOperationsInTransaction(transaction, key, proofDigest, FACTORY_USAGE_NOTHING_LAUNCHED_BASIS);
+  if (authority === undefined) return;
+  await stores.settlements.recordInTransaction(transaction, { ...key, interpreterId: scope.interpreterId, authority },
+    { source: "no-operations", knownCostMicros: "0", stopReceiptDigest: proofDigest, basis: FACTORY_USAGE_NOTHING_LAUNCHED_BASIS });
 }
 const STOP_RECEIPT_DIGEST = /^sha256:[0-9a-f]{64}$/;
 

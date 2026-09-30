@@ -1,4 +1,3 @@
-import { createPublicKey, type KeyLike } from "node:crypto";
 import { canonicalJson } from "@ezcorp/extension-contract";
 import type { FactoryMeasuredUsage, FactoryRunnerResult, FactoryUsage } from "@ezcorp/factory-sdk";
 import type { KernelEvent } from "@ezcorp/factory-sdk/kernel-types";
@@ -14,13 +13,17 @@ import type { FactoryAttemptAuthority, FactoryExecutionJournal } from "./executi
 import type { FactoryInbox } from "./inbox";
 import { firstFactoryJournalIssue, validateFactoryStopReceipt, type FactoryJournalHostKey, type FactoryPhysicalStopExpectation } from "./journal-validation";
 import { lockFactoryScope } from "./locks";
-import type { PoolLeaseStatus } from "./pool/ledger";
+import { poolStopConfirmed, type PoolLeaseStatus } from "./pool/ledger";
 import { assertFactoryIdentity, encodeFactoryPayload } from "./records";
+import { FactoryTaskStopError } from "./task-stop-error";
+import { factoryStopHostKeyMap, type FactoryStopHostKey } from "./stop-host-keys";
+export { FACTORY_TASK_STOP_CODES, FactoryTaskStopError, type FactoryTaskStopCode } from "./task-stop-error";
+export { factoryStopHostKeyMap, type FactoryStopHostKey } from "./stop-host-keys";
 import { factoryAttemptWorkerId, readFactoryAttemptLaunchFacts, type FactoryAttemptLaunchState, type FactoryPhysicalStopReason, type FactoryPhysicalStopReceipt } from "./runner/attempt-runtime";
 import { factoryTaskReservationId } from "./task-admission";
 import type { FactoryTaskOutcomes, FactoryVerifiedTaskOutcome } from "./task-outcomes";
 import type { TrustedFactoryCommandReference, TrustedFactoryServiceIdentity } from "./trusted-command-gateway";
-import { FACTORY_USAGE_NOTHING_LAUNCHED_BASIS, factoryJournalStopSettlement, type FactoryJournalStopSettlement, type FactoryUsageSettlementAuthority, type FactoryUsageSettlements, type FactoryUsageSettlementScope } from "./usage-settlement";
+import { factoryJournalStopSettlement, settleFactoryNothingLaunchedInTransaction, type FactoryJournalStopSettlement, type FactoryUsageSettlementAuthority, type FactoryUsageSettlements, type FactoryUsageSettlementScope } from "./usage-settlement";
 import { clearResolvedSupersessionInTransaction, readAttemptSupersessionInTransaction } from "./attempt-supersessions";
 
 /** C02: abort, then at most this much cleanup, then kill the whole sandbox. */
@@ -29,7 +32,7 @@ export { FACTORY_SANDBOX_ABORT_GRACE_MS as FACTORY_STOP_ABORT_GRACE_MS } from ".
 export const FACTORY_PHYSICAL_STOP_TIMEOUT_MS = 20_000;
 
 /** Where the stop authority came from. `sealed-launch` is the live path. */
-export type FactoryStopSource = "terminal-outcome" | "sealed-launch";
+export type FactoryStopSource = "terminal-outcome" | "sealed-launch" | "dispatch-refused";
 
 /**
  * Stop authority derived from the exact sealed admission plus the durable
@@ -83,11 +86,6 @@ export interface FactoryPoolStopAcknowledger {
   confirmStopped(input: { readonly reservationId: string; readonly holderGeneration: number; readonly hostId: string }, signal?: AbortSignal): Promise<PoolLeaseStatus>;
 }
 
-export interface FactoryStopHostKey {
-  readonly hostId: string;
-  readonly hostKeyId: string;
-  readonly publicKey: string | Buffer | KeyLike;
-}
 
 export type FactoryTaskStopState = "accepted" | "uncertain" | "stopped";
 
@@ -108,34 +106,6 @@ export interface FactoryTaskStopReceipt {
   readonly cause?: unknown;
 }
 
-/** Widened from `string`. W14 maps each member to an HTTP status. */
-export type FactoryTaskStopCode =
-  | "factory_task_stop_scope"
-  | "factory_task_stop_key_invalid"
-  | "factory_task_stop_invalid"
-  | "factory_task_stop_corrupt"
-  | "factory_task_stop_not_found"
-  | "factory_task_stop_conflict"
-  | "factory_task_stop_stale"
-  | "factory_task_stop_pool_mismatch"
-  | "factory_task_stop_proof_invalid"
-  | "factory_task_stop_clock_invalid"
-  | "factory_task_stop_timeout";
-
-/** Every member of `FactoryTaskStopCode`, so W14 can prove its mapping is total. */
-export const FACTORY_TASK_STOP_CODES: readonly FactoryTaskStopCode[] = Object.freeze([
-  "factory_task_stop_scope",
-  "factory_task_stop_key_invalid",
-  "factory_task_stop_invalid",
-  "factory_task_stop_corrupt",
-  "factory_task_stop_not_found",
-  "factory_task_stop_conflict",
-  "factory_task_stop_stale",
-  "factory_task_stop_pool_mismatch",
-  "factory_task_stop_proof_invalid",
-  "factory_task_stop_clock_invalid",
-  "factory_task_stop_timeout",
-]);
 
 /** Keyset position of one scanned stop. Pass the last item's cursor to continue. */
 export interface FactoryStoppableCursor {
@@ -161,9 +131,6 @@ export const FACTORY_STOP_SCAN_MAX_LIMIT = 1_000;
 const STOPPABLE_STATES = new Set<FactoryTaskStopState>(["accepted", "uncertain"]);
 const STOP_SOURCES = new Set<FactoryStopSource>(["terminal-outcome", "sealed-launch"]);
 
-export class FactoryTaskStopError extends Error {
-  constructor(readonly code: FactoryTaskStopCode) { super(code); this.name = "FactoryTaskStopError"; }
-}
 
 /**
  * A sealed stop whose reason the durable facts no longer give: still
@@ -344,11 +311,7 @@ export class FactoryTaskStops implements FactoryUsageSettlementAuthority {
     }
     this.assertHostReceipt(current, receipt);
     const acknowledged = await this.withDeadline(signal => this.pool.confirmStopped({ reservationId: receipt.reservationId, holderGeneration: receipt.holderGeneration, hostId: receipt.hostId }, signal));
-    // The pool records a host only for an allocation that binds a whole one, so
-    // a CPU reservation has none. The host binding is proven by the signed
-    // receipt this method already verified; the pool must not contradict it,
-    // and having no opinion is not a contradiction.
-    if (acknowledged.reservationId !== receipt.reservationId || acknowledged.state !== "settled" || acknowledged.holderGeneration !== receipt.holderGeneration || acknowledged.allocationGeneration !== receipt.allocationGeneration || (acknowledged.hostId !== undefined && acknowledged.hostId !== receipt.hostId)) throw new FactoryTaskStopError("factory_task_stop_pool_mismatch");
+    assertFactoryPoolConfirmsStop(acknowledged, receipt);
     // Decided before the settlement transaction, because the journal reads
     // through its own. The journal is final here: the sealed stop exists, so
     // the cancellation was accepted, and an accepted attempt can never prepare
@@ -417,7 +380,7 @@ export class FactoryTaskStops implements FactoryUsageSettlementAuthority {
     const scanned = rows<Pick<StopRow, "tenant_id" | "project_id" | "run_id" | "interpreter_id" | "cancel_command_id" | "attempt_id" | "reservation_id" | "source" | "state" | "accepted_at_ms">>(await transaction.execute(sql`
       SELECT tenant_id, project_id, run_id, interpreter_id, cancel_command_id, attempt_id, reservation_id, source, state, accepted_at_ms
       FROM factory_task_stops
-      WHERE tenant_id = ${this.authority.tenantId} AND state IN ('accepted', 'uncertain') AND reconcile_json IS NULL${keyset}
+      WHERE tenant_id = ${this.authority.tenantId} AND state IN ('accepted', 'uncertain') AND reconcile_json IS NULL AND source <> 'dispatch-refused'${keyset}
       ORDER BY accepted_at_ms, cancel_command_id
       LIMIT ${limit}`));
     return Object.freeze(scanned.map(row => {
@@ -551,9 +514,8 @@ export class FactoryTaskStops implements FactoryUsageSettlementAuthority {
     if (!stopped) throw new FactoryTaskStopError("factory_task_stop_stale");
     if (stopped.created) {
       const stopDigest = stopHash({ schemaVersion: "factory.admission-stop.v1", reservationId: key.reservationId, epoch: fence.cancellationEpoch, event: stopped.event });
-      await this.budgets.settleWithoutOperationsInTransaction(transaction, key, stopDigest, FACTORY_USAGE_NOTHING_LAUNCHED_BASIS);
-      const settledAttempt = { attemptId: attempt.commandId, nodeInstanceId: command.nodeId, candidateGeneration: attempt.candidateGeneration, attemptNumber: attempt.attempt };
-      await this.settlements.recordInTransaction(transaction, { ...key, interpreterId: reference.interpreterId, authority: settledAttempt }, { source: "no-operations", knownCostMicros: "0", stopReceiptDigest: stopDigest, basis: FACTORY_USAGE_NOTHING_LAUNCHED_BASIS });
+      await settleFactoryNothingLaunchedInTransaction(transaction, { budgets: this.budgets, settlements: this.settlements }, { ...key, interpreterId: reference.interpreterId }, stopDigest,
+        { attemptId: attempt.commandId, nodeInstanceId: command.nodeId, candidateGeneration: attempt.candidateGeneration, attemptNumber: attempt.attempt });
       await this.inbox.enqueueInTransaction(transaction, { projectId: reference.projectId, runId: reference.logicalRunId, interpreterId: reference.interpreterId }, stopped.event);
     }
     return Object.freeze({ state: "stopped" as const, event: Object.freeze(stopped.event) });
@@ -780,13 +742,26 @@ export class FactoryTaskStops implements FactoryUsageSettlementAuthority {
     return value;
   }
 
-  private async withDeadline<Result>(work: (signal: AbortSignal) => Promise<Result>): Promise<Result> {
-    const controller = new AbortController();
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const timeout = new Promise<never>((_resolve, reject) => { timer = setTimeout(() => { controller.abort(); reject(new FactoryTaskStopError("factory_task_stop_timeout")); }, this.stopTimeoutMs); });
-    try { return await Promise.race([work(controller.signal), timeout]); }
-    finally { if (timer) clearTimeout(timer); }
+  private withDeadline<Result>(work: (signal: AbortSignal) => Promise<Result>): Promise<Result> {
+    return factoryStopWithDeadline(this.stopTimeoutMs, work);
   }
+}
+
+/**
+ * Refuses `factory_task_stop_pool_mismatch` unless the pool's answer confirms this signed stop.
+ *
+ * The holder generation names the holder the host stopped. The pool moves the allocation generation forward only to
+ * fence that holder (cancel, revoke, ledger recovery, an expired lease), and a new holder always gets a new holder
+ * generation. So a confirmation for the same holder at the same or a later allocation generation is this holder's:
+ * the pool reclaimed the lease before the stop reached it (W02d R6, measured in P2), and still confirmed it. A lower
+ * one is not about this allocation. The pool records a host only for an allocation that binds a whole one, so a CPU
+ * reservation has none: the signed receipt proves the host binding, the pool must not contradict it, and having no
+ * opinion is not a contradiction. A GPU host's stop confirms while the host waits for its reimage (W02d R7); no other
+ * uncertainty does.
+ */
+export function assertFactoryPoolConfirmsStop(acknowledged: PoolLeaseStatus, receipt: Pick<FactoryPhysicalStopReceipt, "reservationId" | "holderGeneration" | "allocationGeneration" | "hostId">): void {
+  if (acknowledged.reservationId !== receipt.reservationId || !poolStopConfirmed(acknowledged) || acknowledged.holderGeneration !== receipt.holderGeneration
+    || acknowledged.allocationGeneration < receipt.allocationGeneration || (acknowledged.hostId !== undefined && acknowledged.hostId !== receipt.hostId)) throw new FactoryTaskStopError("factory_task_stop_pool_mismatch");
 }
 
 /** How a confirmed stop settles: a completed result's measured usage, or what its journal proves. */
@@ -797,18 +772,17 @@ function isSealedStop(value: SealedStop | FactoryTaskStopReceipt): value is Seal
   return "request" in value;
 }
 
+/** Runs one call to the host or the pool, aborted and refused `factory_task_stop_timeout` after `timeoutMs`. */
+export async function factoryStopWithDeadline<Result>(timeoutMs: number, work: (signal: AbortSignal) => Promise<Result>): Promise<Result> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => { timer = setTimeout(() => { controller.abort(); reject(new FactoryTaskStopError("factory_task_stop_timeout")); }, timeoutMs); });
+  try { return await Promise.race([work(controller.signal), timeout]); }
+  finally { if (timer) clearTimeout(timer); }
+}
+
 /** The one terminal usage a stop may report: the outcome's, else the durable launch result's. */
 function terminalStopUsage(liveAuthority: FactoryLiveStopAuthority): FactoryUsage | undefined {
   return liveAuthority.terminalOutcome?.result.usage ?? liveAuthority.terminalResult?.usage;
 }
 
-/** Loads the configured supervisor certificates once, rejecting duplicates and bad material. */
-export function factoryStopHostKeyMap(hostKeys: readonly FactoryStopHostKey[]): ReadonlyMap<string, FactoryJournalHostKey> {
-  const entries = hostKeys.map(key => {
-    assertFactoryIdentity(key.hostId, key.hostKeyId);
-    try { return [key.hostKeyId, Object.freeze({ hostId: key.hostId, publicKey: typeof key.publicKey === "string" || Buffer.isBuffer(key.publicKey) ? createPublicKey(key.publicKey) : key.publicKey })] as const; }
-    catch { throw new FactoryTaskStopError("factory_task_stop_key_invalid"); }
-  });
-  if (new Set(entries.map(([id]) => id)).size !== entries.length) throw new FactoryTaskStopError("factory_task_stop_key_invalid");
-  return new Map(entries);
-}

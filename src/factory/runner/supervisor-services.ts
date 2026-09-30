@@ -33,6 +33,7 @@ import type { Runner } from "@ezcorp/extension-contract";
 import { startFactoryPrivateHttps, type FactoryPrivateRequest, type FactoryPrivateResponse } from "../private-https";
 import { FACTORY_HOST_ATTACH_PATH, FACTORY_HOST_LAUNCH_PATH, FACTORY_HOST_RESULT_PATH, createFactoryHostLaunchRouteHandler } from "./host-launch-service";
 import { createFactoryHostLaunchSupervisor } from "./host-launch-supervisor";
+import type { FactoryHostTombstoneInput, FactoryHostTombstones } from "./host-tombstones";
 import { FactoryHostGuestTenants, type FactoryHostPeerTenants } from "./host-peer-tenants";
 import type { FactoryGuestBroker } from "./guest-model-broker";
 import type { FactorySupervisorPoolClient } from "./supervisor-pool-client";
@@ -83,6 +84,28 @@ export const factoryHostBrokerUnavailable: FactoryGuestBroker = Object.freeze({
  * confirmed the process group is gone and raises `sandbox_stop_unconfirmed`
  * otherwise, so an unconfirmed stop never reaches a signature.
  */
+/** What the stop supervisor needs of the host's tombstones and its launch supervisor (W02d R8). */
+export interface FactoryHostStopTombstone {
+  /** True when this host is not starting, not holding and did not refuse the worker. */
+  neverSeen(workerId: string): boolean;
+  reserve(tenantId: string, workerId: string): () => void;
+  record(input: { readonly tenantId: string; readonly workerId: string; readonly attemptId: string; readonly reservationId: string }): Promise<void>;
+}
+
+/**
+ * Tombstones a never-seen worker when the runtime shows no container for it: launches of it are refused from before
+ * the first await, the tombstone is written durably, and only then is absence reported. A container the runtime still
+ * shows goes the ordinary way; a failed write throws, so nothing is signed.
+ */
+async function tombstoneNeverSeen(runner: Runner, tombstone: FactoryHostStopTombstone, command: FactoryHostStopCommand & { readonly tenantId: string }): Promise<boolean> {
+  const release = tombstone.reserve(command.tenantId, command.workerId);
+  try {
+    if ((await runner.inspect(command.workerId)).state !== "unknown") return false;
+    await tombstone.record({ tenantId: command.tenantId, workerId: command.workerId, attemptId: command.attemptId, reservationId: command.reservationId });
+    return true;
+  } finally { release(); }
+}
+
 export function factoryHostStopSupervisor(
   runner: Runner,
   now: () => number = Date.now,
@@ -100,11 +123,19 @@ export function factoryHostStopSupervisor(
    * the run sat in `stopping`. Measured end to end.
    */
   finished: (workerId: string) => boolean = () => false,
+  /**
+   * W02d R8 (coordinator ruling (A)): a worker this host never saw (not starting, not held, not finished, not
+   * refused) whose container the runtime does not show is tombstoned durably, and only then its absence is signed.
+   * Absent, such a worker still has to be proved absent, and its stop stays unconfirmed.
+   */
+  tombstone?: FactoryHostStopTombstone,
 ): FactoryHostStopSupervisor {
   const control = factoryRunnerSandboxControl(runner);
   return Object.freeze({
     async stop(command: FactoryHostStopCommand): Promise<FactoryUnsignedPhysicalStopReceipt> {
-      const outcome = finished(command.workerId)
+      const neverSeen = tombstone !== undefined && command.tenantId !== undefined && !finished(command.workerId) && tombstone.neverSeen(command.workerId)
+        && await tombstoneNeverSeen(runner, tombstone, command as FactoryHostStopCommand & { readonly tenantId: string });
+      const outcome = finished(command.workerId) || neverSeen
         // First-hand: this process invoked the guest, received its canonical
         // result, and closed the execution. It is not inferring absence from a
         // missing record; it is reporting what it did.
@@ -144,6 +175,14 @@ export interface FactoryHostServiceOptions {
   readonly runner: Runner;
   readonly signingKey: FactoryHostSigningKeySource;
   readonly broker?: FactoryGuestBroker;
+  /** Whether a granted device node exists on this host; the launch supervisor's own check unless a test replaces it. */
+  readonly devicePresent?: (path: string) => Promise<boolean>;
+  /**
+   * The host's durable tombstones (W02d R8, coordinator ruling (A)). With them, a stop of a worker this host never
+   * saw, whose container the runtime does not show, is tombstoned and then signed absent, and a later launch or attach
+   * of it is refused `worker_stopped`. Without them such a stop stays unconfirmed.
+   */
+  readonly tombstones?: FactoryHostTombstones;
   /**
    * The pool, as the only process allowed to tell it a guest is gone.
    *
@@ -177,26 +216,33 @@ export function createFactoryHostServiceRouter(options: FactoryHostServiceOption
   // And which tenant each guest belongs to: the launch half records it once the
   // peer's tenant matched the intent's, and the stop half checks a stop against it.
   const guestTenants = new FactoryHostGuestTenants();
-  const launch = createFactoryHostLaunchRouteHandler({
+  const launchSupervisor = createFactoryHostLaunchSupervisor({
+    runner: options.runner,
     hostId: options.hostId,
-    peerTenants: options.peerTenants,
-    guestTenants,
-    supervisor: createFactoryHostLaunchSupervisor({
-      runner: options.runner,
-      hostId: options.hostId,
-      broker: options.broker ?? factoryHostBrokerUnavailable,
-      // Recorded when the guest settles, whether it answered or died: that is
-      // when this host closes the execution, and a read of the answer may
-      // come later or never.
-      onClosed: (workerId) => { finished.add(workerId); },
-      ...(options.now === undefined ? {} : { now: options.now }),
-    }),
+    broker: options.broker ?? factoryHostBrokerUnavailable,
+    // Recorded when the guest settles, whether it answered or died: that is
+    // when this host closes the execution, and a read of the answer may
+    // come later or never.
+    onClosed: (workerId) => { finished.add(workerId); },
+    // A guest this host refused before any container existed (W02d R4) is as first-hand an absence as one it
+    // closed: nothing was created, so its stop is signed without asking the runtime to prove it.
+    onRefused: (workerId) => { finished.add(workerId); },
+    ...(options.devicePresent === undefined ? {} : { devicePresent: options.devicePresent }),
+    ...(options.tombstones === undefined ? {} : { stopped: (tenantId: string, workerId: string) => options.tombstones!.stopped(tenantId, workerId) }),
+    ...(options.now === undefined ? {} : { now: options.now }),
+  });
+  const launch = createFactoryHostLaunchRouteHandler({ hostId: options.hostId, peerTenants: options.peerTenants, guestTenants, supervisor: launchSupervisor });
+  const tombstones = options.tombstones;
+  const tombstone: FactoryHostStopTombstone | undefined = tombstones && Object.freeze({
+    neverSeen: (workerId: string) => !launchSupervisor.holds(workerId) && !finished.has(workerId),
+    reserve: (tenantId: string, workerId: string) => tombstones.reserve(tenantId, workerId),
+    record: (input: FactoryHostTombstoneInput) => tombstones.record(input),
   });
   const stop = createFactoryHostStopRouteHandler({
     hostId: options.hostId,
     peerTenants: options.peerTenants,
     guestTenants,
-    supervisor: factoryHostStopSupervisor(options.runner, options.now, undefined, (workerId) => finished.has(workerId)),
+    supervisor: factoryHostStopSupervisor(options.runner, options.now, undefined, (workerId) => finished.has(workerId), tombstone),
     signingKey: options.signingKey,
   });
   const launchPaths = new Set<string>([FACTORY_HOST_LAUNCH_PATH, FACTORY_HOST_ATTACH_PATH, FACTORY_HOST_RESULT_PATH]);

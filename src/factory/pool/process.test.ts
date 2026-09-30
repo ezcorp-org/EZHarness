@@ -43,6 +43,7 @@ async function fixture(overrides: Record<string, unknown> = {}) {
 class ProcessDatabase {
   readonly resources = new Map<string, number>();
   readonly hosts = new Set<string>();
+  readonly profiles = new Map<string, unknown>();
   identity: { pool_id: string } | undefined;
   databaseChecks = 0;
   closed = false;
@@ -61,7 +62,8 @@ class ProcessDatabase {
     if (query.includes("COALESCE(SUM(minimum_units)")) return [{ units: 0 }];
     if (query.startsWith("INSERT INTO factory_pool_resources")) { const resource = query.includes("'gpu-host'") ? "gpu-host" : String(params[0]); this.resources.set(resource, resource === "gpu-host" ? (this.resources.get(resource) ?? 0) + 1 : Number(params[1])); return []; }
     if (query.includes("FROM factory_pool_hosts WHERE host_id = $1 FOR UPDATE")) return this.hosts.has(String(params[0])) ? [{ host_id: params[0], state: "available", reservation_id: null, holder_generation: null }] : [];
-    if (query.startsWith("INSERT INTO factory_pool_hosts")) { this.hosts.add(String(params[0])); return []; }
+    if (query.startsWith("INSERT INTO factory_pool_hosts")) { this.hosts.add(String(params[0])); if (params[1] !== null && params[1] !== undefined) this.profiles.set(String(params[0]), JSON.parse(String(params[1]))); return []; }
+    if (query.startsWith("UPDATE factory_pool_hosts SET profile_json")) { this.profiles.set(String(params[1]), JSON.parse(String(params[0]))); return []; }
     return [];
   }
   async close(): Promise<void> { this.closed = true; if (this.failClose) throw new Error("secret close failure"); }
@@ -192,6 +194,15 @@ describe("factory pool process lifecycle", () => {
     const validController = new AbortController(); const validUpdates: FactoryPoolReadinessUpdate[] = [];
     await runConfiguredFactoryPoolProcess(invalidProfiles.paths.config, validController.signal, dependencies(new ProcessDatabase(), validController, validUpdates));
     expect(validUpdates.some((update) => update.lifecycle === "ready" && update.listenerReady)).toBe(true);
+
+    // W02d R2: every GPU host the pool offers is registered with the profile the file declares for it, so its
+    // leases carry that profile; a host the file does not declare is registered without one and never assigned.
+    const offered = await fixture({ resources: { capacities: { cpu: 4 }, gpuHosts: ["gpu-a", "gpu-b"], gpuProfilesPath: profilesPath } });
+    await writeFile(profilesPath, JSON.stringify({ schemaVersion: "factory.gpu-host-profiles.v1", hosts: [{ hostId: "gpu-a", tier: "trusted-local", devices: ["/dev/dri/renderD128"], cdiDevices: [] }] }), { mode: 0o600 });
+    const offeredDatabase = new ProcessDatabase(); const offeredController = new AbortController(); const offeredUpdates: FactoryPoolReadinessUpdate[] = [];
+    await runConfiguredFactoryPoolProcess(offered.paths.config, offeredController.signal, dependencies(offeredDatabase, offeredController, offeredUpdates));
+    expect([...offeredDatabase.hosts].sort()).toEqual(["gpu-a", "gpu-b"]);
+    expect(Object.fromEntries(offeredDatabase.profiles)).toEqual({ "gpu-a": { tier: "trusted-local", devices: ["/dev/dri/renderD128"], cdiDevices: [] } });
 
     const listener = await fixture(); const listenerDatabase = new ProcessDatabase(); const listenerController = new AbortController(); const listenerUpdates: FactoryPoolReadinessUpdate[] = [];
     await expect(runConfiguredFactoryPoolProcess(listener.paths.config, listenerController.signal, dependencies(listenerDatabase, listenerController, listenerUpdates, { startError: true }))).rejects.toThrow("listener_unavailable");

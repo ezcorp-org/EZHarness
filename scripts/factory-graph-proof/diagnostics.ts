@@ -28,6 +28,8 @@
 import { closeSync, openSync, readFileSync, writeFileSync, writeSync, type Dirent } from "node:fs";
 import { copyFile, mkdir, readdir, readFile, stat } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
+import { canonicalizeJson } from "@ezcorp/factory-sdk/canonical";
+import type { JsonValue } from "@ezcorp/factory-sdk";
 
 export interface PassDiagnostics {
   /** The pass's output directory. */
@@ -308,4 +310,43 @@ export async function checkPassDiagnostics(diagnostics: PassDiagnostics): Promis
     if (readiness[name] <= 0) problems.push(`stack file ${name} is ${readiness[name] < 0 ? "missing" : "empty"}`);
   }
   return { ok: problems.length === 0, processLogs, readiness, problems };
+}
+
+/** A refusal the product itself logged while the pass ran: which background role, and the error it named. */
+export interface ProductRefusal { readonly role: string; readonly error: string }
+
+/**
+ * Every "[factory] background role failed" block in a pass's web log, in order. A pass that fails must name
+ * what the product refused, not only its own teardown error (W02d P2: "Unable to connect" hid an admission
+ * refused factory_budget_exhausted).
+ */
+export function backgroundRefusals(webLog: string): ProductRefusal[] {
+  const refusals: ProductRefusal[] = [];
+  for (const match of webLog.matchAll(/\[factory\] background role failed \{\s*role: "([^"]*)",\s*error: "([^"]*)",?\s*\}/g)) refusals.push({ role: match[1]!, error: match[2]! });
+  return refusals;
+}
+
+const DETAIL_LIMIT = 300;
+
+/** One clause per failing check: its name, what it expected when it says so, and what the pass saw, bounded. */
+export function describeFailedChecks(checks: ReadonlyArray<{ readonly check: string; readonly ok: boolean; readonly expected?: unknown; readonly detail?: unknown }>): string {
+  const shown = (value: unknown) => {
+    const text = JSON.stringify(value) ?? String(value);
+    return text.length > DETAIL_LIMIT ? `${text.slice(0, DETAIL_LIMIT)}…` : text;
+  };
+  return checks.filter((entry) => !entry.ok).map((entry) => {
+    const parts = [...(entry.expected === undefined ? [] : [`expected ${shown(entry.expected)}`]), ...("detail" in entry ? [`saw ${shown(entry.detail)}`] : [])];
+    return parts.length === 0 ? entry.check : `${entry.check} (${parts.join(", ")})`;
+  }).join("; ");
+}
+
+/**
+ * Whether two values are the same canonical JSON (a jsonb column returns its keys in its own order). A value that
+ * cannot be canonical JSON, such as a field left undefined by a node that failed, is simply not equal: a check must
+ * report false, never crash the verdict (W02d P2: "Value is not valid I-JSON" replaced every failing check).
+ */
+export function canonicallyEqual(left: unknown, right: unknown): boolean {
+  if (left === undefined || right === undefined) return false;
+  try { return canonicalizeJson(left as JsonValue) === canonicalizeJson(right as JsonValue); }
+  catch { return false; }
 }

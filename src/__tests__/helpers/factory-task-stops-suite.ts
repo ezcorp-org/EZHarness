@@ -8,7 +8,7 @@ import { digestObject } from "../../extensions/v4/blobs";
 import type { BlobStore } from "../../extensions/v4/types";
 import { FactoryAttemptQueue } from "../../factory/attempt-queue";
 import type { FactoryBudgets } from "../../factory/budgets";
-import { FactoryComputeAdmissions } from "../../factory/compute-admissions";
+import { FactoryComputeAdmissionError, FactoryComputeAdmissions } from "../../factory/compute-admissions";
 import { FactoryExecutionJournal } from "../../factory/executions";
 import type { FactoryPrincipal } from "../../factory/grants";
 import { FactoryInbox } from "../../factory/inbox";
@@ -24,7 +24,11 @@ import type { FactoryModelFailure } from "../../factory/runner/guest-model-broke
 import { createFactoryJournalGuestModelJournal, factoryGuestModelFailure } from "../../factory/runner/guest-model-journal";
 import { readAttemptSupersessionInTransaction, supersedeEpochAttemptsInTransaction } from "../../factory/attempt-supersessions";
 import { persistTransition } from "../../../packages/@ezcorp/factory-orchestrator/src/transition-pages";
-import { createFactoryLiveAttemptWorld, type FactoryLiveAttempt, type FactoryLiveAttemptWorld } from "./factory-live-attempt-world";
+import { createFactoryLiveAttemptWorld, type FactoryDispatchableRun, type FactoryLiveAttempt, type FactoryLiveAttemptWorld } from "./factory-live-attempt-world";
+import { FactoryDispatchRefusedStopRecorder, FactoryDispatchRefusedStops, factoryNothingLaunchedSettle } from "../../factory/dispatch-refused-stops";
+import { FactoryTaskExecutionAdmission } from "../../factory/task-execution-admission";
+import { FACTORY_TASK_STOP_SOURCE_CLAUSE } from "../../db/migrations/add-factory-task-stop-dispatch-refused";
+import { factoryAttemptWorkerId } from "../../factory/runner/attempt-runtime";
 
 const hostKeys = generateKeyPairSync("rsa", { modulusLength: 2048 });
 const rotatedKeys = generateKeyPairSync("rsa", { modulusLength: 2048 });
@@ -182,6 +186,26 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
     expect(receipt.state).toBe("stopped");
     expect(receipt.stopReceipt).toMatchObject({ processGroupAbsent: true, hostId, reason: "cancelled" });
     expect(await executionStatus(attempt.attemptId)).toBe("stopped");
+  });
+
+  test("a GPU stop the pool holds for a reimage confirms and settles once; any other uncertain acknowledgement is refused (W02d R7)", async () => {
+    const gpu = await launchedAttempt();
+    const { reference } = await cancelled(gpu);
+    const awaiting = { state: "uncertain", reason: "awaiting-gpu-reimage", resources: { "gpu-host": 1 } } as const;
+    const receipt = await harness(gpu, stopper(async request => signed(request)), acknowledger(awaiting)).stops.stop(service, reference);
+    expect(receipt.state).toBe("stopped");
+    expect(await reservationState(gpu.reservationId)).toMatchObject({ state: "settled" });
+    expect(await settlementRows(gpu.run.runId)).toHaveLength(1);
+
+    const lapsed = await launchedAttempt();
+    const lapsedCancel = await cancelled(lapsed);
+    // A lapsed lease, or a holder still running, proves nothing about the process: the stop stays uncertain.
+    for (const refused of [{ ...awaiting, reason: "lease-expired" }, { state: "running" as const }]) {
+      expect(await harness(lapsed, stopper(async request => signed(request)), acknowledger(refused)).stops.stop(service, lapsedCancel.reference))
+        .toMatchObject({ state: "uncertain", cause: { code: "factory_task_stop_pool_mismatch" } });
+    }
+    // Left settled, as every case leaves the shared tenant.
+    expect((await harness(lapsed, stopper(async request => signed(request)), acknowledger()).stops.stop(service, lapsedCancel.reference)).state).toBe("stopped");
   });
 
   test("stops a still-running attempt from its sealed launch, and an empty journal settles a typed zero", async () => {
@@ -521,12 +545,37 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
     expect((await forged.stops.stop(service, reference)).state).toBe("uncertain");
     const mismatched = harness(attempt, stopper(async request => signed(request)), acknowledger({ state: "running" }));
     expect((await mismatched.stops.stop(service, reference)).state).toBe("uncertain");
-    const staleGeneration = harness(attempt, stopper(async request => signed(request)), acknowledger({ allocationGeneration: 9 }));
+    // The pool's allocation generation never moves back: an answer below the signed one is not about this allocation.
+    const staleGeneration = harness(attempt, stopper(async request => signed(request)), acknowledger({ allocationGeneration: attempt.lease.allocationGeneration - 1 }));
     expect((await staleGeneration.stops.stop(service, reference)).state).toBe("uncertain");
+    // Nor is an answer for another holder of the reservation.
+    const otherHolder = harness(attempt, stopper(async request => signed(request)), acknowledger({ holderGeneration: attempt.lease.holderGeneration + 1 }));
+    expect((await otherHolder.stops.stop(service, reference)).state).toBe("uncertain");
     expect(await reservationState(attempt.reservationId)).toMatchObject({ state: "uncertain" });
     expect(await executionStatus(attempt.attemptId)).toBe("cancel_accepted");
     const accepted = harness(attempt, stopper(async request => signed(request)), acknowledger());
     expect((await accepted.stops.stop(service, reference)).state).toBe("stopped");
+  });
+
+  test("W02d R6: a stop the pool confirms after it reclaimed the lease from the same holder settles (measured: P2 at db3e5682c)", async () => {
+    // The pool reclaimed the expired lease (allocation generation + 1, same holder), then confirmed the host's signed
+    // stop of that holder. Refusing it left the hold uncertain forever and retried every pass.
+    const attempt = await launchedAttempt();
+    const { reference } = await cancelled(attempt);
+    const reclaimed = harness(attempt, stopper(async request => signed(request)), acknowledger({ allocationGeneration: attempt.lease.allocationGeneration + 1 }));
+    expect((await reclaimed.stops.stop(service, reference)).state).toBe("stopped");
+    expect(await reservationState(attempt.reservationId)).toMatchObject({ state: "settled" });
+  });
+
+  test("a pool confirmation that names another host is refused, and nothing settles (the pool confirmation's host clause)", async () => {
+    const attempt = await launchedAttempt();
+    const { reference } = await cancelled(attempt);
+    const elsewhere = harness(attempt, stopper(async request => signed(request)), acknowledger({ hostId: "host-elsewhere" }));
+    expect(await elsewhere.stops.stop(service, reference)).toMatchObject({ state: "uncertain", cause: { code: "factory_task_stop_pool_mismatch" } });
+    expect(await reservationState(attempt.reservationId)).toMatchObject({ state: "uncertain" });
+    expect(await settlementRows(attempt.run.runId)).toEqual([]);
+    // A pool with no host recorded (a CPU reservation) has no opinion, which is not a contradiction.
+    expect((await harness(attempt, stopper(async request => signed(request)), acknowledger({ hostId: undefined })).stops.stop(service, reference)).state).toBe("stopped");
   });
 
   test("a rotated host key signs new stops while the retired key is refused", async () => {
@@ -862,6 +911,129 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
     expect(rows(await fixture.db.execute(sql`SELECT source, known_cost_micros, basis FROM factory_usage_settlements WHERE reservation_id=${reserved.reservationId}`))).toEqual([{ source: "no-operations", known_cost_micros: "0", basis: FACTORY_USAGE_NOTHING_LAUNCHED_BASIS }]);
   });
 
+  /** W02d R8: a dispatch refused after its compute was admitted, and the stops that must release it. */
+  const refusedDispatch = (run: FactoryDispatchableRun) => new FactoryTaskExecutionAdmission(run.authority, run.admissions, run.journal, run.queue,
+    { async resolveInTransaction() { throw Object.assign(new Error("the package was quarantined"), { code: "factory_package_quarantined" }); } } as never,
+    () => now, new FactoryDispatchRefusedStopRecorder(tenantId, hostId, () => now)).dispatch(service, run.dispatchReference);
+  const nothingLaunched = () => factoryNothingLaunchedSettle({ budgets: lifecycle.budgets, settlements: new FactoryUsageSettlements(fixture.db, tenantId, new FactoryInbox(fixture.db, tenantId, () => now), () => now) });
+  const refusedStops = (stopper: FactoryPhysicalStopper, pool: FactoryPoolStopAcknowledger) => new FactoryDispatchRefusedStops(fixture.db, tenantId, stopper, pool,
+    [{ hostId, hostKeyId: "stop-host-key-1", publicKey: hostKeys.publicKey }], nothingLaunched(), () => now);
+  const dispatchOf = (run: FactoryDispatchableRun) => run.state.commands.find(command => command.kind === "dispatch-node") as { nodeId: string; candidateGeneration: number };
+  const refusedRows = async (runId: string) => rows<{ source: string; attempt_id: string | null; worker_id: string | null; cancel_command_id: string; state: string }>(await fixture.db.execute(sql`SELECT source, attempt_id, worker_id, cancel_command_id, state FROM factory_task_stops WHERE run_id=${runId}`));
+
+  test("W02d R8: a dispatch refused after admission releases its lease and hold once, through the host's signed absence", async () => {
+    const run = await world.dispatchable();
+    const dispatchId = run.dispatchReference.commandId;
+    expect(await refusedDispatch(run)).toEqual({ refused: "factory_package_quarantined", queued: false });
+    // The leak W09d-2 O1 named: nothing is queued and nothing will run, but the lease and the hold are still held.
+    expect(await reservationState(run.reservationId)).toMatchObject({ state: "running" });
+    expect(await refusedRows(run.run.runId)).toEqual([{ source: "dispatch-refused", attempt_id: null, worker_id: factoryAttemptWorkerId(dispatchId), cancel_command_id: dispatchId, state: "accepted" }]);
+    // The task stop scan never lists it; the refused stops do.
+    const { stops: taskStops } = harness(await launchedAttempt(), stopper(async request => signed(request)), acknowledger());
+    expect((await fixture.db.transaction(transaction => taskStops.listStoppableInTransaction(transaction))).some(item => item.reference.commandId === dispatchId)).toBe(false);
+    const calls = { count: 0 };
+    let poolCalls = 0;
+    const stops = refusedStops(stopper(async request => signed(request), calls), acknowledger({}, () => { poolCalls += 1; }));
+    const listed = await fixture.db.transaction(transaction => stops.listInTransaction(transaction));
+    const mine = listed.filter(item => item.dispatchCommandId === dispatchId);
+    expect(mine).toEqual([{ projectId, runId: run.run.runId, interpreterId: run.dispatchReference.interpreterId, dispatchCommandId: dispatchId, reservationId: run.reservationId, workerId: factoryAttemptWorkerId(dispatchId),
+      authority: { attemptId: dispatchId, nodeInstanceId: dispatchOf(run).nodeId, candidateGeneration: dispatchOf(run).candidateGeneration, attemptNumber: 1 } }]);
+    expect(await stops.stop(mine[0]!)).toBe("stopped");
+    expect([calls.count, poolCalls]).toEqual([1, 1]);
+    expect(await reservationState(run.reservationId)).toMatchObject({ state: "settled" });
+    expect(JSON.parse((await reservationState(run.reservationId))!.actual!)).toEqual({ costMicros: "0", tokens: "0", computeMs: "0" });
+    // W09h's basis: the node attempt's usage settles as "nothing launched, all zero", proved by the host's signed stop.
+    expect(rows(await fixture.db.execute(sql`SELECT attempt_id, source, known_cost_micros, basis, stop_receipt_digest FROM factory_usage_settlements WHERE reservation_id=${run.reservationId}`)))
+      .toEqual([{ attempt_id: run.dispatchReference.commandId, source: "no-operations", known_cost_micros: "0", basis: FACTORY_USAGE_NOTHING_LAUNCHED_BASIS, stop_receipt_digest: expect.stringMatching(/^sha256:[0-9a-f]{64}$/) }]);
+    // The kernel takes that event for the dispatched attempt: its usage is a known zero, so the run's budget is exact.
+    const [usage] = rows<{ event_json: string }>(await fixture.db.execute(sql`SELECT event_json FROM factory_usage_settlements WHERE reservation_id=${run.reservationId}`));
+    expect(advanceKernel(run.compiled, run.state.nextState, JSON.parse(usage!.event_json) as KernelEvent).nextState.usageSettlements[dispatchId]).toEqual({ nodeId: dispatchOf(run).nodeId, revision: 1, knownCostMicros: "0", unknownCostMicros: "0" });
+    expect((await refusedRows(run.run.runId))[0]!.state).toBe("stopped");
+    // Once: a repeated stop answers from the record and asks nobody; the scan no longer lists it.
+    expect(await stops.stop(mine[0]!)).toBe("stopped");
+    expect([calls.count, poolCalls]).toEqual([1, 1]);
+    expect((await fixture.db.transaction(transaction => stops.listInTransaction(transaction))).some(item => item.dispatchCommandId === dispatchId)).toBe(false);
+  });
+
+  test("W02d R8: a stop whose attempt authority was altered is refused corrupt, and a malformed authority is never recorded", async () => {
+    const run = await world.dispatchable();
+    await refusedDispatch(run);
+    const stops = refusedStops(stopper(async request => signed(request)), acknowledger());
+    const [item] = (await fixture.db.transaction(transaction => stops.listInTransaction(transaction))).filter(entry => entry.runId === run.run.runId);
+    const [stored] = rows<{ attempt_authority_json: string }>(await fixture.db.execute(sql`SELECT attempt_authority_json FROM factory_task_stops WHERE cancel_command_id=${item!.dispatchCommandId}`));
+    const genuine = JSON.parse(stored!.attempt_authority_json) as Record<string, unknown>;
+    for (const altered of ["not json", "null", JSON.stringify({ attemptId: genuine.attemptId }), JSON.stringify({ ...genuine, attemptNumber: -1 }), JSON.stringify(genuine, null, 1)]) {
+      await fixture.db.execute(sql`UPDATE factory_task_stops SET attempt_authority_json=${altered} WHERE cancel_command_id=${item!.dispatchCommandId}`);
+      await expect(fixture.db.transaction(transaction => stops.listInTransaction(transaction))).rejects.toMatchObject({ code: "factory_task_stop_corrupt" });
+      await expect(stops.stop(item!)).rejects.toMatchObject({ code: "factory_task_stop_corrupt" });
+    }
+    await fixture.db.execute(sql`UPDATE factory_task_stops SET attempt_authority_json=${stored!.attempt_authority_json} WHERE cancel_command_id=${item!.dispatchCommandId}`);
+    // The recorder refuses an authority it could not read back, before writing anything.
+    const recorder = new FactoryDispatchRefusedStopRecorder(tenantId, hostId, () => now);
+    const { lease } = (await fixture.db.transaction(transaction => run.admissions.readAdmittedInTransaction(transaction, { projectId, runId: run.run.runId, reservationId: run.reservationId }))).receipt;
+    await expect(fixture.db.transaction(transaction => recorder.recordInTransaction(transaction, { ...run.dispatchReference, commandId: `${run.dispatchReference.commandId}-other` } as never, run.reservationId, lease, { ...item!.authority, attemptNumber: -1 })))
+      .rejects.toMatchObject({ code: "factory_task_stop_scope" });
+    expect(await refusedRows(run.run.runId)).toHaveLength(1);
+    // Left settled through its own refused stop, as every case leaves the shared tenant.
+    expect(await stops.stop(item!)).toBe("stopped");
+  });
+
+  test("W02d R8: a pool that has not confirmed the stop settles nothing: the hold stays held and the stop stays accepted (C03)", async () => {
+    const run = await world.dispatchable();
+    await refusedDispatch(run);
+    for (const unconfirmed of [{ state: "uncertain", reason: "lease-expired" }, { state: "running" }] as const) {
+      const stops = refusedStops(stopper(async request => signed(request)), acknowledger(unconfirmed));
+      const [item] = (await fixture.db.transaction(transaction => stops.listInTransaction(transaction))).filter(entry => entry.runId === run.run.runId);
+      await expect(stops.stop(item!)).rejects.toMatchObject({ code: "factory_task_stop_pool_mismatch" });
+      expect(await reservationState(run.reservationId)).toMatchObject({ state: "running" });
+      expect((await refusedRows(run.run.runId))[0]!.state).toBe("accepted");
+      expect(rows(await fixture.db.execute(sql`SELECT source FROM factory_usage_settlements WHERE reservation_id=${run.reservationId}`))).toEqual([]);
+    }
+    // Left settled through its own refused stop, as every case leaves the shared tenant.
+    const stops = refusedStops(stopper(async request => signed(request)), acknowledger());
+    for (const item of (await fixture.db.transaction(transaction => stops.listInTransaction(transaction))).filter(entry => entry.runId === run.run.runId)) await stops.stop(item);
+  });
+
+  test("W02d R8: a refusal for compute that was never admitted records no stop (negative control)", async () => {
+    const run = await world.dispatchable();
+    await fixture.db.execute(sql`UPDATE factory_budget_reservations SET state='held' WHERE reservation_id=${run.reservationId}`);
+    expect(await refusedDispatch(run)).toMatchObject({ queued: false });
+    expect(await refusedRows(run.run.runId)).toEqual([]);
+    await fixture.db.execute(sql`UPDATE factory_budget_reservations SET state='running' WHERE reservation_id=${run.reservationId}`);
+    // Left settled through its own refused stop, as every case leaves the shared tenant.
+    await refusedDispatch(run);
+    const stops = refusedStops(stopper(async request => signed(request)), acknowledger());
+    for (const item of (await fixture.db.transaction(transaction => stops.listInTransaction(transaction))).filter(entry => entry.runId === run.run.runId)) await stops.stop(item);
+  });
+
+  test("W02d R8: a fault reading the admitted compute is not hidden behind the refusal", async () => {
+    const run = await world.dispatchable();
+    const corrupt = Object.assign(Object.create(run.admissions) as typeof run.admissions, {
+      async readAdmittedInTransaction() { throw new FactoryComputeAdmissionError("factory_compute_admission_corrupt"); },
+    });
+    await expect(refusedDispatch({ ...run, admissions: corrupt })).rejects.toMatchObject({ code: "factory_compute_admission_corrupt" });
+    expect(await refusedRows(run.run.runId)).toEqual([]);
+    // Left settled through its own refused stop, as every case leaves the shared tenant.
+    await refusedDispatch(run);
+    const stops = refusedStops(stopper(async request => signed(request)), acknowledger());
+    for (const item of (await fixture.db.transaction(transaction => stops.listInTransaction(transaction))).filter(entry => entry.runId === run.run.runId)) await stops.stop(item);
+  });
+
+  test("W02d R8: a repeated refusal records one stop, and two concurrent stops release the hold once", async () => {
+    const run = await world.dispatchable();
+    await refusedDispatch(run);
+    await refusedDispatch(run);
+    expect(await refusedRows(run.run.runId)).toHaveLength(1);
+    const settles: string[] = [];
+    const settle = nothingLaunched();
+    const stops = new FactoryDispatchRefusedStops(fixture.db, tenantId, stopper(async request => signed(request)), acknowledger(),
+      [{ hostId, hostKeyId: "stop-host-key-1", publicKey: hostKeys.publicKey }], async (transaction, input) => { settles.push(input.reservationId); await settle(transaction, input); }, () => now);
+    const [item] = (await fixture.db.transaction(transaction => stops.listInTransaction(transaction))).filter(entry => entry.runId === run.run.runId);
+    expect(await Promise.all([stops.stop(item!), stops.stop(item!)])).toEqual(["stopped", "stopped"]);
+    expect(settles).toEqual([run.reservationId]);
+    expect(await reservationState(run.reservationId)).toMatchObject({ state: "settled" });
+  });
+
   test("lists exactly the accepted cancellations a stop worker must still drive", async () => {
     const list = (stops: FactoryTaskStops, options?: { limit?: number; after?: { acceptedAtMs: number; cancelCommandId: string } }) =>
       fixture.db.transaction(transaction => stops.listStoppableInTransaction(transaction, options));
@@ -924,7 +1096,7 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
       await expect(list(empty.stops)).rejects.toMatchObject({ code: "factory_task_stop_corrupt" });
     } finally {
       await fixture.db.execute(sql`UPDATE factory_task_stops SET source='sealed-launch' WHERE cancel_command_id=${firstReference.commandId}`);
-      await fixture.db.execute(sql`ALTER TABLE factory_task_stops ADD CONSTRAINT factory_task_stops_source_check CHECK (source IN ('terminal-outcome','sealed-launch'))`);
+      await fixture.db.execute(sql`ALTER TABLE factory_task_stops ADD CONSTRAINT factory_task_stops_source_check CHECK (${sql.raw(FACTORY_TASK_STOP_SOURCE_CLAUSE)})`);
     }
     expect((await list(empty.stops)).length).toBeGreaterThan(0);
   });

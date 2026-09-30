@@ -12,7 +12,7 @@ import type { Runner, RunnerExecution, RunnerInspection, StartRequest } from "@e
 import type { FactoryRunnerResult } from "@ezcorp/factory-sdk";
 import { factoryLaunchCompletedResult, factoryLaunchLease, factoryLaunchPackage, factoryLaunchRequest } from "../../__tests__/helpers/factory-attempt-launch-fixture";
 import { FactoryAttemptRuntimeError, snapshotIntent, type FactoryAttemptLaunchIntent } from "./attempt-wire";
-import { createFactoryHostLaunchSupervisor } from "./host-launch-supervisor";
+import { createFactoryHostLaunchSupervisor, factoryHostDevicePresent } from "./host-launch-supervisor";
 
 const hostId = factoryLaunchLease.hostId;
 const completed = factoryLaunchCompletedResult("host-supervisor");
@@ -69,7 +69,7 @@ class GatedRunner implements Runner {
   }
 }
 
-function supervisor(runner: Runner, extra: { onClosed?: (workerId: string) => void; retentionMs?: number } = {}) {
+function supervisor(runner: Runner, extra: { onClosed?: (workerId: string) => void; retentionMs?: number; devicePresent?: (path: string) => Promise<boolean> } = {}) {
   return createFactoryHostLaunchSupervisor({ runner, hostId, broker: { invoke: async () => ({}) }, ...extra });
 }
 
@@ -226,5 +226,48 @@ describe("a start still in flight is joined, never inspected half made", () => {
     expect(String(await refusal(host.launch(intent, new AbortController().signal)))).toContain("podman create failed");
     expect(await host.attach(intent, new AbortController().signal)).toMatchObject({ disposition: "uncertain" });
     expect((await refusal(host.result(intent, new AbortController().signal)) as FactoryAttemptRuntimeError).code).toBe("attempt_unknown");
+  });
+});
+
+describe("the host refuses a device it does not have before any container exists (W02d R4)", () => {
+  const gpuIntent = (attemptId: string, devices: readonly string[]) => {
+    const request = factoryLaunchRequest({ attemptId });
+    return snapshotIntent(request, factoryLaunchLease, factoryLaunchPackage(request), { devices, cdiDevices: [], gpuHosts: 1 });
+  };
+
+  test("a grant naming an absent node is device_unavailable, and the runner is never asked to start", async () => {
+    const runner = new GatedRunner();
+    const asked: string[] = [];
+    const host = supervisor(runner, { devicePresent: async (path) => { asked.push(path); return path !== "/dev/dri/renderD200"; } });
+    const intent = gpuIntent("attempt-absent-device", ["/dev/dri/renderD128", "/dev/dri/renderD200"]);
+    const refused = await refusal(host.launch(intent, new AbortController().signal)) as FactoryAttemptRuntimeError;
+    expect(refused).toBeInstanceOf(FactoryAttemptRuntimeError);
+    expect(refused.code).toBe("device_unavailable");
+    expect(refused.message).toContain("/dev/dri/renderD200");
+    expect(refused.message).toContain(hostId);
+    expect(asked).toEqual(["/dev/dri/renderD128", "/dev/dri/renderD200"]);
+    expect(runner.starts).toBe(0);
+    // Nothing is left behind: a repeat is refused the same way, and never attaches.
+    expect(((await refusal(host.launch(intent, new AbortController().signal))) as FactoryAttemptRuntimeError).code).toBe("device_unavailable");
+    expect(runner.starts + runner.attaches).toBe(0);
+  });
+
+  test("present nodes pass to the runner as granted; a CPU grant asks nothing", async () => {
+    const runner = new GatedRunner();
+    const asked: string[] = [];
+    const started: StartRequest[] = [];
+    const start = runner.start.bind(runner);
+    runner.start = async (input) => { started.push(input); return start(input); };
+    const host = supervisor(runner, { devicePresent: async (path) => { asked.push(path); return true; } });
+    expect(await host.launch(gpuIntent("attempt-present-device", ["/dev/dri/renderD128"]), new AbortController().signal)).toMatchObject({ disposition: "started" });
+    expect(started.map(input => input.devices)).toEqual([["/dev/dri/renderD128"]]);
+    expect(await host.launch(intentFor("attempt-cpu"), new AbortController().signal)).toMatchObject({ disposition: "started" });
+    expect(asked).toEqual(["/dev/dri/renderD128"]);
+  });
+
+  test("the default check reads /dev: a character device is present, a missing node or a plain file is not", async () => {
+    expect(await factoryHostDevicePresent("/dev/null")).toBe(true);
+    expect(await factoryHostDevicePresent("/dev/dri/renderD200")).toBe(false);
+    expect(await factoryHostDevicePresent("/etc/hostname")).toBe(false);
   });
 });

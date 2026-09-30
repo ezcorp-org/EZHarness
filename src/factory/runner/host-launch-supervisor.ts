@@ -1,3 +1,4 @@
+import { stat } from "node:fs/promises";
 import { executionLimits } from "@ezcorp/extension-runner";
 import type { Runner, RunnerExecution } from "@ezcorp/extension-contract";
 import { validateFactoryRunnerResult, type FactoryRunnerResult } from "@ezcorp/factory-sdk";
@@ -22,8 +23,34 @@ export interface FactoryHostLaunchSupervisorOptions {
   readonly now?: () => number;
   /** Told once, when this host closes a guest's execution, whether the guest answered or died. */
   readonly onClosed?: (workerId: string) => void;
+  /**
+   * Told once, when this host refuses a guest before any container exists (W02d R4): it created nothing for that
+   * worker, so a later stop of it is answered from this first-hand knowledge rather than by inspecting a runtime
+   * that never had it.
+   */
+  readonly onRefused?: (workerId: string) => void;
+  /**
+   * Whether this worker was stopped here without ever running (a durable host tombstone, W02d R8): its launch or
+   * attach is refused by name, before anything is started.
+   */
+  readonly stopped?: (tenantId: string, workerId: string) => boolean;
   /** How long a settled answer waits here to be collected. */
   readonly retentionMs?: number;
+  /** Whether a granted device node exists on this host; {@link factoryHostDevicePresent} unless a test replaces it. */
+  readonly devicePresent?: (path: string) => Promise<boolean>;
+}
+
+/**
+ * Whether a device node is present on this host: a character or block device at that path (W02d R4). It reads
+ * only `/dev` metadata, so the host's closure stays free of any store.
+ */
+export async function factoryHostDevicePresent(path: string): Promise<boolean> {
+  try {
+    const node = await stat(path);
+    return node.isCharacterDevice() || node.isBlockDevice();
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -82,9 +109,23 @@ function startRequest(intent: FactoryAttemptLaunchIntent, now: () => number) {
  * guest, which is the same one-winner rule the durable claim enforces on the
  * other side of the wire.
  */
-export function createFactoryHostLaunchSupervisor(options: FactoryHostLaunchSupervisorOptions): FactoryHostLaunchSupervisor {
+export function createFactoryHostLaunchSupervisor(options: FactoryHostLaunchSupervisorOptions): FactoryHostLaunchSupervisor & { holds(workerId: string): boolean } {
   const now = options.now ?? Date.now;
   const retentionMs = options.retentionMs ?? FACTORY_HOST_RESULT_RETENTION_MS;
+  const devicePresent = options.devicePresent ?? factoryHostDevicePresent;
+
+  /**
+   * A grant that names a node this host does not have is refused by name before any container exists (W02d R4),
+   * rather than failing inside `podman run` with no typed reason.
+   */
+  const assertDevices = async (intent: FactoryAttemptLaunchIntent): Promise<void> => {
+    for (const device of intent.devices.devices) {
+      if (!await devicePresent(device)) {
+        options.onRefused?.(intent.workerId);
+        throw new FactoryAttemptRuntimeError("device_unavailable", `Device ${device} granted to worker ${intent.workerId} is not present on host ${options.hostId}.`);
+      }
+    }
+  };
   const live = new Map<string, HostAttempt>();
   // A start still in flight. A second launch or an attach for the same worker
   // joins it rather than inspecting a container that is half created.
@@ -185,8 +226,14 @@ export function createFactoryHostLaunchSupervisor(options: FactoryHostLaunchSupe
     return handle("attached", intent);
   };
 
+  /** A worker this host tombstoned is refused before any start is registered (W02d R8). */
+  const assertNotStopped = (intent: FactoryAttemptLaunchIntent): void => {
+    if (options.stopped?.(intent.request.authority.tenantId, intent.workerId)) throw new FactoryAttemptRuntimeError("worker_stopped", `Worker ${intent.workerId} was stopped on host ${options.hostId} before it ever ran; it is not started or attached.`);
+  };
+
   const attachLive = async (intent: FactoryAttemptLaunchIntent): Promise<FactoryHostAttemptHandle> => {
     assertHost(intent);
+    assertNotStopped(intent);
     await starting.get(intent.workerId);
     return reconnect(intent);
   };
@@ -194,6 +241,7 @@ export function createFactoryHostLaunchSupervisor(options: FactoryHostLaunchSupe
   return Object.freeze({
     async launch(intent: FactoryAttemptLaunchIntent): Promise<FactoryHostAttemptHandle> {
       assertHost(intent);
+      assertNotStopped(intent);
       if (starting.has(intent.workerId) || live.has(intent.workerId)) return attachLive(intent);
       // Registered before the first await, so a second launch that arrives
       // while this one is still inspecting joins it instead of starting again.
@@ -201,6 +249,7 @@ export function createFactoryHostLaunchSupervisor(options: FactoryHostLaunchSupe
         const inspection = await options.runner.inspect(intent.workerId);
         if (inspection.state === "running") return reconnect(intent);
         if (inspection.state !== "unknown") return handle("terminal", intent);
+        await assertDevices(intent);
         const start = startRequest(intent, now);
         remember(intent, await options.runner.start(start, reverse(intent, start.context)), start.context);
         return handle("started", intent);
@@ -211,6 +260,8 @@ export function createFactoryHostLaunchSupervisor(options: FactoryHostLaunchSupe
       finally { if (starting.get(intent.workerId) === joined) starting.delete(intent.workerId); }
     },
     attach: attachLive,
+    /** Whether this host is starting or holds this worker: a stop of it is not a stop of a worker never seen. */
+    holds(workerId: string): boolean { return starting.has(workerId) || live.has(workerId); },
     /**
      * The guest's answer, or its typed absence, for as long as `signal` allows.
      *

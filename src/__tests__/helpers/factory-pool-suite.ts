@@ -29,6 +29,12 @@ function request(reservationId: string, tenantId: string, resources: PoolRequest
   };
 }
 
+/** Rows from either driver: PGlite returns `{ rows }`, Bun SQL an array. */
+function queryRows(value: unknown): Record<string, unknown>[] { return (Array.isArray(value) ? value : (value as { rows: unknown[] }).rows) as Record<string, unknown>[]; }
+
+/** A registered GPU host profile (W02d R2): without one, a GPU host is never assigned. */
+const GPU_PROFILE = Object.freeze({ tier: "trusted-local" as const, devices: Object.freeze(["/dev/dri/renderD128"]), cdiDevices: Object.freeze([]) as readonly string[] });
+
 function fence(lease: PoolLease) {
   return { reservationId: lease.reservationId, tenantId: lease.tenantId, grantRevision: lease.grantRevision, allocationGeneration: lease.allocationGeneration, allocationToken: lease.allocationToken };
 }
@@ -208,6 +214,22 @@ describe(`factory C03 pool admission ledger on ${fixture.name}`, () => {
     await expect(pool.request(request("unknown", "tenant-a", { provider: 1 }, clock))).resolves.toMatchObject({ status: "rejected" });
   });
 
+  test("a reservation has one holder: its grant takes the allocation generation, and a fenced reservation is never granted again", async () => {
+    // A task stop accepts the pool's confirmation for the same holder at a later allocation generation (W02d R6): the
+    // pool moves that generation only to fence the holder, and a second holder would need a second grant. Both hold here.
+    await pool.configureCapacity("cpu", 2);
+    await pool.request(request("one-holder", "tenant-a", { cpu: 1 }, clock));
+    const lease = await admitted(pool);
+    expect(lease.holderGeneration).toBe(lease.allocationGeneration);
+    await pool.acknowledgeStart(fence(lease));
+    clock.advance(30_001);
+    expect(await pool.expire()).toBe(1);
+    // Capacity is free for it, yet the fenced reservation is not scheduled again: no new holder exists.
+    expect(await pool.schedule()).toBeUndefined();
+    expect(await pool.status("one-holder")).toMatchObject({ state: "uncertain", allocationGeneration: lease.allocationGeneration + 1, holderGeneration: lease.holderGeneration });
+    expect(await pool.confirmStopped({ reservationId: "one-holder", holderGeneration: lease.holderGeneration })).toMatchObject({ state: "settled", allocationGeneration: lease.allocationGeneration + 1, holderGeneration: lease.holderGeneration });
+  });
+
   test("expiry increments allocation generation, rejects old heartbeats, and retains capacity until positive stop proof", async () => {
     await pool.configureCapacity("cpu", 1);
     await pool.request(request("lease", "tenant-a", { cpu: 1 }, clock));
@@ -234,7 +256,7 @@ describe(`factory C03 pool admission ledger on ${fixture.name}`, () => {
   });
 
   test("assigns a GPU whole host and prevents reuse before matching stop and reimage proofs", async () => {
-    await pool.registerGpuHost({ hostId: "gpu-host-a" });
+    await pool.registerGpuHost({ hostId: "gpu-host-a", profile: GPU_PROFILE });
     await pool.request(request("gpu-one", "tenant-a", { "gpu-host": 1 }, clock));
     const lease = await admitted(pool);
     expect(lease.hostId).toBe("gpu-host-a");
@@ -418,27 +440,132 @@ describe(`factory C03 pool admission ledger on ${fixture.name}`, () => {
     await expect(service.acknowledgeStopped(supervisorPrincipal, stop)).rejects.toThrow("requires a tenant certificate");
   });
 
-  test("a GPU stop stays unacknowledged until its host is proven reimaged", async () => {
+  test("assigns a GPU host only with a registered profile, snapshots it onto the lease, and a later profile change leaves the held lease as it was (W02d R2)", async () => {
+    await pool.registerGpuHost({ hostId: "gpu-bare" });
+    await pool.request(request("gpu-r2", "tenant-a", { "gpu-host": 1 }, clock));
+    // No profile: the host authorizes no device, so it is not offered at all.
+    expect(await pool.schedule()).toMatchObject({ status: "queued", blockingResource: "gpu-host" });
+    await pool.registerGpuHost({ hostId: "gpu-bare", profile: { tier: "trusted-local", devices: ["/dev/dri/renderD128"], cdiDevices: [] } });
+    const lease = await admitted(pool);
+    expect(lease).toMatchObject({ hostId: "gpu-bare", deviceProfile: { hostId: "gpu-bare", tier: "trusted-local", devices: ["/dev/dri/renderD128"], cdiDevices: [] } });
+    // Re-registration is idempotent for capacity and changes only the host's profile, never a held lease.
+    await pool.registerGpuHost({ hostId: "gpu-bare", profile: { tier: "trusted-local", devices: ["/dev/dri/renderD129"], cdiDevices: [] } });
+    expect((await pool.renew(fence(lease))).deviceProfile).toEqual(lease.deviceProfile);
+    expect(queryRows(await poolDatabase.unsafe("SELECT total_units FROM factory_pool_resources WHERE resource_class = 'gpu-host'")).map((row) => Number(row.total_units))).toEqual([1]);
+    // A lease that holds no GPU host carries no profile.
+    await pool.configureCapacity("cpu", 1);
+    await pool.request(request("cpu-r2", "tenant-a", { cpu: 1 }, clock));
+    expect((await admitted(pool)).deviceProfile).toBeUndefined();
+    // A corrupt stored snapshot is refused by name, never read as an empty grant.
+    await poolDatabase.unsafe("UPDATE factory_pool_requests SET device_profile_json = '{\"hostId\":7}'::jsonb WHERE reservation_id = 'gpu-r2'");
+    await expect(pool.renew(fence(lease))).rejects.toThrow("device profile");
+    // A profile that is not a profile is refused before anything is stored.
+    await expect(pool.registerGpuHost({ hostId: "gpu-bad", profile: { tier: "cloud", devices: [], cdiDevices: [] } as never })).rejects.toThrow("GPU host profile");
+    await expect(pool.registerGpuHost({ hostId: "gpu-bad", profile: { tier: "trusted-local", devices: [7], cdiDevices: [] } as never })).rejects.toThrow("GPU host profile");
+    expect(queryRows(await poolDatabase.unsafe("SELECT host_id FROM factory_pool_hosts WHERE host_id = 'gpu-bad'"))).toEqual([]);
+  });
+
+  test("a trusted-local host bound to one tenant is reused by that tenant without a reimage; any other tenant waits for the reimage (W02d R7b)", async () => {
+    const bound = { tier: "trusted-local" as const, devices: ["/dev/dri/renderD128"], cdiDevices: [] as string[], tenantId: "tenant-a" };
+    await pool.registerGpuHost({ hostId: "gpu-local", profile: bound });
+    await pool.request(request("local-1", "tenant-a", { "gpu-host": 1 }, clock));
+    const first = await admitted(pool);
+    expect(first).toMatchObject({ hostId: "gpu-local", deviceProfile: { hostId: "gpu-local", tier: "trusted-local", devices: ["/dev/dri/renderD128"], cdiDevices: [] } });
+    // The bound tenant's own stop, confirmed by the supervisor, settles the reservation and frees the host for it.
+    expect(await pool.confirmStopped({ reservationId: "local-1", holderGeneration: first.holderGeneration, hostId: "gpu-local" })).toMatchObject({ state: "settled", reason: "stopped-confirmed-trusted-local" });
+    // Another tenant queued first is not given the host: the residue belongs to tenant-a (the cross-tenant refusal).
+    await pool.request(request("other-1", "tenant-b", { "gpu-host": 1 }, clock));
+    expect(await pool.schedule()).toMatchObject({ status: "queued", reservationId: "other-1", blockingResource: "gpu-host" });
+    // A restart of the pool keeps the binding and the residue: they are pool facts, not process memory.
+    pool = new FactoryPoolLedger(poolDatabase, clock);
+    clock.advance(1_000);
+    await pool.request(request("local-2", "tenant-a", { "gpu-host": 1 }, clock));
+    await pool.cancel("other-1", 1);
+    const second = await admitted(pool);
+    expect(second).toMatchObject({ reservationId: "local-2", hostId: "gpu-local" });
+    expect(await pool.confirmStopped({ reservationId: "local-2", holderGeneration: second.holderGeneration, hostId: "gpu-local" })).toMatchObject({ state: "settled" });
+    // Only the reimage receipt for the last holder clears the residue; then another tenant may have the host.
+    await pool.request(request("other-2", "tenant-b", { "gpu-host": 1 }, clock));
+    expect(await pool.schedule()).toMatchObject({ status: "queued", reservationId: "other-2", blockingResource: "gpu-host" });
+    await expect(pool.confirmGpuReimage({ reservationId: "local-1", hostId: "gpu-local", holderGeneration: first.holderGeneration, receipt: "old" })).rejects.toThrow("stale");
+    expect(await pool.confirmGpuReimage({ reservationId: "local-2", hostId: "gpu-local", holderGeneration: second.holderGeneration, receipt: "reimaged" })).toMatchObject({ state: "settled", reason: "gpu-reimage-confirmed" });
+    expect(await pool.schedule()).toMatchObject({ status: "admitted", reservationId: "other-2", lease: { hostId: "gpu-local" } });
+    expect(queryRows(await poolDatabase.unsafe("SELECT allocated_units FROM factory_pool_resources WHERE resource_class = 'gpu-host'")).map((row) => Number(row.allocated_units))).toEqual([1]);
+  });
+
+  test("a stop by a tenant the trusted-local host is not bound to, and any stop on a production host, keep the reimage fence (W02d R7b)", async () => {
+    await pool.registerGpuHost({ hostId: "gpu-local", profile: { tier: "trusted-local", devices: ["/dev/dri/renderD128"], cdiDevices: [], tenantId: "tenant-a" } });
+    await pool.registerGpuHost({ hostId: "gpu-prod", profile: { tier: "production", devices: [], cdiDevices: ["nvidia.com/gpu=0"] } });
+    await pool.request(request("b-on-local", "tenant-b", { "gpu-host": 1 }, clock));
+    const foreign = await admitted(pool);
+    expect(foreign.hostId).toBe("gpu-local");
+    await pool.request(request("a-on-prod", "tenant-a", { "gpu-host": 1 }, clock));
+    const production = await admitted(pool);
+    expect(production.hostId).toBe("gpu-prod");
+    for (const [lease, hostId] of [[foreign, "gpu-local"], [production, "gpu-prod"]] as const) {
+      expect(await pool.confirmStopped({ reservationId: lease.reservationId, holderGeneration: lease.holderGeneration, hostId })).toMatchObject({ state: "uncertain", reason: "awaiting-gpu-reimage" });
+    }
+    // Neither host is offered again, not even to the tenant the trusted-local host is bound to.
+    await pool.request(request("a-next", "tenant-a", { "gpu-host": 1 }, clock));
+    expect(await pool.schedule()).toMatchObject({ status: "queued", blockingResource: "gpu-host" });
+  });
+
+  test("two schedulers racing for one trusted-local host give it to one reservation (W02d R7b)", async () => {
+    await pool.registerGpuHost({ hostId: "gpu-local", profile: { tier: "trusted-local", devices: ["/dev/dri/renderD128"], cdiDevices: [], tenantId: "tenant-a" } });
+    await pool.request(request("race-1", "tenant-a", { "gpu-host": 1 }, clock));
+    await pool.request(request("race-2", "tenant-a", { "gpu-host": 1 }, clock));
+    const decisions = await Promise.all([pool.schedule(), pool.schedule()]);
+    expect(decisions.filter((decision) => decision?.status === "admitted")).toHaveLength(1);
+    expect(queryRows(await poolDatabase.unsafe("SELECT count(*)::int AS held FROM factory_pool_requests WHERE state = 'held'")).map((row) => Number(row.held))).toEqual([1]);
+  });
+
+  test("a tenant binding is accepted only on a trusted-local profile and only as one tenant id (W02d R7b)", async () => {
+    await expect(pool.registerGpuHost({ hostId: "gpu-x", profile: { tier: "production", devices: [], cdiDevices: [], tenantId: "tenant-a" } })).rejects.toThrow("GPU host profile");
+    await expect(pool.registerGpuHost({ hostId: "gpu-x", profile: { tier: "trusted-local", devices: [], cdiDevices: [], tenantId: ["tenant-a", "tenant-b"] } as never })).rejects.toThrow("GPU host profile");
+    await expect(pool.registerGpuHost({ hostId: "gpu-x", profile: { tier: "trusted-local", devices: [], cdiDevices: [], tenantId: "" } })).rejects.toThrow("GPU host profile");
+    expect(queryRows(await poolDatabase.unsafe("SELECT host_id FROM factory_pool_hosts WHERE host_id = 'gpu-x'"))).toEqual([]);
+  });
+
+  test("a supervisor-confirmed GPU stop is acknowledged while its host waits for a reimage; the host stays held until the reimage (W02d R7)", async () => {
     const service = new PoolAdmissionService(poolDatabase, pool);
     const holder: PoolPrincipal = { kind: "tenant", tenantId: "tenant-a", subject: "tenant-a", scopes: ["pool:tenant:tenant-a"] };
     const supervisorPrincipal: PoolPrincipal = { kind: "supervisor", supervisorId: "supervisor-a", subject: "supervisor-a", hostIds: ["gpu-ack"], scopes: ["pool:supervisor:supervisor-a"] };
     await pool.configureCapacity("cpu", 1);
-    await pool.registerGpuHost({ hostId: "gpu-ack" });
+    await pool.registerGpuHost({ hostId: "gpu-ack", profile: GPU_PROFILE });
     await pool.request(request("gpu-ack-reservation", "tenant-a", { cpu: 1, "gpu-host": 1 }, clock));
     const lease = await admitted(pool);
     const stop = { reservationId: "gpu-ack-reservation", holderGeneration: lease.holderGeneration, hostId: "gpu-ack" };
-    expect(await service.confirmStopped(supervisorPrincipal, stop)).toMatchObject({ state: "uncertain", reason: "awaiting-gpu-reimage" });
-    // The host is not offered again yet, so there is nothing for the tenant to
-    // acknowledge; C03 holds the capacity until a verified reimage receipt.
+    // Before the supervisor's word the holder may still run: refused.
     await expect(service.acknowledgeStopped(holder, stop)).rejects.toThrow("cannot be acknowledged");
+    expect(await service.confirmStopped(supervisorPrincipal, stop)).toMatchObject({ state: "uncertain", reason: "awaiting-gpu-reimage" });
+    // The supervisor proved the process gone, so the product's stop confirms (W02d R7). The host itself is not
+    // offered again: C03 holds its capacity until a verified reimage receipt.
+    const acknowledged = await service.acknowledgeStopped(holder, stop);
+    expect(acknowledged).toMatchObject({ state: "uncertain", reason: "awaiting-gpu-reimage", hostId: "gpu-ack", holderGeneration: lease.holderGeneration });
+    expect(await service.acknowledgeStopped(holder, stop)).toEqual(acknowledged);
+    await expect(service.acknowledgeStopped(holder, { ...stop, hostId: "gpu-elsewhere" })).rejects.toThrow("host is stale");
+    await pool.request(request("gpu-ack-next", "tenant-b", { "gpu-host": 1 }, clock));
+    expect(await pool.schedule()).toMatchObject({ status: "queued", blockingResource: "gpu-host" });
     expect(await service.confirmReimage(supervisorPrincipal, { ...stop, receipt: "reimage-proof" })).toMatchObject({ state: "settled" });
     expect(await service.acknowledgeStopped(holder, stop)).toMatchObject({ state: "settled", hostId: "gpu-ack" });
     // Here the pool does know the host, so a foreign one is refused.
     await expect(service.acknowledgeStopped(holder, { ...stop, hostId: "gpu-elsewhere" })).rejects.toThrow("host is stale");
   });
 
+  test("an uncertainty other than a GPU host's reimage wait is never acknowledged: a lapsed lease proves nothing (W02d R7)", async () => {
+    const service = new PoolAdmissionService(poolDatabase, pool);
+    const holder: PoolPrincipal = { kind: "tenant", tenantId: "tenant-a", subject: "tenant-a", scopes: ["pool:tenant:tenant-a"] };
+    await pool.configureCapacity("cpu", 1);
+    await pool.request(request("cpu-lapse", "tenant-a", { cpu: 1 }, clock));
+    const lease = await admitted(pool);
+    clock.advance(31_000);
+    await pool.schedule();
+    expect(await pool.status("cpu-lapse")).toMatchObject({ state: "uncertain", reason: "lease-expired" });
+    await expect(service.acknowledgeStopped(holder, { reservationId: "cpu-lapse", holderGeneration: lease.holderGeneration, hostId: "host-any" })).rejects.toThrow("cannot be acknowledged");
+  });
+
   test("GPU stop proof releases CPU once and leaves another active CPU lease accounted", async () => {
-  await pool.configureCapacity("cpu", 2); await pool.registerGpuHost({ hostId: "gpu-mixed" });
+  await pool.configureCapacity("cpu", 2); await pool.registerGpuHost({ hostId: "gpu-mixed", profile: GPU_PROFILE });
   await pool.request(request("mixed", "tenant-a", { cpu: 1, "gpu-host": 1 }, clock));
   const mixed = await admitted(pool); await pool.revoke("mixed", 1);
   await pool.confirmStopped({ reservationId: "mixed", holderGeneration: mixed.holderGeneration, hostId: "gpu-mixed" });

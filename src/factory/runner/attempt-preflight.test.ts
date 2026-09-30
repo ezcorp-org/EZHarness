@@ -120,3 +120,39 @@ describe("the dispatch preflight", () => {
     expect(asked).toEqual([REQUEST]);
   });
 });
+
+describe("the held allocation's devices (W02d R3)", () => {
+  const request = REQUEST;
+  const gpuLease = (profile?: unknown) => lease({ resources: { cpu: 1, "gpu-host": 1 }, hostId: "gpu-host-1", ...(profile === undefined ? {} : { deviceProfile: profile }) });
+  const mapped = { reservationId: "factory-reservation:abc", grantRevision: 4, allocationGeneration: 2, holderGeneration: 3, allocationToken: "token-1", hostId: "gpu-host-1" };
+
+  test("a CPU lease gives the empty grant", async () => {
+    const cpu = preflight();
+    const held = await cpu.lease(request);
+    expect(await cpu.devices!(request, held)).toEqual({ devices: [], cdiDevices: [], gpuHosts: 0 });
+  });
+
+  test("a gpu-host lease gives exactly the devices its recorded profile names for its own host", async () => {
+    const profile = { hostId: "gpu-host-1", devices: ["/dev/dri/renderD128"], cdiDevices: [], tier: "trusted-local" };
+    expect(await preflight({}, gpuLease(profile)).devices!(request, mapped)).toEqual({ devices: ["/dev/dri/renderD128"], cdiDevices: [], gpuHosts: 1 });
+  });
+
+  test("a gpu-host lease with no recorded profile, or a profile for another host, is refused by name before any launch", async () => {
+    for (const profile of [undefined, { hostId: "gpu-host-2", devices: ["/dev/dri/renderD128"], cdiDevices: [], tier: "trusted-local" }]) {
+      const refused = await preflight({}, gpuLease(profile)).devices!(request, mapped).catch((error: unknown) => error);
+      expect(refused).toBeInstanceOf(FactoryAttemptPreflightError);
+      expect((refused as FactoryAttemptPreflightError).code).toBe("factory_preflight_device_profile_missing");
+    }
+  });
+
+  test("the devices are read from the same recorded admission as the lease, and never from the pool", async () => {
+    const asked: string[] = [];
+    const reading = preflight({
+      queue: { readInTransaction: async () => { asked.push("queue"); return { reference: { reservationId: "factory-reservation:abc" } }; } } as never,
+      admissions: { readRetainedAdmittedInTransaction: async () => { asked.push("admission"); return { request: {}, receipt: { lease: lease() } }; } } as never,
+    });
+    await reading.devices!(request, { ...mapped, hostId: "host-configured" });
+    expect(asked).toEqual(["queue", "admission"]);
+    await expect(preflight({ queue: { readInTransaction: async () => undefined } as never }).devices!(request, mapped)).rejects.toMatchObject({ code: "factory_preflight_not_queued" });
+  });
+});

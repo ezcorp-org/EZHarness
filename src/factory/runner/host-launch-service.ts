@@ -26,6 +26,8 @@ export interface FactoryHostLaunchSupervisor {
    * still rebuild the worker and invocation identities it must reconnect to.
    */
   attach(intent: FactoryAttemptLaunchIntent, signal: AbortSignal): Promise<FactoryHostAttemptHandle>;
+  /** Whether this host is starting or holds the worker (W02d R8: a stop of it is not of a worker never seen). */
+  holds?(workerId: string): boolean;
   /**
    * Bounded by `signal`: answers with the guest's canonical result, throws a
    * `guest_exited` or `attempt_unknown` {@link FactoryAttemptRuntimeError} when
@@ -127,7 +129,8 @@ export function createFactoryHostLaunchRouteHandler(options: FactoryHostLaunchSe
       if (!(status === 504 && request.path === FACTORY_HOST_RESULT_PATH)) {
         snapshot.report(Object.freeze({ path: request.path, status, error, detail, ...(intent ? { attemptId: intent.request.authority.attemptId, workerId: intent.workerId } : {}) }));
       }
-      return json(status, status === 502 ? { error, detail } : { error });
+      // A guest's own exit account, and the device a host does not have, are facts the product records.
+      return json(status, status === 502 || error === "device_unavailable" ? { error, detail } : { error });
     };
     try {
       const peerTenant = snapshot.peers.get(request.peerIdentity);
@@ -169,6 +172,10 @@ export function createFactoryHostLaunchRouteHandler(options: FactoryHostLaunchSe
       const code = error instanceof FactoryAttemptRuntimeError ? error.code : undefined;
       // The guest ran here and ended without an answer: the detail is the runner's own account of it.
       if (code === "guest_exited") return refused(502, "guest_exited", message);
+      // A granted device this host does not have: refused before any container existed (W02d R4).
+      if (code === "device_unavailable") return refused(422, "device_unavailable", message);
+      // A worker this host stopped before it ever ran (a durable tombstone, W02d R8) is never started or attached.
+      if (code === "worker_stopped") return refused(409, "worker_stopped", message);
       if (code === "attempt_unknown" || message.includes("not running") || message.includes("uncertain")) return refused(409, "attempt_uncertain", message);
       return refused(500, "host_failed", message);
     } finally { if (timer) clearTimeout(timer); }

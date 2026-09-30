@@ -1742,6 +1742,8 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
   pattern for the script. A job started with `&` in a tool shell survived the shell, my narrower check missed it,
   and the W15f batch ran twice back to back, holding the shared lock twice for nothing.
 
+- Gate the commit on the typecheck's exit, not on its printed code. W02d R5 printed `tc=1` inside a subshell and the `&&` chain still committed; the fix was an amend. Write `timeout 900 bun run typecheck > log || exit 1` before `git commit`.
+
 
 ## 2026-09-27 — W03f: scratch snapshots and hook skips (coordinator correction)
 
@@ -1768,6 +1770,18 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 - Write a queue script whole, with its label in one variable. A sed-derived copy kept the old label and would have
   deleted the previous hold's receipts; the waiter was stopped before it took the lock.
 
+## 2026-09-28 — A harness that hides the refusal is a silent failure (W02d)
+
+- A failed pass must name what the product refused. P2's first base pass said "Unable to connect" (its own teardown)
+  while the web log held the real event, an admission refused `factory_budget_exhausted`; read the product's refusals
+  before the harness's error, and make the harness print them.
+- A proof expectation belongs to the run type: a run R9 must fail by name cannot be judged by the generic success
+  checks. Give each type its own verdict, print every check with expected and seen, and exit nonzero on any failure.
+- Nothing that starts a stack, a container or a PostgreSQL-backed suite runs outside the heavy lock, a smoke included:
+  a lock-free smoke ran beside another lane's runbook leg, which then failed.
+- A failed pass keeps its product database apart (retainedProductDatabase); clean-up must read it too, or the
+  database stays on the shared server.
+
 ## 2026-09-28 — Check the latest ruling before committing, and prove lock waits by blocker (W09h)
 
 - Before committing a rule, re-read the brief and the handoff lines for the package: a ruling can replace a design
@@ -1776,3 +1790,11 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 - In a concurrency test, identify each lock waiter by `pg_blocking_pids` in a database of its own, not by matching
   query text: the second contender often waits on an earlier row (the run row) than the one the gate holds. Release
   the gate in a `finally`, or a failed probe leaves the gate open and the fixture's teardown hangs.
+
+## 2026-09-29 — W02d: a ruled hook skip is still the user's permission
+
+- What happened: the coordinator's list-bound ruling allowed `EZ_SKIP_HOOK_TESTS=1` for one merge commit, and the tool
+  permission system refused it for the agent and for the coordinator.
+- Rule: a teammate's ruling never grants a permission the tool system refuses. Report the denial, freeze the staged
+  tree, prepare the exact command and message file, and let the user run it; verify tree, parents, identity and
+  message after.

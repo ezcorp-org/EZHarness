@@ -36,12 +36,15 @@ import type { FactoryRunnerRequest } from "@ezcorp/factory-sdk";
 import type { FactoryAttemptQueue } from "../attempt-queue";
 import type { FactoryComputeAdmissions } from "../compute-admissions";
 import type { FactoryRunnerDispatchReadiness } from "../package-preparation";
+import type { PoolLease } from "../pool/ledger";
 import type { FactoryAttemptLease, FactoryIsolatedRunnerPreflight } from "./attempt-runtime";
+import { factoryHeldAllocationDevices, type FactoryAttemptDeviceAuthorization } from "./attempt-wire";
 
 export type FactoryAttemptPreflightCode =
   | "factory_preflight_not_queued"
   | "factory_preflight_not_admitted"
-  | "factory_preflight_host_missing";
+  | "factory_preflight_host_missing"
+  | "factory_preflight_device_profile_missing";
 
 export class FactoryAttemptPreflightError extends Error {
   constructor(readonly code: FactoryAttemptPreflightCode, message: string) {
@@ -73,7 +76,8 @@ export function factoryAttemptPreflight(options: FactoryAttemptPreflightOptions)
     throw new FactoryAttemptPreflightError("factory_preflight_host_missing", "A dispatch preflight needs this installation's host id.");
   }
 
-  async function leaseInTransaction(transaction: MigrationDb, request: FactoryRunnerRequest): Promise<FactoryAttemptLease> {
+  /** The pool lease this attempt was admitted on, as the admission ledger recorded it. */
+  async function admittedInTransaction(transaction: MigrationDb, request: FactoryRunnerRequest): Promise<PoolLease> {
     const { projectId, runId, attemptId } = request.authority;
     const delivery = await options.queue.readInTransaction(transaction, projectId, attemptId);
     if (!delivery) {
@@ -85,6 +89,12 @@ export function factoryAttemptPreflight(options: FactoryAttemptPreflightOptions)
     if (lease.reservationId !== reservationId) {
       throw new FactoryAttemptPreflightError("factory_preflight_not_admitted", `Factory reservation ${reservationId} is admitted under a different reservation.`);
     }
+    return lease;
+  }
+
+  async function leaseInTransaction(transaction: MigrationDb, request: FactoryRunnerRequest): Promise<FactoryAttemptLease> {
+    const lease = await admittedInTransaction(transaction, request);
+    const { reservationId } = lease;
     // A physical allocation names its machine. Falling back to the configured
     // host for a GPU grant would dispatch to a host that does not hold the card.
     if (lease.hostId === undefined && gpuHosts(lease.resources) > 0) {
@@ -102,9 +112,27 @@ export function factoryAttemptPreflight(options: FactoryAttemptPreflightOptions)
 
   // Typed before freezing, so the parameters take their types from the
   // interface rather than from an untyped object literal.
+  /**
+   * The held allocation's devices (W02d R3), read from the same recorded admission as the lease and never from
+   * the pool. A CPU lease gets the empty grant. A `gpu-host` lease gets exactly the devices of the profile the
+   * pool recorded for the host it holds; with no recorded profile, or one for another host, the attempt is
+   * refused by name before any launch intent exists.
+   */
+  async function devicesInTransaction(transaction: MigrationDb, request: FactoryRunnerRequest, held: FactoryAttemptLease): Promise<FactoryAttemptDeviceAuthorization> {
+    const admitted = await admittedInTransaction(transaction, request);
+    const gpu = gpuHosts(admitted.resources);
+    if (gpu === 0) return factoryHeldAllocationDevices(held);
+    const profile = admitted.deviceProfile;
+    if (profile === undefined || profile.hostId !== held.hostId) {
+      throw new FactoryAttemptPreflightError("factory_preflight_device_profile_missing", `Factory reservation ${admitted.reservationId} holds a GPU host with no recorded device profile for host ${held.hostId}.`);
+    }
+    return factoryHeldAllocationDevices(held, { "gpu-host": gpu }, profile);
+  }
+
   const preflight: FactoryIsolatedRunnerPreflight = {
     lease: (request) => options.database.transaction((transaction) => leaseInTransaction(transaction, request)),
     preparedPackage: (request) => options.readiness.assertDispatchReady(request),
+    devices: (request, held) => options.database.transaction((transaction) => devicesInTransaction(transaction, request, held)),
   };
   return Object.freeze(preflight);
 }

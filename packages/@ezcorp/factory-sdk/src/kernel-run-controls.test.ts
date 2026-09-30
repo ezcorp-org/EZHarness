@@ -221,6 +221,37 @@ test("a denied gate beside a running task stops only the task physically, then f
   expect(stopped.commands).toContainEqual(expect.objectContaining({ kind: "fail-run", error: "APPROVAL_DENIED" }));
 });
 
+/** One task node alone, so a run's whole fate follows that node's admission. */
+function singleTaskFactory(): CompiledFactory {
+  const definition = structuredClone(referenceCodeV1);
+  definition.inputPorts = { source: stringPort };
+  definition.outputPorts = { result: stringPort };
+  definition.graph = {
+    nodes: [{
+      id: "candidate",
+      kind: "task",
+      runner: structuredClone(referenceCodeV1.graph.nodes[1] as Extract<(typeof referenceCodeV1.graph.nodes)[number], { kind: "task" }>).runner,
+      inputPorts: { source: stringPort },
+      bindings: { source: { kind: "ref", root: "input", name: "source" } },
+      outputPorts: { result: stringPort },
+    }],
+    outputs: { result: { kind: "ref", root: "node", name: "candidate", path: ["result"] } },
+  };
+  return compiled(definition);
+}
+
+test("a denied admission ends its attempt: the run fails by name and cancels nothing that never existed (W02d R9)", () => {
+  const factory = singleTaskFactory();
+  const current = start(factory, "admission-denied");
+  const admission = current.commands.find(command => command.kind === "request-admission" && command.nodeId === "candidate")!;
+  const denied = advanceKernel(factory, current.state, { kind: "admission-result", id: "denied", atMs: 1, nodeId: "candidate", commandId: admission.id, candidateGeneration: 0, granted: false });
+  // The pool assigned nothing, so there is no process to stop and no cancel that could ever settle.
+  expect(denied.commands.filter(command => command.kind === "cancel-node")).toEqual([]);
+  expect(denied.nextState.nodes.candidate).toMatchObject({ status: "failed", error: "ADMISSION_DENIED" });
+  expect(denied.nextState.nodes.candidate!.attempts.every(attempt => attempt.stopped)).toBe(true);
+  expect(denied.nextState.status).toBe("failed");
+});
+
 /** An accepted candidate whose release is in flight: the run's only physical-free external effect (W09e). */
 function releasingRun(runId: string) {
   const definition = structuredClone(taskFactory().definition);

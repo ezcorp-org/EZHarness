@@ -1,6 +1,6 @@
 import { verifyPoolToken, type PoolTokenVerifierOptions } from "./service-token";
 import { FactoryPoolCheckpointSlots, FactoryPoolCheckpointSource, setupFactoryPoolCheckpointSlots, type PoolCheckpointPage, type PoolCheckpointSlot } from "./checkpoint";
-import { FactoryPoolLedger, type PoolDecision, type PoolLease, type PoolLeaseStatus, type PoolResourceVector, type PoolSql, setupFactoryPoolLedger } from "./ledger";
+import { FactoryPoolLedger, poolStopConfirmed, type PoolDecision, type PoolLease, type PoolLeaseStatus, type PoolResourceVector, type PoolSql, setupFactoryPoolLedger } from "./ledger";
 
 export interface PoolTenantCertificate { tenantId: string; tokenSubject: string }
 export interface PoolSupervisorCertificate { supervisorId: string; tokenSubject: string; hostIds: readonly string[] }
@@ -86,7 +86,7 @@ export class PoolAdmissionService {
     // CPU reservation has none and the pool has no opinion about the host. It
     // must not contradict the caller; silence is not contradiction.
     if (current.hostId !== undefined && current.hostId !== input.hostId) throw new Error("Pool stop confirmation host is stale.");
-    if (current.state !== "settled") throw new Error("Pool stop cannot be acknowledged before a supervisor confirms it.");
+    if (!poolStopConfirmed(current)) throw new Error("Pool stop cannot be acknowledged before a supervisor confirms it.");
     return current;
   }
   async confirmReimage(principal: PoolPrincipal, input: PoolReimageInput): Promise<PoolLeaseStatus> { const identity = supervisor(principal); this.host(identity, input.hostId); const result = await this.ledger.confirmGpuReimage(input); await this.ledger.schedule(); return result; }

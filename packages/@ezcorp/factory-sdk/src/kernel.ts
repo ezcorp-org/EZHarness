@@ -420,7 +420,12 @@ function applyAdmission(factory: KernelFactoryPlan, state: KernelState, event: E
   const attempt = runtime.attempts.at(-1);
   if (!attempt || attempt.commandId !== event.commandId || attempt.stopped) return state;
   if (state.nowMs >= attempt.deadlineAtMs) return failNode(factory, state, node, event.nodeId, "NODE_DEADLINE_EXPIRED", "deadline", commands);
-  if (!event.granted) return failNode(factory, state, node, event.nodeId, "ADMISSION_DENIED", "admission_denied", commands);
+  if (!event.granted) {
+    // A denied admission assigned nothing: the attempt ends here, with no process to stop and no cancel to send
+    // (W02d R9). Left active, stopping the run would cancel it, and no stop route can settle that cancel.
+    const ended = withNode(state, event.nodeId, { ...runtime, attempts: runtime.attempts.slice(0, -1).concat({ ...attempt, stopped: true }) });
+    return failNode(factory, ended, node, event.nodeId, "ADMISSION_DENIED", "admission_denied", commands);
+  }
   const input = inputFor(state, node, event.nodeId);
   const deadlineAtMs = attempt.deadlineAtMs;
   const command = commandFor(state, "dispatch-node", event.nodeId);

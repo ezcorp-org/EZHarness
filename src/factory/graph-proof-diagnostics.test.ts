@@ -6,8 +6,11 @@ import { join } from "node:path";
 import {
   PASS_PROCESSES,
   PASS_READINESS_FILES,
+  backgroundRefusals,
   binaryForms,
+  canonicallyEqual,
   checkPassDiagnostics,
+  describeFailedChecks,
   collectSecretValues,
   openProcessLog,
   preserveStackDiagnostics,
@@ -17,7 +20,7 @@ import {
   stackCopyDir,
 } from "../../scripts/factory-graph-proof/diagnostics";
 import { graphReferences, graphRunnerProfiles, modePin } from "../../scripts/factory-graph-proof/graph";
-import { orchestratorDocument, poolDatabaseDocument, poolDocument, startupDocument, supervisorDocument, wrapsDocument, type StackLayout } from "../../scripts/factory-graph-proof/stack-documents";
+import { distinctPortPicker, orchestratorDocument, poolDatabaseDocument, poolDocument, startupDocument, supervisorDocument, wrapsDocument, type StackLayout } from "../../scripts/factory-graph-proof/stack-documents";
 import { parseFactoryOrchestratorProcessConfig } from "./orchestration-process";
 import { parseFactoryPoolProcessConfig } from "./pool/process";
 import { parseFactorySupervisorProcessConfig } from "./runner/supervisor-process";
@@ -365,5 +368,79 @@ describe("a failed pass's stack", () => {
     await writeFile(processLogPath(diagnostics, "web"), "");
     await writeFile(join(stackCopyDir(diagnostics), "readiness/supervisor.json"), "");
     expect((await checkPassDiagnostics(diagnostics)).problems).toEqual(["process log pool has no exit line", "process log web is empty", "stack file readiness/supervisor.json is empty"]);
+  });
+});
+
+/**
+ * A failed pass names what the product refused, not the harness's own teardown error (W02d, coordinator ruling).
+ * W02d's P2 base pass (p2-base-1) recorded "harness error: Unable to connect" while the web log held the real
+ * event: the first node's admission refused factory_budget_exhausted. The fixture is that log's block, verbatim.
+ */
+describe("what a failed pass says about itself", () => {
+  const p2Base1WebLog = [
+    '{"ts":"2026-09-28T15:17:43.216Z","level":"info","msg":"Bundled source staged; verified releases require human approval"}',
+    "[factory] background role failed {",
+    '  role: "private-service:POST:/internal/factory/v1/commands/7ac6a54c-37db-433e-b690-a98219a38f30%3Aprepare%3Arequest-admission%3A4",',
+    '  error: "FactoryBudgetError: factory_budget_exhausted",',
+    "}",
+    '{"ts":"2026-09-28T15:21:48.872Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"SIGTERM","teardownCount":14}',
+  ].join("\n");
+
+  test("finds every refusal the product logged, as role and error, in order", () => {
+    expect(backgroundRefusals(p2Base1WebLog)).toEqual([{
+      role: "private-service:POST:/internal/factory/v1/commands/7ac6a54c-37db-433e-b690-a98219a38f30%3Aprepare%3Arequest-admission%3A4",
+      error: "FactoryBudgetError: factory_budget_exhausted",
+    }]);
+    const second = "[factory] background role failed {\n  role: \"attempt-dispatch:outcome-unknown:run:infer:dispatch-node:7\",\n  error: \"GatewayStatusError: factory gateway returned HTTP 409\",\n}";
+    expect(backgroundRefusals(`${p2Base1WebLog}\n${second}`).map((refusal) => refusal.error)).toEqual(["FactoryBudgetError: factory_budget_exhausted", "GatewayStatusError: factory gateway returned HTTP 409"]);
+    expect(backgroundRefusals("[factory] roles stopped { ms: {} }\nnothing refused")).toEqual([]);
+  });
+
+  test("names each failing check with what it expected and what the pass saw, and nothing that passed", () => {
+    const text = describeFailedChecks([
+      { check: "the run projected succeeded", ok: false, expected: "succeeded", detail: ["queued", "running"] },
+      { check: "every node ran once", ok: true },
+      { check: "C never ran", ok: false, detail: { ran: true } },
+    ]);
+    expect(text).toBe('the run projected succeeded (expected "succeeded", saw ["queued","running"]); C never ran (saw {"ran":true})');
+    // A detail too large to read is cut, never dropped: the reader still sees that something was there.
+    const long = describeFailedChecks([{ check: "big", ok: false, detail: "x".repeat(1_000) }]);
+    expect(long.length).toBeLessThan(400);
+    expect(long.startsWith('big (saw "xxx')).toBe(true);
+    expect(long.endsWith("…)")).toBe(true);
+  });
+});
+
+/**
+ * A stack never gives two of its services the same port. The OS may hand out a just-closed port again, and in W02d's
+ * p5-smoke the TLS terminator got Temporal's own port (37819, EADDRINUSE), so the orchestrator spoke TLS to plain
+ * Temporal (InvalidContentType) and the stack never came ready.
+ */
+describe("the stack's ports", () => {
+  test("are distinct: a port the source repeats is drawn again, never handed out twice", () => {
+    const drawn = [37819, 37819, 40591, 37819, 40592];
+    const pick = distinctPortPicker(() => drawn.shift()!);
+    expect([pick(), pick(), pick()]).toEqual([37819, 40591, 40592]);
+  });
+
+  test("a source that only repeats itself is refused by name instead of reused", () => {
+    const pick = distinctPortPicker(() => 41000, 3);
+    expect(pick()).toBe(41000);
+    expect(() => pick()).toThrow("no distinct free port");
+  });
+});
+
+/**
+ * A check never crashes the verdict. W02d's P2 at db82d8c15: a failed node left A.count undefined, and the proof's
+ * comparison canonicalized { count: undefined, answer } and threw "Value is not valid I-JSON", so the pass reported a
+ * harness error instead of its failing checks.
+ */
+describe("the proof's comparison", () => {
+  test("compares canonical JSON, and a value that cannot be canonical JSON is simply not equal", () => {
+    expect(canonicallyEqual({ b: 1, a: [2] }, { a: [2], b: 1 })).toBe(true);
+    expect(canonicallyEqual({ a: 1 }, { a: 2 })).toBe(false);
+    expect(canonicallyEqual({ count: undefined, answer: "x" }, { answer: "x" })).toBe(false);
+    expect(canonicallyEqual(undefined, undefined)).toBe(false);
+    expect(canonicallyEqual(Number.NaN, Number.NaN)).toBe(false);
   });
 });

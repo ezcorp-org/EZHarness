@@ -1,8 +1,13 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import type { RunnerInspection, WorkspaceFiles } from "@ezcorp/extension-contract";
 import { certificates } from "../../__tests__/helpers/factory-certificates";
-import { generateKeyPairSync } from "node:crypto";
-import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { factoryHostLaunchIntent } from "../../__tests__/helpers/factory-host-launch-intent";
+import { createGatewayTransport, GatewayStatusError } from "@ezcorp/factory-transport";
+import { factoryAttemptLaunchIntentToWire } from "./attempt-wire";
+import { FACTORY_HOST_LAUNCH_PATH } from "./host-launch-service";
+import { FACTORY_HOST_STOP_PATH } from "./host-stop-service";
+import { createPublicKey, generateKeyPairSync } from "node:crypto";
+import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { readFactoryServiceReadiness, factorySupervisorReadinessOptions } from "../service-readiness";
 import {
@@ -521,14 +526,16 @@ describe("factorySupervisorProductionDependencies", () => {
   });
 });
 
+/** A complete host services section whose material sits in `root`. */
+const services = (root: string) => ({
+  hostname: "127.0.0.1",
+  port: 8600,
+  peerTenants: { "tenant-a": "tenant-01" },
+  hostKeyIdPath: join(root, "host.kid"),
+  tls: { caPath: join(root, "ca.pem"), certificatePath: join(root, "server.pem"), privateKeyPath: join(root, "server.key") },
+});
+
 describe("the host services this supervisor publishes", () => {
-  const services = (root: string) => ({
-    hostname: "127.0.0.1",
-    port: 8600,
-    peerTenants: { "tenant-a": "tenant-01" },
-    hostKeyIdPath: join(root, "host.kid"),
-    tls: { caPath: join(root, "ca.pem"), certificatePath: join(root, "server.pem"), privateKeyPath: join(root, "server.key") },
-  });
 
   test("the parser takes a complete section and refuses every incomplete one", async () => {
     const root = await privateRoot();
@@ -557,6 +564,16 @@ describe("the host services this supervisor publishes", () => {
       "not a record",
     ]) {
       expect(() => parseFactorySupervisorProcessConfig(config(root, { services: broken } as never))).toThrow("factory supervisor config is invalid");
+    }
+  });
+
+  test("retained host keys are one to sixteen exact entries (W02d D6)", async () => {
+    const root = await privateRoot();
+    const complete = { ...services(root), retainedHostKeys: [{ hostKeyId: "host-key-0", publicKeyPath: join(root, "host-key-0.pub") }] };
+    expect(parseFactorySupervisorProcessConfig(config(root, { services: complete } as never)).services).toEqual(complete as never);
+    const entry = complete.retainedHostKeys[0]!;
+    for (const retainedHostKeys of [[], Array.from({ length: 17 }, () => entry), [{ hostKeyId: "" , publicKeyPath: "p" }], [{ hostKeyId: "k" }], [{ ...entry, extra: "x" }], ["not a record"], entry]) {
+      expect(() => parseFactorySupervisorProcessConfig(config(root, { services: { ...complete, retainedHostKeys } } as never))).toThrow("factory supervisor config is invalid");
     }
   });
 
@@ -859,6 +876,100 @@ describe("the host services this supervisor publishes", () => {
       listener.stop();
     }
   });
+});
+
+describe("a host restarted after it tombstoned a worker (W02d R8, ruling (A) ii)", () => {
+  /** A host process's material in a private root, its config, and a caller holding the tenant's client certificate. */
+  async function hostFixture() {
+    const root = await privateRoot();
+    const certs = await certificates(certificateRoots, "tenant-a");
+    for (const [name, value] of [["ca.pem", certs.ca], ["server.pem", certs.serverCert], ["server.key", certs.serverKey], ["client.pem", certs.clientCert], ["client.key", certs.clientKey], ["token", "unused-by-the-host-routes"]] as const) {
+      await writeFile(join(root, name), value, { mode: 0o600 });
+      await chmod(join(root, name), 0o600);
+    }
+    await writeFile(join(root, "host.kid"), "host-key-1", { mode: 0o600 });
+    await writeHostKey(root);
+    const probe = Bun.listen({ hostname: "127.0.0.1", port: 0, socket: { data() {} } });
+    const port = probe.port;
+    probe.stop(true);
+    const configure = (extra: Record<string, unknown> = {}) => writeConfig(root, { services: { ...services(root), port, peerTenants: { "tenant-a": "tenant-a" }, ...extra } } as never);
+    // The host process: the supervisor's own host services, over a runtime that shows no container for any worker.
+    const script = join(root, "host.ts");
+    await writeFile(script, `import { parseFactorySupervisorProcessConfig, startFactoryConfiguredHostServices } from ${JSON.stringify(new URL("./supervisor-process.ts", import.meta.url).pathname)};
+const config = parseFactorySupervisorProcessConfig(JSON.parse(await Bun.file(process.argv[2]).text()));
+const runner = {
+  async initialize() {}, async close() {}, async build() { throw new Error("unused"); }, async cancel() {}, async abort() {}, async collectArtifacts() { return {}; },
+  async start() { throw new Error("this runtime starts nothing"); },
+  async inspect(id) { return { id, state: "unknown", diagnostics: [] }; },
+};
+const listener = await startFactoryConfiguredHostServices(config, runner);
+process.on("SIGTERM", () => { listener.stop(); process.exit(0); });
+console.log("bound");
+`, { mode: 0o600 });
+    /** Runs one host process for `during`, stops it, and returns what `during` returned. */
+    const withHost = async <Result>(configPath: string, during: () => Promise<Result>): Promise<Result> => {
+      const child = Bun.spawn([process.execPath, script, configPath], { stdout: "pipe", stderr: "pipe" });
+      try {
+        const reader = child.stdout.getReader();
+        let seen = "";
+        const deadline = Date.now() + 20_000;
+        while (!seen.includes("bound") && Date.now() < deadline) {
+          const chunk = await reader.read();
+          if (chunk.done) break;
+          seen += new TextDecoder().decode(chunk.value);
+        }
+        reader.releaseLock();
+        if (!seen.includes("bound")) throw new Error(`the host process did not bind: ${seen}${await new Response(child.stderr).text()}`);
+        return await during();
+      } finally { child.kill(); await child.exited; }
+    };
+    const transport = await createGatewayTransport({
+      baseUrl: `https://127.0.0.1:${port}`, serverName: "localhost",
+      tls: { caPath: join(root, "ca.pem"), certificatePath: join(root, "client.pem"), privateKeyPath: join(root, "client.key"), serviceTokenPath: join(root, "token") },
+    });
+    const call = async (path: string, value: unknown) => {
+      try {
+        const answer = await transport.request("POST", path, value, 1 << 20, AbortSignal.timeout(15_000));
+        return { status: answer.statusCode, body: JSON.parse(answer.body.toString()) as Record<string, unknown> };
+      } catch (error) {
+        if (!(error instanceof GatewayStatusError)) throw error;
+        return { status: error.response.statusCode, body: JSON.parse(error.response.body.toString()) as Record<string, unknown> };
+      }
+    };
+    const stopOf = (intent: ReturnType<typeof factoryHostLaunchIntent>) => ({ attemptId: intent.request.authority.attemptId, reservationId: intent.lease.reservationId, workerId: intent.workerId, holderGeneration: intent.lease.holderGeneration, allocationGeneration: intent.lease.allocationGeneration, hostId: "host-01", reason: "cancelled", tenantId: "tenant-a" });
+    const launch = (intent: ReturnType<typeof factoryHostLaunchIntent>) => call(FACTORY_HOST_LAUNCH_PATH, { intent: factoryAttemptLaunchIntentToWire(intent) });
+    return { root, configure, withHost, call, stopOf, launch };
+  }
+
+  test("the restarted supervisor process loads its tombstones and refuses the worker's launch worker_stopped", async () => {
+    const host = await hostFixture();
+    const configPath = await host.configure();
+    const intent = factoryHostLaunchIntent("host-01");
+    // The first host process never saw the worker: it tombstones it and signs its absence, then stops.
+    const stopped = await host.withHost(configPath, () => host.call(FACTORY_HOST_STOP_PATH, host.stopOf(intent)));
+    expect(stopped).toMatchObject({ status: 200, body: { workerId: intent.workerId, processGroupAbsent: true } });
+    // The restarted host process refuses the worker before anything starts.
+    expect(await host.withHost(configPath, () => host.launch(intent))).toEqual({ status: 409, body: { error: "worker_stopped" } });
+  }, 60_000);
+
+  test("after a key rotation, the retained key keeps the refusal, and only that worker is refused (W02d D6)", async () => {
+    const host = await hostFixture();
+    const intent = factoryHostLaunchIntent("host-01");
+    const other = factoryHostLaunchIntent("host-01", undefined, "attempt-other");
+    expect(await host.withHost(await host.configure(), () => host.call(FACTORY_HOST_STOP_PATH, host.stopOf(intent)))).toMatchObject({ status: 200 });
+    // Rotate: the retired key's public half stays trusted by name; the host signs with a new key from now on.
+    const retiredPath = join(host.root, "host-key-1.pub");
+    await writeFile(retiredPath, createPublicKey(await readFile(join(host.root, "host.key"), "utf8")).export({ type: "spki", format: "pem" }) as string, { mode: 0o600 });
+    await writeHostKey(host.root);
+    await writeFile(join(host.root, "host.kid"), "host-key-2", { mode: 0o600 });
+    const retained = await host.withHost(await host.configure({ retainedHostKeys: [{ hostKeyId: "host-key-1", publicKeyPath: retiredPath }] }),
+      async () => ({ stopped: await host.launch(intent), other: await host.launch(other) }));
+    expect(retained.stopped).toEqual({ status: 409, body: { error: "worker_stopped" } });
+    // Another worker is not refused by the tombstone: the host is not failing closed.
+    expect(retained.other.body.error).not.toBe("worker_stopped");
+    // Without the retained key the same entry is unverifiable: every launch is refused, the other worker's too.
+    expect(await host.withHost(await host.configure(), () => host.launch(other))).toEqual({ status: 409, body: { error: "worker_stopped" } });
+  }, 90_000);
 });
 
 describe("the real supervisor entry", () => {

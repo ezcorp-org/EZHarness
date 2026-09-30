@@ -202,6 +202,7 @@ jobs:
           ./tests/postgres/factory-service-credentials.test.ts
           ./tests/postgres/factory-grants.test.ts
           ./tests/postgres/factory-task-stops.test.ts
+          ./tests/postgres/factory-task-stop-dispatch-refused-migration.test.ts
           ./tests/postgres/factory-stop-lock-order.test.ts
           ./tests/postgres/factory-release-stop-migration.test.ts
           ./tests/postgres/factory-release-stop-race.test.ts

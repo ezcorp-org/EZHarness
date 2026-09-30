@@ -98,6 +98,18 @@ describe("pool admission HTTP client", () => {
     expect(calls.length).toBe(before + 1);
   });
 
+  test("carries a GPU lease's recorded device profile and refuses one that is malformed or names another host (W02d R2)", async () => {
+    const fence = { reservationId: request.reservationId, grantRevision: 3, allocationGeneration: 1, allocationToken: "allocation-token" };
+    const deviceProfile = { hostId: "host-1", tier: "trusted-local" as const, devices: ["/dev/dri/renderD128"], cdiDevices: [] as string[] };
+    const gpuLease = { ...lease, resources: { cpu: 1, "gpu-host": 1 }, hostId: "host-1", deviceProfile };
+    override = { status: 200, body: Buffer.from(JSON.stringify(gpuLease)) };
+    expect((await client.renew(fence)).deviceProfile).toEqual(deviceProfile);
+    for (const bad of [{ ...deviceProfile, hostId: "host-2" }, { ...deviceProfile, tier: "cloud" }, { ...deviceProfile, devices: [7] }, { ...deviceProfile, extra: true }, "profile"]) {
+      override = { status: 200, body: Buffer.from(JSON.stringify({ ...gpuLease, deviceProfile: bad })) };
+      await expect(client.renew(fence)).rejects.toThrow("device profile");
+    }
+  });
+
   test("returns the queue-full decision carried by HTTP 429 and fails closed elsewhere", async () => {
     const full = { status: "rejected", reservationId: request.reservationId, reason: "queue-full", retryAfterSeconds: 1 } as const;
     override = { status: 429, body: Buffer.from(JSON.stringify(full)) };

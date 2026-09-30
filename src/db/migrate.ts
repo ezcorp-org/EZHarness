@@ -3151,6 +3151,9 @@ export async function migrate(db: MigrateDb): Promise<void> {
   // settlement CHECKs add-factory-usage-no-operations installed, registered above.
   const { up: addFactoryUsageOperations } = await import("./migrations/add-factory-usage-operations");
   await addFactoryUsageOperations(db);
+  // W02d R8: a dispatch refused after admission stops through a signed host stop. Depends only on add-factory-task-stops.
+  const { up: addFactoryTaskStopDispatchRefused } = await import("./migrations/add-factory-task-stop-dispatch-refused");
+  await addFactoryTaskStopDispatchRefused(db);
   // W15f: the uncertain-hold mark for an attempt a restore's epoch left behind.
   const { up: addFactoryUsageEpochStale } = await import("./migrations/add-factory-usage-epoch-stale");
   await addFactoryUsageEpochStale(db);

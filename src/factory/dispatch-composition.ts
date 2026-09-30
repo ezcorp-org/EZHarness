@@ -13,12 +13,12 @@
  * a cost this file inferred; a release dispatches to the provider the
  * operation's persisted destination names, never to a default.
  */
-import { basename, dirname, resolve as resolvePath } from "node:path";
 import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
 import { factoryPageDriver, type FactoryItemDisposition } from "./role-drivers";
 import type { FactoryRoleDriver } from "./runtime-seams";
 import type { TrustedFactoryServiceIdentity } from "./trusted-command-gateway";
-import { FactoryTaskStops, type FactoryPhysicalStopper, type FactoryStopHostKey, type FactoryStoppableAttempt } from "./task-stops";
+import { FactoryTaskStops, type FactoryPhysicalStopper, type FactoryStoppableAttempt } from "./task-stops";
+import { FactoryStopCompositionError, loadFactoryStopHostKeys } from "./stop-host-keys";
 import type { FactoryBudgets, FactoryUncertainHold } from "./budgets";
 import { FactoryRunEpochStaleError } from "./executions";
 import { FactoryUsageReconciliation } from "./usage-settlement";
@@ -28,7 +28,7 @@ import type { FactoryReleaseProviderResolver } from "./release-application";
 import type { FactoryReleaseOutcomeDelivery, FactoryUndeliveredReleaseOutcome } from "./release-outcome-delivery";
 import type { FactoryRunLifecycle } from "./run-lifecycle";
 import { createFactoryHostStopClient } from "./host-stop-client";
-import { privateDirectory, readPrivateBounded } from "./private-files";
+import { FactoryDispatchRefusedStops, factoryNothingLaunchedSettle, type FactoryDispatchRefusedStop } from "./dispatch-refused-stops";
 import type { PoolAdmissionClient } from "./pool/client";
 import type { FactoryInstallationStores } from "./installation-stores";
 import type { FactoryStartupConfig } from "./startup-config";
@@ -99,9 +99,14 @@ export function factoryStopSettlementDriver(
   service: TrustedFactoryServiceIdentity,
   report: (role: string, error: unknown) => void,
   limit?: number,
+  refused?: Pick<FactoryDispatchRefusedStops, "listInTransaction" | "stop">,
 ): FactoryRoleDriver {
-  return factoryPageDriver<FactoryStoppableAttempt>({
-    page: (_signal) => database.transaction((transaction) => stops.listStoppableInTransaction(transaction, limit === undefined ? {} : { limit })),
+  return factoryPageDriver<FactoryStoppableAttempt | (FactoryDispatchRefusedStop & { readonly refused: true })>({
+    // A refused dispatch's stop (W02d R8) rides on the same page: the same host, the same pool, the same role.
+    page: (_signal) => database.transaction(async (transaction) => [
+      ...await stops.listStoppableInTransaction(transaction, limit === undefined ? {} : { limit }),
+      ...(refused === undefined ? [] : (await refused.listInTransaction(transaction, limit)).map((item) => ({ ...item, refused: true as const }))),
+    ]),
     // The scan returns the cancel command reference `stop` itself takes, so the
     // settle half needs nothing this file derived.
     //
@@ -111,6 +116,7 @@ export function factoryStopSettlementDriver(
     // as settled is how a run can sit in `stopping` while every pass reports
     // success.
     settle: async (item, _signal) => {
+      if ("refused" in item) { await refused!.stop(item); return; }
       let receipt: Awaited<ReturnType<typeof stops.stop>>;
       try { receipt = await stops.stop(service, item.reference); }
       catch (error) {
@@ -124,7 +130,7 @@ export function factoryStopSettlementDriver(
     },
     classify: factoryStopSettlementDisposition,
     report: (item, error, disposition) => {
-      report(`stop-settlement:${disposition}:${item.attemptId}`, error instanceof FactoryUncertainStopError ? (error.cause ?? error) : error);
+      report(`stop-settlement:${disposition}:${"refused" in item ? item.dispatchCommandId : item.attemptId}`, error instanceof FactoryUncertainStopError ? (error.cause ?? error) : error);
     },
   });
 }
@@ -448,45 +454,7 @@ export function factoryReleaseOutcomeDriver(
   });
 }
 
-/** A host public key file. Not a secret, read through the same bounded reader. */
-const MAX_HOST_PUBLIC_KEY_BYTES = 16 * 1024;
-
-export class FactoryStopCompositionError extends Error {
-  constructor(readonly code: "factory_stop_host_keys_missing" | "factory_stop_transport_missing", message: string) {
-    super(message);
-    this.name = "FactoryStopCompositionError";
-  }
-}
-
-/**
- * The host public keys a physical-stop receipt is verified against.
- *
- * By reference in the document and by value only here, for the length of one
- * composition. `FactoryTaskStops` takes the PEM text and calls
- * `createPublicKey` itself, so this reads bytes and decides nothing: a key that
- * is not a key fails there, by name, rather than being silently skipped and
- * leaving a host whose receipts can never verify.
- */
-export async function loadFactoryStopHostKeys(
-  configured: readonly { readonly hostId: string; readonly hostKeyId: string; readonly publicKeyPath: string }[],
-): Promise<readonly FactoryStopHostKey[]> {
-  if (configured.length === 0) {
-    throw new FactoryStopCompositionError("factory_stop_host_keys_missing",
-      "Settling a stop needs at least one configured host public key.");
-  }
-  const keys = await Promise.all(configured.map(async (entry) => {
-    const absolute = resolvePath(entry.publicKeyPath);
-    const directory = await privateDirectory(dirname(absolute));
-    let bytes: Uint8Array;
-    try {
-      bytes = await readPrivateBounded(directory, basename(absolute), MAX_HOST_PUBLIC_KEY_BYTES);
-    } finally {
-      await directory.close();
-    }
-    return Object.freeze({ hostId: entry.hostId, hostKeyId: entry.hostKeyId, publicKey: new TextDecoder("utf-8", { fatal: true }).decode(bytes) });
-  }));
-  return Object.freeze(keys);
-}
+export { FactoryStopCompositionError, loadFactoryStopHostKeys } from "./stop-host-keys";
 
 /** What both settlement roles need beyond the stores they share. */
 export interface FactorySettlementCompositionOptions {
@@ -545,6 +513,7 @@ export async function composeFactorySettlement(options: FactorySettlementComposi
       serviceTokenPath: config.hostLaunch.tls.serviceTokenPath,
     },
   });
+  const hostKeys = await loadFactoryStopHostKeys(config.hostStopKeys ?? []);
   const stops = new FactoryTaskStops(
     options.database,
     stores.authority,
@@ -557,8 +526,9 @@ export async function composeFactorySettlement(options: FactorySettlementComposi
     stores.settlements,
     stopper,
     options.pool,
-    await loadFactoryStopHostKeys(config.hostStopKeys ?? []),
+    hostKeys,
   );
+  const refused = new FactoryDispatchRefusedStops(options.database, config.tenantId, stopper, options.pool, hostKeys, factoryNothingLaunchedSettle(stores));
   const reconciliation = new FactoryUsageReconciliation(
     options.database,
     config.tenantId,
@@ -569,7 +539,7 @@ export async function composeFactorySettlement(options: FactorySettlementComposi
   );
   return Object.freeze({
     stops,
-    stopSettlement: factoryStopSettlementDriver(options.database, stops, options.service, options.report),
+    stopSettlement: factoryStopSettlementDriver(options.database, stops, options.service, options.report, undefined, refused),
     usageReconciliation: factoryUsageReconciliationDriver(options.database, stores.budgets, reconciliation, options.report),
   });
 }

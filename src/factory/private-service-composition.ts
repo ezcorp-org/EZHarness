@@ -30,6 +30,7 @@
  * accepted set without restarting the product, the same property the host stop
  * route gets from reloading its signing pair per signature.
  */
+import { FactoryDispatchRefusedStopRecorder } from "./dispatch-refused-stops";
 import type { KernelEvent } from "@ezcorp/factory-sdk/kernel-types";
 import type { TransactionalDb } from "../db/migrations/types";
 import type { FactoryApplication } from "./application";
@@ -256,6 +257,9 @@ export async function composeFactoryPrivateService(options: FactoryPrivateServic
     execution: new FactoryTaskExecutionAdmission(
       stores.authority, stores.compute, stores.journal, stores.queue,
       new FactoryNativeRunnerPolicy(config.tenantId, application.grants, profiles.runners, profiles.brokerAudience, new FactoryPackageTrusts(database, config.tenantId, application.grants)),
+      Date.now,
+      // W02d R8: a refusal after admission records the stop that releases the admitted lease.
+      new FactoryDispatchRefusedStopRecorder(config.tenantId, config.hostId),
     ),
     inputs: new FactoryLazyCommands(stores.authority, new FactoryLazyInputReader(database, config.tenantId, application.artifacts, access, application.grants)),
     children: stores.children,

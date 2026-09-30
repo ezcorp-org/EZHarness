@@ -5310,6 +5310,40 @@ both processes a log line that names it. Two causes remain outside this package:
       factory-live-console.spec.ts; under the pin 1.3.14 it did not reproduce (66 of 66). Evidence:
       /tmp/factory-platform-evidence/w09e/logs/head/e2e-repeat3.log, e2e-measure-fe2199392-bun142.log, e2e-measure.log.
 
+## W02d — the GPU lease consumer (branch `wp/w02d-gpu-lease`; gates `tasks/factory/w02d-GATES.md`)
+
+- [x] R1 startup refuses a runner profile whose gpu-host is not one whole host (a2b7b408d).
+- [x] R2 the pool grants a GPU host only with its registered profile; the lease carries the profile (d8a20ba03).
+- [x] R3 the dispatch preflight grants a held GPU lease its recorded devices, or refuses it by name (4f347dc14).
+- [x] R4 the host refuses a granted device it lacks before any container (0f8bdd8c1); the refused worker is first-hand
+      absent, so its stop is signed (4d95d9158).
+- [x] R5 a GPU lease renews through W01h's loop unchanged (d7b3ae94b).
+- [x] R6 measured red (P2); one fenced renewal at claim (e970fe1e9, b2de395af); a reclaimed lease ends the attempt
+      failed by name (6cab80e44).
+- [x] R7 a supervisor-confirmed GPU stop confirms and settles; the host stays held for its reimage (3428eba36).
+- [x] R7b a trusted-local host is reused by its one bound tenant without a reimage (2a3b7c215).
+- [x] Host tombstone (ruling (A)): a never-seen worker is tombstoned, signed absent and refused (f01dc399c); restart
+      (a0c96ae8c); negative controls (8d3ed5eb5); retention 31 days, proposed with its reason in the gates file.
+- [x] R8 the refused dispatch releases its lease and hold on W09h's basis (26951f125, from 92bdc1f22).
+- [x] R9 a class the pool cannot serve fails its run by name and releases the unused hold (1f7d56010); on W09h's
+      basis (31bee42a9).
+- [x] Merge of integ/w00 e92d34d45 (bfa01a41a) with all 74 withheld suites green.
+- [x] Merge of integ/w00 ad22592da (7a499e4e1) with all 89 withheld suites green.
+- [x] Merge of integ/w00 e0e2a23c9 (9c11cea96, committed by the user) with all 14 withheld suites green.
+- [x] task-stops.ts attestation re-proved at the merge (3fd496578, line 336).
+- [ ] The authoritative two-stage head run (P1, P5, P2 with the post-R8 expectation) at the final head.
+- [ ] Coverage gates at the final head.
+
+### Review
+
+The base reproductions were red as briefed. The head runs found two defects the unit suites had not: a worker the
+host refused before creating it could never be stopped (R4), and a lease reclaimed before claim left the attempt
+"outcome unknown" (R6). Both are fixed red-first, and three harness defects the runs exposed (a hidden refusal, a
+port collision, a crashing comparison) are fixed in W19a's harness with tests. The re-judged interim verdicts hold
+for P1, P2 (pre-R8) and P5; the evidence of record is one run at the final head after R8. R8 needed a host that can
+sign a never-seen worker's absence, so the host now tombstones it (ruling (A)). Open: the attestation refresh, the
+head run, and R6's release basis. P3 is not run live: the user decided (b).
+
 ## W09h — a stop during compute admission settles in place (branch `wp/w09h-admission-stop`)
 
 Gate file `tasks/factory/w09h-GATES.md`; evidence `/tmp/factory-platform-evidence/w09h/`.
@@ -5320,7 +5354,7 @@ Gate file `tasks/factory/w09h-GATES.md`; evidence `/tmp/factory-platform-evidenc
 - [x] R4 the hold settles all zero under "no-operations: nothing launched, all zero" (additive CHECK migration, clause-removed test) — `bbf02876a`, corrected by `5d6d398f9`
 - [x] R5 lock order: both contenders take the run lock before the admission row, both orders on real PostgreSQL — `f70c06fbe`
 - [x] Legs, coverage gates and the graph-proof runbook at the `wp/w09h-admission-stop` head `ef3f64457` (rebased onto `e92d34d45`); validator-5 M1 fixed in `ef3f64457`
-- [ ] W02d follow-up (not in W09h): R8 and R9 move to the shared basis after W09h lands; the queued-host P3/P5 cases rerun
+- [x] W02d follow-up (not in W09h): R8 and R9 moved to the shared basis (26951f125, 31bee42a9); the queued-host case is not rerun (P3 not run under the user's decision (b); P5 has no GPU host)
 
 ### Review
 

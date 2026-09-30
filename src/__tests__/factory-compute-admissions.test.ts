@@ -3,6 +3,7 @@ import { sql } from "drizzle-orm";
 import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
 import { releaseRows as rows } from "../db/queries/extension-releases";
 import { FactoryBudgets } from "../factory/budgets";
+import { FACTORY_USAGE_NOTHING_LAUNCHED_BASIS } from "../factory/usage-settlement";
 import { type FactoryAuthorizedCommand, type FactoryCommandAuthority, FactoryCommandAuthorityError } from "../factory/command-authority";
 import { FACTORY_COMPUTE_ADMISSION_ATTEMPT_STOPPED, FactoryComputeAdmissions } from "../factory/compute-admissions";
 import { FactoryInbox } from "../factory/inbox";
@@ -353,13 +354,23 @@ describe("FactoryComputeAdmissions", () => {
     expect(await reservationState(value)).toBe("held");
   });
 
-  test("rejection commits a negative event while the product hold remains", async () => {
+  test("rejection commits a negative event and releases the unused hold at a known zero, once (C03; W02d R9)", async () => {
     const value = await fixture();
     value.pool.decisions.push({ status: "rejected", reservationId: value.input.request.reservationId, reason: "capacity" });
     const result = await value.admissions.dispatchNext(service);
     expect(result).toMatchObject({ status: "rejected", event: { granted: false } });
-    expect(await reservationState(value)).toBe("held");
-    expect(rows(await value.db.execute(sql`SELECT event_id FROM factory_inbox_events WHERE run_id=${value.runId}`))).toHaveLength(1);
+    // The pool assigned nothing, so nothing ran: the hold settles at zero on the pool's own rejection as receipt.
+    expect(await reservationState(value)).toBe("settled");
+    const [settled] = rows<{ actual: string; receipt_digest: string }>(await value.db.execute(sql`SELECT actual, receipt_digest FROM factory_budget_reservations WHERE tenant_id=${tenantId} AND project_id=${projectId} AND run_id=${value.runId} AND reservation_id=${value.input.request.reservationId}`));
+    expect(JSON.parse(settled!.actual)).toEqual({ costMicros: "0", tokens: "0", computeMs: "0" });
+    const [admission] = rows<{ response_digest: string }>(await value.db.execute(sql`SELECT response_digest FROM factory_compute_admissions WHERE tenant_id=${tenantId} AND project_id=${projectId} AND run_id=${value.runId} AND reservation_id=${value.input.request.reservationId}`));
+    expect(settled!.receipt_digest).toBe(admission!.response_digest);
+    // The zero is a usage settlement through W09h's shared basis, not a bare budget write: one row, source
+    // no-operations, basis "nothing launched, all zero", proven by the pool's own rejection (W02d R9 after W09h).
+    expect(rows<{ attempt_id: string; source: string; known_cost_micros: string; stop_receipt_digest: string; basis: string }>(await value.db.execute(sql`SELECT attempt_id, source, known_cost_micros, stop_receipt_digest, basis FROM factory_usage_settlements WHERE tenant_id=${tenantId} AND project_id=${projectId} AND run_id=${value.runId}`)))
+      .toEqual([{ attempt_id: value.context.command.id, source: "no-operations", known_cost_micros: "0", stop_receipt_digest: admission!.response_digest, basis: FACTORY_USAGE_NOTHING_LAUNCHED_BASIS }]);
+    // The kernel hears both, settlement first: the attempt's zero usage, then the refused admission.
+    expect(rows<{ kind: string }>(await value.db.execute(sql`SELECT payload::jsonb->>'kind' AS kind FROM factory_inbox_events WHERE run_id=${value.runId} ORDER BY sequence`)).map((row) => row.kind)).toEqual(["usage-settled", "admission-result"]);
   });
 
   test("scope, request conflicts, terminal corruption, and foreign services fail closed", async () => {
