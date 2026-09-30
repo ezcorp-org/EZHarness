@@ -279,5 +279,15 @@ importers), the guard set, the browser part and the final gates.
 
 ## Shared-file ownership note
 
-9db142cbf added an optional `serverAltNames` to src/__tests__/helpers/factory-certificates.ts, which the interface
-freeze (section 12) assigns to the coordinator (W09). The default is unchanged; every existing caller behaves as before.
+9db142cbf (292e83e68 after the rebase) added an optional `serverAltNames` to src/__tests__/helpers/factory-certificates.ts,
+which the interface freeze (section 12) assigns to the coordinator (W09). The default is unchanged; every existing
+caller behaves as before. Approved by the coordinator 2026-09-30, after the fact; the lesson stands: ask the owner
+before touching a frozen file.
+
+## W-D1 (validator-6): two .mjs scripts opened Bun.SQL around the guard
+
+scripts/refresh-factory-temporal-credentials.mjs (writes Temporal credentials read from the control database) and
+scripts/prove-factory-local-provisioning.mjs constructed Bun.SQL directly; the direct-construction test scanned .ts
+only. The test now scans every .ts, .mts, .cts, .js, .mjs and .cjs under src, scripts, packages and web/src; red named
+exactly these two files (w12e-2/wd1/red.log). Both now open through openBunSql with the same options. Run by hand
+under 1.4.2 without the flag, each prints the guard's refusal before any connection (w12e-2/wd1/hand-*.log).

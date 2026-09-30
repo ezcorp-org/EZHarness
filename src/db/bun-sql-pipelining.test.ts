@@ -164,9 +164,11 @@ describe("every Bun.SQL client goes through the guard", () => {
   // The guarded opener is the only place product and script code may construct Bun.SQL; tests open their own.
   test("no product or script file constructs Bun.SQL directly", () => {
     const offenders: string[] = [];
-    for (const pattern of ["src/**/*.ts", "scripts/**/*.ts", "packages/@ezcorp/*/src/**/*.ts", "web/src/**/*.ts"]) {
+    // Every JavaScript and TypeScript source, not only .ts: two .mjs scripts once opened Bun.SQL unguarded (W-D1).
+    const sources = "*.{ts,mts,cts,js,mjs,cjs}";
+    for (const pattern of [`src/**/${sources}`, `scripts/**/${sources}`, `packages/@ezcorp/*/src/**/${sources}`, `web/src/**/${sources}`]) {
       for (const file of new Glob(pattern).scanSync({ cwd: ROOT })) {
-        if (/\.test\.ts$|\/__tests__\/|^src\/db\/bun-sql-pipelining\.ts$/.test(file)) continue;
+        if (/\.test\.[cm]?[jt]s$|\/__tests__\/|\/node_modules\/|^src\/db\/bun-sql-pipelining\.ts$/.test(file)) continue;
         const source = readFileSync(join(ROOT, file), "utf8");
         if (/new\s+(Bun\.)?SQL\s*\(|new\s*\(\s*bunSqlClass\(\)\s*\)/.test(source)) offenders.push(file);
       }
