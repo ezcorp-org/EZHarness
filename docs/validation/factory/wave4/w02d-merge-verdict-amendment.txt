@@ -1,0 +1,6 @@
+W02d merge 381449a85: validator-6's verdict file was amended after the merge (still ACCEPT at edc8a93d7).
+Addendum to w02d-merge.json (whose SHA256SUMS line is not rewritten; SHA256SUMS is append-only).
+- At the merge the verdict file had sha256 ca7c0f59388f4cec... (copied as w02d-validation.txt, sha256 20bf2958e021b6da5d853f191498d9493930e44ef29dd8fe0a0fd50bf7e22ff3).
+- validator-6 then added two quotes the lead asked for (the diff 6abdc707c..edc8a93d7 is tasks/factory/w02d-GATES.md only;
+  neither gate-integrity leg names scripts/check-factory-boundaries.ts). The amended file has sha256 20bf2958e021b6da5d853f191498d9493930e44ef29dd8fe0a0fd50bf7e22ff3
+  and is copied as w02d-validation-amended.txt. The verdict (ACCEPT at edc8a93d7) and its findings are unchanged.
