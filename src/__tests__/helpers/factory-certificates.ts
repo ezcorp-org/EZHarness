@@ -18,16 +18,18 @@ async function command(args: string[]): Promise<void> {
 /**
  * `untrustedClients` adds, for the client subject: a certificate from this
  * authority whose validity ended in 2020, one valid only from 2099, one with
- * serverAuth only, and a self-signed one.
+ * serverAuth only, and a self-signed one. `serverAltNames` replaces the server
+ * certificate's names (default `DNS:localhost,IP:127.0.0.1`), for example to
+ * prove that a client verifies a pinned IP against the hostname only.
  */
-export async function certificates(directories: string[], clientSubject = "tenant-a", options: { readonly untrustedClients?: boolean } = {}): Promise<Certificates> {
+export async function certificates(directories: string[], clientSubject = "tenant-a", options: { readonly untrustedClients?: boolean; readonly serverAltNames?: string } = {}): Promise<Certificates> {
   const root = await mkdtemp(join(tmpdir(), "factory-gateway-"));
   directories.push(root);
   await command(["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", join(root, "ca.key"), "-out", join(root, "ca.pem"), "-days", "1", "-subj", "/CN=factory-test-ca"]);
   const clientAuth = "extendedKeyUsage=clientAuth";
   // [file name, subject, extensions, validity arguments]
   const leaves: [string, string, string, string[]][] = [
-    ["server", "localhost", "subjectAltName=DNS:localhost,IP:127.0.0.1\nextendedKeyUsage=serverAuth", ["-days", "1"]],
+    ["server", "localhost", `subjectAltName=${options.serverAltNames ?? "DNS:localhost,IP:127.0.0.1"}\nextendedKeyUsage=serverAuth`, ["-days", "1"]],
     ["client", clientSubject, clientAuth, ["-days", "1"]],
     ["foreign", "tenant-b", clientAuth, ["-days", "1"]],
   ];
