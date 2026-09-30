@@ -4,7 +4,7 @@ import { canonicalJson } from "@ezcorp/extension-contract";
 import type { FactoryGuestModelMessage, FactoryGuestModelRequest, FactoryMeasuredUsage, FactoryModelPin, FactoryRunnerRequest } from "@ezcorp/factory-sdk";
 import type { FactoryBroker } from "../../runtime/factory-execution";
 import { factoryModelSamplingOptions } from "../model-configuration";
-import type { FactoryModelCompletion, FactoryOneHopProvider } from "./guest-model-broker";
+import { FactoryModelProviderError, type FactoryModelCompletion, type FactoryModelFailure, type FactoryOneHopProvider, type FactoryProviderRefusal } from "./guest-model-broker";
 import { factoryGuestModelOperation } from "./guest-model-journal";
 
 /**
@@ -93,34 +93,95 @@ export function factoryMeasuredUsageOf(message: AssistantMessage, computeMs: num
   };
 }
 
+/**
+ * The typed class of a provider's error answer, read from the HTTP status the
+ * provider SDK puts at the head of its message ("401 ...", "429: ...",
+ * "Provider (403): ..."). 401 and 403 are a refused credential, 429 is a
+ * refused rate, and everything else, including a message with no status, is
+ * `provider_unavailable`: a narrower class is never guessed.
+ */
+export function factoryProviderRefusalOf(errorMessage: string | undefined): FactoryProviderRefusal {
+  const status = /^(?:[^()\n]{0,80}\()?(\d{3})\)?[:\s]/.exec(errorMessage ?? "")?.[1];
+  if (status === "401" || status === "403") return "provider_auth_failed";
+  if (status === "429") return "provider_rate_limited";
+  return "provider_unavailable";
+}
+
+/**
+ * The failure a provider's non-answer raises.
+ *
+ * An error answer is the provider's own account of the call, so it carries
+ * that account's measured usage (zero when it failed before consuming a
+ * token) and a digest of the answer. An aborted stream is not the provider's
+ * account of anything: what it consumed is unknown, so it carries no
+ * evidence, and a usage the provider reported that cannot be settled is
+ * dropped the same way. Without evidence the stop keeps the cost held.
+ */
+function providerFailure(message: AssistantMessage, computeMs: number): FactoryModelFailure {
+  const text = `The provider did not complete the call: ${message.stopReason}${message.errorMessage ? ` (${message.errorMessage})` : ""}.`;
+  if (message.stopReason !== "error") return { code: "provider_unavailable", message: text };
+  const code = factoryProviderRefusalOf(message.errorMessage);
+  try {
+    return { code, message: text, evidence: { usage: factoryMeasuredUsageOf(message, computeMs), providerReceiptDigest: factoryProviderReceiptDigest(message) } };
+  } catch {
+    return { code, message: text };
+  }
+}
+
+/** Why a provider call that reached the attempt's deadline failed. */
+export const FACTORY_PROVIDER_DEADLINE_MESSAGE = "The provider did not answer before the attempt's deadline.";
+
 export function createFactoryOneHopProvider(options: FactoryOneHopProviderOptions): FactoryOneHopProvider {
   const now = options.now ?? Date.now;
+  /** One drained stream, aborted through `signal`. */
+  const answer = async (request: FactoryGuestModelRequest, attempt: FactoryRunnerRequest, signal: AbortSignal): Promise<FactoryModelCompletion> => {
+    const model = options.resolveModel(request.model);
+    // Before the clock starts and before the provider is reached: a pin whose
+    // configuration this installation cannot honour is refused, never sent
+    // with the unknown key quietly dropped.
+    const sampling = factoryModelSamplingOptions(request.model.configuration);
+    const prompt = promptOf(request.messages);
+    const context: Context = { ...(prompt === undefined ? {} : { systemPrompt: prompt }), messages: turnsOf(request.messages, model) };
+    const startedAtMs = now();
+    const stream = await options.broker.stream({
+      attemptToken: attempt.broker.attemptToken,
+      // The same entry the journal claimed, built by the same function. Two
+      // spellings of this digest would let the claim and the provider request
+      // describe different work under one operation id.
+      operation: { ...factoryGuestModelOperation(request), state: "prepared" },
+      model,
+      context,
+      options: { ...sampling, maxTokens: request.maxOutputTokens, signal },
+    });
+    const message = await stream.result();
+    // C10: a failed or aborted provider answer is a readiness failure, not a
+    // shorter answer. Recording a cost for it would settle a result that has
+    // no content.
+    if (message.stopReason === "error" || message.stopReason === "aborted") throw new FactoryModelProviderError(providerFailure(message, now() - startedAtMs));
+    return Object.freeze({ text: textOf(message), providerReceiptDigest: factoryProviderReceiptDigest(message), usage: factoryMeasuredUsageOf(message, now() - startedAtMs) });
+  };
   return Object.freeze({
+    /**
+     * W03f ruling C: the call ends at the attempt's signed deadline. The stream
+     * is aborted there, so the provider connection does not outlive the
+     * attempt, and the call fails with no evidence of what it consumed. That
+     * failure is named as a cost-unknown hold, which reconciliation settles at
+     * the reserved bound once the attempt's stop is confirmed.
+     */
     async complete(request: FactoryGuestModelRequest, attempt: FactoryRunnerRequest): Promise<FactoryModelCompletion> {
-      const model = options.resolveModel(request.model);
-      // Before the clock starts and before the provider is reached: a pin whose
-      // configuration this installation cannot honour is refused, never sent
-      // with the unknown key quietly dropped.
-      const sampling = factoryModelSamplingOptions(request.model.configuration);
-      const prompt = promptOf(request.messages);
-      const context: Context = { ...(prompt === undefined ? {} : { systemPrompt: prompt }), messages: turnsOf(request.messages, model) };
-      const startedAtMs = now();
-      const stream = await options.broker.stream({
-        attemptToken: attempt.broker.attemptToken,
-        // The same entry the journal claimed, built by the same function. Two
-        // spellings of this digest would let the claim and the provider request
-        // describe different work under one operation id.
-        operation: { ...factoryGuestModelOperation(request), state: "prepared" },
-        model,
-        context,
-        options: { ...sampling, maxTokens: request.maxOutputTokens },
+      const controller = new AbortController();
+      let expire: ReturnType<typeof setTimeout> | undefined;
+      const expired = new Promise<never>((_resolve, reject) => {
+        expire = setTimeout(() => {
+          controller.abort();
+          reject(new FactoryModelProviderError({ code: "provider_unavailable", message: FACTORY_PROVIDER_DEADLINE_MESSAGE }));
+        }, Math.max(0, attempt.authority.deadlineAtMs - Date.now()));
       });
-      const message = await stream.result();
-      // C10: a failed or aborted provider answer is a readiness failure, not a
-      // shorter answer. Recording a cost for it would settle a result that has
-      // no content.
-      if (message.stopReason === "error" || message.stopReason === "aborted") throw new Error(`The provider did not complete the call: ${message.stopReason}${message.errorMessage ? ` (${message.errorMessage})` : ""}.`);
-      return Object.freeze({ text: textOf(message), providerReceiptDigest: factoryProviderReceiptDigest(message), usage: factoryMeasuredUsageOf(message, now() - startedAtMs) });
+      try {
+        return await Promise.race([expired, answer(request, attempt, controller.signal)]);
+      } finally {
+        clearTimeout(expire);
+      }
     },
   });
 }

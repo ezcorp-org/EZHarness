@@ -516,6 +516,33 @@ export function factoryMigrationRestartConformance(createFixture: () => Promise<
     }
   });
 
+  test("W03f: repeated migration keeps an operations settlement, its stop receipt and basis, and the exact shape of that source", async () => {
+    const db = fixture.db;
+    const digest = (fill: string) => `sha256:${fill.repeat(64)}`;
+    const reservationId = "restart-operations-reservation";
+    const providerError = "provider-error: model usage measured, compute at reserved bound";
+    const checks = async () => rows<{ conname: string; oid: number; definition: string }>(await db.execute(sql`SELECT conname,oid,pg_get_constraintdef(oid) AS definition FROM pg_constraint WHERE conrelid='factory_usage_settlements'::regclass AND contype='c' AND conname IN ('factory_usage_settlements_source_check','factory_usage_settlements_no_operations_check','factory_usage_settlements_basis_check') ORDER BY conname`));
+    await db.execute(sql`INSERT INTO factory_budget_envelopes(tenant_id,project_id,run_id,envelope_id,request_digest,limits,allocated,spent,deadline_ms,state) VALUES ('restart-tenant','restart-project','restart-run','root',${digest("9")},'{"costMicros":"10","tokens":"10","computeMs":"10"}','{"costMicros":"0","tokens":"0","computeMs":"0"}','{"costMicros":"0","tokens":"0","computeMs":"0"}',9999999999999,'open') ON CONFLICT DO NOTHING`);
+    await db.execute(sql`INSERT INTO factory_budget_reservations(tenant_id,project_id,run_id,reservation_id,envelope_id,request_digest,amount,state) VALUES ('restart-tenant','restart-project','restart-run',${reservationId},'root',${digest("a")},'{"costMicros":"5","tokens":"5","computeMs":"5"}','settled')`);
+    await db.execute(sql`INSERT INTO factory_usage_settlements(tenant_id,project_id,run_id,reservation_id,revision,attempt_id,source,known_cost_micros,stop_receipt_digest,basis,settled_at_ms,settlement_digest,event_json,event_digest) VALUES ('restart-tenant','restart-project','restart-run',${reservationId},1,'restart-operations-attempt','operations','1200',${digest("b")},${providerError},11,${digest("c")},'{}',${digest("d")})`);
+    const before = await checks();
+    expect(before.every(row => row.definition.includes("'operations'"))).toBe(true);
+    const probe = (known: string, stop: string | null, basis: string | null, unknown: string | null = null) => db.transaction(async tx => {
+      await tx.execute(sql`CREATE TEMP TABLE operations_probe (LIKE factory_usage_settlements INCLUDING CONSTRAINTS INCLUDING DEFAULTS) ON COMMIT DROP`);
+      await tx.execute(sql`INSERT INTO operations_probe (tenant_id,project_id,run_id,reservation_id,revision,attempt_id,source,known_cost_micros,unknown_cost_micros,stop_receipt_digest,basis,settled_at_ms,settlement_digest,event_json,event_digest) VALUES ('t','p','r','reservation-1',1,'attempt-1','operations',${known},${unknown},${stop},${basis},1,${digest("1")},'{}',${digest("2")})`);
+    }).then(() => null, (error: unknown) => error);
+    for (let boot = 0; boot < 2; boot++) {
+      await fixture.migrate();
+      expect(await checks()).toEqual(before);
+      expect(rows<{ source: string; known_cost_micros: string; basis: string }>(await db.execute(sql`SELECT source,known_cost_micros,basis FROM factory_usage_settlements WHERE reservation_id=${reservationId}`)))
+        .toEqual([{ source: "operations", known_cost_micros: "1200", basis: providerError }]);
+      expect(await probe("0", digest("e"), providerError)).toBeNull();
+      expect(await probe("0", null, providerError)).toBeInstanceOf(Error);
+      expect(await probe("0", digest("e"), null)).toBeInstanceOf(Error);
+      expect(await probe("0", digest("e"), providerError, "5")).toBeInstanceOf(Error);
+    }
+  });
+
   test("the legacy unscoped key upgrades once and preserves dependent foreign keys on rerun", async () => {
     await fixture.db.transaction(async tx => {
       await tx.execute(sql`CREATE SCHEMA factory_old_key`);

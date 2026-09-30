@@ -211,7 +211,11 @@ export function factoryGuestModelRouteConformance(createFixture: () => Promise<F
     const attempt = await admit();
     const provider = streamDouble(() => text("ok"));
     await infer(attempt.request, route(async () => providerOver(provider.broker))(attempt));
-    expect(provider.seen[0]?.options).toEqual({ temperature: 0, samplingParams: { seed: 7, reasoning_effort: "none" }, maxTokens: 64 });
+    // W03f ruling C: the attempt's deadline rides along as an abort signal, which is not a sampling
+    // parameter; apart from it, nothing but the pin's configuration and the output bound is sent.
+    const { signal, ...sampled } = provider.seen[0]!.options;
+    expect(sampled).toEqual({ temperature: 0, samplingParams: { seed: 7, reasoning_effort: "none" }, maxTokens: 64 });
+    expect(signal?.aborted).toBe(false);
     expect(provider.seen[0]?.model).toMatchObject({ provider: "ollama", id: "qwen3:1.7b" });
     // The request the provider saw is the one the guest sent, turn for turn.
     expect(provider.seen[0]?.context.systemPrompt).toBe("Answer in one short sentence.");
@@ -223,11 +227,37 @@ export function factoryGuestModelRouteConformance(createFixture: () => Promise<F
     const result = await infer(attempt.request, route(async () => providerOver(provider.broker))(attempt));
     expect(result).toMatchObject({ status: "failed", error: { code: "provider_unavailable", retryable: false } });
     expect(String((result.error as { message: string }).message)).toContain("model 'qwen3:missing' not found");
-    // The failed row carries no usage, so the result cannot claim a measured total.
-    expect("usage" in result).toBe(false);
+    // W03f: the provider's error answer is its own account of the call, so the
+    // failed row carries that answer's measured usage and receipt digest, and
+    // the guest's result mirrors the row the product handed back.
+    expect(result.usage).toMatchObject({ kind: "measured" });
     await verifies(attempt, result);
     const rows = await operationRows(attempt);
-    expect(rows).toMatchObject([{ state: "failed", kind: "model", provider_receipt_digest: null }]);
+    expect(rows).toMatchObject([{ state: "failed", kind: "model", provider_receipt_digest: expect.stringMatching(/^[0-9a-f]{64}$/) }]);
+    expect((result.operations as unknown as Array<{ usage?: unknown }>)[0]!.usage).toEqual(result.usage);
+  });
+
+  test("W03f: a guest that rebuilds or alters the settled failed operation is refused as a journal mismatch", async () => {
+    const attempt = await admit();
+    const provider = streamDouble(() => ({ stopReason: "error", errorMessage: "401 invalid x-api-key" }));
+    const result = await infer(attempt.request, route(async () => providerOver(provider.broker))(attempt));
+    expect(result).toMatchObject({ status: "failed", error: { code: "provider_auth_failed" } });
+    await verifies(attempt, result);
+    const [settled] = result.operations as unknown as Array<Record<string, JsonValue>>;
+    const refused = async (operation: Record<string, JsonValue>, usage: JsonValue | undefined) => {
+      const { usage: _claimed, ...rest } = result;
+      const altered = { ...rest, operations: [operation], ...(usage === undefined ? {} : { usage }) } as Record<string, JsonValue>;
+      // A well-formed result, refused only because the journal holds something else.
+      expect(validateFactoryRunnerResult(altered).ok).toBe(true);
+      await expect(fixture.db.transaction(transaction => journal.verifyRunnerResultInTransaction(transaction, attempt.authority, altered as unknown as FactoryRunnerResult))).rejects.toThrow("does not match settled journal evidence");
+    };
+    // The pre-W03f rebuild: a generic code and no usage, which the host no longer journals.
+    const rebuilt = { code: "factory_guest_model_failed", message: String((result.error as { message: string }).message) };
+    const { usage: _dropped, providerReceiptDigest: _receipt, ...bare } = settled!;
+    await refused({ ...bare, resultDigest: digestObject(rebuilt) }, undefined);
+    // Altered evidence: a smaller usage, or another receipt, than the provider reported.
+    await refused({ ...settled!, usage: { ...(settled!.usage as Record<string, JsonValue>), inputTokens: 0, costMicros: "0" } }, { ...(settled!.usage as Record<string, JsonValue>), inputTokens: 0, costMicros: "0" });
+    await refused({ ...settled!, providerReceiptDigest: "0".repeat(64) }, result.usage);
   });
 
   test("an installation that pins no provider refuses by name and still journals the failed call", async () => {

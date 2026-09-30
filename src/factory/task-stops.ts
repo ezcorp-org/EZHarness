@@ -1,5 +1,5 @@
 import { canonicalJson } from "@ezcorp/extension-contract";
-import type { FactoryRunnerResult, FactoryUsage } from "@ezcorp/factory-sdk";
+import type { FactoryMeasuredUsage, FactoryRunnerResult, FactoryUsage } from "@ezcorp/factory-sdk";
 import type { KernelEvent } from "@ezcorp/factory-sdk/kernel-types";
 import { sql } from "drizzle-orm";
 import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
@@ -23,8 +23,8 @@ import { factoryAttemptWorkerId, readFactoryAttemptLaunchFacts, type FactoryAtte
 import { factoryTaskReservationId } from "./task-admission";
 import type { FactoryTaskOutcomes, FactoryVerifiedTaskOutcome } from "./task-outcomes";
 import type { TrustedFactoryCommandReference, TrustedFactoryServiceIdentity } from "./trusted-command-gateway";
-import { settleFactoryNothingLaunchedInTransaction, type FactoryUsageSettlementAuthority, type FactoryUsageSettlements, type FactoryUsageSettlementScope } from "./usage-settlement";
-import { clearResolvedSupersessionInTransaction } from "./attempt-supersessions";
+import { factoryJournalStopSettlement, settleFactoryNothingLaunchedInTransaction, type FactoryJournalStopSettlement, type FactoryUsageSettlementAuthority, type FactoryUsageSettlements, type FactoryUsageSettlementScope } from "./usage-settlement";
+import { clearResolvedSupersessionInTransaction, readAttemptSupersessionInTransaction } from "./attempt-supersessions";
 
 /** C02: abort, then at most this much cleanup, then kill the whole sandbox. */
 export { FACTORY_SANDBOX_ABORT_GRACE_MS as FACTORY_STOP_ABORT_GRACE_MS } from "./runner/sandbox-stop";
@@ -312,13 +312,28 @@ export class FactoryTaskStops implements FactoryUsageSettlementAuthority {
     this.assertHostReceipt(current, receipt);
     const acknowledged = await this.withDeadline(signal => this.pool.confirmStopped({ reservationId: receipt.reservationId, holderGeneration: receipt.holderGeneration, hostId: receipt.hostId }, signal));
     assertFactoryPoolConfirmsStop(acknowledged, receipt);
-    // A stop with no terminal usage settles as a known zero only when the
-    // attempt journaled no operation. The journal is final here: the sealed
-    // stop exists, so the cancellation was accepted, and an accepted attempt
-    // can never prepare another operation. It is read before the settlement
-    // transaction because the journal reads through its own.
-    const journaledOperations = terminalStopUsage(current.liveAuthority) === undefined ? (await this.journal.operations(current.liveAuthority.authority)).length : undefined;
-    return this.database.transaction(transaction => this.finalize(transaction, service, reference, receipt, journaledOperations === 0));
+    // Decided before the settlement transaction, because the journal reads
+    // through its own. The journal is final here: the sealed stop exists, so
+    // the cancellation was accepted, and an accepted attempt can never prepare
+    // another operation.
+    const settlement = await this.stopSettlement(current.liveAuthority);
+    return this.database.transaction(transaction => this.finalize(transaction, service, reference, receipt, settlement));
+  }
+
+  /**
+   * What this stop settles. A completed result was verified against the
+   * journal when it was recorded, every operation measured, so its usage is
+   * the settled fact. Any other attempt settles from its journal alone (W03f):
+   * a guest's claimed usage, a zero included, never decides what is charged,
+   * except that a held cost it reports keeps the hold.
+   */
+  private async stopSettlement(liveAuthority: FactoryLiveStopAuthority): Promise<StopSettlement> {
+    const terminal = liveAuthority.terminalOutcome?.result ?? liveAuthority.terminalResult;
+    if (terminal?.status === "completed") return Object.freeze({ kind: "measured" as const, usage: terminal.usage });
+    // A result that reports a held cost it could not measure is believed: the
+    // journal may lower a guest's claim to what it measured, never erase one.
+    if (terminal?.usage?.kind === "unknown") return Object.freeze({ kind: "held" as const });
+    return factoryJournalStopSettlement(await this.journal.operations(liveAuthority.authority));
   }
 
   /**
@@ -421,10 +436,18 @@ export class FactoryTaskStops implements FactoryUsageSettlementAuthority {
   async readSettlementScopeInTransaction(transaction: MigrationDb, reservationId: string): Promise<FactoryUsageSettlementScope | undefined> {
     assertFactoryIdentity(reservationId);
     const row = rows<StopRow>(await transaction.execute(sql`SELECT * FROM factory_task_stops WHERE tenant_id=${this.authority.tenantId} AND reservation_id=${reservationId} FOR UPDATE`))[0];
-    if (!row) return undefined;
-    const authority = await this.journal.readAuthorityInTransaction(transaction, { tenantId: row.tenant_id, projectId: row.project_id, runId: row.run_id, attemptId: row.attempt_id });
+    // W15f: a signed restore that superseded the attempt proves its end even when no stop was sealed.
+    const superseded = await readAttemptSupersessionInTransaction(transaction, this.authority.tenantId, reservationId);
+    // A supersession whose dispatch named no interpreter keeps a null interpreter; the reconciler names it.
+    const held = row ? { projectId: row.project_id, runId: row.run_id, interpreterId: row.interpreter_id as string | null, attemptId: row.attempt_id } : superseded;
+    if (!held) return undefined;
+    if (row && superseded && (superseded.attemptId !== row.attempt_id || superseded.runId !== row.run_id)) throw new FactoryTaskStopError("factory_task_stop_corrupt");
+    const authority = await this.journal.readAuthorityInTransaction(transaction, { tenantId: this.authority.tenantId, projectId: held.projectId, runId: held.runId, attemptId: held.attemptId });
     if (!authority) throw new FactoryTaskStopError("factory_task_stop_corrupt");
-    return Object.freeze({ projectId: row.project_id, runId: row.run_id, interpreterId: row.interpreter_id, reservationId, authority });
+    const end = row?.state === "stopped" && row.stop_receipt_digest ? { kind: "stop" as const, digest: row.stop_receipt_digest }
+      : superseded ? { kind: "restore-supersession" as const, digest: superseded.restoreDigest }
+      : undefined;
+    return Object.freeze({ projectId: held.projectId, runId: held.runId, interpreterId: held.interpreterId, reservationId, authority, ...(end === undefined ? {} : { end: Object.freeze(end) }) });
   }
 
   private async accept(service: TrustedFactoryServiceIdentity, reference: TrustedFactoryCommandReference): Promise<SealedStop | FactoryTaskStopReceipt> {
@@ -569,7 +592,7 @@ export class FactoryTaskStops implements FactoryUsageSettlementAuthority {
     });
   }
 
-  private async finalize(transaction: MigrationDb, service: TrustedFactoryServiceIdentity, reference: TrustedFactoryCommandReference, receipt: FactoryPhysicalStopReceipt, noOperations: boolean): Promise<FactoryTaskStopReceipt> {
+  private async finalize(transaction: MigrationDb, service: TrustedFactoryServiceIdentity, reference: TrustedFactoryCommandReference, receipt: FactoryPhysicalStopReceipt, settlement: StopSettlement): Promise<FactoryTaskStopReceipt> {
     const current = await this.readSealed(transaction, service, reference, true);
     if (!current) throw new FactoryTaskStopError("factory_task_stop_not_found");
     if (current.receipt?.state === "stopped") {
@@ -579,17 +602,23 @@ export class FactoryTaskStops implements FactoryUsageSettlementAuthority {
     this.assertHostReceipt(current, receipt);
     await this.assertUnconsumedReceipt(transaction, current.request, receipt);
     if (!await this.journal.confirmStoppedInTransaction(transaction, current.liveAuthority.authority)) throw new FactoryTaskStopError("factory_task_stop_stale");
-    const usage = terminalStopUsage(current.liveAuthority);
     const settlementScope = { projectId: reference.projectId, runId: reference.logicalRunId, interpreterId: reference.interpreterId, reservationId: current.request.reservationId, authority: current.liveAuthority.authority };
     const budgetKey = { projectId: reference.projectId, runId: reference.logicalRunId, reservationId: current.request.reservationId };
     // W05b: reconciliation may settle the cost while the physical stop is still
     // unconfirmed. The stop that confirms later is then certain: the budget is
     // already settled, and the event clears the kernel's uncertainty.
-    const reconciled = usage?.kind !== "measured" && !noOperations && (await this.settlements.readLatestInTransaction(transaction, budgetKey))?.source === "reconciliation";
-    if (usage?.kind === "measured") {
+    const reconciled = settlement.kind === "held" && (await this.settlements.readLatestInTransaction(transaction, budgetKey))?.source === "reconciliation";
+    if (settlement.kind === "measured") {
+      const usage = settlement.usage;
       await this.budgets.settleInTransaction(transaction, budgetKey, { costMicros: usage.costMicros, tokens: usage.inputTokens + usage.outputTokens, computeMs: usage.computeMs }, receipt.receiptDigest);
       await this.settlements.recordInTransaction(transaction, settlementScope, { source: "stop", knownCostMicros: usage.costMicros });
-    } else if (noOperations) {
+    } else if (settlement.kind === "operations") {
+      // Every operation settled with measured usage: the model cost is the
+      // journal's sum, zero when each provider refused before consuming, and
+      // compute is the reserved bound, proven by this signed stop.
+      await this.budgets.settleAtComputeBoundInTransaction(transaction, budgetKey, { costMicros: settlement.costMicros, tokens: settlement.tokens }, receipt.receiptDigest);
+      await this.settlements.recordInTransaction(transaction, settlementScope, { source: "operations", knownCostMicros: settlement.costMicros, stopReceiptDigest: receipt.receiptDigest, basis: settlement.basis });
+    } else if (settlement.kind === "no-operations") {
       // No terminal usage and no journaled operation: nothing was ever sent to
       // a provider, so zero is the settled fact, proven by this signed stop.
       await this.budgets.settleWithoutOperationsInTransaction(transaction, budgetKey, receipt.receiptDigest);
@@ -598,9 +627,10 @@ export class FactoryTaskStops implements FactoryUsageSettlementAuthority {
       await this.retainUncertainBudget(transaction, reference, current.request.reservationId);
       // A held cost is reported, never settled as zero: the reservation stays
       // uncertain and the event keeps the held amount visible to the kernel.
-      if (usage) await this.settlements.recordInTransaction(transaction, settlementScope, { source: "stop", knownCostMicros: "0", unknownCostMicros: usage.heldCostMicros });
+      const usage = terminalStopUsage(current.liveAuthority);
+      if (usage?.kind === "unknown") await this.settlements.recordInTransaction(transaction, settlementScope, { source: "stop", knownCostMicros: "0", unknownCostMicros: usage.heldCostMicros });
     }
-    const event = stopEventFor(current.request, current.liveAuthority.authority, this.clock(current.acceptedAtMs), "stopped", usage?.kind !== "measured" && !noOperations && !reconciled, current.receipt?.state === "uncertain");
+    const event = stopEventFor(current.request, current.liveAuthority.authority, this.clock(current.acceptedAtMs), "stopped", settlement.kind === "held" && !reconciled, current.receipt?.state === "uncertain");
     await this.inbox.enqueueInTransaction(transaction, { projectId: reference.projectId, runId: reference.logicalRunId, interpreterId: reference.interpreterId }, event);
     await transaction.execute(sql`UPDATE factory_task_stops SET state='stopped',stop_receipt_json=${encodeFactoryPayload(receipt)},stop_receipt_digest=${receipt.receiptDigest},stopped_event_json=${encodeFactoryPayload(event)},stopped_event_digest=${stopHash(event)},updated_at=NOW() WHERE tenant_id=${reference.tenantId} AND project_id=${reference.projectId} AND run_id=${reference.logicalRunId} AND interpreter_id=${reference.interpreterId} AND cancel_command_id=${reference.commandId} AND state IN ('accepted','uncertain')`);
     return Object.freeze({ state: "stopped" as const, event, stopReceipt: Object.freeze(receipt) });
@@ -627,9 +657,9 @@ export class FactoryTaskStops implements FactoryUsageSettlementAuthority {
     const events = sealedStopEvents(row);
     const sealed: SealedStop = { request: Object.freeze(request), liveAuthority, acceptedAtMs: Number(row.accepted_at_ms) };
     // A stored certain stop is re-derived from durable facts: a measured
-    // terminal usage, or the no-operations zero the stop settled.
+    // terminal usage, or the amount the stop itself proved and settled.
     const settledBy = events.stopped ? (await this.settlements.readLatestInTransaction(transaction, { projectId: reference.projectId, runId: reference.logicalRunId, reservationId: request.reservationId }))?.source : undefined;
-    this.assertSealedEvents(sealed, events, settledBy === "no-operations", settledBy === "reconciliation");
+    this.assertSealedEvents(sealed, events, settledBy === "no-operations" || settledBy === "operations", settledBy === "reconciliation");
     const receipt = sealedStopReceipt(row.state, events);
     return { ...sealed, ...(receipt ? { receipt } : {}) };
   }
@@ -666,7 +696,7 @@ export class FactoryTaskStops implements FactoryUsageSettlementAuthority {
   }
 
   /** Each stored event is the one this stop would emit, at or after its acceptance; a stored receipt is a valid host proof. */
-  private assertSealedEvents(sealed: SealedStop, { uncertain, physical, stopped }: SealedStopEvents, settledZero: boolean, reconciled: boolean): void {
+  private assertSealedEvents(sealed: SealedStop, { uncertain, physical, stopped }: SealedStopEvents, stopProven: boolean, reconciled: boolean): void {
     const { request, liveAuthority, acceptedAtMs } = sealed;
     const authority = liveAuthority.authority;
     if (uncertain) {
@@ -676,7 +706,7 @@ export class FactoryTaskStops implements FactoryUsageSettlementAuthority {
     if (physical && stopped) {
       this.assertHostReceipt(sealed, physical);
       stopCount(stopped.atMs);
-      const certain = settledZero || terminalStopUsage(liveAuthority)?.kind === "measured";
+      const certain = stopProven || terminalStopUsage(liveAuthority)?.kind === "measured";
       // A stop sealed before W03e never cleared an earlier uncertainty
       // explicitly, so its certain event after a `stop-uncertain` one has no
       // `uncertain` field. That row is valid old data and stays readable; only
@@ -734,6 +764,9 @@ export function assertFactoryPoolConfirmsStop(acknowledged: PoolLeaseStatus, rec
     || acknowledged.allocationGeneration < receipt.allocationGeneration || (acknowledged.hostId !== undefined && acknowledged.hostId !== receipt.hostId)) throw new FactoryTaskStopError("factory_task_stop_pool_mismatch");
 }
 
+/** How a confirmed stop settles: a completed result's measured usage, or what its journal proves. */
+type StopSettlement = { readonly kind: "measured"; readonly usage: FactoryMeasuredUsage } | FactoryJournalStopSettlement;
+
 /** A sealed stop still to drive, as opposed to a receipt already final (a stop settled in place, W09h). */
 function isSealedStop(value: SealedStop | FactoryTaskStopReceipt): value is SealedStop {
   return "request" in value;
@@ -748,7 +781,7 @@ export async function factoryStopWithDeadline<Result>(timeoutMs: number, work: (
   finally { if (timer) clearTimeout(timer); }
 }
 
-/** The one terminal usage a stop may settle: the outcome's, else the durable launch result's. */
+/** The one terminal usage a stop may report: the outcome's, else the durable launch result's. */
 function terminalStopUsage(liveAuthority: FactoryLiveStopAuthority): FactoryUsage | undefined {
   return liveAuthority.terminalOutcome?.result.usage ?? liveAuthority.terminalResult?.usage;
 }

@@ -152,6 +152,10 @@ In a record, `evidence.nodes.<node>` holds these facts for each node:
 - `completionEventOutput`: the value the product read from the store when the node completed.
 - `operations`: the node's journal rows. For `infer` this is the model operation, with the provider receipt digest, the measured usage, and the result.
 - `model`: the model pin the attempt ran under.
+- `settlement`: the newest usage settlement of the attempt's reservation: its
+  `source`, `basis`, known and held cost, and whether a signed stop proves it.
+- `reservation`: that reservation's `state`, its reserved `amount`, and the
+  `actual` amount settled.
 
 ## What a correct result looks like
 
@@ -177,6 +181,7 @@ A passing proof pass has these facts. The pass checks each one and lists it in
 - `prepare` and `combine` have the same output digest in all passes of a mode.
 - In mode `mock`, `infer` gave the same answer in all three passes.
 - Both controls passed.
+- Each control's run ended `failed` and was never held.
 
 The summary records mode `ollama`'s answers as they came, next to the pinned
 temperature and seed. It does not require them to be equal.
@@ -189,18 +194,22 @@ happened.
 | Control | How to run it | Correct result |
 | --- | --- | --- |
 | A binding to a port that does not exist | part of the `no-pin` pass | `POST .../definitions/<id>/validate` answers `valid: false` with the diagnostic `BINDING_PORT`; the draft is stored as `unavailable`; publishing it answers 422 `factory_definition_invalid` with the issue `BINDING_PORT` |
-| `infer` with no model pin | `run.sh pass mock no-pin control-no-pin` | `infer` fails with `model_pin_mismatch`; the journal holds no operation for it; `combine` never runs; the run ends `failed` |
-| A model Ollama does not have | `run.sh pass ollama missing-model control-missing-model` | `infer` fails with `provider_unavailable`, carrying `model 'qwen3:w19a-missing' not found`; the journal holds one failed model operation with that message; `combine` never runs |
+| `infer` with no model pin | `run.sh pass mock no-pin control-no-pin` | `infer` fails with `model_pin_mismatch`; the journal holds no operation for it; `combine` never runs; the run ends `failed`; `infer.settlement` has source `no-operations`, and `infer.reservation.actual.computeMs` equals the reserved `computeMs` |
+| A model Ollama does not have | `run.sh pass ollama missing-model control-missing-model` | `infer` fails with `provider_unavailable`, carrying `model 'qwen3:w19a-missing' not found`; the journal holds one failed model operation with the code `provider_unavailable`, that message, and measured usage of zero tokens and zero cost; `combine` never runs; the run ends `failed` and is never held; `infer.settlement` has source `operations`, basis `provider-error: model usage measured, compute at reserved bound`, and known cost `0`; `infer.reservation.actual.computeMs` equals the reserved `computeMs` |
 | A failed pass keeps its diagnostics | `run.sh pass mock forced-failure control-forced-failure`, then `bun scripts/factory-graph-proof/verify-diagnostics.ts <W19A_OUT> control-forced-failure` | the pass runs the whole mock proof, then fails by the named check `forced failure: the diagnostics control fails this pass on purpose`; every `control-forced-failure.process-<name>.log` exists, is non-empty, and ends with its exit line; `control-forced-failure.stack/readiness/` holds `pool.json`, `supervisor.json` and `orchestration.json`; the check is written to `control-forced-failure.diagnostics-check.json` |
 
-The missing-model control shows one more fact, and the record keeps it in
-`heldRunFinding`. The run does not end. The failed model operation carries no
-usage, so the attempt's cost is unknown. The C03 rule never settles an unknown
-cost as zero, and reconciliation can clear a hold only from an operation that
-carries a provider receipt. The reconciliation role therefore names the hold on
-every pass: `factory_usage_hold_unresolved: no-operation-receipt`. The control
-waits for that name, not for a terminal status. This is an open contract
-question. It is not a harness fault.
+Before W03f, the missing-model run did not end. The failed operation carried no
+usage, so the reconciliation role held the run on every pass with
+`factory_usage_hold_unresolved: no-operation-receipt`. Now Ollama's error answer
+is recorded with the usage it reported, which is zero. The stop settles the
+attempt from its journal: zero model cost, and compute at the reserved bound.
+The run then ends `failed` with `provider_unavailable`. The control still stops
+waiting when the server log names a hold, and that hold fails the pass.
+
+The stop never settles an attempt from the usage its guest reports. Before
+W03f, the no-pin guest's measured zero, with 0 ms of compute, decided its
+settlement (commit `eb7b8b8c5`). That rule is replaced: compute is charged at
+the reserved bound.
 
 ## In a container
 

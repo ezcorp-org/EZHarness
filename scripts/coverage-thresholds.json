@@ -1056,6 +1056,7 @@
   "src/db/migrations/add-factory-usage-settlements.ts": 100,
   "src/db/migrations/add-factory-usage-receipt-c02-form.ts": 100,
   "src/db/migrations/add-factory-usage-no-operations.ts": 100,
+  "src/db/migrations/add-factory-usage-operations.ts": 100,
   "src/db/migrations/add-factory-task-stop-reconciliation.ts": 100,
   "src/db/migrations/add-factory-release-stop.ts": 100,
   "src/db/migrations/add-factory-compute-admission-stop.ts": 100,

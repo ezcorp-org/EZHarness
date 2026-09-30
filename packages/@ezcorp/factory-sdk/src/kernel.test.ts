@@ -147,6 +147,53 @@ describe("factory kernel", () => {
     expect(stopped.commands.find((command) => command.kind === "start-timer" && command.nodeId === "only")).toEqual(expect.objectContaining({ kind: "start-timer", nodeId: "only", deadlineAtMs: 6 }));
   });
 
+  test("W03f: a node failed by a typed provider error ends the run failed with that reason once its stop is certain, and waits while it is not", () => {
+    // One attempt, as the graph proof's nodes are compiled: a node with attempts left would retry instead.
+    const graph = compiled([{ id: "only", kind: "task", runner, retry: { maxAttempts: 1, initialDelayMs: 1_000, maximumDelayMs: 2_000 } }], { result: { kind: "ref", root: "node", name: "only" } });
+    for (const error of ["provider_unavailable", "provider_auth_failed", "provider_rate_limited", "model_pin_mismatch"]) {
+      let state = advanceKernel(graph, createKernelState(graph, `run-provider-${error}`, {}, 0), event("start", { kind: "start" })).nextState;
+      const admission = state.nodes.only!.attempts.at(-1)!;
+      state = advanceKernel(graph, state, event("admit", { kind: "admission-result", nodeId: "only", commandId: admission.commandId, candidateGeneration: admission.candidateGeneration, granted: true })).nextState;
+      const only = dispatchedAttempt(state, "only");
+      const failed = advanceKernel(graph, state, event("failed", { kind: "node-failed", nodeId: "only", commandId: only.commandId, candidateGeneration: only.candidateGeneration, attempt: only.attempt, error, failureKind: "execution" }));
+      expect(failed.commands.map((command) => command.kind)).toEqual(["cancel-node"]);
+      const stop = { kind: "attempt-stopped", nodeId: "only", commandId: only.commandId, candidateGeneration: only.candidateGeneration, attempt: only.attempt } as const;
+      // The stop that settled the usage from the journal is certain: the run fails with the provider's reason.
+      const certain = advanceKernel(graph, failed.nextState, event("stopped", stop));
+      expect(certain.nextState).toMatchObject({ status: "failed", unresolvedUncertainNodeIds: [] });
+      expect(certain.commands.filter((command) => command.kind === "fail-run")).toEqual([expect.objectContaining({ kind: "fail-run", error })]);
+      // The pre-W03f shape: a held usage makes the stop uncertain, and the run waits on it by name.
+      const held = advanceKernel(graph, failed.nextState, event("stopped", { ...stop, uncertain: true }));
+      expect(held.nextState.status).not.toBe("failed");
+      expect(held.nextState.unresolvedUncertainNodeIds).toEqual(["only"]);
+      expect(held.commands.some((command) => command.kind === "fail-run")).toBe(false);
+    }
+  });
+
+  test("W03f: a refused credential is not retried while attempts remain; a rate limit keeps its retry and backoff", () => {
+    const graph = compiled([{ id: "only", kind: "task", runner, retry: { maxAttempts: 2, initialDelayMs: 5, maximumDelayMs: 5 } }], { result: { kind: "ref", root: "node", name: "only" } });
+    const stoppedAfter = (error: string) => {
+      let state = advanceKernel(graph, createKernelState(graph, `run-retry-${error}`, {}, 0), event("start", { kind: "start" })).nextState;
+      const admission = state.nodes.only!.attempts.at(-1)!;
+      state = advanceKernel(graph, state, event("admit", { kind: "admission-result", nodeId: "only", commandId: admission.commandId, candidateGeneration: admission.candidateGeneration, granted: true })).nextState;
+      const only = dispatchedAttempt(state, "only");
+      const failed = advanceKernel(graph, state, event("failed", { kind: "node-failed", nodeId: "only", commandId: only.commandId, candidateGeneration: only.candidateGeneration, attempt: only.attempt, error, failureKind: "execution" }));
+      return advanceKernel(graph, failed.nextState, event("stopped", { kind: "attempt-stopped", nodeId: "only", commandId: only.commandId, candidateGeneration: only.candidateGeneration, attempt: only.attempt }));
+    };
+    // The same credential fails the same way on every attempt, so the attempt sequence ends here.
+    const auth = stoppedAfter("provider_auth_failed");
+    expect(auth.nextState.nodes.only?.status).toBe("failed");
+    expect(auth.nextState.status).toBe("failed");
+    expect(auth.commands.filter((command) => command.kind === "fail-run")).toEqual([expect.objectContaining({ kind: "fail-run", error: "provider_auth_failed" })]);
+    expect(auth.commands.some((command) => command.kind === "start-timer")).toBe(false);
+    // A rate limit passes with time: the existing retry and its backoff stand.
+    for (const error of ["provider_rate_limited", "provider_unavailable"]) {
+      const retried = stoppedAfter(error);
+      expect(retried.nextState.nodes.only?.status).toBe("retry_wait");
+      expect(retried.commands.find((command) => command.kind === "start-timer" && command.nodeId === "only")).toEqual(expect.objectContaining({ kind: "start-timer", nodeId: "only", deadlineAtMs: 6 }));
+    }
+  });
+
   test("cancellation fences late work and retains uncertainty", () => {
     const graph = compiled([{ id: "only", kind: "task", runner }], { result: { kind: "ref", root: "node", name: "only" } });
     let state = advanceKernel(graph, createKernelState(graph, "run-4", {}, 0), event("start", { kind: "start" })).nextState;

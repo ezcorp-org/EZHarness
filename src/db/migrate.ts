@@ -3147,6 +3147,10 @@ export async function migrate(db: MigrateDb): Promise<void> {
   // item. Depends only on add-factory-task-stops, registered above.
   const { up: addFactoryTaskStopReconciliation } = await import("./migrations/add-factory-task-stop-reconciliation");
   await addFactoryTaskStopReconciliation(db);
+  // W03f: a stop settles from its journal's measured operations. Widens the three
+  // settlement CHECKs add-factory-usage-no-operations installed, registered above.
+  const { up: addFactoryUsageOperations } = await import("./migrations/add-factory-usage-operations");
+  await addFactoryUsageOperations(db);
   // W02d R8: a dispatch refused after admission stops through a signed host stop. Depends only on add-factory-task-stops.
   const { up: addFactoryTaskStopDispatchRefused } = await import("./migrations/add-factory-task-stop-dispatch-refused");
   await addFactoryTaskStopDispatchRefused(db);
