@@ -48,7 +48,10 @@ export function startFactoryPrivateHttps(options: FactoryPrivateHttpsOptions): {
     if (state.closed || !state.output) return;
     const written = socket.write(state.output.subarray(state.offset));
     if (written > 0) state.offset += written;
-    if (state.offset === state.output.byteLength) { state.closed = true; clearTimeout(state.timer); socket.end(); }
+    // The response timer stays armed after end(): on Bun 1.4 end() on a TLS socket closes only the sending side
+    // (BoringSSL has no TLS half-close; oven-sh/bun#31155), so a peer that keeps writing would otherwise hold the
+    // connection without bound. The timer terminates it after requestTimeoutMs; close() clears it on a normal close.
+    if (state.offset === state.output.byteLength) { state.closed = true; socket.end(); }
   }
   function respond(socket: Bun.Socket<Connection>, response: FactoryPrivateResponse): void {
     const state = socket.data;
