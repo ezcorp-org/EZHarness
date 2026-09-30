@@ -76,7 +76,7 @@
   "dependencies": { "@ezcorp/extension-contract": "workspace:*", "@modelcontextprotocol/sdk": "1.30.0" },
   "devDependencies": {
     "@types/bun": "1.4.2",
-    "@types/node": "^26.6.1",
+    "@types/node": "^26.6.2",
     "typescript": "^5.9.3"
   }
 }

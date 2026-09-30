@@ -51,8 +51,8 @@
     "@biomejs/biome": "2.5.14",
     "@types/bun": "1.4.2",
     "@types/js-yaml": "^4.0.9",
-    "@types/node": "^26.6.1",
-    "drizzle-kit": "^0.31.9"
+    "@types/node": "^26.6.2",
+    "drizzle-kit": "^0.31.11"
   },
   "peerDependencies": {
     "typescript": "^5.9.3"
@@ -71,10 +71,10 @@
     "@huggingface/transformers": "^4.3.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@zxing/library": "^0.23.0",
-    "drizzle-orm": "^0.45.2",
+    "drizzle-orm": "^0.45.3",
     "exceljs": "^4.4.0",
     "fast-png": "^8.0.0",
-    "file-type": "^22.1.0",
+    "file-type": "^22.1.1",
     "jpeg-js": "^0.4.4",
     "pdf-parse": "^2.4.5",
     "yaml": "^2.9.1"
