@@ -48,7 +48,8 @@ at this head is the evidence of record; its verdicts are in its receipts, not in
 | `9c11cea96` | Merge of integ/w00 `e0e2a23c9` (W03f landed), list-bound skip ruling; committed by the user; all 14 withheld suites green |
 | `3fd496578` | The task-stops.ts attestation re-proved at the merge: line 336, the merged file's hash |
 | `069cb8c2b` | Docs: the final merge, the attestation, the trial at 2678beeb7, the commit map |
-| (this commit) | Guard: `dispatch-refused-stops.ts` imports C13's shared `blobs.ts`, so REQUIRED_SHARED_IMPORTS carries its row |
+| `6abdc707c` | Guard: `dispatch-refused-stops.ts` imports C13's shared `blobs.ts`, so REQUIRED_SHARED_IMPORTS carries its row |
+| (this commit) | Docs: the crossing rows validator-6 asked for (F2) and the `worker_stopped` freeze-section-6 line |
 
 ## Base reproductions (G1), on the real stack
 
@@ -164,7 +165,8 @@ on class `gpu` = `{cpu 1, gpu-host 1}`). Under the heavy lock; bun and bunx asse
 - (i) `f01dc399c`. Red through the real router: the stop of a never-seen worker answered 500 `stop_failed`
   (`logs/r8a-red.log`). Green: one runtime inspect, a signed tombstone line beside the host key, then the signed
   absence; a later launch or attach of that worker is refused 409 `worker_stopped`. The launch is refused from the
-  moment the stop reserves the worker, before anything is awaited.
+  moment the stop reserves the worker, before anything is awaited. `worker_stopped` is an additive freeze-section-6
+  code.
 - (ii) `a0c96ae8c`. A spawned host process records the tombstone and exits; the next process loads it and refuses
   the worker. Red with the load removed: 0/1.
 - validator-6's review, each red by a mutant: an inspect that throws signs nothing and writes nothing (`0165ae64f`;
@@ -298,6 +300,14 @@ plus `FACTORY_HOST_TOMBSTONE_GRACE_MS` (1 day), 31 days from its write. The reas
 | `src/factory/task-stops.ts` (the pool confirmation) | W01h (the stop path); W03 (the file's coverage attestation) | A pool that reclaimed a lease confirmed the stop at a later allocation generation, and the stop refused it forever (P2 trial) | `__tests__/factory-task-stops.test.ts` and its PostgreSQL twin |
 | `src/factory/dispatch-refused-stops.ts` (the pool confirmation) | W02d (R8) | The same check, shared; F-R8a pins that an unconfirmed pool settles nothing | `__tests__/factory-task-stops.test.ts` and its PostgreSQL twin |
 | `src/__tests__/helpers/factory-pool-suite.ts` | W16 (the pool) | Pins one holder per reservation, the fact the confirmation rests on | `pool/ledger.integration.test.ts` and its PostgreSQL twin |
+| `packages/@ezcorp/factory-sdk/src/kernel.ts` (R9, `1f7d56010`) | factory-sdk (the kernel) | A denied admission marks its attempt stopped before failing the node, so stopping the run sends no cancel that no stop route can settle | `factory-sdk/src/kernel-run-controls.test.ts`, `__tests__/factory-compute-admissions.test.ts` |
+| `src/factory/runner/attempt-preflight.ts` (R3, `4f347dc14`) | W09 | The dispatch preflight grants a held GPU lease its recorded devices, or refuses it by name | `runner/attempt-preflight.test.ts` |
+| `src/factory/startup-config.ts` (R1, `a2b7b408d`) | W09 | Startup refuses a runner profile whose `gpu-host` is not one whole host | `startup-config.test.ts` |
+| `src/factory/task-execution-admission.ts` (R8, `26951f125`) | W03 / W09d-2 | A dispatch refused after admission records, in its own transaction, the stop that releases its lease and hold | `__tests__/factory-task-stops.test.ts` and its PostgreSQL twin |
+| `src/factory/pool/client.ts` (R2, `d8a20ba03`) | W16 | The client reads a GPU lease's recorded device profile with the ledger's own parser | `pool/client.test.ts`, `pool/process.test.ts`, `tests/postgres/factory-pool-service.test.ts` |
+| `src/factory/dispatch-composition.ts`, `private-service-composition.ts` (R8 wiring, `26951f125`) | product composition | The stop settlement role also drives refused-dispatch stops; the admission records them | `dispatch-composition.test.ts`, `private-service-composition.test.ts` |
+| `src/factory/records.ts`, `factory-identity.ts`, `task-stop-error.ts`, `stop-host-keys.ts` (refactor `21c19b5ce`) | factory core (records, task stops) | The identity check, the stop error and the host key set move to modules with no database, so the supervisor reuses the stop verifier's key set (C05); the old modules re-export them | `__tests__/factory-records.test.ts`, `dispatch-composition.test.ts`, `__tests__/factory-task-stops.test.ts`, `__tests__/factory-process-boundaries.test.ts` |
+| `scripts/check-factory-boundaries.ts` (`6abdc707c`) | W18 (the C13 inventory) | R8's `dispatch-refused-stops.ts` imports C13's shared `blobs.ts`; its row | `scripts/factory-c13-inventory.test.ts`, `scripts/check-factory-boundaries.test.ts` |
 
 ## Head runs
 
