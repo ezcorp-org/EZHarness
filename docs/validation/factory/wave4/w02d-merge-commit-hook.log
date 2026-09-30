@@ -1,0 +1,29 @@
+Checked 58 files in 53ms. No fixes applied.
+── Tests (staged) ─────────────────────────────────
+  24 test files map to this commit (cap 12) — NOT running:
+    packages/@ezcorp/factory-sdk/src/kernel-run-controls.test.ts
+    packages/@ezcorp/factory-sdk/src/kernel.test.ts
+    scripts/check-factory-boundaries.test.ts
+    src/db/migrations/add-factory-task-stop-dispatch-refused.test.ts
+    src/factory/dispatch-composition.test.ts
+    src/factory/graph-proof-diagnostics.test.ts
+    src/factory/pool/client.test.ts
+    src/factory/pool/gpu-host-profiles.test.ts
+    src/factory/pool/process.test.ts
+    src/factory/private-service-composition.test.ts
+    src/factory/runner/attempt-preflight.test.ts
+    src/factory/runner/host-launch-service.test.ts
+    src/factory/runner/host-launch-supervisor.test.ts
+    src/factory/runner/host-stop-service.test.ts
+    src/factory/runner/host-tombstones.test.ts
+    src/factory/runner/remote-attempt-runtime.test.ts
+    src/factory/runner/supervisor-process.test.ts
+    src/factory/runner/supervisor-services.test.ts
+    src/factory/startup-config.test.ts
+    src/factory/usage-settlement.test.ts
+    src/__tests__/factory-compute-admissions.test.ts
+    src/__tests__/migrate.test.ts
+    tests/postgres/factory-pool-service.test.ts
+    tests/postgres/factory-task-stop-dispatch-refused-migration.test.ts
+  EZ_SKIP_HOOK_TESTS=1 set — skipping the 24 file(s) above; continuing with lint.
+[detached HEAD 381449a85] merge: wp/w02d-gpu-lease edc8a93d7 into integ/w00 (W02d GPU lease)

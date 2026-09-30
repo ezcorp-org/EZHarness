@@ -1,0 +1,74 @@
+VERDICT (validator-6) — W02d at edc8a93d7 (wp/w02d-gpu-lease), base e0e2a23c9: ACCEPT
+
+This re-hold follows the REJECT at 069cb8c2b (kept verbatim in verdict-validator-6-069cb8c2b.txt). It runs under
+w00/ruling-proof-carry-over.txt, with A = 069cb8c2b.
+The binding head is edc8a93d7:
+  - 6abdc707c, the F1 fix, adds one row to scripts/check-factory-boundaries.ts and changes w02d-GATES.md;
+  - edc8a93d7 changes only docs for F2 (w02d-GATES.md, +12/−2 over 6abdc707c).
+All commits are archy noreply (43 over the base).
+
+CARRY-OVER CHECK (ruling sections 1 and 3; hold-v6-edc8a93d7/logs/carry-over-allowed-set.log)
+  git diff --name-only 069cb8c2b edc8a93d7:
+    scripts/check-factory-boundaries.ts
+    tasks/factory/w02d-GATES.md
+  check-factory-boundaries.ts removed nothing and added one line, inside REQUIRED_SHARED_IMPORTS:
+    +  { factoryPath: "src/factory/dispatch-refused-stops.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+  Allowed-set check: PASS.
+  git diff --name-only 6abdc707c edc8a93d7:
+    tasks/factory/w02d-GATES.md
+  (The docs commit only, so the results at 6abdc707c stand for edc8a93d7. I held at edc8a93d7 itself.)
+  Neither gate-integrity leg names check-factory-boundaries.ts (0 lines each):
+    - base leg found = expected = scripts/coverage-attestations.json;
+    - main leg found = expected = the 8 ruled paths.
+  Carried from 069cb8c2b: the rule mutants (54/54 RED, verdict-validator-6-069cb8c2b.txt), the authoritative run (P1 5/5 x4,
+  P5 4/4 x4, P2 9/9 x4), the Podman legs (19/0 and 1/0) and the runbook (passed, 11/11).
+
+FINDINGS FROM 069cb8c2b, NOW CLOSED
+  F1 (C13 guard red): closed.
+    - Red at 069cb8c2b: scripts/factory-c13-inventory.test.ts 12/1, in w02d/guard/c13-red-069cb8c2b.log and my
+      hold-v6-069cb8c2b/logs/c13-at-head.log.
+    - Green at edc8a93d7: my guard set of 12 files gives 60 pass 0 fail (hold-v6-edc8a93d7/logs/guard-suites.log);
+      check-factory-boundaries exits 0.
+    - Gate-integrity against e0e2a23c9 shows only the approved finding, so the script row raises no new one.
+  F2 (ownership rows): closed.
+    - Each of the 11 files now has a row in the crossing table: kernel.ts, attempt-preflight.ts, startup-config.ts,
+      task-execution-admission.ts, pool/client.ts, dispatch-composition.ts, private-service-composition.ts, records.ts,
+      factory-identity.ts, task-stop-error.ts, stop-host-keys.ts.
+    - `worker_stopped` is disclosed as an additive freeze-section-6 code (w02d-GATES.md:168).
+  F3 (config-hash-after receipt): closed. w02d/merge-e0e2a23c9/config-hash-after.txt now exists and reads 44962525f1ca1a8b.
+  Validator method (the lead's rule 5): the unit leg is now the union of four sets:
+    - the tests changed against the base;
+    - the hook-mapped set (w00/w02d-merge/hook-mapped-6abdc707c.txt);
+    - the owner's 32 coverage suites;
+    - the tests of check-factory-boundaries.ts.
+    That is 29 files. Red first: 069cb8c2b's run-1 merged lcov failed the patch gate (hold-v6-069cb8c2b/heavy-run1/).
+    Green: the rerun with the union passed at 069cb8c2b (30 files) and passes here (31 files).
+
+RERUN AT edc8a93d7 (ruling section 2; hold-v6-edc8a93d7/results.jsonl; Bun and bunx 1.3.14; config hash 44962525f1ca1a8b at start and end)
+  Static, lock-free, 02:29–02:31Z:
+    typecheck 0; lint 0; check-factory-boundaries 0; check-boundaries 0; schema drift 0; gitleaks 0.
+    C05 process-boundaries 17/0.
+    gate-integrity against origin/main: the set leg PASSES.
+    gate-integrity against the base: exactly scripts/coverage-attestations.json; base-set PASS by w00/w02d-merge/gate-change-decision.txt (sha256 d906855bc5066b83…).
+    Attestation:
+      - stale red at 3fd496578^;
+      - fresh at the head: inactive against the base (line not changed), attested against origin/main at line 336, uncovered with [];
+      - the entry has one line, and its hash, text and Bun match the head;
+      - DA 0 on line 336 while the line above ran.
+    P3 gap stated.
+    Receipts: 43 scanned, 0 missing. They name 6abdc707c, the owner's per-head run; edc8a93d7 adds only docs over it.
+  Heavy, under the lock (lock_veto validator-6 first; 02:31–02:35Z):
+    unit coverage (29-file union) 558/0; SDK 246/0.
+    PostgreSQL: budgets 13/0, compute-admissions 2/0, pool-service 5/0, pool 31/0, run-lifecycle 92/0, schema 2/0,
+      task-stop-dispatch-refused-migration 1/0, task-stops 52/0.
+    guard set 12 files 60/0.
+    merge-lcov 0; new-file PASSED (6); patch PASSED (31).
+  Owner's receipts at 6abdc707c (w02d/cov-6abdc707c/receipts/):
+    32 receipts, all at 6abdc707c, exit 0; new-file PASSED (6), patch PASSED (31); done 02:26:49Z, failed 0.
+    guard green 60/0.
+
+NO OPEN FINDINGS. The plan conformance, interface, DRY and security sections of verdict-validator-6-069cb8c2b.txt stand unchanged.
+The only runtime-free change since then is the C13 row, and it is proven red then green.
+
+Evidence: /tmp/factory-platform-evidence/w02d-validation/hold-v6-edc8a93d7/ (results.jsonl, logs/, receipts.list, receipts-scan.tsv),
+rehold-edc8a93d7.sh, extra-unit-6abdc707c.txt, boundary-tests-edc8a93d7.txt, and the 069cb8c2b evidence named in its verdict.
