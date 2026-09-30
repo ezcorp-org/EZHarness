@@ -14,11 +14,13 @@ test("usage settlement migration is repeatable and keeps one receipt per reserva
     const columns = rows<{ column_name: string; is_nullable: string }>(await fixture.db.execute(sql`SELECT column_name,is_nullable FROM information_schema.columns WHERE table_name='factory_usage_settlements' ORDER BY column_name`));
     expect(columns.map(row => row.column_name)).toEqual([
       "attempt_id", "basis", "created_at", "event_digest", "event_json", "known_cost_micros", "project_id",
-      "provider_receipt_digest", "reservation_id", "revision", "run_id", "settled_at_ms", "settlement_digest",
+      "provider_receipt_digest", "reservation_id", "restore_digest", "revision", "run_id", "settled_at_ms", "settlement_digest",
       "source", "stop_receipt_digest", "tenant_id", "unknown_cost_micros",
     ]);
     expect(columns.find(row => row.column_name === "unknown_cost_micros")?.is_nullable).toBe("YES");
     expect(columns.find(row => row.column_name === "known_cost_micros")?.is_nullable).toBe("NO");
+    // Added by add-factory-usage-operations (60cf34635, a reserved-bound settlement may rest on a restore): nullable.
+    expect(columns.find(row => row.column_name === "restore_digest")?.is_nullable).toBe("YES");
     const definitions = rows<{ conname: string; definition: string }>(await fixture.db.execute(sql`SELECT conname,pg_get_constraintdef(oid) AS definition FROM pg_constraint WHERE conrelid='factory_usage_settlements'::regclass ORDER BY conname`));
     const joined = definitions.map(row => row.definition).join("\n");
     expect(joined).toContain("FOREIGN KEY (tenant_id, project_id, run_id, reservation_id) REFERENCES factory_budget_reservations");
