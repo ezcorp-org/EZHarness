@@ -47,6 +47,8 @@ at this head is the evidence of record; its verdicts are in its receipts, not in
 | `250436fd4` | Tombstone (validator-6 L1): an unverifiable entry holds launches refused for at most one retention span after its load |
 | `9c11cea96` | Merge of integ/w00 `e0e2a23c9` (W03f landed), list-bound skip ruling; committed by the user; all 14 withheld suites green |
 | `3fd496578` | The task-stops.ts attestation re-proved at the merge: line 336, the merged file's hash |
+| `069cb8c2b` | Docs: the final merge, the attestation, the trial at 2678beeb7, the commit map |
+| (this commit) | Guard: `dispatch-refused-stops.ts` imports C13's shared `blobs.ts`, so REQUIRED_SHARED_IMPORTS carries its row |
 
 ## Base reproductions (G1), on the real stack
 
@@ -234,6 +236,17 @@ plus `FACTORY_HOST_TOMBSTONE_GRACE_MS` (1 day), 31 days from its write. The reas
   The shared git config hash was 44962525f1ca1a8b before and after.
 - The R6 basis is unchanged by W03f: a stop with no journaled operation still records a `no-operations` settlement
   with no basis named, so FACTORY_USAGE_NO_OPERATIONS_BASIS "no-operations: compute at reserved bound" applies.
+
+## The C13 inventory guard (after 069cb8c2b)
+
+- Red (validator-6's guard leg, reproduced at 069cb8c2b: `w02d/guard/c13-red-069cb8c2b.log`, 12/1):
+  `scripts/factory-c13-inventory.test.ts` found that R8's `dispatch-refused-stops.ts` imports the C13 shared module
+  `src/extensions/v4/blobs.ts` with no REQUIRED_SHARED_IMPORTS row. The hook-mapped per-head run never ran that
+  repository-wide test.
+- Green: the row, in sorted position. The guard set (`w00/guard-suites.sh`, 12 files) 60/0; the boundary check exit
+  0; its test 31/0. The per-head run now includes the guard set as a leg (common.md).
+- The runtime proof at 069cb8c2b carries over under `w00/ruling-proof-carry-over.txt`: this fix changes only that
+  row, this file and nothing under src/ or packages/.
 
 ## The task-stops.ts attestation (3fd496578)
 
