@@ -4,8 +4,9 @@ Branch `wp/w02d-gpu-lease`, cut from `integ/w00` at `a24a619ad` (W01h and W01i a
 Evidence: `/tmp/factory-platform-evidence/w02d/`. Brief: `/tmp/factory-platform-evidence/w00/briefs/w02d.md`;
 plan and rulings: `w02d/plan.md`.
 
-Status: IN PROGRESS. R1–R9 and R7b are in, R8 and R9 on W09h's basis, with the host tombstone of ruling (A). The
-task-stops.ts attestation refresh waits for W03f; the authoritative head run follows it. Validator: validator-6.
+Status: FINAL HEAD. R1–R9 and R7b are in, R8 and R9 on W09h's basis, with the host tombstone of ruling (A), merged
+with integ/w00 `e0e2a23c9` (W03f landed) and the task-stops.ts attestation re-proved. The authoritative two-stage run
+at this head is the evidence of record; its verdicts are in its receipts, not in this file. Validator: validator-6.
 
 | Commit | What it is |
 | --- | --- |
@@ -37,6 +38,15 @@ task-stops.ts attestation refresh waits for W03f; the authoritative head run fol
 | `cb4e90bc6` | Tombstone (validator-6 P3): a restarted supervisor process refuses the worker's launch over mutual TLS |
 | `2b71b3d0b` | Tombstone (validator-6 D3): the write that creates the file also syncs its folder |
 | `8e3d92a7c` | Tombstone (validator-6 D2): the file keeps only the live window, so a long-lived host can always start |
+| `43a3e4cd4` | Docs: validator-6's tombstone items, the compaction bound, the R6 basis as ruled, the P2 trial finding |
+| `2678beeb7` | R6 pool confirmation: the same holder at a later allocation generation confirms; F-R8a, an unconfirmed pool settles nothing |
+| `21c19b5ce` | Refactor: the host key set, the stop error and the identity check move to modules with no database |
+| `c80c61d01` | Tombstone (validator-6 D6): verified against the retained host key set; an unverifiable live entry holds launches refused |
+| `bc34b5268` | Tests (validator-6 F-GI): the host process tests assert at their top level, where gate-integrity counts them |
+| `7cf8578d6` | Test (validator-6 F-PC-HOST): a pool confirmation naming another host is refused, and nothing settles |
+| `250436fd4` | Tombstone (validator-6 L1): an unverifiable entry holds launches refused for at most one retention span after its load |
+| `9c11cea96` | Merge of integ/w00 `e0e2a23c9` (W03f landed), list-bound skip ruling; committed by the user; all 14 withheld suites green |
+| `3fd496578` | The task-stops.ts attestation re-proved at the merge: line 336, the merged file's hash |
 
 ## Base reproductions (G1), on the real stack
 
@@ -205,6 +215,38 @@ plus `FACTORY_HOST_TOMBSTONE_GRACE_MS` (1 day), 31 days from its write. The reas
 - W09h landed at `7a499e4e1`: a run stopped while a node waits for compute admission now settles in place. W02d's
   head runs do not rerun that case: P3 is not run (the user's decision (b), below) and P5 has no GPU host.
 
+## Merge of integ/w00 e0e2a23c9 (9c11cea96)
+
+- W03f landed (ee9117e0a) with its receipts (e0e2a23c9). Conflicts in five files, each resolved keeping both sides:
+  `proof.ts` (W02d's check with its expected value, W03f's settledAtBound); `migrate.ts` (W03f's migration, then R8's);
+  `usage-settlement.ts` (W03f's wider settlement sets and settlementBasis, W02d's nothing-launched helper);
+  `lessons.md`; `task-stops.ts` (union imports; W02d's shared pool confirmation with W03f's stopSettlement and
+  finalize; both new top-level functions). Red: W03f's side of the pool check fails 3 stop tests (R7's reimage, R6's
+  reclaimed lease, the list test); the older settlement call does not typecheck against W03f's finalize. Green:
+  PGlite task-stops 52/0; typecheck and lint 0 after rebuilding the SDK packages' build output.
+- The hook mapped 14 suites (cap 12): skipped under the coordinator's list-bound ruling
+  (`w02d/merge-e0e2a23c9/ruling-hook-skip-merge-e0e2a23c9.txt`, list sha256 prefix 4748375eccf64f29); the hook's
+  printed set equalled the ruled set. The tool permission system refused the skipped-hook commit for the agents, so
+  the user made the commit in their own shell; tree, parents, identity and message were checked after.
+- All 14 ran outside the hook at the same tree, from the scratch commit `7f9b6e131`
+  (`proof/w02d-merge-e0e2a23c9-scratch`): every exit 0, every count nonzero (`w02d/merge-e0e2a23c9/receipts/`). The
+  gate-integrity rule-11 suite needs the locked parser installed as CI installs it; without it the gate fails closed.
+  The shared git config hash was 44962525f1ca1a8b before and after.
+- The R6 basis is unchanged by W03f: a stop with no journaled operation still records a `no-operations` settlement
+  with no basis named, so FACTORY_USAGE_NO_OPERATIONS_BASIS "no-operations: compute at reserved bound" applies.
+
+## The task-stops.ts attestation (3fd496578)
+
+- Red: the gate's own evaluation found the old entry (line 373) stale by SHA-256 against the merged file
+  (`w02d/attest/logs/stale-red.log`).
+- Re-probe at `9c11cea96`, under the heavy lock with the w01g-fix veto (`w02d/attest/probe.sh`, W03f's probe with only
+  the repository, the evidence folder and the veto lane changed): the line is now 336. DA 336 = 0 and DA 335 = 176 on
+  PGlite and on PostgreSQL (52/0 each); a throw planted on line 336 fails 37 of 52 stop tests on both; Bun 1.3.14.
+  The file was restored by checksum.
+- The entry now records line 336, the merged file's hash, the same text, Bun 1.3.14, the reason and the proof paths.
+  The gate's evaluation finds nothing stale against e0e2a23c9. The one base-leg gate-integrity finding this changes
+  is covered by `/tmp/factory-platform-evidence/w00/w02d-merge/gate-change-decision.txt`.
+
 ## Merge of integ/w00 ad22592da (7a499e4e1)
 
 - W09h, W18c and C2's hygiene landed. The hook withheld 89 suites (cap 12) under the list-bound skip ruling; all
@@ -286,14 +328,17 @@ product's own stop of the failed attempt.
 | p5-head-3 | 4/4 | all hold |
 | p5-smoke | 4/4 | all hold |
 
+Trial at `2678beeb7` (smoke plus one pass, not the evidence of record; `w02d/head-2678beeb7-trial/`): P1 5/5 twice,
+P5 4/4 twice, P2 9/9 twice. P2's run failed by name, its stop was signed through the tombstone, the pool settled
+`stopped-confirmed`, and the hold settled at cost 0 under "no-operations: compute at reserved bound"; no
+`factory_task_stop_pool_mismatch` line. The verifier's P2 carries the post-R8 expectation (sha256 prefix
+`f6c0fe58ee286a6f`); the pre-R8 form is kept as `verify-head.pre-r8.py`.
+
 ## Open
 
-- task-stops.ts attestation refresh after W03f lands (W03g's entry pins the file; R7/R8 change it).
-- The authoritative two-stage head run at the final head, after the refresh.
 - Follow-up, unchanged this wave (coordinator ruling): the stop settlement role classifies
   `factory_task_stop_pool_mismatch` as transient and retries it on every pass with no bound (1912 and 1929 retries in
   the two P2 trial passes). It needs a bounded back-off.
-- The final merge of integ after W03f must re-resolve `task-stops.ts`: W03f's custody merge changes it too.
 - Follow-up, owner W02d, not this wave (coordinator ruling): a durable claim-time fact on the launch row, so a lease
   lost before launch can settle under "no-operations: nothing launched, all zero".
 - Design follow-up (coordinator, not this wave): a 30 s lease against a queue wait that can exceed it means every long

@@ -1790,3 +1790,11 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 - In a concurrency test, identify each lock waiter by `pg_blocking_pids` in a database of its own, not by matching
   query text: the second contender often waits on an earlier row (the run row) than the one the gate holds. Release
   the gate in a `finally`, or a failed probe leaves the gate open and the fixture's teardown hangs.
+
+## 2026-09-29 — W02d: a ruled hook skip is still the user's permission
+
+- What happened: the coordinator's list-bound ruling allowed `EZ_SKIP_HOOK_TESTS=1` for one merge commit, and the tool
+  permission system refused it for the agent and for the coordinator.
+- Rule: a teammate's ruling never grants a permission the tool system refuses. Report the denial, freeze the staged
+  tree, prepare the exact command and message file, and let the user run it; verify tree, parents, identity and
+  message after.

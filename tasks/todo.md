@@ -5329,7 +5329,8 @@ both processes a log line that names it. Two causes remain outside this package:
       basis (31bee42a9).
 - [x] Merge of integ/w00 e92d34d45 (bfa01a41a) with all 74 withheld suites green.
 - [x] Merge of integ/w00 ad22592da (7a499e4e1) with all 89 withheld suites green.
-- [ ] task-stops.ts attestation refresh after W03f lands.
+- [x] Merge of integ/w00 e0e2a23c9 (9c11cea96, committed by the user) with all 14 withheld suites green.
+- [x] task-stops.ts attestation re-proved at the merge (3fd496578, line 336).
 - [ ] The authoritative two-stage head run (P1, P5, P2 with the post-R8 expectation) at the final head.
 - [ ] Coverage gates at the final head.
 
