@@ -1,5 +1,6 @@
 import { createHash, generateKeyPairSync, randomUUID } from "node:crypto";
 import { SQL } from "bun";
+import { assertBunSqlPipeliningOff } from "../../../src/db/bun-sql-pipelining";
 import { canonicalJson } from "@ezcorp/extension-contract";
 import { drizzle } from "drizzle-orm/bun-sql";
 import { factoryRunnerRequestDigest } from "@ezcorp/factory-sdk/compiler";
@@ -45,7 +46,8 @@ export interface FactoryOpenDatabase {
 }
 
 export class FactoryRecoveryDatabases {
-  private readonly admin = new SQL(adminUrl(), { max: 1 });
+  // W12e: fail by name on an affected Bun without the flag at process start, before the first client opens.
+  private readonly admin = (assertBunSqlPipeliningOff(), new SQL(adminUrl(), { max: 1 }));
   private readonly created: string[] = [];
 
   private fresh(label: string): string {

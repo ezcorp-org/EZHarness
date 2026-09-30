@@ -10,13 +10,26 @@
  * (measured on the wire, W12e option 3). So nothing here sets it. On an affected Bun every Bun.SQL client is opened
  * through `openBunSql` (or checks with `assertBunSqlPipeliningOff`), which refuses by name unless the flag was in the
  * start environment. On Linux that is read from /proc/self/environ, so a late `process.env` write cannot satisfy the
- * guard any more than it satisfies Bun; elsewhere `process.env` is the best available answer.
+ * guard any more than it satisfies Bun. Where that file does not exist (macOS local development) the start
+ * environment cannot be verified and `process.env` is read instead; every production entrypoint runs on Linux.
+ * There is no override of any kind.
+ *
+ * The list is closed upward: a Bun at or above 1.4.0 must be either affected (guarded) or proven clean by a recorded
+ * 3000-trial harness pass; `bunSqlPipeliningVerdict` names any other, and the test suite fails on the pinned Bun then.
  */
 import { readFileSync } from "node:fs";
 import defect from "./bun-sql-pipelining-defect.json" with { type: "json" };
 
 export const BUN_SQL_PIPELINING_FLAG = "BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING";
-export const BUN_SQL_PIPELINING_DEFECT: { readonly affected: readonly string[]; readonly fixedIn: string | null } = defect;
+export const BUN_SQL_PIPELINING_DEFECT: { readonly affected: readonly string[]; readonly provenClean: readonly string[] } = defect;
+
+/** Where a Bun release stands on the request-queue defect: before its known range, affected, proven clean, or unknown. */
+export function bunSqlPipeliningVerdict(bunVersion: string): "before-range" | "affected" | "proven-clean" | "unknown" {
+  if (Bun.semver.order(bunVersion, "1.4.0") < 0) return "before-range";
+  if (BUN_SQL_PIPELINING_DEFECT.affected.includes(bunVersion)) return "affected";
+  if (BUN_SQL_PIPELINING_DEFECT.provenClean.includes(bunVersion)) return "proven-clean";
+  return "unknown";
+}
 
 export class BunSqlPipeliningGuardError extends Error {
   override readonly name = "BunSqlPipeliningGuardError";

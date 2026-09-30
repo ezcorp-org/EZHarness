@@ -138,7 +138,8 @@ docs/factory-graph-proof.md ("Before you start").
 ## Follow-up
 
 - [ ] Remove the Bun.SQL pipelining guard when a Bun release carries oven-sh/bun#32088 and #43187 (see "Bun.SQL on
-  1.4.2"): set fixedIn, then delete the guard, its list, its tests and every flag setting together.
+  1.4.2"): record the release in provenClean after its 3000-trial pass, then delete the guard, its list, its tests and
+  every flag setting together.
 
 - [ ] Remove the preview pipeline guard when a Bun release carries oven-sh/bun#43557. On the bump that moves
   .bun-version to that release, preview-pipeline-guard.test.ts ("without it, this Bun leaves a pipelined pair
@@ -204,8 +205,23 @@ reproduction under 1.4.2 against 1.3.14 and a fix red first.
   workflows ci, db-postgres, deps-audit, mutation-nightly, release-image and release-sdk (env); scripts/lib/pinned-bun.sh
   use_pinned_bun (exports it for a listed pin, unsets it otherwise); the shared w00/bun-pin.sh does the same.
 - The acceptance test is unchanged; it runs green in the product's configuration, with the flag at start.
+- The list is closed upward (lead, 2026-09-30): src/db/bun-sql-pipelining-defect.json carries `affected`
+  (1.4.0, 1.4.1, 1.4.2) and `provenClean` (empty today; the canary 1.4.3-canary.1+bf42a525d is evidence, not a
+  version). Below 1.4.0 is outside the defect's known range. A pin at or above 1.4.0 in neither list fails
+  src/db/bun-sql-pipelining.test.ts by name: "Bun <v> is neither affected nor proven clean for the request-queue defect
+  (oven-sh/bun#32088, #43187): run the 3000-trial harness and record the result".
+- The proof a release needs before it enters provenClean: the harness at 3000 trials, WITHOUT the flag, on the proof
+  database, 0 trials with errors and 0 stalls:
+  `FACTORY_TEST_POSTGRES_URL=<proof database, exported inside a script> TREE=<worktree> TRIALS=3000 bun rq-harness.ts`
+  (the harness: /tmp/factory-platform-evidence/w12e-2/bin/rq-harness.ts, sha256 ee1ee930e0c52561…; the same case as the
+  acceptance test's second, with error codes and a drain watch). Record it as tasks/factory/w12e-GATES.md
+  "provenClean records": the release, the JSONL path, the summary line.
 - Removal rule: the guard, its list, its tests and every flag setting are removed together at the first Bun release
-  that carries both #32088 and #43187. Moving .bun-version off the list is red until fixedIn names that release.
+  that carries both #32088 and #43187 and is proven clean.
+- Non-Linux: the start environment cannot be verified there (no /proc/self/environ), so process.env is read; every
+  production entrypoint runs on Linux. No override of any kind. A test asserts the /proc path is taken when it exists.
+- Test processes: the preload (when a real PostgreSQL URL is set) and the shared PostgreSQL helpers
+  (setupFactoryPostgres, setupFactoryPoolPostgres, the recovery-database helper) call the guard first.
 
 ## TLS client sweep (after fixes 2 and 3)
 

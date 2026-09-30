@@ -1,5 +1,5 @@
 {
-  "comment": "Bun releases whose Postgres client mixes, drops or stalls pipelined requests under load (W12e; fixed upstream by oven-sh/bun#32088 and #43187, after 1.4.2). On these, Bun.SQL runs only with BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING set at process start. fixedIn names the first release carrying both fixes, once one exists; src/db/bun-sql-pipelining.test.ts refuses a pin outside this list until it is set.",
+  "comment": "Bun releases and the Postgres request-queue defect (W12e; upstream fixes oven-sh/bun#32088 and #43187, merged after 1.4.2). affected: Bun.SQL runs only with BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING set at process start. provenClean: releases with a recorded clean 3000-trial harness pass (the run and record are named in tasks/factory/w12e-GATES.md). A pin at or above 1.4.0 in neither list fails src/db/bun-sql-pipelining.test.ts by name. Evidence, not a version: the canary 1.4.3-canary.1+bf42a525d was clean in 300 trials.",
   "affected": ["1.4.0", "1.4.1", "1.4.2"],
-  "fixedIn": null
+  "provenClean": []
 }

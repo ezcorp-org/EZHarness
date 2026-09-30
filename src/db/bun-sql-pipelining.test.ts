@@ -4,7 +4,7 @@
  * that no product code opens Bun.SQL around it.
  */
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { Glob } from "bun";
@@ -13,6 +13,7 @@ import {
   BUN_SQL_PIPELINING_FLAG,
   BunSqlPipeliningGuardError,
   assertBunSqlPipeliningOff,
+  bunSqlPipeliningVerdict,
   flagIsOn,
   guardedBunSqlClass,
   openBunSql,
@@ -50,6 +51,13 @@ describe("assertBunSqlPipeliningOff", () => {
   test("reads the start environment from /proc/self/environ, and falls back to process.env", () => {
     expect(startEnvironment(() => Buffer.from(`A=1\0${BUN_SQL_PIPELINING_FLAG}=1\0B=x=y\0`))).toEqual({ A: "1", [BUN_SQL_PIPELINING_FLAG]: "1", B: "x=y" });
     expect(startEnvironment(() => { throw new Error("no /proc"); })).toBe(process.env);
+  });
+
+  test("takes the /proc/self/environ path whenever that file exists", () => {
+    const procExists = existsSync("/proc/self/environ");
+    const read = startEnvironment();
+    expect(read === process.env).toBe(!procExists);
+    if (procExists) expect(read.PATH).toBe(process.env.PATH);
   });
 
   // Bun ignores the flag when it is written into process.env after start; so must the guard, where the start
@@ -105,13 +113,21 @@ describe("the test harness", () => {
 });
 
 describe("the pin and the list agree", () => {
-  // Moving .bun-version off the affected list must record the release that carries both fixes; a pin outside the
-  // list with no fixedIn (or below it) is red, so the guard cannot silently lapse on a release that still has the defect.
-  test("the pinned Bun is either covered by the guard or at or after the recorded fixing release", () => {
+  // The list is closed upward: a Bun at or above 1.4.0 is either affected (guarded) or proven clean by a recorded
+  // 3000-trial harness pass. A bump to any other release cannot drop the mitigation without that proof.
+  test("sorts releases: before the defect's range, affected, proven clean, or unknown", () => {
+    expect(bunSqlPipeliningVerdict("1.3.14")).toBe("before-range");
+    expect(bunSqlPipeliningVerdict("1.4.2")).toBe("affected");
+    expect(bunSqlPipeliningVerdict("1.4.3")).toBe("unknown");
+    expect(BUN_SQL_PIPELINING_DEFECT.provenClean).toEqual([]);
+  });
+
+  test("the pinned Bun is before the range, affected or proven clean", () => {
     const pin = readFileSync(join(ROOT, ".bun-version"), "utf8").trim();
-    if (BUN_SQL_PIPELINING_DEFECT.affected.includes(pin)) return;
-    expect(BUN_SQL_PIPELINING_DEFECT.fixedIn, `pin ${pin} is outside the affected list; record fixedIn`).not.toBeNull();
-    expect(Bun.semver.order(pin, BUN_SQL_PIPELINING_DEFECT.fixedIn!)).toBeGreaterThanOrEqual(0);
+    expect(
+      bunSqlPipeliningVerdict(pin),
+      `Bun ${pin} is neither affected nor proven clean for the request-queue defect (oven-sh/bun#32088, #43187): run the 3000-trial harness and record the result`,
+    ).not.toBe("unknown");
   });
 });
 
