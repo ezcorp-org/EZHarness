@@ -39,10 +39,19 @@ head with the same patch-ids.
   test-progress.log), and W18c's f77a3c112 fixes the producer. W12e is not changed for it and it is not rerun here.
   The browser lanes at this head are held by a scheduling veto. The authoritative G3 runs once at the final head,
   rebased after W02d lands, which includes W18c (w12e-2/logs/g3-runner.run.log).
-- [ ] G4: the coverage defect is re-probed under 1.4.2: the attested line of src/factory/task-stops.ts is still
+- [x] G4: the coverage defect is re-probed under 1.4.2: the attested line of src/factory/task-stops.ts is still
   uncredited (a function's last statement is credited to the line before), and the attestation's Bun field is
   refreshed. CHECK: the W03g probe under 1.4.2. EXPECT: DA 0 on the attested line with the line proven executed.
-  EVIDENCE: w12e-2/logs/g4-*.log
+  EVIDENCE: w12e-2/logs/g4-*.log, w12e-2/g4/logs/head-f089f0e1c/. Approved path: w00/w12e-merge/gate-change-decision.txt.
+  RESULT at the rebased head f089f0e1c (base integ 0c66519a0; task-stops.ts sha256 1b54655f…, unchanged, line 336):
+  - Red: the gate's attestation evaluation fails "stale attestation src/factory/task-stops.ts:336: proved on Bun
+    1.3.14, but .bun-version is 1.4.2" (logs/g4-red-stale-check.log). attestation-check.py fails only on bunVersion
+    (logs/g4-red-attestation-check.log).
+  - Re-probe under Bun 1.4.2 (bun and bunx asserted): the stop suite reads DA 335 = 176, DA 336 = 0 on PGlite and
+    on PostgreSQL, 52/0 each. The throw planted on line 336 fails 37 of 52 on both. So 1.4.2 still executes the
+    line without crediting it; the entry stays, refreshed (bunVersion 1.4.2, reason, proof paths).
+  - Green: the same evaluation shows no finding (logs/g4-green-stale-check.log). The patch-gate red/green pair and
+    attestation-check.py run at the final head with the merged lcov.
 - [ ] G5: every pin consumer names 1.4.2. CHECK: `git grep -n 'e10577f0db68\|bun-1\.3\.14\|oven/bun:1\.3\.14'` on
   live files (docs of past measurements excluded by name). EXPECT: no live consumer left. EVIDENCE: the list below.
 
