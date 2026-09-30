@@ -79,25 +79,55 @@ test("a response larger than the caller's limit rejects instead of hanging", asy
   } finally { peer.close(); }
 });
 
+/** Counts the abort listeners attached to and detached from a signal, by whoever attaches them. */
+function countedSignal(controller: AbortController) {
+  const counts = { added: 0, removed: 0 };
+  const add = controller.signal.addEventListener.bind(controller.signal);
+  const remove = controller.signal.removeEventListener.bind(controller.signal);
+  controller.signal.addEventListener = ((...args: Parameters<AbortSignal["addEventListener"]>) => { if (args[0] === "abort") counts.added += 1; return add(...args); }) as AbortSignal["addEventListener"];
+  controller.signal.removeEventListener = ((...args: Parameters<AbortSignal["removeEventListener"]>) => { if (args[0] === "abort") counts.removed += 1; return remove(...args); }) as AbortSignal["removeEventListener"];
+  return counts;
+}
+
+/** Waits for the detachments to catch up with the attachments, at most 200 turns, so a leak fails by assertion. */
+async function detached(counts: { added: number; removed: number }) {
+  for (let turn = 0; turn < 200 && counts.removed < counts.added; turn += 1) await Bun.sleep(5);
+}
+
+// The invariant is net zero: every abort listener attached for a request is detached once it settles. The earlier
+// form, `removed === 3`, encoded Bun 1.3.14's runtime leak of its own listener for the `signal` option (measured
+// after three requests: 1.3.14 added 6, removed 3; 1.4.2 added 6, removed 6; w12e-2/tls-fix/settle-listener-probe.log),
+// so on 1.3.14 this test is red by the runtime's defect, not the product's. Net zero cannot be met by the product
+// attaching nothing: the abort cases here fail on the pinned Bun when the transport's own listener is removed
+// (w12e-2/settle/mutant-no-listener-1.4.2.log).
 test("a settled request leaves no listener on a long-lived signal", async () => {
   const peer = await server(() => ({ status: 200, body: Buffer.from("{\"ok\":true}") }));
   try {
     const client = await createGatewayTransport({ baseUrl: peer.url, tls: peer.tls, serverName: "localhost", requestTimeoutMs: 30_000 });
     const controller = new AbortController();
-    let added = 0;
-    let removed = 0;
-    const add = controller.signal.addEventListener.bind(controller.signal);
-    const remove = controller.signal.removeEventListener.bind(controller.signal);
-    controller.signal.addEventListener = ((...args: Parameters<AbortSignal["addEventListener"]>) => { if (args[0] === "abort") added += 1; return add(...args); }) as AbortSignal["addEventListener"];
-    controller.signal.removeEventListener = ((...args: Parameters<AbortSignal["removeEventListener"]>) => { if (args[0] === "abort") removed += 1; return remove(...args); }) as AbortSignal["removeEventListener"];
+    const counts = countedSignal(controller);
     for (let index = 0; index < 3; index += 1) {
       const response = await client.request("POST", "/v1/ok", {}, undefined, controller.signal);
       expect(JSON.parse(response.body.toString("utf8"))).toEqual({ ok: true });
     }
-    // Each request's own close handler detaches the listener it added. The
-    // runtime may add its own for the `signal` option; that one is not ours.
-    while (removed < 3) await Bun.sleep(5);
-    expect(removed).toBe(3);
-    expect(added).toBeGreaterThanOrEqual(3);
+    await detached(counts);
+    expect(counts.added - counts.removed).toBe(0);
+    expect(counts.removed).toBeGreaterThanOrEqual(3);
+  } finally { peer.close(); }
+});
+
+test("an abort mid-request on a long-lived signal rejects with its reason and leaves no listener", async () => {
+  const peer = await server(() => "hold");
+  try {
+    const client = await createGatewayTransport({ baseUrl: peer.url, tls: peer.tls, serverName: "localhost", requestTimeoutMs: 30_000 });
+    const controller = new AbortController();
+    const counts = countedSignal(controller);
+    const pending = client.request("POST", "/v1/hold", {}, undefined, controller.signal);
+    while (peer.arrived() < 1) await Bun.sleep(5);
+    expect(counts.added).toBeGreaterThanOrEqual(1);
+    controller.abort(new Error("the caller stopped waiting"));
+    await expect(pending).rejects.toThrow("the caller stopped waiting");
+    await detached(counts);
+    expect(counts.added - counts.removed).toBe(0);
   } finally { peer.close(); }
 });
