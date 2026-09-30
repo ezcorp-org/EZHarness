@@ -21,13 +21,48 @@ import { readFileSync } from "node:fs";
 import defect from "./bun-sql-pipelining-defect.json" with { type: "json" };
 
 export const BUN_SQL_PIPELINING_FLAG = "BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING";
-export const BUN_SQL_PIPELINING_DEFECT: { readonly affected: readonly string[]; readonly provenClean: readonly string[] } = defect;
+/**
+ * A release proven clean: the 3000-trial harness pass WITHOUT the flag, recorded under docs/validation/factory/.
+ * The record is the harness's JSONL summary line ({"summary":true,"bun":…,"pipelining":"default","trials":…,
+ * "trialsWithErrors":…,"stalls":…,"neverSettled":…}); `bun` names the exact version and build that ran it.
+ */
+export type ProvenCleanRelease = {
+  readonly release: string;
+  readonly bun: string;
+  readonly record: string;
+  readonly trials: number;
+  readonly errors: number;
+  readonly stalls: number;
+};
+export const BUN_SQL_PIPELINING_DEFECT: { readonly affected: readonly string[]; readonly provenClean: readonly ProvenCleanRelease[] } = defect as never;
+
+/** Every reason a provenClean entry is not proof; empty when it is. `read` returns a record's text, or undefined. */
+export function provenCleanProblems(entries: readonly unknown[], read: (path: string) => string | undefined): string[] {
+  const problems: string[] = [];
+  for (const entry of entries) {
+    if (typeof entry !== "object" || entry === null) { problems.push(`${JSON.stringify(entry)}: a name alone is not proof; record the 3000-trial pass`); continue; }
+    const e = entry as Partial<ProvenCleanRelease>;
+    const at = `provenClean ${e.release ?? "?"}`;
+    if (typeof e.release !== "string" || typeof e.bun !== "string" || !e.bun.startsWith(`${e.release}`)) problems.push(`${at}: release and bun (version+build) must name the same release`);
+    if (typeof e.record !== "string" || !e.record.startsWith("docs/validation/factory/")) { problems.push(`${at}: the record must be a file under docs/validation/factory/`); continue; }
+    if (!(Number(e.trials) >= 3000) || e.errors !== 0 || e.stalls !== 0) problems.push(`${at}: needs at least 3000 trials with 0 errors and 0 stalls`);
+    const text = read(e.record);
+    if (text === undefined) { problems.push(`${at}: record ${e.record} is missing`); continue; }
+    const summary = text.split("\n").map((line) => { try { return JSON.parse(line); } catch { return undefined; } }).find((line) => line?.summary === true);
+    if (!summary) { problems.push(`${at}: record ${e.record} has no harness summary line`); continue; }
+    if (summary.bun !== e.release || summary.pipelining !== "default" || summary.trials !== e.trials || !(summary.trials >= 3000)
+      || summary.trialsWithErrors !== 0 || summary.stalls !== 0 || summary.neverSettled !== 0) {
+      problems.push(`${at}: record ${e.record} does not show ${e.trials} clean trials of ${e.release} with pipelining on`);
+    }
+  }
+  return problems;
+}
 
 /** Where a Bun release stands on the request-queue defect: before its known range, affected, proven clean, or unknown. */
 export function bunSqlPipeliningVerdict(bunVersion: string): "before-range" | "affected" | "proven-clean" | "unknown" {
   if (Bun.semver.order(bunVersion, "1.4.0") < 0) return "before-range";
   if (BUN_SQL_PIPELINING_DEFECT.affected.includes(bunVersion)) return "affected";
-  if (BUN_SQL_PIPELINING_DEFECT.provenClean.includes(bunVersion)) return "proven-clean";
+  if (BUN_SQL_PIPELINING_DEFECT.provenClean.some((entry) => entry.release === bunVersion)) return "proven-clean";
   return "unknown";
 }
 

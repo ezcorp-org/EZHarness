@@ -16,6 +16,7 @@ import {
   bunSqlPipeliningVerdict,
   flagIsOn,
   guardedBunSqlClass,
+  provenCleanProblems,
   openBunSql,
   startEnvironment,
 } from "./bun-sql-pipelining";
@@ -120,6 +121,34 @@ describe("the pin and the list agree", () => {
     expect(bunSqlPipeliningVerdict("1.4.2")).toBe("affected");
     expect(bunSqlPipeliningVerdict("1.4.3")).toBe("unknown");
     expect(BUN_SQL_PIPELINING_DEFECT.provenClean).toEqual([]);
+  });
+
+  test("a provenClean entry is proof only with its record: a name alone, a missing record or short counts fail by name", () => {
+    const summary = (fields: Record<string, unknown>) => JSON.stringify({ summary: true, bun: "1.4.9", pipelining: "default", trials: 3000, trialsWithErrors: 0, stalls: 0, neverSettled: 0, ...fields });
+    const records: Record<string, string> = {
+      "docs/validation/factory/bun-1.4.9-request-queue.jsonl": `{"run":1}\n${summary({})}\n`,
+      "docs/validation/factory/short.jsonl": summary({ trials: 300 }),
+      "docs/validation/factory/flagged.jsonl": summary({ pipelining: "disabled" }),
+      "docs/validation/factory/failing.jsonl": summary({ trialsWithErrors: 1 }),
+    };
+    const read = (path: string) => records[path];
+    const entry = (fields: Record<string, unknown> = {}) => ({ release: "1.4.9", bun: "1.4.9+abcdef012", record: "docs/validation/factory/bun-1.4.9-request-queue.jsonl", trials: 3000, errors: 0, stalls: 0, ...fields });
+    expect(provenCleanProblems([entry()], read)).toEqual([]);
+    expect(provenCleanProblems(["1.4.9"], read)).toEqual(['"1.4.9": a name alone is not proof; record the 3000-trial pass']);
+    expect(provenCleanProblems([entry({ record: "docs/validation/factory/absent.jsonl" })], read)).toEqual(["provenClean 1.4.9: record docs/validation/factory/absent.jsonl is missing"]);
+    expect(provenCleanProblems([entry({ record: "/tmp/elsewhere.jsonl" })], read)).toEqual(["provenClean 1.4.9: the record must be a file under docs/validation/factory/"]);
+    expect(provenCleanProblems([entry({ trials: 300 })], read)).toContain("provenClean 1.4.9: needs at least 3000 trials with 0 errors and 0 stalls");
+    expect(provenCleanProblems([entry({ errors: 1 })], read)).toContain("provenClean 1.4.9: needs at least 3000 trials with 0 errors and 0 stalls");
+    expect(provenCleanProblems([entry({ bun: "1.4.8+abcdef012" })], read)).toEqual(["provenClean 1.4.9: release and bun (version+build) must name the same release"]);
+    for (const record of ["docs/validation/factory/short.jsonl", "docs/validation/factory/flagged.jsonl", "docs/validation/factory/failing.jsonl"]) {
+      expect(provenCleanProblems([entry({ record })], read)).toEqual([`provenClean 1.4.9: record ${record} does not show 3000 clean trials of 1.4.9 with pipelining on`]);
+    }
+    expect(provenCleanProblems([entry({ record: "docs/validation/factory/bun-1.4.9-request-queue.jsonl" })], () => '{"run":1}\n')).toEqual(["provenClean 1.4.9: record docs/validation/factory/bun-1.4.9-request-queue.jsonl has no harness summary line"]);
+  });
+
+  test("every recorded provenClean entry is proven by its record file", () => {
+    const read = (path: string) => (existsSync(join(ROOT, path)) ? readFileSync(join(ROOT, path), "utf8") : undefined);
+    expect(provenCleanProblems(BUN_SQL_PIPELINING_DEFECT.provenClean, read)).toEqual([]);
   });
 
   test("the pinned Bun is before the range, affected or proven clean", () => {
