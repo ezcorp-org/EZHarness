@@ -71,14 +71,15 @@ export function startFactoryPrivateHttps(options: FactoryPrivateHttpsOptions): {
     tls: { ...options.tls, requestCert: true, rejectUnauthorized: true },
     socket: {
       open(socket) { socket.data = { parts: [], received: 0, processing: false, closed: false, offset: 0, timer: setTimeout(() => fail(socket, 400, "request_timeout"), timeout) }; },
-      // THIS callback is the client-certificate check. Bun.listen does not
-      // enforce `rejectUnauthorized`: it completes the handshake with any
-      // client certificate, reports `success` for the handshake alone, and
-      // passes the chain-verification failure (unknown authority, expired, ...)
-      // as `authorizationError`; `socket.authorized` reads true even then. So a
-      // peer identity is taken only from a certificate that verified against
-      // `tls.ca`. Without one the peer stays unset and every request is refused
-      // 401 before any handler runs.
+      // The client-certificate check, in two layers. Bun 1.4 enforces
+      // `rejectUnauthorized`: a certificate that does not verify against
+      // `tls.ca` (unknown authority, expired, not yet valid, wrong purpose,
+      // self-signed) fails the handshake and the connection closes before any
+      // request is read. Bun 1.3.14 did not: it completed the handshake,
+      // reported `success`, passed the failure as `authorizationError`, and
+      // `socket.authorized` read true even then. So a peer identity is still
+      // taken only from a certificate that verified; without one the peer stays
+      // unset and every request is refused 401 before any handler runs.
       handshake(socket, success, authorizationError) {
         const name = socket.getPeerCertificate()?.subject?.CN;
         if (success && authorizationError == null && typeof name === "string" && name.length > 0) socket.data.peerIdentity = name;
