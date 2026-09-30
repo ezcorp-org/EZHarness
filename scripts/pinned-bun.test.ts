@@ -5,7 +5,7 @@
  * (FACTORY_TOOLS_DIR) stands in for /tmp/factory-tools, so no real Bun is replaced.
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -109,5 +109,36 @@ describe("scripts/lib/pinned-bun.sh", () => {
     expect(result.exitCode).toBe(0);
     expect(readlinkSync(join(dir, "bunx"))).toBe("bun");
     expect(result.stdout).toBe(`${join(dir, "bun")}\n${join(dir, "bunx")}\n`);
+  });
+
+  // Bun reads BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING only from a process's start environment, and the product
+  // refuses Bun.SQL on the releases listed in src/db/bun-sql-pipelining-defect.json without it (W12e).
+  const FLAG = "BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING";
+  function flagAfter(helper: string, tools: string, inherited: string | undefined) {
+    const env: Record<string, string> = { PATH: "/usr/bin:/bin:/run/current-system/sw/bin", FACTORY_TOOLS_DIR: tools };
+    if (inherited !== undefined) env[FLAG] = inherited;
+    const run = Bun.spawnSync(["bash", "-c", `. "${helper}" && use_pinned_bun && echo "\${${FLAG}:-unset}"`], { env, stdout: "pipe", stderr: "pipe" });
+    return { exitCode: run.exitCode, stdout: run.stdout.toString().trim(), stderr: run.stderr.toString() };
+  }
+
+  test("a pin on the Bun.SQL pipelining defect list exports the flag; any other pin unsets an inherited one", () => {
+    const listed = JSON.parse(readFileSync(join(REPO_ROOT, "src/db/bun-sql-pipelining-defect.json"), "utf8")).affected as string[];
+    const { tools, dir } = toolsWith({ bun: PIN });
+    symlinkSync("bun", join(dir, "bunx"));
+    expect(flagAfter(HELPER, tools, undefined).stdout).toBe(listed.includes(PIN) ? "1" : "unset");
+
+    // A tree pinned to a release outside the list: a copy of the helper and the list beside a 7.7.7 pin.
+    const tree = mkdtempSync(join(tmpdir(), "pinned-bun-unlisted-"));
+    roots.push(tree);
+    mkdirSync(join(tree, "scripts/lib"), { recursive: true });
+    mkdirSync(join(tree, "src/db"), { recursive: true });
+    copyFileSync(HELPER, join(tree, "scripts/lib/pinned-bun.sh"));
+    copyFileSync(join(REPO_ROOT, "src/db/bun-sql-pipelining-defect.json"), join(tree, "src/db/bun-sql-pipelining-defect.json"));
+    writeFileSync(join(tree, ".bun-version"), "7.7.7\n");
+    const unlisted = toolsWith({ bun: "7.7.7" }, "7.7.7");
+    symlinkSync("bun", join(unlisted.dir, "bunx"));
+    const result = flagAfter(join(tree, "scripts/lib/pinned-bun.sh"), unlisted.tools, "1");
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toBe("unset");
   });
 });

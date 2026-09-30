@@ -17,7 +17,8 @@
  * partial installation's route stays held, so it serves no traffic.
  */
 import { randomUUID } from "node:crypto";
-import { SQL } from "bun";
+import type { SQL } from "bun";
+import { openBunSql } from "../../db/bun-sql-pipelining";
 import { FactoryProvisioningLedger, type FactoryInstallationRecord, type FactoryStepRecord } from "./ledger";
 import { assertFactoryInstallationRequest, factoryInstallationNames, type FactoryInstallationContext, type FactoryInstallationRequest, type FactoryProvisioningDriver, type FactoryStepResources } from "./installation";
 import { escrowFactoryArchiveKey } from "./secrets";
@@ -130,7 +131,7 @@ export class LocalFactoryProvisioner {
   readonly ledger: FactoryProvisioningLedger;
   private readonly control: SQL;
   constructor(private readonly options: LocalProvisionerOptions) {
-    this.control = new SQL(options.controlDatabaseUrl, { max: 8 });
+    this.control = openBunSql(options.controlDatabaseUrl, { max: 8 });
     this.ledger = new FactoryProvisioningLedger(this.control);
   }
 

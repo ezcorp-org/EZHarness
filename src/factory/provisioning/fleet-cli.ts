@@ -9,7 +9,7 @@
 import { randomBytes } from "node:crypto";
 import { userInfo } from "node:os";
 import { resolve } from "node:path";
-import { SQL } from "bun";
+import { openBunSql } from "../../db/bun-sql-pipelining";
 import { factoryDatabaseCensus } from "./census";
 import type { FactoryComposeCommand } from "./compose-profile";
 import { factorySpawnExecutor } from "./compose-profile";
@@ -197,7 +197,7 @@ export async function writeFactoryLocalFleet(options: FactoryLocalFleetOptions):
     await replaceFactoryPrivateFile(factoryPrivatePath(operator, "product-admin-url"), `${options.adminUrl}\n`);
     await ensureFactoryPrivateFile(directory, "control-password", () => `${randomBytes(32).toString("base64url")}\n`);
     const controlPassword = (await readFactoryPrivateText(directory, "control-password")).trim();
-    const admin = new SQL(options.adminUrl, { max: 1 });
+    const admin = openBunSql(options.adminUrl, { max: 1 });
     try {
       const exists = (await admin`SELECT 1 FROM pg_roles WHERE rolname = ${controlRole}`)[0];
       const statement = (await admin`SELECT format(${exists ? "ALTER ROLE %I LOGIN PASSWORD %L" : "CREATE ROLE %I LOGIN PASSWORD %L"}, ${controlRole}::text, ${factoryScramVerifier(controlPassword)}::text) AS statement`)[0] as { statement: string };

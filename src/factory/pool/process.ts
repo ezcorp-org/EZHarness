@@ -2,7 +2,7 @@ import { createPrivateKey, createPublicKey, X509Certificate } from "node:crypto"
 import { basename, dirname, resolve } from "node:path";
 import { createSecureContext } from "node:tls";
 import { fileURLToPath } from "node:url";
-import { SQL } from "bun";
+import { openBunSql } from "../../db/bun-sql-pipelining";
 import { privateDirectory, readPrivateBounded } from "../private-files";
 import { type FactoryPoolReadinessWriter, createFactoryPoolReadinessWriter } from "./readiness";
 import type { PoolResourceClass, PoolSql } from "./ledger";
@@ -230,7 +230,7 @@ function waitForHeartbeat(milliseconds: number, signal: AbortSignal): Promise<vo
 }
 
 const productionDependencies: FactoryPoolProcessDependencies = {
-  connect: databaseUrl => new SQL(databaseUrl, { max: 8 }),
+  connect: databaseUrl => openBunSql(databaseUrl, { max: 8 }),
   start: startBunPoolAdmissionHttps,
   readiness: config => createFactoryPoolReadinessWriter(config),
   wait: waitForHeartbeat,

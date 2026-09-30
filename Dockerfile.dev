@@ -5,7 +5,8 @@
 # in ci.yml). The floating `oven/bun:1` this used to carry meant any upstream
 # 1.x push invalidated every layer below, including both installs.
 FROM oven/bun:1.4.2@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
-ENV BUN_RUNTIME_TRANSPILER_CACHE_PATH=0
+# Bun 1.4.0-1.4.2: Postgres auto-pipelining off at process start (src/db/bun-sql-pipelining.ts refuses Bun.SQL otherwise).
+ENV BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING=1
 WORKDIR /app
 
 # System packages. `git` is required at runtime by `installFromGit` — the

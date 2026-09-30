@@ -17,7 +17,9 @@ head with the same patch-ids.
 
 ## Gates
 
-- [x] G1: the acceptance regression is red on Bun 1.3.14 and green on Bun 1.4.2.
+- [ ] G1: the acceptance regression is red on Bun 1.3.14 and green on Bun 1.4.2 in the product's configuration
+  (auto-pipelining off at process start; see "Bun.SQL on 1.4.2" below). REOPENED 2026-09-30: with pipelining on,
+  1.4.2 still fails about 1 trial in 300; the first result below was 3 of 3 runs, too few to see it.
   CHECK: tests/postgres/bun-sql-request-queue.test.ts on real PostgreSQL, once with each Bun, same tree.
   EXPECT: 1.3.14 fails; 1.4.2 passes 3 of 3. EVIDENCE: w12e-2/logs/g1-*.log and commit-and-g1.run.log. RESULT at
   d503d22c8, 2026-09-28 18:37-18:39Z: 1.3.14 exit 1 (0 pass, 2 fail); 1.4.2 exit 0 three times (2 pass, 0 fail).
@@ -42,7 +44,7 @@ head with the same patch-ids.
 - [x] G4: the coverage defect is re-probed under 1.4.2: the attested line of src/factory/task-stops.ts is still
   uncredited (a function's last statement is credited to the line before), and the attestation's Bun field is
   refreshed. CHECK: the W03g probe under 1.4.2. EXPECT: DA 0 on the attested line with the line proven executed.
-  EVIDENCE: w12e-2/logs/g4-*.log, w12e-2/g4/logs/head-f089f0e1c/. Approved path: w00/w12e-merge/gate-change-decision.txt.
+  EVIDENCE: w12e-2/logs/g4-*.log, w12e-2/g4/logs/head-f089f0e1c/. Approved path: w00/w12e-merge/gate-change-decision.txt (amended, sha256 2edacc8f78a35287…).
   RESULT at the rebased head f089f0e1c (base integ 0c66519a0; task-stops.ts sha256 1b54655f…, unchanged, line 336):
   - Red: the gate's attestation evaluation fails "stale attestation src/factory/task-stops.ts:336: proved on Bun
     1.3.14, but .bun-version is 1.4.2" (logs/g4-red-stale-check.log). attestation-check.py fails only on bunVersion
@@ -135,6 +137,9 @@ docs/factory-graph-proof.md ("Before you start").
 
 ## Follow-up
 
+- [ ] Remove the Bun.SQL pipelining guard when a Bun release carries oven-sh/bun#32088 and #43187 (see "Bun.SQL on
+  1.4.2"): set fixedIn, then delete the guard, its list, its tests and every flag setting together.
+
 - [ ] Remove the preview pipeline guard when a Bun release carries oven-sh/bun#43557. On the bump that moves
   .bun-version to that release, preview-pipeline-guard.test.ts ("without it, this Bun leaves a pipelined pair
   unanswered exactly when the guard's release list names it") shows whether that release still fails. If it
@@ -153,3 +158,61 @@ re-probing the attested line of src/factory/task-stops.ts at the final base, onc
   toolchain. It now refuses by name, creates nothing, and provisioning adds the link (above). Red: with only bun
   present, the helper made the link and returned 0 (6/1, w12e-2/logs/pinned-bun-bunx-red.log). Green 7/0
   (pinned-bun-bunx-green.log).
+
+## Bun 1.4.2 behaviour changes found at the final head (2026-09-30)
+
+The per-head hold at 849e7e5d2 (w12e-2/final/hold.log) and a neighbouring suite found four. Each has a minimal
+reproduction under 1.4.2 against 1.3.14 and a fix red first.
+
+1. Postgres request queue (acceptance test red). On 1.4.2 with auto-pipelining on, a pipelined reply can reach the
+   wrong request (a SELECT rejected with a concurrent INSERT's duplicate-key error), a connection can fail with
+   "Failed to read data", or a trial can stall. Fixed by the guard below. Deciding run (w12e-2/rq-decide/, same
+   database, harness v2, pool 8, 24 workers):
+
+   | Configuration | Trials | Trials with errors | Stalls |
+   |---|---|---|---|
+   | (D) Bun 1.3.14 | 13 (the harness's time limit) | 0 | 13, none drains: deadlock |
+   | (A) Bun 1.4.2 | 300 | 1 (response mix-up) | 0 |
+   | (B) Bun 1.4.2, pipelining off at start | 300, then 3000 | 0 | 0 |
+   | (C) Bun canary 1.4.3-canary.1+bf42a525d | 300 | 0 | 0 |
+
+   (D) is why the bump is not optional: 1.3.14 deadlocks under this load. (A) is the defect the guard removes.
+   (C) carries the upstream fixes oven-sh/bun#32088 (partial-write data loss and duplication) and #43187 (a
+   decode failure no longer fails the whole connection); no release carries them yet. Cost of pipelining off
+   (w12e-2/option3/cost-table.txt): W02d's 9 PostgreSQL suites 51.82 s on, 52.24 s off (1.01x); the harness's mean
+   trial 60.4 ms on, 62.3 ms off.
+2. Pinned fetch TLS name (real-auth lane). Bun 1.4 checks a fetch's certificate against the URL host, not the Host
+   header; the pinned GitHub fetch failed ERR_TLS_CERT_ALTNAME_INVALID. Fixed in 9db142cbf.
+3. IP literal as TLS server name (factory-services lane). Bun 1.4, like Node, refuses it with ERR_INVALID_ARG_VALUE;
+   the gateway probe failed. Fixed in 47f47eccb.
+4. The runtime now detaches its own abort listener for the node:https `signal` option (1.3.14 leaked it); the settle
+   test's `removed === 3` encoded the leak. Fixed in afdd9cd0c (net zero, plus a mid-request abort case).
+
+## Bun.SQL on 1.4.2: the pipelining guard
+
+- Mechanism, measured on the wire (w12e-2/option3/probe-*.json; a proxy counts outstanding Syncs for 20 concurrent
+  queries on one connection): default pipelines (20 outstanding); the flag set at process start does not (1); the
+  flag written into process.env inside the process is ignored (20); the Bun.SQL option prepare: false does not (1).
+  Bun 1.4.2 reads BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING once, from the start environment
+  (PostgresSQLConnection::can_pipeline, bun_core env_var feature_flag cache).
+- The guard (src/db/bun-sql-pipelining.ts, list in src/db/bun-sql-pipelining-defect.json): on exactly 1.4.0, 1.4.1 and
+  1.4.2, Bun.SQL is refused by name unless the flag was on in the start environment (Linux: /proc/self/environ, so a
+  late process.env write satisfies neither Bun nor the guard; elsewhere process.env). Every product and script
+  client opens through openBunSql, or guardedBunSqlClass in src/db/connection.ts; a test fails on any other
+  construction. The test preload runs the guard whenever a real PostgreSQL URL is configured.
+- Where the flag is set: Dockerfile, Dockerfile.dev, Dockerfile.test and deploy/factory/Dockerfile (ENV); the
+  workflows ci, db-postgres, deps-audit, mutation-nightly, release-image and release-sdk (env); scripts/lib/pinned-bun.sh
+  use_pinned_bun (exports it for a listed pin, unsets it otherwise); the shared w00/bun-pin.sh does the same.
+- The acceptance test is unchanged; it runs green in the product's configuration, with the flag at start.
+- Removal rule: the guard, its list, its tests and every flag setting are removed together at the first Bun release
+  that carries both #32088 and #43187. Moving .bun-version off the list is red until fixedIn names that release.
+
+## TLS client sweep (after fixes 2 and 3)
+
+| Site | Verdict |
+|---|---|
+| packages/@ezcorp/factory-transport createGatewayTransport | fixed (47f47eccb); every private client uses it: host launch, host stop, pool admission, the gateway probe, the orchestrator gateway activities |
+| src/search/egress.ts connectPinned | fixed (9db142cbf) |
+| src/factory/provisioning/ingress.ts factoryHttpsIngressProbe | servername is the installation's DNS hostname, which its certificate must name: safe |
+| src/factory/key-composition.ts transit KMS | fetch to its configured endpoint with a CA; no pinned IP, no Host header: safe |
+| Temporal gRPC client, mcp-proxy CONNECT tunnel | not Bun TLS clients: not affected |

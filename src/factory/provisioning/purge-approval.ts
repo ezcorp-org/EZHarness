@@ -19,7 +19,7 @@
  * it, so an approval cannot be replayed.
  */
 import { randomUUID } from "node:crypto";
-import { SQL } from "bun";
+import { openBunSql } from "../../db/bun-sql-pipelining";
 import { sql } from "drizzle-orm";
 import type { TransactionalDb } from "../../db/migrations/types";
 import { releaseRows as rows } from "../../db/queries/extension-releases";
@@ -70,7 +70,7 @@ export interface FactoryPurgeApprovalClient {
   close(): Promise<void>;
 }
 
-const connectSql = (url: string): FactoryPurgeApprovalClient => new SQL(url, { max: 1 }) as unknown as FactoryPurgeApprovalClient;
+const connectSql = (url: string): FactoryPurgeApprovalClient => openBunSql(url, { max: 1 }) as unknown as FactoryPurgeApprovalClient;
 
 /**
  * The provisioner side: verify a named approval in the installation's

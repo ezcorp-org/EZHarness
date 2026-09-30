@@ -9,16 +9,24 @@
 # never writes into it: a missing `bunx` is refused by name, and provisioning adds the link
 # (`ln -s bun <dir>/bunx`, see tasks/factory/w12e-GATES.md). use_pinned_bun puts the directory first on PATH and
 # asserts that BOTH `bun --version` and `bunx --version` equal the pin, failing by name (return 1) otherwise.
+# On a pin listed as affected in src/db/bun-sql-pipelining-defect.json it also exports
+# BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING=1 (Bun reads it only from the environment a process starts with, and
+# the product refuses Bun.SQL on those releases without it); on any other pin it unsets it.
 
-pinned_bun_version() {
-  local root self=${BASH_SOURCE[0]:-}
+pinned_bun_root() {
+  local self=${BASH_SOURCE[0]:-}
   # Without this file's own path (zsh leaves BASH_SOURCE empty; eval under `bash -c` gives "bash") dirname is
   # ".", and the root would be "$PWD/../..": another tree's pin.
   if [ "${self##*/}" != pinned-bun.sh ] || [ ! -f "$self" ]; then
     echo "pinned-bun.sh: no source path; source this file from bash" >&2
     return 1
   fi
-  root=$(cd "$(dirname "$self")/../.." && pwd)
+  (cd "$(dirname "$self")/../.." && pwd)
+}
+
+pinned_bun_version() {
+  local root
+  root=$(pinned_bun_root) || return 1
   tr -d '[:space:]' < "$root/.bun-version"
 }
 
@@ -44,5 +52,10 @@ use_pinned_bun() {
   if [ "$bun_seen" != "$want" ] || [ "$bunx_seen" != "$want" ]; then
     echo "pinned Bun mismatch: bun $bun_seen, bunx $bunx_seen, .bun-version $want" >&2
     return 1
+  fi
+  if grep '"affected"' "$(pinned_bun_root)/src/db/bun-sql-pipelining-defect.json" | grep -qF "\"$want\""; then
+    export BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING=1
+  else
+    unset BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING
   fi
 }

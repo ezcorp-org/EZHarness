@@ -1,0 +1,5 @@
+{
+  "comment": "Bun releases whose Postgres client mixes, drops or stalls pipelined requests under load (W12e; fixed upstream by oven-sh/bun#32088 and #43187, after 1.4.2). On these, Bun.SQL runs only with BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING set at process start. fixedIn names the first release carrying both fixes, once one exists; src/db/bun-sql-pipelining.test.ts refuses a pin outside this list until it is set.",
+  "affected": ["1.4.0", "1.4.1", "1.4.2"],
+  "fixedIn": null
+}

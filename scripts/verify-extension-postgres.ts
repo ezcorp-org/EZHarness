@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { SQL } from "bun";
+import { openBunSql } from "../src/db/bun-sql-pipelining";
 import { drizzle } from "drizzle-orm/bun-sql";
 import { sql } from "drizzle-orm";
 import { up } from "../src/db/migrations/add-extension-releases";
@@ -26,7 +26,7 @@ import type { OperationRecord, ReleaseRecord } from "@ezcorp/extension-contract"
 
 const url = process.env.EXTENSION_TEST_POSTGRES_URL;
 if (!url) throw new Error("EXTENSION_TEST_POSTGRES_URL must identify a disposable PostgreSQL database.");
-const client = new SQL(url, { max: 1 });
+const client = openBunSql(url, { max: 1 });
 const schema = `extension_validation_${randomUUID().replaceAll("-", "")}`;
 try {
   await client.unsafe(`CREATE SCHEMA ${schema}`);
@@ -39,7 +39,7 @@ try {
   await upEventReceipts(driver);
   await upBrowserRequests(driver);
   await upBrowserRequests(driver);
-  const browserPeer = new SQL(url, { max: 1 });
+  const browserPeer = openBunSql(url, { max: 1 });
   try {
     await browserPeer.unsafe(`SET search_path TO ${schema}`);
     const firstStore = new BrowserInvocationStore(driver);
@@ -105,7 +105,7 @@ try {
   const queue = new ExtensionDeliveryQueue(driver);
   await client.unsafe("CREATE TABLE users(id TEXT PRIMARY KEY,status TEXT,role TEXT DEFAULT 'member'); CREATE TABLE project_members(user_id TEXT,project_id TEXT); CREATE TABLE conversations(id TEXT PRIMARY KEY,user_id TEXT,project_id TEXT,title TEXT); CREATE TABLE extensions(id TEXT PRIMARY KEY,name TEXT,enabled BOOLEAN,granted_permissions JSONB); CREATE TABLE conversation_extensions(conversation_id TEXT,extension_id TEXT,effective_granted_permissions JSONB)");
   await client.unsafe("INSERT INTO users(id,status) VALUES ('owner','active'); INSERT INTO conversations VALUES ('conversation','owner',NULL,'original'); INSERT INTO project_members VALUES ('owner','project'); CREATE TABLE authority_effect_proof(label TEXT PRIMARY KEY)");
-  const authorityPeer = new SQL(url, { max: 1 });
+  const authorityPeer = openBunSql(url, { max: 1 });
   try {
     await authorityPeer.unsafe(`SET search_path TO ${schema}`);
     const peerId = (await authorityPeer.unsafe("SELECT pg_backend_pid() AS id"))[0].id;
@@ -211,7 +211,7 @@ try {
   assert.equal((await driver.transaction(transaction => admitEventInTransaction(transaction, emptyAdmission, async () => []))).accepted, true);
   assert.equal((await driver.transaction(transaction => admitEventInTransaction(transaction, emptyAdmission, async () => { throw new Error("replayed zero-recipient event"); }))).accepted, false);
   await client.unsafe("INSERT INTO extension_event_receipts(id,principal_id,identity_digest,retain_until,payload) SELECT 'quota-' || generate_series, 'owner', 'digest', $1, '{}' FROM generate_series(1,$2)", [EVENT_RECEIPT_RETENTION_MS, EVENT_RECEIPT_OWNER_LIMIT - 2]);
-  const competingClient = new SQL(url, { max: 1 });
+  const competingClient = openBunSql(url, { max: 1 });
   try {
     await competingClient.unsafe(`SET search_path TO ${schema}`);
     const competingDriver = drizzle(competingClient);

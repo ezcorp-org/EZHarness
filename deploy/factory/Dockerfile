@@ -23,7 +23,8 @@ ARG NODE_IMAGE=docker.io/library/node:24.14.1-bookworm-slim@sha256:e484ae3f1e3c3
 FROM ${NODE_IMAGE} AS node
 
 FROM ${BUN_IMAGE} AS builder
-ENV BUN_RUNTIME_TRANSPILER_CACHE_PATH=0
+# Bun 1.4.0-1.4.2: Postgres auto-pipelining off at process start (src/db/bun-sql-pipelining.ts refuses Bun.SQL otherwise).
+ENV BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING=1
 WORKDIR /app
 COPY . .
 # Lifecycle scripts stay off: the root postinstall also installs git hooks,
@@ -47,7 +48,9 @@ RUN chmod -R a+rX,go-w /app
 
 FROM ${BUN_RUNTIME_IMAGE}
 ARG REVISION=unknown
+# Bun 1.4.0-1.4.2: Postgres auto-pipelining off at process start (src/db/bun-sql-pipelining.ts refuses Bun.SQL otherwise).
 ENV BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 \
+    BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING=1 \
     NODE_ENV=production \
     EZCORP_IMAGE_SHA=${REVISION}
 LABEL org.opencontainers.image.title="ezcorp-factory" \

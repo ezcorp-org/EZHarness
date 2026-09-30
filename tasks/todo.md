@@ -5374,6 +5374,9 @@ Gates: tasks/factory/w12e-GATES.md. Evidence: /tmp/factory-platform-evidence/w12
 - [ ] G3 the full runner and the browser set green under 1.4.2.
 - [x] G4 the task-stops.ts attestation re-proved under 1.4.2 (DA 336 = 0 on both engines; throw 37/52) and refreshed.
 - [x] Rebased onto integ 0c66519a0 after W02d landed (journal conflicts only, kept both sides).
-- [ ] G3 at the final head: the per-head run and the browser lanes under 1.4.2.
+- [x] Four Bun 1.4.2 behaviour changes fixed red-first: the pinned fetch TLS name, IP server names, the settle test's
+      runtime-leak assertion, and the Bun.SQL pipelining defect (a fail-closed guard; flag at process start).
+- [ ] G1 green in the product's configuration at the final head.
+- [ ] G3 at the final head: the full backend pool under 1.4.2 (wave4f machinery) and the browser lanes.
 
 Review: open.

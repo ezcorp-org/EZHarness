@@ -11,7 +11,7 @@
  * A table that does not exist counts zero, so an installation that never
  * migrated a later table is not held open by it.
  */
-import { SQL } from "bun";
+import { openBunSql } from "../../db/bun-sql-pipelining";
 import type { FactoryInstallationContext } from "./installation";
 import type { FactoryWorkCensus } from "./local";
 
@@ -38,7 +38,7 @@ export function factoryDatabaseCensus(adminUrl: string, tables: readonly Factory
   return {
     async count(installation: FactoryInstallationContext) {
       const url = new URL(adminUrl); url.pathname = `/${installation.productDatabase}`;
-      const client = new SQL(url.toString(), { max: 1 });
+      const client = openBunSql(url.toString(), { max: 1 });
       let active = 0, uncertain = 0;
       try {
         for (const entry of tables) {
