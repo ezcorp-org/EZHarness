@@ -28,3 +28,15 @@ chain. The HIGH advisories at this base (brace-expansion, devalue, fast-uri at t
 Covered by W4G-3, not here: fast-uri's moderate at the root (W4G-3 moves it to 3.1.8) and undici's moderate in web
 (W4G-3 moves it to 8.11.2). A `bun update esbuild` moved only the unaffected tsx copy (0.28.1 to 0.28.2, 27 entries) and
 fixed nothing, so it was reverted rather than committed.
+
+## Green
+
+- With W4G-3's head (82453d321) merged in a scratch worktree, since W4G-3 holds the HIGH fixes this base still
+  lacks: `bun scripts/audit-deps.ts` exit 0, "clean at the high floor (0 allowlisted, 7 below floor)"; raw `bun audit`
+  names only the five packages above (root esbuild, uuid, yaml; web cookie, qs) (`logs/combo-*.log`).
+- At this head: frozen installs clean at the root and in web; typecheck 0; lint 0; svelte-check 603 files, 0 errors;
+  web build exit 0.
+- The affected legs: hono, ip-address and qs move under ai-kit > @modelcontextprotocol/sdk, so the 14 test files that
+  use the MCP SDK, one per process: 138 pass, 0 fail (`logs/head-mcp-legs-per-file.log`); dompurify moves under
+  isomorphic-dompurify, so web vitest in the hosted shape (three shards): 631 files, 7843 tests passed; fast-uri in web
+  moves under @stryker-mutator/core > ajv, a mutation-testing tool no suite runs.
