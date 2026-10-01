@@ -1,0 +1,38 @@
+VERDICT (validator-6) — W4G-6 at 8a542c173 (wp/w4g-6, owner w16-2), base 842ad9fe1: ACCEPT
+
+2 commits, both archy noreply as author and committer. Files changed:
+  - .github/actions/gate-integrity-deps/action.yml (new shared action: the locked gate-integrity parser install);
+  - .github/workflows/ci.yml (every step that runs test.sh, test-coverage.sh or gate-integrity.ts now uses the action first);
+  - scripts/gate-integrity-deps-registration.test.ts (new guard test);
+  - tasks/factory/w4g-6-GATES.md.
+Config hash 44962525f1ca1a8b at the start and end of both phases. Bun and bunx 1.4.2, with the pipelining flag.
+The static phase ran a second time at 21:28Z, because the first run ended on the shared config hash stop.
+
+REVIEW
+  The guard test finds every workflow step that runs test.sh, test-coverage.sh or gate-integrity.ts. It requires the shared
+  action before that step in the same job, and it refuses an inline install. Six jobs use the action. No gate threshold,
+  allowlist or attestation changes.
+
+REPRODUCTION, re-run by me (w4g-validation/repro-w4g6.sh): an Ubuntu 24.04 container, shaped like the hosted runner. The
+  parser is installed only when that revision's ci.yml cov-shard job uses the action or the inline install. Then
+  scripts/gate-integrity-rule11.test.ts runs.
+  - At 842ad9fe1, RED: 10 pass, 2 fail. Both failures are "Gate integrity ERROR (fail-closed): TypeScript AST parser is
+    unavailable", as in the hosted job.
+  - At 8a542c173, GREEN: "parser installed", 12 pass, 0 fail.
+
+RERUN RESULTS (hold-v6-w4g6-8a542c173/results.jsonl)
+  Static:
+    - frozen installs clean (root, web, gate-integrity deps); all six package builds 0;
+    - typecheck, lint and both boundary checks 0;
+    - gate-integrity: the base leg against 842ad9fe1 is clean; the origin/main leg equals the 8-path set;
+    - gitleaks 0.
+  Heavy, under the lock (lock_veto validator-6):
+    - reproduction red and green as above;
+    - unit leg (the changed test, which is also the hook set): 3/0;
+    - SDK 246/0;
+    - guard set 63/0 across 13 files;
+    - lcov merge 0. The new-file gate passes, because the diff adds no source file. The patch gate passes with 0 executable
+      lines changed.
+
+OUT OF SCOPE, as the brief states: the Gate integrity label, the readiness precheck, the lifecycle jobs on real runners and
+the aggregator jobs.
