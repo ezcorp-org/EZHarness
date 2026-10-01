@@ -73,42 +73,26 @@ test.describe("Conversation fork flow → sidebar live update", () => {
 		);
 
 		// ── Critical: the sidebar must reflect the new fork without a reload.
-		// If `host.convList()?.refresh?.()` regresses, the new fork row won't
+		// If the conversations:changed signal (notifyConversationsChanged, fired
+		// by the thread's convListRefresh) regresses, the new fork row won't
 		// appear here and this whole block fails.
-		const sidebar = page.getByRole("navigation", { name: "Conversations" });
-		await expect(sidebar).toBeVisible();
+		// The threads live in the sidebar's Chat section now (the separate
+		// conversation column is gone on desktop). Same guarantee as before:
+		// the fork appears without a reload, via notifyConversationsChanged.
+		const threads = page.getByTestId("chat-nav-section").first().getByTestId("chat-nav-thread");
 
 		// New fork row visible — title is "Forked: Source Chat" per the
-		// clone-turns mock fallback.
-		await expect(
-			sidebar.getByText(/^Forked:/).first(),
-		).toBeVisible();
+		// clone-turns mock fallback — and it is the row you are on.
+		const forkRow = threads.filter({ hasText: /Forked:/ }).first();
+		await expect(forkRow).toBeVisible();
+		await expect(forkRow).toHaveAttribute("aria-current", "page");
 
-		// Parent row is grouped — chevron is present, defaulting to expanded.
-		await expect(
-			sidebar.getByRole("button", { name: "Collapse forks" }),
-		).toBeVisible();
-
-		// Fork row steps in to pl-10 (past the parent's pl-7 chevron gutter).
-		// The `↳` glyph lives next to the title inside the same button, so
-		// target by row content.
-		const forkBtn = sidebar
-			.locator("button", { hasText: "Forked:" })
-			.first();
-		await expect(forkBtn).toHaveClass(/\bpl-10\b/);
-
-		// And the connector glyph is rendered (aria-hidden span, hasText "↳").
-		await expect(
-			sidebar.locator("span[aria-hidden='true']", { hasText: "↳" }),
-		).toHaveCount(1);
-
-		// Parent row reserves the chevron gutter but is NOT extra-indented —
-		// this catches a regression where the fork-grouping logic falls back
-		// to flat rendering.
-		const parentBtn = sidebar
-			.locator("button", { hasText: "Source Chat" })
-			.first();
-		await expect(parentBtn).toHaveClass(/\bpl-7\b/);
-		await expect(parentBtn).not.toHaveClass(/\bpl-10\b/);
+		// Grouped under its parent, not flattened: marked as a fork, with the
+		// connector glyph, while the parent row is neither.
+		await expect(forkRow).toHaveAttribute("data-fork", "true");
+		await expect(forkRow.locator("span[aria-hidden='true']", { hasText: "↳" })).toHaveCount(1);
+		const parentRow = threads.filter({ hasText: "Source Chat" }).filter({ hasNotText: "Forked:" }).first();
+		await expect(parentRow).toBeVisible();
+		await expect(parentRow).not.toHaveAttribute("data-fork", "true");
 	});
 });

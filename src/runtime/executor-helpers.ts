@@ -5,7 +5,7 @@ import { resolveModel } from "../providers/router";
 import { tierForModel } from "../providers/registry";
 import { isRoutingTier } from "./tier-classifier";
 import { effortIgnoredNotice, modelHonoursEffort } from "./routing/effort-support";
-import { getCredential } from "../providers/credentials";
+import { authCallOptions, getCredential } from "../providers/credentials";
 import { getDb } from "../db/connection";
 import { toolCalls } from "../db/schema";
 import { and, eq, isNull } from "drizzle-orm";
@@ -263,7 +263,7 @@ export function createPiLlmAdapter(
           .filter((m): m is PiLlmMessage & { role: "user" } => m.role === "user")
           .map((m) => ({ role: "user" as const, content: m.content, timestamp: Date.now() })),
       };
-      const callOpts = { apiKey: cred.token, ...resolveTuning(overrides, options), ...(control?.signal ? { signal: control.signal } : {}) };
+      const callOpts = { ...authCallOptions(cred.token), ...resolveTuning(overrides, options), ...(control?.signal ? { signal: control.signal } : {}) };
       await control?.beforeCall();
       const result = reasoning
         ? await completeSimple(resolved.piModel, context, { ...callOpts, reasoning })
@@ -297,7 +297,7 @@ export function createPiLlmAdapter(
           .map((m) => ({ role: "user" as const, content: m.content, timestamp: Date.now() })),
       };
       const callOpts = {
-        apiKey: cred.token,
+        ...authCallOptions(cred.token),
         signal: control?.signal && options?.signal ? AbortSignal.any([control.signal, options.signal]) : control?.signal ?? options?.signal,
         ...resolveTuning(overrides, options),
       };

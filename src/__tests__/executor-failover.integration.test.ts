@@ -66,12 +66,15 @@ mock.module("../providers/router", () => ({
     failedProvider: string;
     failedModel: string;
     suggestion: unknown;
-    constructor(msg: string, fp: string, fm: string, sug: unknown) {
+    detail: unknown;
+    // Mirrors the real constructor, including the failure detail (5th arg).
+    constructor(msg: string, fp: string, fm: string, sug: unknown, detail: unknown = {}) {
       super(msg);
       this.name = "ProviderUnavailableError";
       this.failedProvider = fp;
       this.failedModel = fm;
       this.suggestion = sug;
+      this.detail = detail;
     }
   },
 }));
@@ -232,6 +235,9 @@ describe("AgentExecutor.streamChat — pre-stream provider failover", () => {
     expect(payload.failedProvider).toBe("prov-fail");
     expect(payload.suggestion).toBeNull();
     expect(suggestFallbackCalls).toBe(1);
+    // The failure was a 429, and the card is told so — end to end through the
+    // real executor + finalize, not just the unit under test.
+    expect(payload.reason).toBe("rate_limited");
   });
 
   test("routed initial attempt succeeds → row persists the SERVED provider/model + routedTier (not undefined)", async () => {

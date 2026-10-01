@@ -111,11 +111,13 @@ as the server.
 
 ### The one behavioural difference: `tmpfs:`
 
-`docker-compose.yml` masks four directories out of the `.:/repo` bind:
+`docker-compose.yml` masks six directories out of the `.:/repo` bind:
 `/repo/.ezcorp` (the prod stack's live PGlite DB and keys), `/repo/agent`
-(harness session credentials), and `/repo/worktrees` plus
-`/repo/.claude/worktrees` (agent scratch — tens of GB on a working dev
-box). Docker mounts an empty tmpfs over each. **Podman does not.** Its
+(harness session credentials), `/repo/.worktrees` (the canonical agent
+checkout directory), `/repo/worktrees` and `/repo/.claude/worktrees`
+(older checkout directories), and `/repo/web/.stryker-tmp` (mutation-test
+sandboxes that can contain copied credentials). Docker mounts an empty tmpfs
+over each. **Podman does not.** Its
 tmpfs default is `tmpcopyup`, which seeds the tmpfs with the contents of
 the directory underneath, publishing into the container exactly what the
 mask exists to hide — and copying it into RAM, since tmpfs is
@@ -134,7 +136,7 @@ legible, and the one you hit is chosen by the SIZE of the masked tree,
 not by anything you did.
 
 **Large tree — an opaque ENOSPC.** This is the usual case, because
-`worktrees/` and `.claude/worktrees/` are tens of GB against a 64 MB
+the worktree directories can be tens of GB against a 64 MB
 tmpfs. The copy-up runs while the OCI runtime builds the container's
 mount namespace, so it fails before the container's own process starts:
 

@@ -16,7 +16,7 @@ import {
   isFactoryServableModel,
   type FactoryProviderPin,
 } from "./factory-broker";
-import type { ProviderCredential } from "./credentials";
+import { KEYLESS_TOKEN, type ProviderCredential } from "./credentials";
 import { deleteSetting, upsertSetting } from "../db/queries/settings";
 
 beforeAll(async () => { await setupTestDb(); });
@@ -128,6 +128,26 @@ describe("the factory provider broker", () => {
     const message = await stream.result();
     expect((message.content[0] as { text: string }).text).toBe(`answered:${KEY.token}`);
     expect(Object.keys(request().options)).not.toContain("apiKey");
+  });
+
+  test("applies the keyless rule: the placeholder sends no Authorization, a real key no header override", async () => {
+    // #315: a keyless credential must never reach the wire as `Bearer no-key-needed`.
+    // keyless-auth-header.test.ts proves on the wire that `Authorization: null` suppresses the header.
+    const sent: unknown[] = [];
+    const capture = ((resolved: Model<Api>, context: unknown, options: unknown) => {
+      sent.push(options);
+      return (answering("x") as unknown as (...args: unknown[]) => unknown)(resolved, context, options);
+    }) as never;
+    const call = async (credential: ProviderCredential) => {
+      const broker = createFactoryProviderBroker({ pin: PIN, isAvailableModel: () => true, resolveCredential: async () => credential, resolveModel: model, stream: capture });
+      await (await broker.stream(request({ options: { reasoning: "low" } }))).result();
+    };
+    await call({ type: "apikey", token: KEYLESS_TOKEN });
+    await call(KEY);
+    expect(sent).toEqual([
+      { reasoning: "low", apiKey: KEYLESS_TOKEN, headers: { Authorization: null } },
+      { reasoning: "low", apiKey: KEY.token },
+    ]);
   });
 
   test("refuses a runner that names a model other than the pinned one", async () => {

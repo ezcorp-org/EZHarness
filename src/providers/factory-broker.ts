@@ -1,7 +1,7 @@
 import { streamSimple } from "@earendil-works/pi-ai/compat";
 import type { Api, AssistantMessageEventStream, Model } from "@earendil-works/pi-ai";
 import type { FactoryBroker, FactoryBrokerRequest } from "../runtime/factory-execution";
-import { tryGetCredential, type ProviderCredential } from "./credentials";
+import { authCallOptions, tryGetCredential, type ProviderCredential } from "./credentials";
 import { resolvePinnedModel, type PinnedModelResolution } from "./router";
 
 /**
@@ -160,7 +160,7 @@ export function createFactoryProviderBroker(options: FactoryProviderBrokerOption
       // `readiness` already resolved one; a credential that vanished in between is a failure, not
       // a reason to proceed without authentication.
       if (credential === null) throw new FactoryProviderReadinessError({ ...readiness, ready: false, credentialKind: null, failures: ["provider_not_configured"] });
-      return send(await resolveModel(options.pin.provider, options.pin.model), request.context, { ...request.options, apiKey: credential.token });
+      return send(await resolveModel(options.pin.provider, options.pin.model), request.context, { ...request.options, ...authCallOptions(credential.token) });
     },
   };
 }

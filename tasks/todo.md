@@ -4849,6 +4849,105 @@ tests pass 132 tests and 315 assertions. The repaired full backend pool passes 2
 1,676 files. Lint over 4,680 files, full typecheck, Svelte check, dependency boundaries, gate
 integrity, Actionlint, Bash syntax, ShellCheck, the production build, and `git diff --check` pass.
 
+## PR #315 keyless credential review — 2026-09-23
+
+- [x] Read PR intent, changed files, review state, and failed CI log.
+- [x] Reproduce the failing quality gate and inspect the real HTTP behavior.
+- [x] Refactor the extension LLM mediator so changed functions meet the quality gate.
+- [x] Run focused tests and relevant local checks, then commit and push to the PR head if safe.
+- [x] Recheck hosted CI and record a final review below.
+
+Plan review: Keep the token suppression rule and the audited credential boundary intact. Extract cohesive stages from the existing extension LLM handler, preserve its error codes and audit behavior, and test the same request path before and after the change.
+
+Local review: The PR wire test proves that the raw keyless placeholder reaches a local server as a bearer, while both repaired pi-ai paths send no Authorization header and real keys remain intact. The hosted quality log reports CRAP 50 for `handlePiLlmComplete` at 98% coverage. Extracting grant validation, quota reservation, and successful-response recording reduces source complexity to 24, 8, 8, and 15 respectively. The extension handler suite passes 19/19; keyless wire and credential-boundary suites pass 12/12; pinned-Bun typecheck passes; lint checks 4,686 files. The full local coverage test pool passes 27,200 tests with zero failures, including 595 Vitest files / 7,482 tests. Its wrapper exits 1 before LCOV merge because the direct invocation lacks the browser-coverage receipts that `scripts/ci-local.sh` supplies. Hosted CI must confirm patch coverage and the merged CRAP gate.
+
+Hosted follow-up: Commit `811f564a5` passed 45 source/coverage producer checks, but the per-file coverage gate stopped at patch lines 225 and 228 in the permission-denied return. The new absent-grant regression exercises that complete reverse-RPC response, proves model resolution does not run, and checks that no audit row is written. Pinned Bun targeted LCOV records `DA:225,14` and `DA:228,16`; the focused suite passes 20/20. Typecheck and lint pass. The next hosted run must still confirm the aggregate patch and CRAP gates.
+
+Hosted verdict: Commit `e38879396` passed all 50 checks. The per-file gate covered every changed executable line, checked 1,665 enforced files, and scored 18 touched functions with zero CRAP violations (limit 30). The PR still needs a non-author review and a current-base CI run after the ordered merges.
+
+Final base refresh: #309 and #314 are in `origin/main` at `cc0a3b9a3`. The only merge conflict was this append-only task journal; both parents' entries are retained, with #315's hosted-CI checklist marked complete. Five isolated auth, Kilo, agent, and extension suites pass 69/69. Pinned Bun typecheck and lint over 4,686 files pass. The full local gate is waiting for the concurrent #317 browser/coverage run to release host memory.
+
+## PR #314 review — 2026-09-23
+
+- [x] Read PR scope, history, review state, and current CI.
+- [x] Review the arm64 job and sandbox suite for real coverage and gate safety.
+- [x] Reproduce the PR-owned gate gap; make and verify a focused repair.
+- [x] Run each arm64 sandbox file in its own Bun process; verify the exact job lane.
+- [ ] Merge current main after #309; preserve the arm64 job and required aggregator.
+- [ ] Run exact focused lane, Actionlint, lint, typecheck, full backend, and coverage gate.
+- [ ] Push normal merge history and confirm hosted CI at the exact head.
+- [ ] Recheck current CI, document findings, and hand off merge status.
+
+Plan review: PR #314 is stacked on #309. Review its final CI commit against its parent and keep #309's product changes with their own review. The arm64 job passed on GitHub. Inspect the three failed jobs to separate runner or base failures from PR-owned failures before changing code.
+
+Review: The live GitHub arm64 job passed 48 tests, with one expected conditional skip. Its deny and allow child containment tests both executed. The applied branch protection requires `Backend tests`, but does not require `Sandbox (arm64)` and no required check depended on it. Add that result to the required backend aggregator so a regression blocks merge. The three failed checks on the original run came from a production candidate runner's `actions/checkout` TLS CA error and its dependent jobs; no PR source executed there. Actionlint and `git diff --check` pass after the aggregator edit. PR #309 remains open and needs its own review; PR #314 needs CODEOWNERS approval.
+
+Follow-up plan: The job's one `bun test` invocation with four files violates the root testing rule and can share `mock.module()` state. Keep its Landlock guard, run the same four files one at a time with Bun's 30-second per-test budget, check the exact loop, and commit locally. Hold the push until #309 merges and the base is updated.
+
+Follow-up review: The workflow now loops over the same four files, runs each in its own `bun test --timeout 30000` process, and uses `set -e` for fail-fast. Extracting and running the exact YAML step on the Linux host passed 33 + 11 + 3 + 1 tests with one expected skip and zero failures. Actionlint and `git diff --check` passed. This local run is on x86_64; the previous hosted arm64 job passed before the process-isolation edit. Commit locally and hold push as requested.
+
+Integration plan: #309 landed on main at 3b5095303. Merge that exact base into this branch without force-pushing, resolve any overlapping task journal as a union, then verify the arm64 CI job and required aggregator survived. Run the full local quality line and an appropriate browser receipt before pushing because the base changed. Recheck the remote head before push.
+
+## PR #314 residual CI follow-up — 2026-09-24
+
+- [x] Read the failed hosted job log and reproduce its two failing cases locally.
+- [x] Replace the test fixture's 5-second file-readiness deadlines with producer-liveness checks.
+- [x] Run the focused lifecycle suite and relevant static checks.
+- [x] Review the exact diff with the lead agent before pushing.
+
+Plan review: Both failures stopped after about five seconds while waiting for a startup file. The PR does not change the launcher. Wait for an observable process state instead of measuring host scheduling time; keep the test's overall timeout as the deadlock guard.
+
+Review: The helper now reads nonempty readiness content until it appears or the producer exits. One new test proves that a producer exit fails immediately. The exact lifecycle suite passed 5/5 on pinned Bun 1.3.14; Biome and full typecheck passed. The failed hosted job cannot be rerun while its workflow is active (GitHub HTTP 403), so the change needs a new CI run after push.
+
+## PR #319 review and repair
+
+- [x] Read hosted browser failures and inspect the chat sidebar change.
+- [x] Fix stale project rows, missing new-chat refresh, empty All chats access, and fork/agent markers.
+- [x] Update old browser journeys to use the new Chat section.
+- [x] Complete focused browser, type, lint, and coverage checks.
+- [x] Commit the reviewed changes and report exact results.
+
+Review: Hosted full mock browser lane failed 16 journeys; browser route coverage and per-file coverage then lacked a required producer. All 117 affected Chromium journeys pass after the fixes. Component checks pass 31/31 and show 100% line and branch coverage for ChatNavSection. Web production build, full typecheck, lint, and whitespace check pass. The hosted full browser and coverage lanes still need a new run after the branch is pushed by the parent agent.
+
+### Hosted CI follow-up at `12f9bb64b`
+
+- [x] Reproduce the two mobile drawer failures with Chromium Playwright.
+- [x] Scope the Chat link assertions to the exact navigation item.
+- [x] Run the affected browser test and exact `mock-full` CI lane.
+- [x] Commit the follow-up fix and report the result.
+
+Review: The hosted full mock lane reported two strict selector collisions in `mobile-tab-bar.spec.ts`: both the Chat nav link and All chats link matched the broad `Chat` locator. Downstream browser route coverage and per-file coverage gates failed because their browser producer failed. The two affected Chromium journeys failed before the fix and passed 2/2 after it. The full lane is pending.
+
+### Hosted patch coverage follow-up at `444e4b488`
+
+- [x] Reproduce hosted patch-coverage misses locally at the exact head.
+- [x] Add a list/store integration test for scoped and unscoped refresh events.
+- [x] Add a layout integration test for the mobile Chat section path.
+- [x] Run focused tests, local coverage, typecheck, and lint.
+- [x] Commit the coverage repair and report the result.
+
+Review: Hosted global and new-file coverage passed. Patch coverage missed `ConversationList.svelte:237`, `stores.svelte.ts:372`, and `(app)/+layout.svelte:609`. The new integration tests pass 20/20. Targeted V8 coverage now records 3, 3, and 1 hit on those lines. Full typecheck and lint pass. The exact-head browser receipt and full coverage gate remain to run after the other agent's shared test slot clears. No gate configuration changed.
+
+### Merged-layout coverage follow-up at `9c8aaa303`
+
+- [x] Compare targeted and merged LCOV for layout line 609.
+- [x] Trace the canonical Vitest source include and browser ownership filter.
+- [x] Add narrow dual measurement for the app layout and guard it with a test.
+- [ ] Run focused, full, patch, new-file, and gate-integrity checks at the new head.
+
+Review: The exact-head browser lanes and full host coverage passed, but the separate patch gate found layout line 609 at zero hits. Browser V8 source maps leave that prop line at zero; targeted Node V8 measured the mounted mobile drawer test at one hit. The canonical Node producer did not include the layout and its filter excluded scripted routes. Exactly this layout is now dual-measured: the sanctioned Vitest leg passed 596 files and 7,517 tests, retained layout line 609 with one hit, and its LCOV merged with the browser receipt covers 205/219 layout lines (93.61%, above 80%). The guard suite, lint, typecheck, and gate-integrity checks pass. Exact-head full receipt and coverage checks remain. No threshold or exclusion changed.
+## PR #320 watchdog sleep reason review — 2026-09-24
+
+- [x] Read the PR, runtime contract, relevant lessons, and failed hosted job.
+- [x] Reproduce the first-tick sleep failure through the watchdog and persisted error path.
+- [x] Fix first-tick detection, progress-before-tick attribution, and the code quality complexity failure.
+- [x] Run focused watchdog tests, typecheck, lint, and browser SSE/reload proof.
+- [ ] Verify the CRAP quality gate on merged coverage, then push and review hosted CI.
+
+Plan review: The hosted Per-file coverage job passed line coverage but failed the touched-function CRAP limit: tick() scored 31 over its limit of 30. The PR also missed a sleep before the first tick and progress just before a delayed tick. Keep kill thresholds unchanged. Move sleep accounting and reason text into small helpers, and prove visible and persisted wording through browser SSE and reload.
+
+Review: A new frozen-clock test failed at the original head when the host slept before the first timer callback. The fix initializes observation time on start and resets it on real progress. A tool timeout that expired during sleep also lost the sleep note; the selected tool reason now keeps precedence and gains the note. The text says sleep *may* have happened, since timer delay alone cannot prove it. Six focused suspension tests, the watchdog file suite, typecheck, lint, and six Chromium browser cases passed. Browser cases show both sleep error forms after SSE and page reload. Exact quality gate and hosted CI remain for the integrating agent.
+
 ## W02c — the package quarantine fence (branch `wp/w02c-quarantine`)
 
 Base `integ/w00` `578692e8a`; merged `943b9fa0c` at `43d224900` and `8cea0f638` at `3695f8351`. Passes at `1d06a7394`, sweep at `3695f8351`. Receipts: `/tmp/factory-platform-evidence/w02c/`. Gates: `tasks/factory/w02c-GATES.md`.

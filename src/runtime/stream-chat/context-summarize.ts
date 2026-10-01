@@ -227,9 +227,10 @@ export function makeSummarizer(
       // `opts.signal` when present, and pass it as the new final argument.
       const { generateSummary, withAbortSignal, BACKGROUND_CONTEXT } = await import("@earendil-works/pi-agent-core");
       const { complete } = await import("@earendil-works/pi-ai/compat");
+      const { authCallOptions } = await import("../../providers/credentials");
       const models = {
         completeSimple: (m: Model, context: Context, o?: SimpleStreamOptions) =>
-          complete(m, context, { ...o, apiKey }),
+          complete(m, context, { ...o, ...authCallOptions(apiKey) }),
       } as unknown as Models;
       const harnessContext = opts.signal ? withAbortSignal(opts.signal, BACKGROUND_CONTEXT) : BACKGROUND_CONTEXT;
       // Positional mapping (verified against the installed .d.ts): messages,

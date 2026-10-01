@@ -7,9 +7,8 @@ import { join } from "node:path";
  *
  * ## The bug this exists to prevent
  *
- * docker-compose.yml masks two directories out of the `.:/repo` bind:
- * `/repo/.ezcorp` (the prod stack's live PGlite DB + keys) and
- * `/repo/worktrees` (multi-GB agent scratch). Docker mounts an empty tmpfs
+ * docker-compose.yml masks sensitive directories out of the `.:/repo` bind,
+ * including PGlite DB + keys and agent worktrees. Docker mounts an empty tmpfs
  * over each. Podman does NOT: its tmpfs default is `tmpcopyup`, which seeds
  * the tmpfs with the contents of the directory underneath — publishing into
  * the container exactly what the mask exists to hide, and copying it into
@@ -107,8 +106,8 @@ function guardedPaths(script: string): string[] {
 describe("tmpfs secret masks — base file (Docker)", () => {
   test("every tree the mask exists to hide is actually masked", async () => {
     const masks = masksOf(await parse("docker-compose.yml"));
-    // These paths are the whole point of the feature: the prod DB/keys and
-    // the agent-scratch trees must not be visible inside /repo.
+    // The prod DB/keys, agent-scratch trees, and mutation sandboxes must not
+    // be visible inside /repo.
     //
     // `/repo/.claude/worktrees` was missing for as long as this file has
     // existed. `worktrees` READS like it covers every worktree tree, but
@@ -117,11 +116,13 @@ describe("tmpfs secret masks — base file (Docker)", () => {
     // Measured when it was found: 26 GB, 288 .env* files and 76 live .ezcorp
     // dirs (PGlite DB + keys) readable by the self-modification agent on
     // every `docker compose up`, while the boot guard below reported success
-    // because it checked only the two paths that WERE masked.
+    // because it checked only the paths that WERE masked.
     expect([...masks.keys()].sort()).toEqual([
       "/repo/.claude/worktrees",
       "/repo/.ezcorp",
+      "/repo/.worktrees",
       "/repo/agent",
+      "/repo/web/.stryker-tmp",
       "/repo/worktrees",
     ]);
   });
@@ -144,7 +145,7 @@ describe("tmpfs secret masks — base file (Docker)", () => {
       .toString()
       .split("\n")
       .map((l) => l.trim().replace(/\/$/, ""))
-      .filter((l) => l === "worktrees" || l.endsWith("/worktrees"));
+      .filter((l) => ["worktrees", ".worktrees"].includes(l.split("/").at(-1) ?? ""));
 
     for (const dir of worktreeDirs) {
       expect(
@@ -214,7 +215,7 @@ const CREDENTIAL_PATTERNS = [
   /^\.pi-salt$/,
   /auth.*\.json$/,
   /^\.ezcorp$/,
-  /^worktrees$/,
+  /^\.?worktrees$/,
 ];
 
 describe("mask completeness — derived from git, not from memory", () => {

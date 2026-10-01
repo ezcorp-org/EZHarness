@@ -48,7 +48,7 @@ export async function mergeContents(contentA: string, contentB: string): Promise
   try {
     const { complete } = await import("@earendil-works/pi-ai/compat");
     const { resolveModel } = await import("../providers/router");
-    const { getCredential } = await import("../providers/credentials");
+    const { getCredential, authCallOptions } = await import("../providers/credentials");
 
     // Determine which provider/model to use (cheapest available)
     const settingsProvider = (await getSetting("global:provider") as string) ?? "google";
@@ -59,7 +59,7 @@ export async function mergeContents(contentA: string, contentB: string): Promise
 
     const result = await complete(resolved.piModel, {
       messages: [{ role: "user", content: `Merge these two related facts into a single, clear statement that preserves all information:\n\nFact 1: ${contentA}\nFact 2: ${contentB}\n\nRespond with ONLY the merged statement, nothing else.`, timestamp: Date.now() }],
-    }, { apiKey: cred.token, maxTokens: 256, temperature: 0 });
+    }, { ...authCallOptions(cred.token), maxTokens: 256, temperature: 0 });
 
     const merged = result.content.filter((c) => c.type === "text").map((c) => (c as { type: "text"; text: string }).text).join("").trim();
     return merged || `${contentA}; ${contentB}`;

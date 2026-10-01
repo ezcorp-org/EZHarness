@@ -12,12 +12,14 @@ test.describe("Mobile project navigation", () => {
 		await page.getByRole("button", { name: "Back to project menu" }).click();
 
 		const drawer = page.getByRole("dialog", { name: "Mobile navigation" });
-		const chatLink = drawer.getByRole("link", { name: "Chat" });
+		const chatLink = drawer.getByRole("link", { name: "Chat", exact: true });
+		const allChatsLink = drawer.getByRole("link", { name: "All chats →", exact: true });
 		const settingsLink = drawer.getByRole("link", { name: "Project Settings" });
 		await expect(drawer).toBeVisible();
 		await expect(chatLink).toBeVisible();
 		await expect(chatLink).toBeInViewport({ ratio: 0.95 });
 		await expect(chatLink).toHaveAttribute("href", `/project/${proj.id}/chat`);
+		await expect(allChatsLink).toHaveAttribute("href", `/project/${proj.id}/chat?all=1`);
 		await expect(settingsLink).toBeVisible();
 		await expect(settingsLink).toBeInViewport({ ratio: 0.95 });
 		await expect(settingsLink).toHaveAttribute("href", `/project/${proj.id}/settings`);
@@ -30,12 +32,14 @@ test.describe("Mobile project navigation", () => {
 		await page.getByRole("button", { name: "Back to project menu" }).click();
 
 		const drawer = page.getByRole("dialog", { name: "Mobile navigation" });
-		const chatLink = drawer.getByRole("link", { name: "Chat" });
+		const chatLink = drawer.getByRole("link", { name: "Chat", exact: true });
+		const allChatsLink = drawer.getByRole("link", { name: "All chats →", exact: true });
 		const settingsLink = drawer.getByRole("link", { name: "Settings" });
 		await expect(drawer).toBeVisible();
 		await expect(chatLink).toBeVisible();
 		await expect(chatLink).toBeInViewport({ ratio: 0.95 });
 		await expect(chatLink).toHaveAttribute("href", "/project/global/chat");
+		await expect(allChatsLink).toHaveAttribute("href", "/project/global/chat?all=1");
 		await expect(settingsLink).toBeVisible();
 		await expect(settingsLink).toBeInViewport({ ratio: 0.95 });
 		await expect(settingsLink).toHaveAttribute("href", "/settings");

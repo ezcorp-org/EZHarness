@@ -16,7 +16,7 @@
  * `"rethrow"` either.
  */
 import { test, expect, describe } from "bun:test";
-import { classifyProviderError } from "../runtime/stream-chat/provider-error-classifier";
+import { classifyProviderError, describeProviderFailure } from "../runtime/stream-chat/provider-error-classifier";
 
 // ── TRANSIENT → "retry-then-failover" (pi-ai retry.js) ────────────────
 // Realistic `.message` strings produced by the provider HTTP-error path
@@ -180,5 +180,47 @@ describe("classifyProviderError — negatives → rethrow (surface unchanged)", 
 
   test.each(RETHROW)("%s", (_label, message) => {
     expect(classifyProviderError(message)).toBe("rethrow");
+  });
+});
+
+describe("describeProviderFailure — what the error card may say", () => {
+  // Captured from a live install: Poolside rate-limiting its free model behind Kilo.
+  const REAL_POOLSIDE_429 =
+    '429: {"message":"Provider returned error","code":429,"metadata":{"raw":"{\\"error\\":\\"Rate limit exceeded\\"}\\n","provider_name":"Poolside","is_byok":true,"limit_source":"upstream_provider_account","remedy_hint":"The provider rate-limited your own key. Check the limits on your provider account"}}';
+
+  test("the real Kilo 429 is a rate limit served by Poolside", () => {
+    expect(describeProviderFailure(REAL_POOLSIDE_429)).toEqual({ reason: "rate_limited", upstreamProvider: "Poolside" });
+  });
+
+  test("and it is still retried, not given up on — the two functions agree", () => {
+    expect(classifyProviderError(REAL_POOLSIDE_429)).toBe("retry-then-failover");
+  });
+
+  test.each(["429 Too Many Requests", "rate_limit_error: slow down", "You are being rate-limited", "Too many requests"])(
+    "%s → rate_limited",
+    (message) => {
+      expect(describeProviderFailure(message).reason).toBe("rate_limited");
+    },
+  );
+
+  test("a quota/billing limit is NOT called a brief rate limit, even as a 429", () => {
+    // Telling someone out of credits to "retry in a moment" would be wrong.
+    const accountLimited = ["429 You exceeded your current quota", "429 insufficient_quota"].filter(
+      (m) => classifyProviderError(m) === "failover-only",
+    );
+    expect(accountLimited.length).toBeGreaterThan(0);
+    for (const message of accountLimited) expect(describeProviderFailure(message).reason).toBeUndefined();
+  });
+
+  test("anything else describes nothing", () => {
+    for (const message of [undefined, null, "", "503 Service Unavailable", "400 invalid request"]) {
+      expect(describeProviderFailure(message)).toEqual({});
+    }
+  });
+
+  test("the upstream name is bounded and cannot carry injected text", () => {
+    expect(describeProviderFailure('{"provider_name":"' + "x".repeat(200) + '"}').upstreamProvider).toBeUndefined();
+    expect(describeProviderFailure('{"provider_name":"A\\"><img src=x>"}').upstreamProvider).toBeUndefined();
+    expect(describeProviderFailure('{"provider_name":"  Poolside  "}').upstreamProvider).toBe("Poolside");
   });
 });

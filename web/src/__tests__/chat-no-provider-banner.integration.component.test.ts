@@ -2,8 +2,8 @@
  * Integration component test for the chat empty-state "Connect a
  * provider" banner.
  *
- * The banner asks `/api/quickstart` whether any provider is connected
- * (BYOK or OAuth). We mock `fetch` so each test can choose the answer.
+ * The banner asks `/api/quickstart` whether chat is usable. This is distinct
+ * from whether a credential is configured for the checklist.
  *
  * Covers:
  *   - Banner renders when /api/quickstart reports provider:false
@@ -23,7 +23,7 @@ import { describe, test, expect, vi, beforeEach, afterEach } from "vitest";
 import NoProviderBanner from "$lib/components/chat/NoProviderBanner.svelte";
 import { store } from "$lib/stores.svelte.js";
 
-function mockFetch(response: { provider: boolean; role?: "admin" | "member" } | "error" | "reject" | "pending"): {
+function mockFetch(response: { provider: boolean; usableProvider?: boolean; role?: "admin" | "member" } | "error" | "reject" | "pending"): {
 	resolvePending?: () => void;
 } {
 	if (response === "pending") {
@@ -52,7 +52,7 @@ function mockFetch(response: { provider: boolean; role?: "admin" | "member" } | 
 					headers: { "content-type": "application/json" },
 				});
 			}
-			return new Response(JSON.stringify({ steps: { provider: response.provider } }), {
+			return new Response(JSON.stringify({ steps: { provider: response.provider, usableProvider: response.usableProvider ?? response.provider } }), {
 				status: 200,
 				headers: { "content-type": "application/json" },
 			});
@@ -83,6 +83,13 @@ describe("NoProviderBanner", () => {
 		const { queryByTestId } = render(NoProviderBanner);
 		// Wait one microtask for the onMount fetch to resolve.
 		await waitFor(() => expect(queryByTestId("no-provider-banner")).toBeNull());
+	});
+
+	test("absent when keyless chat is usable but no credential is configured", async () => {
+		mockFetch({ provider: false, usableProvider: true });
+		const { queryByTestId } = render(NoProviderBanner);
+		await waitFor(() => expect(store.quickstartSteps?.usableProvider).toBe(true));
+		expect(queryByTestId("no-provider-banner")).toBeNull();
 	});
 
 	test("absent when /api/quickstart returns an error (fail closed)", async () => {
