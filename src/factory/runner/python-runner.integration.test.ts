@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { validateFactoryGuestMaterialRequest, validateFactoryGuestMaterialResponse, validateFactoryGuestModelRequest, validateFactoryGuestModelResponse, validateFactoryRunnerRequest, validateFactoryRunnerResult } from "@ezcorp/factory-sdk";
 import { loadFactoryConformanceFixtures, type FactoryConformanceKind } from "../../__tests__/helpers/factory-c02-conformance-fixtures";
+import { uvCommand } from "./uv-command";
 
 /**
  * Host-Python C02 conformance: the narrow lane.
@@ -54,9 +55,8 @@ function sdkCode(result: ReturnType<typeof sdk>): string | undefined {
 
 async function python(kind: FactoryConformanceKind, value: unknown) {
   const child = Bun.spawn({
-    cmd: [
-      "nix", "shell", "nixpkgs#uv", "-c",
-      "uv", "run", "--frozen", "--project", join(import.meta.dir, "python"),
+    cmd: uvCommand([
+      "run", "--frozen", "--project", join(import.meta.dir, "python"),
       "coverage", "run", "--branch", "--append", "--data-file", coverageData,
       join(import.meta.dir, "python/c02_runner.py"),
       "--request-schema", join(root, "packages/@ezcorp/factory-sdk/src/factory-runner-request.schema.json"),
@@ -65,7 +65,7 @@ async function python(kind: FactoryConformanceKind, value: unknown) {
       "--guest-model-response-schema", join(root, "packages/@ezcorp/factory-sdk/src/factory-guest-model-response.schema.json"),
       "--guest-material-request-schema", join(root, "packages/@ezcorp/factory-sdk/src/factory-guest-material-request.schema.json"),
       "--guest-material-response-schema", join(root, "packages/@ezcorp/factory-sdk/src/factory-guest-material-response.schema.json"),
-    ],
+    ]),
     stdin: "pipe", stdout: "pipe", stderr: "pipe",
   });
   child.stdin.write(JSON.stringify({ kind, value }));
@@ -102,14 +102,13 @@ test("C02 golden rejections refuse forged pins, unsafe counters, money, schemas,
 
 test("a malformed envelope is refused by the host entry point rather than crashing it", async () => {
   const child = Bun.spawn({
-    cmd: [
-      "nix", "shell", "nixpkgs#uv", "-c",
-      "uv", "run", "--frozen", "--project", join(import.meta.dir, "python"),
+    cmd: uvCommand([
+      "run", "--frozen", "--project", join(import.meta.dir, "python"),
       "coverage", "run", "--branch", "--append", "--data-file", coverageData,
       join(import.meta.dir, "python/c02_runner.py"),
       "--request-schema", join(root, "packages/@ezcorp/factory-sdk/src/factory-runner-request.schema.json"),
       "--result-schema", join(root, "packages/@ezcorp/factory-sdk/src/factory-runner-result.schema.json"),
-    ],
+    ]),
     stdin: "pipe", stdout: "pipe", stderr: "pipe",
   });
   child.stdin.write(JSON.stringify({ kind: "checkpoint", value: {} }));
@@ -120,7 +119,7 @@ test("a malformed envelope is refused by the host entry point rather than crashi
 });
 
 test("real Python child writes branch coverage for the canonical C02 runner", async () => {
-  const child = Bun.spawn(["nix", "shell", "nixpkgs#uv", "-c", "uv", "run", "--frozen", "--project", join(import.meta.dir, "python"), "coverage", "json", "--data-file", coverageData, "-o", coverageReport], { stdout: "pipe", stderr: "pipe" });
+  const child = Bun.spawn(uvCommand(["run", "--frozen", "--project", join(import.meta.dir, "python"), "coverage", "json", "--data-file", coverageData, "-o", coverageReport]), { stdout: "pipe", stderr: "pipe" });
   expect(await child.exited, await new Response(child.stderr).text()).toBe(0);
   const report = JSON.parse(await readFile(coverageReport, "utf8")) as { files: Record<string, { executed_lines: number[] }> };
   const entry = Object.entries(report.files).find(([file]) => file.endsWith("c02_runner.py"));
