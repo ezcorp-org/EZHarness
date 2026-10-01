@@ -497,9 +497,11 @@ function remainingRepairs(node: Extract<FactoryNode, { kind: "acceptance" }>, ca
   return Math.min(node.maxRepairs ?? 0, FACTORY_LIMITS.maxCandidateGenerations - 1) - candidateGeneration;
 }
 
-function applyStopped(factory: KernelFactoryPlan, state: KernelState, event: Extract<KernelEvent, { kind: "attempt-stopped" }>, commands: KernelCommand[]): KernelState {
-  const runtime = state.nodes[event.nodeId];
-  const node = nodeFor(factory, event.nodeId);
+type AttemptStoppedEvent = Extract<KernelEvent, { kind: "attempt-stopped" }>;
+type KernelNodeRuntime = KernelState["nodes"][string];
+
+/** Refuses an attempt-stopped event whose effect or before-admission mark does not fit its node and its certainty. */
+function assertStoppedEventShape(event: AttemptStoppedEvent, node: FactoryNode | undefined): void {
   // A named effect is only ever a release's, and only on a certain stop: an uncertain stop still waits.
   if (event.effect !== undefined && (!Object.hasOwn(FACTORY_ATTEMPT_STOP_EFFECTS, event.effect) || event.uncertain === true || (node !== undefined && node.kind !== "release"))) {
     throw new FactoryKernelError("an attempt-stopped effect names a release's external effect and needs a certain stop");
@@ -508,28 +510,24 @@ function applyStopped(factory: KernelFactoryPlan, state: KernelState, event: Ext
   if (event.stoppedBefore !== undefined && (event.stoppedBefore !== "admission" || event.uncertain === true || event.effect !== undefined || (node !== undefined && node.kind !== "task"))) {
     throw new FactoryKernelError("an attempt-stopped before admission names a task's certain stop and no effect");
   }
-  if (!runtime || !node || runtime.candidateGeneration !== event.candidateGeneration) return state;
-  const attempt = runtime.attempts.find((candidate) => candidate.commandId === event.commandId && candidate.attempt === event.attempt);
-  if (!attempt || (attempt.stopped && (!attempt.uncertain || event.uncertain !== false))) return state;
-  const attempts = runtime.attempts.map((candidate) => candidate === attempt ? { ...candidate, stopped: true, uncertain: event.uncertain ?? false } : candidate);
-  let next = withNode(state, event.nodeId, { ...runtime, attempts });
-  if (event.uncertain) {
-    next = { ...next, unresolvedUncertainNodeIds: distinct(next.unresolvedUncertainNodeIds.concat(event.nodeId)) };
-    return next;
-  }
-  next = { ...next, unresolvedUncertainNodeIds: next.unresolvedUncertainNodeIds.filter(id => id !== event.nodeId || attempts.some(candidate => candidate.uncertain)) };
-  if (runtime.discarded || state.status === "stopping") {
-    next = withNode(next, event.nodeId, {
-      ...next.nodes[event.nodeId]!,
-      status: runtime.failureHandled && runtime.error ? "failed" : runtime.discarded || state.stopKind === "cancelled" ? "cancelled" : "failed",
-      timer: undefined,
-      // The stop is certain; the release's external effect is named on the node so a status never hides it.
-      ...(event.effect === undefined ? {} : { error: FACTORY_ATTEMPT_STOP_EFFECTS[event.effect] }),
-      ...(event.stoppedBefore === undefined ? {} : { error: FACTORY_ATTEMPT_STOPPED_BEFORE_ADMISSION }),
-    });
-    if (state.status !== "stopping") next = activateReady(factory, next, commands, successorsFor(factory, event.nodeId));
-    return progressContainingScopes(factory, next, event.nodeId, commands);
-  }
+}
+
+/** A certain stop of a discarded node, or of any node while the run stops: the node ends, and the run moves on. */
+function settleNodeStoppedByRun(factory: KernelFactoryPlan, state: KernelState, next: KernelState, runtime: KernelNodeRuntime, event: AttemptStoppedEvent, commands: KernelCommand[]): KernelState {
+  next = withNode(next, event.nodeId, {
+    ...next.nodes[event.nodeId]!,
+    status: runtime.failureHandled && runtime.error ? "failed" : runtime.discarded || state.stopKind === "cancelled" ? "cancelled" : "failed",
+    timer: undefined,
+    // The stop is certain; the release's external effect is named on the node so a status never hides it.
+    ...(event.effect === undefined ? {} : { error: FACTORY_ATTEMPT_STOP_EFFECTS[event.effect] }),
+    ...(event.stoppedBefore === undefined ? {} : { error: FACTORY_ATTEMPT_STOPPED_BEFORE_ADMISSION }),
+  });
+  if (state.status !== "stopping") next = activateReady(factory, next, commands, successorsFor(factory, event.nodeId));
+  return progressContainingScopes(factory, next, event.nodeId, commands);
+}
+
+/** A certain stop of a node that was stopping its own failed attempt: it retries when allowed, else it fails. */
+function settleNodeStoppedOnFailure(factory: KernelFactoryPlan, next: KernelState, node: FactoryNode, runtime: KernelNodeRuntime, event: AttemptStoppedEvent, commands: KernelCommand[]): KernelState {
   if (runtime.status === "stopping" && retryAllowed(node, runtime) && errorRetryable(runtime.error)) {
     const delay = retryDelay(node, runtime.nextAttempt);
     next = withNode(next, event.nodeId, { ...next.nodes[event.nodeId]!, status: "retry_wait", nextAttempt: runtime.nextAttempt + 1 });
@@ -537,6 +535,21 @@ function applyStopped(factory: KernelFactoryPlan, state: KernelState, event: Ext
   }
   if (runtime.status === "stopping") return failNode(factory, next, node, event.nodeId, runtime.error ?? "NODE_FAILED", "execution", commands);
   return next;
+}
+
+function applyStopped(factory: KernelFactoryPlan, state: KernelState, event: AttemptStoppedEvent, commands: KernelCommand[]): KernelState {
+  const runtime = state.nodes[event.nodeId];
+  const node = nodeFor(factory, event.nodeId);
+  assertStoppedEventShape(event, node);
+  if (!runtime || !node || runtime.candidateGeneration !== event.candidateGeneration) return state;
+  const attempt = runtime.attempts.find((candidate) => candidate.commandId === event.commandId && candidate.attempt === event.attempt);
+  if (!attempt || (attempt.stopped && (!attempt.uncertain || event.uncertain !== false))) return state;
+  const attempts = runtime.attempts.map((candidate) => candidate === attempt ? { ...candidate, stopped: true, uncertain: event.uncertain ?? false } : candidate);
+  let next = withNode(state, event.nodeId, { ...runtime, attempts });
+  if (event.uncertain) return { ...next, unresolvedUncertainNodeIds: distinct(next.unresolvedUncertainNodeIds.concat(event.nodeId)) };
+  next = { ...next, unresolvedUncertainNodeIds: next.unresolvedUncertainNodeIds.filter(id => id !== event.nodeId || attempts.some(candidate => candidate.uncertain)) };
+  if (runtime.discarded || state.status === "stopping") return settleNodeStoppedByRun(factory, state, next, runtime, event, commands);
+  return settleNodeStoppedOnFailure(factory, next, node, runtime, event, commands);
 }
 
 function stopFailedAttempt(factory: KernelFactoryPlan, state: KernelState, node: FactoryNode, nodeId: string, error: string, commands: KernelCommand[]): KernelState {
