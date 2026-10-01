@@ -1,0 +1,69 @@
+VERDICT (validator-6) — W4F-3 at 6d8151b4e (wp/w4f-3-crap-settlement-validation, owner w4f-3), base integ 79791f76c: ACCEPT
+
+REBASE CARRY-OVER: the branch moved from 95a5d8db8 (on ffe6ea507) to 6d8151b4e (on 79791f76c, the integ head after W4F-2 landed).
+My hold below ran at 95a5d8db8 (verdict-validator-6-w4f3-95a5d8db8.txt), and it carries. I checked the rebase read-only:
+  Patch-ids are equal for both code commits:
+    b9a711809 -> c6ec20915  a7063423f2bddb13
+    bdc9484b6 -> 8ebdf1f5c  860a9c560b8700ec
+    The docs commit differs (95a5d8db8 4a98b2ca… -> 6d8151b4e 554ffe86…), because of the union with the integ docs.
+  src/factory/usage-settlement.ts and factory-orchestrator/src/validation.ts are byte-identical between 95a5d8db8 and 6d8151b4e.
+  The branch's own code diff against its base is identical: git diff ffe6ea507 95a5d8db8 == git diff 79791f76c 6d8151b4e.
+  git diff --name-only 79791f76c 6d8151b4e: the two code files, tasks/factory/w4f-GATES.md and tasks/todo.md.
+  Docs union:
+    - every integ line of both files is kept, and W4F-3's todo lines are kept;
+    - W4F-3's w4f-GATES rows are present. Three of its lines were rewritten for the rebased head (proof refs and commit
+      columns), not dropped.
+  3 commits over 79791f76c, all archy noreply.
+  The CRAP binding against 79791f76c covers the same two functions, because the code diff is identical.
+  Head tree f6aa6f2fd, equal to integrator-3's merge-trial tree.
+  Added at 6d8151b4e under the lock (the lead's binding producer for the settlement change):
+    tests/postgres/factory-admission-stop.test.ts 5/0 on Bun 1.4.2 with the flag (w4f-validation/pg-admission-stop-6d8151b4e.log).
+
+----- the hold at 95a5d8db8, carried -----
+
+3 commits, all archy noreply:
+  - b9a711809 usage-settlement.ts buildFactoryUsageSettlement;
+  - bdc9484b6 factory-orchestrator validation.ts validateInboxEvent;
+  - 95a5d8db8 docs (w4f-GATES rows, todo).
+git diff --stat ffe6ea507 95a5d8db8: 4 files, +99 −41. No test file touched.
+Config hash 44962525f1ca1a8b at the start and end of every phase. Bun and bunx 1.4.2, with the pipelining flag.
+
+F4 SPLITS, behaviour preserved (my reading of each diff)
+  usage-settlement b9a711809: buildFactoryUsageSettlement keeps the checks in the same order:
+    1. fields: identity, counters, source, amounts;
+    2. stopProven, then the proofs: receipt digest form, reconciliation needs a receipt, exactly one stop-or-restore proof,
+       restore only for reserved-bound, proof digest form;
+    3. the stop-proven extras, the no-operations zero and the allowed basis;
+    4. attemptId equals the authority's attemptId;
+    5. the seal.
+    Every throw keeps its code: invalidSettlement() defaults to factory_usage_settlement_invalid, and the receipt checks pass
+    factory_usage_settlement_receipt_invalid. The seal body moved verbatim.
+  orchestrator validation bdc9484b6:
+    - validateInboxEvent keeps its four guards.
+    - It dispatches attempt-stopped to validateAttemptStoppedEvent (the effect and stoppedBefore checks, same messages, order
+      kept) and repair or replan to validateRunControlEvent.
+    - The replan replacement checks moved verbatim into validateReplanReplacement.
+    - The kind conditions were hoisted; the error messages are unchanged.
+
+CRAP (scripts/crap-score.ts --changed against ffe6ea507, on my merged lcov)
+  Before (the red, w12e-fix-final/crap-changed-origin_main.log): buildFactoryUsageSettlement 39, validateInboxEvent 35.
+  After: 12 functions in 2 files, all cov 100%, max 13: "no touched function exceeds CRAP 30".
+    validateInboxEvent 13, assertSettlementProofs 13, assertSettlementFields 11, settlementAmountBasis 10,
+    validateRunControlEvent 9, validateReplanReplacement 9, sealFactoryUsageSettlement 7, validateAttemptStoppedEvent 6,
+    buildFactoryUsageSettlement 2.
+
+RERUN RESULTS (hold-v6-w4f3-95a5d8db8/results.jsonl)
+  Static, lock-free:
+    identity 3/3 archy; typecheck, lint, check-factory-boundaries, check-boundaries 0.
+    gate-integrity: base leg clean; origin/main set PASS.
+    tests-unchanged PASS (no test file in the diff); gitleaks 0.
+    Receipts: 77 scanned (w4f/w4f-3/).
+  Heavy, under the lock (lock_veto validator-6 first):
+    - unit union (the hook's usage-settlement.test.ts) 12/0; SDK 246/0;
+    - producer-node (scripts/factory-orchestrator-coverage.sh, the authoritative producer for the orchestrator package) 92/0;
+    - guard set 60/0;
+    - merge 0; new-file and patch against ffe6ea507 PASSED;
+    - CRAP as above.
+  The graph-proof runbook is not required: the branch changes no SDK, guest-package or harness file (common.md).
+
+No findings.
