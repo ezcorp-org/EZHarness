@@ -227,6 +227,21 @@ describe("authenticated factory gateway activities", () => {
     assert.equal((await defaults.request("GET", "/x")).statusCode, 200);
   });
 
+  // The shared transport never sends an IP literal as the TLS server name (Bun 1.4 and Node refuse one; RFC 6066).
+  // For the endpoint's own IP it sends none, and node:https verifies the certificate against that IP: this server's
+  // certificate names only DNS:localhost, so the IP endpoint is refused by the certificate check, not by the name
+  // rule. An explicit IP name that differs from the endpoint host would verify another identity, so it fails by name.
+  it("an IP endpoint sends no IP server name and is verified against the IP; a different IP name fails by name", async () => {
+    mode = "normal";
+    const ipOrigin = `https://127.0.0.1:${port}`;
+    const ownIp = await createSharedTransport({ baseUrl: ipOrigin, tls: paths });
+    await assert.rejects(ownIp.request("GET", "/x"), (error: NodeJS.ErrnoException) => error.code === "ERR_TLS_CERT_ALTNAME_INVALID");
+    await assert.rejects(
+      createSharedTransport({ baseUrl: ipOrigin, tls: paths, serverName: "127.0.0.2" }),
+      /factory_transport_server_name_ip_mismatch: server name 127\.0\.0\.2 is an IP address that is not the endpoint host 127\.0\.0\.1/,
+    );
+  });
+
   it("rejects caller URLs before sending private credentials", async () => {
     mode = "normal";
     const transport = await createGatewayTransport({ baseUrl: origin, tls: paths });

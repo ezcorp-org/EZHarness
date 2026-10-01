@@ -307,3 +307,16 @@ scripts/prove-factory-local-provisioning.mjs constructed Bun.SQL directly; the d
 only. The test now scans every .ts, .mts, .cts, .js, .mjs and .cjs under src, scripts, packages and web/src; red named
 exactly these two files (w12e-2/wd1/red.log). Both now open through openBunSql with the same options. Run by hand
 under 1.4.2 without the flag, each prints the guard's refusal before any connection (w12e-2/wd1/hand-*.log).
+
+## F2 (wave-level, moved into W12e by the coordinator 2026-10-01): tlsServerName's lines credited by their producer
+
+The authoritative final gates at 8676d8757 found packages/@ezcorp/factory-transport/src/index.ts:163-164 (the mismatch
+throw and the endpoint-IP branch) uncovered (per-file 98.95%; patch on both bases). That file is a canonical Node/V8
+source (scripts/coverage-config.ts V8_CANONICAL_SOURCES): the merge accepts its lines only from the Node producer, the
+orchestrator package's node --test suite (scripts/factory-orchestrator-coverage.sh), and drops every Bun input; the Bun
+suites that exercise both branches therefore never counted. The new case in
+packages/@ezcorp/factory-orchestrator/test/gateway-activities.test.ts drives both through the transport source: the
+endpoint's own IP sends no server name and is refused by the certificate check (the certificate names only
+DNS:localhost), and a different IP name fails by name. Red in the producer: DA 163 = 0, DA 164 = 0
+(w12e-2/f2/node-red.lcov); green: DA 163 = 6, DA 164 = 1, the suite 12/0 under Node 24.14.1 (f2/node-green.lcov).
+F2 is closed in W12e; W4F-1 keeps F1 (the preview guard under vitest) and F3 (the task-stops attestation entry).
