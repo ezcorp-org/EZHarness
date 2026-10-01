@@ -5507,6 +5507,17 @@ Review: both functions were long guard chains, so each split moves ordered guard
 order, error code or message. The existing suites cover every changed line, so no test was added or changed. Receipts:
 /tmp/factory-platform-evidence/w4f/w4f-3/report.txt.
 
+## W-SYNC — origin/main into integ/w00 (landing record)
+
+- [x] Landed: merge `787f8676c` (origin/main `31052930d` into integ/w00 `6fe920150`; owner w-sync; committed by the user by hand
+      under the hook ruling), validator-6 ACCEPT; published by compare-and-swap 2026-10-01 17:57Z; gates doc `19dbd60fd`
+      (tasks/factory/w-sync-GATES.md only, fast-forward).
+- [x] wave4g at `19dbd60fd`: runner 38 legs, after-runner and browser lanes green, every final gate green, gate-integrity vs
+      origin/main equal to the 8-line expected set; receipts `2fd05e200`. The patch-base ruling's carve-out
+      (w00/w-sync-merge/ruling-patch-base-after-sync.txt) and the check-web-vitest-coverage.ts decision
+      (w00/w-sync-merge/gate-change-decision.txt) were both unused.
+- [x] PR #318 reads BLOCKED and MERGEABLE at `2fd05e200` (it was DIRTY before the sync).
+
 ## Wave 4 close (2026-10-01): follow-ups and standing user items
 
 wave4f ran at `baeade976` (receipts `700e54461`): runner 37 legs, after-runner green (guard set 60/0, graph mock pass,
@@ -5525,6 +5536,9 @@ gate-integrity vs origin/main equals the 8-line expected set.
       release yet).
 - [ ] The wave4f driver prints the pin and runtime flag in its own log (its receipts cite the pin from the after-runner
       log and the pin helper's assertion).
+- [ ] build-pi-agent.ts: add a test that drives the factory branch (`factoryRuntime ? resolved.piModel : …`) with an OAuth or keyless host
+      credential and asserts the gateway-approved model is kept verbatim. validator-6's mutant that disabled the branch survived the
+      plain-key integration suite (w-sync-validation/verdict-validator-6-wsync.txt). Gap dates from wave commit 190ad3afa; not a merge defect.
 
 Standing user items (decisions only the user makes):
 

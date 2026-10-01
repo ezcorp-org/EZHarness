@@ -1950,3 +1950,13 @@ smokes under the lock, detached-job wake-ups) are not repeated.
 - A test that reads ignored files from disk passes vacuously in a clean worktree; plant the file the lane would leave,
   then check.
 - In zsh, "$VAR:src/..." applies the :s history modifier even inside double quotes; write "${VAR}:path".
+
+### W-SYNC (2026-10-01)
+
+- A ruled hook skip still meets the permission checkers (the 2026-09-29 W02d lesson, again). W-SYNC's merge commit needed
+  `EZ_SKIP_HOOK_TESTS=1` under a list-bound ruling; both the owner's and the coordinator's checkers refused it, and the user
+  made the commit by hand. When a merge's hook list is above the cap, plan for the user's hand from the start: the frozen
+  staged tree, the exact command and message file, and the checks of tree, parents, identity and message after.
+- Keep a merge's gates doc on a side branch, a child of the merge, so the merge commit stays the reviewed object. The
+  integrator publishes the merge by compare-and-swap, then checks that the side branch adds only the gates file and
+  fast-forwards to it.
