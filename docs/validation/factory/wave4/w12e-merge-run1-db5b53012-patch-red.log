@@ -1,0 +1,10 @@
+  attestation inactive: src/factory/task-stops.ts:336 (file not changed in this diff)
+Patch coverage gate FAILED (6 file(s) with uncovered changes):
+  packages/@ezcorp/factory-transport/src/index.ts: changed source file has NO lcov data — no test loads it under coverage. Add/extend a test that exercises it (or, if it genuinely can't be measured, add an EXCLUDES entry in scripts/coverage-config.ts with justification).
+  src/factory/provisioning/census.ts: 1 changed line(s) uncovered: 41
+  src/factory/provisioning/database.ts: 4 changed line(s) uncovered: 108,119,239,316
+  src/factory/provisioning/fleet-cli.ts: 1 changed line(s) uncovered: 200
+  src/factory/provisioning/fleet.ts: 1 changed line(s) uncovered: 194
+  src/factory/provisioning/local.ts: 1 changed line(s) uncovered: 134
+
+Add tests covering the changed lines above, then re-run the coverage pipeline.

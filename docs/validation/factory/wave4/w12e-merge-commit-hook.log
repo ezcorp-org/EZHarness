@@ -1,0 +1,43 @@
+tests/postgres/helpers/factory-recovery-databases.ts:50:56 lint/complexity/noCommaOperator ━━━━━━━━━━
+
+  ! The comma operator is disallowed.
+  
+    48 │ export class FactoryRecoveryDatabases {
+    49 │   // W12e: fail by name on an affected Bun without the flag at process start, before the first client opens.
+  > 50 │   private readonly admin = (assertBunSqlPipeliningOff(), new SQL(adminUrl(), { max: 1 }));
+       │                                                        ^
+    51 │   private readonly created: string[] = [];
+    52 │ 
+  
+  i Its use is often confusing and obscures side effects.
+  
+
+Checked 46 files in 27ms. No fixes applied.
+Found 1 warning.
+── Tests (staged) ─────────────────────────────────
+  22 test files map to this commit (cap 12) — NOT running:
+    packages/@ezcorp/sdk/src/v4/mcp.test.ts
+    scripts/pinned-bun.test.ts
+    src/db/bun-sql-pipelining.test.ts
+    src/db/migrations/add-factory-usage-settlements.test.ts
+    src/factory/pool/process.test.ts
+    src/factory/private-https.integration.test.ts
+    src/factory/private-https.test.ts
+    src/factory/provisioning/database.test.ts
+    src/factory/provisioning/fleet-cli.test.ts
+    src/factory/provisioning/fleet.test.ts
+    src/factory/provisioning/purge-approval.test.ts
+    src/factory/provisioning/storage.test.ts
+    src/__tests__/e2e-lanes.test.ts
+    src/__tests__/factory-private-client.test.ts
+    src/__tests__/factory-transport-settle.test.ts
+    src/__tests__/search-egress.test.ts
+    src/__tests__/setup-podman.test.ts
+    src/__tests__/workflow-extension-loader.test.ts
+    tests/postgres/bun-sql-request-queue.test.ts
+    tests/postgres/factory-pool-mtls.test.ts
+    tests/postgres/factory-pool-process.test.ts
+    web/src/lib/build/preview-pipeline-guard.test.ts
+    packages/@ezcorp/factory-orchestrator (node: bun run test) — also withheld, blocked by the same cap
+  EZ_SKIP_HOOK_TESTS=1 set — skipping the 22 file(s) above; continuing with lint.
+[detached HEAD e6cdcf02a] merge: wp/w12e-scratch 4d0c708c5 into integ/w00 (W12e Bun 1.4.2)

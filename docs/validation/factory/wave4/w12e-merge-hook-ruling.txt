@@ -1,0 +1,29 @@
+COORDINATOR RULING (team-lead, 2026-10-01 06:19Z) — W12e integ-side merge commit, list-bound hook skip
+
+Applies to: the merge of wp/w12e-scratch 4d0c708c5 into integ/w00 at base 5c43bc29d (trial tree must equal 4d0c708c5's tree 7475c19b3;
+77 files changed vs the base; 23 commits, 23 archy). The tree pins Bun 1.4.2 (.bun-version) and carries the pipelining
+guard (src/db/bun-sql-pipelining.ts): every bun process under this tree starts with BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING=1
+in its environment (w00/bun-pin.sh bun_pin), the hook's test processes included. The owner measured 22 mapped suites plus the package line "packages/@ezcorp/factory-orchestrator (node: bun run test)" at 4d0c708c5 vs
+5c43bc29d (the orchestrator package line is part of the set); the printed list at the merge commit is recorded as
+w00/w12e-merge/hook-mapped-4d0c708c5.txt with its sha256 and must be exactly this set:
+  packages/@ezcorp/sdk/src/v4/mcp.test.ts; scripts/pinned-bun.test.ts; src/db/bun-sql-pipelining.test.ts;
+  src/db/migrations/add-factory-usage-settlements.test.ts; src/factory/pool/process.test.ts;
+  src/factory/private-https.integration.test.ts; src/factory/private-https.test.ts; src/factory/provisioning/database.test.ts; src/factory/provisioning/fleet-cli.test.ts;
+  src/factory/provisioning/fleet.test.ts; src/factory/provisioning/purge-approval.test.ts; src/factory/provisioning/storage.test.ts;
+  src/__tests__/e2e-lanes.test.ts; src/__tests__/factory-private-client.test.ts; src/__tests__/factory-transport-settle.test.ts;
+  src/__tests__/search-egress.test.ts; src/__tests__/setup-podman.test.ts; src/__tests__/workflow-extension-loader.test.ts; tests/postgres/bun-sql-request-queue.test.ts;
+  tests/postgres/factory-pool-mtls.test.ts; tests/postgres/factory-pool-process.test.ts; web/src/lib/build/preview-pipeline-guard.test.ts.
+Above the cap of 12; three are PostgreSQL suites, one is an SDK package suite, one is a web suite, and the factory-orchestrator package runs through its own `bun run test` (tsc, then node --test; the Node producer that credits the transport source).
+Ruling: EZ_SKIP_HOOK_TESTS=1 is permitted for THIS ONE COMMIT only, bound to that exact set: the 22 files plus the orchestrator package line. VOID if the hook's PRINTED list at
+commit time (files plus package lines, as a set) differs from the ruled set in any file, or if integ/w00 moves off 5c43bc29d before the
+commit. All 22 files and the orchestrator package suite run in the hold (the package in its own leg, under Node, with its coverage producer) under the heavy lock (lock_veto integrator-2 first), with the flag at process start: the SDK suite in the
+SDK leg, the web suite in the web leg, the 17 root unit files one process per file with lcov, the 3 PostgreSQL files among the
+PostgreSQL suites one per process with lcov (DATABASE_URL and FACTORY_TEST_POSTGRES_URL exported inside the script for
+tests/postgres/* only; tests/postgres/bun-sql-request-queue.test.ts three times, one stall or error is red), plus the 12-file guard
+set as one leg (w00/guard-suites.sh, nonzero count), each with a receipt (exit, nonzero count, log sha256); the attestation check first
+(entry kept, refreshed at d52baaeec: bunVersion 1.4.2, fileSha256/line 336 unchanged); the shared git config hash 44962525f1ca1a8b
+before and after. This text goes verbatim into the merge commit message with the list's path and sha256. Gates: base leg exactly
+{scripts/coverage-attestations.json} under w00/w12e-merge/gate-change-decision.txt (sha256 2edacc8f78a35287; approved run only);
+origin/main leg by the 8-line expected file; no other finding on either leg. Preconditions of the commit: validator-6's ACCEPT naming
+4d0c708c5, and the owner's full backend pool receipts at 4d0c708c5 (whole runner under 1.4.2, void legs rerun, guard set, browser part, final
+gates) verified by validator-6. Detached-HEAD form, publish by compare-and-swap on all green, then the receipts commit.

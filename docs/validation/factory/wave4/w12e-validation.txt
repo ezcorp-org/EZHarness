@@ -1,0 +1,53 @@
+VERDICT (validator-6) — W12e (Bun 1.4.2) at 4d0c708c5 (wp/w12e-scratch), base 5c43bc29d: ACCEPT
+
+This verdict follows the ACCEPT at 8676d8757 (kept verbatim in verdict-validator-6-8676d8757.txt). The lead moved F2 into W12e:
+the batch's patch leg against 5c43bc29d was red on packages/@ezcorp/factory-transport/src/index.ts:163-164.
+4d0c708c5 adds one test-only commit. Under the lead's order, the chain receipts and my heavy phase at 8676d8757 carry over for
+this delta. Everything below was rerun at 4d0c708c5.
+23 commits, all archy noreply. Config hash 44962525f1ca1a8b at the start and end of every phase.
+
+DELTA (hold-v6-4d0c708c5/logs/fix-diff-allowed.log)
+  git diff --name-only 8676d8757 4d0c708c5:
+    packages/@ezcorp/factory-orchestrator/test/gateway-activities.test.ts
+    tasks/factory/w12e-GATES.md
+  Allowed-set check: PASS (test file and gates doc only).
+
+F2: TRANSPORT 163-164 COVERED (delta-4d0c708c5/heavy.log; under the lock, lock_veto validator-6 first)
+  merge-lcov credits the transport source only from the orchestrator package's Node producer. I ran that producer at the head:
+    PATH=<1.4.2 pin> COV_OUT=… bash scripts/factory-orchestrator-coverage.sh   -> exit 0
+  In its lcov, factory-transport/src/index.ts reads DA:162,6 DA:163,6 DA:164,1 DA:165,6.
+    - The owner's red, in the same producer form at 8676d8757: DA:163,0 DA:164,0 (w12e-2/f2/node-red.lcov).
+  The orchestrator package suite runs under Node; Bun only builds the packages. With either pin first on PATH it gives:
+    - 1.4.2: 92 tests, 92 pass, 0 fail;
+    - 1.3.14: 92 tests, 92 pass, 0 fail.
+  The behaviour of 163-164 was already pinned at 8676d8757 by my mutants: the mismatch refusal off gives 4/1, and the IP literal sent gives 3/2.
+  Gates against 5c43bc29d (merge input: my lcovs at 8676d8757, the owner's 338 verified inputs without node.lcov, and my node lcov
+  at 4d0c708c5 in its place):
+    - merge 0;
+    - patch PASSED, "all changed executable lines covered (15 file(s))";
+    - new-file PASSED (2).
+
+STATIC RE-DIFF AT 4d0c708c5 (hold-v6-4d0c708c5/, lock-free, 06:19–06:22Z)
+  identity 23/23 archy.
+  gate-integrity:
+    - base leg = exactly scripts/coverage-attestations.json, per the decision file (sha256 2edacc8f78a35287);
+    - the main set leg passes.
+  sql-doors-guarded: none.
+  14 red legs, all RED by assertion. They are the pinned-bun pair, egress and transport, the six guard and provenClean mutants,
+  the private-https timer, rejectUnauthorized and the :85 callback check (W-L1), and the G2 version bound. No survivor, no load or setup error.
+  G2 live: preview alive with the guard and dead without it; production guard-free.
+  G4: stale red at d52baaeec^; the entry is fresh at line 336 with bunVersion 1.4.2; DA 0 in the suite; red/green against origin/main.
+  Receipts: none named for this delta. The w12e-fix chain at 8676d8757 carries; verified in verdict-validator-6-8676d8757.txt.
+
+W4F ITEMS (the lead's ruling; not W12e blockers)
+  W4F-1 is now resolved inside W12e at this head.
+  Still W4F:
+    - F1: web/src/lib/build/preview-pipeline-guard.ts measured only by vitest in the owner's gates. My bun lcov covers it.
+    - F3: the task-stops.ts:336 attestation "no longer needed" in the full merged lcov.
+    - F4: the six crap-changed findings.
+
+Everything else in verdict-validator-6-8676d8757.txt stands for 4d0c708c5 unchanged: gates G1–G5, the guard, W-D1, W-L1, the
+client-certificate review, the heavy reruns and pool chunks, the w12e-fix receipts, and my corrections V1–V2.
+
+Evidence: /tmp/factory-platform-evidence/w12e-validation/delta-4d0c708c5/ (heavy.log, node/lcov.info, orch-suite-*.log, cov-all/,
+patch.log, new-file.log), hold-v6-4d0c708c5/ (static), delta-4d0c708c5.sh.
