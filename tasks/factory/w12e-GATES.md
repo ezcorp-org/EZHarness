@@ -205,6 +205,12 @@ Found by the full backend pool at 5670a39c6 (below), each root-caused with a min
    accepts either close signal; zero bytes, the bound and one handler call are still asserted.
 8. end() on a Bun.listen TLS socket closes only the sending side (oven-sh/bun#31155). PRODUCT fix 96eaaa3c3: the
    private listener's timer stays armed after the response, so a peer that keeps writing is cut after requestTimeoutMs.
+9. Bun.Glob(...).scan()'s ENOENT message on a missing cwd no longer embeds a NUL byte (1.3.14: "...'<path>\0'", hex
+   tail 74 00 27; 1.4.2: "...'<path>'", hex tail 74 27; w12e-2/nul/probe.out). Found by the whole-pool shard at
+   a888a85f8: two cases of workflow-extension-loader.test.ts asserted the NUL (the Bun bug they pinned). Test-only fix:
+   the cases assert the clean message (ENOENT, the path intact, no NUL) on the pinned Bun, and the product's handling of
+   a missing installPath stays tested end to end (nothing discovered; the warning logged; no raw NUL on the wire; the
+   exact message after JSON.parse). Green on 1.4.2 (25/0); red on 1.3.14, which still embeds the NUL.
 
 Also found by the full pool, not Bun changes:
 - Pre-existing integ red: add-factory-usage-settlements.test.ts lacked restore_digest, added by 60cf34635 (landed with
@@ -283,6 +289,16 @@ importers), the guard set, the browser part and the final gates.
 which the interface freeze (section 12) assigns to the coordinator (W09). The default is unchanged; every existing
 caller behaves as before. Approved by the coordinator 2026-09-30, after the fact; the lesson stands: ask the owner
 before touching a frozen file.
+
+## W-L1 (validator-6): the listener's own certificate check was untested on Bun 1.4
+
+The private HTTPS listener's handshake callback takes a peer identity only from a verified certificate
+(src/factory/private-https.ts). Bun 1.4 refuses an unverified certificate in the handshake first, so the integration
+suite never reached that check: removing it passed 15/0 (w12e-2/wl1/mutant-private-https.integration.test.log). The new
+src/factory/private-https.test.ts captures the listener's callbacks from Bun.listen (no port opened) and drives them
+with a stand-in socket: a failed verification or a failed handshake gives no identity, and a request on that
+connection is refused 401 before the handler; a verified certificate gives its subject. With the check removed it is
+red, 1/1 (wl1/mutant-private-https.test.log); with it, 2/0 on 1.4.2 and 1.3.14.
 
 ## W-D1 (validator-6): two .mjs scripts opened Bun.SQL around the guard
 
