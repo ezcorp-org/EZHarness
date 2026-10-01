@@ -1,0 +1,12 @@
+GATE-CHANGE DECISION (coordinator, 2026-10-01T05:52:24Z) — W4F-1, base leg of merge-commit-gates
+
+Path approved: exactly scripts/coverage-attestations.json, for the REMOVAL of the single entry (src/factory/task-stops.ts:336).
+Grounds: the user's approval of 2026-09-28T06:45Z (W03g) for attestation changes to this file, and the W12e decision
+(w00/w12e-merge/gate-change-decision.txt, 2edacc8f78a35287) which already approved removal "if coverage credits the line". The
+authoritative final gates at 8676d8757 (w12e-fix-final/patch-c1377122b.log, 2026-10-01 05:45Z) say: "attestation src/factory/task-stops.ts:336
+is no longer needed: coverage now credits the line (or records no uncovered hit for it) — remove the entry". The red is that line; the
+green is the patch gate passing without the entry over the same lcov set.
+Conditions: (1) the file becomes [] (no other change); (2) attestation-check.py --allow-removal passes at the merge trial; (3) the patch
+gates (origin/main and c1377122b) over the authoritative lcov show no attestation line and no uncovered change for task-stops.ts;
+(4) no other gate-integrity finding on the base leg; the main leg stays the 8-line expected set. GATE_CHANGE_APPROVED is set only in
+merge-commit-gates' approved base run, never in a commit, hook, test or hold environment.
