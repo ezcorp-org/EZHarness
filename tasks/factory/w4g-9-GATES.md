@@ -10,3 +10,4 @@ chain. The HIGH advisories at this base (brace-expansion, devalue, fast-uri at t
 | Package (lockfile) | Red (`bun audit` before) | Green (`bun audit` after, lockfile diff) | Commit |
 | --- | --- | --- | --- |
 | hono (root) | `logs/root-hono-before.log`: 4.13.0, four moderate (<4.13.5 three, <4.13.7 one) | `logs/root-hono-after.log` names no hono; 4.13.0 to 4.13.12; `root-hono-lockfile-diff.txt`: one line | this commit |
+| ip-address (root) | `logs/root-ip-address-before.log`: 10.4.0, four moderate (<=10.5.0) | `logs/root-ip-address-after.log` names no ip-address; 10.4.0 to 10.7.2; `root-ip-address-lockfile-diff.txt`: one line | this commit |
