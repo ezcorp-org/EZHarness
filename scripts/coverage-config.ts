@@ -111,6 +111,7 @@ export const SOURCE_GLOBS: readonly string[] = [
   "scripts/git-worktree-clean.ts",
   "scripts/check-factory-boundaries.ts",
   "scripts/check-factory-lanes.ts",
+  "scripts/build-workspace-packages.ts",
   "scripts/check-factory-runners.ts",
   "scripts/check-required-checks.ts",
   "scripts/check-schema-generate-drift.ts",

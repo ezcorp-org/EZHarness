@@ -93,12 +93,9 @@ RUN --mount=type=cache,target=/home/bun/.bun/install/cache,uid=1000,gid=1000,sha
 # Copy everything for initial setup (source is bind-mounted over this at runtime)
 COPY --chown=1000:1000 . .
 
-# The SDK build also builds its extension-contract project reference. Keep
-# standard import exports available to Vite on the first clean app start.
-RUN bun run --cwd packages/@ezcorp/sdk build --force \
- && bun run --cwd packages/@ezcorp/factory-sdk build --force \
- && bun run --cwd packages/@ezcorp/factory-transport build --force \
- && bun run --cwd packages/@ezcorp/harness-client build --force
+# Build every workspace package (scripts/build-workspace-packages.ts derives the
+# order) so the standard import exports exist for Vite on the first clean app start.
+RUN bun run build:packages
 
 # The root runtime identity is intentional for isolated-runner socket access;
 # rootless Podman maps that identity to the invoking host user. The trusted-local
