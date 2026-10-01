@@ -1875,8 +1875,8 @@ smokes under the lock, detached-job wake-ups) are not repeated.
   own branch, red first; the integrator never refreshes an attestation at a merge.
 - Prove before ruling on a refactor meant to please a measurement. A `.then` rewrite was ruled and then measured
   uncredited, and the ruling was withdrawn. Measure the candidate shape first, then rule on the measured one.
-- A gate-change decision file states its approved path on one machine-readable line, not in prose; two tools had to
-  normalise it.
+- A gate-change decision file states its approved path on one machine-readable line, not in prose; a validator's tool had
+  to normalise it.
 
 ### Latent reds and runtime upgrades
 
@@ -1895,8 +1895,9 @@ smokes under the lock, detached-job wake-ups) are not repeated.
   driver also prints the pin and any runtime flag in its own log (wave4f's driver did not, and its receipts had to
   cite the pin from the after-runner log and the pin helper's assertion).
 - Root-cause a flaky runtime defect by controlled configurations, not by rerunning to green. The request-queue stall
-  was settled by one harness run of 300 trials in four configurations and a 3000-trial confirmation of the
-  mitigation; the result named the defect (a response mix-up in Bun's Postgres client), its upstream fixes and the one
+  was settled by one deciding harness run in four configurations: the old pin deadlocked 13 of 13 trials within the
+  harness bound; the new pin 1 of 300; the new pin with pipelining off 0 of 3000; the upstream canary 0 of 300. The
+  result named the defect (a response mix-up in Bun's Postgres client), its upstream fixes and the one
   mitigation that works.
 - A mitigation for a runtime defect is a fail-closed startup guard, not a setting someone remembers. The guard refuses
   to start on the affected versions unless the flag was in the start environment (/proc/self/environ), every client

@@ -5334,7 +5334,7 @@ both processes a log line that names it. Two causes remain outside this package:
 - [x] Merge of integ/w00 ad22592da (7a499e4e1) with all 89 withheld suites green.
 - [x] Merge of integ/w00 e0e2a23c9 (9c11cea96, committed by the user) with all 14 withheld suites green.
 - [x] task-stops.ts attestation re-proved at the merge (3fd496578, line 336).
-- [x] The authoritative two-stage head run (P1, P5, P2 with the post-R8 expectation) at the final head. validator-6's hold at `069cb8c2b`: P1 5/5 x4, P5 4/4 x4, P2 9/9 x4; carried to `edc8a93d7` under the carry-over ruling.
+- [x] The authoritative two-stage head run (P1, P5, P2 with the post-R8 expectation) at the final head. w16-2's authoritative run at `069cb8c2b` (P1 5/5 x4, P5 4/4 x4, P2 9/9 x4), receipts verified by validator-6; carried to `edc8a93d7` under the carry-over ruling.
 - [x] Coverage gates at the final head. At the merge commit `381449a85` (`docs/validation/factory/wave4/w02d-merge.json`).
 - [x] Landed: merge `381449a85` (wp/w02d-gpu-lease `edc8a93d7`), receipts `0c66519a0`; validator-6 REJECT at `069cb8c2b`, then ACCEPT at `edc8a93d7`. Owner after W16: w16-2.
 - [ ] Follow-up (W02d R6, owner W02d, not this wave): a 30 s GPU lease against a queue wait that can exceed it (P2 measured 45 s) ends in the named failure `lease_revoked`; a queued attempt should re-admit at claim instead.
