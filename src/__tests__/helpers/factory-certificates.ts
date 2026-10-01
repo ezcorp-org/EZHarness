@@ -35,16 +35,20 @@ export async function certificates(directories: string[], clientSubject = "tenan
   ];
   if (options.untrustedClients) {
     leaves.push(
-      ["expired", clientSubject, clientAuth, ["-not_before", "20200101000000Z", "-not_after", "20200102000000Z"]],
-      ["not-yet-valid", clientSubject, clientAuth, ["-not_before", "20990101000000Z", "-not_after", "20990102000000Z"]],
+      ["expired", clientSubject, clientAuth, ["-startdate", "20200101000000Z", "-enddate", "20200102000000Z"]],
+      ["not-yet-valid", clientSubject, clientAuth, ["-startdate", "20990101000000Z", "-enddate", "20990102000000Z"]],
       ["server-auth-only", clientSubject, "extendedKeyUsage=serverAuth", ["-days", "1"]],
     );
     await command(["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", join(root, "self-signed.key"), "-out", join(root, "self-signed.pem"), "-days", "1", "-subj", `/CN=${clientSubject}`, "-addext", clientAuth]);
   }
+  // `openssl ca` takes -days and -startdate/-enddate on every OpenSSL from 1.1.1 on. `x509 -req` takes explicit dates
+  // only from 3.4 (-not_before/-not_after); Ubuntu 24.04 ships 3.0, which refuses them (W4G-7).
+  await Bun.write(join(root, "index.txt"), "");
+  await Bun.write(join(root, "ca.cnf"), `[ca]\ndefault_ca = leaves\n[leaves]\ndatabase = ${join(root, "index.txt")}\nnew_certs_dir = ${root}\nrand_serial = yes\ndefault_md = sha256\nunique_subject = no\npolicy = subject\n[subject]\ncommonName = supplied\n`);
   for (const [name, subject, extension, validity] of leaves) {
     await command(["req", "-newkey", "rsa:2048", "-nodes", "-keyout", join(root, `${name}.key`), "-out", join(root, `${name}.csr`), "-subj", `/CN=${subject}`]);
     await Bun.write(join(root, `${name}.ext`), extension);
-    await command(["x509", "-req", "-in", join(root, `${name}.csr`), "-CA", join(root, "ca.pem"), "-CAkey", join(root, "ca.key"), "-CAcreateserial", "-out", join(root, `${name}.pem`), ...validity, "-extfile", join(root, `${name}.ext`)]);
+    await command(["ca", "-batch", "-notext", "-config", join(root, "ca.cnf"), "-in", join(root, `${name}.csr`), "-cert", join(root, "ca.pem"), "-keyfile", join(root, "ca.key"), "-out", join(root, `${name}.pem`), ...validity, "-extfile", join(root, `${name}.ext`)]);
   }
   const get = (name: string) => readFile(join(root, name), "utf8");
   const pair = async (name: string) => ({ cert: await get(`${name}.pem`), key: await get(`${name}.key`) });
