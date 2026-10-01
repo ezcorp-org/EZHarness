@@ -1798,3 +1798,16 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 - Rule: a teammate's ruling never grants a permission the tool system refuses. Report the denial, freeze the staged
   tree, prepare the exact command and message file, and let the user run it; verify tree, parents, identity and
   message after.
+- Stop a process you started by its PID (`$!`, and `pkill -P <pid>` for its children), never by `pgrep -f`/`pkill -f`
+  on a command-line pattern: the pattern also matches the shell that runs the command, so it can stop the wrong
+  process and miss the server (w12e-2, 2026-09-28; no other process was touched).
+- `git add -A -- . ':!dir'` exits 1 when a pathspec matches an ignored directory, even though it staged the files, so
+  a `&&` chain after it never runs. Use `git add -A` without a pathspec, then `git add -f` for tracked files under an
+  ignored directory, and check the staged list before committing (w12e-2, 2026-09-28: commit 2 waited three hours).
+- A detached job's end does not wake the agent that queued it. Wait for a heavy job in the foreground (a polling loop
+  with a bounded timeout) or check it on every turn, and report its end yourself; three W12e jobs ended unreported for
+  hours (w12e-2, 2026-09-30).
+- Count a result from its own structured field, never by grepping a word the log also prints in source lines: a
+  "stall=" count that matched "stall" in the test's printed code turned three decode failures into "stalls" (w12e-2).
+- A probe that must import repository modules runs from outside the worktree with absolute imports; a copy placed in
+  the tree dirties it for every locked job reading it, and a hung probe leaves it there (w12e-2).

@@ -4,8 +4,10 @@ import { drizzle } from "drizzle-orm/bun-sql";
 import { migrate } from "../../../src/db/migrate";
 import * as schema from "../../../src/db/schema";
 import { __test } from "../../../src/db/connection";
+import { assertBunSqlPipeliningOff } from "../../../src/db/bun-sql-pipelining";
 
 export async function setupFactoryPostgres() {
+  assertBunSqlPipeliningOff(); // W12e: an unflagged process on an affected Bun fails here by name instead of flaking.
   const url = process.env.FACTORY_TEST_POSTGRES_URL;
   if (!url) throw new Error("FACTORY_TEST_POSTGRES_URL is required for real PostgreSQL conformance.");
   const admin = new SQL(url, { max: 1 });

@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { isIP } from "node:net";
 import { request as httpsRequest, type RequestOptions } from "node:https";
 import type { IncomingHttpHeaders } from "node:http";
 
@@ -60,7 +61,7 @@ function requireSuccess(response: GatewayResponse): GatewayResponse {
 function createTransport(
   endpoint: URL,
   credentials: { ca: Buffer; certificate: Buffer; privateKey: Buffer; token: string },
-  serverName: string,
+  serverName: string | undefined,
   timeoutMs: number,
 ): GatewayTransport {
   return {
@@ -75,7 +76,7 @@ function createTransport(
           cert: credentials.certificate,
           key: credentials.privateKey,
           rejectUnauthorized: true,
-          servername: serverName,
+          ...(serverName === undefined ? {} : { servername: serverName }),
           ...(signal ? { signal } : {}),
           headers: {
             accept: "application/json",
@@ -149,6 +150,20 @@ async function loadCredentials(paths: GatewayTlsSecretPaths): Promise<{ ca: Buff
   return { ca, certificate, privateKey, token };
 }
 
+/**
+ * The TLS server name to send: the configured name, else the endpoint host. An IP literal is never sent (RFC 6066;
+ * Bun 1.4 and Node refuse it with ERR_INVALID_ARG_VALUE): for the endpoint's own IP, node:https then verifies the
+ * certificate against that IP, the identity the name stood for. An IP name that differs from the endpoint host would
+ * verify a different identity, so it fails by name.
+ */
+function tlsServerName(endpoint: URL, configured: string | undefined): string | undefined {
+  const host = endpoint.hostname.replace(/^\[(.*)\]$/, "$1");
+  const name = configured ?? host;
+  if (isIP(name) === 0) return name;
+  if (name !== host) throw new Error(`factory_transport_server_name_ip_mismatch: server name ${name} is an IP address that is not the endpoint host ${host}`);
+  return undefined;
+}
+
 /** Shared private HTTPS client. It reloads every credential before each request. */
 export async function createGatewayTransport(options: GatewayTransportOptions): Promise<GatewayTransport> {
   const snapshot = Object.freeze({ ...options, tls: Object.freeze({ ...options.tls }) });
@@ -156,6 +171,7 @@ export async function createGatewayTransport(options: GatewayTransportOptions): 
   if (endpoint.protocol !== "https:" || endpoint.username || endpoint.password || endpoint.pathname !== "/" || endpoint.search || endpoint.hash) throw new Error("factory gateway requires a plain private HTTPS origin");
   const timeoutMs = snapshot.requestTimeoutMs ?? 30_000;
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 300_000) throw new Error("factory gateway timeout is invalid");
+  const serverName = tlsServerName(endpoint, snapshot.serverName);
   await loadCredentials(snapshot.tls);
   return Object.freeze({
     async request(method, path, body, responseLimit = DEFAULT_PRIVATE_HTTP_LIMIT, signal): Promise<GatewayResponse> {
@@ -167,7 +183,7 @@ export async function createGatewayTransport(options: GatewayTransportOptions): 
       const requestBody = body === undefined ? undefined : encoded(body, responseLimit);
       signal?.throwIfAborted();
       const credentials = await loadCredentials(snapshot.tls);
-      const transport = createTransport(endpoint, credentials, snapshot.serverName ?? endpoint.hostname, timeoutMs);
+      const transport = createTransport(endpoint, credentials, serverName, timeoutMs);
       return requireSuccess(await transport.request(method, path, requestBody, responseLimit, signal));
     },
   } satisfies GatewayTransport);

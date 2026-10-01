@@ -1,7 +1,7 @@
 import { createHash, createSign, randomBytes } from "node:crypto";
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
-import { SQL } from "bun";
+import { openBunSql } from "../src/db/bun-sql-pipelining.ts";
 import { LocalFactoryProvisioner } from "../src/factory/provisioning/local.ts";
 
 const authDir = process.env.EZCORP_FACTORY_TEMPORAL_AUTH_DIR;
@@ -29,7 +29,7 @@ let controlPassword;
 try { controlPassword = (await readFile(passwordPath, "utf8")).trim(); } catch { controlPassword = randomBytes(32).toString("base64url"); await writeFile(passwordPath, `${controlPassword}\n`, { mode: 0o600 }); }
 const controlDatabase = "factory_control_local";
 const controlRole = "factory_control_local_role";
-const admin = new SQL(productAdminUrl, { max: 1 });
+const admin = openBunSql(productAdminUrl, { max: 1 });
 const role = (await admin`SELECT 1 FROM pg_roles WHERE rolname = ${controlRole}`)[0];
 if (!role) await admin.unsafe(`CREATE ROLE "${controlRole}" LOGIN PASSWORD '${controlPassword}'`);
 const database = (await admin`SELECT 1 FROM pg_database WHERE datname = ${controlDatabase}`)[0];
@@ -71,16 +71,16 @@ first.push(await provisioner.provision(request("tenant-10")));
 const replay = [];
 for (const tenantId of tenants) replay.push(await provisioner.provision({ tenantId, hostname: `${tenantId}.factory.local`, administratorEmail: `${tenantId}@example.test` }));
 if (first.some((installation, index) => installation.installationId !== replay[index].installationId)) throw new Error("Provisioning replay changed an installation identity.");
-const control = new SQL(controlUrl.toString(), { max: 1 });
+const control = openBunSql(controlUrl.toString(), { max: 1 });
 const rows = await control`SELECT tenant_id, product_database, product_role, temporal_namespace, state, secret_bundle_path FROM factory_installations ORDER BY tenant_id`;
 if (rows.length !== 10 || rows.some(row => row.state !== "ready")) throw new Error("Control plane did not record ten ready installations.");
 for (const [index, row] of rows.entries()) {
   const manifest = JSON.parse(await readFile(join(row.secret_bundle_path, "installation.json"), "utf8"));
   const credentials = JSON.parse(await readFile(manifest.product.credentialsPath, "utf8"));
   const tenantUrl = new URL(productAdminUrl); tenantUrl.pathname = `/${row.product_database}`; tenantUrl.username = row.product_role; tenantUrl.password = credentials.password;
-  const tenantDatabase = new SQL(tenantUrl.toString(), { max: 1 }); await tenantDatabase`SELECT current_database()`; await tenantDatabase.unsafe("CREATE TABLE IF NOT EXISTS factory_provisioning_proof (id integer PRIMARY KEY)"); await tenantDatabase`INSERT INTO factory_provisioning_proof(id) VALUES (1) ON CONFLICT DO NOTHING`; await tenantDatabase.close();
+  const tenantDatabase = openBunSql(tenantUrl.toString(), { max: 1 }); await tenantDatabase`SELECT current_database()`; await tenantDatabase.unsafe("CREATE TABLE IF NOT EXISTS factory_provisioning_proof (id integer PRIMARY KEY)"); await tenantDatabase`INSERT INTO factory_provisioning_proof(id) VALUES (1) ON CONFLICT DO NOTHING`; await tenantDatabase.close();
   const foreignUrl = new URL(tenantUrl); foreignUrl.pathname = `/${rows[(index + 1) % rows.length].product_database}`;
-  const foreignDatabase = new SQL(foreignUrl.toString(), { max: 1 }); try { await foreignDatabase`SELECT 1`; throw new Error("Tenant database isolation failed."); } catch (error) { if ((error).message === "Tenant database isolation failed.") throw error; } finally { await foreignDatabase.close(); }
+  const foreignDatabase = openBunSql(foreignUrl.toString(), { max: 1 }); try { await foreignDatabase`SELECT 1`; throw new Error("Tenant database isolation failed."); } catch (error) { if ((error).message === "Tenant database isolation failed.") throw error; } finally { await foreignDatabase.close(); }
   const tenantTemporal = await connection(row.tenant_id, [`admin:${row.temporal_namespace}`]); await tenantTemporal.workflowService.describeNamespace({ namespace: row.temporal_namespace }); await tenantTemporal.close();
 }
 await control.close(); await provisioner.close();

@@ -26,7 +26,7 @@
  * another fleet holds (`FactoryStorageClaims`).
  */
 import { createHash, randomBytes } from "node:crypto";
-import { SQL } from "bun";
+import { openBunSql } from "../../db/bun-sql-pipelining";
 import { readFile } from "node:fs/promises";
 import { HeadObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import type { FactoryInstallationContext, FactoryProvisioningDriver, FactoryStepResources } from "./installation";
@@ -294,7 +294,7 @@ export interface FactoryStorageClaimTransaction {
 }
 
 const CLAIM_MARKER = /^factory-store-claim:[a-z][a-z0-9-]{0,30}[a-z0-9]:tenant-\d{2}$/;
-const connectClaims = (url: string): FactoryStorageClaimClient => new SQL(url, { max: 1 }) as unknown as FactoryStorageClaimClient;
+const connectClaims = (url: string): FactoryStorageClaimClient => openBunSql(url, { max: 1 }) as unknown as FactoryStorageClaimClient;
 
 /**
  * The claim registry on the database cluster: one NOLOGIN role per

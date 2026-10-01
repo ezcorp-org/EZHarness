@@ -16,14 +16,15 @@
 #
 # Every base image is pinned by digest. `docs/factory-deployment.md` names the
 # lock, and `scripts/check-factory-deployment-locks.ts` (run in CI) refuses an image without one.
-ARG BUN_IMAGE=docker.io/oven/bun:1.3.14@sha256:50317d83cd5a5ae1d8b35b3379c69f57ce1a0dbf4def91f0965653d767851834
-ARG BUN_RUNTIME_IMAGE=docker.io/oven/bun:1.3.14-slim@sha256:621f249399228db47cf34611ee662585e77e015250ed29d5d0932b2d3282f0b0
+ARG BUN_IMAGE=docker.io/oven/bun:1.4.2@sha256:296a79bbc988bb0a91ef11099af70a78a8cba98b73fd53f7b2a7715b7c86ced2
+ARG BUN_RUNTIME_IMAGE=docker.io/oven/bun:1.4.2-slim@sha256:debbe76858f2e398d2937c1eceeb82c571ac1fcd78aadf00e9634578ac2b5ef7
 ARG NODE_IMAGE=docker.io/library/node:24.14.1-bookworm-slim@sha256:e484ae3f1e3c378021c967fd42254f343c302a9263e412280eac32bf5bca7008
 
 FROM ${NODE_IMAGE} AS node
 
 FROM ${BUN_IMAGE} AS builder
-ENV BUN_RUNTIME_TRANSPILER_CACHE_PATH=0
+# Bun 1.4.0-1.4.2: Postgres auto-pipelining off at process start (src/db/bun-sql-pipelining.ts refuses Bun.SQL otherwise).
+ENV BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING=1
 WORKDIR /app
 COPY . .
 # Lifecycle scripts stay off: the root postinstall also installs git hooks,
@@ -47,7 +48,9 @@ RUN chmod -R a+rX,go-w /app
 
 FROM ${BUN_RUNTIME_IMAGE}
 ARG REVISION=unknown
+# Bun 1.4.0-1.4.2: Postgres auto-pipelining off at process start (src/db/bun-sql-pipelining.ts refuses Bun.SQL otherwise).
 ENV BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 \
+    BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING=1 \
     NODE_ENV=production \
     EZCORP_IMAGE_SHA=${REVISION}
 LABEL org.opencontainers.image.title="ezcorp-factory" \

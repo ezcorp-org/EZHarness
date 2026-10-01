@@ -36,9 +36,14 @@ test("a real Node client receives exact immutable bytes and the Bun handler rece
 });
 
 describe("only a client certificate the listener's authority issued, and that is still valid, reaches the handler (W01k)", () => {
-  // Bun.listen does not enforce rejectUnauthorized: it completes the handshake
-  // and reports each failure below only as authorizationError. The listener's
-  // handshake callback is the check.
+  // Bun 1.4 enforces rejectUnauthorized in Bun.listen: a client certificate the
+  // listener's authority did not issue, or that is not valid now, fails the
+  // handshake, and the connection closes with zero bytes before any request is
+  // read. (Bun 1.3.14 completed the handshake and reported the failure only as
+  // authorizationError, so the product answered 401 {"error":"unauthorized"}
+  // itself.) The listener's handshake callback still takes a peer identity only
+  // from a verified certificate, as defence in depth. The trusted case below
+  // proves acceptance; each untrusted case proves refusal at the handshake.
   let trusted: Certificates;
   let outsider: Certificates;
   let server: { url: string; stop(): void };
@@ -62,7 +67,6 @@ describe("only a client certificate the listener's authority issued, and that is
     expect(peers).toEqual(["tenant-a"]);
   });
 
-  const refused = { status: "HTTP/1.1 401 Unauthorized", body: '{"error":"unauthorized"}' };
   for (const [label, pick] of [
     ["from an unrelated authority (unable to verify the first certificate)", () => ({ cert: outsider.clientCert, key: outsider.clientKey })],
     ["expired (certificate has expired)", () => trusted.untrusted!.expired],
@@ -70,10 +74,11 @@ describe("only a client certificate the listener's authority issued, and that is
     ["for serverAuth only (unsupported certificate purpose)", () => trusted.untrusted!.serverAuthOnly],
     ["self-signed (self signed certificate)", () => trusted.untrusted!.selfSigned],
   ] as const) {
-    test(`a client certificate ${label} is refused 401 before any handler`, async () => {
+    test(`a client certificate ${label} is refused in the handshake before any handler`, async () => {
       peers.length = 0;
       const { cert, key } = pick();
-      expect(answer(await as(cert, key))).toEqual(refused);
+      // Zero bytes back and the connection closed: no 401, no response line, nothing read.
+      expect(await as(cert, key)).toBe("");
       expect(peers).toEqual([]);
     });
   }
@@ -146,11 +151,26 @@ test("handler failures and invalid responses stay bounded and do not disclose in
   } finally { server.stop(); }
 });
 
+/**
+ * A raw TLS exchange that reports how the peer closed: "end" (an orderly close) or "reset" (ECONNRESET). Bun 1.4's
+ * terminate() sends a bare reset without close_notify (oven-sh/bun#39632), and its TLS client reports a peer reset
+ * as ECONNRESET (#39600); 1.3.14 surfaced both as an orderly end. Any other error, or no close within 5 s, rejects.
+ */
+function rawTlsClose(url: string, chunks: string[]): Promise<{ bytes: string; closed: "end" | "reset" }> {
+  return rawTls(url, certs, chunks).then(
+    (bytes) => ({ bytes, closed: "end" as const }),
+    (error: NodeJS.ErrnoException) => { if (error?.code === "ECONNRESET") return { bytes: "", closed: "reset" as const }; throw error; },
+  );
+}
+
 test("an extra request during accepted work closes the connection before any response", async () => {
   let calls = 0;
   const server = startFactoryPrivateHttps({ tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca }, async handle() { calls += 1; await Bun.sleep(50); return { status: 200, body: Buffer.from("sensitive result") }; } });
   try {
-    expect(await rawTls(server.url, certs, ["GET / HTTP/1.1\r\n\r\n", "GET /again HTTP/1.1\r\n\r\n"])).toBe("");
+    // The property is the close, not its mechanism: zero bytes, closed within 5 s, whether by end or by reset.
+    const outcome = await rawTlsClose(server.url, ["GET / HTTP/1.1\r\n\r\n", "GET /again HTTP/1.1\r\n\r\n"]);
+    expect(outcome.bytes).toBe("");
+    expect(["end", "reset"]).toContain(outcome.closed);
     await Bun.sleep(75);
     expect(calls).toBe(1);
   } finally { server.stop(); }
@@ -183,6 +203,7 @@ test("the exact envelope ceiling opens a port and a large body arrives whole", a
   } finally { server.stop(); }
 }, 30_000);
 
+// Bound: requestTimeoutMs, 100 ms here. On Bun 1.4 end() only half-closes TLS, so the listener's timer cuts the peer.
 test("a peer that keeps its write side open cannot retain a completed server connection", async () => {
   const server = startFactoryPrivateHttps({ tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca }, requestTimeoutMs: 100, async handle() { return { status: 200, body: Buffer.from("complete") }; } });
   try {

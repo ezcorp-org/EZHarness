@@ -18,7 +18,8 @@
  * provisioner started. A same-named resource with any other provenance is
  * refused, never adopted, and never dropped.
  */
-import { SQL } from "bun";
+import type { SQL } from "bun";
+import { openBunSql } from "../../db/bun-sql-pipelining";
 import type { FactoryInstallationContext, FactoryProvisioningDriver, FactoryStepResources } from "./installation";
 import { factoryFleetResourceName } from "./installation";
 import { factoryScramVerifier } from "./scram";
@@ -104,7 +105,7 @@ interface DatabaseRow { oid: string; owner: string; marker: string | null }
 export class FactoryDatabaseStep implements FactoryProvisioningDriver {
   readonly step = "database" as const;
   private readonly admin: SQL;
-  constructor(private readonly options: FactoryDatabaseStepOptions) { this.admin = new SQL(options.adminUrl, { max: 2 }); }
+  constructor(private readonly options: FactoryDatabaseStepOptions) { this.admin = openBunSql(options.adminUrl, { max: 2 }); }
   async close(): Promise<void> { await this.admin.close(); }
 
   private pairs(installation: FactoryInstallationContext): readonly FactoryDatabasePair[] {
@@ -115,7 +116,7 @@ export class FactoryDatabaseStep implements FactoryProvisioningDriver {
   /** Run `work` as the administrator inside one database of the cluster. */
   private async inDatabase<Result>(database: string, work: (client: SQL) => Promise<Result>): Promise<Result> {
     const url = new URL(this.options.adminUrl); url.pathname = `/${database}`;
-    const client = new SQL(url.toString(), { max: 1 });
+    const client = openBunSql(url.toString(), { max: 1 });
     try { return await work(client); } finally { await client.close(); }
   }
 
@@ -235,7 +236,7 @@ export class FactoryDatabaseStep implements FactoryProvisioningDriver {
   /** Whether a credential logs in. Used as a positive check and, after teardown, a negative one. */
   async canLogin(role: string, password: string, database: string): Promise<boolean> {
     const url = new URL(this.options.adminUrl); url.pathname = `/${database}`; url.username = role; url.password = password;
-    const client = new SQL(url.toString(), { max: 1, connectionTimeout: 5 });
+    const client = openBunSql(url.toString(), { max: 1, connectionTimeout: 5 });
     try { await client`SELECT 1`; return true; }
     catch (error) {
       if (LOGIN_REFUSED.has(String((error as { errno?: unknown }).errno))) return false;
@@ -312,7 +313,7 @@ export class FactoryDatabaseStep implements FactoryProvisioningDriver {
 
   private async login(pair: FactoryDatabasePair, password: string): Promise<void> {
     const url = new URL(this.options.adminUrl); url.pathname = `/${pair.database}`; url.username = pair.role; url.password = password;
-    const client = new SQL(url.toString(), { max: 1 });
+    const client = openBunSql(url.toString(), { max: 1 });
     try {
       const row = (await client`SELECT current_database() AS name, current_user AS role`)[0] as { name: string; role: string } | undefined;
       if (row?.name !== pair.database || row.role !== pair.role) throw new FactoryProvisioningError("database_login_wrong", `The ${pair.kind} credential connected to the wrong database.`);

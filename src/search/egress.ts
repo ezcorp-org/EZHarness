@@ -459,7 +459,10 @@ function isReplayableBody(body: RequestInit["body"]): boolean {
 
 /**
  * Connect to the first candidate address that accepts the connection,
- * preserving the Host header so TLS SNI + virtual hosting still work.
+ * preserving the Host header for virtual hosting and naming the original
+ * hostname as the TLS server name, so the certificate is verified against the
+ * hostname and never against the pinned IP. (Bun 1.3.14 took the server name
+ * from the Host header; Bun 1.4 takes it from the URL, which is the IP here.)
  *
  * Why failover instead of pinning `ips[0]` only: `dnsLookup(…, {all:true})`
  * on a dual-stack host returns `::1` before `127.0.0.1` for `localhost`,
@@ -489,6 +492,9 @@ async function connectPinned(args: {
   retryConnectionFailures?: boolean;
 }): Promise<Response> {
   const { parsed, pinnedIps, init, headers, fetchImpl, deadline } = args;
+  // Merged into any TLS options the caller set (a private CA, for instance); the hostname always wins.
+  const callerTls = (init as RequestInit & { tls?: Record<string, unknown> }).tls;
+  const tls = parsed.protocol === "https:" ? { tls: { ...callerTls, serverName: parsed.hostname } } : {};
   const candidates = args.retryConnectionFailures !== false && isReplayableBody(init.body)
     ? pinnedIps
     : pinnedIps.slice(0, 1);
@@ -507,6 +513,7 @@ async function connectPinned(args: {
     try {
       return await fetchImpl(pinnedUrl.toString(), {
         ...init,
+        ...tls,
         headers,
         redirect: "manual",
         signal: init.signal ? AbortSignal.any([controller.signal, init.signal]) : controller.signal,

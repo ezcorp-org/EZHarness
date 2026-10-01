@@ -334,14 +334,17 @@ describe("e2e lane manifest", () => {
     expect(stack).toContain("if (Bun.version !== PINNED_BUN) throw new Error(`lane Bun mismatch");
     expect(stack).not.toMatch(/Bun\.spawn\(\["bun"/);
 
-    // Behaviour, with a Bun 1.4.2 stand-in first on PATH.
+    // Behaviour, with a stand-in for another Bun first on PATH. Its version is derived to differ from the pin: the
+    // stand-in used to report the system Bun's 1.4.2, which stopped being "another Bun" when W12e pinned 1.4.2.
+    const other = pinned === "0.0.1" ? "0.0.2" : "0.0.1";
+    expect(other).not.toBe(pinned);
     const fake = mkdtempSync(join(tmpdir(), "lane-bun-"));
     try {
-      writeFileSync(join(fake, "bun"), "#!/bin/sh\necho 1.4.2\n", { mode: 0o755 });
+      writeFileSync(join(fake, "bun"), `#!/bin/sh\necho ${other}\n`, { mode: 0o755 });
       const { pinnedWebServer } = await import("../../web/playwright-lane-bun.ts");
       const server = { command: "bun e2e/factory-services/stack.ts" };
       expect(() => pinnedWebServer(server, { ...process.env, PATH: `${fake}:${process.env.PATH}` })).toThrow(
-        `lane Bun mismatch: PATH resolves bun 1.4.2, .bun-version pins ${pinned}`,
+        `lane Bun mismatch: PATH resolves bun ${other}, .bun-version pins ${pinned}`,
       );
       expect(pinnedWebServer(server, { ...process.env, PATH: `${dirname(process.execPath)}:${process.env.PATH}` })).toBe(server);
       const bash = Bun.which("bash")!;
@@ -352,7 +355,7 @@ describe("e2e lane manifest", () => {
         });
       const refused = run({});
       expect(refused.exitCode).toBe(1);
-      expect(refused.stderr.toString()).toContain(`lane Bun mismatch: PATH resolves bun 1.4.2 (${fake}/bun), .bun-version pins ${pinned}`);
+      expect(refused.stderr.toString()).toContain(`lane Bun mismatch: PATH resolves bun ${other} (${fake}/bun), .bun-version pins ${pinned}`);
       const pinnedRun = run({ EZCORP_PINNED_BUN_DIR: dirname(process.execPath) });
       expect(pinnedRun.exitCode).toBe(0);
       expect(pinnedRun.stdout.toString().trim()).toBe(pinned);
@@ -362,15 +365,15 @@ describe("e2e lane manifest", () => {
       const bunOnly = mkdtempSync(join(tmpdir(), "lane-bun-only-"));
       try {
         symlinkSync(process.execPath, join(bunOnly, "bun"));
-        writeFileSync(join(fake, "bunx"), "#!/bin/sh\necho 1.4.2\n", { mode: 0o755 });
+        writeFileSync(join(fake, "bunx"), `#!/bin/sh\necho ${other}\n`, { mode: 0o755 });
         const splitPath = `${bunOnly}:${fake}:${process.env.PATH}`;
         expect(() => pinnedWebServer(server, { ...process.env, PATH: splitPath })).toThrow(
-          `lane Bun mismatch: PATH resolves bunx 1.4.2, .bun-version pins ${pinned}`,
+          `lane Bun mismatch: PATH resolves bunx ${other}, .bun-version pins ${pinned}`,
         );
         const split = run({ PATH: `${bunOnly}:${fake}:${dirname(bash)}:/usr/bin:/bin` });
         expect(split.exitCode).toBe(1);
-        expect(split.stderr.toString()).toContain(`lane Bun mismatch: PATH resolves bunx 1.4.2 (${fake}/bunx), .bun-version pins ${pinned}`);
-        expect(split.stderr.toString()).not.toContain("resolves bun 1.4.2");
+        expect(split.stderr.toString()).toContain(`lane Bun mismatch: PATH resolves bunx ${other} (${fake}/bunx), .bun-version pins ${pinned}`);
+        expect(split.stderr.toString()).not.toContain(`resolves bun ${other}`);
         // A directory holding only a pinned `bun` is not a pinned directory.
         expect(run({ PATH: `${fake}:${dirname(bash)}:/usr/bin:/bin`, EZCORP_PINNED_BUN_DIR: bunOnly }).exitCode).toBe(1);
       } finally {

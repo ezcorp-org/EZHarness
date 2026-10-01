@@ -42,6 +42,10 @@
 
 name: db-postgres
 
+env:
+  # Bun 1.4.0-1.4.2: Postgres auto-pipelining off at process start (src/db/bun-sql-pipelining.ts refuses Bun.SQL otherwise).
+  BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: "1"
+
 on:
   workflow_call:
 
@@ -115,6 +119,10 @@ jobs:
       # after a driver statement desync (src/db/swappable-bun-sql.ts).
       - name: Run Bun.sql pool replacement on real PostgreSQL
         run: FACTORY_TEST_POSTGRES_URL="$DATABASE_URL" bun test --timeout 60000 ./tests/postgres/bun-sql-pool-replacement.test.ts
+      # W12e acceptance: Bun.sql's request queue under the product's queries.
+      # Red on Bun 1.3.14 (W09f), green on the pinned 1.4.2.
+      - name: Run Bun.sql request-queue regression
+        run: FACTORY_TEST_POSTGRES_URL="$DATABASE_URL" bun test --timeout 300000 ./tests/postgres/bun-sql-request-queue.test.ts
 
       - name: Run pool service PostgreSQL and Node mTLS coverage producer
         env:

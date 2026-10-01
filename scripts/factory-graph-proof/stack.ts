@@ -31,7 +31,8 @@ import { chmod, copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:f
 import { join } from "node:path";
 import { connect as netConnect } from "node:net";
 import { setTimeout as sleep } from "node:timers/promises";
-import { SQL } from "bun";
+import type { SQL } from "bun";
+import { openBunSql } from "../../src/db/bun-sql-pipelining";
 import type { JsonValue } from "@ezcorp/factory-sdk";
 import { collectSecretValues, openProcessLog, preserveStackDiagnostics, redactStreamedLogs, type PassDiagnostics, type ProcessLog } from "./diagnostics";
 import { GUEST_BROKER_ISSUER, INSTALLATION, distinctPortPicker, MASTER_KEY_ID, NAMESPACE, SUPERVISOR_SUBJECT, TENANT, orchestratorDocument, poolDatabaseDocument, poolDocument, startupDocument, supervisorDocument, wrapsDocument, type StackLayout } from "./stack-documents";
@@ -274,7 +275,7 @@ export async function startStack(options: StackOptions): Promise<Stack> {
   }
 
   // ── Fresh pool and product databases on the shared PostgreSQL ──
-  admin = new SQL(process.env.FACTORY_TEST_POSTGRES_URL!, { max: 1 });
+  admin = openBunSql(process.env.FACTORY_TEST_POSTGRES_URL!, { max: 1 });
   const stamp = `${Date.now()}_${randomBytes(3).toString("hex")}`;
   const poolDatabase = `w19a_pool_${stamp}`;
   productDatabase = `w19a_product_${stamp}`;

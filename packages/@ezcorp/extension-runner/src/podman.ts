@@ -15,10 +15,15 @@ const EXIT_SETTLE_POLLS = 10;
 const EXIT_SETTLE_INTERVAL_MS = 200;
 
 /**
- * The runner image, pinned to the OCI **index** of `oven/bun:1.3.14` rather
- * than to one platform's manifest.
+ * The runner image, pinned to the OCI **index** of `oven/bun:1.4.2` rather
+ * than to one platform's manifest. Its children are linux/amd64
+ * `sha256:296a79bbc988bb0a91ef11099af70a78a8cba98b73fd53f7b2a7715b7c86ced2` and linux/arm64
+ * `sha256:3121e24dc54514f0e37bcc996a9e6df64519b4caff03a33bbb9993baca7c403b`. W12e moved the pin from the
+ * 1.3.14 index (`sha256:e10577f0db68676a7024391c6e5cb4b879ebd17188ab750cf10024a6d700e5c4`),
+ * whose Postgres request queue stalls and mixes requests under load (W09f).
  *
- * The previous pin, `sha256:50317d83cd5a5ae1d8b35b3379c69f57ce1a0dbf4def91f0965653d767851834`, was the index's linux/amd64 child on its own.
+ * The earlier 1.3.14 history: the pin before the index was
+ * `sha256:50317d83cd5a5ae1d8b35b3379c69f57ce1a0dbf4def91f0965653d767851834`, the index's linux/amd64 child on its own.
  * That is byte-identical to what an amd64 host resolves from this index —
  * nothing changes on CI or on Linux/amd64 — but on an arm64 host (every
  * Apple-silicon `podman machine`) a single-platform digest cannot be
@@ -26,7 +31,8 @@ const EXIT_SETTLE_INTERVAL_MS = 200;
  * platform-mismatch warning and ran every build and execution under
  * qemu-user emulation. The index has a native linux/arm64 child
  * (`sha256:d8a4c24744b290bf789d58966a6f2521fc4d8bec36ec02cead6c541147b7d550`); podman resolves it without a warning and `--pull=never` works
- * against the index reference (measured: `uname -m` → aarch64, bun 1.3.14).
+ * against the index reference (measured on 1.3.14: `uname -m` → aarch64;
+ * re-measure on the 1.4.2 index before the W12e rollout).
  *
  * Still an immutable digest, so the `image_unpinned` check below is satisfied
  * and reproducibility is unchanged: an index digest fixes both children.
@@ -36,7 +42,7 @@ const EXIT_SETTLE_INTERVAL_MS = 200;
  * means releases built before it must be rebuilt. See the PR that introduced
  * this pin for the migration note.
  */
-export const DEFAULT_IMAGE = "docker.io/oven/bun@sha256:e10577f0db68676a7024391c6e5cb4b879ebd17188ab750cf10024a6d700e5c4";
+export const DEFAULT_IMAGE = "docker.io/oven/bun@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895";
 const seccompDefault = new URL("../seccomp.json", import.meta.url).pathname;
 /**
  * The sandbox's init process. It holds the three control FIFOs open for the

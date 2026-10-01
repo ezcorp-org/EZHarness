@@ -14,7 +14,7 @@
  */
 import { resolve } from "node:path";
 import { parseFactoryStartupConfig, type FactoryStartupRunnerProfile } from "../startup-config";
-import { SQL } from "bun";
+import { openBunSql } from "../../db/bun-sql-pipelining";
 import { FactoryComposeHostTarget, FactoryComposeTarget, FactoryComposeUpgradeTarget, factorySpawnExecutor, type FactoryCommandExecutor, type FactoryComposeCommand } from "./compose-profile";
 import { FactoryFleetUpgrades, type FactoryBuild } from "./fleet-upgrade";
 import { FactoryDatabaseStep } from "./database";
@@ -191,7 +191,7 @@ export async function composeFactoryProvisioner(settings: FactoryFleetSettings, 
   });
   await temporal.load();
   const secrets = new FactorySecretsStep({ registry: { conflicts: (tenantId, digests) => provisioner!.ledger.digestConflicts(tenantId, digests) }, grantableRoots: () => ["/var/lib/ezcorp/projects"] });
-  const upgradeSql = new SQL(controlUrl, { max: 2 });
+  const upgradeSql = openBunSql(controlUrl, { max: 2 });
   let upgrades: FactoryFleetUpgrades | undefined;
   const hostTarget = runtime.hostTarget ?? new FactoryComposeHostTarget({
     compose: runtime.compose, templatePath: resolve(settings.release.directory, "deploy/factory/compose/host.yml"), execute,

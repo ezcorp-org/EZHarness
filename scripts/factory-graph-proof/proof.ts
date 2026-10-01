@@ -22,7 +22,7 @@
  */
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
-import { SQL } from "bun";
+import { openBunSql } from "../../src/db/bun-sql-pipelining";
 import type { FactoryModelPin } from "@ezcorp/factory-sdk";
 import { combineSummary, GRAPH_GUEST_OUTPUT } from "./guest/graph-guest";
 import { GRAPH_TOPIC, graphDefinition, graphModelPin, graphReferences, graphRunnerProfiles, modePin, OLLAMA_MISSING_MODEL, type GraphProofMode } from "./graph";
@@ -133,7 +133,7 @@ if (installationPin.provider === "ollama") {
 
 // ── Install the runner package: one package, three references ───────────
 {
-  const productSql = new SQL(stack.productUrl, { max: 2 });
+  const productSql = openBunSql(stack.productUrl, { max: 2 });
   try {
     const { drizzle } = await import(join(REPO, "node_modules/drizzle-orm/bun-sql/index.js"));
     const schema = await import(join(REPO, "src/db/schema.ts"));
@@ -216,7 +216,7 @@ type NodeName = (typeof NODES)[number];
 const nodeOf = (instance: string): NodeName | undefined => NODES.find((node) => instance === node || instance.startsWith(`${node}:`) || instance.startsWith(`${node}#`) || instance.endsWith(`/${node}`));
 const parsed = (value: unknown) => (typeof value === "string" ? JSON.parse(value) : value) as Record<string, unknown>;
 
-const probe = new SQL(stack.productUrl, { max: 2 });
+const probe = openBunSql(stack.productUrl, { max: 2 });
 const evidence: Record<string, unknown> = {};
 try {
   const executions = await probe.unsafe(`SELECT attempt_id, node_instance_id, candidate_generation, attempt_number, status, journal_cursor, request_json FROM factory_executions ORDER BY node_instance_id, attempt_id`) as Array<Record<string, unknown>>;

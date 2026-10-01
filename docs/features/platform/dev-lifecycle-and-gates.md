@@ -43,7 +43,7 @@ and still goes red, it just doesn't block the merge button. Verify with
 | **Web security coverage** | yes | `scripts/security-coverage.sh` — the security-suite lcov leg the `Per-file coverage gate` depends on; enforced by branch protection but historically absent from this table. |
 | **Factory schema and kernel** | NO | Builds the factory SDK, runs its focused schema/compiler/kernel/simulator/reference tests, and enforces the F07 deterministic-validator and F13 shared-lifecycle boundaries. |
 
-Bun is **pinned** to `1.3.14` in every job (an unannounced bun release can change install/test semantics).
+Bun is **pinned** to `.bun-version` (`1.4.2`) in every job (an unannounced bun release can change install/test semantics).
 
 ### What branch protection enforces
 

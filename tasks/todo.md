@@ -5363,3 +5363,20 @@ command, the task stop found no queued attempt and refused it stale. W09h settle
 transaction (no claim, no capacity), records the stop on the admission row, releases the unused hold at zero under a
 true basis, and refuses a late grant by name. The first R4 form charged compute at the reserved bound, a false basis
 for an attempt that never ran; it is corrected, not amended, so the reported SHAs stay valid.
+## W12e — Bun 1.4.2 upgrade (w12e-2, 2026-09-28)
+
+Gates: tasks/factory/w12e-GATES.md. Evidence: /tmp/factory-platform-evidence/w12e-2/.
+
+- [x] Re-apply 2aa24b5b3 on the current integ head; resolve the two config conflicts (workflow, moved compose file).
+- [x] Update every pin consumer the first commit missed (G5), and fix the pinned-bun helper's zsh defect red-first (F1).
+- [ ] G1 acceptance red on 1.3.14, green on 1.4.2.
+- [x] G2 the 1.4.2 preview-server crash reproduced (oven-sh/bun#40350) and worked around in vite preview, red first.
+- [ ] G3 the full runner and the browser set green under 1.4.2.
+- [x] G4 the task-stops.ts attestation re-proved under 1.4.2 (DA 336 = 0 on both engines; throw 37/52) and refreshed.
+- [x] Rebased onto integ 0c66519a0 after W02d landed (journal conflicts only, kept both sides).
+- [x] Four Bun 1.4.2 behaviour changes fixed red-first: the pinned fetch TLS name, IP server names, the settle test's
+      runtime-leak assertion, and the Bun.SQL pipelining defect (a fail-closed guard; flag at process start).
+- [ ] G1 green in the product's configuration at the final head.
+- [ ] G3 at the final head: the full backend pool under 1.4.2 (wave4f machinery) and the browser lanes.
+
+Review: open.

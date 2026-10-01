@@ -4,17 +4,17 @@
     "line": 336,
     "text": "    return factoryJournalStopSettlement(await this.journal.operations(liveAuthority.authority));",
     "fileSha256": "1b54655f677a33767214643fe8761d8dcd7b8d75e822218fd02530162f3a03e1",
-    "bunVersion": "1.3.14",
-    "reason": "The last statement of stopSettlement runs in every stop settlement, but Bun 1.3.14 coverage credits it to the line before it (DA 336 = 0, DA 335 = 176, on PGlite and on PostgreSQL); a throw planted on it fails 37 of 52 stop-suite tests on both. Re-proved by W02d at its merge of integ e0e2a23c9 (9c11cea96), where task-stops.ts carries W02d's shared pool confirmation beside W03f's settlement; previously proved at W03f's merge (line 373) and first at 9c954b11a line 370 (W03f, user decision A).",
+    "bunVersion": "1.4.2",
+    "reason": "The last statement of stopSettlement runs in every stop settlement, but Bun coverage credits it to the line before it: on 1.4.2 as on 1.3.14 (DA 336 = 0, DA 335 = 176, on PGlite and on PostgreSQL); a throw planted on it fails 37 of 52 stop-suite tests on both. Re-proved on Bun 1.4.2 by W12e (the pin change) at f089f0e1c, whose task-stops.ts is byte-identical to W02d's re-proof at 9c11cea96.",
     "proof": [
-      "/tmp/factory-platform-evidence/w02d/attest/logs/merge-9c11cea96/coverage-pglite.lcov.info",
-      "/tmp/factory-platform-evidence/w02d/attest/logs/merge-9c11cea96/coverage-pg.lcov.info",
-      "/tmp/factory-platform-evidence/w02d/attest/logs/merge-9c11cea96/coverage-pglite.log",
-      "/tmp/factory-platform-evidence/w02d/attest/logs/merge-9c11cea96/coverage-pg.log",
-      "/tmp/factory-platform-evidence/w02d/attest/logs/merge-9c11cea96/throw-pglite.log",
-      "/tmp/factory-platform-evidence/w02d/attest/logs/merge-9c11cea96/throw-pg.log",
-      "/tmp/factory-platform-evidence/w02d/attest/logs/merge-9c11cea96/planted-throw.diff",
-      "/tmp/factory-platform-evidence/w02d/attest/logs/probe-merge-9c11cea96.summary.log"
+      "/tmp/factory-platform-evidence/w12e-2/g4/logs/head-f089f0e1c/coverage-pglite.lcov.info",
+      "/tmp/factory-platform-evidence/w12e-2/g4/logs/head-f089f0e1c/coverage-pg.lcov.info",
+      "/tmp/factory-platform-evidence/w12e-2/g4/logs/head-f089f0e1c/coverage-pglite.log",
+      "/tmp/factory-platform-evidence/w12e-2/g4/logs/head-f089f0e1c/coverage-pg.log",
+      "/tmp/factory-platform-evidence/w12e-2/g4/logs/head-f089f0e1c/throw-pglite.log",
+      "/tmp/factory-platform-evidence/w12e-2/g4/logs/head-f089f0e1c/throw-pg.log",
+      "/tmp/factory-platform-evidence/w12e-2/g4/logs/head-f089f0e1c/planted-throw.diff",
+      "/tmp/factory-platform-evidence/w12e-2/logs/g4-probe-head.run.log"
     ]
   }
 ]

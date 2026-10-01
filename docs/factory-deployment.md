@@ -55,12 +55,12 @@ independent archive failure domain (W15, W19).
 | Lock | Where | Value |
 | --- | --- | --- |
 | Factory image | `deploy/factory/Dockerfile`, built per revision | Referenced only by digest (`image@sha256:...`); a tag is refused |
-| Bun build and runtime bases | `deploy/factory/Dockerfile` | `oven/bun:1.3.14` and `oven/bun:1.3.14-slim`, both by digest |
+| Bun build and runtime bases | `deploy/factory/Dockerfile` | `oven/bun:1.4.2` and `oven/bun:1.4.2-slim`, both by digest |
 | Node for the orchestrator | `deploy/factory/Dockerfile` | `node:24.14.1-bookworm-slim` by digest |
 | Temporal, its database, gateway, JWKS, authorizer, ingress | `deploy/factory/compose/platform.yml` | Every image by digest |
 | Host supervisor | The host checkout at the image's revision | The fleet settings name the release directory and the Bun binary |
 | Every image in the Dockerfile and the Compose templates | `scripts/check-factory-deployment-locks.ts`, run in CI | Refuses any image not pinned by digest |
-| Toolchain | `.bun-version`, `.node-version` | Bun 1.3.14, Node 24.14.1 |
+| Toolchain | `.bun-version`, `.node-version` | Bun 1.4.2, Node 24.14.1 |
 
 Build the image from a clean checkout and pin its digest in the fleet settings:
 

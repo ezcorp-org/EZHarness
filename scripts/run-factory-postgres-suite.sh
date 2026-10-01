@@ -13,7 +13,8 @@ if [ "$#" -lt 1 ]; then
   exit 2
 fi
 
-export PATH="/tmp/factory-tools/bun-1.3.14/bun-linux-x64:$PATH"
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/pinned-bun.sh"
+use_pinned_bun
 
 ENV_FILE="${FACTORY_POSTGRES_ENV_FILE:-/tmp/factory-platform-evidence/postgres.env}"
 if [ ! -r "$ENV_FILE" ]; then

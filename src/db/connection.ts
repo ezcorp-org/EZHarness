@@ -29,6 +29,7 @@ import { errorChain, isDriverStatementDesync } from "./error-chain";
 import { swappableBunSql, type BunSqlLike, type SwappableBunSql } from "./swappable-bun-sql";
 import { DB_OPEN_CONNECTIONS_QUERY_DEADLINE_MS, DB_POOL_CLOSE_DEADLINE_MS, withinDeadline } from "../shutdown-deadlines";
 import { assertFactoryBootConfiguration, factoryBootConfig } from "../factory/boot";
+import { guardedBunSqlClass } from "./bun-sql-pipelining";
 const log = logger.child("db");
 
 const DB_PATH = embeddedDatabasePath();
@@ -801,7 +802,7 @@ async function initPostgres(): Promise<void> {
   // The class is resolved inside the default opener, so a test's pool override never needs the Bun runtime.
   const poolOptions = { url: DATABASE_URL!, max: poolMax };
   const openPool =
-    openBunSqlPoolOverride ?? ((options: typeof poolOptions) => new (bunSqlClass())(options) as unknown as BunSqlLike);
+    openBunSqlPoolOverride ?? ((options: typeof poolOptions) => new (guardedBunSqlClass(bunSqlClass()))(options) as unknown as BunSqlLike);
   _openDiagnosticPool = () => openPool({ ...poolOptions, max: 1 });
   const externalPool = swappableBunSql(() => openPool(poolOptions), {
     drainSeconds: REPLACED_POOL_DRAIN_SECONDS,
