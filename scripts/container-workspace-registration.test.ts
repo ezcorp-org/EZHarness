@@ -201,17 +201,18 @@ describe("workspace packages are built from source, through one script, in every
     expect(buildFindings(read(path)).map(finding => ({ path, ...finding }))).toEqual([]);
   });
 
-  test.each(files.length > 0 ? files : ["<none>"])("%s builds from a context that excludes workspace build outputs", path => {
-    if (!instructions(read(path)).some(instruction => /^COPY\s/i.test(instruction) && !/\s--from=/.test(instruction) && copySources(instruction).includes("."))) return;
+  // The images that build workspace packages build them from the repository root's context. (An image that copies some other
+  // context, such as the reference-image model directory, builds no package and is out of this rule's scope.)
+  const packageImages = files.filter(path => instructions(read(path)).some(instruction => BUILD_PACKAGES_STEP.test(instruction)));
+
+  test.each(packageImages.length > 0 ? packageImages : ["<none>"])("%s builds from a context that excludes workspace build outputs", path => {
     const ignore = ignoreFileFor(path, candidate => existsSync(resolve(ROOT, candidate)));
     const rules = read(ignore).split("\n").map(line => line.trim());
     expect({ path, ignore, missing: BUILD_OUTPUT_RULES.filter(rule => !rules.includes(rule)) }).toEqual({ path, ignore, missing: [] });
   });
 
   test("the images that build packages are found", () => {
-    for (const path of ["Dockerfile", "Dockerfile.dev", "Dockerfile.test", "deploy/factory/Dockerfile"]) {
-      expect(instructions(read(path)).some(instruction => BUILD_PACKAGES_STEP.test(instruction))).toBe(true);
-    }
+    expect(packageImages).toEqual(expect.arrayContaining(["Dockerfile", "Dockerfile.dev", "Dockerfile.test", "deploy/factory/Dockerfile"]));
   });
 });
 
