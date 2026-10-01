@@ -293,36 +293,49 @@ export function factoryUsageSettlementDigest(settlement: Omit<FactoryUsageSettle
   return `sha256:${createHash("sha256").update(canonicalJson(settlement)).digest("hex")}`;
 }
 
-/**
- * Builds the sealed settlement and its one kernel event together, so a caller
- * cannot enqueue an event whose amounts differ from the record it stores.
- */
-export function buildFactoryUsageSettlement(input: FactoryUsageSettlementInput): FactoryUsageSettlement {
-  if (!opaqueText(input.reservationId) || !opaqueText(input.attemptId) || !settlementCounter(input.revision, 1) || !settlementCounter(input.settledAtMs, 0)) throw new FactoryUsageSettlementError("factory_usage_settlement_invalid");
-  if (!SETTLEMENT_SOURCES.has(input.source)) throw new FactoryUsageSettlementError("factory_usage_settlement_invalid");
-  if (typeof input.knownCostMicros !== "string" || !isUnsignedDecimal(input.knownCostMicros)) throw new FactoryUsageSettlementError("factory_usage_settlement_invalid");
-  if (input.unknownCostMicros !== undefined && (typeof input.unknownCostMicros !== "string" || !isUnsignedDecimal(input.unknownCostMicros))) throw new FactoryUsageSettlementError("factory_usage_settlement_invalid");
-  if (input.providerReceiptDigest !== undefined && !isFactoryProviderReceiptDigest(input.providerReceiptDigest)) throw new FactoryUsageSettlementError("factory_usage_settlement_receipt_invalid");
-  if (input.source === "reconciliation" && input.providerReceiptDigest === undefined) throw new FactoryUsageSettlementError("factory_usage_settlement_receipt_invalid");
-  // A stop-proven amount is proven only by its signed stop. It never carries a
-  // provider receipt or a held cost, and a no-operations one is only a zero.
-  const stopProven = STOP_PROVEN_SOURCES.has(input.source);
+function invalidSettlement(code: FactoryUsageSettlementCode = "factory_usage_settlement_invalid"): never {
+  throw new FactoryUsageSettlementError(code);
+}
+
+/** The identity, counters, source and amounts are each well formed. */
+function assertSettlementFields(input: FactoryUsageSettlementInput): void {
+  if (!opaqueText(input.reservationId) || !opaqueText(input.attemptId) || !settlementCounter(input.revision, 1) || !settlementCounter(input.settledAtMs, 0)) invalidSettlement();
+  if (!SETTLEMENT_SOURCES.has(input.source)) invalidSettlement();
+  if (typeof input.knownCostMicros !== "string" || !isUnsignedDecimal(input.knownCostMicros)) invalidSettlement();
+  if (input.unknownCostMicros !== undefined && (typeof input.unknownCostMicros !== "string" || !isUnsignedDecimal(input.unknownCostMicros))) invalidSettlement();
+}
+
+/** The provider receipt, the stop and the restore are each the proof the source requires, and well formed. */
+function assertSettlementProofs(input: FactoryUsageSettlementInput, stopProven: boolean): void {
+  if (input.providerReceiptDigest !== undefined && !isFactoryProviderReceiptDigest(input.providerReceiptDigest)) invalidSettlement("factory_usage_settlement_receipt_invalid");
+  if (input.source === "reconciliation" && input.providerReceiptDigest === undefined) invalidSettlement("factory_usage_settlement_receipt_invalid");
   // Exactly one proof that the process is gone: its stop, or (reserved-bound only) a restore that superseded it.
   const proofs = Number(input.stopReceiptDigest !== undefined) + Number(input.restoreDigest !== undefined);
-  if (stopProven ? proofs !== 1 : proofs !== 0) throw new FactoryUsageSettlementError("factory_usage_settlement_receipt_invalid");
-  if (input.restoreDigest !== undefined && input.source !== "reserved-bound") throw new FactoryUsageSettlementError("factory_usage_settlement_receipt_invalid");
+  if (stopProven ? proofs !== 1 : proofs !== 0) invalidSettlement("factory_usage_settlement_receipt_invalid");
+  if (input.restoreDigest !== undefined && input.source !== "reserved-bound") invalidSettlement("factory_usage_settlement_receipt_invalid");
   for (const proof of [input.stopReceiptDigest, input.restoreDigest]) {
-    if (proof !== undefined && (typeof proof !== "string" || !STOP_RECEIPT_DIGEST.test(proof))) throw new FactoryUsageSettlementError("factory_usage_settlement_receipt_invalid");
+    if (proof !== undefined && (typeof proof !== "string" || !STOP_RECEIPT_DIGEST.test(proof))) invalidSettlement("factory_usage_settlement_receipt_invalid");
   }
-  if (stopProven && (input.unknownCostMicros !== undefined || input.providerReceiptDigest !== undefined)) throw new FactoryUsageSettlementError("factory_usage_settlement_invalid");
-  if (input.source === "no-operations" && input.knownCostMicros !== "0") throw new FactoryUsageSettlementError("factory_usage_settlement_invalid");
-  // Each source's basis is one it may record; a derived basis may be restated but never replaced.
+}
+
+/**
+ * A stop-proven amount is proven only by its signed stop. It never carries a
+ * provider receipt or a held cost, and a no-operations one is only a zero.
+ * Each source's basis is one it may record; a derived basis may be restated but never replaced.
+ */
+function settlementAmountBasis(input: FactoryUsageSettlementInput, stopProven: boolean): FactoryUsageSettlementBasis | undefined {
+  if (stopProven && (input.unknownCostMicros !== undefined || input.providerReceiptDigest !== undefined)) invalidSettlement();
+  if (input.source === "no-operations" && input.knownCostMicros !== "0") invalidSettlement();
   const basis = settlementBasis(input);
   const allowed = input.source === "operations" ? OPERATIONS_BASES.has(basis as string)
     : input.source === "no-operations" ? NO_OPERATIONS_BASES.has(basis as string)
     : input.basis === undefined || input.basis === basis;
-  if (!allowed) throw new FactoryUsageSettlementError("factory_usage_settlement_invalid");
-  if (input.attemptId !== input.authority.attemptId) throw new FactoryUsageSettlementError("factory_usage_settlement_invalid");
+  if (!allowed) invalidSettlement();
+  return basis;
+}
+
+/** Seals a validated settlement body and its kernel event with one digest. */
+function sealFactoryUsageSettlement(input: FactoryUsageSettlementInput, basis: FactoryUsageSettlementBasis | undefined): FactoryUsageSettlement {
   const event: FactoryUsageSettledEvent = Object.freeze({
     kind: "usage-settled" as const,
     id: factoryUsageSettlementEventId(input.reservationId, input.revision),
@@ -351,6 +364,19 @@ export function buildFactoryUsageSettlement(input: FactoryUsageSettlementInput):
     event,
   } as const;
   return Object.freeze({ ...body, settlementDigest: factoryUsageSettlementDigest(body) });
+}
+
+/**
+ * Builds the sealed settlement and its one kernel event together, so a caller
+ * cannot enqueue an event whose amounts differ from the record it stores.
+ */
+export function buildFactoryUsageSettlement(input: FactoryUsageSettlementInput): FactoryUsageSettlement {
+  assertSettlementFields(input);
+  const stopProven = STOP_PROVEN_SOURCES.has(input.source);
+  assertSettlementProofs(input, stopProven);
+  const basis = settlementAmountBasis(input, stopProven);
+  if (input.attemptId !== input.authority.attemptId) invalidSettlement();
+  return sealFactoryUsageSettlement(input, basis);
 }
 
 /** A stored settlement must still hash to its own body and carry its own event id. */

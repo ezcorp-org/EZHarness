@@ -35,3 +35,15 @@ against the branch base, and the patch gate against the branch base.
   (`buildFactoryUsageSettlement` 39, `validateInboxEvent` 35).
 - Suites: fleet-cli 8/0, fleet 13/0 (21/0 together), control-plane 22/0, the SDK kernel suites 122/0, the SDK suite 246/0,
   the provisioning PostgreSQL producer 64/0. Typecheck and lint 0 at each commit.
+
+## W4F-3 (w4f-3, wp/w4f-3-crap-settlement-validation)
+
+Behaviour-preserving splits for F4: same checks, same order, same error codes and messages; no test changed. Evidence root
+`/tmp/factory-platform-evidence/w4f/w4f-3/` (report.txt). Green run at the code head bdc9484b6 on integ ffe6ea507, Bun 1.4.2 with the
+auto-pipelining flag, heavy legs under the lock (lane w4f-3). Earlier green runs at 5c43bc29d and 0a6b3ef06 are kept in base-5c43/ and
+base-0a6b/ (commits on proof/w4f-3-base5c43 and proof/w4f-3-base0a6b; the ffe6ea507 head is proof/w4f-3-baseffe6). Rebased onto 79791f76c with the code byte-identical (same patch-ids).
+
+| Finding | Red | Green | Commit |
+|---|---|---|---|
+| F4 src/factory/usage-settlement.ts:300 buildFactoryUsageSettlement CRAP 39 | w12e-fix-final/crap-changed-origin_main.log line 7 (copy: w4f/w4f-3/red-crap-lines.txt) | crap-after-rebased-top40.log: buildFactoryUsageSettlement 2, assertSettlementProofs 13, assertSettlementFields 11, settlementAmountBasis 10, sealFactoryUsageSettlement 7, invalidSettlement 1, all cov 100%; patch gate PASSED; unit 12/6/19 pass, tests/postgres/factory-admission-stop 5 pass | c6ec20915 (b9a711809 before the rebase onto 79791f76c) |
+| F4 packages/@ezcorp/factory-orchestrator/src/validation.ts:147 validateInboxEvent CRAP 35 | same log line 9 | same report: validateInboxEvent 13, validateRunControlEvent 9, validateReplanReplacement 9, validateAttemptStoppedEvent 6, two callbacks 1, all cov 100%; package `bun run test` 92/92, package coverage producer 92/92 | 8ebdf1f5c (bdc9484b6 before the rebase onto 79791f76c) |
