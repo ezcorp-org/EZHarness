@@ -3579,6 +3579,8 @@ Base: `260855e57` (W09b merged). Assumptions are stated in the gate file.
 - [x] P26 Every pool config writer drops installationId (317a0d622): the runbook stack and the factory-services e2e stack; a test parses each runbook process document with its process's parser.
 - [x] P27 A pool that cannot start prints why (cb2680fbe).
 - [x] P28 Holds r5, r5b, r5c and r5d recorded in the gate file with every refusal and red named.
+- [ ] L1 (low, evidence script, owner W16): the self-hosted proof's peer-tenant probe reads the CA, certificate and key from the harness delivery directory.
+- [x] Landed 2026-09-28: merge `bc22c62b0` (wp/w16-provisioning `0bf2fcaa2`), receipts `42ed49318`. P24 and L1 stay open under W16.
 
 ### Review
 
@@ -4063,7 +4065,7 @@ Gate file: `tasks/factory/w15f-GATES.md`. Evidence: `/tmp/factory-platform-evide
 - [x] Mark the hold once with both epochs, report once, skip until the epoch moves; the hold stays uncertain.
 - [x] PGlite and PostgreSQL suites for the fence, budgets, task stops, restore, checkpoint, schema; coverage gates.
 - [x] Round 2: a signed restore supersedes the old epoch's live attempts (status `superseded`, record with the signed digest and the kernel event); the scan skips a marked hold only while its attempt is live; W05b's clear falls back to the supersession; names and migration order agreed with W03f.
-- [ ] Joint test with W03f (a marked hold settles at the reserved bound after a signed restore): on whichever branch merges second.
+- [x] Joint test with W03f (a marked hold settles at the reserved bound after a signed restore): on whichever branch merges second. Done on wp/w03f-provider-settle (red then green 41/2 -> 43/0, `tasks/factory/w03f-GATES.md`); landed with W03f, merge `ee9117e0a`.
 
 Review (W15f): The fault was usage reconciliation meeting a run fence that a restore had moved:
 the old attempt's authority can never name the new epoch, so every pass failed the same hold. The
@@ -5182,7 +5184,7 @@ evidence `/tmp/factory-platform-evidence/w16b/`.
 - [x] Hold b1 at 61bc3428b: every leg exit 0.
 - [x] W01 owner review (w01g-fix) at 61bc3428b; the audience change sent for the same review.
 - [x] The route accepts only the contract's audience; a pool token is refused by name (ca92306c5). Hold b2 at fb3a990ee: every leg exit 0.
-- [ ] Validation (validator-2), then merge before W16 and W01h.
+- [x] Validation (validator-2), then merge before W16 and W01h. Landed: merge `a7962f8e0` (before W01h `a8b467b2c` and W16 `bc22c62b0`); verdict `docs/validation/factory/wave4/w16b-validation.txt`.
 
 ### Review
 
@@ -5207,7 +5209,7 @@ Base `integ/w00` `39a7189e0`. Receipts: `/tmp/factory-platform-evidence/w03e/`. 
 
 - [x] Rulings (lead, 2026-09-24): (1) a no-operations stop settles compute at its reserved bound, the bound the tenant accepted at admission, and the settlement record names the basis "no-operations: compute at reserved bound" (`7ad032681`); (2) packages do not edit freeze section 4, so the additive change is a dated disclosure in `tasks/factory/w03e-GATES.md` for W20 to fold into the plan; (3) the W02c conflict resolution in the report is for the integrator, who merges W03e after W02c; (4) stops sealed by pre-W03e code stay readable with no back-fill (`33ef581f2`).
 - [x] Interface-freeze disclosure (2026-09-24), freeze section 4: `FactoryUsageSettlementSource` gains `"no-operations"`; `FactoryUsageSettlement` gains `stopReceiptDigest` and `basis` (both present exactly on `no-operations`); `factory_usage_settlements` gains `stop_receipt_digest` and `basis`; a certain stop after `stop-uncertain` carries `uncertain: false`. Consumer: W14's cost views.
-- [ ] Follow-up package (owner: the run kernel's owner, W05/W09): a run whose uncertain operation is later settled by reconciliation stays `cancelling`, because `FactoryUsageReconciliation.reconcile` records the settlement and the budget but never tells the kernel the attempt is no longer uncertain. Exact change: after `reconcile` records a reconciliation settlement for a reservation, enqueue in the same transaction the sealed stop's `attempt-stopped` event with `uncertain: false` (id `${cancelCommandId}:usage-resolved`, the stop's node, attempt command, candidate generation and attempt number, read through `readSettlementScopeInTransaction`); let the stop store's re-derivation accept it; prove it with a stop suite case that folds the events through the real kernel to `cancelled`, and a real run whose model call is lost and later reconciled.
+- [x] Follow-up package (owner: the run kernel's owner, W05/W09): a run whose uncertain operation is later settled by reconciliation stays `cancelling`, because `FactoryUsageReconciliation.reconcile` records the settlement and the budget but never tells the kernel the attempt is no longer uncertain. Exact change: after `reconcile` records a reconciliation settlement for a reservation, enqueue in the same transaction the sealed stop's `attempt-stopped` event with `uncertain: false` (id `${cancelCommandId}:usage-resolved`, the stop's node, attempt command, candidate generation and attempt number, read through `readSettlementScopeInTransaction`); let the stop store's re-derivation accept it; prove it with a stop suite case that folds the events through the real kernel to `cancelled`, and a real run whose model call is lost and later reconciled. Done by W05b (reconciliation clears the kernel's uncertain attempt), merge `37511b1ac`.
 - [ ] Disclosed gap (owner: W03): a reservation whose reserved cost is zero is never listed by `listUncertainWithCostInTransaction`, so it can never be reconciled.
 
 **Review.** An attempt stopped before its first operation stayed `cancelling` forever. The stop saw no terminal usage and held the budget as uncertain, and reconciliation refused the hold with `no-operation-receipt`, because there was nothing to reconcile. The base run at W02c's head showed this for the package fence's run A and an operator-cancelled run O. C02 journals every operation before its effect, and an accepted cancel can prepare no more, so an empty journal after a signed stop proves zero provider cost. The stop now settles that zero in its own transaction as a typed `no-operations` settlement bound to the stop receipt, with one `usage-settled` event. Compute is charged at its reserved bound because nothing measured it. A second defect sat under it: the kernel only clears an uncertain attempt when a later stop says `uncertain: false`, which nothing emitted. The real stops went through exactly that path. Three passes at the merged head bring both runs to `cancelled`, run A with its typed reason, and the pool, PostgreSQL, coverage and complexity gates are green. Open: a hold that reconciliation later resolves from a provider receipt still never clears the kernel's uncertainty.
@@ -5269,7 +5271,7 @@ Base `integ/w00` `b10b7ea1a`. Receipts: `/tmp/factory-platform-evidence/w09f/`. 
 - [x] A desynchronized pool is replaced under the live Drizzle handle (`c4a5cc1f0`, `488b51458`).
 - [x] Fix the poisoned PGlite snapshot cache found by the sweep (`af673760e`).
 - [x] Final sweep green at `af673760e`.
-- [ ] The Bun upgrade and its regression suite: W12e, pending the user's decision.
+- [x] The Bun upgrade and its regression suite: W12e, pending the user's decision. The user decided "upgrade it" (2026-09-28); W12e landed: merge `e6cdcf02a`, receipts `0a6b3ef06`.
 
 **Review.** The run-projection error came from Bun 1.3.14's Postgres request queue, not from our
 queries: one query's Bind reached another query's statement on the same connection. The same component
@@ -5288,8 +5290,8 @@ Gate file `tasks/factory/w01h-GATES.md`; evidence `/tmp/factory-platform-evidenc
 - [x] Every lost answer ends in a typed failed terminal row; dispatcher keeps the cause — `4cd3f76b4`, `41b1d8a02`
 - [x] Kernel retries or fails the run on the typed failure (lifecycle case) and the Podman fault-injection case — `4dbe4a1b2`
 - [x] W19a runbook green with the fix (`proof/w01h-fix-w19a`)
-- [ ] The incident path itself (guest dies AT its 30 s attempt deadline) ends the run — blocked on a coordinator ruling (C02 fence refuses any report after the deadline; patch proposed)
-- [ ] Run-deadline stop refused `factory_command_stale` (kernel epoch moves, durable fence does not) — reported, owner ruling pending
+- [x] The incident path itself (guest dies AT its 30 s attempt deadline) ends the run — blocked on a coordinator ruling (C02 fence refuses any report after the deadline; patch proposed). Ruled into W01h as defect 3 (`0d7c01694`) and option 2 (`a00430bb5`, `961059571`); landed with W01h, merge `a8b467b2c`, receipts `326e5e725` (`tasks/factory/w01h-GATES.md`).
+- [x] Run-deadline stop refused `factory_command_stale` (kernel epoch moves, durable fence does not) — reported, owner ruling pending. Ruled into W01h as defect 2 (`982f9cb6d`); landed with W01h, merge `a8b467b2c`.
 
 ### Review
 
@@ -5305,10 +5307,11 @@ both processes a log line that names it. Two causes remain outside this package:
       estimated spend at claim and a stopped one settles through the usage settlement (coordinator ruling, W09e
       cost). Until then a stopped release's cost lives on its stop outcome (`stop_cost_micros`, `stop_cost_source`,
       `stop_cost_basis`) and the run inspection adds it to the run's figures.
-- [ ] **Bun 1.4.2 preview-server crash (for the W12e upgrade decision)**: under the system Bun 1.4.2 the vite preview
+- [x] **Bun 1.4.2 preview-server crash (for the W12e upgrade decision)**: under the system Bun 1.4.2 the vite preview
       died with ERR_STREAM_WRITE_AFTER_END in node:_http_server advanceResponsePipeline in 2 of 4 repeat runs of
       factory-live-console.spec.ts; under the pin 1.3.14 it did not reproduce (66 of 66). Evidence:
       /tmp/factory-platform-evidence/w09e/logs/head/e2e-repeat3.log, e2e-measure-fe2199392-bun142.log, e2e-measure.log.
+      Done: W12e G2 reproduced it (oven-sh/bun#40350) and worked around it in vite preview, red first; landed with W12e (`e6cdcf02a`).
 
 ## W02d — the GPU lease consumer (branch `wp/w02d-gpu-lease`; gates `tasks/factory/w02d-GATES.md`)
 
@@ -5331,8 +5334,11 @@ both processes a log line that names it. Two causes remain outside this package:
 - [x] Merge of integ/w00 ad22592da (7a499e4e1) with all 89 withheld suites green.
 - [x] Merge of integ/w00 e0e2a23c9 (9c11cea96, committed by the user) with all 14 withheld suites green.
 - [x] task-stops.ts attestation re-proved at the merge (3fd496578, line 336).
-- [ ] The authoritative two-stage head run (P1, P5, P2 with the post-R8 expectation) at the final head.
-- [ ] Coverage gates at the final head.
+- [x] The authoritative two-stage head run (P1, P5, P2 with the post-R8 expectation) at the final head. validator-6's hold at `069cb8c2b`: P1 5/5 x4, P5 4/4 x4, P2 9/9 x4; carried to `edc8a93d7` under the carry-over ruling.
+- [x] Coverage gates at the final head. At the merge commit `381449a85` (`docs/validation/factory/wave4/w02d-merge.json`).
+- [x] Landed: merge `381449a85` (wp/w02d-gpu-lease `edc8a93d7`), receipts `0c66519a0`; validator-6 REJECT at `069cb8c2b`, then ACCEPT at `edc8a93d7`. Owner after W16: w16-2.
+- [ ] Follow-up (W02d R6, owner W02d, not this wave): a 30 s GPU lease against a queue wait that can exceed it (P2 measured 45 s) ends in the named failure `lease_revoked`; a queued attempt should re-admit at claim instead.
+- [ ] Follow-up (coordinator ruling): the stop settlement role retries `factory_task_stop_pool_mismatch` on every pass with no bound (1912 and 1929 retries in the two P2 passes); it needs a bounded back-off.
 
 ### Review
 
@@ -5355,6 +5361,7 @@ Gate file `tasks/factory/w09h-GATES.md`; evidence `/tmp/factory-platform-evidenc
 - [x] R5 lock order: both contenders take the run lock before the admission row, both orders on real PostgreSQL — `f70c06fbe`
 - [x] Legs, coverage gates and the graph-proof runbook at the `wp/w09h-admission-stop` head `ef3f64457` (rebased onto `e92d34d45`); validator-5 M1 fixed in `ef3f64457`
 - [x] W02d follow-up (not in W09h): R8 and R9 moved to the shared basis (26951f125, 31bee42a9); the queued-host case is not rerun (P3 not run under the user's decision (b); P5 has no GPU host)
+- [x] Landed: merge `08ad04148` (wp/w09h-admission-stop `3d2d03cc8`). Owner: w09h-2 (replacement, 2026-09-28).
 
 ### Review
 
@@ -5369,17 +5376,25 @@ Gates: tasks/factory/w12e-GATES.md. Evidence: /tmp/factory-platform-evidence/w12
 
 - [x] Re-apply 2aa24b5b3 on the current integ head; resolve the two config conflicts (workflow, moved compose file).
 - [x] Update every pin consumer the first commit missed (G5), and fix the pinned-bun helper's zsh defect red-first (F1).
-- [ ] G1 acceptance red on 1.3.14, green on 1.4.2.
+- [x] G1 acceptance red on 1.3.14, green on 1.4.2. Red on 1.3.14 at `d503d22c8`; green on 1.4.2 in the product's configuration (flag at start).
 - [x] G2 the 1.4.2 preview-server crash reproduced (oven-sh/bun#40350) and worked around in vite preview, red first.
-- [ ] G3 the full runner and the browser set green under 1.4.2.
+- [x] G3 the full runner and the browser set green under 1.4.2. wave4f at `baeade976`: runner 37 legs, browser lanes all green; receipts `700e54461`.
 - [x] G4 the task-stops.ts attestation re-proved under 1.4.2 (DA 336 = 0 on both engines; throw 37/52) and refreshed.
 - [x] Rebased onto integ 0c66519a0 after W02d landed (journal conflicts only, kept both sides).
 - [x] Four Bun 1.4.2 behaviour changes fixed red-first: the pinned fetch TLS name, IP server names, the settle test's
       runtime-leak assertion, and the Bun.SQL pipelining defect (a fail-closed guard; flag at process start).
-- [ ] G1 green in the product's configuration at the final head.
-- [ ] G3 at the final head: the full backend pool under 1.4.2 (wave4f machinery) and the browser lanes.
+- [x] G1 green in the product's configuration at the final head. wave4f `postgres-bun-sql-request-queue` leg exit 0 at `baeade976` (flag=1).
+- [x] G3 at the final head: the full backend pool under 1.4.2 (wave4f machinery) and the browser lanes. wave4f at `baeade976`, receipts `700e54461`.
+- [x] Landed: merge `e6cdcf02a` (wp/w12e-scratch `4d0c708c5`), receipts `0a6b3ef06`; validator-6 ACCEPT at `8676d8757` and `4d0c708c5` (delta). Merge run 1 at `db5b53012` was red on the patch leg (two producer gaps) and never published.
+- [ ] Follow-up (owner: the runtime pin's owner): remove the Bun.SQL pipelining guard, its version list and every flag setting at the first Bun release carrying oven-sh/bun#32088 and #43187, with a 3000-trial harness record under docs/validation/factory/ (the guard's test refuses an unlisted version without one).
 
-Review: open.
+Review: Bun 1.4.2 landed last, after the user's decision. Nine behaviour changes are recorded in tasks/factory/w12e-GATES.md; the Postgres
+client mix-up is mitigated by a fail-closed startup guard. The wave's final run (wave4f) is green on 1.4.2.
+
+## W4F-1 and W4F-2 (landing records)
+
+- [x] W4F-1: merge `c46a1d10e` (wp/w4f-1-w12e-coverage `5576263ae`), receipts `ffe6ea507`: the preview guard's vitest coverage; the task-stops.ts attestation entry removed under w00/w4f-merge/gate-change-decision.txt.
+- [x] W4F-2: merge `9fe4056f0` (wp/w4f-2-crap-provisioning-kernel `b6aa5204f`), receipts `79791f76c`: four splits, CRAP max 12.
 
 ## W4F-3 — CRAP splits for settlement and inbox-event validation (branch `wp/w4f-3-crap-settlement-validation`; gates `tasks/factory/w4f-GATES.md`)
 
@@ -5387,7 +5402,40 @@ Review: open.
 - [x] Split buildFactoryUsageSettlement into field, proof and amount/basis guards plus a seal helper (b9a711809).
 - [x] Split validateInboxEvent into attempt-stopped, run-control and replan-replacement helpers (bdc9484b6).
 - [x] Every function in both files <= 13 at 100% coverage; suites, patch gate, boundaries, typecheck, lint green at the rebased head.
+- [x] Landed: merge `ca4027e2a` (`6d8151b4e`), receipts `1957da56d`, verdict addendum `baeade976`. wave4f ran at `baeade976`: every final gate green, crap-changed vs origin/main "no touched function exceeds CRAP 30" (receipts `700e54461`).
 
 Review: both functions were long guard chains, so each split moves ordered guards into named helpers without changing any check,
 order, error code or message. The existing suites cover every changed line, so no test was added or changed. Receipts:
 /tmp/factory-platform-evidence/w4f/w4f-3/report.txt.
+
+## Wave 4 close (2026-10-01): follow-ups and standing user items
+
+wave4f ran at `baeade976` (receipts `700e54461`): runner 37 legs, after-runner green (guard set 60/0, graph mock pass,
+W09e console spec 22 passed, W03f journey 11/0), browser lanes green, final gates green (global floor margin 8.05,
+per-file thresholds 2191 files, new-file and patch on origin/main and c1377122b, CRAP changed vs origin/main clean).
+gate-integrity vs origin/main equals the 8-line expected set.
+
+- [x] The 138 web files covered only by the browser lanes: judged by wave4f's final gates with the browser producer;
+      per-file thresholds PASS.
+- [ ] Hygiene: `.gitignore` line 8 ignores `tasks` while the files under tasks/ are tracked, so every package force-adds
+      its GATES.md and todo.md changes. Replace the blanket rule with explicit exceptions so `git add` needs no -f.
+- [ ] Nit (validator-6, W4F-2): control-plane.ts's handler doc comment now sits above the new type alias; move it the
+      next time the file changes.
+- [ ] Upstream reports to consider (the user's call): TLS socket.end() half-closes on Bun 1.4 (#31155); terminate()
+      sends RST without close_notify (#39632); the Postgres response mix-up (#32088/#43187, fixed after 1.4.2, no
+      release yet).
+- [ ] The wave4f driver prints the pin and runtime flag in its own log (its receipts cite the pin from the after-runner
+      log and the pin helper's assertion).
+
+Standing user items (decisions only the user makes):
+
+- [ ] Disk: the dangling podman images (still present at 2026-10-01 01:30Z) and `reclaim-worktrees.sh`.
+- [ ] Branches and worktrees after landing: wp/w02d-gpu-lease, wp/w12e-scratch, wp/w4f-1/2/3 (the receipts cite proof
+      refs, so they stay until the user decides); 99 dirty worktrees kept (w00/worktree-kept-dirty-2026-10-01.txt).
+- [ ] PR labels, including `gate-change-approved` for the wave's coverage-tool changes.
+- [ ] Reference-data image publication.
+- [ ] The personal email in a git config.
+- [ ] Coordinator kill permission.
+- [ ] PostgreSQL password rotation.
+- [ ] Host-side protection (`OOMScoreAdjust`) and the store load rerun (W15d items above).
+- [x] W03f option A or hold: W03f landed (merge `ee9117e0a`); the decision is no longer open.

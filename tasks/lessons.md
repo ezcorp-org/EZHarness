@@ -1811,3 +1811,138 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
   "stall=" count that matched "stall" in the test's printed code turned three decode failures into "stalls" (w12e-2).
 - A probe that must import repository modules runs from outside the worktree with absolute imports; a copy placed in
   the tree dirties it for every locked job reading it, and a hung probe leaves it there (w12e-2).
+
+## Wave 4f (2026-09-27)
+
+Lessons from wave 4 and its final run (wave4f at baeade976), one per cause. Lessons already in this file
+(the bunx pin, `process.exitCode` restore, commit-tree snapshots, harness documents, queue-script labels,
+smokes under the lock, detached-job wake-ups) are not repeated.
+
+### Runner and pool
+
+- A file that passes alone and fails in a pool is a contamination finding, not a flake. The 462-file pooled leg
+  produced reds that vanished per file. Run files whose isolation is unproven one process per file, join their
+  coverage in the merge, and open a follow-up that names the pair (polluter, victim), never a retry.
+- Choose the runner by the package's own test script. Pulling every `*.test.ts` under `bun test` ran `node --test`
+  suites under the wrong harness and reported false reds. Exclude by the nearest package.json `test` script, and
+  record the excluded list in the plan.
+- Deduplicate against fixed inputs only. The runner dropped the coverage-extras leg because it "covered" files that
+  another dynamic leg also listed; both legs came from the same scan, so each covered the other and one vanished.
+- Count what the producer prints, not what you expect it to print. CI coverage producers printed no " N pass" line,
+  so the zero-count guard exited 97 on green legs. Make every producer print its totals red-first, probe the counter
+  with a real log of every producer before the guard is armed, and never loosen the guard to accept silence.
+- Mirror the CI step, not only its file. The runner took only the list lines of the PostgreSQL workflow and missed
+  four suites that run in their own steps, then ran a step-level suite without the step's env block. Parse the
+  workflow's steps as steps: their env, their run, and which list they belong to; a suite with its own CI step gets
+  its own process.
+- A gate red by design must not hide the measurement. gate-integrity is red until the user approves the package's
+  own gate changes; the runner's fail-closed rule then skipped the coverage merge and every gate. Only a failed
+  producer or build may block the merge; every other red is recorded and fails the run's exit without erasing the rest.
+- A filter that matches nothing reports green. A results file read with a key filter that matched no field gave an
+  empty list of reds, and the run was reported green while eight legs were red. Read the file's actual fields first,
+  and check every derived result against one known row.
+- Never edit a script a running bash is still reading. bash reads a script incrementally, so an edit lands in the
+  running process at an unpredictable offset. Copy the script to a new name for the next run.
+
+### Coverage, gates and producers
+
+- One canonical producer per source class, and a merge batch runs the producer of every file it touches. web/src/lib
+  is credited only by the Node-run vitest leg; V8-canonical sources (the transport package) only by the Node producer;
+  provisioning files by their own producer script; five Svelte components only by the browser lanes. Two merge-batch
+  gaps (the provisioning producer, the orchestrator Node producer) turned a green hold red at the merge; both are
+  standing legs now, switched on by the diff.
+- Run the final gates once, after the last coverage producer. The runner's new-file gate ran before the browser lanes,
+  so components covered only there read as unmeasured. Record any earlier gate run as interim with the reason.
+- A gate that does not watch its own tools is not a gate. gate-integrity watched the coverage configuration and
+  thresholds but not the merge script, the converters or the checkers, so two coverage-credit changes passed unseen.
+  Watch every script that shapes or judges the measurement, and expect the watch to flag the package that adds it.
+- Two packages can each add "check 11" to the same gate script. Fold them into one watched set; the author of the
+  surviving check does the fold, and the other package's test becomes a case of it.
+- CRAP on a partial lcov is not a number. The same `crap-score.ts --changed` gave 403 functions over 30 on a merge
+  batch's lcov and 6 on the full-pool lcov, because a file loaded but not exercised scores 0%. Judge the wave's CRAP
+  only over the full-pool lcov; a merge's binding leg judges only the functions it touched, against its own base.
+- Run the PR's gates at the last package's head, before the final run. The final gates at W12e's head found the
+  wave-level reds (six functions over CRAP 30, two coverage gaps, an attestation no longer needed) with hours to
+  spare; they became one small package (W4F, three branches) instead of a red final run.
+- Behaviour-preserving splits are checkable: no existing test line edited or removed; the same check order, error
+  codes and messages read line by line; the CRAP report per touched function before and after. Six functions went
+  from 32-44 to at most 13 with every suite unchanged.
+- Bun credits a function's last statement to the previous line (1.3.14 and 1.4.2 alike; six equivalent shapes did
+  not move it). When the only red is a line the tool cannot see, the answer is a user decision, an attestation with
+  its probe on record, or a hold, never a threshold change or an exclude.
+- An attestation pinned by a whole-file hash stales on every later edit to that file, by design. When two packages
+  touch the attested file, the one that lands second re-proves the line at its own tree and refreshes the entry in its
+  own branch, red first; the integrator never refreshes an attestation at a merge.
+- Prove before ruling on a refactor meant to please a measurement. A `.then` rewrite was ruled and then measured
+  uncredited, and the ruling was withdrawn. Measure the candidate shape first, then rule on the measured one.
+- A gate-change decision file states its approved path on one machine-readable line, not in prose; two tools had to
+  normalise it.
+
+### Latent reds and runtime upgrades
+
+- An integration branch can hold a red no lane has run yet. Two latent reds surfaced only when a later package's leg
+  touched them (a `bun` import in a web module; a C13 inventory drift), and a hook-mapped per-head run passed while the
+  C13 inventory test was red for the package's new file. Every per-head run and merge batch runs the standing guard
+  set and a web-server leg; a validator's unit leg is the union of changed tests and hook-mapped tests.
+- A migration change maps its own `src/db/migrations/*.test.ts` into every per-head run, and the full backend pool runs
+  at least once per wave before the final merge. A migration test was red on integ for days (a new column, an old
+  expected list) and only a runtime bump's full pool ran it.
+- A runtime bump is not a hook-mapped change. W12e's per-head hold was green while the full pool at the same head found
+  five reds. A package that changes the runtime pin runs the whole backend pool, the guard set and the browser lanes
+  at its final head before the verdict.
+- A toolchain pin belongs in one place, and every wrapper reads it from the tree. Two dozen scripts hard-coded the
+  1.3.14 directory. Derive the pinned directory from `.bun-version` and assert both `bun` and `bunx` against it; a
+  driver also prints the pin and any runtime flag in its own log (wave4f's driver did not, and its receipts had to
+  cite the pin from the after-runner log and the pin helper's assertion).
+- Root-cause a flaky runtime defect by controlled configurations, not by rerunning to green. The request-queue stall
+  was settled by one harness run of 300 trials in four configurations and a 3000-trial confirmation of the
+  mitigation; the result named the defect (a response mix-up in Bun's Postgres client), its upstream fixes and the one
+  mitigation that works.
+- A mitigation for a runtime defect is a fail-closed startup guard, not a setting someone remembers. The guard refuses
+  to start on the affected versions unless the flag was in the start environment (/proc/self/environ), every client
+  opens through one function, and the version list is closed upward (an unlisted version fails a test until a
+  3000-trial record exists).
+- A test that pins a runtime defect says so in its title. When the runtime fixes the defect, the test asserts the
+  correct behaviour, states the old behaviour as history with the probe, and keeps every product check it had.
+- A held decision is not a closed one. When the user chose the Bun upgrade, the package needed an owner, a rebase onto
+  the final head, and its own red-first proof of the runtime's known defects before it could land last.
+- A base reproduction that turns red for a reason the package did not expect is a finding, not noise. W02d's P3 and P5
+  repros exposed a cancel-during-admission wedge; it became its own package (W09h), and W02d records the dependency.
+
+### Locks, waiters and messages
+
+- `flock` is not a queue, and a late withdrawal order is no order. Waiters wake in an order the kernel chooses, and an
+  owner in a long turn reads its inbox only between turns; four jobs took the lock ahead of the critical path within
+  one hour after they were ordered withdrawn. Every heavy wrapper checks a per-lane veto file (`lock_veto <lane>`) as
+  its first statement after taking the lock; only the coordinator writes one. It worked on first use: a multi-hour
+  rerun queued at a head with two open defects stopped before it took the lock, and nobody killed anything.
+- Say "check the veto" in a run order, never "write the veto file": a veto file stops the lane it names.
+- Waiters must watch the real process or file, with patterns that cannot match themselves. The wake-up gap recurred
+  for 12 hours because `pgrep -f` matched the waiter's own command line, a zsh glob that matched nothing aborted the
+  waiter's loop on every pass, and the combined runner holds the lock inside Python where a `flock` pgrep cannot see
+  it. Use `find` for file waits and the job's own PID for process waits, and test the waiter once on a known match.
+- Messages between agents arrive late and in batches, without timestamps. A ruling sent once can cross a report and
+  read as "pending" on both sides. Restate every ruling in one short line, name the commit it binds, and treat
+  "pending ruling" as a signal to resend.
+- Read the failing component's log before naming a cause. A validator's runbook failure was blamed on a concurrent
+  smoke from timing alone; the web process log said "Module not found build/index.js" (no web build in that hold).
+- Host resource gates are gates. Under memory and disk pressure the runner voided legs (exit 96) rather than running
+  them short; nobody lowered a gate, and the writer that ate the disk (another session's workload) was identified by
+  /proc io counters and left alone.
+- Rehearse the validation before the head arrives. A lock-free rehearsal of the hold at an interim head found a red
+  typecheck and an untested branch before any lock time was spent on them.
+- Prove a rebase, do not describe it: patch-ids of the code commits, byte-identical code files, and the docs unions
+  read; compare each side's own change against its own base.
+
+### Validation (validator-5)
+
+- A fresh validation worktree needs three installs: the repository root, web/, and the isolated gate-integrity parser
+  (`bun install --cwd .github/gate-integrity-deps --frozen-lockfile --ignore-scripts`), as ci.yml installs it.
+  Without it, scripts/gate-integrity-rule11.test.ts was 10/2 ("TypeScript AST parser is unavailable") on a correct head.
+- A red check reads every runner's own summary: bun ("N fail", "(fail)"), vitest ("Tests N failed"), and node --test
+  in both forms ("# fail N" and "ℹ fail N"). Missing one form marked a red mutant as survived.
+- Reverting a whole fix commit is not a red-first proof when its test imports something the fix added: that is a load
+  error, not an assertion failure. Restore only the behaviour line with a mutant instead.
+- A test that reads ignored files from disk passes vacuously in a clean worktree; plant the file the lane would leave,
+  then check.
+- In zsh, "$VAR:src/..." applies the :s history modifier even inside double quotes; write "${VAR}:path".
