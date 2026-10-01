@@ -69,6 +69,14 @@ RUN if [ ! -f src/__tests__/preload.ts ] || \
       exit 1; \
     fi
 
+# The web bundler follows each workspace package's `import` export to dist/,
+# which is never tracked: build every one the app imports (the SDK build also
+# builds its extension-contract project reference).
+RUN bun run --cwd packages/@ezcorp/sdk build \
+  && bun run --cwd packages/@ezcorp/factory-sdk build \
+  && bun run --cwd packages/@ezcorp/factory-transport build \
+  && bun run --cwd packages/@ezcorp/harness-client build
+
 # Generate SvelteKit types ($lib alias resolution for web tests)
 RUN cd web && bunx svelte-kit sync
 

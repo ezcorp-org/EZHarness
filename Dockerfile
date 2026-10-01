@@ -36,6 +36,8 @@ COPY . .
 # `import` export to dist/, while Bun at runtime follows the `bun` export to
 # src/. Skipped at install-time above due to layer-cache constraints.
 RUN bun run --cwd packages/@ezcorp/sdk build \
+  && bun run --cwd packages/@ezcorp/factory-sdk build \
+  && bun run --cwd packages/@ezcorp/factory-transport build \
   && bun run --cwd packages/@ezcorp/harness-client build
 RUN cd web && bun run build
 

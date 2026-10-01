@@ -12,6 +12,12 @@
  * A stage puts a file on disk by copying it, a directory that holds it, or the
  * whole context (`COPY . .`). Copies keep the repository layout in this repo's
  * container files, so a source path stands for its destination.
+ *
+ * Second rule: dist/ is never tracked, so a clean checkout has none. Every stage
+ * that builds the web app or a workspace package must first build each
+ * workspace the app sources import (with what those depend on) whose `import`
+ * export points into dist/; a package build also builds its tsc references.
+ * The set is derived from the imports and manifests, never kept by hand.
  */
 import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
@@ -58,18 +64,24 @@ function instructions(text: string): string[] {
   return out;
 }
 
-/** The directory of each frozen install a RUN command performs, following `cd <dir>` and `--cwd <dir>`. */
-function frozenInstallDirectories(command: string): string[] {
-  const directories: string[] = [];
+const normalizeDirectory = (directory: string) => posix.normalize(directory).replace(/^\.$/, "").replace(/\/$/, "");
+
+/** Each shell step of a RUN command with the directory it runs in, following `cd <dir>` and `--cwd <dir>`. */
+function runSteps(command: string): { directory: string; segment: string }[] {
+  const steps: { directory: string; segment: string }[] = [];
   let directory = "";
   for (const segment of command.split(/&&|;|\|\|/)) {
     const cd = /(?:^|[\s('"])cd\s+([^\s)'"]+)/.exec(segment);
     if (cd) directory = cd[1]!;
-    if (!/\bbun install\b/.test(segment) || !segment.includes("--frozen-lockfile")) continue;
     const cwd = /--cwd[=\s]+([^\s)'"]+)/.exec(segment);
-    directories.push(posix.normalize(cwd ? cwd[1]! : directory).replace(/^\.$/, "").replace(/\/$/, ""));
+    steps.push({ directory: normalizeDirectory(cwd ? cwd[1]! : directory), segment });
   }
-  return directories;
+  return steps;
+}
+
+/** The directory of each frozen install a RUN command performs. */
+function frozenInstallDirectories(command: string): string[] {
+  return runSteps(command).filter(step => /\bbun install\b/.test(step.segment) && step.segment.includes("--frozen-lockfile")).map(step => step.directory);
 }
 
 /** The source paths of a COPY instruction (options dropped, destination dropped). */
@@ -98,6 +110,86 @@ function frozenInstalls(containerText: string, inputs: (directory: string) => re
       found.push({ instruction: index, directory, missing: inputs(directory).filter(path => !onDisk(path)) });
     }
   });
+  return found;
+}
+
+/** True when an `exports` map resolves some subpath's `import` condition into ./dist/ (a build output, never tracked). */
+function importsDist(exports: unknown): boolean {
+  if (typeof exports !== "object" || exports === null) return false;
+  return Object.entries(exports).some(([condition, target]) =>
+    (condition === "import" && typeof target === "string" && target.startsWith("./dist/")) || importsDist(target));
+}
+
+/**
+ * The workspaces the web bundle reads from dist/: every workspace the app sources import by name, with the workspaces those
+ * depend on, kept when its `exports` send the `import` condition into ./dist/.
+ */
+function bundledDistWorkspaces(sources: readonly string[], workspaces: readonly string[], read: (path: string) => string): string[] {
+  const manifest = (directory: string) => JSON.parse(read(`${directory}/package.json`)) as {
+    name?: string; exports?: unknown; dependencies?: Record<string, string>; peerDependencies?: Record<string, string>;
+  };
+  const byName = new Map(workspaces.map(directory => [manifest(directory).name, directory]));
+  const needed = new Set<string>();
+  const need = (name: string) => {
+    const directory = byName.get(name);
+    if (directory === undefined || needed.has(directory)) return;
+    needed.add(directory);
+    const { dependencies = {}, peerDependencies = {} } = manifest(directory);
+    for (const dependency of Object.keys({ ...dependencies, ...peerDependencies })) need(dependency);
+  };
+  for (const path of sources) {
+    for (const match of read(path).matchAll(/(?:\bfrom\s*|\bimport\s*\(?\s*)["'](@ezcorp\/[a-z0-9-]+)/g)) need(match[1]!);
+  }
+  return [...needed].filter(directory => importsDist(manifest(directory).exports)).sort();
+}
+
+/** The workspace directories a package build's tsconfig.build.json references (tsc -b builds them too). */
+function buildReferences(directory: string, read: (path: string) => string): string[] {
+  let text: string;
+  try { text = read(`${directory}/tsconfig.build.json`); } catch { return []; }
+  const config = Bun.JSONC.parse(text) as { references?: { path: string }[] };
+  return (config.references ?? []).map(reference => normalizeDirectory(posix.join(directory, posix.dirname(reference.path))));
+}
+
+interface BundleBuild {
+  readonly instruction: number;
+  readonly missing: readonly string[];
+}
+
+const BUILD_STEP = /\bbun run(?:\s+--cwd[=\s]+\S+)?\s+build\b|\bvite build\b/;
+
+/**
+ * Each web build, and each stage that builds workspace packages without a web build, with the required dist/ workspaces the
+ * stage has not built by then. A package build also builds its tsc project references.
+ */
+function bundleBuilds(containerText: string, required: readonly string[], references: (directory: string) => readonly string[]): BundleBuild[] {
+  const found: BundleBuild[] = [];
+  let built = new Set<string>();
+  let lastPackageBuild = -1;
+  let webBuilt = false;
+  const missing = () => required.filter(directory => !built.has(directory));
+  const build = (directory: string) => {
+    if (built.has(directory)) return;
+    built.add(directory);
+    for (const reference of references(directory)) build(reference);
+  };
+  const closeStage = () => {
+    if (lastPackageBuild >= 0 && !webBuilt) found.push({ instruction: lastPackageBuild, missing: missing() });
+    built = new Set();
+    lastPackageBuild = -1;
+    webBuilt = false;
+  };
+  instructions(containerText).forEach((instruction, index) => {
+    const keyword = instruction.split(/\s+/, 1)[0]!.toUpperCase();
+    if (keyword === "FROM") { closeStage(); return; }
+    if (keyword !== "RUN") return;
+    for (const step of runSteps(instruction)) {
+      if (!BUILD_STEP.test(step.segment)) continue;
+      if (step.directory === "web") { webBuilt = true; found.push({ instruction: index, missing: missing() }); }
+      else if (step.directory.startsWith("packages/")) { build(step.directory); lastPackageBuild = index; }
+    }
+  });
+  closeStage();
   return found;
 }
 
@@ -136,6 +228,27 @@ describe("container files put every input of a frozen install on disk first", ()
   test.each(files.length > 0 ? files : ["<none>"])("%s puts every frozen-install input on disk", path => {
     const incomplete = (installs.get(path) ?? []).filter(install => install.missing.length > 0);
     expect(incomplete.map(install => ({ path, ...install }))).toEqual([]);
+  });
+});
+
+describe("container files build every dist/ workspace the web bundle reads before they build it", () => {
+  const read = (path: string) => readFileSync(resolve(ROOT, path), "utf8");
+  const sources = git("ls-files", "--", "src", "web/src").split("\n")
+    .filter(path => /\.(ts|js|svelte)$/.test(path) && !/(\.test\.|\.spec\.|__tests__\/)/.test(path));
+  const required = bundledDistWorkspaces(sources, lockWorkspaces(read("bun.lock")), read);
+  const files = git("ls-files", "--", "*Dockerfile*", "*Containerfile*").split("\n").filter(Boolean).filter(isContainerFile);
+  const builds = new Map(files.map(path => [path, bundleBuilds(read(path), required, directory => buildReferences(directory, read))]));
+
+  test("the required set comes from the app's imports, and the scan finds the building images", () => {
+    expect(required).toEqual(expect.arrayContaining(["packages/@ezcorp/factory-sdk", "packages/@ezcorp/factory-transport", "packages/@ezcorp/sdk"]));
+    expect(required).not.toContain("packages/@ezcorp/extension-runner");
+    expect(buildReferences("packages/@ezcorp/sdk", read)).toEqual(["packages/@ezcorp/extension-contract"]);
+    for (const path of ["Dockerfile", "Dockerfile.dev", "Dockerfile.test"]) expect(builds.get(path)?.length).toBeGreaterThan(0);
+  });
+
+  test.each(files.length > 0 ? files : ["<none>"])("%s builds every required dist/ workspace before the bundle", path => {
+    const incomplete = (builds.get(path) ?? []).filter(check => check.missing.length > 0);
+    expect(incomplete.map(check => ({ path, ...check }))).toEqual([]);
   });
 });
 
@@ -203,5 +316,55 @@ describe("the container-file reader", () => {
   test("treats Dockerfile and Containerfile names as container files, never a .txt record", () => {
     expect(["Dockerfile", "Dockerfile.dev", "deploy/factory/Dockerfile", "x/Containerfile"].every(isContainerFile)).toBe(true);
     expect(["docs/inputs/Dockerfile.txt", "Dockerfile.dev.bak.old", "scripts/Dockerfile-notes.md"].some(isContainerFile)).toBe(false);
+  });
+});
+
+describe("the bundle-build reader", () => {
+  const required = ["packages/a", "packages/b", "packages/c"];
+  const references = (directory: string) => (directory === "packages/b" ? ["packages/c"] : []);
+
+  test("checks each web build against the packages its stage built, references included", () => {
+    const text = [
+      "FROM x AS builder",
+      "COPY . .",
+      "RUN bun run --cwd packages/b build",
+      "RUN cd web && PI_SKIP_INIT=1 bun run build",
+      "RUN bun run --cwd packages/a build --force",
+      "RUN cd web && bunx vite build",
+    ].join("\n");
+    expect(bundleBuilds(text, required, references)).toEqual([
+      { instruction: 3, missing: ["packages/a"] },
+      { instruction: 5, missing: [] },
+    ]);
+  });
+
+  test("checks a stage that builds packages without a web build at its last package build; a FROM resets it", () => {
+    const text = ["FROM x", "RUN bun run --cwd packages/a build \\", " && bun run --cwd packages/b build", "FROM y", "RUN bun run build", "RUN echo done"].join("\n");
+    expect(bundleBuilds(text, required, references)).toEqual([{ instruction: 1, missing: [] }]);
+    expect(bundleBuilds("FROM x\nRUN bun run --cwd packages/a build", required, references)).toEqual([{ instruction: 1, missing: ["packages/b", "packages/c"] }]);
+  });
+
+  test("derives the required set from imports, dependencies and dist/ import exports", () => {
+    const files: Record<string, string> = {
+      "src/a.ts": 'import { x } from "@ezcorp/app";\nconst y = await import("@ezcorp/other/sub");',
+      "web/src/b.svelte": "import '@ezcorp/unknown';",
+      "packages/app/package.json": JSON.stringify({ name: "@ezcorp/app", exports: { ".": { bun: "./src/index.ts", import: "./dist/index.js" } }, dependencies: { "@ezcorp/lib": "workspace:*" } }),
+      "packages/lib/package.json": JSON.stringify({ name: "@ezcorp/lib", exports: { "./x": { import: "./dist/x.js" } } }),
+      "packages/other/package.json": JSON.stringify({ name: "@ezcorp/other", exports: { ".": { bun: "./src/index.ts", import: "./src/index.ts" } }, peerDependencies: { "@ezcorp/app": "*" } }),
+      "packages/unused/package.json": JSON.stringify({ name: "@ezcorp/unused", exports: { ".": { import: "./dist/i.js" } } }),
+    };
+    const read = (path: string) => { const text = files[path]; if (text === undefined) throw new Error(`no ${path}`); return text; };
+    const workspaces = ["packages/app", "packages/lib", "packages/other", "packages/unused"];
+    expect(bundledDistWorkspaces(["src/a.ts", "web/src/b.svelte"], workspaces, read)).toEqual(["packages/app", "packages/lib"]);
+    expect(importsDist("./dist/x.js")).toBe(false);
+  });
+
+  test("reads tsc project references relative to the package, and none without a build config", () => {
+    const read = (path: string) => {
+      if (path === "packages/b/tsconfig.build.json") return '{ // comment\n "references": [{ "path": "../c/tsconfig.build.json" }], }';
+      throw new Error("ENOENT");
+    };
+    expect(buildReferences("packages/b", read)).toEqual(["packages/c"]);
+    expect(buildReferences("packages/a", read)).toEqual([]);
   });
 });

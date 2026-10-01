@@ -96,6 +96,8 @@ COPY --chown=1000:1000 . .
 # The SDK build also builds its extension-contract project reference. Keep
 # standard import exports available to Vite on the first clean app start.
 RUN bun run --cwd packages/@ezcorp/sdk build --force \
+ && bun run --cwd packages/@ezcorp/factory-sdk build --force \
+ && bun run --cwd packages/@ezcorp/factory-transport build --force \
  && bun run --cwd packages/@ezcorp/harness-client build --force
 
 # The root runtime identity is intentional for isolated-runner socket access;
