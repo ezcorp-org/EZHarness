@@ -1,0 +1,10 @@
+Gate integrity FAILED (7 finding(s)):
+  test file RENAMED (R097): web/e2e/real-auth/factory-authoring-flow.spec.ts → web/e2e/factory-authoring-flow.spec.ts — renames can de-gate pattern-matched test sets — needs the gate-change-approved label
+  coverage gate tool changed (M): scripts/check-coverage.ts — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label
+  coverage gate tool changed (M): scripts/check-new-file-coverage.ts — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label
+  coverage gate tool changed (M): scripts/check-patch-coverage.ts — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label
+  coverage gate tool changed (A): scripts/coverage-attestations.json — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label
+  coverage gate tool changed (M): scripts/lcov-noise-filter.ts — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label
+  coverage gate tool changed (M): scripts/merge-lcov.ts — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label
+
+If a change here is legitimate, a maintainer must apply the `gate-change-approved` label (sets GATE_CHANGE_APPROVED=1).

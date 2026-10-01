@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# wave4f FINAL merge and gates (lead 2026-09-28; model: w18c/heavy/final-merge-gates.sh). The runner merges and gates at
+# the end of its own part, BEFORE the browser legs, so files measured only by the browser route coverage (the web/src
+# .svelte console files) fail new-file there with "no measured coverage". This step is authoritative for wave4f:
+#   inputs = the runner's own re-rooted inputs (<E>/<prefix>-lcov-inputs/*.lcov, written by the runner with its rules;
+#            reused, not re-derived) + every *.info under the browser coverage dir that
+#            scripts/merge-browser-route-coverage.sh wrote from the five ordinary lanes (CI does not merge factory-services) (browser lcov is already repo-rooted; W18c's model joins it as is)
+#   gates  = merge-lcov, global floor, per-file thresholds, new-file and patch against each base, CRAP (changed) against
+#            the quality base, gate-integrity with the head's script against origin/main and against each base
+# The runner's <prefix>-coverage-results.json stays in the receipts as INTERIM (reason above). A missing input set fails
+# by name; nothing is skipped. Usage: final-merge-gates.sh <prefix> <browser-coverage-dir> <bases,comma> <quality-base>
+set -u
+P=$1 B=$2 BASES=$3 QBASE=$4
+E=/tmp/factory-platform-evidence; O=${FINAL_OUT:-$E/w00/wave4f/final}
+S=${FINAL_REPO:-/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration}
+# FINAL_REPO / FINAL_OUT (defaults: the integration worktree, wave4f/final) let another run (W12e full pool) use the same gates.
+unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE DATABASE_URL FACTORY_TEST_POSTGRES_URL GATE_CHANGE_APPROVED
+. $E/w00/bun-pin.sh; bun_pin "$S"
+. $E/w00/resource-gate.sh
+cd $S || exit 2
+[ -z "$(git status --porcelain)" ] || { echo "REFUSED: staging not clean"; exit 3; }
+rm -rf $O; mkdir -p $O/inputs; L=$O/gates.txt
+resource_gate final-merge-gates $L || exit 1
+echo "head=$(git rev-parse HEAD) start=$(date -u +%FT%TZ) bun=$(bun --version)" >> $L
+st=0
+R=$E/$P-lcov-inputs
+# Both input sets must be for THIS head (as w18c/heavy/final-merge-gates.sh checks): the runner's coverage-results head,
+# and a head.txt the browser producer writes next to its merged output (one line: the commit it ran at).
+rh=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('head',''))" $E/$P-coverage-results.json 2>/dev/null)
+[ "$rh" = "$(git rev-parse HEAD)" ] || { echo "runner results are not for HEAD (results head '$rh')" >> $L; st=1; }
+bh=$(cat "$B/../head.txt" 2>/dev/null)
+[ "$bh" = "$(git rev-parse HEAD)" ] || { echo "browser coverage is not for HEAD (head.txt '$bh')" >> $L; st=1; }
+if ls $R/*.lcov > /dev/null 2>&1; then cp $R/*.lcov $O/inputs/; echo "runner inputs: $(ls $R/*.lcov | wc -l) from $R" >> $L
+else echo "runner inputs MISSING: $R (the runner's merge was blocked; see $E/$P-coverage-results.json mergeBlockedBy)" >> $L; st=1; fi
+n=0; while IFS= read -r f; do cp "$f" "$O/inputs/browser-$n.lcov"; n=$((n+1)); done < <(find "$B" -name '*.info' 2>/dev/null | sort)
+[ $n -gt 0 ] && echo "browser inputs: $n from $B" >> $L || { echo "browser inputs MISSING: no *.info under '$B'" >> $L; st=1; }
+( cd $O/inputs && sha256sum *.lcov ) > $O/inputs.sha256
+# Browser lcov carries ABSOLUTE SF paths (w18c-2, 2026-09-28); merge-lcov.ts relativizes only those under its own
+# REPO_ROOT, so the browser coverage must come from THIS checkout, or every browser record falls out of the gates.
+foreign=$(cat $O/inputs/browser-*.lcov 2>/dev/null | grep '^SF:/' | grep -v "^SF:$S/" | grep -vc '^SF:/tmp/' || true)
+[ "$foreign" = 0 ] || { echo "browser inputs from another checkout: $foreign absolute SF not under $S/" >> $L; st=1; }
+g() { local n=$1 r; shift; "$@" > $O/$n.log 2>&1; r=$?; echo "$n exit=$r | $(tail -1 $O/$n.log | cut -c1-180)" >> $L; [ $r -eq 0 ] || st=1; }
+if [ $st -eq 0 ]; then
+  g merge bun scripts/merge-lcov.ts "$O/inputs/*.lcov" coverage/lcov.info; cp coverage/lcov.info $O/merged-lcov.info
+  # Guard (w18c-2): after the merge no absolute SF may remain except test temp files under /tmp.
+  abs=$(grep '^SF:/' $O/merged-lcov.info | grep -vc '^SF:/tmp/' || true)
+  echo "absolute SF outside /tmp after merge: $abs" >> $L; [ "$abs" = 0 ] || st=1
+  g global-floor bun scripts/check-global-coverage.ts
+  g per-file-thresholds bun scripts/check-coverage.ts
+  for b in ${BASES//,/ }; do t=${b//\//_}
+    g new-file-$t env BASE_REF=$b bun scripts/check-new-file-coverage.ts
+    g patch-$t env BASE_REF=$b bun scripts/check-patch-coverage.ts
+    g gate-integrity-$t env BASE_REF=$b bun scripts/gate-integrity.ts
+  done
+  g gate-integrity-origin_main bun scripts/gate-integrity.ts
+  g crap-changed-${QBASE//\//_} env BASE_REF=$QBASE bun scripts/crap-score.ts --changed
+  rm -f coverage/lcov.info
+else echo "gates NOT RUN: an input set is missing (named above); this is a red, not a skip" >> $L; fi
+echo "end=$(date -u +%FT%TZ) status=$st dirty=$(git status --porcelain | wc -l) lcov-sha256=$(sha256sum $O/merged-lcov.info 2>/dev/null | cut -c1-16)" >> $L
+cat $L; exit $st
