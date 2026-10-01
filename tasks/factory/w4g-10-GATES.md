@@ -23,11 +23,18 @@ busy process per CPU (32) beside the test, under the heavy lock (`under-load.sh`
 | The fix | — | The cold load is paid once in `beforeAll`, under vitest's default 10 s hook budget; each test still re-imports a fresh module after `vi.resetModules()`. Per-test imports under the load: 89 to 212 ms (`timing-green.txt`, `timing-green-hook.txt`). No timeout is changed. | this commit |
 | Nothing else broken | — | typecheck 0, lint 0; web vitest in the hosted shape, three shards: 631 files, 7843 tests | this commit |
 
-## Margin, and the option for the coordinator
+## Margin, the fallback, and when to revisit (coordinator ruling: accepted as is, no option (b))
 
-- Under the 32-process hog, `beforeAll` itself takes 5996 to 8886 ms (`timing-green-hook.txt`) against the 10 s default
-  hook budget: the flake is gone from the tests, but the hook's worst margin under that load is about 1.1 s.
-- Option (b), not applied: stub the collaborators `context.ts` reaches only after `initDb` (workflow-executor, the
-  extension registry, the tool executor, the agent executor). The cold load then takes 2048 ms idle and 4839 to 5441 ms
-  under the hog (`timing-stubbed*.txt`, `probes/context-initialization-stubbed.server.test.ts`). It changes the suite's
-  stated design ("Only `$server/db/connection` is replaced here"), so it is the coordinator's call.
+| Measure | Idle host | Beside the hog (one busy process per CPU, 32) |
+| --- | --- | --- |
+| The `beforeAll` cold load, as committed | 3601 ms (the first import, `timing-idle.txt`) | 5996 to 8886 ms (`timing-green-hook.txt`) |
+| Margin against vitest's default 10 s hook budget | about 6.4 s | about 1.1 s at worst |
+| Per-test re-import after `vi.resetModules()` | 52 to 59 ms | 89 to 212 ms |
+| Option (b), the fallback: also stub workflow-executor, the extension registry, the tool executor and the agent executor | 2048 ms | 4839 to 5441 ms (`timing-stubbed*.txt`) |
+
+- Kept as is: the suite's value is the real server graph with only the database connection replaced; option (b)
+  would make it prove less. The hog is synthetic: the hosted shards and the local pool do not run one busy process
+  per CPU beside a test.
+- The flake fixed here was the 5 s per-test budget charged with the cold load; that charge is gone.
+- Revisit when a hook timeout in this suite is seen in any hosted shard or pool run; option (b) is then the measured
+  fallback (`probes/context-initialization-stubbed.server.test.ts`).
