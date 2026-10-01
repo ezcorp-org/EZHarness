@@ -6,7 +6,10 @@
 # in the repository is unlinted, untyped, untested and unmeasured.
 #
 # Tool paths come from the REPOSITORY PINS, never from a machine path:
-#   * interpreter  — `.python-version` at the repository root (exact match)
+#   * interpreter  — `.python-version` at the repository root (exact match). Each project's own
+#                    `.python-version` is a LINK to that file: `uv run --project <p>` reads only the
+#                    project's pin, never the root's, so without the link `requires-python` alone let
+#                    uv choose the newest matching interpreter (W4G-2).
 #   * dependencies — each locked project's `uv.lock` via `uv sync --locked`
 #   * tool versions — the `dev` dependency group in that project's pyproject.toml
 #
@@ -62,6 +65,10 @@ for project_rel in "${PROJECTS[@]}"; do
   [ -f "$REPO_ROOT/$project_rel/pyproject.toml" ] || fail "missing $project_rel/pyproject.toml"
   [ -f "$REPO_ROOT/$project_rel/uv.lock" ] || fail "missing $project_rel/uv.lock"
   [ -d "$REPO_ROOT/$project_rel/tests" ] || fail "missing $project_rel/tests"
+  # One source of truth: the project pin is a link to the repository pin, never a copy that can drift.
+  project_pin="$REPO_ROOT/$project_rel/.python-version"
+  { [ -L "$project_pin" ] && [ "$(readlink -f "$project_pin")" = "$(readlink -f "$PIN_FILE")" ]; } \
+    || fail "$project_rel/.python-version must be a link to the repository pin (.python-version): uv reads a project's own pin, not the root's"
 done
 
 # `uv` resolution order: an already-provisioned uv first (CI installs a pinned

@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import { copyFileSync, lstatSync, mkdirSync, mkdtempSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Glob } from "bun";
 import { PYTHON_COVERAGE_PRODUCER, SOURCE_GLOBS, canonicalCoverageProducer, isSourceFile } from "./coverage-config.ts";
 import { missingProducers, missingThresholds } from "./lib/ci-registration.ts";
@@ -104,5 +107,60 @@ describe("Python quality lane registration", () => {
     // A machine path would defeat the point of pinning from the repository.
     expect(action).not.toContain("/tmp/factory-tools");
     expect(action).not.toContain("nix-shell");
+  });
+
+  // W4G-2: `uv run --frozen --project <p>` takes the interpreter request from <p>'s own .python-version and ignores
+  // the repository root's, so without a project pin `requires-python = "==3.13.*"` let uv pick the NEWEST 3.13 it
+  // could find or download (3.13.13 on the hosted runner) while .python-version said 3.13.12. Each project's pin is a
+  // link to the root file: one source of truth, read by uv's own project pin.
+  const lockedProjects = async (): Promise<string[]> => {
+    const script = await readFile("scripts/python-quality.sh", "utf8");
+    const block = /^PROJECTS=\(\n([\s\S]*?)\n\)$/m.exec(script)?.[1] ?? "";
+    return [...block.matchAll(/"([^"]+)"/g)].map((match) => match[1]!);
+  };
+
+  test("every locked project reads the repository pin through its own .python-version, a link to the root file", async () => {
+    const projects = await lockedProjects();
+    expect(projects).toEqual(["src/factory/runner/python", "src/factory/reference-image/python"]);
+    const root = realpathSync(".python-version");
+    for (const project of projects) {
+      const pin = `${project}/.python-version`;
+      expect(lstatSync(pin).isSymbolicLink(), `${pin} must be a link to the root pin, not a copy`).toBe(true);
+      expect(readlinkSync(pin).startsWith("/"), `${pin} must be a relative link`).toBe(false);
+      expect(realpathSync(pin), `${pin} must resolve to the root .python-version`).toBe(root);
+    }
+  });
+
+  test("the lane refuses, by name and before any interpreter runs, a project that does not read the repository pin", async () => {
+    const projects = await lockedProjects();
+    const run = (setup: (tree: string, project: string) => void) => {
+      const tree = mkdtempSync(join(tmpdir(), "python-pin-"));
+      try {
+        mkdirSync(join(tree, "scripts"));
+        copyFileSync("scripts/python-quality.sh", join(tree, "scripts/python-quality.sh"));
+        writeFileSync(join(tree, ".python-version"), "3.13.12\n");
+        for (const project of projects) {
+          mkdirSync(join(tree, project, "tests"), { recursive: true });
+          for (const file of ["pyproject.toml", "uv.lock"]) writeFileSync(join(tree, project, file), "");
+          setup(tree, project);
+        }
+        // PATH holds only the tools the script uses before its uv lookup, with no uv and no Nix: a tree that passes
+        // the pin check stops at the uv readiness check instead.
+        const bin = join(tree, ".bin");
+        mkdirSync(bin);
+        for (const tool of ["tr", "readlink", "dirname"]) symlinkSync(Bun.which(tool)!, join(bin, tool));
+        const result = Bun.spawnSync([Bun.which("bash")!, "scripts/python-quality.sh", "lint"], { cwd: tree, env: { PATH: bin }, stdout: "pipe", stderr: "pipe" });
+        return { exitCode: result.exitCode, stderr: result.stderr.toString() };
+      } finally { rmSync(tree, { recursive: true, force: true }); }
+    };
+    const missing = run(() => {});
+    expect(missing.exitCode).toBe(1);
+    expect(missing.stderr).toContain("python quality: src/factory/runner/python/.python-version must be a link to the repository pin");
+    const copied = run((tree, project) => writeFileSync(join(tree, project, ".python-version"), "3.13.12\n"));
+    expect(copied.exitCode).toBe(1);
+    expect(copied.stderr).toContain("must be a link to the repository pin");
+    const linked = run((tree, project) => symlinkSync("../".repeat(project.split("/").length) + ".python-version", join(tree, project, ".python-version")));
+    expect(linked.stderr).not.toContain("must be a link to the repository pin");
+    expect(linked.stderr).toContain("no 'uv' available");
   });
 });
