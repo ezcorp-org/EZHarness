@@ -11,3 +11,4 @@ chain. The HIGH advisories at this base (brace-expansion, devalue, fast-uri at t
 | --- | --- | --- | --- |
 | hono (root) | `logs/root-hono-before.log`: 4.13.0, four moderate (<4.13.5 three, <4.13.7 one) | `logs/root-hono-after.log` names no hono; 4.13.0 to 4.13.12; `root-hono-lockfile-diff.txt`: one line | this commit |
 | ip-address (root) | `logs/root-ip-address-before.log`: 10.4.0, four moderate (<=10.5.0) | `logs/root-ip-address-after.log` names no ip-address; 10.4.0 to 10.7.2; `root-ip-address-lockfile-diff.txt`: one line | this commit |
+| qs (root) | `logs/root-qs-before.log`: 6.15.3, two moderate (<=6.15.3, <6.16.0) | `logs/root-qs-after.log` names no qs; 6.15.3 to 6.16.0, same dependencies; `root-qs-lockfile-diff.txt`: one line | this commit |
