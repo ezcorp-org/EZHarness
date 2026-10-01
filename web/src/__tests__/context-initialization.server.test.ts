@@ -22,7 +22,7 @@
  * real module, and the assertions are about what a caller observes, not about
  * how initialization is implemented.
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 let initDbCalls = 0;
 let initDbBehaviour: () => Promise<void> = async () => {};
@@ -54,6 +54,14 @@ async function freshContext() {
 }
 
 describe("ensureInitialized", () => {
+  // The first import of the real context loads and transforms the whole server graph it imports: 3.6 s on an idle
+  // host and 6 to 9 s beside a CPU hog, against each test's 5 s budget (W4G-10). No test here measures that load, so
+  // it is paid once, before them; each test still re-imports a fresh module after vi.resetModules(), which then takes
+  // 50 to 200 ms.
+  beforeAll(async () => {
+    await import("$lib/server/context");
+  });
+
   beforeEach(() => {
     initDbCalls = 0;
     initDbBehaviour = async () => {};
