@@ -1960,3 +1960,11 @@ smokes under the lock, detached-job wake-ups) are not repeated.
 - Keep a merge's gates doc on a side branch, a child of the merge, so the merge commit stays the reviewed object. The
   integrator publishes the merge by compare-and-swap, then checks that the side branch adds only the gates file and
   fast-forwards to it.
+
+### W4G-1 (2026-10-01)
+
+- `mapfile` is a bash builtin; in zsh (the agents' shell here) it fills nothing, so `bun test "${LIST[@]}"` ran with no files
+  and bun tested the whole repository outside the lock (about six minutes, stopped by the owner, no OOM). Build a test
+  list only inside a bash script, and refuse an empty list before calling `bun test` (w4g-1/guard-run.sh does both).
+- A frozen install reads more than the workspace manifests: `patchedDependencies` patch files too. A container guard
+  derives every input from the lock and the manifest it serves, and the image proof builds past every install, to the end.
