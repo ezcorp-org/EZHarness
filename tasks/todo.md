@@ -5380,3 +5380,14 @@ Gates: tasks/factory/w12e-GATES.md. Evidence: /tmp/factory-platform-evidence/w12
 - [ ] G3 at the final head: the full backend pool under 1.4.2 (wave4f machinery) and the browser lanes.
 
 Review: open.
+
+## W4F-3 — CRAP splits for settlement and inbox-event validation (branch `wp/w4f-3-crap-settlement-validation`; gates `tasks/factory/w4f-GATES.md`)
+
+- [x] Red recorded: buildFactoryUsageSettlement 39, validateInboxEvent 35 (w12e-fix-final/crap-changed-origin_main.log).
+- [x] Split buildFactoryUsageSettlement into field, proof and amount/basis guards plus a seal helper (b9a711809).
+- [x] Split validateInboxEvent into attempt-stopped, run-control and replan-replacement helpers (bdc9484b6).
+- [x] Every function in both files <= 13 at 100% coverage; suites, patch gate, boundaries, typecheck, lint green at the rebased head.
+
+Review: both functions were long guard chains, so each split moves ordered guards into named helpers without changing any check,
+order, error code or message. The existing suites cover every changed line, so no test was added or changed. Receipts:
+/tmp/factory-platform-evidence/w4f/w4f-3/report.txt.
