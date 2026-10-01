@@ -45,92 +45,117 @@ function errorView(error: unknown): Readonly<Record<string, unknown>> {
   return error instanceof Error ? { name: error.name, code: (error as { code?: string }).code, message: error.message } : { message: String(error) };
 }
 
+/** One operator command: the arguments after its name (consumed in place by `option`), the context, and the actor. */
+type FactoryFleetCommandHandler = (args: string[], context: FactoryFleetCommandContext, who: FactoryOperationActor) => Promise<unknown>;
+
+async function fleetPlatform(_args: string[], context: FactoryFleetCommandContext): Promise<unknown> {
+  await context.startPlatform();
+  return { platform: "started", project: `ezcorp-factory-${context.settings.fleetId}-platform` };
+}
+
+async function fleetProvision(args: string[], { fleet, settings }: FactoryFleetCommandContext, who: FactoryOperationActor): Promise<unknown> {
+  const through = option(args, "--through");
+  const administratorEmail = option(args, "--admin-email");
+  if (administratorEmail !== undefined && args.length !== 1) throw new FactoryProvisioningError("cli_usage", "--admin-email names the administrator of exactly one tenant");
+  if (through !== undefined && !FACTORY_PROVISIONING_STEP_NAMES.includes(through as FactoryProvisioningStepName)) throw new FactoryProvisioningError("cli_usage", `unknown step ${through}`);
+  const results = [];
+  for (const tenantId of args) {
+    const hostname = factoryInstallationHostname(settings, tenantId);
+    try {
+      const installation = await fleet.provisioner.provision({ tenantId, hostname, administratorEmail: administratorEmail ?? `admin@${hostname}` }, { ...who, ...(through ? { through: through as FactoryProvisioningStepName } : {}) });
+      await fleet.upgrades.adopt(tenantId, factoryFleetDefaultBuild(settings).buildId);
+      results.push({ tenantId, phase: installation.phase, installationId: installation.installationId, steps: installation.steps.map((step) => ({ step: step.step, state: step.state, attempts: step.attempts })) });
+    } catch (error) { results.push({ tenantId, error: errorView(error) }); }
+  }
+  return { provision: results };
+}
+
+async function fleetObserve(args: string[], context: FactoryFleetCommandContext, who: FactoryOperationActor): Promise<unknown> {
+  const observer = await context.observer();
+  const results = [];
+  for (const tenantId of args) {
+    try { results.push({ tenantId, phase: (await context.fleet.provisioner.observeBootstrap(tenantId, observer, who)).phase }); }
+    catch (error) { results.push({ tenantId, error: errorView(error) }); }
+  }
+  return { observe: results };
+}
+
+async function fleetRotate(args: string[], { fleet }: FactoryFleetCommandContext, who: FactoryOperationActor): Promise<unknown> {
+  const [tenantId, step] = args;
+  if (!tenantId || !step || !["database", "storage", "temporal", "secrets", "deployment", "invitation"].includes(step)) throw new FactoryProvisioningError("cli_usage", "rotate <tenant> <database|storage|temporal|secrets|deployment|invitation>");
+  return { rotate: { tenantId, step, phase: (await fleet.provisioner.rotate(tenantId, step as "database", who)).phase } };
+}
+
+async function fleetTeardown(args: string[], { fleet }: FactoryFleetCommandContext, who: FactoryOperationActor): Promise<unknown> {
+  const reason = option(args, "--reason") ?? "operator teardown";
+  if (!args[0]) throw new FactoryProvisioningError("cli_usage", "teardown <tenant> --reason <text>");
+  const outcome = await fleet.provisioner.teardown(args[0], { reason, ...who });
+  return { teardown: { tenantId: args[0], phase: outcome.installation.phase, residues: outcome.residues } };
+}
+
+async function fleetPurge(args: string[], context: FactoryFleetCommandContext, who: FactoryOperationActor): Promise<unknown> {
+  const approvalId = option(args, "--approval");
+  const reason = option(args, "--reason") ?? "operator purge";
+  if (!args[0] || !approvalId) throw new FactoryProvisioningError("cli_usage", "purge <tenant> --approval <approval ID an administrator issued> --reason <text>");
+  return { purge: { tenantId: args[0], phase: (await context.fleet.provisioner.purge(args[0], { approvalId, reason, ...who }, await context.purgeChecks())).phase } };
+}
+
+async function upgradeRegister(more: string[], { fleet }: FactoryFleetCommandContext): Promise<unknown> {
+  const [buildId, image, revision, releaseDirectory] = more;
+  if (!buildId || !image || !revision || !releaseDirectory) throw new FactoryProvisioningError("cli_usage", "upgrade register <build> <image@sha256:...> <revision> <release directory>");
+  const build: FactoryBuild = { buildId, image, revision, releaseDirectory: resolve(releaseDirectory) };
+  await fleet.upgrades.register(build);
+  return { registered: build };
+}
+
+async function upgradeWave(more: string[], { fleet }: FactoryFleetCommandContext): Promise<unknown> {
+  const canary = option(more, "--canary");
+  const [buildId, ...tenants] = more;
+  if (!buildId || !canary || tenants.length === 0) throw new FactoryProvisioningError("cli_usage", "upgrade wave <build> --canary <tenant> <tenant>...");
+  return { wave: await fleet.upgrades.wave({ buildId, canary, tenants }) };
+}
+
+async function upgradeAbandon(more: string[], { fleet }: FactoryFleetCommandContext): Promise<unknown> {
+  if (!more[0]) throw new FactoryProvisioningError("cli_usage", "upgrade abandon <wave>");
+  await fleet.upgrades.abandon(more[0]);
+  return { abandoned: more[0] };
+}
+
+async function upgradeRetire(_more: string[], context: FactoryFleetCommandContext): Promise<unknown> {
+  return { retired: await context.fleet.upgrades.retire((await context.purgeChecks()).census) };
+}
+
+const FLEET_UPGRADE_ACTIONS: Readonly<Record<string, (more: string[], context: FactoryFleetCommandContext) => Promise<unknown>>> = {
+  register: upgradeRegister, wave: upgradeWave, abandon: upgradeAbandon, retire: upgradeRetire,
+};
+
+async function fleetUpgrade(args: string[], context: FactoryFleetCommandContext): Promise<unknown> {
+  const [action, ...more] = args;
+  if (action !== undefined && Object.hasOwn(FLEET_UPGRADE_ACTIONS, action)) return FLEET_UPGRADE_ACTIONS[action]!(more, context);
+  throw new FactoryProvisioningError("cli_usage", "upgrade <register|wave|abandon|retire> ...");
+}
+
+async function fleetHost(args: string[], { fleet }: FactoryFleetCommandContext): Promise<unknown> {
+  if (args[0] === "status") return { host: { poolId: fleet.host.identity.poolId, hostId: fleet.host.identity.hostId, admitted: (await fleet.host.admitted()).map((entry) => entry.tenantId) } };
+  if (args[0] === "decommission") { await fleet.host.decommission(); return { host: { decommissioned: fleet.host.identity.hostId } }; }
+  throw new FactoryProvisioningError("cli_usage", "host <status|decommission>");
+}
+
+async function fleetStatus(args: string[], { fleet }: FactoryFleetCommandContext): Promise<unknown> {
+  if (args[0]) return { status: await fleet.provisioner.status(args[0]), events: await fleet.provisioner.ledger.events(args[0]), builds: await fleet.upgrades.builds(args[0]) ?? null };
+  return { directory: await fleet.provisioner.ledger.directory() };
+}
+
+/** Every operator command by name; a name not here, prototype names included, is an unknown command. */
+const FLEET_COMMANDS: Readonly<Record<string, FactoryFleetCommandHandler>> = {
+  platform: fleetPlatform, provision: fleetProvision, observe: fleetObserve, rotate: fleetRotate, teardown: fleetTeardown,
+  purge: fleetPurge, upgrade: fleetUpgrade, host: fleetHost, status: fleetStatus,
+};
+
 /** Dispatch one command. Throws on a usage error; per-tenant failures are reported in the result. */
 export async function runFactoryFleetCommand(command: string, rest: readonly string[], context: FactoryFleetCommandContext): Promise<unknown> {
-  const args = [...rest];
-  const { fleet, settings } = context;
-  const who: FactoryOperationActor = { actor: context.actor };
-  switch (command) {
-    case "platform":
-      await context.startPlatform();
-      return { platform: "started", project: `ezcorp-factory-${settings.fleetId}-platform` };
-    case "provision": {
-      const through = option(args, "--through");
-      const administratorEmail = option(args, "--admin-email");
-      if (administratorEmail !== undefined && args.length !== 1) throw new FactoryProvisioningError("cli_usage", "--admin-email names the administrator of exactly one tenant");
-      if (through !== undefined && !FACTORY_PROVISIONING_STEP_NAMES.includes(through as FactoryProvisioningStepName)) throw new FactoryProvisioningError("cli_usage", `unknown step ${through}`);
-      const results = [];
-      for (const tenantId of args) {
-        const hostname = factoryInstallationHostname(settings, tenantId);
-        try {
-          const installation = await fleet.provisioner.provision({ tenantId, hostname, administratorEmail: administratorEmail ?? `admin@${hostname}` }, { ...who, ...(through ? { through: through as FactoryProvisioningStepName } : {}) });
-          await fleet.upgrades.adopt(tenantId, factoryFleetDefaultBuild(settings).buildId);
-          results.push({ tenantId, phase: installation.phase, installationId: installation.installationId, steps: installation.steps.map((step) => ({ step: step.step, state: step.state, attempts: step.attempts })) });
-        } catch (error) { results.push({ tenantId, error: errorView(error) }); }
-      }
-      return { provision: results };
-    }
-    case "observe": {
-      const observer = await context.observer();
-      const results = [];
-      for (const tenantId of args) {
-        try { results.push({ tenantId, phase: (await fleet.provisioner.observeBootstrap(tenantId, observer, who)).phase }); }
-        catch (error) { results.push({ tenantId, error: errorView(error) }); }
-      }
-      return { observe: results };
-    }
-    case "rotate": {
-      const [tenantId, step] = args;
-      if (!tenantId || !step || !["database", "storage", "temporal", "secrets", "deployment", "invitation"].includes(step)) throw new FactoryProvisioningError("cli_usage", "rotate <tenant> <database|storage|temporal|secrets|deployment|invitation>");
-      return { rotate: { tenantId, step, phase: (await fleet.provisioner.rotate(tenantId, step as "database", who)).phase } };
-    }
-    case "teardown": {
-      const reason = option(args, "--reason") ?? "operator teardown";
-      if (!args[0]) throw new FactoryProvisioningError("cli_usage", "teardown <tenant> --reason <text>");
-      const outcome = await fleet.provisioner.teardown(args[0], { reason, ...who });
-      return { teardown: { tenantId: args[0], phase: outcome.installation.phase, residues: outcome.residues } };
-    }
-    case "purge": {
-      const approvalId = option(args, "--approval");
-      const reason = option(args, "--reason") ?? "operator purge";
-      if (!args[0] || !approvalId) throw new FactoryProvisioningError("cli_usage", "purge <tenant> --approval <approval ID an administrator issued> --reason <text>");
-      return { purge: { tenantId: args[0], phase: (await fleet.provisioner.purge(args[0], { approvalId, reason, ...who }, await context.purgeChecks())).phase } };
-    }
-    case "upgrade": {
-      const [action, ...more] = args;
-      if (action === "register") {
-        const [buildId, image, revision, releaseDirectory] = more;
-        if (!buildId || !image || !revision || !releaseDirectory) throw new FactoryProvisioningError("cli_usage", "upgrade register <build> <image@sha256:...> <revision> <release directory>");
-        const build: FactoryBuild = { buildId, image, revision, releaseDirectory: resolve(releaseDirectory) };
-        await fleet.upgrades.register(build);
-        return { registered: build };
-      }
-      if (action === "wave") {
-        const canary = option(more, "--canary");
-        const [buildId, ...tenants] = more;
-        if (!buildId || !canary || tenants.length === 0) throw new FactoryProvisioningError("cli_usage", "upgrade wave <build> --canary <tenant> <tenant>...");
-        return { wave: await fleet.upgrades.wave({ buildId, canary, tenants }) };
-      }
-      if (action === "abandon") {
-        if (!more[0]) throw new FactoryProvisioningError("cli_usage", "upgrade abandon <wave>");
-        await fleet.upgrades.abandon(more[0]);
-        return { abandoned: more[0] };
-      }
-      if (action === "retire") return { retired: await fleet.upgrades.retire((await context.purgeChecks()).census) };
-      throw new FactoryProvisioningError("cli_usage", "upgrade <register|wave|abandon|retire> ...");
-    }
-    case "host": {
-      if (args[0] === "status") return { host: { poolId: fleet.host.identity.poolId, hostId: fleet.host.identity.hostId, admitted: (await fleet.host.admitted()).map((entry) => entry.tenantId) } };
-      if (args[0] === "decommission") { await fleet.host.decommission(); return { host: { decommissioned: fleet.host.identity.hostId } }; }
-      throw new FactoryProvisioningError("cli_usage", "host <status|decommission>");
-    }
-    case "status": {
-      if (args[0]) return { status: await fleet.provisioner.status(args[0]), events: await fleet.provisioner.ledger.events(args[0]), builds: await fleet.upgrades.builds(args[0]) ?? null };
-      return { directory: await fleet.provisioner.ledger.directory() };
-    }
-    default:
-      throw new FactoryProvisioningError("cli_usage", `unknown command ${command}`);
-  }
+  if (!Object.hasOwn(FLEET_COMMANDS, command)) throw new FactoryProvisioningError("cli_usage", `unknown command ${command}`);
+  return FLEET_COMMANDS[command]!([...rest], context, { actor: context.actor });
 }
 
 export interface FactoryFleetMainIo {

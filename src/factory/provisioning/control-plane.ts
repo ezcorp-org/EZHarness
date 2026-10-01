@@ -92,6 +92,65 @@ function body(request: FactoryPrivateRequest): Record<string, unknown> {
  * without a socket. The listener has already verified the client certificate
  * against the operator authority; this checks the operator is named.
  */
+/** Accepts one long-running operation for a tenant: 202, or 409/429 when it cannot run now. */
+type FactoryControlPlaneAccept = (tenantId: string, action: string, work: () => Promise<unknown>) => FactoryPrivateResponse;
+
+/** The tenant's operation that is running now and the last one that finished, for the status route. */
+interface FactoryControlPlaneOperations {
+  readonly running: ReadonlyMap<string, { readonly action: string }>;
+  readonly last: ReadonlyMap<string, { readonly action: string; readonly outcome: unknown }>;
+}
+
+function provisionRoute(options: FactoryControlPlaneOptions, accept: FactoryControlPlaneAccept, tenantId: string, input: Record<string, unknown>, who: FactoryOperationActor): FactoryPrivateResponse {
+  const through = input.through;
+  if (through !== undefined && !FACTORY_PROVISIONING_STEP_NAMES.includes(through as FactoryProvisioningStepName)) return respond(400, { error: "step_unknown" });
+  if (typeof input.administratorEmail !== "string") return respond(400, { error: "administrator_email_required" });
+  const planLimits = input.planLimits as Record<string, number> | undefined;
+  const administratorEmail = input.administratorEmail;
+  return accept(tenantId, "provision", async () => statusView(await options.provisioner.provision({ tenantId, hostname: options.hostnameFor(tenantId), administratorEmail }, { ...who, ...(through ? { through: through as FactoryProvisioningStepName } : {}), ...(planLimits ? { planLimits } : {}) })));
+}
+
+function rotateRoute(options: FactoryControlPlaneOptions, accept: FactoryControlPlaneAccept, tenantId: string, step: FactoryProvisioningStepName, who: FactoryOperationActor): FactoryPrivateResponse {
+  if (!FACTORY_PROVISIONING_STEP_NAMES.includes(step) || step === "ingress") return respond(400, { error: "step_not_rotatable" });
+  return accept(tenantId, `rotate/${step}`, async () => statusView(await options.provisioner.rotate(tenantId, step, who)));
+}
+
+function teardownRoute(options: FactoryControlPlaneOptions, accept: FactoryControlPlaneAccept, tenantId: string, input: Record<string, unknown>, who: FactoryOperationActor): FactoryPrivateResponse {
+  if (typeof input.reason !== "string" || input.reason.length === 0) return respond(400, { error: "reason_required" });
+  const reason = input.reason;
+  return accept(tenantId, "teardown", async () => { const outcome = await options.provisioner.teardown(tenantId, { reason, ...who }); return { installation: statusView(outcome.installation), residues: outcome.residues }; });
+}
+
+function purgeRoute(options: FactoryControlPlaneOptions, accept: FactoryControlPlaneAccept, tenantId: string, input: Record<string, unknown>, who: FactoryOperationActor): FactoryPrivateResponse {
+  if (typeof input.approvalId !== "string" || typeof input.reason !== "string") return respond(400, { error: "approval_required" });
+  const purge = { approvalId: input.approvalId, reason: input.reason, ...who };
+  return accept(tenantId, "purge", async () => statusView(await options.provisioner.purge(tenantId, purge, options.purgeChecks)));
+}
+
+/** A POST on one installation: the operator's mutation, attributed on the ledger to the certificate that asked for it. */
+function mutationRoute(options: FactoryControlPlaneOptions, accept: FactoryControlPlaneAccept, request: FactoryPrivateRequest, tenantId: string, segments: readonly string[]): FactoryPrivateResponse {
+  const action = segments.slice(3).join("/");
+  const input = body(request);
+  const who: FactoryOperationActor = { actor: `operator:${request.peerIdentity}` };
+  if (action === "provision") return provisionRoute(options, accept, tenantId, input, who);
+  if (action === "observe") return accept(tenantId, "observe", async () => statusView(await options.provisioner.observeBootstrap(tenantId, options.observer, who)));
+  if (segments[3] === "rotate" && segments.length === 5) return rotateRoute(options, accept, tenantId, segments[4] as FactoryProvisioningStepName, who);
+  if (action === "teardown") return teardownRoute(options, accept, tenantId, input, who);
+  if (action === "purge") return purgeRoute(options, accept, tenantId, input, who);
+  return respond(404, { error: "not_found" });
+}
+
+/** Routes one authorized request: the directory, an installation's status, or a mutation. */
+async function controlPlaneRoute(options: FactoryControlPlaneOptions, accept: FactoryControlPlaneAccept, operations: FactoryControlPlaneOperations, request: FactoryPrivateRequest): Promise<FactoryPrivateResponse> {
+  const segments = request.path.split("?")[0]!.split("/").filter(Boolean);
+  if (request.method === "GET" && segments.join("/") === "v1/directory") return respond(200, { directory: (await options.provisioner.ledger.directory()).map(factoryDirectoryEntry) });
+  if (segments[0] !== "v1" || segments[1] !== "installations" || !TENANT.test(segments[2] ?? "")) return respond(404, { error: "not_found" });
+  const tenantId = segments[2]!;
+  if (request.method === "GET" && segments.length === 3) return respond(200, { installation: statusView(await options.provisioner.status(tenantId)), events: await options.provisioner.ledger.events(tenantId), running: operations.running.get(tenantId)?.action ?? null, last: operations.last.get(tenantId) ?? null });
+  if (request.method !== "POST") return respond(405, { error: "method_not_allowed" });
+  return mutationRoute(options, accept, request, tenantId, segments);
+}
+
 export function factoryControlPlaneHandler(options: FactoryControlPlaneOptions): (request: FactoryPrivateRequest) => Promise<FactoryPrivateResponse> {
   const operators = new Set(options.operators);
   // An operation outlives any request (provisioning takes minutes), so a
@@ -113,41 +172,7 @@ export function factoryControlPlaneHandler(options: FactoryControlPlaneOptions):
     if (!operators.has(request.peerIdentity)) return respond(403, { error: "operator_required" });
     if (request.body.byteLength > MAX_BODY_BYTES) return respond(413, { error: "request_too_large" });
     try {
-      const segments = request.path.split("?")[0]!.split("/").filter(Boolean);
-      if (request.method === "GET" && segments.join("/") === "v1/directory") return respond(200, { directory: (await options.provisioner.ledger.directory()).map(factoryDirectoryEntry) });
-      if (segments[0] !== "v1" || segments[1] !== "installations" || !TENANT.test(segments[2] ?? "")) return respond(404, { error: "not_found" });
-      const tenantId = segments[2]!;
-      const action = segments.slice(3).join("/");
-      if (request.method === "GET" && action === "") return respond(200, { installation: statusView(await options.provisioner.status(tenantId)), events: await options.provisioner.ledger.events(tenantId), running: running.get(tenantId)?.action ?? null, last: last.get(tenantId) ?? null });
-      if (request.method !== "POST") return respond(405, { error: "method_not_allowed" });
-      const input = body(request);
-      // Every mutation is attributed on the ledger to the operator certificate that asked for it.
-      const who: FactoryOperationActor = { actor: `operator:${request.peerIdentity}` };
-      if (action === "provision") {
-        const through = input.through;
-        if (through !== undefined && !FACTORY_PROVISIONING_STEP_NAMES.includes(through as FactoryProvisioningStepName)) return respond(400, { error: "step_unknown" });
-        if (typeof input.administratorEmail !== "string") return respond(400, { error: "administrator_email_required" });
-        const planLimits = input.planLimits as Record<string, number> | undefined;
-        const administratorEmail = input.administratorEmail;
-        return accept(tenantId, "provision", async () => statusView(await options.provisioner.provision({ tenantId, hostname: options.hostnameFor(tenantId), administratorEmail }, { ...who, ...(through ? { through: through as FactoryProvisioningStepName } : {}), ...(planLimits ? { planLimits } : {}) })));
-      }
-      if (action === "observe") return accept(tenantId, "observe", async () => statusView(await options.provisioner.observeBootstrap(tenantId, options.observer, who)));
-      if (segments[3] === "rotate" && segments.length === 5) {
-        const step = segments[4] as FactoryProvisioningStepName;
-        if (!FACTORY_PROVISIONING_STEP_NAMES.includes(step) || step === "ingress") return respond(400, { error: "step_not_rotatable" });
-        return accept(tenantId, `rotate/${step}`, async () => statusView(await options.provisioner.rotate(tenantId, step, who)));
-      }
-      if (action === "teardown") {
-        if (typeof input.reason !== "string" || input.reason.length === 0) return respond(400, { error: "reason_required" });
-        const reason = input.reason;
-        return accept(tenantId, "teardown", async () => { const outcome = await options.provisioner.teardown(tenantId, { reason, ...who }); return { installation: statusView(outcome.installation), residues: outcome.residues }; });
-      }
-      if (action === "purge") {
-        if (typeof input.approvalId !== "string" || typeof input.reason !== "string") return respond(400, { error: "approval_required" });
-        const purge = { approvalId: input.approvalId, reason: input.reason, ...who };
-        return accept(tenantId, "purge", async () => statusView(await options.provisioner.purge(tenantId, purge, options.purgeChecks)));
-      }
-      return respond(404, { error: "not_found" });
+      return await controlPlaneRoute(options, accept, { running, last }, request);
     } catch (error) {
       if (error instanceof FactoryProvisioningError) return respond(409, { error: error.code, message: error.message });
       if (error instanceof SyntaxError) return respond(400, { error: "request_invalid" });

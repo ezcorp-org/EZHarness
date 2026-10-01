@@ -66,32 +66,42 @@ function port(value: unknown): value is number { return Number.isSafeInteger(val
 function url(value: unknown): value is string { try { return typeof value === "string" && ["http:", "https:"].includes(new URL(value).protocol); } catch { return false; } }
 function keys(value: unknown, expected: string): boolean { return typeof value === "object" && value !== null && !Array.isArray(value) && Object.keys(value).sort().join(",") === expected; }
 
+function storageDomainValid(entry: FactoryFleetStorageDomain | undefined): boolean {
+  return keys(entry, "endpoint,issuer,prefix") && url(entry!.endpoint) && /^[a-z][a-z0-9-]{0,62}$/.test(entry!.prefix)
+    && keys(entry!.issuer, "kind,serverIdentityPath") && entry!.issuer.kind === "seeded" && absolute(entry!.issuer.serverIdentityPath);
+}
+
+/** Each field after the document's own shape, in the order an operator reads the error. */
+const FLEET_FIELD_CHECKS: readonly (readonly [string, (settings: FactoryFleetSettings) => boolean])[] = [
+  ["fleetId", (settings) => typeof settings.fleetId === "string" && /^[a-z][a-z0-9-]{0,30}[a-z0-9]$/.test(settings.fleetId)],
+  ["profile", (settings) => settings.profile === "compose" || settings.profile === "kubernetes"],
+  ["roots", ({ roots }) => keys(roots, "operator,runtime,secrets") && absolute(roots.operator) && absolute(roots.secrets) && absolute(roots.runtime)],
+  ["control", ({ control }) => keys(control, "databaseUrlPath") && absolute(control.databaseUrlPath)],
+  ["database", ({ database }) => keys(database, "adminUrlPath,serviceHost,servicePort") && absolute(database.adminUrlPath) && typeof database.serviceHost === "string" && port(database.servicePort)],
+  ["storage.ordinary", (settings) => storageDomainValid(settings.storage?.ordinary)],
+  ["storage.archive", (settings) => storageDomainValid(settings.storage?.archive)],
+  ["storage", ({ storage }) => keys(storage, "archive,failureDomain,ordinary") && typeof storage.failureDomain === "string" && storage.failureDomain.length > 0],
+  ["temporal", ({ temporal }) => keys(temporal, "httpPort,port,serverName") && port(temporal.port) && port(temporal.httpPort) && temporal.httpPort !== temporal.port && typeof temporal.serverName === "string"],
+  ["ingress", ({ ingress }) => keys(ingress, "address,domain,port") && /^(?:\d{1,3}\.){3}\d{1,3}$/.test(ingress.address) && port(ingress.port) && /^[a-z0-9.-]{1,200}$/.test(ingress.domain)],
+  ["installations", ({ installations }) => keys(installations, "cpuCapacity,interpreterCompatibility,portBase,runnerProfiles") && port(installations.portBase)
+    && Number.isSafeInteger(installations.cpuCapacity) && installations.cpuCapacity > 0 && typeof installations.interpreterCompatibility === "string"],
+  ["image", ({ image }) => keys(image, "reference,revision") && /^[^@\s]+@sha256:[a-f0-9]{64}$/.test(image.reference) && /^[a-f0-9]{40}$/.test(image.revision)],
+  ["release", ({ release }) => keys(release, "bun,directory,path") && absolute(release.directory) && absolute(release.bun) && typeof release.path === "string"],
+];
+
+function fleetSettingsInvalid(invalid: readonly string[]): FactoryProvisioningError {
+  return new FactoryProvisioningError("fleet_settings_invalid", `Fleet settings are invalid: ${invalid.join(", ")}.`);
+}
+
 /**
  * Validate the whole document and name every bad field at once, in the startup
  * document's style: an operator with three mistakes fixes three things once.
  */
 export function parseFactoryFleetSettings(value: unknown): FactoryFleetSettings {
   const settings = value as FactoryFleetSettings;
-  const invalid: string[] = [];
-  const check = (field: string, ok: boolean) => { if (!ok) invalid.push(field); };
-  check("document", keys(value, "control,database,fleetId,image,ingress,installations,profile,release,roots,schemaVersion,storage,temporal") && settings.schemaVersion === FACTORY_FLEET_SCHEMA);
-  if (invalid.length > 0) throw new FactoryProvisioningError("fleet_settings_invalid", `Fleet settings are invalid: ${invalid.join(", ")}.`);
-  check("fleetId", typeof settings.fleetId === "string" && /^[a-z][a-z0-9-]{0,30}[a-z0-9]$/.test(settings.fleetId));
-  check("profile", settings.profile === "compose" || settings.profile === "kubernetes");
-  check("roots", keys(settings.roots, "operator,runtime,secrets") && absolute(settings.roots.operator) && absolute(settings.roots.secrets) && absolute(settings.roots.runtime));
-  check("control", keys(settings.control, "databaseUrlPath") && absolute(settings.control.databaseUrlPath));
-  check("database", keys(settings.database, "adminUrlPath,serviceHost,servicePort") && absolute(settings.database.adminUrlPath) && typeof settings.database.serviceHost === "string" && port(settings.database.servicePort));
-  for (const domain of ["ordinary", "archive"] as const) {
-    const entry = settings.storage?.[domain];
-    check(`storage.${domain}`, keys(entry, "endpoint,issuer,prefix") && url(entry.endpoint) && /^[a-z][a-z0-9-]{0,62}$/.test(entry.prefix) && keys(entry.issuer, "kind,serverIdentityPath") && entry.issuer.kind === "seeded" && absolute(entry.issuer.serverIdentityPath));
-  }
-  check("storage", keys(settings.storage, "archive,failureDomain,ordinary") && typeof settings.storage.failureDomain === "string" && settings.storage.failureDomain.length > 0);
-  check("temporal", keys(settings.temporal, "httpPort,port,serverName") && port(settings.temporal.port) && port(settings.temporal.httpPort) && settings.temporal.httpPort !== settings.temporal.port && typeof settings.temporal.serverName === "string");
-  check("ingress", keys(settings.ingress, "address,domain,port") && /^(?:\d{1,3}\.){3}\d{1,3}$/.test(settings.ingress.address) && port(settings.ingress.port) && /^[a-z0-9.-]{1,200}$/.test(settings.ingress.domain));
-  check("installations", keys(settings.installations, "cpuCapacity,interpreterCompatibility,portBase,runnerProfiles") && port(settings.installations.portBase) && Number.isSafeInteger(settings.installations.cpuCapacity) && settings.installations.cpuCapacity > 0 && typeof settings.installations.interpreterCompatibility === "string");
-  check("image", keys(settings.image, "reference,revision") && /^[^@\s]+@sha256:[a-f0-9]{64}$/.test(settings.image.reference) && /^[a-f0-9]{40}$/.test(settings.image.revision));
-  check("release", keys(settings.release, "bun,directory,path") && absolute(settings.release.directory) && absolute(settings.release.bun) && typeof settings.release.path === "string");
-  if (invalid.length > 0) throw new FactoryProvisioningError("fleet_settings_invalid", `Fleet settings are invalid: ${invalid.join(", ")}.`);
+  if (!keys(value, "control,database,fleetId,image,ingress,installations,profile,release,roots,schemaVersion,storage,temporal") || settings.schemaVersion !== FACTORY_FLEET_SCHEMA) throw fleetSettingsInvalid(["document"]);
+  const invalid = FLEET_FIELD_CHECKS.filter(([, valid]) => !valid(settings)).map(([field]) => field);
+  if (invalid.length > 0) throw fleetSettingsInvalid(invalid);
   // The runner profiles must be exactly what the startup document admits.
   try { parseFactoryStartupConfig(runnerProbeDocument(settings.installations.runnerProfiles)); }
   catch { throw new FactoryProvisioningError("fleet_settings_invalid", "Fleet settings are invalid: installations.runnerProfiles."); }
