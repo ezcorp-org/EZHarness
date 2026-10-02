@@ -60,8 +60,15 @@ export async function incusHostLiveWitnessReady(deps: {
   } catch { return false; }
 }
 
+export class IncusLiveWitnessError extends Error {
+  constructor(reason: string) {
+    super(`Incus live witness unavailable: ${reason}`);
+    this.name = "IncusLiveWitnessError";
+  }
+}
+
 function deny(reason: string): never {
-  throw new Error(`Incus live witness unavailable: ${reason}`);
+  throw new IncusLiveWitnessError(reason);
 }
 
 function reply(value: unknown): Record<string, unknown> {

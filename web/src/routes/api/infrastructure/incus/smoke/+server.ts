@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { json } from "@sveltejs/kit";
 import { requireAdminSession } from "$server/auth/middleware";
-import { IncusHostLiveWitness } from "$server/infrastructure/incus-host-live-witness";
+import { IncusHostLiveWitness, IncusLiveWitnessError } from "$server/infrastructure/incus-host-live-witness";
 import { IncusQualificationFixtureService, type IncusQualificationScope } from "$server/infrastructure/incus-qualification";
 import type { LiveFixtureHandle } from "$server/infrastructure/incus-live-cases";
 import type { RequestHandler } from "./$types";
@@ -13,6 +13,22 @@ const smokeId = /^incus-smoke-[A-Za-z0-9_.:-]{1,96}$/;
 const immutableImage = /^[a-z0-9][a-z0-9.-]+(?::[1-9][0-9]{0,4})?\/[a-z0-9][a-z0-9._/-]*@sha256:[a-f0-9]{64}$/;
 const markerPath = "ezh-smoke-marker";
 const composePath = "ezh-smoke-compose.yaml";
+type FailureStage = "fixture_action" | "fixture_status" | "host_inspect" | "guest_action";
+
+const inspectReasons = new Map([
+  ["Incus live witness unavailable: fixture identity changed", "fixture_identity_changed"],
+  ["Incus live witness unavailable: fixture binding changed or is not running", "fixture_binding_changed"],
+  ["Incus live witness unavailable: reviewed fixture settings changed", "fixture_settings_changed"],
+  ["Incus live witness unavailable: verified setup, release, connection, image, or helper changed", "verified_setup_changed"],
+  ["Incus live witness unavailable: backend and durable fixture state disagree", "backend_state_disagrees"],
+  ["Incus live witness unavailable: backend fixture resource or isolation readback changed", "backend_isolation_changed"],
+  ["Incus live witness unavailable: guest user, workspace, or boot identity is unavailable", "guest_identity_unavailable"],
+]);
+
+function failureReason(error: unknown, stage: FailureStage): string {
+  return stage === "host_inspect" && error instanceof IncusLiveWitnessError
+    ? inspectReasons.get(error.message) ?? "unknown" : "unknown";
+}
 
 function parse(value: unknown): { action: Action; scope: IncusQualificationScope; operationId: string } | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
@@ -90,9 +106,13 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     return json({ code: "compose_fixture_unavailable",
       message: "Set a reviewed immutable Compose fixture image on the EZHarness host." }, { status: 503 });
   }
+  let failureStage: FailureStage = "fixture_action";
   try {
     const service = new IncusQualificationFixtureService();
-    if (input.action === "status") return json(await service.status(input.scope, input.operationId));
+    if (input.action === "status") {
+      failureStage = "fixture_status";
+      return json(await service.status(input.scope, input.operationId));
+    }
     if (input.action === "create" || input.action === "destroy"
       || input.action === "start" || input.action === "stop") {
       const operation = input.action === "create" ? await service.create(input.scope, input.operationId)
@@ -100,10 +120,15 @@ export const POST: RequestHandler = async ({ locals, request }) => {
           : await power(service, input.scope, input.operationId, input.action);
       return json({ operation: operationState(operation) }, { status: 202 });
     }
+    failureStage = "fixture_status";
     const status = await service.status(input.scope, input.operationId);
     const handle: LiveFixtureHandle = { sandboxId: status.fixture.bindingId, operationId: input.operationId };
     const witness = new IncusHostLiveWitness();
-    if (input.action === "inspect") return json({ inspection: await witness.inspectFixture(handle) });
+    if (input.action === "inspect") {
+      failureStage = "host_inspect";
+      return json({ inspection: await witness.inspectFixture(handle) });
+    }
+    failureStage = "guest_action";
     const running = runningHandle(status, input.operationId);
     if (input.action === "marker") {
       const bytes = Buffer.from(`EZHarness Incus smoke ${createHash("sha256")
@@ -121,8 +146,9 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     }
     return json({ compose: { imageRef, service: "proof", exitCode: 0,
       outputMarker: "ezh-compose-ok" } });
-  } catch {
+  } catch (error) {
     return json({ code: "smoke_unavailable",
-      message: "The Incus smoke fixture is unavailable or its result is unknown. Inspect its saved status before retry." }, { status: 409 });
+      message: "The Incus smoke fixture is unavailable or its result is unknown. Inspect its saved status before retry.",
+      failureStage, failureReason: failureReason(error, failureStage) }, { status: 409 });
   }
 };

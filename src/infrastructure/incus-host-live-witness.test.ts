@@ -11,7 +11,7 @@ import type { IncusSetupRecipe } from "../../scripts/incus/model";
 import type { Database } from "../db/connection";
 import { incusQualificationFixtures } from "../db/schema";
 import type { ActiveExtensionRelease } from "../extensions/release-process";
-import { IncusHostLiveWitness, incusHostLiveWitnessReady } from "./incus-host-live-witness";
+import { IncusHostLiveWitness, IncusLiveWitnessError, incusHostLiveWitnessReady } from "./incus-host-live-witness";
 import { IncusLiveNetworkProbe } from "./incus-live-network-probe";
 import { IncusQualificationContinuation } from "./incus-qualification-continuation";
 import type { IncusQualificationFixtureService, IncusQualificationStore } from "./incus-qualification";
@@ -322,6 +322,7 @@ test("inspection rejects a backend state that disagrees with the durable fixture
       instance: async () => ({ state: "absent" }) },
   });
   await expect(candidate.inspectFixture(handle)).rejects.toThrow("backend and durable fixture state disagree");
+  await expect(candidate.inspectFixture(handle)).rejects.toBeInstanceOf(IncusLiveWitnessError);
   binding.observedState = "ABSENT";
   binding.desiredState = "ABSENT";
   binding.tombstonedAt = new Date();

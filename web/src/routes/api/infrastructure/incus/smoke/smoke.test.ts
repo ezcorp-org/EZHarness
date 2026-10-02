@@ -2,11 +2,17 @@ import { afterAll, expect, mock, test } from "bun:test";
 
 const calls: string[] = [];
 const files = new Map<string, Uint8Array>();
+class IncusLiveWitnessError extends Error {
+  constructor(reason: string) {
+    super(`Incus live witness unavailable: ${reason}`);
+  }
+}
 const operation = { id: "controller-op", bindingId: "fixture-binding", kind: "CREATE", state: "SUCCEEDED",
   generation: 1, providerOperationId: "provider-op", errorCode: null,
   requestPayload: { privateKeyPem: "secret" } };
 let observedState = "RUNNING";
 let fail = false;
+let inspectFailure: Error | null = null;
 let composeOutput = "ezh-compose-ok";
 let latestOperation = operation;
 let powerSequence = 0;
@@ -52,9 +58,11 @@ mock.module("$server/infrastructure/incus-qualification", () => ({
   },
 }));
 mock.module("$server/infrastructure/incus-host-live-witness", () => ({
+  IncusLiveWitnessError,
   IncusHostLiveWitness: class {
     async inspectFixture(handle: { sandboxId: string; operationId: string }) {
       calls.push(`inspect:${handle.sandboxId}:${handle.operationId}`);
+      if (inspectFailure) throw inspectFailure;
       return { sandboxId: handle.sandboxId, state: "running", bootId: "boot" };
     }
     async run(handle: { sandboxId: string }, argv: string[], timeoutMs: number) {
@@ -198,7 +206,9 @@ test("Compose uses only a host-owned pinned image and the fixed one-shot recipe"
 test("stopped fixtures cannot run guest work and failures hide host secrets", async () => {
   calls.length = 0;
   observedState = "STOPPED";
-  expect((await POST(event(admin, { ...scope, action: "marker" }))).status).toBe(409);
+  const stopped = await POST(event(admin, { ...scope, action: "marker" }));
+  expect(stopped.status).toBe(409);
+  expect(await stopped.json()).toMatchObject({ failureStage: "guest_action", failureReason: "unknown" });
   expect(calls).toEqual(["status:connection:incus-smoke-one"]);
   observedState = "RUNNING";
   fail = true;
@@ -207,4 +217,47 @@ test("stopped fixtures cannot run guest work and failures hide host secrets", as
     expect(response.status).toBe(409);
     expect(JSON.stringify(await response.json())).not.toContain("secret");
   } finally { fail = false; }
+});
+
+test("a running owned fixture with a failing inspect witness returns an opaque conflict", async () => {
+  calls.length = 0;
+  observedState = "RUNNING";
+  inspectFailure = new IncusLiveWitnessError("guest user, workspace, or boot identity is unavailable");
+  try {
+    const response = await POST(event(admin, { ...scope, action: "inspect" }));
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ code: "smoke_unavailable",
+      failureStage: "host_inspect", failureReason: "guest_identity_unavailable" });
+    expect(calls).toEqual(["status:connection:incus-smoke-one", "inspect:fixture-binding:incus-smoke-one"]);
+  } finally { inspectFailure = null; }
+});
+
+test("missing fixture status and untrusted witness errors expose only fixed diagnostics", async () => {
+  calls.length = 0;
+  fail = true;
+  try {
+    const response = await POST(event(admin, { ...scope, action: "inspect" }));
+    expect(await response.json()).toMatchObject({ code: "smoke_unavailable",
+      failureStage: "fixture_status", failureReason: "unknown" });
+    expect(calls).toEqual(["status:connection:incus-smoke-one"]);
+  } finally { fail = false; }
+  inspectFailure = new Error("Incus live witness unavailable: guest user, workspace, or boot identity is unavailable");
+  try {
+    const response = await POST(event(admin, { ...scope, action: "inspect" }));
+    expect(await response.json()).toMatchObject({ failureStage: "host_inspect", failureReason: "unknown" });
+  } finally { inspectFailure = null; }
+  inspectFailure = new Error("Incus live witness unavailable: guest user, workspace, or boot identity is unavailable; private certificate secret");
+  try {
+    const response = await POST(event(admin, { ...scope, action: "inspect" }));
+    const body = await response.json();
+    expect(body).toMatchObject({ failureStage: "host_inspect", failureReason: "unknown" });
+    expect(JSON.stringify(body)).not.toContain("secret");
+  } finally { inspectFailure = null; }
+  inspectFailure = new IncusLiveWitnessError("private certificate secret");
+  try {
+    const response = await POST(event(admin, { ...scope, action: "inspect" }));
+    const body = await response.json();
+    expect(body).toMatchObject({ failureStage: "host_inspect", failureReason: "unknown" });
+    expect(JSON.stringify(body)).not.toContain("secret");
+  } finally { inspectFailure = null; }
 });
