@@ -119,9 +119,11 @@ test("the superseded stdin channel is what used to kill the guest with its super
   // by a supervisor process. Killing that supervisor closes the stream, podman
   // forwards the end-of-input, and the guest dies. Without the FIFO channel the
   // preceding test's `running` assertion is a race, not a property.
+  // `--log-driver=none` is part of that transport, and it keeps the fault off
+  // the host's default log driver: the CI's pinned conmon has no journald.
   const name = `ez-v4-stdin-fault-${randomUUID().slice(0, 12)}`;
   const guest = 'process.stdin.on("data",()=>{});process.stdin.on("end",()=>process.exit(7));setInterval(()=>{},1000)';
-  await command("podman", ["run", "--detach", "-i", "--name", name, "--pull=never", "--network=none", "--entrypoint=/usr/local/bin/bun", (await import("../src")).DEFAULT_IMAGE, "-e", guest]);
+  await command("podman", ["run", "--detach", "-i", "--name", name, "--pull=never", "--network=none", "--log-driver=none", "--entrypoint=/usr/local/bin/bun", (await import("../src")).DEFAULT_IMAGE, "-e", guest]);
   try {
     const holder = `const a=Bun.spawn(["podman","attach",${JSON.stringify(name)}],{stdin:"pipe",stdout:"pipe",stderr:"pipe"});console.log("HELD");await new Promise(()=>{});`;
     const supervisor = Bun.spawn([process.execPath, "-e", holder], { stdout: "pipe", stderr: "pipe" });
