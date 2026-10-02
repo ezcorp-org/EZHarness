@@ -187,9 +187,9 @@ test("qualifies an environment, creates a project sandbox, and manages its lifec
 	await expect(page.getByRole("group", { name: "Confirm disposal of Payments API" })).toContainText("permanently removes its workspace data");
 	await page.getByRole("button", { name: "Dispose sandbox" }).click();
 	await expect(page.getByText("Disposed", { exact: true })).toBeVisible();
-	await expect(page.getByRole("status")).toContainText("Sandbox disposal was requested");
+	await expect(page.getByRole("status").filter({ hasText: "Sandbox disposal was requested" })).toBeVisible();
 	await page.getByRole("button", { name: "Remove qualification fixtures" }).click();
-	await expect(page.getByRole("status")).toContainText("Temporary operator fixtures were removed");
+	await expect(page.getByRole("status").filter({ hasText: "Temporary operator fixtures were removed" })).toBeVisible();
 
 	const qualification = actions.find(item => item.endpoint === "qualification")?.body;
 	expect(qualification).toMatchObject({ action: "qualify", ...scopeFromEnvironment() });
