@@ -1,3 +1,20 @@
+# Resumed completion — 2 October 2026
+
+- [x] Recover the saved branch and preserve the interrupted work.
+- [x] Fix the recovered browser selector failure without removing assertions.
+- [x] Add and test bounded smoke inspection diagnostics without exposing raw errors.
+- [ ] Diagnose the last live failure: owned-smoke `inspect` returned HTTP 409 `smoke_unavailable` after CREATE and START succeeded.
+- [x] Recover the interrupted browser results and run the available local verification gates.
+- [ ] Complete socket-dependent suites, browser recovery coverage, and exact-head merged gates.
+- [ ] Recheck the isolated app and guest before further live actions; complete workload, retention, cleanup, and qualification tests.
+- [ ] Record verified results and update PR #303 without claiming incomplete gates passed.
+
+Current environment: repository work is available. SSH currently fails hostname resolution, and this session restricts network and host writes. No live server state has been verified in this resumed session. Preserve the last operation and guest identities; do not issue another CREATE or START on the basis of September's observations. Sol workers own the inspection diagnosis and local validation in separate worktrees. Last pushed source is `18e46a7c8`.
+
+Last confirmed live result (25 September): original CREATE and START succeeded on bundle `8213297a0`, with the same guest and provider receipts. The next inspection returned `smoke_unavailable`; marker and Compose did not run. Recovered browser evidence shows four lanes passed and real-auth had 116 passes plus one selector failure. Its fix still needs a browser rerun. The historical management-page capture has 37 unhit lines; component tests do not close its browser-owned coverage requirement.
+
+Review: changes `b26c13a28` and `7d9cb50a2` pass pinned-Bun lint, full typecheck, production build, ten smoke-route tests, and the focused witness test. Two witness and two bundle tests are blocked by socket `EPERM`; browser execution, server access, GitHub access, and publication are unavailable in this session. The live cause remains unconfirmed. See [the full resumed validation record](../docs/validation/2026-10-02-incus-resume.md) for exact results and next steps.
+
 # Active completion milestones — 25 September 2026
 
 User authorized continued implementation and live validation with a Sol/Luna team. Continue the reviewed recovery and existing guest lifecycle without requesting the same approval again.
@@ -11,11 +28,11 @@ Validated increments: bundle-mode regression tests pass (12); corrected bundle v
 
 Current source: latest main's chat sidebar is merged. Both coverage keys and task histories are preserved; typecheck, lint, the eight coverage guard tests, and 72 affected component tests pass. The capacity panel has ten passing tests and 100% measured lines. The Incus chat route correction is integrated and independently reviewed; 70 route tests include a composed native-tool check with a real AMD canary and a fake guest. This is not live Incus tool evidence.
 
-Candidate `8213297a0` includes the management page, native chat routing, and expired START/STOP/DESTROY receipt recovery. Its 76,138-file bundle passes strict inventory verification and non-root HTTP 200. Manifest SHA-256: `e6295213f653cb89a33881f1f609c97f93255e4305e0db8c05e28738c927d6b6`. The next live gate is fresh detached-database startup, then guarded replacement of the isolated app. No later guest effect is authorized by a build result alone.
+Installed bundle `8213297a0` includes the management page, native chat routing, and expired START/STOP/DESTROY receipt recovery. Its 76,138-file bundle passes strict inventory verification, non-root HTTP 200, and actual startup against a detached copy of the saved database and provider blobs. Manifest SHA-256: `e6295213f653cb89a33881f1f609c97f93255e4305e0db8c05e28738c927d6b6`. The guarded isolated-app replacement passed; the previous bundle and state remain preserved.
 
 PR #303 head `752447f8d` is pushed. Full local typecheck, lint, Svelte checks, web Bun tests (3,645), and Vitest tests (7,579) pass. The two stale backend coverage-inventory assertions were reproduced and fixed; their suite now passes 15 tests. The full five-lane browser capture is running on source-identical tree `1f6a43b9bc2f858514568e9b05d218f7fcc9ef28`. Hosted coverage shard 7 and web shard 1 failures are assigned for diagnosis. Final coverage and hosted CI are still open gates.
 
-Live status: the corrected `fc59035d1` bundle is installed. The original CREATE reconciled to `SUCCEEDED`, with the same guest and provider receipt; no duplicate CREATE was sent. START then reached Incus and the guest is running, but its native operation expired before controller inspection. START remains `OUTCOME_UNKNOWN` because only CREATE currently has expired-operation recovery. The saved START tag, generation 2, desired state, and guest binding match. Do not repeat START or continue the workload until host-authorized readback safely settles it. The team is extending this recovery for power operations while preserving the frozen public schema. See the exact live receipts in the validation workstream.
+Live status: verified bundle `8213297a0` is installed in the isolated app after a successful detached-database startup and guarded swap. The original CREATE and START both reconciled to `SUCCEEDED`, with the same guest and provider receipts. No duplicate CREATE or START was sent. The first authenticated status after startup confirms binding desired/observed `RUNNING/RUNNING`. The existing guest is now proceeding through marker, Compose, stop/resume, and cleanup checks. Full qualification and the real user feature workflow remain open.
 
 Review: The management page now connects reviewed environment, capacity, qualification, project creation, start/stop, status recovery, Chat, and disposal. Component and mocked browser checks support those paths. Real guest tools, retention, disposal, and final browser coverage still need measured proof.
 
