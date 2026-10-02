@@ -1,0 +1,7 @@
+bun test v1.4.2 (744846f84)
+
+ 0 pass
+ 6 skip
+ 0 fail
+Ran 6 tests across 1 file. [433.00ms]
+ZERO TESTS RAN: this leg fails (exit 97 in place of 0)
