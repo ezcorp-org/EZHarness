@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { rm } from "node:fs/promises";
+import { connect } from "node:tls";
 import { certificates, rawTls, type Certificates } from "../__tests__/helpers/factory-certificates";
 import { privateHttpsCall } from "../__tests__/helpers/factory-private-https-client";
 import { FACTORY_PRIVATE_MAX_ENVELOPE_BYTES, startFactoryPrivateHttps } from "./private-https";
@@ -152,23 +153,32 @@ test("handler failures and invalid responses stay bounded and do not disclose in
 });
 
 /**
- * A raw TLS exchange that reports how the peer closed: "end" (an orderly close) or "reset" (ECONNRESET). Bun 1.4's
- * terminate() sends a bare reset without close_notify (oven-sh/bun#39632), and its TLS client reports a peer reset
- * as ECONNRESET (#39600); 1.3.14 surfaced both as an orderly end. Any other error, or no close within 5 s, rejects.
+ * A raw TLS client that writes `first`, waits for `entered` (the handler is running), then writes `second`, and reports
+ * how the peer closed: "end" (an orderly close) or "reset" (ECONNRESET). Bun 1.4's terminate() sends a bare reset
+ * without close_notify (oven-sh/bun#39632), and its TLS client reports a peer reset as ECONNRESET (#39600); 1.3.14
+ * surfaced both as an orderly end. Any other error, or no close within 5 s, rejects. The wait is on the handler, not on
+ * time: two requests the server reads in one chunk are the pipelining refusal (400), a different case (W4G-7).
  */
-function rawTlsClose(url: string, chunks: string[]): Promise<{ bytes: string; closed: "end" | "reset" }> {
-  return rawTls(url, certs, chunks).then(
-    (bytes) => ({ bytes, closed: "end" as const }),
-    (error: NodeJS.ErrnoException) => { if (error?.code === "ECONNRESET") return { bytes: "", closed: "reset" as const }; throw error; },
-  );
+function rawTlsCloseDuringWork(url: string, first: string, entered: Promise<void>, second: string): Promise<{ bytes: string; closed: "end" | "reset" }> {
+  return new Promise((resolve, reject) => {
+    const socket = connect({ host: "127.0.0.1", port: Number(new URL(url).port), ca: certs.ca, cert: certs.clientCert, key: certs.clientKey, servername: "localhost", rejectUnauthorized: true });
+    socket.setTimeout(5_000, () => socket.destroy(new Error("TLS test request timed out")));
+    let bytes = "";
+    socket.setEncoding("utf8");
+    socket.on("data", (chunk: string) => { bytes += chunk; });
+    socket.once("error", (error: NodeJS.ErrnoException) => { if (error.code === "ECONNRESET") resolve({ bytes, closed: "reset" }); else reject(error); });
+    socket.once("end", () => resolve({ bytes, closed: "end" }));
+    socket.once("secureConnect", async () => { socket.write(first); await entered; socket.write(second); });
+  });
 }
 
 test("an extra request during accepted work closes the connection before any response", async () => {
   let calls = 0;
-  const server = startFactoryPrivateHttps({ tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca }, async handle() { calls += 1; await Bun.sleep(50); return { status: 200, body: Buffer.from("sensitive result") }; } });
+  const { promise: entered, resolve: enter } = Promise.withResolvers<void>();
+  const server = startFactoryPrivateHttps({ tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca }, async handle() { calls += 1; enter(); await Bun.sleep(50); return { status: 200, body: Buffer.from("sensitive result") }; } });
   try {
     // The property is the close, not its mechanism: zero bytes, closed within 5 s, whether by end or by reset.
-    const outcome = await rawTlsClose(server.url, ["GET / HTTP/1.1\r\n\r\n", "GET /again HTTP/1.1\r\n\r\n"]);
+    const outcome = await rawTlsCloseDuringWork(server.url, "GET / HTTP/1.1\r\n\r\n", entered, "GET /again HTTP/1.1\r\n\r\n");
     expect(outcome.bytes).toBe("");
     expect(["end", "reset"]).toContain(outcome.closed);
     await Bun.sleep(75);
