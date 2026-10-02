@@ -1,0 +1,34 @@
+VERDICT (validator-6) — W4G-8 at 4da74575f (wp/w4g-8, owner w4f-3), base 842ad9fe1: ACCEPT
+
+2 commits, both archy noreply as author and committer:
+  - 9a027714d: the stdin-fault test's podman run passes --log-driver=none (test only);
+  - 4da74575f: the gates doc.
+Files changed: packages/@ezcorp/extension-runner/tests/podman.integration.test.ts, tasks/factory/w4g-8-GATES.md. No product source
+changes. Config hash 44962525f1ca1a8b at the start and end of both phases. Bun and bunx 1.4.2, with the pipelining flag.
+
+REVIEW
+  - The product transport passes --log-driver=none (packages/@ezcorp/extension-runner/src/podman.ts:412). The controlled fault
+    reproduces the earlier transport but had left the flag out, so podman asked the CI's conmon to log to journald.
+  - The owner's ci-conmon/conmon-2.2.1 has sha256 1d97294c14c43d47…, equal to the x86_64 pin in
+    scripts/lib/extension-runner-conmon.sh. The scratch home's drop-in has the same conmon_path content as the CI's script.
+
+REPRODUCTION, re-run by me (w4g-validation/repro-w4g8.sh): a git-archive snapshot of each revision, frozen install, podman with
+  the CI's pinned conmon through the owner's scratch HOME (podman info: logdriver=journald, conmon=…/conmon-2.2.1).
+  - At 842ad9fe1, RED: the stdin-fault test alone 0 pass, 1 fail; the whole file 18 pass, 1 fail (the hosted shape). The error is
+    "[conmon:e]: Include journald in compilation path to log to systemd journal" and "conmon failed: exit status 1".
+  - At 4da74575f, GREEN: the test alone 1 pass, 0 fail; the whole file 19 pass, 0 fail.
+  - The resource gate refused the first green leg (23:21Z). It ran again under the lock at 00:51Z
+    (hold-v6-w4g8-4da74575f/logs/repro-green-at-head-rerun.log).
+
+RERUN RESULTS (hold-v6-w4g8-4da74575f/results.jsonl)
+  Static:
+    - frozen installs clean (root, web, gate-integrity deps); all six package builds 0;
+    - identity 2/2; receipts 17 scanned, 0 missing;
+    - typecheck, lint and both boundary checks 0;
+    - gate-integrity: the base leg against 842ad9fe1 is clean; the origin/main leg equals the 8-path set;
+    - gitleaks 0.
+  Heavy, under the lock (lock_veto validator-6):
+    - reproduction red and green as above;
+    - unit leg (the changed podman suite, host conmon): 19/0;
+    - SDK 246/0; guard set 60/0;
+    - lcov merge 0; the new-file and patch gates pass.
