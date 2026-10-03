@@ -5566,16 +5566,19 @@ manifest, so the next added workspace or patch fails a fast unit test, not a hos
 
 ## W10c — Codex provider pin revision (branch `wp/w10c-codex-pin`; gates `tasks/factory/w10c-GATES.md`)
 
-- [x] R1 red first: base probe and pin-only probe logs saved before any fix (both `provider_not_configured`; the brief's "unavailable model" red cannot occur because pi-ai 0.85.1 ships the id).
-- [x] R2 registry: `gpt-5.6-luna` resolves through the openai-codex OAuth path from pi-ai's own catalog; no dead override entry.
-- [x] R3 re-pin every factory pin to `openai` / `gpt-5.6-luna` (one SDK constant); `cache-proof-live.ts` left as an Anthropic cache proof.
-- [x] R4 routing proof: OAuth login reaches the subscription endpoint; misspelt and api-key-only ids are `model_not_available`; probe and journey open the deployment store.
-- [x] R5 digests recorded: code and image definitions and the image lock change; data and catalog do not.
+- [x] R1 red first: base probe and pin-only probe logs (both `provider_not_configured`); the "unavailable model" red was withdrawn by the coordinator.
+- [x] R2 registry: the pin is `gpt-6-luna` (user amendment 16:00Z). pi-ai 0.85.1 does not ship it, so one `LOCAL_OAUTH_OVERRIDES` entry, red first (`model_not_available` before it); misspelt id refused by name.
+- [x] R3 re-pin every factory pin to `openai` / `gpt-6-luna` (one SDK constant); `cache-proof-live.ts` left as an Anthropic cache proof.
+- [x] R4 routing proof: OAuth login reaches the subscription endpoint; regression pair on gpt-5.5; misspelt, api-key-only under a login, and subscription-only under a key are `model_not_available`.
+- [x] Ruling (a): the probe names its store (`store_not_named`, `store_unavailable`, store kind and opened), never writes to HOME or the checkout.
+- [x] R5 digests recorded for haiku, gpt-5.6-luna and gpt-6-luna: code, image and image lock change; data and catalog do not.
 - [x] R6 W11 evaluator pin re-pinned; SDXL model and image pins unchanged.
 - [x] R7 `/tmp/factory-platform-evidence/w10c/SIGN-IN.md` written.
 - [ ] R8 real legs: wait for the coordinator (wave4h push, the user's sign-in, the heavy lock).
 
-Review: the brief assumed the id was missing from the registry. It was not, and the real defects were elsewhere: the readiness
-probe and the code journey never opened the configuration store, and the factory broker sent an OAuth login to the api-key
-endpoint. Both are fixed red-first with the shared swap. One question stays open for R8: the proof stack makes a new database
-and encryption secret per start, so the sign-in must happen inside the R8 hold or the stack needs a fixed-database option.
+Review: the brief assumed the id was missing from the registry; for the first pick it was not, and the real defects were
+elsewhere. The probe and the code journey never opened the configuration store, and with none named the probe would have
+created one under HOME. The broker sent an OAuth login to the api-key endpoint, and an API key alone made a
+subscription-only pin read ready. All are fixed red first inside the probe and factory-broker.ts. One question stays open
+for R8: the proof stack makes a new database and encryption secret per start, so the sign-in must happen inside the R8
+hold or the stack needs a fixed-database option.
