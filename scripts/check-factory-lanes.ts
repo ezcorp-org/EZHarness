@@ -170,9 +170,7 @@ export const FACTORY_LANES: readonly FactoryLane[] = [
     requires: ["factory-runner-readiness"],
     runnerLabels: ["factory-real"],
     tests: [],
-    // Its precondition is the pinned reference-data guest image, which no registry holds and
-    // only a factory-real runner keeps (scripts/combined-runner-legs.json, factory-reference-data).
-    boundTests: ["src/factory/reference-data/journey.integration.test.ts"],
+    boundTests: [],
   },
 ];
 

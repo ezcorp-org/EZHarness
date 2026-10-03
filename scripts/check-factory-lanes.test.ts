@@ -232,7 +232,6 @@ describe("C11 lane inventory CLI seam", () => {
 });
 
 const DEVICE_TEST = "packages/@ezcorp/extension-runner/tests/podman-devices.integration.test.ts";
-const JOURNEY_TEST = "src/factory/reference-data/journey.integration.test.ts";
 const SHARED_GPU_TESTS = [
   "packages/@ezcorp/extension-runner/tests/podman.integration.test.ts",
   "src/factory/runner/supervisor.podman.integration.test.ts",
@@ -257,13 +256,11 @@ function hostedSet(script: string): { exitCode: number; files: string[]; stderr:
 }
 
 describe("lane manifest: one list names the lane-bound tests", () => {
-  test("the device test is bound to the factory-gpu lane and the data journey to a factory-real lane", () => {
-    expect(laneBoundTestFiles()).toEqual([DEVICE_TEST, JOURNEY_TEST]);
+  test("the device test is bound to the factory-gpu lane", () => {
+    expect(laneBoundTestFiles()).toEqual([DEVICE_TEST]);
     const owner = (file: string) => FACTORY_LANES.find((entry) => entry.boundTests.includes(file))!;
     expect(owner(DEVICE_TEST).job).toBe("factory-isolation");
     expect(owner(DEVICE_TEST).runnerLabels).toEqual(["factory-gpu"]);
-    expect(owner(JOURNEY_TEST).job).toBe("factory-deployment-operations");
-    expect(owner(JOURNEY_TEST).runnerLabels).toEqual(["factory-real"]);
   });
 
   test("the real manifest names only files that exist, each bound once, none also shared", () => {
@@ -301,14 +298,13 @@ describe("lane manifest: one list names the lane-bound tests", () => {
 describe("lane selection: the lane job runs the manifest", () => {
   test("the factory-gpu lane runs its shared container observations and then the device test", () => {
     expect(laneTestFiles("factory-isolation")).toEqual([...SHARED_GPU_TESTS, DEVICE_TEST]);
-    expect(laneTestFiles("factory-deployment-operations")).toEqual([JOURNEY_TEST]);
     expect(laneTestFiles("factory-temporal")).toEqual([]);
     expect(() => laneTestFiles("no-such-lane")).toThrow("no C11 lane 'no-such-lane' in the lane manifest");
   });
 
   test("both lane jobs run the manifest through the one runner command", async () => {
     const workflows = await realWorkflows();
-    for (const job of ["factory-isolation", "factory-deployment-operations"]) {
+    for (const job of ["factory-isolation"]) {
       expect(workflowJobBlock(workflows[CI_WORKFLOW]!, job)).toContain(`run: ${laneTestCommand(job)}\n`);
     }
     expect(laneTestCommand("factory-isolation")).toBe("bash scripts/run-factory-lane-tests.sh factory-isolation");
@@ -328,7 +324,7 @@ describe("lane selection: the lane job runs the manifest", () => {
     expect(lanes.output).toEqual([[...SHARED_GPU_TESTS, DEVICE_TEST].join("\n")]);
     const bound = capture();
     expect(await factoryLaneMain(["--bound-tests"], { log: bound.log })).toBe(0);
-    expect(bound.output).toEqual([`${DEVICE_TEST}\n${JOURNEY_TEST}`]);
+    expect(bound.output).toEqual([DEVICE_TEST]);
   });
 
   test("the command line fails closed on an unknown lane, an empty lane and a malformed call", async () => {
