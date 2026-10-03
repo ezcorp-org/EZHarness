@@ -13,7 +13,7 @@
   "scripts/check-factory-lanes.ts": 100,
   "scripts/build-workspace-packages.ts": 100,
   "scripts/check-schema-generate-drift.ts": 100,
-  "scripts/setup-factory-python-images.ts": 100,
+  "scripts/setup-factory-python-base.ts": 100,
   "scripts/lib/ci-registration.ts": 100,
   "scripts/lib/container-engine.ts": 100,
   "scripts/lib/factory-storage-cli.ts": 100,
