@@ -11,7 +11,21 @@
 
 Ownership: root owns integration and bundle staging; the GPT-6.1 Sol live worker alone changes the isolated app/server; coverage owns test captures in its worktree; project-flow owns a separate worktree and coordinates all live effects with the live worker. The generation fix has passed focused regression tests and independent review. Live proof remains open. No repeated STOP or new lifecycle request is allowed to hide an unknown effect.
 
-### Recovery milestone review — 3 October, 20:12 UTC
+### Current review — 3 October, 21:02 UTC
+
+- [x] Pass the complete fast gate at `b417484ac`: 27,204 backend tests, 3,631 web Bun tests, 7,587 Vitest tests, lint, types, Svelte, integrity checks, and build. Push this revision to PR #303.
+- [x] Verify the same adapter, controller, broker, and transport through create/start/stop/start/stop/delete in a composed regression. Reject running deletion before any write.
+- [x] Add and review exact linked cleanup recovery authority checks; focused policy coverage is 100%.
+- [x] Add Stop-first UI and explicit saved-failure recovery confirmation. Four focused browser journeys passed, then two new journeys passed with reviewed screenshots. Final phase/kind checks passed unit tests; canonical capture remains open.
+- [x] Complete recovery orchestration review, real PostgreSQL concurrency proof, and source integration. Two real PostgreSQL tests pass, including concurrent admission/advancement across connections and no repeated unknown STOP effect. The integrated route tests preserve both saved-operation diagnostics and recovery.
+- [ ] Stage and verify the combined app, recover saved v2 cleanup through the product, and prove guest absence and released reservations.
+- [ ] Run a fresh SP qualification, native project proof, and ten serial feature lifecycles.
+- [ ] Fix hosted source-import test failure: public source fetch returned HTTP 403. Do not mask it with retries.
+- [ ] Pass final-source browser, merged coverage, fast, hosted checks, and non-author review.
+
+The installed app remains `f97661c7d`; the v2 guest is held RUNNING after a known failed deletion. New recovery source is not yet installed. Native proof driver is staged privately but has not run. Current before/after infrastructure configuration matches exactly, apart from the separately tracked owned guest. The historic pre-setup inventory gap remains unproved.
+
+### Earlier recovery milestone review — 3 October, 20:12 UTC
 
 - [x] Complete the original real guest marker, pinned Compose, STOP, DESTROY, released reservations, and empty inventory proof.
 - [x] Prove restricted-project denial with the same TLS client: approved project 200, default project 403.

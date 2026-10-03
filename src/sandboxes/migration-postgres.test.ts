@@ -6,6 +6,7 @@ import { up as addSandboxController } from "../db/migrations/add-sandbox-control
 import { SandboxAdmissionStore } from "./admission";
 import { SandboxController } from "./controller";
 import { IncusSandboxProviderDispatcher } from "./incus-dispatcher";
+import { resourceName } from "../infrastructure/incus-transport/lifecycle";
 
 const container = `sandbox-controller-postgres-${crypto.randomUUID()}`;
 let client: SQL | undefined;
@@ -51,6 +52,7 @@ beforeAll(async () => {
   });
   await client`SELECT 1`;
 }, 30_000);
+
 
 afterAll(async () => {
   await reopenedClient?.close({ timeout: 1 });
@@ -226,4 +228,71 @@ test("controller migration reapplies and reconnects on real PostgreSQL", async (
   expect((await reopenedLive.getOperation(live.id))?.state).toBe("SUCCEEDED");
   expect((await reopenedLive.getBinding("live-binding"))?.observedState).toBe("STOPPED");
   expect(calls).toEqual(["incus/lifecycle/create", "incus/lifecycle/inspectOperation"]);
+}, 30_000);
+
+test("cleanup recovery serializes admission and advancement across PostgreSQL connections", async () => {
+  if (!client) throw new Error("PostgreSQL test client was not initialized");
+  await client`CREATE TABLE IF NOT EXISTS projects (id TEXT PRIMARY KEY)`;
+  await client`INSERT INTO projects (id) VALUES ('cleanup-recovery-project')`;
+  await addSandboxController(drizzle(client));
+  const port = (await podman("port", container, "5432/tcp")).split(":").at(-1);
+  const peer = new SQL(`postgres://postgres:fixture@127.0.0.1:${port}/postgres`, { max: 1 });
+  const dispatched: string[] = [];
+  const inspected: string[] = [];
+  const dispatcher = {
+    dispatch: async (request: import("./controller").SandboxProviderRequest): Promise<import("./controller").SandboxProviderOutcome> => {
+      dispatched.push(request.operationId);
+      if (request.kind === "STOP") return { outcome: "UNKNOWN", providerOperationId: "saved-stop-receipt" };
+      if (request.payload.expectedGeneration === 2) return { outcome: "FAILED", errorCode: "REVISION_CONFLICT" };
+      return { outcome: "SUCCEEDED", observedState: "ABSENT" };
+    },
+    inspectOperation: async (request: import("./controller").SandboxProviderRequest & { providerOperationId: string | null }): Promise<import("./controller").SandboxProviderOutcome> => {
+      expect(request.kind).toBe("STOP");
+      expect(request.providerOperationId).toBe("saved-stop-receipt");
+      inspected.push(request.operationId);
+      return { outcome: "SUCCEEDED", observedState: "STOPPED" };
+    },
+  };
+  try {
+    const first = new SandboxController(drizzle(client), dispatcher);
+    const second = new SandboxController(drizzle(peer), dispatcher);
+    const binding = await first.createBinding({ id: "cleanup-recovery-binding", projectId: "cleanup-recovery-project",
+      providerInstallationId: "cleanup-installation", providerReleaseId: "cleanup-release",
+      connectionId: "cleanup-connection", connectionRevision: 1, desiredState: "RUNNING", observedState: "RUNNING" });
+    const failed = await first.requestAndDispatch({ bindingId: binding.id, generation: 1, kind: "DESTROY",
+      idempotencyScope: "postgres-cleanup", idempotencyKey: "original", payload: { expectedGeneration: 2 } });
+    expect(failed).toMatchObject({ state: "FAILED", errorCode: "REVISION_CONFLICT", providerOperationId: null });
+    const scope = { bindingId: binding.id, generation: 1, failedDestroyOperationId: failed.id,
+      installationId: "cleanup-installation", releaseId: "cleanup-release", connectionId: "cleanup-connection",
+      connectionRevision: 1, providerResourceId: resourceName("cleanup-connection", binding.id), providerGeneration: 2 };
+    const admitted = await Promise.all([first, second].map(controller => controller.admitCleanupRecovery({ ...scope,
+      stopOperationId: crypto.randomUUID(), destroyOperationId: crypto.randomUUID() })));
+    expect(admitted[0]).toEqual(admitted[1]);
+    const recovery = admitted[0]!;
+    const recoveryCount = await client`SELECT COUNT(*)::int AS count FROM sandbox_cleanup_recoveries WHERE binding_id = ${binding.id}`;
+    expect(recoveryCount).toEqual([{ count: 1 }]);
+    const tombstone = (await first.getBinding(binding.id))!.tombstonedAt;
+    expect(tombstone).toBeInstanceOf(Date);
+    expect((await first.executeOperation(recovery.stopOperationId)).state).toBe("OUTCOME_UNKNOWN");
+    expect((await second.executeOperation(recovery.stopOperationId)).state).toBe("OUTCOME_UNKNOWN");
+    expect(dispatched).toEqual([failed.id, recovery.stopOperationId]);
+    await expect(second.advanceCleanupRecovery(recovery.id, 3)).rejects.toThrow("stop is not verified");
+    expect((await second.inspectOperation(recovery.stopOperationId)).state).toBe("SUCCEEDED");
+    expect(inspected).toEqual([recovery.stopOperationId]);
+    expect(await first.getBinding(binding.id)).toMatchObject({ desiredState: "ABSENT", observedState: "STOPPED",
+      tombstonedAt: tombstone, cleanupConfirmedAt: null });
+    const advanced = await Promise.all([first, second].map(controller => controller.advanceCleanupRecovery(recovery.id, 3)));
+    expect(advanced[0]).toEqual(advanced[1]);
+    expect(advanced[0]?.state).toBe("DESTROY_REQUIRED");
+    expect((await second.executeOperation(recovery.destroyOperationId)).state).toBe("SUCCEEDED");
+    expect((await first.executeOperation(recovery.destroyOperationId)).state).toBe("SUCCEEDED");
+    expect(dispatched).toEqual([failed.id, recovery.stopOperationId, recovery.destroyOperationId]);
+    expect(await first.getOperation(failed.id)).toEqual(failed);
+    expect(await first.getBinding(binding.id)).toMatchObject({ desiredState: "ABSENT", observedState: "ABSENT",
+      tombstonedAt: tombstone, cleanupConfirmedAt: expect.any(Date) });
+    const operationCount = await client`SELECT COUNT(*)::int AS count FROM provider_sandbox_operations WHERE binding_id = ${binding.id}`;
+    expect(operationCount).toEqual([{ count: 3 }]);
+  } finally {
+    await peer.close({ timeout: 1 });
+  }
 }, 30_000);
