@@ -29,13 +29,13 @@ function assertPersistedScope(
   return { current, receipt };
 }
 
-function assertJournalIntent(
+async function assertJournalIntent(
   current: SandboxBinding,
   receipt: SandboxOperation,
   scope: IncusDispatchScope,
   operation: SandboxProtocolOperation,
   input: Record<string, unknown>,
-): void {
+): Promise<void> {
   if (operation !== "lifecycle.inspectOperation" &&
     (current.generation !== scope.generation || current.currentOperationId !== scope.operationId)) {
     throw new IncusDispatchAuthorizationError("SCOPE_INVALID");
@@ -54,7 +54,14 @@ function assertJournalIntent(
     if (input.operationId !== receipt.providerOperationId) {
       throw new IncusDispatchAuthorizationError("SCOPE_INVALID");
     }
-    if (receipt.kind === "CREATE" && (current.currentOperationId !== receipt.id
+    const [cleanup] = receipt.kind === "CREATE" && current.currentOperationId !== receipt.id
+      ? await getDb().select().from(sandboxOperations).where(eq(sandboxOperations.id, current.currentOperationId ?? "")).limit(1)
+      : [];
+    const queuedCleanup = cleanup?.bindingId === current.id && cleanup.kind === "DESTROY"
+      && cleanup.generation === receipt.generation && cleanup.state === "JOURNALED"
+      && cleanup.providerOperationId === null && cleanup.requestPayload.expectedGeneration === receipt.generation
+      && Object.keys(cleanup.requestPayload).length === 1 && current.tombstonedAt !== null && current.desiredState === "ABSENT";
+    if (receipt.kind === "CREATE" && (current.currentOperationId !== receipt.id && !queuedCleanup
       || current.generation !== receipt.generation || Object.hasOwn(input, "requestId")
       || Object.hasOwn(input, "idempotencyKey"))) {
       throw new IncusDispatchAuthorizationError("SCOPE_INVALID");
@@ -91,7 +98,7 @@ export class IncusMethodCaller implements HostAuthorizedIncusMethodCaller {
       getDb().select().from(sandboxOperations).where(eq(sandboxOperations.id, scope.operationId)).limit(1),
     ]);
     const { current, receipt } = assertPersistedScope(binding[0], journal[0], scope, input);
-    assertJournalIntent(current, receipt, scope, operation, input);
+    await assertJournalIntent(current, receipt, scope, operation, input);
     let snapshot: Awaited<ReturnType<typeof resolveActiveRelease>> | null = null;
     try { snapshot = await resolveActiveRelease(scope.installationId, getReleaseRuntime()); }
     catch { /* A retained release is checked against its persisted approval below. */ }

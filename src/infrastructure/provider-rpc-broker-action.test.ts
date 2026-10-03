@@ -115,11 +115,20 @@ test("legacy CREATE inspection gains only its exact host-journaled identity afte
   await db.update(schema.sandboxOperations).set({ providerOperationId: "incus-create-22222222-2222-2222-2222-222222222222" });
   expect(await broker.request(action, { command: action.expectedCommand }, input.rpcDeadlineMs)).toMatchObject({ ok: false, error: { kind: "permission" } });
   await db.update(schema.sandboxOperations).set({ providerOperationId: nativeId });
+  await db.insert(schema.sandboxOperations).values({ id: "queued-cleanup", bindingId: "binding", kind: "DESTROY",
+    generation: 1, idempotencyScope: "cleanup", idempotencyKey: "cleanup", payloadHash: "cleanup",
+    requestPayload: { expectedGeneration: 1 }, state: "JOURNALED" });
+  await db.update(schema.sandboxBindings).set({ currentOperationId: "queued-cleanup", desiredState: "ABSENT", tombstonedAt: new Date() });
+  const before = await db.select().from(schema.sandboxOperations);
+  expect(await broker.request(action, { command: action.expectedCommand }, input.rpcDeadlineMs)).toMatchObject({ ok: true });
+  expect(await db.select().from(schema.sandboxOperations)).toEqual(before);
+  await db.update(schema.sandboxOperations).set({ requestPayload: { expectedGeneration: 2 } }).where(eq(schema.sandboxOperations.id, "queued-cleanup"));
+  expect(await broker.request(action, { command: action.expectedCommand }, input.rpcDeadlineMs)).toMatchObject({ ok: false, error: { kind: "permission" } });
   await db.update(schema.sandboxBindings).set({ currentOperationId: "other-journal" });
   expect(await broker.request(action, { command: action.expectedCommand }, input.rpcDeadlineMs)).toMatchObject({ ok: false, error: { kind: "permission" } });
   await db.update(schema.sandboxBindings).set({ currentOperationId: "journal-create", presetId: "other-preset" });
   expect(await broker.request(action, { command: action.expectedCommand }, input.rpcDeadlineMs)).toMatchObject({ ok: false, error: { kind: "permission" } });
-  expect(calls).toHaveLength(2);
+  expect(calls).toHaveLength(3);
 });
 
 test("expired power inspection keeps the controller fence while advancing the Incus guest generation", async () => {

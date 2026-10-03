@@ -148,13 +148,13 @@ function approvedGuestHelper(operation: SandboxProtocolOperation, base: Prepared
 type ReadbackKind = "CREATE" | "START" | "STOP" | "DESTROY";
 
 function readbackScopeMatches(scope: PreparedIncusAction, binding: SandboxBinding,
-  journal: SandboxOperation, kind: ReadbackKind): boolean {
+  journal: SandboxOperation, kind: ReadbackKind, queuedCleanup = false): boolean {
   const preset = scope.approvedPreset;
   return ["DISPATCHING", "PROVIDER_PENDING", "OUTCOME_UNKNOWN"].includes(journal.state)
-    && journal.id === binding.currentOperationId && journal.generation === binding.generation
+    && (journal.id === binding.currentOperationId || queuedCleanup) && journal.generation === binding.generation
     && journal.generation === scope.bindingGeneration
-    && Boolean(binding.tombstonedAt) === (kind === "DESTROY")
-    && binding.desiredState === (kind === "START" ? "RUNNING" : kind === "DESTROY" ? "ABSENT" : "STOPPED")
+    && (queuedCleanup || Boolean(binding.tombstonedAt) === (kind === "DESTROY"))
+    && (queuedCleanup || binding.desiredState === (kind === "START" ? "RUNNING" : kind === "DESTROY" ? "ABSENT" : "STOPPED"))
     && binding.profile === preset.profile && binding.presetId === preset.presetId
     && binding.presetDigest === preset.presetDigest && binding.effectiveSettingsDigest === preset.effectiveSettingsDigest;
 }
@@ -183,7 +183,14 @@ async function lifecycleReadbackJournal(db: Database, scope: PreparedIncusAction
   )).limit(2);
   if (rows.length !== 1) return null;
   const journal = rows[0]!;
-  if (!readbackScopeMatches(scope, binding, journal, kind)
+  const [cleanup] = kind === "CREATE" && binding.currentOperationId !== journal.id
+    ? await db.select().from(sandboxOperations).where(eq(sandboxOperations.id, binding.currentOperationId ?? "")).limit(1)
+    : [];
+  const queuedCleanup = cleanup?.bindingId === binding.id && cleanup.kind === "DESTROY"
+    && cleanup.generation === journal.generation && cleanup.state === "JOURNALED"
+    && cleanup.providerOperationId === null && cleanup.requestPayload.expectedGeneration === journal.generation
+    && Object.keys(cleanup.requestPayload).length === 1 && binding.tombstonedAt !== null && binding.desiredState === "ABSENT";
+  if (!readbackScopeMatches(scope, binding, journal, kind, queuedCleanup)
     || !readbackIntentMatches(scope, journal, kind)) return null;
   return { id: journal.id, expectedGeneration: journal.requestPayload.expectedGeneration as number,
     desiredState: kind === "START" ? "running" : kind === "DESTROY" ? "absent" : "stopped" };

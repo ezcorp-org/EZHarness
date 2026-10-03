@@ -1,6 +1,7 @@
 import { afterEach, expect, mock, test } from "bun:test";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
+import { eq } from "drizzle-orm";
 import { RunnerError } from "@ezcorp/extension-runner";
 import * as schema from "../db/schema";
 import { up as addSandboxController } from "../db/migrations/add-sandbox-controller";
@@ -155,13 +156,26 @@ test("retained native CREATE inspection uses the frozen schema and exact current
     .rejects.toMatchObject({ code: "SCOPE_INVALID" });
   await expect(caller.call(scope, "incus/lifecycle/inspectOperation", { ...inspect, idempotencyKey: "operation" }))
     .rejects.toMatchObject({ code: "SCOPE_INVALID" });
+  await database.insert(schema.sandboxOperations).values({ id: "cleanup", bindingId: "binding", kind: "DESTROY",
+    generation: 1, idempotencyScope: "cleanup", idempotencyKey: "cleanup", payloadHash: "cleanup",
+    requestPayload: { expectedGeneration: 1 }, state: "JOURNALED" });
+  await database.update(schema.sandboxBindings).set({ currentOperationId: "cleanup", desiredState: "ABSENT", tombstonedAt: new Date() });
+  await database.insert(schema.sandboxOperations).values({ id: "unrelated", bindingId: "binding", kind: "STOP",
+    generation: 1, idempotencyScope: "unrelated", idempotencyKey: "unrelated", payloadHash: "unrelated",
+    requestPayload: { expectedGeneration: 1 }, state: "JOURNALED" });
+  const before = await database.select().from(schema.sandboxOperations);
+  expect(await caller.call(scope, "incus/lifecycle/inspectOperation", inspect)).toMatchObject({ ok: true });
+  expect(await database.select().from(schema.sandboxOperations)).toEqual(before);
+  await expect(caller.call(scope, "incus/lifecycle/create", create)).rejects.toMatchObject({ code: "SCOPE_INVALID" });
+  await database.update(schema.sandboxOperations).set({ requestPayload: { expectedGeneration: 2 } }).where(eq(schema.sandboxOperations.id, "cleanup"));
+  await expect(caller.call(scope, "incus/lifecycle/inspectOperation", inspect)).rejects.toMatchObject({ code: "SCOPE_INVALID" });
   await database.update(schema.sandboxBindings).set({ currentOperationId: "other" });
   await expect(caller.call(scope, "incus/lifecycle/inspectOperation", inspect))
     .rejects.toMatchObject({ code: "SCOPE_INVALID" });
   await database.update(schema.sandboxBindings).set({ currentOperationId: "operation", generation: 2 });
   await expect(caller.call(scope, "incus/lifecycle/inspectOperation", inspect))
     .rejects.toMatchObject({ code: "SCOPE_INVALID" });
-  expect(calls).toHaveLength(1);
+  expect(calls).toHaveLength(2);
 }, DB_TEST_TIMEOUT_MS);
 
 test("operation ID, journal state and generation mismatch deny readback or mutation", async () => {
