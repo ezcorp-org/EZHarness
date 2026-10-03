@@ -1,0 +1,5 @@
+CRAP: --changed against c029df38ea7e699f4d7fa1a8fe1440be64f5a3df → 0 measured file(s) in diff
+
+CRAP: 0 functions in 0 files (max 30, warn 15)
+
+✓ no touched function exceeds CRAP 30

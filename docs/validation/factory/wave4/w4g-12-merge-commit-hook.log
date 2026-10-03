@@ -1,0 +1,12 @@
+Checked 1 file in 16ms. No fixes applied.
+── Tests (staged) ─────────────────────────────────
+/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/scripts/lib/hook-lib.sh: line 220: printf: Broken pipe
+/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/scripts/lib/hook-lib.sh: line 220: printf: write error: Broken pipe
+  bun: src/factory/runner/supervisor-process.test.ts
+bun test v1.4.2 (744846f84)
+
+ 44 pass
+ 0 fail
+ 206 expect() calls
+Ran 44 tests across 1 file. [4.72s]
+[detached HEAD ef05b446b] merge: wp/w4g-12 c2d6ff90a into integ/w00 (W4G-12 supervisor tests stop on the published fact, not on a heartbeat count)
