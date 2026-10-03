@@ -27,7 +27,7 @@ Verification: the unrestricted fast run passed with exit 0: 27,140 backend/examp
 - [ ] Capture all five browser lanes against that revision and inspect management coverage.
 - [ ] Run exact-revision merged coverage, new-source, patch, and CRAP gates; record results.
 
-Review: The six original management journeys passed with pinned Bun 1.3.14. Five new recovery journeys cover a failed environment refresh, invalid fixture digest, changed saved plan, uncertain apply with saved status, and unconfirmed cleanup. The full 11-journey real-auth run passed, and Biome checked the edited spec. The canonical five-lane coverage and merged gates remain pending a final integrated source revision.
+Review: The six original management journeys passed with pinned Bun 1.3.14. Five new recovery journeys cover a failed environment refresh, invalid fixture digest, changed saved plan, uncertain apply with saved status, and unconfirmed cleanup. The full 11-journey real-auth run passed. The two corrected intercepted-route assertions passed a focused browser rerun. Biome checked the edited spec. The canonical five-lane coverage and merged gates remain pending a final integrated source revision.
 
 - [x] Recover the saved branch and preserve the interrupted work.
 - [x] Fix the recovered browser selector failure without removing assertions.

@@ -290,13 +290,17 @@ test("a failed environment refresh keeps the last approved view available", asyn
 });
 
 test("an invalid fixture plan cannot be reviewed or applied", async ({ page }) => {
-	const { actions } = await mockManagement(page);
-	await page.route("**/api/infrastructure/incus/probe-fixtures", route => route.fulfill({ json: { plan: { digest: "invalid" } } }));
+	await mockManagement(page);
+	let applyAttempts = 0;
+	await page.route("**/api/infrastructure/incus/probe-fixtures", route => {
+		if ((route.request().postDataJSON() as { action: string }).action === "apply") applyAttempts++;
+		return route.fulfill({ json: { plan: { digest: "invalid" } } });
+	});
 	await page.goto("/extensions/incus-management");
 	await page.getByRole("button", { name: "Prepare qualification…" }).click();
 	await expect(page.getByRole("alert")).toContainText("valid review digest");
 	await expect(page.getByTestId("qualification-workflow")).toHaveCount(0);
-	expect(actions.filter(item => item.endpoint === "probe-fixtures" && item.body.action === "apply")).toHaveLength(0);
+	expect(applyAttempts).toBe(0);
 });
 
 test("a changed saved fixture plan blocks review after reload", async ({ page }) => {
@@ -344,10 +348,14 @@ test("an uncertain fixture apply checks saved status before another action", asy
 });
 
 test("unconfirmed cleanup keeps the qualification workflow for review", async ({ page }) => {
-	const { actions } = await mockManagement(page);
+	await mockManagement(page);
+	const cleanupRequests: Array<Record<string, unknown>> = [];
 	await page.route("**/api/infrastructure/incus/probe-fixtures", async route => {
-		const body = route.request().postDataJSON() as { action: string };
-		if (body.action === "cleanup") return route.fulfill({ json: { receipt: { state: "pending", planDigest } } });
+		const body = route.request().postDataJSON() as Record<string, unknown>;
+		if (body.action === "cleanup") {
+			cleanupRequests.push(body);
+			return route.fulfill({ json: { receipt: { state: "pending", planDigest } } });
+		}
 		return route.fallback();
 	});
 	await page.goto("/extensions/incus-management");
@@ -359,7 +367,7 @@ test("unconfirmed cleanup keeps the qualification workflow for review", async ({
 	await expect(page.getByRole("alert")).toContainText("Cleanup was not confirmed");
 	await expect(page.getByText("Operator fixtures are ready", { exact: true })).toBeVisible();
 	await expect(page.getByRole("button", { name: "Remove fixtures" })).toBeEnabled();
-	expect(actions.filter(item => item.endpoint === "probe-fixtures" && item.body.action === "cleanup")).toHaveLength(0);
+	expect(cleanupRequests).toEqual([{ action: "cleanup", ...scopeFromEnvironment(), operationId: expect.any(String), planDigest }]);
 });
 
 function scopeFromEnvironment() {

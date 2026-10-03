@@ -1,6 +1,7 @@
 # Lessons
 
 - When the user is already on the target machine, explain that permission changes apply to the agent session. Give the next action on that machine without implying they must connect elsewhere.
+- A Playwright route override hides intercepted requests from a lower mock handler. Count and inspect those requests in the override itself; a counter in the lower handler cannot prove an action did or did not occur.
 
 - Before deploying a host protocol change, load the exact retained provider manifest through the production startup validator. Worker input validation alone does not prove that an approved release can still load. Keep host journal metadata outside public provider wire schemas when the host can derive it from its own bindings.
 - A release smoke test must leave the staged runtime placeholder empty. Validate the actual service startup requirements, including mounts and readiness, as well as the standalone HTTP health check.
