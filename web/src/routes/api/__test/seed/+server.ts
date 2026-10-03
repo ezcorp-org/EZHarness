@@ -20,6 +20,13 @@ import { createConversation, createMessage } from "$server/db/queries/conversati
 import { upsertSetting } from "$server/db/queries/settings";
 import { seedBlankToolHistory } from "$lib/server/test-chat-history";
 import { seedAgentExtensions } from "$lib/server/test-agent-config";
+import { getDb } from "$server/db/connection";
+import { SandboxAdmissionStore } from "$server/sandboxes/admission";
+import { IncusFeatureService } from "$server/infrastructure/incus-feature-service";
+import type { ActiveExtensionRelease } from "$server/extensions/release-process";
+import { incusManifest, INCUS_PRESETS } from "../../../../../../extensions/incus-sandbox/manifest";
+import { sandboxPresetDigest } from "@ezcorp/extension-contract";
+import { digest } from "../../../../../../scripts/incus/model";
 import type { RequestHandler } from "./$types";
 
 // Categories matched by hooks.server.ts RATE_LIMITED_ROUTES, overridable via
@@ -63,6 +70,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     historyFixture?: unknown;
     rateLimitPerMin?: unknown;
     seedAgentConfig?: unknown;
+    incusProject?: unknown;
   };
 
   const projectName = typeof body.projectName === "string" && body.projectName.length > 0
@@ -86,6 +94,39 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   }
   const history = parseHistory(body.history);
   if (history instanceof Response) return history;
+
+  // The real service publishes the generated ID, owner, quota, and binding.
+  // Only provider observations are fixtures; no remote effects are dispatched.
+  if (body.incusProject === true) {
+    const installationId = "11111111-1111-4111-8111-111111111111";
+    const releaseId = "22222222-2222-4222-8222-222222222222";
+    const connectionId = "33333333-3333-4333-8333-333333333333";
+    const preset = INCUS_PRESETS.find(item => item.profile === "persistent-web-compose.v1")!;
+    const presetDigest = await sandboxPresetDigest(preset);
+    const effectiveSettingsDigest = digest({ presetDigest, connectionRevision: 1 });
+    const admission = new SandboxAdmissionStore(getDb());
+    await admission.configureHostCapacity({ providerInstallationId: installationId, connectionId,
+      allocatable: { memoryBytes: preset.limits.memoryBytes, cpuMillicores: preset.limits.cpuMillis,
+        diskBytes: preset.limits.diskBytes, pids: preset.limits.pids, executionSlots: 1 },
+      safetyMargin: { memoryBytes: 0, cpuMillicores: 0, diskBytes: 0, pids: 0, executionSlots: 0 } });
+    const service = new IncusFeatureService({ admission,
+      activeRelease: async () => ({ installation: { id: installationId, activeReleaseId: releaseId, generation: 3 },
+        release: { id: releaseId, releaseDigest: "e2e-incus-release", manifest: incusManifest } }) as ActiveExtensionRelease,
+      connectionRevision: async () => 1,
+      resolveConnection: async () => ({ id: connectionId, revision: 1, providerInstallationId: installationId,
+        providerReleaseId: releaseId, endpoint: "https://incus.invalid:8443/", serverCertificatePem: "e2e-server",
+        project: "ezharness", configuration: { kind: "incus", profile: "ezharness", helperVersion: "0.1.0", guestUser: "sandbox" },
+        clientCertificatePem: "e2e-client", privateKeyPem: "e2e-private", revokedAt: null }),
+      loadQualification: async () => ({ producer: "live-provider", connectionId, providerId: "incus", presetId: preset.id,
+        profile: preset.profile, releaseDigest: "e2e-incus-release", presetDigest, effectiveSettingsDigest,
+        backendVersion: "6.0.6", verifiedAt: "2026-10-03T12:00:00Z", validUntil: "2030-01-01T00:00:00Z", cases: [] }),
+      assertReady: async () => {},
+      assertCurrentScope: async () => {},
+    });
+    const prepared = await service.prepareProject({ ownerUserId: user.id, name: projectName, installationId,
+      connectionId, presetId: preset.id, idempotencyKey: crypto.randomUUID() });
+    return json(prepared, { status: 201 });
+  }
 
   const project = await createProject({
     name: projectName,

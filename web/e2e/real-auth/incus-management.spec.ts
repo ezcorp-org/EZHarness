@@ -46,9 +46,13 @@ function feature(state: string, operation: { id: string; kind: string; state: st
 
 type FeatureFixture = ReturnType<typeof feature> & { tombstonedAt?: string | null; cleanupConfirmedAt?: string | null };
 
-async function mockManagement(page: Page, options: { initiallyQualified?: boolean; initialFeature?: ReturnType<typeof feature>; loseFirstCreateResponse?: boolean; rejectFirstCreate?: boolean; holdApply?: boolean } = {}) {
+async function mockManagement(page: Page, options: { initiallyQualified?: boolean; initialFeature?: ReturnType<typeof feature>; loseFirstCreateResponse?: boolean; rejectFirstCreate?: boolean; holdApply?: boolean; preparedProject?: { id: string; name: string }; preparedBindingId?: string } = {}) {
 	let qualified = options.initiallyQualified ?? false;
 	let qualificationRunId: string | null = null;
+	const selectedProject = options.preparedProject ?? project;
+	const selectedBindingId = options.preparedBindingId ?? bindingId;
+	const selectedFeature = (state: string, operation: Parameters<typeof feature>[1]) => ({ ...feature(state, operation),
+		projectId: selectedProject.id, projectName: selectedProject.name, bindingId: selectedBindingId });
 	let currentFeature: FeatureFixture | null = options.initialFeature ?? null;
 	let firstCreateLost = false;
 	let preparedProject = false;
@@ -63,7 +67,7 @@ async function mockManagement(page: Page, options: { initiallyQualified?: boolea
 		environments: [{ ...environment, qualified, qualificationState: qualified ? "qualified" : environment.qualificationState,
 			qualificationRunId,
 			qualificationValidUntil: qualified ? "2027-01-01T00:00:00.000Z" : null, blockedReason: qualified ? null : environment.blockedReason }],
-		projects: [project], features: currentFeature ? [currentFeature] : [], truncated: false,
+		projects: [selectedProject], features: currentFeature ? [currentFeature] : [], truncated: false,
 	} }));
 	const capacityPlan = { schemaVersion: 1, setupId: environment.setupId, installationId: environment.installationId,
 		releaseId: environment.releaseId, releaseDigest: "release-digest", generation: environment.releaseGeneration,
@@ -112,7 +116,7 @@ async function mockManagement(page: Page, options: { initiallyQualified?: boolea
 		actions.push({ endpoint: "features", body });
 		if (body.action === "prepareProject") {
 			preparedProject = true;
-			return route.fulfill({ json: { project: { id: project.id, name: body.name }, binding: { id: bindingId } } });
+			return route.fulfill({ json: { project: { id: selectedProject.id, name: body.name }, binding: { id: selectedBindingId } } });
 		}
 		if (body.action === "create") {
 			if (!preparedProject) return route.fulfill({ status: 409, json: { error: "Project is not prepared" } });
@@ -121,20 +125,20 @@ async function mockManagement(page: Page, options: { initiallyQualified?: boolea
 			createKeyAttempts.push(key);
 			if (options.rejectFirstCreate && !firstCreateLost) {
 				firstCreateLost = true;
-				currentFeature = feature("ABSENT", { id: "op-create-rejected", kind: "CREATE", state: "REJECTED" });
+				currentFeature = selectedFeature("ABSENT", { id: "op-create-rejected", kind: "CREATE", state: "REJECTED" });
 				return route.fulfill({ status: 409, json: { state: "REJECTED", reason: "The environment has no free capacity." } });
 			}
 			currentFeature = options.loseFirstCreateResponse && !firstCreateLost
-				? feature("UNKNOWN", { id: "op-create", kind: "CREATE", state: "OUTCOME_UNKNOWN" })
-				: feature("STOPPED", { id: "op-create", kind: "CREATE", state: "SUCCEEDED" });
+				? selectedFeature("UNKNOWN", { id: "op-create", kind: "CREATE", state: "OUTCOME_UNKNOWN" })
+				: selectedFeature("STOPPED", { id: "op-create", kind: "CREATE", state: "SUCCEEDED" });
 			if (options.loseFirstCreateResponse && !firstCreateLost) {
 				firstCreateLost = true;
 				return route.abort("failed");
 			}
 		}
-		if (body.action === "start") currentFeature = feature("RUNNING", { id: "op-start", kind: "START", state: "SUCCEEDED" });
-		if (body.action === "stop") currentFeature = feature("STOPPED", { id: "op-stop", kind: "STOP", state: "SUCCEEDED" });
-		if (body.action === "destroy") currentFeature = { ...feature("ABSENT", { id: "op-destroy", kind: "DESTROY", state: "SUCCEEDED" }), tombstonedAt: "2026-09-25T12:00:00Z", cleanupConfirmedAt: "2026-09-25T12:00:01Z" };
+		if (body.action === "start") currentFeature = selectedFeature("RUNNING", { id: "op-start", kind: "START", state: "SUCCEEDED" });
+		if (body.action === "stop") currentFeature = selectedFeature("STOPPED", { id: "op-stop", kind: "STOP", state: "SUCCEEDED" });
+		if (body.action === "destroy") currentFeature = { ...selectedFeature("ABSENT", { id: "op-destroy", kind: "DESTROY", state: "SUCCEEDED" }), tombstonedAt: "2026-09-25T12:00:00Z", cleanupConfirmedAt: "2026-09-25T12:00:01Z" };
 		if (body.action === "status") return route.fulfill({ json: { binding: currentFeature, operation: currentFeature?.operation ?? null } });
 		return route.fulfill({ status: 202, json: { state: "DISPATCHED", operation: currentFeature?.operation } });
 	});
@@ -509,3 +513,31 @@ function scopeFromEnvironment() {
 	return { installationId: environment.installationId, releaseId: environment.releaseId,
 		connectionId: environment.connectionId, presetId: environment.presetId };
 }
+
+
+test("a management-created Incus project opens chat and saves its own conversation", async ({ page, request }) => {
+	const seeded = await request.post("/api/__test/seed", { data: { incusProject: true, projectName: "Incus chat regression" } });
+	expect(seeded.status()).toBe(201);
+	const prepared = await seeded.json() as { project: { id: string; name: string }; binding: { id: string } };
+	expect(prepared.project.id).toMatch(/^incus-project-[0-9a-f]{48}$/);
+	await mockManagement(page, { initiallyQualified: true, preparedProject: prepared.project, preparedBindingId: prepared.binding.id });
+	await page.goto("/extensions/incus-management");
+	await page.getByRole("textbox", { name: "New project name" }).fill(prepared.project.name);
+	await page.getByRole("button", { name: "Create project sandbox" }).click();
+	const card = page.locator(".feature-card").filter({ has: page.getByRole("heading", { name: prepared.project.name }) });
+	await card.getByRole("button", { name: "Start", exact: true }).click();
+	await expect(card.getByRole("link", { name: "Open chat" })).toBeVisible();
+	const createdResponse = page.waitForResponse(response => response.url().endsWith("/api/conversations") && response.request().method() === "POST");
+	await card.getByRole("link", { name: "Open chat" }).click();
+	await page.getByRole("button", { name: "New Conversation", exact: true }).click();
+	const response = await createdResponse;
+	expect(response.status()).toBe(201);
+	const conversation = await response.json() as { id: string; projectId: string };
+	expect(conversation.id).toMatch(/^[0-9a-f-]{36}$/);
+	expect(conversation.projectId).toBe(prepared.project.id);
+	await expect(page).toHaveURL(new RegExp(`/project/${prepared.project.id}/chat/${conversation.id}$`));
+	await page.reload();
+	const persisted = await request.get(`/api/conversations/${conversation.id}`);
+	expect(persisted.status()).toBe(200);
+	expect(await persisted.json()).toMatchObject({ id: conversation.id, projectId: prepared.project.id });
+});

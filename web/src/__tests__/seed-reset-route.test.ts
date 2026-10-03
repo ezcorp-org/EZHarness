@@ -48,6 +48,26 @@ describe("POST /api/__test/seed", () => {
     expect((await seed(ev({}))).status).toBe(404);
   });
 
+  test("Incus fixture remains hidden when the test surface is off", async () => {
+    delete process.env.PI_E2E_REAL;
+    expect((await seed(ev({ incusProject: true }))).status).toBe(404);
+  });
+
+  test("Incus fixture requires an authenticated principal", async () => {
+    await expect(seed(ev({ incusProject: true }, {}))).rejects.toMatchObject({ status: 401 });
+  });
+
+  test("Incus fixture uses the project service to publish its owner and binding", async () => {
+    const res = await seed(ev({ incusProject: true, projectName: "Incus browser fixture" }));
+    expect(res.status).toBe(201);
+    const out = await res.json();
+    expect(out.project.id).toMatch(/^incus-project-[0-9a-f]{48}$/);
+    expect(out.project.name).toBe("Incus browser fixture");
+    expect(out.binding.projectId).toBe(out.project.id);
+    const { listProjectMembers } = await import("../../../src/db/queries/project-members");
+    expect(await listProjectMembers(out.project.id)).toContainEqual(expect.objectContaining({ userId: user.id, role: "owner" }));
+  });
+
   test("creates a project + conversation owned by the caller", async () => {
     const res = await seed(ev({ title: "spec-1" }));
     expect(res.status).toBe(201);
