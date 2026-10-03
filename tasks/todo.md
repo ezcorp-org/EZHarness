@@ -1,14 +1,17 @@
 # Active completion — 3 October 2026
 
-## Latest verified state — 3 October, 22:29 UTC
+## Latest verified state — 3 October, 23:00 UTC
 
 - [x] Complete linked v2 cleanup through EZHarness; preserve the original failed row, release reservations, and independently confirm no guests remain.
-- [x] Install verified diagnostics bundle `74970fa36` in the isolated app. One v4 attempt reported the actual failure: `enforcement / distinct_ip_literal_targets_are_required`. Both guests were cleaned up; independent Incus inventory is empty. Global v4 reservation readback remains pending the next stopped snapshot.
+- [x] Install verified diagnostics bundle `74970fa36` in the isolated app. One v4 attempt reported the actual failure: `enforcement / distinct_ip_literal_targets_are_required`. Both guests were cleaned up; independent Incus inventory is empty. A fresh stopped snapshot proves all eight lifecycle operations succeeded, both bindings are absent, and global pending operations and unreleased reservations are empty.
 - [x] Pass all five browser lanes at `82ba45f58`: 259 mock, 1,441 full mock, 393 evidence, 7 fresh setup, and 133 authenticated tests. All 22 management journeys passed; that page measured 280/280 lines. This is revision-specific evidence, not final merged-source proof.
 - [x] Merge main `605fde7e9` through `c53cf46e1`. Preserve both sets of contracts and gates; full types/lint and focused merge tests pass. Independent semantic review found the selected Incus authority/lifecycle code unchanged.
 - [x] Add and verify visible, safe qualification failure details. Fourteen route tests and one authenticated browser test pass.
 - [x] Strengthen the secret timeout test using actual child output and a controlled expiry callback; separately prove that late output is wiped. Fourteen targeted tests pass. The exact original full-pool assertion failure was not retained, so its precise cause remains unconfirmed.
-- [ ] Fix the confirmed hostname/IP mismatch using the verified Incus TLS connection; keep destination and network checks strict.
+- [x] Fix the confirmed hostname/IP mismatch using the verified Incus TLS connection; keep destination and network checks strict. Focused tests and independent review pass. Verified bundle `ad2b151df` is installed and healthy behind the ingress hold. The exact v5 test plan was reviewed; live qualification remains open.
+- [x] Close the missing agent-run coverage measurement and split journal authorization checks without changing policy. Focused tests, coverage, types, and review pass. The agent-chat complexity refactor is awaiting independent review.
+- [x] Review and integrate the agent-chat refactor. Thirty focused tests pass; all 72 measured lines are covered and the highest function complexity score is 9.
+- [ ] Fix the live v5 network-control failure: `enforcement / othersandbox_control_target_is_not_reachable_from_the_host`. The AMD host cannot reach the private neighbor target. Both guests were deleted and independent Incus inventory is empty. Design a bounded, host-owned positive control on Xeon without weakening guest isolation; include deterministic setup and preflight. No additional server authority has been granted.
 - [ ] Complete live SP01–SP08, native project proof, and ten serial feature lifecycles on the final candidate. Normal feature admission correctly remains blocked until qualification passes.
 - [ ] Pass final-source browser, merged coverage, full local/hosted checks, and required non-author review. Do not repeat full captures for each intermediate diagnostic fix.
 
