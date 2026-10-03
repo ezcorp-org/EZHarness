@@ -8,6 +8,9 @@
  * never reached the others. These are the single definitions.
  */
 
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+
 /** A required producer: a reviewable label plus the exact text a workflow must contain. */
 export type RequiredProducer = readonly [label: string, needle: string];
 
@@ -44,4 +47,42 @@ export function missingProducers(workflow: string, required: readonly RequiredPr
 /** Sources without an exact 100% floor in scripts/coverage-thresholds.json. */
 export function missingThresholds(thresholds: string, sources: readonly string[]): string[] {
   return sources.filter((source) => !thresholds.includes(`"${source}": 100`)).map((source) => `${source} threshold`);
+}
+
+export interface WorkflowStep { readonly uses?: string; readonly run?: string; readonly name?: string; readonly shell?: string }
+export interface WorkflowJob { readonly name?: string; readonly steps?: readonly WorkflowStep[] }
+export interface Workflow { readonly file: string; readonly text: string; readonly jobs: Record<string, WorkflowJob> }
+
+/** Every workflow file in `dir`, sorted by name, with its text and its parsed jobs. */
+export function readWorkflows(dir: string): Workflow[] {
+  return readdirSync(dir).filter((file) => /\.ya?ml$/.test(file)).sort().map((file) => {
+    const text = readFileSync(join(dir, file), "utf8");
+    return { file, text, jobs: (Bun.YAML.parse(text) as { jobs?: Record<string, WorkflowJob> }).jobs ?? {} };
+  });
+}
+
+/**
+ * A step that runs the backend suite pools: scripts/test.sh or scripts/test-coverage.sh, directly or through their
+ * package.json aliases (`bun run test`, `bun run test:coverage`; never `bun run test:sdk` or another `test:*` script).
+ */
+export function runsBackendSuites(run: string): boolean {
+  return /\bscripts\/(?:test|test-coverage)\.sh\b|\bbun run (?:test|test:coverage)(?=\s|$)/m.test(run);
+}
+
+/** One step a job must prepare with a shared action, and whether that action ran before it in the same job. */
+export interface PreparedStep { readonly where: string; readonly preceded: boolean }
+
+/** Each run step that `needs(run)` selects, with whether `action` (a `uses:` value) ran earlier in the same job. */
+export function stepsNeedingAction(workflows: readonly Workflow[], action: string, needs: (run: string) => boolean): PreparedStep[] {
+  const found: PreparedStep[] = [];
+  for (const { file, jobs } of workflows) {
+    for (const [id, job] of Object.entries(jobs)) {
+      let installed = false;
+      for (const step of job.steps ?? []) {
+        if (step.uses === action) installed = true;
+        if (step.run !== undefined && needs(step.run)) found.push({ where: `${file} ${id} (${job.name ?? id}): ${step.name ?? step.run.split("\n")[0]}`, preceded: installed });
+      }
+    }
+  }
+  return found;
 }

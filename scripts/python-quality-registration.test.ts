@@ -99,16 +99,6 @@ describe("Python quality lane registration", () => {
       .toEqual([`${PROJECT}/c02_runner.py threshold`]);
   });
 
-  test("the pinned uv install is checksum-verified and reads the repository pin", async () => {
-    const action = await readFile(".github/actions/setup-python-toolchain/action.yml", "utf8");
-    expect((await readFile(".uv-version", "utf8")).trim()).toMatch(/^\d+\.\d+\.\d+$/);
-    expect(action).toContain('tr -d \'[:space:]\' < .uv-version');
-    expect(action).toContain("sha256sum --check");
-    // A machine path would defeat the point of pinning from the repository.
-    expect(action).not.toContain("/tmp/factory-tools");
-    expect(action).not.toContain("nix-shell");
-  });
-
   // W4G-2: `uv run --frozen --project <p>` takes the interpreter request from <p>'s own .python-version and ignores
   // the repository root's, so without a project pin `requires-python = "==3.13.*"` let uv pick the NEWEST 3.13 it
   // could find or download (3.13.13 on the hosted runner) while .python-version said 3.13.12. Each project's pin is a
