@@ -33,7 +33,7 @@ mock.module("../db/queries/settings", () => ({
 afterAll(() => restoreModuleMocks());
 
 import { getModels } from "@earendil-works/pi-ai/compat";
-import { resolveModelObject } from "../providers/registry";
+import { credentialServesModel, getOAuthModelIds, resolveModelForCredential, resolveModelObject, resolveOAuthModel } from "../providers/registry";
 import { getCapabilities } from "../providers/model-capabilities";
 
 test("resolveModelObject('openai', 'gpt-5.5') falls back to OAuth override", () => {
@@ -117,4 +117,40 @@ test("does NOT borrow a TEMPLATED sibling baseUrl (google-vertex {location})", (
   const m = resolveModelObject("google-vertex", "no-such-vertex-model");
   expect(m.api).toBe("openai-completions");
   expect(m.baseUrl).toBe("https://api.openai.com/v1");
+});
+
+// W10c (C10 revision 2026-10-03): the factory pin gpt-5.6-luna is served by a ChatGPT-plan
+// OAuth login. pi-ai 0.85.1 ships the id in its openai-codex catalog, so no local override is
+// needed; these cases prove the registry routes it the way the factory broker relies on.
+test("gpt-5.6-luna resolves for the openai OAuth login to the subscription endpoint, from pi-ai's own catalog", () => {
+  expect(getOAuthModelIds("openai")?.has("gpt-5.6-luna")).toBe(true);
+  expect(resolveOAuthModel("openai", "gpt-5.6-luna")).toMatchObject({
+    id: "gpt-5.6-luna",
+    api: "openai-codex-responses",
+    provider: "openai-codex",
+    baseUrl: "https://chatgpt.com/backend-api",
+    reasoning: true,
+    input: ["text", "image"],
+    contextWindow: 272_000,
+    maxTokens: 128_000,
+  });
+});
+
+test("an OAuth credential swaps the catalog model to its subscription sibling; an API key keeps the api-key wire", () => {
+  const catalog = resolveModelObject("openai", "gpt-5.6-luna");
+  expect(catalog).toMatchObject({ api: "openai-responses", baseUrl: "https://api.openai.com/v1" });
+  expect(resolveModelForCredential(catalog, "openai", "oauth")).toMatchObject({ id: "gpt-5.6-luna", provider: "openai", api: "openai-codex-responses", baseUrl: "https://chatgpt.com/backend-api" });
+  expect(resolveModelForCredential(catalog, "openai", "apikey")).toBe(catalog);
+});
+
+test("credentialServesModel names which credential kinds can run a model, and agrees with the swap", () => {
+  expect(credentialServesModel("openai", "gpt-5.6-luna", "oauth")).toBe(true);
+  expect(credentialServesModel("openai", "gpt-5.6-luna", "apikey")).toBe(true);
+  // An api-key-only id: the subscription endpoint does not serve it.
+  expect(credentialServesModel("openai", "gpt-4.1-mini", "oauth")).toBe(false);
+  expect(credentialServesModel("openai", "gpt-4.1-mini", "apikey")).toBe(true);
+  expect(credentialServesModel("openai", "gpt-5.6-lunna", "oauth")).toBe(false);
+  // Anthropic's OAuth uses its ordinary catalog, so its token is never refused here.
+  expect(credentialServesModel("anthropic", "claude-haiku-4-5-20251001", "oauth")).toBe(true);
+  expect(() => resolveModelForCredential(resolveModelObject("openai", "gpt-4.1-mini"), "openai", "oauth")).toThrow(/not supported with openai OAuth/);
 });

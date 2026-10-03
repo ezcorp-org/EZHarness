@@ -2,6 +2,7 @@ import { streamSimple } from "@earendil-works/pi-ai/compat";
 import type { Api, AssistantMessageEventStream, Model } from "@earendil-works/pi-ai";
 import type { FactoryBroker, FactoryBrokerRequest } from "../runtime/factory-execution";
 import { authCallOptions, tryGetCredential, type ProviderCredential } from "./credentials";
+import { credentialServesModel, resolveModelForCredential } from "./registry";
 import { resolvePinnedModel, type PinnedModelResolution } from "./router";
 
 /**
@@ -89,8 +90,11 @@ export async function factoryProviderReadiness(
   const available = options.isAvailableModel ?? isFactoryServableModel;
   const resolve = options.resolveCredential ?? tryGetCredential;
   const failures: FactoryProviderReadinessFailure[] = [];
-  if (!await available(pin.provider, pin.model)) failures.push("model_not_available");
   const credential = await resolve(pin.provider);
+  // A model the catalog serves can still be one this credential cannot run: a ChatGPT-plan login
+  // runs only subscription-eligible ids. That is the same named failure, not a call left to 401.
+  const servable = await available(pin.provider, pin.model) && (credential === null || credentialServesModel(pin.provider, pin.model, credential.type));
+  if (!servable) failures.push("model_not_available");
   if (credential === null) failures.push("provider_not_configured");
   return {
     schemaVersion: FACTORY_PROVIDER_READINESS_SCHEMA_VERSION,
@@ -160,7 +164,10 @@ export function createFactoryProviderBroker(options: FactoryProviderBrokerOption
       // `readiness` already resolved one; a credential that vanished in between is a failure, not
       // a reason to proceed without authentication.
       if (credential === null) throw new FactoryProviderReadinessError({ ...readiness, ready: false, credentialKind: null, failures: ["provider_not_configured"] });
-      return send(await resolveModel(options.pin.provider, options.pin.model), request.context, { ...request.options, ...authCallOptions(credential.token) });
+      // The credential decides the wire: an OAuth login is sent to the subscription endpoint, the
+      // same swap every other model call in the application makes (providers/llm.ts).
+      const model = resolveModelForCredential(await resolveModel(options.pin.provider, options.pin.model), options.pin.provider, credential.type);
+      return send(model, request.context, { ...request.options, ...authCallOptions(credential.token) });
     },
   };
 }

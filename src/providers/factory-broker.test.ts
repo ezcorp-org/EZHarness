@@ -16,7 +16,12 @@ import {
   isFactoryServableModel,
   type FactoryProviderPin,
 } from "./factory-broker";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { KEYLESS_TOKEN, type ProviderCredential } from "./credentials";
+import { oauthSettingKey } from "./credential-store";
+import { encrypt } from "./encryption";
 import { deleteSetting, upsertSetting } from "../db/queries/settings";
 
 beforeAll(async () => { await setupTestDb(); });
@@ -214,5 +219,130 @@ describe("a local model the operator registered", () => {
     const answered = await (await broker.stream(request({ model: model(OLLAMA.provider, OLLAMA.model) }))).result();
     expect((answered.content[0] as { text: string }).text).toBe(`local:${KEY.token}`);
     expect(sent[0]).toMatchObject({ id: OLLAMA.model, provider: OLLAMA.provider, api: "openai-completions", baseUrl: "http://127.0.0.1:11434/v1" });
+  });
+});
+
+describe("the openai pin under a ChatGPT-plan OAuth login (C10 revision, W10c)", () => {
+  const LUNA: FactoryProviderPin = { provider: "openai", model: "gpt-5.6-luna" };
+  const OAUTH_TOKEN = "fixture-oauth-token";
+  const API_KEY = "fixture-api-key";
+  const API_KEY_SETTING = "provider:apiKey:openai";
+  // encrypt() persists a generated key beside the database, which for :memory: is the cwd.
+  // A private folder keeps the fixture key out of the checkout.
+  const secretsDir = mkdtempSync(join(tmpdir(), "w10c-secrets-"));
+  const previousSecretsDir = process.env.EZCORP_SECRETS_DIR;
+
+  /** Exactly the row the app's own sign-in flow writes, holding only fixture strings. */
+  const signIn = () => upsertSetting(oauthSettingKey(LUNA.provider), encrypt(JSON.stringify({ access: OAUTH_TOKEN, refresh: "fixture-refresh-token", expires: Date.now() + 3_600_000 })));
+
+  beforeAll(() => { process.env.EZCORP_SECRETS_DIR = secretsDir; });
+  afterAll(() => {
+    if (previousSecretsDir === undefined) delete process.env.EZCORP_SECRETS_DIR;
+    else process.env.EZCORP_SECRETS_DIR = previousSecretsDir;
+    rmSync(secretsDir, { recursive: true, force: true });
+  });
+  beforeEach(async () => {
+    await deleteSetting(oauthSettingKey(LUNA.provider));
+    await deleteSetting(API_KEY_SETTING);
+  });
+
+  function capturing(sent: Array<{ model: Model<Api>; options: { apiKey?: string } }>) {
+    return ((resolved: Model<Api>, context: unknown, options: { apiKey?: string }) => {
+      sent.push({ model: resolved, options });
+      return (answering("luna") as unknown as (...args: unknown[]) => unknown)(resolved, context, options);
+    }) as never;
+  }
+
+  test("is ready on the stored OAuth credential, and names only its kind", async () => {
+    await signIn();
+    const readiness = await factoryProviderReadiness(LUNA, { now: () => NOW });
+    expect(readiness).toEqual({
+      schemaVersion: FACTORY_PROVIDER_READINESS_SCHEMA_VERSION,
+      provider: "openai",
+      model: "gpt-5.6-luna",
+      ready: true,
+      credentialKind: "oauth",
+      failures: [],
+      checkedAtMs: NOW,
+    });
+    expect(JSON.stringify(factoryProviderReadinessRecord(readiness))).not.toContain(OAUTH_TOKEN);
+  });
+
+  test("sends the call to the ChatGPT subscription endpoint with the OAuth token, never the api-key wire", async () => {
+    await signIn();
+    // A BYOK key is configured as well. The OAuth login wins, and the key is never what is sent.
+    await upsertSetting(API_KEY_SETTING, encrypt(API_KEY));
+    const sent: Array<{ model: Model<Api>; options: { apiKey?: string } }> = [];
+    const broker = createFactoryProviderBroker({ pin: LUNA, stream: capturing(sent) });
+    const answered = await (await broker.stream(request({ model: model(LUNA.provider, LUNA.model) }))).result();
+    expect((answered.content[0] as { text: string }).text).toBe(`luna:${OAUTH_TOKEN}`);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.model).toMatchObject({
+      id: "gpt-5.6-luna",
+      // The public provider name stays, so later credential lookups still read the openai row.
+      provider: "openai",
+      api: "openai-codex-responses",
+      baseUrl: "https://chatgpt.com/backend-api",
+      input: ["text", "image"],
+      contextWindow: 272_000,
+    });
+    expect(sent[0]!.options.apiKey).toBe(OAUTH_TOKEN);
+  });
+
+  test("serves concurrent calls each through the OAuth path", async () => {
+    await signIn();
+    const sent: Array<{ model: Model<Api>; options: { apiKey?: string } }> = [];
+    const broker = createFactoryProviderBroker({ pin: LUNA, stream: capturing(sent) });
+    const answers = await Promise.all([1, 2, 3].map(async () => (await broker.stream(request({ model: model(LUNA.provider, LUNA.model) }))).result()));
+    expect(answers.map((a) => (a.content[0] as { text: string }).text)).toEqual([1, 2, 3].map(() => `luna:${OAUTH_TOKEN}`));
+    expect(sent.map((s) => [s.model.api, s.options.apiKey])).toEqual([1, 2, 3].map(() => ["openai-codex-responses", OAUTH_TOKEN]));
+  });
+
+  test("with no stored credential names the missing credential only, because the model is in the catalog", async () => {
+    const readiness = await factoryProviderReadiness(LUNA, { now: () => NOW });
+    expect(readiness).toMatchObject({ ready: false, credentialKind: null, failures: ["provider_not_configured"] });
+    const sent: Array<{ model: Model<Api>; options: { apiKey?: string } }> = [];
+    const broker = createFactoryProviderBroker({ pin: LUNA, stream: capturing(sent) });
+    await expect(broker.stream(request({ model: model(LUNA.provider, LUNA.model) }))).rejects.toThrow(/factory_provider_not_ready: openai\/gpt-5\.6-luna \(provider_not_configured\)/);
+    expect(sent).toHaveLength(0);
+  });
+
+  test("names a misspelt model id as unavailable, even with the login present", async () => {
+    await signIn();
+    const misspelt: FactoryProviderPin = { provider: "openai", model: "gpt-5.6-lunna" };
+    const readiness = await factoryProviderReadiness(misspelt, { now: () => NOW });
+    expect(readiness).toMatchObject({ ready: false, credentialKind: "oauth", failures: ["model_not_available"] });
+    const sent: Array<{ model: Model<Api>; options: { apiKey?: string } }> = [];
+    const broker = createFactoryProviderBroker({ pin: misspelt, stream: capturing(sent) });
+    await expect(broker.stream(request({ model: model(misspelt.provider, misspelt.model) }))).rejects.toThrow(/gpt-5\.6-lunna \(model_not_available\)/);
+    expect(sent).toHaveLength(0);
+  });
+
+  test("refuses by name an api-key-only model the OAuth login cannot serve, instead of sending it to api.openai.com", async () => {
+    await signIn();
+    const apiKeyOnly: FactoryProviderPin = { provider: "openai", model: "gpt-4.1-mini" };
+    const readiness = await factoryProviderReadiness(apiKeyOnly, { now: () => NOW });
+    expect(readiness).toMatchObject({ ready: false, credentialKind: "oauth", failures: ["model_not_available"] });
+    const sent: Array<{ model: Model<Api>; options: { apiKey?: string } }> = [];
+    const broker = createFactoryProviderBroker({ pin: apiKeyOnly, stream: capturing(sent) });
+    await expect(broker.stream(request({ model: model(apiKeyOnly.provider, apiKeyOnly.model) }))).rejects.toThrow(/gpt-4\.1-mini \(model_not_available\)/);
+    expect(sent).toHaveLength(0);
+    // The same model on an API key is servable: the refusal is about the credential kind.
+    await deleteSetting(oauthSettingKey(LUNA.provider));
+    await upsertSetting(API_KEY_SETTING, encrypt(API_KEY));
+    expect(await factoryProviderReadiness(apiKeyOnly, { now: () => NOW })).toMatchObject({ ready: true, credentialKind: "apikey", failures: [] });
+  });
+
+  test("a login that disappears between readiness and the call is refused, not sent unauthenticated", async () => {
+    await signIn();
+    let reads = 0;
+    const sent: Array<{ model: Model<Api>; options: { apiKey?: string } }> = [];
+    const broker = createFactoryProviderBroker({
+      pin: LUNA,
+      resolveCredential: async () => { reads += 1; return reads === 1 ? { type: "oauth", token: OAUTH_TOKEN } : null; },
+      stream: capturing(sent),
+    });
+    await expect(broker.stream(request({ model: model(LUNA.provider, LUNA.model) }))).rejects.toThrow(/provider_not_configured/);
+    expect(sent).toHaveLength(0);
   });
 });

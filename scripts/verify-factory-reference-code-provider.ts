@@ -2,13 +2,20 @@
 /**
  * Records whether this deployment can run the reference code factory's pinned model.
  *
- * C10 pins `claude-haiku-4-5-20251001` on the Anthropic provider for both the native generator and
- * the separate supervised review validator. A deployment that cannot resolve that model or a
- * credential for it does not fall back: the run is a readiness failure, recorded by name, and the
- * remedy is a reviewed contract revision. This script produces that record, and it never reads,
- * prints, or writes a credential value — only which kind of credential resolved.
+ * C10 pins `gpt-5.6-luna` on the OpenAI provider for both the native generator and the separate
+ * supervised review validator (reviewed revision W10c, 2026-10-03: served by the ChatGPT-plan OAuth
+ * login through the subscription endpoint; it replaced `claude-haiku-4-5-20251001`). A deployment that
+ * cannot resolve that model or a credential for it does not fall back: the run is a readiness
+ * failure, recorded by name, and the remedy is a reviewed contract revision. This script produces
+ * that record, and it never reads, prints, or writes a credential value — only which kind of
+ * credential resolved.
+ *
+ * It reads the deployment it runs in: the database and secrets the environment names
+ * (DATABASE_URL or EZCORP_DB_PATH, and the encryption settings), the same ones the started
+ * application reads.
  */
 import { writeFile } from "node:fs/promises";
+import { closeDb, initDb } from "../src/db/connection.ts";
 import {
   factoryProviderReadiness,
   factoryProviderReadinessRecord,
@@ -17,8 +24,8 @@ import {
 } from "../src/providers/factory-broker.ts";
 
 export const REFERENCE_CODE_MODEL_PIN: FactoryProviderPin = Object.freeze({
-  provider: "anthropic",
-  model: "claude-haiku-4-5-20251001",
+  provider: "openai",
+  model: "gpt-5.6-luna",
 });
 
 export async function runReferenceCodeProviderCheck(options: {
@@ -30,6 +37,9 @@ export async function runReferenceCodeProviderCheck(options: {
   const log = options.log ?? console;
   let readiness: FactoryProviderReadiness;
   try {
+    // Without the store open every credential lookup fails, and a signed-in deployment would
+    // read "not configured" (W10c R1).
+    await initDb();
     readiness = await factoryProviderReadiness(pin);
   } catch (error) {
     // A configuration store that cannot be reached is itself a readiness failure, not a crash
@@ -44,6 +54,8 @@ export async function runReferenceCodeProviderCheck(options: {
       checkedAtMs: Date.now(),
     };
     log.log(`provider configuration could not be read: ${(error as Error).name}`);
+  } finally {
+    await closeDb();
   }
   const record = { ...factoryProviderReadinessRecord(readiness), note: "Credential values are never read into this record." };
   log.log(JSON.stringify(record, null, 2));

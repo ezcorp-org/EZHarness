@@ -436,6 +436,22 @@ export function resolveOAuthModel(provider: string, modelId: string): AnyModel |
 }
 
 /**
+ * Whether a credential of this kind can run the model at all — the verdict
+ * {@link resolveModelForCredential} enforces, as a question a caller can ask
+ * BEFORE it sends anything (the factory readiness probe names a "no" as an
+ * unavailable model rather than letting the call 401 at api.openai.com).
+ *
+ * An API key runs whatever the catalog serves. An OAuth login on google or
+ * openai runs only a subscription-eligible id; on any other provider the
+ * OAuth token is used against the ordinary catalog, so it is never refused.
+ */
+export function credentialServesModel(provider: string, modelId: string, credType: "oauth" | "apikey"): boolean {
+  if (credType !== "oauth") return true;
+  if (provider !== "google" && provider !== "openai") return true;
+  return resolveOAuthModel(provider, modelId) !== null;
+}
+
+/**
  * Swap a resolved model for its OAuth-compatible sibling when the turn's
  * credential is an OAuth token. The standard API endpoints
  * (google-generative-ai, openai-responses) use API-key auth an OAuth token
@@ -463,7 +479,7 @@ export function resolveModelForCredential(
   if (credType !== "oauth") return model;
   const oauthModel = resolveOAuthModel(provider, model.id);
   if (oauthModel) return { ...cappedModel(oauthModel), provider };
-  if (provider === "google" || provider === "openai") {
+  if (!credentialServesModel(provider, model.id, credType)) {
     throw new Error(
       `Model "${model.id}" is not supported with ${provider} OAuth. ` +
       `Only subscription-eligible models are available with OAuth authentication.`,
