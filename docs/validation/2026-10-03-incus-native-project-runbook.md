@@ -6,7 +6,7 @@ Status: prepared, not executed. This procedure closes G5 only after the listed o
 
 - The live owner completes the saved STOP reconciliation and destroys the original smoke guest. Do not repeat uncertain operations.
 - The exact active release, connection, preset, image, helper, and qualification are verified.
-- The owner uses the management page to create a new user project. Record its UUID, binding, workspace, generation, and Incus instance. The qualification fixture has a text project ID and cannot be used: `POST /api/conversations` accepts UUID project IDs, `global`, or `self`.
+- The owner uses the management page to create a new user project. Record its generated `incus-project-<48 hex characters>` ID, binding, workspace, generation, and Incus instance. The qualification fixture uses a different ID format and cannot substitute for this user flow. Conversation validation must accept the actual generated user-project ID and enforce project membership.
 - Read `/api/providers` and `/api/models` with the isolated app's existing human session. Record only model/provider identifiers and credential-presence status. Use an existing configured real model. Do not expose secrets or alter the service environment.
 - Record a host canary's content hash and metadata before work. Put the same relative path in the guest with different content. The live owner must prepare this fixture through reviewed guest tools, not by copying AMD source into a guest.
 
@@ -24,7 +24,7 @@ Send a bounded prompt through the normal composer or `POST /api/conversations/:i
 6. `shell`: run a deterministic file assertion (`test` against the exact expected content), `git -C g5-native add proof.txt`, and a local commit. Print `git -C g5-native status --porcelain` and `git -C g5-native rev-parse HEAD`.
 7. `readFile`: read the committed content again.
 
-Read `GET /api/conversations/:id/messages` after each completed run. Assert the saved tool names, inputs, outputs, success states, run identity, and expected nonce. An assistant's statement alone is not evidence. A successful run can contain failed tools, so check each tool result. Read the same file and Git HEAD through an independent reviewed guest observation. Re-read the host canary and prove its hash and metadata did not change.
+Read `GET /api/conversations/:id/messages?withToolCalls=true` after each completed run. Assert the saved tool names, inputs, outputs, success states, run identity, and expected nonce. An assistant's statement alone is not evidence. A successful run can contain failed tools, so check each tool result. Read the same file and Git HEAD through an independent reviewed guest observation. Re-read the host canary and prove its hash and metadata did not change.
 
 ## Retention and refusal
 
