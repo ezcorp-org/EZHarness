@@ -1,0 +1,12 @@
+Checked 1 file in 6ms. No fixes applied.
+── Tests (staged) ─────────────────────────────────
+/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/scripts/lib/hook-lib.sh: line 220: printf: Broken pipe
+/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/scripts/lib/hook-lib.sh: line 220: printf: write error: Broken pipe
+  bun: src/__tests__/dev-image-ownership.test.ts
+bun test v1.4.2 (744846f84)
+
+ 1 pass
+ 0 fail
+ 37 expect() calls
+Ran 1 test across 1 file. [357.00ms]
+[detached HEAD 8c7f7bc00] merge: wp/w4g-13 051bf0947 into integ/w00 (W4G-13 the Dockerfile.dev ownership test matches every bun install or bun run step against an exact expected set)

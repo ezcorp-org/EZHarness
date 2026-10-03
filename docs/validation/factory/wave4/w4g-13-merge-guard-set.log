@@ -1,0 +1,11 @@
+bun test v1.4.2 (744846f84)
+
+src/__tests__/fs-reserved-carveout-not-a-violation.test.ts:
+[ezcorp/fs] deprecated: extension "3eb23e7a-69d0-4369-80b5-2b8c0299a8b3" called the path-check shim. Migrate to ezcorp/fs.read | write | list | stat | exists | mkdir | unlink (host-mediated; SDK helpers in @ezcorp/sdk/runtime). This shim is removed in milestone v2.
+[ezcorp/fs] deprecated: extension "275ca357-5c86-46f4-a1f1-41db3a3ae422" called the path-check shim. Migrate to ezcorp/fs.read | write | list | stat | exists | mkdir | unlink (host-mediated; SDK helpers in @ezcorp/sdk/runtime). This shim is removed in milestone v2.
+
+ 468 pass
+ 2 skip
+ 0 fail
+ 2259 expect() calls
+Ran 470 tests across 36 files. [42.95s]
