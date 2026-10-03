@@ -473,12 +473,14 @@ test("an old unsaved qualification run returns to a safe retry with the same ID"
 	await page.getByRole("button", { name: "Prepare qualification…" }).click();
 	await page.getByRole("checkbox", { name: /I reviewed this plan/ }).check();
 	await page.getByRole("button", { name: "Apply reviewed fixture plan" }).click();
+	await expect(page.getByTestId("qualification-workflow")).toContainText("Operator fixtures are ready");
 	const key = await savedKey(page, "qualification-draft");
 	await page.evaluate(storageKey => {
 		const draft = JSON.parse(localStorage.getItem(storageKey)!);
 		localStorage.setItem(storageKey, JSON.stringify({ ...draft, phase: "running", startedAt: Date.now() - 60_000 }));
 	}, key);
 	await page.reload();
+	await expect(page.getByRole("status").filter({ hasText: "No saved run matches this qualification request" })).toBeVisible();
 	await expect(page.getByTestId("qualification-workflow")).toContainText("Operator fixtures are ready");
 	await expect(page.getByRole("button", { name: "Run live qualification" })).toBeDisabled();
 	await page.getByRole("checkbox", { name: /host is ready for a live sandbox qualification/ }).check();
