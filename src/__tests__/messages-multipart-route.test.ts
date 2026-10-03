@@ -27,10 +27,7 @@ mock.module("$server/db/queries/conversation-extensions", () => ({
   },
 }));
 
-// Stubs for security + auth middleware that don't exist in src/ (they live in web/).
-mock.module("$server/auth/middleware", () => ({
-  requireAuth: (_locals: any) => ADMIN_USER,
-}));
+// The real auth middleware reads the full admin principal supplied by invokePost.
 const streamChatCalls: any[] = [];
 mock.module("$lib/server/context", () => ({
   getExecutor: () => ({
@@ -154,7 +151,7 @@ async function invokePost(req: Request): Promise<Response> {
   return POST({
     request: req,
     params: { id: conversationId },
-    locals: {} as any,
+    locals: { user: ADMIN_USER } as any,
   } as any);
 }
 

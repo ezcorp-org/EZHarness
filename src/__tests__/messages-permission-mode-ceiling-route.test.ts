@@ -38,13 +38,7 @@ mock.module("$server/chat/attachments/validator", () => require("../chat/attachm
 mock.module("$server/chat/attachments/storage", () => require("../chat/attachments/storage"));
 mock.module("$server/chat/attachments/content-builder", () => require("../chat/attachments/content-builder"));
 
-// `requireAuth` is the route's identity gate; the ceiling reads the auth
-// METHOD off `locals` independently, so a single stubbed user is enough.
-mock.module("$server/auth/middleware", () => ({
-  ...require("../auth/middleware"),
-  requireAuth: (_locals: unknown) => ADMIN_USER,
-}));
-
+// Use real auth and project access checks with the full admin principal.
 const streamChatCalls: Array<Record<string, unknown>> = [];
 mock.module("$lib/server/context", () => ({
   getExecutor: () => ({
@@ -89,8 +83,8 @@ let projectRoot: string;
 let projectId: string;
 let conversationId: string;
 
-const SESSION_LOCALS = { authMethod: "session", user: { id: ADMIN_USER.id } };
-const KEY_LOCALS = { authMethod: "api-key", user: { id: ADMIN_USER.id }, apiKeyId: "k1" };
+const SESSION_LOCALS = { authMethod: "session", user: ADMIN_USER };
+const KEY_LOCALS = { authMethod: "api-key", user: ADMIN_USER, apiKeyId: "k1" };
 
 const INTAKES: Intake[] = ["json", "multipart"];
 
@@ -217,7 +211,7 @@ describe.each(INTAKES)("intake: %s", (intake) => {
 
   test("an UNSTAMPED principal is confined — the carve-out is an allowlist, not a denylist", async () => {
     await setStoredMode("ask");
-    const res = await send(intake, "yolo", { user: { id: ADMIN_USER.id } });
+    const res = await send(intake, "yolo", { user: ADMIN_USER });
     expect(res.status).toBe(403);
     expect(streamChatCalls).toHaveLength(0);
   });

@@ -9,10 +9,9 @@ import { mockServerAlias, ADMIN_USER } from "./helpers/mock-request";
 mockServerAlias();
 mock.module("$server/db/queries/projects", () => require("../db/queries/projects"));
 mock.module("$server/chat/attachments/storage", () => require("../chat/attachments/storage"));
-mock.module("$server/auth/middleware", () => ({
-  requireAuth: (_: any) => ADMIN_USER,
-}));
+
 mock.module("$lib/server/security/validation", () => ({
+  ...require("../../web/src/lib/server/security/validation"),
   validationError: () => new Response("", { status: 400 }),
 }));
 mock.module("$lib/server/security/api-keys", () => ({
@@ -82,7 +81,7 @@ describe("conversation delete → attachments GC (disk + DB)", () => {
 
     const res = await DELETE({
       params: { id: conv.id },
-      locals: {} as any,
+      locals: { user: ADMIN_USER } as any,
     } as any);
     expect(res.status).toBe(204);
 
@@ -102,7 +101,7 @@ describe("conversation delete → attachments GC (disk + DB)", () => {
     });
     await getDb().insert(sandboxBindings).values(sandboxBindingRow(project.id));
 
-    const response = await DELETE({ params: { id: conv.id }, locals: {} as any } as any);
+    const response = await DELETE({ params: { id: conv.id }, locals: { user: ADMIN_USER } as any } as any);
     expect(response.status).toBe(503);
     expect(await getConversation(conv.id)).toBeDefined();
     expect(await fileExists(written.storagePath)).toBe(true);

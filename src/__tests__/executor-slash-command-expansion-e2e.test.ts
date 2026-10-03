@@ -50,11 +50,7 @@ mock.module("$server/chat/attachments/validator", () => require("../chat/attachm
 mock.module("$server/chat/attachments/storage", () => require("../chat/attachments/storage"));
 mock.module("$server/chat/attachments/content-builder", () => require("../chat/attachments/content-builder"));
 
-// Auth middleware lives under web/ — stub it to a fixed admin user so
-// ownership check passes regardless of conv.userId.
-mock.module("$server/auth/middleware", () => ({
-  requireAuth: (_locals: any) => ADMIN_USER,
-}));
+// Keep the real aliased auth middleware; requests supply the full admin principal.
 
 // Security middleware — pass-through no-ops.
 mock.module("$lib/server/security/validation", () => ({
@@ -239,7 +235,7 @@ function postJson(content: string): Promise<Response> {
   return POST({
     request: req,
     params: { id: conversationId },
-    locals: {} as any,
+    locals: { user: ADMIN_USER } as any,
   } as any);
 }
 
