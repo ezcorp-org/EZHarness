@@ -6,7 +6,7 @@ import { resolveReverseRpcMeta } from "./tool-executor/provenance";
 import type { RpcHandlerDeps } from "./tool-executor/rpc-handlers";
 import type { JsonRpcRequest, JsonRpcResponse } from "./types";
 import { LifecycleError } from "./v4/types";
-import type { WorkspaceTarget } from "../runtime/workspaces/target";
+import type { SandboxWorkspacePrincipal, WorkspaceTarget } from "../runtime/workspaces/target";
 import { createSandboxProjectCommandRunner } from "../runtime/workspaces/project-command-runner";
 import { resolveProjectWorkspaceTarget } from "../runtime/workspaces/project-target";
 
@@ -39,6 +39,7 @@ export async function readProjectGitForTarget(
   projectRoot: string,
   operation: ProjectGitOperation,
   sinceHash?: string,
+  principal?: SandboxWorkspacePrincipal,
 ): Promise<unknown> {
   if (target?.kind !== "sandbox") {
     return readProjectGit(projectRoot, operation, sinceHash);
@@ -49,7 +50,7 @@ export async function readProjectGitForTarget(
     ".",
     operation,
     sinceHash,
-    createSandboxProjectCommandRunner(target),
+    createSandboxProjectCommandRunner(target, principal),
   );
 }
 
@@ -68,6 +69,7 @@ export async function handleProjectGit(deps: RpcHandlerDeps, extensionId: string
       project.path!,
       operation as ProjectGitOperation,
       input.sinceHash as string | undefined,
+      resolved.onBehalfOf ? { userId: resolved.onBehalfOf } : undefined,
     );
     return { jsonrpc: "2.0", id: request.id, result };
   } catch (cause) {

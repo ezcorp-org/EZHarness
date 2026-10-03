@@ -14,13 +14,13 @@ test("project commands use the pinned sandbox and quote each argument", async ()
     calls.push(request);
     return { content: [], details: { exitCode: 7, stdout: "guest output", stderr: "guest warning" } };
   } });
-  const run = createSandboxProjectCommandRunner(target);
+  const run = createSandboxProjectCommandRunner(target, { userId: "authenticated-member" });
   expect(await run(["git", "show", "a'b", "$(touch /host)"], "/host/project"))
     .toEqual({ exitCode: 7, stdout: "guest output", stderr: "guest warning" });
   expect(await run(["git", "status"], "/elsewhere"))
     .toEqual({ exitCode: 7, stdout: "guest output", stderr: "guest warning" });
   expect(calls.map(call => call.toolCallId)).toEqual(["project-command-1", "project-command-2"]);
-  expect(calls[0]).toMatchObject({ binding, toolName: "shell", params: {
+  expect(calls[0]).toMatchObject({ binding, principal: { userId: "authenticated-member" }, toolName: "shell", params: {
     command: "'git' 'show' 'a'\\''b' '$(touch /host)'", timeout: 10_000,
   } });
 });

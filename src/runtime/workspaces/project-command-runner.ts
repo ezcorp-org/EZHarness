@@ -6,6 +6,7 @@ import {
   executeSandboxWorkspaceTool,
   isLocalFallbackDenied,
   type SandboxWorkspaceTarget,
+  type SandboxWorkspacePrincipal,
 } from "./target";
 
 function quoteShellArg(value: string): string {
@@ -18,6 +19,7 @@ function quoteShellArg(value: string): string {
  */
 export function createSandboxProjectCommandRunner(
   target: SandboxWorkspaceTarget,
+  principal?: SandboxWorkspacePrincipal,
 ): ProjectCommandRunner {
   let sequence = 0;
   return async (argv, _cwd, input): Promise<ProjectCommandResult> => {
@@ -31,6 +33,9 @@ export function createSandboxProjectCommandRunner(
       "shell",
       `project-command-${++sequence}`,
       { command: argv.map(quoteShellArg).join(" "), timeout: 10_000 },
+      undefined,
+      undefined,
+      principal,
     );
     if (isLocalFallbackDenied(result)) {
       const error = new Error(

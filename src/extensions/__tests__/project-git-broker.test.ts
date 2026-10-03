@@ -86,8 +86,9 @@ test("sandbox Git denial never falls through to the AMD checkout", async () => {
 
   let backendCalls = 0;
   const failed = sandboxWorkspaceTarget(sandboxBinding, {
-    async execute() {
+    async execute(request) {
       backendCalls++;
+      expect(request.principal).toEqual({ userId: "user" });
       throw new Error("sandbox offline");
     },
   });
