@@ -4,8 +4,8 @@
  * Handler drives `executor.runAgent(name, input, projectId?)` — we mock
  * the executor and the token-budget quota to avoid touching runtime
  * or PGlite. Covers the auth gate (401), daily-budget gate (429),
- * projectId UUID validation (400), unknown-agent rejection (400), and
- * the happy-path (200). The actual streaming path is out of scope.
+ * UUID and Incus project validation, project membership and API scopes,
+ * unknown-agent rejection (400), and the happy-path (200). The actual streaming path is out of scope.
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
@@ -64,6 +64,26 @@ describe("POST /api/agents/[name]/run", () => {
     expect(result.status).toBe(403);
     expect(getProjectMembership).toHaveBeenCalledWith(user.id, projectId);
     expect(runAgent).not.toHaveBeenCalled();
+  });
+
+  test("refuses a key without chat scope before budget or agent work", async () => {
+    const result = await POST(makeEvent({ locals: { user, apiKeyScopes: ["read"] }, body: {} }));
+    expect(result.status).toBe(403);
+    expect(await result.json()).toEqual({ error: "Insufficient scope", required: "chat" });
+    expect(checkTokenBudget).not.toHaveBeenCalled();
+    expect(getProjectMembership).not.toHaveBeenCalled();
+    expect(runAgent).not.toHaveBeenCalled();
+  });
+
+  test("runs an Incus project only after membership approval and preserves the initiating owner", async () => {
+    const projectId = `incus-project-${"b".repeat(48)}`;
+    runAgent.mockResolvedValueOnce({ id: "incus-run" });
+    const result = await POST(makeEvent({ locals: { user }, body: { projectId, task: "Inspect guest" } }));
+    expect(result.status).toBe(200);
+    expect(await result.json()).toEqual({ id: "incus-run" });
+    expect(getProjectMembership).toHaveBeenCalledWith(user.id, projectId);
+    expect(runAgent).toHaveBeenCalledWith("test-agent", { task: "Inspect guest" }, projectId, user.id);
+    expect(getProjectMembership.mock.invocationCallOrder[0]).toBeLessThan(runAgent.mock.invocationCallOrder[0]!);
   });
 
   test("rejects 401 when unauthenticated", async () => {

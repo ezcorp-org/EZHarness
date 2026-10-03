@@ -289,6 +289,7 @@ web_vitest_coverage_args() {
     "--coverage.include=src/lib/components/ui/format-map.ts"
     "--coverage.include=src/lib/inline-tool-store.svelte.ts"
     "--coverage.include=src/lib/chat/historical-tool-calls.ts"
+    "--coverage.include=src/routes/api/agents/*/run/+server.ts"
     "--coverage.include=src/routes/api/agent-configs/+server.ts"
     "--coverage.include=src/routes/api/agent-configs/[id]/+server.ts"
     "--coverage.include=src/routes/api/agent-configs/generate/+server.ts"
