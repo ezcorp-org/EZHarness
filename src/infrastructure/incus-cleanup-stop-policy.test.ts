@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { permitsLinkedCleanupStop as permits, permitsFailedCleanupInspection as permitsInspect } from "./incus-cleanup-stop-policy";
+import { matchesCleanupRecoveryBinding, permitsLinkedCleanupStop as permits, permitsFailedCleanupInspection as permitsInspect } from "./incus-cleanup-stop-policy";
 
 type Binding = Parameters<typeof permits>[0];
 type Recovery = NonNullable<Parameters<typeof permits>[1]>;
@@ -49,4 +49,13 @@ test("failed cleanup inspection grants readback only for the exact current no-ef
     { errorCode: "INTERNAL" }, { providerOperationId: "provider" }, { requestPayload: { expectedGeneration: 0 } },
     { requestPayload: { expectedGeneration: 1.5 } }, { requestPayload: { expectedGeneration: 2, extra: true } }];
   for (const patch of patches) expect(permitsInspect(failedBinding, { ...failed, ...patch })).toBe(false);
+});
+
+ test("persisted recovery scope is independent of cleanup phase", () => {
+  for (const state of ["STOP_REQUIRED", "DESTROY_REQUIRED", "COMPLETED"] as const)
+    expect(matchesCleanupRecoveryBinding(binding, { ...recovery, state }, "guest")).toBe(true);
+  expect(matchesCleanupRecoveryBinding({ ...binding, currentOperationId: "destroy", desiredState: "STOPPED", tombstonedAt: null }, recovery, "guest")).toBe(true);
+  const patches: Partial<Recovery>[] = [{ bindingId: "foreign" }, { generation: 2 }, { installationId: "foreign" },
+    { releaseId: "foreign" }, { connectionId: "foreign" }, { connectionRevision: 2 }, { providerResourceId: "foreign" }];
+  for (const patch of patches) expect(matchesCleanupRecoveryBinding(binding, { ...recovery, ...patch }, "guest")).toBe(false);
 });

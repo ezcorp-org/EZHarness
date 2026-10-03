@@ -3,12 +3,11 @@ import type { SandboxBinding, SandboxCleanupRecovery, SandboxOperation } from ".
 type Binding = Pick<SandboxBinding, "id" | "generation" | "currentOperationId" | "tombstonedAt" | "desiredState" | "providerInstallationId" | "providerReleaseId" | "connectionId" | "connectionRevision">;
 type Journal = Pick<SandboxOperation, "id" | "bindingId" | "generation" | "kind" | "state" | "providerOperationId" | "errorCode" | "requestPayload">;
 
-function matchesRecoveryBinding(binding: Binding, recovery: SandboxCleanupRecovery, providerResourceId: string): boolean {
-  return binding.tombstonedAt !== null && binding.desiredState === "ABSENT"
-    && recovery.state === "STOP_REQUIRED" && recovery.bindingId === binding.id && recovery.generation === binding.generation
+export function matchesCleanupRecoveryBinding(binding: Binding, recovery: SandboxCleanupRecovery, providerResourceId: string): boolean {
+  return recovery.bindingId === binding.id && recovery.generation === binding.generation
     && recovery.installationId === binding.providerInstallationId && recovery.releaseId === binding.providerReleaseId
     && recovery.connectionId === binding.connectionId && recovery.connectionRevision === binding.connectionRevision
-    && recovery.providerResourceId === providerResourceId && Number.isSafeInteger(recovery.providerGeneration) && recovery.providerGeneration >= 1;
+    && recovery.providerResourceId === providerResourceId;
 }
 
 function matchesFailedDestroy(binding: Binding, recovery: SandboxCleanupRecovery, failed: Journal): boolean {
@@ -28,7 +27,9 @@ function matchesLinkedStop(binding: Binding, recovery: SandboxCleanupRecovery, s
 /** Only the persisted linked STOP can run or be inspected under a retained tombstone. */
 export function permitsLinkedCleanupStop(binding: Binding, recovery: SandboxCleanupRecovery | undefined,
   failed: Journal | undefined, stop: Journal | undefined, providerResourceId: string): boolean {
-  return Boolean(recovery && failed && stop && matchesRecoveryBinding(binding, recovery, providerResourceId)
+  return Boolean(recovery && failed && stop && binding.tombstonedAt !== null && binding.desiredState === "ABSENT" && recovery.state === "STOP_REQUIRED"
+    && Number.isSafeInteger(recovery.providerGeneration) && recovery.providerGeneration >= 1
+    && matchesCleanupRecoveryBinding(binding, recovery, providerResourceId)
     && matchesFailedDestroy(binding, recovery, failed) && matchesLinkedStop(binding, recovery, stop));
 }
 
