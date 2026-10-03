@@ -1,6 +1,6 @@
 # Active completion — 3 October 2026
 
-## Latest verified state — 3 October, 23:00 UTC
+## Latest verified state — 3 October, 23:32 UTC
 
 - [x] Complete linked v2 cleanup through EZHarness; preserve the original failed row, release reservations, and independently confirm no guests remain.
 - [x] Install verified diagnostics bundle `74970fa36` in the isolated app. One v4 attempt reported the actual failure: `enforcement / distinct_ip_literal_targets_are_required`. Both guests were cleaned up; independent Incus inventory is empty. A fresh stopped snapshot proves all eight lifecycle operations succeeded, both bindings are absent, and global pending operations and unreleased reservations are empty.
@@ -9,13 +9,15 @@
 - [x] Add and verify visible, safe qualification failure details. Fourteen route tests and one authenticated browser test pass.
 - [x] Strengthen the secret timeout test using actual child output and a controlled expiry callback; separately prove that late output is wiped. Fourteen targeted tests pass. The exact original full-pool assertion failure was not retained, so its precise cause remains unconfirmed.
 - [x] Fix the confirmed hostname/IP mismatch using the verified Incus TLS connection; keep destination and network checks strict. Focused tests and independent review pass. Verified bundle `ad2b151df` is installed and healthy behind the ingress hold. The exact v5 test plan was reviewed; live qualification remains open.
-- [x] Close the missing agent-run coverage measurement and split journal authorization checks without changing policy. Focused tests, coverage, types, and review pass. The agent-chat complexity refactor is awaiting independent review.
+- [x] Close the missing agent-run coverage measurement and split journal authorization checks without changing policy. Focused tests, coverage, types, and review pass.
 - [x] Review and integrate the agent-chat refactor. Thirty focused tests pass; all 72 measured lines are covered and the highest function complexity score is 9.
-- [ ] Fix the live v5 network-control failure: `enforcement / othersandbox_control_target_is_not_reachable_from_the_host`. The AMD host cannot reach the private neighbor target. Both guests were deleted and independent Incus inventory is empty. Design a bounded, host-owned positive control on Xeon without weakening guest isolation; include deterministic setup and preflight. No additional server authority has been granted.
+- [x] Implement the v5 network-control correction: a reviewed, bounded Xeon-side challenge for the exact owned neighbor, and capability checks before allocation. Keep guest isolation and management checks intact. Focused host tests, 25 Python gate tests, and replay of actual read-only project/network/profile responses pass. The replay is not an installed-gate or live network qualification pass.
+- [ ] Complete independent gate review, exact NixOS baseline comparison, reviewed activation, and live qualification. No additional server authority has been activated.
+- [x] Reproduce the latest fast gate's eight failures: two guard-location checks and six dependency-security checks. Keep the guard at the handler boundary (10 structural and 30 behavior tests pass). Prove the dependency lock is correct using a clean install, then repair stale local resolutions with a forced frozen install (all seven security tests pass). No gate or dependency pin was weakened.
 - [ ] Complete live SP01–SP08, native project proof, and ten serial feature lifecycles on the final candidate. Normal feature admission correctly remains blocked until qualification passes.
 - [ ] Pass final-source browser, merged coverage, full local/hosted checks, and required non-author review. Do not repeat full captures for each intermediate diagnostic fix.
 
-The `74970fa36` fast run passed every check except the secret timeout test: 27,232 backend passes and one failure. Its corrected test has passed focused checks; the final full gate is still open. The current merged branch includes later main changes, so the installed bundle is not claimed to be the final source.
+The `e177f21e6` fast run reported 27,337 backend passes and eight failures, all diagnosed and corrected above; 3,638 web Bun tests, 7,719 Vitest tests, types, lint, Svelte checks, and build passed. The combined final gate remains open. The installed app is still `ad2b151df`; the newer source is not yet deployed.
 
 ## GPT-6.1 Sol completion team
 

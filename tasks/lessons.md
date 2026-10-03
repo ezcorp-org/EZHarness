@@ -1,5 +1,10 @@
 # Lessons
 
+- Incus qualification must model a remote control plane. Do not assume AMD can route to a private Xeon guest address. Negotiate the reviewed host-side positive-control capability before allocating test guests, while preserving guest-to-guest denial checks.
+- Test CLI response shapes against the installed CLI before pinning a privileged script. `incus query` unwraps metadata; an API-envelope parser needs explicit `--raw`. Mocked envelopes alone hid this mismatch.
+- After dependency overrides change, a frozen install can retain stale caller resolutions in an existing Bun install. Compare with a clean isolated install and inspect actual runtime resolutions before changing a correct lockfile or security test.
+- Keep the run-start mode guard at the route handler boundary. The tree-wide security check traces run-start paths; moving the guard into a separate authorization helper can remove it from that structural proof even when behavior tests still pass. Run both checks after such a refactor.
+
 - Test Git subprocesses must use the existing sanitized command runner. Git hooks export repository-selection variables; an unsanitized fixture `git init` can target the shared repository instead of its temporary directory. Reproduce this with disposable linked worktrees, and test with poisoned `GIT_DIR` and `GIT_WORK_TREE`.
 - Update both Bun and Vitest route mocks when a shared service adds error classes. A passing Bun route test does not verify the separate Vitest mock contract.
 
