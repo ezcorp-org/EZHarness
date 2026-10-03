@@ -2,6 +2,21 @@ import { expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { ChannelHost, echoGuest } from "./channel-guest";
+
+test("a channel carries a frame both ways and reports the guest's exit", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ez-channel-pool-"));
+  const { guest, transport, echoed, closed } = await echoGuest(new ChannelHost({ root }), "worker-solo");
+  try {
+    transport.stdin.write("solo-frame\n");
+    expect(await echoed).toBe("solo-frame");
+    transport.stdin.write("stop\n");
+    expect(await closed).toBe("closed");
+  } finally {
+    guest.kill("SIGKILL");
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 /**
  * Two live workers must not starve the host process's file-system thread pool.
@@ -11,43 +26,12 @@ import { join } from "node:path";
  * closed it ("Worker closed"). Each worker's `out` and `err` reads held one pool
  * thread each, and the pool has one thread per CPU. The child below pins the pool
  * to two threads, so the same starvation shows on any host whatever its CPU count.
- *
- * The guests are shell processes that open all three FIFOs the way the sandbox
- * shim does (read-write, so no open waits for the host) and echo one frame back.
- * `timeout` bounds each guest, so none outlives a failed run. The child reaches the
- * real `channelTransport` through a subclass, as channel-identity.test.ts does.
  */
 const child = `
-import { lstat, mkdir, chmod, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import { spawn } from "node:child_process";
-import { PodmanRunner } from ${JSON.stringify(new URL("../src/podman.ts", import.meta.url).pathname)};
-class Channels extends PodmanRunner {
-  directory(id) { return this.channelDirectory(id); }
-  facts(id) { return this.channelFactsPath(id); }
-  transport(id) { return this.channelTransport(id); }
-}
-const runner = new Channels({ root: process.argv[1] });
+import { ChannelHost, echoGuest } from ${JSON.stringify(new URL("./channel-guest.ts", import.meta.url).pathname)};
+const host = new ChannelHost({ root: process.argv[1] });
 const workers = [];
-for (const id of ["worker-a", "worker-b"]) {
-  const directory = runner.directory(id);
-  await mkdir(directory, { recursive: true });
-  await chmod(directory, 0o755);
-  const facts = {};
-  for (const fifo of ["in", "out", "err"]) {
-    Bun.spawnSync(["mkfifo", "-m", "666", join(directory, fifo)]);
-    const created = await lstat(join(directory, fifo));
-    facts[fifo] = { device: created.dev, inode: created.ino };
-  }
-  await writeFile(runner.facts(id), JSON.stringify(facts), { mode: 0o600 });
-  const guest = spawn("timeout", ["30", "sh", "-c", 'exec 3<>"$0/in" 4<>"$0/out" 5<>"$0/err"; head -n1 <&3 >&4; read -r _ <&3', directory], { stdio: "ignore" });
-  const transport = await runner.transport(id);
-  // Both reads run for a worker's whole life, as FramedExecution reads both.
-  transport.stderr.on("data", () => {});
-  const echoed = new Promise(resolve => transport.stdout.on("data", chunk => resolve(String(chunk).trim())));
-  const closed = new Promise(resolve => transport.once("close", () => resolve("closed")));
-  workers.push({ id, guest, transport, echoed, closed });
-}
+for (const id of ["worker-a", "worker-b"]) workers.push({ id, ...await echoGuest(host, id) });
 const report = {};
 for (const worker of workers) {
   worker.transport.stdin.write(worker.id + "-frame\\n");

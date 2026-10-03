@@ -1,7 +1,6 @@
 import { mkdir, mkdtemp, writeFile, readFile, rename, rm, chmod, lstat, open, type FileHandle } from "node:fs/promises";
 import { constants as fsConstants } from "node:fs";
 import { Readable } from "node:stream";
-import type { ReadableStream as WebReadableStream } from "node:stream/web";
 import { dirname, join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
@@ -145,9 +144,14 @@ interface ChannelInode { readonly device: number; readonly inode: number }
  * host) no other file operation in the process can run, the next request frame
  * included, until a worker's deadline closes it. Bun's own file stream polls a
  * FIFO instead. It does not own the descriptor; see `closeChannelReader`.
+ * Destroying the stream cancels the reader, which stops the polling.
  */
 function channelReader(handle: FileHandle): Readable {
-  return Readable.fromWeb(Bun.file(handle.fd).stream() as WebReadableStream<Uint8Array>);
+  const reader = Bun.file(handle.fd).stream().getReader();
+  return new Readable({
+    read() { reader.read().then(({ done, value }) => { this.push(done ? null : Buffer.from(value)); }, error => { this.destroy(error); }); },
+    destroy(error, callback) { reader.cancel().then(() => callback(error), () => callback(error)); },
+  });
 }
 
 /** Stops a channel reader, then closes its descriptor, which the reader polls until it has stopped. */
