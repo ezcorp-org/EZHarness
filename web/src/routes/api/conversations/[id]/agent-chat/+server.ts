@@ -160,41 +160,40 @@ function steerOrQueueAgentChat(
   userMessage: UserMessage,
   executor: ReturnType<typeof getExecutor>,
 ): Response {
-
-    // Agent is running (P2). Steer the live run so the message lands mid-run
-    // at the next turn boundary instead of waiting for the run to finish. The
-    // decision is ATOMIC — EITHER steer OR enqueue, never both — keyed on the
-    // steerConversation result. steer() is best-effort: the executor
-    // shadow-tracks the message and calls the fallback below if it reaches the
-    // run's terminal undelivered (abort / failover swap / loop already past
-    // its final steering poll), so nothing is silently lost and branch (1)
-    // still drains it. Content is passed verbatim to match branch (1)'s
-    // verbatim pending-message re-prompt (start-assignment.ts).
-    //
-    // P4 §1.2: pass the persisted row id so the executor can re-parent it to
-    // the actual injection position at delivery (the request-time parent is the
-    // leaf-at-request, which diverges from where the LLM sees the steer). The
-    // route persists the row up-front (above) for immediate feed visibility; the
-    // reconciliation fixes its branch position without deferring that.
-    const pending = {
-      messageId: userMessage.id,
-      content,
-      createdAt: userMessage.createdAt instanceof Date ? userMessage.createdAt.toISOString() : String(userMessage.createdAt),
-    };
-    const enqueuePending = () => enqueue(conversationId, pending);
-    const steerResult = executor.steerConversation(conversationId, content, enqueuePending, userMessage.id);
-    if (steerResult.status === "steered") {
-      return json({ status: "steered", messageId: userMessage.id });
-    }
-    // Every non-`steered` result → enqueue exactly as before so branch (1)
-    // drains it at the current run's completion. This covers `no-live-run` /
-    // `no-agent` (the run ended or is in its pre-first-token window) AND P4's
-    // `guarded` (an autonomous / structured-output child that must take user
-    // messages at the run boundary, not mid-run) — the pre-P2 queued behavior,
-    // preserved for exactly those children.
-    enqueuePending();
-    return json({ status: "queued", messageId: userMessage.id });
+  // Agent is running (P2). Steer the live run so the message lands mid-run
+  // at the next turn boundary instead of waiting for the run to finish. The
+  // decision is ATOMIC — EITHER steer OR enqueue, never both — keyed on the
+  // steerConversation result. steer() is best-effort: the executor
+  // shadow-tracks the message and calls the fallback below if it reaches the
+  // run's terminal undelivered (abort / failover swap / loop already past
+  // its final steering poll), so nothing is silently lost and branch (1)
+  // still drains it. Content is passed verbatim to match branch (1)'s
+  // verbatim pending-message re-prompt (start-assignment.ts).
+  //
+  // P4 §1.2: pass the persisted row id so the executor can re-parent it to
+  // the actual injection position at delivery (the request-time parent is the
+  // leaf-at-request, which diverges from where the LLM sees the steer). The
+  // route persists the row up-front (above) for immediate feed visibility; the
+  // reconciliation fixes its branch position without deferring that.
+  const pending = {
+    messageId: userMessage.id,
+    content,
+    createdAt: userMessage.createdAt instanceof Date ? userMessage.createdAt.toISOString() : String(userMessage.createdAt),
+  };
+  const enqueuePending = () => enqueue(conversationId, pending);
+  const steerResult = executor.steerConversation(conversationId, content, enqueuePending, userMessage.id);
+  if (steerResult.status === "steered") {
+    return json({ status: "steered", messageId: userMessage.id });
   }
+  // Every non-`steered` result → enqueue exactly as before so branch (1)
+  // drains it at the current run's completion. This covers `no-live-run` /
+  // `no-agent` (the run ended or is in its pre-first-token window) AND P4's
+  // `guarded` (an autonomous / structured-output child that must take user
+  // messages at the run boundary, not mid-run) — the pre-P2 queued behavior,
+  // preserved for exactly those children.
+  enqueuePending();
+  return json({ status: "queued", messageId: userMessage.id });
+}
 
 function resolveAgentSelection(
   override: string | undefined,
@@ -236,7 +235,7 @@ async function startAgentChat(input: {
   // `start-assignment.ts:auto-continue`); v1 doesn't thread overrides
   // through the active-run drain.
   const streamPromise = executor.streamChat(conversationId, content, {
-    workspacePrincipal: { userId: userId },
+    workspacePrincipal: { userId },
     projectId,
     agentConfigId,
     runId,
