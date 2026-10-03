@@ -171,4 +171,25 @@ export async function up(database: MigrationDb): Promise<void> {
   )`);
   await database.execute(sql`CREATE INDEX IF NOT EXISTS idx_sandbox_admission_queue
     ON sandbox_admission_requests(state, created_at)`);
+  await database.execute(sql`CREATE TABLE IF NOT EXISTS sandbox_cleanup_recoveries (
+    id TEXT PRIMARY KEY,
+    binding_id TEXT NOT NULL REFERENCES sandbox_bindings(id) ON DELETE RESTRICT,
+    generation INTEGER NOT NULL CHECK (generation > 0),
+    failed_destroy_operation_id TEXT NOT NULL UNIQUE REFERENCES provider_sandbox_operations(id) ON DELETE RESTRICT,
+    stop_operation_id TEXT NOT NULL UNIQUE,
+    destroy_operation_id TEXT NOT NULL UNIQUE,
+    installation_id TEXT NOT NULL,
+    release_id TEXT NOT NULL,
+    connection_id TEXT NOT NULL,
+    connection_revision INTEGER NOT NULL CHECK (connection_revision > 0),
+    provider_resource_id TEXT NOT NULL,
+    provider_generation INTEGER NOT NULL CHECK (provider_generation > 0),
+    state TEXT NOT NULL CHECK (state IN ('STOP_REQUIRED', 'DESTROY_REQUIRED', 'COMPLETED')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CHECK (stop_operation_id <> destroy_operation_id
+      AND stop_operation_id <> failed_destroy_operation_id
+      AND destroy_operation_id <> failed_destroy_operation_id)
+  )`);
+
 }
