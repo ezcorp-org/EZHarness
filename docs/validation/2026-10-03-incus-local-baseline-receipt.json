@@ -1,0 +1,281 @@
+{
+  "plan": {
+    "version": 1,
+    "preparedAt": "2026-10-03T21:39:25.580Z",
+    "executed": true,
+    "sourceSha256": "624ee9873b433d4f8570890d9d62d3850be4d8be6464702de5c0571b4026c4d2",
+    "nonce": "849b49531d7cbfbd",
+    "image": "docker.io/library/busybox@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e",
+    "prerequisites": [
+      {
+        "args": [
+          "python3",
+          "--version"
+        ],
+        "startedAt": "2026-10-03T21:39:25.261Z",
+        "exitCode": 0,
+        "stdout": "Python 3.13.15\n",
+        "stderr": ""
+      },
+      {
+        "args": [
+          "git",
+          "--version"
+        ],
+        "startedAt": "2026-10-03T21:39:25.266Z",
+        "exitCode": 0,
+        "stdout": "git version 2.55.0\n",
+        "stderr": ""
+      },
+      {
+        "args": [
+          "docker",
+          "compose",
+          "version"
+        ],
+        "startedAt": "2026-10-03T21:39:25.268Z",
+        "exitCode": 0,
+        "stdout": "Docker Compose version 5.5.1\n",
+        "stderr": ""
+      },
+      {
+        "args": [
+          "podman",
+          "info",
+          "--format",
+          "{{.Host.Security.Rootless}}"
+        ],
+        "startedAt": "2026-10-03T21:39:25.346Z",
+        "exitCode": 0,
+        "stdout": "true\n",
+        "stderr": ""
+      },
+      {
+        "args": [
+          "systemctl",
+          "--user",
+          "is-active",
+          "podman.socket"
+        ],
+        "startedAt": "2026-10-03T21:39:25.464Z",
+        "exitCode": 0,
+        "stdout": "active\n",
+        "stderr": ""
+      },
+      {
+        "args": [
+          "podman",
+          "image",
+          "inspect",
+          "docker.io/library/busybox@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e",
+          "--format",
+          "{{.Id}}"
+        ],
+        "startedAt": "2026-10-03T21:39:25.468Z",
+        "exitCode": 0,
+        "stdout": "30ecbe1509090b38ef3260f3609d64d8261230464eaa4d235901db496e9647fb\n",
+        "stderr": ""
+      }
+    ],
+    "ready": true,
+    "files": {
+      "proof.txt": "849b49531d7cbfbd stage=after",
+      "bounded.py": "def clamp_nonnegative(value):\n    return max(0, value)\n",
+      "test_bounded.py": "import unittest\nfrom bounded import clamp_nonnegative\n\nclass ClampTests(unittest.TestCase):\n    def test_positive(self):\n        self.assertEqual(clamp_nonnegative(7), 7)\n    def test_zero(self):\n        self.assertEqual(clamp_nonnegative(0), 0)\n    def test_negative(self):\n        self.assertEqual(clamp_nonnegative(-4), 0)\n\nif __name__ == '__main__':\n    unittest.main()\n",
+      "compose.yaml": "services:\n  proof:\n    image: docker.io/library/busybox@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e\n    command: [\"sh\", \"-c\", \"printf ezh-compose-ok\"]\n"
+    },
+    "commands": {
+      "init": "mkdir g5-849b49531d7cbfbd && git init -q g5-849b49531d7cbfbd && git -C g5-849b49531d7cbfbd config user.name G5 && git -C g5-849b49531d7cbfbd config user.email g5@example.invalid",
+      "compose": "docker compose -p g5849b49531d7cbfbd -f g5-849b49531d7cbfbd/compose.yaml run --pull never --rm proof && docker compose -p g5849b49531d7cbfbd -f g5-849b49531d7cbfbd/compose.yaml down --remove-orphans && printf 'G5COMPOSE:849b49531d7cbfbd\\n'",
+      "commit": "(cd g5-849b49531d7cbfbd && PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v test_bounded.py && printf 'G5TESTS:849b49531d7cbfbd:3\\n') && git -C g5-849b49531d7cbfbd add proof.txt compose.yaml bounded.py test_bounded.py && git -C g5-849b49531d7cbfbd commit -qm 'G5 native proof' && (cd g5-849b49531d7cbfbd && PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v test_bounded.py && printf 'G5TESTS:849b49531d7cbfbd:3\\n') && test \"$(cat g5-849b49531d7cbfbd/proof.txt)\" = '849b49531d7cbfbd stage=after' && test -z \"$(git -C g5-849b49531d7cbfbd status --porcelain)\" && printf 'G5:849b49531d7cbfbd:%s\\n' \"$(git -C g5-849b49531d7cbfbd rev-parse HEAD)\"",
+      "read": "(cd g5-849b49531d7cbfbd && PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v test_bounded.py && printf 'G5TESTS:849b49531d7cbfbd:3\\n') && test \"$(cat g5-849b49531d7cbfbd/proof.txt)\" = '849b49531d7cbfbd stage=after' && test -z \"$(git -C g5-849b49531d7cbfbd status --porcelain)\" && printf 'G5:849b49531d7cbfbd:%s\\n' \"$(git -C g5-849b49531d7cbfbd rev-parse HEAD)\"",
+      "tests": "cd g5-849b49531d7cbfbd && PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v test_bounded.py && printf 'G5TESTS:849b49531d7cbfbd:3\\n'"
+    },
+    "procedure": [
+      "Wait for root fast-complete authorization; abort if any prerequisite remains unavailable. No pulls or daemon startup.",
+      "Use a new mode0700 mktemp directory under /tmp; record path, uid, git/python/engine versions and exact source hash. All workload commands run only there.",
+      "Use existing rootless socket DOCKER_HOST=unix:///run/user/1001/podman/podman.sock; verify rootless engine connection before Compose.",
+      "Record UTC and monotonic elapsed, stdout/stderr/exit for each generated command and separate fixture writes. Use bounded timeout per command; no retries.",
+      "Record raw /proc/{meminfo,loadavg,stat,pressure/cpu,pressure/memory,pressure/io} before, during work, after and idle.",
+      "Run init, write exact files, tests, Compose, commit/read, then retained read. Preserve exact generated nonce and Compose project.",
+      "Inspect rootless containers filtered by com.docker.compose.project=g5<nonce>; require none after Compose down. If interrupted, record failed phase and permit cleanup of this exact project only.",
+      "Retain evidence outside the temporary checkout. Compare overlapping commands only; no provisioning/model latency equivalence, thresholds or speedup claim."
+    ],
+    "imageVerification": {
+      "verifiedAt": "2026-10-03T21:39:36.446757+00:00",
+      "requested": "docker.io/library/busybox@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e",
+      "digest": "sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e",
+      "repoDigests": [
+        "docker.io/library/busybox@sha256:66a6306db78bf2dbf3487f293aa8d6990d8e506fdffab9cc43fe422becf886e4",
+        "docker.io/library/busybox@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e"
+      ],
+      "architecture": "amd64",
+      "os": "linux",
+      "imageId": "30ecbe1509090b38ef3260f3609d64d8261230464eaa4d235901db496e9647fb",
+      "hostArchitecture": "x86_64",
+      "pullReceipt": "/tmp/project-baseline-image-pull.log"
+    }
+  },
+  "receipt": {
+    "sourceSha256": "624ee9873b433d4f8570890d9d62d3850be4d8be6464702de5c0571b4026c4d2",
+    "nonce": "849b49531d7cbfbd",
+    "scope": "overlapping commands only",
+    "startedAt": "2026-10-03T22:00:50.461Z",
+    "steps": [
+      {
+        "name": "engine",
+        "args": [
+          "docker",
+          "info",
+          "--format",
+          "{{json .SecurityOptions}}"
+        ],
+        "startedAt": "2026-10-03T22:00:50.462Z",
+        "elapsedMs": 645.5990489999999,
+        "stdout": "[\"name=seccomp,profile=default\",\"name=rootless\"]\n",
+        "stderr": "",
+        "exitCode": 0
+      },
+      {
+        "name": "init",
+        "args": [
+          "sh",
+          "-c",
+          "mkdir g5-849b49531d7cbfbd && git init -q g5-849b49531d7cbfbd && git -C g5-849b49531d7cbfbd config user.name G5 && git -C g5-849b49531d7cbfbd config user.email g5@example.invalid"
+        ],
+        "startedAt": "2026-10-03T22:00:51.108Z",
+        "elapsedMs": 29.42356300000006,
+        "stdout": "",
+        "stderr": "",
+        "exitCode": 0
+      },
+      {
+        "name": "exact-fixture-writes",
+        "elapsedMs": 0.137929999999983
+      },
+      {
+        "name": "tests",
+        "args": [
+          "sh",
+          "-c",
+          "cd g5-849b49531d7cbfbd && PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v test_bounded.py && printf 'G5TESTS:849b49531d7cbfbd:3\\n'"
+        ],
+        "startedAt": "2026-10-03T22:00:51.138Z",
+        "elapsedMs": 49.96724900000004,
+        "stdout": "G5TESTS:849b49531d7cbfbd:3\n",
+        "stderr": "test_negative (test_bounded.ClampTests.test_negative) ... ok\ntest_positive (test_bounded.ClampTests.test_positive) ... ok\ntest_zero (test_bounded.ClampTests.test_zero) ... ok\n\n----------------------------------------------------------------------\nRan 3 tests in 0.000s\n\nOK\n",
+        "exitCode": 0
+      },
+      {
+        "name": "compose",
+        "args": [
+          "sh",
+          "-c",
+          "docker compose -p g5849b49531d7cbfbd -f g5-849b49531d7cbfbd/compose.yaml run --pull never --rm proof && docker compose -p g5849b49531d7cbfbd -f g5-849b49531d7cbfbd/compose.yaml down --remove-orphans && printf 'G5COMPOSE:849b49531d7cbfbd\\n'"
+        ],
+        "startedAt": "2026-10-03T22:00:51.188Z",
+        "elapsedMs": 1603.797693,
+        "stdout": "ezh-compose-okG5COMPOSE:849b49531d7cbfbd\n",
+        "stderr": " Network g5849b49531d7cbfbd_default Creating \n Network g5849b49531d7cbfbd_default Creating \n Network g5849b49531d7cbfbd_default Created \n Network g5849b49531d7cbfbd_default Created \n Container g5849b49531d7cbfbd-proof-run-4dcc79051339 Creating \n Container g5849b49531d7cbfbd-proof-run-4dcc79051339 Created \n Network g5849b49531d7cbfbd_default Removing \n Network g5849b49531d7cbfbd_default Removed \n",
+        "exitCode": 0
+      },
+      {
+        "name": "commit",
+        "args": [
+          "sh",
+          "-c",
+          "(cd g5-849b49531d7cbfbd && PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v test_bounded.py && printf 'G5TESTS:849b49531d7cbfbd:3\\n') && git -C g5-849b49531d7cbfbd add proof.txt compose.yaml bounded.py test_bounded.py && git -C g5-849b49531d7cbfbd commit -qm 'G5 native proof' && (cd g5-849b49531d7cbfbd && PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v test_bounded.py && printf 'G5TESTS:849b49531d7cbfbd:3\\n') && test \"$(cat g5-849b49531d7cbfbd/proof.txt)\" = '849b49531d7cbfbd stage=after' && test -z \"$(git -C g5-849b49531d7cbfbd status --porcelain)\" && printf 'G5:849b49531d7cbfbd:%s\\n' \"$(git -C g5-849b49531d7cbfbd rev-parse HEAD)\""
+        ],
+        "startedAt": "2026-10-03T22:00:52.792Z",
+        "elapsedMs": 210.52985100000024,
+        "stdout": "G5TESTS:849b49531d7cbfbd:3\nG5TESTS:849b49531d7cbfbd:3\nG5:849b49531d7cbfbd:58817820396f70f02b9a45e268fca65f06d0a750\n",
+        "stderr": "test_negative (test_bounded.ClampTests.test_negative) ... ok\ntest_positive (test_bounded.ClampTests.test_positive) ... ok\ntest_zero (test_bounded.ClampTests.test_zero) ... ok\n\n----------------------------------------------------------------------\nRan 3 tests in 0.004s\n\nOK\ntest_negative (test_bounded.ClampTests.test_negative) ... ok\ntest_positive (test_bounded.ClampTests.test_positive) ... ok\ntest_zero (test_bounded.ClampTests.test_zero) ... ok\n\n----------------------------------------------------------------------\nRan 3 tests in 0.000s\n\nOK\n",
+        "exitCode": 0
+      },
+      {
+        "name": "retained",
+        "args": [
+          "sh",
+          "-c",
+          "(cd g5-849b49531d7cbfbd && PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v test_bounded.py && printf 'G5TESTS:849b49531d7cbfbd:3\\n') && test \"$(cat g5-849b49531d7cbfbd/proof.txt)\" = '849b49531d7cbfbd stage=after' && test -z \"$(git -C g5-849b49531d7cbfbd status --porcelain)\" && printf 'G5:849b49531d7cbfbd:%s\\n' \"$(git -C g5-849b49531d7cbfbd rev-parse HEAD)\""
+        ],
+        "startedAt": "2026-10-03T22:00:53.003Z",
+        "elapsedMs": 113.16341599999987,
+        "stdout": "G5TESTS:849b49531d7cbfbd:3\nG5:849b49531d7cbfbd:58817820396f70f02b9a45e268fca65f06d0a750\n",
+        "stderr": "test_negative (test_bounded.ClampTests.test_negative) ... ok\ntest_positive (test_bounded.ClampTests.test_positive) ... ok\ntest_zero (test_bounded.ClampTests.test_zero) ... ok\n\n----------------------------------------------------------------------\nRan 3 tests in 0.000s\n\nOK\n",
+        "exitCode": 0
+      },
+      {
+        "name": "no-leftover-containers",
+        "args": [
+          "podman",
+          "ps",
+          "-a",
+          "--filter",
+          "label=com.docker.compose.project=g5849b49531d7cbfbd",
+          "--format",
+          "{{.ID}}"
+        ],
+        "startedAt": "2026-10-03T22:00:53.116Z",
+        "elapsedMs": 127.42180000000008,
+        "stdout": "",
+        "stderr": "",
+        "exitCode": 0
+      }
+    ],
+    "samples": [
+      {
+        "name": "before",
+        "at": "2026-10-03T22:00:50.462Z",
+        "raw": {
+          "meminfo": "MemTotal:       31786384 kB\nMemFree:        11650584 kB\nMemAvailable:   13236912 kB\nBuffers:          600628 kB\nCached:          3602404 kB\nSwapCached:        10300 kB\nActive:          8058768 kB\nInactive:        4704240 kB\nActive(anon):    7240804 kB\nInactive(anon):  1785488 kB\nActive(file):     817964 kB\nInactive(file):  2918752 kB\nUnevictable:       78924 kB\nMlocked:             116 kB\nSwapTotal:      17173956 kB\nSwapFree:        1476436 kB\nZswap:                 0 kB\nZswapped:              0 kB\nDirty:              4096 kB\nWriteback:           280 kB\nAnonPages:       8631736 kB\nMapped:          1227948 kB\nShmem:            388508 kB\nKReclaimable:    1871684 kB\nSlab:            3142368 kB\nSReclaimable:    1871684 kB\nSUnreclaim:      1270684 kB\nKernelStack:       79360 kB\nPageTables:       376820 kB\nSecPageTables:      6180 kB\nNFS_Unstable:          0 kB\nBounce:                0 kB\nWritebackTmp:          0 kB\nCommitLimit:    33067148 kB\nCommitted_AS:   52631268 kB\nVmallocTotal:   34359738367 kB\nVmallocUsed:      209760 kB\nVmallocChunk:          0 kB\nPercpu:           100864 kB\nHardwareCorrupted:     0 kB\nAnonHugePages:      2048 kB\nShmemHugePages:        0 kB\nShmemPmdMapped:        0 kB\nFileHugePages:     12288 kB\nFilePmdMapped:         0 kB\nCmaTotal:              0 kB\nCmaFree:               0 kB\nUnaccepted:            0 kB\nBalloon:               0 kB\nHugePages_Total:       0\nHugePages_Free:        0\nHugePages_Rsvd:        0\nHugePages_Surp:        0\nHugepagesize:       2048 kB\nHugetlb:               0 kB\nDirectMap4k:     4812560 kB\nDirectMap2M:    27746304 kB\nDirectMap1G:           0 kB\n",
+          "loadavg": "6.90 12.57 22.91 43/4932 2706723\n",
+          "stat": "cpu  212199706 25886932 71185091 3126028445 26927068 5927837 3232803 0 40799 0\ncpu0 5367906 792099 2258660 98157835 687889 175187 860355 0 103 0\ncpu1 4966314 633333 1917072 99846464 613367 164779 243942 0 13 0\ncpu2 4565075 563078 1708652 100805739 553547 155222 120569 0 2 0\ncpu3 4270773 507190 1565577 101452725 508457 147561 79563 0 1 0\ncpu4 4473305 479176 1624121 101246043 486853 145356 62427 0 0 0\ncpu5 4954301 551717 1846063 100394747 486773 169834 58526 0 11 0\ncpu6 4208287 439906 1516803 101751235 454705 145674 50311 0 0 0\ncpu7 3852268 403077 1390872 102314499 450311 140600 46828 0 0 0\ncpu8 6902244 862074 2444761 96637292 831615 286782 318710 0 92 0\ncpu9 13227730 2039948 4117556 87563837 901618 245245 104422 0 13053 0\ncpu10 5651170 653917 1847259 99361742 691420 198685 72834 0 19 0\ncpu11 8604251 1176706 2805224 94632252 766753 215133 83875 0 220 0\ncpu12 6006359 700824 1956233 98932382 586404 196982 69254 0 35 0\ncpu13 13542050 2098246 4115346 87361305 798631 241310 93919 0 13036 0\ncpu14 6743496 819793 2203704 97831985 566937 196804 71012 0 38 0\ncpu15 8025252 1022499 2602633 95803503 620755 204277 74386 0 78 0\ncpu16 5431425 578093 1981892 99586403 793798 154810 41479 0 8 0\ncpu17 5471191 580241 1983902 99549303 803060 152237 40355 0 0 0\ncpu18 5085218 524613 1834225 100167316 793714 150302 39540 0 0 0\ncpu19 4440402 459785 1595732 101100092 819895 150144 39790 0 0 0\ncpu20 4744415 488153 1707226 100687949 790149 147380 38702 0 8 0\ncpu21 5422136 565751 1934607 99724769 767181 146336 37979 0 0 0\ncpu22 4170308 431121 1490828 101501078 839471 148069 39039 0 0 0\ncpu23 3834867 398359 1392179 101968624 851059 149102 38965 0 0 0\ncpu24 7757128 924938 2605032 95834727 1104997 209457 63946 0 23 0\ncpu25 13097991 1597607 3652571 88392172 1436633 231641 70849 0 8666 0\ncpu26 5434412 609015 1788744 99142141 1285282 209783 63858 0 3 0\ncpu27 9030809 1080601 2934354 93873951 1301676 209924 61027 0 14 0\ncpu28 5887296 668183 1964694 98497635 1236850 203323 60369 0 3 0\ncpu29 12461146 1515727 3532835 89173468 1510218 226974 67199 0 5353 0\ncpu30 6538625 757355 2193488 97455650 1302105 202584 59736 0 6 0\ncpu31 8031542 963793 2672231 95279565 1284925 206326 59022 0 4 0\nintr 46520248798 126 0 0 0 0 0 0 0 0 1 40 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 5 1 1 5 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 7343 60445089 55570709 54642316 55376022 53801160 52578510 80896525 112148768 72376895 90643541 70113822 109279509 73305103 80885668 56886146 65711228 9175 0 677 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 41 0 0 0 0 0 0 0 0 0 0 491 491 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1640 1640 396973449 1005 64173314 1195218 37032 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0\nctxt 53041963757\nbtime 1789976410\nprocesses 141021425\nprocs_running 45\nprocs_blocked 1\nsoftirq 9543679915 91 445693542 10566158 1482169382 16563 0 24580465 3562578294 29259583 3988815837\n",
+          "pressure/cpu": "some avg10=3.03 avg60=2.57 avg300=4.15 total=16714514835\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0\n",
+          "pressure/memory": "some avg10=0.00 avg60=0.07 avg300=0.06 total=3224712936\nfull avg10=0.00 avg60=0.07 avg300=0.06 total=2843618448\n",
+          "pressure/io": "some avg10=4.23 avg60=5.76 avg300=4.69 total=24536014190\nfull avg10=4.01 avg60=5.50 avg300=4.33 total=21803385907\n"
+        }
+      },
+      {
+        "name": "work",
+        "at": "2026-10-03T22:00:51.188Z",
+        "raw": {
+          "meminfo": "MemTotal:       31786384 kB\nMemFree:        11513104 kB\nMemAvailable:   13127160 kB\nBuffers:          601576 kB\nCached:          3629312 kB\nSwapCached:        10228 kB\nActive:          8289996 kB\nInactive:        4683476 kB\nActive(anon):    7423592 kB\nInactive(anon):  1785384 kB\nActive(file):     866404 kB\nInactive(file):  2898092 kB\nUnevictable:       78924 kB\nMlocked:             116 kB\nSwapTotal:      17173956 kB\nSwapFree:        1479448 kB\nZswap:                 0 kB\nZswapped:              0 kB\nDirty:             19840 kB\nWriteback:             4 kB\nAnonPages:       8813752 kB\nMapped:          1257132 kB\nShmem:            388504 kB\nKReclaimable:    1871584 kB\nSlab:            3142220 kB\nSReclaimable:    1871584 kB\nSUnreclaim:      1270636 kB\nKernelStack:       79760 kB\nPageTables:       376840 kB\nSecPageTables:      6180 kB\nNFS_Unstable:          0 kB\nBounce:                0 kB\nWritebackTmp:          0 kB\nCommitLimit:    33067148 kB\nCommitted_AS:   52672184 kB\nVmallocTotal:   34359738367 kB\nVmallocUsed:      210204 kB\nVmallocChunk:          0 kB\nPercpu:           100864 kB\nHardwareCorrupted:     0 kB\nAnonHugePages:      2048 kB\nShmemHugePages:        0 kB\nShmemPmdMapped:        0 kB\nFileHugePages:     12288 kB\nFilePmdMapped:         0 kB\nCmaTotal:              0 kB\nCmaFree:               0 kB\nUnaccepted:            0 kB\nBalloon:               0 kB\nHugePages_Total:       0\nHugePages_Free:        0\nHugePages_Rsvd:        0\nHugePages_Surp:        0\nHugepagesize:       2048 kB\nHugetlb:               0 kB\nDirectMap4k:     4812560 kB\nDirectMap2M:    27746304 kB\nDirectMap1G:           0 kB\n",
+          "loadavg": "6.90 12.57 22.91 13/4958 2706912\n",
+          "stat": "cpu  212201658 25886941 71185221 3126028644 26927073 5927851 3232806 0 40799 0\ncpu0 5367942 792100 2258687 98157843 687890 175188 860355 0 103 0\ncpu1 4966374 633334 1917075 99846472 613368 164779 243942 0 13 0\ncpu2 4565137 563078 1708653 100805747 553547 155223 120569 0 2 0\ncpu3 4270835 507190 1565579 101452733 508457 147561 79563 0 1 0\ncpu4 4473368 479176 1624122 101246050 486853 145356 62428 0 0 0\ncpu5 4954364 551717 1846064 100394755 486773 169834 58526 0 11 0\ncpu6 4208347 439906 1516805 101751243 454705 145675 50311 0 0 0\ncpu7 3852331 403077 1390876 102314505 450311 140600 46828 0 0 0\ncpu8 6902305 862074 2444763 96637299 831615 286782 318711 0 92 0\ncpu9 13227792 2039948 4117560 87563842 901619 245246 104422 0 13053 0\ncpu10 5651225 653917 1847267 99361749 691421 198686 72834 0 19 0\ncpu11 8604315 1176706 2805228 94632256 766753 215134 83875 0 220 0\ncpu12 6006420 700824 1956238 98932388 586404 196982 69255 0 35 0\ncpu13 13542112 2098247 4115350 87361310 798631 241310 93919 0 13036 0\ncpu14 6743553 819793 2203714 97831987 566937 196806 71012 0 38 0\ncpu15 8025315 1022499 2602637 95803508 620755 204277 74386 0 78 0\ncpu16 5431489 578093 1981893 99586408 793798 154811 41479 0 8 0\ncpu17 5471254 580241 1983904 99549311 803060 152237 40355 0 0 0\ncpu18 5085281 524613 1834228 100167322 793714 150302 39540 0 0 0\ncpu19 4440464 459785 1595733 101100100 819895 150144 39790 0 0 0\ncpu20 4744479 488153 1707228 100687956 790149 147380 38702 0 8 0\ncpu21 5422198 565751 1934609 99724778 767181 146336 37979 0 0 0\ncpu22 4170369 431121 1490833 101501082 839471 148069 39039 0 0 0\ncpu23 3834927 398359 1392182 101968631 851060 149103 38965 0 0 0\ncpu24 7757189 924941 2605037 95834730 1104997 209457 63946 0 23 0\ncpu25 13098053 1597607 3652573 88392180 1436633 231641 70849 0 8666 0\ncpu26 5434478 609015 1788746 99142146 1285283 209783 63858 0 3 0\ncpu27 9030872 1080601 2934357 93873957 1301677 209924 61027 0 14 0\ncpu28 5887357 668183 1964701 98497639 1236851 203323 60369 0 3 0\ncpu29 12461206 1515728 3532839 89173474 1510218 226974 67199 0 5353 0\ncpu30 6538689 757355 2193490 97455656 1302105 202584 59736 0 6 0\ncpu31 8031604 963793 2672234 95279572 1284925 206327 59022 0 4 0\nintr 46520350678 126 0 0 0 0 0 0 0 0 1 40 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 5 1 1 5 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 7343 60445124 55570882 54642386 55376072 53801364 52578981 80896552 112148916 72376997 90643631 70113977 109279558 73305154 80885695 56886203 65711266 9175 0 677 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 41 0 0 0 0 0 0 0 0 0 0 491 491 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1640 1640 396973604 1005 64173314 1195218 37032 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0\nctxt 53042144196\nbtime 1789976410\nprocesses 141021613\nprocs_running 13\nprocs_blocked 1\nsoftirq 9543696728 91 445694008 10566159 1482169831 16563 0 24580465 3562582063 29259583 3988827965\n",
+          "pressure/cpu": "some avg10=4.29 avg60=2.82 avg300=4.19 total=16714695269\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0\n",
+          "pressure/memory": "some avg10=0.00 avg60=0.07 avg300=0.06 total=3224712991\nfull avg10=0.00 avg60=0.07 avg300=0.06 total=2843618453\n",
+          "pressure/io": "some avg10=4.37 avg60=5.73 avg300=4.69 total=24536025531\nfull avg10=4.00 avg60=5.45 avg300=4.32 total=21803387583\n"
+        }
+      },
+      {
+        "name": "after",
+        "at": "2026-10-03T22:00:53.245Z",
+        "raw": {
+          "meminfo": "MemTotal:       31786384 kB\nMemFree:        11355496 kB\nMemAvailable:   13002732 kB\nBuffers:          602760 kB\nCached:          3661924 kB\nSwapCached:        10232 kB\nActive:          8397772 kB\nInactive:        4699424 kB\nActive(anon):    7514332 kB\nInactive(anon):  1785188 kB\nActive(file):     883440 kB\nInactive(file):  2914236 kB\nUnevictable:       78924 kB\nMlocked:             116 kB\nSwapTotal:      17173956 kB\nSwapFree:        1481964 kB\nZswap:                 0 kB\nZswapped:              0 kB\nDirty:              9196 kB\nWriteback:             0 kB\nAnonPages:       8902736 kB\nMapped:          1271780 kB\nShmem:            389184 kB\nKReclaimable:    1871584 kB\nSlab:            3142208 kB\nSReclaimable:    1871584 kB\nSUnreclaim:      1270624 kB\nKernelStack:       79584 kB\nPageTables:       379324 kB\nSecPageTables:      6180 kB\nNFS_Unstable:          0 kB\nBounce:                0 kB\nWritebackTmp:          0 kB\nCommitLimit:    33067148 kB\nCommitted_AS:   52625260 kB\nVmallocTotal:   34359738367 kB\nVmallocUsed:      209996 kB\nVmallocChunk:          0 kB\nPercpu:           100864 kB\nHardwareCorrupted:     0 kB\nAnonHugePages:      2048 kB\nShmemHugePages:        0 kB\nShmemPmdMapped:        0 kB\nFileHugePages:     12288 kB\nFilePmdMapped:         0 kB\nCmaTotal:              0 kB\nCmaFree:               0 kB\nUnaccepted:            0 kB\nBalloon:               0 kB\nHugePages_Total:       0\nHugePages_Free:        0\nHugePages_Rsvd:        0\nHugePages_Surp:        0\nHugepagesize:       2048 kB\nHugetlb:               0 kB\nDirectMap4k:     4812560 kB\nDirectMap2M:    27746304 kB\nDirectMap1G:           0 kB\n",
+          "loadavg": "10.35 13.19 23.06 48/4929 2707464\n",
+          "stat": "cpu  212207343 25887007 71185526 3126029087 26927085 5927881 3232813 0 40799 0\ncpu0 5368052 792102 2258735 98157879 687892 175189 860356 0 103 0\ncpu1 4966555 633334 1917080 99846488 613368 164780 243943 0 13 0\ncpu2 4565318 563079 1708662 100805761 553547 155223 120570 0 2 0\ncpu3 4271016 507194 1565583 101452748 508457 147562 79563 0 1 0\ncpu4 4473550 479176 1624127 101246066 486853 145357 62428 0 0 0\ncpu5 4954544 551721 1846072 100394766 486773 169835 58526 0 11 0\ncpu6 4208531 439906 1516811 101751258 454705 145676 50311 0 0 0\ncpu7 3852509 403081 1390884 102314518 450312 140602 46828 0 0 0\ncpu8 6902488 862075 2444768 96637315 831615 286783 318711 0 92 0\ncpu9 13227972 2039948 4117572 87563852 901619 245247 104423 0 13053 0\ncpu10 5651398 653925 1847273 99361763 691424 198687 72835 0 19 0\ncpu11 8604499 1176707 2805239 94632265 766753 215134 83875 0 220 0\ncpu12 6006592 700834 1956246 98932399 586406 196983 69255 0 35 0\ncpu13 13542289 2098247 4115360 87361325 798631 241311 93919 0 13036 0\ncpu14 6743724 819806 2203727 97831995 566937 196807 71012 0 38 0\ncpu15 8025497 1022501 2602648 95803517 620755 204278 74387 0 78 0\ncpu16 5431676 578093 1981899 99586419 793798 154812 41479 0 8 0\ncpu17 5471436 580241 1983911 99549325 803060 152238 40355 0 0 0\ncpu18 5085462 524613 1834236 100167336 793715 150303 39540 0 0 0\ncpu19 4440646 459785 1595740 101100114 819895 150145 39790 0 0 0\ncpu20 4744660 488155 1707237 100687967 790149 147381 38702 0 8 0\ncpu21 5422382 565752 1934613 99724792 767181 146337 37979 0 0 0\ncpu22 4170546 431128 1490840 101501096 839471 148071 39039 0 0 0\ncpu23 3835106 398359 1392190 101968647 851061 149104 38965 0 0 0\ncpu24 7757370 924943 2605050 95834739 1104997 209458 63946 0 23 0\ncpu25 13098230 1597608 3652586 88392192 1436633 231642 70849 0 8666 0\ncpu26 5434657 609015 1788754 99142161 1285283 209784 63858 0 3 0\ncpu27 9031046 1080601 2934372 93873970 1301677 209926 61027 0 14 0\ncpu28 5887536 668183 1964712 98497651 1236852 203324 60369 0 3 0\ncpu29 12461387 1515729 3532844 89173491 1510218 226975 67199 0 5353 0\ncpu30 6538869 757356 2193498 97455671 1302106 202585 59736 0 6 0\ncpu31 8031785 963794 2672242 95279586 1284925 206328 59023 0 4 0\nintr 46520564061 126 0 0 0 0 0 0 0 0 1 40 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 5 1 1 5 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 7343 60445194 55570900 54642571 55376113 53801456 52579256 80896994 112149038 72377179 90643701 70114000 109279615 73305401 80885701 56886280 65711461 9175 0 677 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 41 0 0 0 0 0 0 0 0 0 0 491 491 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1640 1640 396974075 1005 64173314 1195218 37034 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0\nctxt 53042548664\nbtime 1789976410\nprocesses 141022165\nprocs_running 46\nprocs_blocked 1\nsoftirq 9543746018 91 445695383 10566173 1482170921 16563 0 24580470 3562594550 29259594 3988862273\n",
+          "pressure/cpu": "some avg10=7.86 avg60=3.51 avg300=4.33 total=16715211923\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0\n",
+          "pressure/memory": "some avg10=0.00 avg60=0.06 avg300=0.06 total=3224713681\nfull avg10=0.00 avg60=0.06 avg300=0.06 total=2843618528\n",
+          "pressure/io": "some avg10=3.76 avg60=5.58 avg300=4.66 total=24536049726\nfull avg10=3.28 avg60=5.27 avg300=4.29 total=21803391370\n"
+        }
+      },
+      {
+        "name": "idle",
+        "at": "2026-10-03T22:00:53.245Z",
+        "raw": {
+          "meminfo": "MemTotal:       31786384 kB\nMemFree:        11355432 kB\nMemAvailable:   13002764 kB\nBuffers:          602760 kB\nCached:          3662016 kB\nSwapCached:        10232 kB\nActive:          8398260 kB\nInactive:        4699520 kB\nActive(anon):    7514820 kB\nInactive(anon):  1785188 kB\nActive(file):     883440 kB\nInactive(file):  2914332 kB\nUnevictable:       78924 kB\nMlocked:             116 kB\nSwapTotal:      17173956 kB\nSwapFree:        1481964 kB\nZswap:                 0 kB\nZswapped:              0 kB\nDirty:              9288 kB\nWriteback:             0 kB\nAnonPages:       8903280 kB\nMapped:          1273960 kB\nShmem:            389184 kB\nKReclaimable:    1871584 kB\nSlab:            3142208 kB\nSReclaimable:    1871584 kB\nSUnreclaim:      1270624 kB\nKernelStack:       79584 kB\nPageTables:       379328 kB\nSecPageTables:      6180 kB\nNFS_Unstable:          0 kB\nBounce:                0 kB\nWritebackTmp:          0 kB\nCommitLimit:    33067148 kB\nCommitted_AS:   52625260 kB\nVmallocTotal:   34359738367 kB\nVmallocUsed:      209996 kB\nVmallocChunk:          0 kB\nPercpu:           100864 kB\nHardwareCorrupted:     0 kB\nAnonHugePages:      2048 kB\nShmemHugePages:        0 kB\nShmemPmdMapped:        0 kB\nFileHugePages:     12288 kB\nFilePmdMapped:         0 kB\nCmaTotal:              0 kB\nCmaFree:               0 kB\nUnaccepted:            0 kB\nBalloon:               0 kB\nHugePages_Total:       0\nHugePages_Free:        0\nHugePages_Rsvd:        0\nHugePages_Surp:        0\nHugepagesize:       2048 kB\nHugetlb:               0 kB\nDirectMap4k:     4812560 kB\nDirectMap2M:    27746304 kB\nDirectMap1G:           0 kB\n",
+          "loadavg": "10.35 13.19 23.06 43/4929 2707464\n",
+          "stat": "cpu  212207346 25887007 71185526 3126029087 26927085 5927881 3232813 0 40799 0\ncpu0 5368053 792102 2258735 98157879 687892 175189 860356 0 103 0\ncpu1 4966555 633334 1917080 99846488 613368 164780 243943 0 13 0\ncpu2 4565318 563079 1708662 100805761 553547 155223 120570 0 2 0\ncpu3 4271016 507194 1565583 101452748 508457 147562 79563 0 1 0\ncpu4 4473550 479176 1624127 101246066 486853 145357 62428 0 0 0\ncpu5 4954544 551721 1846072 100394766 486773 169835 58526 0 11 0\ncpu6 4208531 439906 1516811 101751258 454705 145676 50311 0 0 0\ncpu7 3852510 403081 1390884 102314518 450312 140602 46828 0 0 0\ncpu8 6902488 862075 2444768 96637315 831615 286783 318711 0 92 0\ncpu9 13227972 2039948 4117572 87563852 901619 245247 104423 0 13053 0\ncpu10 5651398 653925 1847273 99361763 691424 198687 72835 0 19 0\ncpu11 8604499 1176707 2805239 94632265 766753 215134 83875 0 220 0\ncpu12 6006592 700834 1956246 98932399 586406 196983 69255 0 35 0\ncpu13 13542289 2098247 4115360 87361325 798631 241311 93919 0 13036 0\ncpu14 6743724 819806 2203727 97831995 566937 196807 71012 0 38 0\ncpu15 8025498 1022501 2602648 95803517 620755 204278 74387 0 78 0\ncpu16 5431676 578093 1981899 99586419 793798 154812 41479 0 8 0\ncpu17 5471436 580241 1983911 99549325 803060 152238 40355 0 0 0\ncpu18 5085462 524613 1834236 100167336 793715 150303 39540 0 0 0\ncpu19 4440646 459785 1595740 101100114 819895 150145 39790 0 0 0\ncpu20 4744660 488155 1707237 100687967 790149 147381 38702 0 8 0\ncpu21 5422382 565752 1934613 99724792 767181 146337 37979 0 0 0\ncpu22 4170546 431128 1490840 101501096 839471 148071 39039 0 0 0\ncpu23 3835106 398359 1392190 101968647 851061 149104 38965 0 0 0\ncpu24 7757370 924943 2605050 95834739 1104997 209458 63946 0 23 0\ncpu25 13098230 1597608 3652586 88392192 1436633 231642 70849 0 8666 0\ncpu26 5434658 609015 1788754 99142161 1285283 209784 63858 0 3 0\ncpu27 9031046 1080601 2934372 93873970 1301677 209926 61027 0 14 0\ncpu28 5887536 668183 1964712 98497651 1236852 203324 60369 0 3 0\ncpu29 12461387 1515729 3532844 89173491 1510218 226975 67199 0 5353 0\ncpu30 6538869 757356 2193498 97455671 1302106 202585 59736 0 6 0\ncpu31 8031785 963794 2672242 95279586 1284925 206328 59023 0 4 0\nintr 46520564135 126 0 0 0 0 0 0 0 0 1 40 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 5 1 1 5 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 7343 60445194 55570900 54642571 55376113 53801456 52579256 80896994 112149038 72377179 90643701 70114000 109279615 73305401 80885701 56886280 65711461 9175 0 677 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 41 0 0 0 0 0 0 0 0 0 0 491 491 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1640 1640 396974075 1005 64173314 1195218 37034 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0\nctxt 53042548709\nbtime 1789976410\nprocesses 141022165\nprocs_running 44\nprocs_blocked 1\nsoftirq 9543746060 91 445695383 10566173 1482170921 16563 0 24580470 3562594561 29259594 3988862304\n",
+          "pressure/cpu": "some avg10=7.86 avg60=3.51 avg300=4.33 total=16715211923\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0\n",
+          "pressure/memory": "some avg10=0.00 avg60=0.06 avg300=0.06 total=3224713681\nfull avg10=0.00 avg60=0.06 avg300=0.06 total=2843618528\n",
+          "pressure/io": "some avg10=3.76 avg60=5.58 avg300=4.66 total=24536049726\nfull avg10=3.28 avg60=5.27 avg300=4.29 total=21803391370\n"
+        }
+      }
+    ],
+    "complete": true,
+    "finishedAt": "2026-10-03T22:00:53.245Z",
+    "privateDirectoryRetained": true,
+    "idleSampleCaveat": "Immediate post-work observation; no stabilized idle period."
+  }
+}
