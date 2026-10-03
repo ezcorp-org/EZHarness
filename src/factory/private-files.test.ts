@@ -1,16 +1,16 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { chmod, mkdir, mkdtemp, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { privateDirectory, readPrivate, readPrivateBounded, writePrivateBoundedAtomic } from "./private-files";
+import { makeFactoryTempPrivateRoot } from "../__tests__/helpers/factory-private-root";
+import { privateComponentVerdict, privateDirectory, readPrivate, readPrivateBounded, writePrivateBoundedAtomic } from "./private-files";
 
-// The runtime directory is owned by this user with mode 0700 and sits under
-// root-owned, non-writable ancestors: the shape every private path here needs.
-const runtimeDirectory = `/run/user/${process.getuid?.()}`;
+// A fresh 0700 root under os.tmpdir(): owned by this user, below the root-owned sticky /tmp.
+// That is the shape a hosted runner offers, where $HOME is an owned 0755 directory.
 let root: string;
 
 beforeAll(async () => {
-  root = await mkdtemp(join(runtimeDirectory, "factory-private-files-"));
-  await chmod(root, 0o700);
+  root = await makeFactoryTempPrivateRoot("factory-private-files-");
 });
 afterAll(async () => { await rm(root, { recursive: true, force: true }); });
 
@@ -44,8 +44,35 @@ describe("privateDirectory", () => {
     await expect(privateDirectory("/")).rejects.toThrow("Private path has no owned directory.");
   });
 
-  test("refuses a world-writable foreign ancestor", async () => {
-    await expect(privateDirectory("/tmp")).rejects.toThrow("Private path has a writable foreign ancestor.");
+  test("accepts the root-owned sticky temporary directory as an ancestor, and still needs an owned directory below it", async () => {
+    const temporary = await stat(tmpdir());
+    expect([temporary.uid, temporary.mode & 0o1777]).toEqual([0, 0o1777]);
+    await expect(privateDirectory(tmpdir())).rejects.toThrow("Private path has no owned directory.");
+    await (await privateDirectory(root)).close();
+  });
+
+  describe("the verdict on one component, for owners and modes a test cannot create", () => {
+    const me = 1000;
+    const above = { reachedOwnedDirectory: false, mayRepair: false };
+    test("a root-owned sticky world-writable ancestor is accepted", () => {
+      expect(privateComponentVerdict({ uid: 0, mode: 0o41777 }, me, above)).toBe("foreign");
+    });
+    test("a root-owned world-writable ancestor without the sticky bit is refused, and so is a group-writable one", () => {
+      expect(() => privateComponentVerdict({ uid: 0, mode: 0o40777 }, me, above)).toThrow("Private path has a writable foreign ancestor.");
+      expect(() => privateComponentVerdict({ uid: 0, mode: 0o40775 }, me, above)).toThrow("Private path has a writable foreign ancestor.");
+    });
+    test("a sticky world-writable ancestor owned by another user is refused", () => {
+      expect(() => privateComponentVerdict({ uid: 1234, mode: 0o41777 }, me, above)).toThrow("Private path has a writable foreign ancestor.");
+    });
+    test("a root-owned sticky directory below the first owned directory is refused", () => {
+      expect(() => privateComponentVerdict({ uid: 0, mode: 0o41777 }, me, { reachedOwnedDirectory: true, mayRepair: false })).toThrow("Private path has a writable foreign ancestor.");
+    });
+    test("an owned ancestor that is not 0700 is refused; only a repairable leaf may be repaired", () => {
+      expect(() => privateComponentVerdict({ uid: me, mode: 0o40755 }, me, above)).toThrow("Private path has a non-private owned ancestor.");
+      expect(privateComponentVerdict({ uid: me, mode: 0o40755 }, me, { reachedOwnedDirectory: true, mayRepair: true })).toBe("repair");
+      expect(privateComponentVerdict({ uid: me, mode: 0o40700 }, me, above)).toBe("owned");
+      expect(privateComponentVerdict({ uid: 0, mode: 0o40755 }, me, above)).toBe("foreign");
+    });
   });
 
   test("refuses an owned ancestor that other users can read, and repairs only an owned leaf when asked", async () => {

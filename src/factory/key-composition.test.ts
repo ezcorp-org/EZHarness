@@ -1,11 +1,12 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { startFactoryKeyServiceDouble, type FactoryKeyServiceDouble } from "../__tests__/helpers/factory-key-service-double";
 import { FakeCloudKms, MemoryWraps } from "../__tests__/helpers/factory-kms-doubles";
 import { InstallationDataKey, type FactoryDataKeyWrapper } from "./encryption";
 import { loadFactoryDataKeyFromFiles, type FactoryDataKeyFileReferences } from "./file-key-wraps";
 import { composeFactoryDataKeyWrapper, factoryAwsKmsClient, wellFormedFactoryKeyManagement, type FactoryKeyManagement } from "./key-composition";
+import { makeFactoryTempPrivateRoot } from "../__tests__/helpers/factory-private-root";
 
 /**
  * The one key-service unit, from the product process: each kind the startup
@@ -20,7 +21,7 @@ let directory: string;
 let service: FactoryKeyServiceDouble;
 
 beforeAll(async () => {
-  directory = await mkdtemp(join(process.env.HOME!, ".w15b-keys-"));
+  directory = await makeFactoryTempPrivateRoot("w15b-keys-");
   service = await startFactoryKeyServiceDouble({ transitToken: token });
 });
 afterAll(async () => { await service.stop(); await rm(directory, { recursive: true, force: true }); });

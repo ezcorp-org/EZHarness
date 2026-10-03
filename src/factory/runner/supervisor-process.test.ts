@@ -7,7 +7,7 @@ import { factoryAttemptLaunchIntentToWire } from "./attempt-wire";
 import { FACTORY_HOST_LAUNCH_PATH } from "./host-launch-service";
 import { FACTORY_HOST_STOP_PATH } from "./host-stop-service";
 import { createPublicKey, generateKeyPairSync } from "node:crypto";
-import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { readFactoryServiceReadiness, factorySupervisorReadinessOptions } from "../service-readiness";
 import {
@@ -27,12 +27,13 @@ import {
   type FactorySupervisorProcessConfig,
   type FactorySupervisorProcessDependencies,
 } from "./supervisor-process";
+import { makeFactoryTempPrivateRoot } from "../../__tests__/helpers/factory-private-root";
 
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
 
 async function privateRoot(): Promise<string> {
-  const directory = await mkdtemp(join(process.env.HOME!, ".w09-supervisor-"));
+  const directory = await makeFactoryTempPrivateRoot("w09-supervisor-");
   roots.push(directory);
   await chmod(directory, 0o700);
   return directory;

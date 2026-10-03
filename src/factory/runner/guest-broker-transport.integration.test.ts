@@ -27,6 +27,7 @@ import { createFactoryOneHopProvider } from "./provider-one-hop";
 import { createFactoryConfiguredGuestBroker } from "./supervisor-process";
 import { FACTORY_GUEST_BROKER_UNCONFIGURED, FACTORY_PROVIDER_NOT_CONFIGURED, composeFactoryGuestBroker, factoryUnpinnedModelProvider } from "../guest-broker-composition";
 import type { FactoryStartupConfig } from "../startup-config";
+import { makeFactoryTempPrivateRoot } from "../../__tests__/helpers/factory-private-root";
 
 /**
  * The byte path a sandboxed guest actually has, end to end over mutual TLS.
@@ -427,7 +428,7 @@ async function recordLaunch(fixture: Awaited<ReturnType<typeof setup>>): Promise
 }
 
 async function composedRoute(fixture: Awaited<ReturnType<typeof setup>>, overrides: { readonly secret?: string; readonly missingKey?: boolean; readonly modelProvider?: FactoryOneHopProvider } = {}) {
-  const root = await mkdtemp(join(process.env.HOME!, ".w01g-guest-broker-"));
+  const root = await makeFactoryTempPrivateRoot("w01g-guest-broker-");
   directories.push(root);
   await chmod(root, 0o700);
   const files = { secret: join(root, "attempt.secret"), ca: join(root, "ca.pem"), cert: join(root, "server.pem"), key: join(root, "server.key") };
@@ -462,7 +463,7 @@ async function composedRoute(fixture: Awaited<ReturnType<typeof setup>>, overrid
     ...(overrides.modelProvider === undefined ? {} : { modelProvider: async (pin) => { pinsAsked.push(pin); return overrides.modelProvider!; } }),
   });
   if (composed.listener) closing.push(async () => { composed.listener!.stop(); });
-  return { composed, reported, secret, port, pinsAsked };
+  return { composed, reported, secret, port, pinsAsked, root };
 }
 
 test("the product binds the guest-broker route from its startup document, and a host's frame reaches it", async () => {
@@ -535,7 +536,7 @@ test("an undeclared route is named in readiness, and a declared one that cannot 
   const missingKey = await composedRoute(fixture, { missingKey: true });
   expect(missingKey.composed.listener).toBeUndefined();
   expect(missingKey.composed.readiness.state).toBe("unavailable");
-  expect(JSON.stringify(missingKey.composed.readiness)).not.toContain(process.env.HOME!);
+  expect(JSON.stringify(missingKey.composed.readiness)).not.toContain(missingKey.root);
   expect(missingKey.reported.map(entry => entry.role)).toEqual(["guest-broker"]);
 
   // A secret too short to sign with is the dispatcher's own refusal, by name.

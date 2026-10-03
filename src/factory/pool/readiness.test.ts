@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmod, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createFactoryPoolReadinessWriter, FACTORY_POOL_READINESS_SCHEMA, FactoryPoolReadinessError, readFactoryPoolReadiness } from "./readiness";
+import { makeFactoryTempPrivateRoot } from "../../__tests__/helpers/factory-private-root";
 
 const directories: string[] = [];
-async function directory(): Promise<string> { const value = await mkdtemp(join(process.env.HOME!, ".factory-pool-readiness-")); directories.push(value); return value; }
+async function directory(): Promise<string> { const value = await makeFactoryTempPrivateRoot("factory-pool-readiness-"); directories.push(value); return value; }
 afterEach(async () => { await Promise.all(directories.splice(0).map(path => rm(path, { recursive: true, force: true }))); });
 
 describe("factory pool readiness", () => {

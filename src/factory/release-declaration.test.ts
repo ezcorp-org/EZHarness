@@ -9,7 +9,7 @@
  * place nobody chose.
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { S3FactoryManifestReleaseProvider } from "./release-s3-publication";
 import { FactoryGitHubReleaseProvider } from "./release-github";
@@ -24,12 +24,13 @@ import { digestBytes } from "../extensions/v4/blobs";
 import { FACTORY_GITHUB_BASE_FILES, FACTORY_GITHUB_IDENTITY, FactoryGitHubFake, factoryGitHubPublicationFixture } from "../__tests__/helpers/factory-github-fake";
 import type { FactoryStartupConfig } from "./startup-config";
 import { composeFactoryReleaseDestinations, factoryGitHubReleaseOptions, type FactoryReleaseDestinationError } from "./release-declaration";
+import { makeFactoryTempPrivateRoot } from "../__tests__/helpers/factory-private-root";
 
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
 
 async function privateRoot(): Promise<string> {
-  const root = await mkdtemp(join(process.env.HOME!, ".w09b-release-"));
+  const root = await makeFactoryTempPrivateRoot("w09b-release-");
   roots.push(root);
   await chmod(root, 0o700);
   return root;

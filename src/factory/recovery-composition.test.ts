@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { TransactionalDb } from "../db/migrations/types";
 import type { FactoryCheckpointOutcome } from "./checkpoint-barrier";
@@ -7,6 +7,7 @@ import type { PoolCheckpointClient } from "./pool/client";
 import { composeFactoryRecoveryRoles, FACTORY_CHECKPOINT_INTERVAL_MS, FACTORY_RESTORE_IMPORT_CHUNK, factoryCheckpointStep, factoryClientRestorePoolLedger, factoryPoolCheckpointClientSlots, factoryPoolCheckpointClientSource, factoryRetentionStep, factoryTemporalPositionsFromConfig } from "./recovery-composition";
 import { FactoryTemporalHttpPositions } from "./temporal-retention";
 import type { FactoryStartupConfig } from "./startup-config";
+import { makeFactoryTempPrivateRoot } from "../__tests__/helpers/factory-private-root";
 
 const signal = new AbortController().signal;
 
@@ -100,7 +101,7 @@ describe("the pool's checkpoint and restore over its client", () => {
 describe("composition from the startup document", () => {
   let directory: string;
   beforeAll(async () => {
-    directory = await mkdtemp(join(process.env.HOME!, ".w15-recovery-"));
+    directory = await makeFactoryTempPrivateRoot("w15-recovery-");
     await chmod(directory, 0o700);
     for (const kind of ["ordinary", "archive"]) {
       await writeFile(join(directory, `${kind}.json`), JSON.stringify({ identities: [{ name: "tenant-c", credentials: [{ accessKey: `${kind}-access`, secretKey: `${kind}-secret` }] }] }), { mode: 0o600 });

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { FACTORY_REQUIRED_SERVICES } from "./boot";
 import { createFactoryPoolReadinessWriter } from "./pool/readiness";
@@ -21,12 +21,13 @@ import {
   type FactoryProbeTraceEvent,
   type FactoryServiceProbe,
 } from "./service-probes";
+import { makeFactoryTempPrivateRoot } from "../__tests__/helpers/factory-private-root";
 
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
 
 async function privateRoot(): Promise<string> {
-  const directory = await mkdtemp(join(process.env.HOME!, ".w09-probes-"));
+  const directory = await makeFactoryTempPrivateRoot("w09-probes-");
   roots.push(directory);
   await chmod(directory, 0o700);
   return directory;

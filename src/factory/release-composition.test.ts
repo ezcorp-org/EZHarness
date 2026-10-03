@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { GetObjectCommand, HeadObjectCommand, ListObjectsV2Command, PutObjectCommand } from "@aws-sdk/client-s3";
-import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { FactoryArtifactReference } from "@ezcorp/factory-sdk";
 import type { FactoryArchiveDenialAttempt } from "./archive-writer";
@@ -14,12 +14,13 @@ import {
   factoryPublicationReadiness,
   loadFactoryStorageCredentials,
 } from "./release-composition";
+import { makeFactoryTempPrivateRoot } from "../__tests__/helpers/factory-private-root";
 
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
 
 async function privateRoot(): Promise<string> {
-  const directory = await mkdtemp(join(process.env.HOME!, ".w09-release-"));
+  const directory = await makeFactoryTempPrivateRoot("w09-release-");
   roots.push(directory);
   await chmod(directory, 0o700);
   return directory;

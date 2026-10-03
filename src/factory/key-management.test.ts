@@ -1,10 +1,11 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
-import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { InstallationDataKey, StaticMasterKeyProvider } from "./encryption";
 import { FactoryCloudKmsWrapper, FactoryTransitKmsWrapper } from "./key-management";
 import { FakeCloudKms, MemoryWraps } from "../__tests__/helpers/factory-kms-doubles";
+import { makeFactoryTempPrivateRoot } from "../__tests__/helpers/factory-private-root";
 
 const installationId = "kms-installation";
 
@@ -64,7 +65,7 @@ describe("self-hosted external KMS (transit engine)", () => {
   const token = "transit-token-for-tests";
 
   beforeAll(async () => {
-    directory = await mkdtemp(join(process.env.HOME!, ".w15-transit-"));
+    directory = await makeFactoryTempPrivateRoot("w15-transit-");
     await chmod(directory, 0o700);
     tokenPath = join(directory, "token");
     await writeFile(tokenPath, `${token}\n`, { mode: 0o600 });

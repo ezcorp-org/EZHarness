@@ -1,8 +1,9 @@
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { generateKeyPairSync } from "node:crypto";
-import { chmod, copyFile, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, copyFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { certificates } from "../../__tests__/helpers/factory-certificates";
+import { makeFactoryTempPrivateRoot } from "../../__tests__/helpers/factory-private-root";
 import { parseFactoryPoolProcessConfig, productionMainDependencies, runConfiguredFactoryPoolProcess, runFactoryPoolMain, startFactoryPoolMain, type FactoryPoolProcessDependencies } from "./process";
 import type { FactoryPoolReadinessUpdate } from "./readiness";
 
@@ -19,7 +20,7 @@ afterAll(async () => { await Promise.all(shared.map(path => rm(path, { recursive
 
 async function fixture(overrides: Record<string, unknown> = {}) {
   const certificateRoot = shared[0]!;
-  const root = await mkdtemp(join(process.env.HOME!, ".factory-pool-process-")); directories.push(root);
+  const root = await makeFactoryTempPrivateRoot("factory-pool-process-"); directories.push(root);
   await Promise.all(["server.key", "server.pem", "ca.pem"].map(name => copyFile(join(certificateRoot, name), join(root, name))));
   await Promise.all(["server.key", "server.pem", "ca.pem"].map(name => chmod(join(root, name), 0o600)));
   const paths = { config: join(root, "pool.json"), database: join(root, "database.json"), publicKey: join(root, "token.pem"), readiness: join(root, "ready.json") };

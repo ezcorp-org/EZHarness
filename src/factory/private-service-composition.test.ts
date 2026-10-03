@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, spyOn, test } from "bun:test";
 import { generateKeyPairSync, type KeyObject } from "node:crypto";
-import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { TransactionalDb } from "../db/migrations/types";
 import type { BlobStore } from "../extensions/v4/types";
@@ -23,6 +23,7 @@ import {
 } from "./private-service-composition";
 import type { FactoryPrivateCommandHandler } from "./private-commands";
 import type { KernelEvent } from "@ezcorp/factory-sdk/kernel-types";
+import { makeFactoryTempPrivateRoot } from "../__tests__/helpers/factory-private-root";
 
 const tenantId = "tenant-private";
 const subject = "factory-private";
@@ -152,7 +153,7 @@ describe("composeFactoryPrivateService", () => {
   const stops = { async stop() { return { state: "stopped", event: STOPPED_EVENT } as FactoryTaskStopReceipt; } } as unknown as FactoryTaskStops;
 
   async function material(): Promise<{ root: string; config: FactoryStartupConfig; certs: Awaited<ReturnType<typeof certificates>>; keys: { publicKey: KeyObject; privateKey: KeyObject }; write: (name: string, value: string) => Promise<string> }> {
-    const root = await mkdtemp(join(process.env.HOME!, ".w09b-private-"));
+    const root = await makeFactoryTempPrivateRoot("w09b-private-");
     directories.push(root);
     await chmod(root, 0o700);
     const certs = await certificates(directories, subject);
