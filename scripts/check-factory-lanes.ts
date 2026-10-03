@@ -29,7 +29,7 @@
  * Pure helpers are exported for unit testing with deliberate violations;
  * main() reads the real workflow files.
  */
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { REPO_ROOT } from "./coverage-config.ts";
 
@@ -52,6 +52,12 @@ export interface FactoryLane {
   readonly tests: readonly string[];
   /** Test files that only this lane's runner can satisfy: the lane job runs them and no hosted shard does. */
   readonly boundTests: readonly string[];
+  /**
+   * Image pin files (JSON with an `image` field pinned by digest) whose image the
+   * lane's runner must hold before its bound tests start. The lane runner checks
+   * each one and fails by name when it is absent.
+   */
+  readonly boundImagePins: readonly string[];
 }
 
 export const CI_WORKFLOW = ".github/workflows/ci.yml";
@@ -74,6 +80,7 @@ export const FACTORY_LANES: readonly FactoryLane[] = [
     runnerLabels: [],
     tests: [],
     boundTests: [],
+    boundImagePins: [],
   },
   {
     job: "factory-runner-contracts",
@@ -90,6 +97,7 @@ export const FACTORY_LANES: readonly FactoryLane[] = [
     runnerLabels: [],
     tests: [],
     boundTests: [],
+    boundImagePins: [],
   },
   {
     job: "factory-temporal",
@@ -104,6 +112,7 @@ export const FACTORY_LANES: readonly FactoryLane[] = [
     runnerLabels: [],
     tests: [],
     boundTests: [],
+    boundImagePins: [],
   },
   {
     job: "factory-assurance-release",
@@ -121,6 +130,7 @@ export const FACTORY_LANES: readonly FactoryLane[] = [
     runnerLabels: [],
     tests: [],
     boundTests: [],
+    boundImagePins: [],
   },
   {
     job: "factory-isolation",
@@ -141,6 +151,7 @@ export const FACTORY_LANES: readonly FactoryLane[] = [
     ],
     // Its precondition is the host's AMD device profile (/dev/kfd and two render nodes).
     boundTests: ["packages/@ezcorp/extension-runner/tests/podman-devices.integration.test.ts"],
+    boundImagePins: [],
   },
   {
     job: "factory-product-e2e",
@@ -155,6 +166,7 @@ export const FACTORY_LANES: readonly FactoryLane[] = [
     runnerLabels: ["factory-real"],
     tests: [],
     boundTests: [],
+    boundImagePins: [],
   },
   {
     job: "factory-deployment-operations",
@@ -170,7 +182,10 @@ export const FACTORY_LANES: readonly FactoryLane[] = [
     requires: ["factory-runner-readiness"],
     runnerLabels: ["factory-real"],
     tests: [],
-    boundTests: [],
+    // Its precondition is the pinned reference-data guest image, which no registry holds and
+    // only a factory-real runner keeps (scripts/combined-runner-legs.json, factory-reference-data).
+    boundTests: ["src/factory/reference-data/journey.integration.test.ts"],
+    boundImagePins: ["src/factory/reference-data/image/pinned.json"],
   },
 ];
 
@@ -192,6 +207,25 @@ export function laneBoundTestFiles(lanes: readonly FactoryLane[] = FACTORY_LANES
 }
 
 /**
+ * The images one lane's runner must hold, read from the lane's pin files (the
+ * one place each image is pinned). A pin that names no image by digest throws
+ * by name: a floating tag is no precondition.
+ */
+export function laneRequiredImages(
+  job: string,
+  lanes: readonly FactoryLane[] = FACTORY_LANES,
+  read: (path: string) => string = (path) => readFileSync(resolve(REPO_ROOT, path), "utf8"),
+): string[] {
+  const lane = lanes.find((entry) => entry.job === job);
+  if (lane === undefined) throw new Error(`no C11 lane '${job}' in the lane manifest`);
+  return lane.boundImagePins.map((pin) => {
+    const image = (JSON.parse(read(pin)) as { image?: unknown }).image;
+    if (typeof image !== "string" || !/@sha256:[0-9a-f]{64}$/.test(image)) throw new Error(`image pin '${pin}' names no image by digest`);
+    return image;
+  });
+}
+
+/**
  * Every way the test part of the manifest can be wrong: a file that does not
  * exist (a rename would silently drop it from its lane AND from the hosted
  * subtraction), a bound file claimed by two lanes, a bound file that a lane
@@ -208,6 +242,9 @@ export function laneManifestIssues(
   for (const lane of lanes) {
     for (const file of [...lane.tests, ...lane.boundTests]) {
       if (!exists(file)) issues.push(`${lane.check}: test file '${file}' does not exist`);
+    }
+    for (const pin of lane.boundImagePins) {
+      if (!exists(pin)) issues.push(`${lane.check}: image pin '${pin}' does not exist`);
     }
     for (const file of lane.boundTests) {
       const previous = owner.get(file);
@@ -353,11 +390,12 @@ export async function runFactoryLaneCheck(options: {
   return 0;
 }
 
-const USAGE = "usage: bun scripts/check-factory-lanes.ts [--lane-tests <job> | --bound-tests]";
+const USAGE = "usage: bun scripts/check-factory-lanes.ts [--lane-tests <job> | --lane-images <job> | --bound-tests]";
 
 /**
  * The command line. No argument runs the lane gate. `--lane-tests <job>` prints
- * the lane selection and `--bound-tests` the hosted subtraction, one
+ * the lane selection, `--lane-images <job>` the images its runner must hold,
+ * and `--bound-tests` the hosted subtraction, one
  * repo-relative path per line, so the bash runners read this manifest rather
  * than a copy of it.
  */
@@ -369,6 +407,15 @@ export async function factoryLaneMain(
   if (argv.length === 0) return runFactoryLaneCheck(options);
   if (argv[0] === "--bound-tests" && argv.length === 1) {
     log.log(laneBoundTestFiles().join("\n"));
+    return 0;
+  }
+  if (argv[0] === "--lane-images" && argv.length === 2) {
+    if (!FACTORY_LANES.some((lane) => lane.job === argv[1])) {
+      log.error(`no C11 lane '${argv[1]}' in the lane manifest`);
+      return 2;
+    }
+    const images = laneRequiredImages(argv[1]!);
+    if (images.length > 0) log.log(images.join("\n"));
     return 0;
   }
   if (argv[0] === "--lane-tests" && argv.length === 2) {

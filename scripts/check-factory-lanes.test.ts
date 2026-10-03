@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   CI_WORKFLOW,
   FACTORY_LANES,
@@ -11,6 +14,7 @@ import {
   jobRunnerLabels,
   laneBoundTestFiles,
   laneManifestIssues,
+  laneRequiredImages,
   laneTestCommand,
   laneTestFiles,
   readFactoryWorkflows,
@@ -231,7 +235,10 @@ describe("C11 lane inventory CLI seam", () => {
   });
 });
 
+const USAGE = "usage: bun scripts/check-factory-lanes.ts [--lane-tests <job> | --lane-images <job> | --bound-tests]";
 const DEVICE_TEST = "packages/@ezcorp/extension-runner/tests/podman-devices.integration.test.ts";
+const JOURNEY_TEST = "src/factory/reference-data/journey.integration.test.ts";
+const DATA_IMAGE_PIN = "src/factory/reference-data/image/pinned.json";
 const SHARED_GPU_TESTS = [
   "packages/@ezcorp/extension-runner/tests/podman.integration.test.ts",
   "src/factory/runner/supervisor.podman.integration.test.ts",
@@ -246,7 +253,7 @@ function capture() {
 }
 
 function lane(overrides: Partial<FactoryLane>): FactoryLane {
-  return { job: "lane-x", check: "Lane X", workflow: CI_WORKFLOW, producers: ["echo x"], artifacts: [], requires: [], runnerLabels: ["factory-gpu"], tests: [], boundTests: [], ...overrides };
+  return { job: "lane-x", check: "Lane X", workflow: CI_WORKFLOW, producers: ["echo x"], artifacts: [], requires: [], runnerLabels: ["factory-gpu"], tests: [], boundTests: [], boundImagePins: [], ...overrides };
 }
 
 /** One bash run of the hosted selection library, exactly as the CI runners source it. */
@@ -256,11 +263,35 @@ function hostedSet(script: string): { exitCode: number; files: string[]; stderr:
 }
 
 describe("lane manifest: one list names the lane-bound tests", () => {
-  test("the device test is bound to the factory-gpu lane", () => {
-    expect(laneBoundTestFiles()).toEqual([DEVICE_TEST]);
+  test("the device test is bound to the factory-gpu lane and the data journey to a factory-real lane", () => {
+    expect(laneBoundTestFiles()).toEqual([DEVICE_TEST, JOURNEY_TEST]);
     const owner = (file: string) => FACTORY_LANES.find((entry) => entry.boundTests.includes(file))!;
     expect(owner(DEVICE_TEST).job).toBe("factory-isolation");
     expect(owner(DEVICE_TEST).runnerLabels).toEqual(["factory-gpu"]);
+    expect(owner(JOURNEY_TEST).job).toBe("factory-deployment-operations");
+    expect(owner(JOURNEY_TEST).runnerLabels).toEqual(["factory-real"]);
+  });
+
+  test("the journey's lane requires the data image exactly as its one pin file names it", async () => {
+    const pinned = (await Bun.file(DATA_IMAGE_PIN).json()) as { image: string };
+    expect(laneRequiredImages("factory-deployment-operations")).toEqual([pinned.image]);
+    expect(pinned.image).toMatch(/^localhost\/ezcorp-factory-python-data@sha256:[0-9a-f]{64}$/);
+    expect(laneRequiredImages("factory-isolation")).toEqual([]);
+    expect(() => laneRequiredImages("no-such-lane")).toThrow("no C11 lane 'no-such-lane' in the lane manifest");
+  });
+
+  test("a pin that names no image by digest is rejected by name", () => {
+    const lanes = [lane({ boundImagePins: ["pin.json"] })];
+    for (const text of ['{"image":"localhost/data:latest"}', "{}", '{"image":7}']) {
+      expect(() => laneRequiredImages("lane-x", lanes, () => text)).toThrow("image pin 'pin.json' names no image by digest");
+    }
+    expect(laneRequiredImages("lane-x", lanes, () => `{"image":"r/i@sha256:${"a".repeat(64)}"}`)).toEqual([`r/i@sha256:${"a".repeat(64)}`]);
+  });
+
+  test("a missing image pin file is named", () => {
+    expect(laneManifestIssues([lane({ boundImagePins: ["pin.json"] })], (path) => path !== "pin.json")).toEqual([
+      "Lane X: image pin 'pin.json' does not exist",
+    ]);
   });
 
   test("the real manifest names only files that exist, each bound once, none also shared", () => {
@@ -298,13 +329,14 @@ describe("lane manifest: one list names the lane-bound tests", () => {
 describe("lane selection: the lane job runs the manifest", () => {
   test("the factory-gpu lane runs its shared container observations and then the device test", () => {
     expect(laneTestFiles("factory-isolation")).toEqual([...SHARED_GPU_TESTS, DEVICE_TEST]);
+    expect(laneTestFiles("factory-deployment-operations")).toEqual([JOURNEY_TEST]);
     expect(laneTestFiles("factory-temporal")).toEqual([]);
     expect(() => laneTestFiles("no-such-lane")).toThrow("no C11 lane 'no-such-lane' in the lane manifest");
   });
 
   test("both lane jobs run the manifest through the one runner command", async () => {
     const workflows = await realWorkflows();
-    for (const job of ["factory-isolation"]) {
+    for (const job of ["factory-isolation", "factory-deployment-operations"]) {
       expect(workflowJobBlock(workflows[CI_WORKFLOW]!, job)).toContain(`run: ${laneTestCommand(job)}\n`);
     }
     expect(laneTestCommand("factory-isolation")).toBe("bash scripts/run-factory-lane-tests.sh factory-isolation");
@@ -324,16 +356,23 @@ describe("lane selection: the lane job runs the manifest", () => {
     expect(lanes.output).toEqual([[...SHARED_GPU_TESTS, DEVICE_TEST].join("\n")]);
     const bound = capture();
     expect(await factoryLaneMain(["--bound-tests"], { log: bound.log })).toBe(0);
-    expect(bound.output).toEqual([DEVICE_TEST]);
+    expect(bound.output).toEqual([`${DEVICE_TEST}\n${JOURNEY_TEST}`]);
+    const images = capture();
+    expect(await factoryLaneMain(["--lane-images", "factory-deployment-operations"], { log: images.log })).toBe(0);
+    expect(images.output).toEqual(laneRequiredImages("factory-deployment-operations"));
+    const none = capture();
+    expect(await factoryLaneMain(["--lane-images", "factory-isolation"], { log: none.log })).toBe(0);
+    expect(none.output).toEqual([]);
   });
 
   test("the command line fails closed on an unknown lane, an empty lane and a malformed call", async () => {
     for (const [argv, message] of [
       [["--lane-tests", "no-such-lane"], "lane 'no-such-lane' names no test file in the lane manifest"],
       [["--lane-tests", "factory-temporal"], "lane 'factory-temporal' names no test file in the lane manifest"],
-      [["--lane-tests"], "usage: bun scripts/check-factory-lanes.ts [--lane-tests <job> | --bound-tests]"],
-      [["--bound-tests", "extra"], "usage: bun scripts/check-factory-lanes.ts [--lane-tests <job> | --bound-tests]"],
-      [["--other"], "usage: bun scripts/check-factory-lanes.ts [--lane-tests <job> | --bound-tests]"],
+      [["--lane-images", "no-such-lane"], "no C11 lane 'no-such-lane' in the lane manifest"],
+      [["--lane-tests"], USAGE],
+      [["--bound-tests", "extra"], USAGE],
+      [["--other"], USAGE],
     ] as const) {
       const { output, errors, log } = capture();
       expect(await factoryLaneMain(argv, { log })).toBe(2);
@@ -346,6 +385,24 @@ describe("lane selection: the lane job runs the manifest", () => {
     const { errors, log } = capture();
     expect(await factoryLaneMain([], { read: async () => ({}), log })).toBe(1);
     expect(errors[0]).toMatch(/^C11 lane inventory FAILED/);
+  });
+
+  test("the lane runner fails by name before any test when its runner lacks a pinned image", () => {
+    const fake = mkdtempSync(join(tmpdir(), "w4h4-podman-"));
+    try {
+      writeFileSync(join(fake, "podman"), '#!/usr/bin/env bash\necho "$@" >> "$(dirname "$0")/calls"\nexit 1\n', { mode: 0o755 });
+      const result = Bun.spawnSync(["bash", "scripts/run-factory-lane-tests.sh", "factory-deployment-operations"], {
+        cwd: import.meta.dir + "/..",
+        env: { ...process.env, PATH: `${fake}:${process.env.PATH}` },
+      });
+      const image = laneRequiredImages("factory-deployment-operations")[0]!;
+      expect(result.exitCode).toBe(3);
+      expect(result.stderr.toString()).toContain(`Precondition failed: lane factory-deployment-operations needs the pinned image ${image} on this runner, and it is absent.`);
+      expect(result.stdout.toString()).not.toContain("test file(s)");
+      expect(readFileSync(join(fake, "calls"), "utf8")).toBe(`image exists ${image}\n`);
+    } finally {
+      rmSync(fake, { recursive: true, force: true });
+    }
   });
 
   test("the lane runner refuses an unknown lane before it starts any test", () => {

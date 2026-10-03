@@ -284,6 +284,12 @@ jobs:
         run: bun scripts/verify-factory-storage.ts --restart-stores
       - name: Provision a tenant against the real engine
         run: bun test --timeout 120000 ./tests/postgres/factory-provisioning.test.ts
+      # The lane manifest's bound tests for this runner (FACTORY_LANES in
+      # scripts/check-factory-lanes.ts): the reference-data journey needs the
+      # pinned data image, which no registry holds and no hosted shard selects.
+      # The runner script fails by name when this runner lacks that image.
+      - name: Run the lane-bound reference-data journey
+        run: bash scripts/run-factory-lane-tests.sh factory-deployment-operations
       - name: Prove a compatible upgrade preserves data
         run: bash scripts/verify-docker-upgrade.sh
       - name: Prove a rollback restores the previous release
