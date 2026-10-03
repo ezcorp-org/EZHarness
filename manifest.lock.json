@@ -243,8 +243,8 @@
       "directory": "docs/extensions/examples/substack-pilot",
       "entrypoint": "extension.ts",
       "files": 33,
-      "bytes": 237947,
-      "sourceDigest": "1bf225e1f4e2f48b937170c3700a5ffd96cac7397d1a2652f8d87c5e06be5c32"
+      "bytes": 238791,
+      "sourceDigest": "0d21ce2cc85ae13dac1fc2f0b95c7af19f118646d20dddc8638034571dd96558"
     },
     "substack-pipeline": {
       "directory": "docs/extensions/examples/substack-pipeline",

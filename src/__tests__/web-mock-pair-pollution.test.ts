@@ -23,6 +23,7 @@ import { test, expect } from "bun:test";
 import { join } from "node:path";
 
 const WEB_DIR = join(import.meta.dir, "../../web");
+const REPO_ROOT = join(import.meta.dir, "../..");
 
 interface PairRunResult {
   exitCode: number;
@@ -31,17 +32,18 @@ interface PairRunResult {
   output: string;
 }
 
-/** Spawn `bun test <files...>` in one process, cwd'd to `web/` (web/ tests
- *  must run with that cwd — see web/CLAUDE.md). One shared helper for every
+/** Spawn `bun test <files...>` in one process, cwd'd to `web/` by default (web/
+ *  tests must run with that cwd — see web/CLAUDE.md; root pairs pass the
+ *  repository root, where the root preload applies). One shared helper for every
  *  pair below, not a copy per pair. An optional `testNamePattern` runs only
  *  matching tests (`bun test --test-name-pattern <regex>`) — module-level
  *  code (imports, top-level mock.module() calls, beforeAll) still runs in
  *  full either way, so the pollution mechanism this file exists to catch
  *  still applies; only WHICH already-registered tests execute narrows. */
-function runFilesInOneProcess(files: readonly string[], testNamePattern?: string): PairRunResult {
+function runFilesInOneProcess(files: readonly string[], testNamePattern?: string, cwd: string = WEB_DIR): PairRunResult {
   const args = testNamePattern ? [...files, "--test-name-pattern", testNamePattern] : [...files];
   const proc = Bun.spawnSync([process.execPath, "test", ...args], {
-    cwd: WEB_DIR,
+    cwd,
     env: process.env,
     stdout: "pipe",
     stderr: "pipe",
@@ -72,6 +74,8 @@ const PAIRS: ReadonlyArray<{
    *  the file whose route used to silently keep the stale/real value. */
   files: readonly [string, string];
   minPass: number;
+  /** Where the pair runs; `web/` unless the pair is a root one. */
+  cwd?: string;
 }> = [
   {
     label: "OPEN-1 reverse order: extension-settings-api (polluter) then extensions-api (victim), $server/extensions/secret-settings",
@@ -93,11 +97,19 @@ const PAIRS: ReadonlyArray<{
     files: ["./src/routes/api/import/__tests__/commit.test.ts", "./src/__tests__/extension-browser-preview.test.ts"],
     minPass: 15,
   },
+  {
+    // W4G-11: the substack-pilot SDK-resolution test replaced the MCP SDK client and stdio transport for the whole
+    // process; every later file that built a real MCP client got its fake (57 failures across 7 files in one process).
+    label: "W4G-11: substack-pilot mcp-sdk-resolution (polluter) then ai-kit mcp-server (victim), @modelcontextprotocol/sdk/client",
+    files: ["./docs/extensions/examples/substack-pilot/tests/mcp-sdk-resolution.test.ts", "./packages/@ezcorp/ai-kit/test/unit/mcp-server.test.ts"],
+    minPass: 10,
+    cwd: REPO_ROOT,
+  },
 ];
 
 for (const pair of PAIRS) {
   test(pair.label, () => {
-    const result = runFilesInOneProcess(pair.files);
+    const result = runFilesInOneProcess(pair.files, undefined, pair.cwd);
     expect(result.fail).toBe(0);
     expect(result.pass).toBeGreaterThanOrEqual(pair.minPass);
     expect(result.exitCode).toBe(0);
