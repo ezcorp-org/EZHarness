@@ -1,11 +1,12 @@
 #!/usr/bin/env bun
 import { createHash } from "node:crypto";
-import { writeFile } from "node:fs/promises";
-import type { SandboxPreset } from "@ezcorp/extension-contract";
+import { readFile, writeFile } from "node:fs/promises";
+import { validateManifest, type SandboxPreset } from "@ezcorp/extension-contract";
+import { incusManifest } from "../../extensions/incus-sandbox/manifest";
 import { INCUS_INVENTORY_COMMANDS, incusCapacityCommands } from "./inspect";
 import type { IncusImageBootstrapPlan, IncusInventory, IncusSetupPlan, IncusSetupRecipe } from "./model";
-import { assertSetupPlanDigest, digest } from "./model";
-import { createImageBootstrapPlan, createSetupPlan } from "./plan";
+import { assertExactKeys, assertRecord, assertSafeName, assertSha256, assertSetupPlanDigest, digest } from "./model";
+import { createImageBootstrapPlan, createSetupPlan, validateRecipe } from "./plan";
 
 export interface SshGatePolicy {
   version: 1;
@@ -27,8 +28,31 @@ export interface OwnedNeighborChallengeScope {
   imageFingerprint: string;
 }
 
+export function ownedNeighborScope(recipe: IncusSetupRecipe, connectionId: string, presetId: string): OwnedNeighborChallengeScope {
+  validateRecipe(recipe);
+  if (!/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(connectionId)) throw new Error("Invalid reviewed connection ID");
+  const manifest = validateManifest(incusManifest);
+  const preset = manifest.sandboxProviders?.find(value => value.id === "incus")?.presets.find(value => value.id === presetId);
+  if (!preset || preset.imageDigest !== recipe.guestImage?.fingerprint) throw new Error("Reviewed preset and recipe image must match");
+  return { connectionId, project: recipe.project.name, profile: preset.profile, incusProfile: recipe.profile.name,
+    network: recipe.network.name, bridgeCIDR: recipe.network.config["ipv4.address"]!,
+    presetId: preset.id, imageFingerprint: preset.imageDigest };
+}
+
 /** A reviewed capability adds only the closed owned-neighbor challenge, never general sockets or writes. */
 export function createOwnedNeighborChallengeSshPolicy(scope: OwnedNeighborChallengeScope): SshGatePolicy {
+  assertRecord(scope, "owned neighbor scope");
+  assertExactKeys(scope, ["connectionId", "project", "profile", "incusProfile", "network", "bridgeCIDR", "presetId", "imageFingerprint"], "owned neighbor scope");
+  for (const key of ["project", "incusProfile", "network"] as const) assertSafeName(scope[key], key);
+  for (const key of ["connectionId", "profile", "presetId"] as const) {
+    if (typeof scope[key] !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(scope[key])) throw new Error("Invalid owned neighbor identity");
+  }
+  assertSha256(scope.imageFingerprint, "owned neighbor image");
+  if (scope.project === "default" || typeof scope.bridgeCIDR !== "string" ||
+    !/^(?:10\.|172\.(?:1[6-9]|2[0-9]|3[01])\.|192\.168\.)/.test(scope.bridgeCIDR) ||
+    !/^(?:\d{1,3}\.){3}\d{1,3}\/(?:[2-9]|[12][0-9]|30)$/.test(scope.bridgeCIDR) ||
+    scope.bridgeCIDR.split("/")[0]!.split(".").some(value => Number(value) > 255) ||
+    Number(scope.bridgeCIDR.split("/")[1]) < (scope.bridgeCIDR.startsWith("10.") ? 8 : scope.bridgeCIDR.startsWith("172.") ? 12 : 16)) throw new Error("Invalid owned neighbor bridge");
   const bootstrap = createReadOnlySshGatePolicy();
   const ownedNeighborChallenge = { ...scope };
   return { ...bootstrap, ownedNeighborChallenge,
@@ -67,11 +91,13 @@ export function createSshGatePolicy(recipe: IncusSetupRecipe, inventory: IncusIn
 
 async function main(): Promise<void> {
   const inputs = process.argv.slice(2);
-  if (inputs.length !== 2 || inputs[0] !== "--read-only-bootstrap") {
-    throw new Error("usage: ssh-gate-policy.ts --read-only-bootstrap OUTPUT");
+  const neighbor = inputs[0] === "--owned-neighbor-challenge";
+  if ((!neighbor && (inputs.length !== 2 || inputs[0] !== "--read-only-bootstrap")) || (neighbor && inputs.length !== 5)) {
+    throw new Error("usage: ssh-gate-policy.ts --read-only-bootstrap OUTPUT | --owned-neighbor-challenge RECIPE CONNECTION_ID PRESET_ID OUTPUT");
   }
-  const policy = createReadOnlySshGatePolicy();
-  await writeFile(inputs[1]!, `${JSON.stringify(policy, null, 2)}\n`, { flag: "wx", mode: 0o600 });
+  const policy = neighbor ? createOwnedNeighborChallengeSshPolicy(ownedNeighborScope(
+    JSON.parse(await readFile(inputs[1]!, "utf8")), inputs[2]!, inputs[3]!)) : createReadOnlySshGatePolicy();
+  await writeFile(inputs[neighbor ? 4 : 1]!, `${JSON.stringify(policy, null, 2)}\n`, { flag: "wx", mode: 0o600 });
   console.log(`Read-only SSH gate policy ${policy.planDigest}: ${policy.commands.length} exact commands`);
 }
 

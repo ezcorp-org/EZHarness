@@ -9,7 +9,7 @@ import imageBuildTemplate from "./recipe.template.json";
 import { digest, type IncusInventory, type IncusSetupPlan, type IncusSetupRecipe } from "./model";
 import { applyImageBootstrapPlan, applySetupPlan, classifyApplyResult, inspectStep } from "./apply";
 import { inspectIncus, sshGateRequest, verifyKnownHostPin } from "./inspect";
-import { createOwnedNeighborChallengeSshPolicy, createReadOnlySshGatePolicy, createSshGatePolicy } from "./ssh-gate-policy";
+import { createOwnedNeighborChallengeSshPolicy, ownedNeighborScope, createReadOnlySshGatePolicy, createSshGatePolicy } from "./ssh-gate-policy";
 import { createImageBootstrapPlan, createSetupPlan, validateRecipe, verifyImageBootstrapPlan, verifySetupPlan } from "./plan";
 import { guestHelperSha256 } from "../../src/infrastructure/incus-guest/protocol";
 
@@ -98,6 +98,32 @@ describe("reviewed Incus SSH gate", () => {
     expect(createOwnedNeighborChallengeSshPolicy({ ...scope, connectionId: "other" }).planDigest).not.toBe(policy.planDigest);
     scope.project = "changed";
     expect(policy.ownedNeighborChallenge?.project).toBe("ezharness");
+  });
+  test("policy CLI emits validated recipe and preset scope without applying it", async () => {
+    const reviewed = checkedInRecipe as IncusSetupRecipe;
+    const scope = ownedNeighborScope(reviewed, "connection-1", "incus-compose-v1");
+    expect(scope.project).toBe(reviewed.project.name);
+    expect(scope.imageFingerprint).toBe(reviewed.guestImage!.fingerprint!);
+    expect(() => ownedNeighborScope(reviewed, "bad/connection", "incus-compose-v1")).toThrow();
+    expect(() => ownedNeighborScope(reviewed, "connection-1", "missing")).toThrow();
+    for (const update of [{ project: "default" }, { bridgeCIDR: "127.0.0.1/24" }, { bridgeCIDR: "10.0.0.1/2" }, { bridgeCIDR: "10.173.999.1/24" }, { imageFingerprint: "bad" }, { connectionId: ";id" }]) {
+      expect(() => createOwnedNeighborChallengeSshPolicy({ ...scope, ...update })).toThrow();
+    }
+    const changed = structuredClone(reviewed);
+    changed.profile.name = "reviewed-other-profile";
+    expect(createOwnedNeighborChallengeSshPolicy(ownedNeighborScope(changed, "connection-1", "incus-compose-v1")).planDigest)
+      .not.toBe(createOwnedNeighborChallengeSshPolicy(scope).planDigest);
+    const directory = await mkdtemp(join(tmpdir(), "neighbor-policy-"));
+    const output = join(directory, "policy.json");
+    try {
+      const child = Bun.spawn([process.execPath, join(import.meta.dir, "ssh-gate-policy.ts"), "--owned-neighbor-challenge",
+        join(import.meta.dir, "recipe.json"), "connection-1", "incus-compose-v1", output], { stdout: "pipe", stderr: "pipe" });
+      expect(await child.exited).toBe(0);
+      const policy = JSON.parse(await readFile(output, "utf8"));
+      validateServerPolicy(policy);
+      expect(policy).toEqual(createOwnedNeighborChallengeSshPolicy(scope));
+      expect(policy.commands.every((command: { write?: boolean }) => command.write !== true)).toBe(true);
+    } finally { await rm(directory, { recursive: true, force: true }); }
   });
   test("binds the exact bootstrap plan to the transport and reviewed commands", async () => {
     const reviewed = checkedInRecipe as IncusSetupRecipe;

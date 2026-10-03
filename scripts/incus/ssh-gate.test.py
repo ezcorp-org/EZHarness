@@ -274,6 +274,12 @@ class OwnedNeighborChallengeTest(unittest.TestCase):
         with patch.object(gate, "neighbor_query", side_effect=self.query):
             return gate.observe_owned_neighbor(self.policy, gate.NEIGHBOR_COMMAND, request or self.request)
 
+    def test_policy_rejects_extra_fields_public_or_unbounded_bridge(self):
+        for update in ({"extra": "id"}, {"project": "default"}, {"bridgeCIDR": "100.81.0.1/24"},
+                       {"bridgeCIDR": "10.0.0.1/2"}, {"bridgeCIDR": "127.0.0.1/24"}, {"imageFingerprint": "x" * 64}):
+            with self.subTest(update=update), self.assertRaises(gate.Denied):
+                gate.validate_neighbor_scope({**self.scope, **update})
+
     def test_capabilities_have_no_socket_or_instance_effect_and_closed_response(self):
         request = dict(version=1, action="capabilities", **self.scope)
         with patch.object(gate, "neighbor_token_matches") as tcp, patch.object(gate, "neighbor_instance") as instance:

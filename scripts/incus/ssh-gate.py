@@ -308,7 +308,7 @@ def validate_neighbor_scope(scope):
     if not re.fullmatch(r"[a-f0-9]{64}", scope["imageFingerprint"]):
         raise Denied("invalid owned neighbor image")
     bridge = ipaddress.ip_interface(scope["bridgeCIDR"])
-    if bridge.version != 4 or not bridge.ip.is_private or bridge.ip.is_loopback or bridge.ip.is_link_local or not 2 <= bridge.network.prefixlen <= 30:
+    if bridge.version != 4 or not any(bridge.network.subnet_of(ipaddress.ip_network(value)) for value in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")) or not 2 <= bridge.network.prefixlen <= 30:
         raise Denied("invalid owned neighbor bridge")
     return bridge
 
