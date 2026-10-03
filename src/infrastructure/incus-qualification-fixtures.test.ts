@@ -22,7 +22,7 @@ const assertCurrentScope = async () => {};
 
 async function setup(configureHost = true, pendingCreate = false, providerGeneration = 1,
   inspectError: Error | null = null, hostSlots = 2,
-  options: { pendingKinds?: string[]; inspectOutcome?: "UNKNOWN" | "PENDING"; now?: () => number } = {}) {
+  options: { pendingKinds?: string[]; inspectOutcome?: "UNKNOWN" | "PENDING"; inspectUnknownCount?: number; inspectFailureCount?: number; inspectTerminalFailure?: boolean; missingStartReceipt?: boolean; now?: () => number } = {}) {
   const client = new PGlite();
   opened.push(client);
   await client.waitReady;
@@ -46,10 +46,11 @@ async function setup(configureHost = true, pendingCreate = false, providerGenera
     connection: { revision: 1 }, preset,
     presetDigest, effectiveSettingsDigest }) } as unknown as IncusQualificationStore;
   const dispatches: SandboxProviderRequest[] = [];
-  const inspections: SandboxProviderRequest[] = [];
+  const inspections: Array<SandboxProviderRequest & { providerOperationId: string | null }> = [];
   let providerState: "running" | "stopped" = "stopped";
   const controller = new SandboxController(db, { dispatch: async request => {
     dispatches.push(request);
+    if (options.missingStartReceipt && request.kind === "START") return { outcome: "UNKNOWN" };
     if (pendingCreate && request.kind === "CREATE" || options.pendingKinds?.includes(request.kind)) {
       return { outcome: "PENDING", providerOperationId: `provider-${request.operationId}` };
     }
@@ -58,11 +59,13 @@ async function setup(configureHost = true, pendingCreate = false, providerGenera
       : request.kind === "START" ? "RUNNING" : "STOPPED" };
   }, inspectOperation: async request => {
     inspections.push(request);
+    if (options.inspectTerminalFailure) return { outcome: "FAILED", errorCode: "TERMINAL_TEST_FAILURE" };
+    if (inspections.length <= (options.inspectFailureCount ?? 0)) throw new Error("readback response temporarily unavailable");
     if (options.inspectOutcome === "PENDING") {
       if (!request.providerOperationId) throw new Error("Pending test operation lacks its provider identity");
       return { outcome: "PENDING", providerOperationId: request.providerOperationId };
     }
-    if (options.inspectOutcome === "UNKNOWN") return { outcome: "UNKNOWN", providerOperationId: request.providerOperationId ?? undefined };
+    if (options.inspectOutcome === "UNKNOWN" || inspections.length <= (options.inspectUnknownCount ?? 0)) return { outcome: "UNKNOWN", providerOperationId: request.providerOperationId ?? undefined };
     providerState = request.kind === "START" ? "running" : "stopped";
     return { outcome: "SUCCEEDED", providerOperationId: request.providerOperationId ?? undefined,
       observedState: request.kind === "DESTROY" ? "ABSENT" : request.kind === "START" ? "RUNNING" : "STOPPED" };
@@ -549,7 +552,7 @@ test("pending native fixture power and destroy settle their exact saved operatio
 
 test("unknown CREATE preserves its original effect and never queues cleanup or recreation", async () => {
   const { db, service, qualifications, dispatches, admission } = await setup(true, true, 1, null, 2,
-    { inspectOutcome: "UNKNOWN" });
+    { inspectOutcome: "UNKNOWN", now: (() => { const times = [0, 0, 0, 30_000]; return () => times.shift() ?? 30_000; })() });
   const witness = new IncusHostLiveWitness({ db, fixtures: service, qualifications });
   await expect(witness.createFixture(scope, INCUS_PRESETS[0]!, "unknown-create", true))
     .rejects.toBeInstanceOf(IncusQualificationOperationUnsettledError);
@@ -673,4 +676,121 @@ test("a replay error preserves the known first admitted CREATE receipt", async (
     await expect(promise).rejects.toMatchObject({ operationId: savedId });
     expect(calls).toBe(2);
   } finally { spy.mockRestore(); }
+});
+
+
+test("native qualification rechecks the same unknown START receipt until a known outcome", async () => {
+  const { db, qualifications, service, dispatches, inspections } = await setup(true, false, 1, null, 2,
+    { pendingKinds: ["START"], inspectUnknownCount: 1 });
+  const witness = new IncusHostLiveWitness({ db, fixtures: service, qualifications });
+  const handle = await witness.createFixture(scope, INCUS_PRESETS[0]!, "start-unknown-readback", false);
+  await witness.setPower(handle, "running");
+  const saved = await service.status(scope, handle.operationId);
+  expect(saved.operation).toMatchObject({ kind: "START", state: "SUCCEEDED", errorCode: null });
+  expect(inspections).toHaveLength(2);
+  expect(new Set(inspections.map(request => request.operationId)).size).toBe(1);
+  expect(new Set(inspections.map(request => request.providerOperationId)).size).toBe(1);
+  expect(saved.operation?.id).toBe(inspections[0]!.operationId);
+  expect(saved.binding).toMatchObject({ desiredState: "RUNNING", observedState: "RUNNING" });
+  expect(dispatches.map(request => request.kind)).toEqual(["CREATE", "START"]);
+});
+
+
+test("thrown START readback converges through the same saved receipt without redispatch", async () => {
+  const { db, qualifications, service, controller, dispatches, inspections } = await setup(true, false, 1, null, 2,
+    { pendingKinds: ["START"], inspectFailureCount: 1 });
+  const witness = new IncusHostLiveWitness({ db, fixtures: service, qualifications });
+  const handle = await witness.createFixture(scope, INCUS_PRESETS[0]!, "start-thrown-readback", false);
+  const observed: Array<{ state: string; errorCode: string | null }> = [];
+  const original = controller.inspectOperation.bind(controller);
+  const spy = spyOn(controller, "inspectOperation").mockImplementation(async id => {
+    const operation = await original(id);
+    observed.push({ state: operation.state, errorCode: operation.errorCode });
+    return operation;
+  });
+  try { await witness.setPower(handle, "running"); } finally { spy.mockRestore(); }
+  expect(observed).toEqual([{ state: "OUTCOME_UNKNOWN", errorCode: "PROVIDER_OUTCOME_UNKNOWN" },
+    { state: "SUCCEEDED", errorCode: null }]);
+  expect((await service.status(scope, handle.operationId)).operation).toMatchObject({ kind: "START", state: "SUCCEEDED", errorCode: null });
+  expect(inspections).toHaveLength(2);
+  expect(inspections[1]!.operationId).toBe(inspections[0]!.operationId);
+  expect(inspections[1]!.providerOperationId).toBe(inspections[0]!.providerOperationId);
+  expect(dispatches.map(request => request.kind)).toEqual(["CREATE", "START"]);
+});
+
+test("repeated unknown START reads stop at the same deadline and preserve the saved receipt", async () => {
+  const times = [0, 0, 0, 0, 0, 30_000];
+  const { db, qualifications, service, dispatches, inspections } = await setup(true, false, 1, null, 2,
+    { pendingKinds: ["START"], inspectOutcome: "UNKNOWN", now: () => times.shift() ?? 30_000 });
+  const witness = new IncusHostLiveWitness({ db, fixtures: service, qualifications });
+  const handle = await witness.createFixture(scope, INCUS_PRESETS[0]!, "start-deadline", false);
+  await expect(witness.setPower(handle, "running")).rejects.toMatchObject({ reason: "outcome_unsettled", state: "OUTCOME_UNKNOWN" });
+  const saved = (await service.status(scope, handle.operationId)).operation!;
+  expect(saved).toMatchObject({ kind: "START", state: "OUTCOME_UNKNOWN", providerOperationId: `provider-${saved.id}` });
+  expect(inspections).toHaveLength(2);
+  expect(new Set(inspections.map(request => request.operationId)).size).toBe(1);
+  expect(dispatches.map(request => request.kind)).toEqual(["CREATE", "START"]);
+});
+
+test("unknown START without a provider receipt is preserved without an inspection or redispatch", async () => {
+  const { db, qualifications, service, dispatches, inspections } = await setup(true, false, 1, null, 2,
+    { missingStartReceipt: true });
+  const witness = new IncusHostLiveWitness({ db, fixtures: service, qualifications });
+  const handle = await witness.createFixture(scope, INCUS_PRESETS[0]!, "start-no-receipt", false);
+  await expect(witness.setPower(handle, "running")).rejects.toMatchObject({ reason: "outcome_unsettled", state: "OUTCOME_UNKNOWN" });
+  expect((await service.status(scope, handle.operationId)).operation).toMatchObject({ kind: "START", state: "OUTCOME_UNKNOWN", providerOperationId: null });
+  expect(inspections).toEqual([]);
+  expect(dispatches.map(request => request.kind)).toEqual(["CREATE", "START"]);
+});
+
+test("changed release authority between unknown reads preserves START and stops further inspection", async () => {
+  const { db, qualifications, service, controller, dispatches, inspections } = await setup(true, false, 1, null, 2,
+    { pendingKinds: ["START"], inspectOutcome: "UNKNOWN" });
+  const witness = new IncusHostLiveWitness({ db, fixtures: service, qualifications });
+  const handle = await witness.createFixture(scope, INCUS_PRESETS[0]!, "start-authority-change", false);
+  const original = controller.inspectOperation.bind(controller);
+  const spy = spyOn(controller, "inspectOperation").mockImplementation(async id => {
+    const operation = await original(id);
+    qualifications.authorizeFixture = async () => { throw new Error("released authority revoked"); };
+    return operation;
+  });
+  try {
+    await expect(witness.setPower(handle, "running")).rejects.toMatchObject({ reason: "authority_changed", state: "OUTCOME_UNKNOWN",
+      cause: expect.objectContaining({ message: "released authority revoked" }) });
+    expect((await service.status(scope, handle.operationId)).operation).toMatchObject({ kind: "START", state: "OUTCOME_UNKNOWN" });
+    expect(inspections).toHaveLength(1);
+    expect(dispatches.map(request => request.kind)).toEqual(["CREATE", "START"]);
+  } finally { spy.mockRestore(); }
+});
+
+test("a newer cleanup intent between unknown reads preserves START and refuses further inspection", async () => {
+  const { db, qualifications, service, controller, admission, dispatches, inspections } = await setup(true, false, 1, null, 2,
+    { pendingKinds: ["START"], inspectOutcome: "UNKNOWN" });
+  const witness = new IncusHostLiveWitness({ db, fixtures: service, qualifications });
+  const handle = await witness.createFixture(scope, INCUS_PRESETS[0]!, "start-newer-intent", false);
+  const original = controller.inspectOperation.bind(controller);
+  const spy = spyOn(controller, "inspectOperation").mockImplementation(async id => {
+    const operation = await original(id);
+    expect((await service.destroy(scope, handle.operationId)).state).toBe("JOURNALED");
+    return operation;
+  });
+  try {
+    await expect(witness.setPower(handle, "running")).rejects.toMatchObject({ reason: "newer_intent", state: "OUTCOME_UNKNOWN" });
+    expect((await service.status(scope, handle.operationId)).operation).toMatchObject({ kind: "DESTROY", state: "JOURNALED" });
+    expect(await admission.getReservation(handle.sandboxId)).toMatchObject({ computeState: "RELEASE_REQUESTED", diskState: "RELEASE_REQUESTED" });
+    expect(inspections).toHaveLength(1);
+    expect(dispatches.map(request => request.kind)).toEqual(["CREATE", "START"]);
+  } finally { spy.mockRestore(); }
+});
+
+
+test("a terminal failed START readback is not polled or dispatched again", async () => {
+  const { db, qualifications, service, dispatches, inspections } = await setup(true, false, 1, null, 2,
+    { pendingKinds: ["START"], inspectTerminalFailure: true });
+  const witness = new IncusHostLiveWitness({ db, fixtures: service, qualifications });
+  const handle = await witness.createFixture(scope, INCUS_PRESETS[0]!, "start-terminal-failure", false);
+  await expect(witness.setPower(handle, "running")).rejects.toThrow();
+  expect((await service.status(scope, handle.operationId)).operation).toMatchObject({ kind: "START", state: "FAILED", errorCode: "TERMINAL_TEST_FAILURE" });
+  expect(inspections).toHaveLength(1);
+  expect(dispatches.map(request => request.kind)).toEqual(["CREATE", "START"]);
 });

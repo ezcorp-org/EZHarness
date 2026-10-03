@@ -22,6 +22,7 @@ import { SandboxAdmissionError, SandboxAdmissionStore } from "../sandboxes/admis
 import { SandboxController } from "../sandboxes/controller";
 import { IncusSandboxProviderDispatcher } from "../sandboxes/incus-dispatcher";
 import { IncusMethodCaller } from "./incus-method-caller";
+import { permitsCreateReadbackDuringQueuedCleanup } from "./incus-create-readback-policy";
 import type { HostIncusLostDestroyReplyFault } from "./incus-destroy-reply-fault";
 import { inspectRelease, readIncusProviderGeneration, type IncusFeatureServiceDependencies } from "./incus-feature-service";
 import { ProviderConnectionStore, type ProviderConnectionCredentials, type ProviderConnectionScope } from "./provider-connections/store";
@@ -412,7 +413,8 @@ export class IncusQualificationFixtureService {
     try { return await this.inspectSavedOperation(scope, fixtureOperationId, operationId); }
     catch (cause) {
       if (cause instanceof IncusQualificationOperationUnsettledError || !saved) throw cause;
-      throw new IncusQualificationOperationUnsettledError(saved.id, saved.state, cause, "authority_changed");
+      const current = await this.controller.getOperation(operationId).catch(() => saved);
+      throw new IncusQualificationOperationUnsettledError(saved.id, current?.state ?? saved.state, cause, "authority_changed");
     }
   }
 
@@ -421,11 +423,20 @@ export class IncusQualificationFixtureService {
     const deadline = this.now() + 30_000;
     for (;;) {
       const { row, binding } = await this.ownedFixture(scope, fixtureOperationId);
+      const selected = await this.qualifications.authorizeFixture(scope);
+      this.assertFixture(row, scope, selected.connection.revision, selected.presetDigest, selected.effectiveSettingsDigest);
       let operation = await this.controller.getOperation(operationId);
       if (!operation || operation.bindingId !== row.bindingId || operation.generation !== binding.generation) {
         throw new Error("Incus qualification saved operation changed scope");
       }
       if (["DISPATCHING", "PROVIDER_PENDING", "OUTCOME_UNKNOWN"].includes(operation.state)) {
+        if (!operation.providerOperationId) throw new IncusQualificationOperationUnsettledError(operation.id, operation.state);
+        if (binding.currentOperationId !== operation.id) {
+          const cleanup = binding.currentOperationId ? await this.controller.getOperation(binding.currentOperationId) : undefined;
+          if (operation.kind !== "CREATE" || !permitsCreateReadbackDuringQueuedCleanup(binding, operation, cleanup ?? undefined)) {
+            throw new IncusQualificationOperationUnsettledError(operation.id, operation.state, undefined, "newer_intent");
+          }
+        }
         if (this.now() >= deadline) throw new IncusQualificationOperationUnsettledError(operation.id, operation.state);
         operation = await this.controller.inspectOperation(operationId);
       }
@@ -433,7 +444,7 @@ export class IncusQualificationFixtureService {
         await this.recordOperationObservation(scope, row, operation);
         return operation;
       }
-      if (operation.state !== "PROVIDER_PENDING" || this.now() >= deadline) {
+      if (!["PROVIDER_PENDING", "OUTCOME_UNKNOWN"].includes(operation.state) || !operation.providerOperationId || this.now() >= deadline) {
         throw new IncusQualificationOperationUnsettledError(operation.id, operation.state);
       }
       await Bun.sleep(100);
