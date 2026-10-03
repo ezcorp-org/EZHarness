@@ -28,6 +28,20 @@ export const REFERENCE_CODE_MODEL_PIN: FactoryProviderPin = Object.freeze({
   model: "gpt-5.6-luna",
 });
 
+/**
+ * Runs `work` with the deployment's own configuration store open. Without it every credential
+ * lookup fails, and a signed-in deployment reads "not configured" (W10c R1). The reference code
+ * journey uses the same helper, so the two commands read the same deployment.
+ */
+export async function withDeploymentStore<T>(work: () => Promise<T>): Promise<T> {
+  try {
+    await initDb();
+    return await work();
+  } finally {
+    await closeDb();
+  }
+}
+
 export async function runReferenceCodeProviderCheck(options: {
   readonly pin?: FactoryProviderPin;
   readonly evidencePath?: string;
@@ -37,10 +51,7 @@ export async function runReferenceCodeProviderCheck(options: {
   const log = options.log ?? console;
   let readiness: FactoryProviderReadiness;
   try {
-    // Without the store open every credential lookup fails, and a signed-in deployment would
-    // read "not configured" (W10c R1).
-    await initDb();
-    readiness = await factoryProviderReadiness(pin);
+    readiness = await withDeploymentStore(() => factoryProviderReadiness(pin));
   } catch (error) {
     // A configuration store that cannot be reached is itself a readiness failure, not a crash
     // and not a reason to substitute anything.
@@ -54,8 +65,6 @@ export async function runReferenceCodeProviderCheck(options: {
       checkedAtMs: Date.now(),
     };
     log.log(`provider configuration could not be read: ${(error as Error).name}`);
-  } finally {
-    await closeDb();
   }
   const record = { ...factoryProviderReadinessRecord(readiness), note: "Credential values are never read into this record." };
   log.log(JSON.stringify(record, null, 2));

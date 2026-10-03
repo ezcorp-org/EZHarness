@@ -137,7 +137,7 @@ describe("C10 reference execution", () => {
     ]);
     expect(codeOptions.inputs.get("generate-private-candidate")).toEqual({ snapshot: artifacts.repository, request: "slugify the input", baseBranch: "main", remediation: "" });
     expect(codeOptions.inputs.get("freeze-complete-git-tree")).toEqual({ candidate: artifacts.code, baseCommitSha: "abc123" });
-    expect(referenceCodeV1.graph.nodes.find((node) => node.id === "generate-private-candidate" && node.kind === "task")?.runner).toEqual(expect.objectContaining({ model: "claude-haiku-4-5-20251001", configurationDigest: expect.stringMatching(/^sha256:[0-9a-f]{64}$/) }));
+    expect(referenceCodeV1.graph.nodes.find((node) => node.id === "generate-private-candidate" && node.kind === "task")?.runner).toEqual(expect.objectContaining({ model: "gpt-5.6-luna", configurationDigest: expect.stringMatching(/^sha256:[0-9a-f]{64}$/) }));
     expect(code.commands.map((command) => command.id)).toEqual([
       "trace-code:run:start-timer:1",
       "trace-code:snapshot-repository:request-admission:2",

@@ -44,6 +44,16 @@ const mapOutcomeSchema = (value: PortSchema): PortSchema => ({
 const remediationSchema: PortSchema = { type: "string", maxLength: 4096 };
 const noRemediation = { kind: "literal" as const, value: "" };
 
+/**
+ * The one model every model-backed reference runner names (contract C10).
+ *
+ * Reviewed revision W10c (2026-10-03, the user's decision): `gpt-5.6-luna` on the `openai` provider,
+ * served through the deployment's ChatGPT-plan OAuth login. It replaced `claude-haiku-4-5-20251001`.
+ * A change here changes every model-backed definition digest, which is the point: a definition
+ * names the model its evidence ran on.
+ */
+const referenceModel = "gpt-5.6-luna";
+
 function runner(packageName: string, exportName: string, hex: string, model?: string): RunnerReference {
   let packageCode = 0;
   for (const character of packageName) packageCode = (packageCode + character.charCodeAt(0)) % 6;
@@ -116,9 +126,9 @@ function baseDefinition(id: string, graph: FactoryGraph, inputPorts: Readonly<Re
 }
 
 const codeSnapshot = runner("@ezcorp/reference-code", "snapshotRepository", "a");
-const codeGenerate = runner("@ezcorp/reference-code", "generateCandidate", "b", "claude-haiku-4-5-20251001");
+const codeGenerate = runner("@ezcorp/reference-code", "generateCandidate", "b", referenceModel);
 const codeFreeze = runner("@ezcorp/reference-code", "freezeGitTree", "d");
-const codeChecks = runner("@ezcorp/reference-code-validator", "protectedChecks", "e", "claude-haiku-4-5-20251001");
+const codeChecks = runner("@ezcorp/reference-code-validator", "protectedChecks", "e", referenceModel);
 const githubRelease = runner("@ezcorp/github-release", "releasePullRequest", "f");
 
 export const referenceCodeV1: FactoryDefinition = baseDefinition(
@@ -165,19 +175,19 @@ export const referenceCodeV1: FactoryDefinition = baseDefinition(
     claim("secret-scan", codeChecks, 24 * 60 * 60 * 1_000),
     claim("allowed-paths", codeChecks, 24 * 60 * 60 * 1_000),
     claim("protected-assets-unchanged", codeChecks, 24 * 60 * 60 * 1_000),
-    claim("supervised-review", runner("@ezcorp/reference-code-validator", "supervisedReview", "e", "claude-haiku-4-5-20251001"), 15 * 60 * 1_000),
+    claim("supervised-review", runner("@ezcorp/reference-code-validator", "supervisedReview", "e", referenceModel), 15 * 60 * 1_000),
   ],
   [codeSnapshot, codeGenerate, codeFreeze, codeChecks, githubRelease].map(packageOf).filter((item, index, values) => values.findIndex((candidate) => candidate.name === item.name) === index),
 );
 
 const imageGenerate = runner("@ezcorp/reference-image", "generateSdxl", "a");
 const imageNormalize = runner("@ezcorp/reference-image", "normalizePng", "b");
-const imageValidate = runner("@ezcorp/reference-image-validator", "validateImage", "c", "claude-haiku-4-5-20251001");
+const imageValidate = runner("@ezcorp/reference-image-validator", "validateImage", "c", referenceModel);
 const imageFormat = runner("@ezcorp/reference-image-validator", "deterministicPngChecks", "d");
 const imageOcr = runner("@ezcorp/reference-image-validator", "tesseractEnglish", "e");
-const imageVisionOne = runner("@ezcorp/reference-image-validator", "semanticEvaluationOne", "a", "claude-haiku-4-5-20251001");
-const imageVisionTwo = runner("@ezcorp/reference-image-validator", "semanticEvaluationTwo", "b", "claude-haiku-4-5-20251001");
-const imageVisionThree = runner("@ezcorp/reference-image-validator", "semanticEvaluationThree", "c", "claude-haiku-4-5-20251001");
+const imageVisionOne = runner("@ezcorp/reference-image-validator", "semanticEvaluationOne", "a", referenceModel);
+const imageVisionTwo = runner("@ezcorp/reference-image-validator", "semanticEvaluationTwo", "b", referenceModel);
+const imageVisionThree = runner("@ezcorp/reference-image-validator", "semanticEvaluationThree", "c", referenceModel);
 const imageSelect = runner("@ezcorp/reference-image", "selectFirstAccepted", "d");
 const s3Release = runner("@ezcorp/s3-immutable-publish", "publish", "e");
 const imageRoundResultSchema: PortSchema = {

@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { oauthSettingKey } from "../src/providers/credential-store";
 import { encrypt } from "../src/providers/encryption";
 import { deleteSetting, upsertSetting } from "../src/db/queries/settings";
-import { REFERENCE_CODE_MODEL_PIN, runReferenceCodeProviderCheck } from "./verify-factory-reference-code-provider";
+import { REFERENCE_CODE_MODEL_PIN, runReferenceCodeProviderCheck, withDeploymentStore } from "./verify-factory-reference-code-provider";
 
 const OAUTH_TOKEN = "fixture-oauth-token";
 const scratch = mkdtempSync(join(tmpdir(), "w10c-probe-"));
@@ -55,6 +55,12 @@ describe("the reference code provider probe", () => {
     const { log, lines } = capture();
     expect(await runReferenceCodeProviderCheck({ log })).toBe(1);
     expect(JSON.parse(lines.at(-1)!)).toMatchObject({ ready: false, credentialKind: null, failures: ["provider_not_configured"] });
+  });
+
+  test("the shared store helper returns the work's answer and passes its failure through unchanged", async () => {
+    expect(await withDeploymentStore(async () => "answered")).toBe("answered");
+    const failure = new Error("work failed");
+    await expect(withDeploymentStore(async () => { throw failure; })).rejects.toBe(failure);
   });
 
   test("opens the deployment's own configuration store when run as a command", async () => {
