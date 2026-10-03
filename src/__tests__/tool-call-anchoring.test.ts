@@ -2,6 +2,7 @@ import { mock, test, expect, describe, afterAll, beforeEach } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 import { stubAssistantMessage, resetMockAgent } from "./helpers/mock-pi-ai";
 import type { AgentEvents } from "../types";
+import { sandboxBindings } from "../db/schema";
 
 afterAll(() => {
   resetMockAgent();
@@ -14,12 +15,14 @@ let toolCallUpdates: { set: any; where: any; transactional: boolean }[] = [];
 let createdMessages: { id: string; role: string; conversationId: string; runId?: string; transactional: boolean }[] = [];
 let msgCounter = 0;
 let inTransaction = false;
+let bindingQueries = 0;
 
 beforeEach(() => {
   toolCallUpdates = [];
   createdMessages = [];
   msgCounter = 0;
   inTransaction = false;
+  bindingQueries = 0;
 });
 
 // ── Helper: mock Agent with state property ───────────────────────────
@@ -62,7 +65,7 @@ mock.module("../db/queries/conversations", () => ({
   getLatestLeaf: async () => null,
   resolveSystemPrompt: async () => undefined,
   createConversation: async () => ({ id: "test" }),
-  getConversation: async () => ({ id: "test", projectId: "proj-1" }),
+  getConversation: async (id: string) => ({ id, projectId: "proj-1" }),
   createMessage: async (conversationId: string, data: any) => {
     msgCounter++;
     const msg = { id: `real-msg-${msgCounter}`, ...data, conversationId, createdAt: new Date(), transactional: inTransaction };
@@ -87,10 +90,12 @@ mock.module("../db/connection", () => ({
       if (chain._setData != null) {
         toolCallUpdates.push({ set: chain._setData, where: condition, transactional: inTransaction });
       }
-      return Promise.resolve([]);
+      return Object.assign(Promise.resolve([]), { returning: async () => [] });
     };
     chain.insert = () => ({ values: async () => {} });
-    chain.select = () => ({ from: () => ({ where: () => Promise.resolve([]) }) });
+    chain.select = () => ({ from: (table: unknown) => ({ where: () => Object.assign(Promise.resolve([]), {
+      limit: async () => { if (table === sandboxBindings) bindingQueries++; return []; },
+    }) }) });
     chain.delete = () => ({ where: () => Promise.resolve() });
     chain.execute = async () => ({ rows: [] });
     chain.transaction = async (callback: (transaction: typeof chain) => Promise<unknown>) => {
@@ -123,7 +128,7 @@ mock.module("../db/queries/runs", () => ({
 }));
 
 mock.module("../db/queries/projects", () => ({
-  getProject: async () => undefined,
+  getProject: async (id: string) => ({ id, path: "/tmp", variables: {} }),
 }));
 
 mock.module("../db/queries/settings", () => ({
@@ -249,6 +254,7 @@ describe("tool call anchoring", () => {
     const run = await exec.streamChat("conv-1", "Hi", {});
 
     expect(run.status).toBe("success");
+    expect(bindingQueries).toBeGreaterThan(0);
     const assistantMsg = createdMessages.find(m => m.role === "assistant");
     expect(assistantMsg).toBeDefined();
     expect(assistantMsg?.transactional).toBe(true);

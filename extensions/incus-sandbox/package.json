@@ -1,0 +1,11 @@
+{
+  "name": "@ezcorp/incus-sandbox",
+  "version": "0.1.2",
+  "description": "Incus sandbox provider adapter",
+  "private": true,
+  "type": "module",
+  "main": "./extension.ts",
+  "scripts": {
+    "test": "bun test"
+  }
+}

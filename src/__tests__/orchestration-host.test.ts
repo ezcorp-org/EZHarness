@@ -66,6 +66,7 @@ class StubToolExecutor {
   public seenUserId?: string;
   public seenModel?: string | null | undefined;
   public seenProvider?: string | null | undefined;
+  public seenWorkspaceTarget?: unknown;
   constructor(public readonly registry: unknown) {}
   setStateMediator(m: unknown) { this.seenStateMediator = m; }
   setExecutor(e: unknown) { this.seenExecutor = e; }
@@ -73,6 +74,7 @@ class StubToolExecutor {
   setCurrentUserId(u: string) { this.seenUserId = u; }
   setCurrentModel(m: string | null | undefined) { this.seenModel = m; }
   setCurrentProvider(p: string | null | undefined) { this.seenProvider = p; }
+  setWorkspaceTarget(target: unknown) { this.seenWorkspaceTarget = target; }
 }
 
 mock.module("../extensions/tool-executor", () => ({
@@ -446,6 +448,28 @@ describe("wireOrchestrationToolsForTurn", () => {
       properties: { agentConfigId: { enum: string[] } };
     };
     expect(override.properties.agentConfigId.enum).toEqual(["a1", "a2"]);
+  });
+
+  test("threads the exact host workspace target into the orchestration executor", async () => {
+    const workspaceTarget = {
+      kind: "sandbox" as const,
+      binding: {
+        projectId: "proj-orch-t",
+        workspaceId: "workspace",
+        connectionId: "connection",
+        providerId: "incus",
+        presetId: "small",
+        releaseDigest: "a".repeat(64),
+        presetDigest: "b".repeat(64),
+        effectiveSettingsDigest: "c".repeat(64),
+      },
+      backend: null,
+    };
+
+    await wireOrchestrationToolsForTurn(baseParams({ workspaceTarget }));
+
+    const executor = captured[0]?.toolExecutor as StubToolExecutor;
+    expect(executor.seenWorkspaceTarget).toBe(workspaceTarget);
   });
 
   test("empty availableAgents: invoke_agent NOT wired (enum-gated), collect_agent_result IS wired (follow-up collect turn)", async () => {

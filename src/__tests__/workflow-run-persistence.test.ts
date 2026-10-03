@@ -1515,10 +1515,9 @@ describe("loadStepResults — fail-closed rehydration", () => {
       steps: [{ name: "t", kind: "transform", output: { a: "x" } }],
     };
 
-    // A projectId with no `projects` row makes the up-front INSERT fail on
-    // its FK. The run must not care: a DB glitch cannot fail a workflow
-    // that otherwise succeeded.
-    const run = await wf.runWorkflow(def, {}, "no-such-project-id");
+    // A userId with no `users` row makes the up-front INSERT fail on its FK.
+    // Workspace admission still requires a real project when projectId is set.
+    const run = await wf.runWorkflow(def, {}, undefined, "no-such-user-id");
 
     expect(run.status).toBe("success");
     expect(await getWorkflowRunRow(run.id)).toBeUndefined();

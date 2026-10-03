@@ -2,11 +2,18 @@ import { afterAll, beforeAll, beforeEach, expect, mock, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { up as addSandboxController } from "../../db/migrations/add-sandbox-controller";
+import * as schema from "../../db/schema";
 import { registerCallProvenance, releaseCallProvenance } from "../call-provenance";
 import { restoreModuleMocks } from "../../__tests__/helpers/mock-cleanup";
 import type { RpcHandlerDeps } from "../tool-executor/rpc-handlers";
 import type { JsonRpcRequest } from "../types";
 import { closeTestDb, getTestDb, mockDbConnection, setupTestDb } from "../../__tests__/helpers/test-pglite";
+import {
+  sandboxWorkspaceTarget,
+  type SandboxWorkspaceBinding,
+  type WorkspaceTarget,
+} from "../../runtime/workspaces/target";
 
 mockDbConnection();
 const { projects, projectWorkspaceBindings } = await import("../../db/schema");
@@ -40,6 +47,7 @@ const second = await git("rev-parse", "HEAD");
 await git("remote", "add", "origin", "https://host-only-token@github.com/owner/repo.git");
 beforeAll(async () => {
   await setupTestDb();
+  await addSandboxController(getTestDb());
   await getTestDb().insert(projects).values({ id: "project", name: "Project", path: root });
 });
 beforeEach(async () => {
@@ -47,16 +55,69 @@ beforeEach(async () => {
   binding = { id: "binding", projectId: "project", ownerId: "user" };
   authorize.mockClear();
   await getTestDb().delete(projectWorkspaceBindings);
+  await getTestDb().delete(schema.sandboxBindings);
 });
 afterAll(async () => { await closeTestDb(); await rm(root, { recursive: true, force: true }); restoreModuleMocks(); });
 
-async function invoke(operation = "gitHead", input: Record<string, unknown> = {}, conversationId: string | null = "conversation", actor = "extension", projectId?: string) {
-  const token = registerCallProvenance({ actorExtensionId: "extension", onBehalfOf: "user", conversationId, runId: null, parentCallId: null, kind: "tool", ownerless: false, ...(projectId ? { projectId, projectBindingId: "binding" } : {}) });
+const sandboxBinding: SandboxWorkspaceBinding = {
+  projectId: "project", workspaceId: "workspace", connectionId: "connection",
+  providerId: "incus", generation: 7, presetId: "small", releaseDigest: "a".repeat(64),
+  presetDigest: "b".repeat(64), effectiveSettingsDigest: "c".repeat(64),
+};
+
+async function invoke(operation = "gitHead", input: Record<string, unknown> = {}, conversationId: string | null = "conversation", actor = "extension", projectId?: string, workspaceTarget?: WorkspaceTarget) {
+  const token = registerCallProvenance({ actorExtensionId: "extension", onBehalfOf: "user", conversationId, runId: null, parentCallId: null, kind: "tool", ownerless: false, ...(projectId ? { projectId, projectBindingId: "binding" } : {}), ...(workspaceTarget ? { workspaceTarget } : {}) });
   try {
     const request: JsonRpcRequest = { jsonrpc: "2.0", id: "request", method: `ezcorp/project.${operation}`, params: { ...input, _meta: { ezCallId: token } } };
     return await handleProjectGit(deps, actor, request);
   } finally { releaseCallProvenance(token); }
 }
+
+test("sandbox Git denial never falls through to the AMD checkout", async () => {
+  const missing = sandboxWorkspaceTarget(sandboxBinding, null);
+  expect((await invoke("gitHead", {}, "conversation", "extension", undefined, missing)).error?.message)
+    .toBe("Project read failed.");
+
+  await getTestDb().insert(schema.sandboxBindings).values({
+    id: "durable-binding", projectId: "project", providerInstallationId: "provider",
+    providerReleaseId: "release", connectionId: "connection", resourceKey: "workspace",
+    generation: 7, desiredState: "RUNNING", observedState: "RUNNING",
+  });
+
+  let backendCalls = 0;
+  const failed = sandboxWorkspaceTarget(sandboxBinding, {
+    async execute() {
+      backendCalls++;
+      throw new Error("sandbox offline");
+    },
+  });
+  expect((await invoke("gitHead", {}, "conversation", "extension", undefined, failed)).error?.message)
+    .toBe("Project read failed.");
+  expect(backendCalls).toBe(1);
+  // The host checkout is still readable and unchanged; the sandbox route did
+  // not run local Git even after its backend failed.
+  expect(await git("rev-parse", "HEAD")).toBe(second);
+});
+
+test("durably sandbox-bound project without provenance target cannot read host Git", async () => {
+  await getTestDb().insert(schema.sandboxBindings).values({
+    id: "durable-binding",
+    projectId: "project",
+    providerInstallationId: "provider",
+    providerReleaseId: "release",
+    connectionId: "connection",
+    resourceKey: "workspace",
+    desiredState: "RUNNING",
+    observedState: "RUNNING",
+  });
+
+  for (const operation of ["gitHead", "commitSubjects", "origin"]) {
+    const result = await invoke(operation);
+    expect(result.result).toBeUndefined();
+    expect(result.error?.message).toBe("Project read failed.");
+  }
+  expect(await git("rev-parse", "HEAD")).toBe(second);
+});
 
 test("real project Git reads return fixed metadata without origin credentials", async () => {
   expect((await invoke()).result).toEqual({ hash: second, subject: "Second commit" });

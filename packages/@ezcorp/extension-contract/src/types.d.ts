@@ -108,12 +108,485 @@ export type ProviderMethodWire =
   | { group: "sandbox.files.v1"; operation: "mkdir"; input: SandboxFileMkdirInput; result: SandboxFileMkdirResult }
   | { group: "sandbox.files.v1"; operation: "remove"; input: SandboxFileRemoveInput; result: SandboxFileRemoveResult }
   | { group: "sandbox.files.v1"; operation: "chmod"; input: SandboxFileChmodInput; result: SandboxFileChmodResult };
+export type SandboxProfileId = "linux-exec.v1" | "persistent-web-compose.v1";
+export type SandboxArchitecture = "amd64" | "arm64";
+export type SandboxIsolation = "container" | "virtual-machine";
+export interface SandboxPresetLimits {
+  memoryBytes: number;
+  cpuMillis: number;
+  pids: number;
+  diskBytes: number;
+  timeoutMs: number;
+}
+export interface SandboxOverrideBounds {
+  minimum: number;
+  maximum: number;
+}
+export interface SandboxPresetLimitOverrides {
+  memoryBytes?: number;
+  cpuMillis?: number;
+  pids?: number;
+  diskBytes?: number;
+  timeoutMs?: number;
+}
+export interface SandboxPreset {
+  id: string;
+  profile: SandboxProfileId;
+  imageDigest: string;
+  recipeDigest: string;
+  helperDigests: string[];
+  storage: {
+    workspace: "ephemeral" | "persistent";
+    minimumBytes: number;
+  };
+  network: {
+    mode: "none" | "private";
+    outbound: "none" | "restricted";
+  };
+  limits: SandboxPresetLimits;
+  requirements: {
+    backendApis: string[];
+    architectures: SandboxArchitecture[];
+    storageDrivers: string[];
+    isolation: SandboxIsolation[];
+    nestedCompose: boolean;
+  };
+  allowedOverrides: {
+    memoryBytes?: SandboxOverrideBounds;
+    cpuMillis?: SandboxOverrideBounds;
+    pids?: SandboxOverrideBounds;
+    diskBytes?: SandboxOverrideBounds;
+    timeoutMs?: SandboxOverrideBounds;
+  };
+}
+export interface SandboxProviderDeclaration {
+  id: string;
+  profiles: SandboxProfileId[];
+  presets: SandboxPreset[];
+  capabilities?: SandboxProviderCapability[];
+  kind?: "sandbox";
+  protocolMajor?: 1;
+  minimumHostContract?: { major: 4; minor: 0 };
+  configSchema?: ValueSchema;
+  requiredPermissions?: SandboxProviderRequiredPermission[];
+  methodGroups?: SandboxProtocolMethodGroup[];
+}
+export type SandboxProviderRequiredPermission = "hostApi" | "networkTcp" | "storage";
+export type SandboxProviderCapability =
+  | "lifecycle.v1"
+  | "files.v1"
+  | "processes.v1"
+  | "endpoints.v1"
+  | "snapshot.v1"
+  | "restore.v1"
+  | "suspend.v1"
+  | "pty.v1"
+  | "resize.v1";
+export interface SandboxProtocolMethodGroup {
+  name: "sandbox.provider.v1";
+  methods: {
+    describe: string;
+    preflight: string;
+    lifecycle?: {
+      create: string;
+      inspect: string;
+      list: string;
+      setPower: string;
+      destroy: string;
+      inspectOperation: string;
+    };
+    files?: {
+      stat: string;
+      list: string;
+      readRange: string;
+      writeAtomic: string;
+      remove: string;
+    };
+    processes?: {
+      start: string;
+      inspect: string;
+      readOutput: string;
+      cancel: string;
+    };
+    endpoints?: {
+      open: string;
+      close: string;
+    };
+  };
+}
+export interface SandboxProtocolContribution extends SandboxProviderDeclaration {
+  kind: "sandbox";
+  protocolMajor: 1;
+  minimumHostContract: { major: 4; minor: 0 };
+  configSchema: ValueSchema;
+  requiredPermissions: SandboxProviderRequiredPermission[];
+  methodGroups: SandboxProtocolMethodGroup[];
+}
+export interface SandboxCompatibilityObservation {
+  backendApi: string;
+  backendVersion: string;
+  architecture: SandboxArchitecture;
+  storageDriver: string;
+  isolation: SandboxIsolation;
+  nestedCompose: boolean;
+}
+export interface SandboxProviderDescribeInput {
+  providerId: string;
+}
+export interface SandboxProviderDescribeResult {
+  providerId: string;
+  protocolMajor: 1;
+  profiles: SandboxProfileId[];
+  presetIds: string[];
+  capabilities?: SandboxProviderCapability[];
+}
+export interface SandboxProviderPreflightInput {
+  providerId: string;
+  connectionId: string;
+  profile: SandboxProfileId;
+  presetId: string;
+  presetDigest: string;
+  effectiveSettingsDigest: string;
+}
+export interface SandboxProviderPreflightResult {
+  observation: SandboxCompatibilityObservation;
+}
+export type SandboxProviderErrorCode =
+  | "INVALID_ARGUMENT"
+  | "NOT_FOUND"
+  | "ALREADY_EXISTS"
+  | "REVISION_CONFLICT"
+  | "UNSUPPORTED_CAPABILITY"
+  | "DEADLINE_EXCEEDED"
+  | "UNAVAILABLE"
+  | "PERMISSION_DENIED"
+  | "RESOURCE_EXHAUSTED"
+  | "OUTCOME_UNKNOWN"
+  | "INTERNAL";
+export interface SandboxProviderError {
+  code: SandboxProviderErrorCode;
+  message: string;
+  retryable: boolean;
+  operationId?: string;
+}
+export interface SandboxProviderFailure {
+  ok: false;
+  error: SandboxProviderError;
+}
+export type SandboxDesiredState = "running" | "stopped" | "absent";
+export type SandboxObservedState = "creating" | "running" | "stopping" | "stopped" | "deleting" | "absent" | "failed" | "unknown";
+export type SandboxOperationState = "pending" | "running" | "succeeded" | "failed" | "cancelled" | "outcome_unknown";
+export type SandboxOperationKind = "create" | "setPower" | "destroy" | "fileWriteAtomic" | "fileRemove" | "processStart" | "processCancel" | "endpointOpen" | "endpointClose";
+export interface SandboxProviderRequestScope {
+  providerId: string;
+  connectionId: string;
+  sandboxId: string;
+  rpcDeadlineMs: number;
+}
+export interface SandboxProviderMutationScope extends SandboxProviderRequestScope {
+  requestId: string;
+  idempotencyKey: string;
+}
+export interface SandboxOperationReceipt {
+  operationId: string;
+  kind: SandboxOperationKind;
+  requestId: string;
+  idempotencyKey: string;
+  sandboxId: string;
+  acceptedAt: string;
+}
+export interface SandboxOperationAccepted {
+  ok: true;
+  receipt: SandboxOperationReceipt;
+}
+export type SandboxOperationAcceptedResult = SandboxOperationAccepted | SandboxProviderFailure;
+export interface SandboxProviderCreateInput extends SandboxProviderMutationScope {
+  profile: SandboxProfileId;
+  presetId: string;
+  presetDigest: string;
+  effectiveSettingsDigest: string;
+  desiredState: "running" | "stopped";
+}
+export type SandboxProviderCreateResult = SandboxOperationAcceptedResult;
+export interface SandboxProviderInspectInput extends SandboxProviderRequestScope {}
+export interface SandboxInspection {
+  sandboxId: string;
+  profile: SandboxProfileId;
+  presetId: string;
+  desiredState: SandboxDesiredState;
+  observedState: SandboxObservedState;
+  generation: number;
+  bootId: string | null;
+  observedAt: string;
+}
+export interface SandboxProviderInspectSuccess { ok: true; sandbox: SandboxInspection }
+export type SandboxProviderInspectResult = SandboxProviderInspectSuccess | SandboxProviderFailure;
+export interface SandboxListCursor {
+  connectionId: string;
+  afterSandboxId: string;
+}
+export interface SandboxProviderListInput {
+  providerId: string;
+  connectionId: string;
+  rpcDeadlineMs: number;
+  limit: number;
+  cursor?: SandboxListCursor;
+}
+export interface SandboxProviderListSuccess {
+  ok: true;
+  sandboxes: SandboxInspection[];
+  nextCursor?: SandboxListCursor;
+}
+export type SandboxProviderListResult = SandboxProviderListSuccess | SandboxProviderFailure;
+export interface SandboxProviderSetPowerInput extends SandboxProviderMutationScope {
+  desiredState: "running" | "stopped";
+  expectedGeneration: number;
+}
+export type SandboxProviderSetPowerResult = SandboxOperationAcceptedResult;
+export interface SandboxProviderDestroyInput extends SandboxProviderMutationScope {
+  expectedGeneration: number;
+}
+export type SandboxProviderDestroyResult = SandboxOperationAcceptedResult;
+export interface SandboxProviderInspectOperationInput extends SandboxProviderRequestScope {
+  operationId: string;
+}
+export interface SandboxOperationInspection {
+  operationId: string;
+  kind: SandboxOperationKind;
+  sandboxId: string;
+  state: SandboxOperationState;
+  desiredState: SandboxDesiredState | null;
+  observedState: SandboxObservedState | null;
+  resourceId: string | null;
+  startedAt: string;
+  finishedAt: string | null;
+  error: SandboxProviderError | null;
+}
+export interface SandboxProviderInspectOperationSuccess { ok: true; operation: SandboxOperationInspection }
+export type SandboxProviderInspectOperationResult = SandboxProviderInspectOperationSuccess | SandboxProviderFailure;
+export type SandboxFileKind = "file" | "directory" | "symlink";
+export interface SandboxFileRevision {
+  revision: string;
+  sizeBytes: number;
+}
+export interface SandboxProviderFileScope extends SandboxProviderRequestScope { path: string }
+export interface SandboxProviderFileStatInput extends SandboxProviderFileScope {}
+export interface SandboxProtocolFileStat {
+  path: string;
+  kind: SandboxFileKind;
+  revision: string;
+  sizeBytes: number;
+  executable: boolean;
+}
+export interface SandboxProviderFileStatSuccess { ok: true; file: SandboxProtocolFileStat }
+export type SandboxProviderFileStatResult = SandboxProviderFileStatSuccess | SandboxProviderFailure;
+export interface SandboxFileListCursor {
+  sandboxId: string;
+  directoryRevision: string;
+  afterName: string;
+}
+export interface SandboxProviderFileListInput extends SandboxProviderFileScope {
+  limit: number;
+  cursor?: SandboxFileListCursor;
+}
+export interface SandboxProviderFileListSuccess {
+  ok: true;
+  directoryRevision: string;
+  entries: SandboxProtocolFileStat[];
+  nextCursor?: SandboxFileListCursor;
+}
+export type SandboxProviderFileListResult = SandboxProviderFileListSuccess | SandboxProviderFailure;
+export interface SandboxProviderFileReadRangeInput extends SandboxProviderFileScope {
+  revision: string;
+  offsetBytes: number;
+  lengthBytes: number;
+}
+export interface SandboxProviderFileReadRangeSuccess {
+  ok: true;
+  path: string;
+  revision: string;
+  offsetBytes: number;
+  dataBase64: string;
+  byteLength: number;
+  eof: boolean;
+}
+export type SandboxProviderFileReadRangeResult = SandboxProviderFileReadRangeSuccess | SandboxProviderFailure;
+export interface SandboxProviderFileWriteAtomicInput extends SandboxProviderMutationScope {
+  path: string;
+  expectedRevision: string | null;
+  dataBase64: string;
+  byteLength: number;
+  executable: boolean;
+}
+export interface SandboxProviderFileWriteAtomicSuccess {
+  ok: true;
+  path: string;
+  revision: string;
+  sizeBytes: number;
+}
+export type SandboxProviderFileWriteAtomicResult = SandboxProviderFileWriteAtomicSuccess | SandboxProviderFailure;
+export interface SandboxProviderFileRemoveInput extends SandboxProviderMutationScope {
+  path: string;
+  expectedRevision: string;
+  recursive: boolean;
+}
+export type SandboxProviderFileRemoveResult = SandboxOperationAcceptedResult;
+export type SandboxProtocolProcessState = "starting" | "running" | "succeeded" | "failed" | "cancelled" | "timed_out" | "interrupted" | "unknown";
+export interface SandboxProcessEnvironmentEntry { name: string; value: string }
+export interface SandboxProviderProcessStartInput extends SandboxProviderMutationScope {
+  argv: string[];
+  cwd: string;
+  user: string;
+  env: SandboxProcessEnvironmentEntry[];
+  processDeadlineMs: number;
+}
+export interface SandboxProviderProcessStartSuccess {
+  ok: true;
+  processId: string;
+  bootId: string;
+  startedAt: string;
+}
+export type SandboxProviderProcessStartResult = SandboxProviderProcessStartSuccess | SandboxProviderFailure;
+export interface SandboxProviderProcessInspectInput extends SandboxProviderRequestScope {
+  processId: string;
+  bootId: string;
+}
+export interface SandboxProcessInspection {
+  processId: string;
+  sandboxId: string;
+  bootId: string;
+  state: SandboxProtocolProcessState;
+  startedAt: string;
+  finishedAt: string | null;
+  exitCode: number | null;
+  signal: string | null;
+}
+export interface SandboxProviderProcessInspectSuccess { ok: true; process: SandboxProcessInspection }
+export type SandboxProviderProcessInspectResult = SandboxProviderProcessInspectSuccess | SandboxProviderFailure;
+export interface SandboxProcessOutputCursor {
+  sandboxId: string;
+  processId: string;
+  bootId: string;
+  offsetBytes: number;
+}
+export interface SandboxProviderProcessReadOutputInput extends SandboxProviderRequestScope {
+  processId: string;
+  bootId: string;
+  cursor: SandboxProcessOutputCursor;
+  maxBytes: number;
+}
+export interface SandboxProtocolOutputChunk {
+  stream: "stdout" | "stderr";
+  offsetBytes: number;
+  dataBase64: string;
+  byteLength: number;
+}
+export interface SandboxProcessOutputGap {
+  fromOffsetBytes: number;
+  toOffsetBytes: number;
+  reason: "retention" | "overflow" | "recovery";
+}
+export interface SandboxProviderProcessReadOutputSuccess {
+  ok: true;
+  chunks: SandboxProtocolOutputChunk[];
+  nextCursor: SandboxProcessOutputCursor;
+  gap?: SandboxProcessOutputGap;
+  eof: boolean;
+}
+export type SandboxProviderProcessReadOutputResult = SandboxProviderProcessReadOutputSuccess | SandboxProviderFailure;
+export interface SandboxProviderProcessCancelInput extends SandboxProviderMutationScope {
+  processId: string;
+  bootId: string;
+}
+export type SandboxProviderProcessCancelResult = SandboxOperationAcceptedResult;
+export interface SandboxProviderEndpointOpenInput extends SandboxProviderMutationScope {
+  port: number;
+  protocol: "http" | "https";
+  expiresAt: string;
+}
+export interface SandboxProviderEndpointOpenSuccess {
+  ok: true;
+  endpointId: string;
+  url: string;
+  expiresAt: string;
+}
+export type SandboxProviderEndpointOpenResult = SandboxProviderEndpointOpenSuccess | SandboxProviderFailure;
+export interface SandboxProviderEndpointCloseInput extends SandboxProviderMutationScope { endpointId: string }
+export type SandboxProviderEndpointCloseResult = SandboxOperationAcceptedResult;
+export interface SandboxPresetResolutionRequest {
+  profile: SandboxProfileId;
+  presetId: string;
+  observation: SandboxCompatibilityObservation;
+  overrides?: SandboxPresetLimitOverrides;
+}
+export interface SandboxEffectiveSettings {
+  providerId: string;
+  presetId: string;
+  profile: SandboxProfileId;
+  imageDigest: string;
+  recipeDigest: string;
+  helperDigests: string[];
+  storage: SandboxPreset["storage"];
+  network: SandboxPreset["network"];
+  limits: SandboxPresetLimits;
+  observation: SandboxCompatibilityObservation;
+}
+export interface SandboxPresetResolution {
+  presetDigest: string;
+  effectiveSettings: SandboxEffectiveSettings;
+  effectiveSettingsDigest: string;
+}
+export type CandidateSandboxQualificationCase = "SP01" | "SP02" | "SP03" | "SP05" | "SP07" | "SP08";
+export type LiveSandboxQualificationCase = CandidateSandboxQualificationCase | "SP04" | "SP06";
+export interface CandidateSandboxQualificationResult {
+  caseId: CandidateSandboxQualificationCase;
+  status: "passed" | "failed" | "skipped";
+}
+export interface LiveSandboxQualificationResult {
+  caseId: LiveSandboxQualificationCase;
+  status: "passed" | "failed" | "skipped";
+}
+/** Host-produced static qualification used at candidate activation. */
+export interface SandboxPresetQualification {
+  producer: "host";
+  providerId: string;
+  presetId: string;
+  profile: SandboxProfileId;
+  releaseDigest: string;
+  presetDigest: string;
+  verifiedAt: string;
+  validUntil: string;
+  cases: CandidateSandboxQualificationResult[];
+}
+/** Connection-specific live qualification used before Ready/workload selection. */
+export interface LiveSandboxPresetQualification {
+  producer: "live-provider";
+  connectionId: string;
+  providerId: string;
+  presetId: string;
+  profile: SandboxProfileId;
+  releaseDigest: string;
+  presetDigest: string;
+  effectiveSettingsDigest: string;
+  backendVersion: string;
+  verifiedAt: string;
+  validUntil: string;
+  cases: LiveSandboxQualificationResult[];
+}
+export interface LiveSandboxQualificationContext {
+  providerId: string;
+  releaseDigest: string;
+  connectionId: string;
+  effectiveSettingsDigest: string;
+  now?: number;
+}
 export interface ToolDefinitionV4 extends ToolDefinition {
   outputSchema: ValueSchema;
   mcpOutputSchema?: ValueSchema;
 }
 export interface ExtensionManifestV4 extends Omit<ExtensionManifestV2, "schemaVersion" | "tools" | "permissions"> {
   schemaVersion: 4;
+  sandboxProviders?: SandboxProviderDeclaration[];
   tools?: ToolDefinitionV4[];
   methods?: { name: string; inputSchema: ValueSchema; outputSchema: ValueSchema; sensitivity?: "ordinary" | "sensitive" }[];
   providers?: ProviderContribution[];
@@ -163,6 +636,7 @@ export interface CandidateVerificationReport {
   catalog: "verified";
   smoke: "passed" | "not_declared";
   capabilities: Array<{ capability: string; state: "tested" | "denied" | "unexercised"; calls: number }>;
+  sandboxPresetQualifications?: SandboxPresetQualification[];
 }
 export interface PublishedExtensionRelease {
   schemaVersion: 4;
@@ -297,4 +771,47 @@ export interface WireData {
   workspace: WorkspaceRecord;
   installation: InstallationRecord;
   providerMethod: ProviderMethodWire;
+  candidateSandboxPresetQualification: SandboxPresetQualification;
+  liveSandboxPresetQualification: LiveSandboxPresetQualification;
+  sandboxProvider: SandboxProviderDeclaration;
+  sandboxProviderDescribeInput: SandboxProviderDescribeInput;
+  sandboxProviderDescribeResult: SandboxProviderDescribeResult;
+  sandboxProviderPreflightInput: SandboxProviderPreflightInput;
+  sandboxProviderPreflightResult: SandboxProviderPreflightResult;
+  sandboxProviderCreateInput: SandboxProviderCreateInput;
+  sandboxProviderCreateResult: SandboxProviderCreateResult;
+  sandboxProviderInspectInput: SandboxProviderInspectInput;
+  sandboxProviderInspectResult: SandboxProviderInspectResult;
+  sandboxProviderListInput: SandboxProviderListInput;
+  sandboxProviderListResult: SandboxProviderListResult;
+  sandboxProviderSetPowerInput: SandboxProviderSetPowerInput;
+  sandboxProviderSetPowerResult: SandboxProviderSetPowerResult;
+  sandboxProviderDestroyInput: SandboxProviderDestroyInput;
+  sandboxProviderDestroyResult: SandboxProviderDestroyResult;
+  sandboxProviderInspectOperationInput: SandboxProviderInspectOperationInput;
+  sandboxProviderInspectOperationResult: SandboxProviderInspectOperationResult;
+  sandboxProviderFileStatInput: SandboxProviderFileStatInput;
+  sandboxProviderFileStatResult: SandboxProviderFileStatResult;
+  sandboxProviderFileListInput: SandboxProviderFileListInput;
+  sandboxProviderFileListResult: SandboxProviderFileListResult;
+  sandboxProviderFileReadRangeInput: SandboxProviderFileReadRangeInput;
+  sandboxProviderFileReadRangeResult: SandboxProviderFileReadRangeResult;
+  sandboxProviderFileWriteAtomicInput: SandboxProviderFileWriteAtomicInput;
+  sandboxProviderFileWriteAtomicResult: SandboxProviderFileWriteAtomicResult;
+  sandboxProviderFileRemoveInput: SandboxProviderFileRemoveInput;
+  sandboxProviderFileRemoveResult: SandboxProviderFileRemoveResult;
+  sandboxProviderProcessStartInput: SandboxProviderProcessStartInput;
+  sandboxProviderProcessStartResult: SandboxProviderProcessStartResult;
+  sandboxProviderProcessInspectInput: SandboxProviderProcessInspectInput;
+  sandboxProviderProcessInspectResult: SandboxProviderProcessInspectResult;
+  sandboxProviderProcessReadOutputInput: SandboxProviderProcessReadOutputInput;
+  sandboxProviderProcessReadOutputResult: SandboxProviderProcessReadOutputResult;
+  sandboxProviderProcessCancelInput: SandboxProviderProcessCancelInput;
+  sandboxProviderProcessCancelResult: SandboxProviderProcessCancelResult;
+  sandboxProviderEndpointOpenInput: SandboxProviderEndpointOpenInput;
+  sandboxProviderEndpointOpenResult: SandboxProviderEndpointOpenResult;
+  sandboxProviderEndpointCloseInput: SandboxProviderEndpointCloseInput;
+  sandboxProviderEndpointCloseResult: SandboxProviderEndpointCloseResult;
+  sandboxPresetResolutionRequest: SandboxPresetResolutionRequest;
+  sandboxPresetResolution: SandboxPresetResolution;
 }

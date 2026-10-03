@@ -9,6 +9,7 @@ import {
   deleteForConversation,
   attachmentsRoot,
 } from "../chat/attachments/storage";
+import { localWorkspaceTarget } from "../runtime/workspaces/target";
 
 let root: string;
 
@@ -28,7 +29,7 @@ describe("attachment storage", () => {
   test("writeAttachment persists bytes under .ezcorp/attachments/<conv>/<msg>/", async () => {
     const payload = new TextEncoder().encode("hi there");
     const written = await writeAttachment({
-      projectRoot: root, conversationId: "conv-1", messageId: "msg-1",
+      workspaceTarget: localWorkspaceTarget(root), conversationId: "conv-1", messageId: "msg-1",
       filename: "greet.txt", mimeType: "text/plain", bytes: payload,
     });
     expect(written.sizeBytes).toBe(payload.byteLength);
@@ -36,14 +37,14 @@ describe("attachment storage", () => {
     expect(written.storagePath.endsWith(".txt")).toBe(true);
     expect(await fileExists(written.storagePath)).toBe(true);
 
-    const back = await readAttachmentBytes(written.storagePath);
+    const back = await readAttachmentBytes(localWorkspaceTarget(root), written.storagePath);
     expect(new TextDecoder().decode(back)).toBe("hi there");
   });
 
   test("derives .png extension for image/png without a file extension", async () => {
     const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
     const { storagePath } = await writeAttachment({
-      projectRoot: root, conversationId: "c", messageId: "m",
+      workspaceTarget: localWorkspaceTarget(root), conversationId: "c", messageId: "m",
       filename: "binary-blob", mimeType: "image/png", bytes,
     });
     expect(storagePath.endsWith(".png")).toBe(true);
@@ -52,14 +53,14 @@ describe("attachment storage", () => {
   test("deleteForMessage removes only that message's directory", async () => {
     const bytes = new Uint8Array([1, 2, 3]);
     const a = await writeAttachment({
-      projectRoot: root, conversationId: "c1", messageId: "m1",
+      workspaceTarget: localWorkspaceTarget(root), conversationId: "c1", messageId: "m1",
       filename: "a.png", mimeType: "image/png", bytes,
     });
     const b = await writeAttachment({
-      projectRoot: root, conversationId: "c1", messageId: "m2",
+      workspaceTarget: localWorkspaceTarget(root), conversationId: "c1", messageId: "m2",
       filename: "b.png", mimeType: "image/png", bytes,
     });
-    await deleteForMessage({ projectRoot: root, conversationId: "c1", messageId: "m1" });
+    await deleteForMessage({ workspaceTarget: localWorkspaceTarget(root), conversationId: "c1", messageId: "m1" });
     expect(await fileExists(a.storagePath)).toBe(false);
     expect(await fileExists(b.storagePath)).toBe(true);
   });
@@ -67,19 +68,32 @@ describe("attachment storage", () => {
   test("deleteForConversation removes the whole conversation tree", async () => {
     const bytes = new Uint8Array([1]);
     const a = await writeAttachment({
-      projectRoot: root, conversationId: "cX", messageId: "mA",
+      workspaceTarget: localWorkspaceTarget(root), conversationId: "cX", messageId: "mA",
       filename: "a.png", mimeType: "image/png", bytes,
     });
-    await deleteForConversation({ projectRoot: root, conversationId: "cX" });
+    await deleteForConversation({ workspaceTarget: localWorkspaceTarget(root), conversationId: "cX" });
     expect(await fileExists(a.storagePath)).toBe(false);
   });
 
   test("path traversal in conversationId or messageId is sanitized", async () => {
     const { storagePath } = await writeAttachment({
-      projectRoot: root, conversationId: "../evil", messageId: "../../boom",
+      workspaceTarget: localWorkspaceTarget(root), conversationId: "../evil", messageId: "../../boom",
       filename: "x.txt", mimeType: "text/plain", bytes: new Uint8Array([1]),
     });
     expect(storagePath.startsWith(attachmentsRoot(root))).toBe(true);
     expect(storagePath.includes("../")).toBe(false);
+  });
+
+  test("local attachment reads reject a path outside the selected workspace", async () => {
+    const outside = await mkdtemp(join(tmpdir(), "ezcorp-other-project-"));
+    try {
+      const written = await writeAttachment({ workspaceTarget: localWorkspaceTarget(outside),
+        conversationId: "c", messageId: "m", filename: "secret.txt", mimeType: "text/plain",
+        bytes: new TextEncoder().encode("other project") });
+      await expect(readAttachmentBytes(localWorkspaceTarget(root), written.storagePath))
+        .rejects.toThrow("outside the selected local workspace");
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
   });
 });

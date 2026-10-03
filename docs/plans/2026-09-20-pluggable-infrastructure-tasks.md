@@ -2,9 +2,7 @@
 
 Date: 20 September 2026
 
-Status: local MVP implemented and validated in `feat/pluggable-infrastructure`; [final results](../validation/pluggable-local-mvp.md). External roadmap remains deferred.
-
-The original plan below is a deferred roadmap. The active scope is the local native MVP in section 11. No AMD/Xeon, Incus, or Infisical deployment is configured or claimed.
+Status: proposed implementation backlog; preset contract and fail-closed release enforcement implemented locally; no provider implementation or live qualification claimed
 
 Input: the supplied **Pluggable Sandbox & Secrets Infrastructure — Proposed v1, 19 September 2026** PRD
 
@@ -64,7 +62,7 @@ No live Incus, Infisical, native-agent, security, benchmark, or repository CI ru
 
 **Gap:** M3 proposes a second `linux-exec.v1` implementation, but A01 asks for the same feature flow on two providers. A baseline execution backend does not prove Compose portability. Keep A01 open until R3 passes, unless the product owner explicitly narrows A01 to a named baseline flow. This plan includes work for both paths; it does not silently rewrite the PRD.
 
-Recommended initial scope: R1 first, then R2, with R3 remaining required for the full portability promise. Dynamic leases, snapshots, PTY, suspend, large transfers, and resize are conditional R4 work. Claude/Codex guest workers are excluded by user decision. “All PRD work complete” must identify which conditional features were selected; an unchecked optional feature is not supported.
+Recommended initial scope: R1 first, then R2, with R3 remaining required for the full portability promise. Claude/Codex workers, dynamic leases, snapshots, PTY, suspend, large transfers, and resize are conditional R4 work. “All PRD work complete” must identify which conditional features were selected; an unchecked optional feature is not supported.
 
 ## 4. Gaps and decisions to close
 
@@ -90,7 +88,7 @@ All recommendations below are proposals. Task completion records the selected de
 | D16 | Git/PR idempotency is outside sandbox lifecycle. | Journal pushes and PR creation; reconcile by exact branch/head and proposal identity. Preserve source revision checks and separate read/write/PR permissions. Define branch collision, base updates and LFS/submodule support. | Feature completion; W05 |
 | D17 | Ownership changes and account deletion leave persistent work. | Define transfer, suspended access, cleanup authority and retention for revoked users, removed projects and lost service consent. Block new effects; retain recoverable work under policy. | R1; B02, O01, Q04 |
 | D18 | Secret content and version semantics are incomplete. | Bound bytes; define binary/multiline material, null vs denied, exact environment/path scope, reference expansion, version selection and rotation/cache invalidation. Do not inherit the existing single-line bearer rule for all secret types. | Secret schema; C03, S02, S04 |
-| D19 | Guest secret delivery cannot guarantee non-disclosure. | Approve each delivery purpose and exposure. Keep model keys on AMD for native EZ. Define supported runtime proxy/auth methods before claiming native CLI support. | Raw delivery; S05 |
+| D19 | Guest secret delivery cannot guarantee non-disclosure. | Approve each delivery purpose and exposure. Keep model keys on AMD for native EZ. Define supported runtime proxy/auth methods before claiming native CLI support. | Raw delivery/native runtime; S05, N01, N02 |
 | D20 | There are no numeric operational acceptance targets. | Set deployment-specific readiness, reconnect, cancellation, cleanup, retention and performance budgets after measuring the baseline, before acceptance runs. A command's timeout is not a recovery objective. | R1; P04, Q05 |
 | D21 | Backend drift can invalidate prior qualification. | Bind evidence to release/config/recipe/helper/backend versions. Invalidate qualification on material changes. Re-probe current controls at admission; drain or block incompatible changes. | Release activation; C04, I07 |
 | D22 | Control-plane restore can revive stale authority. | Restore keys and metadata separately; fence old controllers, reauthorize resources and inspect backend state before effects. Do not replay old create or lease commands from a restored journal. | R1; B04, O02 |
@@ -110,7 +108,7 @@ To close a task: record source SHA, test command and exit, fixture/backend versi
 Entry: planning approval. Owner: Product + Platform, with Infrastructure and Security for their decisions.
 
 - [ ] **P01 — Establish the source of truth.** Save the supplied PRD at its proposed path; attach or mark missing the prototype/evidence; replace placeholder references. Record the implementation base and review current main drift. **Done:** versioned PRD, this backlog, and an evidence inventory distinguish input claims from observed results.
-- [ ] **P02 — Approve scope and threat model.** Resolve D01 and select first runtime, profile, isolation type, independent backend and optional features. Draw control/data/secret paths and list trusted components, including guest Docker control and provider code. The native EZHarness loop runs on the engine. **Done:** a decision record names allowed claims and the release that must satisfy full A01.
+- [ ] **P02 — Approve scope and threat model.** Resolve D01 and select first runtime, profile, isolation type, independent backend and optional features. Draw control/data/secret paths and list trusted components, including guest Docker control and provider code. **Done:** a decision record names allowed claims and the release that must satisfy full A01.
 - [ ] **P03 — Inventory deployment and access.** Measure both servers, record OS/kernel/CPU/storage/cgroup/network/virtualization details, locate the existing Podman runner, and identify operator-owned bootstrap identity. **Done:** redacted inventory and a provisionable host specification; no guessed capacity.
 - [ ] **P04 — Set operating policy.** Define quota, queue order/fairness, parallel test limits, memory headroom, idle stop, retention, backup, logs, artifacts and numeric acceptance budgets. Assign operational and release owners. **Done:** bounded values, units, recovery objectives and explicit disposal rules; 48 GiB remains a proposal until measured.
 
@@ -123,7 +121,7 @@ Depends on: P01, P02. Owner: Platform. Existing surfaces: shared contract, SDK a
 - [ ] **C03 — Specify secret wire semantics.** Define approved refs and static/leased results, sensitive method classification, auth/cache/issuer lifetimes, scope/version metadata and optional lease operations. **Done:** static expiry is unknown unless issuer metadata supports it; binary/multiline cases and all size limits are explicit; no plaintext ordinary result type.
 - [ ] **C04 — Register reviewed providers and connections.** Resolve exact active release through v4; bind connection revision, endpoints, schema, capability evidence and dependency graph. Design the operator probe from D06. Reject cycles and unqualified profiles. **Done:** candidate tests remain offline; live probe needs exact consent; config/permission/endpoint drift requires review; background use cannot select arbitrary packages or URLs.
 - [ ] **C05 — Enforce drain and lifecycle rules.** Block update/disable/uninstall/incompatible config changes while dependent sandboxes, deliveries or leases remain. Define drain progress and timeout; retain cleanup references for static guest deliveries too. Implement emergency disable and operator recovery metadata. **Done:** tests cover queued/in-flight calls, revocation races, safe retry and surviving resources without executing a disabled release.
-- [ ] **C06 — Publish shared conformance fixtures.** Build one profile-driven harness consumed by adapters and host tests, with fake providers for deterministic faults. **Done:** fixtures test wire compatibility and capabilities separately from live qualification; an intentionally nonconforming adapter fails; harness records exact release/config/recipe identity.
+- [ ] **C06 — Publish shared conformance fixtures.** Build one profile-driven harness consumed by adapters and host tests, with fake providers for deterministic faults. Include the mandatory sandbox preset suite SP01–SP08 in section 12. **Done:** every new sandbox integration supplies versioned presets for its advertised profiles and passes the shared preset suite; fixtures test wire compatibility and capabilities separately from live qualification; an intentionally nonconforming adapter fails; harness records exact release/config/recipe/preset identity.
 
 ### H — Host authority, infrastructure transport and secret boundary (M0 prerequisite for live access)
 
@@ -208,14 +206,14 @@ Depends on: C06 and the functioning host/workspace flow. Owner: Infrastructure +
 - [ ] **V01 — Build a real independent baseline adapter.** Select and record a second implementation, with rootless OCI as a candidate. Implement `linux-exec.v1` in a separate reviewed provider extension, not a mock or Incus VM alias. **Done:** it passes live required file/process/resource/lifecycle controls and uses the same engine contracts; unavailable mandatory controls block the claim.
 - [ ] **V02 — Run unchanged baseline consumer flows.** Execute the same workspace scenario against Incus and the independent adapter, and the same static secret scenario against built-in store and Infisical. **Done:** fixture code/workflow remains unchanged; only approved connection/profile/credential mapping differs; publish real logs and exact support matrix.
 - [ ] **V03 — Close full Compose portability or obtain an explicit spec amendment.** Choose an independent backend able to implement `persistent-web-compose.v1`, implement its reviewed adapter/recipe, and run the same clone/edit/Compose/test/PR/retain/reconnect/cleanup flow. **Done:** two independent full-profile results satisfy A01, or the product owner signs a clearly scoped A01 revision; R2 alone does not close this task.
-- [ ] **V04 — Ship SDK scaffolding and author guide.** Document methods, error/retry behavior, host permissions, configuration, offline fixtures, operator qualification and unsupported capabilities. Provide scaffold/template and version compatibility examples. **Done:** a new author builds/tests/packages a provider using published SDK artifacts without editing the agent loop or bypassing v4 review; any required host changes are resolved before the claim.
+- [ ] **V04 — Ship SDK scaffolding and author guide.** Document methods, error/retry behavior, host permissions, configuration, offline fixtures, operator qualification and unsupported capabilities. Provide scaffold/template and version compatibility examples, including mandatory sandbox presets and SP01–SP08. **Done:** a new author builds/tests/packages a provider using published SDK artifacts without editing the agent loop or bypassing v4 review; omitted presets, untested advertised combinations and incompatible defaults fail the authoring/release checks; any required host changes are resolved before the claim.
 
-### N — Conditional capabilities (M4)
+### N — Conditional native runtimes and capabilities (M4)
 
 Depends on: stable R1 and the relevant contract/security gates. Owner: Runtime + Infrastructure + Quality. Keep each feature disabled until selected and qualified.
 
-- **N01 — Removed from scope by user, 20 September 2026.** Native EZHarness loop only; no Claude or Codex guest worker.
-- **N02 — Removed from scope by user, 20 September 2026.** Native EZHarness loop only; no Claude or Codex guest worker.
+- [ ] **N01 — Qualify Claude Code worker placement.** Inspect current official SDK/runtime behavior and supported auth; run a pinned supervised guest worker with normalized events, approvals, cancellation, resource accounting and session metadata. **Done:** real file/shell/search/subagent/MCP canaries stay in guest; disconnect/restart behavior and credential exposure are documented; SDK process startup alone is insufficient.
+- [ ] **N02 — Qualify Codex worker placement.** Apply the same runtime contract and evidence using current official SDK/runtime behavior and supported auth. **Done:** real runtime/profile tests prove placement, approvals, Git scope, output limits and honest recovery; no host filesystem path is silently used.
 - [ ] **N03 — Qualify dynamic leases only with a real issuer.** Check licensing; implement issue/renew/revoke/inspect with issuer IDs and actual expiry, skew margin, bounded retries and fresh authority. Reconcile lost issue/revoke responses. **Done:** live issuer tests cover expiry and outage, dependent work pauses/stops by policy, and no long-lived fallback key is substituted.
 - [ ] **N04 — Qualify large file transfer if selected.** Add staged chunks, bounded storage, digest-checked finalize, expiry and abort recovery. **Done:** malicious/partial/replayed chunks fail; range revisions remain consistent; ordinary workers and logs stay bounded.
 - [ ] **N05 — Qualify snapshot/restore and suspend if selected.** Define volume consistency, scope, encryption, retention, resource identity and secret/authority revalidation on restore/resume. **Done:** exact provider capability tests pass without claiming cross-provider snapshot portability or preserving stale authority.
@@ -232,7 +230,7 @@ Depends on: relevant preceding tasks. Owner: Quality; release owner signs Q08.
 - [ ] **Q04 — Run the failure/recovery matrix.** Kill engine/worker/helper at admission, create response, bootstrap, process start, file replace, push/PR, secret delivery and cleanup boundaries. Add network partition, backend restart, grant revocation and DB restore. **Done:** no duplicated unknown effects, leaked new authority or lost required work; recovery uses the same IDs and meets P04 budgets where promised.
 - [ ] **Q05 — Run ten consecutive real feature lifecycles.** Use the chosen deployment and same workload/concurrency as the measured local baseline. Include engine restart, denied credential use and failed-cleanup recovery within the run set. **Done:** ten complete recorded lifecycles, no hidden rerun failures, metrics for create/bootstrap/tool latency/test time/memory/host pressure/idle use, and agreed thresholds met. A fix requires a fresh consecutive set on the new candidate.
 - [ ] **Q06 — Pass all repository gates.** Use pinned toolchains and canonical lint, types, builds, contract/SDK, backend/web/browser, both DB drivers, coverage/security/quality and production-image CI lanes. **Done:** final candidate hosted results and raw first-attempt failures reviewed; no disabled workflow, weakened gate, unjustified skip or unexplained flake.
-- [ ] **Q07 — Publish the evidence and support matrix.** Link every acceptance row below to its exact test and receipt. Record unsupported combinations, optional exclusions, remaining operational risk and provider/version compatibility. **Done:** neither mock checks nor old SHAs can satisfy a live/new-release claim; secrets are absent from published artifacts.
+- [ ] **Q07 — Publish the evidence and support matrix.** Link every acceptance row below to its exact test and receipt, including SP01–SP08 for each new sandbox integration. Record unsupported combinations, optional exclusions, remaining operational risk and provider/version/preset compatibility. **Done:** every advertised preset/profile combination has the required live evidence; neither mock checks nor old SHAs can satisfy a live/new-release claim; secrets are absent from published artifacts.
 - [ ] **Q08 — Roll out and verify the selected release.** Approve the reviewed artifacts/configuration, enable for one feature, verify metrics/alerts and rollback, then raise capacity within measured limits. **Done:** Product, Security, Infrastructure and Quality sign the exact scope; first-deployment and portability status are separate; operator handoff and recovery drill complete.
 
 ## 6. Order, dependencies and review points
@@ -280,7 +278,7 @@ All rows are pending implementation. References below map the PRD's acceptance I
 | A15 | Real helper/filesystem traversal, races, revisions, archive and size rejection; C02, I03, Q02 | R1; large transfer via N04 only if advertised |
 | A16 | Approved source SHA and PR scope, main/merge denial, lost-response reconciliation; W05, Q04 | R1 |
 | A17 | Work preserved, access ended, exports verified and backend inventory matches cleanup receipt; S06, O01–O03, Q04–Q05 | R1 |
-| A18 | Removed from this build by user decision: native EZHarness only. | Excluded |
+| A18 | Real Claude/Codex guest placement, subagent/MCP and runtime canaries; N01–N02 | Conditional per runtime/profile |
 | A19 | Long jobs with bounded RPC/frame/log memory and reconnect gaps; C02, B05, I04, Q03–Q04 | R1 |
 | A20 | Existing quality/security/approval gates pass on the exact candidate; Q06 | Every release |
 
@@ -341,6 +339,7 @@ Any material source/configuration change invalidates affected evidence. Regenera
 ## 9. Final release checklist
 
 - [ ] Every required task for the declared release is closed with evidence; conditional features are explicitly selected or unavailable.
+- [ ] Every new sandbox integration passes SP01–SP08 for all advertised preset/profile combinations; missing or unqualified presets cannot be selected for workloads or marked Ready.
 - [ ] D01–D24 have recorded decisions or a release-specific reason they do not apply.
 - [ ] Applicable A01–A20 and X01–X08 pass; no skipped prerequisite is called a pass.
 - [ ] Ten consecutive real lifecycles pass on the selected candidate/deployment; thresholds and baseline comparison are published.
@@ -353,9 +352,148 @@ Any material source/configuration change invalidates affected evidence. Regenera
 
 Completed in this planning pass: focused repository inspection, baseline comparison, selected official-documentation checks, gap/decision analysis, task decomposition, dependency gates and acceptance mapping.
 
-Document validation is recorded in `tasks/todo.md`. Implementation, live providers and release qualification remain open. The next work is P01–P04, followed by the M0 boundary and routing foundation.
+Document validation is recorded in `tasks/todo.md`. The preset contract and fail-closed release checks now exist locally. Host conformance execution, provider implementations, live providers and release qualification remain open. The next work is P01–P04, followed by the remaining M0 boundary and routing foundation.
 
-## 11. Execution review — 20 September 2026
+## 11. Simple Incus server setup in the product
+
+Added 21 September 2026 after validating the existing sandbox SSH connection and Incus installation. This extends C04, H01–H05, I01 and U01; it does not introduce a second provider installer. Status: proposed, not implemented.
+
+### What the user does
+
+1. Open **Environments → Add sandbox server → Incus**.
+2. Enter the SSH address, for example `dev@sandbox-server.taile1c5b0.ts.net`, and select an approved login credential.
+3. EZHarness checks access, installed Incus, available capacity and existing resources. It suggests a memory/disk budget and shows the exact changes in plain language.
+4. Click **Set up server** to approve that setup plan. EZHarness runs the setup and a disposable guest test. The page survives disconnects and shows progress or a specific repair action.
+5. When the required checks pass, show **Ready**. The user can select this server for a feature.
+
+Use recommended settings to keep the normal form short. Put storage/network details in the review and advanced options. Never show Ready just because SSH or the Incus service responds. Profile qualification and existing provider release review still apply.
+
+### What EZHarness does
+
+Run a durable host-owned setup job using the reviewed provider's versioned recipe. Keep provider-specific setup knowledge out of the agent loop. Bind setup approval to the exact server identity, recipe/release, config revision, budget, changes and disposable-test allowance. Use narrowly scoped setup authority; do not give an ordinary agent tool unrestricted SSH or sudo.
+
+The setup job creates or explicitly adopts owned storage, a managed network, a restricted project, a resource-limited profile and the private provider connection. It checks required controls before creating the test guest. It never formats a disk, replaces an unrelated resource, opens a public management listener or enables a privileged guest as an automatic fallback. If the proposed storage driver cannot enforce required quotas, show a blocking choice instead of claiming success.
+
+Use SSH for bootstrap, then use the planned restricted Incus API identity for normal feature work. Keep bootstrap credentials host-only and end temporary setup authority when the job finishes. Store secrets through the existing approved secret facilities. A key available to this coding session is not automatically available to the deployed EZHarness service: verify access from that service's actual runtime. If enrollment is needed, show a public-key installation command; never request a private key in chat.
+
+Keep build verification offline. Existing v4 release approval, setup consent, live qualification and activation remain separate checks, presented within the same flow where possible. If observed state changes the reviewed plan, require a revised review before applying new changes.
+
+Incus supports unattended initialization through `incus admin init --preseed`, including storage, networks and profiles. Its documented rollback is not guaranteed to succeed. Use this as an implementation building block for a verified fresh setup, not a blind reset of existing installations. Inspect and reconcile existing resources; journal each effect and retain any partial-failure inventory. [Official initialization documentation](https://linuxcontainers.org/incus/docs/main/howto/initialize/#non-interactive-configuration)
+
+Initial supported path: **Incus already installed**, as on the checked server. Detect a missing or incompatible install and show a clear prerequisite. Automatic OS package installation and NixOS rebuilds need a separate reviewed, OS-specific recipe; do not silently add them to server initialization.
+
+### Completion checks for the existing tasks
+
+- U01: a user with working service-side SSH access finishes the normal flow without entering Incus CLI commands; missing key, sudo or unsupported version gets one clear next action.
+- C04/H02: setup approval cannot activate an unreviewed release, grant a broader permanent identity or let another project reuse the SSH credential.
+- I01: fresh setup and explicit adoption both preserve unrelated resources. Repeat clicks and restart recovery reconcile the same job without duplicate pools, networks or guests.
+- H04/I01: the restricted runtime identity can manage the owned project and is denied elsewhere; the required private API path works from the deployed engine.
+- I01/U01: the bounded disposable test proves the required profile, persistence, controls and cleanup. Failed cleanup remains visible and blocks Ready; it never destroys unrelated work.
+- U01/Q01: browser tests cover the complete flow, disconnect/reload, expired authority, partial failure and repair; evidence records the tested setup recipe and resulting config.
+
+No extra product or second engine is required. The missing work is this setup job and UI, followed by the sandbox management integration already tracked in the plan.
+
+## 12. Reliable setup and reusable integrations
+
+This section specifies how section 11 works. Status: proposed. It extends the same contract, controller, transport, provider and UI tasks; it is not a claim that setup code exists.
+
+### How configuration reaches the server
+
+Use fixed, versioned setup code delivered with the reviewed Incus provider. EZHarness runs a saved setup job through its protected SSH capability. Every command or API call comes from that reviewed implementation and receives validated inputs; the model does not invent installation commands.
+
+### Zero-inference setup and repeatable decisions
+
+**Requirement: no model inference in discovery, planning, execution, verification, retry or repair.** These are ordinary program functions and state transitions. A user may request setup in chat, but the host still validates typed inputs, requires the existing human review and uses the same setup job as the form. Optional AI help may explain a sanitized failure; it cannot change the plan or run a repair.
+
+Define the guarantee precisely: **the same validated inputs, recorded observations, stable setup identity and pinned recipe produce the same ordered plan and plan digest.** External machines, capacity, networks and clocks can change. Deterministic decisions do not promise identical timings or successful outcomes on different server states.
+
+- Resolve defaults, resource names, addresses, storage choices, budgets, version/image digests and required permissions into the plan before approval. Do not resolve moving tags or choose a new recipe during execution. Generate cryptographic keys securely once, store them privately and bind their public identity to the plan; never use reproducible private keys for determinism.
+- Keep planning offline and pure over a bounded inspection snapshot. Sort inputs and steps canonically. Inject time and policy explicitly when needed; exclude incidental log timestamps and secrets from the canonical plan. Use the shared digest/validation helpers rather than another serializer.
+- Keep discovery separate from planning. The inspected OS, API capabilities, backend resources and measured capacity are explicit inputs, not hidden reads made while generating steps. Verify each step's approved preconditions again immediately before effects; account for already verified changes made by earlier steps in the same job.
+- Execute the saved plan exactly. Known errors map to fixed retry, reconcile, stop or review-required states with bounded policy. An unknown outcome triggers inspection. Never ask a model to guess the next command, silently downgrade a control or generate a fallback script.
+- Keep random retry timing outside the plan and its decisions; inject the clock and randomness for tests. Record retry attempts and observations. A resumed job must converge to the approved owned resources or a named blocked state, without a blind duplicate effect.
+- Give setup invocations no model capability or model credentials. Restrict provider network/host capabilities to the approved setup operations. Code review and qualification must cover provider implementations too; removing model calls from the controller alone is insufficient.
+
+Under C06/H02/Q01–Q04, require: repeated and reordered-equivalent snapshots produce the same plan digest; a changed meaningful input changes the plan or is rejected; an invalidated approval prevents new effects; loss/restart at each boundary safely reconciles; and setup succeeds with model access disabled. Instrument the real model gateway to assert zero calls, and use a deliberately model-calling provider fixture to prove the host denies that capability. Keep tests of secure key generation separate from deterministic planning tests.
+
+### Apply the approved plan
+
+| Step | What runs | Proof before advancing |
+| --- | --- | --- |
+| Connect | The deployed engine checks the selected SSH credential, host identity, user and needed privileges. | Connection succeeds from the actual service; a key copied only to a developer machine is insufficient. |
+| Inspect | Read OS/kernel, Incus version/API features, storage, networks, address routes, quotas and existing owned resources. | Complete inventory; unsupported controls produce a named blocking prerequisite. |
+| Plan | Select a qualified recipe and calculate the exact new or adopted resources and permitted changes. | A bounded, immutable plan records the inventory fingerprint, recipe/release, connection and resource budget. Existing resources are preserved unless explicitly adopted. |
+| Review | Show the proposed budget and changes in the existing admin review flow. | Human setup consent is bound to that exact plan and authority. Existing provider release approval still applies. |
+| Configure | Over SSH, call the installed Incus CLI/local API to create the approved storage/network/project/profile resources and register a restricted API client. Apply only the required, reviewed host network changes. | Each step is recorded before dispatch and verified by reading actual backend state afterward. |
+| Prove | Connect from the engine using the restricted runtime identity; run the bounded disposable feature-profile test and cleanup. | Required resource/network restrictions, stop/start persistence, Compose behavior when selected, cross-project denial and cleanup all pass. |
+| Ready | Save the connection, qualified capabilities, versions and evidence; end temporary setup authority. | The runtime uses the restricted provider connection, and the test inventory is empty. |
+
+The Incus adapter can use `incus admin init --preseed` for a qualified fresh setup. For an existing server, it computes a resource-specific change plan instead of replaying a full initialization document over unknown settings. The platform controller understands steps, state and authority; Incus object formats remain in the reviewed provider recipe.
+
+Use the documented API's conditional updates where supported: Incus describes ETags with `If-Match` to reject stale replacement requests, and returns operation IDs for background work. Those are useful building blocks; they do not provide an atomic transaction for the whole server setup. [Incus API](https://linuxcontainers.org/incus/docs/main/rest-api/)
+
+Create the normal runtime identity with project-restricted certificate authorization. Merely choosing a project in a client command is not the restriction. Generate its private key in protected engine storage and send only the public certificate for server registration. [Incus project confinement](https://linuxcontainers.org/incus/docs/main/howto/projects_confine/)
+
+### Rules that make retries and repairs safe
+
+- **One setup writer:** lock the managed connection and fence stale workers. Detect a second connection targeting the same backend where host identity permits; detect conflicting external edits again before applying changes.
+- **Check before changing:** verify the approved preconditions immediately before each effect. A changed storage pool, budget, endpoint or permission returns to review; setup does not silently expand its authority.
+- **Save every step:** persist the setup ID, approved plan digest, ownership IDs, desired/observed state, operation receipt and sanitized result. Provider calls remain bounded; longer work returns handles.
+- **Inspect after a lost response:** find the operation/resource and compare its owned identity and intended settings. Resume only when safe. If an effect cannot be identified, show Unknown and require recovery; do not repeat a potentially destructive command.
+- **Check the real result:** an exit code or HTTP success is not sufficient. Read the resource back and run the relevant behavior test. Bound test memory, runtime, output and cleanup within the approved budget.
+- **Preserve other work:** ownership must match before cleanup. Remove only newly created, unused setup resources when safe. Keep adopted resources, existing guests and user data. Report incomplete rollback and remaining resources honestly.
+- **Recheck after changes:** certificate expiry, config drift and a changed backend/recipe can invalidate readiness. Block new work requiring a missing control; use the existing retained-work policy for affected guests. Repair runs through the same inspect/plan/review/apply path.
+- **Keep diagnostics useful:** show the failed step, sanitized reason and one suggested action, such as authorize the displayed public key or select storage with quota support. Never print credential bytes. A disconnected browser can reopen the same setup job.
+
+### A small setup contract for all integrations
+
+Keep the existing `describe` and `preflight` methods. Add an **optional `setup.v1` method group** to the authoritative provider contribution, wire validation and SDK under C01–C06. Its exact schema is still to be designed. Providers that only support connection checks must not advertise automatic provisioning.
+
+The method group needs three provider functions: **plan** returns bounded steps and preconditions; **applyStep** starts one approved step and returns a receipt; **inspectStep** determines its actual state. Reuse existing lifecycle/process operation types where their semantics fit. Repair uses a new plan over observed state; cleanup uses the same approved step mechanism. Do not add a parallel job database, approval endpoint or unrestricted script field to the public API.
+
+The host owns plan hashing, consent, current authority, journaling, locks, deadlines, transport and result projection. The provider owns backend translation, supported recipes, observations and postconditions. Provider assertions never grant authority. Sensitive-result rules apply to setup just as they do to runtime calls.
+
+Each integration package supplies:
+
+- A small configuration form generated from its schema, with human-readable labels and broker-backed credential references.
+- A declared support matrix: tested versions, required privileges, capabilities, supported setup/adoption paths and controls it cannot enforce.
+- For sandbox providers, versioned configuration presets and passing SP01–SP08 evidence for every advertised preset/profile combination.
+- A pinned setup recipe, expected permissions, dependency requirements and health/qualification tests.
+- Safe retry/recovery behavior and clear error-to-action messages.
+- The shared SDK fixture results plus real-provider evidence for every advertised profile.
+
+The same UI can therefore connect Incus over SSH, or connect a secret store over its approved API. An integration that needs a human to create an external account or grant a backend role must state that prerequisite. The wizard cannot create authority the user does not have. SDK templates and the conformance harness in C06/V04 make new integrations easier to write; reviewed implementation and live qualification are still required.
+
+### Required preset tests for every sandbox integration
+
+**Mandatory for every new sandbox integration**, including first-party Incus, the independent portability provider and future adapters. New or changed presets must meet the same gate. A provider advertising only `linux-exec.v1` must qualify its presets for that profile; it must not claim Compose support by borrowing another provider's result. A connection-only integration still supplies tested configuration presets for the existing resources it uses, even when it cannot provision the host itself.
+
+Each preset has an immutable ID, version and content digest; a supported profile/isolation type; explicit image/recipe identity; storage/network policy; resource limits and allowed overrides; and required backend/API/architecture capabilities. Use the authoritative contract for validation and the reviewed release to bind the preset. Do not add an independent template parser or let a model generate the runtime settings. Resolve validated overrides into the approved configuration digest before use.
+
+| Test | Required passing behavior | Existing tasks |
+| --- | --- | --- |
+| SP01 — Complete, validated presets | Every advertised profile has at least one preset. Missing fields, invalid units, unknown options, embedded credentials, moving required image references and duplicate identities are rejected by shared validation. | C01–C02, C06, V04 |
+| SP02 — Correct compatibility selection | Tests cover each advertised preset's supported and unsupported backend/API, architecture, storage and isolation conditions. The UI offers only compatible presets; direct API submission of an incompatible preset fails before unsafe allocation. | C04, C06, I07, U01–U02 |
+| SP03 — Deterministic configuration | Identical normalized inputs, observations and pinned preset produce identical effective settings and plan digest. No inference is used. Invalid or excessive overrides fail; changed meaningful settings invalidate the earlier approval. | C06, H02, U01, Q02 |
+| SP04 — Real workload and enforced limits | On every advertised supported combination, run the profile's real lifecycle using the preset. Verify storage, networking, memory/CPU/PID/disk limits and isolation with observed behavior. Compose presets also pass nested Compose and retained-workspace tests. Mock-only evidence cannot pass. | I05–I08, V01–V03, Q02–Q03 |
+| SP05 — Rejection without downgrade | Missing required controls or incompatible configuration denies admission. Prove there is no local execution, privileged-container, weaker-isolation or unrestricted-network fallback. A fixture that removes the boundary must make the test fail. | W02, Q02 |
+| SP06 — Safe repeat, restart and cleanup | Repeated setup, lost replies and engine restart reconcile the same owned resources. Test stop/start and profile-required persistence. Unrelated or adopted work survives; failed cleanup is recorded and prevents Ready. | B04, I01, O01, Q04 |
+| SP07 — Version and drift handling | Bind evidence to provider release, preset digest, effective settings, recipe/image/helper and backend versions. Changed material settings or controls invalidate affected evidence and require revalidation before new workloads; retain existing work under policy. Old receipts cannot qualify changed presets. | C04–C05, I07, O04, Q07 |
+| SP08 — Author and release enforcement | The SDK harness discovers all declared presets and fails for an omitted test/result, a failed required case, or a missing supported combination. Ready/workload selection checks live qualification records. Verify those denials through production paths, not only documentation or mocks. | C06, V04, Q01, Q06–Q07 |
+
+Run deterministic cases in normal repository CI and real-provider cases in the approved operator qualification lane. The gate must compare the declared support matrix with the evidence manifest so an absent run cannot appear as a pass. Each live receipt adds preset ID/version/digest and effective configuration digest to section 8's identity fields. Failed, missing, skipped or stale required results block support for that combination. Providers can narrow an advertised matrix through a reviewed change; they cannot keep the claim while omitting its tests.
+
+These are required future tests, not tests already implemented or passed by this planning document.
+
+### What “works for everyone” means
+
+Promise the same short flow for **tested, supported setups**. Do not promise every Linux/storage/network combination. Start qualification with this NixOS server and installed Incus 6.0.6, then add other combinations when their full fixtures pass. Current host inventory is not that qualification.
+
+The setup test matrix must include: a fresh supported server; safe reuse of explicitly adopted resources; missing or wrong SSH credentials; insufficient privileges; incompatible Incus/API features; unsupported storage quotas; address conflicts; disk exhaustion; concurrent external changes; disconnect after each admitted effect; engine restart; repeat clicks; failed guest cleanup; revoked setup consent; and drift after success. Run network and limits tests from the deployed engine and a real guest, including an attempted cross-project operation using the new runtime identity.
+
+Extend C06, I01, U01 and Q01–Q04 with those cases. V04 must prove that a second integration can use the same setup framework without changes to the agent loop or new provider-specific branches in the setup controller. A failed mandatory case blocks the corresponding Ready/profile claim. This gives users a simple form backed by repeatable, reviewable engineering.
+
+## 13. Execution review — 20 September 2026
 
 Implementation base: refreshed `origin/main`, `550b7c67e1116f78f0448f2133f8ad18201fed1d`. The source checkout and its local changes are preserved. Integration worktree: `EZHarness-worktrees/pluggable-infrastructure`; isolated Sol and Terra worktrees share this base.
 

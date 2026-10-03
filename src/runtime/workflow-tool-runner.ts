@@ -18,6 +18,7 @@ import type { AgentEvents } from "../types";
 import type { PendingPermissionInfo } from "./stream-chat/host";
 import type { InvocationGuard } from "../extensions/runtime-locks";
 import type { ServiceInvocation } from "../extensions/service-invocation";
+import type { WorkspaceTarget } from "./workspaces/target";
 
 /**
  * The slice of `ToolExecutor` a workflow tool step uses. Structural, so
@@ -77,6 +78,7 @@ export interface PendingPermissionGate {
  *  arrives as an argument rather than being baked into the factory. */
 export type WorkflowToolRunnerFactory = (
   pendingPermissions?: PendingPermissionGate,
+  workspaceTarget?: WorkspaceTarget,
 ) => WorkflowToolRunner;
 
 /**
@@ -93,6 +95,7 @@ export type WorkflowToolRunnerFactory = (
 export function createWorkflowToolRunner(
   bus: EventBus<AgentEvents>,
   pendingPermissions?: PendingPermissionGate,
+  workspaceTarget?: WorkspaceTarget,
 ): WorkflowToolRunner {
   const registry = ExtensionRegistry.getInstance();
   const engine = getPermissionEngine({
@@ -101,6 +104,7 @@ export function createWorkflowToolRunner(
     db: { _token: "workflow-tool-step" },
   });
   const executor = new ToolExecutor(registry, engine, { bus });
+  if (workspaceTarget) executor.setWorkspaceTarget(workspaceTarget);
   if (pendingPermissions) {
     executor.setPendingPermissionGate(
       pendingPermissions.register,

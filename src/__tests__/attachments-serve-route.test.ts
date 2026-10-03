@@ -1,5 +1,5 @@
 import { test, expect, describe, beforeAll, afterAll, beforeEach, mock } from "bun:test";
-import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises";
+import { mkdtemp, rm, writeFile, mkdir, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
@@ -56,12 +56,14 @@ import { createProject } from "../db/queries/projects";
 import { createConversation, createMessage } from "../db/queries/conversations";
 import { insertAttachment } from "../db/queries/attachments";
 import { getDb } from "../db/connection";
-import { users } from "../db/schema";
+import { sandboxBindings, users } from "../db/schema";
+import { sandboxBindingRow } from "./helpers/sandbox-binding-row";
 
 const IMG_BYTES = new TextEncoder().encode("IMG-BYTES-HERE");
 let OWNER_ID = "";
 
 let projectRoot: string;
+let projectId: string;
 let attachmentId: string;
 let storagePath: string;
 
@@ -79,6 +81,7 @@ beforeAll(async () => {
 beforeEach(async () => {
   projectRoot = await mkdtemp(join(tmpdir(), "ezcorp-att-"));
   const project = await createProject({ name: "Serve Test", path: projectRoot });
+  projectId = project.id;
   const conv = await createConversation(project.id, { title: "c", userId: OWNER_ID });
   const msg = await createMessage(conv.id, { role: "user", content: "hi" });
   const dir = join(projectRoot, ".ezcorp", "attachments", conv.id, msg.id);
@@ -166,5 +169,12 @@ describe("GET /api/attachments/[id]", () => {
       expect(e).toBeInstanceOf(Response);
       expect((e as Response).status).toBe(401);
     }
+  });
+
+  test("bound sandbox project cannot download an AMD attachment canary", async () => {
+    await getDb().insert(sandboxBindings).values(sandboxBindingRow(projectId));
+    const res = await GET(mkEvent(attachmentId, { ...MEMBER_USER, id: OWNER_ID }));
+    expect(res.status).toBe(404);
+    expect(await readFile(storagePath, "utf8")).toBe("IMG-BYTES-HERE");
   });
 });

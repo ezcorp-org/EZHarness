@@ -4,52 +4,70 @@ import type { ShellPreviewWiring, ShellSandboxWiring } from "./shell";
 import {
   getSandboxWorkspaceDispatcher,
   type SandboxWorkspaceOperation,
-  type WorkspaceTarget,
   type WorkspacePrincipal,
+  type WorkspaceTarget as PersistedWorkspaceTarget,
 } from "../workspace/target";
 import { toolError } from "./types";
+import {
+  executeSandboxWorkspaceTool,
+  isWorkspaceToolName,
+  localWorkspaceTarget,
+  type WorkspaceTarget as ProviderWorkspaceTarget,
+} from "../workspaces/target";
 
 export type { BuiltinToolDef, ToolCategory, PermissionMode, CardType } from "./types";
 export type { ShellPreviewWiring, ShellSandboxWiring } from "./shell";
+export type {
+  LocalWorkspaceTarget,
+  SandboxWorkspaceBackend,
+  SandboxWorkspaceBinding,
+  SandboxWorkspaceTarget,
+  WorkspaceTarget,
+  WorkspaceToolName,
+} from "../workspaces/target";
+export {
+  isLocalFallbackDenied,
+  localWorkspaceTarget,
+  resolveWorkspaceTarget,
+  sandboxWorkspaceTarget,
+} from "../workspaces/target";
 
-/**
- * Get all built-in tool definitions with full metadata (category, cardType,
- * and the per-tool output cap). The cap is set from a single source of truth
- * in output-limits.ts and appended to every tool's description so both the
- * LLM and any UI listing tools can see it.
- *
- * `preview` (optional) threads the secure-preview spawn trigger into the
- * shell tool: when present, a recognized dev-server command is launched under
- * the conversation's preview uid. Omitted by callers without a conversation
- * context (the shell tool then behaves exactly as before).
- */
+type ToolWorkspaceTarget = ProviderWorkspaceTarget | PersistedWorkspaceTarget;
+
+/** One metadata catalog serves local and both sandbox binding generations. */
 export function getBuiltinToolDefs(
-  workspace: WorkspaceTarget | string,
+  targetOrProjectPath: ToolWorkspaceTarget | string,
   preview?: ShellPreviewWiring,
   shellSandbox?: ShellSandboxWiring,
   principal?: WorkspacePrincipal,
 ): BuiltinToolDef[] {
-  if (typeof workspace === "string") workspace = { kind: "local", root: workspace, revision: 0 };
-  if (workspace.kind === "sandbox") return getSandboxToolDefs(workspace, principal);
-  return getNativeToolDefs(workspace.root, preview, shellSandbox);
-}
+  const target = typeof targetOrProjectPath === "string"
+    ? localWorkspaceTarget(targetOrProjectPath)
+    : targetOrProjectPath;
+  if (target.kind === "local") return getNativeToolDefs(target.root, preview, shellSandbox);
 
-/** Keep the existing schemas, labels, permission categories and output caps
- * identical while replacing every executable body with one host dispatcher.
- * The local bodies are metadata donors only and are never invoked here. */
-function getSandboxToolDefs(workspace: Extract<WorkspaceTarget, { kind: "sandbox" }>, principal?: WorkspacePrincipal): BuiltinToolDef[] {
-  const metadata = getBuiltinToolDefs({ kind: "local", root: "/workspace-not-used", revision: workspace.revision });
-  return metadata.map((definition) => {
+  // NUL makes accidental use of any local metadata donor fail at the OS boundary.
+  const definitions = getNativeToolDefs("/\0sandbox-workspace-has-no-local-root");
+  return definitions.map((definition) => {
+    if (!isWorkspaceToolName(definition.name)) {
+      throw new Error(`Built-in tool ${definition.name} has no sandbox workspace route`);
+    }
+    if ("binding" in target) {
+      const operation = definition.name;
+      return {
+        ...definition,
+        execute: (toolCallId, params, signal, onUpdate) =>
+          executeSandboxWorkspaceTool(target, operation, toolCallId, params, signal, onUpdate),
+      };
+    }
     const operation = definition.name as SandboxWorkspaceOperation;
     return {
       ...definition,
       execute: async (_toolCallId, params, signal) => {
-        // Resolve per effect: an emergency disable must affect a catalog that
-        // was already handed to a running model.
         const dispatcher = getSandboxWorkspaceDispatcher();
         if (!dispatcher) return toolError("Sandbox workspace is unavailable");
         try {
-          return await dispatcher(workspace, operation, params, signal, principal);
+          return await dispatcher(target, operation, params, signal, principal);
         } catch {
           return toolError("Sandbox workspace is unavailable");
         }

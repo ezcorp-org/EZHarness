@@ -13,6 +13,7 @@ afterAll(() => {
 });
 
 // ── Mocks (must precede any import that touches these modules) ──────
+let fixtureProjectId: string | null = null;
 
 mock.module("../db/queries/conversations", () => ({
   getConversationPath: async () => [],
@@ -43,7 +44,9 @@ mock.module("../db/queries/runs", () => ({
 }));
 
 mock.module("../db/queries/projects", () => ({
-  getProject: async () => undefined,
+  getProject: async (id: string) => id === fixtureProjectId
+    ? { id, path: "/tmp/streamchat-test-project" }
+    : undefined,
 }));
 
 mock.module("../db/queries/settings", () => ({
@@ -74,9 +77,10 @@ const mockRegistry = {
 
 // Re-establish all mocks before each test to survive concurrent restoreModuleMocks()
 beforeEach(() => {
+  fixtureProjectId = null;
   mock.module("../db/connection", () => ({
     getDb: () => ({
-      select: () => ({ from: () => ({ where: async () => [] }) }),
+      select: () => ({ from: () => ({ where: () => Object.assign(Promise.resolve([]), { limit: async () => [] }) }) }),
       insert: () => ({ values: async () => ({}) }),
       update: () => ({ set: () => ({ where: async () => ({}) }) }),
       delete: () => ({ where: async () => ({}) }),
@@ -87,7 +91,7 @@ beforeEach(() => {
     closeDb: async () => {},
   }));
   mock.module("../db/queries/conversations", () => ({
-    getConversation: async () => ({ id: "conv-1", projectId: null, parentConversationId: null }),
+    getConversation: async () => ({ id: "conv-1", projectId: fixtureProjectId, parentConversationId: null }),
     getConversationPath: async () => [],
     getLatestLeaf: async () => null,
     resolveSystemPrompt: async () => undefined,
@@ -467,6 +471,7 @@ describe("AgentExecutor.streamChat", () => {
 
   test("streamChat emits memory status when projectId is set", async () => {
     setupPiAiMocks({ textChunks: ["hi"] });
+    fixtureProjectId = "proj-1";
 
     const bus = new EventBus<AgentEvents>();
     const exec = new AgentExecutor(new Map(), bus, { persist: false });

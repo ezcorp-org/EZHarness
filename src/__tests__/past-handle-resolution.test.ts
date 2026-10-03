@@ -43,8 +43,9 @@ import { createProject } from "../db/queries/projects";
 import { createConversation, createMessage } from "../db/queries/conversations";
 import { insertAttachment } from "../db/queries/attachments";
 import { loadPastAttachments } from "../chat/attachments/history-rehydrate";
-import { buildAttachmentHandleResolver, toResolvableAttachments } from "../chat/attachments/handle-resolver";
+import { buildAttachmentHandleResolver as buildAttachmentHandleResolverWithTarget, toResolvableAttachments } from "../chat/attachments/handle-resolver";
 import { attachmentHandle, type StagedAttachment } from "../chat/attachments/content-builder";
+import { localWorkspaceTarget } from "../runtime/workspaces/target";
 
 const TURN_1_BYTES = new TextEncoder().encode("TURN-1-IMAGE-BYTES");
 const TURN_N_BYTES = new TextEncoder().encode("TURN-N-IMAGE-BYTES");
@@ -56,6 +57,9 @@ let convId: string;
 let turn1MsgId: string;
 let turn1AttId: string;
 let currentTurnAttachment: StagedAttachment;
+const buildAttachmentHandleResolver = (
+  attachments: Parameters<typeof buildAttachmentHandleResolverWithTarget>[0],
+) => buildAttachmentHandleResolverWithTarget(attachments, localWorkspaceTarget(tmpRoot));
 
 beforeAll(async () => {
   await setupTestDb();
@@ -68,7 +72,7 @@ beforeAll(async () => {
   const t1 = await createMessage(convId, { role: "user", content: "first upload" });
   turn1MsgId = t1.id;
   const w1 = await writeAttachment({
-    projectRoot: tmpRoot, conversationId: convId, messageId: t1.id,
+    workspaceTarget: localWorkspaceTarget(tmpRoot), conversationId: convId, messageId: t1.id,
     filename: "cow.png", mimeType: "image/png", bytes: TURN_1_BYTES,
   });
   const row1 = await insertAttachment({
@@ -90,7 +94,7 @@ beforeAll(async () => {
   // Current turn's POST staged a DIFFERENT image (e.g. mask or reference),
   // so `options.attachments` for this turn carries only that one file.
   const wN = await writeAttachment({
-    projectRoot: tmpRoot, conversationId: convId, messageId: t2.id,
+    workspaceTarget: localWorkspaceTarget(tmpRoot), conversationId: convId, messageId: t2.id,
     filename: "mask.png", mimeType: "image/png", bytes: TURN_N_BYTES,
   });
   const rowN = await insertAttachment({

@@ -15,6 +15,9 @@ import { createCandidateVerificationBroker, type CandidateFixtures } from "./can
 import { auditReleaseBlobStorage, boundedReleaseBlobAuditSample, getFiles, type ReleaseBlobDigests } from "./v4/blobs";
 import { hasExactReleaseGrants } from "./bundled-drift-reapprove";
 import { createLifecycleRecoveryScheduler } from "./lifecycle-recovery-scheduler";
+import { assertSandboxPresetReleaseQualification } from "./v4/sandbox-preset-qualification";
+import { runSandboxCandidateConformance, type SandboxConformanceDependencies } from "./v4/sandbox-conformance";
+import { INCUS_CANDIDATE_RPC, incusCandidateFixture } from "./incus-candidate-fixture";
 
 const log = extensionLogger("author", "lifecycle");
 
@@ -67,16 +70,34 @@ export function createLifecycleAuthorization(lookup: LifecyclePolicyLookup): Pic
   };
 }
 
-export async function verifyExtensionCandidate(runner: Runner, release: ReleaseRecord, reverseRpc?: ReverseRpc, fixtures?: CandidateFixtures): Promise<CandidateVerificationReport> {
+export async function verifyExtensionCandidate(
+  runner: Runner,
+  release: ReleaseRecord,
+  reverseRpc?: ReverseRpc,
+  fixtures?: CandidateFixtures,
+  sandboxConformance?: Omit<SandboxConformanceDependencies, "invoke">,
+): Promise<CandidateVerificationReport> {
   const workerId = randomUUID();
   const scopeId = `verification:${randomUUID()}`;
-  const context = { invocationId: randomUUID(), workerId, releaseId: release.id, principalId: "extension-verification", scopeId, token: randomUUID(), deadline: Date.now() + executionLimits.timeoutMs, metadata: { ezConversationId: scopeId } };
+  const incusFixture = incusCandidateFixture(release);
+  const context = { invocationId: randomUUID(), workerId, releaseId: release.id, principalId: "extension-verification", scopeId, token: randomUUID(), deadline: Date.now() + executionLimits.timeoutMs,
+    metadata: { ezConversationId: scopeId, ...(incusFixture ? { providerConfig: incusFixture.config } : {}) } };
   const broker = await createCandidateVerificationBroker(release, context, fixtures);
+  let fixtureDenied = false;
+  const candidateRpc: ReverseRpc = async (method, raw) => {
+    if (method !== INCUS_CANDIDATE_RPC || !incusFixture) return broker.reverseRpc(method, raw);
+    try { return incusFixture.respond(raw, context); }
+    catch (error) { fixtureDenied = true; throw error; }
+  };
   let worker: RunnerExecution | undefined;
   try {
-    worker = await runner.start({ workerId, artifactDigest: release.artifactDigest, context, limits: executionLimits }, reverseRpc ?? broker.reverseRpc);
+    worker = await runner.start({ workerId, artifactDigest: release.artifactDigest, context, limits: executionLimits }, reverseRpc ?? candidateRpc);
     const discovered = validateManifest(await worker.request("extension/discover", {}));
     if (canonicalJson(discovered) !== canonicalJson(release.manifest)) throw new LifecycleError("runtime_catalog_mismatch", "Runtime metadata changed after verification.");
+    const sandboxPresetQualifications = discovered.sandboxProviders === undefined ? undefined : await runSandboxCandidateConformance(release, {
+      ...sandboxConformance,
+      invoke: (method, input) => worker!.request("extension/dispatch", { method, input, context }),
+    });
     if (discovered.smokeTest) {
       const smoke = discovered.smokeTest;
       const tool = discovered.tools?.find((candidate) => candidate.name === smoke.tool);
@@ -91,8 +112,13 @@ export async function verifyExtensionCandidate(runner: Runner, release: ReleaseR
       if (expected?.textIncludes !== undefined && !text.includes(expected.textIncludes)) throw new LifecycleError("smoke_assertion_failed", "Smoke test output did not match the expected text.");
       if (expected?.isError !== undefined && (output?.isError === true) !== expected.isError) throw new LifecycleError("smoke_assertion_failed", "Smoke test error status did not match the expected status.");
     }
-    const report: CandidateVerificationReport = { catalog: "verified", smoke: discovered.smokeTest ? "passed" : "not_declared", capabilities: broker.coverage() };
-    if (report.capabilities.some((entry) => entry.state === "denied")) throw Object.assign(new LifecycleError("candidate_capability_blocked", "Candidate attempted a denied capability; supply an isolated fixture or fix its declaration."), { verification: report });
+    const report: CandidateVerificationReport = {
+      catalog: "verified",
+      smoke: discovered.smokeTest ? "passed" : "not_declared",
+      capabilities: broker.coverage(),
+      ...(sandboxPresetQualifications === undefined ? {} : { sandboxPresetQualifications }),
+    };
+    if (fixtureDenied || report.capabilities.some((entry) => entry.state === "denied")) throw Object.assign(new LifecycleError("candidate_capability_blocked", "Candidate attempted a denied capability; supply an isolated fixture or fix its declaration."), { verification: report });
     return report;
   } catch (error) {
     if (error && typeof error === "object") Object.assign(error, { capabilities: broker.coverage() });
@@ -123,8 +149,32 @@ export async function resolveExtensionReleaseSnapshot(repository: DatabaseLifecy
   return release ? { release, installation: state.installation, limits: executionLimits } : null;
 }
 
-interface LifecycleServices { lifecycle: ExtensionLifecycle; control: ExtensionControl; runner: Runner; repository: DatabaseLifecycleRepository; deliveries: ExtensionDeliveryQueue; migrations: ExtensionDataMigrations; blobs: FileBlobStore }
+interface LifecycleServices { lifecycle: ExtensionLifecycle; control: ExtensionControl; runner: Runner; repository: DatabaseLifecycleRepository; deliveries: ExtensionDeliveryQueue; migrations: ExtensionDataMigrations; blobs: FileBlobStore; incusLostDestroyReply: import("../infrastructure/incus-destroy-reply-fault").HostIncusLostDestroyReplyFault }
 export interface RecoveryServices { lifecycle: Pick<ExtensionLifecycle, "recover" | "reconcile">; repository: Pick<DatabaseLifecycleRepository, "read">; migrations: Pick<ExtensionDataMigrations, "recover"> }
+type LostDestroyReplyArm = import("../infrastructure/incus-destroy-reply-fault").LostDestroyReplyArm;
+type FaultCheckpointAuthorization = Pick<import("../infrastructure/incus-qualification-checkpoint").IncusQualificationCheckpointStore,
+  "authorizeRecoveryFixtureForRun" | "authorizeRecoveryReadbackForRun">;
+
+/** Keep the database authorization ahead of every supervisor fault command. */
+export function incusOperatorFaultAuthority(checkpoints: FaultCheckpointAuthorization,
+  socket: string | undefined,
+  request: (socket: string, phase: "presence" | "arm" | "readback", arm?: LostDestroyReplyArm) => Promise<void>) {
+  const operatorFault = async (phase: "presence" | "arm" | "readback", arm?: LostDestroyReplyArm) => {
+    if (!socket) throw new Error("Incus operator fault control is unavailable");
+    await request(socket, phase, arm);
+  };
+  return {
+    authenticateOperator: () => operatorFault("presence"),
+    authorizeRun: async (arm: LostDestroyReplyArm) => {
+      await checkpoints.authorizeRecoveryFixtureForRun(arm);
+      await operatorFault("arm", arm);
+    },
+    authorizeReadback: async (arm: LostDestroyReplyArm) => {
+      await checkpoints.authorizeRecoveryReadbackForRun(arm);
+      await operatorFault("readback", arm);
+    },
+  };
+}
 let services: Promise<LifecycleServices> | undefined;
 const recoveryTimers = new Map<string, ReturnType<typeof setTimeout>>();
 let recoveryCapacityAvailable = false;
@@ -152,8 +202,18 @@ async function initialize(): Promise<LifecycleServices> {
   const migrations = new ExtensionDataMigrations(getDb(), (input) => runStorageMigration(runner, input));
   const deliveries = new ExtensionDeliveryQueue(getDb());
   const { configureReleaseRuntime } = await import("./release-process");
+  const { ProviderConnectionStore } = await import("../infrastructure/provider-connections/store");
+  const { ProviderRpcBroker } = await import("../infrastructure/provider-rpc-broker");
+  const { HostIncusLostDestroyReplyFault } = await import("../infrastructure/incus-destroy-reply-fault");
+  const { IncusQualificationCheckpointStore } = await import("../infrastructure/incus-qualification-checkpoint");
+  const { requestIncusSupervisorFault } = await import("../infrastructure/incus-qualification-supervisor-client");
+  const faultSocket = process.env.EZCORP_INCUS_SUPERVISOR_SOCKET;
+  const faultCheckpoints = new IncusQualificationCheckpointStore(getDb());
+  const incusLostDestroyReply = new HostIncusLostDestroyReplyFault(getDb(),
+    incusOperatorFaultAuthority(faultCheckpoints, faultSocket, requestIncusSupervisorFault));
   configureReleaseRuntime({
     runner: async () => runner,
+    providerRpcBroker: new ProviderRpcBroker(new ProviderConnectionStore(getDb()), undefined, getDb(), undefined, incusLostDestroyReply),
     dispatchNotification: async (extensionId, method, params) => {
       const { enqueueExtensionNotification } = await import("./delivery-runtime");
       await enqueueExtensionNotification(extensionId, method, params ?? {});
@@ -185,13 +245,18 @@ async function initialize(): Promise<LifecycleServices> {
       revokeApprovals: async (installationId: string, digest?: string) => { await revokeTrustedLocalApprovals(installationId, digest); },
     } } : {}),
     ...authorization,
-    verifyCandidate: (release) => verifyExtensionCandidate(runner, release),
+    verifyCandidate: (release) => verifyExtensionCandidate(runner, release, undefined, undefined, {
+      proveWorkspaceRouting: async (binding) => {
+        const { proveSandboxLocalFallbackDenied } = await import("../runtime/workspaces/host-routing-proof");
+        return proveSandboxLocalFallbackDenied(binding);
+      },
+    }),
     prepareActivation: (installation, previous, release, operation) => migrations.prepare(installation, previous, release, operation),
     abortActivation: (installationId, operation) => migrations.abort(installationId, operation.id, operation.lease?.fence),
     publish: async (installation, release) => { await migrations.finalize(installation.id); await publishExtensionGeneration(installation, release, release ? await getFiles(blobs, release.artifactDigest, "artifact") : undefined); },
     onBuildSettled: deferredByRunner => { recoveryCapacityAvailable ||= !deferredByRunner; lifecycleRecovery.request({ followUp: !deferredByRunner }); },
   });
-  return { lifecycle, control: new ExtensionControl(lifecycle), runner, repository, deliveries, migrations, blobs };
+  return { lifecycle, control: new ExtensionControl(lifecycle), runner, repository, deliveries, migrations, blobs, incusLostDestroyReply };
 }
 
 function getServices(): Promise<LifecycleServices> {
@@ -202,6 +267,8 @@ function getServices(): Promise<LifecycleServices> {
 export async function getExtensionLifecycle(): Promise<ExtensionLifecycle> { return (await getServices()).lifecycle; }
 export async function getExtensionControl(): Promise<ExtensionControl> { return (await getServices()).control; }
 export async function getExtensionRunner(): Promise<Runner> { return (await getServices()).runner; }
+/** Host operator socket only; its authority callback currently fails closed. */
+export async function getHostIncusLostDestroyReplyFault() { return (await getServices()).incusLostDestroyReply; }
 export async function getExtensionDeliveryQueue(): Promise<ExtensionDeliveryQueue> { return (await getServices()).deliveries; }
 export async function getExtensionInstallationState(installationId: string) { return (await getServices()).repository.read(installationId); }
 
@@ -232,6 +299,7 @@ export async function publishExtensionGeneration(installation: InstallationRecor
     const rows = releaseRows<{ payload: string }>(result);
     const current: InstallationRecord | undefined = rows[0] ? JSON.parse(rows[0].payload) : undefined;
     if (!current || current.generation !== installation.generation || current.activeReleaseId !== installation.activeReleaseId || current.enabled !== installation.enabled) throw new LifecycleError("generation_superseded", "A newer activation replaced this catalog update.");
+    if (release && installation.enabled) await assertSandboxPresetReleaseQualification(release, release.verification, Date.now(), "integrity");
     if (release && installation.enabled && (release.id !== current.activeReleaseId || release.installationId !== current.id || !hasExactReleaseGrants(release.manifest, current.grants))) throw new LifecycleError("grant_mismatch", "Publication requires the exact approved release permission set.");
     if (!release || !installation.enabled) {
       await transaction.update(extensions).set(serializeJsonbFields({ enabled: false, disabledByUser: true, grantedPermissions: {}, updatedAt: new Date() })).where(eq(extensions.id, installation.id));

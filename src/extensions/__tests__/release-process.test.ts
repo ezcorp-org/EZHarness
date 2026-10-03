@@ -1,12 +1,143 @@
 import { describe, expect, test } from "bun:test";
-import { ReleaseProcess, configureReleaseRuntime, getReleaseRuntime, releaseBinding } from "../release-process";
-import { sha256 } from "@ezcorp/extension-contract";
+import { ReleaseProcess, configureReleaseRuntime, getReleaseRuntime, releaseBinding, resolveActiveRelease } from "../release-process";
+import { CANDIDATE_SANDBOX_QUALIFICATION_CASES, sandboxPresetDigest, sha256, validateManifest, type CandidateVerificationReport } from "@ezcorp/extension-contract";
 import type { ActiveExtensionRelease, ReleaseRuntimeDependencies } from "../release-process";
 import { registerCallProvenance, releaseCallProvenance } from "../call-provenance";
 import type { InvocationContext, ReverseRpc, Runner, StartRequest } from "@ezcorp/extension-contract";
 import { spyOn } from "bun:test";
 import { releaseRuntimeFixture } from "../../__tests__/helpers/release-runtime";
 import { getRuntimeToolContext, withRuntimeToolContext } from "../runtime-tool-context";
+import { digestObject } from "../v4/blobs";
+import { sandboxPresetQualificationReleaseDigest } from "../v4/sandbox-preset-qualification";
+import { sandboxExtensionManifest } from "../../__tests__/helpers/sandbox-preset";
+import { incusManifest } from "../../../extensions/incus-sandbox/manifest";
+import type { PreparedIncusAction, PreparedIncusProbe, ProviderRpcBroker } from "../../infrastructure/provider-rpc-broker";
+
+async function qualifySandboxRuntime(snapshot: ActiveExtensionRelease): Promise<void> {
+  const release = snapshot.release;
+  delete release.verification;
+  const { id: _baseId, createdAt: _baseCreatedAt, releaseDigest: _baseDigest, ...releaseInput } = release;
+  release.releaseDigest = digestObject(releaseInput);
+  const verification: CandidateVerificationReport = {
+    catalog: "verified", smoke: "not_declared", capabilities: [],
+    sandboxPresetQualifications: await Promise.all(release.manifest.sandboxProviders![0]!.presets.map(async preset => ({
+      producer: "host" as const, providerId: "incus", presetId: preset.id, profile: preset.profile,
+      releaseDigest: sandboxPresetQualificationReleaseDigest(release), presetDigest: await sandboxPresetDigest(preset),
+      verifiedAt: new Date(Date.now() - 60_000).toISOString(), validUntil: new Date(Date.now() + 60_000).toISOString(),
+      cases: CANDIDATE_SANDBOX_QUALIFICATION_CASES.map(caseId => ({ caseId, status: "passed" as const })),
+    }))),
+  };
+  release.verification = verification;
+  const { id: _id, createdAt: _createdAt, releaseDigest: _releaseDigest, ...storedInput } = release;
+  release.releaseDigest = digestObject(storedInput);
+}
+
+test("runtime resolution denies unqualified sandbox releases before worker startup", async () => {
+  const fixture = releaseRuntimeFixture("sandbox-installation", sandboxExtensionManifest());
+  await qualifySandboxRuntime(fixture.snapshot);
+  const runtime: ReleaseRuntimeDependencies = { runner: async () => fixture.runner, resolve: async () => fixture.snapshot };
+  await expect(resolveActiveRelease(fixture.snapshot.installation.id, runtime)).resolves.toBe(fixture.snapshot);
+
+  const verification: CandidateVerificationReport = { catalog: "verified", smoke: "not_declared", capabilities: [] };
+  fixture.snapshot.release.verification = verification;
+  const { id: _id, createdAt: _createdAt, releaseDigest: _releaseDigest, ...storedInput } = fixture.snapshot.release;
+  fixture.snapshot.release.releaseDigest = digestObject(storedInput);
+  const process = new ReleaseProcess(fixture.snapshot.installation.id, runtime);
+  const token = registerCallProvenance({ actorExtensionId: fixture.snapshot.installation.id, onBehalfOf: "alice", conversationId: "conversation", ownerless: false, runId: null, parentCallId: null, kind: "tool" });
+  try {
+    await expect(process.callTool("read", {}, { ezCallId: token })).rejects.toMatchObject({ code: "INVALID_QUALIFICATION" });
+    expect(fixture.calls).toHaveLength(0);
+  } finally {
+    process.kill();
+    releaseCallProvenance(token);
+  }
+});
+
+test("host resolves the retained Incus 0.1.2 manifest with its original inspection schema", async () => {
+  // Exact saved inspection input from the retained 0.1.2 release. The f77
+  // public-schema extension made this valid archived release fail at startup.
+  const archived = structuredClone(incusManifest);
+  const inspection = archived.methods!.find(method => method.name === "incus/lifecycle/inspectOperation")!;
+  const archivedInput = { type: "object", additionalProperties: false,
+    properties: { connectionId: { type: "string" }, operationId: { type: "string" },
+      providerId: { type: "string" }, rpcDeadlineMs: { type: "number" }, sandboxId: { type: "string" } },
+    required: ["connectionId", "operationId", "providerId", "rpcDeadlineMs", "sandboxId"] };
+  inspection.inputSchema = archivedInput;
+  const fixture = releaseRuntimeFixture("incus-retained-installation", archived);
+  await qualifySandboxRuntime(fixture.snapshot);
+  const runtime: ReleaseRuntimeDependencies = { runner: async () => fixture.runner, resolve: async () => fixture.snapshot };
+  await expect(resolveActiveRelease(fixture.snapshot.installation.id, runtime)).resolves.toBe(fixture.snapshot);
+  inspection.inputSchema = { ...archivedInput,
+    properties: { ...archivedInput.properties, requestId: { type: "string" } } };
+  expect(() => validateManifest(archived)).toThrow("canonical wire schemas");
+});
+
+test("runtime resolves an activated sandbox release after candidate expiry but still checks integrity", async () => {
+  const fixture = releaseRuntimeFixture("sandbox-installation", sandboxExtensionManifest());
+  await qualifySandboxRuntime(fixture.snapshot);
+  const release = fixture.snapshot.release;
+  for (const qualification of release.verification!.sandboxPresetQualifications!) {
+    qualification.verifiedAt = new Date(Date.now() - 7_200_000).toISOString();
+    qualification.validUntil = new Date(Date.now() - 3_600_000).toISOString();
+  }
+  const { id: _id, createdAt: _createdAt, releaseDigest: _releaseDigest, ...storedInput } = release;
+  release.releaseDigest = digestObject(storedInput);
+  const runtime: ReleaseRuntimeDependencies = { runner: async () => fixture.runner, resolve: async () => fixture.snapshot };
+  await expect(resolveActiveRelease(fixture.snapshot.installation.id, runtime)).resolves.toBe(fixture.snapshot);
+  release.verification!.sandboxPresetQualifications![0]!.cases.pop();
+  release.releaseDigest = digestObject(storedInput);
+  await expect(resolveActiveRelease(fixture.snapshot.installation.id, runtime)).rejects.toMatchObject({ code: "INVALID_QUALIFICATION" });
+});
+
+test("host-owned Incus calls reject cancellation and missing broker before provider work", async () => {
+  const fixture = harness();
+  const input = { providerId: "incus", connectionId: "connection" };
+  try {
+    await expect(fixture.process.callIncusProbe(input, "connection", { signal: AbortSignal.abort() })).rejects.toMatchObject({ code: "CANCELLED" });
+    await expect(fixture.process.callIncusSandboxOperation("binding", "lifecycle.inspect", input, { signal: AbortSignal.abort() })).rejects.toMatchObject({ code: "CANCELLED" });
+    await expect(fixture.process.callIncusProbe(input, "connection")).rejects.toMatchObject({ code: "CAPABILITY_UNAVAILABLE" });
+    await expect(fixture.process.callIncusSandboxOperation("binding", "lifecycle.inspect", input)).rejects.toMatchObject({ code: "CAPABILITY_UNAVAILABLE" });
+    expect(fixture.starts).toHaveLength(0);
+  } finally { fixture.cleanup(); }
+});
+
+test("host-owned Incus calls bind broker preparation to the active release and reject a stale scope", async () => {
+  const fixture = releaseRuntimeFixture("incus-installation", incusManifest);
+  await qualifySandboxRuntime(fixture.snapshot);
+  const input = { providerId: "incus", connectionId: "connection", sandboxId: "binding" };
+  const prepared: string[] = [];
+  const staleScope = {
+    installationId: fixture.snapshot.installation.id,
+    releaseId: "retired-release",
+    releaseDigest: fixture.snapshot.release.releaseDigest,
+    generation: fixture.snapshot.installation.generation,
+  };
+  const broker = {
+    prepare: async (snapshot: ActiveExtensionRelease, connectionId: string): Promise<PreparedIncusProbe> => {
+      expect(snapshot).toBe(fixture.snapshot);
+      expect(connectionId).toBe(input.connectionId);
+      prepared.push("probe");
+      return staleScope as PreparedIncusProbe;
+    },
+    prepareAction: async (snapshot: ActiveExtensionRelease, bindingId: string, operation: string, actionInput: unknown): Promise<PreparedIncusAction> => {
+      expect(snapshot).toBe(fixture.snapshot);
+      expect([bindingId, operation, actionInput]).toEqual(["binding", "lifecycle.inspect", input]);
+      prepared.push("action");
+      return { ...staleScope, method: "incus/lifecycle/inspect" } as PreparedIncusAction;
+    },
+  } as ProviderRpcBroker;
+  const process = new ReleaseProcess(fixture.snapshot.installation.id, {
+    runner: async () => fixture.runner,
+    resolve: async () => fixture.snapshot,
+    providerRpcBroker: broker,
+  });
+  try {
+    await expect(process.callIncusProbe(input, input.connectionId)).rejects.toMatchObject({ code: "RELEASE_CHANGED" });
+    await expect(process.callIncusSandboxOperation("binding", "lifecycle.inspect", input)).rejects.toMatchObject({ code: "RELEASE_CHANGED" });
+    expect(prepared).toEqual(["probe", "action"]);
+    expect(fixture.calls).toHaveLength(0);
+  } finally { process.kill(); }
+});
 
 test("reverse dispatch reinstalls the captured host guard instead of transport ambient context", async () => {
   const fixture = harness();
@@ -35,6 +166,23 @@ test("durable guard denial prevents worker startup despite child metadata claimi
     await expect(fixture.process.callTool("read", {}, { ezCallId: fixture.token, invocationGuard: "allow" }, { invocationGuard: async () => { throw new Error("claim not active"); } })).rejects.toThrow("claim not active");
     expect(fixture.starts).toHaveLength(0);
   } finally { fixture.cleanup(); }
+});
+
+test("call provenance guard runs after the host guard and can deny worker startup", async () => {
+  const fixture = harness();
+  const checks: string[] = [];
+  const token = registerCallProvenance({
+    actorExtensionId: "installation", onBehalfOf: "alice", conversationId: "conversation",
+    ownerless: false, runId: null, parentCallId: null, kind: "tool",
+    invocationGuard: async () => { checks.push("provenance"); throw new Error("token no longer active"); },
+  });
+  try {
+    await expect(fixture.process.callTool("read", {}, { ezCallId: token }, {
+      invocationGuard: async () => { checks.push("host"); },
+    })).rejects.toThrow("token no longer active");
+    expect(checks).toEqual(["host", "host", "provenance"]);
+    expect(fixture.starts).toHaveLength(0);
+  } finally { releaseCallProvenance(token); fixture.cleanup(); }
 });
 
 test("durable guard is rechecked after runner resolution before any worker starts", async () => {

@@ -95,6 +95,7 @@ mock.module("../extensions/registry", () => ({
 mock.module("../extensions/tool-executor", () => ({
   ToolExecutor: class {
     setStateMediator() {} setExecutor() {} setSpawnQuota() {} setCurrentUserId() {}
+    setWorkspaceTarget() {}
     setCurrentModel() {} setCurrentProvider() {} setArgsResolver() {}
     setCurrentAgentConfigId() {} setPendingPermissionGate() {}
   },

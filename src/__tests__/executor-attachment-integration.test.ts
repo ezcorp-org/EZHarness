@@ -20,6 +20,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import type { Model, Api } from "@earendil-works/pi-ai";
 import type { AgentEvents } from "../types";
+import { localWorkspaceTarget } from "../runtime/workspaces/target";
 
 mockDbConnection();
 
@@ -201,7 +202,7 @@ describe("streamChat attachment-handle integration", () => {
   test("handle echoed by the LLM reaches the subprocess as a data URI", async () => {
     const conv = await createConversation(projectId, { title: "integration", userId });
     const written = await writeAttachment({
-      projectRoot, conversationId: conv.id, messageId: "will-assign",
+      workspaceTarget: localWorkspaceTarget(projectRoot), conversationId: conv.id, messageId: "will-assign",
       filename: "cow.png", mimeType: "image/png", bytes: IMAGE_BYTES,
     });
     const staged: StagedAttachment = {
@@ -220,6 +221,7 @@ describe("streamChat attachment-handle integration", () => {
       provider: "anthropic",
       model: "claude-sonnet-4-5",
       projectId,
+      workspaceTarget: localWorkspaceTarget(projectRoot),
       attachments: [staged],
     });
 
@@ -231,7 +233,7 @@ describe("streamChat attachment-handle integration", () => {
   test("unknown handle passes through verbatim (tool sees the raw handle)", async () => {
     const conv = await createConversation(projectId, { title: "int-unknown", userId });
     const written = await writeAttachment({
-      projectRoot, conversationId: conv.id, messageId: "will-assign",
+      workspaceTarget: localWorkspaceTarget(projectRoot), conversationId: conv.id, messageId: "will-assign",
       filename: "cow.png", mimeType: "image/png", bytes: IMAGE_BYTES,
     });
     const staged: StagedAttachment = {
@@ -254,6 +256,7 @@ describe("streamChat attachment-handle integration", () => {
       provider: "anthropic",
       model: "claude-sonnet-4-5",
       projectId,
+      workspaceTarget: localWorkspaceTarget(projectRoot),
       attachments: [staged],
     });
 

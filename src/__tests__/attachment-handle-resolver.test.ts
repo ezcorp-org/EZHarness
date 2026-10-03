@@ -2,8 +2,9 @@ import { test, expect, describe, beforeAll, afterAll } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildAttachmentHandleResolver } from "../chat/attachments/handle-resolver";
+import { buildAttachmentHandleResolver as buildAttachmentHandleResolverWithTarget } from "../chat/attachments/handle-resolver";
 import { writeAttachment } from "../chat/attachments/storage";
+import { localWorkspaceTarget } from "../runtime/workspaces/target";
 
 const PNG_BYTES = new TextEncoder().encode("PNG-FAKE-BYTES");
 const JPG_BYTES = new TextEncoder().encode("JPG-FAKE-BYTES");
@@ -13,15 +14,18 @@ const JPG_B64 = Buffer.from(JPG_BYTES).toString("base64");
 let root: string;
 let pngPath: string;
 let jpgPath: string;
+const buildAttachmentHandleResolver = (
+	attachments: Parameters<typeof buildAttachmentHandleResolverWithTarget>[0],
+) => buildAttachmentHandleResolverWithTarget(attachments, localWorkspaceTarget(root));
 
 beforeAll(async () => {
 	root = await mkdtemp(join(tmpdir(), "ezcorp-handles-"));
 	pngPath = (await writeAttachment({
-		projectRoot: root, conversationId: "c", messageId: "m",
+		workspaceTarget: localWorkspaceTarget(root), conversationId: "c", messageId: "m",
 		filename: "cow.png", mimeType: "image/png", bytes: PNG_BYTES,
 	})).storagePath;
 	jpgPath = (await writeAttachment({
-		projectRoot: root, conversationId: "c", messageId: "m",
+		workspaceTarget: localWorkspaceTarget(root), conversationId: "c", messageId: "m",
 		filename: "man.jpg", mimeType: "image/jpeg", bytes: JPG_BYTES,
 	})).storagePath;
 });

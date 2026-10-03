@@ -18,6 +18,7 @@ import {
 } from "$server/db/queries/preview-sessions";
 import { tryBridgePreviewWebSocket } from "./ws-bridge";
 import { getPreviewQuota } from "$server/runtime/preview/preview-rate-limit";
+import { resolveCurrentPreviewSandboxTarget } from "$server/runtime/preview/preview-target";
 
 // ── Preview-origin dispatch glue (SvelteKit side) ──────────────────────
 //
@@ -126,6 +127,7 @@ export async function servePreviewRequest(
     {
       verifyToken: (t) => verifyPreviewToken(t),
       getServable: (id, userId) => getServablePreview(id, userId),
+      resolveWorkspaceTarget: async (_reference, row) => resolveCurrentPreviewSandboxTarget(row),
       touch: (id, userId) => touchPreview(id, userId).catch(() => undefined),
       readFile: async (abs) => {
         // Stream straight off disk via Bun.file (project convention — no

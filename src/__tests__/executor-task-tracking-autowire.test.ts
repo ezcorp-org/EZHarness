@@ -168,6 +168,7 @@ mock.module("../extensions/tool-executor", () => ({
     setExecutor() {}
     setSpawnQuota() {}
     setCurrentUserId() {}
+    setWorkspaceTarget() {}
     setCurrentModel() {}
     setCurrentProvider() {}
     // Refactor f912990 (wire PermissionEngine into ToolExecutor sites)

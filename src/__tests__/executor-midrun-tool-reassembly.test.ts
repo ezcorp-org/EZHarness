@@ -132,6 +132,7 @@ mock.module("../extensions/tool-executor", () => ({
     setSpawnQuota() {}
     setArgsResolver() {}
     setCurrentUserId() {}
+    setWorkspaceTarget() {}
     setCurrentModel() {}
     setCurrentProvider() {}
     setCurrentAgentConfigId() {}

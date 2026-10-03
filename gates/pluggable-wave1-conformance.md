@@ -1,0 +1,14 @@
+# Gates: pluggable infrastructure wave 1 conformance
+
+- [x] G1: Candidate evidence is created only from host-executed assertions bound to the release and preset.
+  CHECK: bunx bun@1.3.14 test ./src/extensions/v4/sandbox-conformance.test.ts ./src/extensions/v4/sandbox-preset-qualification.test.ts
+  EVIDENCE: 2026-09-22 exited 0 on Bun 1.3.14: 10 tests passed, 0 failed. The host executed canonical describe/preflight exchanges, compatible and incompatible resolution, deterministic settings, override rejection, exact preset artifact drift, complete preset coverage and the injected SP05 receipt before it created the exact SP01/SP02/SP03/SP05/SP07/SP08 result set. Release, provider, preset, workspace and effective-settings identities are compared exactly.
+- [x] G2: Missing, failed or unavailable SP05 proof keeps production sandbox releases blocked.
+  CHECK: bunx bun@1.3.14 test ./src/extensions/v4/sandbox-conformance.test.ts ./src/runtime/workspaces/target.test.ts
+  EVIDENCE: 2026-09-22 exited 0 on Bun 1.3.14. Missing proof, mismatched bindings, absent backends, backend failures, removed routing boundaries and changed AMD canaries all failed closed. Production initialization injects `proveSandboxLocalFallbackDenied`, which executes read, edit and shell through the production sandbox target and returns a receipt only after local fallback and all host effects are denied.
+- [x] G3: Production verifier tests cover success prerequisites and every fail-closed branch.
+  CHECK: bunx bun@1.3.14 test ./src/extensions/v4/sandbox-conformance.test.ts ./src/extensions/v4/sandbox-preset-qualification.test.ts ./src/extensions/candidate-verification-broker.test.ts ./src/extensions/v4/lifecycle.test.ts ./src/extensions/__tests__/release-process.test.ts ./src/extensions/entity-publication.test.ts ./src/runtime/workspaces/target.test.ts
+  EVIDENCE: 2026-09-22 exited 0 on Bun 1.3.14: 78 tests passed, 0 failed, 438 assertions. The run covered candidate success, missing proof, provider drift/faults, nondeterminism, invalid observations and overrides, build storage, approval, activation, reconciliation, publication and runtime startup. A controlled test proves provider conformance cannot inherit smoke-test host capabilities.
+- [x] G4: Focused tests, typecheck and coverage pass with pinned Bun 1.3.14.
+  CHECK: bunx bun@1.3.14 run typecheck && bunx bun@1.3.14 x biome check src/extensions/v4/sandbox-conformance.ts src/extensions/v4/sandbox-conformance.test.ts src/extensions/extension-lifecycle-service.ts src/extensions/candidate-verification-broker.test.ts scripts/coverage-thresholds.json
+  EVIDENCE: 2026-09-22 exited 0 on Bun 1.3.14 after the Incus fixes landed. Backend, web, backend-test and web-E2E typechecks passed; Biome reported no fixes. Isolated LCOV measured `src/extensions/v4/sandbox-conformance.ts` at 179/179 lines, and its exact threshold is 100%.

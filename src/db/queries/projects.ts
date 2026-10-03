@@ -1,4 +1,4 @@
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { getDb } from "../connection";
 import { projects } from "../schema";
 import { upsertProjectMember } from "./project-members";
@@ -6,6 +6,7 @@ import { SELF_PROJECT_ID } from "../seed-self-project";
 
 export type Project = typeof projects.$inferSelect;
 export type NewProject = { name: string; path: string; icon?: string | null; variables?: Record<string, unknown> };
+const visibleProject = eq(projects.purpose, "user");
 
 export async function listProjects(): Promise<Project[]> {
   // The seeded self project (dev-mode dogfooding workspace) is pinned first
@@ -15,11 +16,12 @@ export async function listProjects(): Promise<Project[]> {
   return getDb()
     .select()
     .from(projects)
+    .where(visibleProject)
     .orderBy(sql`CASE WHEN ${projects.id} = ${SELF_PROJECT_ID} THEN 0 ELSE 1 END`, projects.createdAt);
 }
 
 export async function getProject(id: string): Promise<Project | undefined> {
-  const rows = await getDb().select().from(projects).where(eq(projects.id, id));
+  const rows = await getDb().select().from(projects).where(and(eq(projects.id, id), visibleProject));
   return rows[0];
 }
 
@@ -54,6 +56,7 @@ export async function createProject(
     id: crypto.randomUUID(),
     name: data.name,
     path: data.path,
+    purpose: "user" as const,
     icon: data.icon ?? null,
     variables: data.variables ?? {},
     createdAt: now,
@@ -86,7 +89,7 @@ export async function deleteProject(id: string): Promise<boolean> {
 }
 
 export async function getProjectByName(name: string): Promise<Project | undefined> {
-  const rows = await getDb().select().from(projects).where(eq(projects.name, name));
+  const rows = await getDb().select().from(projects).where(and(eq(projects.name, name), visibleProject));
   return rows[0];
 }
 
@@ -101,6 +104,6 @@ export async function getProjectByName(name: string): Promise<Project | undefine
  */
 export async function getProjectByPath(path: string): Promise<Project | undefined> {
   if (!path) return undefined;
-  const rows = await getDb().select().from(projects).where(eq(projects.path, path));
+  const rows = await getDb().select().from(projects).where(and(eq(projects.path, path), visibleProject));
   return rows[0];
 }

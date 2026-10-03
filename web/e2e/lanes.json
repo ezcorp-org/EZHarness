@@ -73,6 +73,8 @@
       "web/e2e/real-auth/ez-factory-job-run.spec.ts",
       "web/e2e/real-auth/harness-client-flow.spec.ts",
       "web/e2e/real-auth/health-detail-reachable.spec.ts",
+      "web/e2e/real-auth/incus-operator-setup.spec.ts",
+      "web/e2e/real-auth/incus-management.spec.ts",
       "web/e2e/real-auth/local-provider-loopback.spec.ts",
       "web/e2e/goal-feature.spec.ts",
       "web/e2e/real-auth/project-mutation-authz-flow.spec.ts",
