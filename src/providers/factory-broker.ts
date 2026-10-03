@@ -1,8 +1,8 @@
-import { streamSimple } from "@earendil-works/pi-ai/compat";
+import { getModel, streamSimple } from "@earendil-works/pi-ai/compat";
 import type { Api, AssistantMessageEventStream, Model } from "@earendil-works/pi-ai";
 import type { FactoryBroker, FactoryBrokerRequest } from "../runtime/factory-execution";
 import { authCallOptions, tryGetCredential, type ProviderCredential } from "./credentials";
-import { resolveModelForCredential } from "./registry";
+import { resolveModelForCredential, resolveOAuthModel } from "./registry";
 import { resolvePinnedModel, type PinnedModelResolution } from "./router";
 
 /**
@@ -114,12 +114,22 @@ export async function factoryProviderReadiness(
  * unchanged, or refuses with the only error it throws ("not supported with <provider> OAuth").
  */
 function credentialRunsPin(pin: FactoryProviderPin, kind: ProviderCredential["type"]): boolean {
+  if (kind === "apikey") return !subscriptionOnly(pin);
   try {
     resolveModelForCredential({ id: pin.model } as Model<Api>, pin.provider, kind);
     return true;
   } catch {
     return false;
   }
+}
+
+/**
+ * An id only the subscription backend serves (an OAuth-only entry the api-key catalog does not
+ * hold, such as gpt-6-luna). The swap leaves an API key's model unchanged, so this is the one case
+ * it cannot refuse: the call would reach the subscription endpoint with a key and be rejected.
+ */
+function subscriptionOnly(pin: FactoryProviderPin): boolean {
+  return resolveOAuthModel(pin.provider, pin.model) !== null && getModel(pin.provider as never, pin.model as never) === undefined;
 }
 
 /** A request for a model other than the pin: refused by name, never served by the pin instead. */

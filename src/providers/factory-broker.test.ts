@@ -350,6 +350,19 @@ describe("the openai pin under a ChatGPT-plan OAuth login (C10 revision, W10c)",
     expect(viaKey[0]!.options.apiKey).toBe(API_KEY);
   });
 
+  test("an API key alone cannot run the subscription-only pin: named as unavailable, never sent", async () => {
+    // gpt-6-luna exists only behind the ChatGPT login; an API key at that endpoint is refused.
+    await upsertSetting(API_KEY_SETTING, encrypt(API_KEY));
+    const readiness = await factoryProviderReadiness(LUNA, { now: () => NOW });
+    expect(readiness).toMatchObject({ ready: false, credentialKind: "apikey", failures: ["model_not_available"] });
+    const sent: Array<{ model: Model<Api>; options: { apiKey?: string } }> = [];
+    const broker = createFactoryProviderBroker({ pin: LUNA, stream: capturing(sent) });
+    await expect(broker.stream(request({ model: model(LUNA.provider, LUNA.model) }))).rejects.toThrow(/gpt-6-luna \(model_not_available\)/);
+    expect(sent).toHaveLength(0);
+    // A model both endpoints serve stays runnable on the key.
+    expect(await factoryProviderReadiness({ provider: "openai", model: "gpt-5.5" }, { now: () => NOW })).toMatchObject({ ready: true, credentialKind: "apikey" });
+  });
+
   test("a login that disappears between readiness and the call is refused, not sent unauthenticated", async () => {
     await signIn();
     let reads = 0;
