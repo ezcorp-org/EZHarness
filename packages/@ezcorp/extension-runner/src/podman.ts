@@ -1,5 +1,7 @@
-import { mkdir, mkdtemp, writeFile, readFile, rename, rm, chmod, lstat, open } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile, readFile, rename, rm, chmod, lstat, open, type FileHandle } from "node:fs/promises";
 import { constants as fsConstants } from "node:fs";
+import { Readable } from "node:stream";
+import type { ReadableStream as WebReadableStream } from "node:stream/web";
 import { dirname, join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
@@ -132,6 +134,27 @@ export function runnerChannelMount(directory: string): string[] {
 }
 
 interface ChannelInode { readonly device: number; readonly inode: number }
+
+/**
+ * Reads one channel FIFO on the event loop.
+ *
+ * `FileHandle.createReadStream` reads on Bun's file-system thread pool, and a
+ * read from a FIFO holds its thread until the guest writes. Every live worker
+ * keeps two such reads (`out` and `err`) for its whole life, and the pool has
+ * one thread per CPU. So at half as many live workers as CPUs (two on a 4-CPU
+ * host) no other file operation in the process can run, the next request frame
+ * included, until a worker's deadline closes it. Bun's own file stream polls a
+ * FIFO instead. It does not own the descriptor; see `closeChannelReader`.
+ */
+function channelReader(handle: FileHandle): Readable {
+  return Readable.fromWeb(Bun.file(handle.fd).stream() as WebReadableStream<Uint8Array>);
+}
+
+/** Stops a channel reader, then closes its descriptor, which the reader polls until it has stopped. */
+async function closeChannelReader(stream: Readable, handle: FileHandle): Promise<void> {
+  if (!stream.closed) await new Promise(resolve => { stream.once("close", resolve); stream.destroy(); });
+  await handle.close();
+}
 
 const builderProgram = `const result = await Bun.build({entrypoints:[process.argv[1]],target:"bun",format:"esm",packages:"bundle",minify:false,sourcemap:"none"}); if(!result.success){console.error(JSON.stringify(result.logs));process.exit(1);} console.log(JSON.stringify({code:await result.outputs[0].text()}));`;
 const testProgram = `const child=Bun.spawn([process.execPath,"test","--config=/dev/null",process.argv[1],"--timeout",process.argv[2],"--bail","--reporter=junit","--reporter-outfile=/tmp/feature-tests.xml"],{stdout:"inherit",stderr:"inherit"});const code=await child.exited;if(code!==0)process.exit(code);const report=await Bun.file('/tmp/feature-tests.xml').text();const root=report.match(/<testsuites\\b[^>]*>/)?.[0]??report.match(/<testsuite\\b[^>]*>/)?.[0]??'';const count=Number(root.match(/\\btests="(\\d+)"/)?.[1]);if(!count||/<skipped\\b|<failure\\b|<error\\b/.test(report)||/\\b(?:failures|errors|skipped)="[1-9]/.test(root)){console.error('Feature tests missing, skipped, or failed');process.exit(1)}`;
@@ -378,8 +401,8 @@ export class PodmanRunner implements Runner {
       this.openChannelEntry(id, "err", fsConstants.O_RDONLY),
     ]);
     const sink = input.createWriteStream();
-    const out = output.createReadStream();
-    const err = errors.createReadStream();
+    const out = channelReader(output);
+    const err = channelReader(errors);
     const closes: ((code: number | null) => void)[] = [];
     const errored: ((error: Error) => void)[] = [];
     let closed = false;
@@ -387,7 +410,7 @@ export class PodmanRunner implements Runner {
       if (closed) return;
       closed = true;
       for (const listener of closes) listener(null);
-      void Promise.allSettled([input.close(), output.close(), errors.close()]);
+      void Promise.allSettled([input.close(), closeChannelReader(out, output), closeChannelReader(err, errors)]);
     };
     out.once("end", finish);
     out.once("close", finish);
