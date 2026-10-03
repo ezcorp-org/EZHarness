@@ -349,9 +349,9 @@ class OwnedNeighborChallengeTest(unittest.TestCase):
         reply = json.dumps(dict(type="sync", status_code=200, metadata={"name": "ezharness"})).encode()
         with patch.object(gate, "execute", return_value=(0, reply, b"")) as execute:
             self.assertEqual(gate.neighbor_query("/1.0/projects/ezharness", gate.time.monotonic() + 20), {"name": "ezharness"})
-            self.assertEqual(execute.call_args.args[:2], (["incus", "--force-local", "query", "/1.0/projects/ezharness"], b""))
+            self.assertEqual(execute.call_args.args[:2], (["incus", "--force-local", "query", "--raw", "/1.0/projects/ezharness"], b""))
             self.assertLessEqual(execute.call_args.args[2], 3)
-        for result in ((1, reply, b""), (0, reply, b"private"), (0, b"x" * 65537, b""), (0, b"{}", b"")):
+        for result in ((1, reply, b""), (0, reply, b"private"), (0, b"x" * 65537, b""), (0, b"{}", b""), (0, b'{"name":"ezharness","config":{"restricted":"true"}}', b"")):
             with patch.object(gate, "execute", return_value=result), self.assertRaises(gate.Denied):
                 gate.neighbor_query("/1.0/projects/ezharness", gate.time.monotonic() + 20)
         with self.assertRaises(gate.Denied): gate.neighbor_query("/1.0/projects/ezharness", 0)

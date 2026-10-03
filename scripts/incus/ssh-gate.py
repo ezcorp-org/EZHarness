@@ -317,7 +317,7 @@ def neighbor_query(path, deadline):
     remaining = deadline - time.monotonic()
     if remaining <= 0:
         raise Denied("owned neighbor deadline expired")
-    code, stdout, stderr = execute(["incus", "--force-local", "query", path], b"", min(3, remaining))
+    code, stdout, stderr = execute(["incus", "--force-local", "query", "--raw", path], b"", min(3, remaining))
     if code != 0 or stderr or len(stdout) > 64 * 1024:
         raise Denied("owned neighbor readback unavailable")
     reply = json.loads(stdout)
