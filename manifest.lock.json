@@ -69,7 +69,7 @@
       "entrypoint": "extension.ts",
       "files": 10,
       "bytes": 109002,
-      "sourceDigest": "431cb39e597c7e91cdeeffe2c76801de93516af0fc993f99a0039a07f31541b0"
+      "sourceDigest": "eff9541a50ba891ec72c58ae9d9f66116c3a5493eb51df91c972a76fe005470b"
     },
     "extension-author": {
       "directory": "docs/extensions/examples/extension-author",

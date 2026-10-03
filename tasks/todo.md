@@ -985,8 +985,8 @@ Review: The helper now reads nonempty readiness content until it appears or the 
 ## PR #308 conflict resolution and merge — 2026-10-03
 
 - [x] Merge current main into PR #308, preserving both branches' behavior.
-- [ ] Independently review conflict resolution and security invariants with Sol agents.
-- [ ] Fix the fresh October 3 root, web, and Excel dependency advisories and verify zero audit findings.
+- [x] Independently review conflict resolution and security invariants with Sol agents.
+- [x] Fix the fresh October 3 root, web, and Excel dependency advisories and verify zero audit findings.
 - [ ] Run fresh installs, static checks, full tests, build, browser lanes, coverage, and audits.
 - [ ] Push the tested head and verify required hosted CI and review requirements.
 - [ ] Squash-merge when GitHub requirements pass; record the final result.
@@ -994,6 +994,8 @@ Review: The helper now reads nonempty readiness content until it appears or the 
 Plan reviewed: user authorizes conflict resolution, validation, push, and merge when ready. Use isolated worktrees. Keep all gates and required approvals intact. Record final evidence in ignored `tasks/pr308-merge-oct3-results.md` so tracked source remains frozen during browser attestation.
 
 Merge review: The only textual conflict was this append-only task journal. Both PR #308 and main's #319/#320 entries are retained. The auto-merged sidebar, watchdog, and isolation changes remain in place; focused integration checks follow below.
+
+Pre-validation review: Independent Sol review accepted the merged product tree and narrow dependency lock updates. Root and Excel caller regressions cover URI normalization, cross-family subnet rejection, bounded brace parsing, and workbook compatibility. Web tests resolve patched packages through their actual parents. The Excel source digest is refreshed. Complete final test and audit results will be recorded in the ignored report above; keep tracked source frozen while collecting browser receipts.
 
 ### Previous dependency task
 
