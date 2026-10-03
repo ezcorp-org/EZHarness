@@ -5668,3 +5668,17 @@ From the read-only plan audit (w00/wave4h/leftover-audit-plan.md, section D, ded
       combined run at 1992630f3 is receipted: b73b13be4; W12e G5 is ticked in this commit.)
 
 Open factory items elsewhere in this file (class (a) of the todo audit, 41 boxes; not repeated here): see lines 2127, 2152, 2153, 2804, 2806, 2835, 2892, 2894, 3145, 3420, 3508, 3614, 3619, 3666, 3668, 3670, 3985, 3986, 3987, 4004, 4007, 4123, 4124, 5349, 5442, 5476, 5477, 5525, 5567, 5569, 5571, 5574, 5576, 5582, 5583, 5585, 5586, 5587, 5588, 5589, 5590.
+
+## W4H-6 — three hosted timing failures, root cause each (branch `wp/w4h-6`; gates `tasks/factory/w4h-6-GATES.md`)
+
+- [x] Runner-shaped container (Ubuntu 24.04, systemd, the repo's runner setup script, podman 4.9.3, 4 CPUs, 16 GiB, Bun 1.4.2).
+- [x] Red at 52d8ba079: workspace budget test (30 s timeout, dash), supervisor attach (Worker closed, 73.8 s), auto-note concurrent captures.
+- [x] Cause 1 fixed in the product: the reference-code budget kills the command's process group (1b4954ce2).
+- [x] Cause 2 fixed in the product: worker channel FIFO reads leave the fs thread pool (e090a379f, 1be3d0ac5, 0d71cf09f).
+- [x] Cause 3 fixed in the test: the attach test uses the supervisor's own worker id and refuses `start` (8a4cf8b04).
+- [x] Green at the head in the container: each file alone and the hosted shard lists 0, 2 and 7 (gates G1-G4).
+
+Review: the two "Worker closed" failures were one product defect that only a host with few CPUs shows: each live worker held two
+fs-pool threads in blocking FIFO reads, so two live workers on 4 vCPUs stopped every file operation in the process. A local host
+with 32 CPUs needs 16. The supervisor test hid a second defect: it never attached at all. Receipts:
+/tmp/factory-platform-evidence/w4h-6/report.txt.
