@@ -250,7 +250,9 @@ web_host_files() {
       web/src/routes/api/infrastructure/incus/probe-fixtures/probe-fixtures.test.ts \
       web/src/routes/api/infrastructure/incus/qualification/qualification.test.ts \
       web/src/routes/api/infrastructure/incus/capacity/route.test.ts \
-      web/src/routes/api/infrastructure/incus/smoke/smoke.test.ts
+      web/src/routes/api/infrastructure/incus/smoke/smoke.test.ts \
+      web/src/routes/api/infrastructure/incus/features/features.test.ts \
+      web/src/routes/api/infrastructure/incus/management/management.test.ts
     # Scoped web bun:test files. Per-file notes on why each is MEASURED (the
     # C-side rationale) — all of them also GATE, per the header above.
     #   permission-mode-indicator: the github-projects route tests import

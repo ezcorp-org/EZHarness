@@ -147,6 +147,19 @@ async function savedKey(page: Page, suffix: string): Promise<string> {
 	return key!;
 }
 
+test("the feature API rejects inherited action names for an authenticated operator", async ({ page }) => {
+	await page.goto("/extensions");
+	for (const action of ["constructor", "toString", "__proto__"]) {
+		const result = await page.evaluate(async value => {
+			const response = await fetch("/api/infrastructure/incus/features", {
+				method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: value }),
+			});
+			return { status: response.status, body: await response.json() };
+		}, action);
+		expect(result).toMatchObject({ status: 400, body: { code: "invalid_input" } });
+	}
+});
+
 test("qualifies an environment, creates a project sandbox, and manages its lifecycle @evidence", async ({ page }, testInfo) => {
 	const { actions } = await mockManagement(page);
 	await page.goto("/extensions");

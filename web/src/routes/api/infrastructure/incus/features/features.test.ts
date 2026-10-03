@@ -35,7 +35,7 @@ IncusFeatureService: class {
   async stop(input: Record<string, unknown>) { calls.push(`stop:${input.bindingId}`); return operation; }
   async destroy(input: Record<string, unknown>) { calls.push(`destroy:${input.bindingId}`); return operation; }
   async destroyRetired(input: Record<string, unknown>) { calls.push(`destroyRetired:${input.bindingId}:${input.idempotencyScope}:${input.idempotencyKey}`); return operation; }
-  async reconcile(limit?: number) { calls.push(`reconcile:${limit}`); return { processed: 0 }; }
+  async reconcile(limit?: number) { calls.push(`reconcile:${limit}`); if (limit === 13) throw new Error("SECRET-provider-detail"); return { processed: 0 }; }
 } }));
 
 const { POST } = await import("./+server");
@@ -72,6 +72,16 @@ test("feature route rejects extra authority, missing idempotency, and malformed 
     { action: "destroyRetired", projectId: "project-a", bindingId: "binding-a", idempotencyScope: "scope-a", idempotencyKey: "key-a", operation: "create" },
     { action: "reconcile", limit: 1000 },
   ]) expect((await POST(event(admin, body))).status).toBe(400);
+  expect(calls).toEqual([]);
+});
+
+test("feature route rejects inherited action names as invalid input", async () => {
+  calls.length = 0;
+  for (const action of ["constructor", "toString", "__proto__"]) {
+    const response = await POST(event(admin, { action }));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ code: "invalid_input" });
+  }
   expect(calls).toEqual([]);
 });
 
@@ -136,6 +146,16 @@ test("status and reconciliation expose only operator state", async () => {
   const reconciled = await POST(event(admin, { action: "reconcile", limit: 5 }));
   expect(reconciled.status).toBe(200);
   expect(calls).toEqual(["reconcile:5"]);
+});
+
+test("unexpected provider failures return a safe error without internal details", async () => {
+  calls.length = 0;
+  const response = await POST(event(admin, { action: "reconcile", limit: 13 }));
+  expect(response.status).toBe(409);
+  const body = await response.text();
+  expect(JSON.parse(body)).toMatchObject({ code: "feature_failed" });
+  expect(body).not.toContain("SECRET-provider-detail");
+  expect(calls).toEqual(["reconcile:13"]);
 });
 
 test("feature status does not expose a qualification fixture as a user project", async () => {

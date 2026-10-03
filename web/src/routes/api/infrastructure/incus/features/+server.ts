@@ -30,7 +30,7 @@ function parse(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const input = value as Record<string, unknown>;
   const action = input.action;
-  if (typeof action !== "string" || !(action in fields)) return null;
+  if (typeof action !== "string" || !Object.hasOwn(fields, action)) return null;
   const expected = fields[action as Action];
   const supplied = Object.keys(input);
   const actual = action === "reconcile" && !Object.hasOwn(input, "limit") ? ["action"] : supplied;
