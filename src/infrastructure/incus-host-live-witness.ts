@@ -413,6 +413,7 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
     let admittedOperation: SandboxOperation | undefined;
     try {
       const first = dropFirstReply ? await this.fixtures.create(scope, operationId) : null;
+      admittedOperation = first ?? undefined;
       let operation = await this.fixtures.create(scope, operationId);
       admittedOperation = operation;
       if (first && (first.id !== operation.id || first.bindingId !== operation.bindingId)) {

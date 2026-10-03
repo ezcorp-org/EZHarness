@@ -647,3 +647,30 @@ test("a service error after admitting CREATE but before returning its receipt ca
     expect(operations.map(operation => operation.kind)).toEqual(["CREATE"]);
   } finally { spy.mockRestore(); }
 });
+
+
+test("a replay error preserves the known first admitted CREATE receipt", async () => {
+  const { db, qualifications, service, dispatches } = await setup(true, true);
+  const original = service.create.bind(service);
+  let calls = 0;
+  let savedId = "";
+  const spy = spyOn(service, "create").mockImplementation(async (scope, operationId) => {
+    if (++calls === 2) throw new Error("replay receipt delivery failed");
+    const operation = await original(scope, operationId);
+    savedId = operation.id;
+    return operation;
+  });
+  try {
+    const witness = new IncusHostLiveWitness({ db, fixtures: service, qualifications });
+    const promise = witness.createFixture(scope, INCUS_PRESETS[0]!, "lost-replay-receipt", true);
+    await expect(promise)
+      .rejects.toMatchObject({ reason: "authority_changed", state: "PROVIDER_PENDING",
+        cause: expect.objectContaining({ message: "replay receipt delivery failed" }) });
+    expect((await service.status(scope, "lost-replay-receipt")).operation)
+      .toMatchObject({ id: savedId, kind: "CREATE", state: "PROVIDER_PENDING" });
+    expect(dispatches.map(request => request.kind)).toEqual(["CREATE"]);
+    expect((await db.select().from(schema.sandboxOperations)).map(operation => operation.kind)).toEqual(["CREATE"]);
+    await expect(promise).rejects.toMatchObject({ operationId: savedId });
+    expect(calls).toBe(2);
+  } finally { spy.mockRestore(); }
+});
