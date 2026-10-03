@@ -40,20 +40,18 @@ const agentChatBodySchema = z
     { message: "provider and model must be provided together" },
   );
 
-/**
- * POST — Send a user message into an agent's sub-conversation.
- *
- * If the agent is currently running, the message is queued and picked up
- * after the current run completes (auto-continue). If idle, a new run
- * is started immediately.
- *
- * Body: { content: string }
- */
-export const POST: RequestHandler = async ({ params, request, locals }) => {
-  const scopeErr = requireScope(locals, "chat");
-  if (scopeErr) return scopeErr;
-  const user = requireAuth(locals);
+type Conversation = NonNullable<Awaited<ReturnType<typeof convQueries.getConversation>>>;
+type UserMessage = Awaited<ReturnType<typeof convQueries.createMessage>>;
+type ChatBody = { content: string; bodyProvider?: string; bodyModel?: string };
+type ChatScope = {
+  subConv: Conversation;
+  parentConv: Conversation;
+  rootConversationId: string;
+  projectId: string;
+};
+type RouteLocals = App.Locals;
 
+async function readAgentChatBody(request: Request): Promise<ChatBody | Response> {
   const raw = await request.json().catch(() => null);
   // First-pass: peek at the raw shape so we can keep the legacy
   // "content is required" 400 message (clients + tests assert on that
@@ -78,8 +76,16 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
   const bodyProvider = parsed.data.provider;
   const bodyModel = parsed.data.model;
 
+  return { content, bodyProvider, bodyModel };
+}
+
+async function authorizeAgentChat(
+  conversationId: string,
+  user: ReturnType<typeof requireAuth>,
+  locals: RouteLocals,
+): Promise<ChatScope | Response> {
   // Verify this is a sub-conversation (has a parent)
-  const subConv = await convQueries.getConversation(params.id);
+  const subConv = await convQueries.getConversation(conversationId);
   if (!subConv) return errorJson(404, "Not found");
   if (!subConv.parentConversationId) {
     return errorJson(400, "Not a sub-conversation");
@@ -112,7 +118,7 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
   // direct parent — which makes it reach the EXACT same root the old
   // walk-from-directParent did (no behaviour change; see the
   // equivalence note in conversation-ownership.ts).
-  const ownership = await resolveRootConversationForOwnership(params.id, user);
+  const ownership = await resolveRootConversationForOwnership(conversationId, user);
   if (!ownership) return errorJson(404, "Not found");
   const rootConv = ownership.root;
 
@@ -145,19 +151,16 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
     return errorJson(403, policyDenial.message, { field: policyDenial.field });
   }
 
-  // Save user message to the sub-conversation (appears in feed immediately)
-  const leaf = await convQueries.getLatestLeaf(params.id);
-  const userMessage = await convQueries.createMessage(params.id, {
-    role: "user",
-    content,
-    parentMessageId: leaf?.id,
-  });
+  return { subConv, parentConv, rootConversationId: rootConv.id, projectId };
+}
 
-  // Check if there's a running agent on this sub-conversation
-  const executor = getExecutor();
-  const activeRun = executor.getActiveRunForConversation(params.id);
+function steerOrQueueAgentChat(
+  conversationId: string,
+  content: string,
+  userMessage: UserMessage,
+  executor: ReturnType<typeof getExecutor>,
+): Response {
 
-  if (activeRun) {
     // Agent is running (P2). Steer the live run so the message lands mid-run
     // at the next turn boundary instead of waiting for the run to finish. The
     // decision is ATOMIC — EITHER steer OR enqueue, never both — keyed on the
@@ -178,8 +181,8 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
       content,
       createdAt: userMessage.createdAt instanceof Date ? userMessage.createdAt.toISOString() : String(userMessage.createdAt),
     };
-    const enqueuePending = () => enqueue(params.id, pending);
-    const steerResult = executor.steerConversation(params.id, content, enqueuePending, userMessage.id);
+    const enqueuePending = () => enqueue(conversationId, pending);
+    const steerResult = executor.steerConversation(conversationId, content, enqueuePending, userMessage.id);
     if (steerResult.status === "steered") {
       return json({ status: "steered", messageId: userMessage.id });
     }
@@ -193,6 +196,29 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
     return json({ status: "queued", messageId: userMessage.id });
   }
 
+function resolveAgentSelection(
+  override: string | undefined,
+  persisted: string | null,
+  configured: string | null | undefined,
+  parent: string | null,
+): string | undefined {
+  return override ?? persisted ?? (configured === CURRENT_MODEL_SENTINEL
+    ? parent ?? undefined
+    : configured ?? parent ?? undefined);
+}
+
+async function startAgentChat(input: {
+  conversationId: string;
+  userId: string;
+  body: ChatBody;
+  scope: ChatScope;
+  userMessage: UserMessage;
+  executor: ReturnType<typeof getExecutor>;
+  toolPolicy: RouteLocals["apiKeyToolPolicy"];
+}): Promise<Response> {
+  const { conversationId, userId, body, scope, userMessage, executor, toolPolicy } = input;
+  const { content, bodyProvider, bodyModel } = body;
+  const { subConv, parentConv, rootConversationId, projectId } = scope;
   // Agent is idle — start a new run immediately
   const agentConfigId = subConv.agentConfigId ?? undefined;
   const config = agentConfigId ? await getAgentConfig(agentConfigId) : null;
@@ -209,22 +235,14 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
   // drain on the original run's model (see
   // `start-assignment.ts:auto-continue`); v1 doesn't thread overrides
   // through the active-run drain.
-  const streamPromise = executor.streamChat(params.id, content, {
-    workspacePrincipal: { userId: user.id },
+  const streamPromise = executor.streamChat(conversationId, content, {
+    workspacePrincipal: { userId: userId },
     projectId,
     agentConfigId,
     runId,
     parentMessageId: userMessage.id,
-    model: bodyModel
-      ?? subConv.model
-      ?? (config?.model === CURRENT_MODEL_SENTINEL
-        ? (parentConv.model ?? undefined)
-        : (config?.model ?? parentConv.model ?? undefined)),
-    provider: bodyProvider
-      ?? subConv.provider
-      ?? (config?.provider === CURRENT_MODEL_SENTINEL
-        ? (parentConv.provider ?? undefined)
-        : (config?.provider ?? parentConv.provider ?? undefined)),
+    model: resolveAgentSelection(bodyModel, subConv.model, config?.model, parentConv.model),
+    provider: resolveAgentSelection(bodyProvider, subConv.provider, config?.provider, parentConv.provider),
     system: config?.prompt ?? subConv.systemPrompt ?? undefined,
     // The sub-conversation's OWN persisted mode governs its run, exactly as
     // `conv.modeId` governs the messages route's. Without this the Boundary-2
@@ -234,15 +252,15 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
     // so this is `undefined` — today's behaviour — unless the row was pinned to
     // a mode explicitly.
     modeId: subConv.modeId ?? undefined,
-    commandResolver: buildCommandResolver(user.id, projectId),
+    commandResolver: buildCommandResolver(userId, projectId),
     // Boundary 3 — see the messages route. A sub-agent run started by a
     // policied key is still that key's run: it must not hold the spawn
     // primitives the key's route allowlist denies over HTTP.
-    ...runStartToolPolicyOptions(locals.apiKeyToolPolicy),
+    ...runStartToolPolicyOptions(toolPolicy),
   });
 
   // Emit agent:spawn so the UI shows the agent as running again.
-  // Use rootConv.id so the main chat page (which keys listeners by its
+  // Use rootConversationId so the main chat page (which keys listeners by its
   // own convId) actually receives this — using the direct parent would
   // route nested team-member events to the orchestrator sub-conv,
   // which has no UI listener.
@@ -250,22 +268,22 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
   bus.emit("agent:spawn", {
     runId,
     agentRunId: runId,
-    subConversationId: params.id,
+    subConversationId: conversationId,
     agentName: config?.name ?? "Agent",
     agentConfigId: agentConfigId ?? "",
     task: content,
-    parentConversationId: rootConv.id,
+    parentConversationId: rootConversationId,
   });
 
   const agentName = config?.name ?? "Agent";
-  const parentConversationId = rootConv.id;
+  const parentConversationId = rootConversationId;
   streamPromise.then(async () => {
-    const leaf = await convQueries.getLatestLeaf(params.id);
+    const leaf = await convQueries.getLatestLeaf(conversationId);
     const preview = leaf?.content?.slice(0, 200) ?? "";
     bus.emit("agent:complete", {
       runId,
       agentRunId: runId,
-      subConversationId: params.id,
+      subConversationId: conversationId,
       agentName,
       agentConfigId: agentConfigId ?? "",
       success: true,
@@ -277,7 +295,7 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
     bus.emit("agent:complete", {
       runId,
       agentRunId: runId,
-      subConversationId: params.id,
+      subConversationId: conversationId,
       agentName,
       agentConfigId: agentConfigId ?? "",
       success: false,
@@ -287,4 +305,34 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
   });
 
   return json({ status: "started", messageId: userMessage.id, runId });
+}
+
+/** Send a message to an authorized agent sub-conversation. */
+export const POST: RequestHandler = async ({ params, request, locals }) => {
+  const scopeErr = requireScope(locals, "chat");
+  if (scopeErr) return scopeErr;
+  const user = requireAuth(locals);
+  const body = await readAgentChatBody(request);
+  if (body instanceof Response) return body;
+  const scope = await authorizeAgentChat(params.id, user, locals);
+  if (scope instanceof Response) return scope;
+  const leaf = await convQueries.getLatestLeaf(params.id);
+  const userMessage = await convQueries.createMessage(params.id, {
+    role: "user",
+    content: body.content,
+    parentMessageId: leaf?.id,
+  });
+  const executor = getExecutor();
+  if (executor.getActiveRunForConversation(params.id)) {
+    return steerOrQueueAgentChat(params.id, body.content, userMessage, executor);
+  }
+  return startAgentChat({
+    conversationId: params.id,
+    userId: user.id,
+    body,
+    scope,
+    userMessage,
+    executor,
+    toolPolicy: locals.apiKeyToolPolicy,
+  });
 };

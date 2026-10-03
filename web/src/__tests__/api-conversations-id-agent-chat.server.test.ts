@@ -277,6 +277,23 @@ describe("POST /api/conversations/[id]/agent-chat", () => {
       expect(opts).toMatchObject({ workspacePrincipal: { userId: user.id } });
       expect(opts.model).toBe("gpt-5");
     });
+    test("reports a failed idle run to the root without a second run or queue", async () => {
+      installSubConvGraph();
+      streamChat.mockImplementationOnce(async () => { throw new Error("run failed"); });
+      const response = await POST(makeEvent({ locals: { user }, body: { content: "hi" } }));
+      expect(response.status).toBe(200);
+      await vi.waitFor(() => {
+        expect(busEmit).toHaveBeenCalledWith("agent:complete", expect.objectContaining({
+          success: false,
+          resultPreview: "run failed",
+          subConversationId: "sub-1",
+          parentConversationId: "parent-1",
+        }));
+      });
+      expect(streamChat).toHaveBeenCalledTimes(1);
+      expect(enqueue).not.toHaveBeenCalled();
+    });
+
 
     test("body provider/model override non-sentinel agent-config model", async () => {
       installSubConvGraph({
