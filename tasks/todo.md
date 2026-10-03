@@ -2,14 +2,29 @@
 
 ## GPT-6.1 Sol completion team
 
-- [ ] Stage and verify source `241ab3836`; install the reviewed STOP readback fix in the isolated app.
-- [ ] Settle the original STOP without repeating it; complete destroy and independent cleanup proof.
+- [x] Stage and verify source `241ab3836`; install the reviewed STOP readback fix in the isolated app.
+- [x] Settle the original STOP without repeating it; complete destroy and independent cleanup proof.
 - [ ] Run the bounded SP01–SP08 live qualification with saved operation IDs and failure recovery evidence.
 - [ ] Prove the native EZHarness project-tool workflow on a real guest, including host-file canaries.
 - [ ] Run all five browser lanes and merged coverage against the final source; pass fast and hosted checks.
 - [ ] Update PR #303 and the evidence ledger with exact results and remaining review requirements.
 
 Ownership: root owns integration and bundle staging; the GPT-6.1 Sol live worker alone changes the isolated app/server; coverage owns test captures in its worktree; project-flow owns a separate worktree and coordinates all live effects with the live worker. The generation fix has passed focused regression tests and independent review. Live proof remains open. No repeated STOP or new lifecycle request is allowed to hide an unknown effect.
+
+### Recovery milestone review — 3 October, 19:22 UTC
+
+- [x] Complete the original real guest marker, pinned Compose, STOP, DESTROY, released reservations, and empty inventory proof.
+- [x] Prove restricted-project denial with the same TLS client: approved project 200, default project 403.
+- [x] Repair native project IDs, entry and per-effect authority, and test fixtures that omitted real project ownership.
+- [x] Prove actual keyless model inference through EZHarness, with zero tool calls.
+- [x] Reproduce asynchronous qualification failure with the real database, fixture service, controller, and witness; add exact-operation readback, preservation, and admission fences.
+- [x] Preserve the first receipt on replay failure; permit only the exact old CREATE readback while same-generation cleanup is queued.
+- [ ] Verify the new operator diagnostic in the browser; stage and verify the combined recovery bundle.
+- [ ] Recover saved CREATE `51856ef9-861d-48a7-994f-11e87656c1be` and queued DESTROY `ef7c6b70-5271-48bd-ad87-7d0a75fcee38`; prove guest absence and reservation release before another qualification run.
+- [ ] Complete SP01–SP08, native guest tools/Compose/retention/disposal, selected-profile negatives, and ten consecutive feature lifecycles with measured results.
+- [ ] Complete final-source browser, coverage, fast, hosted CI, and non-author review gates.
+
+Review evidence: the repaired pre-recovery fast run passed 27,181 backend tests, 3,631 web Bun tests, 7,587 Vitest tests, lint, types, and build. It is not the final recovery-source gate. Focused asynchronous and authority regressions pass. The installed app remains source70 with one stopped owned guest and preserved unknown CREATE; the replacement is not yet installed. Browser70's first evidence startup failed, a later diagnostic evidence run passed393, and seven real-auth ownership failures were repaired with12 focused passes. No final browser or portability claim. Performance baseline and acceptance targets remain unrecorded; measurements must not be presented as a speedup claim. Full guest-secret consumer proof remains outside the selected no-secret-delivery Incus profile.
 
 - [x] Verify restored TCP socket, sandbox-server SSH, and GitHub access.
 - [x] Recheck the existing app, guest, and saved operations; identify the inspection failure without duplicate effects.

@@ -467,3 +467,10 @@
 - Check generated durable IDs in the creation service before assuming API schemas accept them.
 - Use `messages?withToolCalls=true` for saved native results; plain message reads do not include tool rows.
 - Keep one-off live drivers outside a frozen source head unless a concrete product defect requires a reviewed source change.
+
+## Incus asynchronous qualification — 3 October 2026
+
+- Test provider PENDING and OUTCOME_UNKNOWN through the real fixture service and controller. Immediate-success mocks cannot prove durable lifecycle behavior.
+- An HTTP error does not prove no backend effect. Preserve the exact admitted receipt before awaiting replay; never treat a missing response as permission to repeat or delete.
+- Inspect only the saved operation. Preserve newer cleanup intent and resource reservations under the database binding lock; readback must not dispatch a superseded operation.
+- Keep operator diagnostics bounded and explicit about preserved operation IDs. Never project raw provider errors or private causes into responses or ordinary logs.
