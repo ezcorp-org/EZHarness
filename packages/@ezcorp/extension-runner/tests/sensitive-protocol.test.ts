@@ -1,8 +1,10 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { bindSensitiveRequestContext, FramedExecution, MAX_SENSITIVE_RESULT_BYTES, requestSensitiveProviderResult, SENSITIVE_PROVIDER_METHOD, type ReverseRpc } from "../src/protocol";
 
 const children = new Set<ChildProcessWithoutNullStreams>();
+const timerSpies: Array<{ mockRestore(): void }> = [];
+const timerHandles = new Set<ReturnType<typeof setTimeout>>();
 
 function worker(program: string, maximumBytes = 64 * 1024, timeoutMs = 250, reverse: ReverseRpc = async () => null): FramedExecution {
   const child = spawn(process.execPath, ["-e", program], { stdio: ["pipe", "pipe", "pipe"] });
@@ -11,7 +13,14 @@ function worker(program: string, maximumBytes = 64 * 1024, timeoutMs = 250, reve
   return new FramedExecution("sensitive-worker", child, reverse, async () => { child.kill("SIGKILL"); }, maximumBytes, timeoutMs);
 }
 
-afterEach(() => { for (const child of children) child.kill("SIGKILL"); children.clear(); });
+afterEach(() => {
+  for (const spy of timerSpies) spy.mockRestore();
+  timerSpies.length = 0;
+  for (const timer of timerHandles) clearTimeout(timer);
+  timerHandles.clear();
+  for (const child of children) child.kill("SIGKILL");
+  children.clear();
+});
 
 test("sensitive provider responses use their classified envelope and ordinary methods stay unchanged", async () => {
   const secret = "provider-secret-canary";
@@ -150,17 +159,47 @@ test("sensitive timeouts wipe partial control and log buffers", async () => {
   children.add(child);
   child.once("close", () => children.delete(child));
   const retained: Buffer[] = [];
-  child.stdout.on("data", chunk => retained.push(chunk));
-  child.stderr.on("data", chunk => retained.push(chunk));
+  const partialStreams = new Set<string>();
+  let ready!: () => void;
+  const partialsReady = new Promise<void>(resolve => { ready = resolve; });
+  for (const [name, stream] of [["stdout", child.stdout], ["stderr", child.stderr]] as const) {
+    stream.on("data", (chunk: Buffer) => {
+      expect(chunk.toString()).toBe(canary);
+      retained.push(chunk);
+      partialStreams.add(name);
+      if (partialStreams.size === 2) ready();
+    });
+  }
+  // Hold the real request timer callback until both actual child pipes have
+  // delivered partial bytes. Child startup speed cannot satisfy this test.
+  const originalSetTimeout = globalThis.setTimeout;
+  let expire!: () => void;
+  const timerSpy = spyOn(globalThis, "setTimeout").mockImplementation(((callback: () => void, delay?: number) => {
+    expect(delay).toBe(50);
+    expire = callback;
+    const handle = originalSetTimeout(() => {}, delay);
+    timerHandles.add(handle);
+    return handle;
+  }) as typeof setTimeout);
+  timerSpies.push(timerSpy);
   const execution = new FramedExecution("sensitive-worker", child, async () => null, async () => { child.kill("SIGKILL"); }, 64 * 1024, 50);
+  try {
+    const pending = requestSensitiveProviderResult(execution, {}).catch(reason => reason);
+    await partialsReady;
+    expect(partialStreams).toEqual(new Set(["stdout", "stderr"]));
+    const partialControl = (execution as unknown as { buffer: Buffer }).buffer;
+    expect(partialControl.toString()).toBe(canary);
+    expire();
+    const error = await pending;
+    expect(error).toMatchObject({ code: "sensitive_failed" });
+    expect(String(error)).not.toContain(canary);
+    expect(JSON.stringify(error)).not.toContain(canary);
+    expect(retained.length).toBe(2);
+    expect(retained.every(chunk => chunk.every(byte => byte === 0))).toBe(true);
+    expect(partialControl.every(byte => byte === 0)).toBe(true);
+    expect((execution as unknown as { buffer: Buffer }).buffer.byteLength).toBe(0);
+  } finally { await execution.close(); timerSpy.mockRestore(); }
 
-  const error = await requestSensitiveProviderResult(execution, {}).catch(reason => reason);
-  expect(error).toBeInstanceOf(Error);
-  expect(String(error)).not.toContain(canary);
-  expect(retained.length).toBe(2);
-  expect(retained.every(chunk => chunk.every(byte => byte === 0))).toBe(true);
-  expect((execution as unknown as { buffer: Buffer }).buffer.byteLength).toBe(0);
-  await execution.close();
 });
 
 test("a provider process stays permanently redacted after a successful secret result", async () => {
