@@ -1,0 +1,2 @@
+docs/extensions/examples/substack-pilot/tests/mcp-sdk-resolution.test.ts
+src/__tests__/web-mock-pair-pollution.test.ts
