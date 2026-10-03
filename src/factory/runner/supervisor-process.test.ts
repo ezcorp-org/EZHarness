@@ -94,7 +94,7 @@ const HEARTBEAT_MS = 1_000;
  * which is a property of the fake and not of the code under test. A real timer
  * yields, so the fake yields too.
  */
-function dependencies(overrides: Partial<FactorySupervisorProcessDependencies> = {}, cadenceWaitsBeforeStop = 4): FactorySupervisorProcessDependencies {
+function dependencies(overrides: Partial<FactorySupervisorProcessDependencies> = {}, cadenceWaitsBeforeStop = 4, options: { readonly probeBoundElapses?: boolean } = {}): FactorySupervisorProcessDependencies {
   let cadence = 0;
   return {
     loadHostKey: loadFactoryHostKey,
@@ -105,7 +105,8 @@ function dependencies(overrides: Partial<FactorySupervisorProcessDependencies> =
     wait: async (milliseconds, waitSignal) => {
       if (milliseconds !== HEARTBEAT_MS) {
         // The probe bound. Pending until the observation ends, so a probe that
-        // returns always beats it.
+        // returns always beats it, unless the test says the bound elapses.
+        if (options.probeBoundElapses) return;
         return new Promise<void>((resolve) => {
           if (waitSignal.aborted) return resolve();
           waitSignal.addEventListener("abort", () => { resolve(); }, { once: true });
@@ -117,6 +118,38 @@ function dependencies(overrides: Partial<FactorySupervisorProcessDependencies> =
     },
     ...overrides,
   };
+}
+
+/**
+ * A readiness writer that records every update as `lifecycle:errorCode` and
+ * stops the run once `until` holds for the records so far.
+ *
+ * A test that asserts on a published observation stops on that fact, never on
+ * a heartbeat count (W4G-12). The observer's first step is a real file read of
+ * the host key and the publisher's is not, so a count the two loops share can
+ * run out before the observer has published anything: on a loaded host the
+ * record under test was never written. The heartbeat count stays only as a
+ * backstop, so a run that never publishes the fact ends and fails by assertion.
+ */
+function stopOnPublished(published: string[], until: (records: readonly string[]) => boolean): FactorySupervisorProcessDependencies["createReadiness"] {
+  return () => ({ write: async (update) => {
+    published.push(`${update.lifecycle}:${update.errorCode ?? ""}`);
+    if (until(published)) abortController?.abort();
+    return { ...update } as never;
+  } });
+}
+
+/** The backstop for a run that stops on a published fact: generous, never the stop that a passing run relies on. */
+const BACKSTOP_CADENCE_WAITS = 1_000;
+
+/**
+ * The host key read as a loaded host reads it: slower than many heartbeat
+ * ticks. The tests that assert on a published observation use it, so a stop
+ * condition that races the read fails on every run, not once in a while.
+ */
+async function slowHostKey(path: string): Promise<void> {
+  await Bun.sleep(50);
+  await loadFactoryHostKey(path);
 }
 
 describe("parseFactorySupervisorProcessConfig", () => {
@@ -255,21 +288,15 @@ describe("runConfiguredFactorySupervisor", () => {
     abortController = new AbortController();
     const published: string[] = [];
     const asked: number[] = [];
-    let cadence = 0;
 
-    await runConfiguredFactorySupervisor(path, abortController.signal, dependencies({
+    // The bound elapses at once while the probe never answers, which is what
+    // proves the probe is raced against it rather than awaited.
+    const fixture = dependencies({
+      loadHostKey: slowHostKey,
       createRunnerProbe: () => ({ probe: () => new Promise<void>(() => {}), instance: () => undefined, close: async () => {} }),
-      wait: async (milliseconds) => {
-        asked.push(milliseconds);
-        // The bound elapses here, which is what proves the probe is raced
-        // against it rather than awaited.
-        if (milliseconds !== HEARTBEAT_MS) return;
-        cadence += 1;
-        if (cadence >= 4) abortController!.abort();
-        await new Promise<void>((resolve) => { setTimeout(resolve, 0); });
-      },
-      createReadiness: () => ({ write: async (update) => { published.push(`${update.lifecycle}:${update.errorCode ?? ""}`); return { ...update } as never; } }),
-    }));
+      createReadiness: stopOnPublished(published, (records) => records.some((entry) => entry.includes("runner_probe_timeout"))),
+    }, BACKSTOP_CADENCE_WAITS, { probeBoundElapses: true });
+    await runConfiguredFactorySupervisor(path, abortController.signal, { ...fixture, wait: async (milliseconds, waitSignal) => { asked.push(milliseconds); await fixture.wait(milliseconds, waitSignal); } });
     expect(asked).toContain(HEARTBEAT_MS * FACTORY_SUPERVISOR_PROBE_TIMEOUT_HEARTBEATS);
     expect(published.some((entry) => entry.includes("runner_probe_timeout"))).toBe(true);
   });
@@ -294,20 +321,21 @@ describe("runConfiguredFactorySupervisor", () => {
     const root = await privateRoot();
     const path = await writeConfig(root);
     const published: string[] = [];
-    const record = () => ({ write: async (update: { lifecycle: string; errorCode?: string }) => { published.push(`${update.lifecycle}:${update.errorCode ?? ""}`); return { ...update } as never; } });
+    const until = (record: string) => stopOnPublished(published, (records) => records.includes(record));
 
     // No host key on disk: the first fact fails.
     abortController = new AbortController();
-    await runConfiguredFactorySupervisor(path, abortController.signal, dependencies({ createReadiness: record }, 6));
+    await runConfiguredFactorySupervisor(path, abortController.signal, dependencies({ loadHostKey: slowHostKey, createReadiness: until("degraded:host_key_unavailable") }, BACKSTOP_CADENCE_WAITS));
     expect(published.some((entry) => entry === "degraded:host_key_unavailable")).toBe(true);
 
     published.length = 0;
     abortController = new AbortController();
     await writeHostKey(root);
     await runConfiguredFactorySupervisor(path, abortController.signal, dependencies({
+      loadHostKey: slowHostKey,
       createRunnerProbe: () => ({ probe: async () => { throw new Error("podman is not answering"); }, instance: () => undefined, close: async () => {} }),
-      createReadiness: record,
-    }, 6));
+      createReadiness: until("degraded:runner_unavailable"),
+    }, BACKSTOP_CADENCE_WAITS));
     expect(published.some((entry) => entry === "degraded:runner_unavailable")).toBe(true);
   });
 
@@ -662,7 +690,7 @@ describe("the host services this supervisor publishes", () => {
         if (published.filter((entry) => entry.lifecycle === "ready" && entry.hostServicesReady).length === 3) abortController?.abort();
         return { ...update } as never;
       } }),
-    }, 1_000));
+    }, BACKSTOP_CADENCE_WAITS));
 
     // Bound ONCE across several heartbeats: rebinding each beat would drop live
     // connections, and the listener is released before the process says stopped.
@@ -689,12 +717,8 @@ describe("the host services this supervisor publishes", () => {
         return { stop: () => {} };
       },
       // Stop once the retried bind is published ready (see the test above).
-      createReadiness: () => ({ write: async (update) => {
-        published.push(`${update.lifecycle}:${update.errorCode ?? ""}`);
-        if (update.lifecycle === "ready") abortController?.abort();
-        return { ...update } as never;
-      } }),
-    }, 1_000));
+      createReadiness: stopOnPublished(published, (records) => records.includes("ready:")),
+    }, BACKSTOP_CADENCE_WAITS));
 
     expect(attempts).toBeGreaterThan(1);
     expect(published.some((entry) => entry === "degraded:host_services_unavailable")).toBe(true);
@@ -706,15 +730,20 @@ describe("the host services this supervisor publishes", () => {
     await writeHostKey(root);
     const path = await writeConfig(root, { services: services(root) } as never);
     abortController = new AbortController();
+    const published: string[] = [];
     let started = 0;
 
     await runConfiguredFactorySupervisor(path, abortController.signal, dependencies({
+      loadHostKey: slowHostKey,
       createRunnerProbe: () => ({ probe: async () => { throw new Error("isolation_unavailable"); }, instance: () => undefined, close: async () => {} }),
       startServices: async () => { started += 1; return { stop: () => {} }; },
-    }));
+      // Two published failures: the runner was observed twice and refused both times.
+      createReadiness: stopOnPublished(published, (records) => records.filter((entry) => entry === "degraded:runner_unavailable").length === 2),
+    }, BACKSTOP_CADENCE_WAITS));
 
     // A host that accepted a launch its runner cannot serve would report a start
     // it never made.
+    expect(published.filter((entry) => entry === "degraded:runner_unavailable").length).toBe(2);
     expect(started).toBe(0);
   });
 
@@ -723,17 +752,19 @@ describe("the host services this supervisor publishes", () => {
     await writeHostKey(root);
     const path = await writeConfig(root);
     abortController = new AbortController();
-    const published: Array<{ lifecycle: string; errorCode?: string }> = [];
+    const published: string[] = [];
     let started = 0;
 
     await runConfiguredFactorySupervisor(path, abortController.signal, dependencies({
+      loadHostKey: slowHostKey,
       startServices: async () => { started += 1; return { stop: () => {} }; },
-      createReadiness: () => ({ write: async (update) => { published.push({ lifecycle: update.lifecycle, ...(update.errorCode === undefined ? {} : { errorCode: update.errorCode }) }); return { ...update } as never; } }),
-    }, 5));
+      // Two ready records: the host stays ready across heartbeats without a listener.
+      createReadiness: stopOnPublished(published, (records) => records.filter((entry) => entry === "ready:").length === 2),
+    }, BACKSTOP_CADENCE_WAITS));
 
     expect(started).toBe(0);
-    expect(published.some((entry) => entry.lifecycle === "ready")).toBe(true);
-    expect(published.some((entry) => entry.errorCode === "host_services_unavailable")).toBe(false);
+    expect(published.filter((entry) => entry === "ready:").length).toBe(2);
+    expect(published.some((entry) => entry.endsWith(":host_services_unavailable"))).toBe(false);
   });
 
   test("a configured host whose listener never bound reads as degraded, not ready", () => {
