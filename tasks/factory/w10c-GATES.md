@@ -65,7 +65,10 @@ file and in `openai.json`, which is why the first round added no entry.)
 | `7bf9831eb` | docs(w10c): gates and C10 record for the gpt-6-luna amendment | 0 |
 | `71c6add0f` | feat(factory-graph-proof): opt-in persistent deployment for the sign-in flow | 1 |
 | `86c7852e0` | docs(w10c): gates for the persistent deployment and the sign-in flow | 0 |
-| this commit | fix(factory-graph-proof): the harness never prunes shared image storage | 1 |
+| `f98d620a5` | fix(factory-graph-proof): the harness never prunes shared image storage | 1 |
+| this commit | test(reference-image): the lock's evaluation model is the definition's evaluator pin | 3 |
+
+The branch holds 11 commits with this one (10 at `f98d620a5`, as validator-6 counted; report 4 said 11 in error).
 
 All hook suites passed in the hook (logs/commit-c*.log). No commit mapped more than 12.
 
@@ -132,6 +135,12 @@ compiled digests. No test pins a reference digest literally, so no hash check wa
   folders are `deployment_incomplete`; key files are 0600, the folder 0700; the probe environment points at the
   deployment's database with its own secret and salt. `stack.ts`, `hold.ts`, `deployment-probe.ts` and `run.sh`
   are harness code: proved only by a real start, under the lock at R8 (the first hold is that proof).
+- [x] G6a (validator-6 DRY item): `sdxl-lock.json` `evaluation.model` can no longer drift from the SDK constant.
+  `lock.test.ts` walks `referenceImageV1` for every runner reference that names a model (at least four, one value)
+  and asserts the lock's `evaluation.model` equals it. `publication.test.ts` and `semantic-quorum.test.ts` compare
+  provenance with the lock's value, not a literal. No test under `src/factory/reference-image/` names the model id.
+  EVIDENCE: `logs/c11-image.log` (106 pass, 3 hook-mapped files); `logs/c11-mutation.log` (the lock changed to
+  `gpt-6-lunna`: the new case fails; the file restored).
 - [x] G9 (ruling item 4): the graph-proof harness never prunes shared image storage.
   The runner stages files into one pinned image and builds none (`PodmanRunner.build` reports `imageDigest: this.image`),
   so a pass has no image of its own to remove by tag; the line is removed, not replaced.

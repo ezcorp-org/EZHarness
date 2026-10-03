@@ -109,7 +109,7 @@ describe("the evidence document", () => {
   });
 
   test("it states that the three evaluations are not independent", () => {
-    expect(referenceImageEvidence(input()).semanticProvenance).toEqual({ model: "gpt-6-luna", independent: false });
+    expect(referenceImageEvidence(input()).semanticProvenance).toEqual({ model: referenceImageLock.evaluation.model, independent: false });
   });
 
   test("no recorded round at all is refused", () => {
