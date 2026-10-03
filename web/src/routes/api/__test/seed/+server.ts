@@ -82,6 +82,11 @@ async function initializeSourceFixtureGit(path: string): Promise<void> {
   }
 }
 
+async function seedProjectPath(sourceToken: unknown): Promise<string> {
+  return typeof sourceToken === "string" ? mkdtemp(join(tmpdir(), "ezcorp-harness-"))
+    : join(tmpdir(), `ezcorp-harness-${crypto.randomUUID()}`);
+}
+
 export const POST: RequestHandler = async ({ request, locals }) => {
   if (!isTestSurfaceEnabled()) return errorJson(404, "Not found");
   const scopeErr = requireScope(locals, "chat");
@@ -156,8 +161,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
   const project = await createProject({
     name: projectName,
-    path: typeof body.githubSourceToken === "string" ? await mkdtemp(join(tmpdir(), "ezcorp-harness-"))
-      : join(tmpdir(), `ezcorp-harness-${crypto.randomUUID()}`),
+    path: await seedProjectPath(body.githubSourceToken),
   }, user.id);
   if (typeof body.githubSourceToken === "string") {
     // Fixed public fixture repository only. The normal source broker still

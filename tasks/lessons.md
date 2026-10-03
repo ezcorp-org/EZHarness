@@ -1,5 +1,8 @@
 # Lessons
 
+- Test Git subprocesses must use the existing sanitized command runner. Git hooks export repository-selection variables; an unsanitized fixture `git init` can target the shared repository instead of its temporary directory. Reproduce this with disposable linked worktrees, and test with poisoned `GIT_DIR` and `GIT_WORK_TREE`.
+- Update both Bun and Vitest route mocks when a shared service adds error classes. A passing Bun route test does not verify the separate Vitest mock contract.
+
 - Do not infer the cause of a generic revision conflict from differing generation numbers. Host authority fences and provider resource revisions can differ by design. Inspect the exact saved request and the provider's state preconditions before naming the cause.
 - Compose engine, provider adapter, and transport state rules in lifecycle tests. Separate green unit suites did not catch running-guest deletion being journaled before the provider's STOPPED precondition.
 
