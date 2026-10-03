@@ -3,7 +3,7 @@ import { generateKeyPairSync } from "node:crypto";
 import { certificates } from "../__tests__/helpers/factory-certificates";
 import { FACTORY_WORKER_ROLES } from "./runtime-workers";
 import { startFactoryExecutionGateway } from "./execution-gateway";
-import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
 import type { FactorySettleableChild } from "./child-runs";
@@ -31,6 +31,7 @@ import {
   factoryReleaseOperations,
   type FactoryInstallationHost,
   type FactoryInstallationStartupError, type FactoryBootTraceEvent } from "./installation-startup";
+import { makeFactoryTempPrivateRoot } from "../__tests__/helpers/factory-private-root";
 
 // This suite composes the real installation, which checks C11's bound against
 // the interval the host maintenance daemon will really use. An installation
@@ -50,7 +51,7 @@ afterEach(async () => {
 });
 
 async function privateRoot(): Promise<string> {
-  const directory = await mkdtemp(join(process.env.HOME!, ".w09-install-"));
+  const directory = await makeFactoryTempPrivateRoot("w09-install-");
   roots.push(directory);
   await chmod(directory, 0o700);
   await mkdir(join(directory, "project"), { mode: 0o700 });

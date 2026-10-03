@@ -10,7 +10,7 @@
  */
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 import { generateKeyPairSync } from "node:crypto";
-import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { BlobStore } from "../extensions/v4/types";
 import { certificates } from "../__tests__/helpers/factory-certificates";
@@ -49,6 +49,7 @@ import {
   composeFactorySettlement,
   loadFactoryStopHostKeys,
 } from "./dispatch-composition";
+import { makeFactoryTempPrivateRoot } from "../__tests__/helpers/factory-private-root";
 
 const SERVICE: TrustedFactoryServiceIdentity = { subject: "tenant-a", tenantId: "tenant-01" };
 const SIGNAL = new AbortController().signal;
@@ -720,7 +721,7 @@ describe("loadFactoryStopHostKeys", () => {
   afterAll(async () => { await Promise.all(roots.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
 
   async function keyFile(name: string, mode = 0o600): Promise<{ root: string; path: string; pem: string }> {
-    const root = await mkdtemp(join(process.env.HOME!, ".w09b-hostkeys-"));
+    const root = await makeFactoryTempPrivateRoot("w09b-hostkeys-");
     roots.push(root);
     await chmod(root, 0o700);
     const { publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
@@ -766,7 +767,7 @@ describe("composeFactorySettlement", () => {
   afterAll(async () => { await Promise.all(roots.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
 
   async function material(): Promise<{ root: string; tls: { caPath: string; certificatePath: string; privateKeyPath: string; serviceTokenPath: string }; publicKeyPath: string }> {
-    const root = await mkdtemp(join(process.env.HOME!, ".w09b-settlement-"));
+    const root = await makeFactoryTempPrivateRoot("w09b-settlement-");
     roots.push(root);
     await chmod(root, 0o700);
     const certs = await certificates(roots, "tenant-a");

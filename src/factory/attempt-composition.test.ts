@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { factoryRunnerRequestDigest } from "@ezcorp/factory-sdk/compiler";
 import type { MigrationDb } from "../db/migrations/types";
@@ -24,12 +24,13 @@ import {
   factoryPackageReadiness,
   loadFactoryAttemptTokenSecret,
 } from "./attempt-composition";
+import { makeFactoryTempPrivateRoot } from "../__tests__/helpers/factory-private-root";
 
 const directories: string[] = [];
 afterAll(async () => { await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
 
 async function privateRoot(): Promise<string> {
-  const root = await mkdtemp(join(process.env.HOME!, ".w09b-attempt-"));
+  const root = await makeFactoryTempPrivateRoot("w09b-attempt-");
   directories.push(root);
   await chmod(root, 0o700);
   return root;
