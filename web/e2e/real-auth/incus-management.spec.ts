@@ -141,6 +141,12 @@ async function mockManagement(page: Page, options: { initiallyQualified?: boolea
 	return { actions, createKeys, createKeyAttempts, applyStarted, releaseApplyReply: () => releaseApplyReply?.() };
 }
 
+async function savedKey(page: Page, suffix: string): Promise<string> {
+	const key = await page.evaluate(ending => Object.keys(localStorage).find(item => item.endsWith(`:${ending}`)), suffix);
+	expect(key).toBeDefined();
+	return key!;
+}
+
 test("qualifies an environment, creates a project sandbox, and manages its lifecycle @evidence", async ({ page }, testInfo) => {
 	const { actions } = await mockManagement(page);
 	await page.goto("/extensions");
@@ -277,6 +283,11 @@ test("unknown provider outcomes block lifecycle actions until reconciliation", a
 	await expect(card.getByRole("link", { name: "Open chat" })).toHaveCount(0);
 	await expect(page.getByRole("button", { name: "Reconcile pending work" })).toBeVisible();
 	await captureEvidence(page, testInfo, "incus-management-unknown-outcome", { fullPage: true });
+	await page.route("**/api/infrastructure/incus/features", route => route.fulfill({ status: 503, json: {} }));
+	await page.getByRole("button", { name: "Reconcile pending work" }).click();
+	await expect(page.getByRole("alert")).toContainText("Request failed (503)");
+	await expect(card.getByText("Needs reconciliation")).toBeVisible();
+	await expect(card.getByRole("button", { name: "Start" })).toHaveCount(0);
 });
 
 test("a failed environment refresh keeps the last approved view available", async ({ page }) => {
@@ -329,7 +340,8 @@ test("an uncertain fixture apply checks saved status before another action", asy
 		if (body.action === "apply") { applyAttempts++; return route.abort("failed"); }
 		if (body.action === "status") {
 			statusChecks++;
-			return route.fulfill({ json: { state: statusChecks === 1 ? "incomplete" : "absent" } });
+			if (statusChecks === 1) return route.fulfill({ status: 503, json: { message: "Fixture status service is unavailable" } });
+			return route.fulfill({ json: { state: statusChecks === 2 ? "incomplete" : "absent" } });
 		}
 		return route.fallback();
 	});
@@ -337,6 +349,9 @@ test("an uncertain fixture apply checks saved status before another action", asy
 	await page.getByRole("button", { name: "Prepare qualification…" }).click();
 	await page.getByRole("checkbox", { name: /I reviewed this plan/ }).check();
 	await page.getByRole("button", { name: "Apply reviewed fixture plan" }).click();
+	await expect(page.getByRole("alert")).toContainText("Fixture status service is unavailable");
+	await expect(page.getByRole("button", { name: "Retry same apply" })).toHaveCount(0);
+	await page.getByRole("button", { name: "Check fixture status" }).click();
 	await expect(page.getByRole("alert")).toContainText("Fixture status is incomplete");
 	await expect(page.getByRole("button", { name: "Retry same apply" })).toHaveCount(0);
 	await page.getByRole("button", { name: "Check fixture status" }).click();
@@ -344,7 +359,7 @@ test("an uncertain fixture apply checks saved status before another action", asy
 	await expect(page.getByRole("button", { name: "Retry same apply" })).toBeVisible();
 	expect(actions.filter(item => item.endpoint === "probe-fixtures" && item.body.action === "plan")).toHaveLength(1);
 	expect(applyAttempts).toBe(1);
-	expect(statusChecks).toBe(2);
+	expect(statusChecks).toBe(3);
 });
 
 test("unconfirmed cleanup keeps the qualification workflow for review", async ({ page }) => {
@@ -368,6 +383,109 @@ test("unconfirmed cleanup keeps the qualification workflow for review", async ({
 	await expect(page.getByText("Operator fixtures are ready", { exact: true })).toBeVisible();
 	await expect(page.getByRole("button", { name: "Remove fixtures" })).toBeEnabled();
 	expect(cleanupRequests).toEqual([{ action: "cleanup", ...scopeFromEnvironment(), operationId: expect.any(String), planDigest }]);
+});
+
+test("a saved plan reloads with its original operation before review", async ({ page }) => {
+	const { actions } = await mockManagement(page);
+	await page.goto("/extensions/incus-management");
+	await page.getByRole("button", { name: "Prepare qualification…" }).click();
+	await expect(page.getByTestId("qualification-workflow")).toContainText(planDigest);
+	await page.reload();
+	await expect(page.getByTestId("qualification-workflow")).toContainText("project-unsupported");
+	await expect(page.getByRole("button", { name: "Apply reviewed fixture plan" })).toBeDisabled();
+	const plans = actions.filter(item => item.endpoint === "probe-fixtures" && item.body.action === "plan");
+	expect(plans).toHaveLength(2);
+	expect(plans[1]?.body.operationId).toBe(plans[0]?.body.operationId);
+});
+
+test("a lost qualification reply leaves the saved run available for status review", async ({ page }) => {
+	const { actions } = await mockManagement(page);
+	let qualificationAttempts = 0;
+	await page.route("**/api/infrastructure/incus/qualification", route => { qualificationAttempts++; return route.abort("failed"); });
+	await page.goto("/extensions/incus-management");
+	await page.getByRole("button", { name: "Prepare qualification…" }).click();
+	await page.getByRole("checkbox", { name: /I reviewed this plan/ }).check();
+	await page.getByRole("button", { name: "Apply reviewed fixture plan" }).click();
+	await page.getByRole("checkbox", { name: /host is ready for a live sandbox qualification/ }).check();
+	await page.getByRole("button", { name: "Run live qualification" }).click();
+	await expect(page.getByRole("alert")).toContainText("Check the saved qualification status before you retry");
+	await expect(page.getByTestId("qualification-workflow")).toContainText("Qualification status is being checked");
+	await expect(page.getByRole("button", { name: "Check saved status" })).toBeVisible();
+	expect(qualificationAttempts).toBe(1);
+	expect(actions.filter(item => item.endpoint === "probe-fixtures" && item.body.action === "cleanup")).toHaveLength(0);
+});
+
+test("damaged qualification and retry-key records do not start another host plan", async ({ page }) => {
+	const { actions } = await mockManagement(page, { initialFeature: feature("STOPPED") });
+	await page.goto("/extensions/incus-management");
+	await page.getByRole("button", { name: "Prepare qualification…" }).click();
+	await expect(page.getByTestId("qualification-workflow")).toContainText(planDigest);
+	const qualificationKey = await savedKey(page, "qualification-draft");
+	await page.getByRole("button", { name: "Start", exact: true }).click();
+	const mutationKey = await savedKey(page, "mutation-keys");
+	await page.evaluate(storageKey => localStorage.setItem(storageKey, JSON.stringify({ valid: "11111111-1111-4111-8111-111111111111", damaged: "not-a-key" })), mutationKey);
+	await page.reload();
+	await expect(page.getByRole("heading", { name: project.name })).toBeVisible();
+	const planAttemptsBeforeCorruption = actions.filter(item => item.endpoint === "probe-fixtures" && item.body.action === "plan").length;
+	await page.evaluate(({ qualificationKey, mutationKey }) => {
+		localStorage.setItem(qualificationKey, "{");
+		localStorage.setItem(mutationKey, "{");
+	}, { qualificationKey, mutationKey });
+	await page.reload();
+	await expect(page.getByRole("alert")).toContainText("saved qualification draft could not be read");
+	await expect(page.getByRole("button", { name: "Prepare qualification…" })).toBeDisabled();
+	await expect(page.getByRole("heading", { name: project.name })).toBeVisible();
+	expect(actions.filter(item => item.endpoint === "probe-fixtures" && item.body.action === "plan")).toHaveLength(planAttemptsBeforeCorruption);
+});
+
+test("a damaged project request stays blocked until an administrator checks it", async ({ page }) => {
+	const { createKeyAttempts } = await mockManagement(page, { initiallyQualified: true, loseFirstCreateResponse: true });
+	await page.goto("/extensions/incus-management");
+	await page.getByRole("textbox", { name: "New project name" }).fill(project.name);
+	await page.getByRole("button", { name: "Create project sandbox" }).click();
+	await expect(page.getByRole("alert")).toContainText("same project and operation keys");
+	const key = await savedKey(page, "project-draft");
+	await page.evaluate(storageKey => localStorage.setItem(storageKey, "{"), key);
+	await page.reload();
+	await expect(page.getByRole("alert")).toContainText("saved project sandbox request could not be read");
+	await expect(page.getByRole("button", { name: "Create project sandbox" })).toBeDisabled();
+	expect(createKeyAttempts).toHaveLength(1);
+});
+
+test("an old unsaved qualification run returns to a safe retry with the same ID", async ({ page }) => {
+	const { actions } = await mockManagement(page);
+	await page.goto("/extensions/incus-management");
+	await page.getByRole("button", { name: "Prepare qualification…" }).click();
+	await page.getByRole("checkbox", { name: /I reviewed this plan/ }).check();
+	await page.getByRole("button", { name: "Apply reviewed fixture plan" }).click();
+	const key = await savedKey(page, "qualification-draft");
+	await page.evaluate(storageKey => {
+		const draft = JSON.parse(localStorage.getItem(storageKey)!);
+		localStorage.setItem(storageKey, JSON.stringify({ ...draft, phase: "running", startedAt: Date.now() - 60_000 }));
+	}, key);
+	await page.reload();
+	await expect(page.getByTestId("qualification-workflow")).toContainText("Operator fixtures are ready");
+	await expect(page.getByRole("button", { name: "Run live qualification" })).toBeDisabled();
+	await page.getByRole("checkbox", { name: /host is ready for a live sandbox qualification/ }).check();
+	await page.getByRole("button", { name: "Run live qualification" }).click();
+	const plan = actions.find(item => item.endpoint === "probe-fixtures" && item.body.action === "plan")?.body;
+	expect(plan?.operationId).toMatch(/^[0-9a-f-]{36}$/);
+	await expect.poll(() => actions.filter(item => item.endpoint === "qualification").map(item => item.body.operationId)).toEqual([plan?.operationId]);
+});
+
+test("a pending stop refreshes automatically when the provider settles", async ({ page }) => {
+	const pendingStop = { ...feature("RUNNING", { id: "op-stop", kind: "STOP", state: "PROVIDER_PENDING" }), desiredState: "STOPPED" };
+	await mockManagement(page, { initiallyQualified: true, initialFeature: pendingStop });
+	await page.goto("/extensions/incus-management");
+	const card = page.locator(".feature-card");
+	await expect(card.getByText("Waiting for provider")).toBeVisible();
+	await page.route("**/api/infrastructure/incus/management", route => route.fulfill({ json: {
+		environments: [{ ...environment, qualified: true, qualificationState: "qualified" }],
+		projects: [project], features: [feature("STOPPED", { id: "op-stop", kind: "STOP", state: "SUCCEEDED" })], truncated: false,
+	} }));
+	await expect(card.getByText("stopped observed", { exact: false })).toBeVisible({ timeout: 10_000 });
+	await expect(card.getByRole("button", { name: "Start" })).toBeVisible();
+	await expect(card.getByRole("link", { name: "Open chat" })).toHaveCount(0);
 });
 
 function scopeFromEnvironment() {
