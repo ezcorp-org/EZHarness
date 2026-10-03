@@ -149,6 +149,29 @@ test("the production release call receives a guard that rejects later revocation
   } finally { invoke.mockRestore(); }
 });
 
+test("binding mutation during the first authority read cannot select another sandbox", async () => {
+  const { caller, db, pglite, binding, calls } = await setup(false, false);
+  await pglite.exec("CREATE TABLE users (id TEXT PRIMARY KEY, role TEXT NOT NULL, status TEXT NOT NULL); CREATE TABLE project_members (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, user_id TEXT NOT NULL, role TEXT NOT NULL); INSERT INTO users VALUES ('actor','member','active'); INSERT INTO project_members VALUES ('membership','project','actor','member')");
+  await db.insert(schema.projects).values({ id: "foreign", name: "foreign", path: "/foreign" });
+  const [original] = await db.select().from(schema.sandboxBindings);
+  await db.insert(schema.sandboxBindings).values({ ...original!, id: "foreign-binding", projectId: "foreign", resourceKey: "foreign-binding" });
+  const select = db.select.bind(db);
+  let mutated = false;
+  const read = spyOn(db, "select").mockImplementation(((fields) => {
+    if (!mutated) {
+      mutated = true;
+      binding.projectId = "foreign";
+      binding.workspaceId = "foreign-binding";
+    }
+    return select(fields);
+  }) as typeof db.select);
+  try {
+    await caller.call({ binding, principal: { userId: "actor" }, toolCallId: "stat:1", action: "file.stat", payload: { path: "src/app.ts" } });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({ bindingId: "binding", input: { sandboxId: "binding" } });
+  } finally { read.mockRestore(); }
+});
+
 test("file action uses the persisted binding and declared Incus method", async () => {
   const { caller, binding, calls, releaseLookups, connectionLookups } = await setup();
   const reply = await caller.call({ binding, toolCallId: "tool-1:1", action: "file.stat", payload: { path: "src/app.ts" } });

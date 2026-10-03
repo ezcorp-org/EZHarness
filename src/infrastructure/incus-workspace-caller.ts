@@ -117,20 +117,21 @@ export class IncusWorkspaceCaller implements ProviderSandboxWorkspaceCaller {
     if (request.signal?.aborted) throw new Error("Incus workspace action was cancelled");
     // Capture the host principal before any asynchronous work; payload fields cannot replace it.
     const userId = request.principal?.userId;
-    const projectId = request.binding.projectId;
+    const binding = Object.freeze({ ...request.binding });
+    const projectId = binding.projectId;
     const authorize = () => this.authorize(projectId, userId);
     await authorize();
     const [current] = await this.db.select().from(sandboxBindings)
-      .where(eq(sandboxBindings.projectId, request.binding.projectId)).limit(1);
+      .where(eq(sandboxBindings.projectId, projectId)).limit(1);
     if (!current) throw new Error("Incus workspace binding is unavailable");
-    assertBinding(request.binding, current);
+    assertBinding(binding, current);
     const operation = operationByAction[request.action];
     if (!operation || Object.keys(request.payload).some(key => !payloadKeys[request.action].includes(key))) {
       throw new Error("Incus workspace action is unsupported");
     }
     const snapshot = await this.resolveRelease(current.providerInstallationId);
     if (snapshot.installation.id !== current.providerInstallationId || snapshot.release.id !== current.providerReleaseId
-      || snapshot.release.releaseDigest !== request.binding.releaseDigest
+      || snapshot.release.releaseDigest !== binding.releaseDigest
       || !snapshot.release.manifest.methods?.some(method => method.name === incusMethodName(operation))) {
       throw new Error("Incus workspace release changed");
     }
