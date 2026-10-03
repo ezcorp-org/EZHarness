@@ -5668,3 +5668,17 @@ From the read-only plan audit (w00/wave4h/leftover-audit-plan.md, section D, ded
       combined run at 1992630f3 is receipted: b73b13be4; W12e G5 is ticked in this commit.)
 
 Open factory items elsewhere in this file (class (a) of the todo audit, 41 boxes; not repeated here): see lines 2127, 2152, 2153, 2804, 2806, 2835, 2892, 2894, 3145, 3420, 3508, 3614, 3619, 3666, 3668, 3670, 3985, 3986, 3987, 4004, 4007, 4123, 4124, 5349, 5442, 5476, 5477, 5525, 5567, 5569, 5571, 5574, 5576, 5582, 5583, 5585, 5586, 5587, 5588, 5589, 5590.
+
+## W4H-2 — pinned uv for the hosted test jobs (branch `wp/w4h-2`; gates `tasks/factory/w4h-2-GATES.md`)
+- [x] Red in a runner-shaped container without uv: 5 fail, each UvUnavailableError (the hosted shards 3 and 6 set)
+- [x] One pin (`.uv-version`), one action (`setup-python-toolchain`) in every job that runs the uv-dependent suites
+- [x] One shared "action before the step" check in scripts/lib/ci-registration.ts, used by the W4G-6 and W4H-2 tests
+- [x] A unit test pins the action to `.uv-version` and refuses a second uv literal or another uv install
+- [x] Green in the same container with uv installed by the action's own steps: 10 pass, 0 fail
+- [x] Coverage, lint, typecheck, boundaries, actionlint, guard set; hook count 4
+- [ ] Hosted run green for the six jobs (after the coordinator's push)
+
+Review: the cause was a missing step, not a resolver defect. The pin and the action existed, but only three jobs used
+the action. The fix adds the action to the five backend-pool jobs in ci.yml and to the release job, and a test now fails
+on any job that runs the uv suites without the action first. The release job also lacked the W4G-6 parser action. The
+shared check found that gap after `bun run test` and `bun run test:coverage` were counted as pool runners.
