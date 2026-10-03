@@ -69,7 +69,7 @@ function isolatedUidMap(value: unknown): boolean {
     && Number(entries[0][1]) > 0 && Number.isSafeInteger(Number(entries[0][1]));
 }
 
-function canonicalAddress(value: unknown): string | null {
+export function canonicalIncusProbeAddress(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const family = isIP(value);
   if (family === 4) {
@@ -99,8 +99,8 @@ export async function observeIncusResourceEnforcement(
   handle: LiveFixtureHandle, preset: SandboxPreset, targets: IncusResourceProbeTargets,
   dependencies: IncusResourceProbeDependencies,
 ): Promise<LiveEnforcementFacts> {
-  const managementAddress = canonicalAddress(targets.management?.address);
-  const otherAddress = canonicalAddress(targets.otherSandbox?.address);
+  const managementAddress = canonicalIncusProbeAddress(targets.management?.address);
+  const otherAddress = canonicalIncusProbeAddress(targets.otherSandbox?.address);
   requireProbe(managementAddress && otherAddress
     && validPort(targets.management.port) && validPort(targets.otherSandbox.port)
     && (managementAddress !== otherAddress || targets.management.port !== targets.otherSandbox.port),

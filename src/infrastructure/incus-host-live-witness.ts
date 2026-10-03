@@ -117,6 +117,7 @@ export interface IncusHostLiveWitnessDependencies {
   /** Host-owned source of a running, distinct sandbox service and independent
    * host reachability checks. */
   resourceNetwork?: {
+    managementTarget(context: LiveReadbackContext): Promise<IncusNetworkTarget>;
     neighborTarget(context: LiveReadbackContext, neighbor: LiveFixtureHandle): Promise<IncusNetworkTarget & {
       sandboxId: string;
     }>;
@@ -504,9 +505,7 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
       || primary.diskBytes === undefined || neighborTarget.sandboxId !== neighbor.sandboxId) {
       deny("running fixture, root quota, or neighbor network identity changed");
     }
-    const endpoint = new URL(primaryOwned.selected.connection.endpoint);
-    const management = { address: endpoint.hostname.replace(/^\[|\]$/g, ""),
-      port: Number(endpoint.port || 443) };
+    const management = await this.resourceNetwork.managementTarget(context);
     return observeIncusResourceEnforcement(handle, primaryOwned.selected.preset,
       { management, otherSandbox: neighborTarget }, {
         runGuest: (fixture, argv, timeoutMs) => this.run(fixture, argv, timeoutMs),
@@ -525,8 +524,7 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
       || primary.scope.connectionId !== adjacent.scope.connectionId
       || primary.scope.presetId !== adjacent.scope.presetId) deny("limit probe fixture scopes differ");
     const { context } = await this.context(primary.scope, primary.selected.preset);
-    const endpoint = new URL(primary.selected.connection.endpoint);
-    const management = { address: endpoint.hostname.replace(/^\[|\]$/g, ""), port: Number(endpoint.port || 443) };
+    const management = await this.resourceNetwork.managementTarget(context);
     const healthyInstance = async (fixture: LiveFixtureHandle) => {
       const observed = await this.backend.instance(context, fixture.sandboxId);
       return observed.state === "running" && observed.privateNetwork === true

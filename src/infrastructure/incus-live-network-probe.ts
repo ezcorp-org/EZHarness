@@ -6,10 +6,10 @@ import { getDb, type Database } from "../db/connection";
 import { incusQualificationFixtures, sandboxBindings } from "../db/schema";
 import { ReleaseProcess } from "../extensions/release-process";
 import type { LiveFixtureHandle } from "./incus-live-cases";
-import type { IncusNetworkTarget } from "./incus-live-resource-probes";
-import { resourceName, metadata, withSession } from "./incus-transport/lifecycle";
+import { canonicalIncusProbeAddress, type IncusNetworkTarget } from "./incus-live-resource-probes";
+import { resourceName, metadata, withSession, type Session } from "./incus-transport/lifecycle";
 import type { LiveReadbackContext } from "./incus-transport/live-readback";
-import { object, verifiedHttpsRequest, type HostConnectionResolver, type PinnedFetch } from "./incus-transport/transport";
+import { object, verifiedHttpsRequest, connectPinnedTls, type HostConnectionResolver, type PinnedFetch } from "./incus-transport/transport";
 import { ProviderConnectionStore } from "./provider-connections/store";
 
 const ID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
@@ -41,6 +41,8 @@ export interface IncusLiveNetworkProbeDependencies {
   http?: PinnedFetch;
   /** Test seam. Production always calls the protected active release. */
   invokeGuest?: GuestCall;
+  /** Test seam for the existing authenticated TLS connection. */
+  pinnedConnect?: typeof connectPinnedTls;
   /** Test seam for a host TCP connection. */
   connect?: (target: IncusNetworkTarget, expected?: string) => Promise<boolean>;
 }
@@ -111,6 +113,7 @@ export class IncusLiveNetworkProbe {
   private readonly connections: HostConnectionResolver;
   private readonly http: PinnedFetch;
   private readonly invokeGuest: GuestCall;
+  private readonly pinnedConnect: typeof connectPinnedTls;
   private readonly connect: NonNullable<IncusLiveNetworkProbeDependencies["connect"]>;
   private readonly challenges = new WeakMap<IncusNetworkTarget, string>();
   private readonly neighborTargets = new Map<string, WeakRef<IncusNetworkTarget>>();
@@ -120,6 +123,7 @@ export class IncusLiveNetworkProbe {
     this.connections = deps.connections ?? new ProviderConnectionStore(this.db);
     this.http = deps.http ?? verifiedHttpsRequest;
     this.invokeGuest = deps.invokeGuest ?? invokeProtectedIncusGuest;
+    this.pinnedConnect = deps.pinnedConnect ?? connectPinnedTls;
     this.connect = deps.connect ?? connectHostTarget;
   }
 
@@ -159,17 +163,18 @@ export class IncusLiveNetworkProbe {
     "neighbor binding changed or stopped");
   }
 
-  private async backendAddress(context: LiveReadbackContext, sandboxId: string): Promise<string> {
+  private async pinnedSession<T>(context: LiveReadbackContext, sandboxId: string | undefined,
+    run: (session: Session) => Promise<T>): Promise<T> {
     const certificate = new X509Certificate(context.connection.serverCertificatePem);
     const { scope, connection, preset } = context;
-    const request = { action: "instance.inspect" as const, connectionId: scope.connectionId,
+    const request = { action: sandboxId ? "instance.inspect" as const : "instance.list" as const, connectionId: scope.connectionId,
       deadlineMs: Date.now() + 30_000,
       pins: { connectionId: scope.connectionId,
         serverCertificateSha256: createHash("sha256").update(certificate.raw).digest("hex"),
         project: connection.project, profile: connection.configuration.profile,
         helperVersion: connection.configuration.helperVersion, guestUser: connection.configuration.guestUser },
-      tags: { managedBy: "ezharness-incus-sandbox" as const, connectionId: scope.connectionId, sandboxId },
-      sandboxName: resourceName(scope.connectionId, sandboxId),
+      tags: { managedBy: "ezharness-incus-sandbox" as const, connectionId: scope.connectionId, ...(sandboxId ? { sandboxId } : {}) },
+      ...(sandboxId ? { sandboxName: resourceName(scope.connectionId, sandboxId) } : {}),
       payload: { providerId: "incus", profile: preset.profile, presetId: preset.id,
         presetDigest: context.presetDigest, effectiveSettingsDigest: context.effectiveSettingsDigest, allocate: false } };
     const policy = { providerInstallationId: scope.installationId, providerReleaseId: scope.releaseId,
@@ -177,13 +182,57 @@ export class IncusLiveNetworkProbe {
         incusProfile: context.recipe.profile.name, presetId: preset.id,
         presetDigest: context.presetDigest, effectiveSettingsDigest: context.effectiveSettingsDigest,
         imageFingerprint: preset.imageDigest, limits: preset.limits } };
-    return withSession(this.connections, policy, this.http, request, async session => {
-      const path = `/1.0/instances/${request.sandboxName}?project=${encodeURIComponent(session.connection.project)}`;
+    return withSession(this.connections, policy, this.http, request, run);
+  }
+
+  /** Resolve the control IP from the authenticated socket, never a second DNS query. */
+  async managementTarget(context: LiveReadbackContext): Promise<IncusNetworkTarget> {
+    const scope = { ...context.scope };
+    const revision = context.connection.revision;
+    return this.pinnedSession(context, undefined, async session => {
+      const expected = { ...session.connection };
+      const hostname = session.origin.hostname.replace(/^\[|\]$/g, "");
+      const port = Number(session.origin.port || 443);
+      const socket = await this.pinnedConnect(hostname, port, session.tls, session.signal);
+      try {
+        const address = socket.remoteAddress;
+        const peerPort = socket.remotePort;
+        requireNetwork(canonicalIncusProbeAddress(address) && peerPort === port,
+          "pinned management peer address is unavailable");
+        await this.assertManagementConnection(scope, revision, expected, session.signal);
+        return Object.freeze({ address: address!, port });
+      } finally { socket.destroy(); }
+    });
+  }
+
+  private async assertManagementConnection(scope: LiveReadbackContext["scope"], revision: number,
+    expected: Session["connection"], signal: AbortSignal): Promise<void> {
+    let abort!: () => void;
+    const cancelled = new Promise<never>((_, reject) => {
+      abort = () => reject(new Error("Incus live network probe unavailable: pinned management connection deadline expired"));
+      signal.addEventListener("abort", abort, { once: true });
+      if (signal.aborted) abort();
+    });
+    try {
+      const current = await Promise.race([this.connections.resolveForHost({
+        connectionId: scope.connectionId, providerInstallationId: scope.installationId,
+        providerReleaseId: scope.releaseId, revision: revision }), cancelled]);
+      requireNetwork(!signal.aborted && ["endpoint", "project", "serverCertificatePem", "clientCertificatePem", "privateKeyPem"]
+        .every(key => current[key as keyof typeof current] === expected[key as keyof typeof current]),
+      "pinned management connection changed");
+    } finally { signal.removeEventListener("abort", abort); }
+  }
+
+  private async backendAddress(context: LiveReadbackContext, sandboxId: string): Promise<string> {
+    return this.pinnedSession(context, sandboxId, async session => {
+      const { scope, preset } = context;
+      const sandboxName = resourceName(scope.connectionId, sandboxId);
+      const path = `/1.0/instances/${sandboxName}?project=${encodeURIComponent(session.connection.project)}`;
       const instance = object(metadata(await session.request("GET", path)));
       const config = object(instance.config);
       const devices = object(instance.expanded_devices);
       const nic = object(devices.eth0);
-      requireNetwork(instance.name === request.sandboxName && instance.type === "container"
+      requireNetwork(instance.name === sandboxName && instance.type === "container"
         && instance.status === "Running" && config["user.ezharness.managed_by"] === "ezharness-incus-sandbox"
         && config["user.ezharness.connection_id"] === scope.connectionId
         && config["user.ezharness.sandbox_id"] === sandboxId

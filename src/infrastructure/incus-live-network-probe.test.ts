@@ -215,3 +215,78 @@ test("challenge control fails when the peer closes or stalls before the token", 
   expect(await run(socket => socket.end())).toBe(false);
   expect(await run(() => {})).toBe(false);
 });
+
+async function managementFixture(options: { address?: string; port?: number; changed?: boolean;
+  deny?: boolean; mismatch?: boolean; tlsFailure?: boolean; expire?: () => void;
+  drift?: boolean; mutatePeer?: boolean; expireRefresh?: () => void } = {}) {
+  const { context } = await setup();
+  const stored = { ...connection, endpoint: "https://wrong.example:8443", serverCertificatePem: certs.read("other-server-cert.pem") };
+  context.connection.serverCertificatePem = stored.serverCertificatePem;
+  let reads = 0;
+  let connects = 0;
+  let destroyed = 0;
+  let peer: { remoteAddress: string; remotePort: number; destroy(): void };
+  const probe = new IncusLiveNetworkProbe({ db: {} as Database,
+    connections: { resolveForHost: async scope => {
+      expect(scope).toEqual({ connectionId: context.scope.connectionId,
+        providerInstallationId: context.scope.installationId, providerReleaseId: context.scope.releaseId, revision: 1 });
+      reads++;
+      if (options.deny || options.changed && reads === 2) throw new Error("connection revoked");
+      if (reads === 2) {
+        if (options.mutatePeer) peer.remoteAddress = "10.173.0.99";
+        if (options.expireRefresh) { options.expireRefresh(); return new Promise<never>(() => {}); }
+        if (options.drift) return { ...stored, endpoint: "https://other.example:8443" };
+      }
+      return { ...stored, ...(options.mismatch ? { project: "foreign" } : {}) };
+    } },
+    pinnedConnect: async (hostname, port, tls, signal) => {
+      connects++;
+      expect(hostname).toBe("wrong.example");
+      expect(port).toBe(8443);
+      expect(tls.ca).toBe(stored.serverCertificatePem);
+      expect(tls.cert).toBe(stored.clientCertificatePem);
+      expect(tls.key).toBe(stored.privateKeyPem);
+      expect(signal?.aborted).toBe(false);
+      if (options.tlsFailure) throw new Error("pinned TLS handshake rejected");
+      options.expire?.();
+      peer = { remoteAddress: options.address ?? "100.81.181.39", remotePort: options.port ?? 8443,
+        destroy: () => { destroyed++; } };
+      return peer as unknown as import("node:tls").TLSSocket;
+    },
+  });
+  return { context, probe, counts: () => ({ reads, connects, destroyed }) };
+}
+
+test("management target freezes the authenticated FQDN socket peer and rechecks current scope", async () => {
+  const fixture = await managementFixture({ mutatePeer: true });
+  const target = await fixture.probe.managementTarget(fixture.context);
+  expect(target).toEqual({ address: "100.81.181.39", port: 8443 });
+  expect(Object.isFrozen(target)).toBe(true);
+  expect(fixture.counts()).toEqual({ reads: 2, connects: 1, destroyed: 1 });
+});
+
+test("management target denies changed authority, identity, TLS and invalid socket peers", async () => {
+  for (const options of [{ changed: true }, { drift: true }, { deny: true }, { mismatch: true }, { tlsFailure: true },
+    { address: "127.0.0.1" }, { address: "::1" }, { address: "not-an-IP" }, { port: 443 }]) {
+    const fixture = await managementFixture(options);
+    await expect(fixture.probe.managementTarget(fixture.context)).rejects.toBeInstanceOf(Error);
+    const counts = fixture.counts();
+    expect(counts.destroyed).toBe(counts.connects && !options.tlsFailure ? 1 : 0);
+  }
+});
+
+test("management target closes a peer that arrives after the existing session deadline", async () => {
+  let expire!: () => void;
+  const original = globalThis.setTimeout;
+  const timer = spyOn(globalThis, "setTimeout").mockImplementation(((callback: () => void, delay: number) => {
+    expire = callback;
+    return original(() => {}, delay);
+  }) as typeof setTimeout);
+  try {
+    for (const options of [{ expire: () => expire() }, { expireRefresh: () => expire() }]) {
+      const fixture = await managementFixture(options);
+      await expect(fixture.probe.managementTarget(fixture.context)).rejects.toThrow("deadline");
+      expect(fixture.counts()).toEqual({ reads: 2, connects: 1, destroyed: 1 });
+    }
+  } finally { timer.mockRestore(); }
+});

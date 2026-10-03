@@ -353,7 +353,7 @@ test("resource enforcement binds guest cgroups and network checks to two running
       ? [fixture([handle, other][fixtureReads++]!)] : [binding([handle, other][bindingReads++]!)],
   }) }) }) } as unknown as Database;
   const selected = { snapshot: { release: { releaseDigest: "a".repeat(64) } },
-    connection: { id: scope.connectionId, endpoint: "https://100.81.181.39:8443",
+    connection: { id: scope.connectionId, endpoint: "https://sandbox-server:8443",
       revision: 1, configuration: { profile: "compose", guestUser: "sandbox" } },
     preset, presetDigest, effectiveSettingsDigest: "b".repeat(64) };
   const setup = { state: "verified", providerReleaseId: scope.releaseId,
@@ -370,6 +370,7 @@ test("resource enforcement binds guest cgroups and network checks to two running
         return { state: "running", privateNetwork: true, diskBytes: preset.limits.diskBytes };
       } },
     resourceNetwork: {
+      managementTarget: async () => Object.freeze({ address: "100.81.181.39", port: 8443 }),
       neighborTarget: async (_context, value) => {
         calls.push(`target:${value.sandboxId}`);
         return { sandboxId: targetId, address: "10.173.0.22", port: 8080 };
@@ -422,7 +423,7 @@ test("limit loads recheck the pinned host and neighbor after each guest load", a
     qualifications: {} as IncusQualificationStore,
     fixtures: {} as IncusQualificationFixtureService,
     backend: backend as never,
-    resourceNetwork: { neighborTarget: async () => ({ sandboxId: other.sandboxId,
+    resourceNetwork: { managementTarget: async () => Object.freeze({ address: "100.81.181.39", port: 8443 }), neighborTarget: async () => ({ sandboxId: other.sandboxId,
       address: "10.173.0.22", port: 8080 }),
       hostCanConnect: async target => { calls.push(`host:${target.address}:${target.port}`); return true; } },
   });
