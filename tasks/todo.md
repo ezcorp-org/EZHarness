@@ -982,6 +982,21 @@ Review: The helper now reads nonempty readiness content until it appears or the 
 
 ## PR #308 remaining dependency advisories — 2026-09-24
 
+## PR #308 conflict resolution and merge — 2026-10-03
+
+- [x] Merge current main into PR #308, preserving both branches' behavior.
+- [ ] Independently review conflict resolution and security invariants with Sol agents.
+- [ ] Fix the fresh October 3 root, web, and Excel dependency advisories and verify zero audit findings.
+- [ ] Run fresh installs, static checks, full tests, build, browser lanes, coverage, and audits.
+- [ ] Push the tested head and verify required hosted CI and review requirements.
+- [ ] Squash-merge when GitHub requirements pass; record the final result.
+
+Plan reviewed: user authorizes conflict resolution, validation, push, and merge when ready. Use isolated worktrees. Keep all gates and required approvals intact. Record final evidence in ignored `tasks/pr308-merge-oct3-results.md` so tracked source remains frozen during browser attestation.
+
+Merge review: The only textual conflict was this append-only task journal. Both PR #308 and main's #319/#320 entries are retained. The auto-merged sidebar, watchdog, and isolation changes remain in place; focused integration checks follow below.
+
+### Previous dependency task
+
 - [x] Resolve root esbuild and uuid advisories with compatibility tests (Sol root dependency agent).
 - [x] Resolve web qs and cookie advisories with compatibility tests (Sol web dependency agent).
 - [x] Independently verify fixed versions, installed resolution paths, and security regression tests.
@@ -992,3 +1007,52 @@ Review: The helper now reads nonempty readiness content until it appears or the 
 Plan review: The user requests all six remaining lower-severity advisory records fixed, validated, and pushed. Include current main through `8aa507304` before the changes. Separate root and web manifests/locks between isolated Sol worktrees. Prefer supported parent updates; use narrowly justified dependency overrides only with real caller compatibility proof. Do not suppress advisories, weaken gates, or change test deadlines. Final results go in `tasks/pr308-dependency-results.md` so tracked source stays frozen during coverage attestation.
 
 Review before final validation: Independent clean-install checks report zero advisories in root, web, and the Excel example. Pinned Bun 1.3.14 ignores parent-scoped overrides, so tested exact global pins are required. The extension resolver now honors exact global overrides, rejects unsupported forms and stale locks, and checks package declarations against the lock. Regression tests cover real dependency callers, malicious inputs, and the author save/resolve/reload flow. Git test fixtures now share an isolated environment so hooks cannot change the caller's repository identity. Run final checks and record their results in the ignored report before pushing.
+
+## PR #319 review and repair
+
+- [x] Read hosted browser failures and inspect the chat sidebar change.
+- [x] Fix stale project rows, missing new-chat refresh, empty All chats access, and fork/agent markers.
+- [x] Update old browser journeys to use the new Chat section.
+- [x] Complete focused browser, type, lint, and coverage checks.
+- [x] Commit the reviewed changes and report exact results.
+
+Review: Hosted full mock browser lane failed 16 journeys; browser route coverage and per-file coverage then lacked a required producer. All 117 affected Chromium journeys pass after the fixes. Component checks pass 31/31 and show 100% line and branch coverage for ChatNavSection. Web production build, full typecheck, lint, and whitespace check pass. The hosted full browser and coverage lanes still need a new run after the branch is pushed by the parent agent.
+
+### Hosted CI follow-up at `12f9bb64b`
+
+- [x] Reproduce the two mobile drawer failures with Chromium Playwright.
+- [x] Scope the Chat link assertions to the exact navigation item.
+- [x] Run the affected browser test and exact `mock-full` CI lane.
+- [x] Commit the follow-up fix and report the result.
+
+Review: The hosted full mock lane reported two strict selector collisions in `mobile-tab-bar.spec.ts`: both the Chat nav link and All chats link matched the broad `Chat` locator. Downstream browser route coverage and per-file coverage gates failed because their browser producer failed. The two affected Chromium journeys failed before the fix and passed 2/2 after it. The full lane is pending.
+
+### Hosted patch coverage follow-up at `444e4b488`
+
+- [x] Reproduce hosted patch-coverage misses locally at the exact head.
+- [x] Add a list/store integration test for scoped and unscoped refresh events.
+- [x] Add a layout integration test for the mobile Chat section path.
+- [x] Run focused tests, local coverage, typecheck, and lint.
+- [x] Commit the coverage repair and report the result.
+
+Review: Hosted global and new-file coverage passed. Patch coverage missed `ConversationList.svelte:237`, `stores.svelte.ts:372`, and `(app)/+layout.svelte:609`. The new integration tests pass 20/20. Targeted V8 coverage now records 3, 3, and 1 hit on those lines. Full typecheck and lint pass. The exact-head browser receipt and full coverage gate remain to run after the other agent's shared test slot clears. No gate configuration changed.
+
+### Merged-layout coverage follow-up at `9c8aaa303`
+
+- [x] Compare targeted and merged LCOV for layout line 609.
+- [x] Trace the canonical Vitest source include and browser ownership filter.
+- [x] Add narrow dual measurement for the app layout and guard it with a test.
+- [ ] Run focused, full, patch, new-file, and gate-integrity checks at the new head.
+
+Review: The exact-head browser lanes and full host coverage passed, but the separate patch gate found layout line 609 at zero hits. Browser V8 source maps leave that prop line at zero; targeted Node V8 measured the mounted mobile drawer test at one hit. The canonical Node producer did not include the layout and its filter excluded scripted routes. Exactly this layout is now dual-measured: the sanctioned Vitest leg passed 596 files and 7,517 tests, retained layout line 609 with one hit, and its LCOV merged with the browser receipt covers 205/219 layout lines (93.61%, above 80%). The guard suite, lint, typecheck, and gate-integrity checks pass. Exact-head full receipt and coverage checks remain. No threshold or exclusion changed.
+## PR #320 watchdog sleep reason review — 2026-09-24
+
+- [x] Read the PR, runtime contract, relevant lessons, and failed hosted job.
+- [x] Reproduce the first-tick sleep failure through the watchdog and persisted error path.
+- [x] Fix first-tick detection, progress-before-tick attribution, and the code quality complexity failure.
+- [x] Run focused watchdog tests, typecheck, lint, and browser SSE/reload proof.
+- [ ] Verify the CRAP quality gate on merged coverage, then push and review hosted CI.
+
+Plan review: The hosted Per-file coverage job passed line coverage but failed the touched-function CRAP limit: tick() scored 31 over its limit of 30. The PR also missed a sleep before the first tick and progress just before a delayed tick. Keep kill thresholds unchanged. Move sleep accounting and reason text into small helpers, and prove visible and persisted wording through browser SSE and reload.
+
+Review: A new frozen-clock test failed at the original head when the host slept before the first timer callback. The fix initializes observation time on start and resets it on real progress. A tool timeout that expired during sleep also lost the sleep note; the selected tool reason now keeps precedence and gains the note. The text says sleep *may* have happened, since timer delay alone cannot prove it. Six focused suspension tests, the watchdog file suite, typecheck, lint, and six Chromium browser cases passed. Browser cases show both sleep error forms after SSE and page reload. Exact quality gate and hosted CI remain for the integrating agent.

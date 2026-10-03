@@ -86,10 +86,8 @@ test.describe("Daily Briefing — live sidebar delivery", () => {
 
 		// Open the project chat — baseline sidebar has only the existing chat.
 		await page.goto("/project/proj-a/chat/conv-existing");
-		// Scoped to the sidebar ROW button — bare getByText also matches the
-		// chat header's title once the conversation finishes loading (strict
-		// mode violation, timing-dependent).
-		await expect(page.getByRole("button", { name: /Existing chat/ })).toBeVisible();
+		// Scope the baseline to the Chat section's thread row.
+		await expect(page.getByTestId("chat-nav-thread").filter({ hasText: "Existing chat" })).toBeVisible();
 		await expect(page.getByText("Daily Briefing — Thursday, Jun 11")).toHaveCount(0);
 
 		// The briefing run completes server-side: the conversation now exists
@@ -109,10 +107,8 @@ test.describe("Daily Briefing — live sidebar delivery", () => {
 		// No navigation, no reload — the sidebar refetches and shows the
 		// briefing conversation with the unread dot.
 		await expect(page.getByText("Daily Briefing — Thursday, Jun 11")).toBeVisible();
-		const briefingRow = page
-			.locator("div.group", { hasText: "Daily Briefing — Thursday, Jun 11" })
-			.first();
-		await expect(briefingRow.locator('span[title="New activity"]')).toBeVisible();
+		const briefingRow = page.getByTestId("chat-nav-thread").filter({ hasText: "Daily Briefing — Thursday, Jun 11" });
+		await expect(briefingRow.getByTestId("chat-nav-unread")).toBeVisible();
 
 		// Active project badge also reflects the unread conversation.
 		await expect(
@@ -130,10 +126,8 @@ test.describe("Daily Briefing — live sidebar delivery", () => {
 		await routeConversations(page, state);
 
 		await page.goto("/project/proj-a/chat/conv-existing");
-		// Scoped to the sidebar ROW button — bare getByText also matches the
-		// chat header's title once the conversation finishes loading (strict
-		// mode violation, timing-dependent).
-		await expect(page.getByRole("button", { name: /Existing chat/ })).toBeVisible();
+		// Scope the baseline to the Chat section's thread row.
+		await expect(page.getByTestId("chat-nav-thread").filter({ hasText: "Existing chat" })).toBeVisible();
 		const fetchesAfterLoad = state.listFetches;
 
 		// Briefing lands in proj-b while the user is looking at proj-a.
@@ -169,10 +163,8 @@ test.describe("Daily Briefing — live sidebar delivery", () => {
 		await routeConversations(page, state);
 
 		await page.goto("/project/proj-a/chat/conv-existing");
-		// Scoped to the sidebar ROW button — bare getByText also matches the
-		// chat header's title once the conversation finishes loading (strict
-		// mode violation, timing-dependent).
-		await expect(page.getByRole("button", { name: /Existing chat/ })).toBeVisible();
+		// Scope the baseline to the Chat section's thread row.
+		await expect(page.getByTestId("chat-nav-thread").filter({ hasText: "Existing chat" })).toBeVisible();
 		const fetchesAfterLoad = state.listFetches;
 
 		await emitSse({ type: "run:status", data: { runId: "run-x", status: "running" } });
@@ -191,10 +183,8 @@ test.describe("Daily Briefing — live sidebar delivery", () => {
 		await routeConversations(page, state);
 
 		await page.goto("/project/proj-a/chat/conv-existing");
-		// Scoped to the sidebar ROW button — bare getByText also matches the
-		// chat header's title once the conversation finishes loading (strict
-		// mode violation, timing-dependent).
-		await expect(page.getByRole("button", { name: /Existing chat/ })).toBeVisible();
+		// Scope the baseline to the Chat section's thread row.
+		await expect(page.getByTestId("chat-nav-thread").filter({ hasText: "Existing chat" })).toBeVisible();
 
 		await emitSse({
 			type: "conversation:created",

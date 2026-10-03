@@ -225,10 +225,10 @@ test.describe("Mobile Chat", () => {
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 		await expect(page.getByText("Hello from mobile!")).toBeVisible({ timeout: 5000 });
 
-		// The conversation list text should be directly visible (no overlay needed)
-		await expect(page.getByText("Conversations")).toBeVisible();
-		// "Test Chat" appears in both sidebar and header, use first() to avoid strict mode
-		await expect(page.getByText("Test Chat").first()).toBeVisible({ timeout: 5000 });
+		// The chat section and its current thread are visible without a drawer.
+		const chatNav = page.getByTestId("chat-nav-section").first();
+		await expect(chatNav.getByTestId("chat-nav-threads")).toBeVisible();
+		await expect(chatNav.getByTestId("chat-nav-thread").filter({ hasText: "Test Chat" })).toBeVisible();
 	});
 
 	// ---------------------------------------------------------------
