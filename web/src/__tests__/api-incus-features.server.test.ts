@@ -39,6 +39,8 @@ vi.mock("$server/infrastructure/incus-qualification", () => ({
 	IncusQualificationStore: class { async load() { calls.push("qualification"); return qualified ? { ready: true } : null; } },
 }));
 vi.mock("$server/infrastructure/incus-feature-service", () => ({
+	IncusStopRequiredError: class extends Error {},
+	IncusCleanupRecoveryUnavailableError: class extends Error {},
 	validIncusProjectName: (value: unknown) => typeof value === "string" && value.trim().length > 0
 		&& value.trim() === value && value.length <= 128,
 	IncusFeatureService: class {
@@ -55,7 +57,8 @@ vi.mock("$server/infrastructure/incus-feature-service", () => ({
 		}
 		async start(input: { bindingId: string }) { calls.push(`start:${input.bindingId}`); return { state: "QUEUED", operation }; }
 		async stop(input: { bindingId: string }) { calls.push(`stop:${input.bindingId}`); return operation; }
-		async destroy(input: { bindingId: string }) { calls.push(`destroy:${input.bindingId}`); return operation; }
+		async destroy(input: { bindingId: string }) { calls.push(`destroy:${input.bindingId}`); if (failWith) throw failWith; return operation; }
+		async recoverCleanup(bindingId: string, failedDestroyOperationId: string) { calls.push(`recoverCleanup:${bindingId}:${failedDestroyOperationId}`); throw failWith ?? new Error("database secret"); }
 		async destroyRetired(input: { bindingId: string }) { calls.push(`destroyRetired:${input.bindingId}`); return operation; }
 		async reconcile(limit?: number) { calls.push(`reconcile:${limit}`); return { processed: 0 }; }
 	},
@@ -147,4 +150,25 @@ test("reconcile accepts an optional bounded limit and hides unexpected errors", 
 	failWith = "opaque";
 	expect(await (await POST(event({ action: "create", ...mutation }))).json()).toMatchObject({ code: "feature_failed" });
 	expect(calls).toContain("reconcile:5");
+});
+
+
+test("running disposal returns the stop requirement without exposing error details", async () => {
+	const { IncusStopRequiredError } = await import("$server/infrastructure/incus-feature-service");
+	failWith = new IncusStopRequiredError();
+	const response = await POST(event({ action: "destroy", ...mutation }));
+	expect(response.status).toBe(409);
+	expect(await response.json()).toEqual({ code: "stop_required", message: "Stop this sandbox before disposal." });
+	expect(calls).toEqual(["role:member", "destroy:binding-a"]);
+});
+
+test("cleanup recovery preserves project authorization and hides service failures", async () => {
+	const input = { action: "recoverCleanup", projectId: "project-a", bindingId: "binding-a", failedDestroyOperationId: "failed-a" };
+	expect((await POST(event(input, { ...admin, deniedProject: true }))).status).toBe(403);
+	expect(calls).toEqual(["role:member"]);
+	calls.length = 0;
+	const response = await POST(event(input));
+	expect(response.status).toBe(409);
+	expect(await response.json()).toEqual({ code: "cleanup_recovery_unavailable", message: "The saved cleanup needs review. Inspect its status." });
+	expect(calls).toEqual(["role:member", "recoverCleanup:binding-a:failed-a"]);
 });
