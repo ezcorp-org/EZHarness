@@ -166,10 +166,6 @@
 	}
 
 	async function planQualification(target: Environment) {
-		if (qualificationDraft) {
-			errorMessage = "Finish or clean up the current qualification fixtures before preparing another environment.";
-			return;
-		}
 		busy = "probe-plan";
 		errorMessage = "";
 		notice = "";

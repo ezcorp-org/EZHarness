@@ -403,6 +403,8 @@ test("a saved plan reloads with its original operation before review", async ({ 
 	await page.goto("/extensions/incus-management");
 	await page.getByRole("button", { name: "Prepare qualification…" }).click();
 	await expect(page.getByTestId("qualification-workflow")).toContainText(planDigest);
+	await expect(page.getByRole("button", { name: "Prepare qualification…" })).toHaveCount(0);
+	expect(actions.filter(item => item.endpoint === "probe-fixtures" && item.body.action === "plan")).toHaveLength(1);
 	await page.reload();
 	await expect(page.getByTestId("qualification-workflow")).toContainText("project-unsupported");
 	await expect(page.getByRole("button", { name: "Apply reviewed fixture plan" })).toBeDisabled();
