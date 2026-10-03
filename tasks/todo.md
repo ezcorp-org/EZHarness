@@ -1,3 +1,22 @@
+# Active completion — 3 October 2026
+
+- [x] Verify restored TCP socket, sandbox-server SSH, and GitHub access.
+- [ ] Recheck the existing app, guest, and saved operations; identify the inspection failure without duplicate effects.
+- [ ] Complete the saved guest workload and cleanup, then live qualification and the native project workflow.
+- [ ] Pass previously blocked tests and close management-page browser coverage gaps.
+- [ ] Pass final exact-head repository and hosted checks, record evidence, and update PR #303.
+
+Sol live and coverage workers have separate worktrees at `7a251ed01`; only the live worker may change the isolated app or server. Root owns integration and bundle staging. PR #303 remains open and draft at `18e46a7c8`; the local diagnostic and test repairs are not yet pushed. Existing lesson edits are preserved.
+
+Service restoration, 3 October:
+- [x] Confirm the saved guest is running, the app bundle is unchanged, the ingress hold is active, and no process holds the live database.
+- [x] Identify missing qualification services in current NixOS source; create a repair worktree from current `3914170`.
+- [x] Restore the qualification module on the current host configuration, keep automatic start off, and build/test a guarded candidate.
+- [x] Preserve and inspect a detached copy of the current database before any service start; do not restore September's older database.
+- [ ] Review the concrete candidate and then restore the services under the existing ingress hold.
+
+Verification: the restricted fast run passed lint, typecheck, gate integrity, visual-evidence checks, and 3,645 web tests. Backend results were 26,992 passes and 44 failures. A reproduced container failure is denied Podman runtime writes under the session sandbox; an approved unrestricted fast run is in progress. These results are not a passing full gate. Six focused management browser tests passed before the recovery journeys were added; the expanded suite is still being checked. The live CREATE/START are confirmed, but the full workload/cleanup milestone remains open.
+
 # Resumed completion — 2 October 2026
 
 - [x] Recover the saved branch and preserve the interrupted work.
