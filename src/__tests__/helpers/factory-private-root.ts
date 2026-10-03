@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { createFactoryCertificateAuthority } from "../../factory/provisioning/certificates";
 import { factoryDatabasePairs } from "../../factory/provisioning/database";
@@ -17,6 +17,15 @@ export async function makeFactoryPrivateRoot(): Promise<string> {
   const root = await mkdtemp(join(process.env.XDG_RUNTIME_DIR ?? homedir(), "w16-test-"));
   await chmod(root, 0o700);
   return root;
+}
+
+/**
+ * A fresh 0700 root under os.tmpdir(), for suites that must also run where $HOME is an owned
+ * 0755 directory (a hosted CI runner). /tmp is root-owned and sticky, an ancestor the private
+ * reader accepts; an owned 0755 $HOME is not.
+ */
+export function makeFactoryTempPrivateRoot(prefix: string): Promise<string> {
+  return mkdtemp(join(tmpdir(), prefix));
 }
 
 export async function removeFactoryPrivateRoot(root: string | undefined): Promise<void> {

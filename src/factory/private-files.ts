@@ -11,10 +11,37 @@ function owner(): number {
 
 function privateError(message: string): Error { return new Error(message); }
 
+const STICKY = 0o1000;
+
+/**
+ * The verdict on one directory component of a private path, from its owner and mode alone.
+ * A foreign ancestor above the first owned directory may not be group- or world-writable,
+ * except a root-owned sticky one such as /tmp: there no other user can rename or unlink the
+ * entry this user owns, and the walk opens that entry through the parent's descriptor without
+ * following links. Below the first owned directory nothing foreign is allowed. An owned
+ * directory must be 0700; only the leaf may be repaired, and only when the caller asks.
+ * Returns "repair" when the owned leaf needs chmod 0700, otherwise whether it is owned.
+ */
+export function privateComponentVerdict(
+  status: { readonly uid: number; readonly mode: number },
+  uid: number,
+  state: { readonly reachedOwnedDirectory: boolean; readonly mayRepair: boolean },
+): "foreign" | "owned" | "repair" {
+  if (status.uid !== uid) {
+    const rootSticky = status.uid === 0 && (status.mode & STICKY) !== 0;
+    if (state.reachedOwnedDirectory || ((status.mode & 0o022) !== 0 && !rootSticky)) throw privateError("Private path has a writable foreign ancestor.");
+    return "foreign";
+  }
+  if ((status.mode & 0o077) === 0) return "owned";
+  if (!state.mayRepair) throw privateError("Private path has a non-private owned ancestor.");
+  return "repair";
+}
+
 /**
  * Opens every directory component through its already-open parent. Foreign
- * ancestors may only be non-writable; the first owned directory and all of
- * its descendants must be private. The caller owns the returned descriptor.
+ * ancestors may only be non-writable (or root-owned and sticky); the first
+ * owned directory and all of its descendants must be private. The caller
+ * owns the returned descriptor.
  */
 export interface PrivateDirectoryOptions { readonly createLeaf?: boolean; readonly repairOwnedLeaf?: boolean }
 export async function privateDirectory(path: string, options: PrivateDirectoryOptions = {}): Promise<FileHandle> {
@@ -34,15 +61,11 @@ export async function privateDirectory(path: string, options: PrivateDirectoryOp
       }
       const status = await child.stat();
       if (!status.isDirectory()) { await child.close(); throw privateError("Private path component is not a directory."); }
-      if (status.uid !== uid) {
-        if (reachedOwnedDirectory || (status.mode & 0o022) !== 0) { await child.close(); throw privateError("Private path has a writable foreign ancestor."); }
-      } else {
-        if ((status.mode & 0o077) !== 0) {
-          if (!options.repairOwnedLeaf || index !== components.length - 1) { await child.close(); throw privateError("Private path has a non-private owned ancestor."); }
-          await child.chmod(0o700);
-        }
-        reachedOwnedDirectory = true;
-      }
+      let verdict: ReturnType<typeof privateComponentVerdict>;
+      try { verdict = privateComponentVerdict(status, uid, { reachedOwnedDirectory, mayRepair: options.repairOwnedLeaf === true && index === components.length - 1 }); }
+      catch (error) { await child.close(); throw error; }
+      if (verdict === "repair") await child.chmod(0o700);
+      if (verdict !== "foreign") reachedOwnedDirectory = true;
       await directory.close();
       directory = child;
     }
