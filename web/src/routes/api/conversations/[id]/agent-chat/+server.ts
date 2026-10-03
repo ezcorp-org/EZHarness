@@ -129,28 +129,6 @@ async function authorizeAgentChat(
   const projectDenial = await checkProjectWorkAccess(locals, projectId);
   if (projectDenial) return projectDenial;
 
-  // ── Boundary 2: per-API-key mode lock + autopilot refusal ─────────
-  // This route was a HOLE: it starts a run and never consulted the lock, so a
-  // key minted `--locked-mode` reached it and got back the tool surface the
-  // mode denies. Checked against `subConv` — the PERSISTED row of the very
-  // conversation this run executes on — and the SAME row's `modeId` is threaded
-  // into streamChat below, because admitting the run without applying the mode
-  // would confine nothing.
-  //
-  // `isGoalCommand: false` is load-bearing, not a stub: `/goal` is armed only
-  // by the messages route's interceptor, so here the text is just text and
-  // refusing it would deny a harmless send. The armed-conversation arm of the
-  // predicate still fires off `subConv.metadata.goal`.
-  //
-  // Refused BEFORE the user row is persisted, so a rejected turn leaves no
-  // trace in the sub-conversation's feed.
-  const policyDenial = runStartPolicyDenial(locals.apiKeyToolPolicy, subConv, {
-    isGoalCommand: false,
-  });
-  if (policyDenial) {
-    return errorJson(403, policyDenial.message, { field: policyDenial.field });
-  }
-
   return { subConv, parentConv, rootConversationId: rootConv.id, projectId };
 }
 
@@ -315,6 +293,15 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
   if (body instanceof Response) return body;
   const scope = await authorizeAgentChat(params.id, user, locals);
   if (scope instanceof Response) return scope;
+  // Keep the mode guard at the handler boundary, before any message or run
+  // effect. It checks the same persisted row whose mode starts the run.
+  // Only the messages route arms /goal; literal text here is not a command.
+  const policyDenial = runStartPolicyDenial(locals.apiKeyToolPolicy, scope.subConv, {
+    isGoalCommand: false,
+  });
+  if (policyDenial) {
+    return errorJson(403, policyDenial.message, { field: policyDenial.field });
+  }
   const leaf = await convQueries.getLatestLeaf(params.id);
   const userMessage = await convQueries.createMessage(params.id, {
     role: "user",
