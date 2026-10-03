@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { canonicalJson } from "@ezcorp/extension-contract";
@@ -28,6 +28,7 @@ import { factoryRecoveryStorage } from "./helpers/factory-recovery-storage";
 import { composeFactoryInstallationRestore } from "../../src/factory/installation-startup";
 import { runFactoryRestoreCommand } from "../../src/factory/restore-command";
 import { FACTORY_STARTUP_CONFIG_SCHEMA } from "../../src/factory/startup-config";
+import { makeFactoryTempPrivateRoot } from "../../src/__tests__/helpers/factory-private-root";
 
 /**
  * C06 restore against real PostgreSQL copies, the real ordinary store, and the
@@ -447,7 +448,7 @@ describe("restore into a new execution epoch", () => {
   }, 120_000);
 
   test("the operator command restores through the installation's own composition from its startup document", async () => {
-    const directory = await mkdtemp(join(process.env.HOME!, ".w15-restore-command-"));
+    const directory = await makeFactoryTempPrivateRoot("w15-restore-command-");
     const temporal = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => Response.json({ executions: [{ execution: { runId: "t" }, status: "WORKFLOW_EXECUTION_STATUS_RUNNING", startTime: "2026-09-22T00:00:00Z" }] }) });
     const restored = await restoredCopy("command");
     try {

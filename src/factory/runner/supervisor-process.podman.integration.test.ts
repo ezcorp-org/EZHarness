@@ -16,15 +16,16 @@
  */
 import { afterAll, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { chmod, mkdtemp, rm } from "node:fs/promises";
+import { chmod, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { factoryHostRunnerProbe, parseFactorySupervisorProcessConfig, type FactorySupervisorProcessConfig } from "./supervisor-process";
+import { makeFactoryTempPrivateRoot } from "../../__tests__/helpers/factory-private-root";
 
 const roots: string[] = [];
 afterAll(async () => { await Promise.all(roots.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
 
 async function runnerRoot(): Promise<string> {
-  const directory = await mkdtemp(join(process.env.HOME!, ".w09-podman-"));
+  const directory = await makeFactoryTempPrivateRoot("w09-podman-");
   roots.push(directory);
   await chmod(directory, 0o700);
   return join(directory, "runner");
