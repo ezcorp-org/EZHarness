@@ -1,8 +1,10 @@
+import { permitsLinkedCleanupStop } from "./incus-cleanup-stop-policy";
+import { resourceName } from "./incus-transport/lifecycle";
 import { permitsCreateReadbackDuringQueuedCleanup } from "./incus-create-readback-policy";
 import { eq } from "drizzle-orm";
 import { RunnerError } from "@ezcorp/extension-runner";
 import { getDb } from "../db/connection";
-import { sandboxBindings, sandboxOperations, type SandboxBinding, type SandboxOperation } from "../db/schema";
+import { sandboxBindings, sandboxOperations, sandboxCleanupRecoveries, type SandboxBinding, type SandboxOperation } from "../db/schema";
 import { getReleaseRuntime, ReleaseProcess, resolveActiveRelease } from "../extensions/release-process";
 import { incusMethodName } from "../../extensions/incus-sandbox/manifest";
 import type { SandboxProtocolOperation } from "@ezcorp/extension-contract";
@@ -46,6 +48,13 @@ async function assertJournalIntent(
   }
   if (operation === "lifecycle.inspectOperation" && !["DISPATCHING", "PROVIDER_PENDING", "OUTCOME_UNKNOWN"].includes(receipt.state)) {
     throw new IncusDispatchAuthorizationError("SCOPE_INVALID");
+  }
+  if (current.tombstonedAt && (operation === "lifecycle.setPower" || operation === "lifecycle.inspectOperation" && receipt.kind === "STOP")) {
+    const [recovery] = await getDb().select().from(sandboxCleanupRecoveries).where(eq(sandboxCleanupRecoveries.stopOperationId, receipt.id)).limit(1);
+    const [failed] = recovery ? await getDb().select().from(sandboxOperations).where(eq(sandboxOperations.id, recovery.failedDestroyOperationId)).limit(1) : [];
+    if (operation === "lifecycle.setPower" && input.desiredState !== "stopped" || !permitsLinkedCleanupStop(current, recovery, failed, receipt, resourceName(current.connectionId, current.id))) {
+      throw new IncusDispatchAuthorizationError("SCOPE_INVALID");
+    }
   }
   const expectedKind = operation === "lifecycle.create" ? "CREATE"
     : operation === "lifecycle.destroy" ? "DESTROY"

@@ -1,10 +1,12 @@
+import { permitsLinkedCleanupStop, permitsFailedCleanupInspection } from "./incus-cleanup-stop-policy";
+import { resourceName } from "./incus-transport/lifecycle";
 import { permitsCreateReadbackDuringQueuedCleanup } from "./incus-create-readback-policy";
 import { createHash, X509Certificate } from "node:crypto";
 import { ContractError, canonicalJson, sandboxPresetDigest, validateSandboxProviderMethodValue, type JsonValue, type SandboxProtocolOperation } from "@ezcorp/extension-contract";
 import { and, eq, sql } from "drizzle-orm";
 import { getDb, type Database } from "../db/connection";
 import { releaseRows } from "../db/queries/extension-releases";
-import { sandboxBindings, sandboxOperations, sandboxReservations, type SandboxBinding, type SandboxOperation } from "../db/schema";
+import { sandboxBindings, sandboxOperations, sandboxCleanupRecoveries, sandboxReservations, type SandboxBinding, type SandboxOperation } from "../db/schema";
 import type { ActiveExtensionRelease } from "../extensions/release-process";
 import { HostIncusProbeTransport, type HostConnectionResolver } from "./incus-transport/transport";
 import type { IncusSetupRecipe } from "../../scripts/incus/model";
@@ -90,8 +92,9 @@ function assertActionBinding(
   snapshot: ActiveExtensionRelease,
   operation: SandboxProtocolOperation,
   input: Record<string, unknown>,
+  linkedCleanupStop = false,
 ): ActionBinding {
-  if (!binding || binding.tombstonedAt && operation !== "lifecycle.destroy" && operation !== "lifecycle.inspectOperation"
+  if (!binding || binding.tombstonedAt && operation !== "lifecycle.destroy" && operation !== "lifecycle.inspectOperation" && !linkedCleanupStop
     || binding.providerInstallationId !== snapshot.installation.id || binding.providerReleaseId !== snapshot.release.id
     || !binding.connectionRevision || !binding.profile || !binding.presetId || !binding.presetDigest
     || !binding.effectiveSettingsDigest || !binding.resourceKey
@@ -136,6 +139,26 @@ async function assertCreateAdmission(db: Database, binding: SandboxBinding, pres
   }
 }
 
+async function linkedCleanupStop(db: Database, binding: SandboxBinding, stop: SandboxOperation): Promise<boolean> {
+  const [recovery] = await db.select().from(sandboxCleanupRecoveries).where(eq(sandboxCleanupRecoveries.stopOperationId, stop.id)).limit(1);
+  const [failed] = recovery ? await db.select().from(sandboxOperations).where(eq(sandboxOperations.id, recovery.failedDestroyOperationId)).limit(1) : [];
+  return permitsLinkedCleanupStop(binding, recovery, failed, stop, resourceName(binding.connectionId, binding.id));
+}
+
+async function cleanupReadOnlyInspection(db: Database, binding: SandboxBinding | undefined, operation: SandboxProtocolOperation): Promise<boolean> {
+  if (!binding?.tombstonedAt || operation !== "lifecycle.inspect" || !binding.currentOperationId) return false;
+  const [current] = await db.select().from(sandboxOperations).where(eq(sandboxOperations.id, binding.currentOperationId)).limit(1);
+  if (permitsFailedCleanupInspection(binding, current)) return true;
+  return Boolean(current?.state === "SUCCEEDED" && await linkedCleanupStop(db, binding, current));
+}
+
+async function linkedCleanupStopInput(db: Database, binding: SandboxBinding | undefined,
+  operation: SandboxProtocolOperation, input: Record<string, unknown>): Promise<boolean> {
+  if (!binding?.tombstonedAt || operation !== "lifecycle.setPower" || input.desiredState !== "stopped" || typeof input.requestId !== "string") return false;
+  const [stop] = await db.select().from(sandboxOperations).where(eq(sandboxOperations.id, input.requestId)).limit(1);
+  return Boolean(stop && stop.state === "DISPATCHING" && stop.requestPayload.expectedGeneration === input.expectedGeneration && await linkedCleanupStop(db, binding, stop));
+}
+
 function approvedGuestHelper(operation: SandboxProtocolOperation, base: PreparedIncusProbe, preset: Awaited<ReturnType<typeof approvedActionPreset>>): string | undefined {
   const guestOperation = operation.startsWith("files.") || operation.startsWith("processes.");
   const helperSha256 = guestOperation ? guestHelperSha256() : undefined;
@@ -149,13 +172,13 @@ function approvedGuestHelper(operation: SandboxProtocolOperation, base: Prepared
 type ReadbackKind = "CREATE" | "START" | "STOP" | "DESTROY";
 
 function readbackScopeMatches(scope: PreparedIncusAction, binding: SandboxBinding,
-  journal: SandboxOperation, kind: ReadbackKind, queuedCleanup = false): boolean {
+  journal: SandboxOperation, kind: ReadbackKind, queuedCleanup = false, cleanupStop = false): boolean {
   const preset = scope.approvedPreset;
   return ["DISPATCHING", "PROVIDER_PENDING", "OUTCOME_UNKNOWN"].includes(journal.state)
     && (journal.id === binding.currentOperationId || queuedCleanup) && journal.generation === binding.generation
     && journal.generation === scope.bindingGeneration
-    && (queuedCleanup || Boolean(binding.tombstonedAt) === (kind === "DESTROY"))
-    && (queuedCleanup || binding.desiredState === (kind === "START" ? "RUNNING" : kind === "DESTROY" ? "ABSENT" : "STOPPED"))
+    && (queuedCleanup || cleanupStop || Boolean(binding.tombstonedAt) === (kind === "DESTROY"))
+    && (queuedCleanup || cleanupStop || binding.desiredState === (kind === "START" ? "RUNNING" : kind === "DESTROY" ? "ABSENT" : "STOPPED"))
     && binding.profile === preset.profile && binding.presetId === preset.presetId
     && binding.presetDigest === preset.presetDigest && binding.effectiveSettingsDigest === preset.effectiveSettingsDigest;
 }
@@ -188,7 +211,8 @@ async function lifecycleReadbackJournal(db: Database, scope: PreparedIncusAction
     ? await db.select().from(sandboxOperations).where(eq(sandboxOperations.id, binding.currentOperationId ?? "")).limit(1)
     : [];
   const queuedCleanup = permitsCreateReadbackDuringQueuedCleanup(binding, journal, cleanup);
-  if (!readbackScopeMatches(scope, binding, journal, kind, queuedCleanup)
+  const cleanupStop = kind === "STOP" && Boolean(binding.tombstonedAt) && await linkedCleanupStop(db, binding, journal);
+  if (!readbackScopeMatches(scope, binding, journal, kind, queuedCleanup, cleanupStop)
     || !readbackIntentMatches(scope, journal, kind)) return null;
   return { id: journal.id, expectedGeneration: journal.requestPayload.expectedGeneration as number,
     desiredState: kind === "START" ? "running" : kind === "DESTROY" ? "absent" : "stopped" };
@@ -204,7 +228,7 @@ function lifecycleReadbackKind(scope: PreparedIncusProbe, command: IncusTranspor
   if (kind === "destroy") return "DESTROY";
   if (kind !== "setPower") return null;
   if (binding?.desiredState === "RUNNING") return "START";
-  if (binding?.desiredState === "STOPPED") return "STOP";
+  if (binding?.desiredState === "STOPPED" || binding?.desiredState === "ABSENT" && binding.tombstonedAt) return "STOP";
   throw new IncusTransportError("permission", "Incus power journal has no desired state");
 }
 
@@ -303,7 +327,9 @@ export class ProviderRpcBroker {
     const input = validateSandboxProviderMethodValue(operation, "input", inputValue) as Record<string, unknown>;
     const [binding] = await this.database.select().from(sandboxBindings)
       .where(eq(sandboxBindings.id, bindingId)).limit(1);
-    const approvedBinding = assertActionBinding(binding, snapshot, operation, input);
+    const cleanupStop = await linkedCleanupStopInput(this.database, binding, operation, input)
+      || await cleanupReadOnlyInspection(this.database, binding, operation);
+    const approvedBinding = assertActionBinding(binding, snapshot, operation, input, cleanupStop);
     const base = await this.prepare(snapshot, approvedBinding.connectionId);
     if (base.revision !== approvedBinding.connectionRevision) {
       throw new ContractError("RELEASE_CHANGED", "Incus connection revision changed");
@@ -418,12 +444,14 @@ export class ProviderRpcBroker {
         [binding] = await this.database.select().from(sandboxBindings)
           .where(eq(sandboxBindings.id, scope.bindingId)).limit(1);
         const inspection = scope.operation === "lifecycle.inspectOperation";
+        const cleanupStop = await linkedCleanupStopInput(this.database, binding, scope.operation, { ...(scope.expectedCommand.payload as Record<string, unknown>), requestId: scope.expectedCommand.idempotency?.requestId })
+          || await cleanupReadOnlyInspection(this.database, binding, scope.operation);
         if (!binding || binding.projectId !== scope.projectId
           || binding.providerInstallationId !== scope.installationId
           || binding.providerReleaseId !== scope.releaseId
           || binding.connectionId !== scope.connectionId || binding.connectionRevision !== scope.revision
           || binding.resourceKey !== scope.resourceKey
-          || !inspection && (binding.generation !== scope.bindingGeneration || binding.tombstonedAt && scope.operation !== "lifecycle.destroy")
+          || !inspection && (binding.generation !== scope.bindingGeneration || binding.tombstonedAt && scope.operation !== "lifecycle.destroy" && !cleanupStop)
           || (scope.operation.startsWith("files.") || scope.operation.startsWith("processes."))
             && (binding.desiredState !== "RUNNING" || binding.observedState !== "RUNNING")
           || !inspection && scope.expectedCommand.idempotency

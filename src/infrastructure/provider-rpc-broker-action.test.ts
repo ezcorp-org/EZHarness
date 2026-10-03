@@ -1,3 +1,4 @@
+import { resourceName } from "./incus-transport/lifecycle";
 import { afterEach, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { eq } from "drizzle-orm";
@@ -348,4 +349,43 @@ test("a changed binding revision after lifecycle preparation denies dispatch bef
   expect(await broker.request(prepared, { command: prepared.expectedCommand }, deadline))
     .toMatchObject({ ok: false, error: { kind: "permission" } });
   expect(matches).toBe(0);
+});
+
+test("tombstoned linked STOP dispatch and readback require fresh persisted recovery links", async () => {
+  const { broker, calls, scope, db } = await setup();
+  const base = { providerId: "incus", connectionId: "connection", sandboxId: "binding", rpcDeadlineMs: Date.now() + 30_000 };
+  await db.insert(schema.sandboxOperations).values([
+    { id: "failed", bindingId: "binding", kind: "DESTROY", generation: 1, idempotencyScope: "cleanup", idempotencyKey: "failed", payloadHash: "failed",
+      requestPayload: { expectedGeneration: 2 }, state: "FAILED", errorCode: "REVISION_CONFLICT" },
+    { id: "stop", bindingId: "binding", kind: "STOP", generation: 1, idempotencyScope: "cleanup", idempotencyKey: "stop", payloadHash: "stop",
+      requestPayload: { expectedGeneration: 2 }, state: "DISPATCHING", providerOperationId: "incus-setPower-11111111-1111-1111-1111-111111111111" },
+  ]);
+  await db.update(schema.sandboxBindings).set({ desiredState: "ABSENT", tombstonedAt: new Date(), currentOperationId: "stop" });
+  await db.update(schema.sandboxBindings).set({ currentOperationId: "failed" });
+  const inspection = { ...scope("lifecycle.inspect", base), approvedGuest: undefined };
+  expect(await broker.request(inspection, { command: inspection.expectedCommand }, base.rpcDeadlineMs)).toMatchObject({ ok: true });
+  await db.update(schema.sandboxOperations).set({ providerOperationId: "unknown-effect" }).where(eq(schema.sandboxOperations.id, "failed"));
+  expect(await broker.request(inspection, { command: inspection.expectedCommand }, base.rpcDeadlineMs)).toMatchObject({ ok: false, error: { kind: "permission" } });
+  await db.update(schema.sandboxOperations).set({ providerOperationId: null }).where(eq(schema.sandboxOperations.id, "failed"));
+  await db.update(schema.sandboxBindings).set({ currentOperationId: "stop" });
+  const action = { ...scope("lifecycle.setPower", { ...base, requestId: "stop", idempotencyKey: "stop", desiredState: "stopped", expectedGeneration: 2 }), approvedGuest: undefined };
+  expect(await broker.request(action, { command: action.expectedCommand }, base.rpcDeadlineMs)).toMatchObject({ ok: false, error: { kind: "permission" } });
+  await db.insert(schema.sandboxCleanupRecoveries).values({ id: "recovery", bindingId: "binding", generation: 1, failedDestroyOperationId: "failed",
+    stopOperationId: "stop", destroyOperationId: "destroy", installationId: "installation", releaseId: "release", connectionId: "connection",
+    connectionRevision: 1, providerResourceId: resourceName("connection", "binding"), providerGeneration: 2, state: "STOP_REQUIRED" });
+  expect(action.expectedCommand.sandboxName).toBe(resourceName("connection", "binding"));
+  await db.update(schema.sandboxCleanupRecoveries).set({ providerResourceId: resourceName("connection", "foreign-binding") });
+  expect(await broker.request({ ...action }, { command: action.expectedCommand }, base.rpcDeadlineMs)).toMatchObject({ ok: false, error: { kind: "permission" } });
+  await db.update(schema.sandboxCleanupRecoveries).set({ providerResourceId: resourceName("connection", "binding") });
+  expect(await broker.request({ ...action }, { command: action.expectedCommand }, base.rpcDeadlineMs)).toMatchObject({ ok: true });
+  await db.update(schema.sandboxOperations).set({ state: "PROVIDER_PENDING" }).where(eq(schema.sandboxOperations.id, "stop"));
+  const readback = { ...scope("lifecycle.inspectOperation", { ...base, operationId: "incus-setPower-11111111-1111-1111-1111-111111111111" }), approvedGuest: undefined };
+  expect(await broker.request(readback, { command: readback.expectedCommand }, base.rpcDeadlineMs)).toMatchObject({ ok: true });
+  expect(calls.at(-1)?.payload).toMatchObject({ readback: { expectedGeneration: 2, desiredState: "stopped" } });
+  await db.update(schema.sandboxOperations).set({ state: "SUCCEEDED" }).where(eq(schema.sandboxOperations.id, "stop"));
+  expect(await broker.request(inspection, { command: inspection.expectedCommand }, base.rpcDeadlineMs)).toMatchObject({ ok: true });
+  await db.update(schema.sandboxCleanupRecoveries).set({ state: "COMPLETED" });
+  expect(await broker.request(inspection, { command: inspection.expectedCommand }, base.rpcDeadlineMs)).toMatchObject({ ok: false, error: { kind: "permission" } });
+  expect(await broker.request(readback, { command: readback.expectedCommand }, base.rpcDeadlineMs)).toMatchObject({ ok: false, error: { kind: "permission" } });
+  expect(calls).toHaveLength(4);
 });

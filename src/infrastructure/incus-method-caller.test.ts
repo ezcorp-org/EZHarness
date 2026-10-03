@@ -1,3 +1,4 @@
+import { resourceName } from "./incus-transport/lifecycle";
 import { afterEach, expect, mock, test } from "bun:test";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
@@ -215,4 +216,25 @@ test("retired destroy uses host cleanup with the durable destroy receipt", async
     .toEqual({ ok: true, retired: true });
   expect(retiredCalls).toEqual(["lifecycle.destroy"]);
   expect(calls).toHaveLength(0);
+}, DB_TEST_TIMEOUT_MS);
+
+test("retained cleanup permits only its linked STOP and exact readback", async () => {
+  const caller = await fixture("STOP");
+  await database.insert(schema.sandboxOperations).values({ id: "failed-destroy", bindingId: "binding", kind: "DESTROY",
+    generation: 1, idempotencyScope: "cleanup", idempotencyKey: "failed", payloadHash: "failed",
+    requestPayload: { expectedGeneration: 1 }, state: "FAILED", errorCode: "REVISION_CONFLICT" });
+  await database.update(schema.sandboxBindings).set({ tombstonedAt: new Date(), desiredState: "ABSENT" });
+  const power = { ...common, requestId: "operation", idempotencyKey: "operation", desiredState: "stopped", expectedGeneration: 1 };
+  await expect(caller.call(scope, "incus/lifecycle/setPower", power)).rejects.toMatchObject({ code: "SCOPE_INVALID" });
+  await database.insert(schema.sandboxCleanupRecoveries).values({ id: "recovery", bindingId: "binding", generation: 1,
+    failedDestroyOperationId: "failed-destroy", stopOperationId: "operation", destroyOperationId: "next-destroy",
+    installationId: "installation", releaseId: "release", connectionId: "connection", connectionRevision: 1,
+    providerResourceId: resourceName("connection", "binding"), providerGeneration: 1, state: "STOP_REQUIRED" });
+  expect(await caller.call(scope, "incus/lifecycle/setPower", power)).toMatchObject({ ok: true });
+  await expect(caller.call(scope, "incus/lifecycle/setPower", { ...power, desiredState: "running" })).rejects.toMatchObject({ code: "SCOPE_INVALID" });
+  await database.update(schema.sandboxOperations).set({ state: "PROVIDER_PENDING" }).where(eq(schema.sandboxOperations.id, "operation"));
+  expect(await caller.call(scope, "incus/lifecycle/inspectOperation", { ...common, operationId: "provider-operation" })).toMatchObject({ ok: true });
+  await database.update(schema.sandboxCleanupRecoveries).set({ state: "COMPLETED" });
+  await expect(caller.call(scope, "incus/lifecycle/inspectOperation", { ...common, operationId: "provider-operation" })).rejects.toMatchObject({ code: "SCOPE_INVALID" });
+  expect(calls).toHaveLength(2);
 }, DB_TEST_TIMEOUT_MS);
