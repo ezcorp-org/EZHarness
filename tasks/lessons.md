@@ -1,5 +1,8 @@
 # Lessons
 
+- Do not infer the cause of a generic revision conflict from differing generation numbers. Host authority fences and provider resource revisions can differ by design. Inspect the exact saved request and the provider's state preconditions before naming the cause.
+- Compose engine, provider adapter, and transport state rules in lifecycle tests. Separate green unit suites did not catch running-guest deletion being journaled before the provider's STOPPED precondition.
+
 - When the user is already on the target machine, explain that permission changes apply to the agent session. Give the next action on that machine without implying they must connect elsewhere.
 - A Playwright route override hides intercepted requests from a lower mock handler. Count and inspect those requests in the override itself; a counter in the lower handler cannot prove an action did or did not occur.
 

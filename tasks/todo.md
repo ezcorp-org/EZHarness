@@ -11,7 +11,7 @@
 
 Ownership: root owns integration and bundle staging; the GPT-6.1 Sol live worker alone changes the isolated app/server; coverage owns test captures in its worktree; project-flow owns a separate worktree and coordinates all live effects with the live worker. The generation fix has passed focused regression tests and independent review. Live proof remains open. No repeated STOP or new lifecycle request is allowed to hide an unknown effect.
 
-### Recovery milestone review — 3 October, 19:22 UTC
+### Recovery milestone review — 3 October, 20:12 UTC
 
 - [x] Complete the original real guest marker, pinned Compose, STOP, DESTROY, released reservations, and empty inventory proof.
 - [x] Prove restricted-project denial with the same TLS client: approved project 200, default project 403.
@@ -19,12 +19,18 @@ Ownership: root owns integration and bundle staging; the GPT-6.1 Sol live worker
 - [x] Prove actual keyless model inference through EZHarness, with zero tool calls.
 - [x] Reproduce asynchronous qualification failure with the real database, fixture service, controller, and witness; add exact-operation readback, preservation, and admission fences.
 - [x] Preserve the first receipt on replay failure; permit only the exact old CREATE readback while same-generation cleanup is queued.
-- [ ] Verify the new operator diagnostic in the browser; stage and verify the combined recovery bundle.
-- [ ] Recover saved CREATE `51856ef9-861d-48a7-994f-11e87656c1be` and queued DESTROY `ef7c6b70-5271-48bd-ad87-7d0a75fcee38`; prove guest absence and reservation release before another qualification run.
+- [x] Verify the new operator diagnostic in the browser; stage and verify the combined recovery bundle.
+- [x] Recover saved CREATE `51856ef9-861d-48a7-994f-11e87656c1be` and queued DESTROY `ef7c6b70-5271-48bd-ad87-7d0a75fcee38`; prove guest absence and reservation release before another qualification run.
+- [x] Prove the selected guest UID, resource configuration, managed DNS, and management API denial with independent host checks.
+- [x] Reproduce and repair bounded read-only convergence after a temporary unknown START result; retain the original operation ID and authority checks.
+- [ ] Repair running-guest disposal before cleanup intent; recover the exact failed v2 cleanup through a reviewed product path.
+- [ ] Repair the supervisor timing races; diagnose the backend pipeline and two web render test timeouts and the runner cleanup timeout.
 - [ ] Complete SP01–SP08, native guest tools/Compose/retention/disposal, selected-profile negatives, and ten consecutive feature lifecycles with measured results.
 - [ ] Complete final-source browser, coverage, fast, hosted CI, and non-author review gates.
 
-Review evidence: the repaired pre-recovery fast run passed 27,181 backend tests, 3,631 web Bun tests, 7,587 Vitest tests, lint, types, and build. It is not the final recovery-source gate. Focused asynchronous and authority regressions pass. The installed app remains source70 with one stopped owned guest and preserved unknown CREATE; the replacement is not yet installed. Browser70's first evidence startup failed, a later diagnostic evidence run passed393, and seven real-auth ownership failures were repaired with12 focused passes. No final browser or portability claim. Performance baseline and acceptance targets remain unrecorded; measurements must not be presented as a speedup claim. Full guest-secret consumer proof remains outside the selected no-secret-delivery Incus profile.
+Review evidence: source `f97661c7d` is installed and healthy. Its original saved CREATE/DESTROY pair settled without repeated effects, with released reservations and independent absence. Diagnostic browser lanes passed 259/1441/393/7/131 tests. The later source `45a6a8e6f` fast run passed types, lint, integrity checks, Svelte, build, and 3,631 web Bun tests, but failed three backend and two Vitest tests; these failures remain open. A bundled GitHub extension compiled successfully but timed out during runner container cleanup. No final gate is claimed.
+
+V2 created and started its guest. START briefly became unknown and then settled under the same saved ID. The first exception detail was not retained. The read-only wait repair passes composed regressions and review. Exact v2 DESTROY `315cb272-daed-4a97-8f43-ffb933305f4c` failed with `REVISION_CONFLICT`; its payload expected guest generation 2 and the guest remains RUNNING at generation 2. Host generation 1 is a separate authority fence. The shared running-destroy precondition is under repair; no effect is repeated or database row reset. Performance baseline and acceptance targets remain unrecorded. Full guest-secret consumer proof remains outside the selected no-secret-delivery Incus profile.
 
 - [x] Verify restored TCP socket, sandbox-server SSH, and GitHub access.
 - [x] Recheck the existing app, guest, and saved operations; identify the inspection failure without duplicate effects.
