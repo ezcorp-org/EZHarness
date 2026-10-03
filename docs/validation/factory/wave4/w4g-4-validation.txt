@@ -1,0 +1,49 @@
+VERDICT (validator-6) — W4G-4 at 8617e00a9 (wp/w4g-4, owner w-sync, code head 95920067d, tree 46bcce826), base 842ad9fe1: ACCEPT
+
+8 commits over 842ad9fe1, all archy noreply as author and committer (dc838c503 … 95920067d, then 8617e00a9 the gates doc).
+CARRY: `git diff --name-only 95920067d 8617e00a9` = tasks/factory/w4g-4-GATES.md only. The host and container legs ran at
+95920067d; the hold ran at 8617e00a9. Config hash 44962525f1ca1a8b at the start and end of both phases. Bun 1.4.2 with the flag.
+Rule: option A, the user's decision of 2026-10-01 (w00/briefs/w4g.md).
+
+(a) RULE DIFF (src/factory/private-files.ts): privateComponentVerdict(status, uid, state) keeps the earlier checks and adds one
+    acceptance: a foreign ancestor with uid 0 and the sticky bit, even when it is group- or world-writable. Unchanged: the walk
+    opens each component through its open parent without following links; a foreign directory below the first owned directory
+    is refused; an owned directory must be 0700; only the leaf may be repaired, and only when the caller asks.
+(b) MUTANT (w4g-validation/w4g4-legs.sh): rootSticky = false, the function and the tests kept. private-files.test.ts gives 8 pass,
+    15 fail, by assertion (no load error): the "root-owned sticky world-writable ancestor is accepted" verdict case and every case
+    that builds its tree under /tmp. Restored: 23 pass, 0 fail.
+(c) SEAM: the only product caller is privateDirectory, which passes the real fstat of each component (private-files.ts:65). Only
+    private-files.test.ts calls the function with synthetic values.
+(d) NO $HOME: makeFactoryPrivateRoot uses XDG_RUNTIME_DIR only when it exists and privateDirectory accepts a root there, else
+    makeFactoryTempPrivateRoot: mkdtemp under os.tmpdir(). No changed file uses homedir() or process.env.HOME.
+(e) RUNNER-SHAPED CONTAINER, mine (w4g-validation/repro-w4g4.sh): Ubuntu 24.04, OpenSSL 3.0.13, Node 24.14.1, uid 1001 (keep-id,
+    non-root), HOME=/home/runner a fresh 0755 folder the user owns, /home/runner/work 0755, a git-archive checkout at
+    /home/runner/work/EZHarness/EZHarness, no XDG_RUNTIME_DIR, /tmp root 1777. One process per file: the 24 named files of the
+    hosted failing-files.txt, private-files.test.ts and both pool suites; then scripts/factory-pool-coverage.sh end to end.
+    - At 842ad9fe1, RED: all 24 hosted files red, plus private-files 0/2 and both pool suites; the coverage script fails.
+      The counts equal the owner's base column (e.g. installation-startup 28/29, supervisor-process 27/17, runtime-composition
+      13/20). A second base run with /home/runner/work at 0755 instead of 0700 gave identical results.
+    - At 95920067d, GREEN for every W4G-4-class file: 20 of the 24 hosted files (the two pool suites among them) and
+      private-files 23/0, 21 of 25 files in all; the pool coverage script exits 0. Four files stay red, each a named separate class:
+        python-runner.integration (0/4, no nix: W4G-5, merged);
+        gate-integrity-rule11 (10/2, parser not installed: W4G-6, merged);
+        private-https.integration (8/2, "x509: Use -help for summary": W4G-7, merged);
+        task-state-isolated.integration (0/1, "Executable not found in $PATH: podman"): my container has no podman. The hosted
+        failure is the W4G-8 conmon class (merged). On this host at 95920067d it passes 1/0.
+    - Against the owner's classification table: every base and head count matches, except private-https. It is green in the
+      owner's container, which mounts the host's OpenSSL 3.6, and red in mine with the runner's OpenSSL 3.0. Both are W4G-7.
+(f) HOST, one process per file (w4g-validation/w4g4-legs-95920067d/files.tsv): all 25 changed test files pass, each with a
+    nonzero pass count and no skip. tests/postgres/factory-restore.test.ts first failed because my leg did not set
+    EZCORP_FACTORY_STORAGE_SECRETS_DIR (the owner's note); rerun with it: 17 pass, 0 fail.
+(g) PINNED BUN: resolvePinnedBun returns the provisioned binary, else the running Bun only when its version equals .bun-version,
+    else refuses by name. Mutant (return the running Bun whatever its version): "refuses another Bun by name" fails, 3 pass,
+    1 fail. Restored: 4 pass, 0 fail.
+(h) HOLD (hold-v6-w4g4-8617e00a9/results.jsonl)
+  Static: frozen installs and the six package builds 0; identity 8/8; receipts 368 scanned, 0 missing; typecheck, lint, both
+    boundary checks 0; gate-integrity: the base leg against 842ad9fe1 is clean, the origin/main leg equals the 8-path set;
+    gitleaks 0.
+  Heavy, under the lock: the container suites (private-files and both pool suites) red at the base, green at the head, with the
+    coverage script; the void check (each unit file alone first): 22 files, none VOID; unit leg 22 files 421/0, no skip;
+    SDK 246/0; pool producer 107/0; guard set 60/0; lcov merge 0; the new-file and patch gates against 842ad9fe1 pass.
+
+Late: this verdict was ready at 05:32Z and written at 08:30Z. The delay was mine (I did not read the finished outputs).

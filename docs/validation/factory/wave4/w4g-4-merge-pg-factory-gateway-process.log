@@ -1,0 +1,8 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-03T08:31:15.741Z","level":"info","msg":"Database mode: external Postgres","subsystem":"db"}
+{"ts":"2026-10-03T08:31:16.242Z","level":"info","msg":"jsonb double-encode repair already completed — skipping scan","subsystem":"db","marker":"db:jsonb-repair:done"}
+
+ 1 pass
+ 0 fail
+ 3 expect() calls
+Ran 1 test across 1 file. [1208.00ms]
