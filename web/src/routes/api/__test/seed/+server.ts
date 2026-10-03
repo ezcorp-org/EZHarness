@@ -4,9 +4,16 @@
  * stand up a known project + conversation (owned by the caller) before a
  * spec, and optionally relax rate limits for high-volume runs.
  *
- * POST { projectName?, title?, provider?, model?, history?, historyFixture?, rateLimitPerMin?, seedAgentConfig? }
+ * POST { projectName?, title?, provider?, model?, history?, historyFixture?, rateLimitPerMin?, seedAgentConfig?, githubSourceToken? }
+ * githubSourceToken additionally requires an administrator with extensions scope;
+ * it provisions only the fixed public source-import repository fixture.
  *   → { projectId, conversationId, history?, historyFixture?, rateLimitPerMin?, agentExtensions? }
  */
+import { mkdtemp } from "node:fs/promises";
+import { createProjectCommandRunner } from "$server/extensions/project-open-pr";
+import { getDb } from "$server/db/connection";
+import { extensions } from "$server/db/schema";
+import { setSecret } from "$server/extensions/secrets-store";
 import crypto from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -20,7 +27,6 @@ import { createConversation, createMessage } from "$server/db/queries/conversati
 import { upsertSetting } from "$server/db/queries/settings";
 import { seedBlankToolHistory } from "$lib/server/test-chat-history";
 import { seedAgentExtensions } from "$lib/server/test-agent-config";
-import { getDb } from "$server/db/connection";
 import { SandboxAdmissionStore } from "$server/sandboxes/admission";
 import { IncusFeatureService } from "$server/infrastructure/incus-feature-service";
 import type { ActiveExtensionRelease } from "$server/extensions/release-process";
@@ -53,6 +59,29 @@ function parseHistory(raw: unknown): SeedHistory | null | Response {
   return { turns, charsPerTurn };
 }
 
+function parseModelPin(provider: unknown, model: unknown): { provider: string; model: string } | undefined | Response {
+  if (provider === undefined && model === undefined) return undefined;
+  if (typeof provider !== "string" || !provider || typeof model !== "string" || !model) return errorJson(400, "`provider` and `model` must be non-empty strings supplied together");
+  return { provider, model };
+}
+
+function sourceCredentialFailure(token: unknown, role: string, locals: App.Locals): Response | null {
+  if (token === undefined) return null;
+  if (role !== "admin") return errorJson(403, "Administrator required for source credentials");
+  const denied = requireScope(locals, "extensions");
+  if (denied) return denied;
+  if (typeof token !== "string" || token.length < 1 || token.length > 4096) return errorJson(400, "Invalid source credential");
+  return null;
+}
+
+async function initializeSourceFixtureGit(path: string): Promise<void> {
+  // Reuse the host runner: Git hooks export repository-selecting GIT_* vars.
+  const run = createProjectCommandRunner();
+  for (const argv of [["git", "init", "--quiet"], ["git", "remote", "add", "origin", "https://github.com/ezcorp-org/EZHarness"]]) {
+    if ((await run(argv, path)).exitCode !== 0) throw new Error("Cannot initialize source fixture Git origin");
+  }
+}
+
 export const POST: RequestHandler = async ({ request, locals }) => {
   if (!isTestSurfaceEnabled()) return errorJson(404, "Not found");
   const scopeErr = requireScope(locals, "chat");
@@ -71,21 +100,15 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     rateLimitPerMin?: unknown;
     seedAgentConfig?: unknown;
     incusProject?: unknown;
+    githubSourceToken?: unknown;
   };
 
   const projectName = typeof body.projectName === "string" && body.projectName.length > 0
     ? body.projectName
     : `harness-${crypto.randomUUID().slice(0, 8)}`;
   const title = typeof body.title === "string" && body.title.length > 0 ? body.title : "harness";
-  const hasProvider = body.provider !== undefined;
-  const hasModel = body.model !== undefined;
-  const modelPin = typeof body.provider === "string" && body.provider.length > 0 &&
-    typeof body.model === "string" && body.model.length > 0
-    ? { provider: body.provider, model: body.model }
-    : undefined;
-  if (hasProvider !== hasModel || (hasProvider && !modelPin)) {
-    return errorJson(400, "`provider` and `model` must be non-empty strings supplied together");
-  }
+  const modelPin = parseModelPin(body.provider, body.model);
+  if (modelPin instanceof Response) return modelPin;
   if (body.historyFixture !== undefined && body.historyFixture !== "blank-tool-turns") {
     return errorJson(400, "Unknown history fixture");
   }
@@ -94,6 +117,9 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   }
   const history = parseHistory(body.history);
   if (history instanceof Response) return history;
+
+  const credentialFailure = sourceCredentialFailure(body.githubSourceToken, user.role, locals);
+  if (credentialFailure) return credentialFailure;
 
   // The real service publishes the generated ID, owner, quota, and binding.
   // Only provider observations are fixtures; no remote effects are dispatched.
@@ -130,8 +156,18 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
   const project = await createProject({
     name: projectName,
-    path: join(tmpdir(), `ezcorp-harness-${crypto.randomUUID()}`),
+    path: typeof body.githubSourceToken === "string" ? await mkdtemp(join(tmpdir(), "ezcorp-harness-"))
+      : join(tmpdir(), `ezcorp-harness-${crypto.randomUUID()}`),
   }, user.id);
+  if (typeof body.githubSourceToken === "string") {
+    // Fixed public fixture repository only. The normal source broker still
+    // checks this owned project's exact origin and current credential per fetch.
+    await initializeSourceFixtureGit(project.path);
+    await getDb().insert(extensions).values({ name: "github-projects", version: "1.0.0", source: "local", enabled: false,
+      creatorUserId: user.id, manifest: { schemaVersion: 2, name: "github-projects", version: "1.0.0", description: "Inactive test credential namespace", author: { name: "E2E" }, tools: [], permissions: {} },
+      grantedPermissions: { grantedAt: {} } }).onConflictDoNothing();
+    await setSecret("github-projects", project.id, "apiToken", body.githubSourceToken, { actorUserId: user.id });
+  }
   const conversation = await createConversation(project.id, {
     title,
     userId: user.id,

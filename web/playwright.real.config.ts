@@ -151,6 +151,8 @@ export default defineConfig({
     // Playwright ends the preview process.
     gracefulShutdown: { signal: "SIGTERM", timeout: 30_000 },
     env: {
+      // The credential belongs to the test process; provision only its fixed scoped fixture.
+      EZCORP_E2E_GITHUB_SOURCE_TOKEN: "",
       // Propagate-or-default — child inherits the parent's full env
       // automatically; these overrides win.
       ...(DB_DIR ? { EZCORP_DB_PATH: DB_DIR } : {}),
