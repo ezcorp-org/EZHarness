@@ -5,6 +5,8 @@ declare global {
 		// interface Error {}
 		interface Locals {
 			user?: import("../../src/auth/types").AuthUser;
+			/** Verified durable browser session, stable across cookie rotation. */
+			sessionId?: string;
 			apiKeyScopes?: import("./lib/server/security/api-keys").ApiKeyScope[];
 			/**
 			 * HOW this request authenticated, stamped positively by the auth

@@ -5,7 +5,7 @@ import { loadAgents } from "../runtime/loader";
 import { startTestServer as startServer } from "./helpers/test-server";
 import { setupTestDb, closeTestDb, mockDbConnection, mockRealSettings, restoreFetch } from "./helpers/test-pglite";
 import type { AgentEvents } from "../types";
-import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -315,6 +315,9 @@ describe("FilePicker browsing flow (integration)", () => {
 describe("fs/list endpoint coexistence", () => {
   let server: Awaited<ReturnType<typeof startServer>>;
   let baseUrl: string;
+  let testDir: string;
+  let fileListUrl: string;
+  const expectedEntries = [{ name: "fixture.txt", isDir: false }];
 
   beforeAll(async () => {
     restoreFetch();
@@ -326,17 +329,24 @@ describe("fs/list endpoint coexistence", () => {
     const executor = new AgentExecutor(agents, bus);
     server = await startServer(0, executor, bus);
     baseUrl = `http://localhost:${server.port}`;
+    testDir = mkdtempSync(join(tmpdir(), "pi-fs-coexistence-"));
+    writeFileSync(join(testDir, "fixture.txt"), "fixture");
+    fileListUrl = `${baseUrl}/api/fs/list?dir=${encodeURIComponent(testDir)}`;
   });
 
   afterAll(async () => {
-    server?.stop(true);
-    await closeTestDb();
+    try {
+      server?.stop(true);
+      await closeTestDb();
+    } finally {
+      if (testDir) rmSync(testDir, { recursive: true, force: true });
+    }
   });
 
   test("fs/list works alongside agents API", async () => {
     const [agentsRes, fsRes] = await Promise.all([
       fetch(`${baseUrl}/api/agents`),
-      fetch(`${baseUrl}/api/fs/list?dir=/tmp`),
+      fetch(fileListUrl),
     ]);
 
     expect(agentsRes.status).toBe(200);
@@ -346,7 +356,7 @@ describe("fs/list endpoint coexistence", () => {
     const entries = await fsRes.json() as any;
 
     expect(Array.isArray(agents)).toBe(true);
-    expect(Array.isArray(entries)).toBe(true);
+    expect(entries).toEqual(expectedEntries);
   });
 
   test("fs/list works alongside runs API", async () => {
@@ -357,15 +367,18 @@ describe("fs/list endpoint coexistence", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ command: "echo concurrent" }),
       }),
-      fetch(`${baseUrl}/api/fs/list?dir=/tmp`),
+      fetch(fileListUrl),
     ]);
 
     expect(runRes.status).toBe(200);
     expect(fsRes.status).toBe(200);
+    expect(await fsRes.json()).toEqual(expectedEntries);
   });
 
   test("CORS headers are present on fs/list response", async () => {
-    const res = await fetch(`${baseUrl}/api/fs/list?dir=/tmp`);
+    const res = await fetch(fileListUrl);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(expectedEntries);
     expect(res.headers.get("Access-Control-Allow-Origin")).toBe("*");
     expect(res.headers.get("Content-Type")).toContain("application/json");
   });

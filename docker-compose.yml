@@ -81,6 +81,14 @@ services:
       - EZCORP_JWT_SECRET=${EZCORP_JWT_SECRET}
       # Public origin for clickable deep-links in ai-kit tool responses.
       - EZCORP_PUBLIC_URL=${EZCORP_PUBLIC_URL:-}
+      # Personal GitHub App connection. Credentials remain in the app service.
+      - EZ_GITHUB_AUTH_MODE=${EZ_GITHUB_AUTH_MODE:-device}
+      - EZ_GITHUB_INSTANCE_ID=${EZ_GITHUB_INSTANCE_ID:-}
+      - EZ_GITHUB_APP_ID=${EZ_GITHUB_APP_ID:-}
+      - EZ_GITHUB_APP_SLUG=${EZ_GITHUB_APP_SLUG:-}
+      - EZ_GITHUB_APP_CLIENT_ID=${EZ_GITHUB_APP_CLIENT_ID:-}
+      - EZ_GITHUB_APP_CLIENT_SECRET=${EZ_GITHUB_APP_CLIENT_SECRET:-}
+      - EZ_GITHUB_APP_CALLBACK_URL=${EZ_GITHUB_APP_CALLBACK_URL:-}
       # Long-life session for dev parity with prod.
       - EZCORP_SESSION_LIFETIME_DAYS=${EZCORP_SESSION_LIFETIME_DAYS:-180}
       - EZCORP_SESSION_REFRESH_AFTER_DAYS=${EZCORP_SESSION_REFRESH_AFTER_DAYS:-7}

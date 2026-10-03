@@ -1,7 +1,7 @@
 import type { ProviderReceipt, SandboxCreateInput, SandboxCreateResult, SandboxFileChmodInput, SandboxFileChmodResult, SandboxFileListInput, SandboxFileListResult, SandboxFileMkdirInput, SandboxFileMkdirResult, SandboxFileReadInput, SandboxFileReadResult, SandboxFileRemoveInput, SandboxFileRemoveResult, SandboxFileStatInput, SandboxFileStatResult, SandboxFileWriteInput, SandboxFileWriteResult, SandboxProcessCancelInput, SandboxProcessCancelResult, SandboxProcessInspectInput, SandboxProcessInspectResult, SandboxProcessReadOutputInput, SandboxProcessReadOutputResult, SandboxProcessStartInput, SandboxProcessStartResult, SandboxResource, SandboxResourceLimits } from "@ezcorp/extension-contract";
 
 export type SandboxAction = "create" | "start" | "stop" | "destroy";
-export type SandboxMethodGroup = "sandbox.lifecycle.v1" | "sandbox.process.v1" | "sandbox.files.v1";
+export type SandboxMethodGroup = "sandbox.lifecycle.v1" | "sandbox.process.v1" | "sandbox.files.v1" | "sandbox.transfer.v1";
 export type SandboxOperationState = "admitted" | "running" | "succeeded" | "failed" | "unknown";
 
 export interface LocalSandboxProvider {
@@ -15,6 +15,9 @@ export interface LocalSandboxProvider {
 export interface SandboxProjectStatus {
   projectId: string;
   bindingId: string;
+  privateOwnerOnly?: boolean;
+  initializationState?: "pending" | "importing" | "ready" | "failed";
+  privateConversationId?: string | null;
   provider: LocalSandboxProvider;
   resource: SandboxResource | null;
   operation: { id: string; action: SandboxAction; state: SandboxOperationState; receipt?: ProviderReceipt } | null;
@@ -28,6 +31,10 @@ export interface CreateSandboxProjectInput {
   config: Record<string, unknown>;
   limits: SandboxResourceLimits;
   sourceProjectId?: string;
+  /** Host-only admission choice; the authenticated creator is the private owner. */
+  privateOwnerOnly?: boolean;
+  /** Keep the new private resource inaccessible until its host import succeeds. */
+  privateInitializing?: boolean;
 }
 
 export interface RequestSandboxActionInput {
@@ -39,7 +46,7 @@ export interface AdmittedSandboxOperation {
   id: string;
   action: SandboxAction;
   state: SandboxOperationState;
-  input: SandboxCreateInput | { resourceId: string };
+  input: SandboxCreateInput | { resourceId: string } | { cancelledBeforeCreate: true };
   provider: LocalSandboxProvider;
 }
 
@@ -51,6 +58,7 @@ export class SandboxControllerError extends Error {
 }
 
 export interface SandboxController {
+  runPrivateWorkspaceImport<T>(userId: string, projectId: string, operationId: string, work: () => Promise<T>): Promise<T>;
   listLocalSandboxProviders(userId: string): Promise<LocalSandboxProvider[]>;
   createSandboxProject(userId: string, input: CreateSandboxProjectInput): Promise<SandboxProjectStatus>;
   getProjectSandboxStatus(userId: string, projectId: string): Promise<SandboxProjectStatus>;
@@ -99,4 +107,7 @@ export interface LocalSandboxDriver extends SandboxProviderInvoker {
   fileMkdir(input: SandboxFileMkdirInput): Promise<SandboxFileMkdirResult>;
   fileRemove(input: SandboxFileRemoveInput): Promise<SandboxFileRemoveResult>;
   fileChmod(input: SandboxFileChmodInput): Promise<SandboxFileChmodResult>;
+  beginExport(input: import("@ezcorp/extension-contract").SandboxBeginExportInput): Promise<import("@ezcorp/extension-contract").SandboxBeginExportResult>;
+  readExport(input: import("@ezcorp/extension-contract").SandboxReadExportInput): Promise<import("@ezcorp/extension-contract").SandboxReadExportResult>;
+  endExport(input: import("@ezcorp/extension-contract").SandboxEndExportInput): Promise<import("@ezcorp/extension-contract").SandboxEndExportResult>;
 }

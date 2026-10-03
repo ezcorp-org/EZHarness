@@ -26,7 +26,7 @@ import {
 } from "bun:test";
 import { join } from "path";
 import { tmpdir } from "os";
-import { mkdirSync, rmSync, existsSync, readFileSync } from "fs";
+import { mkdirSync, rmSync, readFileSync } from "fs";
 
 mock.module("../../../../src/db/queries/extensions", () => ({
   incrementFailures: async () => 1,
@@ -38,43 +38,14 @@ afterAll(() => restoreModuleMocks());
 
 import { ExtensionProcess } from "../../../../src/extensions/subprocess";
 import { restoreModuleMocks } from "@ezcorp/sdk/test";
-import { buildHarnessEnv, makeFsRpcHandler } from "@ezcorp/sdk/test";
-import type { JsonRpcRequest, JsonRpcResponse } from "@ezcorp/sdk";
+import { buildHarnessEnv } from "@ezcorp/sdk/test";
+import { sampleLoopHost } from "../../../../src/__tests__/helpers/sample-loop-harness";
 
 const ENTRYPOINT = join(fixtureImportMeta.dir, "index.ts");
 
-interface HostState {
-  kv: Map<string, unknown>;
-  fsRoot: string;
-}
-
-function ok(id: JsonRpcRequest["id"], result: unknown): JsonRpcResponse {
-  return { jsonrpc: "2.0", id, result };
-}
-
-function handleStorage(state: HostState, p: Record<string, unknown>): unknown {
-  const action = p.action as string;
-  const key = p.key as string;
-  if (action === "get") {
-    return state.kv.has(key)
-      ? { value: state.kv.get(key), exists: true }
-      : { value: null, exists: false };
-  }
-  if (action === "set") {
-    state.kv.set(key, JSON.parse(JSON.stringify(p.value)));
-    return { ok: true, sizeBytes: 0 };
-  }
-  if (action === "delete") return { deleted: state.kv.delete(key) };
-  if (action === "list") {
-    const prefix = (p.prefix as string) ?? "";
-    return { keys: [...state.kv.keys()].filter((k) => k.startsWith(prefix)) };
-  }
-  return { ok: true };
-}
-
 describe("sample-loop — real subprocess", () => {
   let proc: ExtensionProcess | undefined;
-  let state: HostState;
+  let state: ReturnType<typeof sampleLoopHost>;
   let projectRoot: string;
   let originalCwd: string;
 
@@ -88,7 +59,10 @@ describe("sample-loop — real subprocess", () => {
     mkdirSync(join(projectRoot, ".ezcorp", "extension-data"), { recursive: true });
     originalCwd = process.cwd();
     process.chdir(projectRoot);
-    state = { kv: new Map(), fsRoot: projectRoot };
+    state = sampleLoopHost(projectRoot, "A concise summary.", "m", [
+      { id: "m1", role: "user", content: "hello" },
+      { id: "m2", role: "assistant", content: "hi" },
+    ]);
   });
 
   afterEach(() => {
@@ -104,60 +78,47 @@ describe("sample-loop — real subprocess", () => {
     // (that triggers the bwrap wrap). The loop resolves the data dir from
     // the inherited cwd instead.
     const env = buildHarnessEnv(extId, { filesystem: true });
-    const fsHandler = makeFsRpcHandler(projectRoot);
     const p = new ExtensionProcess(extId, ENTRYPOINT, env, {
       persistent: true,
       callTimeoutMs: 15_000,
     });
-    p.setRequestHandler(async (req): Promise<JsonRpcResponse> => {
-      const params = (req.params ?? {}) as Record<string, unknown>;
-      if (req.method === "ezcorp/storage") return ok(req.id, handleStorage(state, params));
-      if (req.method === "ezcorp/llm-complete") {
-        return ok(req.id, {
-          content: "A concise summary.",
-          blocks: [],
-          usage: { inputTokens: 1, outputTokens: 1 },
-          finishReason: "stop",
-          model: "m",
-        });
-      }
-      if (req.method === "ezcorp/invoke") {
-        // The loop's recentMessages → runtime.conversations.getMessages.
-        const tool = (params as { tool?: string }).tool;
-        if (tool === "runtime.conversations.getMessages") {
-          return ok(req.id, {
-            messages: [
-              { id: "m1", role: "user", content: "hello" },
-              { id: "m2", role: "assistant", content: "hi" },
-            ],
-            projectId: "p1",
-          });
-        }
-        if (tool === "runtime.settings.getMine") return ok(req.id, { enabled: true });
-        return ok(req.id, {});
-      }
-      const fsRes = fsHandler(req);
-      if (fsRes) return fsRes;
-      return { jsonrpc: "2.0", id: req.id, error: { code: -32601, message: `no: ${req.method}` } };
-    });
+    p.setRequestHandler(state.handleRequest);
     return p;
   }
 
+  test("host completion waits for both index and artifact writes, in either order", async () => {
+    for (const order of ["index-first", "artifact-first"] as const) {
+      const root = join(projectRoot, order);
+      const host = sampleLoopHost(root, "A concise summary.", "m", []);
+      const runId = "run-1";
+      const file = join(root, ".ezcorp", "extension-data", "summarize", "summaries", `${runId}.md`);
+      mkdirSync(join(root, ".ezcorp", "extension-data", "summarize", "summaries"), { recursive: true });
+      const writes = {
+        index: { jsonrpc: "2.0" as const, id: 1, method: "ezcorp/storage", params: { action: "set", key: "loop:summarize:index", value: [runId] } },
+        artifact: { jsonrpc: "2.0" as const, id: 2, method: "ezcorp/fs.write", params: { path: file, content: "A concise summary." } },
+      };
+      const first = order === "index-first" ? writes.index : writes.artifact;
+      const second = order === "index-first" ? writes.artifact : writes.index;
+      let complete = false;
+      void host.whenComplete.then(() => { complete = true; });
+      expect((await host.handleRequest(first)).error).toBeUndefined();
+      await Promise.resolve();
+      expect(complete).toBe(false);
+      expect((await host.handleRequest(second)).error).toBeUndefined();
+      await host.whenComplete;
+      expect(complete).toBe(true);
+      expect(readFileSync(file, "utf8")).toBe("A concise summary.");
+    }
+  });
+
   test("run:complete → run persisted (per-run + index keys) + artifact mirrored", async () => {
     proc = spawnWired();
-    proc.ensureRunning();
-    // Force the channel up before the notification (sendNotification drops
-    // frames until the subprocess is spawned + reading).
-    await new Promise((r) => setTimeout(r, 150));
-    proc.sendNotification("ezcorp/event/run:complete", { conversationId: "conv-9" });
+    // This no-tool extension answers from its started channel; the loop was
+    // registered immediately before that channel started.
+    expect((await proc.call("tools/list")).error).toEqual({ code: -32601, message: "Method not found: tools/list" });
+    expect(await proc.sendNotification("ezcorp/event/run:complete", { conversationId: "conv-9" })).toBe(true);
+    await state.whenComplete;
 
-    // Poll the storage KV the host captured for the persisted run.
-    let indexKey: string | undefined;
-    for (let i = 0; i < 60; i++) {
-      indexKey = [...state.kv.keys()].find((k) => k === "loop:summarize:index");
-      if (indexKey && Array.isArray(state.kv.get(indexKey)) && (state.kv.get(indexKey) as string[]).length > 0) break;
-      await new Promise((r) => setTimeout(r, 25));
-    }
     const ids = state.kv.get("loop:summarize:index") as string[] | undefined;
     expect(Array.isArray(ids)).toBe(true);
     expect(ids!.length).toBe(1);
@@ -170,18 +131,7 @@ describe("sample-loop — real subprocess", () => {
 
     // Artifact mirrored under .ezcorp/extension-data/summarize/summaries/.
     const summariesDir = join(projectRoot, ".ezcorp", "extension-data", "summarize", "summaries");
-    let wrote = false;
-    for (let i = 0; i < 40; i++) {
-      if (existsSync(summariesDir)) {
-        const f = `${summariesDir}/${ids![0]}.md`;
-        if (existsSync(f)) {
-          expect(readFileSync(f, "utf8")).toContain("A concise summary.");
-          wrote = true;
-          break;
-        }
-      }
-      await new Promise((r) => setTimeout(r, 25));
-    }
-    expect(wrote).toBe(true);
+    const file = `${summariesDir}/${ids![0]}.md`;
+    expect(readFileSync(file, "utf8")).toContain("A concise summary.");
   });
 });

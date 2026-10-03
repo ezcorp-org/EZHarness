@@ -8,8 +8,10 @@
   "overrides": {
     "@earendil-works/pi-ai": "0.85.1",
     "@earendil-works/pi-telemetry": "0.85.1",
+    "esbuild": "0.28.1",
     "zod": "4.5.4",
-    "sharp": "0.35.4"
+    "sharp": "0.35.4",
+    "uuid": "11.1.1"
   },
   "scripts": {
     "postinstall": "bun run --cwd packages/@ezcorp/sdk build && bash scripts/setup-git-hooks.sh",
@@ -38,7 +40,7 @@
     "verify:docker-upgrade": "bash scripts/verify-docker-upgrade.sh",
     "verify:all": "bun run verify:backup && bun run verify:edges && bun run verify:docker && bun run verify:docker-rollback && bun run verify:docker-upgrade",
     "typecheck": "bash scripts/typecheck.sh",
-    "lint": "bash -O nullglob -c 'biome check --no-errors-on-unmatched src web packages scripts extensions worker docs tests .github index.ts drizzle.config.ts .*.json *.json \"$@\"' --",
+    "lint": "bash -O nullglob -c 'biome check --no-errors-on-unmatched src web packages scripts extensions worker services docs tests .github index.ts drizzle.config.ts .*.json *.json \"$@\"' --",
     "lint:fix": "bun run lint --write",
     "gate:coverage": "bun scripts/check-global-coverage.ts",
     "gate:crap": "bun scripts/crap-score.ts",

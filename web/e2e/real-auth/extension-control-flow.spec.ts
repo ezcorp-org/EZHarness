@@ -47,3 +47,53 @@ test("external harness builds and invokes real code; failed updates retain the a
   expect(Object.keys(history.releases)).toEqual(Object.keys(state.releases));
   expect(history.workspaces[created.workspace.id]!.revision).toBe(changed.revision);
 });
+
+test("author dependency resolution saves an overridden transitive version in the workspace lock", async ({ page, request, baseURL }) => {
+  const { client } = await extensionClient(request, baseURL!);
+  const name = `override-${crypto.randomUUID().slice(0, 8)}`;
+  const created = await client.extensionControl<CreatedWorkspace>("extensions_workspace", {
+    action: "create", name,
+  });
+  const packageJson = JSON.stringify({
+    name,
+    version: "1.0.0",
+    private: true,
+    dependencies: { "is-odd": "3.0.1" },
+    overrides: { "is-number": "7.0.0" },
+  }, null, 2);
+
+  await page.goto(created.openUrl);
+  await page.getByLabel("Add a file", { exact: true }).fill("package.json");
+  await page.getByRole("button", { name: "Add file", exact: true }).click();
+  await page.getByRole("textbox", { name: "Source: package.json", exact: true }).fill(packageJson);
+  await page.getByRole("button", { name: "Save revision", exact: true }).click();
+  await expect(page.getByRole("status")).toContainText("Saved revision");
+
+  const edited = await client.extensionControl<InstallationState>("extensions_inspect", {
+    installationId: created.installation.id,
+  });
+  const revision = edited.workspaces[created.workspace.id]!.revision;
+  expect(revision).toBeGreaterThan(created.workspace.revision);
+  const resolved = await client.extensionControl<WorkspaceRecord>("extensions_workspace", {
+    action: "resolveDependencies", installationId: created.installation.id,
+    workspaceId: created.workspace.id, expectedRevision: revision,
+  });
+  expect(resolved.revision).toBe(revision + 1);
+
+  const saved = await client.extensionControl<{ files: Record<string, string> }>("extensions_workspace", {
+    action: "read", installationId: created.installation.id, workspaceId: created.workspace.id,
+  });
+  const lock = JSON.parse(saved.files["package-lock.json"]!) as {
+    packages: Record<string, { version?: string; dependencies?: Record<string, string> }>;
+  };
+  expect(lock.packages[""]?.dependencies).toEqual({ "is-odd": "3.0.1" });
+  expect(lock.packages["node_modules/is-odd"]?.version).toBe("3.0.1");
+  const numberEntries = Object.entries(lock.packages).filter(([path]) => /(?:^|\/)node_modules\/is-number$/.test(path));
+  expect(numberEntries).toHaveLength(1);
+  expect(numberEntries[0]![1].version).toBe("7.0.0");
+
+  await page.reload();
+  await page.getByRole("button", { name: "package-lock.json", exact: true }).click();
+  await expect(page.getByRole("textbox", { name: "Source: package-lock.json", exact: true })).toHaveValue(/"version": "7\.0\.0"/);
+  await expect(page.getByText(`Revision ${resolved.revision} · Saved`)).toBeVisible();
+});
