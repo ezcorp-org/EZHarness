@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { resolve } from "node:path";
+import { laneBoundTestFiles } from "../../scripts/check-factory-lanes";
 import { isSourceFile } from "../../scripts/coverage-config";
 
 const root = resolve(import.meta.dir, "../..");
@@ -21,9 +22,11 @@ describe("factory CI registration", () => {
     ];
     const passFail = shellSet("passfail_files");
     const coverage = shellSet("coverage_host_files");
+    // A lane-bound test is owned by its self-hosted lane job instead (scripts/check-factory-lanes.ts).
+    const bound = new Set(laneBoundTestFiles());
     for (const path of expected) {
-      expect(passFail.has(path)).toBe(true);
-      expect(coverage.has(path)).toBe(true);
+      expect(passFail.has(path), path).toBe(!bound.has(path));
+      expect(coverage.has(path), path).toBe(!bound.has(path));
     }
   });
 

@@ -15,6 +15,12 @@
  *   requires  job keys this lane must depend on, so a lane that needs a
  *             labelled self-hosted runner can never queue for 24 hours
  *             behind an absent runner instead of failing readiness
+ *   tests     test files the lane job runs through `bash scripts/run-factory-lane-tests.sh <job>`
+ *   boundTests test files whose precondition only this lane's runner has (a
+ *             GPU device node, a locally built image). The lane job runs them,
+ *             and the hosted shard selection never does: scripts/lib/test-file-sets.sh
+ *             subtracts them through `--bound-tests`. This list is the ONE
+ *             manifest both selections read (wave 4h rule (b)).
  *
  * A lane whose producers are missing FAILS. There is deliberately no "declared
  * but not yet implemented" state: an unavailable runtime is a failed readiness,
@@ -23,6 +29,7 @@
  * Pure helpers are exported for unit testing with deliberate violations;
  * main() reads the real workflow files.
  */
+import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { REPO_ROOT } from "./coverage-config.ts";
 
@@ -41,6 +48,10 @@ export interface FactoryLane {
   readonly requires: readonly string[];
   /** Runner labels the lane must request, when it needs dedicated hardware. */
   readonly runnerLabels: readonly string[];
+  /** Test files the lane job runs that the hosted shards run too (repo-relative). */
+  readonly tests: readonly string[];
+  /** Test files that only this lane's runner can satisfy: the lane job runs them and no hosted shard does. */
+  readonly boundTests: readonly string[];
 }
 
 export const CI_WORKFLOW = ".github/workflows/ci.yml";
@@ -61,6 +72,8 @@ export const FACTORY_LANES: readonly FactoryLane[] = [
     artifacts: [],
     requires: [],
     runnerLabels: [],
+    tests: [],
+    boundTests: [],
   },
   {
     job: "factory-runner-contracts",
@@ -75,6 +88,8 @@ export const FACTORY_LANES: readonly FactoryLane[] = [
     artifacts: ["lcov-cov-factory-python"],
     requires: [],
     runnerLabels: [],
+    tests: [],
+    boundTests: [],
   },
   {
     job: "factory-temporal",
@@ -87,6 +102,8 @@ export const FACTORY_LANES: readonly FactoryLane[] = [
     artifacts: ["lcov-cov-factory-orchestrator"],
     requires: [],
     runnerLabels: [],
+    tests: [],
+    boundTests: [],
   },
   {
     job: "factory-assurance-release",
@@ -102,6 +119,8 @@ export const FACTORY_LANES: readonly FactoryLane[] = [
     artifacts: ["lcov-cov-factory-assurance-release"],
     requires: [],
     runnerLabels: [],
+    tests: [],
+    boundTests: [],
   },
   {
     job: "factory-isolation",
@@ -110,13 +129,18 @@ export const FACTORY_LANES: readonly FactoryLane[] = [
     producers: [
       "bash scripts/setup-extension-runner-ci.sh --install",
       "bash scripts/verify-factory-local-gpu.sh",
-      "./packages/@ezcorp/extension-runner/tests/podman.integration.test.ts",
-      "./src/factory/runner/validator-guest.podman.integration.test.ts",
-      "./src/factory/runner/guest-model.podman.integration.test.ts",
     ],
     artifacts: [],
     requires: ["factory-runner-readiness"],
     runnerLabels: ["factory-gpu"],
+    tests: [
+      "packages/@ezcorp/extension-runner/tests/podman.integration.test.ts",
+      "src/factory/runner/supervisor.podman.integration.test.ts",
+      "src/factory/runner/validator-guest.podman.integration.test.ts",
+      "src/factory/runner/guest-model.podman.integration.test.ts",
+    ],
+    // Its precondition is the host's AMD device profile (/dev/kfd and two render nodes).
+    boundTests: ["packages/@ezcorp/extension-runner/tests/podman-devices.integration.test.ts"],
   },
   {
     job: "factory-product-e2e",
@@ -129,6 +153,8 @@ export const FACTORY_LANES: readonly FactoryLane[] = [
     artifacts: ["browser-v8-factory-services"],
     requires: ["factory-runner-readiness", "browser-coverage-build"],
     runnerLabels: ["factory-real"],
+    tests: [],
+    boundTests: [],
   },
   {
     job: "factory-deployment-operations",
@@ -143,8 +169,60 @@ export const FACTORY_LANES: readonly FactoryLane[] = [
     artifacts: [],
     requires: ["factory-runner-readiness"],
     runnerLabels: ["factory-real"],
+    tests: [],
+    // Its precondition is the pinned reference-data guest image, which no registry holds and
+    // only a factory-real runner keeps (scripts/combined-runner-legs.json, factory-reference-data).
+    boundTests: ["src/factory/reference-data/journey.integration.test.ts"],
   },
 ];
+
+/** The one command a lane job runs its manifest tests with. */
+export function laneTestCommand(job: string): string {
+  return `bash scripts/run-factory-lane-tests.sh ${job}`;
+}
+
+/** The lane selection: every test file one lane job runs, in manifest order. */
+export function laneTestFiles(job: string, lanes: readonly FactoryLane[] = FACTORY_LANES): string[] {
+  const lane = lanes.find((entry) => entry.job === job);
+  if (lane === undefined) throw new Error(`no C11 lane '${job}' in the lane manifest`);
+  return [...lane.tests, ...lane.boundTests];
+}
+
+/** The files the hosted shard selection must never select: every lane's bound tests, sorted. */
+export function laneBoundTestFiles(lanes: readonly FactoryLane[] = FACTORY_LANES): string[] {
+  return [...new Set(lanes.flatMap((lane) => lane.boundTests))].sort();
+}
+
+/**
+ * Every way the test part of the manifest can be wrong: a file that does not
+ * exist (a rename would silently drop it from its lane AND from the hosted
+ * subtraction), a bound file claimed by two lanes, a bound file that a lane
+ * also lists as a shared test (it would then be both lane-only and hosted), or
+ * a lane that binds tests while running on a hosted runner.
+ */
+export function laneManifestIssues(
+  lanes: readonly FactoryLane[] = FACTORY_LANES,
+  exists: (path: string) => boolean = (path) => existsSync(resolve(REPO_ROOT, path)),
+): string[] {
+  const issues: string[] = [];
+  const shared = new Set(lanes.flatMap((lane) => lane.tests));
+  const owner = new Map<string, string>();
+  for (const lane of lanes) {
+    for (const file of [...lane.tests, ...lane.boundTests]) {
+      if (!exists(file)) issues.push(`${lane.check}: test file '${file}' does not exist`);
+    }
+    for (const file of lane.boundTests) {
+      const previous = owner.get(file);
+      if (previous !== undefined) issues.push(`${lane.check}: bound test '${file}' is already bound to lane '${previous}'`);
+      owner.set(file, lane.job);
+      if (shared.has(file)) issues.push(`${lane.check}: bound test '${file}' is also listed as a shared lane test`);
+    }
+    if (lane.boundTests.length > 0 && lane.runnerLabels.length === 0) {
+      issues.push(`${lane.check}: job '${lane.job}' binds tests but requests no dedicated runner label, so a hosted runner would run them`);
+    }
+  }
+  return issues;
+}
 
 /**
  * Extract one job's YAML block: from `  <job>:` at two-space indent up to the
@@ -207,7 +285,8 @@ export function factoryLaneIssues(
     if (!block.includes(`name: ${lane.check}`)) {
       issues.push(`${lane.check}: job '${lane.job}' does not declare the exact required-check name`);
     }
-    for (const producer of lane.producers) {
+    const producers = lane.tests.length + lane.boundTests.length > 0 ? [...lane.producers, laneTestCommand(lane.job)] : lane.producers;
+    for (const producer of producers) {
       if (!block.includes(producer)) issues.push(`${lane.check}: job '${lane.job}' never runs producer '${producer}'`);
     }
     for (const artifact of lane.artifacts) {
@@ -262,10 +341,11 @@ export async function readFactoryWorkflows(): Promise<Record<string, string>> {
 export async function runFactoryLaneCheck(options: {
   read?: () => Promise<Record<string, string>>;
   log?: Pick<Console, "log" | "error">;
+  exists?: (path: string) => boolean;
 } = {}): Promise<number> {
   const log = options.log ?? console;
   const workflows = await (options.read ?? readFactoryWorkflows)();
-  const issues = [...factoryLaneIssues(workflows), ...unconsumedRunnerLabels(workflows)];
+  const issues = [...factoryLaneIssues(workflows), ...unconsumedRunnerLabels(workflows), ...laneManifestIssues(FACTORY_LANES, options.exists)];
   if (issues.length > 0) {
     log.error(`C11 lane inventory FAILED (${issues.length} issue(s)):`);
     for (const issue of issues) log.error(`  ${issue}`);
@@ -275,5 +355,36 @@ export async function runFactoryLaneCheck(options: {
   return 0;
 }
 
-export const FACTORY_LANE_MAIN_RESULT = import.meta.main ? await runFactoryLaneCheck() : undefined;
+const USAGE = "usage: bun scripts/check-factory-lanes.ts [--lane-tests <job> | --bound-tests]";
+
+/**
+ * The command line. No argument runs the lane gate. `--lane-tests <job>` prints
+ * the lane selection and `--bound-tests` the hosted subtraction, one
+ * repo-relative path per line, so the bash runners read this manifest rather
+ * than a copy of it.
+ */
+export async function factoryLaneMain(
+  argv: readonly string[],
+  options: Parameters<typeof runFactoryLaneCheck>[0] = {},
+): Promise<number> {
+  const log = options.log ?? console;
+  if (argv.length === 0) return runFactoryLaneCheck(options);
+  if (argv[0] === "--bound-tests" && argv.length === 1) {
+    log.log(laneBoundTestFiles().join("\n"));
+    return 0;
+  }
+  if (argv[0] === "--lane-tests" && argv.length === 2) {
+    const files = FACTORY_LANES.some((lane) => lane.job === argv[1]) ? laneTestFiles(argv[1]!) : [];
+    if (files.length === 0) {
+      log.error(`lane '${argv[1]}' names no test file in the lane manifest`);
+      return 2;
+    }
+    log.log(files.join("\n"));
+    return 0;
+  }
+  log.error(USAGE);
+  return 2;
+}
+
+export const FACTORY_LANE_MAIN_RESULT = import.meta.main ? await factoryLaneMain(process.argv.slice(2)) : undefined;
 if (FACTORY_LANE_MAIN_RESULT !== undefined) process.exitCode = FACTORY_LANE_MAIN_RESULT;

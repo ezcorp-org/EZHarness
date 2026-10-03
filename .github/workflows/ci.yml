@@ -185,13 +185,11 @@ jobs:
         run: bash scripts/setup-extension-runner-ci.sh --install
       - name: Prove CPU attempts see no device and the GPU attempt sees exactly one
         run: bash scripts/verify-factory-local-gpu.sh
-      - name: Run the real container crash, reconnect, and cancel observations
-        run: |
-          bun test --timeout 300000 \
-            ./packages/@ezcorp/extension-runner/tests/podman.integration.test.ts \
-            ./src/factory/runner/supervisor.podman.integration.test.ts \
-            ./src/factory/runner/validator-guest.podman.integration.test.ts \
-            ./src/factory/runner/guest-model.podman.integration.test.ts
+      # The file list is the lane manifest (FACTORY_LANES in
+      # scripts/check-factory-lanes.ts): the shared container observations plus
+      # the device-bound test, which no hosted shard selects.
+      - name: Run the real container crash, reconnect, cancel, and device observations
+        run: bash scripts/run-factory-lane-tests.sh factory-isolation
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
@@ -286,6 +284,11 @@ jobs:
         run: bun scripts/verify-factory-storage.ts --restart-stores
       - name: Provision a tenant against the real engine
         run: bun test --timeout 120000 ./tests/postgres/factory-provisioning.test.ts
+      # The lane manifest's bound tests for this runner (FACTORY_LANES in
+      # scripts/check-factory-lanes.ts): the reference-data journey needs the
+      # pinned data image, which no registry holds and no hosted shard selects.
+      - name: Run the lane-bound reference-data journey
+        run: bash scripts/run-factory-lane-tests.sh factory-deployment-operations
       - name: Prove a compatible upgrade preserves data
         run: bash scripts/verify-docker-upgrade.sh
       - name: Prove a rollback restores the previous release

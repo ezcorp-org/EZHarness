@@ -3,10 +3,16 @@ import { readFile } from "node:fs/promises";
 import {
   CI_WORKFLOW,
   FACTORY_LANES,
+  type FactoryLane,
   POSTGRES_WORKFLOW,
   factoryLaneIssues,
+  factoryLaneMain,
   jobNeeds,
   jobRunnerLabels,
+  laneBoundTestFiles,
+  laneManifestIssues,
+  laneTestCommand,
+  laneTestFiles,
   readFactoryWorkflows,
   runFactoryLaneCheck,
   unconsumedRunnerLabels,
@@ -222,5 +228,170 @@ describe("C11 lane inventory CLI seam", () => {
     expect(Object.keys(workflows).sort()).toEqual([CI_WORKFLOW, POSTGRES_WORKFLOW].sort());
     expect(workflows[CI_WORKFLOW]).toContain("name: ci");
     expect(workflows[POSTGRES_WORKFLOW]).toContain("name: db-postgres");
+  });
+});
+
+const DEVICE_TEST = "packages/@ezcorp/extension-runner/tests/podman-devices.integration.test.ts";
+const JOURNEY_TEST = "src/factory/reference-data/journey.integration.test.ts";
+const SHARED_GPU_TESTS = [
+  "packages/@ezcorp/extension-runner/tests/podman.integration.test.ts",
+  "src/factory/runner/supervisor.podman.integration.test.ts",
+  "src/factory/runner/validator-guest.podman.integration.test.ts",
+  "src/factory/runner/guest-model.podman.integration.test.ts",
+];
+
+function capture() {
+  const output: string[] = [];
+  const errors: string[] = [];
+  return { output, errors, log: { log: (value: unknown) => output.push(String(value)), error: (value: unknown) => errors.push(String(value)) } };
+}
+
+function lane(overrides: Partial<FactoryLane>): FactoryLane {
+  return { job: "lane-x", check: "Lane X", workflow: CI_WORKFLOW, producers: ["echo x"], artifacts: [], requires: [], runnerLabels: ["factory-gpu"], tests: [], boundTests: [], ...overrides };
+}
+
+/** One bash run of the hosted selection library, exactly as the CI runners source it. */
+function hostedSet(script: string): { exitCode: number; files: string[]; stderr: string } {
+  const result = Bun.spawnSync(["bash", "-c", `source scripts/lib/test-file-sets.sh; ${script}`], { cwd: import.meta.dir + "/.." });
+  return { exitCode: result.exitCode, files: result.stdout.toString().split("\n").filter(Boolean), stderr: result.stderr.toString() };
+}
+
+describe("lane manifest: one list names the lane-bound tests", () => {
+  test("the device test is bound to the factory-gpu lane and the data journey to a factory-real lane", () => {
+    expect(laneBoundTestFiles()).toEqual([DEVICE_TEST, JOURNEY_TEST]);
+    const owner = (file: string) => FACTORY_LANES.find((entry) => entry.boundTests.includes(file))!;
+    expect(owner(DEVICE_TEST).job).toBe("factory-isolation");
+    expect(owner(DEVICE_TEST).runnerLabels).toEqual(["factory-gpu"]);
+    expect(owner(JOURNEY_TEST).job).toBe("factory-deployment-operations");
+    expect(owner(JOURNEY_TEST).runnerLabels).toEqual(["factory-real"]);
+  });
+
+  test("the real manifest names only files that exist, each bound once, none also shared", () => {
+    expect(laneManifestIssues()).toEqual([]);
+  });
+
+  test("a renamed or deleted test file is named, for a shared and for a bound entry", () => {
+    const lanes = [lane({ tests: ["a.test.ts"], boundTests: ["b.test.ts"] })];
+    expect(laneManifestIssues(lanes, (path) => path === "a.test.ts")).toEqual(["Lane X: test file 'b.test.ts' does not exist"]);
+    expect(laneManifestIssues(lanes, (path) => path === "b.test.ts")).toEqual(["Lane X: test file 'a.test.ts' does not exist"]);
+  });
+
+  test("a file bound to two lanes, or bound and shared at once, is rejected", () => {
+    const lanes = [lane({ boundTests: ["b.test.ts"] }), lane({ job: "lane-y", check: "Lane Y", tests: ["b.test.ts"], boundTests: ["b.test.ts"] })];
+    expect(laneManifestIssues(lanes, () => true)).toEqual([
+      "Lane X: bound test 'b.test.ts' is also listed as a shared lane test",
+      "Lane Y: bound test 'b.test.ts' is already bound to lane 'lane-x'",
+      "Lane Y: bound test 'b.test.ts' is also listed as a shared lane test",
+    ]);
+  });
+
+  test("a lane on a hosted runner cannot own a bound test", () => {
+    expect(laneManifestIssues([lane({ runnerLabels: [], boundTests: ["b.test.ts"] })], () => true)).toEqual([
+      "Lane X: job 'lane-x' binds tests but requests no dedicated runner label, so a hosted runner would run them",
+    ]);
+  });
+
+  test("the lane gate fails on a manifest issue in the real workflow tree", async () => {
+    const { errors, log } = capture();
+    expect(await runFactoryLaneCheck({ log, exists: (path) => path !== DEVICE_TEST })).toBe(1);
+    expect(errors).toEqual(["C11 lane inventory FAILED (1 issue(s)):", `  Factory isolation: test file '${DEVICE_TEST}' does not exist`]);
+  });
+});
+
+describe("lane selection: the lane job runs the manifest", () => {
+  test("the factory-gpu lane runs its shared container observations and then the device test", () => {
+    expect(laneTestFiles("factory-isolation")).toEqual([...SHARED_GPU_TESTS, DEVICE_TEST]);
+    expect(laneTestFiles("factory-deployment-operations")).toEqual([JOURNEY_TEST]);
+    expect(laneTestFiles("factory-temporal")).toEqual([]);
+    expect(() => laneTestFiles("no-such-lane")).toThrow("no C11 lane 'no-such-lane' in the lane manifest");
+  });
+
+  test("both lane jobs run the manifest through the one runner command", async () => {
+    const workflows = await realWorkflows();
+    for (const job of ["factory-isolation", "factory-deployment-operations"]) {
+      expect(workflowJobBlock(workflows[CI_WORKFLOW]!, job)).toContain(`run: ${laneTestCommand(job)}\n`);
+    }
+    expect(laneTestCommand("factory-isolation")).toBe("bash scripts/run-factory-lane-tests.sh factory-isolation");
+  });
+
+  test("a lane job that runs its tests by hand, not from the manifest, fails the gate", async () => {
+    const workflows = await realWorkflows();
+    const broken = { ...workflows, [CI_WORKFLOW]: workflows[CI_WORKFLOW]!.replace(laneTestCommand("factory-isolation"), `bun test ./${SHARED_GPU_TESTS[0]}`) };
+    expect(factoryLaneIssues(broken)).toEqual([
+      "Factory isolation: job 'factory-isolation' never runs producer 'bash scripts/run-factory-lane-tests.sh factory-isolation'",
+    ]);
+  });
+
+  test("the command line prints the lane selection and the hosted subtraction", async () => {
+    const lanes = capture();
+    expect(await factoryLaneMain(["--lane-tests", "factory-isolation"], { log: lanes.log })).toBe(0);
+    expect(lanes.output).toEqual([[...SHARED_GPU_TESTS, DEVICE_TEST].join("\n")]);
+    const bound = capture();
+    expect(await factoryLaneMain(["--bound-tests"], { log: bound.log })).toBe(0);
+    expect(bound.output).toEqual([`${DEVICE_TEST}\n${JOURNEY_TEST}`]);
+  });
+
+  test("the command line fails closed on an unknown lane, an empty lane and a malformed call", async () => {
+    for (const [argv, message] of [
+      [["--lane-tests", "no-such-lane"], "lane 'no-such-lane' names no test file in the lane manifest"],
+      [["--lane-tests", "factory-temporal"], "lane 'factory-temporal' names no test file in the lane manifest"],
+      [["--lane-tests"], "usage: bun scripts/check-factory-lanes.ts [--lane-tests <job> | --bound-tests]"],
+      [["--bound-tests", "extra"], "usage: bun scripts/check-factory-lanes.ts [--lane-tests <job> | --bound-tests]"],
+      [["--other"], "usage: bun scripts/check-factory-lanes.ts [--lane-tests <job> | --bound-tests]"],
+    ] as const) {
+      const { output, errors, log } = capture();
+      expect(await factoryLaneMain(argv, { log })).toBe(2);
+      expect(errors).toEqual([message]);
+      expect(output).toEqual([]);
+    }
+  });
+
+  test("with no argument the command line runs the lane gate", async () => {
+    const { errors, log } = capture();
+    expect(await factoryLaneMain([], { read: async () => ({}), log })).toBe(1);
+    expect(errors[0]).toMatch(/^C11 lane inventory FAILED/);
+  });
+
+  test("the lane runner refuses an unknown lane before it starts any test", () => {
+    const result = Bun.spawnSync(["bash", "scripts/run-factory-lane-tests.sh", "no-such-lane"], { cwd: import.meta.dir + "/.." });
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr.toString()).toContain("lane 'no-such-lane' names no test file in the lane manifest");
+    expect(result.stdout.toString()).not.toContain("test file(s)");
+  });
+});
+
+describe("hosted selection: no shard selects a lane-bound test", () => {
+  test("the bash library reads the same manifest", () => {
+    const bound = hostedSet("lane_bound_test_files");
+    expect(bound.exitCode).toBe(0);
+    expect(bound.files).toEqual(laneBoundTestFiles());
+  });
+
+  test("P, C and the residual set hold no bound test, and keep the shared lane tests", () => {
+    for (const set of ["passfail_files", "coverage_host_files", "residual_passfail_files"]) {
+      const { exitCode, files } = hostedSet(set);
+      expect(exitCode).toBe(0);
+      expect(files.length, `${set} is empty`).toBeGreaterThan(10);
+      for (const file of laneBoundTestFiles()) expect(files, `${set} selects ${file}`).not.toContain(file);
+    }
+    const coverage = hostedSet("coverage_host_files").files;
+    for (const file of SHARED_GPU_TESTS) expect(coverage).toContain(file);
+  });
+
+  test("the twelve hosted coverage shards together select every C file and no bound test", () => {
+    const shards = hostedSet('for i in $(seq 0 11); do coverage_host_files | shard_slice "$i" 12; done');
+    expect(shards.exitCode).toBe(0);
+    expect(shards.files.length).toBe(new Set(shards.files).size);
+    expect([...shards.files].sort()).toEqual([...hostedSet("coverage_host_files").files].sort());
+    for (const file of laneBoundTestFiles()) expect(shards.files).not.toContain(file);
+  });
+
+  test("an unreadable manifest fails the hosted sets by name instead of keeping a bound test", () => {
+    for (const set of ["lane_bound_test_files", "passfail_files", "coverage_host_files"]) {
+      const result = hostedSet(`bun() { return 3; }; ${set}`);
+      expect(result.exitCode, set).toBe(1);
+      expect(result.files, set).toEqual([]);
+      expect(result.stderr).toContain("lane_bound_test_files: the lane manifest (scripts/check-factory-lanes.ts --bound-tests) gave no list");
+    }
   });
 });
