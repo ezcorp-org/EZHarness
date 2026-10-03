@@ -5,7 +5,6 @@ import { pg_trgm } from "@electric-sql/pglite/contrib/pg_trgm";
 import { drizzle } from "drizzle-orm/pglite";
 import { sql } from "drizzle-orm";
 import { request as httpRequest } from "node:http";
-import { createHash } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -18,7 +17,7 @@ import { startRunnerService } from "../../../packages/@ezcorp/extension-runner/s
 import * as schema from "../../db/schema";
 import { migrate } from "../../db/migrate";
 import { FactoryExecutionJournal, type FactoryAttemptAuthority } from "../executions";
-import { FactoryRunnerSupervisor } from "./supervisor";
+import { FactoryRunnerSupervisor, factoryToolInvocationContext } from "./supervisor";
 
 function serviceCall(socketPath: string, token: string, path: string, data: unknown): Promise<unknown> {
   return new Promise((resolve, reject) => {
@@ -100,14 +99,16 @@ test("a fresh factory supervisor attaches through the v4 service to a surviving 
     const files = source("async(input,ctx)=>({stored:await ctx.call('factory.tool',input)})");
     const build = await runner.build({ operationId: crypto.randomUUID(), sourceDigest: filesDigest(files), files, entrypoint: "extension.ts", limits: buildLimits });
     const authority = admission({ attemptId: "attempt-live", tenantId: "tenant-a", projectId: "project-a", runId: "run-a", nodeInstanceId: "node-a", candidateGeneration: 2, attemptNumber: 3, grantRevision: 4, reservationGeneration: 5, executionEpoch: 6, cancellationEpoch: 0, requestDigest: "a".repeat(64), deadlineAt: new Date(Date.now() + 60_000) });
-    const workerId = `factory_${createHash("sha256").update(`${authority.attemptId}:0`).digest("hex").slice(0, 48)}`;
-    const invocationId = `factory_${createHash("sha256").update(`${authority.attemptId}:0:invocation`).digest("hex").slice(0, 48)}`;
-    const context = { workerId, invocationId, releaseId: build.artifactDigest!, principalId: authority.tenantId, scopeId: authority.projectId, token: `factory-runner:${authority.attemptId}`, deadline: authority.deadlineAt.getTime() };
+    // The supervisor's own derivation, so the worker started here is the one a fresh supervisor names.
+    const context = factoryToolInvocationContext({ authority, artifactDigest: build.artifactDigest!, operationIndex: 0 });
     service = await startRunnerService({ runner, socketPath, token, allowedUid: process.getuid!() });
-    await serviceCall(socketPath, token, "/v4/start", { workerId, artifactDigest: build.artifactDigest!, context, limits: executionLimits });
+    await serviceCall(socketPath, token, "/v4/start", { workerId: context.workerId, artifactDigest: build.artifactDigest!, context, limits: executionLimits });
     const journal = new FactoryExecutionJournal(db, async () => {});
     await journal.admit(authority);
-    const supervisor = new FactoryRunnerSupervisor({ runner: new RunnerClient({ socketPath, token }), journal, authorizeAttempt: async () => {}, invokeTool: async input => ({ persisted: input }) });
+    const client = new RunnerClient({ socketPath, token });
+    // Recovery must reach the surviving worker. A second worker would answer just as well and hide the loss.
+    client.start = async () => { throw new Error("the fresh supervisor started a second worker instead of attaching"); };
+    const supervisor = new FactoryRunnerSupervisor({ runner: client, journal, authorizeAttempt: async () => {}, invokeTool: async input => ({ persisted: input }) });
     expect(await supervisor.invoke({ authority, artifactDigest: build.artifactDigest!, operationIndex: 0, toolName: "echo", toolInput: { text: "survived" }, workspace: { checkpoint: async ({ operationIndex }) => ({ artifactId: "checkpoint-survived", digest: `sha256:${"d".repeat(64)}`, encodedBytes: 96, journalCursor: operationIndex }) } })).toEqual({ claimed: true, result: { stored: { persisted: { text: "survived" } } } });
   } finally {
     await service?.close();

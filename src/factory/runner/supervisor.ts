@@ -51,7 +51,12 @@ function operation(input: FactoryToolInvocation): FactoryJournalOperation {
   return { operationId: `${authority.runId}:${authority.nodeInstanceId}:${authority.candidateGeneration}:${input.operationIndex}`, operationIndex: input.operationIndex, kind: "tool", requestDigest: digest({ artifactDigest: input.artifactDigest, toolName: input.toolName, toolInput: input.toolInput }) };
 }
 
-function context(input: FactoryToolInvocation) {
+/**
+ * The worker and invocation a tool operation runs under. Both derive from the
+ * attempt and the operation index alone, so a fresh supervisor after a restart
+ * names the same worker and can attach to it instead of starting another.
+ */
+export function factoryToolInvocationContext(input: Pick<FactoryToolInvocation, "authority" | "artifactDigest" | "operationIndex">) {
   const workerId = `factory_${digest(`${input.authority.attemptId}:${input.operationIndex}`).slice(0, 48)}`;
   const invocationId = `factory_${digest(`${input.authority.attemptId}:${input.operationIndex}:invocation`).slice(0, 48)}`;
   return { workerId, invocationId, releaseId: input.artifactDigest, principalId: input.authority.tenantId, scopeId: input.authority.projectId, token: `factory-runner:${input.authority.attemptId}`, deadline: input.authority.deadlineAt.getTime() };
@@ -73,7 +78,7 @@ export class FactoryRunnerSupervisor {
     await this.options.authorizeAttempt(input.authority);
     const operationEntry = operation(input);
     await this.options.journal.prepare(input.authority, operationEntry);
-    const invocation = context(input);
+    const invocation = factoryToolInvocationContext(input);
     const previous = await this.options.journal.operation(input.authority, operationEntry.operationId);
     if (previous.state === "completed") return { claimed: false, result: previous.result };
     if (previous.state === "dispatched" || previous.state === "uncertain") throw new Error("Factory effect outcome is uncertain and requires reconciliation.");
@@ -98,7 +103,7 @@ export class FactoryRunnerSupervisor {
     }
   }
 
-  private async worker(input: FactoryToolInvocation, invocation: ReturnType<typeof context>, reverse: (method: string, raw: unknown) => Promise<unknown>): Promise<RunnerExecution> {
+  private async worker(input: FactoryToolInvocation, invocation: ReturnType<typeof factoryToolInvocationContext>, reverse: (method: string, raw: unknown) => Promise<unknown>): Promise<RunnerExecution> {
     const inspection = await this.options.runner.inspect(invocation.workerId);
     if (inspection.state === "running") {
       if (!this.options.runner.attach) throw new Error("Factory runner cannot reattach to a surviving worker.");
@@ -108,7 +113,7 @@ export class FactoryRunnerSupervisor {
     return this.options.runner.start({ workerId: invocation.workerId, artifactDigest: input.artifactDigest, context: invocation, limits: executionLimits, devices: input.devices ?? [] }, reverse);
   }
 
-  private reverse(input: FactoryToolInvocation, invocation: ReturnType<typeof context>, operationEntry: FactoryJournalOperation, onClaim: () => void): (method: string, raw: unknown) => Promise<unknown> {
+  private reverse(input: FactoryToolInvocation, invocation: ReturnType<typeof factoryToolInvocationContext>, operationEntry: FactoryJournalOperation, onClaim: () => void): (method: string, raw: unknown) => Promise<unknown> {
     return async (method, raw) => {
       const authorizedInput = factoryGuestFrameInput(method, raw, invocation, FACTORY_GUEST_TOOL_METHOD);
       if (canonicalJson(authorizedInput) !== canonicalJson(input.toolInput)) throw new Error("Factory runner tool input does not match its prepared operation.");
