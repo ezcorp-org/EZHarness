@@ -87,7 +87,10 @@ test("production runner entrypoint starts with a long inherited TMPDIR and build
     // Readiness is the socket and successful build, not host startup speed.
     // The unchanged whole-test timeout bounds failure; afterEach owns cleanup
     // even when that timeout interrupts the readiness wait.
-    while (!(await stat(socketPath).catch(() => null))?.isSocket()) {
+    while (!(await stat(socketPath).catch(error => {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw error;
+    }))?.isSocket()) {
       if (child.exitCode !== null) throw new Error(`Runner startup failed: ${await diagnostics}`);
       await Bun.sleep(20);
     }

@@ -17,13 +17,17 @@ async function approveAndActivate(page: import("@playwright/test").Page, install
   const approvalResponse = page.waitForResponse(response => response.url().endsWith(`/api/extensions/releases/${installationId}/approve`) && response.request().method() === "POST", { timeout: 30_000 });
   await approve.click();
   expect((await approvalResponse).status()).toBe(200);
-  const activationResponse = page.waitForResponse(response => {
-    if (!response.url().endsWith("/api/extensions/control") || response.request().method() !== "POST") return false;
-    const body = response.request().postData() ?? "";
-    return body.includes('"action":"activate"') && body.includes(installationId);
-  }, { timeout: 30_000 });
-  await approvalCard.getByRole("button", { name: "Activate approved release", exact: true }).click();
-  const activation = await activationResponse;
+  // Activation is a synchronous control call that may wait for the isolated
+  // runner. The enclosing test's lifecycle deadline bounds that call; a
+  // separate 30s response deadline can expire while the server still succeeds.
+  const [activation] = await Promise.all([
+    page.waitForResponse(response => {
+      if (!response.url().endsWith("/api/extensions/control") || response.request().method() !== "POST") return false;
+      const body = response.request().postData() ?? "";
+      return body.includes('"action":"activate"') && body.includes(installationId);
+    }, { timeout: 0 }),
+    approvalCard.getByRole("button", { name: "Activate approved release", exact: true }).click(),
+  ]);
   expect(activation.status()).toBe(200);
   const operation = await activation.json() as Record<string, unknown>;
   expect(operation).toMatchObject({ kind: "activate", state: expectedState, approvalId: approval.id, releaseId: approval.releaseId });

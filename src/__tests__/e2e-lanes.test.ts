@@ -49,7 +49,7 @@ function ciJobBlock(ci: string, job: string): string {
   return next < 0 ? ci.slice(start) : ci.slice(start, start + 1 + next);
 }
 
-type LocalCiMode = "success" | "browser-failure" | "backend-failure";
+type LocalCiMode = "success" | "browser-failure" | "backend-failure" | "coverage-interrupt";
 
 type LocalCiRun = {
   code: number;
@@ -85,6 +85,10 @@ if [ "$1" = "run" ] && [ "$2" = "test:coverage" ]; then
   test -s "\${BROWSER_COVERAGE_RAW:-}" || exit 91
   test -s "\${BROWSER_COVERAGE_LCOV:-}" || exit 92
   [ "\${CI_LOCAL_MODE}" != "backend-failure" ] || exit 23
+  if [ "\${CI_LOCAL_MODE}" = "coverage-interrupt" ]; then
+    kill -TERM "$PPID"
+    exit 143
+  fi
 fi
 `);
   writeExecutable("bash", `#!${BASH}
@@ -475,6 +479,20 @@ describe("e2e lane manifest", () => {
       expect(run.stdout).toContain("PASS  Browser route coverage (mandatory Chromium lanes)");
       expect(run.stdout).toContain("FAIL  Coverage + per-file thresholds");
       expect(run.stdout).toContain("ci-local: FAILED");
+      expect(run.stderr).toContain(`retained browser coverage receipts after failed run: ${run.browserReceiptDir}`);
+      expect(readFileSync(join(run.browserReceiptDir, "merged/merged.json"), "utf8")).toContain('"raw":true');
+    } finally {
+      run.dispose();
+      rmSync(run.browserReceiptDir, { recursive: true, force: true });
+    }
+  });
+
+  test("local CI retains browser receipts when interrupted before coverage finishes", () => {
+    const run = runLocalCi("coverage-interrupt");
+    try {
+      expect(run.code).not.toBe(0);
+      expect(run.stdout).toContain("══ Coverage + per-file thresholds");
+      expect(run.stdout).not.toContain("ci-local summary");
       expect(run.stderr).toContain(`retained browser coverage receipts after failed run: ${run.browserReceiptDir}`);
       expect(readFileSync(join(run.browserReceiptDir, "merged/merged.json"), "utf8")).toContain('"raw":true');
     } finally {

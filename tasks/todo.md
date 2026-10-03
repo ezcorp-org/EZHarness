@@ -172,6 +172,22 @@ The pending server switch later completed. Fresh dev SSH, old running/profile ge
 The approved v4 attempt succeeded. One submitted signed request and independent stopped-app readback confirm CREATE `FAILED/OPERATOR_PROVEN_NO_EFFECT`, no-op DESTROY `SUCCEEDED`, binding `ABSENT`, and compute/disk reservations `RELEASED`. The exact server cert/policy, old generation, AMD configs, app, and runner were restored; TCP ingress hold remains. See the [v4 execution receipt](../docs/validation/2026-09-25-second-unknown-create-recovery-v4-execution.md). No new guest lifecycle has been run.
 
 Read-only next-guest preparation found a valid admin session, active reviewed release and connection, verified setup, 32 GiB applied capacity, the pinned guest image, and an empty Incus project. An audited stopped-app copy proved the proposed new fixture and derived IDs absent, then the app restarted healthy behind the TCP hold. The [guest smoke review](../docs/validation/2026-09-25-next-incus-owned-guest-smoke-review.md) fixes the one new operation ID and the guarded lifecycle. No guest CREATE was sent.
+# PR #308 review fixes
+
+- [x] Reproduce the review findings and assign isolated Sol worktrees.
+- [x] Fix OAuth session revocation and refresh recovery; integrate focused tests.
+- [x] Add migration upgrade, idempotency, and foreign-key tests.
+- [x] Fix real filesystem import and publication recovery; remove repeated identity and limits.
+- [x] Fix GitHub setup, base selection, empty-change feedback, and diff drawer state.
+- [x] Diagnose and fix hosted launcher cancellation failure.
+
+Final verification and PR check results are tracked in `tasks/pr308-fix-plan.md`.
+Keep the source commit fixed while collecting browser coverage receipts.
+
+Review findings and detailed execution notes: `tasks/pr308-review.md` and `tasks/pr308-fix-plan.md`.
+Work is isolated on `fix/pr308-review-findings` and four Sol agent worktrees.
+
+---
 
 # Wire `trusted-local` — the explicit, per-release-approved unsandboxed extension mode
 
@@ -1690,6 +1706,20 @@ The real-process Python suite passes three cases. The Bun wrapper, persisted aut
 ### Review
 
 The failing functions were `arm`, `requireIdentity`, `exerciseIncusControlledLoads`, the live-cases callback at line 238, and `mutateInstance`. Agents split each into focused checks without lowering the 30-point limit. The integrated focused run passed 46 tests and 219 assertions; all five changed production sources retained 100% line coverage. Full typecheck, lint, production build, and gate integrity passed. Astra found no behavior change in static review and 37 old/new differential runner cases. Hosted CI remains to be completed on the combined head.
+## Review PR #308 — 2026-09-23
+
+- [x] Read PR history, description, review findings, failing CI, and linked design.
+- [x] Reproduce OAuth session-revocation and read-only PR recovery gaps in focused tests.
+- [x] Fix both gaps, including row-locked final session validation.
+- [x] Run broker, device-flow, and PR-service suites; typecheck and lint.
+- [x] Run launcher integration suite locally under CI settings.
+- [ ] Push fix commit and inspect new hosted CI.
+- [ ] Record final review and blockers.
+
+Plan review: Keep this work on the PR #308 branch and change only the credential broker, PR recovery call, and focused tests. Do not weaken the launcher test while its hosted failure remains unexplained.
+
+Review: The two source findings failed before the fix and pass after it. Focused broker, device, and PR-service suites pass 31 tests and 222 assertions. Full typecheck and lint over 4,740 files pass. The launcher integration suite passes 4 tests and 43 assertions locally with CI environment flags. Hosted residual integration failed twice at its 20-second watchdog on the old head; a fresh run on the repair commit is pending. Human non-author and CODEOWNERS review remain required.
+
 ## PR #315 keyless credential review — 2026-09-23
 
 - [x] Read PR intent, changed files, review state, and failed CI log.
@@ -2091,6 +2121,35 @@ The server and AMD host generations are active. A consistent detached PGlite cop
 ### Review
 
 The old certificate remains revoked, the isolated app remains behind the local TCP hold, and the runner is stopped behind a tested systemd assertion gate. The saved CREATE is still `OUTCOME_UNKNOWN`; no signed recovery request was submitted. The first temporary server generation was fully rolled back after the observer exposed two integration defects: the Incus CLI could not write under immutable `/var/empty`, and the NixOS observer's store copy of `sudo` lacked setuid permission. Direct Incus reads and direct observer script invocation passed after a temporary CLI-home test, but the forced SSH path did not. The temporary CLI files were removed and `/var/empty` is immutable again. No guest has been created by EZHarness.
+## PR #308 remaining dependency advisories — 2026-09-24
+
+## PR #308 conflict resolution and merge — 2026-10-03
+
+- [x] Merge current main into PR #308, preserving both branches' behavior.
+- [x] Independently review conflict resolution and security invariants with Sol agents.
+- [x] Fix the fresh October 3 root, web, and Excel dependency advisories and verify zero audit findings.
+- [ ] Run fresh installs, static checks, full tests, build, browser lanes, coverage, and audits.
+- [ ] Push the tested head and verify required hosted CI and review requirements.
+- [ ] Squash-merge when GitHub requirements pass; record the final result.
+
+Plan reviewed: user authorizes conflict resolution, validation, push, and merge when ready. Use isolated worktrees. Keep all gates and required approvals intact. Record final evidence in ignored `tasks/pr308-merge-oct3-results.md` so tracked source remains frozen during browser attestation.
+
+Merge review: The only textual conflict was this append-only task journal. Both PR #308 and main's #319/#320 entries are retained. The auto-merged sidebar, watchdog, and isolation changes remain in place; focused integration checks follow below.
+
+Pre-validation review: Independent Sol review accepted the merged product tree and narrow dependency lock updates. Root and Excel caller regressions cover URI normalization, cross-family subnet rejection, bounded brace parsing, and workbook compatibility. Web tests resolve patched packages through their actual parents. The Excel source digest is refreshed. Complete final test and audit results will be recorded in the ignored report above; keep tracked source frozen while collecting browser receipts.
+
+### Previous dependency task
+
+- [x] Resolve root esbuild and uuid advisories with compatibility tests (Sol root dependency agent).
+- [x] Resolve web qs and cookie advisories with compatibility tests (Sol web dependency agent).
+- [x] Independently verify fixed versions, installed resolution paths, and security regression tests.
+- [x] Integrate changes; require zero advisory records with no allowlist additions.
+- [ ] Run complete local quality checks, build, browser lanes, coverage, and dependency audit on final source.
+- [ ] Push to PR #308, verify hosted checks, and record final evidence.
+
+Plan review: The user requests all six remaining lower-severity advisory records fixed, validated, and pushed. Include current main through `8aa507304` before the changes. Separate root and web manifests/locks between isolated Sol worktrees. Prefer supported parent updates; use narrowly justified dependency overrides only with real caller compatibility proof. Do not suppress advisories, weaken gates, or change test deadlines. Final results go in `tasks/pr308-dependency-results.md` so tracked source stays frozen during coverage attestation.
+
+Review before final validation: Independent clean-install checks report zero advisories in root, web, and the Excel example. Pinned Bun 1.3.14 ignores parent-scoped overrides, so tested exact global pins are required. The extension resolver now honors exact global overrides, rejects unsupported forms and stale locks, and checks package declarations against the lock. Regression tests cover real dependency callers, malicious inputs, and the author save/resolve/reload flow. Git test fixtures now share an isolated environment so hooks cannot change the caller's repository identity. Run final checks and record their results in the ignored report before pushing.
 
 ## PR #319 review and repair
 

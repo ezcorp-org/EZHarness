@@ -13,7 +13,7 @@
  */
 
 import { render, cleanup, fireEvent, waitFor } from "@testing-library/svelte";
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import "@testing-library/jest-dom/vitest";
 import DiffSummaryPanel from "./DiffSummaryPanel.svelte";
 import type { Message } from "$lib/api";
@@ -88,6 +88,165 @@ function renderPanel(overrides: Record<string, unknown> = {}) {
 afterEach(() => cleanup());
 beforeEach(() => localStorage.clear());
 afterEach(() => localStorage.clear());
+afterEach(() => vi.unstubAllGlobals());
+
+test("confirms only the saved personal PR snapshot after a human reviews its files", async () => {
+	const review = {
+		state: "reviewing", proposalId: "proposal-1", digest: "a".repeat(64),
+		repository: { id: 42, fullName: "owner/repo", baseRef: "main", baseSha: "b".repeat(40) },
+		files: [{ path: "src/exact-file.ts", status: "modified", additions: 2, deletions: 1, patch: "@@ -1 +1 @@\n-before\n+after", binary: false }],
+		checks: [{ name: "tests", result: "passed" }], title: "Original title", body: "Original body",
+	} as const;
+	const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ...review, state: "created", prUrl: "https://github.com/owner/repo/pull/7" }), { headers: { "content-type": "application/json" } }));
+	vi.stubGlobal("fetch", fetch);
+	const onpersonalprupdate = vi.fn();
+	const view = renderPanel({ personalPr: review, onpersonalprupdate });
+	expect(view.getAllByText(/src\/exact-file\.ts/)).toHaveLength(2);
+	expect(view.getByTestId("personal-pr-exact-diff")).toHaveTextContent("+after");
+	expect(view.getByText(/The file list below is the saved run snapshot/)).toBeVisible();
+	expect(view.queryByText("No file changes in this conversation")).not.toBeInTheDocument();
+	await fireEvent.input(view.getByLabelText("PR title"), { target: { value: "Reviewed title" } });
+	await fireEvent.click(view.getByRole("button", { name: "Create draft PR" }));
+	await waitFor(() => expect(onpersonalprupdate).toHaveBeenCalledWith(expect.objectContaining({ state: "created", prUrl: "https://github.com/owner/repo/pull/7" })));
+	const [url, init] = fetch.mock.calls[0]!;
+	expect(url).toBe("/api/github/personal-prs/proposals/proposal-1/confirm");
+	expect(JSON.parse(init.body)).toMatchObject({ expectedDigest: review.digest, title: "Reviewed title", body: "Original body", idempotencyKey: expect.any(String) });
+});
+
+test("refuses PR confirmation when the exact server diff is absent", () => {
+	const view = renderPanel({ personalPr: {
+		state: "reviewing", proposalId: "proposal-1", digest: "a".repeat(64),
+		files: [{ path: "src/file.ts", status: "modified", additions: 1, deletions: 1 }],
+		title: "Fix file", body: "Tested",
+	} });
+	expect(view.getByText("Exact diff unavailable.")).toBeVisible();
+	expect(view.getByRole("button", { name: "Create draft PR" })).toBeDisabled();
+});
+
+test("reconciles an uncertain failed publication through confirm without offering a new create", async () => {
+	const failed = {
+		state: "failed", recoveryAction: "check_github", proposalId: "proposal-1", digest: "a".repeat(64),
+		files: [{ path: "src/file.ts", status: "modified", additions: 1, deletions: 1, patch: "@@ -1 +1 @@\n-before\n+after", binary: false }],
+		title: "Fix file", body: "Tested", checks: [],
+	} as const;
+	const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ...failed, state: "created", prUrl: "https://github.com/owner/repo/pull/7" }), { headers: { "content-type": "application/json" } }));
+	vi.stubGlobal("fetch", fetch);
+	const onpersonalprupdate = vi.fn();
+	const view = renderPanel({ personalPr: failed, onpersonalprupdate });
+	expect(view.getByText("No verified checks recorded")).toBeVisible();
+	expect(view.queryByRole("button", { name: "Create draft PR" })).not.toBeInTheDocument();
+	await fireEvent.click(view.getByRole("button", { name: "Check GitHub result" }));
+	await waitFor(() => expect(onpersonalprupdate).toHaveBeenCalledWith(expect.objectContaining({ state: "created" })));
+	expect(fetch).toHaveBeenCalledWith("/api/github/personal-prs/proposals/proposal-1/confirm", expect.objectContaining({ method: "POST" }));
+	expect(JSON.parse(fetch.mock.calls[0]![1].body)).toMatchObject({ expectedDigest: failed.digest, title: failed.title, body: failed.body });
+	expect(JSON.parse(fetch.mock.calls[0]![1].body)).not.toHaveProperty("retryPreCommit");
+});
+
+test.each([
+	{ state: "reviewing", recoveryAction: undefined, button: "Create draft PR", message: "Could not create draft PR", remainsEnabled: false },
+	{ state: "failed", recoveryAction: "check_github", button: "Check GitHub result", message: "Could not check GitHub result", remainsEnabled: true },
+] as const)("reports a safe fallback when $button rejects with a non-Error value", async ({ state, recoveryAction, button, message, remainsEnabled }) => {
+	const review = {
+		state, recoveryAction, proposalId: "proposal-1", digest: "a".repeat(64),
+		files: [{ path: "src/file.ts", status: "modified", additions: 1, deletions: 1, patch: "@@ -1 +1 @@\n-before\n+after", binary: false }],
+		title: "Fix file", body: "Tested", checks: [],
+	};
+	const fetch = vi.fn().mockRejectedValue({ secret: "internal failure detail" });
+	vi.stubGlobal("fetch", fetch);
+	const onpersonalprupdate = vi.fn();
+	const view = renderPanel({ personalPr: review, onpersonalprupdate });
+	await fireEvent.click(view.getByRole("button", { name: button }));
+	await waitFor(() => expect(view.getByRole("alert")).toHaveTextContent(message));
+	expect(view.getByRole("alert")).not.toHaveTextContent("internal failure detail");
+	if (remainsEnabled) expect(view.getByRole("button", { name: button })).toBeEnabled();
+	else expect(view.getByRole("button", { name: button })).toBeDisabled();
+	expect(fetch).toHaveBeenCalledOnce();
+	expect(onpersonalprupdate).not.toHaveBeenCalled();
+});
+
+test("explicitly retries only a failed pre-ref attempt from the frozen review", async () => {
+	const failed = {
+		state: "failed", recoveryAction: "retry_pre_ref", proposalId: "proposal-1", digest: "a".repeat(64),
+		files: [{ path: "src/file.ts", status: "modified", additions: 1, deletions: 1, patch: "@@ -1 +1 @@\n-before\n+after", binary: false }],
+		title: "Fix file", body: "Tested", checks: [],
+	} as const;
+	const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ...failed, state: "created", prUrl: "https://github.com/owner/repo/pull/7" }), { headers: { "content-type": "application/json" } }));
+	vi.stubGlobal("fetch", fetch);
+	const onpersonalprupdate = vi.fn();
+	const view = renderPanel({ personalPr: failed, onpersonalprupdate });
+	expect(view.getByText(/Publication stopped before creating a branch or pull request/)).toBeVisible();
+	expect(view.queryByRole("button", { name: "Check GitHub result" })).not.toBeInTheDocument();
+	await fireEvent.click(view.getByRole("button", { name: "Retry draft PR publication" }));
+	await waitFor(() => expect(onpersonalprupdate).toHaveBeenCalledWith(expect.objectContaining({ state: "created" })));
+	expect(fetch).toHaveBeenCalledWith("/api/github/personal-prs/proposals/proposal-1/confirm", expect.objectContaining({ method: "POST" }));
+	expect(JSON.parse(fetch.mock.calls[0]![1].body)).toMatchObject({ retryPreCommit: true });
+});
+
+test("an expired creating proposal needs an explicit pre-commit retry", async () => {
+	const creating = {
+		state: "creating", recoveryAction: "retry_pre_ref", proposalId: "proposal-1", digest: "a".repeat(64),
+		files: [{ path: "src/file.ts", status: "modified", additions: 1, deletions: 1, patch: "@@ -1 +1 @@\n-before\n+after", binary: false }],
+		title: "Fix file", body: "Tested", checks: [],
+	} as const;
+	const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ...creating, state: "created" }), { headers: { "content-type": "application/json" } }));
+	vi.stubGlobal("fetch", fetch);
+	const view = renderPanel({ personalPr: creating });
+	expect(view.queryByRole("button", { name: "Check GitHub result" })).not.toBeInTheDocument();
+	await fireEvent.click(view.getByRole("button", { name: "Retry draft PR publication" }));
+	expect(JSON.parse(fetch.mock.calls[0]![1].body)).toMatchObject({ retryPreCommit: true });
+});
+
+test("checks stored status after an uncertain confirmation and reports check errors", async () => {
+	const review = {
+		state: "reviewing", proposalId: "proposal-1", digest: "a".repeat(64),
+		files: [{ path: "src/file.ts", status: "modified", additions: 1, deletions: 1, patch: "@@ -1 +1 @@\n-before\n+after", binary: false }],
+		title: "Fix file", body: "Tested", checks: [],
+	} as const;
+	const response = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+	const fetch = vi.fn()
+		.mockResolvedValueOnce(response({ error: "Confirmation outcome unknown" }, 503))
+		.mockResolvedValueOnce(response({ error: "GitHub still unavailable" }, 503))
+		.mockResolvedValueOnce(response({ ...review, state: "failed", recoveryAction: "check_github" }));
+	vi.stubGlobal("fetch", fetch);
+	const onpersonalprupdate = vi.fn();
+	const view = renderPanel({ personalPr: review, onpersonalprupdate });
+	await fireEvent.click(view.getByRole("button", { name: "Create draft PR" }));
+	await waitFor(() => expect(view.getByRole("alert")).toHaveTextContent("Confirmation outcome unknown"));
+	await fireEvent.click(view.getByRole("button", { name: "Check status" }));
+	await waitFor(() => expect(view.getByRole("alert")).toHaveTextContent("GitHub still unavailable"));
+	await fireEvent.click(view.getByRole("button", { name: "Check status" }));
+	await waitFor(() => expect(onpersonalprupdate).toHaveBeenCalledWith(expect.objectContaining({ state: "failed", recoveryAction: "check_github" })));
+	expect(fetch.mock.calls.slice(1).map(([url]) => url)).toEqual(["/api/github/personal-prs/proposals/proposal-1", "/api/github/personal-prs/proposals/proposal-1"]);
+});
+
+test("shows exact binary review bytes and hashes", () => {
+	const view = renderPanel({ personalPr: {
+		state: "reviewing", proposalId: "proposal-1", digest: "a".repeat(64), title: "Binary change", body: "",
+		files: [{ path: "assets/icon.png", status: "modified", additions: 0, deletions: 0, binary: true,
+			beforeBytes: 2, afterBytes: 3, beforeSha256: "b".repeat(64), afterSha256: "c".repeat(64), beforeBase64: "AAE=", afterBase64: "AAEC" }],
+		checks: [],
+	} });
+	expect(view.getByText(/Binary change. Review the exact bytes/)).toBeVisible();
+	expect(view.getByText(/Before: 2 bytes/)).toHaveTextContent("b".repeat(64));
+	expect(view.getByText(/After: 3 bytes/)).toHaveTextContent("c".repeat(64));
+	expect(view.getByRole("link", { name: "Download before" })).toHaveAttribute("href", "data:application/octet-stream;base64,AAE=");
+	expect(view.getByRole("link", { name: "Download after" })).toHaveAttribute("href", "data:application/octet-stream;base64,AAEC");
+});
+
+test("a changed base asks for reimport without offering publication", () => {
+	const view = renderPanel({ personalPr: { state: "stale", recoveryAction: "reimport", proposalId: "proposal-1", digest: "a".repeat(64), files: [], checks: [] } });
+	expect(view.getByText(/Start a new private sandbox import/)).toBeVisible();
+	expect(view.queryByRole("button", { name: "Create draft PR" })).not.toBeInTheDocument();
+});
+
+test("a created proposal shows only a validated GitHub PR link", () => {
+	const view = renderPanel({ personalPr: { state: "created", proposalId: "proposal-1", digest: "a".repeat(64), files: [], checks: [], prUrl: "https://github.com/owner/repo/pull/7" } });
+	expect(view.getByRole("link", { name: "Open draft PR on GitHub" })).toHaveAttribute("href", "https://github.com/owner/repo/pull/7");
+	view.unmount();
+	const unsafe = renderPanel({ personalPr: { state: "created", proposalId: "proposal-2", files: [], checks: [], prUrl: "https://github.com.evil.test/owner/repo/pull/7" } });
+	expect(unsafe.queryByRole("link", { name: "Open draft PR on GitHub" })).not.toBeInTheDocument();
+	expect(unsafe.getByText("PR status: created")).toBeVisible();
+});
 
 describe("code review panel — header", () => {
 	test("titles the panel 'Files changed' like GitHub's review tab", () => {

@@ -86,11 +86,15 @@ test("rootless page rendering never shares a worker result or cache across authe
     httpDeps = deps;
     const sessions = new Map<string, string>([[crypto.randomUUID(), "alice"], [crypto.randomUUID(), "bob"]]);
     const cookies = Object.fromEntries([...sessions].map(([token, user]) => [user, `session=${token}`]));
+    const admittedPageTimeouts: number[] = [];
     server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request, bunServer) {
       const principal = sessions.get(request.headers.get("cookie")?.replace(/^session=/, "") ?? "");
       const event = createMockEvent({ url: request.url, params: { id: "ext:private-page:dashboard" }, ...(principal ? { user: { ...MEMBER_USER, id: principal }, authMethod: "session" } : {}) });
       event.request = request;
-      event.platform = { server: bunServer, request };
+      event.platform = { server: { timeout(target: Request, seconds: number) {
+        if (new URL(request.url).pathname === "/page") admittedPageTimeouts.push(seconds);
+        bunServer.timeout(target, seconds);
+      } } as typeof bunServer, request };
       const headers = new Headers();
       event.setHeaders = (values: Record<string, string>) => { for (const [name, value] of Object.entries(values)) headers.set(name, value); };
       try {
@@ -107,10 +111,12 @@ test("rootless page rendering never shares a worker result or cache across authe
       return response.json() as Promise<{ page?: { title: string }; error?: string }>;
     };
     expect((await fetch(`${base}/page`)).status).toBe(401);
+    expect(admittedPageTimeouts).toEqual([]);
     const streamSignal = AbortSignal.any([streams.signal, AbortSignal.timeout(30_000)]);
     const aliceStream = await fetch(`${base}/events`, { headers: { cookie: cookies.alice! }, signal: streamSignal });
     const bobStream = await fetch(`${base}/events`, { headers: { cookie: cookies.bob! }, signal: streamSignal });
     const [alice, bob] = await Promise.all([render("alice"), render("bob")]);
+    expect(admittedPageTimeouts).toEqual([0, 0]);
     expect(alice.page?.title).toBe("Private for alice");
     expect(bob.page?.title).toBe("Private for bob");
     async function readOwnState(response: Response, principal: string): Promise<string> {
