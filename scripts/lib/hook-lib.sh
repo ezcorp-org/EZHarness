@@ -155,7 +155,8 @@ run_staged_tests() {
   local bun_targets=() vitest_targets=() t
   while IFS= read -r t; do
     [ -n "$t" ] || continue
-    if printf '%s\n' "$bunset" | grep -qxF -- "$t"; then
+    # Consume the whole set: grep -q can SIGPIPE printf under pipefail.
+    if printf '%s\n' "$bunset" | grep --line-buffered -xF -- "$t" >/dev/null; then
       bun_targets+=("$t")
     elif [ "${t#web/}" != "$t" ]; then
       vitest_targets+=("${t#web/}")
