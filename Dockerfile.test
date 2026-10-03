@@ -22,6 +22,9 @@ COPY packages/@ezcorp/ai-kit/package.json packages/@ezcorp/ai-kit/
 COPY packages/@ezcorp/harness-client/package.json packages/@ezcorp/harness-client/
 COPY packages/@ezcorp/extension-contract/package.json packages/@ezcorp/extension-contract/
 COPY packages/@ezcorp/extension-runner/package.json packages/@ezcorp/extension-runner/
+COPY packages/@ezcorp/factory-sdk/package.json packages/@ezcorp/factory-sdk/
+COPY packages/@ezcorp/factory-transport/package.json packages/@ezcorp/factory-transport/
+COPY packages/@ezcorp/factory-orchestrator/package.json packages/@ezcorp/factory-orchestrator/
 # `--ignore-scripts`: SDK source + tsconfig haven't been COPY'd yet (only
 # the package.json), so the `prepare` script's tsc build can't succeed.
 # Skip lifecycle here; the SDK is rebuilt as needed once `COPY . .` lands.
@@ -34,6 +37,8 @@ RUN --mount=type=cache,target=/root/.bun/install/cache,sharing=locked bun instal
 
 # Install web dependencies
 COPY web/package.json web/bun.lock web/
+# web/package.json's patchedDependencies: the frozen install fails without the patch files.
+COPY web/patches web/patches/
 RUN --mount=type=cache,target=/root/.bun/install/cache,sharing=locked cd web && bun install --frozen-lockfile --ignore-scripts
 
 # Install Playwright chromium + system deps
@@ -63,6 +68,11 @@ RUN if [ ! -f src/__tests__/preload.ts ] || \
       echo "" >&2; \
       exit 1; \
     fi
+
+# The web bundler follows each workspace package's `import` export to dist/,
+# which is never in the context: build every workspace package first
+# (scripts/build-workspace-packages.ts derives the order).
+RUN bun run build:packages
 
 # Generate SvelteKit types ($lib alias resolution for web tests)
 RUN cd web && bunx svelte-kit sync

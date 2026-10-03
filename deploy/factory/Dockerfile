@@ -28,15 +28,11 @@ ENV BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELI
 WORKDIR /app
 COPY . .
 # Lifecycle scripts stay off: the root postinstall also installs git hooks,
-# which have no repository here. The workspace builds it would have run are
-# listed explicitly below, in dependency order.
+# which have no repository here. Its workspace builds run below through the
+# same root script (scripts/build-workspace-packages.ts derives the order).
 RUN bun install --frozen-lockfile --ignore-scripts \
   && (cd web && bun install --frozen-lockfile --ignore-scripts)
-RUN bun run --cwd packages/@ezcorp/sdk build \
-  && bun run --cwd packages/@ezcorp/harness-client build \
-  && bun run --cwd packages/@ezcorp/factory-sdk build \
-  && bun run --cwd packages/@ezcorp/factory-transport build \
-  && bun run --cwd packages/@ezcorp/factory-orchestrator build
+RUN bun run build:packages
 RUN cd web && bun run build
 # Nothing in the runtime needs the test trees or the coverage tooling.
 RUN rm -rf web/.svelte-kit/output/client/_app/immutable/*.map coverage .git

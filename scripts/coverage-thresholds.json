@@ -11,6 +11,7 @@
   "web/src/lib/server/extensions/installation-name.ts": 100,
   "scripts/git-worktree-clean.ts": 100,
   "scripts/check-factory-lanes.ts": 100,
+  "scripts/build-workspace-packages.ts": 100,
   "scripts/check-schema-generate-drift.ts": 100,
   "scripts/lib/ci-registration.ts": 100,
   "scripts/lib/container-engine.ts": 100,

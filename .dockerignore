@@ -94,3 +94,9 @@ TESTENV
 !packages/@ezcorp/ai-kit/**/*.spec.ts
 !packages/@ezcorp/ai-kit/**/__tests__
 !packages/@ezcorp/ai-kit/**/__tests__/**
+
+# Workspace build outputs are never part of a context: every image builds them
+# (bun run build:packages), so a local dist/ or stale tsc build info cannot hide
+# a missing build step.
+packages/@ezcorp/*/dist
+packages/@ezcorp/*/*.tsbuildinfo

@@ -5552,3 +5552,14 @@ Standing user items (decisions only the user makes):
 - [ ] PostgreSQL password rotation.
 - [ ] Host-side protection (`OOMScoreAdjust`) and the store load rerun (W15d items above).
 - [x] W03f option A or hold: W03f landed (merge `ee9117e0a`); the decision is no longer open.
+
+## W4G-1 — container files put every frozen-install input on disk (branch `wp/w4g-1`; gates `tasks/factory/w4g-1-GATES.md`)
+
+- [x] Red with podman at 842ad9fe1: builder, full, dev and test images fail at the root frozen install (hosted message).
+- [x] Fix: the three missing workspace manifests and web/patches copied before every frozen install (94d23c2a7).
+- [x] Guard test scripts/container-workspace-registration.test.ts derives the inputs from bun.lock and package.json; red at 842ad9fe1.
+- [x] Green: full, dev and test images built to the end with digests; dev provenance check; boot health 200; podman leg 4/4 suites.
+
+Review: the wave added three workspaces and a web patch file, and no container file followed. The guard now reads the lock and the
+manifest, so the next added workspace or patch fails a fast unit test, not a hosted image job. Receipts:
+/tmp/factory-platform-evidence/w4g-1/report.txt.

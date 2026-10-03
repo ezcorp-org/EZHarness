@@ -65,6 +65,9 @@ COPY --chown=1000:1000 packages/@ezcorp/ai-kit/package.json packages/@ezcorp/ai-
 COPY --chown=1000:1000 packages/@ezcorp/harness-client/package.json packages/@ezcorp/harness-client/
 COPY --chown=1000:1000 packages/@ezcorp/extension-contract/package.json packages/@ezcorp/extension-contract/
 COPY --chown=1000:1000 packages/@ezcorp/extension-runner/package.json packages/@ezcorp/extension-runner/
+COPY --chown=1000:1000 packages/@ezcorp/factory-sdk/package.json packages/@ezcorp/factory-sdk/
+COPY --chown=1000:1000 packages/@ezcorp/factory-transport/package.json packages/@ezcorp/factory-transport/
+COPY --chown=1000:1000 packages/@ezcorp/factory-orchestrator/package.json packages/@ezcorp/factory-orchestrator/
 # `--ignore-scripts`: the @ezcorp/sdk package's `prepare` script (and the
 # root `postinstall`) compile the SDK to dist/ via tsc, but only the
 # package.json files have been COPY'd at this stage (the SDK source +
@@ -83,15 +86,16 @@ RUN --mount=type=cache,target=/home/bun/.bun/install/cache,uid=1000,gid=1000,sha
 
 # Install web dependencies (all, including dev)
 COPY --chown=1000:1000 web/package.json web/bun.lock web/
+# web/package.json's patchedDependencies: the frozen install fails without the patch files.
+COPY --chown=1000:1000 web/patches web/patches/
 RUN --mount=type=cache,target=/home/bun/.bun/install/cache,uid=1000,gid=1000,sharing=locked BUN_INSTALL_CACHE_DIR=/home/bun/.bun/install/cache sh -c 'cd web && bun install --frozen-lockfile --ignore-scripts'
 
 # Copy everything for initial setup (source is bind-mounted over this at runtime)
 COPY --chown=1000:1000 . .
 
-# The SDK build also builds its extension-contract project reference. Keep
-# standard import exports available to Vite on the first clean app start.
-RUN bun run --cwd packages/@ezcorp/sdk build --force \
- && bun run --cwd packages/@ezcorp/harness-client build --force
+# Build every workspace package (scripts/build-workspace-packages.ts derives the
+# order) so the standard import exports exist for Vite on the first clean app start.
+RUN bun run build:packages
 
 # The root runtime identity is intentional for isolated-runner socket access;
 # rootless Podman maps that identity to the invoking host user. The trusted-local
