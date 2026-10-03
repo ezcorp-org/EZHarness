@@ -32,13 +32,12 @@ function assertPersistedScope(
   return { current, receipt };
 }
 
-async function assertJournalIntent(
+function assertJournalState(
   current: SandboxBinding,
   receipt: SandboxOperation,
   scope: IncusDispatchScope,
   operation: SandboxProtocolOperation,
-  input: Record<string, unknown>,
-): Promise<void> {
+): void {
   if (operation !== "lifecycle.inspectOperation" &&
     (current.generation !== scope.generation || current.currentOperationId !== scope.operationId)) {
     throw new IncusDispatchAuthorizationError("SCOPE_INVALID");
@@ -49,6 +48,10 @@ async function assertJournalIntent(
   if (operation === "lifecycle.inspectOperation" && !["DISPATCHING", "PROVIDER_PENDING", "OUTCOME_UNKNOWN"].includes(receipt.state)) {
     throw new IncusDispatchAuthorizationError("SCOPE_INVALID");
   }
+}
+
+async function assertCleanupStopIntent(current: SandboxBinding, receipt: SandboxOperation,
+  operation: SandboxProtocolOperation, input: Record<string, unknown>): Promise<void> {
   if (current.tombstonedAt && (operation === "lifecycle.setPower" || operation === "lifecycle.inspectOperation" && receipt.kind === "STOP")) {
     const [recovery] = await getDb().select().from(sandboxCleanupRecoveries).where(eq(sandboxCleanupRecoveries.stopOperationId, receipt.id)).limit(1);
     const [failed] = recovery ? await getDb().select().from(sandboxOperations).where(eq(sandboxOperations.id, recovery.failedDestroyOperationId)).limit(1) : [];
@@ -56,38 +59,51 @@ async function assertJournalIntent(
       throw new IncusDispatchAuthorizationError("SCOPE_INVALID");
     }
   }
+}
+
+async function assertOperationReadback(current: SandboxBinding, receipt: SandboxOperation,
+  input: Record<string, unknown>): Promise<void> {
+  if (input.operationId !== receipt.providerOperationId) {
+    throw new IncusDispatchAuthorizationError("SCOPE_INVALID");
+  }
+  const [cleanup] = receipt.kind === "CREATE" && current.currentOperationId !== receipt.id
+    ? await getDb().select().from(sandboxOperations).where(eq(sandboxOperations.id, current.currentOperationId ?? "")).limit(1)
+    : [];
+  const queuedCleanup = permitsCreateReadbackDuringQueuedCleanup(current, receipt, cleanup);
+  if (receipt.kind === "CREATE" && (current.currentOperationId !== receipt.id && !queuedCleanup
+    || current.generation !== receipt.generation || Object.hasOwn(input, "requestId")
+    || Object.hasOwn(input, "idempotencyKey"))) {
+    throw new IncusDispatchAuthorizationError("SCOPE_INVALID");
+  }
+}
+
+function assertMutationIntent(current: SandboxBinding, receipt: SandboxOperation, scope: IncusDispatchScope,
+  operation: SandboxProtocolOperation, input: Record<string, unknown>): void {
   const expectedKind = operation === "lifecycle.create" ? "CREATE"
     : operation === "lifecycle.destroy" ? "DESTROY"
       : operation === "lifecycle.setPower" ? input.desiredState === "running" ? "START" : "STOP"
         : receipt.kind;
-  if (operation === "lifecycle.inspectOperation") {
-    if (input.operationId !== receipt.providerOperationId) {
-      throw new IncusDispatchAuthorizationError("SCOPE_INVALID");
-    }
-    const [cleanup] = receipt.kind === "CREATE" && current.currentOperationId !== receipt.id
-      ? await getDb().select().from(sandboxOperations).where(eq(sandboxOperations.id, current.currentOperationId ?? "")).limit(1)
-      : [];
-    const queuedCleanup = permitsCreateReadbackDuringQueuedCleanup(current, receipt, cleanup);
-    if (receipt.kind === "CREATE" && (current.currentOperationId !== receipt.id && !queuedCleanup
-      || current.generation !== receipt.generation || Object.hasOwn(input, "requestId")
-      || Object.hasOwn(input, "idempotencyKey"))) {
-      throw new IncusDispatchAuthorizationError("SCOPE_INVALID");
-    }
-  } else {
-    if (receipt.kind !== expectedKind || input.requestId !== scope.operationId
-      || input.idempotencyKey !== scope.operationId) {
-      throw new IncusDispatchAuthorizationError("SCOPE_INVALID");
-    }
-    if (operation === "lifecycle.create") {
-      for (const field of ["profile", "presetId", "presetDigest", "effectiveSettingsDigest"] as const) {
-        if (input[field] !== receipt.requestPayload[field] || input[field] !== current[field]) {
-          throw new IncusDispatchAuthorizationError("SCOPE_INVALID");
-        }
-      }
-    } else if (input.expectedGeneration !== receipt.requestPayload.expectedGeneration) {
-      throw new IncusDispatchAuthorizationError("SCOPE_INVALID");
-    }
+  if (receipt.kind !== expectedKind || input.requestId !== scope.operationId
+    || input.idempotencyKey !== scope.operationId) {
+    throw new IncusDispatchAuthorizationError("SCOPE_INVALID");
   }
+  if (operation === "lifecycle.create") {
+    for (const field of ["profile", "presetId", "presetDigest", "effectiveSettingsDigest"] as const) {
+      if (input[field] !== receipt.requestPayload[field] || input[field] !== current[field]) {
+        throw new IncusDispatchAuthorizationError("SCOPE_INVALID");
+      }
+    }
+  } else if (input.expectedGeneration !== receipt.requestPayload.expectedGeneration) {
+    throw new IncusDispatchAuthorizationError("SCOPE_INVALID");
+  }
+}
+
+async function assertJournalIntent(current: SandboxBinding, receipt: SandboxOperation, scope: IncusDispatchScope,
+  operation: SandboxProtocolOperation, input: Record<string, unknown>): Promise<void> {
+  assertJournalState(current, receipt, scope, operation);
+  await assertCleanupStopIntent(current, receipt, operation, input);
+  if (operation === "lifecycle.inspectOperation") await assertOperationReadback(current, receipt, input);
+  else assertMutationIntent(current, receipt, scope, operation, input);
 }
 
 /** Host-only method caller. A provider worker cannot supply this authority. */
