@@ -1,0 +1,22 @@
+GATE-CHANGE DECISION (coordinator, 2026-09-29 03:5xZ) — W02d merge: the refreshed attestation entry
+
+Scope: exactly ONE gate-integrity finding on the base leg of the W02d merge into integ/w00:
+  coverage gate tool changed (M): scripts/coverage-attestations.json
+Nothing else is approved by this file. Any other finding on the base leg is red.
+
+What the change is: W02d REFRESHES the single attestation entry (W02d rewrites task-stops.ts after W03f re-added it) for src/factory/task-stops.ts (the `return factoryJournalStopSettlement(...)`
+line that Bun 1.3.14 executes but does not credit). W03g emptied the file to [] in 1c7c00c76 because origin/main has no task-stops.ts
+and the stale check fires on the whole file; W03f, which owns that line, re-adds the entry at its merged head with a fresh re-probe
+(fileSha256 of the merged file, the line's number and exact text, the proof paths, bunVersion 1.3.14, reason).
+
+Authority: the user's decision of 2026-09-28T06:45Z (recorded in w00/user-decisions-2026-09-28T0645Z.txt) approved W03g at
+dca1308c6 with its one-commit approval; that approved json CONTAINED this very attestation. The entry's substance (one attestation
+for that line) is unchanged; only its hash, line number and proof moved with the merges. No new gate tool changes, no threshold, no
+exclusion, no skip.
+
+Conditions for the approved run: (1) the json at the merge head parses and holds exactly one entry, for src/factory/task-stops.ts;
+(2) the entry's fileSha256 equals the merged file's sha256, its text equals the line at the recorded number, bunVersion equals
+.bun-version; (3) validator-5's hold shows the red/green pair against origin/main (uncovered line with [], attested with the entry)
+and the fresh lcov with DA 0 on the line; (4) the receipts cite this file by sha256. GATE_CHANGE_APPROVED=1 is used only in the
+approved run of the base leg in merge-commit-gates.sh, never in a commit's environment.
+This is W02d's copy; W12e (the Bun pin) gets its own.

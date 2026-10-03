@@ -16,7 +16,7 @@ const fixtureImportMeta = { dir: import.meta.dir, dirname: import.meta.dir, url:
  */
 import { test, expect, describe, beforeEach, afterEach, afterAll, mock } from "bun:test";
 import { join } from "path";
-import { mkdirSync, rmSync } from "fs";
+import { rmSync } from "fs";
 import { tmpdir } from "os";
 
 // ── DB stubs ────────────────────────────────────────────────────
@@ -47,7 +47,7 @@ mock.module("../../../../src/db/queries/extensions", () => ({
 
 // Import AFTER mock.module so the subprocess module resolves to our stub.
 import { ExtensionProcess } from "../../../../src/extensions/subprocess";
-import { buildHarnessEnv, wireFsHandler } from "@ezcorp/sdk/test";
+import { buildHarnessEnv, wireFsHandler, markGitRepository } from "@ezcorp/sdk/test";
 
 const TASK_STACK_ENTRYPOINT = join(fixtureImportMeta.dir, "index.ts");
 const TEST_TMP_ROOT = join(tmpdir(), `task-stack-e2e-pipeline-${Date.now()}`);
@@ -80,7 +80,7 @@ describe("E2E: task-stack real ExtensionProcess (server pipeline)", () => {
     // the extension writes into OUR tmp area, not the repo. The subprocess
     // inherits the parent's cwd (Bun.spawn does not override it).
     cwd = join(TEST_TMP_ROOT, `root-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`);
-    mkdirSync(join(cwd, ".git"), { recursive: true });
+    markGitRepository(cwd);
     originalCwd = process.cwd();
     process.chdir(cwd);
 

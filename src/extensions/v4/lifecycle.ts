@@ -3,6 +3,8 @@ import { assertJson, ContractError, validateManifest, validateWire, type Workspa
 import { RunnerError } from "@ezcorp/extension-runner";
 import { extensionLogger } from "../../logger";
 import { digestObject, getFiles, putFiles, validatePath } from "./blobs";
+import { ApprovalContextError, assertApprovalUsable, canonicalApprovalContext, consumeApproval } from "./approval-context";
+import { idempotencyInputDigest, isBoundedIdempotencyKey } from "../../idempotency";
 import { LifecycleError, type InstallationRecord, type InstallationState, type LifecycleActor, type LifecycleApproval, type LifecycleDependencies, type LifecycleOperation, type LifecycleRelease, type WorkspaceRecord } from "./types";
 
 const log = extensionLogger("lifecycle", "operations");
@@ -80,8 +82,8 @@ export class ExtensionLifecycle {
   }
 
   private newOperation(kind: LifecycleOperation["kind"], key: string, input: unknown): LifecycleOperation {
-    if (!key || key.length > 200 || [...key].some((character) => character.charCodeAt(0) < 32)) throw new LifecycleError("invalid_idempotency_key", "Provide a bounded idempotency key.");
-    const operation: LifecycleOperation = { id: randomUUID(), kind, state: "queued", idempotencyKey: key, inputDigest: digestObject(input), diagnostics: [], events: [], createdAt: this.timestamp(), updatedAt: this.timestamp() };
+    if (!isBoundedIdempotencyKey(key)) throw new LifecycleError("invalid_idempotency_key", "Provide a bounded idempotency key.");
+    const operation: LifecycleOperation = { id: randomUUID(), kind, state: "queued", idempotencyKey: key, inputDigest: idempotencyInputDigest(input), diagnostics: [], events: [], createdAt: this.timestamp(), updatedAt: this.timestamp() };
     this.transition(operation, kind === "build" ? "queued" : "awaiting_approval");
     return operation;
   }
@@ -311,12 +313,12 @@ export class ExtensionLifecycle {
     } catch {
       throw new LifecycleError("invalid_grants", "Grants must be a bounded capability list.");
     }
-    const grants = [...new Set(input.grants)].sort();
-    await this.dependencies.authorize(actor, "activate", release, grants);
+    const grants = canonicalApprovalContext({ subjectId: release.id, subjectDigest: release.releaseDigest, principalId: snapshot.installation.ownerId, scope: snapshot.installation.scope, grants: input.grants, expectedGeneration: snapshot.installation.generation }).grants;
+    await this.dependencies.authorize(actor, "activate", release, [...grants]);
     return this.transaction(actor, input.installationId, (state) => {
       if (state.installation.uninstalled) throw new LifecycleError("uninstalled", "This installation has been uninstalled.");
       if (state.installation.activeReleaseId !== input.expectedActiveReleaseId) throw new LifecycleError("stale_approval", "The active release changed.");
-      const approval: LifecycleApproval = { id: randomUUID(), installationId: input.installationId, releaseId: release.id, releaseDigest: release.releaseDigest, principalId: state.installation.ownerId, scope: state.installation.scope, grants, runnerProfile: release.runnerProfile, expectedActiveReleaseId: input.expectedActiveReleaseId, expectedGeneration: state.installation.generation, status: "pending", createdAt: this.timestamp() };
+      const approval: LifecycleApproval = { id: randomUUID(), installationId: input.installationId, releaseId: release.id, releaseDigest: release.releaseDigest, principalId: state.installation.ownerId, scope: state.installation.scope, grants: [...grants], runnerProfile: release.runnerProfile, expectedActiveReleaseId: input.expectedActiveReleaseId, expectedGeneration: state.installation.generation, status: "pending", createdAt: this.timestamp() };
       state.approvals[approval.id] = approval;
       return approval;
     });
@@ -330,7 +332,13 @@ export class ExtensionLifecycle {
 
   private checkApproval(state: InstallationState, approval: LifecycleApproval, requireApproved: boolean): LifecycleRelease {
     const release = this.release(state, approval.releaseId);
-    if ((requireApproved && approval.status !== "approved") || approval.principalId !== state.installation.ownerId || approval.scope !== state.installation.scope || approval.releaseDigest !== release.releaseDigest || release.policyDigest !== this.policyDigest() || approval.runnerProfile !== this.dependencies.runnerProfile || release.evidence.validatorVersion !== this.dependencies.validatorVersion || approval.expectedActiveReleaseId !== state.installation.activeReleaseId || approval.expectedGeneration !== state.installation.generation || state.installation.uninstalled) throw new LifecycleError("stale_approval", "Approval is missing, revoked, or no longer matches this activation.");
+    try {
+      assertApprovalUsable(approval.status, { subjectId: release.id, subjectDigest: approval.releaseDigest, principalId: approval.principalId, scope: approval.scope, grants: approval.grants, expectedGeneration: approval.expectedGeneration }, { subjectDigest: release.releaseDigest, principalId: state.installation.ownerId, scope: state.installation.scope, expectedGeneration: state.installation.generation }, this.now(), requireApproved);
+    } catch (error) {
+      if (error instanceof ApprovalContextError) throw new LifecycleError("stale_approval", "Approval is missing, revoked, or no longer matches this activation.");
+      throw error;
+    }
+    if (release.policyDigest !== this.policyDigest() || approval.runnerProfile !== this.dependencies.runnerProfile || release.evidence.validatorVersion !== this.dependencies.validatorVersion || approval.expectedActiveReleaseId !== state.installation.activeReleaseId || state.installation.uninstalled) throw new LifecycleError("stale_approval", "Approval is missing, revoked, or no longer matches this activation.");
     return release;
   }
 
@@ -346,8 +354,8 @@ export class ExtensionLifecycle {
     if (decision && this.dependencies.trustedLocal && options.acknowledgeUnsandboxed !== true) throw new LifecycleError("unsandboxed_acknowledgement_required", "This host runs extensions WITHOUT a sandbox. Acknowledge that for this exact release to approve it.");
     const approval = await this.transaction(actor, installationId, (state) => {
       const approval = this.approval(state, approvalId);
-      this.checkApproval(state, approval, false);
       if (approval.status !== "pending") throw new LifecycleError("approval_decided", "This approval already has a decision.");
+      this.checkApproval(state, approval, false);
       approval.status = decision ? "approved" : "rejected";
       approval.approvedBy = actor.principalId;
       return approval;
@@ -394,7 +402,7 @@ export class ExtensionLifecycle {
         this.assertLease(current, holder, fence);
         const exactApproval = this.approval(state, input.approvalId);
         this.checkApproval(state, exactApproval, true);
-        exactApproval.status = "consumed";
+        exactApproval.status = consumeApproval(exactApproval.status);
         state.installation.activeReleaseId = release.id;
         state.installation.generation += 1;
         state.installation.enabled = true;

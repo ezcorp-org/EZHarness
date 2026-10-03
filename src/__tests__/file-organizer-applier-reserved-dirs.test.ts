@@ -29,13 +29,21 @@ import {
   type ApplierProposal,
 } from "../extensions/file-organizer-applier";
 import type { PermissionEngine } from "../extensions/permission-engine";
+import { __resetProjectRootCacheForTests } from "../extensions/project-root";
 
 // Pin the project root BEFORE anything can call (and cache) it. The env
 // override is validated — the dir must exist and carry the bundled
 // example tree — so mint both synchronously at module load.
 const projectRoot = realpathSync(mkdtempSync(join(tmpdir(), "fo-reserved-")));
 mkdirSync(join(projectRoot, "docs", "extensions", "examples"), { recursive: true });
+const previousProjectRoot = process.env.EZCORP_PROJECT_ROOT;
 process.env.EZCORP_PROJECT_ROOT = projectRoot;
+// getProjectRoot() caches its answer for the process, and an earlier file in the
+// same process (any that reaches getProjectRoot()) has usually filled that cache
+// with the real repository root, so the pin above would be ignored (W4G-14: three
+// failures in the 103-file focused leg). Clear it now, and put both back in afterAll
+// so this file's pin does not reach the files after it.
+__resetProjectRootCacheForTests();
 
 const dataDirRoot = join(projectRoot, ".ezcorp", "extension-data", "file-organizer");
 const watched = join(projectRoot, "Downloads");
@@ -63,6 +71,9 @@ beforeAll(async () => {
   await mkdir(join(projectRoot, ".ezcorp", "backups"), { recursive: true });
 });
 afterAll(async () => {
+  if (previousProjectRoot === undefined) delete process.env.EZCORP_PROJECT_ROOT;
+  else process.env.EZCORP_PROJECT_ROOT = previousProjectRoot;
+  __resetProjectRootCacheForTests();
   await rm(projectRoot, { recursive: true, force: true });
 });
 

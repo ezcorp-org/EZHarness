@@ -1,0 +1,19 @@
+start 2026-10-01T07:42:08Z head baeade9767e431720be300c1953e6e2e9758cdfa
+patch bases origin/main,c1377122b, quality base origin/main; integ/w00 merge base with origin/main 96e7ee58c4bf35c680d64cd6afeebe53e66382e1
+resource-gate 2026-10-01T07:42:08Z combined disk=231G memAvailable=16GiB swapFreeKiB=2996080/17173956
+plan: /tmp/factory-platform-evidence/w00/wave4f/plan.txt (1285 lines, sha256 c5baeb965cee3d83)
+autoExtra (own legs, one bun process per file): 313 files
+autoExtraChunks: 8
+autoExtraExcludedNodeRunner (node --test packages, covered by the node-coverage leg): ["./packages/@ezcorp/factory-orchestrator/test/file-key-wraps.test.ts", "./packages/@ezcorp/factory-orchestrator/test/gateway-activities.test.ts", "./packages/@ezcorp/factory-orchestrator/test/process-launcher.test.ts", "./packages/@ezcorp/factory-orchestrator/test/process.test.ts", "./packages/@ezcorp/factory-orchestrator/test/validation.test.ts"]
+pgSteps (own postgres-<name> legs): ["./tests/postgres/pool-one.test.ts", "./tests/postgres/bun-sql-pool-replacement.test.ts", "./tests/postgres/bun-sql-request-queue.test.ts", "./tests/postgres/factory-assurance.test.ts"]
+guards (join focused): ["./scripts/factory-attempt-queue-registration.test.ts", "./scripts/factory-c13-inventory.test.ts", "./scripts/factory-compute-admissions-registration.test.ts", "./scripts/factory-execution-admission-registration.test.ts", "./scripts/factory-orchestrator-registration.test.ts", "./scripts/factory-postgres-suite-registration.test.ts", "./scripts/factory-protected-command-effects-registration.test.ts", "./scripts/factory-provisioning-registration.test.ts", "./scripts/factory-task-execution-admission-registration.test.ts", "./scripts/factory-validator-materials-registration.test.ts", "./scripts/python-quality-registration.test.ts", "./src/__tests__/ci-test-set-drift.test.ts"]
+pgStepEnv (CI env per step-level suite): {"./tests/postgres/pool-one.test.ts": {"DB_POOL_MAX": "1"}, "./tests/postgres/bun-sql-pool-replacement.test.ts": {}, "./tests/postgres/bun-sql-request-queue.test.ts": {}, "./tests/postgres/factory-assurance.test.ts": {}}
+manifest eb9f51fd1f17a757 at baeade9767e431720be300c1953e6e2e9758cdfa
+focused-extra from manifest: ./src/factory/temporal-retention.test.ts,./src/__tests__/preview-token.test.ts,./scripts/check-factory-runners.test.ts,./packages/@ezcorp/harness-client/src/index.test.ts,./src/factory/runner/native.integration.test.ts,./src/factory/runner/provider-one-hop.test.ts,./src/providers/factory-broker.test.ts
+web suites: src/__tests__/mock-llm-store.test.ts 
+producers: cov-shard cov-extras web-security-coverage factory-temporal factory-reference-data 
+combined exit=1 end 2026-10-01T09:05:39Z
+mergeBlockedBy: [] | redLegsNotBlockingMerge: ["gate-integrity"]
+after-runner exit=0 end 2026-10-01T09:48:04Z (legs in /tmp/factory-platform-evidence/w00/wave4f/after/heavy-batch.log)
+final-merge-gates exit=1 end 2026-10-01T09:48:26Z (AUTHORITATIVE gates: /tmp/factory-platform-evidence/w00/wave4f/final/gates.txt; runner coverage-results INTERIM)
+dirty=0

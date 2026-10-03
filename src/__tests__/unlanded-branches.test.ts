@@ -23,7 +23,7 @@
  * so this file needs no coverage-thresholds key — same as
  * src/__tests__/e2e-lanes.test.ts for scripts/e2e-lane-args.ts.
  */
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 // Synchronous fixture setup runs at module top level, so the file writes must
 // be synchronous too — `Bun.write` returns a promise and `git add` would race it.
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -46,6 +46,7 @@ import {
   render,
   scan,
 } from "../../scripts/unlanded-branches.ts";
+import { scratchGitEnv } from "./helpers/scratch-git";
 
 // ── fake git ────────────────────────────────────────────────────────────
 
@@ -379,19 +380,20 @@ describe("degenerate-tip guard", () => {
 const REPO = mkdtempSync(join(tmpdir(), "unlanded-branches-"));
 afterAll(() => rmSync(REPO, { recursive: true, force: true }));
 
+// Isolated from the caller's own git context (a hook that exports `GIT_DIR`
+// and friends would otherwise make every command below act on the hook's
+// real repository instead of REPO). `REPO_GIT_ENV` is reused by the two raw
+// `Bun.spawnSync` probes further down, so the whole file shares one env.
+const REPO_GIT_ENV = {
+  ...scratchGitEnv(join(REPO, ".git-scratch-home")),
+  GIT_AUTHOR_NAME: "t",
+  GIT_AUTHOR_EMAIL: "t@example.invalid",
+  GIT_COMMITTER_NAME: "t",
+  GIT_COMMITTER_EMAIL: "t@example.invalid",
+};
+
 function git(...args: string[]): string {
-  const p = Bun.spawnSync(["git", ...args], {
-    cwd: REPO,
-    env: {
-      ...process.env,
-      GIT_AUTHOR_NAME: "t",
-      GIT_AUTHOR_EMAIL: "t@example.invalid",
-      GIT_COMMITTER_NAME: "t",
-      GIT_COMMITTER_EMAIL: "t@example.invalid",
-      GIT_CONFIG_GLOBAL: "/dev/null",
-      GIT_CONFIG_SYSTEM: "/dev/null",
-    },
-  });
+  const p = Bun.spawnSync(["git", ...args], { cwd: REPO, env: REPO_GIT_ENV });
   if (p.exitCode !== 0) {
     throw new Error(`git ${args.join(" ")} failed:\n${p.stderr.toString()}${p.stdout.toString()}`);
   }
@@ -445,12 +447,12 @@ describe("real git — squash-immunity and the known-good split", () => {
     expect(git("rev-parse", `${MAIN}^{tree}`)).toBe(git("rev-parse", `${INTEGRATION}^{tree}`));
     // …and yet it is not an ancestor — the exact reason ancestry lied.
     expect(
-      Bun.spawnSync(["git", "merge-base", "--is-ancestor", "feat/f1", "main"], { cwd: REPO }).exitCode,
+      Bun.spawnSync(["git", "merge-base", "--is-ancestor", "feat/f1", "main"], { cwd: REPO, env: REPO_GIT_ENV }).exitCode,
     ).not.toBe(0);
   });
 
   test("the failure being guarded: against the SQUASHED trunk, a landed branch still flags", () => {
-    const p = Bun.spawnSync(["git", "cherry", "main", "feat/f1"], { cwd: REPO });
+    const p = Bun.spawnSync(["git", "cherry", "main", "feat/f1"], { cwd: REPO, env: REPO_GIT_ENV });
     const { unlanded } = parseCherry(p.stdout.toString());
     // feat/f1 IS in main's tree, yet every one of its commits reads unlanded.
     expect(unlanded.length).toBeGreaterThan(0);
@@ -512,5 +514,68 @@ describe("real git — squash-immunity and the known-good split", () => {
     expect(r.exitCode).toBe(EXIT_UNUSABLE);
     expect(r.stderr).toContain("unknown flag");
     expect(r.stderr).toContain("usage: bun run branches:unlanded");
+  });
+});
+
+// ── realGit – poisoned-env guard-with-control (item C, W18 hygiene GC5) ──
+//
+// realGit()'s internal `run()` used to spawn `Bun.spawnSync(["git",
+// ...args], { cwd })` with NO `env` key at all — Bun's default "inherit"
+// behavior for an omitted `env` reads the process's OWN environ block as it
+// was at startup, not a live view of `process.env` (confirmed: mutating
+// `process.env.GIT_DIR` in-process after startup does NOT reach a child
+// spawned with `env` omitted — only an explicit `{...process.env}` spread
+// re-reads it). So the real threat — a git hook that already set GIT_DIR
+// before this CLI's own bun process started — has to be simulated as a
+// REAL child process launched with a poisoned environment from the start,
+// not by mutating this test's own `process.env`. This mirrors the existing
+// convention in `dev-image-provenance.test.ts` / `podman-compose-wrapper.test.ts`.
+//
+// The control: FOREIGN_REPO is a real, different repository where
+// INTEGRATION's SHA does not even exist — so an unguarded realGit() would
+// report "does not resolve" instead of the real verdict, and this test
+// would fail without the fix.
+describe("unlanded-branches CLI — ambient GIT_DIR poisoning is neutralized", () => {
+  const scriptPath = join(import.meta.dir, "..", "..", "scripts", "unlanded-branches.ts");
+  let foreignRepo: string;
+  let foreignGitDir: string;
+
+  beforeAll(() => {
+    foreignRepo = mkdtempSync(join(tmpdir(), "unlanded-branches-foreign-"));
+    const env = { ...scratchGitEnv(join(foreignRepo, ".git-scratch-home")), GIT_AUTHOR_NAME: "f", GIT_AUTHOR_EMAIL: "f@example.invalid", GIT_COMMITTER_NAME: "f", GIT_COMMITTER_EMAIL: "f@example.invalid" };
+    const git = (...args: string[]) => Bun.spawnSync(["git", ...args], { cwd: foreignRepo, env });
+    git("init", "-q", "-b", "main");
+    writeFileSync(join(foreignRepo, "unrelated.txt"), "nothing to do with REPO\n");
+    git("add", "-A");
+    git("commit", "--no-verify", "-q", "-m", "unrelated foreign commit");
+    foreignGitDir = join(foreignRepo, ".git");
+  });
+
+  afterAll(() => {
+    rmSync(foreignRepo, { recursive: true, force: true });
+  });
+
+  test("the CLI, run in REPO, ignores a GIT_DIR poisoned from process startup toward a foreign repo", () => {
+    const proc = Bun.spawnSync(
+      [process.execPath, scriptPath, INTEGRATION, "--pattern=feat/*"],
+      {
+        cwd: REPO,
+        env: {
+          ...process.env,
+          GIT_DIR: foreignGitDir,
+          GIT_WORK_TREE: foreignRepo,
+          GIT_INDEX_FILE: join(foreignGitDir, "index"),
+        },
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    );
+    const stdout = proc.stdout.toString();
+    const stderr = proc.stderr.toString();
+    expect(stderr).not.toContain("does not resolve");
+    expect(proc.exitCode).toBe(EXIT_UNLANDED);
+    expect(stderr).toContain("examined=4 branch(es)");
+    expect(stderr).toContain("flagged=1");
+    expect(stdout).toContain("feat/dropped — 1 unlanded commit(s)");
   });
 });

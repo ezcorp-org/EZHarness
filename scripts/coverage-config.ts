@@ -109,6 +109,13 @@ export const EXCLUDES: readonly string[] = [
 export const SOURCE_GLOBS: readonly string[] = [
   "src/**/*.ts",
   "scripts/git-worktree-clean.ts",
+  "scripts/check-factory-boundaries.ts",
+  "scripts/check-factory-lanes.ts",
+  "scripts/build-workspace-packages.ts",
+  "scripts/check-factory-runners.ts",
+  "scripts/check-required-checks.ts",
+  "scripts/check-schema-generate-drift.ts",
+  "scripts/lib/ci-registration.ts",
   "web/src/**/*.ts",
   "web/src/**/*.svelte",
   "packages/@ezcorp/sdk/src/**/*.ts",
@@ -116,6 +123,9 @@ export const SOURCE_GLOBS: readonly string[] = [
   "packages/@ezcorp/harness-client/src/**/*.ts",
   "packages/@ezcorp/extension-contract/src/**/*.ts",
   "packages/@ezcorp/extension-runner/src/**/*.ts",
+  "packages/@ezcorp/factory-sdk/src/**/*.ts",
+  "packages/@ezcorp/factory-orchestrator/src/**/*.ts",
+  "packages/@ezcorp/factory-transport/src/**/*.ts",
   "docs/extensions/examples/**/*.ts",
   // First-party BUNDLED extensions (registered in src/extensions/bundled.ts).
   // They ship in the product exactly like `src/**` does — the reference
@@ -126,6 +136,18 @@ export const SOURCE_GLOBS: readonly string[] = [
   // The Worker is a shipped execution target. Its source must receive the
   // same changed/new-file coverage checks as the host runtime.
   "worker/src/**/*.ts",
+  // The LOCKED Python distribution (`.python-version` + uv.lock). Scoped to
+  // that project, not `**/*.py`: the two Python files outside it
+  // (packages/@ezcorp/extension-runner/src/peer-gateway.py and
+  // scripts/fixtures/factory-local-gpu.py) belong to no locked project, have
+  // no runnable coverage producer, and are recorded as W18 backlog rather
+  // than pulled into a gate that nothing can satisfy.
+  "src/factory/runner/python/**/*.py",
+  // The image pack's locked Python distribution, on the same terms as the
+  // runner's. Both are real projects with their own pyproject.toml and uv.lock,
+  // and scripts/python-quality.sh measures both, so leaving this one out would
+  // ship a gate that nothing enforces for half the Python in the repository.
+  "src/factory/reference-image/python/**/*.py",
 ];
 
 // Test/spec/type files are never "product code" for the new-file gate.
@@ -134,6 +156,10 @@ const NON_SOURCE_GLOBS: readonly string[] = [
   "**/*.spec.ts",
   "**/__tests__/**",
   "**/*.d.ts",
+  // Python's standard test runner discovers `test_*.py`; the package marker
+  // beside them is not product code either.
+  "**/test_*.py",
+  "**/tests/__init__.py",
 ];
 
 /**
@@ -148,6 +174,13 @@ const NON_SOURCE_GLOBS: readonly string[] = [
 /** Producer tags carried in LCOV `TN:` fields through every merge generation. */
 export const NODE_V8_COVERAGE_PRODUCER = "ezcorp-node-v8";
 export const BROWSER_V8_COVERAGE_PRODUCER = "ezcorp-browser-v8";
+/**
+ * `coverage.py` is the only instrumenter that can measure Python source. Bun
+ * never executes these files, so there is no second line map to sum with —
+ * the tag exists so a future Bun-side "equivalent" can never be merged in.
+ * scripts/python-quality.sh writes this exact string into each `TN:` record.
+ */
+export const PYTHON_COVERAGE_PRODUCER = "ezcorp-python-coverage";
 
 /**
  * These files have a canonical Node/V8 producer. Bun instruments their
@@ -159,6 +192,23 @@ export const BROWSER_V8_COVERAGE_PRODUCER = "ezcorp-browser-v8";
  * for missing LCOV data rather than borrowing an incompatible map.
  */
 export const V8_CANONICAL_SOURCES: readonly string[] = [
+  "src/factory/file-key-wraps.ts",
+  "packages/@ezcorp/factory-transport/src/index.ts",
+  "packages/@ezcorp/factory-orchestrator/src/contracts.ts",
+  "packages/@ezcorp/factory-orchestrator/src/definition-pages.ts",
+  "packages/@ezcorp/factory-orchestrator/src/dispatcher.ts",
+  "packages/@ezcorp/factory-orchestrator/src/gateway-activities.ts",
+  "packages/@ezcorp/factory-orchestrator/src/inbox.ts",
+  "packages/@ezcorp/factory-orchestrator/src/index.ts",
+  "packages/@ezcorp/factory-orchestrator/src/partition-plan.ts",
+  "packages/@ezcorp/factory-orchestrator/src/process.ts",
+  "packages/@ezcorp/factory-orchestrator/src/queue-client.ts",
+  "packages/@ezcorp/factory-orchestrator/src/transition-pages.ts",
+  "packages/@ezcorp/factory-orchestrator/src/validation.ts",
+  "packages/@ezcorp/factory-orchestrator/src/worker.ts",
+  "packages/@ezcorp/factory-orchestrator/src/workflow.ts",
+  "src/factory/orchestration-process.ts",
+  "src/factory/orchestration-readiness-writer.ts",
   "web/src/lib/mention-logic.ts",
   "web/src/lib/markdown.ts",
   "web/src/lib/chat-input-logic.ts",
@@ -221,7 +271,26 @@ export const V8_CANONICAL_SOURCES: readonly string[] = [
   "web/src/lib/components/SwipeDrawer.svelte",
   "web/src/lib/components/ez/EzPanel.svelte",
   "web/src/lib/components/tool-cards/ExtensionIframeCard.svelte",
+  // Direct Vitest utility suites own these browser-safe factory helpers.
+  "web/src/lib/factory/FactoryReleaseInbox.svelte",
+  "web/src/lib/factory/client.ts",
+  "web/src/lib/factory/download.ts",
+  "web/src/lib/factory/layout.ts",
+  "web/src/lib/factory/model.ts",
+  "web/src/lib/factory/run-format.ts",
+  "web/src/lib/factory/document-theme.ts",
+  "web/src/lib/factory/run-stream.ts",
+  "web/src/lib/factory/workspace-view.ts",
+  "web/src/lib/factory/preview.ts",
+  "web/src/lib/factory/FactoryWorkspace.svelte",
+  "web/src/lib/factory/FactoryRunInspector.svelte",
+  "web/src/lib/factory/FactoryArtifactPreview.svelte",
+  "web/src/lib/factory/FactoryAdministration.svelte",
+  "web/src/routes/(app)/factories/+page.server.ts",
 ];
+
+/** V8-canonical files measured specifically by the standard Web Vitest producer. */
+export const WEB_VITEST_CANONICAL_SOURCES: readonly string[] = V8_CANONICAL_SOURCES.filter((source) => source.startsWith("web/"));
 
 /**
  * These shared UI sources are owned by Chromium AST/source-map coverage.
@@ -230,6 +299,12 @@ export const V8_CANONICAL_SOURCES: readonly string[] = [
  * measure with the same map. Each has a trusted browser receipt at its floor.
  */
 export const BROWSER_CANONICAL_SOURCES: readonly string[] = [
+  // Native graph interactions and rendered console states own these maps.
+  "web/src/lib/factory/FactoryConsole.svelte",
+  "web/src/lib/factory/FactoryGraph.svelte",
+  "web/src/lib/factory/FactoryGraphBoundary.svelte",
+  "web/src/lib/factory/FactoryNode.svelte",
+  "web/src/routes/(app)/factories/+page.svelte",
   "web/src/lib/components/AgentSearchPicker.svelte",
   "web/src/lib/components/ChatInput.svelte",
   "web/src/lib/components/KnowledgeBaseTab.svelte",
@@ -295,6 +370,7 @@ export const BUN_CANONICAL_SOURCES: readonly string[] = Object.keys(BUN_CANONICA
  * source-of-truth lists; consumers use this helper so tag checks cannot drift.
  */
 export function canonicalCoverageProducer(source: string): string | undefined {
+  if (source.endsWith(".py")) return PYTHON_COVERAGE_PRODUCER;
   if (V8_CANONICAL_SOURCES.includes(source)) return NODE_V8_COVERAGE_PRODUCER;
   if (BROWSER_CANONICAL_SOURCES.includes(source)) return BROWSER_V8_COVERAGE_PRODUCER;
   return BUN_CANONICAL_PRODUCERS[source as keyof typeof BUN_CANONICAL_PRODUCERS];
@@ -323,6 +399,31 @@ const nonSourceGlobs = NON_SOURCE_GLOBS.map((p) => new Glob(escapeGlob(p)));
 /** True if a repo-relative path matches any EXCLUDES pattern. */
 export function isExcluded(relPath: string): boolean {
   return excludeGlobs.some((g) => g.match(relPath));
+}
+
+/** `packages/<pkg>/dist/**` and `packages/@scope/<pkg>/dist/**`. */
+const COMPILED_WORKSPACE_OUTPUT = /^packages\/(?:@[^/]+\/)?[^/]+\/dist\//;
+
+/**
+ * True if a repo-relative path is COMPILED workspace output rather than source.
+ *
+ * A workspace package ships both its TypeScript sources and the JavaScript
+ * `tsc` emits from them. Only Bun honours the `"bun"` export condition that
+ * points a workspace import at `src`; every Node-resolved producer — the
+ * Vitest leg, `node --test`, anything the built app itself loads — resolves
+ * the same import to `dist/*.js`. Its instrumenter then reports coverage for
+ * the BUILD ARTEFACT beside the source it was compiled from: the same code
+ * measured twice, the second time under a path no threshold key names and no
+ * test was ever written against.
+ *
+ * This is NOT an un-gating rule and belongs nowhere near one. `dist` is not
+ * source that goes unenforced; it is not source at all. The sources it was
+ * compiled from stay measured by their own producers, which is exactly what
+ * the `packages/@ezcorp/*` source globs above are gated on — so dropping the
+ * artefact can only ever REMOVE a duplicate, never hide a measured file.
+ */
+export function isCompiledWorkspaceOutput(relPath: string): boolean {
+  return COMPILED_WORKSPACE_OUTPUT.test(relPath.replaceAll("\\", "/"));
 }
 
 /**
@@ -391,6 +492,17 @@ export function isDeclarationOnlyTypeScript(source: string): boolean {
 }
 
 /**
+ * Sources measured by a runtime-native producer that is NOT part of the Bun
+ * coverage pool. The wildcard dropout signals below walk the repository, so
+ * without this they would demand a Bun lcov record for a Python file that Bun
+ * never loads. Their real gate is the `Factory runner contracts` lane, whose
+ * coverage.py LCOV the same merge consumes.
+ */
+export function isRuntimeNativeSource(relPath: string): boolean {
+  return relPath.endsWith(".py");
+}
+
+/**
  * A wildcard threshold with *some* lcov data can still hide an omitted
  * executable sibling. This is the per-file complement to
  * {@link wildcardTreeDropouts}: every non-catchall wildcard source that has a
@@ -413,6 +525,13 @@ export async function wildcardSourceFileDropouts(
       if (seen.has(file) || !isSourceFile(file) || isExcluded(file) || lcovSet.has(file)) continue;
       seen.add(file);
       if (file.endsWith(".ts") && isDeclarationOnlyTypeScript(await sourceForFile(file))) continue;
+      if (isRuntimeNativeSource(file)) {
+        out.push(
+          `${file}: runtime-native source has no lcov record — run its own producer ` +
+            `(bash scripts/python-quality.sh coverage) and merge its LCOV; a Bun leg cannot measure it.`,
+        );
+        continue;
+      }
       out.push(
         `${file}: wildcard threshold ${pat} has no lcov record for this executable source — ` +
           `a coverage producer omitted an individual file. Add the owning test/producer; do not hide it.`,

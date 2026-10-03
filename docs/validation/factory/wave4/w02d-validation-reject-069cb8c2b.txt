@@ -1,0 +1,116 @@
+VERDICT (validator-6) — W02d at 069cb8c2b (wp/w02d-gpu-lease), base e0e2a23c9: REJECT
+
+One blocking finding, F1: a standing guard is red at the head, and W02d's R8 caused it. The fix is one REQUIRED_SHARED_IMPORTS row.
+All other checks are green: the rules, the tombstone, D6, the pool confirmation, the authoritative run, coverage, the attestation and the base leg by the decision file.
+This verdict binds to 069cb8c2b only.
+
+FINDINGS (ranked)
+
+F1 HIGH, blocking: the C13 shared-module inventory guard is red at the head and green at the base.
+  - Test: scripts/factory-c13-inventory.test.ts, "every shared module the integrated factory modules import today is declared".
+    It fails with: src/factory/dispatch-refused-stops.ts imports C13 shared module src/extensions/v4/blobs.ts without a REQUIRED_SHARED_IMPORTS row.
+  - Cause: src/factory/dispatch-refused-stops.ts:5 `import { digestObject } from "../extensions/v4/blobs";`, added by R8 26951f125.
+  - Red at the head:
+        bun test --timeout 60000 ./scripts/factory-c13-inventory.test.ts   -> 12 pass 1 fail (hold-v6-069cb8c2b/logs/c13-at-head.log)
+    The same file at e0e2a23c9 gives 13 pass 0 fail (logs/c13-at-base.txt).
+    In the heavy guard set: 59 pass 1 fail (logs/guard-suites.log, sha256 b329757ec583…).
+  - Why it passed the owner's checks: the hook does not map this guard to dispatch-refused-stops.ts, and the owner's 31-suite coverage list does not include it.
+    check-factory-boundaries.ts itself exits 0; the inventory test is the stricter check.
+  - Fix: add the row for src/extensions/v4/blobs.ts, consumer dispatch-refused-stops.ts, in scripts/check-factory-boundaries.ts (common.md "Reuse (C13, F13)").
+    The current red is the red-first evidence.
+    Then run the inventory test green, check-factory-boundaries, and gate-integrity against e0e2a23c9. If gate-integrity flags the script change, the lead rules on it.
+
+F2 MEDIUM, documentation (brief G8: "the gates file lists every ownership crossing and freeze disclosure"):
+  tasks/factory/w02d-GATES.md at 069cb8c2b names none of these W02d-changed source files:
+  - packages/@ezcorp/factory-sdk/src/kernel.ts (R9, SDK);
+  - src/factory/runner/attempt-preflight.ts [W09] (R3);
+  - src/factory/startup-config.ts [W09] (R1);
+  - src/factory/task-execution-admission.ts [W03/W09d-2] (R8);
+  - src/factory/pool/client.ts [pool] (R2);
+  - src/factory/dispatch-composition.ts, private-service-composition.ts (R8 wiring);
+  - src/factory/records.ts, factory-identity.ts, task-stop-error.ts, the refactor 21c19b5ce that moved W03 and W00 code. stop-host-keys.ts is named only in the D6 prose, not as a crossing row.
+  Also, the gates doc discloses `device_unavailable` as an additive freeze-section-6 code (:72), but it does not disclose the new `worker_stopped` code in attempt-wire.ts the same way.
+  Method: for each non-test source file on the first-parent, non-merge W02d commits from e92d34d45 to 069cb8c2b, grep its basename in the gates doc; 0 means absent.
+  Fix: one crossing-table row per file, and one freeze line for worker_stopped. This is a docs commit; fold it into F1's re-hold.
+
+F3 LOW, receipt completeness: w02d/merge-e0e2a23c9/config-hash-after.txt is absent, although the lead's receipt list names it.
+  config-hash-before.txt reads 44962525f1ca1a8b. My hold recorded the same hash at the start and end of every phase at 069cb8c2b, so the invariant holds.
+
+Validator-side corrections (not package findings; disclosed):
+  - The first heavy run's patch-coverage red came from my producer set: it ran only the tests W02d changed.
+    The rerun added the owner's 31 suites; patch coverage PASSED (30 files), new-file PASSED (6).
+    Run-1 logs are kept in hold-v6-069cb8c2b/heavy-run1/.
+  - The first static run marked the attestation "not applied" because my check wanted "attested" against the base.
+    Against the base the line is "inactive (line not changed)" with no stale finding. The check is fixed and re-judged: PASS.
+
+RERUN RESULTS (validator-6, hold-v6-069cb8c2b/results.jsonl; Bun and bunx 1.3.14 from the tree; config hash 44962525f1ca1a8b at start and end)
+  Static, lock-free, 01:29–01:59Z:
+    identity 41 commits archy noreply; user merge 9c11cea96 = tree 6001bff6b, parents 250436fd4 + e0e2a23c9, message equal to the saved file.
+    typecheck 0; lint 0; check-factory-boundaries 0; check-boundaries 0; schema drift 0; gitleaks 0.
+    gate-integrity vs origin/main: set leg PASS (the 8 expected paths).
+    gate-integrity vs base: exactly the approved finding scripts/coverage-attestations.json; base-set PASS by w00/w02d-merge/gate-change-decision.txt (sha256 d906855bc5066b83…).
+    C05 process-boundaries 17/0.
+    54 red legs, 54 RED by assertion, 0 survived, 0 load or setup errors.
+  Heavy, under the lock (lock_veto validator-6 first; rerun 02:16–02:24Z):
+    unit coverage 24 files 495/0; SDK 246/0.
+    PostgreSQL: budgets 13/0, compute-admissions 2/0, pool-service 5/0, pool 31/0, run-lifecycle 92/0, schema 2/0, task-stop-dispatch-refused-migration 1/0, task-stops 52/0.
+    Podman: extension-runner 19/0, package-preparation 1/0.
+    guard set 12 files 59/1 (F1).
+    web build 0; graph-proof runbook mock pass: outcome passed, 11/11 checks.
+    merge-lcov 0; new-file PASSED (6); patch PASSED (30).
+
+RECEIPTS (step 2; hold-v6-069cb8c2b/receipts.list, 70 paths; receipts-review-069cb8c2b.txt)
+  Authoritative run w02d/head-069cb8c2b/:
+    RECEIPTS.sha256 24/24 OK; started 01:28:33Z at 069cb8c2b; verifier sha256 f6c0fe58ee286a6f…, its file predates the start; legs 12, failed 0.
+    P1 5/5 x4, P5 4/4 x4, P2 9/9 x4; pool_mismatch 0.
+    I read the 12 product dumps myself:
+      - every run 'failed' by name (RUNNER_DEVICE_UNAVAILABLE, RUNNER_LEASE_LOST, ADMISSION_DENIED);
+      - every hold settled at costMicros 0;
+      - P1 and P2 settle ["no-operations","0","no-operations: compute at reserved bound"] (computeMs at the reserved bound, as ruled);
+      - P5 settles "no-operations: nothing launched, all zero".
+  Coverage w02d/cov-069cb8c2b/: 31 receipts at 069cb8c2b, exit 0, nonzero counts; gates PASSED.
+  Merge w02d/merge-e0e2a23c9/: 15 receipts at 7f9b6e131 (proof/w02d-merge-e0e2a23c9-scratch), 525 pass 0 fail; hook lists equal. F3 applies here.
+  Attestation w02d/attest/logs/: stale red (task-stops.ts:373); a throw at the line fails 37/52 on PGlite and on PostgreSQL; stale-green.
+    The entry at the head: one entry, line 336, fileSha256 = task-stops.ts at the head, bunVersion 1.3.14.
+    My fresh lcov: DA 0 on 336 with the line above run. Against origin/main: attested with the entry, uncovered with [].
+
+PLAN CONFORMANCE (w02d-validation/conformance-skeleton.tsv; proving leg in hold-v6-069cb8c2b)
+  R1  startup-config.test.ts                                     rule_pair red
+  R2  client/process/ledger.integration                          mutants: grant-without-profile, profile-change-ignored, wire-drops-profile red
+  R3  attempt-preflight.test.ts                                  rule_pair red
+  R4  service/runtime/supervisor                                 mutants: service-422-off, supervisor-check-off red
+      refused-worker stop                                        mutant red
+  R5  remote-attempt-runtime.test.ts                             renew-off mutant red
+  R6  renew at claim                                             mutants: no-renewal-at-claim, expired-lease-launches red
+      lease-revoked named                                        rule_pair red
+      P2 x4 with the ruled basis
+  R7  task-stops and pool suites                                 mutants: reimage-wait-not-confirmed, any-uncertain-confirms red
+  R7b gpu-host-profiles and pool suite                           rule_pair red
+      P3 is not live (user decision (b)); the gap is stated at w02d-GATES.md:137
+  R8  migration, composition, stop suite                         mutants: no stop, never-admitted throws, CHECK worker clause, terminal worker takes refused rows, settlement off: all red
+      PostgreSQL migration 1/0
+  R9  kernel-run-controls, compute-admissions                    mutants: denied-attempt-not-stopped, rejected-hold-kept red
+      basis                                                      row-basis-wrong red (R9, R8 and W09h cases)
+      P5 x4
+  Tombstone (ruling A): launch refused; durable write before the signature; runtime-shown container and live worker never tombstoned;
+      forged, other-host and other-tenant refused; expiry; retention with grace; loaded at open; folder sync on create; compaction;
+      full window refused; runtime error not absence; reserve window; process-level restart. All red. File fsync is a measured probe (not unit-observable).
+  D6 (ruling a+c): retained keys; poison fails closed; compaction keeps live poison; expired is not poison; other host's key; the supervisor passes the retained keys. All red.
+      L1 poison-window bound red.
+  Pool confirmation (ruling, conditions a–e): unconfirmed, other holder, lower generation, other host, dispatch path unchecked: red; the later generation is accepted (P2).
+      (b), (c), (e) are in the gates doc; (d) in the owner's receipts.
+  Attestation (common.md): red first, re-probe, entry, gates. PASS as above.
+
+INTERFACE AND OWNERSHIP: device_unavailable and deviceProfile are additive and disclosed. worker_stopped is additive but not disclosed as a freeze code (F2). The crossings missing from the table are in F2.
+GATE INTEGRITY AND DRY: no weakening pattern in the tree review. One shared assertFactoryPoolConfirmsStop; one retained key loader (stop-host-keys.ts); one nothing-launched settlement helper. C13 row missing (F1).
+SECURITY: gitleaks clean. No credential in code or receipts that I read. C03 holds: the pool frees only on a confirmed, supervisor-signed word, and every refusal path is pinned by a red mutant. C05: the host closure suite is green.
+
+RE-HOLD SCOPE after the fix commit(s):
+  - static re-diff over 069cb8c2b;
+  - the C13 inventory test and the guard set;
+  - check-factory-boundaries;
+  - gate-integrity against e0e2a23c9 and origin/main (set legs);
+  - the docs diff for F2.
+  No product code changes are expected, so the authoritative run and the coverage stand if the diff is limited to scripts/check-factory-boundaries.ts and docs.
+
+Evidence: /tmp/factory-platform-evidence/w02d-validation/hold-v6-069cb8c2b/ (results.jsonl, logs/, heavy-run1/, receipts.list, receipts-scan.tsv), receipts-review-069cb8c2b.txt, conformance-skeleton.tsv, draft-findings.txt.

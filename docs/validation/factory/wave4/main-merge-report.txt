@@ -1,0 +1,505 @@
+================================================================================
+W00 INTEGRATION — merging origin/main into integ/w00
+================================================================================
+Branch:   integ/w00
+Worktree: /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration
+Toolchain: PATH=/tmp/factory-tools/bun-1.3.14/bun-linux-x64:$PATH
+           bun 1.3.14, node 24.14.1, python 3.13.12
+
+FINAL STATE
+  HEAD  f50b041c3fc70b9ed1f71ef80ab55d11004151fe   (integ/w00, tree clean)
+  integ/w00 now contains b43558b34, 0f949c307 and bd6fd9714.
+
+MERGE COMMITS, in order
+  53346001b3aeaea33e7024a92133c3cfb490b838  round 1  origin/main b43558b34
+  bf010dece1213705d85a7227846c7343f000d70e  round 3  origin/main 0f949c307
+  f50b041c3fc70b9ed1f71ef80ab55d11004151fe  round 4  origin/main bd6fd9714
+  (round 2 produced no commit; it was the quality-gate investigation.)
+
+Receipts:
+  /tmp/factory-platform-evidence/w00/main-merge/     rounds 1 and 2
+  /tmp/factory-platform-evidence/w00/main-merge-2/   rounds 2 and 3
+  /tmp/factory-platform-evidence/w00/main-merge-3/   round 4
+
+
+================================================================================
+2026-09-21  ROUND 1 — merge origin/main b43558b34
+================================================================================
+Merge commit 53346001b3aeaea33e7024a92133c3cfb490b838
+Parents 52c6018064 (ours) and b43558b348 (main). Merge base 2588c9f19e.
+251 files changed. Tree clean after the commit, not amended.
+
+CONFLICTS AND RESOLUTIONS
+Git flagged five files. A sixth conflict was semantic: git resolved it
+textually but the result was wrong.
+
+  bun.lock
+      git checkout --theirs, then bun install. Additive for our packages only.
+  web/bun.lock
+      Same. Strictly additive: 19 packages, 0 dropped, 0 version changes.
+  package.json
+      Kept our @aws-sdk/client-s3; took main's pi 0.85.1, pglite 0.5.8,
+      pgvector 0.0.9. Main's "podman" script retained.
+  tasks/todo.md
+      git merge-file --union over the three stages, git add -f.
+  web/src/lib/graph/layout.ts
+      Header comment only. Kept main's AGENTS.md policy reference and our
+      narrowing of the claim to the chat graph (our branch added scoped graph
+      libraries @xyflow/svelte and elkjs for other surfaces).
+  .github/workflows/ci.yml
+      SEMANTIC CONFLICT GIT DID NOT FLAG. Main's new `mutation` job pinned
+      Node with a literal `node-version: "22"`. Our commit 3f2b0f1a0 made
+      .node-version the single Node pin and added
+      src/__tests__/runtime-version-pins.test.ts, which fails any literal in
+      that workflow. Git kept both sides, so the merged tree failed its own
+      gate. Resolved by reading the pin from .node-version (24.14.1), which
+      satisfies Stryker's ">= 22" floor. Neither intent is weakened.
+
+  Main also added .github/workflows/mutation-nightly.yml carrying the same
+  literal. Our gate covers only ci.yml and release-sdk.yml, so it does not
+  fail today. Left unchanged: main's new file, never conflicted. STILL OPEN.
+
+LOCKFILE VERIFICATION against the explicit target SHA
+  bun.lock      added 218  dropped 4  version-changed 21  NEW DRIFT 0
+  web/bun.lock  added  19  dropped 0  version-changed  0  NEW DRIFT 0
+  The 4 dropped entries are nested dedup records our pre-merge lock also
+  lacked. All 21 version differences already existed on integ/w00. No
+  resolution is new to this merge. bun install --frozen-lockfile passes in
+  both places.
+
+AUDIT OF THE 27 CLEANLY-MERGED BOTH-SIDES FILES
+  Zero lines that either side added are missing from the merged tree.
+    scripts/coverage-thresholds.json  1089 keys = union of ours (1079) and
+                                      main (813). 0 missing, 0 lowered.
+    src/api-registry.ts               345 method/path pairs, 0 duplicates.
+    src/db/migrate.ts                 68 migrations. Main's
+                                      addExtensionTrustedLocalApprovals at
+                                      line 3021, ahead of our factory
+                                      migrations at 3103+. Base order kept.
+    web/e2e/lanes.json                per-lane union, 0 entries lost.
+    extension-runner/src/index.ts     exports main's TrustedLocalRunner and
+                                      provisionToolchain alongside our
+                                      runnerMaterialMount, GUEST_MATERIALS_PATH
+                                      and RUNNER_GUEST_ENVIRONMENT.
+    conflict markers in the tree      none.
+
+  Main's two forced pi 0.85.1 migrations (beta.messages.create on hand-built
+  Anthropic doubles, and the removal of buildSessionContext) reach NO call
+  site our branch added. The 17 files our branch added that import pi use
+  typed APIs only.
+
+CHECKS (logs under main-merge/)
+  bun run typecheck                        0   10-typecheck.log
+  bun run lint                             0   11-lint.log
+  bun scripts/check-factory-boundaries.ts  0   12-check-factory-boundaries.log
+  bun scripts/check-boundaries.ts          0   13-check-boundaries.log
+  bun scripts/gate-integrity.ts            0   14-gate-integrity.log
+  bun scripts/check-schema-generate-drift  0   15-schema-generate-drift.log
+  five CI-registration suites              0   20-targeted-tests.log    50 pass
+  19 PGlite factory migration suites       0   21-pglite-migrations.log 43 pass
+  25 core migration suites                 0   22-core-migrations.log  232 pass
+                                                                       11 skip
+  cd web && bun run check                  0   30-web-check.log  569 files
+  web route contract                       0   31-web-route-contract.log 29 pass
+  six workspace package builds             0   05-package-builds.log
+  bun install --frozen-lockfile root+web   0   06-clean-reinstall.log
+  node-pin refix re-verification           0   50-node-pin-refix.log
+  bun run test  FULL BACKEND POOL          0   51-backend-pool.log
+                                               27550 pass, 0 fail, 1859 files
+
+TWO NOTES
+  Typecheck first exited 1 with a zod type-identity error in
+  packages/@ezcorp/ai-kit/src/mcp/tools/orchestrate.ts, a file byte-identical
+  on both sides. Cause: a stale node_modules symlink from a 13 Sep install
+  where the MCP SDK resolved zod 4.5.2 while ai-kit resolved 4.5.4. A clean
+  reinstall from the merged lock made both resolve 4.5.4.
+
+  The route-contract test runs under bun, not vitest: it is a plain *.test.ts
+  and web/vitest.config.ts includes only *.component, *.server and *.unit.
+
+
+================================================================================
+2026-09-21  ROUND 2 — the quality gates, and a correction
+================================================================================
+
+CORRECTION TO ROUND 1'S REPORTED NUMBERS
+  The global-coverage and CRAP figures first reported (67.34 percent, 53
+  violations) were NOT measurements of the merged tree. They were computed
+  from a stale coverage/lcov.info dated 2026-09-21 01:07:36, which predates
+  both the merge commit (14:26) and the gate run (14:01).
+
+  scripts/test-coverage.sh aborts at `check_leg_lcov || exit 1` (line 899)
+  when a producer is dead, and the merge into coverage/lcov.info is at line
+  943. So the run never refreshed the file and never deleted it, and both
+  gates silently scored a pre-merge artifact. The stale file was moved to
+  main-merge-2/STALE-prehmerge-lcov-01h07.info.
+
+(a) WHICH GATES BLOCK A PULL REQUEST
+  Source of truth: DESIRED_REQUIRED_CHECKS in scripts/check-required-checks.ts,
+  21 contexts.
+
+    Gate                          CI job key   Job name:                  Blocks?
+    Global coverage floor         coverage     Per-file coverage gate     YES
+    CRAP gate (touched functions) coverage     Per-file coverage gate     YES
+    Mutation (changed files)      mutation     Mutation (changed files)   NO
+
+  Neither new gate has its own status context. Both are STEPS inside the
+  `coverage` job, which is already required as "Per-file coverage gate":
+    step "Global coverage floor"          -> bun scripts/check-global-coverage.ts
+    step "CRAP gate (touched functions)"  -> BASE_REF=origin/main
+                                             bun scripts/crap-score.ts --changed
+  Neither step carries continue-on-error, so either one reddens the required
+  check. The `mutation` job is absent from DESIRED_REQUIRED_CHECKS and runs
+  --report-only; its own comment says not to add it to branch protection until
+  a calibration pass lands.
+
+  Full required list: Typecheck, Svelte check, Backend tests, Backend critical
+  (strict pass/fail), Web tests (vitest), Web tests (bun-leg orphans), E2E
+  (mock, no Docker), E2E (real auth + real DB), Lint (biome), Manifest
+  lockfile drift check, Per-file coverage gate, Gate integrity, Visual
+  evidence, Web security coverage, Factory schema and kernel, Factory runner
+  contracts, Factory Temporal integration, Factory assurance and release,
+  Factory isolation, Factory product and domain E2E, Factory deployment and
+  operations.
+
+(b) THE EXACT LCOV SOURCES CI MERGES BEFORE THE FLOOR AND CRAP RUN
+  The `coverage` job downloads pattern lcov-cov-* with merge-multiple: true
+  into coverage-artifacts/, plus the browser-route-coverage artifact
+  separately, then runs:
+      bun scripts/merge-lcov.ts "coverage-artifacts/*.info" coverage/lcov.info
+      bun scripts/check-coverage.ts
+
+    ARTIFACT NAME                   PRODUCING JOB             WHAT IT COVERS
+    lcov-cov-shard-<n>              cov-shard (matrix)        test-coverage.sh
+                                                              shard mode over
+                                                              set C
+                                                              (coverage_host_files)
+    lcov-cov-extras                 cov-extras                test-coverage.sh
+                                                              legs-only mode:
+                                                              sdk, harness-client,
+                                                              suggest, ai-kit,
+                                                              providers,
+                                                              api-client,
+                                                              empty-node-shim,
+                                                              worker,
+                                                              web-utility,
+                                                              web-vitest-full,
+                                                              python
+    lcov-cov-security               web-security-coverage     security-coverage.sh
+    lcov-cov-web-vitest-<i>         test-web-shard (3)        Node/V8 vitest leg
+    lcov-cov-factory-python         factory-runner-contracts  python-quality.sh all
+    lcov-cov-factory-orchestrator   factory-temporal          factory-orchestrator-
+                                                              coverage.sh
+    browser-route-coverage          browser-route-coverage    copied in as
+                                                              lcov_browser_routes.info
+
+  Two producers contribute no lcov but still gate the job: external-postgres
+  (required success, no artifact) and residual-tests (scripts/test.sh over set
+  P minus C, pass/fail only).
+
+  Set definitions live in scripts/lib/test-file-sets.sh:
+    P = passfail_files       the mock.module-isolated backend pool CI gates
+                             pass/fail on
+    C = coverage_host_files  the --coverage pool
+
+RERUNS ON THE COMMITTED TREE, AND MAIN'S OWN BASELINE
+    RUN  COMMAND                      TREE         RESULT
+    41b  bun run test:coverage        bf010dece    exit 1; 28383 pass, 0 fail,
+                                      (ours)       1818 shards; lcov NOT written
+    42b  check-global-coverage.ts     ours         exit 1; lcov not found
+    43b  crap-score.ts --changed      ours         exit 1; lcov not found
+    41m  bun run test:coverage        bd6fd9714    exit 1; 26665 pass, 0 fail,
+                                      (main)       1610 shards; lcov NOT written
+    42m  check-global-coverage.ts     main         exit 1; lcov not found
+    43m  crap-score.ts --changed      main         exit 1; lcov not found
+
+  Both trees abort identically:
+    ::error::browser route coverage is required: set BROWSER_COVERAGE_RAW and
+             BROWSER_COVERAGE_LCOV
+    ::error::browser coverage leg produced no lcov output (infrastructure
+             failure)
+
+  MAIN'S OWN TREE DOES NOT PASS ITS OWN FLOOR AND CRAP GATES WITH THIS RECIPE
+  ON THIS BOX. The red is environmental, not caused by our branch or by the
+  merge. There is no local escape: scripts/verify-browser-coverage-receipt.ts
+  validates the receipt, so a synthesised one is both a forged gate input and
+  rejected. None was attempted. Scratch worktrees created for the baselines
+  (main-baseline, main-scratch) were removed.
+
+  Zero test failures on either tree is the load-bearing result: our merged
+  tree runs 28383 tests green.
+
+MUTATION — the one gate that produced a real number
+  Stryker runs its own vitest coverage and never reads the merged lcov, so
+  this result is genuine.
+
+    Mutation: 5 changed file(s), 5 changed line-range(s) in scope:
+      web/src/lib/factory/client.ts
+      web/src/lib/factory/download.ts
+      web/src/lib/factory/layout.ts
+      web/src/lib/factory/model.ts
+      web/src/lib/graph/layout.ts
+    Instrumented 5 source file(s) with 691 mutant(s)
+    ERROR Final mutation score 75.40 under breaking threshold 80, setting exit
+          code to 1 (failure).
+    (--report-only: Stryker exited 1; not failing the build)
+
+  Killed 503, timed out 18, survived 161, no coverage 9. Below the threshold
+  of 80 but non-blocking by design. The wrapper's exit 0 is --report-only
+  swallowing Stryker's 1; the substance is a fail.
+
+(c) DOES isExcluded EXCLUDE packages/**/dist/** ?
+  NO. The EXCLUDES array in scripts/coverage-config.ts (line 30) contains no
+  dist pattern at all; the only occurrences of the string in that file are the
+  word "distribution" in comments about the locked Python trees. isExcluded()
+  (line 390) globs EXCLUDES, so packages/@ezcorp/factory-sdk/dist/*.js is NOT
+  excluded, and check-global-coverage.ts — which filters only by isExcluded —
+  counts all 15 of those files.
+
+  WHY THEY ARE IN THE LCOV. Not because bun resolves to dist: factory-sdk
+  declares a "bun" condition on every subpath pointing at ./src/*.ts, as do
+  sdk, ai-kit, factory-transport and extension-contract. The records come from
+  the Node/V8 vitest leg. Twelve files under web/src/lib/factory/ import
+  @ezcorp/factory-sdk subpaths; Node ignores the "bun" condition and takes
+  "import" -> ./dist/*.js. The record shape confirms it: FNF:0 FNH:0 with
+  dense V8 hit counts.
+
+  The per-file gate never noticed because it is key-driven and
+  coverage-thresholds.json has no dist keys. The new global floor has no key
+  list, so it is the first gate to surface them. In the stale measurement they
+  were 3964 lines at 12.06 percent, roughly a 2-point drag on the aggregate.
+
+  COORDINATOR RULING (2026-09-21): take the label-free fix. Built output
+  leaves the lcov through the vitest leg's product-source filter, not through
+  EXCLUDES. A separate package, W18a, applies it. NOT APPLIED HERE.
+
+  For the record, the EXCLUDES alternative was rejected because
+  scripts/gate-integrity.ts check 1 is "EXCLUDES grew", diff-scoped: the line
+  would fail the required Gate integrity check and need the maintainer-only
+  gate-change-approved label, which an agent cannot apply.
+
+(d) COMPLETE COMPLEXITY LIST
+  43b produced nothing, so the complexity half was obtained without coverage
+  data. CRAP = comp^2 * (1 - cov)^3 + comp, so at cov = 1 the score IS the
+  complexity. scripts/crap-score.ts was fed a synthetic all-lines-hit lcov
+  over the 313 candidate files in our diff, the scores read as complexities,
+  and the synthetic file deleted immediately. This reuses the repo's own
+  TypeScript AST walker rather than a second counter.
+    probe script: main-merge-2/complexity-probe.ts
+    log:          main-merge-2/44b-complexity-probe.log
+  Scope: 3959 functions in 313 files.
+
+  THE COUNT IS 38, NOT 35. The earlier 35 came from the stale run, which skips
+  functions carrying no lcov record. The probe measures every function in the
+  diff, so 38 is authoritative.
+
+  38 FUNCTIONS WITH CYCLOMATIC COMPLEXITY > 30, ACROSS 25 FILES.
+  These fail the max-30 cap regardless of coverage.
+
+    packages/@ezcorp/factory-sdk/src/validation.ts          (8)
+        cc= 86  :474   validateCompiledFactory
+        cc= 82  :869   validateFactoryApiRequest
+        cc= 71  :101   validateSchemaNode
+        cc= 69  :400   validateNodeSemantics
+        cc= 68  :984   validateFactoryApiResponse
+        cc= 50  :251   contained
+        cc= 43  :640   validateFactoryRunnerRequest
+        cc= 39  :189   validateValueNode
+    packages/@ezcorp/factory-sdk/src/compiler.ts            (4)
+        cc= 86  :400   <anonymous@400>
+        cc= 51  :476   <anonymous@476>
+        cc= 51  :689   compileFactory
+        cc= 36  :309   inferExpressionSchema
+    web/src/routes/api/factories/_shared.ts                 (2)
+        cc= 92  :432   mappedError
+        cc= 43  :189   dispatchFactoryRequest
+    packages/@ezcorp/factory-sdk/src/kernel.ts              (2)
+        cc= 49  :538   applyRepair
+        cc= 32  :102   advanceKernel
+    packages/@ezcorp/factory-sdk/src/expressions.ts         (2)
+        cc= 46  :112   evaluate
+        cc= 31  :52    inspect
+    src/factory/reference-image/lock.ts                     (1)
+        cc= 92  :126   assertReferenceImageLock
+    src/factory/releases.ts                                 (1)
+        cc= 80  :882   <anonymous@882>
+    web/src/hooks.server.ts                                 (1)
+        cc= 80  :418   handleApp
+    src/factory/private-service.ts                          (1)
+        cc= 59  :59    handle
+    src/factory/task-stops.ts                               (1)
+        cc= 54  :452   readSealed
+    packages/@ezcorp/factory-sdk/src/schema.ts              (1)
+        cc= 52  :56    validate
+    packages/@ezcorp/factory-orchestrator/src/workflow.ts   (1)
+        cc= 47  :145   factoryWorkflow
+    src/runtime/workflow-executor.ts                        (1)
+        cc= 47  :1361  executeFrom
+    src/factory/reference-data/reconcile.ts                 (1)
+        cc= 46  :177   reconcileReferenceData
+    src/factory/execution-gateway.ts                        (1)
+        cc= 43  :77    handle
+    src/factory/release-github.ts                           (1)
+        cc= 43  :183   assertFactoryGitHubPublicationRequest
+    src/factory/provisioning/local.ts                       (1)
+        cc= 42  :66    <anonymous@66>
+    src/factory/artifacts.ts                                (1)
+        cc= 38  :58    stageInTransaction
+    src/factory/orchestration-process.ts                    (1)
+        cc= 37  :68    parseFactoryOrchestratorProcessConfig
+    src/factory/pool/process.ts                             (1)
+        cc= 37  :70    parseFactoryPoolProcessConfig
+    src/factory/reference-data/manifest.ts                  (1)
+        cc= 36  :135   assertReferenceDataManifest
+    packages/@ezcorp/extension-runner/src/service.ts        (1)
+        cc= 34  :40    handle
+    packages/@ezcorp/extension-runner/src/podman.ts         (1)
+        cc= 33  :400   build
+    src/factory/pool/service-routes.ts                      (1)
+        cc= 31  :89    <anonymous@89>
+    src/factory/transition-artifacts.ts                     (1)
+        cc= 31  :78    finalizeTransitionArtifact
+
+  By area: factory-sdk 17, src/factory 14, web/src 3, extension-runner 2,
+  factory-orchestrator 1, src/runtime 1. Six are at complexity 80 or above.
+
+THE OTHER HALF: FLAGGED FUNCTIONS BELOW 100 PERCENT COVERAGE
+  This half needs a real lcov, which does not exist here. From the STALE
+  pre-merge run, therefore PROVISIONAL: 18 of 53 flagged functions were below
+  100 percent, and 16 have complexity 30 or under, so complete coverage alone
+  clears them. They are measurement gaps, not complexity debt.
+
+    cov=  0%  cc=21  src/extensions/service-capabilities.ts:13 assertServiceCapabilities
+    cov=  0%  cc=21  src/extensions/v4/lifecycle.ts:251 runBuild
+    cov=  0%  cc=20  src/db/connection.ts:207 initPglite
+    cov=  0%  cc=15  src/factory/private-files.ts:80 writePrivateBoundedAtomic
+    cov=  0%  cc=13  src/extensions/v4/deliveries.ts:80 enqueueInTransaction
+    cov=  0%  cc= 7  packages/@ezcorp/extension-runner/src/client.ts:41 poll
+    cov=  0%  cc= 7  src/extensions/v4/lifecycle.ts:338 approve
+    cov=  3%  cc=15  src/factory/private-files.ts:20 privateDirectory
+    cov=  6%  cc= 7  src/factory/boot.ts:61 assertFactoryBootConfiguration
+    cov=  8%  cc=10  src/auth/factory-service-token.ts:84 exactClaims
+    cov=  8%  cc=10  src/factory/private-files.ts:64 readPrivateBounded
+    cov= 10%  cc= 6  src/factory/encryption.ts:163 loadExisting
+    cov= 29%  cc=23  src/runtime/stream-chat/setup-tools.ts:748 resolveModelTierAndCredential
+    cov= 38%  cc=25  web/src/lib/server/security/bearer-auth.ts:94 attachBearerAuth
+    cov= 41%  cc=10  src/auth/factory-service-token.ts:48 verifyFactoryServiceToken
+    cov= 52%  cc=16  src/runtime/stream-chat/failover.ts:170 runWithFailover
+
+  Two are both problems at once, and appear in the cc>30 list above:
+    cov= 86%  cc=80  web/src/hooks.server.ts:418 handleApp
+    cov= 98%  cc=47  src/runtime/workflow-executor.ts:1361 executeFrom
+
+
+================================================================================
+2026-09-21  ROUND 3 — merge origin/main 0f949c307
+================================================================================
+Merge commit bf010dece1213705d85a7227846c7343f000d70e
+Parents 53346001b (ours) and 0f949c307 (main). Tree clean, not amended.
+No fetch was performed; the ref was already local.
+
+0f949c307 is "chore(verify): drive the image verification scripts through
+Podman by default (#291)". It adds scripts/lib/container-engine.sh, routes
+scripts/lib/build-archived-image.sh and the four scripts/verify-docker-*.sh
+through it, updates scripts/verify-production-image-lifecycle.sh, and adds
+src/__tests__/container-engine.test.ts.
+
+NO CONFLICTS. All eight files merged cleanly. The lost-line audit shows zero
+lines missing from either side, and no conflict markers anywhere.
+
+CHECKS (logs under main-merge-2/)
+  bun run typecheck                     0   10-typecheck.log
+  bun run lint                          0   11-lint.log
+  bun scripts/gate-integrity.ts         0   12-gate-integrity.log
+  bash -n on all six changed shell scripts  0  inline
+  6 podman and pin suites               0   20-podman-suites.log  78 pass, 0 fail
+
+Suites run: container-engine, production-image-lifecycle-launch,
+podman-compose-wrapper, compose-podman-prod, check-required-checks,
+runtime-version-pins.
+
+The test:coverage rerun was skipped this round per instruction. It had already
+run on this exact tree in round 2 as 41b: exit 1 from the dead browser
+producer, 28383 pass, 0 fail.
+
+
+================================================================================
+2026-09-21  ROUND 4 — merge origin/main bd6fd9714
+================================================================================
+Merge commit f50b041c3fc70b9ed1f71ef80ab55d11004151fe
+Parents bf010dece (ours) and bd6fd9714 (main). Tree clean, not amended.
+
+bd6fd9714 is "chore(deps): bump the bun-minor-and-patch group across 2
+directories with 10 updates (#277)": biome 2.5.13, @types/node ^26.5.1 in
+three manifests, file-type ^22.1.0, yaml ^2.9.1, and in web vite ^8.3.0,
+zod ^4.6.4, marked ^18.0.13, isomorphic-dompurify ^4.2.0,
+ast-v8-to-istanbul 1.0.6.
+
+TWO CONFLICTS, resolved with the round-one recipe
+  bun.lock
+      Took origin/main's file, then re-ran bun install at the root. Verified
+      against bd6fd9714: 218 added packages (ours), 4 dropped nested dedup
+      records our pre-merge lock also lacked, and 21 transitive version
+      differences that already existed on this branch. ZERO resolutions are
+      new to this merge, and every one of main's ten bumps is present at
+      main's version.
+  package.json
+      This branch appended @ezcorp/factory-transport after yaml, and main
+      bumped yaml in place. Kept both: yaml at main's ^2.9.1 plus our
+      workspace entry.
+
+web/bun.lock auto-merged, but a textually blended lockfile is not a
+resolution, so it was taken from origin/main and reinstalled like the root
+one. It is strictly additive against bd6fd9714: 19 packages, 0 dropped, 0
+version changes. bun install --frozen-lockfile passes at root and in web.
+
+The other three manifests (web/package.json, harness-client, sdk) merged
+cleanly. All four carry every scripts / dependencies / devDependencies key
+from both sides; nothing was dropped.
+
+CHECKS (logs under main-merge-3/), after rebuilding the six workspace packages
+  bun install --frozen-lockfile root       0   03-frozen-root.log
+  bun install --frozen-lockfile web        0   04-frozen-web.log
+  six workspace package builds             0   05-package-builds.log
+  bun run typecheck                        0   10-typecheck.log
+  bun run lint                             0   11-lint.log
+  bun scripts/gate-integrity.ts            0   12-gate-integrity.log
+  bun scripts/check-factory-boundaries.ts  0   13-check-factory-boundaries.log
+  bun scripts/check-boundaries.ts          0   14-check-boundaries.log
+  eight CI-registration and pin suites     0   20-registration-suites.log
+                                               108 pass, 0 fail
+  bun run test  FULL BACKEND POOL          0   21-backend-pool.log
+                                               27576 pass, 0 fail, 1860 files
+
+Main's global coverage floor and CRAP gate remain unevaluated for the same
+structural reason as round 2. Neither gate was weakened.
+
+Per instruction, chasing main stops here.
+
+
+================================================================================
+OPEN ITEMS FOR THE COORDINATOR
+================================================================================
+1. mutation-nightly.yml still carries a literal node-version: "22", outside
+   our pin gate's two-file scope (ci.yml and release-sdk.yml). Not fixed: it
+   is main's new file and it never conflicted.
+
+2. The dist fix is assigned to W18a (label-free vitest-leg product-source
+   filter). Not applied here.
+
+3. Complexity refactor: 38 functions above the CRAP cap of 30, concentrated in
+   factory-sdk validation and compiler and in src/factory. Six are at
+   complexity 80 or above. Splitting is the only route, and the CRAP gate
+   blocks through the required "Per-file coverage gate" check.
+
+4. Mutation score 75.40 against a threshold of 80. Report-only today, so it
+   cannot block, but it is a genuine measurement of our five changed web
+   files.
+
+5. The floor and CRAP gates can only get a first real verdict in CI. Main
+   fails them locally too, so nothing local remains to try.
+
+6. scripts/test-coverage.sh should delete or invalidate a pre-existing
+   coverage/lcov.info when it aborts. Leaving the old file in place is what
+   let two gates score a pre-merge tree and report confident numbers.
+================================================================================

@@ -1,0 +1,403 @@
+context = git archive 4ae2f1658c47f1afefce922da7f507a174eb3cf2: 13142 files; dist dirs under packages: 0
+STEP 1/34: FROM oven/bun:1.4.2@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
+STEP 2/34: ENV BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING=1
+--> Using cache e6a2e766964ad2b6907d8ee5c0c89851f1ac8332404ee5529a76eb7ec0989e59
+--> e6a2e766964a
+STEP 3/34: WORKDIR /app
+--> Using cache d582beb51c46f3a47a0d5910f2d18d631ab8b184136b766f983adfc52774da57
+--> d582beb51c46
+STEP 4/34: RUN apt-get update  && apt-get install -y --no-install-recommends git curl ca-certificates  && rm -rf /var/lib/apt/lists/*
+Get:1 http://deb.debian.org/debian trixie InRelease [140 kB]
+Get:2 http://deb.debian.org/debian trixie-updates InRelease [47.3 kB]
+Get:3 http://deb.debian.org/debian-security trixie-security InRelease [43.4 kB]
+Get:4 http://deb.debian.org/debian trixie/main amd64 Packages [9678 kB]
+Get:5 http://deb.debian.org/debian trixie-updates/main amd64 Packages [4412 B]
+Get:6 http://deb.debian.org/debian-security trixie-security/main amd64 Packages [264 kB]
+Fetched 10.2 MB in 1s (7486 kB/s)
+Reading package lists...
+Reading package lists...
+Building dependency tree...
+Reading state information...
+ca-certificates is already the newest version (20250419).
+The following additional packages will be installed:
+  git-man libbrotli1 libcom-err2 libcurl3t64-gnutls libcurl4t64 liberror-perl
+  libexpat1 libffi8 libgdbm-compat4t64 libgdbm6t64 libgnutls30t64
+  libgssapi-krb5-2 libidn2-0 libk5crypto3 libkeyutils1 libkrb5-3
+  libkrb5support0 libldap2 libnghttp2-14 libnghttp3-9 libngtcp2-16
+  libngtcp2-crypto-gnutls8 libp11-kit0 libperl5.40 libpsl5t64 librtmp1
+  libsasl2-2 libsasl2-modules-db libssh2-1t64 libtasn1-6 libunistring5 perl
+  perl-base perl-modules-5.40
+Suggested packages:
+  gettext-base git-doc git-email git-gui gitk gitweb git-cvs git-mediawiki
+  git-svn gdbm-l10n gnutls-bin krb5-doc krb5-user sensible-utils perl-doc
+  libterm-readline-gnu-perl | libterm-readline-perl-perl make
+  libtap-harness-archive-perl
+Recommended packages:
+  bash-completion patch less ssh-client krb5-locales libldap-common
+  publicsuffix libsasl2-modules netbase
+The following NEW packages will be installed:
+  curl git git-man libbrotli1 libcom-err2 libcurl3t64-gnutls libcurl4t64
+  liberror-perl libexpat1 libffi8 libgdbm-compat4t64 libgdbm6t64
+  libgnutls30t64 libgssapi-krb5-2 libidn2-0 libk5crypto3 libkeyutils1
+  libkrb5-3 libkrb5support0 libldap2 libnghttp2-14 libnghttp3-9 libngtcp2-16
+  libngtcp2-crypto-gnutls8 libp11-kit0 libperl5.40 libpsl5t64 librtmp1
+  libsasl2-2 libsasl2-modules-db libssh2-1t64 libtasn1-6 libunistring5 perl
+  perl-modules-5.40
+The following packages will be upgraded:
+  perl-base
+1 upgraded, 35 newly installed, 0 to remove and 14 not upgraded.
+Need to get 26.1 MB of archives.
+After this operation, 121 MB of additional disk space will be used.
+Get:1 http://deb.debian.org/debian trixie/main amd64 perl-base amd64 5.40.1-6+deb13u1 [1666 kB]
+Get:2 http://deb.debian.org/debian trixie/main amd64 libexpat1 amd64 2.8.3-1~deb13u1 [123 kB]
+Get:3 http://deb.debian.org/debian trixie/main amd64 perl-modules-5.40 all 5.40.1-6+deb13u1 [3014 kB]
+Get:4 http://deb.debian.org/debian trixie/main amd64 libgdbm6t64 amd64 1.24-2 [75.2 kB]
+Get:5 http://deb.debian.org/debian trixie/main amd64 libgdbm-compat4t64 amd64 1.24-2 [50.3 kB]
+Get:6 http://deb.debian.org/debian trixie/main amd64 libperl5.40 amd64 5.40.1-6+deb13u1 [4326 kB]
+Get:7 http://deb.debian.org/debian trixie/main amd64 perl amd64 5.40.1-6+deb13u1 [268 kB]
+Get:8 http://deb.debian.org/debian trixie/main amd64 libbrotli1 amd64 1.1.0-2+b7 [307 kB]
+Get:9 http://deb.debian.org/debian trixie/main amd64 libkrb5support0 amd64 1.21.3-5+deb13u1 [33.1 kB]
+Get:10 http://deb.debian.org/debian trixie/main amd64 libcom-err2 amd64 1.47.2-3+b12 [25.0 kB]
+Get:11 http://deb.debian.org/debian trixie/main amd64 libk5crypto3 amd64 1.21.3-5+deb13u1 [81.2 kB]
+Get:12 http://deb.debian.org/debian trixie/main amd64 libkeyutils1 amd64 1.6.3-6 [9456 B]
+Get:13 http://deb.debian.org/debian trixie/main amd64 libkrb5-3 amd64 1.21.3-5+deb13u1 [326 kB]
+Get:14 http://deb.debian.org/debian trixie/main amd64 libgssapi-krb5-2 amd64 1.21.3-5+deb13u1 [138 kB]
+Get:15 http://deb.debian.org/debian trixie/main amd64 libunistring5 amd64 1.3-2 [477 kB]
+Get:16 http://deb.debian.org/debian trixie/main amd64 libidn2-0 amd64 2.3.8-2 [109 kB]
+Get:17 http://deb.debian.org/debian trixie/main amd64 libsasl2-modules-db amd64 2.1.28+dfsg1-9 [19.8 kB]
+Get:18 http://deb.debian.org/debian trixie/main amd64 libsasl2-2 amd64 2.1.28+dfsg1-9 [57.5 kB]
+Get:19 http://deb.debian.org/debian trixie/main amd64 libldap2 amd64 2.6.10+dfsg-1 [194 kB]
+Get:20 http://deb.debian.org/debian trixie/main amd64 libnghttp2-14 amd64 1.64.0-1.1+deb13u1 [76.2 kB]
+Get:21 http://deb.debian.org/debian trixie/main amd64 libnghttp3-9 amd64 1.8.0-1 [67.7 kB]
+Get:22 http://deb.debian.org/debian trixie/main amd64 libpsl5t64 amd64 0.21.2-1.1+b1 [57.2 kB]
+Get:23 http://deb.debian.org/debian trixie/main amd64 libffi8 amd64 3.4.8-2 [24.1 kB]
+Get:24 http://deb.debian.org/debian trixie/main amd64 libp11-kit0 amd64 0.25.5-3 [425 kB]
+Get:25 http://deb.debian.org/debian trixie/main amd64 libtasn1-6 amd64 4.20.0-2+deb13u1 [50.1 kB]
+Get:26 http://deb.debian.org/debian trixie/main amd64 libgnutls30t64 amd64 3.8.9-3+deb13u4 [1469 kB]
+Get:27 http://deb.debian.org/debian trixie/main amd64 librtmp1 amd64 2.4+20151223.gitfa8646d.1-2+b5 [58.8 kB]
+Get:28 http://deb.debian.org/debian trixie/main amd64 libssh2-1t64 amd64 1.11.1-1+deb13u2 [245 kB]
+Get:29 http://deb.debian.org/debian trixie/main amd64 libcurl4t64 amd64 8.14.1-2+deb13u5 [391 kB]
+Get:30 http://deb.debian.org/debian trixie/main amd64 curl amd64 8.14.1-2+deb13u5 [270 kB]
+Get:31 http://deb.debian.org/debian trixie/main amd64 libngtcp2-16 amd64 1.11.0-1+deb13u1 [132 kB]
+Get:32 http://deb.debian.org/debian trixie/main amd64 libngtcp2-crypto-gnutls8 amd64 1.11.0-1+deb13u1 [29.5 kB]
+Get:33 http://deb.debian.org/debian trixie/main amd64 libcurl3t64-gnutls amd64 8.14.1-2+deb13u5 [384 kB]
+Get:34 http://deb.debian.org/debian trixie/main amd64 liberror-perl all 0.17030-1 [26.9 kB]
+Get:35 http://deb.debian.org/debian trixie/main amd64 git-man all 1:2.47.3-0+deb13u1 [2205 kB]
+Get:36 http://deb.debian.org/debian trixie/main amd64 git amd64 1:2.47.3-0+deb13u1 [8862 kB]
+debconf: unable to initialize frontend: Dialog
+debconf: (TERM is not set, so the dialog frontend is not usable.)
+debconf: falling back to frontend: Readline
+debconf: unable to initialize frontend: Readline
+debconf: (Can't locate Term/ReadLine.pm in @INC (you may need to install the Term::ReadLine module) (@INC entries checked: /etc/perl /usr/local/lib/x86_64-linux-gnu/perl/5.40.1 /usr/local/share/perl/5.40.1 /usr/lib/x86_64-linux-gnu/perl5/5.40 /usr/share/perl5 /usr/lib/x86_64-linux-gnu/perl-base /usr/lib/x86_64-linux-gnu/perl/5.40 /usr/share/perl/5.40 /usr/local/lib/site_perl) at /usr/share/perl5/Debconf/FrontEnd/Readline.pm line 8, <STDIN> line 36.)
+debconf: falling back to frontend: Teletype
+debconf: unable to initialize frontend: Teletype
+debconf: (This frontend requires a controlling tty.)
+debconf: falling back to frontend: Noninteractive
+Fetched 26.1 MB in 3s (9214 kB/s)
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 5507 files and directories currently installed.)
+Preparing to unpack .../perl-base_5.40.1-6+deb13u1_amd64.deb ...
+Unpacking perl-base (5.40.1-6+deb13u1) over (5.40.1-6) ...
+Setting up perl-base (5.40.1-6+deb13u1) ...
+Selecting previously unselected package libexpat1:amd64.
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 5507 files and directories currently installed.)
+Preparing to unpack .../00-libexpat1_2.8.3-1~deb13u1_amd64.deb ...
+Unpacking libexpat1:amd64 (2.8.3-1~deb13u1) ...
+Selecting previously unselected package perl-modules-5.40.
+Preparing to unpack .../01-perl-modules-5.40_5.40.1-6+deb13u1_all.deb ...
+Unpacking perl-modules-5.40 (5.40.1-6+deb13u1) ...
+Selecting previously unselected package libgdbm6t64:amd64.
+Preparing to unpack .../02-libgdbm6t64_1.24-2_amd64.deb ...
+Unpacking libgdbm6t64:amd64 (1.24-2) ...
+Selecting previously unselected package libgdbm-compat4t64:amd64.
+Preparing to unpack .../03-libgdbm-compat4t64_1.24-2_amd64.deb ...
+Unpacking libgdbm-compat4t64:amd64 (1.24-2) ...
+Selecting previously unselected package libperl5.40:amd64.
+Preparing to unpack .../04-libperl5.40_5.40.1-6+deb13u1_amd64.deb ...
+Unpacking libperl5.40:amd64 (5.40.1-6+deb13u1) ...
+Selecting previously unselected package perl.
+Preparing to unpack .../05-perl_5.40.1-6+deb13u1_amd64.deb ...
+Unpacking perl (5.40.1-6+deb13u1) ...
+Selecting previously unselected package libbrotli1:amd64.
+Preparing to unpack .../06-libbrotli1_1.1.0-2+b7_amd64.deb ...
+Unpacking libbrotli1:amd64 (1.1.0-2+b7) ...
+Selecting previously unselected package libkrb5support0:amd64.
+Preparing to unpack .../07-libkrb5support0_1.21.3-5+deb13u1_amd64.deb ...
+Unpacking libkrb5support0:amd64 (1.21.3-5+deb13u1) ...
+Selecting previously unselected package libcom-err2:amd64.
+Preparing to unpack .../08-libcom-err2_1.47.2-3+b12_amd64.deb ...
+Unpacking libcom-err2:amd64 (1.47.2-3+b12) ...
+Selecting previously unselected package libk5crypto3:amd64.
+Preparing to unpack .../09-libk5crypto3_1.21.3-5+deb13u1_amd64.deb ...
+Unpacking libk5crypto3:amd64 (1.21.3-5+deb13u1) ...
+Selecting previously unselected package libkeyutils1:amd64.
+Preparing to unpack .../10-libkeyutils1_1.6.3-6_amd64.deb ...
+Unpacking libkeyutils1:amd64 (1.6.3-6) ...
+Selecting previously unselected package libkrb5-3:amd64.
+Preparing to unpack .../11-libkrb5-3_1.21.3-5+deb13u1_amd64.deb ...
+Unpacking libkrb5-3:amd64 (1.21.3-5+deb13u1) ...
+Selecting previously unselected package libgssapi-krb5-2:amd64.
+Preparing to unpack .../12-libgssapi-krb5-2_1.21.3-5+deb13u1_amd64.deb ...
+Unpacking libgssapi-krb5-2:amd64 (1.21.3-5+deb13u1) ...
+Selecting previously unselected package libunistring5:amd64.
+Preparing to unpack .../13-libunistring5_1.3-2_amd64.deb ...
+Unpacking libunistring5:amd64 (1.3-2) ...
+Selecting previously unselected package libidn2-0:amd64.
+Preparing to unpack .../14-libidn2-0_2.3.8-2_amd64.deb ...
+Unpacking libidn2-0:amd64 (2.3.8-2) ...
+Selecting previously unselected package libsasl2-modules-db:amd64.
+Preparing to unpack .../15-libsasl2-modules-db_2.1.28+dfsg1-9_amd64.deb ...
+Unpacking libsasl2-modules-db:amd64 (2.1.28+dfsg1-9) ...
+Selecting previously unselected package libsasl2-2:amd64.
+Preparing to unpack .../16-libsasl2-2_2.1.28+dfsg1-9_amd64.deb ...
+Unpacking libsasl2-2:amd64 (2.1.28+dfsg1-9) ...
+Selecting previously unselected package libldap2:amd64.
+Preparing to unpack .../17-libldap2_2.6.10+dfsg-1_amd64.deb ...
+Unpacking libldap2:amd64 (2.6.10+dfsg-1) ...
+Selecting previously unselected package libnghttp2-14:amd64.
+Preparing to unpack .../18-libnghttp2-14_1.64.0-1.1+deb13u1_amd64.deb ...
+Unpacking libnghttp2-14:amd64 (1.64.0-1.1+deb13u1) ...
+Selecting previously unselected package libnghttp3-9:amd64.
+Preparing to unpack .../19-libnghttp3-9_1.8.0-1_amd64.deb ...
+Unpacking libnghttp3-9:amd64 (1.8.0-1) ...
+Selecting previously unselected package libpsl5t64:amd64.
+Preparing to unpack .../20-libpsl5t64_0.21.2-1.1+b1_amd64.deb ...
+Unpacking libpsl5t64:amd64 (0.21.2-1.1+b1) ...
+Selecting previously unselected package libffi8:amd64.
+Preparing to unpack .../21-libffi8_3.4.8-2_amd64.deb ...
+Unpacking libffi8:amd64 (3.4.8-2) ...
+Selecting previously unselected package libp11-kit0:amd64.
+Preparing to unpack .../22-libp11-kit0_0.25.5-3_amd64.deb ...
+Unpacking libp11-kit0:amd64 (0.25.5-3) ...
+Selecting previously unselected package libtasn1-6:amd64.
+Preparing to unpack .../23-libtasn1-6_4.20.0-2+deb13u1_amd64.deb ...
+Unpacking libtasn1-6:amd64 (4.20.0-2+deb13u1) ...
+Selecting previously unselected package libgnutls30t64:amd64.
+Preparing to unpack .../24-libgnutls30t64_3.8.9-3+deb13u4_amd64.deb ...
+Unpacking libgnutls30t64:amd64 (3.8.9-3+deb13u4) ...
+Selecting previously unselected package librtmp1:amd64.
+Preparing to unpack .../25-librtmp1_2.4+20151223.gitfa8646d.1-2+b5_amd64.deb ...
+Unpacking librtmp1:amd64 (2.4+20151223.gitfa8646d.1-2+b5) ...
+Selecting previously unselected package libssh2-1t64:amd64.
+Preparing to unpack .../26-libssh2-1t64_1.11.1-1+deb13u2_amd64.deb ...
+Unpacking libssh2-1t64:amd64 (1.11.1-1+deb13u2) ...
+Selecting previously unselected package libcurl4t64:amd64.
+Preparing to unpack .../27-libcurl4t64_8.14.1-2+deb13u5_amd64.deb ...
+Unpacking libcurl4t64:amd64 (8.14.1-2+deb13u5) ...
+Selecting previously unselected package curl.
+Preparing to unpack .../28-curl_8.14.1-2+deb13u5_amd64.deb ...
+Unpacking curl (8.14.1-2+deb13u5) ...
+Selecting previously unselected package libngtcp2-16:amd64.
+Preparing to unpack .../29-libngtcp2-16_1.11.0-1+deb13u1_amd64.deb ...
+Unpacking libngtcp2-16:amd64 (1.11.0-1+deb13u1) ...
+Selecting previously unselected package libngtcp2-crypto-gnutls8:amd64.
+Preparing to unpack .../30-libngtcp2-crypto-gnutls8_1.11.0-1+deb13u1_amd64.deb ...
+Unpacking libngtcp2-crypto-gnutls8:amd64 (1.11.0-1+deb13u1) ...
+Selecting previously unselected package libcurl3t64-gnutls:amd64.
+Preparing to unpack .../31-libcurl3t64-gnutls_8.14.1-2+deb13u5_amd64.deb ...
+Unpacking libcurl3t64-gnutls:amd64 (8.14.1-2+deb13u5) ...
+Selecting previously unselected package liberror-perl.
+Preparing to unpack .../32-liberror-perl_0.17030-1_all.deb ...
+Unpacking liberror-perl (0.17030-1) ...
+Selecting previously unselected package git-man.
+Preparing to unpack .../33-git-man_1%3a2.47.3-0+deb13u1_all.deb ...
+Unpacking git-man (1:2.47.3-0+deb13u1) ...
+Selecting previously unselected package git.
+Preparing to unpack .../34-git_1%3a2.47.3-0+deb13u1_amd64.deb ...
+Unpacking git (1:2.47.3-0+deb13u1) ...
+Setting up libexpat1:amd64 (2.8.3-1~deb13u1) ...
+Setting up libkeyutils1:amd64 (1.6.3-6) ...
+Setting up libgdbm6t64:amd64 (1.24-2) ...
+Setting up libgdbm-compat4t64:amd64 (1.24-2) ...
+Setting up libbrotli1:amd64 (1.1.0-2+b7) ...
+Setting up libnghttp2-14:amd64 (1.64.0-1.1+deb13u1) ...
+Setting up libcom-err2:amd64 (1.47.2-3+b12) ...
+Setting up libkrb5support0:amd64 (1.21.3-5+deb13u1) ...
+Setting up libsasl2-modules-db:amd64 (2.1.28+dfsg1-9) ...
+Setting up libunistring5:amd64 (1.3-2) ...
+Setting up libk5crypto3:amd64 (1.21.3-5+deb13u1) ...
+Setting up libsasl2-2:amd64 (2.1.28+dfsg1-9) ...
+Setting up libnghttp3-9:amd64 (1.8.0-1) ...
+Setting up libffi8:amd64 (3.4.8-2) ...
+Setting up perl-modules-5.40 (5.40.1-6+deb13u1) ...
+Setting up libtasn1-6:amd64 (4.20.0-2+deb13u1) ...
+Setting up git-man (1:2.47.3-0+deb13u1) ...
+Setting up libngtcp2-16:amd64 (1.11.0-1+deb13u1) ...
+Setting up libkrb5-3:amd64 (1.21.3-5+deb13u1) ...
+Setting up libssh2-1t64:amd64 (1.11.1-1+deb13u2) ...
+Setting up libldap2:amd64 (2.6.10+dfsg-1) ...
+Setting up libidn2-0:amd64 (2.3.8-2) ...
+Setting up libperl5.40:amd64 (5.40.1-6+deb13u1) ...
+Setting up perl (5.40.1-6+deb13u1) ...
+Setting up libp11-kit0:amd64 (0.25.5-3) ...
+Setting up libgssapi-krb5-2:amd64 (1.21.3-5+deb13u1) ...
+Setting up libgnutls30t64:amd64 (3.8.9-3+deb13u4) ...
+Setting up libpsl5t64:amd64 (0.21.2-1.1+b1) ...
+Setting up liberror-perl (0.17030-1) ...
+Setting up librtmp1:amd64 (2.4+20151223.gitfa8646d.1-2+b5) ...
+Setting up libngtcp2-crypto-gnutls8:amd64 (1.11.0-1+deb13u1) ...
+Setting up libcurl4t64:amd64 (8.14.1-2+deb13u5) ...
+Setting up libcurl3t64-gnutls:amd64 (8.14.1-2+deb13u5) ...
+Setting up git (1:2.47.3-0+deb13u1) ...
+Setting up curl (8.14.1-2+deb13u5) ...
+Processing triggers for libc-bin (2.41-12+deb13u3) ...
+--> 4d5e17d4b499
+STEP 5/34: ARG GH_VERSION=2.63.2
+--> e37a40bf6e57
+STEP 6/34: ARG TARGETARCH
+--> 645e0589a325
+STEP 7/34: RUN set -eux;     case "${TARGETARCH:-amd64}" in       amd64|arm64) gharch="${TARGETARCH:-amd64}" ;;       *) echo "unsupported TARGETARCH for gh: ${TARGETARCH}" >&2; exit 1 ;;     esac;     curl -fsSL -o /tmp/gh.tar.gz       "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_${gharch}.tar.gz";     tar -xzf /tmp/gh.tar.gz -C /tmp;     install -m 0755 "/tmp/gh_${GH_VERSION}_linux_${gharch}/bin/gh" /usr/local/bin/gh;     rm -rf /tmp/gh.tar.gz "/tmp/gh_${GH_VERSION}_linux_${gharch}";     gh --version
++ gharch=amd64
++ curl -fsSL -o /tmp/gh.tar.gz https://github.com/cli/cli/releases/download/v2.63.2/gh_2.63.2_linux_amd64.tar.gz
++ tar -xzf /tmp/gh.tar.gz -C /tmp
++ install -m 0755 /tmp/gh_2.63.2_linux_amd64/bin/gh /usr/local/bin/gh
++ rm -rf /tmp/gh.tar.gz /tmp/gh_2.63.2_linux_amd64
++ gh --version
+gh version 2.63.2 (2024-12-05)
+https://github.com/cli/cli/releases/tag/v2.63.2
+--> a56abf356e94
+STEP 8/34: RUN mkdir -p /app/state /app/cache /app/web/.ezcorp /app/.ezcorp/extension-releases  && chown 1000:1000 /app /app/state /app/cache /app/web /app/web/.ezcorp /app/.ezcorp /app/.ezcorp/extension-releases
+--> 144bdda65ee2
+STEP 9/34: USER 1000:1000
+--> f6012300afc4
+STEP 10/34: COPY --chown=1000:1000 package.json bun.lock ./
+--> 1ed4aba1a223
+STEP 11/34: COPY --chown=1000:1000 packages/@ezcorp/sdk/package.json packages/@ezcorp/sdk/
+--> a973cb0b14a2
+STEP 12/34: COPY --chown=1000:1000 packages/@ezcorp/ai-kit/package.json packages/@ezcorp/ai-kit/
+--> 6f4cc0e2f208
+STEP 13/34: COPY --chown=1000:1000 packages/@ezcorp/harness-client/package.json packages/@ezcorp/harness-client/
+--> 7b4308bea9e1
+STEP 14/34: COPY --chown=1000:1000 packages/@ezcorp/extension-contract/package.json packages/@ezcorp/extension-contract/
+--> 59c890107cc3
+STEP 15/34: COPY --chown=1000:1000 packages/@ezcorp/extension-runner/package.json packages/@ezcorp/extension-runner/
+--> 739d0113ac3d
+STEP 16/34: COPY --chown=1000:1000 packages/@ezcorp/factory-sdk/package.json packages/@ezcorp/factory-sdk/
+--> 7218e024cdac
+STEP 17/34: COPY --chown=1000:1000 packages/@ezcorp/factory-transport/package.json packages/@ezcorp/factory-transport/
+--> a290da1b8d07
+STEP 18/34: COPY --chown=1000:1000 packages/@ezcorp/factory-orchestrator/package.json packages/@ezcorp/factory-orchestrator/
+--> c94d926e17b2
+STEP 19/34: RUN --mount=type=cache,target=/home/bun/.bun/install/cache,uid=1000,gid=1000,sharing=locked BUN_INSTALL_CACHE_DIR=/home/bun/.bun/install/cache bun install --frozen-lockfile --ignore-scripts
+bun install v1.4.2 (744846f84)
+Resolving dependencies
+Resolved, downloaded and extracted [2]
+
++ @biomejs/biome@2.5.14
++ @types/bun@1.4.2
++ @types/js-yaml@4.0.9
++ @types/node@26.6.1 (v26.6.4 available)
++ drizzle-kit@0.31.10
++ @aws-sdk/client-kms@3.1131.0
++ @aws-sdk/client-s3@3.1131.0
++ @balena/dockerignore@1.0.2
++ @earendil-works/pi-agent-core@0.85.1
++ @earendil-works/pi-ai@0.85.1
++ @electric-sql/pglite@0.5.8
++ @electric-sql/pglite-pgvector@0.0.9
++ @huggingface/transformers@4.3.0
++ @modelcontextprotocol/sdk@1.30.0
++ @zxing/library@0.23.0
++ drizzle-orm@0.45.2
++ exceljs@4.4.0
++ fast-png@8.0.0
++ file-type@22.1.0
++ jpeg-js@0.4.4
++ pdf-parse@2.4.5
++ yaml@2.9.1
++ typescript@5.9.3 (v7.0.2 available)
+
+510 packages installed [1003.00ms]
+--> 67ff2565a160
+STEP 20/34: COPY --chown=1000:1000 web/package.json web/bun.lock web/
+--> 9e2ea43cd6ca
+STEP 21/34: COPY --chown=1000:1000 web/patches web/patches/
+--> 5c6f4efada44
+STEP 22/34: RUN --mount=type=cache,target=/home/bun/.bun/install/cache,uid=1000,gid=1000,sharing=locked BUN_INSTALL_CACHE_DIR=/home/bun/.bun/install/cache sh -c 'cd web && bun install --frozen-lockfile --ignore-scripts'
+bun install v1.4.2 (744846f84)
+Resolving dependencies
+Resolved, downloaded and extracted [1]
+
++ @axe-core/playwright@4.13.0
++ @playwright/test@1.63.0
++ @stryker-mutator/core@10.0.0
++ @stryker-mutator/vitest-runner@10.0.0
++ @sveltejs/kit@2.70.3
++ @sveltejs/vite-plugin-svelte@7.3.0
++ @tailwindcss/vite@4.3.3
++ @testing-library/jest-dom@7.0.1
++ @testing-library/svelte@5.4.2
++ @types/jsdom@30.0.0
++ @typescript/native@7.0.2
++ @vitest/coverage-v8@5.0.0
++ ast-v8-to-istanbul@1.0.6
++ istanbul-lib-coverage@3.2.2
++ jsdom@30.0.1
++ rollup-plugin-visualizer@7.1.1
++ svelte@5.57.0
++ svelte-check@4.7.6
++ tailwindcss@4.3.3
++ typescript@6.0.3
++ vite@8.3.0
++ vitest@5.0.0
++ @electric-sql/pglite@0.5.8
++ @electric-sql/pglite-pgvector@0.0.9
++ @huggingface/transformers@4.3.0
++ @xyflow/svelte@1.6.6
++ ansi_up@6.0.6
++ diff2html@3.4.56
++ elkjs@0.12.0
++ highlight.js@11.12.0
++ isomorphic-dompurify@4.2.0
++ kokoro-js@1.2.1
++ linkedom@0.18.13
++ lucide-svelte@1.0.1
++ marked@18.0.13
++ svelte-adapter-bun@1.0.1
++ svelte-dnd-action@0.9.79
++ zod@4.6.5
+
+483 packages installed [4.33s]
+--> d858931646b6
+STEP 23/34: COPY --chown=1000:1000 . .
+--> d12687c37ece
+STEP 24/34: RUN bun run build:packages
+$ bun scripts/build-workspace-packages.ts
+build:packages: @ezcorp/extension-contract (packages/@ezcorp/extension-contract)
+$ tsc -b tsconfig.build.json
+build:packages: @ezcorp/sdk (packages/@ezcorp/sdk)
+$ bunx tsc -b tsconfig.build.json
+build:packages: @ezcorp/factory-sdk (packages/@ezcorp/factory-sdk)
+$ bunx tsc -b tsconfig.build.json
+build:packages: @ezcorp/factory-transport (packages/@ezcorp/factory-transport)
+$ tsc -b tsconfig.build.json
+build:packages: @ezcorp/factory-orchestrator (packages/@ezcorp/factory-orchestrator)
+$ bun run --cwd ../factory-transport build && tsc -b tsconfig.build.json
+$ tsc -b tsconfig.build.json
+build:packages: @ezcorp/harness-client (packages/@ezcorp/harness-client)
+$ bunx tsc -b tsconfig.build.json
+--> 93e5d0091009
+STEP 25/34: USER root
+--> 8e84569daa31
+STEP 26/34: ARG EZCORP_BUILD_COMMIT=unknown
+--> 83cc09208b77
+STEP 27/34: ARG EZCORP_BUILD_SOURCE_STATE=unknown
+--> b788935e1637
+STEP 28/34: RUN printf 'revision=%s\nsource-state=%s\n'       "$EZCORP_BUILD_COMMIT" "$EZCORP_BUILD_SOURCE_STATE"       > /app/.ezcorp-image-provenance
+--> c61d047e56d7
+STEP 29/34: LABEL org.opencontainers.image.revision=$EZCORP_BUILD_COMMIT
+--> e0dea3991d72
+STEP 30/34: LABEL org.ezcorp.image.source-state=$EZCORP_BUILD_SOURCE_STATE
+--> 89621be76fa4
+STEP 31/34: ENV EZCORP_IMAGE_BUILD_COMMIT=$EZCORP_BUILD_COMMIT
+--> a07206455716
+STEP 32/34: ENV EZCORP_IMAGE_BUILD_SOURCE_STATE=$EZCORP_BUILD_SOURCE_STATE
+--> b65500686164
+STEP 33/34: EXPOSE 3000
+--> 444aef2fd8dc
+STEP 34/34: ENV EZCORP_PORT=3000
+COMMIT localhost/integrator3-img-dev:4ae2f1658c47
+--> 7502528fc79e
+Successfully tagged localhost/integrator3-img-dev:4ae2f1658c47
+7502528fc79e5d47599986f7c2257b777308e2fc6cc8d1bfb94a330f7210002b
+image localhost/integrator3-img-dev:4ae2f1658c47 id 7502528fc79e5d47599986f7c2257b777308e2fc6cc8d1bfb94a330f7210002b digest sha256:705657842e795e5fac86fc76e1c75ed918988be752865cff9a14c65d586c2491
+dev image provenance verified: revision=4ae2f1658c47f1afefce922da7f507a174eb3cf2 source-state=dirty engine=podman

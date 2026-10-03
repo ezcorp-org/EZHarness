@@ -10,15 +10,18 @@ import {
   expect,
   describe,
   beforeEach,
+  beforeAll,
   afterAll,
   mock,
+  spyOn,
 } from "bun:test";
 import { mkdtemp, stat } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { workspaceFileBytes, type WorkspaceFiles } from "@ezcorp/extension-contract";
-import { restoreModuleMocks } from "../../../../../../src/__tests__/helpers/mock-cleanup";
+import { restoreModuleMocks, webLibModule, contextModule, serverModule } from "../../../../../../src/__tests__/helpers/mock-cleanup";
+import { ExtensionRegistry } from "../../../../../../src/extensions/registry";
 import {
   mockServerAlias,
   MEMBER_USER,
@@ -36,15 +39,33 @@ mock.module("$server/runtime/commands/discovery", () => discoveryActual);
 mock.module("$lib/server/http-errors", () => httpErrorsActual);
 
 let scopeResponse: Response | null = null;
-mock.module("$lib/server/security/api-keys", () => ({
+const apiKeysExports = webLibModule("server/security/api-keys", {
   requireScope: () => scopeResponse,
-}));
+});
+mock.module("$lib/server/security/api-keys", () => apiKeysExports);
 
 let projectRoot: string;
-mock.module("$server/db/queries/projects", () => ({
-  getProject: async (id: string) =>
-    id === "missing" ? undefined : { id, name: "p", path: projectRoot },
-}));
+// $server/db/queries/projects: spyOn()'d on the module the alias currently
+// resolves to, not mock.module()'d directly — item C2 (W18 hygiene, real
+// OPEN-2 fix). This alias is claimed by mockServerAlias() above AND by this
+// file's sibling preview.test.ts (both mock only `getProject`, a partial
+// factory), and shared through common.ts's resolveProjectRoot(). Once
+// EITHER file's mock.module() call registers this exact specifier string, a
+// LATER mock.module() call for that same string is silently ignored for a
+// consumer that links after it (same class of bug as the $server/auth
+// /middleware fix in extension-browser-preview.test.ts) — measured directly:
+// paired with preview.test.ts in either order, whichever file loaded SECOND
+// kept resolving the FIRST file's stale getProject (missing the other
+// file's cases, and closed over the other file's now-long-gone tmpdir),
+// producing an unrelated-looking spray of 400/410/failed-json errors.
+// Dynamically importing the alias to get whatever it currently resolves to,
+// then spyOn().mockImplementation() to mutate that one method in place,
+// reaches every future consumer of the specifier regardless of
+// registration order. Confirmed fixed in both orders.
+const aliasDbQueriesProjects: any = await import("$server/db/queries/projects");
+const getProjectSpy = spyOn(aliasDbQueriesProjects, "getProject").mockImplementation(
+  async (id: string) => (id === "missing" ? undefined : { id, name: "p", path: projectRoot }),
+);
 
 let createCalls: any[] = [];
 let createImpl: (i: any) => Promise<{ name: string }> = async (i) => ({
@@ -59,12 +80,13 @@ mock.module("$server/db/queries/user-commands", () => ({
 
 let existingExtNames = new Set<string>();
 let extLookupThrows = false;
-mock.module("$server/db/queries/extensions", () => ({
+const dbExtensionsExports = serverModule("db/queries/extensions", {
   getExtensionByName: async (n: string) => {
     if (extLookupThrows) throw new Error("lookup boom");
     return existingExtNames.has(n) ? { id: "x", name: n } : null;
   },
-}));
+});
+mock.module("$server/db/queries/extensions", () => dbExtensionsExports);
 
 let installCalls: any[] = [];
 let installImpl: (d: string) => Promise<{ id: string }> = async () => ({
@@ -78,29 +100,42 @@ mock.module("$server/extensions/source-import", () => ({
   },
 }));
 
+// ExtensionRegistry.getInstance() is a cheap in-memory singleton (no I/O) —
+// never replace the class/module (item C, W18 hygiene): a $server/* alias
+// registration can never be withdrawn, so it freezes on whichever file's
+// registration is active when another file's already-loaded consumer next
+// resolves it. spyOn() the real instance's reload() instead, fetched in
+// beforeAll (test-execution time), not at this file's own top level —
+// otherwise two files that both call getInstance() during the shared
+// loading phase would capture the SAME instance, and the first file's own
+// resetInstance() would leave the second file's spy on a stale, discarded
+// object.
 let reloadCalled = false;
-mock.module("$server/extensions/registry", () => ({
-  ExtensionRegistry: {
-    getInstance: () => ({
-      reload: async () => {
-        reloadCalled = true;
-      },
-    }),
-  },
-}));
+let reloadSpy: ReturnType<typeof spyOn>;
+beforeAll(() => {
+  reloadSpy = spyOn(ExtensionRegistry.getInstance(), "reload").mockImplementation(async () => {
+    reloadCalled = true;
+  });
+});
 
 let invalidatedFor: string | null = null;
-mock.module("$lib/server/context", () => ({
+const contextExports = contextModule({
   getCommandRegistry: () => ({
     invalidateUser: (id: string) => {
       invalidatedFor = id;
     },
   }),
-}));
+});
+mock.module("$lib/server/context", () => contextExports);
 
 const { POST } = await import("../commit/+server");
 
-afterAll(() => restoreModuleMocks());
+afterAll(() => {
+  restoreModuleMocks();
+  reloadSpy.mockRestore();
+  getProjectSpy.mockRestore();
+  ExtensionRegistry.resetInstance();
+});
 
 beforeEach(async () => {
   scopeResponse = null;

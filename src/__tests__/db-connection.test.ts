@@ -16,7 +16,7 @@
  * `db-connection-real-init.test.ts`; raw-param binding by
  * `db-connection-raw-query.test.ts`.
  */
-import { test, expect, describe, afterEach } from "bun:test";
+import { test, expect, describe, afterEach, spyOn } from "bun:test";
 import { mkdtempSync, rmSync, existsSync, writeFileSync, mkdirSync, readdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
@@ -37,6 +37,19 @@ describe("getDbPath — real module (no DATABASE_URL in this process)", () => {
     const p = conn.getDbPath();
     expect(typeof p).toBe("string");
     expect(p).not.toBe("external");
+  });
+});
+
+describe("bunSqlClass — the pool class comes from the runtime, not import(\"bun\") (W09g)", () => {
+  test("under Bun it is the SQL class the \"bun\" module exports", async () => {
+    const { SQL } = await import("bun");
+    expect(conn.bunSqlClass()).toBe(SQL);
+  });
+
+  test("a runtime without a SQL class is refused by name", () => {
+    const refusal = "the external PostgreSQL pool needs the Bun runtime (Bun.SQL is unavailable)";
+    expect(() => conn.bunSqlClass(null)).toThrow(refusal);
+    expect(() => conn.bunSqlClass({ SQL: "not a class" })).toThrow(refusal);
   });
 });
 
@@ -136,13 +149,16 @@ describe("recoverInterruptedRollback — crash-window recovery", () => {
   });
 });
 
+/** What a fake connection answers: the try-lock query takes the lock; everything else returns no rows. */
+const answer = (strings: TemplateStringsArray) => Promise.resolve(strings.join("").includes("pg_try_advisory_lock") ? [{ locked: true }] : []);
+
 describe("withPostgresMigrateLock — advisory lock ordering", () => {
   test("reserves a connection, locks, runs migrate, unlocks, releases", async () => {
     const order: string[] = [];
     const reserved = Object.assign(
       (strings: TemplateStringsArray) => {
         order.push(`reserved:${strings.join("?")}`);
-        return Promise.resolve([]);
+        return answer(strings);
       },
       { release: () => order.push("release") },
     );
@@ -159,7 +175,7 @@ describe("withPostgresMigrateLock — advisory lock ordering", () => {
 
     // reserve → lock (on the reserved conn) → migrate → unlock → release.
     expect(order[0]).toBe("reserve");
-    expect(order[1]).toContain("pg_advisory_lock");
+    expect(order[1]).toContain("pg_try_advisory_lock");
     expect(order[1]).toContain("reserved:");
     expect(order[2]).toBe("migrate");
     expect(order[3]).toContain("pg_advisory_unlock");
@@ -171,7 +187,7 @@ describe("withPostgresMigrateLock — advisory lock ordering", () => {
   test("still unlocks + releases when migrate throws", async () => {
     const order: string[] = [];
     const reserved = Object.assign(
-      (strings: TemplateStringsArray) => { order.push(`sql:${strings.join("?")}`); return Promise.resolve([]); },
+      (strings: TemplateStringsArray) => { order.push(`sql:${strings.join("?")}`); return answer(strings); },
       { release: () => order.push("release") },
     );
     const client = Object.assign(
@@ -192,7 +208,7 @@ describe("withPostgresMigrateLock — advisory lock ordering", () => {
     const client = (strings: TemplateStringsArray) => {
       // Fail only the unlock; lock + migrate succeed.
       if (strings.join("").includes("unlock")) return Promise.reject(new Error("unlock boom"));
-      return Promise.resolve([]);
+      return answer(strings);
     };
     conn.__test.setState({ $client: client }, null);
     // Must resolve despite unlock rejecting.
@@ -203,15 +219,70 @@ describe("withPostgresMigrateLock — advisory lock ordering", () => {
     const order: string[] = [];
     const client = (strings: TemplateStringsArray) => {
       order.push(strings.join("?"));
-      return Promise.resolve([]);
+      return answer(strings);
     };
     conn.__test.setState({ $client: client }, null);
 
     await conn.__test.withPostgresMigrateLock(async () => { order.push("migrate"); });
 
-    expect(order.some((o) => o.includes("pg_advisory_lock"))).toBe(true);
+    expect(order.some((o) => o.includes("pg_try_advisory_lock"))).toBe(true);
     expect(order).toContain("migrate");
     expect(order.some((o) => o.includes("pg_advisory_unlock"))).toBe(true);
+  });
+
+  /** A connection whose lock is held by `holders[i]` for the first attempts, then free. */
+  function contended(holders: Array<number | null>) {
+    const order: string[] = [];
+    let attempt = 0;
+    const reserved = Object.assign(
+      (strings: TemplateStringsArray) => {
+        const text = strings.join("?");
+        order.push(text);
+        if (text.includes("pg_try_advisory_lock")) return Promise.resolve([{ locked: attempt >= holders.length }]);
+        if (text.includes("FROM pg_locks")) { const pid = holders[attempt++]; return Promise.resolve(pid === null ? [] : [{ pid }]); }
+        return Promise.resolve([]);
+      },
+      { release: () => order.push("release") },
+    );
+    conn.__test.setState({ $client: Object.assign(() => Promise.resolve([]), { reserve: () => Promise.resolve(reserved) }) }, null);
+    return order;
+  }
+
+  test("waits a bounded time for a held lock, naming the holder once per holder, then migrates", async () => {
+    const order = contended([4242, 4242, 5151]);
+    const slept: number[] = [];
+    const warn = spyOn(conn.__test.log, "warn");
+    await conn.__test.withPostgresMigrateLock(async () => { order.push("migrate"); }, { waitMs: 60_000, pollMs: 250, now: () => 0, sleep: async (ms) => { slept.push(ms); } });
+    expect(slept).toEqual([250, 250, 250]);
+    expect(warn.mock.calls.map((call) => call[0])).toEqual(["waiting for migrate lock held by pid 4242", "waiting for migrate lock held by pid 5151"]);
+    expect(order.filter((o) => o === "migrate" || o === "release" || o.includes("pg_advisory_unlock")).map((o) => (o.includes("unlock") ? "unlock" : o))).toEqual(["migrate", "unlock", "release"]);
+    warn.mockRestore();
+  });
+
+  test("past the deadline, boot fails by name with the holder's pid, and the connection goes back", async () => {
+    const order = contended([4242, 4242, 4242, 4242]);
+    let clock = 0;
+    const error = await conn.__test.withPostgresMigrateLock(async () => { order.push("migrate"); }, { waitMs: 1_000, pollMs: 500, now: () => clock, sleep: async (ms) => { clock += ms; } }).then(() => undefined, (caught: unknown) => caught);
+    expect(error).toBeInstanceOf(conn.MigrateLockTimeoutError);
+    expect(error).toMatchObject({ code: "migrate_lock_timeout", holderPid: 4242, message: "Gave up after 1000 ms waiting for the migrate lock held by pid 4242." });
+    expect(order).not.toContain("migrate");
+    expect(order.some((o) => o.includes("pg_advisory_unlock"))).toBe(false);
+    expect(order.at(-1)).toBe("release");
+  });
+
+  test("a holder PostgreSQL cannot name is reported as unknown", async () => {
+    contended([null, null]);
+    let clock = 0;
+    await expect(conn.__test.withPostgresMigrateLock(async () => undefined, { waitMs: 100, pollMs: 100, now: () => clock, sleep: async (ms) => { clock += ms; } }))
+      .rejects.toMatchObject({ code: "migrate_lock_timeout", holderPid: null, message: "Gave up after 100 ms waiting for the migrate lock held by pid unknown." });
+  });
+
+  test("defaults to the two-minute bound and a real sleep", async () => {
+    expect(conn.MIGRATE_LOCK_WAIT_MS).toBe(120_000);
+    // Held once, then free: the default sleep really waits one poll.
+    const order = contended([7]);
+    await conn.__test.withPostgresMigrateLock(async () => { order.push("migrate"); });
+    expect(order).toContain("migrate");
   });
 });
 

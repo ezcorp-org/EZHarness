@@ -1,0 +1,788 @@
+import { canonicalJson } from "@ezcorp/extension-contract";
+import type { FactoryMeasuredUsage, FactoryRunnerResult, FactoryUsage } from "@ezcorp/factory-sdk";
+import type { KernelEvent } from "@ezcorp/factory-sdk/kernel-types";
+import { sql } from "drizzle-orm";
+import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
+import { releaseRows as rows } from "../db/queries/extension-releases";
+import { digestObject } from "../extensions/v4/blobs";
+import { factoryAttemptAuthority, type FactoryAttemptQueue } from "./attempt-queue";
+import type { FactoryBudgets } from "./budgets";
+import type { FactoryAuthorizedCancellationCommand, FactoryCommandAuthority } from "./command-authority";
+import type { FactoryComputeAdmissions } from "./compute-admissions";
+import type { FactoryAttemptAuthority, FactoryExecutionJournal } from "./executions";
+import type { FactoryInbox } from "./inbox";
+import { firstFactoryJournalIssue, validateFactoryStopReceipt, type FactoryJournalHostKey, type FactoryPhysicalStopExpectation } from "./journal-validation";
+import { lockFactoryScope } from "./locks";
+import { poolStopConfirmed, type PoolLeaseStatus } from "./pool/ledger";
+import { assertFactoryIdentity, encodeFactoryPayload } from "./records";
+import { FactoryTaskStopError } from "./task-stop-error";
+import { factoryStopHostKeyMap, type FactoryStopHostKey } from "./stop-host-keys";
+export { FACTORY_TASK_STOP_CODES, FactoryTaskStopError, type FactoryTaskStopCode } from "./task-stop-error";
+export { factoryStopHostKeyMap, type FactoryStopHostKey } from "./stop-host-keys";
+import { factoryAttemptWorkerId, readFactoryAttemptLaunchFacts, type FactoryAttemptLaunchState, type FactoryPhysicalStopReason, type FactoryPhysicalStopReceipt } from "./runner/attempt-runtime";
+import { factoryTaskReservationId } from "./task-admission";
+import type { FactoryTaskOutcomes, FactoryVerifiedTaskOutcome } from "./task-outcomes";
+import type { TrustedFactoryCommandReference, TrustedFactoryServiceIdentity } from "./trusted-command-gateway";
+import { factoryJournalStopSettlement, settleFactoryNothingLaunchedInTransaction, type FactoryJournalStopSettlement, type FactoryUsageSettlementAuthority, type FactoryUsageSettlements, type FactoryUsageSettlementScope } from "./usage-settlement";
+import { clearResolvedSupersessionInTransaction, readAttemptSupersessionInTransaction } from "./attempt-supersessions";
+
+/** C02: abort, then at most this much cleanup, then kill the whole sandbox. */
+export { FACTORY_SANDBOX_ABORT_GRACE_MS as FACTORY_STOP_ABORT_GRACE_MS } from "./runner/sandbox-stop";
+/** Ten seconds of contract grace plus ten seconds of kill-and-confirm margin. */
+export const FACTORY_PHYSICAL_STOP_TIMEOUT_MS = 20_000;
+
+/** Where the stop authority came from. `sealed-launch` is the live path. */
+export type FactoryStopSource = "terminal-outcome" | "sealed-launch" | "dispatch-refused";
+
+/**
+ * Stop authority derived from the exact sealed admission plus the durable
+ * launch record. A live cancellation never needs a terminal result, so
+ * `terminalOutcome` is present only when one already exists.
+ */
+export interface FactoryLiveStopAuthority {
+  readonly schemaVersion: "factory.stop-authority.v1";
+  readonly attemptId: string;
+  readonly authority: FactoryAttemptAuthority;
+  readonly reservationId: string;
+  readonly workerId: string;
+  readonly invocationId: string;
+  readonly hostId: string;
+  readonly holderGeneration: number;
+  readonly allocationGeneration: number;
+  readonly allocationToken: string;
+  readonly requestDigest: string;
+  readonly launchState: FactoryAttemptLaunchState;
+  readonly terminalOutcome?: FactoryVerifiedTaskOutcome;
+  /**
+   * The durable terminal result W01 stores on `factory_attempt_launches`
+   * (freeze section 16). Present when the guest finished before the stop, so a
+   * live cancellation can settle a measured cost without an outcome row.
+   */
+  readonly terminalResult?: FactoryRunnerResult;
+}
+
+/** The sealed stop request. It carries every fact a signed receipt must reproduce. */
+export interface FactoryTaskStopRequest extends FactoryPhysicalStopExpectation {
+  readonly cancelReference: TrustedFactoryCommandReference;
+  /** Absent when the attempt is still running and has no outcome row. */
+  readonly attemptReference?: TrustedFactoryCommandReference;
+  readonly attemptId: string;
+  readonly reservationId: string;
+  readonly workerId: string;
+  readonly holderGeneration: number;
+  readonly allocationGeneration: number;
+  readonly hostId: string;
+  readonly reason: FactoryPhysicalStopReason;
+  readonly source: FactoryStopSource;
+}
+
+export interface FactoryPhysicalStopper {
+  /** Calls the authenticated host supervisor. The product process cannot sign this response. */
+  stop(request: FactoryTaskStopRequest, signal: AbortSignal): Promise<FactoryPhysicalStopReceipt>;
+}
+
+/** Trusted pool presenter. It authenticates the host receipt outside the product transaction. */
+export interface FactoryPoolStopAcknowledger {
+  confirmStopped(input: { readonly reservationId: string; readonly holderGeneration: number; readonly hostId: string }, signal?: AbortSignal): Promise<PoolLeaseStatus>;
+}
+
+
+export type FactoryTaskStopState = "accepted" | "uncertain" | "stopped";
+
+export interface FactoryTaskStopReceipt {
+  readonly state: "uncertain" | "stopped";
+  readonly event: Extract<KernelEvent, { readonly kind: "attempt-stopped" }>;
+  readonly stopReceipt?: FactoryPhysicalStopReceipt;
+  /**
+   * Why this stop is uncertain, for the caller that will retry it.
+   *
+   * Never persisted and never part of the durable fact: the row is uncertain
+   * whatever the reason, and a later pass may fail for a different one. It
+   * exists because an uncertain stop retried forever is indistinguishable from
+   * a stop nobody is attempting, and the reason used to live only inside a
+   * `catch` — a run that sat in `stopping` for seven minutes had nothing
+   * anywhere to say which fact was wrong.
+   */
+  readonly cause?: unknown;
+}
+
+
+/** Keyset position of one scanned stop. Pass the last item's cursor to continue. */
+export interface FactoryStoppableCursor {
+  readonly acceptedAtMs: number;
+  readonly cancelCommandId: string;
+}
+
+/** One accepted cancellation the stop worker still has to drive to a settled stop. */
+export interface FactoryStoppableAttempt {
+  /** The cancel command reference `stop` takes. */
+  readonly reference: TrustedFactoryCommandReference;
+  readonly attemptId: string;
+  readonly reservationId: string;
+  readonly source: FactoryStopSource;
+  readonly state: Exclude<FactoryTaskStopState, "stopped">;
+  readonly acceptedAtMs: number;
+  readonly cursor: FactoryStoppableCursor;
+}
+
+export const FACTORY_STOP_SCAN_DEFAULT_LIMIT = 100;
+export const FACTORY_STOP_SCAN_MAX_LIMIT = 1_000;
+
+const STOPPABLE_STATES = new Set<FactoryTaskStopState>(["accepted", "uncertain"]);
+const STOP_SOURCES = new Set<FactoryStopSource>(["terminal-outcome", "sealed-launch"]);
+
+
+/**
+ * A sealed stop whose reason the durable facts no longer give: still
+ * `factory_task_stop_corrupt`, now with both reasons named, so the operator
+ * reading the reconciliation item sees what disagreed.
+ */
+export class FactoryTaskStopReasonConflictError extends FactoryTaskStopError {
+  // Explicit fields, not parameter properties, so Node's type stripping can run this file.
+  readonly sealedReason: FactoryPhysicalStopReason;
+  readonly derivedReason: FactoryPhysicalStopReason;
+  constructor(sealedReason: FactoryPhysicalStopReason, derivedReason: FactoryPhysicalStopReason) {
+    super("factory_task_stop_corrupt");
+    this.message = `factory_task_stop_corrupt: the stop was sealed with reason ${sealedReason} and its durable facts now give ${derivedReason}`;
+    this.name = "FactoryTaskStopReasonConflictError";
+    this.sealedReason = sealedReason;
+    this.derivedReason = derivedReason;
+  }
+}
+
+type StopEvent = Extract<KernelEvent, { readonly kind: "attempt-stopped" }>;
+
+interface StopRow {
+  tenant_id: string; project_id: string; run_id: string; interpreter_id: string;
+  cancel_command_id: string; attempt_command_id: string | null; attempt_id: string; reservation_id: string;
+  request_json: string; request_digest: string; source: FactoryStopSource; state: FactoryTaskStopState;
+  uncertain_event_json: string | null; uncertain_event_digest: string | null;
+  stop_receipt_json: string | null; stop_receipt_digest: string | null;
+  stopped_event_json: string | null; stopped_event_digest: string | null;
+  accepted_at_ms: number | string;
+}
+
+/** The sealed stop and everything the settlement transaction needs to finish it. */
+interface SealedStop {
+  readonly request: FactoryTaskStopRequest;
+  readonly liveAuthority: FactoryLiveStopAuthority;
+  readonly acceptedAtMs: number;
+  readonly receipt?: FactoryTaskStopReceipt;
+}
+
+function stopCopy<Value>(value: Value): Value { return JSON.parse(encodeFactoryPayload(value)) as Value; }
+function stopHash(value: unknown): string { return `sha256:${digestObject(value)}`; }
+
+function stopCount(value: number, minimum = 0): void {
+  if (!Number.isSafeInteger(value) || value < minimum) throw new FactoryTaskStopError("factory_task_stop_invalid");
+}
+
+/** Comparable sealed facts. The deadline is compared as an instant, not an object. */
+function stopAuthorityFacts(authority: FactoryAttemptAuthority) {
+  return { ...authority, deadlineAt: authority.deadlineAt.getTime() };
+}
+
+function terminalStopReason(result: FactoryRunnerResult | undefined): FactoryPhysicalStopReason {
+  if (!result) return "cancelled";
+  return result.status === "completed" ? "completed" : result.status === "cancelled" ? "cancelled" : result.status === "failed" ? "failed" : "cancelled";
+}
+
+/**
+ * The kernel folds a later `attempt-stopped` into an attempt it already holds
+ * as stopped-and-uncertain only when that event says `uncertain: false`
+ * explicitly. So a certain stop that follows a durable `stop-uncertain` event
+ * says so; a certain stop with no uncertainty before it keeps its old shape.
+ */
+function stopEventFor(request: FactoryTaskStopRequest, authority: FactoryAttemptAuthority, atMs: number, phase: "stop-uncertain" | "stopped" | "usage-resolved", uncertain: boolean, clearsUncertainty = false): StopEvent {
+  return Object.freeze({
+    kind: "attempt-stopped",
+    id: `${request.cancelReference.commandId}:${phase}`,
+    atMs,
+    nodeId: authority.nodeInstanceId,
+    commandId: authority.attemptId,
+    candidateGeneration: authority.candidateGeneration,
+    attempt: authority.attemptNumber,
+    ...(uncertain ? { uncertain: true } : clearsUncertainty ? { uncertain: false } : {}),
+  });
+}
+
+function parseStopJson<Value>(value: string | null): Value | undefined {
+  if (value === null) return undefined;
+  try { return JSON.parse(value) as Value; }
+  catch { throw new FactoryTaskStopError("factory_task_stop_corrupt"); }
+}
+
+/** The sealed request a stop row stores. Every column the row repeats must equal the request, and the request must name this reference. */
+function sealedStopRequest(row: StopRow, reference: TrustedFactoryCommandReference): FactoryTaskStopRequest {
+  const request = parseStopJson<FactoryTaskStopRequest>(row.request_json)!;
+  if (row.request_digest !== stopHash(request) || canonicalJson(request) !== row.request_json || canonicalJson(request.cancelReference) !== canonicalJson(reference)
+    || request.attemptId !== row.attempt_id || request.reservationId !== row.reservation_id || request.source !== row.source
+    || (request.attemptReference?.commandId ?? null) !== row.attempt_command_id
+    || factoryAttemptWorkerId(request.attemptId) !== request.workerId) throw new FactoryTaskStopError("factory_task_stop_corrupt");
+  stopCount(Number(row.accepted_at_ms)); stopCount(request.holderGeneration, 1); stopCount(request.allocationGeneration, 1);
+  return request;
+}
+
+interface SealedStopEvents {
+  readonly uncertain?: StopEvent;
+  readonly physical?: FactoryPhysicalStopReceipt;
+  readonly stopped?: StopEvent;
+}
+
+/** The stored events and receipt of a stop row. Each is present exactly when its digest is, matches that digest, and fits the row state. */
+function sealedStopEvents(row: StopRow): SealedStopEvents {
+  const uncertain = parseStopJson<StopEvent>(row.uncertain_event_json);
+  const physical = parseStopJson<FactoryPhysicalStopReceipt>(row.stop_receipt_json);
+  const stopped = parseStopJson<StopEvent>(row.stopped_event_json);
+  if ((uncertain === undefined) !== (row.uncertain_event_digest === null) || uncertain && row.uncertain_event_digest !== stopHash(uncertain)
+    || (physical === undefined) !== (row.stop_receipt_digest === null) || physical && row.stop_receipt_digest !== physical.receiptDigest
+    || (stopped === undefined) !== (row.stopped_event_digest === null) || stopped && row.stopped_event_digest !== stopHash(stopped)
+    || row.state === "accepted" && (uncertain || physical || stopped) || row.state === "stopped" && (!physical || !stopped)) throw new FactoryTaskStopError("factory_task_stop_corrupt");
+  return { uncertain, physical, stopped };
+}
+
+/** The receipt a sealed row already answers with: the stopped proof, the uncertain event, or none yet. */
+function sealedStopReceipt(state: FactoryTaskStopState, { uncertain, physical, stopped }: SealedStopEvents): FactoryTaskStopReceipt | undefined {
+  return state === "stopped"
+    ? Object.freeze({ state: "stopped" as const, event: Object.freeze(stopped!), stopReceipt: Object.freeze(physical!) })
+    : state === "uncertain" && uncertain ? Object.freeze({ state: "uncertain" as const, event: Object.freeze(uncertain) }) : undefined;
+}
+
+/**
+ * Coordinates product cancellation with a signed, physical host stop.
+ *
+ * A still-running attempt has no terminal result, so the stop authority comes
+ * from the exact sealed compute admission plus the durable launch record. No
+ * outcome is ever fabricated to satisfy a store precondition.
+ */
+export class FactoryTaskStops implements FactoryUsageSettlementAuthority {
+  private readonly keys: ReadonlyMap<string, FactoryJournalHostKey>;
+  private readonly now: () => number;
+
+  constructor(
+    private readonly database: TransactionalDb,
+    private readonly authority: FactoryCommandAuthority,
+    private readonly compute: FactoryComputeAdmissions,
+    private readonly journal: FactoryExecutionJournal,
+    private readonly outcomes: FactoryTaskOutcomes,
+    private readonly attempts: FactoryAttemptQueue,
+    private readonly budgets: FactoryBudgets,
+    private readonly inbox: FactoryInbox,
+    private readonly settlements: FactoryUsageSettlements,
+    private readonly stopper: FactoryPhysicalStopper,
+    private readonly pool: FactoryPoolStopAcknowledger,
+    hostKeys: readonly FactoryStopHostKey[],
+    now: () => number = Date.now,
+    private readonly stopTimeoutMs = FACTORY_PHYSICAL_STOP_TIMEOUT_MS,
+  ) {
+    if (compute.tenantId !== authority.tenantId || inbox.tenantId !== authority.tenantId || attempts.tenantId !== authority.tenantId || settlements.tenantId !== authority.tenantId || journal.database !== database || hostKeys.length < 1) throw new FactoryTaskStopError("factory_task_stop_scope");
+    this.keys = factoryStopHostKeyMap(hostKeys);
+    stopCount(stopTimeoutMs, 1);
+    this.now = now;
+  }
+
+  /** Accepts one current cancel command before asking the host to stop its process. */
+  async stop(valueService: TrustedFactoryServiceIdentity, valueReference: TrustedFactoryCommandReference): Promise<FactoryTaskStopReceipt> {
+    const service = stopCopy(valueService);
+    const reference = stopCopy(valueReference);
+    const prior = await this.database.transaction(async transaction => await this.readSealed(transaction, service, reference, true) ?? await this.readStoppedBeforeAdmission(transaction, reference));
+    if (prior && !isSealedStop(prior)) return prior;
+    // Only a settled stop is terminal. Durable uncertainty is retryable: the
+    // sealed request is reused, so a retry never mints a second stop identity.
+    if (prior?.receipt?.state === "stopped") return prior.receipt;
+    const accepted = prior ?? await this.accept(service, reference);
+    if (!isSealedStop(accepted)) return accepted;
+    try {
+      const physical = await this.withDeadline(signal => this.stopper.stop(accepted.request, signal));
+      return await this.confirm(service, reference, physical);
+    } catch (error) { return this.markUncertain(service, reference, error); }
+  }
+
+  /** Reconciles a late host receipt without invoking or relaunching the runner. */
+  async confirm(valueService: TrustedFactoryServiceIdentity, valueReference: TrustedFactoryCommandReference, valueReceipt: FactoryPhysicalStopReceipt): Promise<FactoryTaskStopReceipt> {
+    const service = stopCopy(valueService);
+    const reference = stopCopy(valueReference);
+    const receipt = stopCopy(valueReceipt);
+    const current = await this.database.transaction(transaction => this.readSealed(transaction, service, reference, true));
+    if (!current) throw new FactoryTaskStopError("factory_task_stop_not_found");
+    if (current.receipt?.state === "stopped") {
+      if (canonicalJson(current.receipt.stopReceipt) !== canonicalJson(receipt)) throw new FactoryTaskStopError("factory_task_stop_conflict");
+      return current.receipt;
+    }
+    this.assertHostReceipt(current, receipt);
+    const acknowledged = await this.withDeadline(signal => this.pool.confirmStopped({ reservationId: receipt.reservationId, holderGeneration: receipt.holderGeneration, hostId: receipt.hostId }, signal));
+    assertFactoryPoolConfirmsStop(acknowledged, receipt);
+    // Decided before the settlement transaction, because the journal reads
+    // through its own. The journal is final here: the sealed stop exists, so
+    // the cancellation was accepted, and an accepted attempt can never prepare
+    // another operation.
+    const settlement = await this.stopSettlement(current.liveAuthority);
+    return this.database.transaction(transaction => this.finalize(transaction, service, reference, receipt, settlement));
+  }
+
+  /**
+   * What this stop settles. A completed result was verified against the
+   * journal when it was recorded, every operation measured, so its usage is
+   * the settled fact. Any other attempt settles from its journal alone (W03f):
+   * a guest's claimed usage, a zero included, never decides what is charged,
+   * except that a held cost it reports keeps the hold.
+   */
+  private async stopSettlement(liveAuthority: FactoryLiveStopAuthority): Promise<StopSettlement> {
+    const terminal = liveAuthority.terminalOutcome?.result ?? liveAuthority.terminalResult;
+    if (terminal?.status === "completed") return Object.freeze({ kind: "measured" as const, usage: terminal.usage });
+    // A result that reports a held cost it could not measure is believed: the
+    // journal may lower a guest's claim to what it measured, never erase one.
+    if (terminal?.usage?.kind === "unknown") return Object.freeze({ kind: "held" as const });
+    return factoryJournalStopSettlement(await this.journal.operations(liveAuthority.authority));
+  }
+
+  /**
+   * Accepted cancellations that have not reached a settled stop.
+   *
+   * These are exactly the rows a stop worker must drive: `accepted` means the
+   * product cancelled but no host receipt has settled it, and `uncertain`
+   * means a stop was attempted and left durable uncertainty, which is
+   * retryable. A `stopped` row is terminal and never appears.
+   *
+   * Oldest first by the acceptance clock, with the cancel command breaking
+   * ties, so the order is total and a keyset page can neither repeat nor skip
+   * a row. The scan takes no row locks: exclusion between concurrent workers
+   * belongs to `stop`, which locks the row it settles, so two workers may list
+   * the same work and only one will commit it.
+   */
+  /**
+   * Takes a stop whose durable facts no longer verify out of the settlement scan
+   * (W01h fix round).
+   *
+   * Settling it again cannot succeed, because nothing it re-reads will change,
+   * and retrying it every pass was a hot loop. It stays unsettled, which is the
+   * truth, with the refusal recorded on its row as an item for an operator to
+   * reconcile. Only an open stop is marked, and only once.
+   */
+  async markForReconciliation(valueService: TrustedFactoryServiceIdentity, valueReference: TrustedFactoryCommandReference, error: unknown): Promise<void> {
+    const service = stopCopy(valueService);
+    const reference = stopCopy(valueReference);
+    const conflict = error instanceof FactoryTaskStopReasonConflictError ? { sealedReason: error.sealedReason, derivedReason: error.derivedReason } : {};
+    const code = (error as { code?: unknown } | null | undefined)?.code;
+    const item = { code: typeof code === "string" ? code : "factory_task_stop_corrupt", detail: (error instanceof Error ? error.message : String(error)).slice(0, 1_024), ...conflict, markedAtMs: this.now() };
+    await this.database.transaction(async transaction => {
+      await this.assertStopScope(transaction, service, reference);
+      await transaction.execute(sql`UPDATE factory_task_stops SET reconcile_json=${encodeFactoryPayload(item)},updated_at=NOW() WHERE tenant_id=${reference.tenantId} AND project_id=${reference.projectId} AND run_id=${reference.logicalRunId} AND interpreter_id=${reference.interpreterId} AND cancel_command_id=${reference.commandId} AND state IN ('accepted','uncertain') AND reconcile_json IS NULL`);
+    });
+  }
+
+  async listStoppableInTransaction(transaction: MigrationDb, options: { readonly limit?: number; readonly after?: FactoryStoppableCursor } = {}): Promise<readonly FactoryStoppableAttempt[]> {
+    const limit = options.limit ?? FACTORY_STOP_SCAN_DEFAULT_LIMIT;
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > FACTORY_STOP_SCAN_MAX_LIMIT) throw new FactoryTaskStopError("factory_task_stop_invalid");
+    const after = options.after;
+    if (after) { stopCount(after.acceptedAtMs); assertFactoryIdentity(after.cancelCommandId); }
+    const keyset = after ? sql` AND (accepted_at_ms, cancel_command_id) > (${after.acceptedAtMs}, ${after.cancelCommandId})` : sql``;
+    const scanned = rows<Pick<StopRow, "tenant_id" | "project_id" | "run_id" | "interpreter_id" | "cancel_command_id" | "attempt_id" | "reservation_id" | "source" | "state" | "accepted_at_ms">>(await transaction.execute(sql`
+      SELECT tenant_id, project_id, run_id, interpreter_id, cancel_command_id, attempt_id, reservation_id, source, state, accepted_at_ms
+      FROM factory_task_stops
+      WHERE tenant_id = ${this.authority.tenantId} AND state IN ('accepted', 'uncertain') AND reconcile_json IS NULL AND source <> 'dispatch-refused'${keyset}
+      ORDER BY accepted_at_ms, cancel_command_id
+      LIMIT ${limit}`));
+    return Object.freeze(scanned.map(row => {
+      const acceptedAtMs = Number(row.accepted_at_ms);
+      stopCount(acceptedAtMs);
+      if (!STOPPABLE_STATES.has(row.state) || !STOP_SOURCES.has(row.source)) throw new FactoryTaskStopError("factory_task_stop_corrupt");
+      assertFactoryIdentity(row.project_id, row.run_id, row.interpreter_id, row.cancel_command_id, row.attempt_id, row.reservation_id);
+      return Object.freeze({
+        reference: Object.freeze({ tenantId: row.tenant_id, projectId: row.project_id, logicalRunId: row.run_id, interpreterId: row.interpreter_id, commandId: row.cancel_command_id }),
+        attemptId: row.attempt_id, reservationId: row.reservation_id, source: row.source,
+        state: row.state as Exclude<FactoryTaskStopState, "stopped">, acceptedAtMs,
+        cursor: Object.freeze({ acceptedAtMs, cancelCommandId: row.cancel_command_id }),
+      });
+    }));
+  }
+
+  /**
+   * W05b: tells the kernel a stopped attempt's uncertainty is resolved.
+   *
+   * Reconciliation calls this in its settlement transaction, after it has
+   * settled the reservation from a provider receipt. It enqueues the sealed
+   * stop's `attempt-stopped` event again, now with `uncertain: false`, under
+   * the id `<cancel command>:usage-resolved`. The kernel folds that into the
+   * attempt it holds as stopped-and-uncertain, and the cancelled run reaches
+   * its terminal with its own reason.
+   *
+   * It sends nothing unless the physical stop is confirmed and its event said
+   * `uncertain: true`: an unconfirmed stop may still have a running process,
+   * and a certain stop has nothing to clear. The event is deterministic in
+   * `atMs`, the settlement's own time, so a repeat is the same inbox event.
+   */
+  async clearResolvedStopInTransaction(transaction: MigrationDb, reservationId: string, atMs: number): Promise<StopEvent | undefined> {
+    assertFactoryIdentity(reservationId);
+    stopCount(atMs);
+    const row = rows<StopRow>(await transaction.execute(sql`SELECT * FROM factory_task_stops WHERE tenant_id=${this.authority.tenantId} AND reservation_id=${reservationId} FOR UPDATE`))[0];
+    // No confirmed stop: the attempt may instead have ended by a signed
+    // restore's supersession (W15f), whose record carries the kernel event to
+    // re-send. That holds for a missing stop row and for one the restore left
+    // unconfirmed and marked superseded (M1); a stop still awaiting its host
+    // with no supersession clears nothing.
+    if (row?.state !== "stopped") return clearResolvedSupersessionInTransaction(transaction, this.inbox, this.authority.tenantId, reservationId, atMs);
+    const reference = { tenantId: row.tenant_id, projectId: row.project_id, logicalRunId: row.run_id, interpreterId: row.interpreter_id, commandId: row.cancel_command_id };
+    const request = sealedStopRequest(row, reference);
+    if (sealedStopEvents(row).stopped?.uncertain !== true) return undefined;
+    const authority = await this.journal.readAuthorityInTransaction(transaction, { tenantId: row.tenant_id, projectId: row.project_id, runId: row.run_id, attemptId: row.attempt_id });
+    if (!authority) throw new FactoryTaskStopError("factory_task_stop_corrupt");
+    const event = stopEventFor(request, authority, atMs, "usage-resolved", false, true);
+    await this.inbox.enqueueInTransaction(transaction, { projectId: row.project_id, runId: row.run_id, interpreterId: row.interpreter_id }, event);
+    return event;
+  }
+
+  /** The settlement scope for one reservation, so later reconciliation binds the same attempt. */
+  async readSettlementScopeInTransaction(transaction: MigrationDb, reservationId: string): Promise<FactoryUsageSettlementScope | undefined> {
+    assertFactoryIdentity(reservationId);
+    const row = rows<StopRow>(await transaction.execute(sql`SELECT * FROM factory_task_stops WHERE tenant_id=${this.authority.tenantId} AND reservation_id=${reservationId} FOR UPDATE`))[0];
+    // W15f: a signed restore that superseded the attempt proves its end even when no stop was sealed.
+    const superseded = await readAttemptSupersessionInTransaction(transaction, this.authority.tenantId, reservationId);
+    // A supersession whose dispatch named no interpreter keeps a null interpreter; the reconciler names it.
+    const held = row ? { projectId: row.project_id, runId: row.run_id, interpreterId: row.interpreter_id as string | null, attemptId: row.attempt_id } : superseded;
+    if (!held) return undefined;
+    if (row && superseded && (superseded.attemptId !== row.attempt_id || superseded.runId !== row.run_id)) throw new FactoryTaskStopError("factory_task_stop_corrupt");
+    const authority = await this.journal.readAuthorityInTransaction(transaction, { tenantId: this.authority.tenantId, projectId: held.projectId, runId: held.runId, attemptId: held.attemptId });
+    if (!authority) throw new FactoryTaskStopError("factory_task_stop_corrupt");
+    const end = row?.state === "stopped" && row.stop_receipt_digest ? { kind: "stop" as const, digest: row.stop_receipt_digest }
+      : superseded ? { kind: "restore-supersession" as const, digest: superseded.restoreDigest }
+      : undefined;
+    return Object.freeze({ projectId: held.projectId, runId: held.runId, interpreterId: held.interpreterId, reservationId, authority, ...(end === undefined ? {} : { end: Object.freeze(end) }) });
+  }
+
+  private async accept(service: TrustedFactoryServiceIdentity, reference: TrustedFactoryCommandReference): Promise<SealedStop | FactoryTaskStopReceipt> {
+    return this.authority.withCurrentCancellation(service, reference, async (transaction, context) => {
+      const attemptReference = Object.freeze({ ...reference, commandId: context.command.attemptCommandId });
+      // The queue names the attempt the cancel command fences; the durable
+      // execution row is the sealed authority. A stop requires both to agree
+      // and never re-authorizes forward dispatch on a cancelling run.
+      const delivery = await this.attempts.readInTransaction(transaction, reference.projectId, context.command.attemptCommandId);
+      // No queued attempt: the cancel may name an attempt still waiting for compute admission (W09h).
+      if (!delivery) return this.settleBeforeAdmission(transaction, reference, context);
+      const queued = factoryAttemptAuthority(delivery.reference);
+      const authority = await this.journal.readAuthorityInTransaction(transaction, { tenantId: reference.tenantId, projectId: reference.projectId, runId: reference.logicalRunId, attemptId: queued.attemptId });
+      if (!authority || canonicalJson(stopAuthorityFacts(authority)) !== canonicalJson(stopAuthorityFacts(queued))) throw new FactoryTaskStopError("factory_task_stop_stale");
+      if (authority.nodeInstanceId !== context.command.nodeId || authority.candidateGeneration !== context.command.candidateGeneration || authority.attemptNumber !== context.command.attempt) throw new FactoryTaskStopError("factory_task_stop_stale");
+      const outcome = await this.outcomes.readVerifiedInTransaction(transaction, service, attemptReference);
+      const liveAuthority = await this.sealAuthority(transaction, reference, authority, outcome);
+      const acceptedAtMs = this.clock(context.state.nowMs);
+      const request: FactoryTaskStopRequest = Object.freeze({
+        cancelReference: reference,
+        ...(outcome ? { attemptReference } : {}),
+        attemptId: liveAuthority.attemptId,
+        reservationId: liveAuthority.reservationId,
+        workerId: liveAuthority.workerId,
+        holderGeneration: liveAuthority.holderGeneration,
+        allocationGeneration: liveAuthority.allocationGeneration,
+        hostId: liveAuthority.hostId,
+        reason: terminalStopReason(outcome?.result ?? liveAuthority.terminalResult),
+        source: outcome ? "terminal-outcome" : "sealed-launch",
+      });
+      const requestJson = encodeFactoryPayload(request);
+      const requestDigest = stopHash(request);
+      if (!await this.journal.acceptCancellationInTransaction(transaction, authority)) throw new FactoryTaskStopError("factory_task_stop_stale");
+      await transaction.execute(sql`INSERT INTO factory_task_stops (tenant_id,project_id,run_id,interpreter_id,cancel_command_id,attempt_command_id,attempt_id,reservation_id,request_json,request_digest,source,state,accepted_at_ms) VALUES (${reference.tenantId},${reference.projectId},${reference.logicalRunId},${reference.interpreterId},${reference.commandId},${request.attemptReference?.commandId ?? null},${request.attemptId},${request.reservationId},${requestJson},${requestDigest},${request.source},'accepted',${acceptedAtMs}) ON CONFLICT (tenant_id,project_id,run_id,interpreter_id,cancel_command_id) DO NOTHING`);
+      const saved = await this.readRow(transaction, reference);
+      if (!saved || saved.request_digest !== requestDigest || saved.request_json !== requestJson) throw new FactoryTaskStopError("factory_task_stop_conflict");
+      return { request, liveAuthority, acceptedAtMs: Number(saved.accepted_at_ms) };
+    });
+  }
+
+  /**
+   * W09h: stops an attempt that never reached compute admission, in place, in the cancel's own transaction.
+   *
+   * The kernel's cancel-node for a `reserved` node names its `request-admission` command. That attempt was
+   * never queued, never claimed and never held capacity, so there is no process to stop and no host to ask:
+   * the stop is recorded on its admission, carrying the cancellation epoch it raised, and the kernel gets
+   * `attempt-stopped` with `stoppedBefore: "admission"`, so the run reaches its terminal without the pool.
+   * Only the admission row is locked (after the run): a reserved attempt has no stop row and no launch row,
+   * so FACTORY_STOP_LAUNCH_LOCK_ORDER has nothing to order. Anything else is still refused stale.
+   *
+   * R4: in the same transaction the unused hold settles all zero through the `no-operations` source, under
+   * the basis FACTORY_USAGE_NOTHING_LAUNCHED_BASIS: nothing was admitted, so no process ran and cost, tokens
+   * and compute are all known zeros. It is proven by the digest of this sealed stop, since no host signs a
+   * stop for an attempt that never ran.
+   */
+  private async settleBeforeAdmission(transaction: MigrationDb, reference: TrustedFactoryCommandReference, context: FactoryAuthorizedCancellationCommand): Promise<FactoryTaskStopReceipt> {
+    const { command, attempt, state, fence } = context;
+    // The reservation is keyed by the node's last attempt, so only that attempt can be this one.
+    if (state.nodes[command.nodeId]?.attempts.at(-1) !== attempt) throw new FactoryTaskStopError("factory_task_stop_stale");
+    const atMs = this.clock(state.nowMs);
+    const event: StopEvent = Object.freeze({ kind: "attempt-stopped", id: `${reference.commandId}:stopped`, atMs, nodeId: command.nodeId, commandId: attempt.commandId, candidateGeneration: attempt.candidateGeneration, attempt: attempt.attempt, stoppedBefore: "admission" });
+    const key = { projectId: reference.projectId, runId: reference.logicalRunId, reservationId: factoryTaskReservationId(reference, context) };
+    const stopped = await this.compute.stopInTransaction(transaction, key, { commandId: reference.commandId, attemptCommandId: command.attemptCommandId, epoch: fence.cancellationEpoch, requestedAtMs: atMs }, event);
+    if (!stopped) throw new FactoryTaskStopError("factory_task_stop_stale");
+    if (stopped.created) {
+      const stopDigest = stopHash({ schemaVersion: "factory.admission-stop.v1", reservationId: key.reservationId, epoch: fence.cancellationEpoch, event: stopped.event });
+      await settleFactoryNothingLaunchedInTransaction(transaction, { budgets: this.budgets, settlements: this.settlements }, { ...key, interpreterId: reference.interpreterId }, stopDigest,
+        { attemptId: attempt.commandId, nodeInstanceId: command.nodeId, candidateGeneration: attempt.candidateGeneration, attemptNumber: attempt.attempt });
+      await this.inbox.enqueueInTransaction(transaction, { projectId: reference.projectId, runId: reference.logicalRunId, interpreterId: reference.interpreterId }, stopped.event);
+    }
+    return Object.freeze({ state: "stopped" as const, event: Object.freeze(stopped.event) });
+  }
+
+  /** A stop this cancel already settled in place before admission (W09h), answered again without the kernel. */
+  private async readStoppedBeforeAdmission(transaction: MigrationDb, reference: TrustedFactoryCommandReference): Promise<FactoryTaskStopReceipt | undefined> {
+    const event = await this.compute.readStopInTransaction(transaction, { projectId: reference.projectId, runId: reference.logicalRunId, stopCommandId: reference.commandId });
+    return event && Object.freeze({ state: "stopped" as const, event: Object.freeze(event) });
+  }
+
+  /**
+   * Derives the stop authority from the sealed admission plus the durable
+   * launch record. Every generation, host, worker, and token must agree before
+   * a stop request can name this holder.
+   */
+  private async sealAuthority(transaction: MigrationDb, reference: TrustedFactoryCommandReference, authority: FactoryAttemptAuthority, outcome: FactoryVerifiedTaskOutcome | undefined): Promise<FactoryLiveStopAuthority> {
+    // Acceptance locks the launch row and then creates the stop row (FACTORY_STOP_LAUNCH_LOCK_ORDER, rule 2).
+    const launch = await readFactoryAttemptLaunchFacts(transaction, authority.attemptId, authority.candidateGeneration, authority.attemptNumber);
+    if (!launch || launch.state === "prepared") throw new FactoryTaskStopError("factory_task_stop_stale");
+    if (launch.tenantId !== reference.tenantId || launch.projectId !== reference.projectId || launch.runId !== reference.logicalRunId || launch.requestDigest !== authority.requestDigest || launch.grantRevision !== authority.grantRevision) throw new FactoryTaskStopError("factory_task_stop_stale");
+    const material = await this.compute.readRetainedAdmittedInTransaction(transaction, { projectId: reference.projectId, runId: reference.logicalRunId, reservationId: launch.reservationId });
+    const { lease } = material.receipt;
+    // The pool pins a host only for an allocation that binds a whole one, so an
+    // ordinary CPU reservation has none — which is the same reasoning `confirm`
+    // already applies to `confirmStopped` below: having no opinion is not a
+    // contradiction. Requiring one here made every CPU attempt unstoppable: the
+    // guest ran, its result became durable, the kernel issued `cancel-node`, and
+    // this refused it `factory_task_stop_stale` on every pass while the run sat
+    // in `stopping`. Measured end to end, not reasoned about.
+    //
+    // The host the stop addresses comes from the durable launch record, which
+    // sealed it when the attempt was prepared. A lease that DOES name a host
+    // must still agree with it.
+    if ((lease.hostId !== undefined && lease.hostId !== launch.hostId) || !launch.hostId || lease.holderGeneration !== launch.holderGeneration || lease.allocationGeneration !== launch.allocationGeneration || lease.allocationToken !== launch.allocationToken || lease.allocationGeneration !== authority.reservationGeneration) throw new FactoryTaskStopError("factory_task_stop_stale");
+    if (outcome && (outcome.authority.attemptId !== authority.attemptId || outcome.receipt.reservationId !== launch.reservationId || outcome.authority.candidateGeneration !== authority.candidateGeneration || outcome.authority.attemptNumber !== authority.attemptNumber)) throw new FactoryTaskStopError("factory_task_stop_stale");
+    stopCount(launch.holderGeneration, 1); stopCount(launch.allocationGeneration, 1);
+    return Object.freeze({
+      schemaVersion: "factory.stop-authority.v1" as const,
+      attemptId: authority.attemptId,
+      authority,
+      reservationId: launch.reservationId,
+      workerId: launch.workerId,
+      invocationId: launch.invocationId,
+      hostId: launch.hostId,
+      holderGeneration: launch.holderGeneration,
+      allocationGeneration: launch.allocationGeneration,
+      allocationToken: launch.allocationToken,
+      requestDigest: launch.requestDigest,
+      launchState: launch.state,
+      ...(launch.terminalResult === undefined ? {} : { terminalResult: launch.terminalResult }),
+      ...(outcome ? { terminalOutcome: outcome } : {}),
+    });
+  }
+
+  private async markUncertain(service: TrustedFactoryServiceIdentity, reference: TrustedFactoryCommandReference, cause?: unknown): Promise<FactoryTaskStopReceipt> {
+    return this.database.transaction(async transaction => {
+      const current = await this.readSealed(transaction, service, reference, true);
+      if (!current) throw new FactoryTaskStopError("factory_task_stop_not_found");
+      // A row that is already uncertain keeps its first event: the identity of
+      // the uncertainty is durable and a retry must not mint a second one. The
+      // CAUSE is not durable and belongs to this pass, and the durable read has
+      // none — so returning the read unchanged is how every retry after the
+      // first loses the reason it just learned, and the operator's stream says
+      // only that the stop is still open. Measured on a real run, where thirty
+      // consecutive passes reported a causeless refusal.
+      if (current.receipt) return current.receipt.state === "stopped" || cause === undefined ? current.receipt : Object.freeze({ ...current.receipt, cause });
+      const atMs = this.clock(current.acceptedAtMs);
+      const event = stopEventFor(current.request, current.liveAuthority.authority, atMs, "stop-uncertain", true);
+      await this.retainUncertainBudget(transaction, reference, current.request.reservationId);
+      await this.inbox.enqueueInTransaction(transaction, { projectId: reference.projectId, runId: reference.logicalRunId, interpreterId: reference.interpreterId }, event);
+      await transaction.execute(sql`UPDATE factory_task_stops SET state='uncertain',uncertain_event_json=${encodeFactoryPayload(event)},uncertain_event_digest=${stopHash(event)},updated_at=NOW() WHERE tenant_id=${reference.tenantId} AND project_id=${reference.projectId} AND run_id=${reference.logicalRunId} AND interpreter_id=${reference.interpreterId} AND cancel_command_id=${reference.commandId} AND state IN ('accepted','uncertain')`);
+      return Object.freeze({ state: "uncertain" as const, event, ...(cause === undefined ? {} : { cause }) });
+    });
+  }
+
+  private async finalize(transaction: MigrationDb, service: TrustedFactoryServiceIdentity, reference: TrustedFactoryCommandReference, receipt: FactoryPhysicalStopReceipt, settlement: StopSettlement): Promise<FactoryTaskStopReceipt> {
+    const current = await this.readSealed(transaction, service, reference, true);
+    if (!current) throw new FactoryTaskStopError("factory_task_stop_not_found");
+    if (current.receipt?.state === "stopped") {
+      if (canonicalJson(current.receipt.stopReceipt) !== canonicalJson(receipt)) throw new FactoryTaskStopError("factory_task_stop_conflict");
+      return current.receipt;
+    }
+    this.assertHostReceipt(current, receipt);
+    await this.assertUnconsumedReceipt(transaction, current.request, receipt);
+    if (!await this.journal.confirmStoppedInTransaction(transaction, current.liveAuthority.authority)) throw new FactoryTaskStopError("factory_task_stop_stale");
+    const settlementScope = { projectId: reference.projectId, runId: reference.logicalRunId, interpreterId: reference.interpreterId, reservationId: current.request.reservationId, authority: current.liveAuthority.authority };
+    const budgetKey = { projectId: reference.projectId, runId: reference.logicalRunId, reservationId: current.request.reservationId };
+    // W05b: reconciliation may settle the cost while the physical stop is still
+    // unconfirmed. The stop that confirms later is then certain: the budget is
+    // already settled, and the event clears the kernel's uncertainty.
+    const reconciled = settlement.kind === "held" && (await this.settlements.readLatestInTransaction(transaction, budgetKey))?.source === "reconciliation";
+    if (settlement.kind === "measured") {
+      const usage = settlement.usage;
+      await this.budgets.settleInTransaction(transaction, budgetKey, { costMicros: usage.costMicros, tokens: usage.inputTokens + usage.outputTokens, computeMs: usage.computeMs }, receipt.receiptDigest);
+      await this.settlements.recordInTransaction(transaction, settlementScope, { source: "stop", knownCostMicros: usage.costMicros });
+    } else if (settlement.kind === "operations") {
+      // Every operation settled with measured usage: the model cost is the
+      // journal's sum, zero when each provider refused before consuming, and
+      // compute is the reserved bound, proven by this signed stop.
+      await this.budgets.settleAtComputeBoundInTransaction(transaction, budgetKey, { costMicros: settlement.costMicros, tokens: settlement.tokens }, receipt.receiptDigest);
+      await this.settlements.recordInTransaction(transaction, settlementScope, { source: "operations", knownCostMicros: settlement.costMicros, stopReceiptDigest: receipt.receiptDigest, basis: settlement.basis });
+    } else if (settlement.kind === "no-operations") {
+      // No terminal usage and no journaled operation: nothing was ever sent to
+      // a provider, so zero is the settled fact, proven by this signed stop.
+      await this.budgets.settleWithoutOperationsInTransaction(transaction, budgetKey, receipt.receiptDigest);
+      await this.settlements.recordInTransaction(transaction, settlementScope, { source: "no-operations", knownCostMicros: "0", stopReceiptDigest: receipt.receiptDigest });
+    } else if (!reconciled) {
+      await this.retainUncertainBudget(transaction, reference, current.request.reservationId);
+      // A held cost is reported, never settled as zero: the reservation stays
+      // uncertain and the event keeps the held amount visible to the kernel.
+      const usage = terminalStopUsage(current.liveAuthority);
+      if (usage?.kind === "unknown") await this.settlements.recordInTransaction(transaction, settlementScope, { source: "stop", knownCostMicros: "0", unknownCostMicros: usage.heldCostMicros });
+    }
+    const event = stopEventFor(current.request, current.liveAuthority.authority, this.clock(current.acceptedAtMs), "stopped", settlement.kind === "held" && !reconciled, current.receipt?.state === "uncertain");
+    await this.inbox.enqueueInTransaction(transaction, { projectId: reference.projectId, runId: reference.logicalRunId, interpreterId: reference.interpreterId }, event);
+    await transaction.execute(sql`UPDATE factory_task_stops SET state='stopped',stop_receipt_json=${encodeFactoryPayload(receipt)},stop_receipt_digest=${receipt.receiptDigest},stopped_event_json=${encodeFactoryPayload(event)},stopped_event_digest=${stopHash(event)},updated_at=NOW() WHERE tenant_id=${reference.tenantId} AND project_id=${reference.projectId} AND run_id=${reference.logicalRunId} AND interpreter_id=${reference.interpreterId} AND cancel_command_id=${reference.commandId} AND state IN ('accepted','uncertain')`);
+    return Object.freeze({ state: "stopped" as const, event, stopReceipt: Object.freeze(receipt) });
+  }
+
+  /** One signed receipt settles one attempt. A replay on another attempt is refused. */
+  private async assertUnconsumedReceipt(transaction: MigrationDb, request: FactoryTaskStopRequest, receipt: FactoryPhysicalStopReceipt): Promise<void> {
+    const consumed = rows<{ attempt_id: string }>(await transaction.execute(sql`SELECT attempt_id FROM factory_task_stops WHERE tenant_id=${request.cancelReference.tenantId} AND stop_receipt_digest=${receipt.receiptDigest}`));
+    if (consumed.some(row => row.attempt_id !== request.attemptId)) throw new FactoryTaskStopError("factory_task_stop_conflict");
+  }
+
+  private async retainUncertainBudget(transaction: MigrationDb, reference: TrustedFactoryCommandReference, reservationId: string): Promise<void> {
+    const row = rows<{ state: string }>(await transaction.execute(sql`SELECT state FROM factory_budget_reservations WHERE tenant_id=${reference.tenantId} AND project_id=${reference.projectId} AND run_id=${reference.logicalRunId} AND reservation_id=${reservationId} FOR UPDATE`))[0];
+    if (row?.state === "running") await this.budgets.markUncertainInTransaction(transaction, { projectId: reference.projectId, runId: reference.logicalRunId, reservationId }, "physical_stop_unconfirmed");
+    else if (row?.state !== "uncertain") throw new FactoryTaskStopError("factory_task_stop_stale");
+  }
+
+  private async readSealed(transaction: MigrationDb, service: TrustedFactoryServiceIdentity, reference: TrustedFactoryCommandReference, lock: boolean): Promise<SealedStop | undefined> {
+    await this.assertStopScope(transaction, service, reference);
+    const row = await this.readRow(transaction, reference, lock);
+    if (!row) return undefined;
+    const request = sealedStopRequest(row, reference);
+    const liveAuthority = await this.readLiveAuthority(transaction, service, reference, request);
+    const events = sealedStopEvents(row);
+    const sealed: SealedStop = { request: Object.freeze(request), liveAuthority, acceptedAtMs: Number(row.accepted_at_ms) };
+    // A stored certain stop is re-derived from durable facts: a measured
+    // terminal usage, or the amount the stop itself proved and settled.
+    const settledBy = events.stopped ? (await this.settlements.readLatestInTransaction(transaction, { projectId: reference.projectId, runId: reference.logicalRunId, reservationId: request.reservationId }))?.source : undefined;
+    this.assertSealedEvents(sealed, events, settledBy === "no-operations" || settledBy === "operations", settledBy === "reconciliation");
+    const receipt = sealedStopReceipt(row.state, events);
+    return { ...sealed, ...(receipt ? { receipt } : {}) };
+  }
+
+  /** The caller is this installation's service, and the reference names a run of this tenant, now locked. */
+  private async assertStopScope(transaction: MigrationDb, service: TrustedFactoryServiceIdentity, reference: TrustedFactoryCommandReference): Promise<void> {
+    this.authority.assertService(service);
+    assertFactoryIdentity(...Object.values(reference));
+    if (reference.tenantId !== this.authority.tenantId || !await lockFactoryScope(transaction, reference.tenantId, reference.projectId)) throw new FactoryTaskStopError("factory_task_stop_scope");
+    const run = rows(await transaction.execute(sql`SELECT run_id FROM factory_runs WHERE tenant_id=${reference.tenantId} AND project_id=${reference.projectId} AND run_id=${reference.logicalRunId} FOR UPDATE`))[0];
+    if (!run) throw new FactoryTaskStopError("factory_task_stop_scope");
+  }
+
+  /** Rebuilds the stop authority from the journal, the verified outcome, and the launch record, each of which must agree with the sealed request. */
+  private async readLiveAuthority(transaction: MigrationDb, service: TrustedFactoryServiceIdentity, reference: TrustedFactoryCommandReference, request: FactoryTaskStopRequest): Promise<FactoryLiveStopAuthority> {
+    const authority = await this.journal.readAuthorityInTransaction(transaction, { tenantId: reference.tenantId, projectId: reference.projectId, runId: reference.logicalRunId, attemptId: request.attemptId });
+    if (!authority) throw new FactoryTaskStopError("factory_task_stop_corrupt");
+    const outcome = request.attemptReference ? await this.outcomes.readVerifiedInTransaction(transaction, service, request.attemptReference) : undefined;
+    if (Boolean(outcome) !== (request.source === "terminal-outcome")) throw new FactoryTaskStopError("factory_task_stop_corrupt");
+    // Second in FACTORY_STOP_LAUNCH_LOCK_ORDER: the caller already holds the stop row.
+    const launch = await readFactoryAttemptLaunchFacts(transaction, request.attemptId, authority.candidateGeneration, authority.attemptNumber);
+    if (!launch || launch.hostId !== request.hostId || launch.reservationId !== request.reservationId || launch.workerId !== request.workerId || launch.holderGeneration !== request.holderGeneration || launch.allocationGeneration !== request.allocationGeneration) throw new FactoryTaskStopError("factory_task_stop_corrupt");
+    const liveAuthority = Object.freeze({
+      schemaVersion: "factory.stop-authority.v1" as const, attemptId: request.attemptId, authority,
+      reservationId: launch.reservationId, workerId: launch.workerId, invocationId: launch.invocationId, hostId: launch.hostId,
+      holderGeneration: launch.holderGeneration, allocationGeneration: launch.allocationGeneration, allocationToken: launch.allocationToken,
+      requestDigest: launch.requestDigest, launchState: launch.state,
+      ...(launch.terminalResult === undefined ? {} : { terminalResult: launch.terminalResult }),
+      ...(outcome ? { terminalOutcome: outcome } : {}),
+    });
+    const derivedReason = terminalStopReason(outcome?.result ?? launch.terminalResult);
+    if (derivedReason !== request.reason) throw new FactoryTaskStopReasonConflictError(request.reason, derivedReason);
+    return liveAuthority;
+  }
+
+  /** Each stored event is the one this stop would emit, at or after its acceptance; a stored receipt is a valid host proof. */
+  private assertSealedEvents(sealed: SealedStop, { uncertain, physical, stopped }: SealedStopEvents, stopProven: boolean, reconciled: boolean): void {
+    const { request, liveAuthority, acceptedAtMs } = sealed;
+    const authority = liveAuthority.authority;
+    if (uncertain) {
+      stopCount(uncertain.atMs);
+      if (uncertain.atMs < acceptedAtMs || canonicalJson(uncertain) !== canonicalJson(stopEventFor(request, authority, uncertain.atMs, "stop-uncertain", true))) throw new FactoryTaskStopError("factory_task_stop_corrupt");
+    }
+    if (physical && stopped) {
+      this.assertHostReceipt(sealed, physical);
+      stopCount(stopped.atMs);
+      const certain = stopProven || terminalStopUsage(liveAuthority)?.kind === "measured";
+      // A stop sealed before W03e never cleared an earlier uncertainty
+      // explicitly, so its certain event after a `stop-uncertain` one has no
+      // `uncertain` field. That row is valid old data and stays readable; only
+      // an event matching neither shape is corrupt.
+      const current = canonicalJson(stopEventFor(request, authority, stopped.atMs, "stopped", !certain, Boolean(uncertain)));
+      const preW03e = canonicalJson(stopEventFor(request, authority, stopped.atMs, "stopped", !certain));
+      // W05b: a stop confirmed after reconciliation already settled its cost is
+      // certain, and clears the earlier uncertainty itself.
+      const afterReconciliation = reconciled ? canonicalJson(stopEventFor(request, authority, stopped.atMs, "stopped", false, Boolean(uncertain))) : undefined;
+      if (stopped.atMs < acceptedAtMs || (canonicalJson(stopped) !== current && canonicalJson(stopped) !== preW03e && canonicalJson(stopped) !== afterReconciliation)) throw new FactoryTaskStopError("factory_task_stop_corrupt");
+    }
+  }
+
+  /** The stop row, locked first: see FACTORY_STOP_LAUNCH_LOCK_ORDER (stop row, then launch row). */
+  private async readRow(transaction: MigrationDb, reference: TrustedFactoryCommandReference, lock = true): Promise<StopRow | undefined> {
+    return rows<StopRow>(await transaction.execute(sql`SELECT * FROM factory_task_stops WHERE tenant_id=${reference.tenantId} AND project_id=${reference.projectId} AND run_id=${reference.logicalRunId} AND interpreter_id=${reference.interpreterId} AND cancel_command_id=${reference.commandId}${lock ? sql` FOR UPDATE` : sql``}`))[0];
+  }
+
+  /** Only a configured supervisor key can assert a physical observation. */
+  private assertHostReceipt(sealed: SealedStop, receipt: FactoryPhysicalStopReceipt): void {
+    const observedAtMs = this.now();
+    stopCount(observedAtMs);
+    const verdict = validateFactoryStopReceipt(sealed.request, receipt, this.keys, { acceptedAtMs: sealed.acceptedAtMs, observedAtMs, toleranceMs: this.stopTimeoutMs });
+    if (verdict.ok) return;
+    const code = firstFactoryJournalIssue(verdict);
+    throw new FactoryTaskStopError(code === "factory_stop_receipt_clock_out_of_bounds" || code === "factory_stop_receipt_clock_invalid" ? "factory_task_stop_clock_invalid" : "factory_task_stop_proof_invalid");
+  }
+
+  private clock(minimum: number): number {
+    const value = this.now();
+    stopCount(value);
+    if (value < minimum) throw new FactoryTaskStopError("factory_task_stop_clock_invalid");
+    return value;
+  }
+
+  private withDeadline<Result>(work: (signal: AbortSignal) => Promise<Result>): Promise<Result> {
+    return factoryStopWithDeadline(this.stopTimeoutMs, work);
+  }
+}
+
+/**
+ * Refuses `factory_task_stop_pool_mismatch` unless the pool's answer confirms this signed stop.
+ *
+ * The holder generation names the holder the host stopped. The pool moves the allocation generation forward only to
+ * fence that holder (cancel, revoke, ledger recovery, an expired lease), and a new holder always gets a new holder
+ * generation. So a confirmation for the same holder at the same or a later allocation generation is this holder's:
+ * the pool reclaimed the lease before the stop reached it (W02d R6, measured in P2), and still confirmed it. A lower
+ * one is not about this allocation. The pool records a host only for an allocation that binds a whole one, so a CPU
+ * reservation has none: the signed receipt proves the host binding, the pool must not contradict it, and having no
+ * opinion is not a contradiction. A GPU host's stop confirms while the host waits for its reimage (W02d R7); no other
+ * uncertainty does.
+ */
+export function assertFactoryPoolConfirmsStop(acknowledged: PoolLeaseStatus, receipt: Pick<FactoryPhysicalStopReceipt, "reservationId" | "holderGeneration" | "allocationGeneration" | "hostId">): void {
+  if (acknowledged.reservationId !== receipt.reservationId || !poolStopConfirmed(acknowledged) || acknowledged.holderGeneration !== receipt.holderGeneration
+    || acknowledged.allocationGeneration < receipt.allocationGeneration || (acknowledged.hostId !== undefined && acknowledged.hostId !== receipt.hostId)) throw new FactoryTaskStopError("factory_task_stop_pool_mismatch");
+}
+
+/** How a confirmed stop settles: a completed result's measured usage, or what its journal proves. */
+type StopSettlement = { readonly kind: "measured"; readonly usage: FactoryMeasuredUsage } | FactoryJournalStopSettlement;
+
+/** A sealed stop still to drive, as opposed to a receipt already final (a stop settled in place, W09h). */
+function isSealedStop(value: SealedStop | FactoryTaskStopReceipt): value is SealedStop {
+  return "request" in value;
+}
+
+/** Runs one call to the host or the pool, aborted and refused `factory_task_stop_timeout` after `timeoutMs`. */
+export async function factoryStopWithDeadline<Result>(timeoutMs: number, work: (signal: AbortSignal) => Promise<Result>): Promise<Result> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => { timer = setTimeout(() => { controller.abort(); reject(new FactoryTaskStopError("factory_task_stop_timeout")); }, timeoutMs); });
+  try { return await Promise.race([work(controller.signal), timeout]); }
+  finally { if (timer) clearTimeout(timer); }
+}
+
+/** The one terminal usage a stop may report: the outcome's, else the durable launch result's. */
+function terminalStopUsage(liveAuthority: FactoryLiveStopAuthority): FactoryUsage | undefined {
+  return liveAuthority.terminalOutcome?.result.usage ?? liveAuthority.terminalResult?.usage;
+}
+

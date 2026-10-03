@@ -1,0 +1,17 @@
+Checked 4 files in 4ms. No fixes applied.
+── Tests (staged) ─────────────────────────────────
+  bun: src/factory/runner/python-runner.integration.test.ts
+bun test v1.4.2 (744846f84)
+
+ 4 pass
+ 0 fail
+ 305 expect() calls
+Ran 4 tests across 1 file. [9.57s]
+  bun: src/factory/runner/uv-command.test.ts
+bun test v1.4.2 (744846f84)
+
+ 6 pass
+ 0 fail
+ 15 expect() calls
+Ran 6 tests across 1 file. [1099.00ms]
+[detached HEAD 01328c1ab] merge: wp/w4g-5 c7a740455 into integ/w00 (W4G-5 TypeScript spawners reach uv through one resolver)

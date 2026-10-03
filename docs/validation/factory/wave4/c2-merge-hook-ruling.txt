@@ -1,0 +1,11 @@
+COORDINATOR RULING (team-lead, 2026-09-29 00:2xZ) — C2 integ-side merge commit, list-bound hook skip
+
+Applies to: the merge of wp/w18-hygiene-c2 7ad678bb3 into integ/w00 at base d9d75f3be (trial tree 139a70405 == 7ad678bb3's tree).
+The hook maps 54 suites at that tree (w00/c2-merge/hook-mapped-7ad678bb3.txt, sha256 700b82b311c8cf6d), above the cap of 12.
+Ruling: EZ_SKIP_HOOK_TESTS=1 is permitted for THIS ONE COMMIT only, bound to that exact 54-file list. VOID if the hook's mapping at
+commit time differs in any file (the integrator re-derives the list and compares the sha256 before committing). All 54 run outside
+the hook under the heavy lock (lock_veto integrator-2 first), one process per Bun file with lcov, with receipts (exit, nonzero count,
+log sha256) and the shared git config hash 44962525f1ca1a8b before and after; the batch also runs the owner's coverage-list.txt
+suites, the package builds, the web server leg, the guard set and the graph-proof runbook mock pass. This text goes verbatim into the
+merge commit message. Subject: "merge: wp/w18-hygiene-c2 7ad678bb3 into integ/w00 (item C2 hygiene)". Detached-HEAD form, publish by
+compare-and-swap on all green.

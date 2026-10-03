@@ -1,0 +1,23 @@
+=== heavy 2026-09-27T12:43:57Z
+HEAD 29f8f2d4b16948e121e1635e033c820bf1008b21 MERGE_HEAD f23ec14d2db525b04f339a23d55c8c225e744864 index-tree f2aca5e363d3ef34b915e51bfbf09d662cee9ffb
+resource-gate 2026-09-27T12:43:57Z refcode-podman disk=123G memAvailable=19GiB swapFreeKiB=5331712/17173956
+--- START refcode-podman 2026-09-27T12:43:57Z
+--- END   refcode-podman 2026-09-27T12:44:09Z exit=0  1 pass 0 fail 
+resource-gate 2026-09-27T12:44:09Z coverage-bun disk=123G memAvailable=18GiB swapFreeKiB=5353204/17173956
+--- START coverage-bun 2026-09-27T12:44:09Z
+--- END   coverage-bun 2026-09-27T12:44:17Z exit=0  108 pass 0 fail 
+resource-gate 2026-09-27T12:44:17Z coverage-merge disk=123G memAvailable=19GiB swapFreeKiB=5405224/17173956
+--- START coverage-merge 2026-09-27T12:44:17Z
+--- END   coverage-merge 2026-09-27T12:44:17Z exit=0 
+resource-gate 2026-09-27T12:44:17Z sdk-build disk=123G memAvailable=19GiB swapFreeKiB=5405388/17173956
+--- START sdk-build 2026-09-27T12:44:17Z
+--- END   sdk-build 2026-09-27T12:44:17Z exit=0 
+resource-gate 2026-09-27T12:44:17Z web-build disk=123G memAvailable=19GiB swapFreeKiB=5405496/17173956
+--- START web-build 2026-09-27T12:44:17Z
+--- END   web-build 2026-09-27T12:44:56Z exit=0 
+resource-gate 2026-09-27T12:44:56Z graph-mock-pass disk=123G memAvailable=17GiB swapFreeKiB=5503896/17173956
+--- START graph-mock-pass 2026-09-27T12:44:56Z
+--- END   graph-mock-pass 2026-09-27T12:45:49Z exit=0 
+no retained database or run in /tmp/factory-platform-evidence/w00/w14b-merge/graph/w14b-merge-mock.json; nothing to dump
+mock pass w14b-merge-mock outcome: passed
+HEAVY DONE status=0 dirty=0 2026-09-27T12:45:49Z

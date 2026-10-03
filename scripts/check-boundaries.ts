@@ -35,6 +35,7 @@
  * `docs/extensions/examples/** -> src/**`) are a separate change.
  */
 import { resolve, dirname, relative } from "node:path";
+import { currentRepositoryGitContext } from "@ezcorp/sdk/git";
 
 export const REPO_ROOT = resolve(import.meta.dir, "..");
 
@@ -82,10 +83,25 @@ export function extractSpecifiers(source: string): string[] {
  * its manifest with the host's authoritative validator). Forbidding those
  * would force duplicating the very constant the guard exists to compare
  * against. This is a principled distinction, not a per-file allowlist.
+ *
+ * A test path is a test or spec file (`.test.`, `.spec.`, or the Playwright
+ * `.pw.` suffix a qualification config selects), anything under a `__tests__/` directory,
+ * the root `tests/` tree (the PostgreSQL helpers), the Playwright tree
+ * `web/e2e/`, and a package's own top-level `test/` or `tests/` directory.
+ * Directory names are anchored to those roots, because production code also
+ * uses the word: `web/src/routes/api/providers/local/test/+server.ts` is a
+ * route, not a test.
  */
 export function isTestPath(p: string): boolean {
-  return /(?:\.test\.|\.spec\.|__tests__\/|\/test\/)/.test(p);
+  return /(?:\.(?:test|spec|pw)(?:\.|$)|__tests__\/|^tests\/|^web\/e2e\/|^packages\/@ezcorp\/[^/]+\/tests?\/)/.test(p);
 }
+
+/**
+ * Data a test tree shares (an e2e lane list read by a script, a fixture) is
+ * not test CODE. The test-path rule forbids importing code: a helper that
+ * mocks the database or builds fixtures must never run in a shipped path.
+ */
+const DATA_TARGET_RE = /\.(?:json|txt|md|ya?ml|csv|svg|png)$/;
 
 /**
  * Resolve an import specifier to a repo-relative path, or null when it is not
@@ -119,10 +135,33 @@ export type Violation = { from: string; spec: string; target: string; rule: stri
  * not resolve to a first-party path at all.
  */
 export function checkEdge(fromFile: string, spec: string): Violation | null {
+  if (
+    (spec === "@xyflow/svelte" || spec.startsWith("@xyflow/svelte/") || spec === "elkjs" || spec.startsWith("elkjs/")) &&
+    !fromFile.startsWith("web/src/lib/factory/")
+  ) {
+    return {
+      from: fromFile,
+      spec,
+      target: spec,
+      rule: "factory-graph-libraries",
+      why: "Svelte Flow and ELK are confined to web/src/lib/factory/",
+    };
+  }
   const target = resolveSpecifier(fromFile, spec);
   if (target === null) return null;
   const t = bare(target);
   const v = (rule: string, why: string): Violation => ({ from: fromFile, spec, target, rule, why });
+
+  // ── only a test may import test code ──
+  // A non-test file that imports a test helper or suite ships test code
+  // (database mocks, fixture builders) into whatever loads it. Before this
+  // rule only `.dockerignore` stood in the way.
+  if (!isTestPath(fromFile) && isTestPath(t) && !DATA_TARGET_RE.test(target)) {
+    return v(
+      "no-test-imports-outside-tests",
+      `a non-test file cannot import test code (${t}) — move the shared code out of the test tree, or the caller into it`,
+    );
+  }
 
   // ── packages/@ezcorp/** (production) must not reach into the app ──
   // A package is consumed outside this repo; an import of `src/**` or `web/**`
@@ -183,7 +222,11 @@ export function formatViolations(violations: readonly Violation[]): string {
 const SOURCE_RE = /\.(?:ts|tsx|js|mjs|cjs|svelte)$/;
 
 async function main(): Promise<void> {
-  const proc = Bun.spawnSync(["git", "ls-files"], { cwd: REPO_ROOT, stdout: "pipe" });
+  // Item C2 (W18 hygiene): this walks the CURRENT checkout's tracked files
+  // as invoked, not some other named repository, so it keeps the invoking
+  // git context (currentRepositoryGitContext(), never withoutGitContext() --
+  // stripping here would be wrong, not merely unneeded).
+  const proc = Bun.spawnSync(["git", "ls-files"], { cwd: REPO_ROOT, stdout: "pipe", env: currentRepositoryGitContext(process.env) });
   const files = proc.stdout.toString().split("\n").filter((f) => SOURCE_RE.test(f));
   // A glob that matched nothing would make this gate silently vacuous.
   if (files.length < 100) {

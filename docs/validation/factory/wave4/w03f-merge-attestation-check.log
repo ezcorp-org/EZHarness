@@ -1,0 +1,7 @@
+PASS json parses as a list
+PASS exactly one entry: 1 entries
+PASS entry file: src/factory/task-stops.ts
+PASS fileSha256 equals the file at rev: entry ee44eb3570d88a8a file ee44eb3570d88a8a
+PASS text equals the line at the recorded number: line 373
+PASS bunVersion equals .bun-version: entry 1.3.14 tree 1.3.14
+conditions (1)+(2): PASS

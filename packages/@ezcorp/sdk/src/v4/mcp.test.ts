@@ -69,7 +69,7 @@ test.skipIf(process.env.EZCORP_RUN_PODMAN_TESTS !== "1")("MCP executable discove
       expect(await build.exited, diagnostics).toBe(0);
       await chmod(join(directory, target!), 0o644);
     }
-    child = Bun.spawn(["podman", "run", "--rm", "--pull=never", "-i", "--network=none", "--read-only", "--user=65534:65534", "--cap-drop=ALL", "--security-opt=no-new-privileges", "--log-driver=none", "--pids-limit=64", "--memory=512m", "--cpus=1", "--tmpfs=/tmp:rw,noexec,nosuid,size=16m", "-v", `${directory}:/workspace:ro`, "--workdir=/workspace", "--entrypoint=/usr/local/bin/bun", "docker.io/oven/bun@sha256:e10577f0db68676a7024391c6e5cb4b879ebd17188ab750cf10024a6d700e5c4", "/workspace/extension.js"], { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+    child = Bun.spawn(["podman", "run", "--rm", "--pull=never", "-i", "--network=none", "--read-only", "--user=65534:65534", "--cap-drop=ALL", "--security-opt=no-new-privileges", "--log-driver=none", "--pids-limit=64", "--memory=512m", "--cpus=1", "--tmpfs=/tmp:rw,noexec,nosuid,size=16m", "-v", `${directory}:/workspace:ro`, "--workdir=/workspace", "--entrypoint=/usr/local/bin/bun", "docker.io/oven/bun@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895", "/workspace/extension.js"], { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
     const reader = (child.stdout as ReadableStream<Uint8Array>).getReader();
     let buffered = "";
     async function frame(): Promise<Record<string, any>> {

@@ -17,6 +17,7 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 ROOT_FAIL=0
 WEB_FAIL=0
 TESTS_FAIL=0
+PYTHON_FAIL=0
 
 echo "→ Typechecking backend (src/)..."
 cd "$ROOT"
@@ -38,11 +39,21 @@ cd "$ROOT"
 bun scripts/typecheck-tests.ts || TESTS_FAIL=1
 
 echo ""
-if [ "$ROOT_FAIL" -eq 0 ] && [ "$WEB_FAIL" -eq 0 ] && [ "$TESTS_FAIL" -eq 0 ]; then
+# Biome and tsc cannot see Python. Without this leg every line of the locked
+# Python distribution is untyped in a repository that calls itself typechecked.
+# scripts/python-quality.sh fails closed when uv, the lock, or the pinned
+# interpreter is missing, so an absent toolchain reds this leg rather than
+# silently reducing its scope.
+echo "→ Typechecking the locked Python distribution (mypy --strict)..."
+bash "$ROOT/scripts/python-quality.sh" typecheck || PYTHON_FAIL=1
+
+echo ""
+if [ "$ROOT_FAIL" -eq 0 ] && [ "$WEB_FAIL" -eq 0 ] && [ "$TESTS_FAIL" -eq 0 ] && [ "$PYTHON_FAIL" -eq 0 ]; then
   echo "✓ Typecheck passed."
   exit 0
 fi
 [ "$ROOT_FAIL" -ne 0 ] && echo "✗ Backend (src/) typecheck failed."
 [ "$WEB_FAIL" -ne 0 ] && echo "✗ Web typecheck failed."
 [ "$TESTS_FAIL" -ne 0 ] && echo "✗ Tests/e2e typecheck failed (see scripts/typecheck-tests.ts output)."
+[ "$PYTHON_FAIL" -ne 0 ] && echo "✗ Python typecheck failed (see scripts/python-quality.sh typecheck output)."
 exit 1

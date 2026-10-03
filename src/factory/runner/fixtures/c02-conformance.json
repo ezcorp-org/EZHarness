@@ -1,0 +1,760 @@
+{
+  "success": [
+    {
+      "name": "pinned-request",
+      "kind": "request",
+      "value": {
+        "schemaVersion": "factory.runner.request.v1",
+        "authority": {
+          "attemptId": "attempt-1",
+          "tenantId": "tenant-1",
+          "projectId": "project-1",
+          "runId": "run-1",
+          "nodeInstanceId": "node-1",
+          "candidateGeneration": 0,
+          "attemptNumber": 1,
+          "grantRevision": 2,
+          "reservationGeneration": 3,
+          "executionEpoch": 4,
+          "cancellationEpoch": 0,
+          "deadlineAtMs": 2000000000000,
+          "nextOperationIndex": 0
+        },
+        "runner": {
+          "package": "@example/runner",
+          "manifestName": "runner",
+          "version": "1.2.3",
+          "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "export": "run",
+          "model": "model-v1",
+          "configurationDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "input": {
+          "kind": "inline",
+          "value": {
+            "prompt": "safe"
+          }
+        },
+        "grants": [
+          "model:invoke",
+          "tool:read"
+        ],
+        "resources": {
+          "maxCostMicros": "1000",
+          "maxTokens": 200,
+          "maxComputeMs": 30000,
+          "memoryBytes": 1024,
+          "resourceClass": "cpu.small"
+        },
+        "model": {
+          "provider": "anthropic",
+          "model": "model-v1",
+          "configurationDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "configuration": {
+            "temperature": 0
+          },
+          "policyDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "policy": {
+            "retries": 1
+          }
+        },
+        "tools": [
+          {
+            "name": "read",
+            "description": "Read a value",
+            "inputSchema": {
+              "type": "object",
+              "additionalProperties": false
+            },
+            "outputSchema": {
+              "type": "string"
+            }
+          }
+        ],
+        "broker": {
+          "attemptToken": "signed-attempt-token",
+          "audience": "installation-1"
+        }
+      }
+    },
+    {
+      "name": "completed-result",
+      "kind": "result",
+      "value": {
+        "schemaVersion": "factory.runner.result.v1",
+        "status": "completed",
+        "journalCursor": 5,
+        "operations": [
+          {
+            "operationId": "run-1:node-1:0:5",
+            "operationIndex": 5,
+            "kind": "model",
+            "requestDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "state": "completed",
+            "resultDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "usage": {
+              "kind": "measured",
+              "inputTokens": 10,
+              "outputTokens": 20,
+              "computeMs": 30,
+              "costMicros": "40"
+            },
+            "workspaceCheckpoint": {
+              "artifactId": "checkpoint-1",
+              "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "encodedBytes": 512,
+              "journalCursor": 5
+            }
+          }
+        ],
+        "resultDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "output": {
+          "artifactId": "result-1",
+          "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "encodedBytes": 256
+        },
+        "usage": {
+          "kind": "measured",
+          "inputTokens": 10,
+          "outputTokens": 20,
+          "computeMs": 30,
+          "costMicros": "40"
+        },
+        "workspaceCheckpoint": {
+          "artifactId": "checkpoint-1",
+          "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "encodedBytes": 512,
+          "journalCursor": 5
+        }
+      }
+    },
+    {
+      "name": "pinned-guest-model-request",
+      "kind": "guest-model-request",
+      "value": {
+        "schemaVersion": "factory.guest-model-request.v1",
+        "operationId": "run-1:node-1:0:2",
+        "operationIndex": 2,
+        "model": {
+          "provider": "anthropic",
+          "model": "claude-opus-5",
+          "configurationDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "configuration": {
+            "temperature": 0
+          },
+          "policyDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "policy": {
+            "tools": false
+          }
+        },
+        "messages": [
+          {
+            "role": "system",
+            "text": "Answer exactly what was asked."
+          },
+          {
+            "role": "user",
+            "text": "Summarise the staged diff."
+          }
+        ],
+        "maxOutputTokens": 1024
+      }
+    },
+    {
+      "name": "completed-guest-model-response",
+      "kind": "guest-model-response",
+      "value": {
+        "schemaVersion": "factory.guest-model-response.v1",
+        "status": "completed",
+        "operationId": "run-1:node-1:0:2",
+        "text": "The staged diff renames one export and adds a test.",
+        "providerReceiptDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "usage": {
+          "kind": "measured",
+          "inputTokens": 11,
+          "outputTokens": 7,
+          "computeMs": 21,
+          "costMicros": "1200"
+        }
+      }
+    },
+    {
+      "name": "refused-guest-model-response",
+      "kind": "guest-model-response",
+      "value": {
+        "schemaVersion": "factory.guest-model-response.v1",
+        "status": "refused",
+        "operationId": "run-1:node-1:0:2",
+        "refusal": {
+          "code": "model_pin_mismatch",
+          "message": "A guest may only call the model its attempt pinned."
+        }
+      }
+    },
+    {
+      "name": "planned-guest-material-begin",
+      "kind": "guest-material-request",
+      "value": {
+        "schemaVersion": "factory.guest-material-begin.v1",
+        "operationId": "run-1:node-1:0:0",
+        "operationIndex": 0,
+        "objectName": "report.json",
+        "version": 1,
+        "mediaType": "application/json",
+        "totalBytes": 29,
+        "chunkCount": 1
+      }
+    },
+    {
+      "name": "one-guest-material-chunk",
+      "kind": "guest-material-request",
+      "value": {
+        "schemaVersion": "factory.guest-material-chunk.v1",
+        "operationId": "run-1:node-1:0:0",
+        "operationIndex": 0,
+        "objectName": "report.json",
+        "version": 1,
+        "index": 0,
+        "digest": "sha256:ec660117d4658ef52244f8f8a947bcf05dc6f2b87ef51879c4be1a316e5389cc",
+        "encodedBytes": 29,
+        "contentBase64": "YSBzdGFnZWQgY29uZm9ybWFuY2UgbWF0ZXJpYWw="
+      }
+    },
+    {
+      "name": "sealed-guest-material",
+      "kind": "guest-material-request",
+      "value": {
+        "schemaVersion": "factory.guest-material-seal.v1",
+        "operationId": "run-1:node-1:0:0",
+        "operationIndex": 0,
+        "objectName": "report.json",
+        "version": 1,
+        "digest": "sha256:ec660117d4658ef52244f8f8a947bcf05dc6f2b87ef51879c4be1a316e5389cc"
+      }
+    },
+    {
+      "name": "promoted-guest-material-output",
+      "kind": "guest-material-request",
+      "value": {
+        "schemaVersion": "factory.guest-material-output.v1",
+        "operationId": "run-1:node-1:0:0",
+        "operationIndex": 0,
+        "objectName": "report.json",
+        "version": 1,
+        "digest": "sha256:ec660117d4658ef52244f8f8a947bcf05dc6f2b87ef51879c4be1a316e5389cc"
+      }
+    },
+    {
+      "name": "begun-guest-material-response",
+      "kind": "guest-material-response",
+      "value": {
+        "schemaVersion": "factory.guest-material-response.v1",
+        "operationId": "run-1:node-1:0:0",
+        "operationIndex": 0,
+        "objectName": "report.json",
+        "version": 1,
+        "status": "begun",
+        "totalBytes": 29,
+        "chunkCount": 1
+      }
+    },
+    {
+      "name": "stored-guest-material-response",
+      "kind": "guest-material-response",
+      "value": {
+        "schemaVersion": "factory.guest-material-response.v1",
+        "operationId": "run-1:node-1:0:0",
+        "operationIndex": 0,
+        "objectName": "report.json",
+        "version": 1,
+        "status": "stored",
+        "index": 0,
+        "digest": "sha256:ec660117d4658ef52244f8f8a947bcf05dc6f2b87ef51879c4be1a316e5389cc"
+      }
+    },
+    {
+      "name": "sealed-guest-material-response",
+      "kind": "guest-material-response",
+      "value": {
+        "schemaVersion": "factory.guest-material-response.v1",
+        "operationId": "run-1:node-1:0:0",
+        "operationIndex": 0,
+        "objectName": "report.json",
+        "version": 1,
+        "status": "sealed",
+        "material": {
+          "artifactId": "factory-artifact-material-1",
+          "digest": "sha256:ec660117d4658ef52244f8f8a947bcf05dc6f2b87ef51879c4be1a316e5389cc",
+          "encodedBytes": 29
+        }
+      }
+    },
+    {
+      "name": "output-guest-material-response",
+      "kind": "guest-material-response",
+      "value": {
+        "schemaVersion": "factory.guest-material-response.v1",
+        "operationId": "run-1:node-1:0:0",
+        "operationIndex": 0,
+        "objectName": "report.json",
+        "version": 1,
+        "status": "output",
+        "output": {
+          "artifactId": "factory-artifact-material-1",
+          "digest": "sha256:ec660117d4658ef52244f8f8a947bcf05dc6f2b87ef51879c4be1a316e5389cc",
+          "encodedBytes": 29
+        },
+        "resultDigest": "ec660117d4658ef52244f8f8a947bcf05dc6f2b87ef51879c4be1a316e5389cc"
+      }
+    },
+    {
+      "name": "refused-guest-material-response",
+      "kind": "guest-material-response",
+      "value": {
+        "schemaVersion": "factory.guest-material-response.v1",
+        "operationId": "run-1:node-1:0:0",
+        "operationIndex": 0,
+        "objectName": "report.json",
+        "version": 1,
+        "status": "refused",
+        "refusal": {
+          "code": "stale_epoch",
+          "message": "the attempt fence moved"
+        }
+      }
+    }
+  ],
+  "rejected": [
+    {
+      "name": "unsupported-tool-ast",
+      "kind": "request",
+      "path": [
+        "tools",
+        0,
+        "inputSchema"
+      ],
+      "value": {
+        "not": {
+          "type": "string"
+        }
+      }
+    },
+    {
+      "name": "unsafe-authority-integer",
+      "kind": "request",
+      "path": [
+        "authority",
+        "nextOperationIndex"
+      ],
+      "value": 9007199254740992
+    },
+    {
+      "name": "noncanonical-money",
+      "kind": "request",
+      "path": [
+        "resources",
+        "maxCostMicros"
+      ],
+      "value": "01"
+    },
+    {
+      "name": "forged-model-identity",
+      "kind": "request",
+      "path": [
+        "model",
+        "model"
+      ],
+      "value": "different"
+    },
+    {
+      "name": "wrong-runner-pin",
+      "kind": "request",
+      "path": [
+        "runner",
+        "version"
+      ],
+      "value": "latest"
+    },
+    {
+      "name": "malformed-usage",
+      "kind": "result",
+      "path": [
+        "usage",
+        "costMicros"
+      ],
+      "value": "01"
+    },
+    {
+      "name": "malformed-checkpoint",
+      "kind": "result",
+      "path": [
+        "workspaceCheckpoint",
+        "journalCursor"
+      ],
+      "value": 4
+    },
+    {
+      "name": "scoped-name-as-manifest-name",
+      "kind": "request",
+      "path": [
+        "runner",
+        "manifestName"
+      ],
+      "value": "@ezcorp/reference-data"
+    },
+    {
+      "name": "uppercase-manifest-name",
+      "kind": "request",
+      "path": [
+        "runner",
+        "manifestName"
+      ],
+      "value": "ReferenceData"
+    },
+    {
+      "name": "empty-manifest-name",
+      "kind": "request",
+      "path": [
+        "runner",
+        "manifestName"
+      ],
+      "value": ""
+    },
+    {
+      "name": "guest-model-operation-not-its-own-index",
+      "kind": "guest-model-request",
+      "path": [
+        "operationId"
+      ],
+      "value": "run-1:node-1:0:9"
+    },
+    {
+      "name": "guest-model-output-over-bound",
+      "kind": "guest-model-request",
+      "path": [
+        "maxOutputTokens"
+      ],
+      "value": 1000000
+    },
+    {
+      "name": "guest-model-output-not-a-counter",
+      "kind": "guest-model-request",
+      "path": [
+        "maxOutputTokens"
+      ],
+      "value": 0
+    },
+    {
+      "name": "guest-model-no-messages",
+      "kind": "guest-model-request",
+      "path": [
+        "messages"
+      ],
+      "value": []
+    },
+    {
+      "name": "guest-model-message-over-byte-bound",
+      "kind": "guest-model-request",
+      "path": [
+        "messages",
+        0,
+        "text"
+      ],
+      "generate": {
+        "kind": "text",
+        "unit": "x",
+        "times": 17000
+      }
+    },
+    {
+      "name": "guest-model-input-over-byte-bound",
+      "kind": "guest-model-request",
+      "path": [
+        "messages"
+      ],
+      "generate": {
+        "kind": "messages",
+        "count": 3,
+        "length": 12000
+      }
+    },
+    {
+      "name": "guest-model-unknown-role",
+      "kind": "guest-model-request",
+      "path": [
+        "messages",
+        0,
+        "role"
+      ],
+      "value": "tool"
+    },
+    {
+      "name": "guest-model-response-text-over-bound",
+      "kind": "guest-model-response",
+      "path": [
+        "text"
+      ],
+      "generate": {
+        "kind": "text",
+        "unit": "y",
+        "times": 140000
+      }
+    },
+    {
+      "name": "guest-model-response-receipt-invalid",
+      "kind": "guest-model-response",
+      "path": [
+        "providerReceiptDigest"
+      ],
+      "value": "sha256:short"
+    },
+    {
+      "name": "guest-model-response-cost-not-unsigned",
+      "kind": "guest-model-response",
+      "path": [
+        "usage",
+        "costMicros"
+      ],
+      "value": "-1"
+    },
+    {
+      "name": "guest-model-response-operation-blank",
+      "kind": "guest-model-response",
+      "path": [
+        "operationId"
+      ],
+      "value": ""
+    },
+    {
+      "name": "guest-model-response-status-unknown",
+      "kind": "guest-model-response",
+      "path": [
+        "status"
+      ],
+      "value": "maybe"
+    },
+    {
+      "name": "guest-model-refusal-message-blank",
+      "kind": "guest-model-response",
+      "from": "refused-guest-model-response",
+      "path": [
+        "refusal",
+        "message"
+      ],
+      "value": ""
+    },
+    {
+      "name": "guest-model-response-receipt-prefixed",
+      "kind": "guest-model-response",
+      "path": [
+        "providerReceiptDigest"
+      ],
+      "value": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    },
+    {
+      "name": "guest-material-operation-not-its-own-index",
+      "kind": "guest-material-request",
+      "from": "planned-guest-material-begin",
+      "path": [
+        "operationId"
+      ],
+      "value": "run-1:node-1:0:9"
+    },
+    {
+      "name": "guest-material-name-escapes-its-root",
+      "kind": "guest-material-request",
+      "from": "planned-guest-material-begin",
+      "path": [
+        "objectName"
+      ],
+      "value": "../escape.json"
+    },
+    {
+      "name": "guest-material-version-below-one",
+      "kind": "guest-material-request",
+      "from": "planned-guest-material-begin",
+      "path": [
+        "version"
+      ],
+      "value": 0
+    },
+    {
+      "name": "guest-material-media-type-not-a-type-subtype",
+      "kind": "guest-material-request",
+      "from": "planned-guest-material-begin",
+      "path": [
+        "mediaType"
+      ],
+      "value": "application"
+    },
+    {
+      "name": "guest-material-total-bytes-over-bound",
+      "kind": "guest-material-request",
+      "from": "planned-guest-material-begin",
+      "path": [
+        "totalBytes"
+      ],
+      "value": 99999999
+    },
+    {
+      "name": "guest-material-chunk-count-over-bound",
+      "kind": "guest-material-request",
+      "from": "planned-guest-material-begin",
+      "path": [
+        "chunkCount"
+      ],
+      "value": 65
+    },
+    {
+      "name": "guest-material-chunk-count-cannot-carry-the-bytes",
+      "kind": "guest-material-request",
+      "from": "planned-guest-material-begin",
+      "path": [
+        "chunkCount"
+      ],
+      "value": 40
+    },
+    {
+      "name": "guest-material-chunk-index-over-bound",
+      "kind": "guest-material-request",
+      "from": "one-guest-material-chunk",
+      "path": [
+        "index"
+      ],
+      "value": 64
+    },
+    {
+      "name": "guest-material-chunk-digest-not-prefixed",
+      "kind": "guest-material-request",
+      "from": "one-guest-material-chunk",
+      "path": [
+        "digest"
+      ],
+      "value": "ec660117d4658ef52244f8f8a947bcf05dc6f2b87ef51879c4be1a316e5389cc"
+    },
+    {
+      "name": "guest-material-chunk-bytes-over-bound",
+      "kind": "guest-material-request",
+      "from": "one-guest-material-chunk",
+      "path": [
+        "encodedBytes"
+      ],
+      "value": 32769
+    },
+    {
+      "name": "guest-material-chunk-content-disagrees-with-its-count",
+      "kind": "guest-material-request",
+      "from": "one-guest-material-chunk",
+      "path": [
+        "encodedBytes"
+      ],
+      "value": 7
+    },
+    {
+      "name": "guest-material-chunk-content-not-canonical-base64",
+      "kind": "guest-material-request",
+      "from": "one-guest-material-chunk",
+      "path": [
+        "contentBase64"
+      ],
+      "value": "A$=="
+    },
+    {
+      "name": "guest-material-seal-digest-invalid",
+      "kind": "guest-material-request",
+      "from": "sealed-guest-material",
+      "path": [
+        "digest"
+      ],
+      "value": "sha256:not-hex"
+    },
+    {
+      "name": "guest-material-output-digest-invalid",
+      "kind": "guest-material-request",
+      "from": "promoted-guest-material-output",
+      "path": [
+        "digest"
+      ],
+      "value": "sha256:"
+    },
+    {
+      "name": "guest-material-response-operation-unnamed",
+      "kind": "guest-material-response",
+      "from": "begun-guest-material-response",
+      "path": [
+        "operationId"
+      ],
+      "value": "run-1:node-1:0:4"
+    },
+    {
+      "name": "guest-material-response-plan-empty",
+      "kind": "guest-material-response",
+      "from": "begun-guest-material-response",
+      "path": [
+        "totalBytes"
+      ],
+      "value": 0
+    },
+    {
+      "name": "guest-material-response-stored-index-negative",
+      "kind": "guest-material-response",
+      "from": "stored-guest-material-response",
+      "path": [
+        "index"
+      ],
+      "value": -1
+    },
+    {
+      "name": "guest-material-response-stored-digest-invalid",
+      "kind": "guest-material-response",
+      "from": "stored-guest-material-response",
+      "path": [
+        "digest"
+      ],
+      "value": "sha256:zz"
+    },
+    {
+      "name": "guest-material-response-handle-is-a-path",
+      "kind": "guest-material-response",
+      "from": "sealed-guest-material-response",
+      "path": [
+        "material",
+        "artifactId"
+      ],
+      "value": "a/b"
+    },
+    {
+      "name": "guest-material-response-result-digest-prefixed",
+      "kind": "guest-material-response",
+      "from": "output-guest-material-response",
+      "path": [
+        "resultDigest"
+      ],
+      "value": "sha256:ec660117d4658ef52244f8f8a947bcf05dc6f2b87ef51879c4be1a316e5389cc"
+    },
+    {
+      "name": "guest-material-response-refusal-message-empty",
+      "kind": "guest-material-response",
+      "from": "refused-guest-material-response",
+      "path": [
+        "refusal",
+        "message"
+      ],
+      "value": ""
+    },
+    {
+      "name": "guest-material-response-refusal-message-over-bound",
+      "kind": "guest-material-response",
+      "from": "refused-guest-material-response",
+      "path": [
+        "refusal",
+        "message"
+      ],
+      "generate": {
+        "kind": "text",
+        "unit": "x",
+        "times": 4097
+      }
+    }
+  ]
+}

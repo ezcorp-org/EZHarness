@@ -1,0 +1,8 @@
+1c1
+< Gate integrity FAILED (1 finding(s)):
+---
+> Gate integrity FAILED (4 finding(s)):
+2a3,5
+>   coverage gate tool changed (M): scripts/check-coverage.ts — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label
+>   coverage gate tool changed (M): scripts/check-new-file-coverage.ts — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label
+>   coverage gate tool changed (M): scripts/merge-lcov.ts — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label

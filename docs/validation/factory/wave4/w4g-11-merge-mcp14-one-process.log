@@ -1,0 +1,8 @@
+bun test v1.4.2 (744846f84)
+FAKE_MCP_PID:2204264
+
+ 138 pass
+ 6 skip
+ 0 fail
+ 290 expect() calls
+Ran 144 tests across 14 files. [1.91s]

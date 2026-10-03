@@ -1,5 +1,5 @@
-import { test, expect, describe, beforeEach, afterAll, mock } from "bun:test";
-import { restoreModuleMocks } from "./helpers/mock-cleanup";
+import { test, expect, describe, beforeEach, beforeAll, afterAll, mock } from "bun:test";
+import { restoreModuleMocks, webLibModule, serverModule } from "./helpers/mock-cleanup";
 import { mockServerAlias, createMockEvent, jsonFromResponse, ADMIN_USER, MEMBER_USER } from "./helpers/mock-request";
 
 // ── Module-level mocks (BEFORE handler imports) ──────────────────
@@ -27,31 +27,48 @@ const mockCheckLocalModel = mock(async () => ({
   latencyMs: 42,
 }));
 
-mock.module("../auth/middleware", () => ({
-  requireAuth: mockRequireAuth,
-  requireRole: mockRequireRole,
-}));
-
-mock.module("../providers/local-model-check", () => ({
+const localModelExports = serverModule("providers/local-model-check", {
   checkLocalModel: mockCheckLocalModel,
-}));
+});
+mock.module("../providers/local-model-check", () => localModelExports);
 
 // Register $server aliases
 mockServerAlias();
 
 // Override $server aliases with mock implementations
-mock.module("$server/auth/middleware", () => ({
-  requireAuth: mockRequireAuth,
-  requireRole: mockRequireRole,
-}));
-mock.module("$server/providers/local-model-check", () => ({
-  checkLocalModel: mockCheckLocalModel,
-}));
+// auth/middleware: registered in beforeAll below, not here at module top
+// level — item C2 (W18 hygiene). A raw object literal here is a partial
+// mock (missing checkAuth/checkProjectRole/etc.), and the
+// $server/auth/middleware alias is claimed by dozens of files repo-wide, so
+// whichever registration is active when a shared-process run resolves the
+// alias wins for every OTHER file too. beforeAll (test-execution time) plus
+// a complete serverModule() factory make THIS file's own values active for
+// THIS file's own tests; afterAll hands the alias back to the real module.
+const realAuthMiddleware = serverModule("auth/middleware", {});
+beforeAll(() => {
+  mock.module("$server/auth/middleware", () => ({
+    ...realAuthMiddleware,
+    requireAuth: mockRequireAuth,
+    requireRole: mockRequireRole,
+  }));
+  // Dual-specifier lesson: the relative path is the identical literal
+  // specifier other src/__tests__/ files at this depth resolve to.
+  mock.module("../auth/middleware", () => ({
+    ...realAuthMiddleware,
+    requireAuth: mockRequireAuth,
+    requireRole: mockRequireRole,
+  }));
+});
+afterAll(() => {
+  mock.module("$server/auth/middleware", () => realAuthMiddleware);
+  mock.module("../auth/middleware", () => realAuthMiddleware);
+});
+mock.module("$server/providers/local-model-check", () => localModelExports);
 
 // F2: the REAL `requireScope` — not a `() => null` stub — so the scope axis is
 // genuinely under test. Cookie principals (no `apiKeyScopes`) still pass it,
 // which is why every pre-existing test in this file is unaffected.
-mock.module("$lib/server/security/api-keys", () => ({
+mock.module("$lib/server/security/api-keys", () => webLibModule("server/security/api-keys", {
   requireScope: realRequireScope,
   // Real contract: null when the principal IS an admin, else a 403 Response.
   // RETURNED, never thrown — a thrown Response 500s via SvelteKit.

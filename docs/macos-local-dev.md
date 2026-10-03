@@ -158,7 +158,7 @@ sources there, not on the Mac.
    sudo systemctl daemon-reload && sudo systemctl restart user@2000.service
    ```
 4. **Bun, an immutable release copy, dependencies, images** — as ezrunner:
-   install Bun 1.3.14 (`curl -fsSL https://bun.sh/install | bash -s bun-v1.3.14`);
+   install Bun 1.4.2 (`curl -fsSL https://bun.sh/install | bash -s bun-v1.4.2`);
    copy a `git archive HEAD` of `package.json bun.lock bunfig.toml
    tsconfig.json packages scripts src` to `~/app`; run
    `bun install --frozen-lockfile` **with `~/.bun/bin` on `PATH`** (the

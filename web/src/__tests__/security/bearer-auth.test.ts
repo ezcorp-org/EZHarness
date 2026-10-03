@@ -18,7 +18,7 @@ import {
   resetInternalKeyStoreForTests,
   INTERNAL_KEY_PREFIX,
 } from "$lib/server/security/internal-auth";
-import { restoreModuleMocks } from "../../../../src/__tests__/helpers/mock-cleanup";
+import { restoreModuleMocks, webLibModule } from "../../../../src/__tests__/helpers/mock-cleanup";
 
 // Observe calls to the user-key verifier so we can assert it is NOT
 // invoked on the internal-key path. The impl is a mutable let so a
@@ -62,9 +62,10 @@ let verifyApiKeyImpl: (raw: string) => Promise<
   if (raw === "ezk_member_adminowner") return { userId: "user-2", name: "Member Key", scopes: ["read"], role: "member" };
   return null;
 };
-mock.module("$lib/server/security/api-keys", () => ({
+const apiKeysExports = webLibModule("server/security/api-keys", {
   verifyApiKey: (raw: string) => verifyApiKeyImpl(raw),
-}));
+});
+mock.module("$lib/server/security/api-keys", () => apiKeysExports);
 
 // Stub the users query so on-behalf-of validation has a real user row to
 // resolve. `geff` is our canonical human user; `ghost` is an id that does
@@ -80,7 +81,8 @@ mock.module("$server/db/queries/users", () => ({
 afterAll(() => restoreModuleMocks());
 
 // Import AFTER the mock so attachBearerAuth resolves to the stubbed verifier.
-import { attachBearerAuth, type BearerAuthEvent } from "$lib/server/security/bearer-auth";
+import { attachBearerAuth, attachFactoryServiceBearer, type BearerAuthEvent } from "$lib/server/security/bearer-auth";
+import { signFactoryServiceToken } from "$server/auth/factory-service-token";
 
 function makeEvent(
   remoteAddress: string | undefined = "127.0.0.1",
@@ -107,6 +109,54 @@ beforeEach(() => {
   userStore.set("user-demoted", { id: "user-demoted", name: "Demoted", role: "member", status: "active" });
   userStore.set("user-banned", { id: "user-banned", name: "Banned", role: "admin", status: "inactive" });
   // `user-orphan` intentionally absent — models a deleted owner.
+});
+
+describe("attachFactoryServiceBearer", () => {
+  test("stamps only the validated service identity for an exact route scope", async () => {
+    const issuedAtMs = Math.floor(Date.now() / 1_000) * 1_000;
+    const identity = { serviceAccountId: "service-a", projectId: "project-a", credentialId: "credential-a", revision: 1, scopes: ["read"] as const, issuedAtMs, expiresAtMs: issuedAtMs + 60_000 };
+    const raw = await signFactoryServiceToken(identity, "service-secret", "installation-a");
+    const authenticated: unknown[] = [];
+    const event = makeEvent();
+    expect(await attachFactoryServiceBearer(event, raw, {
+      scope: "read", secret: "service-secret", installationId: "installation-a",
+      authenticate: async (...args) => { authenticated.push(args); },
+    })).toBe(true);
+    expect(event.locals.factoryServicePrincipal).toEqual({ tokenUse: "factory-service", ...identity, scopes: ["read"] });
+    expect(event.locals.user).toBeUndefined();
+    expect(event.locals.authMethod).toBeUndefined();
+    expect(authenticated).toHaveLength(1);
+  });
+
+  test("fails closed for an ineligible route or foreign installation", async () => {
+    const issuedAtMs = Math.floor(Date.now() / 1_000) * 1_000;
+    const raw = await signFactoryServiceToken({ serviceAccountId: "service-a", projectId: "project-a", credentialId: "credential-a", revision: 1, scopes: ["read"], issuedAtMs, expiresAtMs: issuedAtMs + 60_000 }, "service-secret", "installation-a");
+    const authenticate = async () => { throw new Error("must not authenticate"); };
+    expect(await attachFactoryServiceBearer(makeEvent(), raw, { scope: null, secret: "service-secret", installationId: "installation-a", authenticate })).toBe(false);
+    expect(await attachFactoryServiceBearer(makeEvent(), raw, { scope: "read", secret: "service-secret", installationId: "installation-b", authenticate })).toBe(false);
+  });
+
+  test("routes the dedicated prefix exclusively without forging a user", async () => {
+    const issuedAtMs = Math.floor(Date.now() / 1_000) * 1_000;
+    const raw = await signFactoryServiceToken({ serviceAccountId: "service-a", projectId: "project-a", credentialId: "credential-a", revision: 1, scopes: ["read"], issuedAtMs, expiresAtMs: issuedAtMs + 60_000 }, "service-secret", "installation-a");
+    const event = makeEvent();
+    expect(await attachBearerAuth(event, `Bearer ${raw}`, { scope: "read", secret: "service-secret", installationId: "installation-a", authenticate: async () => {} })).toBe(true);
+    expect(event.locals.factoryServicePrincipal?.serviceAccountId).toBe("service-a");
+    expect(event.locals.user).toBeUndefined();
+    expect(verifyApiKeyCalls).toHaveLength(0);
+    const denied = makeEvent();
+    expect(await attachBearerAuth(denied, `Bearer ${raw}`, { scope: "read", secret: "service-secret", installationId: "installation-a", authenticate: async () => { throw new Error("revoked"); } })).toBe(false);
+    expect(denied.locals.factoryServicePrincipal).toBeUndefined();
+  });
+
+  test("fails closed through the production dependency path when Factory is disabled", async () => {
+    const issuedAtMs = Math.floor(Date.now() / 1_000) * 1_000;
+    const raw = await signFactoryServiceToken({ serviceAccountId: "service-a", projectId: "project-a", credentialId: "credential-a", revision: 1, scopes: ["read"], issuedAtMs, expiresAtMs: issuedAtMs + 60_000 }, "service-secret", "installation-a");
+    const event = { ...makeEvent(), method: "GET", routeId: "/api/factories/projects/[projectId]/definitions" };
+    expect(await attachBearerAuth(event, `Bearer ${raw}`)).toBe(false);
+    expect(event.locals.factoryServicePrincipal).toBeUndefined();
+    expect(verifyApiKeyCalls).toHaveLength(0);
+  });
 });
 
 // ── No header / wrong scheme ─────────────────────────────────────────────────

@@ -1,0 +1,4 @@
+[factory-supervisor] failed to start: Error: factory supervisor config is invalid
+    at parseFactorySupervisorProcessConfig (/home/dev/work/EZCorp/EZHarness/.worktrees/w14-merge-proof/src/factory/runner/supervisor-process.ts:240:15)
+    at runConfiguredFactorySupervisor (/home/dev/work/EZCorp/EZHarness/.worktrees/w14-merge-proof/src/factory/runner/supervisor-process.ts:547:18)
+    at async runFactorySupervisorMain (/home/dev/work/EZCorp/EZHarness/.worktrees/w14-merge-proof/src/factory/runner/supervisor-process.ts:640:24)

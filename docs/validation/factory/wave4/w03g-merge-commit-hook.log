@@ -1,0 +1,31 @@
+Checked 8 files in 33ms. No fixes applied.
+── Tests (staged) ─────────────────────────────────
+  bun: scripts/check-patch-coverage-attestation.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 26 pass
+ 0 fail
+ 53 expect() calls
+Ran 26 tests across 1 file. [2.10s]
+  bun: scripts/check-patch-coverage-typeonly.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 7 pass
+ 0 fail
+ 28 expect() calls
+Ran 7 tests across 1 file. [2.65s]
+  bun: scripts/gate-integrity-rule11.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 12 pass
+ 0 fail
+ 15 expect() calls
+Ran 12 tests across 1 file. [2.05s]
+  bun: src/__tests__/gate-scripts.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 248 pass
+ 0 fail
+ 624 expect() calls
+Ran 248 tests across 1 file. [7.05s]
+[detached HEAD ae3240dd7] merge: wp/w03g-patch-gate-attestation 1c7c00c76 into integ/w00 (W03g patch-gate attestation)

@@ -1,0 +1,58 @@
+import { FACTORY_LIMITS, type FactoryArtifactReference, type JsonValue } from "@ezcorp/factory-sdk";
+import { sql } from "drizzle-orm";
+import type { MigrationDb } from "../db/migrations/types";
+import { releaseRows as rows } from "../db/queries/extension-releases";
+import { FactoryArtifactAccessError, type FactoryArtifactAccess } from "./artifact-access";
+import { artifactJson, type FactoryArtifacts, type FactoryArtifactKind } from "./artifacts";
+import { assertFactoryArtifactReference } from "./artifact-materials";
+import { assertFactoryIdentity } from "./records";
+
+export class FactoryInputArtifactError extends Error {
+  readonly code = "factory_input_artifact_unavailable";
+  constructor() { super("Factory input artifact is unavailable."); this.name = "FactoryInputArtifactError"; }
+}
+
+export function snapshotFactoryInputArtifact(value: FactoryArtifactReference): FactoryArtifactReference {
+  try { return assertFactoryArtifactReference(value, FACTORY_LIMITS.maxDefinitionBytes); }
+  catch { throw new FactoryInputArtifactError(); }
+}
+
+interface InputArtifact {
+  readonly artifact: FactoryArtifactReference;
+  readonly mediaType: "application/json";
+  readonly storageVersion: string;
+  readonly value: JsonValue;
+}
+
+/** The caller authorizes the target run; this shared loader checks its exact local or explicitly shared immutable input. */
+export class FactoryInputArtifacts {
+  readonly tenantId: string;
+  constructor(private readonly artifacts: FactoryArtifacts, private readonly access: FactoryArtifactAccess) {
+    if (artifacts.tenantId !== access.tenantId) throw new FactoryInputArtifactError();
+    this.tenantId = artifacts.tenantId;
+  }
+
+  async loadInTransaction(transaction: MigrationDb, projectId: string, input: FactoryArtifactReference): Promise<InputArtifact> {
+    const artifact = snapshotFactoryInputArtifact(input);
+    assertFactoryIdentity(projectId);
+    const loaded = await this.load(transaction, projectId, artifact);
+    try {
+      const value = artifactJson.parse(loaded.content);
+      return { artifact, mediaType: "application/json", storageVersion: loaded.storageVersion, value };
+    } catch { throw new FactoryInputArtifactError(); }
+  }
+
+  private async load(transaction: MigrationDb, projectId: string, artifact: FactoryArtifactReference): Promise<{ readonly content: Uint8Array; readonly storageVersion: string }> {
+    try { return await this.access.loadSharedInTransaction(transaction, projectId, artifact, "application/json"); }
+    catch (error) { if (!(error instanceof FactoryArtifactAccessError)) throw error; }
+    const local = rows<{ run_id: string; kind: FactoryArtifactKind; storage_version: string }>(await transaction.execute(sql`SELECT run_id, kind, storage_version FROM factory_artifacts
+      WHERE tenant_id=${this.tenantId} AND project_id=${projectId} AND object_id=${artifact.artifactId} AND digest=${artifact.digest} AND encoded_bytes=${artifact.encodedBytes} FOR SHARE`));
+    if (local.length !== 1) throw new FactoryInputArtifactError();
+    const row = local[0]!;
+    try {
+      const loaded = await this.artifacts.loadInTransaction(transaction, { tenantId: this.tenantId, projectId, logicalRunId: row.run_id, interpreterId: "root" }, { objectId: artifact.artifactId, digest: artifact.digest, encodedBytes: artifact.encodedBytes }, [row.kind], false);
+      if (loaded.reference.objectId !== artifact.artifactId || loaded.reference.digest !== artifact.digest || loaded.reference.encodedBytes !== artifact.encodedBytes || loaded.content.byteLength !== artifact.encodedBytes) throw new FactoryInputArtifactError();
+      return { content: loaded.content, storageVersion: row.storage_version };
+    } catch { throw new FactoryInputArtifactError(); }
+  }
+}

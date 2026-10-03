@@ -1,0 +1,77 @@
+{
+ "head": "3d7fed172aa424b74ad3b0fdb9f4569994c4bcc6",
+ "producers": [
+  {
+   "producer": "sdk",
+   "input": "/tmp/factory-platform-evidence/wave3f-sdk-coverage/lcov.info",
+   "head": "3d7fed172aa424b74ad3b0fdb9f4569994c4bcc6"
+  },
+  {
+   "producer": "product",
+   "input": "/tmp/factory-platform-evidence/wave3f-product-coverage/lcov.info",
+   "head": "3d7fed172aa424b74ad3b0fdb9f4569994c4bcc6"
+  },
+  {
+   "producer": "postgres",
+   "input": "/tmp/factory-platform-evidence/wave3f-postgres-coverage/lcov.info",
+   "head": "3d7fed172aa424b74ad3b0fdb9f4569994c4bcc6"
+  },
+  {
+   "producer": "node",
+   "input": "/tmp/factory-platform-evidence/wave3f-node-coverage/lcov.info",
+   "head": "3d7fed172aa424b74ad3b0fdb9f4569994c4bcc6"
+  },
+  {
+   "producer": "pool",
+   "input": "/tmp/factory-platform-evidence/wave3f-pool-coverage/lcov.info",
+   "head": "3d7fed172aa424b74ad3b0fdb9f4569994c4bcc6"
+  },
+  {
+   "producer": "compute",
+   "input": "/tmp/factory-platform-evidence/wave3f-compute-coverage/lcov.info",
+   "head": "3d7fed172aa424b74ad3b0fdb9f4569994c4bcc6"
+  },
+  {
+   "producer": "provisioning",
+   "input": "/tmp/factory-platform-evidence/wave3f-provisioning-coverage/lcov.info",
+   "head": "3d7fed172aa424b74ad3b0fdb9f4569994c4bcc6"
+  },
+  {
+   "producer": "python",
+   "input": "/tmp/factory-platform-evidence/wave3f-python-coverage/lcov.info",
+   "head": "3d7fed172aa424b74ad3b0fdb9f4569994c4bcc6"
+  },
+  {
+   "producer": "web-vitest",
+   "input": "/tmp/factory-platform-evidence/wave3f-web-coverage/lcov.info",
+   "head": "3d7fed172aa424b74ad3b0fdb9f4569994c4bcc6",
+   "rerooted": true
+  }
+ ],
+ "checks": [
+  {
+   "name": "merge",
+   "exitCode": 0
+  },
+  {
+   "name": "new-file",
+   "base": "644987ada",
+   "exitCode": 0
+  },
+  {
+   "name": "patch",
+   "base": "644987ada",
+   "exitCode": 0
+  },
+  {
+   "name": "new-file",
+   "base": "c6ac529d2",
+   "exitCode": 0
+  },
+  {
+   "name": "patch",
+   "base": "c6ac529d2",
+   "exitCode": 0
+  }
+ ]
+}

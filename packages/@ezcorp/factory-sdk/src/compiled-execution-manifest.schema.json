@@ -1,0 +1,273 @@
+{
+  "$id": "urn:ezcorp:factory:execution-manifest:v1",
+  "$ref": "#/definitions/CompiledExecutionManifest",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "CompiledExecutionBounds": {
+      "additionalProperties": false,
+      "properties": {
+        "maxExpandedNodes": {
+          "type": "number"
+        },
+        "maxScopeDepth": {
+          "type": "number"
+        },
+        "runDeadlineMs": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "runDeadlineMs",
+        "maxExpandedNodes",
+        "maxScopeDepth"
+      ],
+      "type": "object"
+    },
+    "CompiledExecutionManifest": {
+      "additionalProperties": false,
+      "description": "Bounded root metadata loaded separately from a partition's node page.",
+      "properties": {
+        "bounds": {
+          "$ref": "#/definitions/CompiledExecutionBounds"
+        },
+        "factoryDigest": {
+          "type": "string"
+        },
+        "inputPorts": {
+          "additionalProperties": {
+            "$ref": "#/definitions/PortSchema"
+          },
+          "type": "object"
+        },
+        "outputPorts": {
+          "additionalProperties": {
+            "$ref": "#/definitions/PortSchema"
+          },
+          "type": "object"
+        },
+        "outputs": {
+          "additionalProperties": {
+            "$ref": "#/definitions/ValueSource"
+          },
+          "type": "object"
+        },
+        "schemaVersion": {
+          "const": "factory.execution-manifest.v1",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "factoryDigest",
+        "inputPorts",
+        "outputPorts",
+        "bounds",
+        "outputs"
+      ],
+      "type": "object"
+    },
+    "JsonPrimitive": {
+      "type": [
+        "null",
+        "boolean",
+        "number",
+        "string"
+      ]
+    },
+    "JsonValue": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/JsonPrimitive"
+        },
+        {
+          "items": {
+            "$ref": "#/definitions/JsonValue"
+          },
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "#/definitions/JsonValue"
+          },
+          "type": "object"
+        }
+      ]
+    },
+    "LiteralValue": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "literal",
+          "type": "string"
+        },
+        "value": {
+          "$ref": "#/definitions/JsonValue"
+        }
+      },
+      "required": [
+        "kind",
+        "value"
+      ],
+      "type": "object"
+    },
+    "PortSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "$defs": {
+          "additionalProperties": {
+            "$ref": "#/definitions/PortSchema"
+          },
+          "type": "object"
+        },
+        "$ref": {
+          "type": "string"
+        },
+        "additionalProperties": {
+          "type": "boolean"
+        },
+        "const": {
+          "$ref": "#/definitions/JsonValue"
+        },
+        "description": {
+          "type": "string"
+        },
+        "enum": {
+          "items": {
+            "$ref": "#/definitions/JsonValue"
+          },
+          "type": "array"
+        },
+        "items": {
+          "$ref": "#/definitions/PortSchema"
+        },
+        "maxItems": {
+          "type": "number"
+        },
+        "maxLength": {
+          "type": "number"
+        },
+        "maximum": {
+          "type": "number"
+        },
+        "minItems": {
+          "type": "number"
+        },
+        "minLength": {
+          "type": "number"
+        },
+        "minimum": {
+          "type": "number"
+        },
+        "properties": {
+          "additionalProperties": {
+            "$ref": "#/definitions/PortSchema"
+          },
+          "type": "object"
+        },
+        "required": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "title": {
+          "type": "string"
+        },
+        "type": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/PortSchemaType"
+            },
+            {
+              "items": [
+                {
+                  "enum": [
+                    "array",
+                    "boolean",
+                    "integer",
+                    "number",
+                    "object",
+                    "string"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "const": "null",
+                  "type": "string"
+                }
+              ],
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            }
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "PortSchemaType": {
+      "enum": [
+        "array",
+        "boolean",
+        "integer",
+        "null",
+        "number",
+        "object",
+        "string"
+      ],
+      "type": "string"
+    },
+    "ReferencePathSegment": {
+      "type": [
+        "string",
+        "number"
+      ]
+    },
+    "ReferenceRoot": {
+      "enum": [
+        "input",
+        "node",
+        "map",
+        "loop"
+      ],
+      "type": "string"
+    },
+    "ValueReference": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "ref",
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "path": {
+          "items": {
+            "$ref": "#/definitions/ReferencePathSegment"
+          },
+          "type": "array"
+        },
+        "root": {
+          "$ref": "#/definitions/ReferenceRoot"
+        }
+      },
+      "required": [
+        "kind",
+        "root",
+        "name"
+      ],
+      "type": "object"
+    },
+    "ValueSource": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/ValueReference"
+        },
+        {
+          "$ref": "#/definitions/LiteralValue"
+        }
+      ]
+    }
+  }
+}

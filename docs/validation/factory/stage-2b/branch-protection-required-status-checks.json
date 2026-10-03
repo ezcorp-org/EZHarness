@@ -1,0 +1,26 @@
+{
+  "strict": true,
+  "contexts": [
+    "Backend critical (strict pass/fail)",
+    "Backend tests",
+    "E2E (mock, no Docker)",
+    "E2E (real auth + real DB)",
+    "Factory Temporal integration",
+    "Factory assurance and release",
+    "Factory deployment and operations",
+    "Factory isolation",
+    "Factory product and domain E2E",
+    "Factory runner contracts",
+    "Factory schema and kernel",
+    "Gate integrity",
+    "Lint (biome)",
+    "Manifest lockfile drift check",
+    "Per-file coverage gate",
+    "Svelte check",
+    "Typecheck",
+    "Visual evidence",
+    "Web security coverage",
+    "Web tests (bun-leg orphans)",
+    "Web tests (vitest)"
+  ]
+}

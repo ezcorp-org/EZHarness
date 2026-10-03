@@ -1,0 +1,11 @@
+W15d receipts addendum: G6, sent by w15b-fix on 2026-09-27 (source /tmp/factory-platform-evidence/w15d/report.txt,
+section G6; log logs/g6-run.log). Text as received:
+
+W15d G6 (2026-09-27, accepted by the coordinator for memory and census): the run-2 load ran under the heavy lock on a worktree at integ/w00 146a94829, from 09:06:34Z to 09:26:29Z, exit 0. It ran against the current stores with no recreate, as the coordinator ruled. The stores already matched the merged compose values, and a recreate through the socket would raise the ordinary store's oom_score_adj from 0 to 200.
+- ordinary: 20f6b5f48fc8, started 2026-09-23 18:35:46Z, 2 GiB, -volume.max=400, oom_score_adj 0
+- archive: 41269cc4812f, started 2026-09-25 12:47:25Z, 2 GiB, -volume.max=400, oom_score_adj 200
+Gates held: 126 GB disk, 17 GiB available, 5.6 GiB swap free.
+Load, concurrent: pg-checkpoint 12/0, pg-restore 17/0, storage step 434/0.
+Memory, 1,188 samples per store: ordinary peak 716 MiB (646 MiB anon), archive peak 259 MiB (243 MiB anon). oom_kill was 0 in both containers, both show oomkilled=false and restarts=0 with the same start times, and the kernel logged 0 OOM kills during the run. The host stayed at or above 14.4 GiB available and 5.7 GiB swap free. The load's peak disk use was 0.7 GB.
+Store census before and after, identical: 9,876 versions, 9,864 keys, 614,896,050 bytes; 366/400 volumes, all writable; /data 1,512 -> 1,198 MiB. The proof suites removed every object they wrote.
+Deferred: the W19a graph-proof leg failed before it reached the stores. Its guest did not build ('Cannot find module ./console-types.ts'), because W14 added packages/@ezcorp/factory-sdk/src/console-types.ts, imported by types.ts, and scripts/factory-graph-proof/guest-package.ts copies a fixed SDK_MODULES list without it. This is an integ/w00 regression from the W14 merge; W14b fixes it. The graph leg reruns on the W14b head and will be appended.

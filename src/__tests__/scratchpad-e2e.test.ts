@@ -1,22 +1,29 @@
 import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
 import { restoreModuleMocks, unavailableWorkflowAccess } from "./helpers/mock-cleanup";
+import { serverContextStub } from "./helpers/mock-request";
 import { setupTestDb, closeTestDb, mockDbConnection, getTestDb } from "./helpers/test-pglite";
 
 mockDbConnection();
 
 mock.module("$lib/server/workflow-access", unavailableWorkflowAccess);
 
-mock.module("$lib/server/context", () => ({
+mock.module("$lib/server/context", () => serverContextStub({
   getExecutor: () => ({ listAgents: () => [] }),
   getBus: () => ({ emit: () => {}, on: () => () => {} }),
   getCommandRegistry: () => ({ listCommands: async () => [] }),
   ensureInitialized: async () => {},
 }));
 
-mock.module("$server/db/connection", () => {
-  const { getDb } = require("../db/connection");
-  return { getDb };
-});
+// No `$server/db/connection` shim. It was a pass-through to the module
+// `mockDbConnection()` above already mocks, and registering the alias is
+// PERMANENT: from here the specifier is served from this factory instead of
+// resolving through each importer's own tsconfig, frozen on the first thing it
+// returned and on an export set of exactly `getDb`. A later file that needs
+// another of that module's exports through the alias cannot even link. The
+// sync factory documented here avoided one symptom — bun-test hanging at exit
+// on the async form — not the hijack itself. Unregistered, a `web/` route
+// resolves the alias to the same `src/db/connection` record this file has
+// already mocked.
 
 mock.module("../../web/src/routes/api/mentions/search/$types", () => ({}));
 mock.module("../../web/src/routes/api/extensions/[id]/audit/$types", () => ({}));

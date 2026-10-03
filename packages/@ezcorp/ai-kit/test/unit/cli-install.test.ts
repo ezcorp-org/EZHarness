@@ -2,6 +2,7 @@ import { test, expect, describe, beforeEach, afterEach, spyOn } from "bun:test";
 import * as nodePath from "node:path";
 import * as nodeFs from "node:fs";
 import * as nodeOs from "node:os";
+import { gitInDirectory, markGitRepository } from "@ezcorp/sdk/test";
 import { install } from "../../src/cli/install";
 
 // ── tmpdir helpers ────────────────────────────────────────────────────────────
@@ -243,7 +244,7 @@ describe("install ezcorp", () => {
     home = makeTmpDir();
     projectRoot = makeTmpDir();
     // Make it look like a git project root
-    nodeFs.mkdirSync(nodePath.join(projectRoot, ".git"), { recursive: true });
+    markGitRepository(projectRoot);
   });
   afterEach(() => { rmTmpDir(home); rmTmpDir(projectRoot); });
 
@@ -268,6 +269,37 @@ describe("install ezcorp", () => {
 
     const linkPath = nodePath.join(projectRoot, ".ezcorp", "extensions", "ai-kit");
     expect(fileExists(linkPath)).toBe(false);
+  });
+
+  test("resolves the enclosing git repository from a nested cwd", async () => {
+    const repo = makeTmpDir();
+    try {
+      expect(gitInDirectory(repo, ["init", "--quiet"]).exitCode).toBe(0);
+      const nested = nodePath.join(repo, "src", "deep");
+      nodeFs.mkdirSync(nested, { recursive: true });
+      await install("ezcorp", { home, cwd: nested, dryRun: false });
+      const linkPath = nodePath.join(repo, ".ezcorp", "extensions", "ai-kit");
+      expect(nodeFs.lstatSync(linkPath).isSymbolicLink()).toBe(true);
+    } finally {
+      rmTmpDir(repo);
+    }
+  });
+
+  test("a stray empty .git directory above the cwd is not a project root", async () => {
+    // The host once carried an empty `/tmp/.git`; git does not treat it as a
+    // repository, so neither may the installer.
+    const isolated = makeTmpDir();
+    try {
+      nodeFs.mkdirSync(nodePath.join(isolated, ".git"));
+      const nested = nodePath.join(isolated, "sub");
+      nodeFs.mkdirSync(nested);
+      await expect(
+        install("ezcorp", { home, cwd: nested, dryRun: false }),
+      ).rejects.toThrow("Could not find a project root");
+      expect(fileExists(nodePath.join(isolated, ".ezcorp"))).toBe(false);
+    } finally {
+      rmTmpDir(isolated);
+    }
   });
 
   test("throws when no git root found and no projectPath given", async () => {

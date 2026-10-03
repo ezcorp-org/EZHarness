@@ -1,0 +1,911 @@
+/**
+ * The one validated document the factory composition is built from.
+ *
+ * C09 requires that a missing required dependency fails startup by name. A
+ * parser that throws on the first bad field satisfies the letter of that and
+ * not its point: an operator with three unset paths restarts three times. So
+ * this collects every absent and every malformed field and names them all in
+ * one error.
+ *
+ * The shape is a table walked by one validator rather than a hand-written
+ * predicate per field. Adding a dependency is a row, so a new dependency
+ * cannot arrive with a weaker check than its neighbours, and the validator has
+ * one set of branches to prove instead of one per field.
+ *
+ * The document carries references — paths, endpoints, identities — and never a
+ * credential value, matching `parseFactoryOrchestratorProcessConfig`.
+ */
+import { resolve } from "node:path";
+import type { FactoryModelPin } from "@ezcorp/factory-sdk";
+import { factoryModelSamplingOptions } from "./model-configuration";
+import { factoryModelPinMatchesRunner } from "./native-runner-policy";
+import { wellFormedFactoryKeyManagement, type FactoryKeyManagement } from "./key-composition";
+import { isPlainRecord } from "./plain-values";
+import { readPrivatePath } from "./private-files";
+import { exactKeys, httpsUrl, wellFormed, type FieldKind } from "./startup-values";
+import { FACTORY_GUEST_BROKER_AUDIENCE } from "./runner/guest-broker-contract";
+
+export const FACTORY_STARTUP_CONFIG_SCHEMA = "factory.startup.v1";
+const MAX_CONFIG_BYTES = 64 * 1024;
+
+export interface FactoryStartupTlsMaterial {
+  readonly caPath: string;
+  readonly certificatePath: string;
+  readonly privateKeyPath: string;
+}
+
+export interface FactoryStartupStorage {
+  readonly endpoint: string;
+  readonly bucket: string;
+  readonly prefix: string;
+  /** Credential set NAME, for the failure-domain record. Never a value. */
+  readonly credentialSet: string;
+  /** File holding the credential set. Read at composition, never logged. */
+  readonly credentialsPath: string;
+}
+
+export interface FactoryStartupConfig {
+  readonly schemaVersion: typeof FACTORY_STARTUP_CONFIG_SCHEMA;
+  readonly installationId: string;
+  readonly tenantId: string;
+  readonly poolId: string;
+  readonly temporalNamespace: string;
+  readonly orchestrationReadinessFilePath: string;
+  readonly poolReadinessFilePath: string;
+  readonly supervisorReadinessFilePath: string;
+  readonly hostId: string;
+  /**
+   * How often the host maintenance daemon sweeps orphaned legacy runs.
+   *
+   * Required, and at most `FACTORY_ORPHAN_DETECTION_BOUND_MS`. It is declared
+   * here rather than inferred because the daemon's own default is one hour and
+   * an installation that runs factories has agreed to a thirty-second bound.
+   */
+  readonly orphanSweepIntervalMs: number;
+  readonly readinessHeartbeatMs?: number;
+  /**
+   * How long startup keeps probing a service that is not up yet.
+   *
+   * Absent means one round. Present, admission stays closed and the private
+   * service stays bound while the probes repeat, which is what lets a
+   * distributed bring-up converge instead of being decided by start order.
+   */
+  readonly readinessRetry?: { readonly delayMs: number; readonly windowMs: number };
+  /**
+   * The model this installation pins for a guest's reverse broker call.
+   *
+   * Optional, because an installation that runs no model-calling guest needs
+   * none, and inventing a default would be the substitute the provider
+   * readiness rule forbids. When present, both halves are required: a provider
+   * with no model, or a model with no provider, is a half-configured pin and is
+   * refused at parse rather than resolved at the first guest call.
+   */
+  readonly modelProvider?: { readonly provider: string; readonly model: string };
+  readonly gateway: { readonly hostname: string; readonly port: number; readonly tls: FactoryStartupTlsMaterial };
+  readonly privateService: {
+    readonly hostname: string;
+    readonly port: number;
+    readonly certificateIdentity: string;
+    readonly tls: FactoryStartupTlsMaterial;
+    /**
+     * Who may command this installation, and with which signing keys.
+     *
+     * Present only on an installation that runs a Node orchestrator, because
+     * the private service is the endpoint that orchestrator calls back on.
+     * Absent, the product starts no private listener and the orchestrator's own
+     * readiness probe fails — which keeps admission closed rather than opening
+     * it for a run nothing can advance. All three fields or none.
+     */
+    readonly tokens?: { readonly issuer: string; readonly audience: string; readonly publicKeyPaths: Readonly<Record<string, string>> };
+  };
+  readonly pool: { readonly baseUrl: string; readonly serviceTokenPath: string; readonly tls: FactoryStartupTlsMaterial };
+  readonly storage: { readonly ordinary: FactoryStartupStorage; readonly archive: FactoryStartupStorage };
+  readonly keys: { readonly masterKeyFilePath: string; readonly masterKeyId: string; readonly wrappedKeyFilePath: string; readonly grantableRoots: readonly string[] };
+  /**
+   * Where the host launch service listens, for the process that holds no runner.
+   *
+   * Optional, because an installation whose runner lives in the product process
+   * uses the in-process runtime and needs no transport. When present, every
+   * part is required: a base URL with no client material cannot open a mutual
+   * TLS connection, and half a transport is not a transport.
+   */
+  readonly hostLaunch?: {
+    readonly baseUrl: string;
+    readonly serverName: string;
+    readonly attemptTokenSecretPath: string;
+    readonly tls: FactoryStartupTlsMaterial & { readonly serviceTokenPath: string };
+  };
+  /**
+   * The host PUBLIC keys a physical-stop receipt is verified against.
+   *
+   * By reference, never by value, and never a private key: each entry names a
+   * host, a key id, and a file to read the PUBLIC key from. The product process
+   * verifies signatures with these; only the host itself holds the private half,
+   * and `loadFactoryHostSigningKey` on the host is the only thing that reads it.
+   */
+  readonly hostStopKeys?: readonly { readonly hostId: string; readonly hostKeyId: string; readonly publicKeyPath: string }[];
+  /**
+   * The route a runner host forwards a guest's staging frames to.
+   *
+   * A sandboxed guest has no network, so its reverse frame is its only byte
+   * path, and the host that carries it holds no database. This process binds
+   * the route and answers each frame under the attempt token the frame carries,
+   * verified with `hostLaunch.attemptTokenSecretPath`, so a declared route
+   * needs `hostLaunch`. `hosts` maps each HOST certificate identity (never a
+   * tenant) to the host id it runs as; a host may forward only for attempts
+   * whose lease it holds. `tokens` verifies each host's bearer token, in the
+   * same shape as the private service's. Optional: without it no route is
+   * bound, readiness says so by name, and a guest that stages nothing is
+   * unaffected. All parts or none.
+   */
+  readonly guestBroker?: {
+    readonly hostname: string;
+    readonly port: number;
+    readonly hosts: Readonly<Record<string, string>>;
+    readonly tls: FactoryStartupTlsMaterial;
+    readonly tokens: { readonly issuer: string; readonly audience: string; readonly publicKeyPaths: Readonly<Record<string, string>> };
+  };
+  /** An operator's verified replication statement. Absent on a development host. */
+  readonly archiveReplicationEvidence?: string;
+  /**
+   * The runners this installation will dispatch to, and what each one costs.
+   *
+   * One declaration serves two collaborators, which is why it is one section.
+   * `FactoryNativeRunnerPolicy` turns a `dispatch-node` command into a runner
+   * request only for a runner named here, and `FactoryTaskAdmission` turns a
+   * `request-admission` command into a pool request using the same profile's
+   * allocation, keyed by its resource class. Both are deployment facts: nothing
+   * in a factory definition can say what a CPU second costs on this host.
+   *
+   * An installation that declares none cannot admit or dispatch a task, so its
+   * private service does not compose and the reason is reported by name.
+   */
+  readonly runnerProfiles?: {
+    /** The audience a guest's broker token is minted for. */
+    readonly brokerAudience: string;
+    readonly profiles: readonly FactoryStartupRunnerProfile[];
+  };
+  /**
+   * Where a release may publish, and which adapter publishes to which one.
+   *
+   * The last deployment fact the factory needed and did not have. A release
+   * provider binds a destination — `S3FactoryManifestReleaseProvider` refuses
+   * any account but its own configured one, `FactoryGitHubReleaseProvider`
+   * takes a repository — so with nothing declared there is nowhere to publish
+   * and `release-outcome` holds. Nothing in a factory definition can say which
+   * bucket or repository this installation owns.
+   *
+   * Optional, because an installation that publishes nothing needs none, and a
+   * default would publish to a place nobody declared. Present, both halves are
+   * required: destinations with no profile name nothing, and a profile with no
+   * destinations has nowhere to send.
+   *
+   * Credentials are by REFERENCE only. Every path here is read at composition
+   * through the private bounded reader, which refuses a file that is missing,
+   * not a regular file, not owned by this process, or readable by anyone else.
+   * No credential value appears in this document.
+   */
+  readonly release?: {
+    readonly destinations: readonly FactoryStartupReleaseDestination[];
+    readonly profiles: readonly FactoryStartupReleaseProfile[];
+  };
+  /**
+   * The trusted validator runtimes this installation runs protected claims on.
+   *
+   * A validator runtime is a pinned deployment fact: which runner judges a
+   * claim, in which environment, under which configuration. No factory
+   * definition can state it, because a definition that named its own judge
+   * would be trusting itself. So each runtime is declared here BY REFERENCE —
+   * a private material file and the digest it must have — and the composition
+   * reads it through the private bounded reader and refuses by name when it is
+   * missing, shared, or not the bytes the operator declared.
+   *
+   * Optional. An installation that declares none cannot accept a protected
+   * claim, and its readiness says so; a default runtime would be a judge
+   * nobody chose.
+   */
+  readonly validators?: {
+    readonly runtimes: readonly FactoryStartupValidatorRuntime[];
+  };
+  readonly workers?: FactoryWorkerTuning;
+  /**
+   * The tenant namespace's Temporal HTTP API, for W15's checkpoint barrier.
+   *
+   * Every checkpoint records the Temporal position of each live workflow, so a
+   * restore can tell whether the live namespace moved past the restored product
+   * stream. Absent, the `checkpoint-barrier` role holds by name, readiness is
+   * `degraded`, and effect claims stay closed: C06 fails closed rather than
+   * sealing a checkpoint a restore could not verify. The client TLS material is
+   * all three paths or none.
+   */
+  readonly temporalHttp?: { readonly endpoint: string; readonly tls?: FactoryStartupTlsMaterial };
+  /**
+   * How the installation data key is wrapped. Absent, the operator master key
+   * named in `keys` wraps it. Every secret is by REFERENCE: a file the private
+   * bounded reader reads at composition, never a value in this document.
+   */
+  readonly keyManagement?: FactoryStartupKeyManagement;
+}
+
+/** The runtime kinds a declared validator may name. */
+export const FACTORY_VALIDATOR_RUNTIME_KINDS = Object.freeze(["podman-guest"] as const);
+
+/**
+ * One trusted validator runtime, declared by reference.
+ *
+ * `runner` is the lock the runtime registers under: the exact runner reference
+ * a definition's claim must name, configuration digest included. The material
+ * file carries the rest of the runtime (resources, environment digest, broker
+ * audience, evidence age) and must repeat the same runner, so the document and
+ * the file cannot disagree about which judge they describe.
+ */
+export interface FactoryStartupValidatorRuntime {
+  /** This document's own handle for the runtime; it never reaches the wire. */
+  readonly name: string;
+  readonly kind: (typeof FACTORY_VALIDATOR_RUNTIME_KINDS)[number];
+  readonly runner: {
+    readonly package: string;
+    readonly manifestName: string;
+    readonly version: string;
+    readonly digest: string;
+    readonly export: string;
+    readonly configurationDigest: string;
+    readonly model?: string;
+  };
+  /** The runtime material file, by reference. Read privately, never logged. */
+  readonly materialPath: string;
+  /** `sha256:` over the material file's exact bytes. */
+  readonly materialDigest: string;
+}
+
+/** The data-key wrapping service. Owned by `key-composition.ts`. */
+export type FactoryStartupKeyManagement = FactoryKeyManagement;
+
+/**
+ * One place a release may publish, named so a profile can point at it.
+ *
+ * `name` is this document's own handle for the destination and never reaches
+ * the wire; what reaches the wire is the provider's account, which is the
+ * bucket's account or the repository. Two destinations may not share a name,
+ * because a profile naming one of them would then depend on declaration order.
+ */
+export type FactoryStartupReleaseDestination =
+  | {
+      readonly name: string;
+      readonly kind: "s3";
+      readonly endpoint: string;
+      readonly bucket: string;
+      /** Matched against the operation's `destination.account`. */
+      readonly account: string;
+      readonly prefix?: string;
+      /** The credential SET file, by reference. Read privately, never logged. */
+      readonly credentialsPath: string;
+    }
+  | {
+      readonly name: string;
+      readonly kind: "github";
+      /** `owner/name`, matched against the operation's `destination.account`. */
+      readonly repository: string;
+      /** The token file, by reference. Read privately per call, never logged. */
+      readonly tokenPath: string;
+    };
+
+/**
+ * One definition's release-node adapter, and the destination it publishes to.
+ *
+ * `FactoryProtectedCommandEffects` keys its profile set by a digest of the
+ * adapter reference, so the adapter here is the same five fields a definition's
+ * release node names. What the deployment adds is the destination and the cost:
+ * neither is a fact a factory definition can state.
+ */
+export interface FactoryStartupReleaseProfile {
+  readonly adapter: {
+    readonly package: string;
+    readonly manifestName: string;
+    readonly version: string;
+    readonly digest: string;
+    readonly export: string;
+  };
+  /** The protected action this profile owns, as the definition names it. */
+  readonly action: string;
+  /** The `name` of a declared destination. An undeclared one is refused. */
+  readonly destination: string;
+  /** What one release through this adapter is budgeted to cost, in micros. */
+  readonly estimatedSpendMicros: number;
+}
+
+export interface FactoryStartupRunnerProfile {
+  readonly runner: {
+    readonly package: string;
+    readonly manifestName: string;
+    readonly version: string;
+    readonly digest: string;
+    readonly export: string;
+    /** Present exactly when the profile pins a model, and equal to the pin's. */
+    readonly model?: string;
+    readonly configurationDigest?: string;
+  };
+  readonly resourceClass: string;
+  readonly allocation: {
+    readonly resources: Readonly<Record<string, number>>;
+    readonly memoryBytes: number;
+    readonly budget: { readonly costMicros: string; readonly tokens: number; readonly computeMs: number };
+  };
+  readonly allowedCapabilities: readonly string[];
+  /**
+   * The model a guest run under this profile may call, and the only one.
+   *
+   * Absent, the attempt carries no pin and the broker refuses every model call
+   * from it. Present, it must match the runner reference field for field and
+   * name the installation's own `modelProvider`, which is the provider this
+   * process can actually reach.
+   */
+  readonly model?: FactoryModelPin;
+}
+
+export interface FactoryWorkerTuning {
+  readonly batch?: number;
+  readonly idleDelayMs?: number;
+  readonly errorDelayMs?: number;
+  readonly maxErrorDelayMs?: number;
+}
+
+export class FactoryStartupConfigError extends Error {
+  readonly code = "factory-configuration-invalid";
+  constructor(readonly missing: readonly string[], readonly invalid: readonly string[]) {
+    super(`Factory startup configuration is incomplete.${missing.length > 0 ? ` Missing: ${missing.join(", ")}.` : ""}${invalid.length > 0 ? ` Invalid: ${invalid.join(", ")}.` : ""}`);
+    this.name = "FactoryStartupConfigError";
+  }
+}
+
+
+interface FieldSpec {
+  readonly field: string;
+  readonly kind: FieldKind;
+  readonly optional?: boolean;
+}
+
+const TLS_FIELDS = ["caPath", "certificatePath", "privateKeyPath"] as const;
+
+function tls(prefix: string, optional = false): FieldSpec[] {
+  return TLS_FIELDS.map((name) => ({ field: `${prefix}.tls.${name}`, kind: "path" as const, ...(optional ? { optional } : {}) }));
+}
+
+function storage(prefix: string): FieldSpec[] {
+  return [
+    { field: `${prefix}.endpoint`, kind: "url" },
+    { field: `${prefix}.bucket`, kind: "identity" },
+    { field: `${prefix}.prefix`, kind: "identity" },
+    { field: `${prefix}.credentialSet`, kind: "identity" },
+    { field: `${prefix}.credentialsPath`, kind: "path" },
+  ];
+}
+
+/** Every dependency the composition needs, in one place. */
+export const FACTORY_STARTUP_FIELDS: readonly FieldSpec[] = Object.freeze([
+  { field: "installationId", kind: "identity" },
+  { field: "tenantId", kind: "identity" },
+  { field: "poolId", kind: "identity" },
+  { field: "temporalNamespace", kind: "identity" },
+  { field: "orchestrationReadinessFilePath", kind: "path" },
+  { field: "poolReadinessFilePath", kind: "path" },
+  { field: "supervisorReadinessFilePath", kind: "path" },
+  { field: "hostId", kind: "identity" },
+  { field: "orphanSweepIntervalMs", kind: "interval" },
+  { field: "readinessHeartbeatMs", kind: "interval", optional: true },
+  { field: "readinessRetry.delayMs", kind: "interval", optional: true },
+  { field: "readinessRetry.windowMs", kind: "interval", optional: true },
+  { field: "modelProvider.provider", kind: "identity", optional: true },
+  { field: "modelProvider.model", kind: "identity", optional: true },
+  { field: "gateway.hostname", kind: "identity" },
+  { field: "gateway.port", kind: "port" },
+  ...tls("gateway"),
+  { field: "privateService.hostname", kind: "identity" },
+  { field: "privateService.port", kind: "port" },
+  { field: "privateService.certificateIdentity", kind: "identity" },
+  ...tls("privateService"),
+  { field: "privateService.tokens.issuer", kind: "statement", optional: true },
+  { field: "privateService.tokens.audience", kind: "statement", optional: true },
+  { field: "pool.baseUrl", kind: "url" },
+  { field: "pool.serviceTokenPath", kind: "path" },
+  ...tls("pool"),
+  ...storage("storage.ordinary"),
+  ...storage("storage.archive"),
+  { field: "keys.masterKeyFilePath", kind: "path" },
+  { field: "keys.masterKeyId", kind: "identity" },
+  { field: "keys.wrappedKeyFilePath", kind: "path" },
+  { field: "keys.grantableRoots", kind: "roots" },
+  { field: "hostLaunch.baseUrl", kind: "url", optional: true },
+  { field: "hostLaunch.serverName", kind: "identity", optional: true },
+  { field: "hostLaunch.attemptTokenSecretPath", kind: "path", optional: true },
+  { field: "hostLaunch.tls.caPath", kind: "path", optional: true },
+  { field: "hostLaunch.tls.certificatePath", kind: "path", optional: true },
+  { field: "hostLaunch.tls.privateKeyPath", kind: "path", optional: true },
+  { field: "hostLaunch.tls.serviceTokenPath", kind: "path", optional: true },
+  { field: "guestBroker.hostname", kind: "identity", optional: true },
+  { field: "guestBroker.port", kind: "port", optional: true },
+  ...tls("guestBroker", true),
+  { field: "guestBroker.tokens.issuer", kind: "statement", optional: true },
+  { field: "guestBroker.tokens.audience", kind: "statement", optional: true },
+  { field: "archiveReplicationEvidence", kind: "statement", optional: true },
+  { field: "workers.batch", kind: "count", optional: true },
+  { field: "workers.idleDelayMs", kind: "interval", optional: true },
+  { field: "workers.errorDelayMs", kind: "interval", optional: true },
+  { field: "workers.maxErrorDelayMs", kind: "interval", optional: true },
+  { field: "temporalHttp.endpoint", kind: "url", optional: true },
+  { field: "temporalHttp.tls.caPath", kind: "path", optional: true },
+  { field: "temporalHttp.tls.certificatePath", kind: "path", optional: true },
+  { field: "temporalHttp.tls.privateKeyPath", kind: "path", optional: true },
+]);
+
+function read(root: Record<string, unknown>, field: string): { readonly present: boolean; readonly value: unknown } {
+  let current: unknown = root;
+  for (const segment of field.split(".")) {
+    if (!isPlainRecord(current) || !Object.hasOwn(current, segment)) return { present: false, value: undefined };
+    current = current[segment];
+  }
+  return { present: current !== undefined, value: current };
+}
+
+
+
+/** A signing key map: one key id to one file, at least one entry. */
+function wellFormedKeyPaths(value: unknown): boolean {
+  if (!isPlainRecord(value)) return false;
+  const entries = Object.entries(value);
+  return entries.length >= 1 && entries.length <= 32
+    && entries.every(([kid, path]) => wellFormed("identity", kid) && wellFormed("path", path));
+}
+
+/** Host certificate identity to host id: at least one, at most 64, both identities. */
+function wellFormedHostMap(value: unknown): boolean {
+  if (!isPlainRecord(value)) return false;
+  const entries = Object.entries(value);
+  return entries.length >= 1 && entries.length <= 64
+    && entries.every(([peer, hostId]) => wellFormed("identity", peer) && wellFormed("identity", hostId));
+}
+
+/** One runner this installation dispatches to, with its allocation. */
+const SHA256_DIGEST = /^sha256:[a-f0-9]{64}$/;
+const RUNNER_KEYS = ["package", "manifestName", "version", "digest", "export"] as const;
+
+/** A pinned runner reference: exactly these keys, each a bounded string, the digest a sha256. */
+function wellFormedRunner(runner: unknown, keys: readonly string[] = RUNNER_KEYS): runner is Record<string, string> {
+  return isPlainRecord(runner) && exactKeys(runner, keys)
+    && keys.every((key) => typeof runner[key] === "string" && (runner[key] as string).length > 0 && (runner[key] as string).length <= 512)
+    && SHA256_DIGEST.test(runner.digest as string);
+}
+
+/**
+ * A model pin, whole: its provider and model, a configuration this process can
+ * honour, a policy, and the two digests over them. The runner must name the
+ * same model and configuration digest.
+ */
+function wellFormedProfileModel(runner: Record<string, string>, model: unknown): boolean {
+  if (!isPlainRecord(model) || !exactKeys(model, ["provider", "model", "configurationDigest", "configuration", "policyDigest", "policy"])) return false;
+  if (!wellFormed("identity", model.provider) || !wellFormed("identity", model.model) || !isPlainRecord(model.configuration) || !isPlainRecord(model.policy)) return false;
+  try { factoryModelSamplingOptions(model.configuration); } catch { return false; }
+  return factoryModelPinMatchesRunner(runner, model as unknown as FactoryModelPin);
+}
+
+function wellFormedRunnerProfile(value: unknown): boolean {
+  const pinned = isPlainRecord(value) && Object.hasOwn(value, "model");
+  if (!isPlainRecord(value) || !exactKeys(value, pinned ? ["runner", "resourceClass", "allocation", "allowedCapabilities", "model"] : ["runner", "resourceClass", "allocation", "allowedCapabilities"])) return false;
+  if (!wellFormedRunner(value.runner, pinned ? [...RUNNER_KEYS, "configurationDigest", "model"] : RUNNER_KEYS)) return false;
+  if (pinned && (!SHA256_DIGEST.test(value.runner.configurationDigest!) || !wellFormedProfileModel(value.runner, value.model))) return false;
+  if (!wellFormed("identity", value.resourceClass)) return false;
+  if (!Array.isArray(value.allowedCapabilities) || value.allowedCapabilities.length > 64
+    || value.allowedCapabilities.some((capability) => !wellFormed("identity", capability))
+    || new Set(value.allowedCapabilities).size !== value.allowedCapabilities.length) return false;
+  return wellFormedResourceProfile(value.allocation);
+}
+
+/**
+ * The root a tenant identity is entitled to in the ordinary store.
+ *
+ * Measured against the live store with the tenant's own credentials: a HEAD
+ * under `ordinary/` answers 404, and the same HEAD under a sibling root answers
+ * 403. So a declaration whose prefix leaves this root cannot tell an absent
+ * object from a denied one, and the provider's `proveNoEffect` raises instead
+ * of answering.
+ *
+ * It is a deployment entitlement written into the document's rule rather than
+ * discovered at composition, because discovering it means a round trip to the
+ * store before the document can be called valid — and a document that is only
+ * valid when a service answers is not a document. One constant, so a
+ * deployment that widens the entitlement changes one line.
+ */
+export const FACTORY_RELEASE_ENTITLED_S3_ROOT = "ordinary";
+
+/**
+ * An S3 prefix, which is a key path and not an identity.
+ *
+ * The same rules `factoryS3PublicationDirectory` enforces when it builds the
+ * key, so a prefix this document accepts is one the provider will also accept:
+ * no empty segment, no `.` or `..`, no leading or trailing slash. Validating it
+ * as an identity refused every realistic prefix, which a real startup found.
+ */
+function wellFormedS3Prefix(value: unknown): boolean {
+  if (typeof value !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._/-]{0,900}$/.test(value)) return false;
+  if (value.includes("//") || value.endsWith("/") || value.split("/").some((part) => part === "." || part === "..")) return false;
+  // Inside the entitled root, or the store answers 403 where the provider
+  // expects 404. A sibling root that merely STARTS with the same letters —
+  // `ordinary-two` — is outside it, so the test is on the whole first segment.
+  return value === FACTORY_RELEASE_ENTITLED_S3_ROOT || value.startsWith(`${FACTORY_RELEASE_ENTITLED_S3_ROOT}/`);
+}
+
+/** A repository this installation may publish to, as `owner/name`. */
+function wellFormedRepository(value: unknown): boolean {
+  return typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}\/[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/.test(value);
+}
+
+/**
+ * One declared destination, by kind.
+ *
+ * `exactKeys` per kind rather than a shared optional bag: an S3 destination
+ * carrying a `tokenPath`, or a GitHub one carrying a `bucket`, is an operator
+ * who edited the wrong entry, and reading past it would compose a provider
+ * against half a declaration.
+ */
+function wellFormedReleaseDestination(value: unknown): boolean {
+  if (!isPlainRecord(value) || !wellFormed("identity", value.name)) return false;
+  if (value.kind === "s3") {
+    const required = ["name", "kind", "endpoint", "bucket", "account", "credentialsPath"];
+    if (!exactKeys(value, required) && !exactKeys(value, [...required, "prefix"])) return false;
+    return httpsUrl(value.endpoint) && wellFormed("identity", value.bucket) && wellFormed("identity", value.account)
+      && (value.prefix === undefined || wellFormedS3Prefix(value.prefix)) && wellFormed("path", value.credentialsPath);
+  }
+  if (value.kind === "github") {
+    return exactKeys(value, ["name", "kind", "repository", "tokenPath"])
+      && wellFormedRepository(value.repository) && wellFormed("path", value.tokenPath);
+  }
+  return false;
+}
+
+
+/**
+ * W15's two recovery sections. Temporal client TLS is all three paths or none,
+ * and never without the endpoint it is for; the key service is one
+ * well-formed kind.
+ */
+function recoverySectionProblems(value: Record<string, unknown>, missing: string[], invalid: string[]): void {
+  const temporalTls = FACTORY_STARTUP_FIELDS.filter((spec) => spec.field.startsWith("temporalHttp.tls."));
+  const temporalTlsPresent = temporalTls.filter((spec) => read(value, spec.field).present);
+  if (temporalTlsPresent.length > 0 && temporalTlsPresent.length < temporalTls.length) {
+    for (const spec of temporalTls) if (!temporalTlsPresent.includes(spec)) missing.push(spec.field);
+  }
+  if (temporalTlsPresent.length > 0 && !read(value, "temporalHttp.endpoint").present) missing.push("temporalHttp.endpoint");
+  const keyManagement = read(value, "keyManagement");
+  if (keyManagement.present && !wellFormedFactoryKeyManagement(keyManagement.value)) invalid.push("keyManagement");
+}
+
+/** One adapter reference, its action, its destination, and its cost. */
+function wellFormedReleaseProfile(value: unknown): boolean {
+  if (!isPlainRecord(value) || !exactKeys(value, ["adapter", "action", "destination", "estimatedSpendMicros"])) return false;
+  const adapter = value.adapter;
+  const adapterKeys = ["package", "manifestName", "version", "digest", "export"];
+  if (!isPlainRecord(adapter) || !exactKeys(adapter, adapterKeys)
+    || adapterKeys.some((key) => typeof adapter[key] !== "string" || (adapter[key] as string).length === 0 || (adapter[key] as string).length > 512)
+    || !/^sha256:[a-f0-9]{64}$/.test(adapter.digest as string)) return false;
+  // A micro-denominated release cost is bounded well above a runner budget and
+  // well below a safe integer, so the policy ledger's addition cannot overflow.
+  return wellFormed("identity", value.action) && wellFormed("identity", value.destination)
+    && Number.isSafeInteger(value.estimatedSpendMicros) && (value.estimatedSpendMicros as number) >= 0
+    && (value.estimatedSpendMicros as number) <= 1_000_000_000_000;
+}
+
+/** A task's pool vector, its memory, and the budget it may spend. */
+function wellFormedResourceProfile(value: unknown): boolean {
+  if (!isPlainRecord(value) || !exactKeys(value, ["resources", "memoryBytes", "budget"])) return false;
+  const resources = value.resources;
+  if (!isPlainRecord(resources) || Object.keys(resources).length === 0
+    || Object.entries(resources).some(([name, amount]) => !wellFormed("identity", name) || !Number.isSafeInteger(amount) || (amount as number) < 0 || (amount as number) > 1_000_000)) return false;
+  if (!Number.isSafeInteger(value.memoryBytes) || (value.memoryBytes as number) < 1) return false;
+  const budget = value.budget;
+  // `costMicros` is decimal TEXT rather than a number: a micro-denominated cost
+  // can exceed a safe integer, and the budget ledger stores it as text for
+  // exactly that reason.
+  return isPlainRecord(budget) && exactKeys(budget, ["costMicros", "tokens", "computeMs"])
+    && typeof budget.costMicros === "string" && /^[0-9]{1,30}$/.test(budget.costMicros)
+    && Number.isSafeInteger(budget.tokens) && (budget.tokens as number) >= 0
+    && Number.isSafeInteger(budget.computeMs) && (budget.computeMs as number) >= 0;
+}
+
+/**
+ * One declared validator runtime.
+ *
+ * The runner must pin a configuration digest, because `FactoryTrustedValidators`
+ * binds the runtime's configuration to the runner reference a claim names; a
+ * runner without one could not be matched to any runtime and would refuse at
+ * the first claim instead of here.
+ */
+function wellFormedValidatorRuntime(value: unknown): boolean {
+  if (!isPlainRecord(value) || !exactKeys(value, ["name", "kind", "runner", "materialPath", "materialDigest"])) return false;
+  const runner = value.runner;
+  const keys = isPlainRecord(runner) && Object.hasOwn(runner, "model") ? [...RUNNER_KEYS, "configurationDigest", "model"] : [...RUNNER_KEYS, "configurationDigest"];
+  return wellFormed("identity", value.name)
+    && (FACTORY_VALIDATOR_RUNTIME_KINDS as readonly unknown[]).includes(value.kind)
+    && wellFormedRunner(runner, keys) && SHA256_DIGEST.test(runner.configurationDigest!)
+    && wellFormed("path", value.materialPath)
+    && typeof value.materialDigest === "string" && SHA256_DIGEST.test(value.materialDigest);
+}
+
+/** The set of leaf fields a valid document may carry, derived from the table. */
+const KNOWN_FIELDS: ReadonlySet<string> = new Set([
+  "schemaVersion", "hostStopKeys", "privateService.tokens.publicKeyPaths", "runnerProfiles", "guestBroker.hosts", "guestBroker.tokens.publicKeyPaths",
+  "release.destinations", "release.profiles", "validators.runtimes", "keyManagement",
+  ...FACTORY_STARTUP_FIELDS.map((spec) => spec.field),
+]);
+
+/** One adapter reference as a comparable string, for the duplicate scan. */
+function canonicalAdapter(value: unknown): string {
+  if (!isPlainRecord(value)) return JSON.stringify(value);
+  return JSON.stringify(Object.keys(value).sort().map((key) => [key, value[key]]));
+}
+
+
+function leaves(value: unknown, prefix = ""): string[] {
+  if (!isPlainRecord(value)) return [prefix];
+  const found: string[] = [];
+  for (const [key, nested] of Object.entries(value)) {
+    const field = prefix === "" ? key : `${prefix}.${key}`;
+    // `grantableRoots` is an array leaf, and `hostStopKeys` an array of
+    // records; recursing into either would name its indices. Both are checked
+    // by shape below instead.
+    // Three branches are maps whose KEYS are data — a key id, a resource class
+    // — so recursing into them would name a value as a field. Each is checked
+    // by shape below instead.
+    if (field === "hostStopKeys" || field === "runnerProfiles" || field === "privateService.tokens.publicKeyPaths" || field === "guestBroker.hosts" || field === "guestBroker.tokens.publicKeyPaths"
+      || field === "release.destinations" || field === "release.profiles" || field === "validators.runtimes" || field === "keyManagement") { found.push(field); continue; }
+    found.push(...(isPlainRecord(nested) ? leaves(nested, field) : [field]));
+  }
+  return found;
+}
+
+/** Every problem found so far, in the order the checks below find them. */
+interface StartupProblems {
+  readonly missing: string[];
+  readonly invalid: string[];
+}
+type StartupCheck = (value: Record<string, unknown>, problems: StartupProblems) => void;
+
+/** The schema version, every declared field, and no field this document does not declare. */
+const checkDeclaredFields: StartupCheck = (value, { missing, invalid }) => {
+  if (value.schemaVersion !== FACTORY_STARTUP_CONFIG_SCHEMA) invalid.push("schemaVersion");
+  for (const spec of FACTORY_STARTUP_FIELDS) {
+    const { present, value: field } = read(value, spec.field);
+    if (!present) {
+      if (!spec.optional) missing.push(spec.field);
+      continue;
+    }
+    if (!wellFormed(spec.kind, field)) invalid.push(spec.field);
+  }
+  for (const field of leaves(value)) {
+    if (!KNOWN_FIELDS.has(field)) invalid.push(field);
+  }
+};
+
+// A model pin is both halves or neither. Half a pin is the shape that would
+// otherwise be resolved at the first guest call, which is where a missing
+// provider becomes a substitute rather than a refusal.
+const checkModelPin: StartupCheck = (value, { invalid }) => {
+  const pinned = ["modelProvider.provider", "modelProvider.model"].filter((field) => read(value, field).present);
+  if (pinned.length === 1) invalid.push(pinned[0] === "modelProvider.provider" ? "modelProvider.model" : "modelProvider.provider");
+};
+
+// A host launch transport is every part or none. A base URL with no client
+// material cannot open a mutual TLS connection, and half a transport would
+// fail at the first dispatch rather than at boot.
+const checkHostLaunch: StartupCheck = (value, { missing }) => {
+  const transport = FACTORY_STARTUP_FIELDS.filter((spec) => spec.field.startsWith("hostLaunch."));
+  const supplied = transport.filter((spec) => read(value, spec.field).present);
+  if (supplied.length > 0 && supplied.length < transport.length) {
+    for (const spec of transport) if (!supplied.includes(spec)) missing.push(spec.field);
+  }
+};
+
+// The guest-broker route is every part or none, and it verifies attempt
+// tokens with the host launch secret, so it cannot stand without one.
+const checkGuestBroker: StartupCheck = (value, { missing, invalid }) => {
+  const brokerFields = [...FACTORY_STARTUP_FIELDS.filter((spec) => spec.field.startsWith("guestBroker.")).map((spec) => spec.field), "guestBroker.hosts", "guestBroker.tokens.publicKeyPaths"];
+  const brokerSupplied = brokerFields.filter((field) => read(value, field).present);
+  if (brokerSupplied.length === 0) return;
+  for (const field of brokerFields) if (!brokerSupplied.includes(field)) missing.push(field);
+  if (!read(value, "hostLaunch.attemptTokenSecretPath").present) missing.push("hostLaunch.attemptTokenSecretPath");
+  const hosts = read(value, "guestBroker.hosts");
+  if (hosts.present && !wellFormedHostMap(hosts.value)) invalid.push("guestBroker.hosts");
+  const brokerKeys = read(value, "guestBroker.tokens.publicKeyPaths");
+  if (brokerKeys.present && !wellFormedKeyPaths(brokerKeys.value)) invalid.push("guestBroker.tokens.publicKeyPaths");
+  // Kept for compatibility, pinned to the route contract: the route enforces
+  // that audience whatever this says, so any other value is a document error.
+  const audience = read(value, "guestBroker.tokens.audience");
+  if (audience.present && audience.value !== FACTORY_GUEST_BROKER_AUDIENCE) invalid.push("guestBroker.tokens.audience");
+};
+
+// Host PUBLIC keys, by reference. Each entry names a host, a key id, and a
+// file; a private key never appears in this document and an empty list is a
+// list that verifies nothing.
+const checkHostStopKeys: StartupCheck = (value, { invalid }) => {
+  const hostStopKeys = read(value, "hostStopKeys");
+  if (!hostStopKeys.present) return;
+  const entries = hostStopKeys.value;
+  if (!Array.isArray(entries) || entries.length === 0) { invalid.push("hostStopKeys"); return; }
+  for (const [index, entry] of entries.entries()) {
+    if (!isPlainRecord(entry) || !exactKeys(entry, ["hostId", "hostKeyId", "publicKeyPath"])
+      || !wellFormed("identity", entry.hostId) || !wellFormed("identity", entry.hostKeyId) || !wellFormed("path", entry.publicKeyPath)) {
+      invalid.push(`hostStopKeys[${index}]`);
+    }
+  }
+};
+
+// Both halves or neither: a delay with no window would retry forever and a
+// window with no delay would spin.
+const checkReadinessRetry: StartupCheck = (value, { missing }) => {
+  const retryFields = ["readinessRetry.delayMs", "readinessRetry.windowMs"];
+  const retryPresent = retryFields.filter((field) => read(value, field).present);
+  if (retryPresent.length === 1) missing.push(retryFields.find((field) => !retryPresent.includes(field))!);
+};
+
+// The recovery sections: the Temporal HTTP API endpoint and the data-key wrapping service.
+const checkRecoverySections: StartupCheck = (value, { missing, invalid }) => {
+  recoverySectionProblems(value, missing, invalid);
+};
+
+// The private service's token verifier is all three fields or none: an issuer
+// with no keys verifies nothing, and a key map with no audience would accept
+// a token minted for another service.
+const checkPrivateServiceTokens: StartupCheck = (value, { missing, invalid }) => {
+  const tokenFields = ["privateService.tokens.issuer", "privateService.tokens.audience", "privateService.tokens.publicKeyPaths"];
+  const tokensPresent = tokenFields.filter((field) => read(value, field).present);
+  if (tokensPresent.length > 0 && tokensPresent.length < tokenFields.length) {
+    for (const field of tokenFields) if (!tokensPresent.includes(field)) missing.push(field);
+  }
+  const publicKeyPaths = read(value, "privateService.tokens.publicKeyPaths");
+  if (publicKeyPaths.present && !wellFormedKeyPaths(publicKeyPaths.value)) invalid.push("privateService.tokens.publicKeyPaths");
+};
+
+const checkRunnerProfiles: StartupCheck = (value, { invalid }) => {
+  const runners = read(value, "runnerProfiles");
+  if (!runners.present) return;
+  const section = runners.value;
+  if (!isPlainRecord(section) || !exactKeys(section, ["brokerAudience", "profiles"]) || !wellFormed("identity", section.brokerAudience)
+    || !Array.isArray(section.profiles) || section.profiles.length === 0 || section.profiles.length > 64) {
+    invalid.push("runnerProfiles");
+    return;
+  }
+  // A pinned profile names the installation's own provider and model. The
+  // provider broker refuses every other pin, so a profile that disagreed would
+  // boot and then refuse its first model call as `model_pin_mismatch`.
+  const installationPin = read(value, "modelProvider").value as { provider?: unknown; model?: unknown } | undefined;
+  for (const [index, profile] of section.profiles.entries()) {
+    if (!wellFormedRunnerProfile(profile)) { invalid.push(`runnerProfiles.profiles[${index}]`); continue; }
+    // A GPU is leased as one whole host (C03): the pool refuses any other amount at request time, so a profile
+    // that asked for another would boot and then fail every admission of its class (W02d R1).
+    const gpuHosts = (profile as FactoryStartupRunnerProfile).allocation.resources["gpu-host"];
+    if (gpuHosts !== undefined && gpuHosts !== 1) invalid.push(`runnerProfiles.profiles[${index}].allocation.resources.gpu-host`);
+    const pin = (profile as { model?: FactoryModelPin }).model;
+    if (pin !== undefined && (installationPin?.provider !== pin.provider || installationPin?.model !== pin.model)) invalid.push(`runnerProfiles.profiles[${index}].model`);
+  }
+  // A resource class named twice would make the admission profile map
+  // depend on declaration order, which is not a fact an operator states.
+  const classes = section.profiles.map((profile) => (profile as { resourceClass?: unknown }).resourceClass);
+  if (new Set(classes).size !== classes.length) invalid.push("runnerProfiles.profiles");
+};
+
+/** The declared release destinations; returns their names when the list itself is well formed. */
+function checkReleaseDestinations(destinations: unknown, invalid: string[]): string[] | undefined {
+  if (!Array.isArray(destinations) || destinations.length === 0 || destinations.length > 64) { invalid.push("release.destinations"); return undefined; }
+  for (const [index, entry] of destinations.entries()) {
+    if (!wellFormedReleaseDestination(entry)) invalid.push(`release.destinations[${index}]`);
+  }
+  const names = destinations.map((entry) => (entry as { name?: unknown }).name).filter((name): name is string => typeof name === "string");
+  // A name declared twice makes "which destination" depend on declaration
+  // order, which is not a fact an operator stated.
+  if (new Set(names).size !== names.length) invalid.push("release.destinations");
+  return names;
+}
+
+function checkReleaseProfiles(profiles: unknown, names: string[] | undefined, invalid: string[]): void {
+  if (!Array.isArray(profiles) || profiles.length === 0 || profiles.length > 64) { invalid.push("release.profiles"); return; }
+  const declared = new Set(names ?? []);
+  for (const [index, entry] of profiles.entries()) {
+    if (!wellFormedReleaseProfile(entry)) { invalid.push(`release.profiles[${index}]`); continue; }
+    // A profile pointing at a destination nobody declared would compose a
+    // profile with nowhere to publish, and `requestRelease` would refuse it
+    // at the first release instead of at boot.
+    if (names !== undefined && !declared.has((entry as { destination: string }).destination)) invalid.push(`release.profiles[${index}].destination`);
+  }
+  // Two profiles for one adapter make the trusted set depend on order, and
+  // `FactoryProtectedCommandEffects` refuses the second at construction.
+  const adapters = profiles.map((entry) => canonicalAdapter((entry as { adapter?: unknown }).adapter));
+  if (new Set(adapters).size !== adapters.length) invalid.push("release.profiles");
+}
+
+// Where a release may publish. Both halves or neither: destinations nothing
+// points at publish nothing, and a profile with no destinations has nowhere
+// to send — and either half alone reads as configured while refusing at the
+// first release.
+const checkRelease: StartupCheck = (value, { missing, invalid }) => {
+  const releaseHalves = ["release.destinations", "release.profiles"];
+  const releasePresent = releaseHalves.filter((field) => read(value, field).present);
+  if (releasePresent.length === 1) missing.push(releaseHalves.find((field) => !releasePresent.includes(field))!);
+  if (releasePresent.length !== 2) return;
+  const names = checkReleaseDestinations(read(value, "release.destinations").value, invalid);
+  checkReleaseProfiles(read(value, "release.profiles").value, names, invalid);
+};
+
+// The trusted validator runtimes, when the section is present.
+const checkValidatorRuntimes: StartupCheck = (value, { invalid }) => {
+  invalid.push(...invalidValidatorRuntimes(value));
+};
+
+// Run in this order; the error lists keep the order the problems are found in.
+const STARTUP_CHECKS: readonly StartupCheck[] = [
+  checkDeclaredFields, checkModelPin, checkHostLaunch, checkGuestBroker, checkHostStopKeys, checkReadinessRetry, checkRecoverySections,
+  checkPrivateServiceTokens, checkRunnerProfiles, checkRelease, checkValidatorRuntimes,
+];
+
+/** Cross-field rules on a document whose every field is already well formed. */
+function assertStartupConfigBounds(config: FactoryStartupConfig): void {
+  // A cap below the first delay it caps would silently shorten the backoff.
+  if ((config.workers?.maxErrorDelayMs ?? Number.MAX_SAFE_INTEGER) < (config.workers?.errorDelayMs ?? 0)) {
+    throw new FactoryStartupConfigError([], ["workers.maxErrorDelayMs"]);
+  }
+  // The key material must sit outside every root an extension can be granted,
+  // the same boundary `assertFactoryBootConfiguration` enforces for the secrets
+  // directory. `readOperatorMasterKey` refuses it later; refusing here names it.
+  for (const root of config.keys.grantableRoots) {
+    const within = resolve(root);
+    if (resolve(config.keys.masterKeyFilePath).startsWith(`${within}/`)) throw new FactoryStartupConfigError([], ["keys.masterKeyFilePath"]);
+  }
+}
+
+/**
+ * Validate one startup document, naming every problem at once.
+ *
+ * An unknown field is an error rather than a warning: a renamed dependency
+ * that is silently ignored composes an application missing the thing the
+ * operator thought they had configured.
+ */
+export function parseFactoryStartupConfig(value: unknown): FactoryStartupConfig {
+  if (!isPlainRecord(value)) throw new FactoryStartupConfigError(["schemaVersion"], []);
+  const problems: StartupProblems = { missing: [], invalid: [] };
+  for (const check of STARTUP_CHECKS) check(value, problems);
+  if (problems.missing.length > 0 || problems.invalid.length > 0) throw new FactoryStartupConfigError(problems.missing, problems.invalid);
+  const config = value as unknown as FactoryStartupConfig;
+  assertStartupConfigBounds(config);
+  return Object.freeze(config);
+}
+
+/**
+ * Every problem with a present `validators` section, by field.
+ *
+ * A present section declares at least one runtime, because an empty list reads
+ * as configured while trusting nobody. Two runtimes may not share a name or a
+ * runner: the trusted set is keyed by the runner, so a second entry for one
+ * would make which material governs depend on declaration order.
+ */
+function invalidValidatorRuntimes(value: Record<string, unknown>): string[] {
+  const root = read(value, "validators");
+  // A non-record section is already named by the unknown-field scan.
+  if (!root.present || !isPlainRecord(root.value)) return [];
+  const runtimes = read(value, "validators.runtimes").value;
+  if (!Array.isArray(runtimes) || runtimes.length === 0 || runtimes.length > 64) return ["validators.runtimes"];
+  const invalid = runtimes.flatMap((entry, index) => wellFormedValidatorRuntime(entry) ? [] : [`validators.runtimes[${index}]`]);
+  const names = runtimes.map((entry) => (entry as { name?: unknown }).name);
+  const runners = runtimes.map((entry) => canonicalAdapter((entry as { runner?: unknown }).runner));
+  if (new Set(names).size !== names.length || new Set(runners).size !== runners.length) invalid.push("validators.runtimes");
+  return invalid;
+}
+
+/** Read the document through the private bounded reader, as the process entries do. */
+export async function loadFactoryStartupConfig(path: string): Promise<FactoryStartupConfig> {
+  const bytes = await readPrivatePath(path, MAX_CONFIG_BYTES);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+  } catch {
+    throw new FactoryStartupConfigError([], ["schemaVersion"]);
+  }
+  return parseFactoryStartupConfig(parsed);
+}

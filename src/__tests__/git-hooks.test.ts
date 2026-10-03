@@ -46,6 +46,7 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseBunVersion } from "../../scripts/check-bun-version.ts";
+import { withoutGitContext } from "./helpers/scratch-git.ts";
 
 const REPO_ROOT = resolve(import.meta.dir, "..", "..");
 const PRE_COMMIT = join(REPO_ROOT, ".githooks/pre-commit");
@@ -56,32 +57,13 @@ const GITIGNORE = join(REPO_ROOT, ".gitignore");
 const NODE_MODULES = join(REPO_ROOT, "node_modules");
 const CHECK_BUN_VERSION_TS = join(REPO_ROOT, "scripts/check-bun-version.ts");
 const BUN_VERSION_CHECK_SH = join(REPO_ROOT, "scripts/lib/bun-version-check.sh");
-
-/**
- * Drop every `GIT_*` variable. Git exports GIT_DIR, GIT_INDEX_FILE, GIT_PREFIX
- * and friends to hook processes, and the pre-commit staged-test map runs THIS
- * file inside a hook whenever it is staged. Left in place, they point every
- * fixture's git command at the REAL repository: `git init` in a tmpdir
- * re-initialised the outer repo as bare, `git config` wrote the fixture
- * identity into its shared config, and `git worktree add` registered tmp
- * worktrees on it. Each fixture builds its own repo, so nothing from the
- * parent's git context is ever wanted.
- */
-function withoutGitContext(env: Record<string, string>): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(env)) {
-    if (!k.startsWith("GIT_")) out[k] = v;
-  }
-  return out;
-}
+const HOOK_LIB = join(REPO_ROOT, "scripts/lib/hook-lib.sh");
 
 // Env with CI + EZ_SKIP_HOOKS stripped so the ambient runner (which may set CI)
 // can't mask the "hooks actually run / setup actually wires" default paths.
-const rawEnv: Record<string, string> = {};
-for (const [k, v] of Object.entries(process.env)) {
-  if (v !== undefined) rawEnv[k] = v;
-}
-const baseEnv = withoutGitContext(rawEnv);
+// The pre-commit staged-test map runs THIS file inside a hook whenever it is
+// staged, so the hook's git context is dropped (see helpers/scratch-git.ts).
+const baseEnv = withoutGitContext(process.env);
 delete baseEnv.CI;
 delete baseEnv.EZ_SKIP_HOOKS;
 
@@ -125,6 +107,22 @@ function repoWithPreCommit(): string {
   copyFileSync(GITIGNORE, join(dir, ".gitignore"));
   symlinkSync(NODE_MODULES, join(dir, "node_modules"));
   sh(["git", "config", "core.hooksPath", ".githooks"], { cwd: dir });
+  return dir;
+}
+
+/**
+ * `repoWithPreCommit()` plus the real `scripts/lib/hook-lib.sh`, so the
+ * hook's "Unit tests covering the staged files" step actually runs
+ * (`run_staged_tests`) instead of no-op'ing on the `-r` guard. Every staged
+ * `*.test.ts` self-maps (`staged_test_targets`), so `count` staged files of
+ * literally any content is enough to drive the cap — no real test runner
+ * ever needs to start for the over-cap branch, which is the one these tests
+ * exercise.
+ */
+function repoWithHookLib(): string {
+  const dir = repoWithPreCommit();
+  mkdirSync(join(dir, "scripts/lib"), { recursive: true });
+  copyFileSync(HOOK_LIB, join(dir, "scripts/lib/hook-lib.sh"));
   return dir;
 }
 
@@ -219,6 +217,115 @@ describe("pre-commit hook", () => {
     expect(res.out).not.toContain("pre-commit:");
     const log = sh(["git", "log", "--oneline"], { cwd: dir });
     expect(log.out).toContain("skip hooks");
+  });
+});
+
+// Ruling 2026-09-24 (W18 hygiene item B): the pre-commit hook used to skip
+// its staged-test step SILENTLY once more than EZ_PRECOMMIT_TEST_MAX (12)
+// test files mapped to a commit — no file list, no reason, exit 0. Both a
+// 74-file main merge and this package's own 36/24-file commits hit exactly
+// that path. Above the cap the hook must now name every file it is not
+// running and, by default, BLOCK; EZ_SKIP_HOOK_TESTS=1 is the one
+// acknowledged escape hatch, and it must still print the list.
+describe("pre-commit hook > staged-test cap (no silent skip)", () => {
+  /** `count` empty self-mapping `*.test.ts` files, staged. Their CONTENT
+   *  never matters for the over-cap branch: the hook counts and names them
+   *  before it would ever try to run one. */
+  function stageManyTestFiles(dir: string, count: number): string[] {
+    const names: string[] = [];
+    for (let i = 0; i < count; i++) {
+      const name = `staged-${i}.test.ts`;
+      writeFileSync(join(dir, name), "// intentionally empty\n");
+      names.push(name);
+    }
+    sh(["git", "add", ...names], { cwd: dir });
+    return names;
+  }
+
+  test("above the cap: BLOCKS the commit and names every file it will not run", () => {
+    const dir = repoWithHookLib();
+    const names = stageManyTestFiles(dir, 3);
+
+    const res = sh(["git", "commit", "-m", "wide commit"], {
+      cwd: dir,
+      env: { ...baseEnv, EZ_PRECOMMIT_TEST_MAX: "2" },
+    });
+
+    expect(res.exitCode).not.toBe(0);
+    expect(res.out).toContain("3 test files map to this commit (cap 2)");
+    for (const n of names) expect(res.out).toContain(n);
+    expect(res.out.toLowerCase()).toContain("ez_skip_hook_tests");
+    // Commit must NOT have landed — this is the "no silent skip" behavior
+    // change: the old hook returned 0 here and the commit went through.
+    const log = sh(["git", "log", "--oneline"], { cwd: dir });
+    expect(log.out).not.toContain("wide commit");
+  });
+
+  test("above the cap with EZ_SKIP_HOOK_TESTS=1: prints the list, skips, commit lands", () => {
+    const dir = repoWithHookLib();
+    const names = stageManyTestFiles(dir, 3);
+
+    const res = sh(["git", "commit", "-m", "wide commit, acknowledged"], {
+      cwd: dir,
+      env: { ...baseEnv, EZ_PRECOMMIT_TEST_MAX: "2", EZ_SKIP_HOOK_TESTS: "1" },
+    });
+
+    expect(res.exitCode).toBe(0);
+    // Visible, not the old zero-output skip: the file list and the reason
+    // both still print even though the commit is allowed through.
+    expect(res.out).toContain("3 test files map to this commit (cap 2)");
+    for (const n of names) expect(res.out).toContain(n);
+    expect(res.out).toContain("EZ_SKIP_HOOK_TESTS=1 set");
+    const log = sh(["git", "log", "--oneline"], { cwd: dir });
+    expect(log.out).toContain("wide commit, acknowledged");
+  });
+
+  test("at or under the cap: runs normally (unaffected by the cap logic)", () => {
+    const dir = repoWithHookLib();
+    stageManyTestFiles(dir, 2);
+
+    const res = sh(["git", "commit", "-m", "narrow commit"], {
+      cwd: dir,
+      env: { ...baseEnv, EZ_PRECOMMIT_TEST_MAX: "2" },
+    });
+
+    // Both staged files are empty modules with no test{} blocks — bun exits
+    // 0 for "0 pass, 0 fail". The point of this test is that the cap
+    // messaging is ABSENT, not the exit code.
+    expect(res.out).not.toContain("cap 2");
+    expect(res.out).not.toContain("EZ_SKIP_HOOK_TESTS");
+    const log = sh(["git", "log", "--oneline"], { cwd: dir });
+    expect(log.out).toContain("narrow commit");
+  }, BIOME_TIMEOUT_MS);
+
+  // validator-3 L1: the fourth branch — at or under the cap, WITH
+  // EZ_SKIP_HOOK_TESTS=1 set. Before this item, that combination reached
+  // zero code in run_staged_tests() at all: .githooks/pre-commit pre-filtered
+  // EZ_SKIP_HOOK_TESTS=1 and never called the function, so the "under cap"
+  // skip was ALSO silent (no header, no file list, nothing) — the exact same
+  // defect as the over-cap case, just never reproduced because nobody staged
+  // a narrow, acknowledged-skip commit and looked at the output. The fix
+  // (this item, hook-lib.sh) makes run_staged_tests() itself the one place
+  // that reads EZ_SKIP_HOOK_TESTS, so both branches share one code path and
+  // one visible message.
+  test("at or under the cap WITH EZ_SKIP_HOOK_TESTS=1: prints the list, skips, commit lands", () => {
+    const dir = repoWithHookLib();
+    const names = stageManyTestFiles(dir, 2);
+
+    const res = sh(["git", "commit", "-m", "narrow commit, acknowledged"], {
+      cwd: dir,
+      env: { ...baseEnv, EZ_PRECOMMIT_TEST_MAX: "2", EZ_SKIP_HOOK_TESTS: "1" },
+    });
+
+    expect(res.exitCode).toBe(0);
+    // No cap messaging (2 is AT the cap, not over it) — but the skip is
+    // still named and visible, never the old silent no-op.
+    expect(res.out).not.toContain("cap 2");
+    expect(res.out).toContain("EZ_SKIP_HOOK_TESTS=1 set");
+    expect(res.out).toContain(`skipping the ${names.length} staged test file(s)`);
+    for (const n of names) expect(res.out).toContain(n);
+    const log = sh(["git", "log", "--oneline"], { cwd: dir });
+    expect(log.out).toContain("narrow commit, acknowledged");
   });
 });
 
@@ -361,8 +468,6 @@ describe("setup-git-hooks.sh", () => {
 });
 
 describe("hook-lib > staged_test_targets", () => {
-  const HOOK_LIB = join(REPO_ROOT, "scripts/lib/hook-lib.sh");
-
   /** Resolve staged paths through the REAL helper, sourced as the hooks source it. */
   function targets(...staged: string[]): string[] {
     const res = sh(["bash", "-c", `source "${HOOK_LIB}" && staged_test_targets "$@"`, "_", ...staged], {
@@ -384,6 +489,154 @@ describe("hook-lib > staged_test_targets", () => {
     // through to the vitest leg, which found no test file and failed EVERY
     // commit that touched an e2e spec. Pre-push and CI own Playwright.
     expect(targets("web/e2e/breadcrumb-tail.spec.ts", "web/e2e/fixtures/breadcrumb.ts")).toEqual([]);
+  });
+});
+
+describe("hook-lib > run_staged_tests", () => {
+  const HOOK_LIB = join(REPO_ROOT, "scripts/lib/hook-lib.sh");
+
+  test("runs each staged suite without the git context the hook exports", () => {
+    // A fake `bun` reports the GIT_* variables it received. The hook's own git
+    // calls still see the real context; only the test process must not.
+    const bin = mkdtempSync(join(tmpdir(), "hook-lib-fake-bun-"));
+    try {
+      writeFileSync(join(bin, "bun"), '#!/bin/sh\nenv | grep "^GIT_" | sed "s/^/seen: /"\necho "ran: $*"\n', { mode: 0o755 });
+      const gitDir = sh(["git", "rev-parse", "--absolute-git-dir"], { cwd: REPO_ROOT }).out.trim();
+      const staged = "src/__tests__/git-hooks.test.ts";
+      const res = sh(["bash", "-c", `source "${HOOK_LIB}" && run_staged_tests "$@"`, "_", staged], {
+        cwd: REPO_ROOT,
+        env: { ...baseEnv, PATH: `${bin}:${baseEnv.PATH}`, GIT_DIR: gitDir, GIT_INDEX_FILE: join(gitDir, "index"), GIT_PREFIX: "" },
+      });
+      expect(res.exitCode).toBe(0);
+      expect(res.out).toContain(`ran: test --timeout 30000 ./${staged}`);
+      expect(res.out).not.toContain("seen: GIT_");
+    } finally {
+      rmSync(bin, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("hook-lib > run_staged_tests > factory-orchestrator", () => {
+  const HOOK_LIB = join(REPO_ROOT, "scripts/lib/hook-lib.sh");
+  const ORCHESTRATOR = "packages/@ezcorp/factory-orchestrator";
+
+  // A fake `bun` records each call and the directory it ran in. The package
+  // script it stands in for is pinned below, so "bun run test" in the package
+  // directory is the node runner, never `bun test`.
+  function runStaged(...staged: string[]): Run {
+    const bin = mkdtempSync(join(tmpdir(), "hook-lib-orchestrator-"));
+    try {
+      writeFileSync(join(bin, "bun"), '#!/bin/sh\necho "ran: $* in $(pwd)"\n', { mode: 0o755 });
+      chmodSync(join(bin, "bun"), 0o755);
+      return sh(["bash", "-c", `source "${HOOK_LIB}" && run_staged_tests "$@"`, "_", ...staged], {
+        cwd: REPO_ROOT,
+        env: { ...baseEnv, PATH: `${bin}:${baseEnv.PATH}` },
+      });
+    } finally {
+      rmSync(bin, { recursive: true, force: true });
+    }
+  }
+
+  test("the package's own test script is tsc, then node --test", async () => {
+    const pkg = await Bun.file(join(REPO_ROOT, ORCHESTRATOR, "package.json")).json();
+    expect(pkg.scripts.test).toContain("node --test");
+    expect(pkg.scripts.test).not.toContain("bun test");
+  });
+
+  test("staged orchestrator tests run the package script once, never bun test, and other tests stay on bun", () => {
+    const res = runStaged(
+      `${ORCHESTRATOR}/test/definition-pages.test.ts`,
+      `${ORCHESTRATOR}/test/dispatcher.test.ts`,
+      "src/__tests__/git-hooks.test.ts",
+    );
+    expect(res.exitCode).toBe(0);
+    expect(res.out.split(`ran: run test in ${join(REPO_ROOT, ORCHESTRATOR)}`)).toHaveLength(2);
+    expect(res.out).not.toContain(`ran: test --timeout 30000 ./${ORCHESTRATOR}`);
+    expect(res.out).toContain("ran: test --timeout 30000 ./src/__tests__/git-hooks.test.ts");
+  });
+
+  test("a staged orchestrator source file alone still runs the package script", () => {
+    const res = runStaged(`${ORCHESTRATOR}/src/validation.ts`);
+    expect(res.exitCode).toBe(0);
+    expect(res.out).toContain(`ran: run test in ${join(REPO_ROOT, ORCHESTRATOR)}`);
+    expect(res.out).not.toContain("ran: test ");
+    expect(res.out).not.toContain("no test file maps");
+  });
+
+  test("EZ_SKIP_HOOK_TESTS=1 with only orchestrator files staged names the withheld run, not an empty list", () => {
+    // $targets is empty here (the orchestrator file is excluded from it by
+    // design), so the skip message must still name the orchestrator run —
+    // otherwise "skipping the 0 staged test file(s) below:" with nothing
+    // printed reads as nothing was withheld at all, when the orchestrator
+    // run is exactly what this branch withholds.
+    const bin = mkdtempSync(join(tmpdir(), "hook-lib-orchestrator-skip-"));
+    try {
+      writeFileSync(join(bin, "bun"), '#!/bin/sh\necho "ran: $* in $(pwd)"\n', { mode: 0o755 });
+      chmodSync(join(bin, "bun"), 0o755);
+      const res = sh(["bash", "-c", `source "${HOOK_LIB}" && run_staged_tests "$@"`, "_", `${ORCHESTRATOR}/src/validation.ts`], {
+        cwd: REPO_ROOT,
+        env: { ...baseEnv, PATH: `${bin}:${baseEnv.PATH}`, EZ_SKIP_HOOK_TESTS: "1" },
+      });
+      expect(res.exitCode).toBe(0);
+      expect(res.out).toContain("skipping the 0 staged test file(s)");
+      expect(res.out).toContain(ORCHESTRATOR);
+      expect(res.out).toContain("also withheld");
+      expect(res.out).not.toContain("ran: run test");
+      // L1 (W18 hygiene item C fix round): `count -gt 0` is the only guard
+      // between `$targets` being genuinely empty and `printf '%s\n' ""`
+      // still running (one empty line, or "    " once `sed 's/^/    /'`
+      // prepends the fixture's leading-space marker to it) — untested until
+      // now, so a regression that dropped or inverted the guard would have
+      // shipped silently. With count=0 the line right after "skipping the 0
+      // staged test file(s) below:" must be the orchestrator line, not a
+      // blank/whitespace-only one.
+      const lines = res.out.split("\n");
+      const skipLineIndex = lines.findIndex((l) => l.includes("skipping the 0 staged test file(s)"));
+      expect(skipLineIndex).toBeGreaterThanOrEqual(0);
+      expect(lines[skipLineIndex + 1]).not.toMatch(/^\s*$/);
+      expect(lines[skipLineIndex + 1]).toContain(ORCHESTRATOR);
+    } finally {
+      rmSync(bin, { recursive: true, force: true });
+    }
+  });
+
+  test("over-cap block also names the withheld orchestrator run when one is staged alongside it", () => {
+    const bin = mkdtempSync(join(tmpdir(), "hook-lib-orchestrator-cap-"));
+    try {
+      writeFileSync(join(bin, "bun"), '#!/bin/sh\necho "ran: $* in $(pwd)"\n', { mode: 0o755 });
+      chmodSync(join(bin, "bun"), 0o755);
+      const res = sh(
+        ["bash", "-c", `source "${HOOK_LIB}" && run_staged_tests "$@"`, "_",
+          `${ORCHESTRATOR}/src/validation.ts`,
+          "src/__tests__/git-hooks.test.ts",
+          "src/__tests__/gate-scripts.test.ts",
+          "src/__tests__/mock-cleanup-coverage.test.ts",
+        ],
+        { cwd: REPO_ROOT, env: { ...baseEnv, PATH: `${bin}:${baseEnv.PATH}`, EZ_PRECOMMIT_TEST_MAX: "2" } },
+      );
+      expect(res.exitCode).toBe(1);
+      expect(res.out).toContain("NOT running");
+      expect(res.out).toContain(ORCHESTRATOR);
+      expect(res.out).toContain("also withheld");
+      expect(res.out).not.toContain("ran: run test");
+    } finally {
+      rmSync(bin, { recursive: true, force: true });
+    }
+  });
+
+  test("a failing package script fails the hook", () => {
+    const bin = mkdtempSync(join(tmpdir(), "hook-lib-orchestrator-fail-"));
+    try {
+      writeFileSync(join(bin, "bun"), '#!/bin/sh\nif [ "$1" = run ]; then exit 1; fi\n', { mode: 0o755 });
+      chmodSync(join(bin, "bun"), 0o755);
+      const res = sh(["bash", "-c", `source "${HOOK_LIB}" && run_staged_tests "$@"`, "_", `${ORCHESTRATOR}/test/dispatcher.test.ts`], {
+        cwd: REPO_ROOT,
+        env: { ...baseEnv, PATH: `${bin}:${baseEnv.PATH}` },
+      });
+      expect(res.exitCode).toBe(1);
+    } finally {
+      rmSync(bin, { recursive: true, force: true });
+    }
   });
 });
 

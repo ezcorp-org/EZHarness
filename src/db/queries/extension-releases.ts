@@ -1,12 +1,10 @@
 import { sql } from "drizzle-orm";
-import type { MigrationDb } from "../migrations/types";
+import type { MigrationDb, TransactionalDb } from "../migrations/types";
 import { LifecycleError, type InstallationRecord, type InstallationState, type LifecycleRepository, type LifecycleActor } from "../../extensions/v4/types";
 import { insertTransactionalAuditEntry } from "./audit-log";
 import { digestObject } from "../../extensions/v4/blobs";
 
-export interface ReleaseDatabase extends MigrationDb {
-  transaction<Result>(work: (transaction: MigrationDb) => Promise<Result>): Promise<Result>;
-}
+export type ReleaseDatabase = TransactionalDb;
 
 export function releaseRows<Result>(result: unknown): Result[] {
   if (Array.isArray(result)) return result as Result[];

@@ -6,6 +6,8 @@ import { canRunWorkflow } from "$server/runtime/workflow-authz";
 import { requireScope } from "$lib/server/security/api-keys";
 import { errorJson } from "$lib/server/http-errors";
 import { resolveWorkflowOr } from "$lib/server/workflow-access";
+import { factoryIdempotencyKey } from "$server/idempotency";
+import type { WorkflowRun } from "$server/types";
 import type { RequestHandler } from "./$types";
 
 // Boundary validation. POST splits `projectId` off the body; every other
@@ -32,6 +34,25 @@ const postBodySchema = z.object({
  */
 function wantsAsync(request: Request): boolean {
   return request.headers.get("X-EZ-Workflow-Async") === "1";
+}
+
+function callerIdempotencyKey(request: Request): string | undefined {
+  const callerKey = request.headers.get("Idempotency-Key");
+  return callerKey === null ? undefined : factoryIdempotencyKey(callerKey);
+}
+
+function isIdempotencyConflict(error: unknown): boolean {
+  return typeof error === "object"
+    && error !== null
+    && (error as { code?: unknown }).code === "idempotency_conflict";
+}
+
+function persistenceRefusal(run: WorkflowRun): string | undefined {
+  const error = run.result?.error;
+  if (typeof error !== "object" || error === null || error.code !== "run-persistence-failed") {
+    return undefined;
+  }
+  return error.message;
 }
 
 export const POST: RequestHandler = async ({ request, params, locals }) => {
@@ -80,6 +101,7 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
     // re-resolved one, or it would bypass the ladder for exactly the
     // callers that opted out of waiting.
     const definition = resolved.entry.definition;
+    const idempotencyKey = callerIdempotencyKey(request);
 
     if (wantsAsync(request)) {
       // The id is minted HERE so the 202 can name the run. Deriving it
@@ -87,6 +109,31 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
       // response would have to wait for a frame it has no ordering
       // guarantee about.
       const runId = crypto.randomUUID();
+      if (idempotencyKey !== undefined) {
+        const created = Promise.withResolvers<WorkflowRun>();
+        const promise = workflowExec.runWorkflow(
+          definition,
+          input,
+          scopedProjectId,
+          user.id,
+          undefined,
+          { runId, idempotencyKey, onRunCreated: created.resolve },
+        );
+        void promise.catch((err) => {
+          console.error("async workflow run failed outside the executor", runId, err);
+        });
+        const acknowledged = await Promise.race([created.promise, promise]);
+        const refusal = persistenceRefusal(acknowledged);
+        if (refusal !== undefined) throw new Error(refusal);
+        return json(
+          {
+            id: acknowledged.id,
+            workflowName: acknowledged.workflowName,
+            status: acknowledged.status,
+          },
+          { status: 202 },
+        );
+      }
       // Deliberately not awaited. Errors are swallowed into the run row by
       // the executor's own terminal handling, so the only thing that can
       // reach here is a bug — logged rather than left as an unhandled
@@ -103,10 +150,19 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
       return json({ id: runId, workflowName: definition.name, status: "running" }, { status: 202 });
     }
 
-    const run = await workflowExec.runWorkflow(definition, input, scopedProjectId, user.id);
+    const run = idempotencyKey === undefined
+      ? await workflowExec.runWorkflow(definition, input, scopedProjectId, user.id)
+      : await workflowExec.runWorkflow(
+        definition,
+        input,
+        scopedProjectId,
+        user.id,
+        undefined,
+        { idempotencyKey },
+      );
     return json(run);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    return errorJson(400, message);
+    return errorJson(isIdempotencyConflict(err) ? 409 : 400, message);
   }
 };

@@ -60,6 +60,20 @@ describe("createShellTool", () => {
     }
   });
 
+  test("sanitizes a real provider key held by an innocuous environment name", async () => {
+    process.env.SHELL_TEST_CONFIGURATION = "sk-proj-abcdefghijklmnopqrstuvwxyz123456";
+    try {
+      const tool = createShellTool(projectPath);
+      const result = await tool.execute("1", {
+        // biome-ignore lint/suspicious/noTemplateCurlyInString: bash parameter expansion, not a JS template string
+        command: "echo \"configuration=${SHELL_TEST_CONFIGURATION:-missing}\"",
+      });
+      expect(getText(result)).toContain("configuration=missing");
+    } finally {
+      delete process.env.SHELL_TEST_CONFIGURATION;
+    }
+  });
+
   test("honours the timeout parameter and reports timeout in the message", async () => {
     const tool = createShellTool(projectPath);
     const start = Date.now();

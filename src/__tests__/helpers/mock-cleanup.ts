@@ -99,6 +99,12 @@ const MODULE_PATHS = [
   // gate's grant branch without a DB. Snapshot it: a leaked stub would answer
   // the RBAC scope question for every later file, which is a silent ALLOW.
   "../../auth/extension-rbac",
+  // workflow-nested-idempotency-conflict.test.ts forces
+  // `workflowReleaseCanExecute` true so an extension-sourced start reaches the
+  // insert whose unique-key conflict it is about. Snapshot it: a leaked stub
+  // would grant release authority to every later file, which is the same class
+  // of silent ALLOW as the line above.
+  "../../runtime/workflow-release-assets",
   // The wire gate itself. `conversation-extensions-route.test.ts` stubs
   // `partitionWirableExtensions` with an ALLOW-BIASED fake (it allows every
   // candidate the test did not explicitly deny). A leaked stub would answer
@@ -371,6 +377,10 @@ const MODULE_PATHS = [
   // which imports the REAL EmbedWorker).
   "../../extensions/embed-worker",
   "../../extensions/mcp-sandbox",
+  // Factory shell tests replace boot policy and host capability discovery.
+  // Restore both real modules before another suite checks isolation.
+  "../../factory/boot",
+  "../../extensions/sandbox/capability-probe",
   // mcp-sandbox-require-sandbox.test.ts substitutes the Stage 2 proxy with a
   // host-safe fake. Restore the real proxy after the suite so a later MCP
   // test cannot inherit its fake listener or token state.
@@ -503,7 +513,7 @@ export async function snapshotModules() {
 // mock-cleanup coverage meta-test can recognise a `$server/*` path as
 // legitimate when scanning test files; the array is no longer consumed
 // by restoration.
-const SERVER_ALIAS_PREFIXES = [
+export const SERVER_ALIAS_PREFIXES = [
   "db/",
   "auth/",
   "extensions/",
@@ -526,9 +536,103 @@ const SERVER_ALIAS_PREFIXES = [
  *  that needs them registers them itself via its own mock.module call.
  *  (scratchpad-e2e.test.ts used to hit the same hang; it now uses a
  *  sync factory and documents the pitfall inline.) */
-const SKIP_SERVER_ALIAS_RESTORE = new Set<string>([
+export const SKIP_SERVER_ALIAS_RESTORE = new Set<string>([
   "db/connection",
 ]);
+
+/**
+ * The real `$lib/<libPath>` module (web/src/lib) with `overrides` on top.
+ * Mock a `$lib/*` alias through this, never with a partial factory: the first
+ * route that links the module fixes its export NAMES for the rest of the
+ * process, and neither a later registration nor `restoreModuleMocks()` can
+ * add one back. Partial api-keys and validation factories made later suites'
+ * routes fail to link ("Export named 'requireAdmin' not found",
+ * "Export named 'projectPathSchema' not found"; 2026-09-24).
+ */
+export function webLibModule(libPath: string, overrides: Record<string, unknown>): Record<string, unknown> {
+  return { ...require(`../../../web/src/lib/${libPath}`), ...overrides };
+}
+
+/**
+ * The real backend `src/<relPath>` module with `overrides` on top —
+ * webLibModule()'s counterpart for `$server/*` and plain-relative mocks of a
+ * real `src/` module (`db/queries/extensions`, `providers/local-model-check`,
+ * …). Same rule, same reason: a partial factory freezes the module's export
+ * NAMES for the rest of the process (W18-hygiene item D reproduction,
+ * 2026-09-24 — "Export named 'listExtensions'/'listModels' not found").
+ *
+ * Compute this ONCE, before any mock.module() registration for the same
+ * resolved module (never lazily from inside such a factory): `web/`'s
+ * generated tsconfig maps both `$lib/*` and `$server/*` to a REALLY
+ * resolvable path, so a lazy call from a factory already registered for that
+ * path self-recurses to a stub carrying only the override (see
+ * webLibModule()'s history and tasks/factory/w18-hygiene-GATES.md GA4/GA5 —
+ * the repo root has neither alias for real, but the fix must be safe in
+ * both contexts, and precompute-once is the one shape that is).
+ */
+export function serverModule(relPath: string, overrides: Record<string, unknown>): Record<string, unknown> {
+  return { ...require(`../../${relPath}`), ...overrides };
+}
+
+/**
+ * A complete factory for a module too HEAVY to spread for real (webLibModule
+ * / serverModule): requiring it would transitively pull in the module's own
+ * whole dependency graph, colliding with every OTHER thing the calling test
+ * mocks for unrelated reasons (W18-hygiene item D: completing
+ * `$lib/server/context` with webLibModule() cascaded through
+ * db/queries/agent-configs, db/queries/conversations, db/queries/user-commands,
+ * db/connection, runtime/pending-messages — each already partially mocked,
+ * for its OWN purpose, by the very file whose context mock was being fixed).
+ *
+ * `names` is the exact, complete export list of the real module (write it
+ * once per module — see CONTEXT_EXPORT_NAMES below — so every call site
+ * shares one source of truth and a real signature change is one edit, not
+ * N). Every name gets a value: the caller's override if given, else a
+ * function that THROWS when actually CALLED (never when merely linked) —
+ * this is what fixes the "Export named X not found" cross-file pollution
+ * class of bug (the mock.module() factory now always has every name, so any
+ * file's static import of the module always links) while staying inert: a
+ * throwing default only fires if some test's code path actually calls a
+ * function that test never bothered to stub, which is a real, LOCAL gap in
+ * that test, not a load-time crash inherited from a sibling file.
+ */
+export function completeFactory<T extends Record<string, unknown>>(
+  names: readonly (keyof T & string)[],
+  overrides: Partial<T>,
+): T {
+  const out = {} as T;
+  for (const name of names) {
+    out[name] = (
+      Object.hasOwn(overrides, name)
+        ? overrides[name]
+        : () => {
+            throw new Error(`${name} is not stubbed by this test's mock — see completeFactory() in helpers/mock-cleanup.ts`);
+          }
+    ) as T[typeof name];
+  }
+  return out;
+}
+
+/** The exact export list of `web/src/lib/server/context.ts`. Keep in sync;
+ *  `contextModule()` and any direct `completeFactory` caller for this module
+ *  depend on it staying complete. */
+export const CONTEXT_EXPORT_NAMES = [
+  "ensureInitialized",
+  "getExecutor",
+  "getWorkflowExecutor",
+  "getBus",
+  "getCommandRegistry",
+  "getGoalHost",
+  "getWorkflows",
+  "getCachedWorkflows",
+  "reloadWorkflows",
+] as const;
+
+/** `completeFactory()` for `$lib/server/context` — see that function's
+ *  doc for why this module in particular cannot use webLibModule(). */
+export function contextModule(overrides: Partial<Record<(typeof CONTEXT_EXPORT_NAMES)[number], unknown>>): Record<string, unknown> {
+  return completeFactory(CONTEXT_EXPORT_NAMES, overrides);
+}
 
 export function restoreModuleMocks() {
   for (const [path, exports] of snapshots) {
@@ -562,18 +666,20 @@ export function restoreModuleMocks() {
     // oauth-api.test.ts's `mock.module(alias, () => require("../../X"))`
     // pattern is handled by preload.ts's string-keyed fallback for the
     // specific broken specifiers it consumes.
-    if (path.startsWith("../../")) {
-      const rel = path.slice("../../".length);
-      if (
-        SERVER_ALIAS_PREFIXES.some((p) => rel.startsWith(p)) &&
-        !SKIP_SERVER_ALIAS_RESTORE.has(rel)
-      ) {
-        try {
-          mock.module(`$server/${rel}`, () => require(path));
-        } catch {
-          // Ignore errors
-        }
-      }
-    }
+    // No `$server/*` re-registration here — see SERVER_ALIAS_PREFIXES above
+    // for why the automatic block was retired, and this for why it must stay
+    // retired. A `mock.module("$server/X")` is PERMANENT: from that moment the
+    // specifier is served from the literal registration instead of resolving
+    // through the importer's own tsconfig, and the record freezes on whatever
+    // the factory returned. A `web/` module that resolves `$server/X` natively
+    // shares one record with `../../X`, so the suite's own
+    // `mock.module("../../X", …)` and `spyOn` reach it; once this function has
+    // registered the alias, they no longer do — the route reads a different
+    // instance of the module than the test is driving. Measured: a file whose
+    // only act is calling this function costs
+    // `installer-idempotent-local.test.ts` three tests, because its author-page
+    // loader then resolves the real lifecycle service rather than the one the
+    // suite stubbed. Restoring the relative path above is enough; native
+    // resolution carries it to every `$server/*` importer.
   }
 }

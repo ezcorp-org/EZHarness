@@ -2,7 +2,7 @@ import { test, expect, describe, beforeAll, afterAll, beforeEach, mock } from "b
 import { mkdtemp, rm, access } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { restoreModuleMocks } from "./helpers/mock-cleanup";
+import { restoreModuleMocks, webLibModule, contextModule, serverModule } from "./helpers/mock-cleanup";
 import { setupTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglite";
 import { mockServerAlias, ADMIN_USER } from "./helpers/mock-request";
 
@@ -27,12 +27,18 @@ mock.module("$server/db/queries/conversation-extensions", () => ({
   },
 }));
 
-// Stubs for security + auth middleware that don't exist in src/ (they live in web/).
-mock.module("$server/auth/middleware", () => ({
-  requireAuth: (_locals: any) => ADMIN_USER,
-}));
+// auth/middleware: registered in beforeAll below, not here at module top
+// level — item C2 (W18 hygiene). A raw object literal here is a partial
+// mock (missing checkAuth/requireRole/checkProjectRole/etc.), and the
+// $server/auth/middleware alias is claimed by dozens of files repo-wide, so
+// whichever file's registration is active when a shared-process run
+// resolves the alias wins for every OTHER file too. beforeAll (test-execution
+// time) plus a complete serverModule() factory make THIS file's own values
+// active for THIS file's own tests, and afterAll hands the alias back to the
+// real module so a later file in the same process starts from a clean slate.
+const realAuthMiddleware = serverModule("auth/middleware", {});
 const streamChatCalls: any[] = [];
-mock.module("$lib/server/context", () => ({
+const contextExports = contextModule({
   getExecutor: () => ({
     streamChat: async (...args: any[]) => {
       streamChatCalls.push(args);
@@ -43,14 +49,16 @@ mock.module("$lib/server/context", () => ({
   getCommandRegistry: () => ({ listCommands: async () => [] }),
   getGoalHost: () => null,
   ensureInitialized: async () => {},
-}));
+});
+mock.module("$lib/server/context", () => contextExports);
 mock.module("$lib/server/security/validation", () => ({
   validationError: (err: any) => new Response(JSON.stringify({ error: err.issues ?? String(err) }), { status: 400 }),
 }));
-mock.module("$lib/server/security/resource-quotas", () => ({
+const resourceQuotasExports = webLibModule("server/security/resource-quotas", {
   checkTokenBudget: async () => ({ allowed: true, resetsAt: null }),
-}));
-mock.module("$lib/server/security/api-keys", () => ({
+});
+mock.module("$lib/server/security/resource-quotas", () => resourceQuotasExports);
+mock.module("$lib/server/security/api-keys", () => webLibModule("server/security/api-keys", {
   requireScope: () => null,
 }));
 
@@ -108,6 +116,10 @@ function resetExecutorCalls() {
 
 
 beforeAll(async () => {
+  mock.module("$server/auth/middleware", () => ({
+    ...realAuthMiddleware,
+    requireAuth: (_locals: any) => ADMIN_USER,
+  }));
   await setupTestDb();
   projectRoot = await mkdtemp(join(tmpdir(), "ezcorp-mp-"));
   const project = await createProject({ name: "MP Test", path: projectRoot });
@@ -128,6 +140,7 @@ beforeEach(async () => {
 
 afterAll(async () => {
   restoreModuleMocks();
+  mock.module("$server/auth/middleware", () => realAuthMiddleware);
   await closeTestDb();
   await rm(projectRoot, { recursive: true, force: true }).catch(() => {});
 });

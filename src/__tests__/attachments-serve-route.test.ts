@@ -2,7 +2,7 @@ import { test, expect, describe, beforeAll, afterAll, beforeEach, mock } from "b
 import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { restoreModuleMocks } from "./helpers/mock-cleanup";
+import { restoreModuleMocks, webLibModule, serverModule } from "./helpers/mock-cleanup";
 import { setupTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglite";
 import { mockServerAlias, createMockEvent, ADMIN_USER, MEMBER_USER } from "./helpers/mock-request";
 
@@ -14,17 +14,17 @@ mock.module("$server/db/queries/attachments", () => require("../db/queries/attac
 // Stub $types so bun can resolve the handler module (same pattern as ext-files-route.test.ts).
 mock.module("../../web/src/routes/api/attachments/[id]/$types", () => ({}));
 
-// Auth: requireAuth returns whatever user locals carries; tests drive identity via mkEvent.
-mock.module("$server/auth/middleware", () => ({
-  requireAuth: (locals: any) => {
-    if (!locals?.user) {
-      const res = new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
-      throw res;
-    }
-    return locals.user;
-  },
-}));
-mock.module("$lib/server/security/api-keys", () => ({
+// auth/middleware: registered in beforeAll below, not here at module top
+// level — item C2 (W18 hygiene). A raw object literal here is a partial
+// mock (missing checkAuth/requireRole/checkProjectRole/etc.), and the
+// $server/auth/middleware alias is claimed by dozens of files repo-wide, so
+// whichever file's registration is active when a shared-process run
+// resolves the alias wins for every OTHER file too. beforeAll (test-execution
+// time) plus a complete serverModule() factory make THIS file's own values
+// active for THIS file's own tests, and afterAll hands the alias back to the
+// real module so a later file in the same process starts from a clean slate.
+const realAuthMiddleware = serverModule("auth/middleware", {});
+mock.module("$lib/server/security/api-keys", () => webLibModule("server/security/api-keys", {
   requireScope: () => null,
 }));
 
@@ -66,6 +66,16 @@ let attachmentId: string;
 let storagePath: string;
 
 beforeAll(async () => {
+  mock.module("$server/auth/middleware", () => ({
+    ...realAuthMiddleware,
+    requireAuth: (locals: any) => {
+      if (!locals?.user) {
+        const res = new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
+        throw res;
+      }
+      return locals.user;
+    },
+  }));
   await setupTestDb();
   const [owner] = await getDb().insert(users).values({
     email: "owner@test.local",
@@ -99,6 +109,7 @@ beforeEach(async () => {
 
 afterAll(async () => {
   restoreModuleMocks();
+  mock.module("$server/auth/middleware", () => realAuthMiddleware);
   await closeTestDb();
   await rm(projectRoot, { recursive: true, force: true }).catch(() => {});
 });

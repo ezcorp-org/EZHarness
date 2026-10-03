@@ -20,6 +20,11 @@ export interface MigrationDb {
   execute: (query: ReturnType<typeof sql>) => Promise<unknown>;
 }
 
+/** Shared transaction boundary for product facts, audit, and delivery queues. */
+export interface TransactionalDb extends MigrationDb {
+  transaction<Result>(work: (transaction: MigrationDb) => Promise<Result>): Promise<Result>;
+}
+
 /**
  * What `migrate()` itself must be handed — strictly richer than a step's
  * handle, because it forwards the handle to `seedSelfProject()`, whose one

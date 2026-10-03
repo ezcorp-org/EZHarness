@@ -1,8 +1,8 @@
-import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { afterEach, describe, expect, test } from "bun:test";
+import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildHarnessEnv, makeFsRpcHandler, wireFsHandler, installFsChannelStub } from "../src/test/filesystem";
+import { buildHarnessEnv, gitInDirectory, makeFsRpcHandler, wireFsHandler, installFsChannelStub } from "../src/test/filesystem";
 import { getChannel } from "../src/runtime";
 import type { JsonRpcRequest, JsonRpcResponse } from "../src/types";
 
@@ -10,8 +10,6 @@ const roots: string[] = [];
 const priorGrant = process.env.EZCORP_FS_ALLOWED;
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
-  if (priorGrant === undefined) delete process.env.EZCORP_FS_ALLOWED;
-  else process.env.EZCORP_FS_ALLOWED = priorGrant;
 });
 
 test("filesystem harness preserves validation, containment and file operation envelopes", () => {
@@ -56,6 +54,30 @@ test("in-process filesystem stub rejects unrelated host calls", async () => {
   }
 });
 
+// The in-process stub's grant lasted past its test: installFsChannelStub set EZCORP_FS_ALLOWED=1 and nothing
+// cleared it, so in a pooled bun process every later file ran with a filesystem grant it never asked for. The
+// docs-updater integration test then sent its run-log mkdir to a host that did not exist and timed out at 30 s
+// (W18c measurement at dc3b64234; reproduced with auto-note/index.test.ts before it in one process).
+describe("installFsChannelStub grants for the calling test only", () => {
+  test("the grant holds while the test runs", () => {
+    installFsChannelStub(tmpdir());
+    expect(process.env.EZCORP_FS_ALLOWED).toBe("1");
+  });
+  test("the next test sees the grant the process had before", () => {
+    expect(process.env.EZCORP_FS_ALLOWED).toBe(priorGrant);
+  });
+  test("a grant value the process already had is put back, not deleted", () => {
+    process.env.EZCORP_FS_ALLOWED = "host-set";
+    installFsChannelStub(tmpdir());
+    expect(process.env.EZCORP_FS_ALLOWED).toBe("1");
+  });
+  test("after that test the earlier value is back", () => {
+    expect(process.env.EZCORP_FS_ALLOWED).toBe("host-set");
+    if (priorGrant === undefined) delete process.env.EZCORP_FS_ALLOWED;
+    else process.env.EZCORP_FS_ALLOWED = priorGrant;
+  });
+});
+
 test("filesystem harness environment grants are explicit and overridable", () => {
   const extensionId = `sdk-harness-${crypto.randomUUID()}`;
   const environment = buildHarnessEnv(extensionId, { filesystem: true, shell: true, network: true, permittedHosts: "example.com", projectRoot: "/project", env: { CUSTOM: "value" } });
@@ -63,4 +85,25 @@ test("filesystem harness environment grants are explicit and overridable", () =>
   expect(environment).toMatchObject({ EZCORP_FS_ALLOWED: "1", EZCORP_SHELL_ALLOWED: "1", EZCORP_NETWORK_ALLOWED: "1", EZCORP_PERMITTED_HOSTS: "example.com", EZCORP_PROJECT_ROOT: "/project", CUSTOM: "value" });
   const restricted = buildHarnessEnv(extensionId);
   expect(restricted.EZCORP_FS_ALLOWED).toBeUndefined();
+});
+
+// L2, W18 hygiene item C: gitInDirectory()'s own default `home` (when the
+// caller passes none) used to be created via a default-parameter
+// `mkdtempSync(...)` and never removed — one leaked directory under
+// `os.tmpdir()` per call. Fixed to clean up only the directory IT created;
+// a caller-supplied `home` is left alone (the caller may still need it).
+test("gitInDirectory() removes its own scratch home, but not a caller-supplied one", () => {
+  const before = readdirSync(tmpdir()).filter((n) => n.startsWith("gitInDirectory-"));
+
+  const dir = mkdtempSync(join(tmpdir(), "sdk-git-in-dir-"));
+  roots.push(dir);
+  gitInDirectory(dir, ["rev-parse", "--is-inside-work-tree"]);
+
+  const after = readdirSync(tmpdir()).filter((n) => n.startsWith("gitInDirectory-"));
+  expect(after).toEqual(before);
+
+  const suppliedHome = mkdtempSync(join(tmpdir(), "sdk-git-in-dir-supplied-home-"));
+  roots.push(suppliedHome);
+  gitInDirectory(dir, ["rev-parse", "--is-inside-work-tree"], suppliedHome);
+  expect(existsSync(suppliedHome)).toBe(true);
 });

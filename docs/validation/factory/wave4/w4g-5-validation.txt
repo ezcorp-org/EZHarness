@@ -1,0 +1,39 @@
+VERDICT (validator-6) — W4G-5 at c7a740455 (wp/w4g-5, owner w12e-2), base 842ad9fe1: ACCEPT
+
+2 commits, both archy noreply as author and committer. The fix commit is c7b8151a2. Files changed:
+  - src/factory/runner/uv-command.ts (new: the one uv resolver for TypeScript spawners);
+  - src/factory/runner/uv-command.test.ts (new);
+  - src/factory/runner/python-runner.integration.test.ts (its three spawns call uvCommand([...]); no `nixpkgs#uv` left);
+  - scripts/coverage-thresholds.json (adds the key src/factory/runner/uv-command.ts at 100; one added line, no line removed);
+  - tasks/factory/w4g-5-GATES.md.
+Config hash 44962525f1ca1a8b at the start and end of both phases. Bun and bunx 1.4.2, with the pipelining flag.
+
+REVIEW
+  - UV_RESOLUTION_ORDER is uv, nix-shell, nix, the same order as scripts/python-quality.sh. A test parses the script's order and
+    compares the two.
+  - The binary resolves once per process. When no tool gives uv, the error is UvUnavailableError by name, never a skip.
+  - No other TypeScript spawner calls uv through nix at the head (git grep for `nixpkgs#uv` and `"uv"` in *.ts).
+  - The thresholds change only tightens the gates: one new key at 100.
+
+REPRODUCTION, re-run by me (w4g-validation/repro-w4g5.sh): the owner's runner-shaped image localhost/w4g-runner:24.04 (Ubuntu
+  24.04, OpenSSL 3.0.13, pinned uv 0.11.8, no nix, no Python), a git-archive snapshot of each revision, my lane and output folder.
+  - At 842ad9fe1, RED: 0 pass, 4 fail. Each failure is `Executable not found in $PATH: "nix"`, as in the hosted job.
+  - At c7a740455, GREEN: 10 pass, 0 fail (the integration file and uv-command.test.ts).
+  - My first run of this leg was void at both revisions: my wrapper gave the paths without "./", so Bun ran no test. I fixed it,
+    and the hold now counts a run without tests (exit 97) as void, never as a red.
+
+MUTANT, by me (w4g-validation/mutant-w4g5.sh, under the lock): the order changed to uv, nix, nix-shell. uv-command.test.ts gives
+  4 pass, 2 fail; the order test and the nix-shell fallback test fail. Restored: clean tree, 6 pass, 0 fail.
+
+RERUN RESULTS (hold-v6-w4g5-c7a740455/results.jsonl)
+  Static:
+    - frozen installs clean (root, web, gate-integrity deps); all six package builds 0;
+    - identity 2/2; receipts 15 scanned, 0 missing;
+    - typecheck, lint and both boundary checks 0;
+    - gate-integrity: the base leg against 842ad9fe1 is clean; the origin/main leg equals the 8-path set;
+    - gitleaks 0.
+  Heavy, under the lock (lock_veto validator-6):
+    - reproduction red and green as above;
+    - unit leg (python-guest and python-runner integration tests, uv-command.test.ts): 22/0;
+    - SDK 246/0; guard set 60/0;
+    - lcov merge 0; the new-file gate passes with 1 new source file gated; the patch gate passes with all changed lines covered.

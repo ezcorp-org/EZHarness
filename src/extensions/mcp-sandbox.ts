@@ -41,6 +41,7 @@ import {
   mkdirSync,
 } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { factoryBootConfig } from "../factory/boot";
 
 /**
  * Audit finding #1 fix: MCP stdio extensions must run under the same
@@ -197,7 +198,7 @@ function readConntrackPressure(): {
 // ─────────────────────────────────────────────────────────────────────
 
 function isSandboxRequired(): boolean {
-  return process.env.EZCORP_MCP_REQUIRE_SANDBOX === "1";
+  return factoryBootConfig.requireSandbox || process.env.EZCORP_MCP_REQUIRE_SANDBOX === "1";
 }
 
 // ─────────────────────────────────────────────────────────────────────

@@ -9,8 +9,8 @@
  * they're fast and deterministic. The git-wiring main()s are validated by the
  * end-to-end verification in the plan, not here.
  */
-import { test, expect, describe } from "bun:test";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { test, expect, describe, beforeAll, afterAll } from "bun:test";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -31,6 +31,9 @@ import {
   addedExcludes,
   biomeConfigFileViolations,
   biomeGateWeakenings,
+  COVERAGE_GATE_TOOLS,
+  coverageGateToolViolations,
+  currentRepositoryGitContext as gateIntegrityGitContext,
   deletedOrRenamedTests,
   forbiddenTestAdditions,
   isPathAbsentAtRev,
@@ -42,6 +45,7 @@ import {
   unassertedAddedBlocks,
 } from "../../scripts/gate-integrity.ts";
 import { addedOrRewrittenFiles, newFileViolations } from "../../scripts/check-new-file-coverage.ts";
+import { currentRepositoryGitContext as gitOutputGitContext } from "../../scripts/git-output.ts";
 import {
   binaryDiffFiles,
   shouldFailOnLcovAbsence,
@@ -76,191 +80,423 @@ import {
   WORKER_ALLOWED_PREFIXES,
   WORKER_FORBIDDEN_SUBSYSTEMS,
 } from "../../scripts/check-boundaries.ts";
+import { scratchGitEnv, scratchRepository, withoutGitContext } from "./helpers/scratch-git.ts";
+
+// ── gate-integrity: the real gate in a disposable repository ───────────────
+/**
+ * A disposable repository holding only the real gate, its shared config and
+ * its locked parser setup, independent of the caller's branches, remotes,
+ * depth and worktree state. `runGate` runs the real gate there.
+ */
+function gateIntegrityFixture(fixtureRoot: string) {
+  const repoRoot = join(import.meta.dir, "..", "..");
+  const repo = scratchRepository(fixtureRoot, { name: "Gate fixture", email: "gate-fixture@example.test" });
+  const { dir: fixture } = repo;
+  mkdirSync(join(fixture, ".github/gate-integrity-deps"), { recursive: true });
+  mkdirSync(join(fixture, "scripts"), { recursive: true });
+  mkdirSync(join(fixture, "src/__tests__"), { recursive: true });
+  for (const relative of [
+    "scripts/gate-integrity.ts",
+    "scripts/coverage-config.ts",
+    "scripts/unified-diff.ts",
+    ".github/gate-integrity-deps/package.json",
+    ".github/gate-integrity-deps/bun.lock",
+  ]) {
+    cpSync(join(repoRoot, relative), join(fixture, relative), { recursive: true });
+  }
+  writeFileSync(join(fixture, "biome.json"), '{ "linter": { "enabled": true } }\n');
+  // With no node_modules in the fixture, Bun auto-installs the gate's `typescript` import: offline it hands
+  // back an empty stub, which is the path the gate must fail closed on. Against the real registry that
+  // fetch hung until the test timed out, or could succeed from the network or the shared cache (a 30 s
+  // flake, 2026-09-27). An unreachable registry and an empty cache keep the case local and deterministic.
+  const offlineCache = mkdtempSync(join(fixtureRoot, "bun-cache-"));
+  const runGate = (nodePath?: string) =>
+    Bun.spawnSync([process.execPath, "scripts/gate-integrity.ts"], {
+      cwd: fixture,
+      env: {
+        ...repo.env,
+        BASE_REF: "gate-base",
+        NODE_PATH: nodePath ?? "",
+        BUN_CONFIG_REGISTRY: "http://127.0.0.1:9/",
+        BUN_INSTALL_CACHE_DIR: offlineCache,
+      },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+  // The locked parser, installed without a network or a package manager: a
+  // real `bun install` here measured the install's wall clock, not the gate,
+  // and once ran past this test's budget under host load (2026-09-26). The
+  // install result is prepared from this checkout's own TypeScript, which
+  // must be exactly the version the gate's frozen lockfile pins.
+  const installLockedParser = () => {
+    const lockedVersion = /"typescript": \["typescript@([^"]+)"/.exec(
+      readFileSync(join(repoRoot, ".github/gate-integrity-deps/bun.lock"), "utf8"),
+    )?.[1];
+    const installed = realpathSync(join(repoRoot, "node_modules/typescript"));
+    expect(lockedVersion).toBeDefined();
+    expect(JSON.parse(readFileSync(join(installed, "package.json"), "utf8")).version).toBe(lockedVersion);
+    const parserPath = join(fixture, ".github/gate-integrity-deps/node_modules");
+    mkdirSync(parserPath);
+    symlinkSync(installed, join(parserPath, "typescript"), "dir");
+    return parserPath;
+  };
+  return { ...repo, fixture, runGate, installLockedParser };
+}
+
+// Every test that runs the real gate spawns it ONCE per test case, under this bound. The cause is cause 2 in
+// the "isolated parser dependency" describe below (receipt: tasks/factory/w18-hygiene-GATES.md, GC18).
+const SPAWN_TIMEOUT_MS = 60_000; // 2x the ~30 s worst single spawn measured under host contention (cause 2).
 
 // ── gate-integrity: isolated parser dependency ─────────────────────────────
 describe("gate-integrity: isolated parser dependency", () => {
-  const repoRoot = join(import.meta.dir, "..", "..");
+  // This test timed out for TWO separate causes; each has its own fix, and both fixes stay.
+  //
+  // CAUSE 1, network install (W18c, 8baf68403; receipt: tasks/factory/w18c-GATES.md, its 8baf68403 entry):
+  // the fixture has no node_modules, so Bun auto-installed the gate's `typescript` import from the registry.
+  // The "no parser" case hung until the 30 s timeout (seen twice on 2026-09-27), or passed only because the
+  // download was a package the gate rejects. FIX: gateIntegrityFixture above runs every gate with an
+  // unreachable registry and an empty install cache, and the two fail-closed forms are asserted apart.
+  //
+  // CAUSE 2, a blocked spawn under host memory pressure (item C2, 7ae4632b0 then 4500e1e2f; receipt:
+  // tasks/factory/w18-hygiene-GATES.md, GC18): `ps -eo pid,ppid,etimes,stat,cmd` sampled each second caught
+  // a runGate() child in state D (uninterruptible sleep, blocked in-kernel at fork/exec, not CPU-bound) from
+  // etimes=0 until the 30 s cap killed it, with 10 GiB of 16 GiB swap in use on this shared host. Three
+  // copies of the old combined test in one run failed about 1 in 8 to 1 in 16; it also recurred once inside
+  // the 405-file focused producer under the heavy lock. Alone, all spawns took under 8 s together. FIX: ONE
+  // SPAWN PER TEST CASE, each case with its own bound (validator-3 ruling, 2026-09-27, over a single shared
+  // 120 s bound). The cases share ONE progressively committed fixture (built once in beforeAll, removed
+  // once in afterAll) and rely on bun:test's in-file sequential order. No assertion is on elapsed time;
+  // the bound only guards against a real hang.
 
-  test("fails closed without TypeScript, then parses asserted and vacuous changed tests", () => {
-    const fixtureRoot = mkdtempSync(join(tmpdir(), "gate-integrity-parser-"));
-    const fixture = join(fixtureRoot, "repo");
+  let fixtureRoot: string;
+  let gate: ReturnType<typeof gateIntegrityFixture>;
+  let testPath: string;
+  // Set by the locked-parser case; the vacuous case after it uses the same parser.
+  let parserPath: string;
+
+  beforeAll(() => {
+    fixtureRoot = mkdtempSync(join(tmpdir(), "gate-integrity-parser-"));
+    gate = gateIntegrityFixture(fixtureRoot);
+    testPath = join(gate.fixture, "src/__tests__/fixture.test.ts");
+    writeFileSync(testPath, 'import { expect, test } from "bun:test";\ntest("base", () => expect(true).toBe(true));\n');
+
+    gate.git("add", ".");
+    gate.git("commit", "--quiet", "-m", "base");
+    gate.git("branch", "gate-base");
+
+    writeFileSync(testPath, [
+      'import { expect, test } from "bun:test";',
+      'test("base", () => expect(true).toBe(true));',
+      'test("new asserted test", () => expect(true).toBe(true));',
+      "",
+    ].join("\n"));
+    gate.git("add", "src/__tests__/fixture.test.ts");
+    gate.git("commit", "--quiet", "-m", "asserted test");
+  });
+
+  afterAll(() => {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  });
+
+  // The two ways the locked parser can be absent: no package at all, and a package that is not the
+  // TypeScript compiler API (what an unpinned download handed the gate before this was made local).
+  test("fails closed when no TypeScript package can be found", () => {
+    expect(existsSync(join(gate.fixture, "node_modules"))).toBe(false);
+    const missingParser = gate.runGate();
+    expect(missingParser.exitCode).toBe(1);
+    expect(missingParser.stderr.toString()).toContain("Cannot find package 'typescript'");
+  }, SPAWN_TIMEOUT_MS);
+
+  test("fails closed when the package found is not the TypeScript compiler API", () => {
+    const impostorPath = join(fixtureRoot, "impostor/node_modules");
+    mkdirSync(join(impostorPath, "typescript"), { recursive: true });
+    writeFileSync(join(impostorPath, "typescript/package.json"), '{ "name": "typescript", "version": "0.0.0", "main": "index.js" }\n');
+    writeFileSync(join(impostorPath, "typescript/index.js"), "module.exports = {};\n");
+    const impostorParser = gate.runGate(impostorPath);
+    expect(impostorParser.exitCode).toBe(1);
+    expect(impostorParser.stderr.toString()).toContain("TypeScript AST parser is unavailable");
+  }, SPAWN_TIMEOUT_MS);
+
+  test("passes with the locked parser available and only an asserted test present", () => {
+    parserPath = gate.installLockedParser();
+    expect(existsSync(join(gate.fixture, "node_modules"))).toBe(false);
+
+    const assertedTest = gate.runGate(parserPath);
+    expect(assertedTest.exitCode).toBe(0);
+    expect(assertedTest.stdout.toString()).toContain("Gate integrity PASSED");
+  }, SPAWN_TIMEOUT_MS);
+
+  test("fails closed on a vacuous (unasserted) test, parser available", () => {
+    writeFileSync(testPath, [
+      'import { expect, test } from "bun:test";',
+      'test("base", () => expect(true).toBe(true));',
+      'test("new asserted test", () => expect(true).toBe(true));',
+      'test("vacuous test", () => { prepareOnly(); });',
+      "",
+    ].join("\n"));
+    gate.git("add", "src/__tests__/fixture.test.ts");
+    gate.git("commit", "--quiet", "-m", "vacuous test");
+
+    const vacuousTest = gate.runGate(parserPath);
+    expect(vacuousTest.exitCode).toBe(1);
+    expect(vacuousTest.stderr.toString()).toContain("vacuous test (no assertion)");
+  }, SPAWN_TIMEOUT_MS);
+});
+
+describe("gate-integrity: every head-side read comes from the revision it diffs", () => {
+  // The gate numbers added lines from `git diff mergeBase...HEAD`. It used to read the file text from the
+  // working tree, so on a staged, uncommitted merge the numbers were HEAD's and the text was the staged
+  // tree's: an old test that moved onto HEAD's added-line numbers was reported as a new vacuous test
+  // (integrator-2, the staged W16d merge, 2026-09-27: "vacuous test (no assertion) near line 397").
+  // One gate spawn per case (SPAWN_TIMEOUT_MS, cause 2); both cases share one fixture, in file order.
+  let fixtureRoot: string;
+  let gate: ReturnType<typeof gateIntegrityFixture>;
+  let testPath: string;
+  let parserPath: string;
+  const oldUnasserted = 'test("old unasserted", () => { prepareOnly(); });';
+  const added = ['test("new asserted", () => {', "  expect(1).toBe(1);", "});"];
+
+  beforeAll(() => {
+    fixtureRoot = mkdtempSync(join(tmpdir(), "gate-integrity-shift-"));
+    gate = gateIntegrityFixture(fixtureRoot);
+    testPath = join(gate.fixture, "src/__tests__/fixture.test.ts");
+    writeFileSync(testPath, ['import { expect, test } from "bun:test";', oldUnasserted, ""].join("\n"));
+    gate.git("add", ".");
+    gate.git("commit", "--quiet", "-m", "base");
+    gate.git("branch", "gate-base");
+
+    // HEAD adds one asserted test at lines 2-4, above the old one.
+    writeFileSync(testPath, ['import { expect, test } from "bun:test";', ...added, oldUnasserted, ""].join("\n"));
+    gate.git("add", "src/__tests__/fixture.test.ts");
+    gate.git("commit", "--quiet", "-m", "asserted test");
+  });
+
+  afterAll(() => {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  });
+
+  test("the committed head, an asserted test added above an old unasserted one, passes", () => {
+    parserPath = gate.installLockedParser();
+    expect(gate.runGate(parserPath).exitCode).toBe(0);
+  }, SPAWN_TIMEOUT_MS);
+
+  test("a staged shift does not move HEAD's added lines onto an old unasserted test", () => {
+    // Staged, not committed: the new test moves below the old one, so HEAD's added lines 2-4 now hold the
+    // old unasserted test in the working tree.
+    writeFileSync(testPath, ['import { expect, test } from "bun:test";', oldUnasserted, ...added, ""].join("\n"));
+    gate.git("add", "src/__tests__/fixture.test.ts");
+    const staged = gate.runGate(parserPath);
+    expect(staged.stderr.toString()).not.toContain("vacuous test");
+    expect(staged.exitCode).toBe(0);
+    expect(staged.stdout.toString()).toContain("Gate integrity PASSED");
+  }, SPAWN_TIMEOUT_MS);
+});
+
+// ── scratch repositories: the caller's git context is never used ───────────
+describe("scratch repositories: the caller's git context is never used", () => {
+  test("a scratch repository leaves the repository named by GIT_* and HOME untouched", () => {
+    const root = mkdtempSync(join(tmpdir(), "scratch-git-guard-"));
     try {
-      mkdirSync(join(fixture, ".github/gate-integrity-deps"), { recursive: true });
-      mkdirSync(join(fixture, "scripts"), { recursive: true });
-      mkdirSync(join(fixture, "src/__tests__"), { recursive: true });
-      // Keep this independent of the caller's branches, remotes, depth and
-      // worktree state. Only the real gate, its real shared config and the
-      // locked parser setup are copied into the disposable repository.
-      for (const relative of [
-        "scripts/gate-integrity.ts",
-        "scripts/coverage-config.ts",
-        "scripts/unified-diff.ts",
-        ".github/gate-integrity-deps/package.json",
-        ".github/gate-integrity-deps/bun.lock",
-      ]) {
-        cpSync(join(repoRoot, relative), join(fixture, relative), { recursive: true });
-      }
-      writeFileSync(join(fixture, "biome.json"), '{ "linter": { "enabled": true } }\n');
-      const testPath = join(fixture, "src/__tests__/fixture.test.ts");
-      writeFileSync(testPath, 'import { expect, test } from "bun:test";\ntest("base", () => expect(true).toBe(true));\n');
-
-      const git = (...args: string[]) => {
-        const proc = Bun.spawnSync(["git", ...args], { cwd: fixture, stdout: "pipe", stderr: "pipe" });
-        expect(proc.exitCode).toBe(0);
+      // The dummy stands in for the real repository a pre-commit hook exports.
+      const dummy = scratchRepository(join(root, "dummy"), { name: "Dummy owner", email: "dummy@example.test" });
+      writeFileSync(join(dummy.dir, "owned.txt"), "owned\n");
+      dummy.git("add", "owned.txt");
+      dummy.git("commit", "--quiet", "-m", "owned");
+      const dummyGit = join(dummy.dir, ".git");
+      const callerHome = join(root, "caller-home");
+      mkdirSync(callerHome);
+      writeFileSync(join(callerHome, ".gitconfig"), "[user]\n\tname = Leaked global\n");
+      const snapshot = () => ({
+        config: readFileSync(join(dummyGit, "config"), "utf8"),
+        index: readFileSync(join(dummyGit, "index")).toString("base64"),
+        refs: dummy.git("for-each-ref", "--format=%(refname) %(objectname)"),
+        objects: dummy.git("count-objects", "-v"),
+        head: readFileSync(join(dummyGit, "HEAD"), "utf8"),
+      });
+      const before = snapshot();
+      const poisoned = {
+        ...process.env,
+        HOME: callerHome,
+        GIT_DIR: dummyGit,
+        GIT_INDEX_FILE: join(dummyGit, "index"),
+        GIT_WORK_TREE: dummy.dir,
+        GIT_COMMON_DIR: dummyGit,
+        GIT_OBJECT_DIRECTORY: join(dummyGit, "objects"),
+        GIT_PREFIX: "",
       };
-      git("init", "--quiet");
-      git("config", "user.email", "gate-fixture@example.test");
-      git("config", "user.name", "Gate fixture");
-      git("add", ".");
-      git("commit", "--quiet", "-m", "base");
-      git("branch", "gate-base");
 
-      writeFileSync(testPath, [
-        'import { expect, test } from "bun:test";',
-        'test("base", () => expect(true).toBe(true));',
-        'test("new asserted test", () => expect(true).toBe(true));',
-        "",
-      ].join("\n"));
-      git("add", "src/__tests__/fixture.test.ts");
-      git("commit", "--quiet", "-m", "asserted test");
+      const scratch = scratchRepository(join(root, "scratch"), { name: "Scratch", email: "scratch@example.test" }, poisoned);
+      writeFileSync(join(scratch.dir, "change.txt"), "scratch\n");
+      scratch.git("add", "change.txt");
+      scratch.git("commit", "--quiet", "-m", "scratch");
+      scratch.git("branch", "scratch-base");
 
-      expect(existsSync(join(fixture, "node_modules"))).toBe(false);
-      const runGate = (nodePath?: string) => Bun.spawnSync([process.execPath, "scripts/gate-integrity.ts"], {
-        cwd: fixture,
-        env: { ...process.env, BASE_REF: "gate-base", NODE_PATH: nodePath ?? "" },
-        stdout: "pipe",
+      expect(snapshot()).toEqual(before);
+      expect(realpathSync(scratch.git("rev-parse", "--absolute-git-dir").trim())).toBe(realpathSync(join(scratch.dir, ".git")));
+      expect(scratch.git("log", "-1", "--format=%an <%ae>").trim()).toBe("Scratch <scratch@example.test>");
+      expect(Object.keys(scratch.env).filter((name) => name.startsWith("GIT_"))).toEqual(["GIT_CONFIG_NOSYSTEM"]);
+      expect(scratch.env.GIT_CONFIG_NOSYSTEM).toBe("1");
+      expect(scratch.env.HOME).toBe(join(root, "scratch", "home"));
+      const globalName = Bun.spawnSync(["git", "config", "--global", "user.name"], { cwd: scratch.dir, env: scratch.env, stdout: "pipe" });
+      expect(globalName.exitCode).toBe(1);
+      expect(globalName.stdout.toString()).toBe("");
+
+      // Control: the same environment without the helper writes into the dummy.
+      const leak = Bun.spawnSync(["git", "config", "user.email", "leaked@example.test"], {
+        cwd: mkdtempSync(join(root, "unprotected-")),
+        env: poisoned,
         stderr: "pipe",
       });
-
-      const missingParser = runGate();
-      expect(missingParser.exitCode).toBe(1);
-      expect(missingParser.stderr.toString()).toContain("TypeScript AST parser is unavailable");
-
-      const install = Bun.spawnSync([
-        process.execPath,
-        "install",
-        "--cwd",
-        ".github/gate-integrity-deps",
-        "--frozen-lockfile",
-        "--ignore-scripts",
-      ], { cwd: fixture, stdout: "pipe", stderr: "pipe" });
-      expect(install.exitCode).toBe(0);
-      expect(existsSync(join(fixture, "node_modules"))).toBe(false);
-
-      const parserPath = join(fixture, ".github/gate-integrity-deps/node_modules");
-      const assertedTest = runGate(parserPath);
-      expect(assertedTest.exitCode).toBe(0);
-      expect(assertedTest.stdout.toString()).toContain("Gate integrity PASSED");
-
-      writeFileSync(testPath, [
-        'import { expect, test } from "bun:test";',
-        'test("base", () => expect(true).toBe(true));',
-        'test("new asserted test", () => expect(true).toBe(true));',
-        'test("vacuous test", () => { prepareOnly(); });',
-        "",
-      ].join("\n"));
-      git("add", "src/__tests__/fixture.test.ts");
-      git("commit", "--quiet", "-m", "vacuous test");
-
-      const vacuousTest = runGate(parserPath);
-      expect(vacuousTest.exitCode).toBe(1);
-      expect(vacuousTest.stderr.toString()).toContain("vacuous test (no assertion)");
+      expect(leak.exitCode).toBe(0);
+      expect(snapshot().config).toContain("leaked@example.test");
     } finally {
-      rmSync(fixtureRoot, { recursive: true, force: true });
+      rmSync(root, { recursive: true, force: true });
     }
-  }, 30_000);
+  });
+
+  test("scratchGitEnv drops the caller's GIT_* variables and XDG_CONFIG_HOME, sets HOME, and ignores the system config", () => {
+    expect(scratchGitEnv("/scratch/home", {
+      GIT_DIR: "/real/.git",
+      GIT_INDEX_FILE: "/real/.git/index",
+      GIT_WORK_TREE: "/real",
+      GIT_COMMON_DIR: "/real/.git",
+      GIT_OBJECT_DIRECTORY: "/real/.git/objects",
+      GIT_PREFIX: "",
+      XDG_CONFIG_HOME: "/real/config",
+      HOME: "/real/home",
+      PATH: "/bin",
+      UNSET: undefined,
+      GIT_CONFIG_NOSYSTEM: "0",
+    })).toEqual({ HOME: "/scratch/home", PATH: "/bin", GIT_CONFIG_NOSYSTEM: "1" });
+  });
+
+  test("scratchRepository names the failing git command and its stderr", () => {
+    const root = mkdtempSync(join(tmpdir(), "scratch-git-error-"));
+    try {
+      const repo = scratchRepository(root, { name: "Scratch", email: "scratch@example.test" });
+      expect(() => repo.git("rev-parse", "--verify", "no-such-ref")).toThrow(/git rev-parse --verify no-such-ref exited 128: fatal/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("coverage diff gates: dependency-free Git controls", () => {
   const repoRoot = join(import.meta.dir, "..", "..");
+  // One gate spawn per case (SPAWN_TIMEOUT_MS, cause 2); the cases share one fixture and run in file order.
+  let fixtureRoot: string;
+  let fixture: string;
+  let git: ReturnType<typeof scratchRepository>["git"];
+  let runGate: (script: string, base: string) => Bun.ReadableSyncSubprocess;
+  let sourcePath: string;
+  let measuredLcov: string;
 
-  test("cover changes, reject missing measurements, and fail closed on an absent base", () => {
-    const fixtureRoot = mkdtempSync(join(tmpdir(), "patch-coverage-parser-"));
-    const fixture = join(fixtureRoot, "repo");
-    try {
-      mkdirSync(join(fixture, "scripts"), { recursive: true });
-      mkdirSync(join(fixture, "src"), { recursive: true });
-      mkdirSync(join(fixture, "coverage"), { recursive: true });
-      for (const relative of [
-        "scripts/check-patch-coverage.ts",
-        "scripts/check-new-file-coverage.ts",
-        "scripts/coverage-config.ts",
-        "scripts/git-output.ts",
-        "scripts/unified-diff.ts",
-      ]) {
-        cpSync(join(repoRoot, relative), join(fixture, relative));
-      }
-      const sourcePath = join(fixture, "src/change.ts");
-      const newSourcePath = join(fixture, "src/new.ts");
-      writeFileSync(sourcePath, "export const value = 1;\n");
-      writeFileSync(join(fixture, "scripts/coverage-thresholds.json"), '{ "src/new.ts": 100 }\n');
-
-      const git = (...args: string[]) => {
-        const proc = Bun.spawnSync(["git", ...args], { cwd: fixture, stdout: "pipe", stderr: "pipe" });
-        expect(proc.exitCode).toBe(0);
-      };
-      git("init", "--quiet");
-      git("config", "user.email", "patch-fixture@example.test");
-      git("config", "user.name", "Patch fixture");
-      git("add", ".");
-      git("commit", "--quiet", "-m", "base");
-      git("branch", "patch-base");
-      writeFileSync(sourcePath, "export const value = 2;\n");
-      writeFileSync(newSourcePath, "export const newValue = 3;\n");
-      git("add", "src/change.ts", "src/new.ts");
-      git("commit", "--quiet", "-m", "covered change");
-      const measuredLcov = [
-        `SF:${sourcePath}`,
-        "DA:1,1",
-        "end_of_record",
-        `SF:${newSourcePath}`,
-        "DA:1,1",
-        "end_of_record",
-        "",
-      ].join("\n");
-      writeFileSync(join(fixture, "coverage/lcov.info"), measuredLcov);
-
-      expect(existsSync(join(fixture, "node_modules"))).toBe(false);
-      const runGate = (script: string, base: string) => Bun.spawnSync([process.execPath, script], {
-        cwd: fixture,
-        env: { ...process.env, BASE_REF: base, NODE_PATH: "" },
-        stdout: "pipe",
-        stderr: "pipe",
-      });
-
-      const covered = runGate("scripts/check-patch-coverage.ts", "patch-base");
-      expect(covered.exitCode).toBe(0);
-      expect(covered.stdout.toString()).toContain("Patch coverage gate PASSED");
-
-      const coveredNewFile = runGate("scripts/check-new-file-coverage.ts", "patch-base");
-      expect(coveredNewFile.exitCode).toBe(0);
-      expect(coveredNewFile.stdout.toString()).toContain("New-file coverage gate PASSED");
-
-      writeFileSync(join(fixture, "coverage/lcov.info"), `SF:${sourcePath}\nDA:1,1\nend_of_record\n`);
-      const patchMissingMeasurement = runGate("scripts/check-patch-coverage.ts", "patch-base");
-      expect(patchMissingMeasurement.exitCode).toBe(1);
-      expect(patchMissingMeasurement.stderr.toString()).toContain("changed source file has NO lcov data");
-      const newFileMissingMeasurement = runGate("scripts/check-new-file-coverage.ts", "patch-base");
-      expect(newFileMissingMeasurement.exitCode).toBe(1);
-      expect(newFileMissingMeasurement.stderr.toString()).toContain("new source file with no measured coverage");
-      writeFileSync(join(fixture, "coverage/lcov.info"), measuredLcov);
-
-      const missingBase = runGate("scripts/check-patch-coverage.ts", "missing-base");
-      expect(missingBase.exitCode).toBe(1);
-      expect(missingBase.stderr.toString()).toContain("Patch coverage gate ERROR (fail-closed)");
-      expect(missingBase.stderr.toString()).toContain("git diff");
-
-      const missingNewFileBase = runGate("scripts/check-new-file-coverage.ts", "missing-base");
-      expect(missingNewFileBase.exitCode).toBe(1);
-      expect(missingNewFileBase.stderr.toString()).toContain("New-file coverage gate ERROR (fail-closed)");
-      expect(missingNewFileBase.stderr.toString()).toContain("git diff");
-    } finally {
-      rmSync(fixtureRoot, { recursive: true, force: true });
+  beforeAll(() => {
+    fixtureRoot = mkdtempSync(join(tmpdir(), "patch-coverage-parser-"));
+    const repo = scratchRepository(fixtureRoot, { name: "Patch fixture", email: "patch-fixture@example.test" });
+    fixture = repo.dir;
+    git = repo.git;
+    mkdirSync(join(fixture, "scripts"), { recursive: true });
+    mkdirSync(join(fixture, "src"), { recursive: true });
+    mkdirSync(join(fixture, "coverage"), { recursive: true });
+    for (const relative of [
+      "scripts/check-patch-coverage.ts",
+      "scripts/check-new-file-coverage.ts",
+      "scripts/coverage-config.ts",
+      "scripts/git-output.ts",
+      "scripts/unified-diff.ts",
+    ]) {
+      cpSync(join(repoRoot, relative), join(fixture, relative));
     }
-  }, 30_000);
+    sourcePath = join(fixture, "src/change.ts");
+    const newSourcePath = join(fixture, "src/new.ts");
+    writeFileSync(sourcePath, "export const value = 1;\n");
+    writeFileSync(join(fixture, "scripts/coverage-thresholds.json"), '{ "src/new.ts": 100 }\n');
+
+    git("add", ".");
+    git("commit", "--quiet", "-m", "base");
+    git("branch", "patch-base");
+    writeFileSync(sourcePath, "export const value = 2;\n");
+    writeFileSync(newSourcePath, "export const newValue = 3;\n");
+    // A type-only file emits no code: no producer records it, and the gate passes it.
+    writeFileSync(join(fixture, "src/types.ts"), "export interface Shape {\n  readonly id: string;\n}\n");
+    git("add", "src/change.ts", "src/new.ts", "src/types.ts");
+    git("commit", "--quiet", "-m", "covered change");
+    measuredLcov = [
+      `SF:${sourcePath}`,
+      "DA:1,1",
+      "end_of_record",
+      `SF:${newSourcePath}`,
+      "DA:1,1",
+      "end_of_record",
+      "",
+    ].join("\n");
+    writeFileSync(join(fixture, "coverage/lcov.info"), measuredLcov);
+
+    runGate = (script: string, base: string) => Bun.spawnSync([process.execPath, script], {
+      cwd: fixture,
+      env: { ...repo.env, BASE_REF: base, NODE_PATH: "" },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+  });
+
+  afterAll(() => {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  });
+
+  test("cover changes: the patch gate passes a measured change", () => {
+    expect(existsSync(join(fixture, "node_modules"))).toBe(false);
+    const covered = runGate("scripts/check-patch-coverage.ts", "patch-base");
+    expect(covered.exitCode).toBe(0);
+    expect(covered.stdout.toString()).toContain("Patch coverage gate PASSED");
+  }, SPAWN_TIMEOUT_MS);
+
+  test("cover changes: the new-file gate passes a measured new file and a type-only file", () => {
+    const coveredNewFile = runGate("scripts/check-new-file-coverage.ts", "patch-base");
+    expect(coveredNewFile.exitCode).toBe(0);
+    expect(coveredNewFile.stdout.toString()).toContain("New-file coverage gate PASSED");
+  }, SPAWN_TIMEOUT_MS);
+
+  test("reject missing measurements: the patch gate rejects a changed file with no lcov data", () => {
+    writeFileSync(join(fixture, "coverage/lcov.info"), `SF:${sourcePath}\nDA:1,1\nend_of_record\n`);
+    const patchMissingMeasurement = runGate("scripts/check-patch-coverage.ts", "patch-base");
+    expect(patchMissingMeasurement.exitCode).toBe(1);
+    expect(patchMissingMeasurement.stderr.toString()).toContain("changed source file has NO lcov data");
+  }, SPAWN_TIMEOUT_MS);
+
+  test("reject missing measurements: the new-file gate rejects a new file with no measured coverage", () => {
+    const newFileMissingMeasurement = runGate("scripts/check-new-file-coverage.ts", "patch-base");
+    expect(newFileMissingMeasurement.exitCode).toBe(1);
+    expect(newFileMissingMeasurement.stderr.toString()).toContain("new source file with no measured coverage");
+  }, SPAWN_TIMEOUT_MS);
+
+  test("reject missing measurements: a new file with an enum is executable, so it is gated again", () => {
+    writeFileSync(join(fixture, "coverage/lcov.info"), measuredLcov);
+    writeFileSync(join(fixture, "src/modes.ts"), "export interface Shape {\n  readonly id: string;\n}\nexport enum Mode { A, B }\n");
+    git("add", "src/modes.ts");
+    git("commit", "--quiet", "-m", "enum");
+    const enumNewFile = runGate("scripts/check-new-file-coverage.ts", "patch-base");
+    expect(enumNewFile.exitCode).toBe(1);
+    expect(enumNewFile.stderr.toString()).toContain("src/modes.ts: new source file with no measured coverage");
+    expect(enumNewFile.stderr.toString()).not.toContain("src/types.ts");
+  }, SPAWN_TIMEOUT_MS);
+
+  test("fail closed on an absent base: the patch gate", () => {
+    const missingBase = runGate("scripts/check-patch-coverage.ts", "missing-base");
+    expect(missingBase.exitCode).toBe(1);
+    expect(missingBase.stderr.toString()).toContain("Patch coverage gate ERROR (fail-closed)");
+    expect(missingBase.stderr.toString()).toContain("git diff");
+  }, SPAWN_TIMEOUT_MS);
+
+  test("fail closed on an absent base: the new-file gate", () => {
+    const missingNewFileBase = runGate("scripts/check-new-file-coverage.ts", "missing-base");
+    expect(missingNewFileBase.exitCode).toBe(1);
+    expect(missingNewFileBase.stderr.toString()).toContain("New-file coverage gate ERROR (fail-closed)");
+    expect(missingNewFileBase.stderr.toString()).toContain("git diff");
+  }, SPAWN_TIMEOUT_MS);
 });
 
-// ── coverage-config ─────────────────────────────────────────────────────────
 describe("coverage-config helpers", () => {
   test("escapeGlob escapes SvelteKit bracket segments", () => {
     expect(escapeGlob("web/src/routes/api/x/[id]/+server.ts")).toBe(
@@ -1075,6 +1311,39 @@ describe("check-new-file-coverage: newFileViolations", () => {
     const perFile = new Map([["src/new.ts", cov(10, 10)]]);
     expect(newFileViolations(["src/new.ts"], perFile, ["src/**", "src/new.ts"])).toEqual([]);
   });
+  // Coordinator ruling (W18c, 2026-09-26): a type-only file emits no code, so
+  // it has no lines to cover. The structural test is the one shared
+  // isDeclarationOnlyTypeScript that check-coverage.ts and
+  // check-patch-coverage.ts already apply; any executable export re-gates it.
+  describe("type-only files", () => {
+    const typeOnly = "export interface Shape {\n  readonly id: string;\n}\nexport type Alias = Shape | null;\n";
+    const judge = (sources: Record<string, string>) => (file: string) => isDeclarationOnlyTypeScript(sources[file] ?? "x;");
+    test.each([
+      ["interfaces and type aliases", typeOnly],
+      ["only `export type` and `import type`", 'import type { Shape } from "./shape";\nexport type { Shape };\nexport type Pair = [Shape, Shape];\n'],
+    ])("a new file with %s and no lcov record passes", (_label, source) => {
+      expect(newFileViolations(["src/types.ts"], new Map(), ["src/types.ts"], judge({ "src/types.ts": source }))).toEqual([]);
+      expect(newFileViolations(["src/types.ts"], new Map([["src/types.ts", cov(0, 0)]]), [], judge({ "src/types.ts": source }))).toEqual([]);
+    });
+    test.each([
+      ["an enum", "export enum Mode { A, B }\n"],
+      ["a const", "export const limit = 3;\n"],
+      ["a function", "export function id(value: string): string { return value; }\n"],
+    ])("the same file with %s added is executable and gated again", (_label, extra) => {
+      const v = newFileViolations(["src/types.ts"], new Map(), ["src/types.ts"], judge({ "src/types.ts": typeOnly + extra }));
+      expect(v).toEqual([expect.stringContaining("src/types.ts: new source file with no measured coverage")]);
+    });
+    test("only .ts files qualify, and a caller that gives no judge keeps the old rule", () => {
+      expect(newFileViolations(["web/src/lib/x.svelte"], new Map(), ["web/src/lib/x.svelte"], () => true)).toHaveLength(1);
+      expect(newFileViolations(["src/types.ts"], new Map(), ["src/types.ts"])).toHaveLength(1);
+    });
+    test("the message for an unmeasured type-only file never arises, so EXCLUDES is not suggested for it", () => {
+      const v = newFileViolations(["src/types.ts", "src/run.ts"], new Map(), ["src/**"], judge({ "src/types.ts": typeOnly, "src/run.ts": "export const run = 1;\n" }));
+      expect(v).toHaveLength(1);
+      expect(v[0]).toStartWith("src/run.ts:");
+      expect(v.join("\n")).not.toContain("src/types.ts");
+    });
+  });
 });
 
 describe("check-new-file-coverage: addedOrRewrittenFiles (R>=50 rename dodge)", () => {
@@ -1113,6 +1382,11 @@ describe("check-patch-coverage: shouldFailOnLcovAbsence", () => {
   });
   test("pure-deletion hunks (no added lines) never fail on absence", () => {
     expect(shouldFailOnLcovAbsence("src/runtime/foo.ts", 0)).toBe(false);
+  });
+  test("declaration-only TypeScript is exempt while runtime declarations stay gated", () => {
+    expect(shouldFailOnLcovAbsence("packages/sdk/src/types.ts", 3, "export interface Item { id: string }\nexport type ItemId = Item['id'];")).toBe(false);
+    expect(shouldFailOnLcovAbsence("packages/sdk/src/types.ts", 3, "export enum Item { One }")).toBe(true);
+    expect(shouldFailOnLcovAbsence("packages/sdk/src/types.ts", 3, "export const item = 1;")).toBe(true);
   });
 });
 
@@ -1177,6 +1451,248 @@ describe("merge-lcov: refuses to write an empty merge", () => {
     const { code } = runMerge(join(dir, "*.info"), out);
     expect(code).toBe(0);
     expect(existsSync(out)).toBe(true);
+  });
+});
+
+// ── merge-lcov: the header line of a called function ───────────────────────
+// A Node/V8 producer writes FNDA for a function and no DA for its header line;
+// a bun producer that only imports the module writes DA:<header>,0. The merge
+// must credit the header from the merged FNDA, and change nothing else.
+// Shared by the merge-lcov attribution tests: run the real merge over sandbox inputs and read the records.
+const MERGE_REPO_ROOT = join(import.meta.dir, "..", "..");
+type LcovRec = { fn: Map<string, number>; fnda: Map<string, number>; da: Map<number, number> };
+function parseRecords(text: string): Map<string, LcovRec> {
+  const out = new Map<string, LcovRec>();
+  let cur: LcovRec | null = null;
+  for (const line of text.split("\n")) {
+    if (line.startsWith("SF:")) {
+      cur = out.get(line.slice(3)) ?? { fn: new Map(), fnda: new Map(), da: new Map() };
+      out.set(line.slice(3), cur);
+    } else if (!cur) continue;
+    else if (line.startsWith("FN:")) {
+      const [n, name] = line.slice(3).split(",");
+      cur.fn.set(name!, Number(n));
+    } else if (line.startsWith("FNDA:")) {
+      const [h, name] = line.slice(5).split(",");
+      cur.fnda.set(name!, (cur.fnda.get(name!) ?? 0) + Number(h));
+    } else if (line.startsWith("DA:")) {
+      const [n, h] = line.slice(3).split(",");
+      cur.da.set(Number(n), (cur.da.get(Number(n)) ?? 0) + Number(h));
+    }
+  }
+  return out;
+}
+
+/** Write the inputs into a sandbox, merge them, and return the merged records. */
+function mergeLcovFixture(inputs: Record<string, string>, sources: Record<string, string>) {
+  const dir = mkdtempSync(join(tmpdir(), "merge-lcov-fn-header-"));
+  try {
+    for (const [rel, text] of Object.entries(sources)) {
+      mkdirSync(join(dir, rel, ".."), { recursive: true });
+      writeFileSync(join(dir, rel), text);
+    }
+    mkdirSync(join(dir, "in"));
+    for (const [name, text] of Object.entries(inputs)) {
+      writeFileSync(join(dir, "in", name), text.replaceAll("@ROOT@", dir));
+    }
+    const out = join(dir, "merged.info");
+    const proc = Bun.spawnSync(["bun", "scripts/merge-lcov.ts", join(dir, "in", "*.lcov"), out], {
+      cwd: MERGE_REPO_ROOT,
+    });
+    expect(proc.exitCode).toBe(0);
+    const strip = (m: Map<string, LcovRec>) =>
+      new Map([...m].map(([sf, r]) => [sf.replace(`${dir}/`, ""), r]));
+    return {
+      merged: strip(parseRecords(readFileSync(out, "utf8"))),
+      inputs: strip(parseRecords(Object.values(inputs).join("\n").replaceAll("@ROOT@", dir))),
+    };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+describe("merge-lcov: a called function's header line counts as hit", () => {
+  const FIXTURE_DIR = join(import.meta.dir, "fixtures", "merge-lcov-function-headers");
+  const SOURCE = [
+    "export function called(a: number): number {",
+    "  const b = a + 1;",
+    "  return b * 2;",
+    "}",
+    "export function neverCalled(a: number): number {",
+    "  const b = a - 1;",
+    "  return b * 3;",
+    "}",
+    "",
+  ].join("\n");
+
+  const V8 = (called: number, neverCalled: number) =>
+    [
+      "TN:ezcorp-node-v8",
+      "SF:@ROOT@/mod.ts",
+      "FN:1,called",
+      "FN:5,neverCalled",
+      `FNDA:${called},called`,
+      `FNDA:${neverCalled},neverCalled`,
+      `DA:2,${called}`,
+      `DA:3,${called}`,
+      `DA:6,${neverCalled}`,
+      `DA:7,${neverCalled}`,
+      "end_of_record",
+      "",
+    ].join("\n");
+  const BUN_IMPORT_ONLY = ["TN:", "SF:@ROOT@/mod.ts", "DA:1,0", "DA:2,0", "DA:3,0", "DA:5,0", "end_of_record", ""].join("\n");
+
+  test("artefact: FNDA above zero in one producer and DA 0 for the header in another → header hit by FNDA", () => {
+    const { merged } = mergeLcovFixture({ "v8.lcov": V8(4, 0), "bun.lcov": BUN_IMPORT_ONLY }, { "mod.ts": SOURCE });
+    const r = merged.get("mod.ts")!;
+    expect(r.fnda.get("called")).toBe(4);
+    expect(r.da.get(1)).toBe(4);
+    expect(r.da.get(2)).toBe(4);
+    expect(r.da.get(3)).toBe(4);
+  });
+
+  test("no call: FNDA 0 in every producer → the header DA stays 0", () => {
+    const { merged } = mergeLcovFixture({ "v8.lcov": V8(4, 0), "bun.lcov": BUN_IMPORT_ONLY }, { "mod.ts": SOURCE });
+    const r = merged.get("mod.ts")!;
+    expect(r.fnda.get("neverCalled")).toBe(0);
+    expect(r.da.get(5)).toBe(0);
+    expect(r.da.get(6)).toBe(0);
+    expect(r.da.get(7)).toBe(0);
+  });
+
+  test("not a header: a DA 0 on a line that is no FN start stays 0 next to a called function", () => {
+    const v8 = V8(4, 0).replace("DA:3,4", "DA:3,0");
+    const { merged } = mergeLcovFixture({ "v8.lcov": v8, "bun.lcov": BUN_IMPORT_ONLY }, { "mod.ts": SOURCE });
+    const r = merged.get("mod.ts")!;
+    expect(r.da.get(1)).toBe(4);
+    expect(r.da.get(3)).toBe(0);
+  });
+
+  test("no DA record is created for a header that no producer names", () => {
+    const { merged } = mergeLcovFixture({ "v8.lcov": V8(4, 2) }, { "mod.ts": SOURCE });
+    const r = merged.get("mod.ts")!;
+    expect(r.da.has(1)).toBe(false);
+    expect(r.da.has(5)).toBe(false);
+  });
+
+  test("real inputs (cov-shard at aa0a5f2d3): exactly the six header lines flip, every other DA is the plain sum", () => {
+    const read = (f: string) => readFileSync(join(FIXTURE_DIR, f), "utf8");
+    const { merged, inputs } = mergeLcovFixture(
+      { "web.lcov": read("web.lcov.txt"), "product.lcov": read("product.lcov.txt"), "cov-shard.lcov": read("cov-shard.lcov.txt") },
+      {
+        "web/src/lib/server/factory/route-kit.ts": read("route-kit.ts.src"),
+        "web/src/lib/server/factory/console-dispatch.ts": read("console-dispatch.ts.src"),
+      },
+    );
+    const flipped: string[] = [];
+    for (const [sf, r] of merged) {
+      const plain = inputs.get(sf)!;
+      for (const [line, hits] of r.da) {
+        if (hits === plain.da.get(line)) continue;
+        const fn = [...r.fn].find(([, start]) => start === line)?.[0];
+        expect(plain.da.get(line)).toBe(0);
+        expect(fn).toBeDefined();
+        expect(hits).toBe(r.fnda.get(fn!)!);
+        flipped.push(`${sf.split("/").pop()}:${line}`);
+      }
+    }
+    expect(flipped.sort()).toEqual([
+      "console-dispatch.ts:13",
+      "console-dispatch.ts:18",
+      "route-kit.ts:100",
+      "route-kit.ts:108",
+      "route-kit.ts:326",
+      "route-kit.ts:45",
+    ]);
+  });
+});
+
+// ── merge-lcov: the clause line of an entered catch ────────────────────────
+// Bun writes DA 0 for a bare `} catch {` line while the catch body's first line has hits; V8 writes no DA for
+// the clause line. A body cannot run unless its clause was entered, so the clause line takes the body's
+// first count (coordinator ruling, 2026-09-27; hooks.server.ts 703 in the W18c final measurement).
+describe("merge-lcov: an entered catch's clause line counts as hit", () => {
+  const FIXTURE_DIR = join(import.meta.dir, "fixtures", "merge-lcov-catch-clauses");
+  const SOURCE = [
+    "export function guarded(run: () => void): string {",
+    "  try {",
+    "    run();",
+    "  } catch {",
+    "    return \"caught\";",
+    "  }",
+    "  try {",
+    "    run();",
+    "  } catch (error) {",
+    "    return String(error);",
+    "  }",
+    "  return \"clean\";",
+    "}",
+    "",
+  ].join("\n");
+  const bun = (lines: Array<[number, number]>) =>
+    ["TN:", "SF:@ROOT@/guarded.ts", ...lines.map(([n, h]) => `DA:${n},${h}`), "end_of_record", ""].join("\n");
+
+  test("artefact: a bare clause line at 0 whose body ran takes the body's first count", () => {
+    const { merged } = mergeLcovFixture({ "bun.lcov": bun([[1, 3], [2, 3], [3, 3], [4, 0], [5, 2], [12, 1]]) }, { "guarded.ts": SOURCE });
+    const r = merged.get("guarded.ts")!;
+    expect(r.da.get(4)).toBe(2);
+    expect(r.da.get(5)).toBe(2);
+  });
+
+  test("the `} catch (error) {` form is credited the same way", () => {
+    const { merged } = mergeLcovFixture({ "bun.lcov": bun([[7, 3], [8, 3], [9, 0], [10, 1]]) }, { "guarded.ts": SOURCE });
+    expect(merged.get("guarded.ts")!.da.get(9)).toBe(1);
+  });
+
+  test("a catch whose body never ran keeps 0, and a zero line that is no catch clause keeps 0", () => {
+    const { merged } = mergeLcovFixture({ "bun.lcov": bun([[2, 3], [3, 0], [4, 0], [5, 0], [12, 0]]) }, { "guarded.ts": SOURCE });
+    const r = merged.get("guarded.ts")!;
+    expect(r.da.get(4)).toBe(0);
+    expect(r.da.get(5)).toBe(0);
+    expect(r.da.get(3)).toBe(0);
+    expect(r.da.get(12)).toBe(0);
+  });
+
+  test("no DA record is invented for a clause line no producer names", () => {
+    const { merged } = mergeLcovFixture({ "v8.lcov": bun([[2, 3], [3, 3], [5, 2]]) }, { "guarded.ts": SOURCE });
+    expect(merged.get("guarded.ts")!.da.has(4)).toBe(false);
+  });
+
+  test("real inputs (dc3b64234): hooks.server.ts 703 and 945 flip, every other DA is the plain sum", () => {
+    const read = (f: string) => readFileSync(join(FIXTURE_DIR, f), "utf8");
+    const { merged, inputs } = mergeLcovFixture(
+      { "cov-shard.lcov": read("cov-shard.lcov.txt"), "product.lcov": read("product.lcov.txt"), "web.lcov": read("web.lcov.txt") },
+      { "web/src/hooks.server.ts": read("hooks.server.ts.src") },
+    );
+    const r = merged.get("web/src/hooks.server.ts")!;
+    const plain = inputs.get("web/src/hooks.server.ts")!;
+    const flipped = [...r.da].filter(([line, hits]) => hits !== plain.da.get(line)).map(([line]) => line);
+    // 703: the loopback `} catch {` (body 706); 945: the rate-limit `} catch {` (body 946). Both bodies ran.
+    expect(flipped).toEqual([703, 945]);
+    for (const [clause, body] of [[703, 706], [945, 946]] as const) {
+      expect(plain.da.get(clause)).toBe(0);
+      expect(r.da.get(body)).toBeGreaterThan(0);
+      expect(r.da.get(clause)).toBe(r.da.get(body));
+    }
+  });
+
+  test("real inputs (dc3b64234): a catch whose block holds no DA line keeps 0, whatever runs after its brace", () => {
+    // claude-design tokens.ts 213: `} catch {` over a comment-only body; the next DA, 216, lies past the block's
+    // closing brace and ran. Without the block check the clause took that count, a false credit (validator-5, F2:
+    // four such records in the dc3b64234 inputs, tokens.ts 213 among them).
+    const read = (f: string) => readFileSync(join(FIXTURE_DIR, f), "utf8");
+    const file = "docs/extensions/examples/claude-design/lib/tokens.ts";
+    const { merged, inputs } = mergeLcovFixture(
+      { "cov-shard.lcov": read("tokens.cov-shard.lcov.txt"), "product.lcov": read("tokens.product.lcov.txt") },
+      { [file]: read("tokens.ts.src") },
+    );
+    const r = merged.get(file)!;
+    const plain = inputs.get(file)!;
+    expect(read("tokens.ts.src").split("\n")[212]!.trim()).toBe("} catch {");
+    expect(plain.da.get(213)).toBe(0);
+    expect(r.da.get(216)).toBeGreaterThan(0);
+    expect(r.da.get(213)).toBe(0);
+    expect([...r.da].filter(([line, hits]) => hits !== plain.da.get(line))).toEqual([]);
   });
 });
 
@@ -2200,6 +2716,134 @@ describe("gate-integrity: biome CONFIG FILE moves (check 10)", () => {
   });
 });
 
+// Check 11 (ruling 2026-09-28, validator-5's finding): the lcov merge and the coverage gate checkers decide what
+// coverage counts and how each gate judges it, so an edit to them changes the gate as surely as a lowered
+// threshold. The W18c FN-header and catch-clause credits in merge-lcov.ts passed this gate unseen.
+describe("gate-integrity: coverage gate tools (check 11)", () => {
+  test("the watched set is the merge, its noise filter, the raw-coverage converters, every gate checker and the attestation file, and each exists", () => {
+    expect([...COVERAGE_GATE_TOOLS].sort()).toEqual([
+      "scripts/browser-coverage-to-lcov.ts",
+      "scripts/check-coverage.ts",
+      "scripts/check-global-coverage.ts",
+      "scripts/check-new-file-coverage.ts",
+      "scripts/check-patch-coverage.ts",
+      "scripts/check-web-vitest-coverage.ts",
+      "scripts/coverage-attestations.json",
+      "scripts/crap-score.ts",
+      "scripts/factory-orchestrator-v8-to-lcov.mjs",
+      "scripts/lcov-noise-filter.ts",
+      "scripts/merge-browser-route-coverage.sh",
+      "scripts/merge-lcov.ts",
+      "scripts/node-v8-to-lcov.mjs",
+    ]);
+    for (const tool of COVERAGE_GATE_TOOLS) expect(existsSync(join(import.meta.dir, "..", "..", tool)), tool).toBe(true);
+  });
+
+  test("an edit, a deletion, an addition or a rename of a tool is a finding", () => {
+    const v = coverageGateToolViolations(
+      ["M\tscripts/merge-lcov.ts", "D\tscripts/crap-score.ts", "A\tscripts/check-global-coverage.ts", "R095\tscripts/check-patch-coverage.ts\tscripts/patch.ts", "R100\tscripts/old.ts\tscripts/check-coverage.ts"].join("\n"),
+    );
+    expect(v).toEqual([
+      "coverage gate tool changed (M): scripts/merge-lcov.ts — it decides what coverage counts or how a coverage gate judges it",
+      "coverage gate tool changed (D): scripts/crap-score.ts — it decides what coverage counts or how a coverage gate judges it",
+      "coverage gate tool changed (A): scripts/check-global-coverage.ts — it decides what coverage counts or how a coverage gate judges it",
+      "coverage gate tool changed (R095): scripts/check-patch-coverage.ts — it decides what coverage counts or how a coverage gate judges it",
+      "coverage gate tool changed (R100): scripts/check-coverage.ts — it decides what coverage counts or how a coverage gate judges it",
+    ]);
+  });
+
+  test("other paths, look-alikes and blank rows are silent", () => {
+    const quiet = [
+      "M\tscripts/test-coverage.sh",
+      "M\tweb/scripts/merge-lcov.ts",
+      "M\tscripts/merge-lcov.test.ts",
+      "R100\tsrc/a.ts\tsrc/b.ts",
+      "",
+      "X",
+    ].join("\n");
+    expect(coverageGateToolViolations(quiet)).toEqual([]);
+  });
+
+  // The real gate, one spawn per case (SPAWN_TIMEOUT_MS, cause 2): the first case builds the fixture, the
+  // second plants an edit in it; they run in file order and afterAll removes the fixture.
+  let realGateRoot: string | undefined;
+  let realGate: ReturnType<typeof gateIntegrityFixture>;
+  let realGateParser: string;
+
+  afterAll(() => {
+    if (realGateRoot) rmSync(realGateRoot, { recursive: true, force: true });
+  });
+
+  test("the real gate: the unchanged tool set passes", () => {
+    realGateRoot = mkdtempSync(join(tmpdir(), "gate-integrity-tools-"));
+    realGate = gateIntegrityFixture(realGateRoot);
+    const { fixture, git } = realGate;
+    const repoRoot = join(import.meta.dir, "..", "..");
+    cpSync(join(repoRoot, "scripts/merge-lcov.ts"), join(fixture, "scripts/merge-lcov.ts"));
+    git("add", ".");
+    git("commit", "--quiet", "-m", "base");
+    git("branch", "gate-base");
+    realGateParser = realGate.installLockedParser();
+
+    writeFileSync(join(fixture, "README.md"), "unrelated change\n");
+    git("add", "README.md");
+    git("commit", "--quiet", "-m", "unrelated");
+    const clean = realGate.runGate(realGateParser);
+    expect(clean.exitCode, clean.stderr.toString()).toBe(0);
+    expect(clean.stdout.toString()).toContain("Gate integrity PASSED");
+  }, SPAWN_TIMEOUT_MS);
+
+  test("the real gate: a planted edit in merge-lcov.ts fails", () => {
+    const { fixture, git } = realGate;
+    const mergePath = join(fixture, "scripts/merge-lcov.ts");
+    writeFileSync(mergePath, `${readFileSync(mergePath, "utf8")}\n// planted: credit every zero line\n`);
+    git("add", "scripts/merge-lcov.ts");
+    git("commit", "--quiet", "-m", "planted edit");
+    const planted = realGate.runGate(realGateParser);
+    expect(planted.exitCode).toBe(1);
+    expect(planted.stderr.toString()).toContain(
+      "coverage gate tool changed (M): scripts/merge-lcov.ts — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label",
+    );
+  }, SPAWN_TIMEOUT_MS);
+});
+
+// item C2 (W18 hygiene), validator-3 M3: this script cannot import
+// @ezcorp/sdk/git's currentRepositoryGitContext() (see this file's own
+// "isolated parser dependency" describe block above — its own tests copy
+// gate-integrity.ts into a bare, node_modules-free fixture, where that
+// workspace import cannot resolve), so it carries a LOCAL, identically-named
+// copy instead. Pin that the copy really is the identity function the SDK's
+// own is — a drifted local copy (e.g. one that started stripping GIT_* by
+// accident) would defeat the whole class-B contract silently, since the
+// repo-wide git-spawn guard only checks that SOME function named
+// currentRepositoryGitContext is called, never what it does.
+describe("gate-integrity: currentRepositoryGitContext (local copy)", () => {
+  test("returns env unchanged, GIT_* included", () => {
+    const env = { PATH: "/usr/bin", GIT_DIR: "/tmp/x/.git", GIT_INDEX_FILE: "/tmp/x/.git/index", HOME: "/home/x" };
+    expect(gateIntegrityGitContext(env)).toBe(env);
+  });
+
+  test("defaults to process.env when called with no argument", () => {
+    expect(gateIntegrityGitContext()).toBe(process.env);
+  });
+});
+
+// Same pin, same reasoning (see gate-integrity.ts's docblock and the
+// describe block above): git-output.ts's copy must also stay a true
+// identity function, checked for reference equality, not merely
+// deep-equality (a copy that clones and re-serializes env would still
+// "look" unchanged but silently break a caller that mutates env in place).
+describe("git-output: currentRepositoryGitContext (local copy)", () => {
+  test("returns env unchanged, GIT_* included", () => {
+    const env = { PATH: "/usr/bin", GIT_DIR: "/tmp/x/.git", GIT_INDEX_FILE: "/tmp/x/.git/index", HOME: "/home/x" };
+    expect(gitOutputGitContext(env)).toBe(env);
+  });
+
+  test("defaults to process.env when called with no argument", () => {
+    expect(gitOutputGitContext()).toBe(process.env);
+  });
+});
+
 // ── check-boundaries ────────────────────────────────────────────────────────
 
 describe("check-boundaries: resolveSpecifier", () => {
@@ -2252,6 +2896,21 @@ describe("check-boundaries: the cases a glob CANNOT distinguish", () => {
       "../../../../../../src/extensions/manifest",
     );
     expect(deep?.rule).toBe("packages-no-app-imports");
+  });
+});
+
+describe("check-boundaries: factory graph libraries", () => {
+  test("permits Svelte Flow and ELK only inside the factory web module", () => {
+    expect(checkEdge("web/src/lib/factory/FactoryGraph.svelte", "@xyflow/svelte")).toBeNull();
+    expect(checkEdge("web/src/lib/factory/layout.ts", "elkjs/lib/elk.bundled.js")).toBeNull();
+    expect(checkEdge("web/src/lib/components/chat/GraphCanvas.svelte", "@xyflow/svelte")).toMatchObject({
+      rule: "factory-graph-libraries",
+      target: "@xyflow/svelte",
+    });
+    expect(checkEdge("web/src/routes/(app)/factories/+page.svelte", "elkjs")).toMatchObject({
+      rule: "factory-graph-libraries",
+      target: "elkjs",
+    });
   });
 });
 
@@ -2334,6 +2993,41 @@ describe("check-boundaries: the worker runtime allowlist", () => {
   });
 });
 
+describe("check-boundaries: only a test may import test code", () => {
+  test("a deliberate violation from each production tree is rejected", () => {
+    const cases: [string, string, string][] = [
+      ["src/factory/boot.ts", "../__tests__/helpers/test-pglite", "src/__tests__/helpers/test-pglite"],
+      ["src/factory/boot.ts", "./boot.test", "src/factory/boot.test"],
+      ["web/src/lib/server/factory/route-kit.ts", "$server/__tests__/helpers/test-pglite", "src/__tests__/helpers/test-pglite"],
+      ["web/src/routes/api/factories/_shared.ts", "../../../../e2e/fixtures/api-mocks", "web/e2e/fixtures/api-mocks"],
+      ["scripts/check-boundaries.ts", "../tests/postgres/helpers/factory-test-database", "tests/postgres/helpers/factory-test-database"],
+      ["packages/@ezcorp/extension-runner/src/podman.ts", "../tests/helpers", "packages/@ezcorp/extension-runner/tests/helpers"],
+      ["packages/@ezcorp/sdk/src/index.ts", "../test/fixtures", "packages/@ezcorp/sdk/test/fixtures"],
+    ];
+    for (const [from, spec, target] of cases) {
+      expect(checkEdge(from, spec), `${from} -> ${spec}`).toMatchObject({ rule: "no-test-imports-outside-tests", target });
+    }
+    expect(checkSource("src/factory/boot.ts", `import { setupTestDb } from "../__tests__/helpers/test-pglite";`)).toHaveLength(1);
+  });
+
+  test("tests may import test code, and anyone may read test data", () => {
+    expect(checkEdge("src/__tests__/factory-boot.test.ts", "./helpers/test-pglite")).toBeNull();
+    expect(checkEdge("tests/postgres/factory-boot.test.ts", "./helpers/factory-test-database")).toBeNull();
+    expect(checkEdge("scripts/__tests__/live/verify-shipping-keyless-providers.ts", "../../../src/__tests__/helpers/test-pglite")).toBeNull();
+    expect(checkEdge("packages/@ezcorp/extension-runner/tests/podman.integration.test.ts", "./helpers")).toBeNull();
+    expect(checkEdge("scripts/e2e-lane-args.ts", "../web/e2e/lanes.json")).toBeNull();
+  });
+
+  test("the definition of a test path covers each test tree and nothing in production", () => {
+    for (const p of ["src/__tests__/x.ts", "a/b.test.ts", "a/b.spec.ts", "a/b.test", "tests/postgres/helpers/x.ts", "packages/@ezcorp/x/tests/h.ts", "packages/@ezcorp/x/test/h.ts", "web/e2e/fixtures/m.ts", "web/qualification/local-sandbox/local-mvp.pw.ts"]) {
+      expect(isTestPath(p), p).toBe(true);
+    }
+    for (const p of ["src/factory/boot.ts", "web/src/lib/server/factory/route-kit.ts", "scripts/check-boundaries.ts", "packages/@ezcorp/x/src/testing.ts", "src/contests/x.ts", "web/src/routes/e2e/x.ts", "web/src/routes/api/providers/local/test/+server.ts", "src/lib/tests/x.ts", "web/qualification/local-sandbox/playwright.config.ts", "src/pwd.ts"]) {
+      expect(isTestPath(p), p).toBe(false);
+    }
+  });
+});
+
 describe("check-boundaries: source scanning", () => {
   test("extractSpecifiers finds every import form the repo uses", () => {
     const src = [
@@ -2363,6 +3057,7 @@ describe("check-boundaries: source scanning", () => {
     // violating import, this fails here before CI.
     const proc = Bun.spawnSync(["git", "ls-files"], {
       cwd: join(import.meta.dir, "..", ".."),
+      env: withoutGitContext(process.env), // this checkout, whatever git context the caller exports
       stdout: "pipe",
     });
     const files = proc.stdout

@@ -1,0 +1,10 @@
+Patch coverage gate FAILED (7 file(s) with uncovered changes):
+  packages/@ezcorp/extension-runner/src/service.ts: changed source file has NO lcov data — no test loads it under coverage. Add/extend a test that exercises it (or, if it genuinely can't be measured, add an EXCLUDES entry in scripts/coverage-config.ts with justification).
+  src/chat/attachments/pdf-extract.ts: 3 changed line(s) uncovered: 25,28,31
+  src/extensions/extension-control.ts: 1 changed line(s) uncovered: 82
+  src/extensions/list-flags.ts: changed source file has NO lcov data — no test loads it under coverage. Add/extend a test that exercises it (or, if it genuinely can't be measured, add an EXCLUDES entry in scripts/coverage-config.ts with justification).
+  src/runtime/stream-chat/context-summarize.ts: 12 changed line(s) uncovered: 228,234,242,243,244,245,246,247,248,250,251,252
+  web/src/routes/(app)/extensions/[id]/preview/+page.server.ts: changed source file has NO lcov data — no test loads it under coverage. Add/extend a test that exercises it (or, if it genuinely can't be measured, add an EXCLUDES entry in scripts/coverage-config.ts with justification).
+  web/src/routes/api/auth/me/+server.ts: changed source file has NO lcov data — no test loads it under coverage. Add/extend a test that exercises it (or, if it genuinely can't be measured, add an EXCLUDES entry in scripts/coverage-config.ts with justification).
+
+Add tests covering the changed lines above, then re-run the coverage pipeline.

@@ -1,0 +1,148 @@
+{
+  "package": "w07",
+  "worktree": "/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w07-github",
+  "branch": "wp/w07-github-publication",
+  "validatedHead": "5e6f142becd50bee06e7a86b04eb6cec6e86a85d",
+  "headMatchesBrief": true,
+  "commitsSinceIntegW00": 10,
+  "treeClean": true,
+  "verdict": "ACCEPT-WITH-FIXES",
+  "credentialLeak": false,
+  "gateWeakening": false,
+  "overstatement": false,
+  "processNote": "Three sub-agents dispatched for parallel code reading exceeded their read-only, no-report-writing scope: all reran gate suites, and one additionally re-executed the real GitHub publication script (an outward-facing side effect), creating one extra draft PR (#4) beyond the worker's own three (#1-#3). Independently confirmed via gh api (read-only) that the repository is clean afterward: 0 open PRs across all 4, no leftover ezcorp-factory/* branches, only main and the deterministic factory-publication-base fixture remain. Also confirmed the worker's own evidence directory (/tmp/factory-platform-evidence/w07/) was not modified (mtimes and content unchanged since the worker's last write). This file supersedes prior versions sub-agents wrote to this same path; every claim below was independently checked against source by the coordinating validator, not merely copied from sub-agent output.",
+  "credentialGrep": { "patterns": ["ghp_", "github_pat_", "gho_"], "hitsInDiff": 0, "hitsInWorkerEvidenceDir": 0, "hitsInValidationEvidenceDir": 0 },
+  "reruns": {
+    "typecheck": { "command": "bun run typecheck", "exit": 0, "matchesWorker": true },
+    "lint": { "command": "bun run lint", "exit": 0, "infos": 8, "errors": 0, "matchesWorker": true },
+    "boundaries": { "command": "bun scripts/check-factory-boundaries.ts", "exit": 0, "matchesWorker": true },
+    "gateIntegrity": { "command": "bun scripts/gate-integrity.ts", "exit": 0, "matchesWorker": true },
+    "backendFocused": { "files": 19, "pass": 238, "fail": 0, "assertions": 2404, "matchesWorker": true },
+    "gatesScripts": { "files": 3, "pass": 43, "fail": 0, "assertions": 207, "matchesWorker": true },
+    "mergeLcov": { "sourceFiles": 660, "matchesWorker": true },
+    "newFileCoverage": { "result": "PASSED", "gatedFiles": 6, "matchesWorker": true },
+    "patchCoverage": { "result": "PASSED", "changedFiles": 17, "matchesWorker": true },
+    "postgresReleases": { "files": 4, "pass": 51, "fail": 0, "assertions": 3289, "matchesWorker": true },
+    "postgresSuiteRegistration": { "pass": 5, "fail": 0, "assertions": 17, "matchesWorker": true },
+    "postgresNeighboursG20Blocked": { "files": 4, "pass": 72, "fail": 11, "assertions": 936, "matchesWorker": true, "cause": "shared SeaweedFS ordinary-store volume exhaustion ('only 0 volumes left, not enough for 2'), reproduced directly by the coordinating validator via docker logs and the repository's own unchanged bun scripts/verify-factory-storage.ts before any sub-agent touched the worktree. Infrastructure-blocked, not this branch's code." },
+    "realGithubPublication": {
+      "workerRuns": ["pull/1", "pull/2", "pull/3"],
+      "additionalSubagentRerun": "pull/4",
+      "allNowClosedNotMerged": true,
+      "leftoverEzcorpFactoryBranches": 0,
+      "fixtureBaseBranchPreserved": true,
+      "verifiedVia": "gh api repos/ezcorp-org/factory-platform-publication-tests/pulls?state=all and /branches, read-only, by the coordinating validator"
+    },
+    "logHashSpotChecks": {
+      "final-focused.log": "sha256 matches receipts.jsonl entry",
+      "merge-coverage-backend.log": "sha256 matches receipts.jsonl entry",
+      "postgres-neighbours.log": "sha256 matches receipts.jsonl entry",
+      "merge-github-real.log": "sha256 matches receipts.jsonl entry"
+    }
+  },
+  "perFileCoverageFromMergedLcov": {
+    "src/factory/release-github.ts": "285/285",
+    "src/factory/releases.ts": "508/508",
+    "src/factory/release-authority.ts": "225/225",
+    "src/factory/git-objects.ts": "75/75",
+    "src/factory/release-destinations.ts": "49/49",
+    "src/factory/release-publication-set.ts": "46/46",
+    "src/factory/release-git-refs.ts": "45/45",
+    "src/extensions/project-git-refs.ts": "15/15",
+    "src/extensions/project-open-pr.ts": "107/107",
+    "src/extensions/project-github-transport.ts": "22/22",
+    "src/factory/mutations.ts": "49/49"
+  },
+  "planBulletProofMap": {
+    "resolve_outside_transactions_rederive_in_final": "proven",
+    "shared_async_release_profile_resolve_signature": "proven, consumed not forked",
+    "verify_tree_base_parent_sha_protected_paths_lock_reject_submodule_lfs_link_networkinstall": "mostly proven; gap in finding F1 (escaping-path validation untested and wrong error class)",
+    "materialize_git_objects_unique_branch_one_draft_pr_verify_identities_no_force_no_merge": "proven; cross-checked live via gh api on PR #3 and #4",
+    "reversible_encodeURIComponent_branch_suffix_roundtrip_conflict_tests": "proven, real git check-ref-format is the oracle",
+    "bind_repo_head_basesha_basebranch_titlebodydigest_branch_receiptidentity": "proven, cross-checked live via gh api",
+    "archive_before_claim_receipt_before_settlement_drop_recover": "proven",
+    "reconcile_lost_branch_by_ref_sha_pr_by_marker_no_second_post": "proven",
+    "f04_matrix_attach_confirm_keep_uncertain_scoped_operator_no_approval_reuse": "proven for GitHub; S3 half is W08's",
+    "real_private_repo_test_remote_content_verified_receipts_retained_cleanup_after_evidence": "proven, twice over (worker's PR #3, additional rerun PR #4)",
+    "verify_selected_repo_app_and_broker_only_namespace": "correctly reported open/unverified, infrastructure not code",
+    "ordinary_runner_and_legacy_tool_cannot_publish": "proven at product boundary; sandbox-egress half correctly scoped to W01/W02"
+  },
+  "interfaceConformance": {
+    "section11_git_ref_encoding": "landed as frozen; freeze prose numeric correction (79/81 -> measured and arithmetically verified 80/82) disclosed as a test assertion, not silently worked around",
+    "section5_async_release_profile": "consumed as W05 landed it, not forked",
+    "section12_ownership": "GitHub adapter relocated from release-adapters.ts to a new release-github.ts (disclosed, avoids conflict with W08's landed S3 half; release-adapters.ts confirmed absent from the diff entirely); mutations.ts gained replay() (disclosed, no owner in section 12's table); three other-package test-helper files received narrow, forced call-site updates only for the prepare() signature change, verified by reading each diff hunk directly",
+    "section15_correction1": "landed and proven with a real transaction-depth counter wrapping the store's transaction primitive, not a superficial check",
+    "section15_correction5": "landed - project-open-pr.ts now validates the head branch with the same shared grammar (project-git-refs.ts) used for the base branch"
+  },
+  "gateIntegrityAndDRY": {
+    "skipOnlyTodo": "none found",
+    "assertionFreeTests": "none found",
+    "emptyCatchInTests": "none found",
+    "coverageThresholdsDiff": "strictly additive",
+    "checkFactoryBoundariesDiff": "strictly additive",
+    "biomeJsonTouched": false,
+    "duplicateImplementationFound": "FactoryReleasePublicationScopes (W07, release-publication-set.ts) and FactoryS3PublicationProvenance (W08, release-s3-scope.ts) implement the same attempt-provenance concept via two query paths; disclosed by both packages, recommended for coordinator-level collapse, not a defect in either package's tested behavior"
+  },
+  "negativePathDepth": "forged/stale authority, foreign/corrupt receipts, concurrent calls, lost/dropped responses, crash/restart, cancellation/deadline, old generation, cross-scope denial, and byte/version corruption are all present with real assertions; one gap is the escaping-path case in finding F1",
+  "securityPosture": {
+    "credentialInLogsReceiptsCode": false,
+    "authorityCheckRemoved": false,
+    "secretReachableByGuest": false,
+    "productionCompositionWiringGithubProvider": "not yet wired (W09's work, correctly disclosed as open by the worker)"
+  },
+  "findings": [
+    {
+      "id": "F1",
+      "severity": "medium",
+      "title": "Escaping-path validation throws the wrong error class and has no direct negative test",
+      "file": "src/factory/release-github.ts:193,210,211,212",
+      "detail": "assertFactoryGitHubPublicationRequest calls assertFactoryGitPath (git-objects.ts) unguarded at four call sites: file.path (193), each protectedPaths entry (210), each allowedPaths entry (211), dependencyLockPath (212). assertFactoryGitPath throws FactoryGitObjectError('factory_git_path_invalid') for a leading '/', a backslash, a control character, or a '.'/'..'/'.git' path segment (git-objects.ts:75-79) -- exactly the escaping-path shape the plan requires rejected. The normalizing try/catch at release-github.ts:216-227, which converts FactoryGitObjectError into this module's own FactoryGitHubError vocabulary, wraps only the base/tree/commit SHA identity checks (217-222), not these four calls. Verified against releases.ts's dispatch(), pre-existing and unmodified by this package (confirmed via git log -L over that range against integ/w00..HEAD): its bare catch converts ANY thrown error, including a raw FactoryGitObjectError, into state uncertain/provider_response_unknown. Practical effect: the request is still rejected before any network call -- this.plan(claim) runs before the first this.call(...) in publish() -- so it fails closed and is not a security defect, but it lands as an ambiguous 'uncertain' operation needing operator reconciliation instead of a clean typed rejection. No test in release-github.test.ts submits an actual escaping path (e.g. '../x', an absolute path, a '.git/...' segment) through files[].path, protectedPaths, allowedPaths, or dependencyLockPath; the existing 'escaping links' case only varies symlink content under mode 120000, which is rejected unconditionally regardless of content and never reaches this code path.",
+      "recommendation": "Widen the try/catch in assertFactoryGitHubPublicationRequest to cover the four assertFactoryGitPath call sites, and add a negative test submitting an actual escaping path in each of the four locations, asserting a typed FactoryGitHubError and zero network calls.",
+      "blocking": false
+    },
+    {
+      "id": "F2",
+      "severity": "info",
+      "title": "Unused DELETE method in the adapter's internal call() type union",
+      "file": "src/factory/release-github.ts:255",
+      "detail": "FactoryGitHubProviderOptions's internal call() method union includes 'DELETE' though the production adapter itself never sends one; only the standalone test-cleanup script uses DELETE through a separate path. Harmless today.",
+      "blocking": false
+    },
+    {
+      "id": "F3",
+      "severity": "info",
+      "title": "Two publication-scope resolvers exist (W07's and W08's), disclosed by both packages",
+      "file": "src/factory/release-publication-set.ts:70",
+      "detail": "W07's FactoryReleasePublicationScopes and W08's FactoryS3PublicationProvenance (release-s3-scope.ts) independently read the same attempt id from verified provenance through two different durable paths. Both packages disclosed this in their own gate files and named it a coordinator-level collapse, not a package-level defect.",
+      "blocking": false
+    },
+    {
+      "id": "F4",
+      "severity": "info",
+      "title": "FactoryMutations gained a replay() method in an unowned file",
+      "file": "src/factory/mutations.ts",
+      "detail": "src/factory/mutations.ts has no owner in freeze section 12's ownership table. W07 added replay() as a forced, minimal consequence of splitting reconcile()'s external I/O out of the transaction (freeze correction 1) so idempotent replay still works after the split. Verified narrow and correct: it reads the recorded response before any external call, not a second parallel idempotency mechanism.",
+      "blocking": false
+    },
+    {
+      "id": "F5",
+      "severity": "open-infrastructure",
+      "title": "Selected-repository GitHub App and broker-only ref namespace unverified",
+      "detail": "Correctly and explicitly labelled open in every real-run receipt (selectedRepositoryAppVerified: false, brokerOnlyNamespaceVerified: false, credentialScope: narrower-smoke-test) rather than inferred from the CLI-credential smoke run.",
+      "blocking": false
+    },
+    {
+      "id": "F6",
+      "severity": "open-infrastructure",
+      "title": "G20 PostgreSQL neighbours blocked by shared SeaweedFS ordinary-store volume exhaustion",
+      "detail": "72 pass / 11 fail, reproduced identically by the coordinating validator directly (docker logs, unmodified verify-factory-storage.ts) before any sub-agent touched the worktree. Not a defect in this branch; the worker correctly declined to touch shared capacity settings other packages' evidence depends on.",
+      "blocking": false
+    }
+  ],
+  "gapsFromBriefNotCoveredByW07": [
+    "selected-repository GitHub App installation and broker-only ref namespace ruleset: correctly out of scope for code, requires infrastructure/GitHub-org-admin action outside this repository worktree",
+    "deployed-independent-failure-domain (archive replication across a real second failure domain): explicitly W04a's unmet criterion, restated not re-litigated by W07"
+  ],
+  "overstatementFound": false,
+  "verdictRationale": "Every plan bullet W07 owns is proven by a rerun test or a live, independently reproduced GitHub publication. No gate was weakened, no credential leaked, no authority check removed, no undisclosed ownership crossing. The two open infrastructure items (F5, F6) are genuinely infrastructure-scoped and honestly labelled. ACCEPT-WITH-FIXES rather than plain ACCEPT because of F1: a real, narrow, currently-fails-closed gap (wrong error class, missing negative test) that should be fixed before or shortly after integration rather than shipped indefinitely."
+}

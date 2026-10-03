@@ -744,20 +744,27 @@ describe("registry ⇄ filesystem parity", () => {
   test("the session-only entries left the frozen list and declare `session`", () => {
     // The 90 → 78 shrink, asserted by NAME for the reason the `:name/run` test
     // above states: the count survives any swap, this does not. It is the
-    // REGISTRY half only — that these thirteen entries declare `"session"` and
+    // REGISTRY half only — that these entries declare `"session"` and
     // no longer sit in the frozen list. Whether each one's HANDLER actually
     // gates on a session is derived from the tree, in both directions, by
     // `src/__tests__/session-scope-surface.test.ts`; asserting it twice from
     // two hand-written lists is how the two lists drift.
     //
-    // Thirteen, not twelve: `PUT /api/projects/:id/tool-permission-mode` was
+    // Fifteen, not twelve: `PUT /api/projects/:id/tool-permission-mode` was
     // already out of the frozen list (it carried `scope: "chat"` for one
     // commit, the truest value the type could then express) and is re-declared
     // here, so the whole session-only surface reads one way.
     const SESSION_ONLY = [
+      "DELETE /api/factories/projects/:projectId/release/policies/:policyId",
+      "DELETE /api/factories/projects/:projectId/release/trust",
+      "DELETE /api/factories/projects/:projectId/runs/:runId/artifacts/:artifactId/shares/:targetProjectId",
+      "DELETE /api/factories/projects/:projectId/service-accounts/:serviceAccountId/credentials/:credentialId",
       "DELETE /api/service-accounts/:id",
       "DELETE /api/workflows/delegations/:id",
       "GET /api/extensions/:name/preview",
+      "GET /api/factories/projects/:projectId/release/notifications",
+      "GET /api/factories/tenants/:tenantId/purge-preview",
+      "GET /api/factories/tenants/:tenantId/restores",
       "GET /api/service-accounts",
       "GET /api/workflows/delegated-runs",
       "GET /api/workflows/delegations",
@@ -770,7 +777,17 @@ describe("registry ⇄ filesystem parity", () => {
       "POST /api/extensions/import-source",
       "POST /api/extensions/releases/:installationId/approve",
       "POST /api/extensions/releases/:installationId/project",
+      "POST /api/factories/projects/:projectId/packages",
+      "POST /api/factories/projects/:projectId/packages/:referenceId/trust",
+      "POST /api/factories/projects/:projectId/releases/:operationId/approvals",
+      "POST /api/factories/projects/:projectId/runs/:runId/artifacts/:artifactId/shares",
+      "POST /api/factories/projects/:projectId/service-accounts/:serviceAccountId/credentials",
+      "POST /api/factories/tenants/:tenantId/purge-requests",
+      "POST /api/factories/tenants/:tenantId/restores/:restoreId/signatures",
       "POST /api/import/commit",
+      // C12 step 7 (W16): the first administrator's bootstrap consent and the post-teardown purge approval.
+      "POST /api/installation/bootstrap",
+      "POST /api/installation/purge-approval",
       "POST /api/marketplace/:id/install",
       "POST /api/mcp-servers",
       "POST /api/mcp-servers/:id/refresh",
@@ -778,6 +795,12 @@ describe("registry ⇄ filesystem parity", () => {
       "POST /api/workflows/approvals/:id",
       "POST /api/workflows/delegations",
       "POST /api/workflows/delegations/preview",
+      "PUT /api/factories/projects/:projectId/release/approvals/:approvalId",
+      "PUT /api/factories/projects/:projectId/release/contracts/:contractId",
+      "PUT /api/factories/projects/:projectId/release/control",
+      "PUT /api/factories/projects/:projectId/release/policies/:policyId",
+      "PUT /api/factories/projects/:projectId/release/trust",
+      "PUT /api/factories/projects/:projectId/runs/:runId/approvals/:approvalId",
       "PUT /api/mcp-servers/:id",
       "PUT /api/projects/:id/tool-permission-mode",
     ];

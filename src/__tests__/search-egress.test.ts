@@ -6,9 +6,12 @@
  * across two lookups, defeated by IP-pinning), redirect-to-internal,
  * non-http scheme, body cap, timeout, and the sanctioned searxng-internal
  * backend allow. No live network, no DB — the transport + resolver are
- * injected.
+ * injected, except one case that terminates TLS on a loopback listener to
+ * prove the pinned certificate check end to end.
  */
 import { test, expect, describe } from "bun:test";
+import { rmSync } from "node:fs";
+import { certificates } from "./helpers/factory-certificates";
 import {
   guardedFetch,
   isBlockedIp,
@@ -237,6 +240,47 @@ describe("guardedFetch — IP pinning + DNS rebind", () => {
     expect(calledUrl).not.toContain("example.test");
     // Host header preserves the original hostname for TLS SNI / vhosts.
     expect(hostHeader).toBe("example.test");
+  });
+
+  test("a pinned https request names the original hostname as the TLS server name; plain http carries none", async () => {
+    type WithTls = RequestInit & { tls?: Record<string, unknown> };
+    const seen: Array<{ url: string; tls: WithTls["tls"] }> = [];
+    const opts = {
+      mode: "read" as const,
+      resolveHost: staticResolver({ "example.test": [PUBLIC_IP] }),
+      fetchImpl: (async (url, init) => { seen.push({ url, tls: (init as WithTls).tls }); return okResponse(); }) as FetchLike,
+    };
+    await guardedFetch("https://example.test/a", {}, opts);
+    await guardedFetch("http://example.test/b", {}, opts);
+    // A caller's own TLS options are kept, and its server name cannot override the hostname.
+    await guardedFetch("https://example.test/c", { tls: { ca: "private-ca", serverName: "other.test" } } as WithTls, opts);
+    expect(seen).toEqual([
+      { url: `https://${PUBLIC_IP}/a`, tls: { serverName: "example.test" } },
+      { url: `http://${PUBLIC_IP}/b`, tls: undefined },
+      { url: `https://${PUBLIC_IP}/c`, tls: { ca: "private-ca", serverName: "example.test" } },
+    ]);
+  });
+
+  // Bun 1.4 checks a fetch's certificate against the URL's host, the pinned IP, not the Host header (1.3.14 used the
+  // header). The listener's certificate names only the hostname, so without an explicit TLS server name the pinned
+  // request fails ERR_TLS_CERT_ALTNAME_INVALID on 1.4.2; with it, the certificate is verified against the hostname.
+  test("a pinned https request is verified against the hostname's certificate, end to end", async () => {
+    const directories: string[] = [];
+    try {
+      const certs = await certificates(directories, "tenant-a", { serverAltNames: "DNS:localhost" });
+      using server = Bun.serve({ hostname: "127.0.0.1", port: 0, tls: { cert: certs.serverCert, key: certs.serverKey }, fetch: () => new Response("pinned") });
+      const trusting: FetchLike = (url, init) => fetch(url, { ...init, tls: { ...(init as RequestInit & { tls?: object }).tls, ca: certs.ca } } as RequestInit);
+      const res = await guardedFetch(`https://localhost:${server.port}/x`, {}, {
+        mode: "backend",
+        allowedHosts: ["localhost"],
+        resolveHost: staticResolver({ localhost: ["127.0.0.1"] }),
+        fetchImpl: trusting,
+      });
+      expect(res.status).toBe(200);
+      expect(await res.text()).toBe("pinned");
+    } finally {
+      for (const directory of directories) rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   test("DNS-rebind: public on first lookup, private on second — pinning means we validated then connected to the SAME public IP", async () => {

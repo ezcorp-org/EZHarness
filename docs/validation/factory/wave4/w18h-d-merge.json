@@ -1,0 +1,168 @@
+{
+ "package": "w18-hygiene item D",
+ "branch": "wp/w18-hygiene-2",
+ "head": "3aba4060dc45c4d09735b94536c10f6e0b5cefca",
+ "branchBase": "b8a1c55a8 (the A+B head)",
+ "validatorVerdict": "ACCEPT at e9c0dc59a (validator-3), extended to 3aba4060d by the coordinator (gates file only); in w18h-validation.txt",
+ "mergeSha": "ee97fad5f6a94289ccd7259fdf604c82f69df071",
+ "tree": "19ed76cec5764da94ef65560327d998a67be9532",
+ "parents": [
+  "a6ce95fe08bde9ae04821644d1a378d59e056bed",
+  "3aba4060dc45c4d09735b94536c10f6e0b5cefca"
+ ],
+ "conflicts": "none",
+ "integrationFix": [],
+ "scope": "31 files: tests, test helpers, tasks only; no production file",
+ "srcBatch": {
+  "what": "the 36 src-side test files touched by A or D plus the guard (mock-cleanup-coverage.test.ts) in ONE bun process: git diff 2b2e12550 3aba4060d, src/**/*.test.ts, minus git-hooks.test.ts (run on its own)",
+  "result": "692 pass, 0 fail, 37 files, exit 0 (the coordinator expected 692/0)",
+  "log": "w18h-d-merge-src-batch.log"
+ },
+ "listedSuitesRun": {
+  "how": "scripts/lib/hook-lib.sh run_staged_tests with EZ_PRECOMMIT_TEST_MAX=1000",
+  "result": "exit 0",
+  "files": 28,
+  "runners": {
+   "bun": 28
+  },
+  "log": "w18h-d-merge-real-invocation.log"
+ },
+ "commitHook": {
+  "ruling": "coordinator 2026-09-25: above the cap, EZ_SKIP_HOOK_TESTS=1 by ruling, list recorded, suites run in the batch",
+  "hookOutputVerbatim": [
+   "Checked 29 files in 22ms. No fixes applied.",
+   "\u2500\u2500 Tests (staged) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500",
+   "  28 test files map to this commit (cap 12) \u2014 NOT running:",
+   "    src/__tests__/extension-event-end-to-end.test.ts",
+   "    src/__tests__/extensions-delete-route-policy.test.ts",
+   "    src/__tests__/extensions-patch-route.test.ts",
+   "    src/__tests__/local-model-test-endpoint.test.ts",
+   "    src/__tests__/memory-list-derived-owner.integration.test.ts",
+   "    src/__tests__/messages-multipart-route.test.ts",
+   "    src/__tests__/messages-permission-mode-ceiling-route.test.ts",
+   "    src/__tests__/mock-cleanup-coverage.test.ts",
+   "    src/__tests__/security/c2-session-revocation.test.ts",
+   "    src/__tests__/security/h1-local-provider-ssrf.test.ts",
+   "    src/__tests__/security/kb-ownerless-rows-are-shared.test.ts",
+   "    src/__tests__/security/project-permission-mode-authz.test.ts",
+   "    web/src/routes/api/conversations/[id]/extension-toolbar/__tests__/list.test.ts",
+   "    web/src/routes/api/extensions/[name]/uploads/__tests__/upload.test.ts",
+   "    web/src/routes/api/extensions/__tests__/secrets-route.test.ts",
+   "    web/src/routes/api/extensions/__tests__/triggers-route.test.ts",
+   "    web/src/routes/api/import/__tests__/commit.test.ts",
+   "    web/src/__tests__/agent-chat-api.test.ts",
+   "    web/src/__tests__/ask-user-answer-route.test.ts",
+   "    web/src/__tests__/extension-browser-isolation.test.ts",
+   "    web/src/__tests__/extensions-api.test.ts",
+   "    web/src/__tests__/extensions-data-route.test.ts",
+   "    web/src/__tests__/extensions-events-route.test.ts",
+   "    web/src/__tests__/messages-ownership-api.test.ts",
+   "    web/src/__tests__/messages-ownership-baseline-api.test.ts",
+   "    web/src/__tests__/tasks-assignment-api.test.ts",
+   "    web/src/__tests__/tasks-stop-retry-api.test.ts",
+   "    web/src/__tests__/team-panel-refresh-flow.test.ts",
+   "  EZ_SKIP_HOOK_TESTS=1 set \u2014 skipping the 28 file(s) above; continuing with lint."
+  ]
+ },
+ "checks": [
+  {
+   "name": "registration",
+   "exitCode": 0,
+   "start": "2026-09-25T09:07:31Z",
+   "end": "2026-09-25T09:07:32Z",
+   "command": "bun test --timeout 30000 ./scripts/factory-postgres-suite-registration.test.ts ./src/__tests__/factory-ci-registration.test.ts ./scripts/check-required-checks.test.ts",
+   "logSha256": "b63b56fc941ef62a723f1a370450272471de9f4579c9d74e00977123cd0ebaee"
+  },
+  {
+   "name": "typecheck",
+   "exitCode": 0,
+   "start": "2026-09-25T09:07:32Z",
+   "end": "2026-09-25T09:08:15Z",
+   "command": "bun run typecheck",
+   "logSha256": "ec50bfb5f538f2b991b9a9c99818f8e70fba076b565a4f56d8e9a5f8e38c5fd0"
+  },
+  {
+   "name": "lint",
+   "exitCode": 0,
+   "start": "2026-09-25T09:08:15Z",
+   "end": "2026-09-25T09:08:17Z",
+   "command": "bun run lint",
+   "logSha256": "206185478316ff0e3f5a094c66f9eb33ac19751651ac42b05e29cc1cbe38256d"
+  },
+  {
+   "name": "gate-integrity",
+   "exitCode": 0,
+   "start": "2026-09-25T09:08:17Z",
+   "end": "2026-09-25T09:08:20Z",
+   "command": "bun scripts/gate-integrity.ts",
+   "logSha256": "b1a0297506aab4a182c44b23c41d861c6f4ae88da68848497d810bb39bff6bda"
+  },
+  {
+   "name": "boundaries",
+   "exitCode": 0,
+   "start": "2026-09-25T09:08:20Z",
+   "end": "2026-09-25T09:08:21Z",
+   "command": "bun scripts/check-factory-boundaries.ts",
+   "logSha256": "a701e3a2106adf5e27905c6b5ba03385c3e8490562ff4d2e98236c0403caaf83"
+  },
+  {
+   "name": "schema-drift",
+   "exitCode": 0,
+   "start": "2026-09-25T09:08:21Z",
+   "end": "2026-09-25T09:08:25Z",
+   "command": "bun scripts/check-schema-generate-drift.ts",
+   "logSha256": "58e4fb0d5102f899bd14326e7b9fcbaee5ad91491dec01c137198838c9b29f15"
+  },
+  {
+   "name": "focused-src-__tests__-git-hooks-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T09:08:25Z",
+   "end": "2026-09-25T09:08:29Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/git-hooks.test.ts",
+   "logSha256": "0371a3ee2be58e6f08617ae1c0d25dfa24b980f61f25c69a86c0c0e5a876380f"
+  },
+  {
+   "name": "focused-src-__tests__-mock-cleanup-coverage-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T09:08:29Z",
+   "end": "2026-09-25T09:08:29Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/mock-cleanup-coverage.test.ts",
+   "logSha256": "ab4708490cc3018a7f7ed9d36a471039aa1dd1f3286e1e887f9051fc48b43043"
+  },
+  {
+   "name": "focused-src-__tests__-factory-process-boundaries-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T09:08:30Z",
+   "end": "2026-09-25T09:08:33Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/factory-process-boundaries.test.ts",
+   "logSha256": "7baf12f1fcd835ee4b88689c8eac0a2036de97188f24a8ca32f4c0ffc9334306"
+  },
+  {
+   "name": "focused-scripts-check-factory-boundaries-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T09:08:33Z",
+   "end": "2026-09-25T09:08:35Z",
+   "command": "bun test --timeout 60000 ./scripts/check-factory-boundaries.test.ts",
+   "logSha256": "d7e0009ed1a6dc6c4d52848c26a4ba22e5c85c4b0602b40023f2e3414e7caacc"
+  },
+  {
+   "name": "check-boundaries",
+   "exitCode": 0,
+   "result": "5721 source files, 0 violations"
+  }
+ ],
+ "coverage": {
+  "proofCommit": "proof/w18h-d-merge-staged b1b8e4f03ecf9a8738dc7590ddc44d926c24ed80 (tree 19ed76cec = the merge tree)",
+  "baseRef": "a6ce95fe0 (post-A+B staging head)",
+  "producer": "mock-cleanup-coverage with coverage, 33/0",
+  "newFile": "PASSED: no new source files",
+  "patch": "PASSED: 0 gated files"
+ },
+ "sharedGitConfig": "sha256 prefix 44962525f1ca1a8b, unchanged",
+ "notes": {
+  "T1": "D's coverage gates at BASE_REF=b8a1c55a8 had no manifest receipt; this merge records them at a6ce95fe0 (above)",
+  "T2": "l1-coverage/ whole-repo lcov uncited in the worker's evidence (harmless)",
+  "itemE": "a guard for a narrower reimplementation of a present export (arity check against the real export)"
+ },
+ "standingSteps": "df 151G at merge start and at commit"
+}

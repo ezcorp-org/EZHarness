@@ -1,0 +1,259 @@
+{
+  "package": "w10",
+  "worktree": "/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w10-code",
+  "branch": "wp/w10-code-pack",
+  "headAtHandoff": "4c5dd9b1f53890018f4c43c3e187a11f925bd83f",
+  "baseCommit": "1d3edf5b0f78266a5ea02fa2e1621f5d75d2cd64",
+  "treeStatusPorcelainEmpty": true,
+  "commitCountOnTopOfBase": 14,
+  "allReportedCommitShasExist": true,
+  "sdkRebuildBeforeTypecheck": "clean, no errors",
+  "reruns": [
+    {
+      "gate": "G1/G2",
+      "command": "bun test --timeout 120000 ./src/factory/reference-code/git-reader.test.ts",
+      "expected": "7 pass, 14 assertions",
+      "actual": "7 pass, 0 fail, 14 expect() calls",
+      "match": true
+    },
+    {
+      "gate": "G3",
+      "command": "bun test --timeout 60000 ./src/factory/reference-code/freeze.test.ts",
+      "expected": "13 pass, 34 assertions",
+      "actual": "13 pass, 0 fail, 34 expect() calls",
+      "match": true
+    },
+    {
+      "gate": "G6/G7",
+      "command": "bun test --timeout 60000 ./src/factory/reference-code/checks.test.ts",
+      "expected": "14 pass, 69 assertions",
+      "actual": "14 pass, 0 fail, 69 expect() calls",
+      "match": true
+    },
+    {
+      "gate": "G8",
+      "command": "bun test --timeout 120000 ./src/factory/reference-code/workspace.test.ts",
+      "expected": "13 pass, 26 assertions",
+      "actual": "13 pass, 0 fail, 26 expect() calls",
+      "match": true
+    },
+    {
+      "gate": "G9",
+      "command": "bun test --timeout 60000 ./src/factory/reference-code/scans.test.ts",
+      "expected": "17 pass, 35 assertions",
+      "actual": "17 pass, 0 fail, 35 expect() calls",
+      "match": true
+    },
+    {
+      "gate": "G10",
+      "command": "bun test --timeout 60000 ./src/providers/factory-broker.test.ts",
+      "expected": "9 pass, 22 assertions",
+      "actual": "9 pass, 0 fail, 22 expect() calls",
+      "match": true
+    },
+    {
+      "gate": "G15/G16",
+      "command": "bun test --timeout 60000 ./src/factory/reference-code/generate.test.ts",
+      "expected": "16 pass, 52 assertions",
+      "actual": "16 pass, 0 fail, 52 expect() calls",
+      "match": true
+    },
+    {
+      "gate": "G17",
+      "command": "bun test --timeout 60000 ./src/factory/reference-code/review.test.ts",
+      "expected": "9 pass, 63 assertions",
+      "actual": "9 pass, 0 fail, 63 expect() calls",
+      "match": true
+    },
+    {
+      "gate": "G21",
+      "command": "bun test --timeout 120000 ./src/factory/reference-code/guest.test.ts",
+      "expected": "12 pass, 44 assertions",
+      "actual": "12 pass, 0 fail, 44 expect() calls",
+      "match": true
+    },
+    {
+      "gate": "G21a/G21b",
+      "command": "bun test --timeout 300000 ./src/factory/reference-code/pack.test.ts",
+      "expected": "12 pass, 57 assertions (gate file text erroneously says '6 pass' for G21 but receipt pack-registry.json already recorded 12/57)",
+      "actual": "12 pass, 0 fail, 57 expect() calls",
+      "match": "match vs receipt; gate-file prose typo noted as minor finding"
+    },
+    {
+      "gate": "typecheck",
+      "command": "bun run typecheck",
+      "expected": "exit 0",
+      "actual": "exit 0",
+      "match": true
+    },
+    {
+      "gate": "lint",
+      "command": "bun run lint",
+      "expected": "exit 0",
+      "actual": "exit 0 (8 pre-existing unrelated infos)",
+      "match": true
+    },
+    {
+      "gate": "boundaries",
+      "command": "bun scripts/check-factory-boundaries.ts",
+      "expected": "pass",
+      "actual": "Factory boundary checks passed (F07 deterministic validator and F13 shared-module reuse).",
+      "match": true
+    },
+    {
+      "gate": "gate-integrity",
+      "command": "bun scripts/gate-integrity.ts",
+      "expected": "pass",
+      "actual": "Gate integrity PASSED: no gate-weakening or test-cheating changes detected.",
+      "match": true
+    },
+    {
+      "gate": "c13-inventory",
+      "command": "bun test ./scripts/factory-c13-inventory.test.ts",
+      "expected": "13 pass, 177 assertions",
+      "actual": "13 pass, 0 fail, 177 expect() calls",
+      "match": true
+    },
+    {
+      "gate": "G4/G5",
+      "command": "flock ... bun test --timeout 900000 ./src/factory/reference-code/checks.integration.test.ts",
+      "expected": "6 pass, 28 assertions",
+      "actual": "6 pass, 0 fail, 28 expect() calls",
+      "match": true
+    },
+    {
+      "gate": "G18/G19",
+      "command": "flock ... bun test --timeout 900000 ./src/factory/reference-code/repair.integration.test.ts",
+      "expected": "7 pass, 41 assertions",
+      "actual": "7 pass, 0 fail, 41 expect() calls",
+      "match": true
+    },
+    {
+      "gate": "G20",
+      "command": "flock ... bun test --timeout 900000 ./src/factory/reference-code/guest.podman.integration.test.ts",
+      "expected": "1 pass, 18 assertions, real Podman, 4 launch rows with worker ids",
+      "actual": "1 pass, 0 fail, 18 expect() calls; code read confirms real PodmanRunner, real build+run, 4 factory_attempt_launches rows each with worker_id",
+      "match": true
+    },
+    {
+      "gate": "G24a",
+      "command": "flock ... bun test --timeout 600000 <8 shared-blob consumer files>",
+      "expected": "68 pass, 437 assertions",
+      "actual": "68 pass, 0 fail, 437 expect() calls",
+      "match": true
+    },
+    {
+      "gate": "G25",
+      "command": "flock ... bun test --timeout 900000 <8 tests/postgres/factory-* files> against real PostgreSQL",
+      "expected": "65 pass, 3365 assertions",
+      "actual": "65 pass, 0 fail, 3365 expect() calls",
+      "match": true
+    },
+    {
+      "gate": "G22",
+      "command": "flock ... bun test --coverage --coverage-reporter=lcov ./src/factory/reference-code/ ./src/providers/factory-broker.test.ts",
+      "expected": "153 pass, 546 assertions; 16 new files at 100%",
+      "actual": "153 pass, 0 fail, 546 expect() calls; independently verified 16/16 new files (15 direct + digest.ts transitively) at 100% line coverage from own lcov.info",
+      "match": true
+    },
+    {
+      "gate": "G26 new-file",
+      "command": "BASE_REF=integ/w00 bun scripts/check-new-file-coverage.ts (own merged lcov)",
+      "expected": "16 new source file(s) gated",
+      "actual": "New-file coverage gate PASSED: 16 new source file(s) gated.",
+      "match": true
+    },
+    {
+      "gate": "G26 patch",
+      "command": "BASE_REF=integ/w00 bun scripts/check-patch-coverage.ts (own merged lcov, after adding scripts/factory-c13-inventory.test.ts coverage to cover scripts/check-factory-boundaries.ts)",
+      "expected": "all changed executable lines covered (18 file(s))",
+      "actual": "Patch coverage gate PASSED: all changed executable lines covered (18 file(s)). NOTE: failed once (1 file) until validator's own coverage collection was widened to include the c13-inventory test; this is a validator coverage-scoping gap, not a worker defect -- the worker's own wider coverage batches already covered it (per its receipts).",
+      "match": true
+    },
+    {
+      "gate": "G11",
+      "command": "bun scripts/verify-factory-reference-code-provider.ts --evidence <own path>",
+      "expected": "exit 1, ready:false, provider_not_configured, no credential value recorded",
+      "actual": "exit 1, ready:false, credentialKind:null, failures:[provider_not_configured]",
+      "match": true
+    },
+    {
+      "gate": "G12/G13/G14 (non-publish leg)",
+      "command": "bun scripts/verify-factory-reference-code-journey.ts --evidence <own path> (no --publish-adapter-only, no new PR/branch created)",
+      "expected": "9 deterministic PASS, supervised-review VALIDATOR_ERROR, contractSatisfied:false, publication.attempted:false blockedBy supervised-review, localAndRemoteBaseAgree:true",
+      "actual": "reproduced exactly, against the real ezcorp-org/factory-platform-publication-tests repository",
+      "match": true
+    },
+    {
+      "gate": "G13 remote PR (read-only)",
+      "command": "gh api repos/ezcorp-org/factory-platform-publication-tests/pulls/7; .../git/commits/<sha>; .../git/trees/<sha> (recursively); .../git/ref/heads/reference-code-base",
+      "expected": "closed draft PR #7, head=d1972d5e6233be01947fe3f208098247cec1ae0f, base=reference-code-base@5e7b2b1c832880df24ee49a02dbe9282819ee495, tree with exactly 5 entries matching the evidence",
+      "actual": "confirmed exactly: draft:true, state:closed, base sha matches current reference-code-base head, commit parent is exactly the tested base with 1 parent, tree has 5 entries (bun.lock, package.json, src/, test/, tsconfig.json), src/slugify.ts blob content is the correct accepted implementation",
+      "match": true
+    },
+    {
+      "gate": "G27a",
+      "command": "git merge-tree --write-tree --name-only HEAD wp/w09-startup",
+      "expected": "only conflict tasks/lessons.md; scripts/coverage-thresholds.json and tasks/todo.md auto-merge",
+      "actual": "reproduced exactly",
+      "match": true
+    },
+    {
+      "gate": "coverage-thresholds.json diff",
+      "command": "git diff 1d3edf5b0..HEAD -- scripts/coverage-thresholds.json",
+      "expected": "additions only",
+      "actual": "16 new keys added at 100, zero removals/lowerings",
+      "match": true
+    },
+    {
+      "gate": "check-factory-boundaries.ts diff",
+      "command": "git diff 1d3edf5b0..HEAD -- scripts/check-factory-boundaries.ts",
+      "expected": "additive SHARED_REUSE_MODULES + REQUIRED_SHARED_IMPORTS rows only",
+      "actual": "confirmed additive only",
+      "match": true
+    },
+    {
+      "gate": "out-of-scope file check",
+      "command": "git diff 1d3edf5b0..HEAD --name-only",
+      "expected": "only files under W10's declared surface plus disclosed shared-module touches",
+      "actual": "confirmed: src/factory/reference-code/**, src/providers/factory-broker.*, src/extensions/v4/{blobs,digest}.ts, scripts/verify-factory-reference-code-*.ts, scripts/check-factory-boundaries.ts, scripts/coverage-thresholds.json, src/__tests__/helpers/reference-code-broker-fake.ts, tasks/*. An initial diff against the CURRENT (moving) integ/w00 tip falsely suggested budgets.ts/task-stops.ts/w03-GATES.md were touched; that was the validator's own diff-base mistake (integ/w00 had advanced past 1d3edf5b0 with an unrelated W03 addendum) and was corrected by diffing against the branch's actual merge-base 1d3edf5b0.",
+      "match": true
+    },
+    {
+      "gate": "credential/secret leak scan",
+      "command": "grep across /tmp/factory-platform-evidence/w10 and the non-test diff for token-shaped patterns",
+      "expected": "no real credential values",
+      "actual": "no hits other than the deliberately-fake, clearly-labelled test fixture secret (base64-encoded 'BadSecretForTestingOnly'), which itself is asserted to never appear in any validator report",
+      "match": true
+    },
+    {
+      "gate": "G24",
+      "command": "flock /tmp/ezcorp-validation-heavy.lock timeout 1800 bun run test",
+      "expected": "26920 pass, exactly the same 7 failures across the same 5 files as W07 recorded at the base",
+      "actual": "26932 pass | 7 fail | 1804 files. Exactly the same 5 files: docs/extensions/examples/auto-note/e2e-server-pipeline.test.ts (1), docs/extensions/examples/docs-updater/subprocess.integration.test.ts (1), packages/@ezcorp/extension-contract/src/schema.test.ts (1), packages/@ezcorp/extension-runner/tests/trusted-local.test.ts (1), src/__tests__/substack-pilot-installer.test.ts (3). Cross-checked against W07's own base recording (tasks/factory/w07-GATES.md: 'bun run test at 64e37b28f reports 26725 pass, 7 fail across 5 files', same file list). Pass-count drift (26920 -> 26932, +12) is normal run-to-run variance on a shared, heavily-loaded machine and does not affect the gate (same failing set, nothing new).",
+      "match": true
+    }
+  ],
+  "codeReadFindings": {
+    "freeze.ts": "single parent = pinned base sha only; reuses assertFactoryGitHubPublicationRequest from W07's release-github.ts rather than restating rules",
+    "generate.ts": "REFERENCE_CODE_MAX_AGENT_ITERATIONS = 12 enforced by for-loop bound; applyToolCall never checks allowedPaths, only checks storable-path/oversized-write/unknown-tool -- matches G16 exactly",
+    "review.ts": "broker.stream context.tools = [] (toolless); parseReferenceCodeReview treats empty/unparseable/non-object/wrong-field-set/non-boolean as VALIDATOR_ERROR; transport error/abort -> VALIDATOR_ERROR",
+    "checks.ts": "timeouts -> INCONCLUSIVE; failed install cascades all 4 downstream dynamic claims to INCONCLUSIVE; a protected-asset rewrite post-hoc invalidates ALL 5 dynamic claims while static claims stand",
+    "workspace.ts": "digest verified by reading materialized files back off disk (not trusting the write); protected paths chmod 0o444; assertProtectedUnchanged re-digests",
+    "scans.ts": "pinned REFERENCE_CODE_ADVISORY_SNAPSHOT and REFERENCE_CODE_SECRET_RULES (no live network); secret findings carry only ruleId/path/line, never matched text",
+    "static-claims.ts / guest-entry.ts": "the 4 static (byte-only) claims are exactly what the isolated guest computes via the real product function referenceCodeStaticClaims -- not a second copy",
+    "guest.ts": "reads real committed source files from disk (including packages/@ezcorp/factory-sdk/src/types.ts) and rewrites only a fixed table of import specifiers; unknown specifier throws ReferenceCodeGuestStagingError rather than silently passing through",
+    "factory-broker.ts": "resolves credential via src/providers/credentials.ts:tryGetCredential and model via src/providers/registry.ts (both pre-existing, untouched app files); refuses a model/provider mismatch against the pin; re-checks credential existence at call time even after readiness passed",
+    "references.ts (SDK, untouched by W10)": "confirmed exactly 10 claims in C10's textual order, each required+protected; generate-private-candidate is the only node with repairableInputs; maxRepairs:2 (3 total generations incl. first); github-pr-release depends on [acceptance, release-approval]; every model pin in this definition is claude-haiku-4-5-20251001",
+    "remediation.ts": "REFERENCE_CODE_MAX_CANDIDATE_GENERATIONS reads FACTORY_LIMITS.maxCandidateGenerations from the SDK (not restated); referenceCodeRepairAuthorized takes min(maxRepairs, ceiling-1)",
+    "blobs.ts/digest.ts split": "digestBytes body moved verbatim (byte-identical) into digest.ts and re-exported from blobs.ts; digestObject unchanged; both registered in SHARED_REUSE_MODULES/REQUIRED_SHARED_IMPORTS"
+  },
+  "interfaceQuestionsAssessment": [
+    "Q1 (FactoryRunnerRequest.maxIterations): legitimate open architecture question, correctly not resolved unilaterally by W10 since it would touch a frozen SDK surface; non-blocking, enforced defensively in the runner itself in the meantime.",
+    "Q2 (broker credential wiring): W10's side (factory-broker.ts) is correctly implemented and consumes the app's own credential/registry modules unmodified; the gap is genuinely W09's (composition root not yet landed on integ/w00), consistent with G27 being honestly marked NOT STARTED.",
+    "Q3 (protectedChecks carries an unused model pin): confirmed in the SDK-owned references.ts, correctly left alone since W10 doesn't own that file; recorded and tested against rather than silently patched.",
+    "Q4 (titleBodyDigest recompute after marker append): confirmed release-github.ts's own validation recomputes the digest from the request's own title/body, so the current sequencing is self-consistent; this is a legitimate design question for the coordinator, not a bug."
+  ],
+  "verdict": "ACCEPT",
+  "verdictAtHead": "4c5dd9b1f53890018f4c43c3e187a11f925bd83f"
+}

@@ -1,0 +1,313 @@
+{
+  "schemaVersion": "factory.reference-image-lock.v1",
+  "definitionId": "reference.image.v1",
+  "model": {
+    "source": "https://huggingface.co",
+    "repository": "stabilityai/stable-diffusion-xl-base-1.0",
+    "revision": "462165984030d82259a11f4367a4eed129e94a7b",
+    "variant": "fp16",
+    "pipeline": "StableDiffusionXLPipeline",
+    "files": [
+      {
+        "path": "model_index.json",
+        "bytes": 609,
+        "blobId": "6cc5138ddb67e9309c9b4e058e33e52087f1d215"
+      },
+      {
+        "path": "scheduler/scheduler_config.json",
+        "bytes": 479,
+        "blobId": "e5bc8421e047838523be7acfb6720f167f7382f6"
+      },
+      {
+        "path": "text_encoder/config.json",
+        "bytes": 565,
+        "blobId": "cde352ada4bb95fdad2fc503b8121257cef215a6"
+      },
+      {
+        "path": "text_encoder/model.fp16.safetensors",
+        "bytes": 246144152,
+        "blobId": "e224fcda070dc105fd83c64ed2074f47a1b0ff7b",
+        "digest": "sha256:660c6f5b1abae9dc498ac2d21e1347d2abdb0cf6c0c0c8576cd796491d9a6cdd"
+      },
+      {
+        "path": "text_encoder_2/config.json",
+        "bytes": 575,
+        "blobId": "da1848b5ed17b676f021578838f12c4023b86379"
+      },
+      {
+        "path": "text_encoder_2/model.fp16.safetensors",
+        "bytes": 1389382176,
+        "blobId": "1a41ba6f6d67ebaaea453978332a941d0bc5dae5",
+        "digest": "sha256:ec310df2af79c318e24d20511b601a591ca8cd4f1fce1d8dff822a356bcdb1f4"
+      },
+      {
+        "path": "tokenizer/merges.txt",
+        "bytes": 524619,
+        "blobId": "76e821f1b6f0a9709293c3b6b51ed90980b3166b"
+      },
+      {
+        "path": "tokenizer/special_tokens_map.json",
+        "bytes": 472,
+        "blobId": "2c2130b544c0c5a72d5d00da071ba130a9800fb2"
+      },
+      {
+        "path": "tokenizer/tokenizer_config.json",
+        "bytes": 737,
+        "blobId": "2e8612a429492973fe60635b3f44a28b065cfac0"
+      },
+      {
+        "path": "tokenizer/vocab.json",
+        "bytes": 1059962,
+        "blobId": "469be27c5c010538f845f518c4f5e8574c78f7c8"
+      },
+      {
+        "path": "tokenizer_2/merges.txt",
+        "bytes": 524619,
+        "blobId": "76e821f1b6f0a9709293c3b6b51ed90980b3166b"
+      },
+      {
+        "path": "tokenizer_2/special_tokens_map.json",
+        "bytes": 460,
+        "blobId": "ae0c5be6f35217e51c4c000fd325d8de0294e99c"
+      },
+      {
+        "path": "tokenizer_2/tokenizer_config.json",
+        "bytes": 725,
+        "blobId": "a8438e020c4497a429240d6b89e0bf9a6e2ffa92"
+      },
+      {
+        "path": "tokenizer_2/vocab.json",
+        "bytes": 1059962,
+        "blobId": "469be27c5c010538f845f518c4f5e8574c78f7c8"
+      },
+      {
+        "path": "unet/config.json",
+        "bytes": 1680,
+        "blobId": "c8714c90f0e2409156da42781954416cb7df36af"
+      },
+      {
+        "path": "unet/diffusion_pytorch_model.fp16.safetensors",
+        "bytes": 5135149760,
+        "blobId": "cfd71e1a1bcbfabb2d8256a5d89d8a6fe5608c98",
+        "digest": "sha256:83e012a805b84c7ca28e5646747c90a243c65c8ba4f070e2d7ddc9d74661e139"
+      },
+      {
+        "path": "vae/config.json",
+        "bytes": 642,
+        "blobId": "a66a171ba7c8efb1a8fc3bdc64e65318eade8e13"
+      },
+      {
+        "path": "vae/diffusion_pytorch_model.fp16.safetensors",
+        "bytes": 167335342,
+        "blobId": "d490d01ec5a179303986f73b7ef0675f014cf016",
+        "digest": "sha256:bcb60880a46b63dea58e9bc591abe15f8350bde47b405f9c38f4be70c6161e68"
+      }
+    ]
+  },
+  "runtime": {
+    "baseImage": "docker.io/rocm/pytorch@sha256:0f6e6e98a3d60159443962394866696fa5977b42369413053c3158caf485980d",
+    "pythonVersion": "3.13.15",
+    "resourceClass": "gpu-host",
+    "modelDirectory": "/opt/reference-image/model",
+    "guestImage": "localhost/ezcorp-reference-image@sha256:7f8682bbe3c95549519d15b73ac8267283aff8cdd59ea124783308270449ef35",
+    "distributions": [
+      "Jinja2==3.1.6",
+      "MarkupSafe==3.0.3",
+      "PyYAML==6.0.3",
+      "Pygments==2.21.0",
+      "accelerate==1.15.0",
+      "amd-torch-device-gfx1010==2.12.0+rocm7.14.1",
+      "amd-torch-device-gfx1011==2.12.0+rocm7.14.1",
+      "amd-torch-device-gfx1012==2.12.0+rocm7.14.1",
+      "amd-torch-device-gfx1030==2.12.0+rocm7.14.1",
+      "amd-torch-device-gfx1031==2.12.0+rocm7.14.1",
+      "amd-torch-device-gfx1032==2.12.0+rocm7.14.1",
+      "amd-torch-device-gfx1033==2.12.0+rocm7.14.1",
+      "amd-torch-device-gfx1034==2.12.0+rocm7.14.1",
+      "amd-torch-device-gfx1035==2.12.0+rocm7.14.1",
+      "amd-torch-device-gfx1036==2.12.0+rocm7.14.1",
+      "amd-torch-device-gfx1100==2.12.0+rocm7.14.1",
+      "amd-torch-device-gfx1101==2.12.0+rocm7.14.1",
+      "amd-torch-device-gfx1102==2.12.0+rocm7.14.1",
+      "amd-torch-device-gfx1103==2.12.0+rocm7.14.1",
+      "amd-torch-device-gfx110x==2.12.0+rocm7.14.1",
+      "amd-torch-device-gfx1150==2.12.0+rocm7.14.1",
+      "amd-torch-device-gfx1151==2.12.0+rocm7.14.1",
+      "amd-torch-device-gfx1152==2.12.0+rocm7.14.1",
+      "amd-torch-device-gfx1153==2.12.0+rocm7.14.1",
+      "amd-torch-device-gfx115x==2.12.0+rocm7.14.1",
+      "amd-torch-device-gfx12-0==2.12.0+rocm7.14.1",
+      "amd-torch-device-gfx1200==2.12.0+rocm7.14.1",
+      "amd-torch-device-gfx1201==2.12.0+rocm7.14.1",
+      "amd-torch-device-gfx908==2.12.0+rocm7.14.1",
+      "amd-torch-device-gfx90a==2.12.0+rocm7.14.1",
+      "amd-torch-device-gfx942==2.12.0+rocm7.14.1",
+      "amd-torch-device-gfx950==2.12.0+rocm7.14.1",
+      "amd-torchvision-device-gfx1010==0.27.0+rocm7.14.1",
+      "amd-torchvision-device-gfx1011==0.27.0+rocm7.14.1",
+      "amd-torchvision-device-gfx1012==0.27.0+rocm7.14.1",
+      "amd-torchvision-device-gfx1030==0.27.0+rocm7.14.1",
+      "amd-torchvision-device-gfx1031==0.27.0+rocm7.14.1",
+      "amd-torchvision-device-gfx1032==0.27.0+rocm7.14.1",
+      "amd-torchvision-device-gfx1033==0.27.0+rocm7.14.1",
+      "amd-torchvision-device-gfx1034==0.27.0+rocm7.14.1",
+      "amd-torchvision-device-gfx1035==0.27.0+rocm7.14.1",
+      "amd-torchvision-device-gfx1036==0.27.0+rocm7.14.1",
+      "amd-torchvision-device-gfx1100==0.27.0+rocm7.14.1",
+      "amd-torchvision-device-gfx1101==0.27.0+rocm7.14.1",
+      "amd-torchvision-device-gfx1102==0.27.0+rocm7.14.1",
+      "amd-torchvision-device-gfx1103==0.27.0+rocm7.14.1",
+      "amd-torchvision-device-gfx1150==0.27.0+rocm7.14.1",
+      "amd-torchvision-device-gfx1151==0.27.0+rocm7.14.1",
+      "amd-torchvision-device-gfx1152==0.27.0+rocm7.14.1",
+      "amd-torchvision-device-gfx1153==0.27.0+rocm7.14.1",
+      "amd-torchvision-device-gfx1200==0.27.0+rocm7.14.1",
+      "amd-torchvision-device-gfx1201==0.27.0+rocm7.14.1",
+      "amd-torchvision-device-gfx908==0.27.0+rocm7.14.1",
+      "amd-torchvision-device-gfx90a==0.27.0+rocm7.14.1",
+      "amd-torchvision-device-gfx942==0.27.0+rocm7.14.1",
+      "amd-torchvision-device-gfx950==0.27.0+rocm7.14.1",
+      "annotated-doc==0.0.5",
+      "anyio==4.15.1",
+      "apex==1.12.0+rocm7.14.1",
+      "build==1.6.0",
+      "certifi==2026.7.22",
+      "charset-normalizer==3.5.1",
+      "click==8.5.0",
+      "contourpy==1.3.3",
+      "cxxfilt==0.3.0",
+      "cycler==0.12.1",
+      "diffusers==0.40.0",
+      "filelock==3.29.1",
+      "fonttools==4.64.0",
+      "fsspec==2026.4.0",
+      "h11==0.16.0",
+      "hf-xet==1.6.0",
+      "httpcore==1.0.9",
+      "httpx==0.28.1",
+      "huggingface_hub==1.31.0",
+      "idna==3.19",
+      "importlib_metadata==9.0.1",
+      "iniconfig==2.3.0",
+      "kiwisolver==1.5.1",
+      "markdown-it-py==4.2.0",
+      "matplotlib==3.11.1",
+      "mdurl==0.1.2",
+      "mpmath==1.3.0",
+      "networkx==3.6.1",
+      "ninja==1.13.2",
+      "numpy==2.5.2",
+      "packaging==26.3",
+      "pandas==3.0.5",
+      "pillow==12.3.0",
+      "pip==26.2.1",
+      "pluggy==1.6.0",
+      "psutil==7.2.2",
+      "py-cpuinfo==9.0.0",
+      "pyparsing==3.3.2",
+      "pyproject_hooks==1.2.0",
+      "pytest==9.1.1",
+      "python-dateutil==2.9.0.post0",
+      "regex==2026.9.10",
+      "requests==2.34.2",
+      "rich==15.0.0",
+      "rocm-bootstrap==0.1.0",
+      "rocm-sdk-core==7.14.1",
+      "rocm-sdk-device-gfx1010==7.14.1",
+      "rocm-sdk-device-gfx1011==7.14.1",
+      "rocm-sdk-device-gfx1012==7.14.1",
+      "rocm-sdk-device-gfx1030==7.14.1",
+      "rocm-sdk-device-gfx1031==7.14.1",
+      "rocm-sdk-device-gfx1032==7.14.1",
+      "rocm-sdk-device-gfx1033==7.14.1",
+      "rocm-sdk-device-gfx1034==7.14.1",
+      "rocm-sdk-device-gfx1035==7.14.1",
+      "rocm-sdk-device-gfx1036==7.14.1",
+      "rocm-sdk-device-gfx1100==7.14.1",
+      "rocm-sdk-device-gfx1101==7.14.1",
+      "rocm-sdk-device-gfx1102==7.14.1",
+      "rocm-sdk-device-gfx1103==7.14.1",
+      "rocm-sdk-device-gfx1150==7.14.1",
+      "rocm-sdk-device-gfx1151==7.14.1",
+      "rocm-sdk-device-gfx1152==7.14.1",
+      "rocm-sdk-device-gfx1153==7.14.1",
+      "rocm-sdk-device-gfx1200==7.14.1",
+      "rocm-sdk-device-gfx1201==7.14.1",
+      "rocm-sdk-device-gfx1250==7.14.1",
+      "rocm-sdk-device-gfx908==7.14.1",
+      "rocm-sdk-device-gfx90a==7.14.1",
+      "rocm-sdk-device-gfx942==7.14.1",
+      "rocm-sdk-device-gfx950==7.14.1",
+      "rocm-sdk-libraries==7.14.1",
+      "rocm==7.14.1",
+      "safetensors==0.8.0",
+      "setuptools==81.0.0",
+      "shellingham==1.5.4",
+      "six==1.17.0",
+      "sympy==1.14.0",
+      "tokenizers==0.23.2",
+      "torch==2.12.0+rocm7.14.1",
+      "torchaudio==2.11.0+rocm7.14.1",
+      "torchvision==0.27.0+rocm7.14.1",
+      "tqdm==4.70.0",
+      "transformers==5.17.0",
+      "triton==3.8.0+git4cff872c.rocm7.14.1",
+      "typer==0.27.2",
+      "typing_extensions==4.16.0",
+      "urllib3==2.7.0",
+      "wheel==0.48.0",
+      "zipp==4.1.0"
+    ]
+  },
+  "generation": {
+    "seeds": [
+      11,
+      23,
+      37,
+      53
+    ],
+    "inferenceSteps": 30,
+    "guidanceScale": 7.5,
+    "width": 1024,
+    "height": 1024,
+    "dtype": "float16",
+    "scheduler": "EulerDiscreteScheduler",
+    "device": "cuda",
+    "selector": "ROCR_VISIBLE_DEVICES=0"
+  },
+  "normalization": {
+    "format": "PNG",
+    "colorMode": "RGB",
+    "bitDepth": 8,
+    "compressLevel": 6,
+    "stripAncillaryChunks": true,
+    "allowedChunks": [
+      "IHDR",
+      "PLTE",
+      "IDAT",
+      "IEND"
+    ],
+    "maximumBytes": 10485760
+  },
+  "ocr": {
+    "engine": "tesseract",
+    "language": "eng",
+    "pageSegmentationMode": 11,
+    "engineMode": 3,
+    "minimumWordConfidence": 60
+  },
+  "evaluation": {
+    "model": "claude-haiku-4-5-20251001",
+    "fields": [
+      "oneOakTree",
+      "greenFoliage",
+      "plainWhiteBackground",
+      "noText"
+    ],
+    "evaluations": 3,
+    "minimumPasses": 2,
+    "requireAllDecisive": true,
+    "maxOutputTokens": 256,
+    "temperature": 0
+  }
+}

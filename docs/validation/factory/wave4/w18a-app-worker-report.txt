@@ -1,0 +1,413 @@
+W18a-app — complexity of the application half of the feature diff
+=================================================================
+Branch:    wp/w18a-app
+Worktree:  /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w18a-app
+Base:      integ/w00 at bf010dece, merged forward to 07609bd79
+Final head 024d79c463e9af6406efbae042ca2bb3785515e7, clean tree
+Receipts:  /tmp/factory-platform-evidence/w18a-app/
+Gate file: tasks/factory/w18a-app-GATES.md
+Review:    tasks/todo.md, section "W18a-app"
+
+
+1. COMMITS
+----------
+43e4dd46b refactor(factory): split assertReferenceImageLock into one assertion per locked section
+087261d04 refactor(factory): split assertReferenceDataManifest into one parse step per section
+4cb62747a refactor(factory): split reconcileReferenceData into one phase per claim dependency
+ec5da6929 refactor(factory): split assertFactoryGitHubPublicationRequest into four rule groups
+07c28c5b3 refactor(factory): split the delivered-notification projection by notification kind
+ca5643edd refactor(factory): split local provisioning into one step per external resource
+acd53e3d5 refactor(factory): split artifact staging into coordinate, row read, and conflict test
+bc6804b13 refactor(factory): split finalizeTransitionArtifact into envelope, pages, and parse
+805bd290a refactor(factory): split the pool admission route table out of its request handler
+aecbb874a refactor(runtime): split the legacy executor's executeFrom into named phases
+4b9351267 refactor(web): split the SvelteKit app hook into one unit per request phase
+a807d326b refactor(factory): split the execution gateway handler by route family
+e993eb2aa fix(coverage): keep compiled workspace output out of the merged lcov
+07609bd79 Merge branch 'integ/w00' into wp/w18a-app
+6c25e304b test(web): cover five untested hook branches the split gave names to
+f7db5a930 docs(factory): record the W18a-app gates, the dist ruling correction, and the floor
+df6505acc docs(factory): record the e2e, mutation, and flake evidence in the W18a-app gates
+024d79c46 docs(factory): correct four reporting inaccuracies in the W18a-app record
+
+17 commits. 18 files changed, 2053 insertions, 914 deletions. No existing test file was
+edited. Two files were added: one unit test for the coverage-merge rule and one
+vitest suite for five previously untested hook branches.
+
+
+2. THE TWELVE FUNCTIONS — BEFORE AND AFTER
+------------------------------------------
+Cyclomatic complexity, which is exactly what the CRAP gate reads at 100% line
+coverage. Every one is now far below the maximum of 30.
+
+  file:line                                  function                           before  after
+  src/factory/reference-image/lock.ts:126    assertReferenceImageLock               92      5
+  src/factory/releases.ts:882                listDeliveredNotifications txn         80      8
+  web/src/hooks.server.ts:418                handleApp                              80     14
+  src/runtime/workflow-executor.ts:1361      executeFrom                            47     23
+  src/factory/reference-data/reconcile.ts:177 reconcileReferenceData                46     13
+  src/factory/execution-gateway.ts:77        handle                                 43     17
+  src/factory/release-github.ts:183          assertFactoryGitHubPublicationRequest  43      1
+  src/factory/provisioning/local.ts:66       provision transaction                  42     14
+  src/factory/artifacts.ts:58                stageInTransaction                     38      9
+  src/factory/reference-data/manifest.ts:135 assertReferenceDataManifest            36      7
+  src/factory/pool/service-routes.ts:89      pool admission handler                 31      7
+  src/factory/transition-artifacts.ts:78     finalizeTransitionArtifact             31      6
+
+Across all twelve FILES, the worst remaining function is `runWorkflow` at cc 29
+in src/runtime/workflow-executor.ts — pre-existing, untouched, and under the
+limit. No function this package created exceeds cc 24.
+
+Every split extracts by responsibility, not by line count: one assertion per
+locked section, one parse step per manifest section, one phase per claim
+dependency, one rule group per validation stage, one unit per notification
+kind, one handler per route family, one step per external resource, one named
+terminal per exception class, one function per request phase. Exported
+signatures, error codes, error messages, the ORDER of checks, thrown types,
+transaction boundaries, and audit/journal writes are all unchanged. The three
+functions that ran inside a database transaction still do, with the same
+statements in the same order against the same handles — including the two
+control updates in local provisioning that deliberately run on the pool rather
+than in the transaction so a recorded oid survives an external DDL crash.
+
+Three splits removed real duplication on the way:
+  - artifact staging wrote its seventeen-column locked SELECT twice and its
+    conflict comparison twice; both now have one home, which also removes the
+    hazard that the admission read could disagree with the existence read;
+  - the release projection re-read the same nullable LEFT JOIN columns in three
+    places; one checked value object replaced them and removed a non-null
+    assertion;
+  - the gateway reduced five route matches through a `??` chain the material
+    handler then could not interrogate; they are one record now.
+
+
+3. THE DIST FILTER
+------------------
+RULING AS WRITTEN (tasks/todo.md): compiled workspace output "leaves the lcov
+through the vitest leg's product-source filter, never through EXCLUDES".
+
+MEASURED: the diagnosis names the wrong leg. Per-leg SF counts at 07609bd79:
+
+  leg            SF records   of which packages/**/dist/**
+  sdk                   547                            15
+  product               711                             0
+  postgres              722                             0
+  node                   17                             0
+  pool / compute / provisioning / python                0
+  web (vitest)          537                             0
+
+The Vitest leg does resolve workspace imports to dist under Node, but
+scripts/web-vitest-coverage.sh already pipes its lcov through
+scripts/filter-web-vitest-lcov.ts, whose allowlist drops every record that is
+not a configured web product source. It emits no compiled output at all.
+
+The fifteen records come from the BUN SDK leg, and the cause is deliberate:
+packages/@ezcorp/factory-sdk/src/guest-model-exports.test.ts:18 imports the
+BUILT barrel (`../dist/index.js`) to prove the compiled package re-exports its
+guest-model bounds as VALUES rather than as a type-only re-export, which the
+source check cannot stand in for. That test is correct and must keep doing it.
+
+FIX: scripts/coverage-config.ts gains isCompiledWorkspaceOutput(), and
+scripts/merge-lcov.ts drops such a record before absorbing it. Not an EXCLUDES
+entry, for the reason the ruling itself gives — dist is not un-gated source, it
+is not source at all. Placed at the merge rather than in one leg's filter
+because the merge is the one funnel EVERY producer passes through: the shard
+pre-merge, the local host merge, and the CI coverage job's merge of the
+downloaded artifacts all call scripts/merge-lcov.ts. Fixing the vitest leg's
+filter would have hardened the one leg that never had the problem.
+
+PROOF (dist-filter-proof.txt, dist-proof-sources-{before,after}.txt):
+the same nine leg inputs merged twice —
+  BEFORE  merge-lcov.ts at e993eb2aa~1   1257 sources, 15 name dist/
+  AFTER   merge-lcov.ts at HEAD          1242 sources,  0 name dist/
+Normalised for the REPO_ROOT the older copy computes from /tmp, the set
+difference is EXACTLY the fifteen compiled modules and nothing else; zero
+entries appear only in AFTER. On the final full merge: 1306 sources, 0 dist
+records, and all 16 packages/@ezcorp/factory-sdk/src/** records still measured.
+
+THE RULE IS NOT FLOOR-NEUTRAL, AND IT MOVES THE FLOOR UP. That is the opposite
+of what a build artefact's reputation suggests, so it is worth stating plainly.
+The fifteen compiled records carry 3964 lines measured at 12.06%, while the
+sources they duplicate are measured at 99.2-100% (fifteen at exactly 100%,
+validation.ts at 99.17%). The reason is the importer: guest-model-exports.test.ts
+reads two constants off the built barrel, which runs its module top level and
+almost none of its function bodies, whereas the SDK suite exercises the sources
+properly. So the duplicate was not merely redundant — it was a large block of
+near-uncovered lines the floor had to carry. Removing it raises the measured
+local floor from 65.46% to 67.37%, +1.91 points. Section 4 carries both numbers.
+
+TEST: src/__tests__/merge-lcov-compiled-output.test.ts, 6 tests, 16 assertions.
+Pins it in both directions — the dist record is dropped, the package's own src
+record survives with its hits, a mixed multi-leg merge keeps every other source,
+the rule is anchored at packages/ so a product path merely containing "dist"
+stays source, and a merge whose only input was dist still FAILS CLOSED rather
+than writing an empty lcov. merge-lcov-shard-vote.test.ts is unchanged and
+still passes (18 tests, 138 assertions).
+
+
+4. THE GLOBAL FLOOR
+-------------------
+MEASURED: 67.37% — 74496/110570 lines across 1299 files — against a 90% floor.
+Exit 1. Receipt: global-coverage.log, coverage/quality/global-coverage.json.
+
+That figure is AFTER the compiled-output rule of section 3. Without it the same
+nine leg inputs merge to 65.46% — 74974/114534 lines across 1314 files
+(merged-lcov-nofilter.info) — so the rule RAISES the floor by 1.91 points by
+removing 3964 lines of build artefact measured at 12.06% whose sources are
+measured at 99.2-100%. Both numbers are far below 90, so the rule changes
+nothing about whether the floor passes; it changes what the number means.
+
+This is NOT the CI number and must not be quoted as one. It is the fullest
+merge the combined runner's leg list can build on this host, and that leg list
+is a FACTORY-SURFACE list. It has no producer for src/extensions/**,
+src/runtime/**, src/db/** or packages/@ezcorp/sdk/** — their producer is the
+sharded backend pool, which tasks/lessons.md already records as CI-only
+(`bun run test:coverage` aborts before writing coverage/lcov.info without the
+browser-route receipt) — and the browser-route receipt cannot be produced
+locally at all. The same gap is why scripts/check-coverage.ts reports 932 files
+under threshold locally while both diff-scoped gates pass.
+
+Top fifteen files owing lines, every one pre-existing main code this branch does
+not touch:
+
+    860 missing    6.8%  src/extensions/manifest.ts
+    628 missing    4.0%  src/runtime/stream-chat/setup-tools.ts
+    509 missing   14.5%  src/runtime/goal-host.ts
+    431 missing   10.8%  src/db/queries/conversations.ts
+    414 missing   12.3%  src/extensions/workflows-handler.ts
+    384 missing   12.7%  packages/@ezcorp/sdk/src/runtime/loop.ts
+    365 missing    8.5%  src/extensions/schedule-daemon.ts
+    359 missing   10.9%  src/extensions/clamp-permissions.ts
+    355 missing    4.8%  src/extensions/fs-handler.ts
+    343 missing    9.0%  src/extensions/mcp-sandbox.ts
+    323 missing    8.0%  src/extensions/v4/lifecycle.ts
+    319 missing   17.6%  src/extensions/capability-types.ts
+    318 missing   12.6%  packages/@ezcorp/sdk/src/runtime/channel.ts
+    318 missing   13.4%  src/extensions/file-organizer-daemon.ts
+    293 missing    7.6%  src/extensions/file-organizer-applier.ts
+
+Reported, not fixed: these are pre-existing main gaps, and this package's own
+contribution to the floor is the ten of its twelve files now at exactly 100%.
+
+
+5. CRAP ON THE FEATURE DIFF
+---------------------------
+`BASE_REF=origin/main bun scripts/crap-score.ts --changed` exits 1 with 57
+violations. NONE of them is in a file this package owns. They split cleanly:
+
+  25 complexity-only (coverage 100%, cc 31-92) — a refactor is the only fix:
+       17  packages/@ezcorp/factory-sdk/src/{validation,compiler,kernel,expressions,schema}.ts
+        1  packages/@ezcorp/factory-orchestrator/src/workflow.ts
+        1  packages/@ezcorp/extension-runner/src/podman.ts
+        2  web/src/routes/api/factories/_shared.ts               (W09b)
+        1  src/factory/task-stops.ts                             (W09b)
+        1  src/factory/private-service.ts                        (W09b)
+        1  src/factory/pool/process.ts                           (W09b)
+        1  src/factory/orchestration-process.ts                  (W09b)
+     The first nineteen are W18a-sdk's package; the last six are W09b's files,
+     which this brief named as out of scope and which were not touched.
+
+  32 measurement gaps (coverage 0-38%) — NOT complexity: every one has cc
+     between 7 and 25, so each scores at or below 25 the moment its lines are
+     covered. NO violation below 100% coverage has cc above 30. These are legs
+     the local merge does not include (src/extensions/**, src/runtime/**,
+     src/db/connection.ts, src/factory/{encryption,boot,private-files}.ts,
+     src/factory/runner/**, src/auth/factory-service-token.ts,
+     web/src/lib/server/security/bearer-auth.ts,
+     packages/@ezcorp/extension-runner/**), not real gaps. The fix is the leg
+     list, never the gate.
+
+Per the brief's measurement-gap rule: for every one of this package's twelve
+functions, coverage on the merged lcov is 100%, so none is a measurement gap and
+none needed a test for that reason.
+
+
+6. COVERAGE OF THE TWELVE FILES (final merged lcov)
+---------------------------------------------------
+  100.00%  123/123    src/factory/reference-image/lock.ts
+  100.00%  578/578    src/factory/releases.ts
+  100.00%  218/218    src/factory/reference-data/reconcile.ts
+  100.00%  107/107    src/factory/execution-gateway.ts
+  100.00%  298/298    src/factory/release-github.ts
+  100.00%  134/134    src/factory/provisioning/local.ts
+  100.00%  111/111    src/factory/artifacts.ts
+  100.00%  102/102    src/factory/reference-data/manifest.ts
+  100.00%  104/104    src/factory/pool/service-routes.ts
+  100.00%  159/159    src/factory/transition-artifacts.ts
+   99.17%  1311/1322  src/runtime/workflow-executor.ts
+   94.57%  244/258    web/src/hooks.server.ts
+
+The two remainders are pre-existing uncovered lines, not this branch's: in the
+executor they are `interactiveScopeStub` and an iteration-persist warning path
+(base lines, untouched); in the hook they are branches that were already at zero
+hits on integ/w00. The patch-coverage gate confirms this independently — it
+passes, which means every CHANGED executable line in all twelve files is
+covered.
+
+
+7. THE ONE ADDED TEST, AND WHY
+------------------------------
+The patch gate flagged 13 changed lines in web/src/hooks.server.ts. Measured
+against integ/w00's own merged web lcov, the SAME lines were already at zero
+hits before the split (base lines 582-595, 630, 672, 701, 933). The refactor
+did not lose coverage; it moved pre-existing untested code, and the gate
+correctly then asked for the coverage it never had.
+
+web/src/__tests__/hooks-server-legacy-cookie-and-failsafes.server.test.ts
+covers five security controls whose wrong behaviour is silent:
+  - the legacy pi_session cookie PAST its sec-M4 expiry: ignored, purged, and
+    warned about exactly once rather than once per request;
+  - the same cookie INSIDE the window: promoted to the current cookie name and
+    the legacy one retired;
+  - an unreachable user table: 503, never falling open onto a protected route;
+  - a cookie the server cannot judge (the JWT secret itself unreachable):
+    served without a principal and without clearing the cookie, so an
+    infrastructure blip does not log everybody out;
+  - an adapter that cannot report a peer address: absorbed at both call sites
+    so loopback gating fails closed instead of throwing out of the hook;
+  - HSTS present on https, absent on http, other defaults unchanged either way.
+The expiry is a fixed date in the module, so the clock is PINNED with
+vi.setSystemTime either side of it rather than measured. 6 tests, all passing.
+
+
+8. WHAT IS GREEN (final head f7db5a930, clean tree)
+---------------------------------------------------
+  build factory-sdk / factory-transport / extension-contract / factory-orchestrator  exit 0
+  bun run typecheck                                                                  exit 0
+  bun run lint                                                                       exit 0
+  cd web && bun run check                        569 files, 0 errors, 0 warnings
+  bun scripts/check-factory-boundaries.ts                                            exit 0
+  bun scripts/check-boundaries.ts                                                    exit 0
+  bun scripts/gate-integrity.ts                                                      exit 0
+  BASE_REF=integ/w00 check-new-file-coverage.ts  no new source files                 exit 0
+  BASE_REF=integ/w00 check-patch-coverage.ts     all changed lines covered, 12 files exit 0
+  dist records in the merged lcov                                                    0
+
+Producers (combined runner, leg sources verified identical at the final head):
+  sdk-build, transport-build, orchestrator-build                                     exit 0
+  sdk-tests                                                                          exit 0
+  focused (57 files, incl. the 5 legacy workflow suites, workflow-capability-hash,
+    the release suites, reference-data, reference-image, pool, gateway)              exit 0
+  web-coverage (Vitest pool: 598 files, 7501 tests, 0 fail)                          exit 0
+  postgres (34 files, 354 tests, 353 pass, 1 pre-existing flake — see Open)          exit 1
+  node-coverage, pool-coverage, compute-coverage, provisioning-coverage,
+    python-coverage                                                                  exit 0
+  security-coverage.sh (the 18 bun security suites vitest cannot measure)            exit 0
+  Playwright factory lanes: ez-factory-console, ez-factory-job-editor,
+    factory-authoring-console — 58 passed against a booted preview server            exit 0
+
+Real PostgreSQL was used for the postgres, pool, compute, provisioning, and
+gateway producers (URL assembled inside a script from postgres.env and
+`podman port`, never in argv, never printed). Real local S3 was used through
+EZCORP_FACTORY_STORAGE_SECRETS_DIR. Every heavy producer ran under
+`flock /tmp/ezcorp-validation-heavy.lock timeout <seconds>`; W09b held the lock
+for long stretches and was waited on, never interrupted.
+
+
+9. WHAT IS OPEN
+---------------
+(a) CRAP --changed still exits 1 with 57 violations, none of them this
+    package's. 19 belong to W18a-sdk (packages/@ezcorp/**) and 6 to W09b's five
+    files; the remaining 32 are local measurement gaps whose complexity is
+    already under the limit. The gate cannot go green on the feature diff until
+    W18a-sdk lands and W09b's files get their second W18a pass.
+
+(b) The global floor exits 1 at 67.37% locally. Not actionable here: it is a
+    leg-list artifact plus pre-existing main gaps (section 4). The CI number
+    needs the sharded backend pool and the browser-route receipt, neither of
+    which exists on this host.
+
+(c) The mutation gate exits 1 at score 78.58 against a break threshold of 80
+    (475 killed, 68 timeout, 139 survived, 9 no-coverage, 0 errors). It is
+    report-only in CI. Its --changed scope against origin/main is
+    web/src/lib/factory/{client,download,layout,model}.ts and
+    web/src/lib/graph/layout.ts — five files from the wider feature diff, NONE
+    of which this package touched. No surviving mutant lands on code this
+    package split, so there was no assertion here to add. Receipt: mutation.log,
+    coverage/quality/mutation.json.
+
+(d) A PRE-EXISTING RACE, reported and not fixed. The combined run's PostgreSQL
+    leg failed one case: "C04 archive before claim and receipt before
+    settlement > two concurrent preparations archive one member set and leave
+    one claimable operation", with
+    `duplicate key value violates unique constraint factory_release_operations_pkey`
+    (SQLSTATE 23505). It passes in isolation (10 pass, 0 fail,
+    archive-writer-retry.log) and the identical case has failed under load in at
+    least three earlier packages' runs since 2026-09-14
+    (w07-validation, w08-validation, w10, wave4a).
+
+    The shape is precise, and the method is `prepare`, not `declare` — the
+    earlier report named the statement rather than its method.
+    factory_release_operations carries BOTH a primary key
+    (tenant_id, project_id, operation_id) and a unique index
+    idx_factory_release_operations_identity on the nine identity columns. The
+    INSERT in FactoryReleases.declare (src/factory/releases.ts:771) writes
+    `ON CONFLICT (tenant_id,project_id,run_id,node_instance_id,
+    candidate_generation,action,destination_provider,destination_account,
+    destination_object) DO NOTHING`, which infers the unique index as its sole
+    arbiter. Two concurrent declares of the same operation can therefore
+    conflict on the PRIMARY KEY instead, and a conflict on a non-arbiter
+    constraint is RAISED, not suppressed. That line is not in this package's
+    diff (its hunks are at +529, 980, 1014 and +1023), and fixing it would be a
+    behaviour change outside a no-behaviour-change brief. Routed to whoever owns
+    release authority, and W07c has since fixed it separately at that statement.
+
+(e) The browser-route coverage receipt is CI-only and is therefore absent from
+    every measurement above. Said plainly wherever it matters: the global floor,
+    the per-file gate, and the full-repo CRAP ratchet all read a merge without
+    it.
+
+
+10. ASSUMPTIONS STATED AND PROCEEDED ON
+---------------------------------------
+- The floor pair above is re-measured from this package's own receipts and reads
+  65.46 -> 67.37. The validator's note gives 65.43 -> 67.34. The delta (+1.91),
+  the 3964 artefact lines, and the 12.06% are identical in both; the 0.03 offset
+  is the web leg, which was re-run at 6c25e304b after the added hook suite. The
+  numbers written here are the ones the attached lcovs reproduce. The validator
+  also gives the duplicated sources as 95.7-100%; measured on merged-lcov.info
+  they are 99.2-100%, with validation.ts at 99.17% the only one under 100.
+- The dist ruling's INTENT (measure sources, not compiled output; never through
+  EXCLUDES) was followed exactly; its stated LOCATION (the vitest leg's filter)
+  was not, because measurement shows that leg already satisfies it. Section 3
+  gives the evidence.
+- The merged lcov mixes leg outputs taken at 07609bd79 with the web leg taken at
+  6c25e304b. `git diff --quiet` confirms every leg's MEASURED source paths are
+  identical between its capture point and the final head f7db5a930, which is the
+  same reuse argument combined-integration.py's own `reusable()` makes.
+- /tmp/factory-platform-evidence/w00/combined-integration.py was COPIED, not
+  modified; `cmp` confirms the copy is byte-identical to the original.
+- tasks/ is gitignored while its existing contents are tracked, so the gate file
+  was added with `git add -f`, as every other tasks/factory/*-GATES.md was.
+
+
+11. RECEIPTS
+------------
+/tmp/factory-platform-evidence/w18a-app/
+  report.txt                     this file
+  results.json                   every check with its command, exit code, and timing
+  dist-filter-proof.txt          the dist diagnosis, fix, and before/after proof
+  dist-proof-sources-before.txt  1257 merged sources without the filter
+  dist-proof-sources-after.txt   1242 merged sources with it
+  merged-lcov.info               the merged lcov every gate above read
+  lcov-inputs/                   the nine leg lcovs that went into it
+  crap-changed.log               CRAP --changed against origin/main
+  global-coverage.log            the floor measurement
+  check-coverage.log             the per-file gate (932 local leg-list gaps)
+  new-file-coverage.log          exit 0
+  patch-coverage.log             exit 0
+  mutation.log                   score 78.58, report-only
+  e2e-factory.log                58 Playwright factory tests, all passed
+  security-coverage.log          the 18 bun security suites
+  archive-writer-retry.log       the flaky C04 case passing in isolation
+  pg-gateway.log                 the two real-PostgreSQL gateway producers
+  web-coverage-rerun.log         the Vitest pool at the final web head
+  typecheck.log lint.log web-check.log boundaries.log factory-boundaries.log
+  gate-integrity.log build-*.log merge.log
+  combined-driver.log gates-driver.log gates2-driver.log final-heavy-driver.log
+  complexity.ts                  the measurement tool (same McCabe rules as crap-score.ts)
+  combined-integration.py        byte-identical copy of the W00 runner
+/tmp/factory-platform-evidence/
+  w18a-app-final-results.json    the combined run's per-check records
+  w18a-app-final-*.log           the combined run's per-leg logs
+  w18a-app-final-*-coverage/     the combined run's per-leg lcovs

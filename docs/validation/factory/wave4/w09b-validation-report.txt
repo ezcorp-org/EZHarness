@@ -1,0 +1,537 @@
+W09b INDEPENDENT VALIDATION REPORT
+Package: W09b — assemble the four held roles and prove G14 (completion round of W09)
+Worktree: /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w09b-assembly
+Branch: wp/w09b-assembly   HEAD: 000e71b96465c833da80e51486887e986eaab9c7   Tree: clean
+Validator evidence: /tmp/factory-platform-evidence/w09b-validation/
+Machine results file: /tmp/factory-platform-evidence/w09b-validation/results.json
+Date: 2026-09-22
+
+================================================================================
+VERDICT: ACCEPT-WITH-FIXES
+================================================================================
+
+Every technical claim the package makes is true and reproduces on my own reruns.
+The fixes are documentation and ownership-disclosure: the gate file at HEAD
+contradicts its own final receipts, and seven files owned by other packages were
+changed without appearing in the package's disclosure table. No finding touches
+correctness, coverage, authority, or the store.
+
+================================================================================
+1. TREE STATE AND COMMITS
+================================================================================
+
+`git status --porcelain` is empty. HEAD is 000e71b96, committed 2026-09-22T01:04:31Z,
+on wp/w09b-assembly. `git log --oneline integ/w00..HEAD` lists 106 commits; the head
+commit and every SHA cited in the gate file (7af8579fd, ca101ff19, 83b3a98be,
+45183071f, 7495a7750, edd04b1e3, 214d7251e, f59abce2a) exists on the branch.
+The branch has merged integ/w00 up to 850ffaa54.
+
+Toolchain verified: bun 1.3.14 (from /tmp/factory-tools/bun-1.3.14/bun-linux-x64),
+node v24.14.1.
+
+Shared stores at validation time, observed read-only (podman ps, podman port):
+  factory-platform-proof-postgres        Up 21 hours, published 127.0.0.1:46343
+  factory-storage-ordinary-1             Up 21 hours (healthy), port 18333
+  factory-storage-archive-1              Up 21 hours (healthy), port 18334
+  S3 credential directory                /run/user/1001/ezcorp-factory-storage.0yXaRPtQ
+I did not run scripts/verify-factory-storage.ts and started, restarted, or
+reconfigured nothing.
+
+================================================================================
+2. RECEIPTS AUDIT
+================================================================================
+
+All 21 receipts under /tmp/factory-platform-evidence/w09b/receipts/ open and parse.
+Every one names producingCommit 000e71b96 except the five the coordinator listed as
+deliberate history (coverage-gates-red-83b3a98be.json at 83b3a98be,
+guest-launched.json at a2ab4223b, orchestrator-mtls-readiness.json at 72c633deb,
+package-install-wiring.json at c31df251a, postgres-suite-registration.json at
+83b3a98be). coverage-legs.json carries no SHA; its parent coverage-gates.json does.
+No receipt shows a failure while the gate file claims a pass.
+
+The three full-stack run records and the negative-control record are stamped at the
+final head and were produced 1h37m AFTER the head commit (02:41:31Z to 02:52:29Z
+against a head committed 01:04:31Z). They are genuine refreshed evidence.
+
+================================================================================
+3. MY OWN RERUNS — ALL GREEN
+================================================================================
+
+I copied every repro script into my own directory and changed exactly one thing in
+each: the output path, so nothing overwrote the worker's evidence. `diff` of each
+copy against the original is in section 9 and shows only the OUT= line.
+
+  PRODUCER                                     EXIT   RESULT
+  bun run --cwd .../factory-sdk build            0
+  bun run --cwd .../factory-transport build      0
+  bun run --cwd .../factory-orchestrator build   0
+  bun run typecheck                              0    0 errors
+  bun run lint                                   0
+  bun scripts/check-factory-boundaries.ts        0
+  bun scripts/gate-integrity.ts                  0
+  bun scripts/check-schema-generate-drift.ts     0    13 schemas byte for byte
+  bun test ./scripts/factory-c13-inventory.test  0    13 pass / 0 fail
+  focused suites (36 files, with coverage)       0    586 pass / 0 fail
+  tests/postgres/factory-* (6 files)             0    29 pass / 0 fail
+  podman suites, package pair (2 files)          0    10 pass / 0 fail
+  packages/.../extension-runner podman           0    19 pass / 0 fail
+  src/factory/package-preparation.podman         0    1 pass / 0 fail
+  coverage legs, all seven                       0    focused, podman, postgres,
+                                                      orchestrator-build,
+                                                      orchestrator, pool, vitest
+  bun scripts/merge-lcov.ts                      0    47 inputs, 1264 source files
+  BASE_REF=integ/w00 check-new-file-coverage.ts  0    PASSED, 24 new files gated
+  BASE_REF=integ/w00 check-patch-coverage.ts     0    PASSED, 41 files covered
+  rebuild-and-run-three.sh (3 real passes)       0    3/3 passed, recordFresh true
+  negative-control.sh                            1    failed as designed (see 5)
+  s3-destination-proof.ts (G17)                  0    passed, wroteToStore false
+
+My focused-suite rerun matches the worker's receipt row for row: same 36 files, same
+exit codes, same pass counts, zero differing rows. My postgres and podman reruns
+match exactly. My coverage gates print the identical two lines the worker recorded
+("24 new source file(s) gated", "all changed executable lines covered (41 file(s))")
+over an independently produced merge of the same 47 leg outputs. The merged LCOV
+digest differs from the worker's, which is expected: hit counts vary between runs,
+and the merged source-file count (1264) is identical.
+
+Heavy producers ran under `flock --close /tmp/ezcorp-validation-heavy.lock timeout N`.
+My first coverage run waited roughly twenty minutes behind another validator's
+Podman run; I waited rather than killing the holder.
+
+================================================================================
+4. CLAIM 1 — ALL FOUR HELD ROLES RUN IN THE REAL APPLICATION
+================================================================================
+
+CONFIRMED by my own three consecutive passes, each on a fresh product database.
+
+I read /api/ready on the real started SvelteKit server in every pass. All three
+returned HTTP 200 with the identical role set:
+
+  RUNNING (9): compute-admission-dispatch, compute-admission-poll, attempt-dispatch,
+               run-projection, notification-inbox-delivery, child-settlement,
+               release-outcome, usage-reconciliation, stop-settlement
+  HELD    (1): notification-send (workPackage W17)
+
+All four roles W09 held are in the running list: attempt-dispatch, stop-settlement,
+usage-reconciliation, release-outcome.
+
+Per pass: outcome "passed", exitCode 0, recordFresh true, roleFailures empty,
+orchestration lifecycle "ready", pool and supervisor "ready", private service
+accepting, both shared stores reachable.
+
+Run status timeline, all three passes: ["queued","running","failed"], terminal
+"failed" at poll 6 or 7. The restarted server read the same run back as "failed".
+Shutdown exited code 0 with zero survivors and the port refused.
+
+The guest really launched in Podman. Independently of the harness record I read
+`podman events` over my run-1 window (2026-09-22T16:14:49Z to 16:15:30Z) and counted
+12 `start ez-v4-*` container events, each with a matching create/died/cleanup/remove.
+The guest package digest is identical across all three passes
+(sha256:c429b84ec4dbed709188115598db538a06f07887d9b900bd8cdc7c188c531121) and
+packageInstall reports a real container build (ok true, trustRevision 1).
+
+The kernel command trail on a passing run reads exactly as the gate file states:
+run:start-timer:1, work:request-admission:2, work:start-timer:3, work:dispatch-node:4,
+work:cancel-node:5, run:fail-run:6.
+
+================================================================================
+5. CLAIM 1b — G12's NEGATIVE CONTROL
+================================================================================
+
+CONFIRMED. My own run of negative-control.sh, with only the web server pointed at a
+database that is not there: harness exitCode 1, record written, outcome "failed",
+failure "the server never reported ready", seven child process logs kept
+(gateway-stub, orchestrator, pool, supervisor, temporal, temporal-tls, web),
+supervisor processes 0 before and 0 after. It fails the way it is designed to and
+records its own failure rather than crashing.
+
+================================================================================
+6. CLAIM 2 — G14, THE COVERAGE GATES
+================================================================================
+
+CONFIRMED. Both BASE_REF=integ/w00 gates PASSED over my own merged LCOV built from
+all seven legs. 24 new source files gated, 41 changed files covered.
+
+Gate integrity checked directly against the diff integ/w00...HEAD:
+  - scripts/coverage-thresholds.json gains 24 keys, every one at 100. No key removed,
+    no threshold lowered.
+  - No EXCLUDES entry added anywhere.
+  - No .skip, .only, .todo in any added line.
+  - No biome-ignore added.
+  - No empty `catch {}` in any added test line (the three matches in the diff are
+    prose in doc comments explaining why a bare catch was removed).
+  - scripts/check-factory-boundaries.ts is unchanged, which is correct here: W18
+    made the C13 inventory derive from the real import graph (freeze section 16), and
+    scripts/factory-c13-inventory.test.ts re-derives it and passes 13/13 at this head.
+    A missing REQUIRED_SHARED_IMPORTS row would red that test.
+  - No duplicated queue, approval, blob, or audit path: none of the 25 non-test
+    source files this round touched declares its own queue class, delivery-queue
+    construction, audit writer, or blob store.
+
+================================================================================
+7. CLAIM 3 — THE COORDINATOR RULINGS
+================================================================================
+
+All implemented as ruled. I read the declaration, its validation, and the driver in
+full.
+
+7.1 The declaration lives in W09's own startup document.
+src/factory/startup-config.ts:160-163 adds `release?: { destinations, profiles }`.
+The destination union is at :174-194: an `s3` member with endpoint, bucket, account,
+optional prefix and credentialsPath; a `github` member with repository and tokenPath.
+Every credential is a path. No value appears in the document.
+
+7.2 Six boot-time refusals, each by name, at src/factory/startup-config.ts:609-645:
+  (a) either half without the other       -> missing: release.destinations|profiles
+  (b) a malformed destination by index and by kind -> release.destinations[i]
+      (`exactKeys` per kind at :439-452, so an S3 entry carrying tokenPath or a
+      GitHub entry carrying bucket is refused rather than half-read)
+  (c) a destination name declared twice   -> release.destinations
+  (d) an adapter declared twice           -> release.profiles
+  (e) a profile naming an undeclared destination -> release.profiles[i].destination
+  (f) an S3 prefix outside the tenant's entitled root -> release.destinations[i]
+      (FACTORY_RELEASE_ENTITLED_S3_ROOT = "ordinary" at :407; wellFormedS3Prefix at
+      :417-424 tests the whole first segment, so the sibling root "ordinary-two" is
+      outside it)
+Each is covered by a named test in src/factory/startup-config.test.ts:300-425.
+
+7.3 Credentials by path only, and never in a message.
+src/factory/release-declaration.ts:81-98 reads every path through `privateDirectory`
+plus `readPrivateBounded`, and the error names the destination and what is wrong with
+the FILE. src/factory/release-declaration.test.ts:117-126 asserts the refusal string
+contains neither the access key nor the secret key. My own scan for 42 real credential
+values across the whole evidence directory and the package's source found zero hits in
+anything this package wrote.
+
+7.4 The release-outcome driver reads W07b's consent and claims as the run's live
+initiator, both in one transaction.
+src/factory/dispatch-composition.ts:298-305: one `database.transaction` reads the
+initiator through `runs.readExecutionPlanInTransaction` and the consent through
+`releases.readConsentInTransaction(transaction, initiator, operation)`. The consent is
+never chosen by this composition; the injected-consent parameter is gone. `claim` then
+opens its own transaction and re-validates, which is the accepted two-transaction
+shape. The test the ruling asked for exists: dispatch-composition.test.ts:352 proves a
+consent revoked between the read and the claim fails the claim with a typed error,
+exactly one claim over exactly the consent that was read, nothing dispatched, and the
+refusal reaching the report. Concurrency (:375), operation-disappeared (:340) and
+partial-failure (:399) cases are all present.
+
+7.5 The `s3` kind maps to W08's manifest publisher only.
+src/factory/release-declaration.ts:238 constructs only S3FactoryManifestReleaseProvider.
+S3FactoryReleaseProvider is not constructed anywhere in production. No discriminator
+was invented.
+
+7.6 The profile set is deliberately EMPTY.
+src/factory/release-declaration.ts:272 returns `profiles: Object.freeze([])`, so
+`requestRelease` answers factory_protected_effect_untrusted at prepare time rather
+than creating an operation that could never publish. The reason each declared profile
+could not be composed is carried as data (`uncomposedProfiles`, :187-195) so the gap
+is readable in the readiness report rather than buried in a comment.
+
+7.7 Round 4 parked into W01g and W08b. I treated its absence as settled, not as a
+finding, per the coordinator's ruling.
+
+AUTHORITY ARGUMENT — I accept it. No principal is invented: the requester is the run's
+own initiator, re-derived live from the published execution plan, which is the same
+principal FactoryProtectedCommandEffects.requestRelease prepared the operation under.
+It confers nothing, because `claim` re-authorizes that principal for factory.release
+inside its own transaction and a policy is keyed by the principal it was created for.
+No consent is chosen by the worker. The prefix rule is enforced at parse rather than
+discovered at the first release.
+
+================================================================================
+8. CLAIM 4 — G17, THE DECLARED DESTINATION AGAINST THE LIVE STORE
+================================================================================
+
+CONFIRMED by my own run. outcome "passed"; composeFactoryReleaseDestinations read the
+real credential set by path through the private bounded reader and built a real
+S3FactoryManifestReleaseProvider; that provider issued authenticated HEADs the live
+SeaweedFS answered; the same declaration with a wrong secret was refused BY THE STORE;
+an account nobody declared was refused factory_release_destination_unknown.
+wroteToStore false — every call is a HEAD, so there is nothing to clean up. My receipt
+is byte-identical to the worker's except for the observation timestamp.
+
+================================================================================
+9. CLAIM 5 — SUPERVISOR, PRIVATE SERVICE, READINESS, C11, W13
+================================================================================
+
+All CONFIRMED by suites I reran at this head.
+
+  supervisor hosts both host routes over one runner and one key
+      src/factory/runner/supervisor-services.test.ts  21 pass / 0 fail
+  supervisor binds once, publishes hostServicesReady, releases before "stopped"
+      src/factory/runner/supervisor-process.test.ts   37 pass / 0 fail
+      plus supervisor-process.podman.integration.test.ts 3 pass against real Podman
+  the private worker API composes, every refusal named
+      src/factory/private-service-composition.test.ts 15 pass / 0 fail
+  readiness gates converge without opening admission early
+      src/factory/runtime-composition.test.ts         31 pass / 0 fail
+  C11's orphan bound is a declared factory setting
+      src/factory/boot.ts:30 declares FACTORY_ORPHAN_DETECTION_BOUND_MS = 30_000 and
+      :158-167 raises factory-orphan-sweep-too-slow and factory-orphan-sweep-mismatch,
+      comparing the declaration against what getSweepIntervalMs will really return.
+      src/__tests__/factory-boot.test.ts:302,313  24 pass / 0 fail
+  W13's legacy engine adapter over the real executor
+      src/factory/legacy-engine.test.ts               11 pass / 0 fail
+      including "finds a run by its key without being able to create one" (:147),
+      which asserts the workflow_runs row count is unchanged across a missed lookup.
+
+================================================================================
+10. CLAIM 6 — THE RUN ENDS "failed", AND NO INJECTED RESULT
+================================================================================
+
+CONFIRMED and correctly disclosed. The minimal guest returns the canonical `cancelled`
+runner result, which is the one member of the union needing no staged output artifact.
+FactoryTaskOutcomes maps it to node-failed, the kernel issues cancel-node then fail-run,
+and the run's verdict is the verdict that path produces. The roles-running receipt
+records COMPLETED as notProven with the pointer to W01g, which is honest.
+
+No test injects a precompleted result. The harness touches factory_attempt_launches
+only through a SELECT of terminal_result_json (full-stack-proof.ts:789) and never
+inserts one. The guest's own source sets status "cancelled" (repro/guest-package.ts:47).
+
+================================================================================
+11. INTERFACE FREEZE AND OWNERSHIP
+================================================================================
+
+W09 owns src/factory/application.ts, boot.ts, orchestration-process.ts, startup-config.ts,
+the private-service suite and certificates, and the startup path in
+web/src/lib/server/context.ts. It did not change any W05, W07, or W04 surface:
+src/factory/releases.ts, release-application.ts, release-profile.ts, release-adapters.ts,
+protected-command-effects.ts, artifact-materials.ts, artifacts.ts, task-completions.ts and
+assurance*.ts are all untouched by this branch. `git diff integ/w00...HEAD` confirms it.
+
+Files outside W09's ownership that W09b's own commits touched, each judged:
+
+  FILE                                          OWNER (freeze s12)        JUDGEMENT
+  packages/.../factory-orchestrator/src/process.ts   Node orchestrator W02b  OK, disclosed
+  packages/.../factory-orchestrator/test/
+    process-launcher.test.ts                         Node orchestrator W02b  OK, disclosed
+  src/factory/runner/attempt-runtime.ts ->
+    runner/attempt-wire.ts                           Terra runtime W01       OK, disclosed;
+      a pure move forced by the process-boundary gate, every symbol re-exported
+  scripts/coverage-thresholds.json                   Free Sol worker W18     OK, disclosed
+  src/__tests__/helpers/
+    factory-run-lifecycle-suite.ts                   Sol controls W06        OK, disclosed,
+      but the table names the wrong owner (see F4)
+  src/factory/task-stops.ts                          Sol lifecycle W03       NOT DISCLOSED
+  src/factory/pool/process.ts                        Terra deployment W16    NOT DISCLOSED
+  src/factory/host-stop-client.ts                    (unassigned; W03 area)  NOT DISCLOSED
+  src/factory/attempt-dispatcher.ts                  (unassigned; W01b area) NOT DISCLOSED
+  src/factory/runner/host-launch-service.ts          (W01b area)             NOT DISCLOSED
+  src/factory/runner/host-launch-supervisor.ts       (W01b area)             NOT DISCLOSED
+  src/factory/runner/host-stop-service.ts            (W03 area)              NOT DISCLOSED
+  src/__tests__/helpers/factory-task-stops-suite.ts  (W03 area)              NOT DISCLOSED
+  scripts/web-vitest-coverage-includes.sh            (W18 area)              NOT DISCLOSED
+
+I read every one of those diffs. On substance each is additive, justified in a doc
+comment, and green under every gate. The three host-service files are one-line import
+redirects caused by the disclosed attempt-runtime split. The finding is the missing
+disclosure, not the code — see F3.
+
+No interface deviation found. The landed release types match the shapes the gate file
+documents, and FactoryStartupConfig is W09's own surface.
+
+================================================================================
+12. SECURITY POSTURE
+================================================================================
+
+  No credential value in code, logs, or receipts. I extracted 42 real secret values
+  from the live S3 credential directory and the PostgreSQL environment file and
+  grepped the whole w09b evidence tree plus src/, web/src/, scripts/ and tasks/.
+  Zero hits in anything this package wrote. One 12-character identifier-shaped value
+  matched two pre-existing test helpers (factory-grants-suite.ts, factory-records-suite.ts)
+  that this package did not touch; it is an identifier, not a secret.
+
+  No secret is reachable by a guest. src/__tests__/factory-process-boundaries.test.ts:233-285
+  asserts the supervisor's own module links no tenant store, credential broker, or
+  database; that its options are exactly {authorizeAttempt, invokeTool, journal, now,
+  runner}; that the supervisor PROCESS closure contains no credential package and no
+  src/db/ or src/providers/ file; and that the physical-stop signer is injected so
+  product code never receives the host private key.
+
+  Only Node links Temporal. Same file, :130-168: no source outside the orchestrator
+  package imports @temporalio/*, only that package declares the dependency, and a
+  non-vacuity case proves the orchestration process really does link it.
+
+  The product database never enters the supervisor, asserted at :276.
+
+  No authority check was removed. The one authority predicate this round changed is
+  src/factory/task-stops.ts:400, which now accepts a compute lease that names no host
+  and takes the host identity from the durable launch record instead. That is a
+  re-sourcing rather than a relaxation: the launch record sealed hostId when the
+  attempt was prepared, `!launch.hostId` is still a refusal, and a lease that DOES name
+  a host must still agree with it. It is tested and it fixed a measured defect where
+  every CPU attempt was unstoppable. I accept it on substance; see F3 on disclosure.
+
+  The PostgreSQL URL was assembled inside each script file, never in argv, never
+  printed. No script under my copied repro directory invokes compose, docker, or
+  verify-factory-storage.ts.
+
+================================================================================
+13. FINDINGS, RANKED
+================================================================================
+
+F1 (MEDIUM, documentation). The gate file at HEAD contradicts its own final receipts
+and understates the evidence.
+  tasks/factory/w09b-GATES.md:443  "NOT REFRESHED at the final head: every shared
+      store is down, so this run cannot be repeated." (G11)
+  tasks/factory/w09b-GATES.md:456  the same for G12.
+  tasks/factory/w09b-GATES.md:805-806  the pending table lists rebuild-and-run-three.sh
+      and negative-control.sh as PENDING.
+  tasks/factory/w09b-GATES.md:417  G10b reads "NOW FOUR, measured at 45183071f".
+Both producers DID run at the final head, at 2026-09-22T02:41:31Z to 02:52:29Z, and
+their receipts carry producingCommit 000e71b96. A coordinator reading only the gate
+file would conclude the four-running-roles answer and the three passes were never
+refreshed. Fix: update those four places to point at
+/tmp/factory-platform-evidence/w09b/repro/full-stack-run-{1,2,3}.json and
+/tmp/factory-platform-evidence/w09b/negative-control.json at the final head.
+Reproduce: `python3 -c "import json;print(json.load(open('/tmp/factory-platform-evidence/w09b/repro/full-stack-run-1.json'))['producingCommit'])"`
+
+F2 (MEDIUM, ownership disclosure). Seven files owned by or belonging to other packages
+were changed and do not appear in the disclosure table at
+tasks/factory/w09b-GATES.md:758-767. The most consequential is
+src/factory/task-stops.ts:400 (freeze section 12: Sol lifecycle W03), which changes an
+authority predicate; then src/factory/pool/process.ts:49 (Terra deployment W16), which
+adds resources.hosts; then src/factory/host-stop-client.ts:30,
+src/factory/attempt-dispatcher.ts:32,
+src/factory/runner/{host-launch-service,host-launch-supervisor,host-stop-service}.ts,
+src/__tests__/helpers/factory-task-stops-suite.ts and
+scripts/web-vitest-coverage-includes.sh. Freeze section 12 says a second worker files a
+change with the owner and the owner lands it; without the disclosure the coordinator
+cannot route them. Every change is sound on substance. Fix: add the rows.
+Reproduce: `git log --no-merges --name-only --pretty=format: 7af8579fd..HEAD ^integ/w00 | sort -u`
+
+F3 (LOW, documentation). The disclosure table names the wrong owner for
+src/__tests__/helpers/factory-run-lifecycle-suite.ts. tasks/factory/w09b-GATES.md:765
+says "Owner to review: Sol lifecycle (W02)"; freeze section 12 assigns that file to
+Sol controls (W06).
+
+F4 (LOW, documentation). Stale EXPECT counts in the gate file, all under-stating the
+measured result rather than over-stating it: G3 says 23 pass against 32 measured
+(:358), G4 says 17 against 21 (:364), G5 says 33 against 37 (:373), G6 says 14 against
+15 (:378), G7 says 28 against 31 (:384), G8 says 39 against 44 (:390), and G14's
+MEASURED block says 23 new files and 40 changed files against 24 and 41 (:485,:487).
+
+F5 (LOW, evidence hygiene). Three receipts were restamped with a write time and carry
+observations from an earlier round. receipts/roles-running.json and
+receipts/shared-store-state.json both read observedAt 2026-09-22T15:43:53Z;
+roles-running reports threePasses measured at 02:41Z, and shared-store-state says the
+PostgreSQL container is "Up 2 hours" (it was up 21 hours) and lists
+rebuild-and-run-three.sh and negative-control.sh under stillPending when both had
+already completed thirteen hours earlier. The content is real and at the right head;
+the timestamp and the pending list are not.
+
+F6 (LOW, observability). An S3 prefix that leaves the entitled root is refused at parse,
+but reported as release.destinations[i] — the same string a bad endpoint or a bad bucket
+produces (src/factory/startup-config.ts:623 via wellFormedS3Prefix at :417-424). The
+claim "refused by name" is true of the field, not of the reason. An operator cannot tell
+"prefix leaves ordinary/" from "endpoint is not https" without reading the code.
+
+F7 (INFORMATIONAL). src/factory/release-declaration.ts:261 treats any provider string
+that is not "s3" as GitHub, so a third provider would be refused with "no GitHub
+destination is declared for this repository". Harmless while the union has two members.
+
+NOTHING THE WORKER OVERSTATED. On the contrary, the gate file understates its own
+final evidence in four places (F1) and its own test counts in seven (F4).
+
+================================================================================
+14. PLAN-BULLET PROOF MAP (plan section 5, W09)
+================================================================================
+
+1. Compose harness/API, Node orchestration/dispatcher, Bun gateway roles, host
+   supervisor, pool, encrypted stores, controls, validators, release profiles and
+   notification sender from validated configuration.
+   PROVEN, with one stated exception. installation-startup.test.ts (44 pass),
+   installation-stores.test.ts (6), attempt-composition.test.ts (14),
+   dispatch-composition.test.ts (32), private-service-composition.test.ts (15),
+   release-declaration.test.ts (11), plus my three real-server passes.
+   EXCEPTION: the release PROFILE set is deliberately empty by coordinator ruling,
+   parked into W08b; requestRelease refuses at prepare time. Notification SENDER is
+   W17 and holds by name on /api/ready.
+
+2. Register stop-aware bounded workers for compute polling, attempts, command/inbox
+   delivery, child settlement, projections, release outcomes, reconciliation and
+   notifications, reusing existing queue/recovery scheduling patterns.
+   PROVEN. Nine roles running on /api/ready in all three of my passes; the tenth
+   (notification-send) held with its work package named. background-workers.test.ts
+   (20), runtime-workers.test.ts (18), role-drivers.test.ts (15). No parallel queue
+   or scheduler: factory-c13-inventory.test.ts is green.
+
+3. Deliver every durable completion/rejection/release result back to orchestration;
+   a prepared release is not a completed Release node; an uncertain release stays
+   visible.
+   PROVEN for completion and rejection (factory-run-lifecycle.test.ts 60 pass,
+   factory-task-stops.test.ts 18 pass, and the durable attempt rows in my three runs:
+   launch terminal with result, execution stopped, queue delivered, stop stopped with
+   a receipt, hold settled). PARTLY UNPROVEN for release: the running role's claim and
+   publish is not exercised end to end because no claimable operation exists without a
+   release node plus an approval or policy. Parked into W08b by ruling; the declared
+   destination's reach to the real store IS proven by G17.
+
+4. Prove startup closes admission until real probes pass; factories off -> no factory
+   service and the documented 404; flag-on PGlite and any missing required dependency
+   fail by name.
+   PROVEN. runtime-composition.test.ts (31 pass) asserts admission stays closed and the
+   listener stays bound while the retry window runs, and that a configuration fault is
+   never retried. factory-boot.test.ts (24), service-probes.test.ts (15),
+   service-readiness.test.ts (8), factory-service-routes.test.ts (2), and the real
+   PostgreSQL boot producer tests/postgres/factory-boot.test.ts.
+
+5. Test simultaneous initialization, failed-start retry, shutdown order, credential
+   expiry/refresh, dependency loss, restart, queue backpressure, safe re-drive; fix any
+   reproduced initialization race at its source.
+   PROVEN. web/src/__tests__/context-initialization.server.test.ts covers the
+   `initialized`-before-initialization audit lead; supervisor-process.test.ts (37)
+   covers bind-once, degraded readiness and release-before-stopped;
+   tests/postgres/factory-migration-restart.test.ts (15 pass on real PostgreSQL) covers
+   restart; my three runs each restart the server and read the same run back.
+   The negative control covers failed start with real children to clean up.
+
+6. Retain process boundaries and add a boundary test for the Temporal confinement.
+   PROVEN. src/__tests__/factory-process-boundaries.test.ts, 14 pass, including a
+   non-vacuity case for every rule. See section 12.
+
+PASS SENTENCE, read clause by clause: "a clean real application starts [yes, three
+times] a durable run through public HTTP [yes] , executes a guest [yes, 12 real Podman
+containers in my run-1 window] , records and projects its outcome [yes, the projection
+row carries status failed] , survives restart [yes, the restarted server reads it back
+as failed] , and shuts down without leaked processes or false readiness [yes, exit 0,
+zero survivors, port refused] . No test injects a precompleted result [confirmed]."
+The terminal status is "failed" because the guest returns `cancelled`; that is the
+verdict the path produces for this guest and it is disclosed, not hidden. The COMPLETED
+variant is recorded as notProven with W01g named.
+
+================================================================================
+15. WHAT I DID NOT DO
+================================================================================
+
+  - I did not run scripts/verify-factory-storage.ts (coordinator-only; it restarts
+    the shared SeaweedFS containers).
+  - I did not edit, commit, or reformat anything in the worker's worktree. Every file
+    I created is under /tmp/factory-platform-evidence/w09b-validation/.
+  - I did not re-run the deliberately older-head history receipts.
+  - I did not attempt Round 4's COMPLETED-guest and published-release proof; it is
+    parked into W01g and W08b by ruling and its absence is not a finding.
+
+================================================================================
+16. RECOMMENDED FIXES BEFORE MERGE
+================================================================================
+
+  1. Update tasks/factory/w09b-GATES.md:417, :443, :456 and the pending table at
+     :805-806 to record that G10b, G11 and G12 were refreshed at the final head, with
+     the receipt paths. (F1)
+  2. Add the seven missing rows to the disclosure table at :758-767, with owners, and
+     call out src/factory/task-stops.ts:400 explicitly as an authority-predicate change
+     for W03 to land. (F2)
+  3. Correct the owner named at :765 from Sol lifecycle (W02) to Sol controls (W06). (F3)
+  4. Refresh the EXPECT counts at :358, :364, :373, :378, :384, :390 and the MEASURED
+     numbers at :485 and :487. (F4)
+  5. Re-observe or re-date receipts/shared-store-state.json and
+     receipts/roles-running.json so observedAt is the observation time. (F5)
+  6. Optional: give the entitled-root prefix refusal its own field suffix so an
+     operator can tell it from a malformed endpoint. (F6)
+
+None of these blocks the technical result. The composition, the four running roles,
+both coverage gates, the rulings, G17 and the security posture all hold and all
+reproduce independently.

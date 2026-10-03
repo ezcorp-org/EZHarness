@@ -262,6 +262,20 @@ export interface StartRequest {
   artifactDigest: string;
   context: InvocationContext;
   limits: ResourceLimits;
+  /** Exactly the devices this start may use. Absent means none. */
+  devices?: readonly string[];
+  /**
+   * A host-owned per-attempt directory, bind-mounted read-write at
+   * `/materials`. Absent means no mount, which is every existing caller.
+   *
+   * It exists because the control channel is not a data path: a guest may emit
+   * at most `min(limits.outputBytes, 1 MiB)` over its whole life, and a domain
+   * pack's real output is larger than that. The guest writes ordinary files
+   * here; the host reads them back afterwards and must do so only through the
+   * runner's own material reader, because a guest can plant a symbolic link in
+   * its own directory. No credential and no network reach the guest either way.
+   */
+  materials?: string;
 }
 export interface RunnerInspection {
   id: string;
@@ -274,11 +288,21 @@ export interface RunnerExecution {
   request(method: string, params: unknown): Promise<unknown>;
   close(): Promise<void>;
   onNotification(listener: (method: string, params: unknown) => void): () => void;
+  /** Settles with the worker process's exit code once it has exited, when the runner can see it. */
+  readonly exited?: Promise<number | null>;
 }
 export interface Runner {
   build(input: BuildRequest): Promise<BuildResult>;
   start(input: StartRequest, reverseRpc: ReverseRpc): Promise<RunnerExecution>;
+  /** Reconnect a host client to a live worker without launching another one. */
+  attach?(input: StartRequest, reverseRpc: ReverseRpc): Promise<RunnerExecution>;
   cancel(id: string): Promise<void>;
+  /**
+   * Ask the whole sandbox to stop and clean up, without waiting for it and
+   * without removing it. C02 gives a cancelled worker a bounded cleanup
+   * window between this signal and an unconditional `cancel`.
+   */
+  abort?(id: string): Promise<void>;
   inspect(id: string): Promise<RunnerInspection>;
   collectArtifacts(artifactDigest: string): Promise<WorkspaceFiles>;
 }

@@ -1,0 +1,41 @@
+VERDICT (validator-6) — W4G-2 at f79a2ed9e (wp/w4g-2, owner w12e-2), base 842ad9fe1: ACCEPT
+
+2 commits, archy noreply:
+  - de2381445: each locked project's .python-version is a relative symlink to the root pin, and python-quality.sh refuses a
+    missing or copied project pin by name;
+  - f79a2ed9e: tasks/factory/w4g-2-GATES.md.
+git diff --stat: 5 files, +99 −1. Config hash 44962525f1ca1a8b at start and end. Bun and bunx 1.4.2 with the flag.
+
+ROOT CAUSE AND FIX (my reading)
+  `uv run --frozen --project <p>` reads <p>'s own .python-version, not the root's. With no project pin, requires-python "==3.13.*"
+  let uv take the newest 3.13 it finds; the hosted runner has 3.13.13 while the root pin says 3.13.12.
+  The fix gives each project pin as a git symlink (mode 120000) to ../../../../.python-version: one source of truth, read by uv's
+  own project pin. The check still compares the resolved interpreter with the root pin (no --python), and now first refuses a
+  project pin that is not a link to the root file.
+REPRODUCTION, re-run by me (w4g-validation/repro-w4g2.sh)
+  Environment: the owner's runner-shaped image (Ubuntu 24.04, no Python, the repo's pinned uv 0.11.8, checksum-verified as the
+  setup action does), built under my own tag; a git-archive snapshot of each revision; 3.13.12 and 3.13.13 both installed first,
+  as on the hosted runner; then scripts/python-quality.sh lint, then all. The script returns the checks' own exit code.
+  - At 842ad9fe1, RED, the hosted message: "python quality: Python pin skew: .python-version requires 3.13.12,
+    src/factory/runner/python resolves 3.13.13", lint exit 1. No project pin exists there.
+  - At f79a2ed9e, GREEN: both project pins are links to the root; ruff "All checks passed!"; "✓ Python lint passed
+    (2 locked project(s) …; interpreter 3.13.12)" and "✓ Python all passed (…; interpreter 3.13.12)", although 3.13.13 is installed.
+  Logs: hold-v6-w4g2-f79a2ed9e/repro-base/check.log, repro-head/check.log.
+GUARD TEST (scripts/python-quality-registration.test.ts, in the guard set as a scripts/*-registration test)
+  It asserts the two locked projects' pins are relative links resolving to the root pin, and that the lane refuses a missing or a
+  copied project pin by name before any interpreter runs; a linked tree passes to the uv readiness check. The owner's red is 8/2,
+  the green 10/0.
+  Note (no verdict effect): the brief's example of a test run with a second 3.13.x available is covered at runtime by the
+  container reproduction above, not inside the unit guard. The guard pins the mechanism that makes uv resolve the pin.
+RERUN RESULTS (hold-v6-w4g2-f79a2ed9e/results.jsonl)
+  Static:
+    identity 2/2 archy; typecheck, lint, check-factory-boundaries, check-boundaries 0.
+    gate-integrity: base leg against 842ad9fe1 clean; origin/main set = the 8 paths.
+    gitleaks 0. Receipts: 18 owner logs scanned.
+  Heavy, under the lock (lock_veto validator-6):
+    - repro red and green as above;
+    - unit (the hook's python-quality-registration.test.ts) 10/0; SDK 246/0;
+    - guard set 12 files 62/0;
+    - merge 0; new-file and patch against 842ad9fe1 PASSED.
+
+No findings.

@@ -1,0 +1,88 @@
+W04b VALIDATION: re-grant after revoke, and grantee display names
+Branch wp/w04b-regrant, head 122fed3f9 (source 20b79baa9; 122fed3f9 changes only tasks/ files).
+Base integ/w00 d5ee52309 (= merge base). Validator run 2026-09-24.
+Data in this directory: sweep-v1/ (receipts, logs, coverage), repro-base.log, repro-head.log, bin/sweep.sh.
+
+VERDICT: ACCEPT-WITH-FIXES
+The code is correct, and every leg passes when I rerun it. One evidence defect must be fixed: two worker
+receipts contain the shared PostgreSQL password (F1). One test gap remains (F2).
+
+1. TREE AND RECEIPTS
+- git status clean. The three commits b5a5780b0, 20b79baa9 and 122fed3f9 are on the branch.
+- All 12 receipts in /tmp/factory-platform-evidence/w04b/sweep-final/receipts record 20b79baa9, a clean tree,
+  and exit 0. Each logSha256 equals the sha256 of its log.
+
+2. REPRODUCTION
+- Base: the head's artifact-access.test.ts against source at d5ee52309 (a shared clone, since removed): 4 pass /
+  3 fail. The re-grant throws FactoryArtifactAccessError factory_artifact_grant_conflict at
+  artifact-access.ts:168 (repro-base.log). This matches the worker's logs/repro-base.log.
+- Head: the same file gives 7 pass / 0 fail (repro-head.log).
+
+3. HUNKS READ
+Defect 1 (re-grant):
+- The migration allow-factory-artifact-regrant.ts adds grant_revision BIGINT NOT NULL DEFAULT 1, so existing
+  rows become grant 1. It adds a CHECK grant_revision > 0. It rebuilds the primary key with grant_revision
+  only while the old key shape is present, so a rerun keeps every constraint oid. It adds a partial unique
+  index idx_factory_artifact_read_grants_active WHERE revoked_at IS NULL. migrate.ts appends it, and schema.ts
+  mirrors it.
+- Grant: it locks every row of the share. It refuses if any row is active. It inserts the next revision with
+  ON CONFLICT DO NOTHING, and a lost race is refused by name. The audit entry carries grantRevision. A revoked
+  row is never updated back to active.
+- Revoke: it picks the active row first, else the latest one. It updates only that grant_revision. A repeated
+  revoke writes nothing.
+- Seal: revision 1 adds no key to the digested object, so a first grant seals byte for byte as before. Later
+  revisions include grantRevision, so seals and audit ids never collide.
+- The only other reader, loadSharedInTransaction, filters revoked_at IS NULL and needs exactly one row, so
+  revoked history cannot shadow or add to an active grant.
+Defect 2 (display names):
+- grants.ts reads only `id, name` from users or service_accounts. It trims the name and cuts it at 256 code
+  points. A blank name, a missing row, or a name equal to the id gives "Unnamed principal". The authorization
+  path is unchanged.
+- _shared.ts adds displayName to grantResource and to both mutation responses (via displayNameOf).
+  FactoryGrantResource.displayName is required. The response schema requires 1 to 256 characters, and schema
+  drift passes.
+
+4. RERUNS (my bin/sweep.sh = the worker's sweep plus three legs; flock --close; 122fed3f9, clean)
+  focused (7 files, lcov)                        51 pass / 0 fail
+  real PostgreSQL (grants, schema, restart)      31 pass / 0 fail
+  PostgreSQL + S3 (artifact access)               2 pass / 0 fail
+  web Vitest with coverage                       7521 pass (601 files)
+  backend pool (bun run test)                    28191 pass / 0 fail (1901 files)
+  typecheck, lint, check-factory-boundaries, check-boundaries, gate-integrity, schema drift   exit 0
+  suite registration + C13 inventory             18 pass / 0 fail
+  merge-lcov; BASE_REF=integ/w00 new-file coverage   PASS, 1 new file
+  BASE_REF=integ/w00 patch coverage              PASS, 7 files
+  Disk before the run: 113 GB free. I built no image, so I pruned none (5 dangling images belong to others).
+
+5. CLAIMS TO TESTS
+  grant, revoke, grant again (new row, revoked row kept, different seal)   artifact-access.test.ts ("a revoked share can be granted again ...")
+  an active grant conflicts; revoke touches only the active row            artifact-access.test.ts ("a share that is still active conflicts ...")
+  racing re-grants give one active row and one typed conflict               artifact-access.test.ts; tests/postgres/factory-artifact-access.test.ts
+  migration on the old shape holding a revoked row; oids kept on rerun      allow-factory-artifact-regrant.test.ts:41-67
+  restart case                                                              factory-migration-restart-suite.ts ("repeated migration keeps a revoked artifact share ...")
+  parity of the partial index                                               tests/postgres/factory-schema.test.ts (expectedIndexes, WHERE (revoked_at IS NULL))
+  displayName rules and placeholder; no other personal field                factory-grants-suite ("grant records name the grantee ..."), factory-api.test.ts, factories.server.test.ts
+  first grants keep their old seal                                          NO TEST (F2)
+
+6. FINDINGS
+F1 (fix required: evidence) Two worker receipts contain the shared proof-PostgreSQL password in plain text:
+   /tmp/factory-platform-evidence/w04b/sweep-final/receipts/postgres-coverage.json and postgres-s3-coverage.json,
+   field "command" ("env FACTORY_TEST_POSTGRES_URL=postgres://factory_test:<password>@..."). The cause is
+   /tmp/factory-platform-evidence/w04b/repro/sweep.sh:60 and :63, which pass the URL in argv, and leg(), which
+   records "$*". The "unset POSTGRES_PASSWORD" at line 22 does not help. common.md: never print a credential
+   value. My copy of the script inherited the leak; I redacted my two receipts. The worker must redact both
+   receipts, keep the URL out of argv (export it inside the leg), and re-check every receipt. The coordinator
+   should decide whether the shared password needs rotating.
+F2 (low: test gap) No test pins a first grant's seal against the pre-W04b formula. The code keeps it by
+   construction (revision 1 adds no key), and I confirmed this by reading both formulas. But a row written at
+   the base is never loaded by the head code in any test. Fix: seal a row with the base formula (or a fixed
+   expected digest), then load it after the migration.
+F3 (low: disclosure) scripts/coverage-thresholds.json (owner W18, one key added; common.md allows this) and
+   src/__tests__/helpers/factory-grants-suite.ts are not in the disclosure list. The other disclosures match
+   the diff: artifact-access.ts (W04); migrate.ts, schema.ts, the restart suite, and factory-schema parity
+   (coordinator); SDK types.ts and the response schema (Sol controls); _shared.ts and its test (W14, merge
+   conflict expected).
+
+7. SECURITY
+- Apart from F1, no credential value appears in any W04b or validation file (21 values checked, by value, not printed).
+- The display name exposes only the name column. The grant authorization path is unchanged.

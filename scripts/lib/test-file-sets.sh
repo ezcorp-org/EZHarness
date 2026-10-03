@@ -97,6 +97,19 @@ script_test_files() {
   find scripts -name "*.test.ts" ! -path "*/node_modules/*"
 }
 
+# Factory SDK tests use the same isolated Bun producer as the extension v4
+# packages. Keep one definition and consume it from both P and C so a factory
+# test cannot be measured without also gating pass/fail.
+factory_sdk_test_files() {
+  find packages/@ezcorp/factory-sdk -name "*.test.ts" ! -path "*/node_modules/*"
+}
+
+# Node-only Temporal tests. The factory-orchestrator coverage producer consumes
+# this exact set after installing its pinned test server.
+factory_orchestrator_test_files() {
+  find packages/@ezcorp/factory-orchestrator/test -name "*.test.ts" ! -path "*/node_modules/*" | sort -u
+}
+
 passfail_files() {
   {
     # `set +e` is essential: the callers run under `set -e`, and a find against
@@ -116,6 +129,7 @@ passfail_files() {
     # reason — never by silently shrinking back to a dir allowlist.
     find src -name "*.test.ts"
     find packages/@ezcorp/extension-contract packages/@ezcorp/extension-runner -name "*.test.ts" ! -path "*/node_modules/*"
+    factory_sdk_test_files
     find worker -name "*.test.ts" ! -path "*/node_modules/*"
     # First-party BUNDLED extensions (src/extensions/bundled.ts). This tree was
     # in NO pool: its three test files (memory-extractor index + manifest-load,
@@ -223,6 +237,7 @@ web_utility_coverage_files() {
     web/src/lib/__tests__/select-mode.test.ts \
     web/src/lib/__tests__/shortcuts.test.ts \
     web/src/lib/__tests__/theme.test.ts \
+    web/src/lib/build/preview-pipeline-guard.test.ts \
     web/src/lib/chat/page-handlers/__tests__/inline-tool-handlers.test.ts \
     web/src/lib/components/tool-cards/price-chart-logic.test.ts \
     web/src/lib/workers/__tests__/agent-fuzzy-search-bridge.test.ts \
@@ -354,6 +369,7 @@ coverage_host_files() {
       ! \( -path "src/integrations/github-projects/__tests__/*" -name "*integration*" \) \
       ! -path "src/__tests__/production-image-lifecycle-launch.integration.test.ts"
     find packages/@ezcorp/extension-contract packages/@ezcorp/extension-runner -name "*.test.ts" ! -path "*/node_modules/*"
+    factory_sdk_test_files
     find worker -name "*.test.ts" ! -path "*/node_modules/*"
     # Bundled extensions — same sweep as P (no exclusions), so `extensions/**`
     # is BOTH pass/fail-gated and coverage-measured. P∩C membership also
@@ -399,11 +415,13 @@ suggest_leg_files() {
 }
 
 # SDK leg: top-level test/ + co-located entities/__tests__/ (the canonical
-# coverage for entities/{validate,tools,storage,slug}.ts).
+# coverage for entities/{validate,tools,storage,slug}.ts) + v4/ + browser/ +
+# git/ (item C, W18 hygiene GC5 — withoutGitContext(), the one production
+# git-context-isolation rule every host-side git wrapper delegates to).
 sdk_leg_files() {
   {
     set +e
-    find packages/@ezcorp/sdk/test packages/@ezcorp/sdk/src/entities/__tests__ packages/@ezcorp/sdk/src/v4 packages/@ezcorp/sdk/src/browser -name "*.test.ts"
+    find packages/@ezcorp/sdk/test packages/@ezcorp/sdk/src/entities/__tests__ packages/@ezcorp/sdk/src/v4 packages/@ezcorp/sdk/src/browser packages/@ezcorp/sdk/src/git -name "*.test.ts"
   } 2>/dev/null | sort -u
 }
 

@@ -1,0 +1,11 @@
+
+ RUN  v5.0.0 /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/web
+      Coverage enabled with v8
+
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  03:07:12
+   Duration  5.42s (transform 57%, environment 29%, setup 10%, worker 2%, tests 2%)
+
+kept 598 configured Node/V8 product-source records → /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/coverage/w4f-1/weblib/lcov.info

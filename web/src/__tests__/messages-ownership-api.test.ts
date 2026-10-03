@@ -25,8 +25,9 @@
  * boundary — same pattern as agent-chat-api.test.ts. No PGlite.
  */
 
-import { test, expect, describe, beforeEach, mock } from "bun:test";
+import { test, expect, describe, beforeEach, beforeAll, afterAll, mock } from "bun:test";
 
+import { webLibModule, contextModule, serverModule } from "../../../src/__tests__/helpers/mock-cleanup";
 // ── Conversation graph ─────────────────────────────────────────────────
 //
 //   root-conv  (userId = rootOwner.id, parent = null)
@@ -142,27 +143,23 @@ mock.module("$server/db/queries/attachments", () => ({
 }));
 mock.module("$server/db/queries/projects", () => ({ getProject: mock(async () => null) }));
 
-const { isInteractiveSession } = await import("$server/auth/middleware");
-
-// `isInteractiveSession` is re-exported from the REAL module rather than
-// re-implemented: `mock.module` REPLACES the whole module object, so a
-// partial factory turns any other export into a load-time
-// `SyntaxError: Export named '…' not found`. The messages route reaches it
-// through `auth/permission-mode-ceiling.ts`, which landed after this mock
-// was written — a re-implementation here would just re-break on the next
-// export the ceiling grows.
-mock.module("$server/auth/middleware", () => ({
-  requireAuth: (locals: { user?: unknown }) => {
-    const u = locals?.user;
-    if (!u) throw Response.json({ error: "Unauthorized" }, { status: 401 });
-    return u;
-  },
-  isInteractiveSession,
-}));
-mock.module("$lib/server/security/api-keys", () => ({ requireScope: () => null }));
-mock.module("$lib/server/security/resource-quotas", () => ({
+// auth/middleware: registered in beforeAll below, not here at module top
+// level — item C2 (W18 hygiene). The $server/auth/middleware alias is
+// claimed by dozens of files repo-wide, so whichever file's registration is
+// active when a shared-process run resolves the alias wins for every OTHER
+// file too. beforeAll (test-execution time) plus a complete serverModule()
+// factory make THIS file's own requireAuth override active for THIS file's
+// own tests (spreading the real module also carries the real
+// isInteractiveSession through unchanged — the messages route reaches it via
+// `auth/permission-mode-ceiling.ts`), and afterAll hands the alias back to
+// the real module.
+const realAuthMiddleware = serverModule("auth/middleware", {});
+const apiKeysExports = webLibModule("server/security/api-keys", { requireScope: () => null });
+mock.module("$lib/server/security/api-keys", () => apiKeysExports);
+const resourceQuotasExports = webLibModule("server/security/resource-quotas", {
   checkTokenBudget: mock(async () => mockBudget),
-}));
+});
+mock.module("$lib/server/security/resource-quotas", () => resourceQuotasExports);
 
 // Captured at the module boundary so the self-scope test below can
 // assert exactly which { model, provider } reached the executor. The
@@ -172,7 +169,7 @@ const settled = Promise.resolve();
 const mockStreamChat = mock(
   (_cid: string, _content: string, _opts: { model?: string; provider?: string }) => settled,
 );
-mock.module("$lib/server/context", () => ({
+const contextExports = contextModule({
   getExecutor: () => ({ streamChat: mockStreamChat }),
   getBus: () => ({ emit: mock(() => {}) }),
   // The messages POST handler now imports `getGoalHost` and calls it to
@@ -181,7 +178,8 @@ mock.module("$lib/server/context", () => ({
   // context.ts:getGoalHost), so the optional rehydrate block is skipped and
   // ownership/streamChat behaviour under test is unchanged.
   getGoalHost: () => null,
-}));
+});
+mock.module("$lib/server/context", () => contextExports);
 mock.module("$lib/server/command-resolver", () => ({ buildCommandResolver: () => async () => null }));
 mock.module("$server/providers/model-capabilities", () => ({
   getCapabilitiesWithExtensions: () => ({ maxFilesPerMessage: 0 }),
@@ -243,6 +241,20 @@ function patchEvent(cid: string, user: unknown, body: Record<string, unknown> = 
     }),
   } as never;
 }
+
+beforeAll(() => {
+  mock.module("$server/auth/middleware", () => ({
+    ...realAuthMiddleware,
+    requireAuth: (locals: { user?: unknown }) => {
+      const u = locals?.user;
+      if (!u) throw Response.json({ error: "Unauthorized" }, { status: 401 });
+      return u;
+    },
+  }));
+});
+afterAll(() => {
+  mock.module("$server/auth/middleware", () => realAuthMiddleware);
+});
 
 beforeEach(() => {
   mockActiveRun = null;

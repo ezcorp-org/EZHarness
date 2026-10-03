@@ -1,4 +1,5 @@
-import { test, expect, describe, beforeEach, mock } from "bun:test";
+import { test, expect, describe, beforeEach, beforeAll, afterAll, mock } from "bun:test";
+import { webLibModule, contextModule, serverModule } from "../../../src/__tests__/helpers/mock-cleanup";
 import { taskSnapshotPort, taskAssignmentPort } from "./helpers/task-state-port";
 import type {
   TaskSnapshot,
@@ -92,13 +93,21 @@ mock.module("$server/db/queries/agent-configs", () => ({
 
 // ── Mock auth + scope middleware ────────────────────────────────────
 
-mock.module("$server/auth/middleware", () => ({
-  requireAuth: (locals: any) => locals?.user ?? mockUser,
-}));
+const realAuthMiddleware = serverModule("auth/middleware", {});
+beforeAll(() => {
+  mock.module("$server/auth/middleware", () => ({
+    ...realAuthMiddleware,
+    requireAuth: (locals: any) => locals?.user ?? mockUser,
+  }));
+});
+afterAll(() => {
+  mock.module("$server/auth/middleware", () => realAuthMiddleware);
+});
 
-mock.module("$lib/server/security/api-keys", () => ({
+const apiKeysExports = webLibModule("server/security/api-keys", {
   requireScope: () => mockScopeResponse,
-}));
+});
+mock.module("$lib/server/security/api-keys", () => apiKeysExports);
 
 // ── Mock event bus + executor ──────────────────────────────────────
 
@@ -110,7 +119,7 @@ const mockCancelRun = mock((_runId: string) => true);
 const mockStreamChat = mock(async (..._args: any[]) => ({}));
 const mockExecutor = { cancelRun: mockCancelRun, streamChat: mockStreamChat };
 
-mock.module("$lib/server/context", () => ({
+const contextExports = contextModule({
   getBus: () => mockBus,
   getExecutor: () => mockExecutor,
   getCommandRegistry: () => ({
@@ -118,7 +127,8 @@ mock.module("$lib/server/context", () => ({
     findCommand: async () => null,
     invalidate: () => {},
   }),
-}));
+});
+mock.module("$lib/server/context", () => contextExports);
 
 // ── Mock task-tracking-host ────────────────────────────────────────
 

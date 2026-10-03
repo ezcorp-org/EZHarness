@@ -63,9 +63,16 @@ svelte_check() {
 # ── Staged unit tests (pre-commit shift-left) ───────────────────────────────
 # Run the unit tests that correspond to the files a commit is staging, so a
 # broken test is caught before the push instead of by CI. Advisory speed, NOT
-# the backstop: the cap below deliberately SKIPS rather than blocks on a wide
-# commit, because a pre-commit hook that takes minutes gets bypassed, and a
-# bypassed hook checks nothing.
+# the backstop — CI is. Above EZ_PRECOMMIT_TEST_MAX (default 12) the hook does
+# NOT run the tests (a pre-commit hook that takes minutes gets bypassed, and a
+# bypassed hook checks nothing), but it never skips SILENTLY: it names every
+# file it is not running and, by default, BLOCKS the commit — the developer
+# must consciously narrow the commit, raise the cap, or set
+# EZ_SKIP_HOOK_TESTS=1 to acknowledge the skip and proceed. (Ruling
+# 2026-09-24: a 74-file main merge and a 36/24-file W18-hygiene commit both
+# hit the old silent-skip path with zero output — see tasks/todo.md.)
+# EZ_SKIP_HOOK_TESTS=1 is honoured for BOTH branches (over cap and under it)
+# so there is exactly one skip mechanism, always visible, never two.
 
 # staged_test_targets FILE...
 # Print the test files that cover the given staged paths, one per line.
@@ -122,19 +129,74 @@ staged_test_targets() {
 # Backend files run ONE PER PROCESS with --timeout 30000 — bare `bun test` over
 # several backend files deadlocks on cross-file mock.module() contamination,
 # and the 5s default hook budget is too short for a PGlite restore.
+# Run a command without the git context a hook exports. Git sets GIT_DIR,
+# GIT_INDEX_FILE, GIT_PREFIX and friends for hook processes, and a test that
+# builds a scratch repository in a tmpdir inherits them: its `git init` then
+# re-initialises the REAL repository as bare and its `git config` writes the
+# fixture identity into the shared config (this happened on 2026-09-24 through
+# gate-scripts.test.ts, and earlier through git-hooks.test.ts). A staged test
+# never needs the hook's repository context; it finds its repository from cwd.
+without_git_context() {
+  local drop=() name
+  for name in $(compgen -e); do
+    case "$name" in GIT_*) drop+=(-u "$name") ;; esac
+  done
+  env ${drop[@]+"${drop[@]}"} "$@"
+}
+
+# packages/@ezcorp/factory-orchestrator runs its tests only through its own
+# `test` script (tsc, then `node --test`). Its Temporal tests time out under
+# `bun test` (12 pass, 15 fail at the W09d-2 merge), so a staged file of that
+# package runs the package script once, and none of its tests go to bun.
+ORCHESTRATOR_PACKAGE="packages/@ezcorp/factory-orchestrator"
+
 run_staged_tests() {
   local max="${EZ_PRECOMMIT_TEST_MAX:-12}"
-  local targets count
-  targets=$(staged_test_targets "$@")
+  local targets count orchestrator=0 f
+  for f in "$@"; do
+    case "$f" in "$ORCHESTRATOR_PACKAGE"/*) orchestrator=1 ;; esac
+  done
+  targets=$(staged_test_targets "$@" | { grep -v "^$ORCHESTRATOR_PACKAGE/" || true; })
 
-  if [ -z "$targets" ]; then
+  if [ -z "$targets" ] && [ "$orchestrator" -eq 0 ]; then
     echo "  no test file maps to the staged changes — skipping"
     return 0
   fi
-  count=$(printf '%s\n' "$targets" | wc -l | tr -d ' ')
+  # `printf '%s\n' ""` still emits one (empty) line, so `wc -l` on an empty
+  # $targets would misreport count=1 instead of 0 — exactly the case where
+  # only orchestrator files are staged and $targets is genuinely empty.
+  if [ -z "$targets" ]; then
+    count=0
+  else
+    count=$(printf '%s\n' "$targets" | wc -l | tr -d ' ')
+  fi
   if [ "$count" -gt "$max" ]; then
-    echo "  $count test files map to this commit (cap ${max}) — skipping."
-    echo "  A wide commit is what pre-push and CI are for; raise with EZ_PRECOMMIT_TEST_MAX."
+    echo "  $count test files map to this commit (cap ${max}) — NOT running:"
+    printf '%s\n' "$targets" | sed 's/^/    /'
+    if [ "$orchestrator" -eq 1 ]; then
+      echo "    $ORCHESTRATOR_PACKAGE (node: bun run test) — also withheld, blocked by the same cap"
+    fi
+    if [ "${EZ_SKIP_HOOK_TESTS:-}" = "1" ]; then
+      echo "  EZ_SKIP_HOOK_TESTS=1 set — skipping the ${count} file(s) above; continuing with lint."
+      return 0
+    fi
+    echo "  Above the ${max}-file cap a hook that ran them all would be slow enough to get bypassed,"
+    echo "  and a bypassed hook checks nothing — so this blocks the commit instead of skipping silently."
+    echo "  Narrow the commit, raise EZ_PRECOMMIT_TEST_MAX, or set EZ_SKIP_HOOK_TESTS=1 to acknowledge"
+    echo "  and skip the file(s) above here (pre-push and CI still run them)."
+    return 1
+  fi
+
+  if [ "${EZ_SKIP_HOOK_TESTS:-}" = "1" ]; then
+    # Never an empty list: with only orchestrator files staged, $targets is
+    # empty and count is 0, but the orchestrator run is still withheld here
+    # (this branch returns before it would run) — name it, or "skipping the
+    # 0 staged test file(s) below:" reads as nothing was skipped at all.
+    echo "  EZ_SKIP_HOOK_TESTS=1 set — skipping the ${count} staged test file(s) below; continuing with lint:"
+    [ "$count" -gt 0 ] && printf '%s\n' "$targets" | sed 's/^/    /'
+    if [ "$orchestrator" -eq 1 ]; then
+      echo "    $ORCHESTRATOR_PACKAGE (node: bun run test) — also withheld"
+    fi
     return 0
   fi
 
@@ -167,6 +229,10 @@ $targets
 EOF
 
   local rc=0
+  if [ "$orchestrator" -eq 1 ]; then
+    echo "  node: $ORCHESTRATOR_PACKAGE (bun run test: tsc, then node --test)"
+    (cd "$(git rev-parse --show-toplevel)/$ORCHESTRATOR_PACKAGE" && without_git_context bun run test) || rc=1
+  fi
   for t in "${bun_targets[@]-}"; do
     [ -n "$t" ] || continue
     echo "  bun: $t"
@@ -175,13 +241,13 @@ EOF
     # that tree resolves to zero files — which bun exits non-zero for. That read
     # as "your test failed" on a file whose tests are fine. scripts/test.sh
     # prefixes for the same reason.
-    bun test --timeout 30000 "./$t" || rc=1
+    without_git_context bun test --timeout 30000 "./$t" || rc=1
   done
   if [ "${#vitest_targets[@]}" -gt 0 ]; then
     echo "  vitest: ${vitest_targets[*]}"
     # `--silent=true`, not a bare `--silent`: vitest's CAC parser treats the
     # next argv entry as the flag's VALUE and dies on the first test path.
-    (cd web && bunx vitest run --silent=true "${vitest_targets[@]}") || rc=1
+    (cd web && without_git_context bunx vitest run --silent=true "${vitest_targets[@]}") || rc=1
   fi
   return "$rc"
 }

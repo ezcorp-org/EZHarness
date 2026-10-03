@@ -1,0 +1,124 @@
+{
+  "verdict": "ACCEPT",
+  "round": 2,
+  "package": "w07b",
+  "head": "c3f8833ded6cde048612390518c3d1aae63795a2",
+  "priorHead": "dfbb0b546249dafdc3aa618908c9bda046de0f13",
+  "deltaCommits": [
+    { "sha": "8ee4f9df5ff104795147389f0f56359025944df3", "subject": "test(factory): exercise the foreign-decision and grant-revision consent guards" },
+    { "sha": "c3f8833ded6cde048612390518c3d1aae63795a2", "subject": "docs(factory): record the W07b guard receipts" }
+  ],
+  "deltaScope": "git diff --stat dfbb0b546 c3f8833de: src/__tests__/helpers/factory-release-suite.ts (+28/-2), tasks/factory/w07b-GATES.md (+/- docs), tasks/lessons.md (+1). git diff --stat dfbb0b546 c3f8833de -- src/factory/releases.ts is EMPTY: no production line moved. git diff --name-only dfbb0b546 8ee4f9df5 names only the test helper file.",
+  "mergeBase": "cfbc3c767846170a201727547ad9794b155b910a",
+  "branch": "wp/w07b-release-consent",
+  "worktree": "/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w07-github",
+  "treeState": "clean (git status --porcelain empty at validation time)",
+  "priorFindingsRemediation": [
+    {
+      "id": "F1 (round 1, medium)",
+      "originalClaim": "approval_foreign_decision reason was named in GATES.md G2 as demonstrated by the test suite, but no assertion depended on it (proven by deleting the guard: 24 pass / 0 fail, unchanged).",
+      "fix": "factory-release-suite.ts now inserts a genuinely SECOND factory_acceptance_decisions row (decisionId='consent-other-decision', a real foreign-key-valid row belonging to no operation in the suite, distinguished by node_instance_id='another-decision-node'), builds a fresh operation approved normally under the suite's shared decisionId (confirms it serves: kind:'approval'), then moves the approval's decision_id onto the new foreign decision and asserts the exact result equals { kind: 'none', reason: 'approval_foreign_decision' }, with an explicit expect(otherDecisionId).not.toBe(foreignDecision.decisionId) guarding against the test becoming vacuous again. It also restores decision_id and reconfirms the approval serves again, isolating the refusal to decision_id alone.",
+      "workerSelfVerification": "Worker recorded its own guard-removal receipts: guard-removed-foreign-decision (exit 1, 23 pass, 1 fail) — receipt and log inspected, log shows the exact assertion at factory-release-suite.ts:921 failing with the guard removed.",
+      "validatorIndependentVerification": "Reproduced from scratch in an isolated scratch copy of the worktree (deleted after use, real worktree never touched): deleted `if (current.decision_id !== operation.decisionId) return { kind: \"none\", reason: \"approval_foreign_decision\" };` from releases.ts and reran releases.integration.test.ts. Result: 23 pass, 1 fail, identical failure at the same assertion, same received value shape (an approval consent instead of the expected none/reason).",
+      "status": "REMEDIATED — verified independently, not just via the worker's receipt"
+    },
+    {
+      "id": "F2 (round 1, low/informational)",
+      "originalClaim": "The approved_grant_revision === null disjunct of the approval_not_approved check was structurally untested (no case isolated it from the approved_by-null case).",
+      "fix": "factory-release-suite.ts now sets approved_by=<real user> AND approved_grant_revision=NULL on an otherwise-valid approved row, asserts the DB row state directly, then asserts read() gives exactly { kind: 'none', reason: 'approval_not_approved' }, then sets approved_grant_revision=1 and confirms the approval now serves (kind:'approval'), isolating this disjunct from the approved_by-null case tested elsewhere in the same sequence.",
+      "workerSelfVerification": "guard-removed-grant-revision receipt (exit 1, 23 pass, 1 fail); log inspected, failure at factory-release-suite.ts:942.",
+      "validatorIndependentVerification": "Reproduced from scratch: removed the `|| current.approved_grant_revision === null` disjunct from releases.ts:1019 and reran releases.integration.test.ts. Result: 23 pass, 1 fail, identical failure at the same assertion.",
+      "status": "REMEDIATED — verified independently"
+    }
+  ],
+  "reruns": [
+    {
+      "name": "focused-coverage",
+      "command": "bun test --timeout 300000 --coverage --coverage-reporter=lcov --coverage-dir=<validator dir> ./src/factory/releases.integration.test.ts ./src/factory/release-application.test.ts ./src/factory/release-authority.integration.test.ts ./src/factory/release-adapters.test.ts ./src/factory/release-profile.test.ts ./src/factory/release-s3-publication.test.ts ./src/factory/release-s3-publication.integration.test.ts ./src/factory/protected-command-effects.test.ts ./src/factory/release-github.test.ts",
+      "exitCode": 0,
+      "counts": { "pass": 101, "fail": 0, "assertions": 904 },
+      "matchesWorkerReceipt": "fix-coverage-backend (101/0/904) — exact match",
+      "log": "/tmp/factory-platform-evidence/w07b-validation/logs-r2/focused-coverage.log"
+    },
+    {
+      "name": "typecheck",
+      "command": "bun run typecheck",
+      "exitCode": 0,
+      "matchesWorkerReceipt": "fix-typecheck exit 0 — match",
+      "log": "/tmp/factory-platform-evidence/w07b-validation/logs-r2/typecheck.log"
+    },
+    {
+      "name": "lint",
+      "command": "bun run lint",
+      "exitCode": 0,
+      "note": "8 infos, same set as prior round (pre-existing, unrelated to this diff)",
+      "matchesWorkerReceipt": "fix-lint exit 0 — match",
+      "log": "/tmp/factory-platform-evidence/w07b-validation/logs-r2/lint.log"
+    },
+    {
+      "name": "boundaries",
+      "command": "bun scripts/check-factory-boundaries.ts",
+      "exitCode": 0,
+      "output": "Factory boundary checks passed (F07 deterministic validator and F13 shared-module reuse).",
+      "matchesWorkerReceipt": "fix-boundaries exit 0 — match",
+      "log": "/tmp/factory-platform-evidence/w07b-validation/logs-r2/boundaries.log"
+    },
+    {
+      "name": "gate-integrity",
+      "command": "bun scripts/gate-integrity.ts",
+      "exitCode": 0,
+      "output": "Gate integrity PASSED: no gate-weakening or test-cheating changes detected.",
+      "matchesWorkerReceipt": "fix-gate-integrity exit 0 — match",
+      "log": "/tmp/factory-platform-evidence/w07b-validation/logs-r2/gate-integrity.log"
+    },
+    {
+      "name": "postgres-releases",
+      "command": "flock /tmp/ezcorp-validation-heavy.lock timeout 1800 ./scripts/run-factory-postgres-suite.sh ./tests/postgres/factory-releases.test.ts ./tests/postgres/factory-release-authority.test.ts ./tests/postgres/factory-schema.test.ts",
+      "exitCode": 0,
+      "counts": { "pass": 39, "fail": 0, "assertions": 3187 },
+      "matchesWorkerReceipt": "fix-postgres-releases (39/0/3187) — exact match",
+      "log": "/tmp/factory-platform-evidence/w07b-validation/logs-r2/postgres-releases.log"
+    },
+    {
+      "name": "merge-lcov",
+      "command": "bun scripts/merge-lcov.ts \"<validator dir>/*.lcov\" coverage/lcov.info",
+      "exitCode": 0,
+      "output": "merged 569 source files → coverage/lcov.info",
+      "matchesWorkerReceipt": "exact match",
+      "log": "/tmp/factory-platform-evidence/w07b-validation/logs-r2/merge-lcov.log"
+    },
+    {
+      "name": "new-file-coverage-gate",
+      "command": "BASE_REF=cfbc3c767 bun scripts/check-new-file-coverage.ts",
+      "exitCode": 0,
+      "output": "New-file coverage gate PASSED: no new source files in this diff.",
+      "log": "/tmp/factory-platform-evidence/w07b-validation/logs-r2/new-file-coverage.log"
+    },
+    {
+      "name": "patch-coverage-gate",
+      "command": "BASE_REF=cfbc3c767 bun scripts/check-patch-coverage.ts",
+      "exitCode": 0,
+      "output": "Patch coverage gate PASSED: all changed executable lines covered (1 file(s)).",
+      "log": "/tmp/factory-platform-evidence/w07b-validation/logs-r2/patch-coverage.log"
+    },
+    {
+      "name": "releases.ts-line-coverage",
+      "method": "parsed merged coverage/lcov.info for src/factory/releases.ts",
+      "result": "LF:560 LH:553 — identical to round 1, confirming releases.ts source is unchanged this round",
+      "note": "the 7 unmeasured lines remain dispatchNotification/enqueueCommandApprovalInTransaction, pre-existing and outside this diff"
+    },
+    {
+      "name": "credential-leak-scan",
+      "command": "sourced /tmp/factory-platform-evidence/postgres.env inside a script, grep -RIl --fixed-strings for the password value against /tmp/factory-platform-evidence/w07b, this round's validator logs, run-factory-postgres-suite.sh, tasks/factory/w07b-GATES.md, tasks/lessons.md",
+      "result": "no credential value found in any target",
+      "note": "run-factory-postgres-suite.sh unchanged this round: still assembles the URL entirely inside itself, no set -x"
+    },
+    {
+      "name": "gate-integrity-hygiene-scan",
+      "method": "grep the round's test diff for .skip(/.only(/.todo(/empty catch{}/Date.now()/performance.now()/setTimeout",
+      "result": "no matches — clean"
+    }
+  ],
+  "findings": [],
+  "summary": "Both findings from round 1 (F1: approval_foreign_decision untested; F2: approved_grant_revision null-check untested) are fully and correctly remediated in commit 8ee4f9df5. The fix for F1 is a genuine, non-vacuous negative case: a real second factory_acceptance_decisions row is inserted (distinguished by node_instance_id, satisfying the table's unique index and foreign key), the approval is moved onto it, and the reader is asserted to refuse it with the exact typed reason, with a guard assertion (otherDecisionId !== foreignDecision.decisionId) preventing the same vacuous-no-op failure mode that caused the original gap. The fix for F2 isolates the approved_grant_revision-null case from the approved_by-null case correctly. Both were independently reproduced by the validator via fresh mutation tests in an isolated scratch copy (not by trusting the worker's own guard-removal receipts, though those were also inspected and are accurate): removing either guard now produces exactly 23 pass / 1 fail at the expected assertion. No production code changed this round (git diff --stat on src/factory/releases.ts between dfbb0b546 and c3f8833de is empty). Every static and dynamic gate reproduces the worker's claimed counts exactly, including the real-PostgreSQL suite under the shared lock (39/0/3187) and both coverage gates. No credential leak, no gate weakening, no new issues found."
+}

@@ -1,0 +1,55 @@
+=== heavy 2026-10-01T07:18:57Z
+HEAD 9fe4056f01c38ef52c1abfb60b03a708b5605a4d MERGE_HEAD  index-tree e4ffee7edf9beb4c89d56773c4ad1a0b474295f5
+pin: bun 1.4.2 bunx 1.4.2; BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING=1
+resource-gate 2026-10-01T07:18:57Z attestation-check disk=232G memAvailable=16GiB swapFreeKiB=2843072/17173956
+--- START attestation-check 2026-10-01T07:18:57Z
+--- END   attestation-check 2026-10-01T07:18:58Z exit=0 
+guard set: 12 files from guard-suites.sh
+resource-gate 2026-10-01T07:18:58Z guard-set disk=232G memAvailable=16GiB swapFreeKiB=2843092/17173956
+--- START guard-set 2026-10-01T07:18:58Z
+--- END   guard-set 2026-10-01T07:18:59Z exit=0  60 pass 0 fail 
+resource-gate 2026-10-01T07:18:59Z build-factory-sdk disk=232G memAvailable=16GiB swapFreeKiB=2843380/17173956
+--- START build-factory-sdk 2026-10-01T07:18:59Z
+--- END   build-factory-sdk 2026-10-01T07:18:59Z exit=0 
+resource-gate 2026-10-01T07:18:59Z build-factory-transport disk=232G memAvailable=16GiB swapFreeKiB=2843384/17173956
+--- START build-factory-transport 2026-10-01T07:18:59Z
+--- END   build-factory-transport 2026-10-01T07:18:59Z exit=0 
+resource-gate 2026-10-01T07:18:59Z build-factory-orchestrator disk=232G memAvailable=16GiB swapFreeKiB=2843384/17173956
+--- START build-factory-orchestrator 2026-10-01T07:18:59Z
+--- END   build-factory-orchestrator 2026-10-01T07:18:59Z exit=0 
+resource-gate 2026-10-01T07:18:59Z unit-src-factory-provisioning-control-plane-test-ts disk=232G memAvailable=16GiB swapFreeKiB=2843396/17173956
+--- START unit-src-factory-provisioning-control-plane-test-ts 2026-10-01T07:18:59Z
+--- END   unit-src-factory-provisioning-control-plane-test-ts 2026-10-01T07:19:00Z exit=0  22 pass 0 fail 
+resource-gate 2026-10-01T07:19:00Z unit-src-factory-provisioning-fleet-cli-test-ts disk=232G memAvailable=16GiB swapFreeKiB=2843600/17173956
+--- START unit-src-factory-provisioning-fleet-cli-test-ts 2026-10-01T07:19:00Z
+--- END   unit-src-factory-provisioning-fleet-cli-test-ts 2026-10-01T07:19:00Z exit=0  8 pass 0 fail 
+resource-gate 2026-10-01T07:19:00Z unit-src-factory-provisioning-fleet-test-ts disk=232G memAvailable=16GiB swapFreeKiB=2843888/17173956
+--- START unit-src-factory-provisioning-fleet-test-ts 2026-10-01T07:19:00Z
+--- END   unit-src-factory-provisioning-fleet-test-ts 2026-10-01T07:19:01Z exit=0  13 pass 0 fail 
+resource-gate 2026-10-01T07:19:01Z sdk-lcov disk=232G memAvailable=16GiB swapFreeKiB=2843888/17173956
+--- START sdk-lcov 2026-10-01T07:19:01Z
+--- END   sdk-lcov 2026-10-01T07:19:14Z exit=0  246 pass 0 fail 
+resource-gate 2026-10-01T07:19:14Z pg-provisioning-gateway disk=232G memAvailable=16GiB swapFreeKiB=2844912/17173956
+--- START pg-provisioning-gateway 2026-10-01T07:19:14Z
+--- END   pg-provisioning-gateway 2026-10-01T07:19:54Z exit=0  63 pass 0 fail 1 pass 0 fail 
+resource-gate 2026-10-01T07:19:54Z web-server-lcov disk=232G memAvailable=16GiB swapFreeKiB=2863280/17173956
+--- START web-server-lcov 2026-10-01T07:19:54Z
+--- END   web-server-lcov 2026-10-01T07:20:14Z exit=0  Tests 179 passed (179) 
+resource-gate 2026-10-01T07:20:14Z coverage-merge disk=232G memAvailable=17GiB swapFreeKiB=2869648/17173956
+--- START coverage-merge 2026-10-01T07:20:14Z
+--- END   coverage-merge 2026-10-01T07:20:14Z exit=0 
+resource-gate 2026-10-01T07:20:14Z web-build disk=232G memAvailable=17GiB swapFreeKiB=2869648/17173956
+--- START web-build 2026-10-01T07:20:14Z
+--- END   web-build 2026-10-01T07:20:57Z exit=0 
+resource-gate 2026-10-01T07:20:57Z graph-mock-pass disk=231G memAvailable=14GiB swapFreeKiB=2867416/17173956
+--- START graph-mock-pass 2026-10-01T07:20:57Z
+--- END   graph-mock-pass 2026-10-01T07:21:47Z exit=0 
+no retained database or run in /tmp/factory-platform-evidence/w00/w4f-merge/w4f-2/graph/w4f-2-mock.json; nothing to dump
+mock pass w4f-2-mock outcome: passed
+resource-gate 2026-10-01T07:21:47Z crap-changed-base disk=231G memAvailable=16GiB swapFreeKiB=2875960/17173956
+--- START crap-changed-base 2026-10-01T07:21:47Z
+--- END   crap-changed-base 2026-10-01T07:21:47Z exit=0 
+resource-gate 2026-10-01T07:21:47Z merge-commit-gates disk=231G memAvailable=16GiB swapFreeKiB=2875960/17173956
+--- START merge-commit-gates 2026-10-01T07:21:47Z
+--- END   merge-commit-gates 2026-10-01T07:21:52Z exit=0 
+HEAVY DONE status=0 dirty=0 2026-10-01T07:21:52Z

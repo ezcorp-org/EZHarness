@@ -1,0 +1,2 @@
+Gate integrity: 1 finding(s) BYPASSED via GATE_CHANGE_APPROVED (maintainer label):
+  (bypassed) coverage gate tool changed (M): scripts/coverage-attestations.json — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label

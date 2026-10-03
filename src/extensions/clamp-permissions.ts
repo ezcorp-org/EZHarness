@@ -23,6 +23,7 @@ import {
 } from "../runtime/sse-conversation-filter";
 import { isValidWorkflowName } from "../runtime/workflow-name";
 import { WEBHOOK_PREFIX_RE } from "./manifest";
+import { isSensitiveEnvironmentEntry } from "./sensitive-environment";
 
 /** Default cap per dynamic-trigger kind when neither side states one. Low
  *  on purpose — an author who wants more says so, and the install-time
@@ -576,15 +577,13 @@ export function clampTriggersPermission(
 
 // ── Env-key leak detection ──────────────────────────────────────
 
-const ENV_KEY_LEAK_PATTERN = /(_API_KEY|TOKEN|SECRET)$/i;
-
 /** Returns the subset of `permissions.env` whose names look like
  *  credentials. Used by the installer to emit `ext:env-key-leak-warning`
  *  audit rows (governance, soft warning; hard error in v1.4). */
 export function detectEnvKeyLeaks(envNames: string[] | undefined): string[] {
   if (!Array.isArray(envNames)) return [];
   return envNames.filter(
-    (n) => typeof n === "string" && ENV_KEY_LEAK_PATTERN.test(n),
+    (name) => typeof name === "string" && isSensitiveEnvironmentEntry(name, process.env[name]),
   );
 }
 

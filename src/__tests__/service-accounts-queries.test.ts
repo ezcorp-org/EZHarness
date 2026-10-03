@@ -386,6 +386,13 @@ describe("service-accounts query layer", () => {
       expect(await findLiveServiceAccount(created.id)).toBeUndefined();
     });
 
+    test("findLiveServiceAccount refuses an expired principal but keeps its row for history", async () => {
+      const created = (await mint({ name: "expired-one" })).account;
+      await getTestDb().update(serviceAccounts).set({ expiresAt: new Date(0) }).where(sql`${serviceAccounts.id} = ${created.id}`);
+      expect((await getServiceAccount(created.id))?.expiresAt).not.toBeNull();
+      expect(await findLiveServiceAccount(created.id)).toBeUndefined();
+    });
+
     test("findLiveServiceAccount misses an unknown id rather than throwing at insert time", async () => {
       expect(await findLiveServiceAccount(crypto.randomUUID())).toBeUndefined();
     });

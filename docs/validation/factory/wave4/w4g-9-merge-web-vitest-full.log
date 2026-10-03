@@ -1,0 +1,139 @@
+
+ RUN  v5.0.0 /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/web
+      Coverage enabled with v8
+
+{"ts":"2026-10-02T02:15:15.211Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","code":"recovery_failed"}
+{"ts":"2026-10-02T02:15:16.389Z","level":"error","msg":"Extension delivery drain failed","subsystem":"ext.delivery.runtime","code":"delivery_failed"}
+{"ts":"2026-10-02T02:15:16.518Z","level":"warn","msg":"EZCORP_ENCRYPTION_SECRET is unset; falling back to auto-generated secret. Set EZCORP_ENCRYPTION_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+{"ts":"2026-10-02T02:15:16.518Z","level":"warn","msg":"EZCORP_JWT_SECRET is unset; falling back to auto-generated secret. Set EZCORP_JWT_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+{"ts":"2026-10-02T02:15:16.609Z","level":"warn","msg":"EZCORP_ENCRYPTION_SECRET is unset; falling back to auto-generated secret. Set EZCORP_ENCRYPTION_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+{"ts":"2026-10-02T02:15:16.609Z","level":"warn","msg":"EZCORP_JWT_SECRET is unset; falling back to auto-generated secret. Set EZCORP_JWT_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+{"ts":"2026-10-02T02:15:16.609Z","level":"warn","msg":"EZCORP_ENCRYPTION_SECRET is unset; falling back to auto-generated secret. Set EZCORP_ENCRYPTION_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+{"ts":"2026-10-02T02:15:16.609Z","level":"warn","msg":"EZCORP_JWT_SECRET is unset; falling back to auto-generated secret. Set EZCORP_JWT_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+{"ts":"2026-10-02T02:15:16.689Z","level":"warn","msg":"EZCORP_ENCRYPTION_SECRET is unset; falling back to auto-generated secret. Set EZCORP_ENCRYPTION_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+{"ts":"2026-10-02T02:15:16.689Z","level":"warn","msg":"EZCORP_JWT_SECRET is unset; falling back to auto-generated secret. Set EZCORP_JWT_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+{"ts":"2026-10-02T02:15:16.768Z","level":"warn","msg":"EZCORP_ENCRYPTION_SECRET is unset; falling back to auto-generated secret. Set EZCORP_ENCRYPTION_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+{"ts":"2026-10-02T02:15:16.768Z","level":"warn","msg":"EZCORP_JWT_SECRET is unset; falling back to auto-generated secret. Set EZCORP_JWT_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+{"ts":"2026-10-02T02:15:48.395Z","level":"warn","msg":"page-state invalidation wiring failed — will retry on the next render","subsystem":"hub.render-pull","error":"Server not initialized — call ensureInitialized() first"}
+{"ts":"2026-10-02T02:15:50.937Z","level":"warn","msg":"page-state invalidation wiring failed — will retry on the next render","subsystem":"hub.render-pull","error":"Server not initialized — call ensureInitialized() first"}
+Not implemented: navigation to another Document
+{"ts":"2026-10-02T02:16:08.337Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"test","teardownCount":3}
+{"ts":"2026-10-02T02:16:08.337Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"c","ms":0}
+{"ts":"2026-10-02T02:16:08.337Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"b","ms":0}
+{"ts":"2026-10-02T02:16:08.337Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"a","ms":0}
+{"ts":"2026-10-02T02:16:08.337Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"test"}
+{"ts":"2026-10-02T02:16:08.339Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"test","teardownCount":1}
+{"ts":"2026-10-02T02:16:08.339Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"dup","ms":0}
+{"ts":"2026-10-02T02:16:08.339Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"test"}
+{"ts":"2026-10-02T02:16:08.339Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"test","teardownCount":1}
+{"ts":"2026-10-02T02:16:08.340Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"async","ms":1}
+{"ts":"2026-10-02T02:16:08.340Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"test"}
+{"ts":"2026-10-02T02:16:08.340Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"test","teardownCount":3}
+{"ts":"2026-10-02T02:16:08.340Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"decision-producer","ms":0}
+{"ts":"2026-10-02T02:16:08.340Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"permission-audit-coalescer","ms":0}
+{"ts":"2026-10-02T02:16:08.340Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"pglite-close","ms":0}
+{"ts":"2026-10-02T02:16:08.340Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"test"}
+{"ts":"2026-10-02T02:16:08.341Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"test","teardownCount":1}
+{"ts":"2026-10-02T02:16:08.341Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"observe","ms":0}
+{"ts":"2026-10-02T02:16:08.341Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"test"}
+{"ts":"2026-10-02T02:16:08.341Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"test","teardownCount":0}
+{"ts":"2026-10-02T02:16:08.341Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"test"}
+{"ts":"2026-10-02T02:16:08.341Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"first","teardownCount":1}
+{"ts":"2026-10-02T02:16:08.341Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"once","ms":0}
+{"ts":"2026-10-02T02:16:08.341Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"first"}
+{"ts":"2026-10-02T02:16:08.341Z","level":"info","msg":"shutdown already in progress — ignoring re-trigger","subsystem":"shutdown","reason":"second"}
+{"ts":"2026-10-02T02:16:08.341Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"test","teardownCount":3}
+{"ts":"2026-10-02T02:16:08.341Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"late","ms":0}
+{"ts":"2026-10-02T02:16:08.341Z","level":"error","msg":"teardown failed","subsystem":"shutdown","name":"boom","error":"Error: kaboom"}
+{"ts":"2026-10-02T02:16:08.341Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"db","ms":0}
+{"ts":"2026-10-02T02:16:08.341Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"test"}
+{"ts":"2026-10-02T02:16:08.341Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"test","teardownCount":2}
+{"ts":"2026-10-02T02:16:08.342Z","level":"error","msg":"teardown failed","subsystem":"shutdown","name":"reject","error":"Error: async-fail"}
+{"ts":"2026-10-02T02:16:08.342Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"ok","ms":0}
+{"ts":"2026-10-02T02:16:08.342Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"test"}
+{"ts":"2026-10-02T02:16:08.342Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"deadline-test","teardownCount":2}
+{"ts":"2026-10-02T02:16:14.342Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"pglite-close","ms":0}
+{"ts":"2026-10-02T02:16:14.342Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"deadline-test"}
+{"ts":"2026-10-02T02:16:08.464Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"timeout-test","teardownCount":6}
+{"ts":"2026-10-02T02:16:33.465Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"hang-0","ms":1001}
+{"ts":"2026-10-02T02:16:33.465Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"done-first","ms":0}
+{"ts":"2026-10-02T02:16:33.465Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"timeout-test"}
+{"ts":"2026-10-02T02:16:08.580Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"SIGTERM","teardownCount":1}
+{"ts":"2026-10-02T02:16:08.580Z","level":"info","msg":"shutdown already in progress — ignoring re-trigger","subsystem":"shutdown","reason":"SIGTERM"}
+{"ts":"2026-10-02T02:16:08.580Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"t","ms":0}
+{"ts":"2026-10-02T02:16:08.580Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"SIGTERM"}
+{"ts":"2026-10-02T02:16:08.590Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"sveltekit:shutdown:deploy","teardownCount":1}
+{"ts":"2026-10-02T02:16:08.590Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"t","ms":0}
+{"ts":"2026-10-02T02:16:08.590Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"sveltekit:shutdown:deploy"}
+{"ts":"2026-10-02T02:16:11.274Z","level":"error","msg":"retry streamChat error","subsystem":"api.retry","error":"boom"}
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+{"ts":"2026-10-02T02:17:05.221Z","level":"warn","msg":"route-once model pin failed (conversation stays unpinned)","subsystem":"api.messages","conversationId":"c1","error":"db gone"}
+{"ts":"2026-10-02T02:17:05.229Z","level":"warn","msg":"fork attachment inheritance failed (continuing without image)","subsystem":"api.messages","conversationId":"c1","sourceMessageId":"a1a1a1a1-aaaa-4aaa-8aaa-aaaaaaaaaaaa","error":"disk gone"}
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: navigation to another Document
+{"ts":"2026-10-02T02:17:28.844Z","level":"error","msg":"EZ action handler threw","subsystem":"api.messages","name":"explode","error":"Error: boom"}
+{"ts":"2026-10-02T02:17:28.846Z","level":"error","msg":"streamChat error","subsystem":"api.messages","error":"stream boom"}
+{"ts":"2026-10-02T02:17:28.851Z","level":"warn","msg":"session refresh failed","subsystem":"hooks.server","error":"Error: [vitest] No \"signJWT\" export is defined on the \"$server/auth/jwt\" mock. Did you forget to return it from \"vi.mock\"?\nIf you need to partially mock a module, you can use \"importOriginal\" helper inside:\n"}
+{"ts":"2026-10-02T02:17:28.853Z","level":"warn","msg":"session refresh failed","subsystem":"hooks.server","error":"Error: [vitest] No \"signJWT\" export is defined on the \"$server/auth/jwt\" mock. Did you forget to return it from \"vi.mock\"?\nIf you need to partially mock a module, you can use \"importOriginal\" helper inside:\n"}
+{"ts":"2026-10-02T02:17:28.855Z","level":"warn","msg":"session refresh failed","subsystem":"hooks.server","error":"Error: [vitest] No \"signJWT\" export is defined on the \"$server/auth/jwt\" mock. Did you forget to return it from \"vi.mock\"?\nIf you need to partially mock a module, you can use \"importOriginal\" helper inside:\n"}
+{"ts":"2026-10-02T02:17:28.860Z","level":"warn","msg":"session refresh failed","subsystem":"hooks.server","error":"Error: [vitest] No \"signJWT\" export is defined on the \"$server/auth/jwt\" mock. Did you forget to return it from \"vi.mock\"?\nIf you need to partially mock a module, you can use \"importOriginal\" helper inside:\n"}
+{"ts":"2026-10-02T02:17:40.692Z","level":"warn","msg":"page-state invalidation wiring failed — will retry on the next render","subsystem":"hub.render-pull","error":"Server not initialized"}
+{"ts":"2026-10-02T02:17:54.055Z","level":"error","msg":"memory disappeared between read and write","subsystem":"api.memories","memoryId":"mem-1"}
+{"ts":"2026-10-02T02:17:55.162Z","level":"warn","msg":"session refresh failed","subsystem":"hooks.server","error":"Error: DB blew up"}
+{"ts":"2026-10-02T02:17:56.521Z","level":"error","msg":"EZ action handler threw","subsystem":"api.messages","name":"distill","error":"Error: kaboom"}
+{"ts":"2026-10-02T02:18:01.618Z","level":"info","msg":"callback server started","subsystem":"api.auth.oauth","port":1455,"appCallbackUrl":"http://localhost/auth/callback"}
+{"ts":"2026-10-02T02:18:01.620Z","level":"info","msg":"callback server started","subsystem":"api.auth.oauth","port":1456,"appCallbackUrl":"http://localhost/auth/callback"}
+{"ts":"2026-10-02T02:18:01.621Z","level":"warn","msg":"rejected untrusted app_origin; falling back to request origin","subsystem":"api.auth.oauth","rawAppOrigin":"https://evil.example.com","fallbackOrigin":"http://localhost"}
+{"ts":"2026-10-02T02:18:01.621Z","level":"info","msg":"callback server started","subsystem":"api.auth.oauth","port":1455,"appCallbackUrl":"http://localhost/auth/callback"}
+{"ts":"2026-10-02T02:18:01.622Z","level":"info","msg":"callback server started","subsystem":"api.auth.oauth","port":1455,"appCallbackUrl":"http://localhost/auth/callback"}
+{"ts":"2026-10-02T02:18:01.622Z","level":"warn","msg":"rejected untrusted app_origin; falling back to request origin","subsystem":"api.auth.oauth","rawAppOrigin":"not-a-url","fallbackOrigin":"http://localhost"}
+{"ts":"2026-10-02T02:18:01.622Z","level":"info","msg":"callback server started","subsystem":"api.auth.oauth","port":1455,"appCallbackUrl":"http://localhost/auth/callback"}
+{"ts":"2026-10-02T02:18:02.714Z","level":"warn","msg":"session refresh failed","subsystem":"hooks.server","error":"Error: [vitest] No \"signJWT\" export is defined on the \"$server/auth/jwt\" mock. Did you forget to return it from \"vi.mock\"?\nIf you need to partially mock a module, you can use \"importOriginal\" helper inside:\n"}
+{"ts":"2026-10-02T02:18:02.717Z","level":"warn","msg":"session refresh failed","subsystem":"hooks.server","error":"Error: [vitest] No \"signJWT\" export is defined on the \"$server/auth/jwt\" mock. Did you forget to return it from \"vi.mock\"?\nIf you need to partially mock a module, you can use \"importOriginal\" helper inside:\n"}
+{"ts":"2026-10-02T02:18:02.718Z","level":"warn","msg":"session refresh failed","subsystem":"hooks.server","error":"Error: [vitest] No \"signJWT\" export is defined on the \"$server/auth/jwt\" mock. Did you forget to return it from \"vi.mock\"?\nIf you need to partially mock a module, you can use \"importOriginal\" helper inside:\n"}
+{"ts":"2026-10-02T02:18:02.718Z","level":"warn","msg":"session refresh failed","subsystem":"hooks.server","error":"Error: [vitest] No \"signJWT\" export is defined on the \"$server/auth/jwt\" mock. Did you forget to return it from \"vi.mock\"?\nIf you need to partially mock a module, you can use \"importOriginal\" helper inside:\n"}
+{"ts":"2026-10-02T02:18:02.719Z","level":"warn","msg":"session refresh failed","subsystem":"hooks.server","error":"Error: [vitest] No \"signJWT\" export is defined on the \"$server/auth/jwt\" mock. Did you forget to return it from \"vi.mock\"?\nIf you need to partially mock a module, you can use \"importOriginal\" helper inside:\n"}
+{"ts":"2026-10-02T02:18:02.720Z","level":"warn","msg":"session refresh failed","subsystem":"hooks.server","error":"Error: [vitest] No \"signJWT\" export is defined on the \"$server/auth/jwt\" mock. Did you forget to return it from \"vi.mock\"?\nIf you need to partially mock a module, you can use \"importOriginal\" helper inside:\n"}
+{"ts":"2026-10-02T02:18:02.720Z","level":"warn","msg":"session refresh failed","subsystem":"hooks.server","error":"Error: [vitest] No \"signJWT\" export is defined on the \"$server/auth/jwt\" mock. Did you forget to return it from \"vi.mock\"?\nIf you need to partially mock a module, you can use \"importOriginal\" helper inside:\n"}
+{"ts":"2026-10-02T02:18:26.393Z","level":"error","msg":"provider model fetch failed","subsystem":"api.refresh-models","provider":"anthropic","error":"models.dev returned 503"}
+{"ts":"2026-10-02T02:18:53.652Z","level":"warn","msg":"getOrCreateEzConversation failed","subsystem":"api.ez.conversation.messages","userId":"u1","error":"Error: DB down"}
+{"ts":"2026-10-02T02:18:53.653Z","level":"error","msg":"deleteAllMessagesForConversation failed","subsystem":"api.ez.conversation.messages","userId":"u1","conversationId":"ez-conv-u1","error":"Error: delete failed"}
+{"ts":"2026-10-02T02:18:54.734Z","level":"warn","msg":"session refresh failed","subsystem":"hooks.server","error":"Error: [vitest] No \"signJWT\" export is defined on the \"$server/auth/jwt\" mock. Did you forget to return it from \"vi.mock\"?\nIf you need to partially mock a module, you can use \"importOriginal\" helper inside:\n"}
+{"ts":"2026-10-02T02:18:54.735Z","level":"warn","msg":"session refresh failed","subsystem":"hooks.server","error":"Error: [vitest] No \"signJWT\" export is defined on the \"$server/auth/jwt\" mock. Did you forget to return it from \"vi.mock\"?\nIf you need to partially mock a module, you can use \"importOriginal\" helper inside:\n"}
+{"ts":"2026-10-02T02:19:02.019Z","level":"warn","msg":"getOrCreateEzConversation failed","subsystem":"api.ez.conversation","userId":"u1","error":"Error: DB down"}
+{"ts":"2026-10-02T02:19:05.692Z","level":"info","msg":"draining in-flight requests before teardown","subsystem":"shutdown","inFlight":1,"timeoutMs":5000}
+{"ts":"2026-10-02T02:19:05.693Z","level":"info","msg":"draining in-flight requests before teardown","subsystem":"shutdown","inFlight":1,"timeoutMs":10000}
+{"ts":"2026-10-02T02:19:15.693Z","level":"warn","msg":"in-flight drain timed out — proceeding with teardown","subsystem":"shutdown","stillInFlight":1}
+{"ts":"2026-10-02T02:19:05.695Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"drain-test","teardownCount":1}
+{"ts":"2026-10-02T02:19:05.695Z","level":"info","msg":"draining in-flight requests before teardown","subsystem":"shutdown","inFlight":1,"timeoutMs":10000}
+{"ts":"2026-10-02T02:19:05.695Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"db","ms":0}
+{"ts":"2026-10-02T02:19:05.695Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"drain-test"}
+{"ts":"2026-10-02T02:19:05.695Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"wedged-test","teardownCount":1}
+{"ts":"2026-10-02T02:19:05.695Z","level":"info","msg":"draining in-flight requests before teardown","subsystem":"shutdown","inFlight":1,"timeoutMs":10000}
+{"ts":"2026-10-02T02:19:15.695Z","level":"warn","msg":"in-flight drain timed out — proceeding with teardown","subsystem":"shutdown","stillInFlight":1}
+{"ts":"2026-10-02T02:19:15.695Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"db","ms":0}
+{"ts":"2026-10-02T02:19:15.695Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"wedged-test"}
+{"ts":"2026-10-02T02:19:27.026Z","level":"warn","msg":"wire-authz: acting user not found — denying MCP wiring (fail-closed)","subsystem":"auth.extension-wire-authz","userId":"ghost"}
+
+ Test Files  631 passed (631)
+      Tests  7843 passed (7843)
+   Start at  22:15:11
+   Duration  280.49s (environment 44%, import 18%, tests 16%, setup 14%, transform 5%, worker 3%)
+
+Environment  jsdom was created 631 times · 216.04s total, 44% of tracked time
+             create it once per worker with pool: 'vmThreads' (keeps per-file isolation) or isolate: false (shares it across files)
+             learn more: https://vitest.dev/guide/improving-performance#test-environments
+
+kept 600 configured Node/V8 product-source records → /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/coverage/w4g-9/web-vitest-full/lcov.info

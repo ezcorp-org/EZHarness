@@ -1,0 +1,13 @@
+Checked 1 file in 2ms. No fixes applied.
+── Tests (staged) ─────────────────────────────────
+  vitest: src/lib/build/preview-pipeline-guard.unit.test.ts
+
+ RUN  v5.0.0 /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/web
+
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  03:07:04
+   Duration  1.49s (transform 67%, environment 24%, setup 7%, tests 1%)
+
+[detached HEAD c46a1d10e] merge: wp/w4f-1-w12e-coverage 5576263ae into integ/w00 (W4F-1 coverage + attestation removal)

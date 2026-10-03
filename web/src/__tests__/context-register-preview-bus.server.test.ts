@@ -64,10 +64,18 @@ vi.mock("$server/runtime/workflow/runtime-registry", () => ({
 vi.mock("$server/env-validation", () => ({ validateEnv: vi.fn() }));
 vi.mock("$server/db/connection", () => ({
   initDb: vi.fn(async () => undefined),
+  // The factory report hook discards a desynchronized pool (W09f).
+  recoverFromDriverDesync: vi.fn(async () => false),
   closeDb: vi.fn(async () => undefined),
+  // `ensureInitialized` composes the factory after the database opens, so it
+  // reads the open handle and the data path. The factory flag is off in this
+  // suite, so nothing starts; the exports must still exist.
+  getDb: vi.fn(() => ({})),
+  getDbPath: vi.fn(() => "/tmp/ezcorp-test-data"),
 }));
 vi.mock("$lib/server/shutdown", () => ({
   installShutdownHandlers: vi.fn(),
+  getShutdownSignal: vi.fn(() => new AbortController().signal),
   registerTeardown: vi.fn((name: string, callback: () => void | Promise<void>) => {
     reloadFixture.teardowns.set(name, callback);
   }),
@@ -199,6 +207,17 @@ vi.mock("$server/runtime/workflow-executor", () => ({
 // vi.mock() is hoisted above imports, so every stub above is already installed
 // when this evaluates.
 import * as ctx from "$lib/server/context";
+// The same holds for the five modules ensureInitialized() loads with
+// `await import()` (context.ts: host-api-transport, credential-resolver,
+// sandbox/startup, ez-factory-release-agents, factory-boot). Their transform was
+// billed to this test's 5000ms budget: 1.5s alone, and a timeout at 5006ms in
+// the 623-file web pool (W09g, 2026-09-27). Loaded here, the dynamic imports in
+// the test resolve from the module cache.
+import "$lib/server/extensions/host-api-transport";
+import "$lib/server/extensions/credential-resolver";
+import "$server/runtime/sandbox/startup";
+import "$server/extensions/ez-factory-release-agents";
+import "$lib/server/factory-boot";
 
 // The former beforeEach (vi.clearAllMocks + vi.resetModules) is gone with the
 // dynamic import: a module-scope binding cannot be re-resolved by
