@@ -1,11 +1,12 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { TransactionalDb } from "../db/migrations/types";
 import type { FactoryRestore, FactoryRestoreReport } from "./restore";
 import { FACTORY_RESTORE_USAGE, runFactoryRestoreCommand } from "./restore-command";
 import { factoryAttestedRestoreFence } from "./restore-composition";
 import { FACTORY_STARTUP_CONFIG_SCHEMA } from "./startup-config";
+import { makeFactoryTempPrivateRoot } from "../__tests__/helpers/factory-private-root";
 
 let directory: string;
 let configPath: string;
@@ -13,7 +14,7 @@ const tls = { caPath: "/run/tls/ca.pem", certificatePath: "/run/tls/cert.pem", p
 const storage = (kind: string) => ({ endpoint: `https://127.0.0.1:8443/${kind}`, bucket: "tenant-r", prefix: kind, credentialSet: `${kind}-set`, credentialsPath: `/run/secrets/${kind}.json` });
 
 beforeAll(async () => {
-  directory = await mkdtemp(join(process.env.HOME!, ".w15-restore-command-"));
+  directory = await makeFactoryTempPrivateRoot("w15-restore-command-");
   configPath = join(directory, "startup.json");
   await writeFile(configPath, JSON.stringify({
     schemaVersion: FACTORY_STARTUP_CONFIG_SCHEMA, installationId: "installation-r", tenantId: "tenant-r", poolId: "pool-r", temporalNamespace: "tenant-r.factory",

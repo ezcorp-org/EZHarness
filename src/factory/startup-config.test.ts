@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, writeFile, chmod, mkdir, rm } from "node:fs/promises";
+import { writeFile, chmod, mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { digestObject } from "../extensions/v4/blobs";
 import { FACTORY_GUEST_BROKER_AUDIENCE } from "./runner/guest-broker-contract";
@@ -11,6 +11,7 @@ import {
   loadFactoryStartupConfig,
   parseFactoryStartupConfig,
 } from "./startup-config";
+import { makeFactoryTempPrivateRoot } from "../__tests__/helpers/factory-private-root";
 
 function storage(kind: string) {
   return {
@@ -151,7 +152,7 @@ describe("loadFactoryStartupConfig", () => {
   afterEach(async () => { await Promise.all(roots.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
 
   async function privateDir(): Promise<string> {
-    const directory = await mkdtemp(join(process.env.HOME!, ".w09-config-"));
+    const directory = await makeFactoryTempPrivateRoot("w09-config-");
     roots.push(directory);
     await chmod(directory, 0o700);
     return directory;

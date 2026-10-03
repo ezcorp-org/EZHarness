@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { TransactionalDb } from "../db/migrations/types";
 import type { BlobStore } from "../extensions/v4/types";
@@ -10,6 +10,7 @@ import { createFactoryPoolReadinessWriter } from "./pool/readiness";
 import { FACTORY_STARTUP_CONFIG_SCHEMA, FactoryStartupConfigError, parseFactoryStartupConfig } from "./startup-config";
 import { composeFactoryRecoveryRoles } from "./recovery-composition";
 import { FactoryDisabledError, factoryRuntimeWait, startFactoryRuntime, type FactoryRuntimeDependencies, type FactoryStartedListener } from "./runtime-composition";
+import { makeFactoryTempPrivateRoot } from "../__tests__/helpers/factory-private-root";
 
 const roots: string[] = [];
 const started: Array<{ stop(): Promise<unknown> }> = [];
@@ -22,7 +23,7 @@ afterEach(async () => {
 });
 
 async function privateRoot(): Promise<string> {
-  const directory = await mkdtemp(join(process.env.HOME!, ".w09-runtime-"));
+  const directory = await makeFactoryTempPrivateRoot("w09-runtime-");
   roots.push(directory);
   await chmod(directory, 0o700);
   await mkdir(join(directory, "project"), { mode: 0o700 });

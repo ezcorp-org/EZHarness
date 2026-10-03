@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { TransactionalDb } from "../db/migrations/types";
 import type { FactoryCheckpointTemporalSource } from "./checkpoint-barrier";
@@ -9,10 +9,11 @@ import type { FactoryRestore, FactoryRestoreOptions } from "./restore";
 import { composeFactoryRestore } from "./restore-composition";
 import type { FactoryStartupConfig } from "./startup-config";
 import type { FactoryPhysicalStopper } from "./task-stops";
+import { makeFactoryTempPrivateRoot } from "../__tests__/helpers/factory-private-root";
 
 let directory: string;
 beforeAll(async () => {
-  directory = await mkdtemp(join(process.env.HOME!, ".w15-restore-composition-"));
+  directory = await makeFactoryTempPrivateRoot("w15-restore-composition-");
   for (const kind of ["ordinary", "archive"]) await writeFile(join(directory, `${kind}.json`), JSON.stringify({ identities: [{ name: "tenant-r", credentials: [{ accessKey: `${kind}-access`, secretKey: `${kind}-secret` }] }] }), { mode: 0o600 });
 });
 afterAll(async () => { await rm(directory, { recursive: true, force: true }); });

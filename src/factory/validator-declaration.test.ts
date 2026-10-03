@@ -1,15 +1,16 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { FACTORY_VALIDATOR_RUNTIME_SCHEMA, FactoryValidatorDeclarationError, loadFactoryValidatorRuntimes, MAX_VALIDATOR_MATERIAL_BYTES } from "./validator-declaration";
 import type { FactoryStartupValidatorRuntime } from "./startup-config";
+import { makeFactoryTempPrivateRoot } from "../__tests__/helpers/factory-private-root";
 
 const roots: string[] = [];
 afterAll(async () => { await Promise.all(roots.map(root => rm(root, { recursive: true, force: true }))); });
 
 async function privateRoot(): Promise<string> {
-  const root = await mkdtemp(join(process.env.HOME!, ".w09d-validators-"));
+  const root = await makeFactoryTempPrivateRoot("w09d-validators-");
   roots.push(root);
   await chmod(root, 0o700);
   return root;
