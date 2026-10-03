@@ -54,6 +54,11 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      # The backend suites spawn gate-integrity (rule 11), which needs its locked parser (W4G-6),
+      # and the pinned uv (uv-command.test.ts, python-runner.integration.test.ts; W4H-2).
+      - uses: ./.github/actions/gate-integrity-deps
+      - uses: ./.github/actions/setup-python-toolchain
+
       - name: Run test suite
         run: bun run test
 

@@ -84,6 +84,8 @@ jobs:
         run: bun scripts/check-schema-generate-drift.ts
       # The backend suites spawn gate-integrity (rule 11), which needs its locked parser.
       - uses: ./.github/actions/gate-integrity-deps
+      # The backend suites spawn the pinned uv (uv-command.test.ts, python-runner.integration.test.ts); W4H-2.
+      - uses: ./.github/actions/setup-python-toolchain
       - name: Run factory schema, compiler, kernel, simulator, and reference fixtures
         env:
           FACTORY_ONLY: "1"
@@ -1061,6 +1063,8 @@ jobs:
         run: bash scripts/setup-extension-runner-ci.sh --install
       # The backend suites spawn gate-integrity (rule 11), which needs its locked parser.
       - uses: ./.github/actions/gate-integrity-deps
+      # The backend suites spawn the pinned uv (uv-command.test.ts, python-runner.integration.test.ts); W4H-2.
+      - uses: ./.github/actions/setup-python-toolchain
       - name: Run shard (tests + coverage)
         env:
           SHARD_INDEX: ${{ matrix.shard }}
@@ -1093,6 +1097,8 @@ jobs:
       - run: bash scripts/setup-extension-runner-ci.sh --install
       # The backend suites spawn gate-integrity (rule 11), which needs its locked parser.
       - uses: ./.github/actions/gate-integrity-deps
+      # The backend suites spawn the pinned uv (uv-command.test.ts, python-runner.integration.test.ts); W4H-2.
+      - uses: ./.github/actions/setup-python-toolchain
       - name: Run coverage legs
         env:
           EZCORP_RUN_PODMAN_TESTS: "1"
@@ -1153,6 +1159,8 @@ jobs:
           sync: "true"
       # The backend suites spawn gate-integrity (rule 11), which needs its locked parser.
       - uses: ./.github/actions/gate-integrity-deps
+      # The backend suites spawn the pinned uv (uv-command.test.ts, python-runner.integration.test.ts); W4H-2.
+      - uses: ./.github/actions/setup-python-toolchain
       - name: Run curated critical set
         env:
           CRITICAL_ONLY: "1"
@@ -1213,6 +1221,8 @@ jobs:
       - run: bash scripts/setup-extension-runner-ci.sh --install
       # The backend suites spawn gate-integrity (rule 11), which needs its locked parser.
       - uses: ./.github/actions/gate-integrity-deps
+      # The backend suites spawn the pinned uv (uv-command.test.ts, python-runner.integration.test.ts); W4H-2.
+      - uses: ./.github/actions/setup-python-toolchain
       - name: Run residual pass/fail set
         env:
           EZCORP_RUN_PODMAN_TESTS: "1"
