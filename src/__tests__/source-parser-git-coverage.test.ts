@@ -11,6 +11,7 @@ import { tmpdir } from "os";
 
 import { parseSource } from "../extensions/source-parser";
 import { gitExec, clone, lsRemoteTags, getCurrentRef } from "../extensions/git";
+import { fixtureGitEnv } from "./helpers/git-fixture-env";
 
 // ── parseSource coverage ────────────────────────────────────────────────
 
@@ -140,7 +141,7 @@ describe("git.ts – coverage gaps", () => {
   let tempBase: string;
   let bareRepoDir: string;
 
-  const env = { ...process.env };
+  const env = fixtureGitEnv();
   const spawn = (cmd: string[], opts?: { cwd?: string }) =>
     Bun.spawnSync(cmd, { ...opts, env });
 

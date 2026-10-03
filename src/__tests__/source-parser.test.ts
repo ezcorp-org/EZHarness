@@ -14,6 +14,83 @@ import { tmpdir } from "os";
 
 import { parseSource } from "../extensions/source-parser";
 import { clone, lsRemoteTags, getCurrentRef, gitExec } from "../extensions/git";
+import { fixtureGitEnv } from "./helpers/git-fixture-env";
+
+test("gitExec selects its cwd repository while preserving caller config", async () => {
+  const root = await mkdtemp(join(tmpdir(), "git-exec-context-"));
+  const parent = join(root, "caller");
+  const target = join(root, "target");
+  const clean = fixtureGitEnv();
+  const ambient = { ...process.env };
+  try {
+    for (const repo of [parent, target]) {
+      expect(Bun.spawnSync(["git", "init", repo], { env: clean }).exitCode).toBe(0);
+    }
+    const parentConfig = join(parent, ".git", "config");
+    const original = await Bun.file(parentConfig).text();
+    process.env = {
+      ...clean,
+      GIT_DIR: join(parent, ".git"),
+      GIT_WORK_TREE: parent,
+      GIT_COMMON_DIR: join(parent, ".git"),
+      GIT_INDEX_FILE: join(parent, ".git", "index"),
+      GIT_PREFIX: "caller/",
+      GIT_OBJECT_DIRECTORY: join(parent, ".git", "objects"),
+      GIT_ALTERNATE_OBJECT_DIRECTORIES: join(root, "missing-objects"),
+      GIT_CONFIG_COUNT: "1",
+      GIT_CONFIG_KEY_0: "fixture.auth",
+      GIT_CONFIG_VALUE_0: "preserved",
+    };
+    expect(gitExec(["config", "--local", "user.name", "Target"], { cwd: target }).ok).toBe(true);
+    expect(gitExec(["config", "--local", "--get", "user.name"], { cwd: target }).stdout).toBe("Target");
+    expect(gitExec(["config", "--get", "fixture.auth"], { cwd: target }).stdout).toBe("preserved");
+    expect(gitExec(["rev-parse", "--git-dir"], { cwd: target }).stdout).toBe(".git");
+    await Bun.write(join(target, "file.txt"), "target content");
+    expect(gitExec(["add", "file.txt"], { cwd: target }).ok).toBe(true);
+    expect(gitExec(["ls-files"], { cwd: target }).stdout).toBe("file.txt");
+    expect(await Bun.file(parentConfig).text()).toBe(original);
+    expect(await Bun.file(join(parent, ".git", "index")).exists()).toBe(false);
+    expect(gitExec(["count-objects"], { cwd: target }).stdout).toMatch(/^1 objects/);
+  } finally {
+    process.env = ambient;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("Git fixture suites preserve the caller repository under inherited Git context", async () => {
+  const parent = await mkdtemp(join(tmpdir(), "source-parser-parent-"));
+  const clean = fixtureGitEnv();
+  try {
+    expect(Bun.spawnSync(["git", "init", parent], { env: clean }).exitCode).toBe(0);
+    const config = join(parent, ".git", "config");
+    const original = await Bun.file(config).text();
+    const suites = [
+      ["source-parser.test.ts", "gitExec runs git commands"],
+      ["source-parser-git-coverage.test.ts", "gitExec catch branch"],
+    ];
+    for (const [file, pattern] of suites) {
+      const child = Bun.spawnSync([
+        process.execPath, "test", "--timeout", "30000",
+        join(import.meta.dir, file), "--test-name-pattern", pattern,
+      ], {
+        env: {
+          ...clean,
+          GIT_DIR: join(parent, ".git"),
+          GIT_INDEX_FILE: join(parent, ".git", "index"),
+          GIT_PREFIX: "caller/",
+        },
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      expect(child.exitCode, child.stderr.toString()).toBe(0);
+      expect(child.stderr.toString()).toContain("1 pass");
+      expect(await Bun.file(config).text(), file).toBe(original);
+      expect(await Bun.file(join(parent, ".git", "index")).exists(), file).toBe(false);
+    }
+  } finally {
+    await rm(parent, { recursive: true, force: true });
+  }
+}, 30_000);
 
 // ── 1. parseSource tests ──────────────────────────────────────────────
 
@@ -172,7 +249,7 @@ describe("git operations", () => {
   let tempBase: string;
   const tempDirs: string[] = [];
 
-  const env = { ...process.env };
+  const env = fixtureGitEnv();
   const spawn = (cmd: string[], opts?: { cwd?: string }) =>
     Bun.spawnSync(cmd, { ...opts, env });
 
