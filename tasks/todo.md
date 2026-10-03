@@ -2110,3 +2110,16 @@ Review: A new frozen-clock test failed at the original head when the host slept 
 Plan review: The worktree was clean and pinned Bun 1.3.14 was available. Incoming main had one watchdog commit. This task did not touch a live host.
 
 Review: The task journal retains the PR #303 history and incoming PR #320 record. Pinned Bun 1.3.14 passed 64 tests in four affected backend suites, full typecheck, lint across 4,883 files, and six Chromium cases in the changed browser spec. The browser used free port 4174 because another process held 4173. No live host was touched.
+
+# Native Incus project proof
+
+- [x] Read native routing, management, and extension boundaries.
+- [x] Check the proposed plan before live changes: use a UUID user project after qualification; keep the live owner as sole mutator.
+- [x] Prepare exact product tool and lifecycle observations.
+- [ ] Confirm existing real model metadata through the live owner.
+- [ ] Execute after original guest cleanup and exact preset qualification.
+- [ ] Save persisted tool, independent guest, unchanged host canary, and lifecycle evidence.
+
+## Review
+
+No source bug reproduced. No live mutation performed. The runbook identifies the fixture project ID constraint and the difference between native chat, extension invocation, and a scripted LLM boundary. G5 remains open.
