@@ -122,7 +122,7 @@ const TRUNCATION_MARK = "…[truncated to fit context]…";
 // ── Token estimation ─────────────────────────────────────────────────
 
 /** LLM-visible messages — mirrors the `convertToLlm` filter in build-pi-agent. */
-function isLlmMessage(m: AgentMessage): m is Message {
+function isLlmMessage(m: AgentMessage): m is Exclude<Message, { role: "system" }> {
   return (
     "role" in m &&
     (m.role === "user" || m.role === "assistant" || m.role === "toolResult")
