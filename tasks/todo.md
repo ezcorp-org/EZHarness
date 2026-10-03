@@ -1,5 +1,16 @@
 # Active completion — 3 October 2026
 
+## GPT-6.1 Sol completion team
+
+- [ ] Stage and verify source `241ab3836`; install the reviewed STOP readback fix in the isolated app.
+- [ ] Settle the original STOP without repeating it; complete destroy and independent cleanup proof.
+- [ ] Run the bounded SP01–SP08 live qualification with saved operation IDs and failure recovery evidence.
+- [ ] Prove the native EZHarness project-tool workflow on a real guest, including host-file canaries.
+- [ ] Run all five browser lanes and merged coverage against the final source; pass fast and hosted checks.
+- [ ] Update PR #303 and the evidence ledger with exact results and remaining review requirements.
+
+Ownership: root owns integration and bundle staging; the GPT-6.1 Sol live worker alone changes the isolated app/server; coverage owns test captures in its worktree; project-flow owns a separate worktree and coordinates all live effects with the live worker. The generation fix has passed focused regression tests and independent review. Live proof remains open. No repeated STOP or new lifecycle request is allowed to hide an unknown effect.
+
 - [x] Verify restored TCP socket, sandbox-server SSH, and GitHub access.
 - [x] Recheck the existing app, guest, and saved operations; identify the inspection failure without duplicate effects.
 - [ ] Complete the saved guest workload and cleanup, then live qualification and the native project workflow.
