@@ -333,6 +333,23 @@ describe("the openai pin under a ChatGPT-plan OAuth login (C10 revision, W10c)",
     expect(await factoryProviderReadiness(apiKeyOnly, { now: () => NOW })).toMatchObject({ ready: true, credentialKind: "apikey", failures: [] });
   });
 
+  test("regression pair: the same model goes to the subscription endpoint on a login and to the api-key endpoint on a key", async () => {
+    // gpt-5.5 is in both catalogs, so only the credential kind decides the wire.
+    const both: FactoryProviderPin = { provider: "openai", model: "gpt-5.5" };
+    const viaLogin: Array<{ model: Model<Api>; options: { apiKey?: string } }> = [];
+    await signIn();
+    await (await createFactoryProviderBroker({ pin: both, stream: capturing(viaLogin) }).stream(request({ model: model(both.provider, both.model) }))).result();
+    expect(viaLogin[0]!.model).toMatchObject({ id: "gpt-5.5", provider: "openai", api: "openai-codex-responses", baseUrl: "https://chatgpt.com/backend-api" });
+    expect(viaLogin[0]!.model.baseUrl).not.toContain("api.openai.com");
+
+    await deleteSetting(oauthSettingKey(LUNA.provider));
+    await upsertSetting(API_KEY_SETTING, encrypt(API_KEY));
+    const viaKey: Array<{ model: Model<Api>; options: { apiKey?: string } }> = [];
+    await (await createFactoryProviderBroker({ pin: both, stream: capturing(viaKey) }).stream(request({ model: model(both.provider, both.model) }))).result();
+    expect(viaKey[0]!.model).toMatchObject({ id: "gpt-5.5", provider: "openai", api: "openai-responses", baseUrl: "https://api.openai.com/v1" });
+    expect(viaKey[0]!.options.apiKey).toBe(API_KEY);
+  });
+
   test("a login that disappears between readiness and the call is refused, not sent unauthenticated", async () => {
     await signIn();
     let reads = 0;

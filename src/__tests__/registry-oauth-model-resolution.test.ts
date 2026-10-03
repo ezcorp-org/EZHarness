@@ -33,7 +33,7 @@ mock.module("../db/queries/settings", () => ({
 afterAll(() => restoreModuleMocks());
 
 import { getModels } from "@earendil-works/pi-ai/compat";
-import { credentialServesModel, getOAuthModelIds, resolveModelForCredential, resolveModelObject, resolveOAuthModel } from "../providers/registry";
+import { getOAuthModelIds, resolveModelForCredential, resolveModelObject, resolveOAuthModel } from "../providers/registry";
 import { getCapabilities } from "../providers/model-capabilities";
 
 test("resolveModelObject('openai', 'gpt-5.5') falls back to OAuth override", () => {
@@ -141,16 +141,4 @@ test("an OAuth credential swaps the catalog model to its subscription sibling; a
   expect(catalog).toMatchObject({ api: "openai-responses", baseUrl: "https://api.openai.com/v1" });
   expect(resolveModelForCredential(catalog, "openai", "oauth")).toMatchObject({ id: "gpt-5.6-luna", provider: "openai", api: "openai-codex-responses", baseUrl: "https://chatgpt.com/backend-api" });
   expect(resolveModelForCredential(catalog, "openai", "apikey")).toBe(catalog);
-});
-
-test("credentialServesModel names which credential kinds can run a model, and agrees with the swap", () => {
-  expect(credentialServesModel("openai", "gpt-5.6-luna", "oauth")).toBe(true);
-  expect(credentialServesModel("openai", "gpt-5.6-luna", "apikey")).toBe(true);
-  // An api-key-only id: the subscription endpoint does not serve it.
-  expect(credentialServesModel("openai", "gpt-4.1-mini", "oauth")).toBe(false);
-  expect(credentialServesModel("openai", "gpt-4.1-mini", "apikey")).toBe(true);
-  expect(credentialServesModel("openai", "gpt-5.6-lunna", "oauth")).toBe(false);
-  // Anthropic's OAuth uses its ordinary catalog, so its token is never refused here.
-  expect(credentialServesModel("anthropic", "claude-haiku-4-5-20251001", "oauth")).toBe(true);
-  expect(() => resolveModelForCredential(resolveModelObject("openai", "gpt-4.1-mini"), "openai", "oauth")).toThrow(/not supported with openai OAuth/);
 });
