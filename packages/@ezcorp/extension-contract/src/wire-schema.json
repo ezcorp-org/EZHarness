@@ -2424,6 +2424,84 @@
             "result"
           ],
           "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "group": {
+              "const": "sandbox.transfer.v1",
+              "type": "string"
+            },
+            "input": {
+              "$ref": "#/definitions/SandboxBeginExportInput"
+            },
+            "operation": {
+              "const": "beginExport",
+              "type": "string"
+            },
+            "result": {
+              "$ref": "#/definitions/SandboxBeginExportResult"
+            }
+          },
+          "required": [
+            "group",
+            "operation",
+            "input",
+            "result"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "group": {
+              "const": "sandbox.transfer.v1",
+              "type": "string"
+            },
+            "input": {
+              "$ref": "#/definitions/SandboxReadExportInput"
+            },
+            "operation": {
+              "const": "readExport",
+              "type": "string"
+            },
+            "result": {
+              "$ref": "#/definitions/SandboxReadExportResult"
+            }
+          },
+          "required": [
+            "group",
+            "operation",
+            "input",
+            "result"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "group": {
+              "const": "sandbox.transfer.v1",
+              "type": "string"
+            },
+            "input": {
+              "$ref": "#/definitions/SandboxEndExportInput"
+            },
+            "operation": {
+              "const": "endExport",
+              "type": "string"
+            },
+            "result": {
+              "$ref": "#/definitions/SandboxEndExportResult"
+            }
+          },
+          "required": [
+            "group",
+            "operation",
+            "input",
+            "result"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -2692,6 +2770,53 @@
       ],
       "type": "object"
     },
+    "SandboxBeginExportInput": {
+      "additionalProperties": false,
+      "properties": {
+        "call": {
+          "$ref": "#/definitions/ProviderCall"
+        },
+        "resourceId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "call",
+        "resourceId"
+      ],
+      "type": "object"
+    },
+    "SandboxBeginExportResult": {
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "byteLength": {
+              "type": "number"
+            },
+            "receipt": {
+              "$ref": "#/definitions/ProviderSucceededReceipt"
+            },
+            "sha256": {
+              "type": "string"
+            },
+            "snapshotId": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "receipt",
+            "snapshotId",
+            "byteLength",
+            "sha256"
+          ],
+          "type": "object"
+        },
+        {
+          "$ref": "#/definitions/ProviderUnsuccessfulResult"
+        }
+      ]
+    },
     "SandboxCreateInput": {
       "additionalProperties": false,
       "properties": {
@@ -2767,6 +2892,45 @@
           "required": [
             "receipt",
             "resource"
+          ],
+          "type": "object"
+        },
+        {
+          "$ref": "#/definitions/ProviderUnsuccessfulResult"
+        }
+      ]
+    },
+    "SandboxEndExportInput": {
+      "additionalProperties": false,
+      "properties": {
+        "call": {
+          "$ref": "#/definitions/ProviderCall"
+        },
+        "resourceId": {
+          "type": "string"
+        },
+        "snapshotId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "call",
+        "resourceId",
+        "snapshotId"
+      ],
+      "type": "object"
+    },
+    "SandboxEndExportResult": {
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "receipt": {
+              "$ref": "#/definitions/ProviderSucceededReceipt"
+            }
+          },
+          "required": [
+            "receipt"
           ],
           "type": "object"
         },
@@ -3730,6 +3894,76 @@
         },
         {
           "$ref": "#/definitions/SandboxFilesMethodGroup"
+        },
+        {
+          "$ref": "#/definitions/SandboxTransferMethodGroup"
+        }
+      ]
+    },
+    "SandboxReadExportInput": {
+      "additionalProperties": false,
+      "properties": {
+        "call": {
+          "$ref": "#/definitions/ProviderCall"
+        },
+        "lengthBytes": {
+          "type": "number"
+        },
+        "offsetBytes": {
+          "type": "number"
+        },
+        "resourceId": {
+          "type": "string"
+        },
+        "snapshotId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "call",
+        "resourceId",
+        "snapshotId",
+        "offsetBytes",
+        "lengthBytes"
+      ],
+      "type": "object"
+    },
+    "SandboxReadExportResult": {
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "data": {
+              "type": "string"
+            },
+            "eof": {
+              "type": "boolean"
+            },
+            "nextOffsetBytes": {
+              "type": "number"
+            },
+            "offsetBytes": {
+              "type": "number"
+            },
+            "receipt": {
+              "$ref": "#/definitions/ProviderSucceededReceipt"
+            },
+            "snapshotId": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "receipt",
+            "snapshotId",
+            "offsetBytes",
+            "nextOffsetBytes",
+            "eof",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "$ref": "#/definitions/ProviderUnsuccessfulResult"
         }
       ]
     },
@@ -3875,6 +4109,40 @@
           "$ref": "#/definitions/ProviderUnsuccessfulResult"
         }
       ]
+    },
+    "SandboxTransferMethodGroup": {
+      "additionalProperties": false,
+      "properties": {
+        "methods": {
+          "additionalProperties": false,
+          "properties": {
+            "beginExport": {
+              "type": "string"
+            },
+            "endExport": {
+              "type": "string"
+            },
+            "readExport": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "beginExport",
+            "readExport",
+            "endExport"
+          ],
+          "type": "object"
+        },
+        "name": {
+          "const": "sandbox.transfer.v1",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "methods"
+      ],
+      "type": "object"
     },
     "ScriptDefinition": {
       "additionalProperties": false,

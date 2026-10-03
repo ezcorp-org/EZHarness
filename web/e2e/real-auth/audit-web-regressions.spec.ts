@@ -78,11 +78,15 @@ test.describe("@evidence audit web regressions", () => {
 			await page.getByRole("button", { name: "Get started" }).click();
 			await page.waitForURL(/\/project\/[^/]+\/chat/, { timeout: 10_000 });
 
-			const banner = page.locator('[data-testid="no-provider-banner"]:visible');
-			await expect(banner).toContainText("An administrator needs to connect a provider");
-			await expect(banner.getByTestId("no-provider-banner-cta")).toHaveCount(0);
+			const quickstart = await memberRequest.request.get("/api/quickstart");
+			expect(quickstart.status()).toBe(200);
+			expect(((await quickstart.json()) as { steps: { provider: boolean; usableProvider: boolean } }).steps).toMatchObject({
+				provider: false,
+				usableProvider: true,
+			});
+			await expect(page.getByTestId("no-provider-banner")).toHaveCount(0);
 			expect(refusedWrites).toEqual([]);
-			await captureEvidence(page, testInfo, "member-chat-provider-handoff", { fullPage: true });
+			await captureEvidence(page, testInfo, "member-chat-keyless-ready", { fullPage: true });
 		} finally {
 			await memberRequest.close();
 		}
@@ -199,6 +203,12 @@ test.describe("@evidence audit web regressions", () => {
 			await page.goto("/settings/models");
 			const providerStep = page.getByText("Set up a provider", { exact: true });
 			await expect(providerStep).not.toHaveClass(/line-through/);
+			const before = await request.get("/api/quickstart");
+			expect(before.status()).toBe(200);
+			expect(((await before.json()) as { steps: { provider: boolean; usableProvider: boolean } }).steps).toMatchObject({
+				provider: false,
+				usableProvider: true,
+			});
 
 			const anthropicCard = page.getByTestId("provider-card-anthropic");
 			await anthropicCard.getByLabel("API key for Anthropic (Claude)", { exact: true }).fill(`audit-placeholder-${Date.now()}`);
@@ -208,6 +218,12 @@ test.describe("@evidence audit web regressions", () => {
 			await anthropicCard.getByRole("button", { name: "Save Key" }).click();
 			expect((await saved).status()).toBe(200);
 			savedProvider = true;
+			const after = await request.get("/api/quickstart");
+			expect(after.status()).toBe(200);
+			expect(((await after.json()) as { steps: { provider: boolean; usableProvider: boolean } }).steps).toMatchObject({
+				provider: true,
+				usableProvider: true,
+			});
 			// A seeded fresh DB can already have the other three steps. In that
 			// case this final mutation correctly dismisses the checklist; otherwise
 			// its provider row changes in place. Either outcome proves refresh, not

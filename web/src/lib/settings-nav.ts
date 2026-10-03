@@ -67,6 +67,13 @@ export const SETTINGS_NAV: SettingsNavItem[] = [
 		child: true,
 	},
 	{
+		id: "github",
+		label: "GitHub",
+		href: "/settings/github",
+		adminOnly: false,
+		anchors: [],
+	},
+	{
 		id: "developer",
 		label: "Developer",
 		href: "/settings/developer",

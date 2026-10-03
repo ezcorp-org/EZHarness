@@ -29,11 +29,19 @@ const ROOT = new URL("../../", import.meta.url).pathname;
 const IGNORE_FILES = [".dockerignore", "Dockerfile.test.dockerignore"] as const;
 
 /**
- * Trees that are multi-GB, gitignored, and never a build input. The recursive
- * forms are required for the two that also appear nested: `.claude/worktrees`
- * and the per-workspace `node_modules` under `packages/@ezcorp`.
+ * Local scratch trees are never build inputs. Recursive forms cover nested
+ * `.claude/worktrees`, mutation sandboxes, and per-workspace `node_modules`.
  */
-const HEAVY_PATTERNS = ["**/worktrees", "**/node_modules", ".claude", ".cache"] as const;
+const HEAVY_PATTERNS = [
+	"**/worktrees",
+	".worktrees",
+	"**/.worktrees",
+	"web/.stryker-tmp",
+	"**/.stryker-tmp",
+	"**/node_modules",
+	".claude",
+	".cache",
+] as const;
 
 /** Host secrets that must never enter a build context. */
 const SECRET_PATTERNS = [".env", ".env.*", "**/.pi-secret", "**/.pi-salt"] as const;

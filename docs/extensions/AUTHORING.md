@@ -16,6 +16,8 @@ Use the v4 lifecycle. Do not load extension configuration in the host, write a t
 
 Done means the requested behavior works on the active release, including failure and recovery cases. An installation row, a passing builder-owned test, or an HTTP acceptance response alone is not proof.
 
+Dependency overrides in `package.json` support exact global pins, for example `"overrides": { "uuid": "11.1.1" }`. They apply at every depth of the dependency tree. Version ranges, parent-scoped or nested forms, and overrides that change a direct dependency are rejected. After any dependency or override change, call `resolveDependencies` again and build its new locked revision; the runner rejects a lock that no longer matches the override policy.
+
 ## Source and registration
 
 The shared workspace scaffold produces `extension.ts` with an inline manifest, `src/echo.ts`, `src/echo.test.ts`, and a README. It is used by the host and `scaffoldWorkspace` from `@ezcorp/sdk/scaffold`. The separate `scaffoldExtension` SDK helper supports tool, skill, agent, and mixed packages. Add nested source, tests, and assets as needed.

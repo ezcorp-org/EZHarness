@@ -127,7 +127,7 @@ protection so renaming/deleting a job in a PR doesn't dodge the requirement.
 |---|---|---|
 | **Typecheck** | `tsc` clean (backend + web) | — |
 | **Svelte check** | `svelte-check` clean (Svelte template/type errors in `web/`) | — |
-| **Backend tests** | aggregate: every backend coverage shard + the residual pass/fail set (incl. `route-contract.test.ts`) succeeded | shard/set drift silently de-gating a suite |
+| **Backend tests** | aggregate: every backend coverage shard, the residual pass/fail set (incl. `route-contract.test.ts`), and the arm64 sandbox lane succeeded | shard/set drift or arm64-only sandbox failures silently de-gating a suite |
 | **Backend critical (strict pass/fail)** | curated deterministic correctness suites (RBAC engine/resolver, migration idempotency, auth, secrets, mention-wiring) run **plain** via `CRITICAL_ONLY=1` — no coverage instrumentation | the coverage shards' env-flake tolerance hiding a real assertion failure |
 | **Web tests (vitest)** | component + server-route units pass | — |
 | **Web tests (bun-leg orphans)** | the plain web unit tests the Vitest leg doesn't run (`scripts/test-web.sh`) | — |

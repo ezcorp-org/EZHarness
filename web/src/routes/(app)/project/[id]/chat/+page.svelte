@@ -3,7 +3,7 @@
 	import { goto } from "$app/navigation";
 	import { onMount } from "svelte";
 	import { createConversation, fetchConversations } from "$lib/api.js";
-	import { store, refreshQuickstart } from "$lib/stores.svelte.js";
+	import { store, refreshQuickstart, notifyConversationsChanged } from "$lib/stores.svelte.js";
 	import ConversationList from "$lib/components/ConversationList.svelte";
 	import EmptyState from "$lib/components/EmptyState.svelte";
 	import NoProviderBanner from "$lib/components/chat/NoProviderBanner.svelte";
@@ -11,6 +11,9 @@
 
 	let projectId = $derived(page.params.id!);
 	let checked = $state(false);
+	// `?all=1` is the sidebar's "Show all": the full list, never a redirect.
+	// Plain /chat keeps jumping to the last-open thread, as the Chat label did.
+	let showAll = $derived(page.url.searchParams.has("all"));
 
 	// Redirect to last-opened chat, or most recent conversation.
 	// On mobile we never auto-redirect — the chat index is the list view.
@@ -22,7 +25,7 @@
 		let cancelled = false;
 		void (async () => {
 			const isMobile = typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches;
-			if (isMobile) {
+			if (isMobile || showAll) {
 				checked = true;
 				return;
 			}
@@ -62,6 +65,7 @@
 		try {
 			const conv = await createConversation({ projectId });
 			void refreshQuickstart();
+			notifyConversationsChanged(projectId);
 			goto(`/project/${projectId}/chat/${conv.id}`);
 		} catch (err) {
 			console.error("Failed to create conversation:", err);
@@ -80,19 +84,23 @@
 
 {#if checked}
 <div class="absolute inset-0 flex">
-	<!-- Desktop: conversation list sidebar + empty state -->
-	<div class="hidden md:flex">
-		{#if projectId}
+	<!-- Desktop: the all-chats page. The sidebar's Chat section shows only the
+	     most recent threads; "Show all" and the Chat label land here, on the
+	     full list (search, rename, delete, paging) at full width. -->
+	{#if projectId && showAll}
+		<div class="hidden md:flex flex-1 min-w-0 flex-col">
+			<NoProviderBanner />
 			<ConversationList
 				{projectId}
+				fill
 				oncreate={handleCreate}
 				onselect={handleSelect}
 			/>
-		{/if}
-	</div>
+		</div>
+	{/if}
 
-	<!-- Desktop: empty state when no conversation selected -->
-	<div class="hidden md:flex flex-1 flex-col items-center justify-center min-w-0">
+	<!-- Desktop: empty state until the first conversation exists -->
+	<div class="{showAll ? 'hidden' : 'hidden md:flex'} flex-1 flex-col items-center justify-center min-w-0">
 		<NoProviderBanner />
 		<EmptyState
 			title="No conversations yet"

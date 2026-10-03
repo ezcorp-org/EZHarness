@@ -29,7 +29,7 @@ import {
 } from "node:fs";
 import { arch } from "node:os";
 import { delimiter, join } from "node:path";
-import { landlockAbiVersion } from "./landlock-ffi";
+import { landlockAbiVersion, syscallsFor } from "./landlock-ffi";
 
 /**
  * Setuid bit (S_ISUID, octal 04000). `node:fs` does not export it as a
@@ -103,7 +103,7 @@ export interface ProbeOutcomes {
   cgroupV2Delegation: boolean;
   /** Whether /dev/kvm is present (informational — microVM upgrade path). */
   kvm: boolean;
-  /** Host CPU architecture (Landlock FFI syscall numbers are x86_64-only). */
+  /** Host CPU architecture; Landlock needs a verified syscall table for it (`syscallsFor`). */
   arch: string;
   /** Whether the `bwrap` on PATH is the SETUID-root wrapper. When true we
    *  refuse the bwrap tier: setuid bwrap rejects `--size` and (on hosts
@@ -131,8 +131,10 @@ export interface SandboxCapabilities extends ProbeOutcomes {
  * PURE tier-selection from probe outcomes. Exhaustively unit-tested.
  *
  * Rules:
- *   - Landlock is "usable" only on x86_64 (we refuse to guess syscall
- *     numbers on other arches) AND when the probed ABI is >= 1.
+ *   - Landlock is "usable" only on an arch with a VERIFIED syscall table
+ *     (`syscallsFor()` in landlock-ffi.ts — x86_64 and aarch64; we still
+ *     refuse to guess numbers for anything else) AND when the probed ABI
+ *     is >= 1.
  *   - bwrap tier requires usable Landlock AND working userns (the bwrap
  *     upgrade rides on top of the Landlock fs-jail) AND a bwrap that is
  *     actually PRESENT on PATH AND is NON-setuid. Presence is explicit
@@ -149,7 +151,7 @@ export function selectTier(o: ProbeOutcomes): {
   tier: SandboxTier;
   landlockUsable: boolean;
 } {
-  const landlockUsable = o.arch === "x64" && (o.landlockAbi ?? 0) >= 1;
+  const landlockUsable = syscallsFor(o.arch) !== null && (o.landlockAbi ?? 0) >= 1;
   if (!landlockUsable) {
     return { tier: "advisory", landlockUsable: false };
   }

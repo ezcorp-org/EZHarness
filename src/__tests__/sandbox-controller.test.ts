@@ -1,4 +1,5 @@
 import { afterAll, afterEach, beforeEach, expect, mock, test } from "bun:test";
+import { AsyncResource } from "node:async_hooks";
 import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -29,7 +30,11 @@ function driver() {
   const process = mock(async (input: any) => ({ receipt: receipt(input.call), process: { identity: input.identity ?? { bootId: "boot-1", processId: "process-1" }, state: "exited" as const, exitCode: 0, outputCursor: 2 } }));
   const output = mock(async (input: any) => ({ receipt: receipt(input.call), identity: input.identity, cursor: 2, chunks: input.cursor === 0 ? [{ stream: "stdout" as const, encoding: "utf8" as const, data: "ok" }] : [], eof: true, gap: false }));
   const file = mock(async (input: any) => ({ receipt: receipt(input.call) }));
-  return { create, inspect: lifecycle("stopped", "stopped"), start: lifecycle("running", "running"), stop: lifecycle("stopped", "stopped"), destroy: lifecycle("destroyed", "destroyed"), processStart: process, processInspect: process, processReadOutput: output, processCancel: process, fileStat: file, fileList: file, fileRead: file, fileWrite: file, fileMkdir: file, fileRemove: file, fileChmod: file } as unknown as LocalSandboxDriver;
+  return { create, inspect: lifecycle("stopped", "stopped"), start: lifecycle("running", "running"), stop: lifecycle("stopped", "stopped"), destroy: lifecycle("destroyed", "destroyed"), processStart: process, processInspect: process, processReadOutput: output, processCancel: process, fileStat: file, fileList: file, fileRead: file, fileWrite: file, fileMkdir: file, fileRemove: file, fileChmod: file,
+    beginExport: mock(async (input: any) => ({ receipt: receipt(input.call), snapshotId: "frozen-1", byteLength: 2, sha256: "a".repeat(64) })),
+    readExport: mock(async (input: any) => ({ receipt: receipt(input.call), snapshotId: input.snapshotId, offsetBytes: input.offsetBytes, nextOffsetBytes: input.offsetBytes + 2, eof: true, data: "W10=" })),
+    endExport: mock(async (input: any) => ({ receipt: receipt(input.call) })),
+  } as unknown as LocalSandboxDriver;
 }
 
 async function fixture(invoke?: SandboxProviderInvocation, clock?: { now(): number; sleep(ms: number): Promise<void> }) {
@@ -41,10 +46,11 @@ async function fixture(invoke?: SandboxProviderInvocation, clock?: { now(): numb
     ["sandbox.lifecycle.v1", ["create", "inspect", "start", "stop", "destroy"]],
     ["sandbox.process.v1", ["start", "inspect", "readOutput", "cancel"]],
     ["sandbox.files.v1", ["stat", "list", "read", "write", "mkdir", "remove", "chmod"]],
+    ["sandbox.transfer.v1", ["beginExport", "readExport", "endExport"]],
   ] as const;
   const schemas = providerMethodSchemas as unknown as (group: string, operation: string) => { inputSchema: Record<string, unknown>; outputSchema: Record<string, unknown> };
   const methods = groups.flatMap(([group, operations]) => operations.map(operation => ({ name: `${group}:${operation}`, ...schemas(group, operation), sensitivity: "ordinary" as const })));
-  const manifest = validateManifest({ schemaVersion: 4, name: "local-sandbox", version: "1.0.0", author: { name: "Test" }, description: "Sandbox fixture", permissions: { hostApi: { routes: [{ method: "POST", path: "/api/local-sandbox/operations/:id/execute" }], events: false } }, methods, providers: [{ id: "local", kind: "sandbox", protocolMajor: 1, minimumHostContract: { major: 4, minor: 0 }, profiles: ["linux-exec.v1"], capabilities: [], configSchema: {}, requiredPermissions: ["hostApi"], methodGroups: [{ name: "sandbox.lifecycle.v1", methods: { create: "sandbox.lifecycle.v1:create", inspect: "sandbox.lifecycle.v1:inspect", start: "sandbox.lifecycle.v1:start", stop: "sandbox.lifecycle.v1:stop", destroy: "sandbox.lifecycle.v1:destroy" } }, { name: "sandbox.process.v1", methods: { start: "sandbox.process.v1:start", inspect: "sandbox.process.v1:inspect", readOutput: "sandbox.process.v1:readOutput", cancel: "sandbox.process.v1:cancel" } }, { name: "sandbox.files.v1", methods: { stat: "sandbox.files.v1:stat", list: "sandbox.files.v1:list", read: "sandbox.files.v1:read", write: "sandbox.files.v1:write", mkdir: "sandbox.files.v1:mkdir", remove: "sandbox.files.v1:remove", chmod: "sandbox.files.v1:chmod" } }] }] });
+  const manifest = validateManifest({ schemaVersion: 4, name: "local-sandbox", version: "1.0.0", author: { name: "Test" }, description: "Sandbox fixture", permissions: { hostApi: { routes: [{ method: "POST", path: "/api/local-sandbox/operations/:id/execute" }], events: false } }, methods, providers: [{ id: "local", kind: "sandbox", protocolMajor: 1, minimumHostContract: { major: 4, minor: 0 }, profiles: ["linux-exec.v1"], capabilities: [], configSchema: {}, requiredPermissions: ["hostApi"], methodGroups: [{ name: "sandbox.lifecycle.v1", methods: { create: "sandbox.lifecycle.v1:create", inspect: "sandbox.lifecycle.v1:inspect", start: "sandbox.lifecycle.v1:start", stop: "sandbox.lifecycle.v1:stop", destroy: "sandbox.lifecycle.v1:destroy" } }, { name: "sandbox.process.v1", methods: { start: "sandbox.process.v1:start", inspect: "sandbox.process.v1:inspect", readOutput: "sandbox.process.v1:readOutput", cancel: "sandbox.process.v1:cancel" } }, { name: "sandbox.files.v1", methods: { stat: "sandbox.files.v1:stat", list: "sandbox.files.v1:list", read: "sandbox.files.v1:read", write: "sandbox.files.v1:write", mkdir: "sandbox.files.v1:mkdir", remove: "sandbox.files.v1:remove", chmod: "sandbox.files.v1:chmod" } }, { name: "sandbox.transfer.v1", methods: { beginExport: "sandbox.transfer.v1:beginExport", readExport: "sandbox.transfer.v1:readExport", endExport: "sandbox.transfer.v1:endExport" } }] }] });
   const release = { id: "sandbox-release", installationId: installation.id, releaseDigest: "release-digest", policyDigest: "policy-digest", manifest };
   await database.execute(sql`INSERT INTO extension_release_installations(id,owner_id,scope,payload) VALUES(${installation.id},${owner!.id},'global',${JSON.stringify(installation)})`);
   await database.execute(sql`INSERT INTO extension_release_records(installation_id,kind,id,payload) VALUES(${installation.id},'releases',${release.id},${JSON.stringify(release)})`);
@@ -67,9 +73,222 @@ async function admitCreate(context: Awaited<ReturnType<typeof fixture>>) {
   return context.controller.createSandboxProject(context.owner.id, { name: "Sandbox project", idempotencyKey: "create-once", providerInstallationId: context.installation.id, providerId: "local", config: {}, limits });
 }
 
+test("personal sandbox admission persists its owner and refuses a shared replay", async () => {
+  const context = await fixture();
+  const input = { name: "Personal sandbox", idempotencyKey: "personal-once", providerInstallationId: context.installation.id, providerId: "local", config: {}, limits, privateOwnerOnly: true };
+  const created = await context.controller.createSandboxProject(context.owner.id, input);
+  const binding = await context.database.execute(sql`SELECT owner_id,private_owner_id FROM sandbox_provider_bindings WHERE id=${created.bindingId}`) as { rows: Array<{ owner_id: string; private_owner_id: string }> };
+  expect(binding.rows[0]).toEqual({ owner_id: context.owner.id, private_owner_id: context.owner.id });
+  expect((await context.controller.createSandboxProject(context.owner.id, input)).projectId).toBe(created.projectId);
+  await expect(context.controller.createSandboxProject(context.owner.id, { ...input, privateOwnerOnly: false })).rejects.toMatchObject({ code: "IDEMPOTENCY_CONFLICT" });
+  await expect(context.controller.createSandboxProject(context.owner.id, { ...input, privateOwnerOnly: "yes" as unknown as boolean })).rejects.toMatchObject({ code: "INVALID_INPUT" });
+});
+
+test("personal sandbox refuses another project member and admin before any provider call", async () => {
+  const context = await fixture();
+  const created = await context.controller.createSandboxProject(context.owner.id, { name: "Private", idempotencyKey: "private", providerInstallationId: context.installation.id, providerId: "local", config: {}, limits, privateOwnerOnly: true });
+  await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, created.operation!.id);
+  await context.database.execute(sql`INSERT INTO project_members(id,project_id,user_id,role) VALUES(${crypto.randomUUID()},${created.projectId},${context.other.id},'member')`);
+  const conversationId = crypto.randomUUID();
+  await context.database.execute(sql`INSERT INTO conversations(id,project_id,user_id,title) VALUES(${conversationId},${created.projectId},${context.other.id},'Other member')`);
+  for (const role of ["member", "admin"]) {
+    await context.database.execute(sql`UPDATE users SET role=${role} WHERE id=${context.other.id}`);
+    await expect(context.controller.getProjectSandboxStatus(context.other.id, created.projectId)).rejects.toMatchObject({ code: "PROJECT_ACCESS_DENIED" });
+    await expect(context.controller.requestSandboxAction(context.other.id, created.projectId, { action: "start", idempotencyKey: `foreign-${role}` })).rejects.toMatchObject({ code: "PROJECT_ACCESS_DENIED" });
+    await expect(context.controller.admitSandboxMethod(context.other.id, created.projectId, { group: "sandbox.files.v1", operation: "read", payload: { path: "/private.txt", offsetBytes: 0, lengthBytes: 10 }, conversationId, idempotencyKey: `read-${role}` })).rejects.toMatchObject({ code: "PROJECT_ACCESS_DENIED" });
+    await expect(context.controller.runNativeWorkspaceProcess({ projectId: created.projectId, bindingId: created.bindingId, revision: 1 }, { argv: ["/usr/local/bin/bun", "/opt/ezharness/native-tools.js", "ZXhpdCAw"], timeoutMs: 1_000 }, undefined, { userId: context.other.id, conversationId })).rejects.toMatchObject({ code: "PROJECT_ACCESS_DENIED" });
+  }
+  expect(context.local.start).not.toHaveBeenCalled();
+  expect(context.local.fileRead).not.toHaveBeenCalled();
+  expect(context.local.processStart).not.toHaveBeenCalled();
+  expect((await context.controller.getProjectSandboxStatus(context.owner.id, created.projectId)).bindingId).toBe(created.bindingId);
+  // Corrupt ownership never changes who can use a personal workspace.
+  await context.database.execute(sql`UPDATE sandbox_provider_bindings SET owner_id=${context.other.id} WHERE id=${created.bindingId}`);
+  await expect(context.controller.getProjectSandboxStatus(context.owner.id, created.projectId)).rejects.toMatchObject({ code: "PROJECT_ACCESS_DENIED" });
+  await expect(context.controller.getProjectSandboxStatus(context.other.id, created.projectId)).rejects.toMatchObject({ code: "PROJECT_ACCESS_DENIED" });
+});
+
+test("existing shared sandbox still allows its project members", async () => {
+  const context = await fixture();
+  const created = await admitCreate(context);
+  await context.database.execute(sql`INSERT INTO project_members(id,project_id,user_id,role) VALUES(${crypto.randomUUID()},${created.projectId},${context.other.id},'member')`);
+  expect((await context.controller.getProjectSandboxStatus(context.other.id, created.projectId)).bindingId).toBe(created.bindingId);
+});
+
+async function pendingPrivate(context: Awaited<ReturnType<typeof fixture>>) {
+  return context.controller.createSandboxProject(context.owner.id, { name: "Import pending", idempotencyKey: "import-pending", providerInstallationId: context.installation.id, providerId: "local", config: {}, limits, privateOwnerOnly: true, privateInitializing: true });
+}
+
+test("an owner can cancel an undispatched private create without calling its provider", async () => {
+  const context = await fixture();
+  const created = await pendingPrivate(context);
+  await context.database.execute(sql`INSERT INTO project_members(id,project_id,user_id,role) VALUES(${crypto.randomUUID()},${created.projectId},${context.other.id},'member')`);
+  await expect(context.controller.requestSandboxAction(context.other.id, created.projectId, { action: "destroy", idempotencyKey: "not-owner" })).rejects.toMatchObject({ code: "PROJECT_ACCESS_DENIED" });
+  const cancelled = await context.controller.requestSandboxAction(context.owner.id, created.projectId, { action: "destroy", idempotencyKey: "cancel-pending" });
+  expect(cancelled).toMatchObject({ action: "destroy", state: "succeeded", input: { cancelledBeforeCreate: true } });
+  expect((await context.controller.requestSandboxAction(context.owner.id, created.projectId, { action: "destroy", idempotencyKey: "cancel-pending" })).id).toBe(cancelled.id);
+  await expect(context.controller.requestSandboxAction(context.owner.id, created.projectId, { action: "destroy", idempotencyKey: "different-key" })).rejects.toMatchObject({ code: "RESOURCE_MISSING" });
+  expect((await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, cancelled.id)).initializationState).toBe("failed");
+  await expect(context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, created.operation!.id)).rejects.toMatchObject({ code: "WORKSPACE_IMPORT_INCOMPLETE" });
+  expect(context.local.create).not.toHaveBeenCalled();
+  expect(context.local.destroy).not.toHaveBeenCalled();
+  const resource = await context.database.execute(sql`SELECT observed_state,provider_resource_id FROM sandbox_resources WHERE binding_id=${created.bindingId}`) as { rows: Array<{ observed_state: string; provider_resource_id: string | null }> };
+  expect(resource.rows[0]).toEqual({ observed_state: "destroyed", provider_resource_id: null });
+  expect((await context.controller.createSandboxProject(context.owner.id, { name: "Next sandbox", idempotencyKey: "next-after-cancel", providerInstallationId: context.installation.id, providerId: "local", config: {}, limits })).projectId).not.toBe(created.projectId);
+});
+
+test("an owner can cancel an undispatched private create after its provider is disabled", async () => {
+  const context = await fixture();
+  const created = await pendingPrivate(context);
+  await context.database.execute(sql`UPDATE extension_release_installations SET payload=${JSON.stringify({ ...context.installation, enabled: false })} WHERE id=${context.installation.id}`);
+  const cancelled = await context.controller.requestSandboxAction(context.owner.id, created.projectId, { action: "destroy", idempotencyKey: "cancel-inactive" });
+  expect(cancelled).toMatchObject({ action: "destroy", state: "succeeded", input: { cancelledBeforeCreate: true } });
+  expect((await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, cancelled.id)).initializationState).toBe("failed");
+  expect(context.local.create).not.toHaveBeenCalled();
+  expect(context.local.destroy).not.toHaveBeenCalled();
+});
+
+test("a create that may have reached the provider cannot be cancelled locally", async () => {
+  const context = await fixture();
+  const created = await pendingPrivate(context);
+  await context.database.execute(sql`UPDATE sandbox_operations SET state='running',claimed_at=NOW() WHERE id=${created.operation!.id}`);
+  await expect(context.controller.requestSandboxAction(context.owner.id, created.projectId, { action: "destroy", idempotencyKey: "unsafe-cancel" })).rejects.toMatchObject({ code: "OPERATION_IN_PROGRESS" });
+  const resource = await context.database.execute(sql`SELECT observed_state FROM sandbox_resources WHERE binding_id=${created.bindingId}`) as { rows: Array<{ observed_state: string }> };
+  expect(resource.rows[0]?.observed_state).toBe("creating");
+  expect(context.local.destroy).not.toHaveBeenCalled();
+});
+
+test("private import needs a confirmed provider resource before ready", async () => {
+  const missing = await fixture();
+  const pending = await pendingPrivate(missing);
+  await expect(missing.controller.runPrivateWorkspaceImport(missing.owner.id, pending.projectId, "no-resource", async () => {
+    await missing.database.execute(sql`UPDATE sandbox_operations SET state='succeeded' WHERE id=${pending.operation!.id}`);
+    await missing.database.execute(sql`UPDATE sandbox_resources SET observed_state='stopped' WHERE binding_id=${pending.bindingId}`);
+  })).rejects.toMatchObject({ code: "WORKSPACE_IMPORT_INCOMPLETE" });
+  expect((await missing.controller.getProjectSandboxStatus(missing.owner.id, pending.projectId)).initializationState).toBe("failed");
+});
+
+test("private import needs no active writer before ready", async () => {
+  const leased = await fixture();
+  const created = await pendingPrivate(leased);
+  await expect(leased.controller.runPrivateWorkspaceImport(leased.owner.id, created.projectId, "active-writer", async () => {
+    await leased.controller.executeAdmittedLocalSandboxOperation(leased.owner.id, created.operation!.id);
+    await leased.controller.admitSandboxMethod(leased.owner.id, created.projectId, { group: "sandbox.files.v1", operation: "write", payload: { path: "/a", encoding: "utf8", data: "x" }, idempotencyKey: "unsettled-import-write" });
+  })).rejects.toMatchObject({ code: "WORKSPACE_IMPORT_INCOMPLETE" });
+  expect((await leased.controller.getProjectSandboxStatus(leased.owner.id, created.projectId)).initializationState).toBe("failed");
+});
+
+test("a private import grants only its scoped callback access until completion", async () => {
+  const context = await fixture();
+  const created = await pendingPrivate(context);
+  expect(created).toMatchObject({ privateOwnerOnly: true, initializationState: "pending" });
+  await expect(context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, created.operation!.id)).rejects.toMatchObject({ code: "WORKSPACE_IMPORT_INCOMPLETE" });
+  const started = Promise.withResolvers<void>();
+  const complete = Promise.withResolvers<void>();
+  const importing = context.controller.runPrivateWorkspaceImport(context.owner.id, created.projectId, "import-1", async () => {
+    await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, created.operation!.id);
+    const read = await context.controller.admitSandboxMethod(context.owner.id, created.projectId, { group: "sandbox.lifecycle.v1", operation: "inspect", payload: {}, idempotencyKey: "import-inspect" });
+    expect((await context.controller.executeAdmittedSandboxMethod(context.owner.id, read.id)).state).toBe("succeeded");
+    started.resolve();
+    await complete.promise;
+    return "imported";
+  });
+  await started.promise;
+  expect((await context.controller.getProjectSandboxStatus(context.owner.id, created.projectId)).initializationState).toBe("importing");
+  await expect(context.controller.admitSandboxMethod(context.owner.id, created.projectId, { group: "sandbox.files.v1", operation: "read", payload: {}, idempotencyKey: "outside-import" })).rejects.toMatchObject({ code: "WORKSPACE_IMPORT_INCOMPLETE" });
+  await expect(context.controller.runPrivateWorkspaceImport(context.owner.id, created.projectId, "import-2", async () => "bad")).rejects.toMatchObject({ code: "WORKSPACE_IMPORT_UNAVAILABLE" });
+  complete.resolve();
+  expect(await importing).toBe("imported");
+  expect((await context.controller.getProjectSandboxStatus(context.owner.id, created.projectId)).initializationState).toBe("ready");
+  await expect(context.controller.runPrivateWorkspaceImport(context.owner.id, created.projectId, "import-3", async () => "bad")).rejects.toMatchObject({ code: "WORKSPACE_IMPORT_UNAVAILABLE" });
+});
+
+test("failed and interrupted private imports stay closed and can be disposed", async () => {
+  const context = await fixture();
+  const created = await pendingPrivate(context);
+  await expect(context.controller.runPrivateWorkspaceImport(context.owner.id, created.projectId, "", async () => "bad")).rejects.toMatchObject({ code: "INVALID_INPUT" });
+  await expect(context.controller.runPrivateWorkspaceImport(context.owner.id, created.projectId, "partial", async () => {
+    await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, created.operation!.id);
+    throw new Error("Import interrupted");
+  })).rejects.toThrow("Import interrupted");
+  expect((await context.controller.getProjectSandboxStatus(context.owner.id, created.projectId)).initializationState).toBe("failed");
+  const restarted = context.restartController();
+  await expect(restarted.requestSandboxAction(context.owner.id, created.projectId, { action: "start", idempotencyKey: "after-failure" })).rejects.toMatchObject({ code: "WORKSPACE_IMPORT_INCOMPLETE" });
+  const disposal = await restarted.requestSandboxAction(context.owner.id, created.projectId, { action: "destroy", idempotencyKey: "dispose-partial" });
+  expect((await restarted.executeAdmittedLocalSandboxOperation(context.owner.id, disposal.id)).resource?.observedState).toBe("destroyed");
+});
+
+test("a changed resource cannot make a private import ready", async () => {
+  const context = await fixture();
+  const created = await pendingPrivate(context);
+  await expect(context.controller.runPrivateWorkspaceImport(context.owner.id, created.projectId, "changed-resource", async () => {
+    await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, created.operation!.id);
+    await context.database.execute(sql`UPDATE sandbox_resources SET observed_state='destroyed' WHERE binding_id=${created.bindingId}`);
+  })).rejects.toMatchObject({ code: "WORKSPACE_IMPORT_INCOMPLETE" });
+  expect((await context.controller.getProjectSandboxStatus(context.owner.id, created.projectId)).initializationState).toBe("failed");
+});
+
+test("a reviewed reverse RPC carries only its own private import authority", async () => {
+  const outsideImport = new AsyncResource("provider reverse RPC");
+  let controller!: ReturnType<typeof createSandboxController>;
+  const context = await fixture(async (userId, _projectId, provider, _group, _operation, input) => outsideImport.runInAsyncScope(() => controller.executeAdmittedLocalSandboxOperationRaw(userId, (input as { call: { operationId: string } }).call.operationId, provider.installationId)));
+  controller = context.controller;
+  const created = await pendingPrivate(context);
+  await controller.runPrivateWorkspaceImport(context.owner.id, created.projectId, "reverse-rpc-import", async () => {
+    await controller.executeAdmittedLocalSandboxOperation(context.owner.id, created.operation!.id);
+    const inspect = await controller.admitSandboxMethod(context.owner.id, created.projectId, { group: "sandbox.lifecycle.v1", operation: "inspect", payload: {}, idempotencyKey: "reverse-rpc-inspect" });
+    expect((await controller.executeAdmittedSandboxMethod(context.owner.id, inspect.id)).state).toBe("succeeded");
+  });
+  expect((await controller.getProjectSandboxStatus(context.owner.id, created.projectId)).initializationState).toBe("ready");
+  await expect(controller.executeAdmittedLocalSandboxOperationRaw(context.owner.id, created.operation!.id, context.installation.id)).rejects.toMatchObject({ code: "RAW_DISPATCH_DENIED" });
+  outsideImport.emitDestroy();
+});
+
+test("shared workspaces cannot request private initialization", async () => {
+  const context = await fixture();
+  await expect(context.controller.createSandboxProject(context.owner.id, { name: "Invalid", idempotencyKey: "invalid", providerInstallationId: context.installation.id, providerId: "local", config: {}, limits, privateInitializing: true })).rejects.toMatchObject({ code: "INVALID_INPUT" });
+});
+
+test("a private workspace binds one conversation and refuses another conversation of its owner", async () => {
+  const context = await fixture();
+  const created = await context.controller.createSandboxProject(context.owner.id, { name: "One conversation", idempotencyKey: "one-conversation", providerInstallationId: context.installation.id, providerId: "local", config: {}, limits, privateOwnerOnly: true });
+  await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, created.operation!.id);
+  const conversationId = crypto.randomUUID();
+  const otherConversationId = crypto.randomUUID();
+  for (const id of [conversationId, otherConversationId]) await context.database.execute(sql`INSERT INTO conversations(id,project_id,user_id,title) VALUES(${id},${created.projectId},${context.owner.id},'Owner conversation')`);
+  const inspect = { group: "sandbox.lifecycle.v1" as const, operation: "inspect", payload: {}, idempotencyKey: "no-conversation" };
+  await expect(context.controller.admitSandboxMethod(context.owner.id, created.projectId, inspect)).rejects.toMatchObject({ code: "CONVERSATION_ACCESS_DENIED" });
+  const admitted = await context.controller.admitSandboxMethod(context.owner.id, created.projectId, { ...inspect, conversationId });
+  expect((await context.controller.getProjectSandboxStatus(context.owner.id, created.projectId)).privateConversationId).toBe(conversationId);
+  expect((await context.controller.executeAdmittedSandboxMethod(context.owner.id, admitted.id)).state).toBe("succeeded");
+  await expect(context.controller.admitSandboxMethod(context.owner.id, created.projectId, { ...inspect, conversationId: otherConversationId, idempotencyKey: "different-conversation" })).rejects.toMatchObject({ code: "CONVERSATION_ACCESS_DENIED" });
+  await expect(context.controller.runNativeWorkspaceProcess({ projectId: created.projectId, bindingId: created.bindingId, revision: 1 }, { argv: ["/usr/local/bin/bun", "/opt/ezharness/native-tools.js", "ZXhpdCAw"], timeoutMs: 1_000 }, undefined, { userId: context.owner.id, conversationId: otherConversationId })).rejects.toMatchObject({ code: "CONVERSATION_ACCESS_DENIED" });
+  // Recheck the stored conversation on result reads, not just admission.
+  await context.database.execute(sql`UPDATE sandbox_provider_bindings SET private_conversation_id=${otherConversationId} WHERE id=${created.bindingId}`);
+  await expect(context.controller.getSandboxOperationResult(context.owner.id, admitted.id)).rejects.toMatchObject({ code: "CONVERSATION_ACCESS_DENIED" });
+});
+
 async function expireMethodClaim(database: ReturnType<typeof getTestDb>, operationId: string): Promise<void> {
   await database.execute(sql`UPDATE sandbox_method_operations SET claim_expires_at=NOW() - INTERVAL '1 second' WHERE id=${operationId}`);
 }
+
+test("routes all frozen transfer methods and releases the export writer lease", async () => {
+  const context = await fixture();
+  const created = await admitCreate(context);
+  await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, created.operation!.id);
+  const begin = await context.controller.admitSandboxMethod(context.owner.id, created.projectId, { group: "sandbox.transfer.v1", operation: "beginExport", idempotencyKey: "begin-frozen", payload: {} });
+  const begun = await context.controller.executeAdmittedSandboxMethod(context.owner.id, begin.id);
+  expect(begun.result).toMatchObject({ receipt: { outcome: "succeeded" }, snapshotId: "frozen-1" });
+  expect(context.local.beginExport).toHaveBeenCalledTimes(1);
+  const leases = await context.database.execute(sql`SELECT binding_id FROM sandbox_writer_leases WHERE operation_id=${begin.id}`);
+  expect(leases.rows).toHaveLength(0);
+  const read = await context.controller.admitSandboxMethod(context.owner.id, created.projectId, { group: "sandbox.transfer.v1", operation: "readExport", idempotencyKey: "read-frozen", payload: { snapshotId: "frozen-1", offsetBytes: 0, lengthBytes: 2 } });
+  expect((await context.controller.executeAdmittedSandboxMethod(context.owner.id, read.id)).result).toMatchObject({ receipt: { outcome: "succeeded" }, data: "W10=" });
+  expect(context.local.readExport).toHaveBeenCalledTimes(1);
+  const end = await context.controller.admitSandboxMethod(context.owner.id, created.projectId, { group: "sandbox.transfer.v1", operation: "endExport", idempotencyKey: "end-frozen", payload: { snapshotId: "frozen-1" } });
+  expect((await context.controller.executeAdmittedSandboxMethod(context.owner.id, end.id)).result).toMatchObject({ receipt: { outcome: "succeeded" } });
+  expect(context.local.endExport).toHaveBeenCalledTimes(1);
+});
 
 test("startup accessor fails closed until a host driver configures it", () => {
   expect(() => getSandboxController()).toThrow("Local sandbox controller is not configured");

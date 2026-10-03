@@ -20,6 +20,7 @@
 		unreadForkCount,
 	} from "$lib/conversation-grouping.js";
 	import { unreadStore } from "$lib/unread.js";
+	import { CONVERSATIONS_CHANGED, notifyConversationsChanged } from "$lib/stores.svelte.js";
 	import DeleteConfirmDialog from "./DeleteConfirmDialog.svelte";
 	import MentionText from "./MentionText.svelte";
 	import SkeletonLoader from "./SkeletonLoader.svelte";
@@ -29,10 +30,14 @@
 		activeConversationId,
 		oncreate,
 		onselect,
+		fill = false,
 	}: {
 		projectId: string;
 		activeConversationId?: string;
 		oncreate: () => void;
+		/** Take the whole available width (the all-chats page) instead of the
+		 *  fixed 280px column it is on mobile and was on desktop. */
+		fill?: boolean;
 		// Widened (66-02): message rows pass an optional second arg so the
 		// consumer can deep-link to a specific message (deep-link plumbing
 		// lands in 66-03; this plan only emits the messageId).
@@ -46,6 +51,18 @@
 	let loadingMore = $state(false);
 	let hasMore = $state(true);
 	let renamingId = $state<string | null>(null);
+	// True only while THIS list is announcing its own change: it has already
+	// updated its local state, so refetching on its own signal would be a
+	// wasted request racing the very write it just made.
+	let announcing = false;
+	function announceChange() {
+		announcing = true;
+		try {
+			notifyConversationsChanged(projectId);
+		} finally {
+			announcing = false;
+		}
+	}
 	let renameValue = $state("");
 	let deleteTarget = $state<Conversation | null>(null);
 	let sentinelEl = $state<HTMLDivElement | null>(null);
@@ -209,6 +226,20 @@
 		return () => window.removeEventListener("conversation:created", onConversationCreated);
 	});
 
+	// Any other list's create/rename/delete, or a title generated in a thread
+	// (see notifyConversationsChanged) — the sidebar and this list are both on
+	// screen now, so each must hear about the other's changes.
+	$effect(() => {
+		const currentProjectId = projectId;
+		function onConversationsChanged(e: Event) {
+			if (announcing) return;
+			const target = (e as CustomEvent<{ projectId?: string } | undefined>).detail?.projectId;
+			if (target === undefined || target === currentProjectId) loadConversations();
+		}
+		window.addEventListener(CONVERSATIONS_CHANGED, onConversationsChanged);
+		return () => window.removeEventListener(CONVERSATIONS_CHANGED, onConversationsChanged);
+	});
+
 	// Infinite scroll: observe sentinel at list bottom
 	$effect(() => {
 		if (!sentinelEl) return;
@@ -288,6 +319,7 @@
 		try {
 			await deleteConversation(id);
 			conversations = conversations.filter((c) => c.id !== id);
+			announceChange();
 			if (wasActive && conversations.length > 0) {
 				onselect(conversations[0]!.id);
 			}
@@ -309,6 +341,7 @@
 		try {
 			const updated = await updateConversation(renamingId, { title: renameValue.trim() });
 			conversations = conversations.map((c) => (c.id === updated.id ? updated : c));
+			announceChange();
 		} catch {
 			// silent
 		}
@@ -316,7 +349,7 @@
 	}
 </script>
 
-<nav aria-label="Conversations" class="flex h-full w-full md:w-[280px] shrink-0 flex-col border-r border-[var(--color-border)] bg-[var(--color-surface-secondary)]">
+<nav aria-label="Conversations" class="flex h-full w-full {fill ? 'min-w-0 flex-1' : 'md:w-[280px] shrink-0'} flex-col border-r border-[var(--color-border)] bg-[var(--color-surface-secondary)]">
 	<div class="flex items-center justify-between border-b border-[var(--color-border)] px-3 py-3">
 		<span class="text-sm font-medium text-[var(--color-text-secondary)]">Conversations</span>
 		<div class="flex items-center gap-1.5">

@@ -97,11 +97,9 @@ web/e2e/.validate-auth.json
 # Local git worktrees — checked-out branches for parallel work. Never commit;
 # the actual branches live in the remote.
 #
-# Both spellings are in use and neither pattern covers the other: a leading dot
-# makes a different directory name, so `worktrees/` never matched `.worktrees/`.
-# AGENTS.md documents `./worktrees/<slug>`; agents that hide the dir pick
-# `.worktrees/`. (`.claude/worktrees/`, which the Agent tool's
-# `isolation: "worktree"` creates, is already covered by `.claude/*` below.)
+# `.worktrees/` is the canonical directory. Keep the old `worktrees/` pattern
+# while legacy checkouts are moved; the leading dot makes it a different name.
+# `.claude/worktrees/` remains covered by `.claude/*` below.
 worktrees/
 .worktrees/
 

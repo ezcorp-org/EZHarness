@@ -176,6 +176,12 @@ export async function finalizeError(
       failedProvider: err.failedProvider,
       failedModel: err.failedModel,
       suggestion: err.suggestion,
+      // Lets the card say "Poolside is rate-limiting this free model" instead
+      // of "all providers are unavailable" — see ProviderFailureDetail.
+      // Optional-chained: an error built without a detail (older call sites,
+      // test doubles) must still render the plain "unavailable" card.
+      ...(err.detail?.reason ? { reason: err.detail.reason } : {}),
+      ...(err.detail?.upstreamProvider ? { upstreamProvider: err.detail.upstreamProvider } : {}),
       message: err.message,
     });
     run.result = { success: false, output: null, error: errorPayload };

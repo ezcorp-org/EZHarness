@@ -27,6 +27,9 @@ const methods: Array<{ group: SandboxProviderGroup; operation: string; input: Re
   { group: "sandbox.files.v1", operation: "mkdir", input: { call, resourceId: resource.resourceId, path: "/src/new", recursive: true }, result: { receipt, entry: { ...entry, path: "/src/new", kind: "directory", sizeBytes: 0, mode: 0o755 } } },
   { group: "sandbox.files.v1", operation: "remove", input: { call, resourceId: resource.resourceId, path: entry.path, expectedRevision: entry.revision, recursive: false }, result: { receipt, removedRevision: entry.revision } },
   { group: "sandbox.files.v1", operation: "chmod", input: { call, resourceId: resource.resourceId, path: entry.path, expectedRevision: entry.revision, mode: 0o755 }, result: { receipt, entry: { ...entry, mode: 0o755 } } },
+  { group: "sandbox.transfer.v1", operation: "beginExport", input: { call, resourceId: resource.resourceId }, result: { receipt, snapshotId: "snapshot-1", byteLength: 2, sha256: digest } },
+  { group: "sandbox.transfer.v1", operation: "readExport", input: { call, resourceId: resource.resourceId, snapshotId: "snapshot-1", offsetBytes: 0, lengthBytes: 1024 }, result: { receipt, snapshotId: "snapshot-1", offsetBytes: 0, nextOffsetBytes: 2, eof: true, data: "b2s=" } },
+  { group: "sandbox.transfer.v1", operation: "endExport", input: { call, resourceId: resource.resourceId, snapshotId: "snapshot-1" }, result: { receipt } },
 ];
 
 function validate(group: SandboxProviderGroup, operation: string, input: unknown, result: unknown): void {
@@ -41,8 +44,8 @@ describe("sandbox provider wire contract", () => {
       validate(method.group, method.operation, method.input, method.result);
       validate(method.group, method.operation, method.input, { receipt: { ...receipt, outcome: "failed", error: { code: "backend_failed", message: "failed", retryable: true } } });
       validate(method.group, method.operation, method.input, { receipt: { ...receipt, outcome: "unknown" } });
-      expect(() => validate(method.group, method.operation, method.input, { receipt })).toThrow();
-      expect(() => validate(method.group, method.operation, method.input, { ...method.result, receipt: { ...receipt, outcome: "unknown" } })).toThrow();
+      if (method.operation !== "endExport") expect(() => validate(method.group, method.operation, method.input, { receipt })).toThrow();
+      if (method.operation !== "endExport") expect(() => validate(method.group, method.operation, method.input, { ...method.result, receipt: { ...receipt, outcome: "unknown" } })).toThrow();
     }
   });
 
@@ -129,5 +132,9 @@ describe("sandbox provider wire contract", () => {
     expect(() => validate(list.group, list.operation, list.input, { ...list.result, entries: [{ ...entry, path: "/src/nested/file" }] })).toThrow("outside the requested directory");
     const remove = methods.find(method => method.operation === "remove")!;
     expect(() => validate(remove.group, remove.operation, remove.input, { ...remove.result, removedRevision: "revision-2" })).toThrow("changed the expected revision");
+    const snapshot = methods.find(method => method.operation === "readExport")!;
+    expect(() => validate(snapshot.group, snapshot.operation, snapshot.input, { ...snapshot.result, snapshotId: "other" })).toThrow("Snapshot read changed identity");
+    expect(() => validate(snapshot.group, snapshot.operation, snapshot.input, { ...snapshot.result, nextOffsetBytes: 3 })).toThrow("invalid range");
+    expect(() => validate(snapshot.group, snapshot.operation, { ...snapshot.input, lengthBytes: 1 }, snapshot.result)).toThrow("invalid range");
   });
 });

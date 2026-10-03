@@ -14,6 +14,7 @@
 
 import { test, expect, describe } from "bun:test";
 import {
+  kiloModelFallbackFor,
   emptyKiloTiers,
   isFreeKiloModelId,
   KILO_BASE_URL,
@@ -476,5 +477,27 @@ describe("T6 the persisted round-trip (regression: refresh-models degraded the c
 
   test("the wire shape still parses — both shapes coexist", () => {
     expect(byId(parseKiloCatalog({ data: LIVE_ROWS }), "kilo-auto/frontier")!.cost.input).toBe(5);
+  });
+});
+
+describe("kiloModelFallbackFor — the retry target for a rate-limited free model", () => {
+  test("a rate-limited free Kilo model falls back to Kilo's free router", () => {
+    expect(kiloModelFallbackFor("kilo", "poolside/laguna-s-2.1:free", "rate_limited")).toBe(KILO_FREE_AUTO_MODEL);
+  });
+
+  test("never swaps a PAID model for a free one", () => {
+    expect(kiloModelFallbackFor("kilo", "anthropic/claude-sonnet-5", "rate_limited")).toBeNull();
+  });
+
+  test("never falls back from the free router to itself", () => {
+    expect(kiloModelFallbackFor("kilo", KILO_FREE_AUTO_MODEL, "rate_limited")).toBeNull();
+  });
+
+  test("only for rate limits — other failures would fail the same way on the next model", () => {
+    expect(kiloModelFallbackFor("kilo", "poolside/laguna-s-2.1:free", undefined)).toBeNull();
+  });
+
+  test("only for Kilo", () => {
+    expect(kiloModelFallbackFor("openrouter", "some/model:free", "rate_limited")).toBeNull();
   });
 });

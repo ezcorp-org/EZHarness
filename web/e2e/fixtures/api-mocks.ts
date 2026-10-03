@@ -723,6 +723,12 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 			return route.fulfill({ json: merged });
 		}
 		if (path.match(/^\/api\/conversations\/[^/]+$/) && method === "DELETE") {
+			// Persist the delete, as POST and PUT above persist theirs: with the
+			// sidebar and the full list both on screen, one refetches after the
+			// other deletes, and a mock that forgets the delete resurrects the row.
+			const id = path.split("/").pop()!;
+			const idx = conversations.findIndex((c) => c.id === id);
+			if (idx >= 0) conversations.splice(idx, 1);
 			return route.fulfill({ json: { success: true } });
 		}
 

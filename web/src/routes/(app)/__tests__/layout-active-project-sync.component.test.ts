@@ -22,9 +22,9 @@
  */
 
 import "@testing-library/jest-dom/vitest";
-import { render } from "@testing-library/svelte";
+import { render, waitFor, within } from "@testing-library/svelte";
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
-import { createRawSnippet } from "svelte";
+import { createRawSnippet, tick } from "svelte";
 
 const { pageStub } = vi.hoisted(() => ({
 	pageStub: {
@@ -71,6 +71,14 @@ vi.mock("$lib/api", () => ({
 	fetchSettings: () => Promise.resolve({}),
 	fetchAgentConfigs: () => Promise.resolve([]),
 	fetchWorkflows: () => Promise.resolve([]),
+	fetchConversations: () => Promise.resolve([{
+		id: "conv-9",
+		projectId: "proj-2",
+		title: "Current chat",
+		createdAt: "2026-09-24T00:00:00.000Z",
+		updatedAt: "2026-09-24T00:00:00.000Z",
+		forkedFromConversationId: null,
+	}]),
 	createConversation: () => Promise.resolve({ id: "conv-new" }),
 }));
 
@@ -105,6 +113,18 @@ afterEach(() => {
 });
 
 describe("(app) layout — activeProjectId follows the URL's project segment", () => {
+	test("the mobile Chat section marks the current thread and closes after navigation", async () => {
+		const view = mountAt("/project/proj-2/chat/conv-9", { id: "proj-2", convId: "conv-9" });
+		store.mobileMenuOpen = true;
+		await tick();
+		const drawer = view.getByRole("dialog", { name: "Mobile navigation" });
+		const currentThread = await within(drawer).findByRole("link", { name: "Current chat" });
+		expect(currentThread).toHaveAttribute("href", "/project/proj-2/chat/conv-9");
+		expect(currentThread).toHaveAttribute("aria-current", "page");
+		currentThread.click();
+		await waitFor(() => expect(store.mobileMenuOpen).toBe(false));
+	});
+
 	test("a project route syncs the store and localStorage", () => {
 		mountAt("/project/proj-2/chat/conv-9", { id: "proj-2", convId: "conv-9" });
 

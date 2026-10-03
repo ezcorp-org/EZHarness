@@ -22,7 +22,7 @@
 		type Conversation,
 		type Mode,
 	} from "$lib/api.js";
-	import { store, openTeamPanel, refreshQuickstart, type AgentCallState, type TaskPanelTask } from "$lib/stores.svelte.js";
+	import { store, openTeamPanel, refreshQuickstart, notifyConversationsChanged, type AgentCallState, type TaskPanelTask } from "$lib/stores.svelte.js";
 	import { persistLastModel } from "$lib/last-model.js";
 	import { attachPanelPersistence } from "$lib/chat/page-handlers/panel-persistence.svelte.js";
 	import { attachTaskHydration } from "$lib/chat/page-handlers/task-hydrate.svelte.js";
@@ -33,6 +33,8 @@
 	import ConversationSettings from "$lib/components/ConversationSettings.svelte";
 	import ObservabilityPanel from "$lib/components/ObservabilityPanel.svelte";
 	import DiffSummaryPanel from "$lib/components/DiffSummaryPanel.svelte";
+	import PersonalPrCard from "$lib/components/PersonalPrCard.svelte";
+	import type { PersonalPrView } from "$lib/personal-pr.js";
 	import { scrollToToolCall } from "$lib/scroll-to-tool-call";
 	import ModeFormModal from "$lib/components/ModeFormModal.svelte";
 	import SwipeDrawer from "$lib/components/SwipeDrawer.svelte";
@@ -61,13 +63,38 @@
 	let mobileConvListOpen = $state(false);
 	let toolsOpen = $state(false);
 	let diffPanelOpen = $state(false);
+	let personalPrReview = $state<PersonalPrView | null>(null);
+	let personalPrRefreshKey = $state(0);
+	function toggleDiffPanel() {
+		if (!diffPanelOpen) personalPrReview = null;
+		diffPanelOpen = !diffPanelOpen;
+	}
+	function openPersonalPrReview(review: PersonalPrView) {
+		personalPrReview = review;
+		diffPanelOpen = true;
+		const expectedPath = `/project/${projectId}/chat/${convId}?review=${review.proposalId}`;
+		if (review.proposalId && review.reviewPath === expectedPath && `${page.url.pathname}${page.url.search}` !== expectedPath) {
+			void goto(expectedPath, { noScroll: true });
+		}
+	}
+	$effect(() => {
+		const reviewId = page.url.searchParams.get("review");
+		const expectedPath = `/project/${projectId}/chat/${convId}?review=${reviewId}`;
+		if (!reviewId) { personalPrReview = null; return; }
+		personalPrReview = null;
+		const controller = new AbortController();
+		fetch(`/api/github/personal-prs/proposals/${encodeURIComponent(reviewId)}`, { signal: controller.signal })
+			.then((response) => response.ok ? response.json() as Promise<PersonalPrView> : null)
+			.then((review) => { if (!controller.signal.aborted && review?.reviewPath === expectedPath) { personalPrReview = review; diffPanelOpen = true; } })
+			.catch(() => {});
+		return () => controller.abort();
+	});
 	let taskLogsOpen = $state(false);
 	let taskLogsTask = $state<TaskPanelTask | null>(null);
 	let selectedAgent = $state<AgentCallState | null>(null);
 	let permissionModeOverride = $state<PermissionMode | undefined>(undefined);
 	let pendingSelectedAgentSubConvId = $state<string | null>(null);
 	let hydratedSubConversations = $state<SubConvoRecord[]>([]);
-	let convList: ConversationList | undefined = $state();
 
 	// Task panel (driven by the thread's chrome state).
 	let taskSnapshot = $derived(store.taskSnapshots[convId] ?? null);
@@ -169,6 +196,7 @@
 		try {
 			const conv = await createConversation({ projectId });
 			void refreshQuickstart();
+			notifyConversationsChanged(projectId);
 			goto(`/project/${projectId}/chat/${conv.id}`);
 		} catch (err) {
 			console.error("Failed to create conversation:", err);
@@ -193,17 +221,9 @@
 </script>
 
 <div class="absolute inset-0 flex">
-	<!-- Desktop conversation list -->
-	<div class="hidden md:flex">
-		<ConversationList
-			bind:this={convList}
-			{projectId}
-			activeConversationId={convId}
-			oncreate={handleCreate}
-			onselect={handleSelect}
-		/>
-	</div>
-
+	<!-- Desktop has no conversation column: the threads live in the sidebar's
+	     Chat section (ChatNavSection), so the conversation gets the full width.
+	     Mobile keeps its swipe-in list below. -->
 	<!-- Mobile conversation list overlay -->
 	<SwipeDrawer
 		open={mobileConvListOpen}
@@ -289,8 +309,15 @@
 		onopenobservability={() => {
 			obsOpen = true;
 		}}
-		convListRefresh={() => convList?.refresh?.()}
+		convListRefresh={() => notifyConversationsChanged(projectId)}
 	>
+		{#snippet message_footer(chrome: ChatThreadChrome)}
+			<PersonalPrCard
+				runId={chrome.messages.filter((message) => message.role === "assistant" && message.runId).at(-1)?.runId ?? null}
+				refreshKey={personalPrRefreshKey}
+				onreview={openPersonalPrReview}
+			/>
+		{/snippet}
 		{#snippet header(chrome: ChatThreadChrome)}
 			<ChatHeader
 				{projectId}
@@ -314,7 +341,7 @@
 				topics={chrome.topics}
 				onmobilemenu={() => (mobileConvListOpen = true)}
 				ontoolstoggle={(next) => (toolsOpen = next)}
-				ondifftoggle={() => (diffPanelOpen = !diffPanelOpen)}
+				ondifftoggle={toggleDiffPanel}
 				onobstoggle={() => (obsOpen = !obsOpen)}
 				ongraphtoggle={() => (graphOpen = !graphOpen)}
 				onselecttoggle={chrome.toggleSelectMode}
@@ -360,9 +387,11 @@
 				messages={chrome.messages}
 				toolCalls={chrome.diffPanelToolCalls}
 				open={diffPanelOpen}
-				onclose={() => (diffPanelOpen = false)}
+					onclose={() => { diffPanelOpen = false; personalPrReview = null; }}
 				streaming={chrome.isStreaming}
 				conversationId={convId}
+				personalPr={personalPrReview}
+				onpersonalprupdate={(updated) => { personalPrReview = updated; personalPrRefreshKey += 1; }}
 			/>
 		{/snippet}
 	</ChatThread>
