@@ -1,12 +1,13 @@
 import { createSign, generateKeyPairSync, randomUUID } from "node:crypto";
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { chmod, copyFile, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, copyFile, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { certificates } from "../../src/__tests__/helpers/factory-certificates";
 import { createPoolAdmissionClient } from "../../src/factory/pool/client";
 import { readFactoryPoolReadiness } from "../../src/factory/pool/readiness";
 import { setupFactoryPoolPostgres } from "./helpers/factory-pool-database";
 import { pinnedBun } from "./helpers/pinned-bun";
+import { makeFactoryTempPrivateRoot } from "../../src/__tests__/helpers/factory-private-root";
 
 const bun = pinnedBun;
 const directories: string[] = [];
@@ -35,7 +36,7 @@ async function privateCopy(from: string, to: string): Promise<void> { await copy
 beforeAll(async () => {
   const database = await setupFactoryPoolPostgres(); closeDatabase = database.close;
   await certificates(directories); const certificateRoot = directories.at(-1)!;
-  root = await mkdtemp(join(process.env.HOME!, ".factory-pool-process-pg-")); directories.push(root);
+  root = await makeFactoryTempPrivateRoot("factory-pool-process-pg-"); directories.push(root);
   for (const name of ["server.key", "server.pem", "client.key", "client.pem", "foreign.key", "foreign.pem", "ca.pem"]) await privateCopy(join(certificateRoot, name), join(root, name));
   const publicKeyPath = join(root, "pool-token.pem"); tokenPath = join(root, "tenant.token");
   await Promise.all([
