@@ -12,9 +12,9 @@ import { join } from "node:path";
  * thread each, and the pool has one thread per CPU. The child below pins the pool
  * to two threads, so the same starvation shows on any host whatever its CPU count.
  *
- * The guests are shell processes that hold `out` and `err` the way the sandbox
- * shim does (read-write) and echo one frame back. Each reads `in` read-only, so
- * it ends with the host process whatever the outcome. The child reaches the
+ * The guests are shell processes that open all three FIFOs the way the sandbox
+ * shim does (read-write, so no open waits for the host) and echo one frame back.
+ * `timeout` bounds each guest, so none outlives a failed run. The child reaches the
  * real `channelTransport` through a subclass, as channel-identity.test.ts does.
  */
 const child = `
@@ -40,7 +40,7 @@ for (const id of ["worker-a", "worker-b"]) {
     facts[fifo] = { device: created.dev, inode: created.ino };
   }
   await writeFile(runner.facts(id), JSON.stringify(facts), { mode: 0o600 });
-  const guest = spawn("sh", ["-c", 'exec 3<"$0/in" 4<>"$0/out" 5<>"$0/err"; head -n1 <&3 >&4; read -r _ <&3', directory], { stdio: "ignore" });
+  const guest = spawn("timeout", ["30", "sh", "-c", 'exec 3<>"$0/in" 4<>"$0/out" 5<>"$0/err"; head -n1 <&3 >&4; read -r _ <&3', directory], { stdio: "ignore" });
   const transport = await runner.transport(id);
   // Both reads run for a worker's whole life, as FramedExecution reads both.
   transport.stderr.on("data", () => {});
