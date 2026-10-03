@@ -1,3 +1,4 @@
+import { permitsCreateReadbackDuringQueuedCleanup } from "./incus-create-readback-policy";
 import { createHash, X509Certificate } from "node:crypto";
 import { ContractError, canonicalJson, sandboxPresetDigest, validateSandboxProviderMethodValue, type JsonValue, type SandboxProtocolOperation } from "@ezcorp/extension-contract";
 import { and, eq, sql } from "drizzle-orm";
@@ -186,10 +187,7 @@ async function lifecycleReadbackJournal(db: Database, scope: PreparedIncusAction
   const [cleanup] = kind === "CREATE" && binding.currentOperationId !== journal.id
     ? await db.select().from(sandboxOperations).where(eq(sandboxOperations.id, binding.currentOperationId ?? "")).limit(1)
     : [];
-  const queuedCleanup = cleanup?.bindingId === binding.id && cleanup.kind === "DESTROY"
-    && cleanup.generation === journal.generation && cleanup.state === "JOURNALED"
-    && cleanup.providerOperationId === null && cleanup.requestPayload.expectedGeneration === journal.generation
-    && Object.keys(cleanup.requestPayload).length === 1 && binding.tombstonedAt !== null && binding.desiredState === "ABSENT";
+  const queuedCleanup = permitsCreateReadbackDuringQueuedCleanup(binding, journal, cleanup);
   if (!readbackScopeMatches(scope, binding, journal, kind, queuedCleanup)
     || !readbackIntentMatches(scope, journal, kind)) return null;
   return { id: journal.id, expectedGeneration: journal.requestPayload.expectedGeneration as number,

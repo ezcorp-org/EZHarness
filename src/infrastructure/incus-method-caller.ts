@@ -1,3 +1,4 @@
+import { permitsCreateReadbackDuringQueuedCleanup } from "./incus-create-readback-policy";
 import { eq } from "drizzle-orm";
 import { RunnerError } from "@ezcorp/extension-runner";
 import { getDb } from "../db/connection";
@@ -57,10 +58,7 @@ async function assertJournalIntent(
     const [cleanup] = receipt.kind === "CREATE" && current.currentOperationId !== receipt.id
       ? await getDb().select().from(sandboxOperations).where(eq(sandboxOperations.id, current.currentOperationId ?? "")).limit(1)
       : [];
-    const queuedCleanup = cleanup?.bindingId === current.id && cleanup.kind === "DESTROY"
-      && cleanup.generation === receipt.generation && cleanup.state === "JOURNALED"
-      && cleanup.providerOperationId === null && cleanup.requestPayload.expectedGeneration === receipt.generation
-      && Object.keys(cleanup.requestPayload).length === 1 && current.tombstonedAt !== null && current.desiredState === "ABSENT";
+    const queuedCleanup = permitsCreateReadbackDuringQueuedCleanup(current, receipt, cleanup);
     if (receipt.kind === "CREATE" && (current.currentOperationId !== receipt.id && !queuedCleanup
       || current.generation !== receipt.generation || Object.hasOwn(input, "requestId")
       || Object.hasOwn(input, "idempotencyKey"))) {
