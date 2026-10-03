@@ -2,7 +2,7 @@ import { json } from "@sveltejs/kit";
 import { z } from "zod";
 import { errorJson } from "$lib/server/http-errors";
 import type { RequestHandler } from "./$types";
-import { requireAuth } from "$server/auth/middleware";
+import { checkProjectWorkAccess, requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
 import * as convQueries from "$server/db/queries/conversations";
 import { resolveRootConversationForOwnership } from "$lib/server/conversation-ownership";
@@ -119,6 +119,9 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
   // Use directParent for model/provider/projectId fallbacks (closer scope),
   // but rootConv.id for agent:complete so the main chat page can refresh.
   const parentConv = directParent;
+  const projectId = parentConv.projectId ?? "global";
+  const projectDenial = await checkProjectWorkAccess(locals, projectId);
+  if (projectDenial) return projectDenial;
 
   // ── Boundary 2: per-API-key mode lock + autopilot refusal ─────────
   // This route was a HOLE: it starts a run and never consulted the lock, so a
@@ -193,7 +196,6 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
   // Agent is idle — start a new run immediately
   const agentConfigId = subConv.agentConfigId ?? undefined;
   const config = agentConfigId ? await getAgentConfig(agentConfigId) : null;
-  const projectId = parentConv.projectId ?? "global";
   const runId = crypto.randomUUID();
 
   // Model/provider resolution (idle-run only): body override > sub-conv

@@ -50,7 +50,10 @@ mock.module("$server/db/queries/agent-configs", () => ({
 
 // ── Mock auth + scope ──────────────────────────────────────────────
 
+mock.module("$server/db/queries/project-members", () => ({ getProjectMembership: async () => ({ role: "member" }) }));
+const { checkProjectWorkAccess } = await import("$server/auth/middleware");
 mock.module("$server/auth/middleware", () => ({
+  checkProjectWorkAccess,
   requireAuth: (locals: any) => locals?.user ?? mockUser,
 }));
 

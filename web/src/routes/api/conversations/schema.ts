@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { concreteProjectIdSchema } from "$lib/server/security/validation";
 
 // Phase 48: `modeId` is accepted on POST so callers can opt into a custom
 // mode at creation time. It cannot point at the Ez mode (slug='ez'); the
@@ -11,7 +12,7 @@ export const createConversationSchema = z.object({
   // Seeded project ids are TEXT literals, not uuids: 'global' (org-wide
   // sentinel) and 'self' (the dev-compose dogfooding workspace, see
   // src/db/seed-self-project.ts SELF_PROJECT_ID).
-  projectId: z.union([z.literal("global"), z.literal("self"), z.string().uuid("Invalid projectId")]),
+  projectId: z.union([z.literal("global"), z.literal("self"), concreteProjectIdSchema]),
   title: z.string().max(500).optional(),
   model: z.string().max(100).optional(),
   provider: z.string().max(100).optional(),

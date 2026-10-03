@@ -40,6 +40,10 @@ const streamChat = vi.fn(() => ({ catch: () => Promise.resolve() }));
 const checkTokenBudget = vi.fn();
 const getEzAction = vi.fn();
 
+const getProjectMembership = vi.fn(async () => ({ role: "member" }));
+vi.mock("$server/db/queries/project-members", () => ({ getProjectMembership }));
+beforeEach(() => { getProjectMembership.mockReset(); getProjectMembership.mockResolvedValue({ role: "member" }); });
+
 vi.mock("$server/db/queries/conversations", () => ({
   getConversation,
   getLatestLeaf,

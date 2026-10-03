@@ -97,6 +97,20 @@ describe("createConversationSchema", () => {
     expect(createConversationSchema.safeParse({ projectId: "self" }).success).toBe(true);
   });
 
+  test("accepts durable Incus user project IDs across project request schemas", () => {
+    const projectId = `incus-project-${"a".repeat(48)}`;
+    for (const schema of [createConversationSchema, runAgentSchema, uploadKBFileSchema, searchMemoriesQuerySchema]) {
+      expect(schema.safeParse({ projectId, filename: "proof.txt", content: "proof" }).success).toBe(true);
+    }
+  });
+
+  test("rejects malformed Incus IDs and qualification fixtures", () => {
+    for (const projectId of [`incus-project-${"a".repeat(47)}`, `incus-project-${"a".repeat(49)}`,
+      `incus-project-${"A".repeat(48)}`, "incus-project-../private", `incus-qual-project-${"a".repeat(64)}`]) {
+      expect(createConversationSchema.safeParse({ projectId }).success).toBe(false);
+    }
+  });
+
   test("rejects missing projectId", () => {
     expect(createConversationSchema.safeParse({}).success).toBe(false);
   });

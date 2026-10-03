@@ -460,3 +460,10 @@
 - Serialize Playwright runs in one worktree. Shared `web/test-results` cleanup can delete another run's trace files and cause false `browserContext.close ENOENT` failures.
 - Assert a concrete expected request ID before comparing it to captured browser traffic. Poll for exactly one request; optional values can otherwise pass as `undefined === undefined`.
 - Wait for the app's confirmed saved state before changing browser storage to reproduce recovery. A pending response can overwrite the injected state and make the test pass through the ordinary path.
+
+## Incus native proof — 3 October 2026
+
+- Use the installed Bun executable and read its version; do not invent a versioned binary pathname.
+- Check generated durable IDs in the creation service before assuming API schemas accept them.
+- Use `messages?withToolCalls=true` for saved native results; plain message reads do not include tool rows.
+- Keep one-off live drivers outside a frozen source head unless a concrete product defect requires a reviewed source change.

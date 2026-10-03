@@ -6,8 +6,8 @@ Status: prepared, not executed. This procedure closes G5 only after the listed o
 
 - The live owner completes the saved STOP reconciliation and destroys the original smoke guest. Do not repeat uncertain operations.
 - The exact active release, connection, preset, image, helper, and qualification are verified.
-- The owner uses the management page to create a new user project. Record its generated `incus-project-<48 hex characters>` ID, binding, workspace, generation, and Incus instance. The qualification fixture uses a different ID format and cannot substitute for this user flow. Conversation validation must accept the actual generated user-project ID and enforce project membership.
-- Read `/api/providers` and `/api/models` with the isolated app's existing human session. Record only model/provider identifiers and credential-presence status. Use an existing configured real model. Do not expose secrets or alter the service environment.
+- The owner uses the management page to create a new user project. Record its durable `incus-project-<48 lowercase hex characters>` ID, binding, workspace, generation, and Incus instance. Use a bundle with the Incus project identity repair and project membership checks. Qualification fixture IDs are excluded from user chat validation.
+- Read `/api/providers` and `/api/models` with the isolated app's existing human session. Record only model/provider identifiers and credential-presence status. Use an existing configured real model or the available keyless Kilo free model. Availability metadata alone does not prove that a run succeeds. Do not expose secrets or alter the service environment.
 - Record a host canary's content hash and metadata before work. Put the same relative path in the guest with different content. The live owner must prepare this fixture through reviewed guest tools, not by copying AMD source into a guest.
 
 ## Product entry and tool proof

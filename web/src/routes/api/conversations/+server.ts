@@ -2,7 +2,7 @@ import { json } from "@sveltejs/kit";
 import * as convQueries from "$server/db/queries/conversations";
 import { getAgentConfig } from "$server/db/queries/agent-configs";
 import { getVisibleMode } from "$server/db/queries/modes";
-import { requireAuth } from "$server/auth/middleware";
+import { checkProjectWorkAccess, requireAuth } from "$server/auth/middleware";
 import { createConversationSchema } from "./schema";
 import { validationError } from "$lib/server/security/validation";
 import { requireScope } from "$lib/server/security/api-keys";
@@ -39,6 +39,9 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     return validationError(result.error);
   }
   const body = result.data;
+
+  const projectDenial = await checkProjectWorkAccess(locals, body.projectId);
+  if (projectDenial) return projectDenial;
 
   let systemPrompt: string | undefined;
   let title: string | undefined = body.title;

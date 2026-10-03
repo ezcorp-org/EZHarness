@@ -4,7 +4,7 @@ import { logger } from "$server/logger";
 import * as convQueries from "$server/db/queries/conversations";
 import * as attachmentsDb from "$server/db/queries/attachments";
 import { getProject } from "$server/db/queries/projects";
-import { requireAuth } from "$server/auth/middleware";
+import { checkProjectWorkAccess, requireAuth } from "$server/auth/middleware";
 import { resolveRootConversationForOwnership } from "$lib/server/conversation-ownership";
 import { getExecutor, getGoalHost } from "$lib/server/context";
 import { createMessageSchema } from "./schema";
@@ -143,6 +143,10 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
   const ownership = await resolveRootConversationForOwnership(conversationId, user);
   if (!ownership) return errorJson(404, "Not found");
   const conv = ownership.conv;
+
+  // Recheck membership for old conversations and after membership revocation.
+  const projectDenial = await checkProjectWorkAccess(locals, conv.projectId);
+  if (projectDenial) return projectDenial;
 
   const budget = await checkTokenBudget(user.id);
   if (!budget.allowed) {

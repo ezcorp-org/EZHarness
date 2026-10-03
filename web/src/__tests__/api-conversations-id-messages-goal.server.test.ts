@@ -93,6 +93,8 @@ function makeFakeGoalHost() {
   };
 }
 
+vi.mock("$server/db/queries/project-members", () => ({ getProjectMembership: async () => ({ role: "member" }) }));
+
 vi.mock("$server/db/queries/conversations", () => ({
   getConversation,
   getLatestLeaf,

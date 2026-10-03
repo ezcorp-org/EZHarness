@@ -13,6 +13,10 @@ import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 const runAgent = vi.fn();
 
+const getProjectMembership = vi.fn(async () => ({ role: "member" }));
+vi.mock("$server/db/queries/project-members", () => ({ getProjectMembership }));
+beforeEach(() => { getProjectMembership.mockReset(); getProjectMembership.mockResolvedValue({ role: "member" }); });
+
 vi.mock("$lib/server/context", () => ({
   getExecutor: () => ({ runAgent }),
 }));
@@ -51,6 +55,15 @@ describe("POST /api/agents/[name]/run", () => {
     runAgent.mockReset();
     vi.mocked(checkTokenBudget).mockReset();
     vi.mocked(checkTokenBudget).mockResolvedValue({ allowed: true } as any);
+  });
+
+  test("refuses a foreign Incus project before starting an agent", async () => {
+    const projectId = `incus-project-${"a".repeat(48)}`;
+    getProjectMembership.mockResolvedValueOnce(undefined as any);
+    const result = await POST(makeEvent({ locals: { user }, body: { projectId } }));
+    expect(result.status).toBe(403);
+    expect(getProjectMembership).toHaveBeenCalledWith(user.id, projectId);
+    expect(runAgent).not.toHaveBeenCalled();
   });
 
   test("rejects 401 when unauthenticated", async () => {

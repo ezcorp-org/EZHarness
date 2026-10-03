@@ -18,7 +18,9 @@
 import { test, expect, describe, vi, beforeEach } from "vitest";
 import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
+const checkProjectWorkAccess = vi.fn(async () => null as Response | null);
 vi.mock("$server/auth/middleware", () => ({
+	checkProjectWorkAccess,
 	requireAuth: (locals: Record<string, unknown>) => {
 		const user = locals.user as { id: string; role: string } | undefined;
 		if (!user) throw new Response("Unauthorized", { status: 401 });
@@ -136,6 +138,8 @@ const OK_MESSAGES = [
 ];
 
 beforeEach(() => {
+  checkProjectWorkAccess.mockReset();
+  checkProjectWorkAccess.mockResolvedValue(null);
 	flagEnabled = true;
 	memRun = null;
 	dbRun = null;
@@ -149,6 +153,15 @@ beforeEach(() => {
 	getActiveRun.mockClear();
 	getMessages.mockClear();
 	resolveRootConversationForOwnership.mockClear();
+});
+
+test("revoked project work refuses retry before any run or message mutation", async () => {
+  checkProjectWorkAccess.mockResolvedValueOnce(new Response("Forbidden", { status: 403 }));
+  const response = await run(() => POST(makeEvent() as never));
+  expect(response.status).toBe(403);
+  expect(checkProjectWorkAccess).toHaveBeenCalledWith(expect.objectContaining({ user: expect.objectContaining({ id: "user-1" }) }), "proj-1");
+  expect(streamChat).not.toHaveBeenCalled();
+  expect(getMessages).not.toHaveBeenCalled();
 });
 
 describe("POST /api/conversations/[id]/messages/[mid]/retry", () => {

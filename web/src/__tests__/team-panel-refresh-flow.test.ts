@@ -85,7 +85,10 @@ mock.module("$server/db/queries/agent-configs", () => ({
   })),
 }));
 
+mock.module("$server/db/queries/project-members", () => ({ getProjectMembership: async () => ({ role: "member" }) }));
+const { checkProjectWorkAccess } = await import("$server/auth/middleware");
 mock.module("$server/auth/middleware", () => ({
+  checkProjectWorkAccess,
   requireAuth: () => ({ id: "user-1", email: "u@e.com", name: "U", role: "member" }),
 }));
 mock.module("$lib/server/security/api-keys", () => ({
@@ -208,7 +211,7 @@ function makePOST(subConvId: string) {
       body: JSON.stringify({ content: "hi from user" }),
     }),
     params: { id: subConvId },
-    locals: {},
+    locals: { user: { id: "user-1", email: "u@e.com", name: "U", role: "member" } },
   } as any;
 }
 

@@ -33,6 +33,10 @@ const streamChat = vi.fn(() => ({ catch: () => Promise.resolve() }));
 const checkTokenBudget = vi.fn();
 const cloneAttachmentsForFork = vi.fn();
 
+const getProjectMembership = vi.fn(async () => ({ role: "member" }));
+vi.mock("$server/db/queries/project-members", () => ({ getProjectMembership }));
+beforeEach(() => { getProjectMembership.mockReset(); getProjectMembership.mockResolvedValue({ role: "member" }); });
+
 vi.mock("$server/db/queries/conversations", () => ({
   getConversation,
   getLatestLeaf,
@@ -178,6 +182,18 @@ describe("POST /api/conversations/[id]/messages", () => {
     streamChat.mockReset();
     streamChat.mockReturnValue({ catch: () => Promise.resolve() } as any);
   });
+
+  for (const projectId of ["00000000-0000-4000-8000-000000000001", `incus-project-${"a".repeat(48)}`]) {
+    test(`refuses an owned old conversation without current membership in ${projectId}`, async () => {
+      getConversation.mockResolvedValue({ id: "c1", userId: user.id, projectId });
+      getProjectMembership.mockResolvedValueOnce(undefined as any);
+      const result = await POST(makeEvent({ method: "POST", locals: { user }, body: { content: "Read project files" } }));
+      expect(result.status).toBe(403);
+      expect(getProjectMembership).toHaveBeenCalledWith(user.id, projectId);
+      expect(createMessage).not.toHaveBeenCalled();
+      expect(streamChat).not.toHaveBeenCalled();
+    });
+  }
 
   test("rejects 401 when unauthenticated", async () => {
     let res: Response | undefined;

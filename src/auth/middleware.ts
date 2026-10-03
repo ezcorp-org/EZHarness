@@ -315,6 +315,14 @@ export async function checkProjectRole(
   return user;
 }
 
+/** Conversation ownership does not grant file or shell access to its project.
+ * Global/no-project work retains the existing instance scope; self is a real project. */
+export async function checkProjectWorkAccess(locals: AuthLocals, projectId?: string): Promise<Response | null> {
+  if (projectId === undefined || projectId === "global") return null;
+  const gate = await checkProjectRole(locals, projectId, "member");
+  return gate instanceof Response ? gate : null;
+}
+
 const ROLE_LEVELS: Record<string, number> = { viewer: 0, editor: 1, owner: 2 };
 
 export async function requireTeamRole(

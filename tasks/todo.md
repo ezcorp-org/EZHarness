@@ -2123,3 +2123,14 @@ Review: The task journal retains the PR #303 history and incoming PR #320 record
 ## Review
 
 No source bug reproduced. No live mutation performed. The runbook identifies the fixture project ID constraint and the difference between native chat, extension invocation, and a scripted LLM boundary. G5 remains open.
+
+## Native Incus project identity and authority repair
+
+- [x] Reproduce rejected Incus user project identity in request validation.
+- [x] Share strict user-project identity validation across native project request schemas.
+- [x] Close foreign project and revoked-membership run-start paths in CREATE, messages, agent-chat, retry, and named-agent runs.
+- [x] Prove actual membership grant and revocation, route refusal before effects, and existing ownership behavior.
+- [x] Pass focused backend/web tests, lint, typecheck, and independent security review.
+- [ ] Finish management browser regression and real guest native tool proof with the live owner.
+
+Review: 49 backend middleware tests, 203 Vitest route tests, 52 schema tests and 86 plain web tests passed. The separate per-tool membership propagation repair is owned by the independent security worker. G5 remains open.

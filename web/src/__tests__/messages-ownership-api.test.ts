@@ -151,7 +151,10 @@ const { isInteractiveSession } = await import("$server/auth/middleware");
 // through `auth/permission-mode-ceiling.ts`, which landed after this mock
 // was written — a re-implementation here would just re-break on the next
 // export the ceiling grows.
+mock.module("$server/db/queries/project-members", () => ({ getProjectMembership: async () => ({ role: "member" }) }));
+const { checkProjectWorkAccess } = await import("$server/auth/middleware");
 mock.module("$server/auth/middleware", () => ({
+  checkProjectWorkAccess,
   requireAuth: (locals: { user?: unknown }) => {
     const u = locals?.user;
     if (!u) throw Response.json({ error: "Unauthorized" }, { status: 401 });
