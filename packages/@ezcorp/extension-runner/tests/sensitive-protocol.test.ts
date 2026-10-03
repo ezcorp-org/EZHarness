@@ -6,6 +6,20 @@ const children = new Set<ChildProcessWithoutNullStreams>();
 const timerSpies: Array<{ mockRestore(): void }> = [];
 const timerHandles = new Set<ReturnType<typeof setTimeout>>();
 
+function holdRequestTimeout() {
+  const originalSetTimeout = globalThis.setTimeout;
+  let expire!: () => void;
+  const spy = spyOn(globalThis, "setTimeout").mockImplementation(((callback: () => void, delay?: number) => {
+    expect(delay).toBe(50);
+    expire = callback;
+    const handle = originalSetTimeout(() => {}, delay);
+    timerHandles.add(handle);
+    return handle;
+  }) as typeof setTimeout);
+  timerSpies.push(spy);
+  return { expire: () => expire(), restore: () => spy.mockRestore() };
+}
+
 function worker(program: string, maximumBytes = 64 * 1024, timeoutMs = 250, reverse: ReverseRpc = async () => null): FramedExecution {
   const child = spawn(process.execPath, ["-e", program], { stdio: ["pipe", "pipe", "pipe"] });
   children.add(child);
@@ -172,16 +186,7 @@ test("sensitive timeouts wipe partial control and log buffers", async () => {
   }
   // Hold the real request timer callback until both actual child pipes have
   // delivered partial bytes. Child startup speed cannot satisfy this test.
-  const originalSetTimeout = globalThis.setTimeout;
-  let expire!: () => void;
-  const timerSpy = spyOn(globalThis, "setTimeout").mockImplementation(((callback: () => void, delay?: number) => {
-    expect(delay).toBe(50);
-    expire = callback;
-    const handle = originalSetTimeout(() => {}, delay);
-    timerHandles.add(handle);
-    return handle;
-  }) as typeof setTimeout);
-  timerSpies.push(timerSpy);
+  const timer = holdRequestTimeout();
   const execution = new FramedExecution("sensitive-worker", child, async () => null, async () => { child.kill("SIGKILL"); }, 64 * 1024, 50);
   try {
     const pending = requestSensitiveProviderResult(execution, {}).catch(reason => reason);
@@ -189,7 +194,7 @@ test("sensitive timeouts wipe partial control and log buffers", async () => {
     expect(partialStreams).toEqual(new Set(["stdout", "stderr"]));
     const partialControl = (execution as unknown as { buffer: Buffer }).buffer;
     expect(partialControl.toString()).toBe(canary);
-    expire();
+    timer.expire();
     const error = await pending;
     expect(error).toMatchObject({ code: "sensitive_failed" });
     expect(String(error)).not.toContain(canary);
@@ -198,7 +203,7 @@ test("sensitive timeouts wipe partial control and log buffers", async () => {
     expect(retained.every(chunk => chunk.every(byte => byte === 0))).toBe(true);
     expect(partialControl.every(byte => byte === 0)).toBe(true);
     expect((execution as unknown as { buffer: Buffer }).buffer.byteLength).toBe(0);
-  } finally { await execution.close(); timerSpy.mockRestore(); }
+  } finally { await execution.close(); timer.restore(); }
 
 });
 
@@ -217,4 +222,51 @@ test("a provider process stays permanently redacted after a successful secret re
 test("unclassified executions and ordinary calls cannot enter the sensitive lane", async () => {
   const ordinary = { workerId: "worker", request: async () => "must-not-run", close: async () => {}, onNotification: () => () => {} };
   await expect(requestSensitiveProviderResult(ordinary, {})).rejects.toThrow("unavailable");
+});
+
+
+test("sensitive timeout wipes actual late stdout and stderr while termination is pending", async () => {
+  const canary = "late-timeout-provider-canary";
+  const child = spawn(process.execPath, ["-e", `process.stdin.on("data", chunk => { if (chunk.toString().trim() === "release") { process.stdout.write(${JSON.stringify(canary)}); process.stderr.write(${JSON.stringify(canary)}); } else process.stderr.write("ready"); });`], { stdio: ["pipe", "pipe", "pipe"] });
+  children.add(child);
+  child.once("close", () => children.delete(child));
+  let ready!: () => void;
+  const childReady = new Promise<void>(resolve => { ready = resolve; });
+  let received!: () => void;
+  const lateReceived = new Promise<void>(resolve => { received = resolve; });
+  const retained: Buffer[] = [];
+  const streams = new Set<string>();
+  for (const [name, stream] of [["stdout", child.stdout], ["stderr", child.stderr]] as const) {
+    stream.on("data", (chunk: Buffer) => {
+      if (chunk.toString() === "ready") { ready(); return; }
+      expect(chunk.toString()).toBe(canary);
+      retained.push(chunk);
+      streams.add(name);
+      if (streams.size === 2) received();
+    });
+  }
+  const timer = holdRequestTimeout();
+  let finishTermination!: () => void;
+  const termination = new Promise<void>(resolve => { finishTermination = resolve; });
+  let terminationStarted = false;
+  const execution = new FramedExecution("late-sensitive-worker", child, async () => null,
+    async () => { terminationStarted = true; await termination; child.kill("SIGKILL"); }, 64 * 1024, 50);
+  try {
+    const pending = requestSensitiveProviderResult(execution, {}).catch(reason => reason);
+    await childReady;
+    timer.expire();
+    const error = await pending;
+    expect(error).toMatchObject({ code: "sensitive_failed" });
+    expect(terminationStarted).toBe(true);
+    expect(retained).toEqual([]);
+    // The real process can still flush pipes before asynchronous termination.
+    child.stdin.write("release\n");
+    await lateReceived;
+    expect(streams).toEqual(new Set(["stdout", "stderr"]));
+    expect(retained).toHaveLength(2);
+    expect(retained.every(chunk => chunk.every(byte => byte === 0))).toBe(true);
+    expect((execution as unknown as { buffer: Buffer }).buffer.byteLength).toBe(0);
+    expect(String(error)).not.toContain(canary);
+    expect(JSON.stringify(error)).not.toContain(canary);
+  } finally { finishTermination(); await execution.close(); timer.restore(); }
 });
