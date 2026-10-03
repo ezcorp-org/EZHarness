@@ -53,33 +53,33 @@ a provider receipt, named `factory_usage_hold_unresolved: no-operation-receipt` 
   EXPECT: all pass at the head; with only the base `task-stops.ts`, exactly the five W03f expectations fail
   EVIDENCE: `receipts/negative-control.attempt-1.json` (29/5 base, 34/0 head at `4ba07e94f`)
 
-- [ ] G2b: Findings (a) and (b), red first.
+- [x] G2b: Findings (a) and (b), red first. — superseded: findings (a) and (b) (the auth retry rule, named holds) reviewed red-first in validator-4's ACCEPT at 3a023745e (/tmp/factory-platform-evidence/w03f-validation/verdict-validator-4.txt) and validator-5's ACCEPT at c02f2b0fa (docs/validation/factory/wave4/w03f-validation.txt); landed, merge ee9117e0a, receipts e0e2a23c9 (verified 2026-10-03, leftover audit).
   CHECK: `retry-red.sh` and `hold-red.sh` before the fix; the kernel and stop suites after; the guest-model-journal unit test
   EXPECT: red on exactly the new cases (auth retried; hold unnamed, then the late hold refused); green after
   EVIDENCE: `receipts/retry-red.attempt-1.json`, `logs/retry-red-kernel-recheck.log`, `receipts/hold-red.attempt-{1,2}.json`; PostgreSQL rerun in the next session
 
-- [ ] G2d: Rulings B and C, red first.
+- [x] G2d: Rulings B and C, red first. — superseded: rulings B and C reviewed in validator-4's ACCEPT at 3a023745e (/tmp/factory-platform-evidence/w03f-validation/verdict-validator-4.txt) and validator-5's ACCEPT at c02f2b0fa (docs/validation/factory/wave4/w03f-validation.txt); landed, merge ee9117e0a, receipts e0e2a23c9 (verified 2026-10-03, leftover audit).
   CHECK: `bound-red.sh` before the change; the stop suite, the provider test, the driver test and the migration tests after
   EXPECT: red on exactly the three new cases (bound, deadline abort, bound after abort); green after
   EVIDENCE: `receipts/bound-red.attempt-1.json`; PostgreSQL rerun in the next session
 
-- [ ] G2c: A guest that rebuilds or alters the settled failed operation is refused as a journal mismatch.
+- [x] G2c: A guest that rebuilds or alters the settled failed operation is refused as a journal mismatch. — superseded: the guest-model route and journal integration suites green in validator-4's hold (210/0 PGlite, 90/0 PostgreSQL); validator-4's ACCEPT at 3a023745e (/tmp/factory-platform-evidence/w03f-validation/verdict-validator-4.txt) and validator-5's ACCEPT at c02f2b0fa (docs/validation/factory/wave4/w03f-validation.txt); landed, merge ee9117e0a, receipts e0e2a23c9 (verified 2026-10-03, leftover audit).
   CHECK: the guest-model route suite
   EXPECT: the pre-W03f rebuild, a lowered usage and a changed receipt each pass result validation and are refused by the journal
   EVIDENCE: next session's `pg-factory-guest-model-route` and the coverage leg
 
-- [ ] G3: Real PostgreSQL producers and schema parity, and the reference-data guest (two-packer rule).
+- [x] G3: Real PostgreSQL producers and schema parity, and the reference-data guest (two-packer rule). — superseded: validator-4's PostgreSQL leg (task-stops, guest-model-journal, guest-model-route, migration-restart, schema, usage-epoch, 90/0) and the reference-data journey green in wave4f, wave4g and wave4h (11/0); validator-4's ACCEPT at 3a023745e (/tmp/factory-platform-evidence/w03f-validation/verdict-validator-4.txt) and validator-5's ACCEPT at c02f2b0fa (docs/validation/factory/wave4/w03f-validation.txt); landed, merge ee9117e0a, receipts e0e2a23c9 (verified 2026-10-03, leftover audit).
   CHECK: `tests/postgres/factory-task-stops`, `factory-migration-restart`, `factory-schema`, `factory-guest-model-journal`, `factory-guest-model-route`, `factory-reference-data`; `reference-data/journey.integration` on Podman; all under the heavy lock
   EXPECT: all pass
   EVIDENCE: `receipts/pg-*.attempt-*.json`, `receipts/reference-journey.attempt-*.json`. At `1c8a9a23e` (before (a) and (b)):
   task-stops 34/0, migration-restart 19/0, schema 2/0, guest-model-journal 2/0, guest-model-route 17/0 (attempt 1).
 
-- [ ] G4: The graph proof, both controls ending failed.
+- [x] G4: The graph proof, both controls ending failed. — superseded: graph proof attempt 2, summary verdict passed, control-no-pin and control-missing-model as intended (/tmp/factory-platform-evidence/w03f/proof/summary.json, logs/graph-proof.attempt-2.log); 'the graph proof stands' (this file, Bun pin disclosure) (verified 2026-10-03, leftover audit).
   CHECK: `run.sh all` under the heavy lock
   EXPECT: both modes three of three; `control-no-pin` and `control-missing-model` pass, each run `failed`, never held, settled at the reserved compute bound; forced-failure control as before; `summary.json` passed
   EVIDENCE: `receipts/graph-proof.attempt-*.json`, `proof/summary.json`
 
-- [ ] G5: Coverage and static checks.
+- [x] G5: Coverage and static checks. — superseded: new-file PASSED in validator-4's hold; the line-370/373 patch red settled by the attested line under the decision file in validator-5's verdict; static gates in the merge batch; validator-4's ACCEPT at 3a023745e (/tmp/factory-platform-evidence/w03f-validation/verdict-validator-4.txt) and validator-5's ACCEPT at c02f2b0fa (docs/validation/factory/wave4/w03f-validation.txt); landed, merge ee9117e0a, receipts e0e2a23c9 (verified 2026-10-03, leftover audit).
   CHECK: the coverage leg; `BASE_REF=d2bc674c7` new-file and patch gates; typecheck, lint, boundaries, gate integrity; `python-quality.sh test`
   EXPECT: 100 percent of the new migration and every changed line; all exit 0
   EVIDENCE: `receipts/cov-*.json`, `receipts/gate-*.json`, `receipts/static-*.json`

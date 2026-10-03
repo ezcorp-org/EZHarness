@@ -1968,3 +1968,26 @@ smokes under the lock, detached-job wake-ups) are not repeated.
   list only inside a bash script, and refuse an empty list before calling `bun test` (w4g-1/guard-run.sh does both).
 - A frozen install reads more than the workspace manifests: `patchedDependencies` patch files too. A container guard
   derives every input from the lock and the manifest it serves, and the image proof builds past every install, to the end.
+
+### W4G, W4G-13 and W4G-14 (2026-10-01 to 2026-10-03)
+
+- A finished detached job never wakes its owner. Four times in W4G a green result sat unread for 2–3 h (an integrator hold, two validator
+  phases, an owner's commit sequence). Rule: every detached run gets a real waiter on its output file or process, started before the run;
+  the owner polls in the foreground as well; a pgrep waiter uses `[.]` so it cannot match itself.
+- A test file that runs zero tests is VOID, never a pass: bun exits 0 when every test skips (opt-in e2e files). Selection sets exclude opt-in
+  files unless opted in with their prerequisites; the merge hold's zero-count guard and the validator's nonzero-pass rule enforce it.
+- A runner-shaped container uses the runner's own tool versions (OpenSSL, uv, conmon, bun from the pinned releases), never the host's; one
+  mounted host openssl turned a hosted red into a local green.
+- Image proofs build from a clean `git archive` snapshot, never a worktree: ignored `dist/` folders in the worktree masked a missing build
+  step in the Dockerfile and produced a false green.
+- Never run `podman image prune` on the shared host; remove only your own tags by name. The shared brief's old "always safe" line was wrong.
+- A permission classifier refuses `EZ_SKIP_HOOK_TESTS=1` commits; when the hook maps more than its cap, plan for the user's hand from the start.
+- Set the archy identity with `--worktree` in every new worktree and check the shared .git/config afterwards; one owner's plain `git config
+  user.name` stopped every hold and merge for an hour.
+- A test that encodes a file's shape asserts the intent (which steps run as which user), never a count: dev-image-ownership counted RUN steps by a
+  regex and went red when Dockerfile.dev gained `bun run build:packages` (W4G-13, test fix only).
+- Every test that reads a container or compose file is in the guard set (36 files from 2026-10-03; opt-in files excluded), because the hook maps
+  no test to Dockerfile*.
+- A test that pins an environment variable another module caches per process must reset that cache itself (and restore both in afterAll):
+  file-organizer-applier-reserved-dirs pinned EZCORP_PROJECT_ROOT after getProjectRoot() had cached the repository root for the process (W4G-14,
+  victim-side fix; there is no single polluter when every earlier caller fills the cache legitimately).

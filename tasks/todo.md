@@ -43,6 +43,7 @@ Review: A public started run remains `queued` until its verified committed root 
 Review: `factory_run_projection_attempts` stores each scheduler attempt and its visible error code without changing the audit cursor. The indexed drain selects every never-attempted run before the least-recently-attempted retry. The `runs: 1` test first returns the corrupt oldest run, then projects the healthy later run, and after restart returns the corrupt retry with attempt count two. PGlite passes 20 cases/140 assertions at `/tmp/factory-platform-evidence/terra-projection-fairness-pglite.log`; real PostgreSQL/S3 plus schema parity passes 19 cases/1,388 assertions at `/tmp/factory-platform-evidence/terra-projection-fairness-postgres-schema.log`. Coverage measures the new migration 6/6, Drizzle schema 347/347, and projector 68/68 lines at `/tmp/factory-platform-evidence/terra-projection-fairness-final-coverage.lcov`; all four typecheck legs and lint pass at `/tmp/factory-platform-evidence/terra-projection-fairness-final-types-lint.log` with eight existing infos.
 
 ## Factory assurance integrity — 2026-09-13
+Absorbed by the 2026-09-13 completion plan; status tracked under 'Leftover after wave 4' below (audit 2026-10-03).
 
 Note (W00 audit 2026-09-13): the three checked items below cite no receipt. Their proof items remain unchecked. Do not rely on the checkbox state without a receipt.
 
@@ -53,6 +54,7 @@ Note (W00 audit 2026-09-13): the three checked items below cite no receipt. Thei
 - [ ] Run static checks, coverage, and real PostgreSQL proof; record the review.
 
 ## C02 isolated attempt runtime — Terra
+Absorbed by the 2026-09-13 completion plan; status tracked under 'Leftover after wave 4' below (audit 2026-10-03).
 
 - [x] Persist the canonical launch intent and exact held lease before a guest start.
 - [x] Implement inspect-first stable-worker open, recovery, result wait, and physical-stop receipt.
@@ -1051,6 +1053,7 @@ Local review: 25,660 backend tests, 3,624 orphan web tests, 7,379 Node tests and
 
 
 ## Composable factory platform — 2026-09-12
+Absorbed by the 2026-09-13 completion plan; status tracked under 'Leftover after wave 4' below (audit 2026-10-03).
 
 Plan: `tasks/factory/PLAN.md`. Acceptance ledger: `tasks/factory/GATES.md`.
 
@@ -1071,6 +1074,7 @@ Plan: `tasks/factory/PLAN.md`. Acceptance ledger: `tasks/factory/GATES.md`.
 Implementation continues across all six stages. Local storage/GPU checks and the compiler, kernel, product grant/budget stores, journal, pool and Temporal foundations have measured component proofs. Full application routes, protected assurance/release, package lifecycle, console/domain packs, deployment/restore and the ten-installation soak remain incomplete. Final application regression and full coverage must run after integration.
 
 ### Local factory test campaign (user update)
+Absorbed by the 2026-09-13 completion plan; status tracked under 'Leftover after wave 4' below (audit 2026-10-03).
 
 - [x] Run local S3 services in Docker Compose and prove storage conformance for all 10 tenant identities.
 - [x] Prove actual AMD GPU computation: 10 seeded GPU matrix workloads pass; the same workload without devices fails with GPU_REQUIRED.
@@ -1105,6 +1109,7 @@ The public route now stores `Idempotency-Key` as a bounded `factory:` key. The e
 The compiler now emits immutable root-node partitions with exact node-level inbound and outbound edges. It splits partitions by the 128-node cap and the canonical 32 KiB artifact size, rejects an unsplittable node with a located diagnostic, and keeps nested control bodies only inside their owning node. A separate bounded execution manifest carries the root ports, bounds, and output bindings needed by a partition-local kernel. Both payloads have generated schemas, byte and digest descriptors, pure validators, and Node construction helpers. The C02 runner types and validators enforce stable cursor, operation, authority, resource, usage, and terminal evidence rules. The final SDK run passed 87 tests and all compiler-owned measured lines.
 
 ## Factory Stage2c durable execution gateway
+Absorbed by the 2026-09-13 completion plan; status tracked under 'Leftover after wave 4' below (audit 2026-10-03).
 
 - [x] Define idempotent attempt admission, operation journal, checkpoints, status, and cancellation records with tenant/project/run keys.
 - [x] Add idempotent real-Postgres migration and one ordered `migrate.ts` call.
@@ -1113,6 +1118,7 @@ The compiler now emits immutable root-node partitions with exact node-level inbo
 - [ ] Run changed-line and new-source coverage, typecheck, lint, and focused real-Postgres tests.
 
 ## Factory product budget store
+Absorbed by the 2026-09-13 completion plan; status tracked under 'Leftover after wave 4' below (audit 2026-10-03).
 
 - [x] Persist hierarchical budget limits, exact decimal charges and unknown holds with atomic audit and compute outbox.
 - [x] Share budget conformance across PGlite and real PostgreSQL; race reservations and settlements, retain overspend, and prove rollback.
@@ -1122,6 +1128,7 @@ The compiler now emits immutable root-node partitions with exact node-level inbo
 Review: tasks/factory/budgets.md has store evidence; tasks/factory/GATES.md remains the full-scope ledger.
 
 # Factory application composition
+Absorbed by the 2026-09-13 completion plan; status tracked under 'Leftover after wave 4' below (audit 2026-10-03).
 
 - [x] Add shared durable mutation receipts with current authority checks and exact payload identity.
 - [x] Add revisioned draft CRUD and immutable published versions with the SDK compiler and shared blob store.
@@ -1170,6 +1177,7 @@ Additional integration check: model every new factory database table in schema.t
 Component review: 51 PGlite/store tests pass with 380 assertions. The same actual PostgreSQL suites pass 44 tests with 334 assertions. Run lifecycle104/104, locks7/7, budgets172/172, records140/140, mutations34/34, transport26/26 and the additive migration5/5 measured lines pass. All four type sections and focused lint pass. The canonical factory test set passes137/137; the real Temporal producer passes with all11 orchestrator sources at100%. This proves the component revision, not application boot, browser integration, GPU isolation or the full platform.
 
 ## Factory integrated storage and runner review
+Absorbed by the 2026-09-13 completion plan; status tracked under 'Leftover after wave 4' below (audit 2026-10-03).
 
 - [x] Integrate definition/grant API, runner authority, product models, C12 provisioning, pool service and credential refresher commits.
 - [x] Fix schema parity and shared transaction lock order; prove against real PostgreSQL.
@@ -1179,6 +1187,7 @@ Component review: 51 PGlite/store tests pass with 380 assertions. The same actua
 
 Review: integration source and focused tests/types/lint pass; full platform gates remain open. The source worktree was frozen for every producer. Existing application data and original worktree remain untouched.
 # Factory definition and grant HTTP API — 2026-09-13
+Absorbed by the 2026-09-13 completion plan; status tracked under 'Leftover after wave 4' below (audit 2026-10-03).
 
 - [ ] Confirm the small application registry contract with the root integrator.
 - [ ] Compose the real definition/grant stores and trusted resource inventory.
@@ -1209,6 +1218,7 @@ Pending.
 Grant operations now freeze flat copies of every caller-owned authority and target before any database or authorization wait. The race test mutates the actor, target, action, read key, and list filter while authorization is held, and proves that the checked and written coordinates remain the originals. The application exposes an encapsulated ReadonlySet with the complete current Set read API and no mutation methods. Four-leg typecheck, focused lint, 14 tests with 100 assertions, and 100 percent line coverage for grants (156/156) and application (67/67) pass.
 
 # Factory authoring console — 2026-09-13
+Absorbed by the 2026-09-13 completion plan; status tracked under 'Leftover after wave 4' below (audit 2026-10-03).
 
 - [x] Pin Svelte Flow and ELK and enforce their factory-only import boundary.
 - [x] Add one strict SDK-backed browser client for draft list, create, import, export, save, validate, and publish.
@@ -1268,6 +1278,7 @@ Review: integration head `3dffb7418` plus this model fix passes the 21 focused c
 
 
 ## Factory run API — durable requests and reads
+Absorbed by the 2026-09-13 completion plan; status tracked under 'Leftover after wave 4' below (audit 2026-10-03).
 
 - [x] Return the original committed command receipt from run start and cancellation.
 - [x] Add scoped command status and bounded, filtered run summaries.
@@ -1291,12 +1302,14 @@ Plan review: reuse the existing member upsert and grant mutation path. Register 
 
 Review: `/tmp/factory-platform-evidence/project-creation-results.json` records all four producers at exit0. The focused PGlite/application/regression cases and real PostgreSQL cases pass, including the historical audit upgrade. All four type-check legs and lint pass. Every changed executable line is measured; complete owned files include grants166/166, application79/79, member queries65/65 and the new migration4/4. Existing project queries and audit redaction cases also pass. This closes the project-creation transaction leaf, not factory-enabled production startup or the full platform gates.
 ### Follow-up: collision-free partition slots
+Absorbed by the 2026-09-13 completion plan; status tracked under 'Leftover after wave 4' below (audit 2026-10-03).
 
 - [ ] Reproduce PostgreSQL signed-index overflow and a deterministic partition-ID hash collision.
 - [ ] Replace the hash-derived SQL page index with a collision-free scoped partition identity, model the additive schema, and cover migration.
 - [ ] Prove concurrent PostgreSQL staging, foreign scope denial, typecheck, lint, and coverage.
 
 ### CI storage producer leaf
+Absorbed by the 2026-09-13 completion plan; status tracked under 'Leftover after wave 4' below (audit 2026-10-03).
 
 - [ ] Provision the ordinary Compose-backed store with generated job-local credentials in `db-postgres.yml`.
 - [ ] Run required factory artifact/lifecycle PostgreSQL producer under its explicit S3 and Postgres references.
@@ -1312,6 +1325,7 @@ Review: `71700a687` reuses the strict local storage provisioner in the required 
 
 Note (W00 audit 2026-09-13): commit 71700a687 is not an ancestor of the integration branch (it lives on feat/factory-artifacts). The integrated db-postgres.yml diverged from it. Treat this item as integrated only through the current workflow file, which W00's staging PostgreSQL/S3 producer exercised (w00-staging-postgres.log, exit 0).
 ## Private factory HTTPS transport
+Absorbed by the 2026-09-13 completion plan; status tracked under 'Leftover after wave 4' below (audit 2026-10-03).
 
 - [x] Prove the C02 private Node-to-Bun mTLS request boundary through actual sockets.
 - [x] Reuse bounded framing for the attempt gateway and orchestration service, with exact response bytes and peer identity.
@@ -1325,6 +1339,7 @@ Transport review: seven socket tests and 70 assertions pass, including a real No
 
 
 ## Assembled factory component validation
+Absorbed by the 2026-09-13 completion plan; status tracked under 'Leftover after wave 4' below (audit 2026-10-03).
 
 - [x] Integrate protected map release facts, encrypted versioned artifacts, Node continuation readers, controlled release protocol and shared private HTTPS.
 - [x] Preserve all scoped database foreign keys and the approval generation index across integration.
@@ -1335,6 +1350,7 @@ Review: `/tmp/factory-platform-evidence/assembled-platform-results.json` records
 
 
 ## Full backend regression after component integration
+Absorbed by the 2026-09-13 completion plan; status tracked under 'Leftover after wave 4' below (audit 2026-10-03).
 
 - [x] Run the canonical backend suite at `3eeee3259`.
 - [ ] Fix five SDK expansion/repair regressions and verify every SDK test file.
@@ -1345,6 +1361,7 @@ Review: `/tmp/factory-platform-evidence/assembled-backend-3eeee3259.log` reports
 
 
 ## Trusted factory command lookup
+Absorbed by the 2026-09-13 completion plan; status tracked under 'Leftover after wave 4' below (audit 2026-10-03).
 
 - [ ] Reproduce command execution without a committed transition and reject it through the stored-command boundary.
 - [ ] Add a scoped immutable index from command ID to its committed canonical transition audit.
@@ -1365,6 +1382,7 @@ Plan review: C02 accepts only authenticated command references from the Node wor
 Review: `/tmp/factory-platform-evidence/root-c06-results.json` records five successful producers at `c82b1b05b`. PostgreSQL/S3 and provisioning pass 16 cases/110 assertions. The actual Node key-file producer measures 101/101 lines. Root and web frozen installs, SDK build, all four typecheck legs and lint pass. These are component integration proofs; full application startup and recovery remain open.
 
 ## Backend correction integration review
+Absorbed by the 2026-09-13 completion plan; status tracked under 'Leftover after wave 4' below (audit 2026-10-03).
 
 - [x] Integrate `433c1469c` as `cc9bb59ff`.
 - [x] Independently rerun both bundled review files and the complete Bun/Node/Python golden fixture file.
@@ -1374,6 +1392,7 @@ Review: `/tmp/factory-platform-evidence/root-c06-results.json` records five succ
 Review: `/tmp/factory-platform-evidence/root-backend-corrections.log` records all three complete focused files passing. A rejected review preserves its terminal human decision. Canonical bundled host-API grants retain the existing aggregate JSON size bound. An initial runner request starts its operation cursor at zero when no checkpoint exists.
 
 ## Private service integration review
+Absorbed by the 2026-09-13 completion plan; status tracked under 'Leftover after wave 4' below (audit 2026-10-03).
 
 - [x] Authenticate every private route with the bound client certificate and separate RS256 issuer, audience, subject and orchestration scope.
 - [x] Claim installation commands across project queues and retain stored-byte and lease checks.
@@ -1425,6 +1444,7 @@ Plan review: the accepted C02 HTTPS operations are the test boundary. The token 
 Review: `attempt-token-purpose-red.log` retains the real Node-to-Bun mTLS reproduction: a user-shaped credential admitted work with HTTP 201. The dedicated attempt codec rejects that credential. `root-auth-integration-results.json` records eight successful producers at `d84359f84`, including root/web frozen installs, SDK build, 58 real PostgreSQL/S3 cases with 1,745 assertions, 24 authentication/schema cases, all four type checks, lint and gate integrity. The gateway also proves signed conflicting submissions return 409 and that expired attempts retain authenticated status/cancellation while new admission fails. Both the token codec and gateway have complete measured lines (31/31 and 28/28). These are private authentication and database integration proofs; concrete execution composition and production readiness remain open.
 
 ## Production orchestration readiness reader
+Absorbed by the 2026-09-13 completion plan; status tracked under 'Leftover after wave 4' below (audit 2026-10-03).
 
 - [ ] Read only an owned private bounded readiness file and bind it to the configured installation, tenant, namespace and task queue.
 - [ ] Require a fresh ready heartbeat, confirmed worker polling, a live dispatcher and a loaded credential generation.
@@ -1464,6 +1484,7 @@ Review: Three registered session-only routes now call the real release authority
 Review: the release authority store now derives a per-node current candidate only from an authenticated completed attempt, an exact settled operation journal, measured usage, and a verified immutable candidate-output object. Human trust binds the exact runner package and validator under a live `factory.trust` grant. Release control defaults to disabled and advances an explicit epoch. Candidate history is immutable, and its current pointer advances with a lifecycle-locked generation compare-and-swap. The shared PGlite suite passes 11 cases; the isolated PostgreSQL authority and schema run passes 13 cases with 1,486 assertions. Combined coverage passes 20 cases and measures release authority 169/169, its migration 24/24, artifacts 95/95, executions 224/224, and schema 1249/1249 executable lines. SDK builds, all four typecheck legs, lint, factory boundaries, and gate integrity pass. Evidence is under `/tmp/factory-platform-evidence/release-authority-*` and `tasks/factory/release-authority-GATES.md`.
 
 ## Factory artifact access and deferred run parameters — Terra
+Absorbed by the 2026-09-13 completion plan; status tracked under 'Leftover after wave 4' below (audit 2026-10-03).
 
 - [x] Inspect existing immutable artifact and workflow input contracts; send ownership and revised bounded contract.
 - [x] Add specific human cross-project artifact read grants and transactional opaque resolution.
@@ -1482,6 +1503,7 @@ Review: `FactoryArtifactAccess` grants only a human session's exact source artif
 Review: required bounded idempotency keys now protect release preparation, approval requests, policy creation and revocation, reconciliation, assurance contract approval, and approval decisions. Preparation stores a stable locator in the shared receipt before archive publication, so a failed archive can resume without changing operation identity. Reconciliation runs its provider proof, immutable archive, product transition, audit, and cached response under one receipt transaction. Cached responses recheck current grants and do not repeat notifications, archives, provider absence checks, or product facts. PGlite and isolated PostgreSQL each pass 26 cases with 115 assertions. Focused LCOV measures releases 305/305, assurance 151/151, and shared mutations 39/39 executable lines. SDK and transport builds, all four typechecks, lint, factory boundaries, and gate integrity pass. The gate ledger is `tasks/factory/release-idempotency-GATES.md`.
 
 ## Combined projection and backend review
+Absorbed by the 2026-09-13 completion plan; status tracked under 'Leftover after wave 4' below (audit 2026-10-03).
 
 - [x] Verify the combined SDK expansion, repair and projection changes.
 - [x] Run all four type checks, lint and gate integrity after the readonly fixture correction.
@@ -1492,6 +1514,7 @@ Review: required bounded idempotency keys now protect release preparation, appro
 Review: `root-projection-integration-results.json` records 155 SDK tests (1,101 assertions) and 20 PostgreSQL/S3 lifecycle/schema tests (1,431 assertions) passing at `55232b905`. It stopped on a readonly fixture type error. At corrected `618560260`, `root-projection-regression-results.json` records all four type checks, lint and gate integrity passing; the full backend pool reported 26,127 passes and one failure across 1,708 files. The actual module-graph CLI found a forbidden regular expression in service credential validation. `root-validator-boundary-green.log` records the replacement passing all 29 boundary and API schema cases, including malformed segments and non-base64url characters. Receipts are under `/tmp/factory-platform-evidence`. Full regression remains open until a complete passing run.
 
 ## Application restart integration
+Absorbed by the 2026-09-13 completion plan; status tracked under 'Leftover after wave 4' below (audit 2026-10-03).
 
 - [x] Reproduce the release-table migration failure through the real PGlite close/reopen path.
 - [x] Preserve an already scoped artifact primary key and all dependent foreign keys.
@@ -1631,6 +1654,7 @@ Plan review: the child resolver receives an opaque command ID. It must authorize
 Review: only the current committed run-child attempt can resolve its exact compiled child factory id, version and digest. Task and child checks share the run/head/fence transaction. Real published parent/child definitions prove valid resolution, caller mutation capture, wrong command kind, substituted factory digest, deadline expiry and cancelled parent denial. PGlite and PostgreSQL/S3 each pass 21 tests / 174 assertions. Authority coverage is 59/59 lines and 16/16 functions. SDK build, all four type checks, lint, gate integrity and boundaries pass. Exact source and check receipts are `/tmp/factory-platform-evidence/root-child-authority-source.json` and `root-child-authority-integration-results.json`. Durable child creation and budget delegation remain open.
 
 ## Committed lazy-input authority — root
+Absorbed by the 2026-09-13 completion plan; status tracked under 'Leftover after wave 4' below (audit 2026-10-03).
 
 - [ ] Test an actual published lazy input command through the current run and immutable transition store.
 - [ ] Share the committed-state transaction and compare every pending input coordinate.
@@ -1657,6 +1681,7 @@ Plan review: a private command ID is the only request authority; the reader vali
 - PGlite passes 19 cases with 120 assertions, and isolated PostgreSQL passes 14 cases with 92 assertions. Focused SDK, web, OpenAPI, route, browser evidence, coverage, builds, all four type checks, lint, boundaries, patch coverage, and gate integrity pass. Proof paths and exact measured-line counts are in `tasks/factory/release-notification-delivery-GATES.md`.
 
 ## Committed human approval authority — root
+Absorbed by the 2026-09-13 completion plan; status tracked under 'Leftover after wave 4' below (audit 2026-10-03).
 
 - [ ] Prove exact current approval scope, choices, attempt, deadline and durable initiator through published lifecycle records.
 - [ ] Provide the same current check inside the caller's decision transaction.
@@ -1715,6 +1740,7 @@ Plan review: the product row is enlisted with the held budget before the pool co
 Review: `FactoryComputeAdmissions` now records one canonical request beside the held product budget, drains the installation pool outbox into a fair durable poll queue, and replays only that exact request to recover a token-bearing lease. The admitted commit rechecks the current command, marks the budget running, stores stable response/event bytes, and enqueues the inbox decision in one transaction. Authority loss cancels known remote allocations while retaining the hold; uncertain cancellation remains recoverable. The transaction-bound admitted reader locks budget before compute state and verifies the stored token and generation before runner admission. The final producer passes 33 tests with 231 assertions across focused PGlite, isolated PostgreSQL, actual Bun mTLS, and actual command authority. Owned coverage is 306/306 lines; the dispatcher also measures 68/68 functions. PostgreSQL schema parity passes two tests with 1,638 assertions. All four typecheck legs, lint, boundaries, gate integrity, and registration tests pass. Coverage is at `/tmp/factory-compute-admissions-final/lcov.info`.
 
 ## Task-to-compute transaction wiring — root
+Absorbed by the 2026-09-13 completion plan; status tracked under 'Leftover after wave 4' below (audit 2026-10-03).
 
 - [ ] Prove task admission can be dispatched without a separate manual enlist transaction.
 - [ ] Require the concrete compute admission store in task admission and enlist before outbox enqueue.
@@ -1724,6 +1750,7 @@ Review: `FactoryComputeAdmissions` now records one canonical request beside the 
 Plan review: there must be no configuration path that creates a held task budget and pool outbox entry without its recoverable compute row.
 
 ## C07 authoritative lazy command execution — Terra
+Absorbed by the 2026-09-13 completion plan; status tracked under 'Leftover after wave 4' below (audit 2026-10-03).
 
 - [x] Validate durable artifact descriptors and inline values separately, so required artifact ports do not need placeholder JSON in lifecycle or kernel state.
 - [x] Define the authority callback contract and match a stored lazy command to the current committed pending state.
@@ -1734,6 +1761,7 @@ Plan review: there must be no configuration path that creates a held task budget
 Review: the lazy command adapter accepts only an opaque trusted command reference. It loads the exact current pending command within command authority's lifecycle transaction, reads the pinned durable artifact through the grant-aware reader, and emits one bounded canonical kernel event. The lifecycle and kernel now validate artifact descriptor facts separately from strict inline values, so a required large artifact can start without a placeholder. Final evidence: PGlite command/lifecycle suites, PostgreSQL/S3 command conformance, SDK build, all four typecheck legs, lint, adapter coverage, and the locked repair replay test are recorded in `/tmp/factory-platform-evidence/terra-lazy-commands-*`.
 
 ## C07 durable child runs and delegated budgets — Terra
+Absorbed by the 2026-09-13 completion plan; status tracked under 'Leftover after wave 4' below (audit 2026-10-03).
 
 - [x] Inspect C03/F03 and the current command, lifecycle, and same-run budget models.
 - [ ] Add an immutable parent-command to child-run binding with scoped foreign keys and migration parity.
@@ -1743,6 +1771,7 @@ Review: the lazy command adapter accepts only an opaque trusted command referenc
 
 Plan review: the parent command ID remains the only child-start authority. A child owns a separate logical run and root envelope, while the parent reserves exactly that envelope through a same-run child sub-envelope. Settlement transfers only verified child spending and returns unused allowance; no child receives fresh parent limits.
 ## Terminal invalid-input startup — root
+Absorbed by the 2026-09-13 completion plan; status tracked under 'Leftover after wave 4' below (audit 2026-10-03).
 
 - [ ] Turn initial kernel input validation failure into a non-retryable workflow failure.
 - [ ] Prove undeclared durable input creates no transition or effect through actual Temporal.
@@ -1818,6 +1847,7 @@ Validation checkpoint: full SDK 160 passed / 1,192 assertions; focused product a
 Committed review: `a7dae2809` passed merged new-file and patch coverage gates (`root-task-completion-committed-coverage-results.json`). Its clean committed source is recorded in `root-task-completion-final-source.json`; the earlier broad log records its pre-commit base separately. Parent integration with child runs, native policy, and generic approvals is documented below. Full launch and non-success terminal handling remain open.
 
 ## Parent integration — native policy, child runs, successful completion
+Absorbed by the 2026-09-13 completion plan; status tracked under 'Leftover after wave 4' below (audit 2026-10-03).
 
 - [x] Preserve the first combined-suite failure and reproduce it in the lifecycle lane.
 - [x] Use the concrete native policy in the shared completion fixture.
@@ -1860,6 +1890,7 @@ Review: focused product source `d19468631` passed 67 tests / 579 assertions. All
 Receipts: `/tmp/factory-platform-evidence/root-product-command-merge-combined-integration-results.json`, `root-product-command-merge-remainder-integration-results.json`, `root-generic-approval-parent-remainder-integration-results.json`, and `root-generic-approval-parent-route-registry.log`. This integration proof does not close the platform launch gates or the new private runtime dispatch leaf.
 
 ## Private GitHub publication environment
+Absorbed by the 2026-09-13 completion plan; status tracked under 'Leftover after wave 4' below (audit 2026-10-03).
 
 - [x] Create a private disposable publication-test repository as authorized by the user.
 - [x] Verify actual private visibility and the default branch through the GitHub API.
@@ -1898,6 +1929,7 @@ Private dispatch validation: PGlite 40/506 assertions; PostgreSQL/S3 40/2,380; r
 
 Review: source ac656591e passed 124 product tests / 1,171 assertions and 142 PostgreSQL/S3 tests / 3,410 assertions across all 19 registered PostgreSQL files. SDK and orchestrator builds, all four type checks, lint, boundaries, and gate integrity passed. Node passed 77 tests with zero failures in 110,428 ms. Patch/new-file coverage passed against fe7be0bbe. Receipts: /tmp/factory-platform-evidence/root-private-validator-dispatch-merge-combined-integration-results.json and root-private-validator-dispatch-merge-coverage-results.json. These results close this integration batch. The subsequent real partition-start test exposed a command-count defect now being fixed in the root side worktree; full startup, end-to-end journeys, soak, and all platform launch gates remain open.
 ## Durable partition command delivery — root
+Absorbed by the 2026-09-13 completion plan; status tracked under 'Leftover after wave 4' below (audit 2026-10-03).
 
 Plan review: send only exact committed partition notifications and invalidations through the existing transactional inbox/outbox. Keep the source event clock stable across retries; accept a completed source only for its still-current compiled edge and terminal generation. The destination can be unstarted. Reuse the shared command authority reader; the Sol control leaf owns that reader extension.
 
@@ -1919,6 +1951,7 @@ Partition batch correction review: 60 focused product/artifact/private-service t
 
 Review: source 0c7219dca passed 61 product tests / 750 assertions and 50 PostgreSQL/S3/schema tests / 2,775 assertions. Type checks found only an inferred optional undefined output port in the new authority fixture. Correction cf4984b49 passed all four type legs, lint, boundaries, and gate integrity. Merged patch/new-file coverage against fa47daaaf passed. Receipts: /tmp/factory-platform-evidence/root-partition-authority-parent-integration-results.json, root-partition-authority-types-remainder-integration-results.json, and root-partition-authority-parent-coverage-results.json. The new end-to-end partition delivery adapter is still under test; its repair trace exposed a separate kernel generation notification defect.
 ## C05 factory v4 package preparation — Terra
+Absorbed by the 2026-09-13 completion plan; status tracked under 'Leftover after wave 4' below (audit 2026-10-03).
 
 - [x] Include the complete canonical runner reference in every preparation identity and prove independent configuration revocation.
 - [x] Replace C04 release trust and local readiness with tuple-scoped runner trust and durable receipt facts.
@@ -1937,6 +1970,7 @@ Correction review: `FactoryPackageTrusts` stores a sealed revision and current p
 Full-reference correction: every package preparation primary key and foreign key now includes the canonical reference digest, and bindings preserve canonical reference JSON for validation. The PGlite and PostgreSQL/S3 flows use the same package/export with a different model and configuration digest, prepare both concurrently, then revoke one while the other remains ready. Final coverage is 87/87 package-preparation and 14/14 migration executable lines at `/tmp/factory-platform-evidence/terra-c05-package-trust-full-reference-coverage/lcov.info`.
 
 ## C02 fresh Bun/Python launcher — Terra
+Absorbed by the 2026-09-13 completion plan; status tracked under 'Leftover after wave 4' below (audit 2026-10-03).
 
 - [ ] Map the native runner, Python process, V4 package receipt, pool, task completion, and dispatcher seams.
 - [ ] Agree the trusted run request, result, artifact, usage, checkpoint, reattach, and pool lifecycle contract.
@@ -1972,6 +2006,7 @@ Review: the private effects now derive the current producer from compiled value 
 PGlite integration passes 81 tests / 785 assertions. The focused LCOV run measures the protected command effects at 139/139 lines and 31/31 functions, provenance at 72/72 and 9/9, the migration at 4/4 and 2/2, task completions at 82/82 and 20/20, validator materials at 242/242 and 55/55, and release authority at 206/206 and 45/45. The clean PostgreSQL/S3/schema replay passes 79 tests / 2,891 assertions. The SDK build, all four typecheck lanes, lint, boundaries, schema import test, registration test, and gate integrity pass.
 
 ## Parent integration — package, outcome, partition, and protected effects
+Absorbed by the 2026-09-13 completion plan; status tracked under 'Leftover after wave 4' below (audit 2026-10-03).
 
 - [x] Merge package authority corrections, non-success task outcomes, durable partition effects, and protected acceptance/release commands.
 - [x] Validate the merged product, PostgreSQL/S3, all four type checks, lint, builds, and boundary checks.
@@ -1982,6 +2017,7 @@ Review: source 57751b80b passed 165 SDK tests, 161 product tests, 164 PostgreSQL
 Committed new-file coverage passes. Patch coverage against 644987ada found an untested protected-input exception, an uncalled acceptance authority wrapper, and an existing gate inconsistency for the declaration-only kernel types file. Sol owns the behavior tests and reuse of the gate's existing structural declaration check; no exclusion or synthetic coverage is permitted. Evidence: /tmp/factory-platform-evidence/root-package-outcome-partition-merge-combined-integration-results.json, root-protected-effects-parent-combined-integration-results.json, and root-protected-effects-parent-coverage-results.json. All platform launch gates remain open.
 
 ## Provider receipt verification and GitHub publication — root
+Absorbed by the 2026-09-13 completion plan; status tracked under 'Leftover after wave 4' below (audit 2026-10-03).
 
 Plan review: reuse the existing release store, broker credential/egress boundary, and provider adapters. The user authorized private GitHub publication tests and local S3. Test the existing public release application/store seam, then the actual provider boundary. No additional approval is needed for these tests.
 
@@ -1996,6 +2032,7 @@ Review: pending.
 Receipt verification review: the original reconciliation test resolved a fabricated receipt as success. The store now requires bounded provider confirmation before any archive or success mutation. S3 derives the expected receipt from the exact returned object version, digest, and media type, then compares all receipt fields. Uncertainty survives rejection and timeout. The focused store/adapter/application run passes 24 tests / 161 assertions; PostgreSQL passes 15 tests / 99 assertions; all four type checks, lint, boundaries, and gate integrity pass. Live S3 uses all ten tenant identities: ten publications, ten archived receipts, ten verified receipts, forty rejected altered receipts, and three foreign-access denials. A subsequent adapter test also proves the old exact version remains verifiable after the current object changes and that a media-type mismatch fails. Adapter coverage is 101/101 lines and 28/28 functions. Raw results: /tmp/factory-platform-evidence/root-provider-receipt-final-combined-integration-results.json, root-provider-receipt-version-final.log, and root-provider-receipt-s3-live.json. Final committed patch checks and parent integration remain pending.
 
 ## Shared GitHub publication transport — root
+Absorbed by the 2026-09-13 completion plan; status tracked under 'Leftover after wave 4' below (audit 2026-10-03).
 
 - [x] Extract the existing project broker's host credential, authorization, bounded egress, and no-retry behavior into one shared transport.
 - [x] Prove request capture, foreign-path denial, credential/error containment, and all prior pull-request decision behavior.
@@ -2111,9 +2148,9 @@ Integration defects found only on the combined tree (wave 1): an unregistered Po
 - [x] Wave 2 (part 1): W03 merged as `fdad73e4b` (validation ACCEPT-WITH-FIXES, low fixes landed), W02 merged as `4acc452ea` (ACCEPT-WITH-FIXES → fixes → ACCEPT); combined run on `4acc452ea` passes every producer, four Podman suites, and both gate bases with the canonical pool/compute/provisioning/Python coverage producers (`docs/validation/factory/wave2/`).
 - [x] Wave 2 (part 2): W05 merged as `1dc9a0226` after resolving its merge onto W03 (validation ACCEPT-WITH-FIXES, fixes landed); combined run on `1dc9a0226` passes every producer, four Podman suites, and both gate bases (`docs/validation/factory/wave2/wave2c-*`). Integration fix: the schema-drift test now derives the generated schema count instead of pinning eight.
 - [x] Wave 2 (part 3): W08 merged as `6c3991b4d` (ACCEPT), W06 as `9768f2a5b` (ACCEPT-WITH-FIXES → ACCEPT), W07 as `b90dbb60d` (ACCEPT-WITH-FIXES twice, all findings fixed and verified; a window-based storage prune run against the shared store was replaced by manifest-only cleanup). Combined run on `b90dbb60d` passes every producer, four Podman suites, and both gate bases (`docs/validation/factory/wave2/wave2d-*`). Infrastructure: the local SeaweedFS volume cap raised to 400 after the ordinary store exhausted 100 volumes.
-- [ ] Wave 2 (part 4): W09 rejected twice (composition root never invoked; Podman probe not reentrant-safe), fixed, third independent validation pending.
-- [ ] Wave 3: W10–W12, W13, W14, W15–W17.
-- [ ] Wave 4: W19 campaign on a frozen build, W20 audit.
+- [x] Wave 2 (part 4): W09 rejected twice (composition root never invoked; Podman probe not reentrant-safe), fixed, third independent validation pending. — closed: W09b and W13 merged, base `260855e57` (todo.md:3618) (audit 2026-10-03).
+- [ ] Wave 3: W10–W12, W13, W14, W15–W17. Note (2026-10-03): wave 3 roll-up: see Leftover after wave 4; W17 not started.
+- [ ] Wave 4: W19 campaign on a frozen build, W20 audit. Note (2026-10-03): wave 4 roll-up: W19 campaign and W20 audit not started.
 
 # W04 — Artifact materials and workspace checkpoint transport (2026-09-13)
 
@@ -2322,7 +2359,7 @@ Gates: `tasks/factory/w09-GATES.md`.
       `/api/ready` reaches `ready`, the registered roles run, and shutdown leaks nothing.
 - [x] W09.13 One registration rule for every role, and the host supervisor readiness the
       seventh probe reads.
-- [ ] W09.14 Register attempt-dispatch. W01b publishes `createFactoryAttemptDispatchDriver` and the
+- [x] W09.14 Register attempt-dispatch. W01b publishes `createFactoryAttemptDispatchDriver` and the — closed: W09b attempt-dispatch role (todo.md:2957) and G14 green (todo.md:3170) (audit 2026-10-03).
       host launch transport; this installation still needs `hostLaunch.{baseUrl,serverName,tls.*}`
       and `attemptTokenSecretPath` in the startup document. W01b also corrected the old reason:
       `assertDispatchReady` is a database read, so no container runner is needed in this process.
@@ -2330,24 +2367,24 @@ Gates: `tasks/factory/w09-GATES.md`.
       proved on both engines; register notification-inbox-delivery on top of it.
 - [x] W09.25 Build the four role drivers in src/factory/dispatch-composition.ts, each covered to
       100%: stop settlement, usage reconciliation, the release provider resolver, release outcome.
-- [ ] W09.26 Assemble them in installationCollaborators. No external blocker: FactoryTaskStops is
+- [x] W09.26 Assemble them in installationCollaborators. No external blocker: FactoryTaskStops is — closed: W09b "one construction of every durable store" (todo.md:2955) (audit 2026-10-03).
       the one FactoryUsageSettlementAuthority and all fourteen of its arguments are reachable.
-- [ ] W09.18 Register release-outcome. Needs a production `FactoryReleaseProviderResolver`; the
+- [x] W09.18 Register release-outcome. Needs a production `FactoryReleaseProviderResolver`; the — closed: W09b release-outcome composed and running (todo.md:2965 to 2975) (audit 2026-10-03).
       claimable scan, the enumerator, and all three providers already exist.
 - [x] W09.19 Construct the pinned model broker from validated configuration, with a missing
       credential as a named readiness row and never a substitute (W10 Q2).
-- [ ] W09.20 Hand the broker to a runner. Blocked on a contract, not a wiring: the runtime wants
+- [x] W09.20 Hand the broker to a runner. Blocked on a contract, not a wiring: the runtime wants — closed: W01e guest model-broker frame merged `71e8cc9ed` (todo.md:3155) (audit 2026-10-03).
       `invoke(request, input)`, the broker offers `stream(request)`, and the host launch supervisor
       wants a third shape. Nothing defines what a guest sends to request a model stream.
 - [x] W09.24 Build the dispatch preflight over W03's recorded allocation (reservation from the
       queue's own record, lease from readRetainedAdmittedInTransaction, one transaction, GPU with
       no pinned host refused).
-- [ ] W09.21 Register attempt-dispatch and prove G14 with a real guest. The configuration landed
+- [x] W09.21 Register attempt-dispatch and prove G14 with a real guest. The configuration landed — closed: W09b attempt-dispatch role (todo.md:2957) and G14 green (todo.md:3170) (audit 2026-10-03).
       (`hostLaunch.*`, `attemptTokenSecretPath`, `hostStopKeys`). One collaborator remains: a
       production `FactoryIsolatedRunnerPreflight`. `preparedPackage` is `assertDispatchReady`;
       `lease(request)` needs the durable record a claimed attempt reads its held allocation back
       from, which is a compute-admission decision rather than a wiring choice.
-- [ ] W09.22 Register stop-settlement. Needs a `FactoryPoolStopAcknowledger` client over the
+- [x] W09.22 Register stop-settlement. Needs a `FactoryPoolStopAcknowledger` client over the — closed: W09b stop-settlement role (todo.md:2961) (audit 2026-10-03).
       existing `confirmStopped` route, and a startup-document field for the host PUBLIC keys.
       Scoped at the integration merge: `IsolatedFactoryAttemptRuntime` needs a launch store, the
       pool admission client, the gateway-owned provider broker, and `signStopReceipt`, which takes
@@ -2512,7 +2549,7 @@ Review (W02): the two headline gaps are closed. Device authority is now a proper
       PostgreSQL parity between the fresh and the upgraded catalog.
 - [x] Resolve the exact compiled evidence source and stopped task, verify its journal request and
       candidate binding, and bind claims only to their pinned runner, model, and configuration.
-- [ ] Schedule missing protected validators through durable admission, pool allocation, the attempt
+- [x] Schedule missing protected validators through durable admission, pool allocation, the attempt — closed: W05 final addendum, every W05 checklist row closed (todo.md:2578 to 2590) (audit 2026-10-03).
       dispatcher, and isolated execution. Blocked on W01; the typed origin and its migration landed.
 - [x] Typed validator origin in shared admission, where ordinary admission still requires a
       dispatch-node command, with one reservation per validator identity.
@@ -2551,7 +2588,7 @@ export, so W07 and W08 implement `resolve` only.
 - [x] Schedule missing protected validators from the acceptance command through durable admission,
       with exactly one budget reservation and one compute admission per validator identity and the
       typed origin sealed on both rows.
-- [ ] Pool allocation, the attempt dispatcher leg, and a real isolated guest. Blocked on one change
+- [x] Pool allocation, the attempt dispatcher leg, and a real isolated guest. Blocked on one change — closed: W05 final addendum, every W05 checklist row closed (todo.md:2578 to 2590) (audit 2026-10-03).
       in W03's admission core: a validator admission's reference is the acceptance command, which
       `withCurrent` does not admit and `assertContext` re-keys with the task reservation rule. The
       change also has to suppress the `admission-result` kernel event, because a validator has no
@@ -2567,7 +2604,7 @@ pool poll was written unproven.
       wrote, so a report cannot make a repair read another attempt's findings.
 - [x] The attempt-dispatcher leg: a protected validator reuses the whole shared dispatch path and
       settles through the journal, writing no kernel completion row and no inbox event.
-- [ ] The real Podman isolated-validator proof. Only the in-process runner differs now; it still
+- [x] The real Podman isolated-validator proof. Only the in-process runner differs now; it still — closed: W05 final addendum, every W05 checklist row closed (todo.md:2578 to 2590) (audit 2026-10-03).
       waits on the admission change, because the scheduler cannot produce a queue row until an
       admission reaches `admitted`.
 
@@ -2796,7 +2833,7 @@ Decisions and routed interface questions, recorded so no package waits on an ans
 - [x] W09 Q1 (settleable-child scan) closed by W06 at `a558a01d8`; W09 Q2 (claimable-release scan) closed by W07; W03's stop-settlement and usage-reconciliation scans closed at `688d48f4d`.
 - [x] W10 Q3 (unused model pin in `references.ts` protectedChecks) routed to the SDK owner (Sol controls, W06); W10 Q4 (titleBodyDigest marker) routed to W07.
 - [ ] W10 Q1: `FactoryRunnerRequest` does not carry the node's `maxIterations`, so the generator enforces C10's twelve itself. Decision: an optional additive `maxIterations` on the request, set by the dispatcher from the definition, lands with W13 composition; until then the generator's own bound stands and is tested.
-- [ ] W10 Q2: `createFactoryProviderBroker({ pin })` must be constructed and handed to the runner by W09's composition root; goes into W09's wiring round with W01b.
+- [x] W10 Q2: `createFactoryProviderBroker({ pin })` must be constructed and handed to the runner by W09's composition root; goes into W09's wiring round with W01b. — closed: W01e guest model-broker frame merged `71e8cc9ed` (todo.md:3155) (audit 2026-10-03).
 - [x] W02b (manifest name): the v4 manifest grammar stays the shared contract; `RunnerReference.manifestName` is required and validated against it; the scoped identity stays in `package`; no deployed environment holds a bound package, so no re-issue is needed; the SDK crossing is disclosed and confirmed. W10, W11, W12 migrate per freeze section 17 once `wp/w02b-manifest-name` lands.
 - [x] W01: the durable terminal result lives in two columns on `factory_attempt_launches` (freeze section 16); `FactoryHostLaunchProtocol.stop` keeps `FactoryPhysicalStopRequest` and W03 landed a parallel `FactoryPhysicalStopper` rather than reconciling it (superseded, recorded); the workspace-specifier resolver in `check-factory-boundaries.ts` is kept.
 - [x] W04: the C02.11 checkpoint implementer landed on W04's branch and merged at integration; the two additive journal seams in `executions.ts` stay with W04; the section 7 deviations carry a dated note.
@@ -2804,7 +2841,7 @@ Decisions and routed interface questions, recorded so no package waits on an ans
 - [x] W01c: the guest material mount is landed by its owner (Terra runtime) with the review's corrections (`rw,noexec,nosuid,nodev`, no 0o777, typed refusal of any non-regular entry); W12 consumes `listRunnerMaterials`/`openRunnerMaterial` and a `REQUIRED_SHARED_IMPORTS` row enforces it.
 - [x] WREG: `PATH` is the fourth declared guest variable (the pinned image's own directory list, per-image override for the Python guest); the contracts plan wording is corrected at integration; the two disclosures (`--unsetenv-all` collateral, `launchDetached` as the protected execution seam) go to Terra runtime.
 - [x] Shared stores: the ordinary SeaweedFS tier hit the 100-volume cap (`b18b080fa`, now 400) and was then OOM-killed by its 768 MiB container limit (`c054c6430`, now 2 GiB). Both recorded in `/tmp/factory-platform-evidence/w00/shared-store-incidents.jsonl`. Two orphaned spinning `bun test` processes were killed and recorded in `orphan-process-cleanup.jsonl`; W05 could not reproduce the spin in twenty-eight bounded runs and now bounds every invocation.
-- [ ] Wave 3 merge order: WREG, W01c, W02b, W01b, W12, W11, W09; then the full combined run with the Podman suites, receipts under `docs/validation/factory/wave3/`, and the integration branch fast-forwarded before W13 starts.
+- [x] Wave 3 merge order: WREG, W01c, W02b, W01b, W12, W11, W09; then the full combined run with the Podman suites, receipts under `docs/validation/factory/wave3/`, and the integration branch fast-forwarded before W13 starts. — closed: combined run wave3f green (todo.md:3155) (audit 2026-10-03).
 ## WREG — inherited backend-pool regressions (wp/wreg-backend-failures)
 
 - [x] Reproduce all seven failures with the exact targeted commands, container-backed ones under the shared heavy lock.
@@ -3079,8 +3116,8 @@ the attempt wire out of the launch store.
 ### Coordinator log — wave 3 progress (2026-09-20)
 
 - [x] Merged in order: WREG (e659795eb), W02b (a8eff0bfa), W01b (dfe3091f8), W11 (f45a94148), the release-authority manifestName fix (559db1d3e), W10 (b0a2ca872), W01c mount (f30da62fa), W12 (f1af41c16), W03c (8810d6eae), W01d (7d99dc75b). Combined run wave3c green at b0a2ca872; receipts in `docs/validation/factory/wave3/`; `feat/composable-factory-platform` fast-forwarded to 1784ab76c.
-- [ ] In flight: W09 composition round (preflight built over W03's retained admission; four roles to assemble; G14 real-guest proof), W11b (GPU journey rerun on the runner-owned handover), W12 follow-up (drop the caller-side handover), W01e (guest model-broker frame contract and adapter), W13 (composition and legacy adapter, started 2026-09-20 from f1af41c16).
-- [ ] Next: validate and merge W11b, W12 follow-up, W01e, W09; full combined run with `--podman`; receipts under `docs/validation/factory/wave3/`; fast-forward feat; then W14 (after W09 and W13), W15 and W16 (after W09), W17 (after W09, W15, W16), W18 final gate, W19 campaign, W20 audit.
+- [x] In flight: W09 composition round (preflight built over W03's retained admission; four roles to assemble; G14 real-guest proof), W11b (GPU journey rerun on the runner-owned handover), W12 follow-up (drop the caller-side handover), W01e (guest model-broker frame contract and adapter), W13 (composition and legacy adapter, started 2026-09-20 from f1af41c16). — closed: W01e merged (todo.md:3155); W09b merged (todo.md:3618) (audit 2026-10-03).
+- [x] Next: validate and merge W11b, W12 follow-up, W01e, W09; full combined run with `--podman`; receipts under `docs/validation/factory/wave3/`; fast-forward feat; then W14 (after W09 and W13), W15 and W16 (after W09), W17 (after W09, W15, W16), W18 final gate, W19 campaign, W20 audit. — closed: W01e merged (todo.md:3155); W09b merged (todo.md:3618) (audit 2026-10-03).
 - Decisions this session: the dispatch preflight reads the held allocation from `FactoryComputeAdmissions.readRetainedAdmittedInTransaction` and never derives or assembles a lease; the release-outcome resolver selects among the three providers by destination kind with GitHub lifted through `factorySynchronousReleaseProfile`; the guest model-broker payload is undefined and is Terra runtime's to define (W01e) before any adapter is written; the model-backed legs stay explicit readiness rows on this host.
 ## W13 — Composition and legacy adapter (Sol lifecycle)
 
@@ -3153,8 +3190,8 @@ sweep is a sub-tick and not new infrastructure.
 ### Coordinator log — wave 3, third integration run (2026-09-21)
 
 - [x] Merged: W01e (71e8cc9ed). Combined run wave3f green at 3d7fed172 on every producer, the four Podman suites, and both coverage gates; the wave3d patch-gate miss and the runner fixes are recorded in `docs/validation/factory/wave3/README.md`.
-- [ ] In flight: W09b (four roles assembled, legacy engine adapter landed, G11 real-guest proof, G12, G14, the sweep).
-- [ ] Next: validate and merge W09b; combined run; fast-forward feat; W14, W15, W16, W17, W18 final gate, W19, W20.
+- [x] In flight: W09b (four roles assembled, legacy engine adapter landed, G11 real-guest proof, G12, G14, the sweep). — closed: W09b merged (todo.md:3618); W14, W15, W16 landed (todo.md:3684, 3947, 3584) (audit 2026-10-03).
+- [x] Next: validate and merge W09b; combined run; fast-forward feat; W14, W15, W16, W17, W18 final gate, W19, W20. — closed: W09b merged (todo.md:3618); W14, W15, W16 landed (todo.md:3684, 3947, 3584) (audit 2026-10-03).
 - Renamed the root instruction file to `AGENTS.md` and updated all live root-file references. Nested, scope-specific `CLAUDE.md` files remain unchanged.
 - Added tested rootless Podman commands for the Linux development stack and the Linux/macOS production stack. Renamed the production override to `compose.podman-prod.yml`.
 - Proved the uid/gid and bind-mount contract with executable tests, rendered Compose output, the production image user, and real rootless Podman write tests.
@@ -3167,7 +3204,7 @@ sweep is a sub-tick and not new infrastructure.
 - [x] `origin/main` merged into `integ/w00` (user instruction "use podman, pull the latest main"): b43558b34 (podman default entry point, CI quality gates, pi 0.85.1) at 53346001b, 0f949c307 (container-engine helper) at bf010dece, bd6fd9714 (Dependabot bump) at f50b041c3. Conflicts: both lockfiles (main's file, then `bun install`, verified additive), package.json (both sides), tasks/todo.md (union), web graph layout header, ci.yml node pin (main's literal `node-version: "22"` replaced by `node-version-file: .node-version`, which our pin test demands). Full backend pool 27576 pass, 0 fail at f50b041c3. Receipts: `/tmp/factory-platform-evidence/w00/main-merge*/`.
 - Main's new gates, measured: `bun run test:coverage` cannot produce `coverage/lcov.info` on this host because the browser-route coverage receipt is CI-only (main's own tree fails identically), so the global floor and CRAP gates are measured here only over the combined runner's merged lcov. In CI both sit inside the required check "Per-file coverage gate" and BLOCK; "Mutation (changed files)" is report-only.
 - Rulings: (1) compiled workspace output (`packages/**/dist/**`) leaves the lcov through the vitest leg's product-source filter, never through EXCLUDES; (2) the 38 functions above complexity 30 on the feature diff are split with no behaviour change under W18a (w18a-sdk: 20 in factory-sdk, factory-orchestrator, extension-runner; w18a-app: 12 in src/factory, src/runtime, web/src plus the dist filter and the floor measurement; 6 in five W09b-owned files wait for W09b); (3) the combined runner records the floor and CRAP results on every run (`--quality-blocking` folds them into the exit code once W18a lands); (4) W09b declares release destinations and profiles in the startup document (W09's own surface; plan W09 line 270) with credentials by reference, and the release-outcome worker claims as the run's live initiator, reading the consent and claiming in two transactions because `claim` re-validates the consent in its own.
-- [ ] In flight: W09b round 3 (release destinations, running release-outcome role, real-store producers, G14 already green at 214d7251e), w18a-sdk, w18a-app. Next: validate and merge W09b; combined run with `--podman`; second W18a pass on the W09b files; W14, W15, W16 in parallel; W17; W18 final gate; W19; W20.
+- [x] In flight: W09b round 3 (release destinations, running release-outcome role, real-store producers, G14 already green at 214d7251e), w18a-sdk, w18a-app. Next: validate and merge W09b; combined run with `--podman`; second W18a pass on the W09b files; W14, W15, W16 in parallel; W17; W18 final gate; W19; W20. — closed: W09b merged (todo.md:3618); W14, W15, W16 landed (todo.md:3684, 3947, 3584) (audit 2026-10-03).
 
 ## W18a-sdk — split the twenty high-complexity workspace functions (2026-09-21)
 
@@ -3474,7 +3511,7 @@ process. All nine pass alone. Gates: `tasks/factory/focused-batch-isolation-GATE
       fail identically at the merge base, and the runner's order never takes those directions.
       Fixing them means redesigning a suite; the obvious shortcut, a private module copy, is the
       coverage trap that the workflow-branch suite exists to avoid.
-- [ ] The per-file pool is NOT green on this host, and not because of this branch. Two runs, two
+- [x] The per-file pool is NOT green on this host, and not because of this branch. Two runs, two — closed: later full pools green, wave4f runner 37 legs (todo.md:5523) and wave4h run 3 (audit 2026-10-03).
       different untouched real-subprocess suites: `sample-loop/index.integration.test.ts` (1 test)
       then `production-image-lifecycle-launch.integration.test.ts` (3 tests), each passing alone at
       the same load, on a box carrying several other agents' pools at load 21 and 36. Left as
@@ -3711,7 +3748,7 @@ Worktree `.worktrees/w09c-profiles` from `integ/w00` at `260855e57`. Gate file
       policy fails the claim with reason `policy_revoked`. A rejected approval fails it with
       reason `approval_not_approved`.
 - [x] Coverage, typecheck, lint, boundaries, and gate integrity are green, with no new source file.
-- [ ] A published release through the real started application. Blocked upstream, see Review.
+- [x] A published release through the real started application. Blocked upstream, see Review. — closed: W14 real lane, run accepted, approved, released, `succeeded` (todo.md:3683 to 3684) (audit 2026-10-03).
 
 Review (W09c): the composition itself was small. W08b had already made the S3 profile buildable,
 and W09b had already routed the profile set to the private service. The work was mostly proof.
@@ -4098,7 +4135,7 @@ Gate file: `tasks/factory/w15c-GATES.md`. Evidence: `/tmp/factory-platform-evide
 - [x] The checkpoint limits and pool-facing types move to the leaf `checkpoint-limits.ts`; the barrier re-exports them.
 - [x] The Node build of the pool service passes with no `bun` import; the pool mTLS suite passes under PostgreSQL.
 - [x] `check-factory-boundaries.ts` rejects a pool service graph that reaches `src/db/connection.ts`; a deliberate violation is tested.
-- [ ] Backend pool: 3 Podman guest suites fail because the host lost their pinned images at about 16:50Z.
+- [x] Backend pool: 3 Podman guest suites fail because the host lost their pinned images at about 16:50Z. — likely closed: later combined runs pass the four Podman suites (todo.md:5523, wave4h run 3); not checked per suite (audit 2026-10-03).
 
 Review (W15c): The W15 merge put the checkpoint barrier into the pool service's import graph, and the
 barrier reaches the Bun SQL driver, so the pool could not bundle for Node. The pool now reads a leaf
@@ -5343,8 +5380,8 @@ Base `integ/w00` `d2bc674c7`. Gates: `tasks/factory/w03f-GATES.md`. Receipts: `/
 - [x] Stop: for a non-completed outcome, settle from the journal. Zero operations keeps W03e's rule; all operations terminal with measured usage settles the measured model usage with compute at the reserved bound and a named basis; anything else keeps the hold.
 - [x] Migration: widen the settlement source and basis CHECKs; schema test for the widened values; PostgreSQL parity.
 - [x] Lifecycle cases per error class (unavailable, pin mismatch, auth, rate limit), each with a negative control on today's behaviour; partial consumption settles the measured usage, never zero.
-- [ ] Graph proof: the guest mirrors the refusal's operation; `control-missing-model` ends failed; runbook and summary criteria follow; eb7b8b8c5's guest-claimed zero recorded as superseded.
-- [ ] Coverage, boundaries, static checks, gates against `d2bc674c7`; receipts at the M1 standard.
+- [x] Graph proof: the guest mirrors the refusal's operation; `control-missing-model` ends failed; runbook and summary criteria follow; eb7b8b8c5's guest-claimed zero recorded as superseded. — closed: W03f landed, merge `ee9117e0a` (todo.md:5554) (audit 2026-10-03).
+- [x] Coverage, boundaries, static checks, gates against `d2bc674c7`; receipts at the M1 standard. — closed: W03f landed, merge `ee9117e0a` (todo.md:5554) (audit 2026-10-03).
 - [x] Finding (a): the kernel does not retry `provider_auth_failed`; red first (`retry-red.attempt-1`).
 - [x] Finding (b): a hold names its unsettled operations; a late answer after a cancel parks its evidence for reconciliation; red first (`hold-red.attempt-1/2`).
 - [x] Condition: a guest that rebuilds or alters the settled operation is refused by the journal.
@@ -5563,3 +5600,71 @@ Standing user items (decisions only the user makes):
 Review: the wave added three workspaces and a web patch file, and no container file followed. The guard now reads the lock and the
 manifest, so the next added workspace or patch fails a fast unit test, not a hosted image job. Receipts:
 /tmp/factory-platform-evidence/w4g-1/report.txt.
+
+## W4G — hosted CI pre-flight packages (landing records)
+
+- [x] First hosted CI run of the branch (2fd05e200) failed 14 jobs, the second (842ad9fe1) 26; eleven wave-side causes hidden by the local host.
+      Packages W4G-1..11; the private-files rule change (option A) was the user's decision on 2026-10-01: a root-owned sticky ancestor (/tmp) is
+      accepted; tests build private trees under a 0700 mkdtemp in os.tmpdir(), never $HOME.
+- [x] W4G-2 553cbe633 / W4G-3 7e2752288 / W4G-6 218b98f09 / W4G-5 01328c1ab / W4G-7 57453bb5e / W4G-9 0f9f538c8 / W4G-8 9e5065ebf /
+      W4G-11 bb581dfe5 / W4G-10 1476bf463 / W4G-1 4ae2f1658 / W4G-4 0293a32eb / W4G-12 ef05b446b / W4G-13 8c7f7bc00 / W4G-14 a3964cfb6;
+      gate files tasks/factory/w4g-<n>-GATES.md; verdicts under docs/validation/factory/wave4/ (prefix w4g-<n>-merge). The private-files rule
+      change (option A) was the user's decision on 2026-10-01 23:15Z.
+- [x] W4G-13 and W4G-14 were found by wave4h runs 1 and 2: W4G-13 corrected the dev-image-ownership test's step matcher after Dockerfile.dev
+      gained `bun run build:packages` (merge 8c7f7bc00, receipts a6bc6eeab); W4G-14 made file-organizer-applier-reserved-dirs reset the
+      process-wide project-root cache after pinning its root (merge a3964cfb6, receipts 1992630f3). wave4h run 3 at 1992630f3 is green
+      (receipts b73b13be4).
+- [ ] Open follow-ups: cookie (needs @sveltejs/kit 3), uuid (exceljs), esbuild (drizzle-kit), qs (@stryker-mutator); the E2E real-auth 3 specs
+      (re-read at the next hosted run); the build-pi-agent.ts keyless factory-branch test; the four hosted jobs that need runner labels/secrets.
+
+## Leftover after wave 4 — 2026-10-03
+
+From the read-only plan audit (w00/wave4h/leftover-audit-plan.md, section D, deduplicated) and the todo audit
+(w00/wave4h/leftover-audit-todo.md, section A.1).
+
+- [ ] W17: build factory metrics, C11 alerts with a real evaluator, the outbound webhook/SMTP sender, its boot role and receiving-service
+      proof; this also closes W09 L270/L271. Not deferred.
+- [ ] W19: freeze the workload; run the capacity experiment, the 26.5 h local campaign, the fault matrix, and 1 and 10 concurrent
+      10,000-node runs. Not deferred.
+- [ ] W10/W11/W13: provision the model provider credential; run the real generator, supervised review, image semantic quorum and actual
+      usage. Not deferred (recorded readiness failure).
+- [ ] W10/W13: real code and catalog journeys through the started app to a draft PR with actual child bytes (W10 G27). Not deferred.
+- [ ] W20: freeze the candidate, run full regression at the final head, area-separated review, F01–F13 evidence manifest, close
+      GATES.md, handoff. Not deferred.
+- [ ] W18: hosted enforcement: runners, secrets, branch protection, five-minute no-runner failure, deliberate lane failure, CODEOWNER
+      review. Deferred by: tasks/todo.md (W18 wave 1, final gate).
+- [ ] W04a/W15/W16: deploy and certify an independent archive failure domain with a distinct restore identity; blocks production
+      publication claims. Not deferred (plan section 6 makes it full-launch).
+- [ ] W07: install and verify the selected-repository GitHub App and the broker-only branch ruleset. Not deferred.
+- [ ] W14: HTTP journeys across two provisioned installations; W16 purge preconditions; real-stack repair/replan/uncertain release;
+      keyboard-only journey. Partly deferred: "by ruling until W16" (W14 Decisions), never closed.
+- [ ] W15: real cloud KMS, Temporal archival, shared-PostgreSQL WAL archiving, cluster-wide Temporal restore, real fencing; missing
+      restore tests (expired history, deleted projections, old-epoch token). Not deferred.
+- [ ] W01: cross-host recovery and replacement on a real second host; inspect-failure/timeout and Node-kill cases. Not deferred.
+- [ ] W02: hostile fetch/unpack/build/import/test and asset-mutation fixtures; fetch proxy role; fence acceptance/release for
+      quarantined packages. Not deferred.
+- [ ] W03: nested cancellation, losing join branches, one-slot parent/child tests; Retry-After header on 429; zero-cost reservation
+      reconciliation. Not deferred.
+- [ ] W16: hosted Kubernetes profile with DaemonSet supervisor separation. Not deferred.
+- [ ] W02/W16/W19: production GPU profile (CDI, dedicated host, NVIDIA pair, reset, reimage); repeat isolation proofs on both profiles.
+      Deferred by: W02d ruling (b)/A5; the plan assigns W19.
+- [ ] W05: freshness and issuer-grant rejection proofs; negative matrix on actual isolated validators. Not deferred.
+- [ ] W11: human review of the car and tree verdicts; publish an accepted variant with measured quorum. Not deferred.
+- [ ] W11/W12: bound guest material-mount bytes at mount time, not only at read-back. Not deferred.
+- [ ] W18: reference-data image producer in CI; recheck coverage against 2588c9f19. Deferred by: W18c follow-up (user decision) for
+      the producer; not deferred for the recheck.
+- [ ] W06/W09: a failed Release node still emits a cancel-node. Deferred by: coordinator ruling 2026-09-23 (W09c Open 2, 4).
+- [ ] W02d: bounded back-off for the stop pool-mismatch retry; claim-time fact on the launch row. Deferred by: W02d Open; PR #318
+      body follow-ups.
+- [ ] W09d2: M1: a lost response on an empty dispatch can wedge the run in stopping. Deferred by: owner W03 per ruling 2026-09-24
+      (W09d2 M1).
+- [ ] W14/W03: a denied approval leaves the run in "running" because the control-node stop never settles. Not deferred.
+- [ ] W15: manifest key binding (N2), keyed report digest (N4), constraint re-add (N3); C09 purge, inbox tombstones, debug-log store
+      not built. Partly deferred: W15b "Disclosed follow-ups".
+- [ ] W13: orphaned legacy run detection within 30 s (the wake interval defaults to one hour). Not deferred.
+- [ ] W00: move large raw evidence from /tmp to durable storage with checksums. Not deferred.
+- [ ] REG/W18: gate-change label for the eight standing coverage-tool findings; follow-ups (authoring-flow 404, complexity 38, keyless
+      test, four low advisories); remove the Bun guards. Deferred by: ruling-origin-main-gate-leg item 5; PR #318 body follow-ups. (The
+      combined run at 1992630f3 is receipted: b73b13be4; W12e G5 is ticked in this commit.)
+
+Open factory items elsewhere in this file (class (a) of the todo audit, 41 boxes; not repeated here): see lines 2127, 2152, 2153, 2804, 2806, 2835, 2892, 2894, 3145, 3420, 3508, 3614, 3619, 3666, 3668, 3670, 3985, 3986, 3987, 4004, 4007, 4123, 4124, 5349, 5442, 5476, 5477, 5525, 5567, 5569, 5571, 5574, 5576, 5582, 5583, 5585, 5586, 5587, 5588, 5589, 5590.

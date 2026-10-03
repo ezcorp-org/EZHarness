@@ -57,7 +57,7 @@ head with the same patch-ids.
     line without crediting it; the entry stays, refreshed (bunVersion 1.4.2, reason, proof paths).
   - Green: the same evaluation shows no finding (logs/g4-green-stale-check.log). The patch-gate red/green pair and
     attestation-check.py run at the final head with the merged lcov.
-- [ ] G5: every pin consumer names 1.4.2. CHECK: `git grep -n 'e10577f0db68\|bun-1\.3\.14\|oven/bun:1\.3\.14'` on
+- [x] G5: every pin consumer names 1.4.2. CHECK: `git grep -n 'e10577f0db68\|bun-1\.3\.14\|oven/bun:1\.3\.14'` on — verified at integ 1992630f3: the CHECK's git grep finds 10 lines, all history kept on purpose (comments and gate records of what ran on 1.3.14, e.g. podman.ts:22, deploy/extension-runner/README.md:49); every live pin names 1.4.2; W12e merge e6cdcf02a; wave4h run 3 on Bun 1.4.2 (verified 2026-10-03, leftover audit).
   live files (docs of past measurements excluded by name). EXPECT: no live consumer left. EVIDENCE: the list below.
 
 ## G5: pin consumers
