@@ -40,11 +40,16 @@ interface PairRunResult {
  *  code (imports, top-level mock.module() calls, beforeAll) still runs in
  *  full either way, so the pollution mechanism this file exists to catch
  *  still applies; only WHICH already-registered tests execute narrows. */
+/** The parent's own preload settings for its database (a minted temp datadir, then `:memory:`). A child must mint
+ *  its own, as every process in the real pool does: inheriting `:memory:` would leave it with no datadir at all. */
+const PRELOAD_OWNED_ENV = ["EZCORP_DB_PATH", "EZCORP_TEST_DB_TEMP_ROOT"];
+
 function runFilesInOneProcess(files: readonly string[], testNamePattern?: string, cwd: string = WEB_DIR): PairRunResult {
   const args = testNamePattern ? [...files, "--test-name-pattern", testNamePattern] : [...files];
+  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !PRELOAD_OWNED_ENV.includes(key)));
   const proc = Bun.spawnSync([process.execPath, "test", ...args], {
     cwd,
-    env: process.env,
+    env,
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -103,6 +108,14 @@ const PAIRS: ReadonlyArray<{
     label: "W4G-11: substack-pilot mcp-sdk-resolution (polluter) then ai-kit mcp-server (victim), @modelcontextprotocol/sdk/client",
     files: ["./docs/extensions/examples/substack-pilot/tests/mcp-sdk-resolution.test.ts", "./packages/@ezcorp/ai-kit/test/unit/mcp-server.test.ts"],
     minPass: 10,
+    cwd: REPO_ROOT,
+  },
+  {
+    // W4G-14: not a module mock but the same class: getProjectRoot() caches its answer for the process, so a file that
+    // pins EZCORP_PROJECT_ROOT after an earlier file filled the cache read the real repository root (3 failures).
+    label: "W4G-14: executions.integration (fills the project-root cache) then file-organizer-applier-reserved-dirs (pins EZCORP_PROJECT_ROOT)",
+    files: ["./src/factory/executions.integration.test.ts", "./src/__tests__/file-organizer-applier-reserved-dirs.test.ts"],
+    minPass: 7,
     cwd: REPO_ROOT,
   },
 ];
