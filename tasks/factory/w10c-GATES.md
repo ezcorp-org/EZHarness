@@ -62,7 +62,9 @@ file and in `openai.json`, which is why the first round added no entry.)
 | `90fa8ffa4` | fix(providers): the readiness probe names its store; the broker check stays in the broker | 3 |
 | `e6ea78c22` | feat(factory): re-pin the reference model to openai gpt-6-luna (user amendment) | 11 |
 | `ac33cd7eb` | fix(providers): an API key alone cannot make the subscription-only pin ready | 1 |
-| this commit | docs(w10c): gates and C10 record for the gpt-6-luna amendment | 0 |
+| `7bf9831eb` | docs(w10c): gates and C10 record for the gpt-6-luna amendment | 0 |
+| `71c6add0f` | feat(factory-graph-proof): opt-in persistent deployment for the sign-in flow | 1 |
+| this commit | docs(w10c): gates for the persistent deployment and the sign-in flow | 0 |
 
 All hook suites passed in the hook (logs/commit-c*.log). No commit mapped more than 12.
 
@@ -116,10 +118,23 @@ compiled digests. No test pins a reference digest literally, so no hash check wa
 - [x] G6 (R6): the W11 semantic evaluator pin (`sdxl-lock.json` `evaluation.model`; the SDK's three
   `semanticEvaluation*` runners and `validateImage`) is `gpt-6-luna`. SDXL model revision, closure digests and guest
   image pins unchanged. EVIDENCE: hook run of `e6ea78c22` (11 suites), `logs/c5-cov-b.log` (157 pass).
-- [x] G7 (R7): `/tmp/factory-platform-evidence/w10c/SIGN-IN.md`. Open question in it: the proof stack makes a new
-  product database and encryption secret per start, so the sign-in must happen inside the R8 hold, or the stack needs
-  a fixed-database option (stack.ts is not owned by W10c).
+- [x] G7 (R7): `/tmp/factory-platform-evidence/w10c/SIGN-IN.md`, for the ruled flow: the W10c owner holds the lock,
+  starts one persistent deployment (`run.sh hold`), the user signs in at its URL (Settings, Models, Connect OpenAI
+  Subscription), `run.sh probe` shows `ready: true`, `credentialKind: "oauth"`, and the stack stops within 30 minutes.
+- [x] G7a (ruling item 2): opt-in persistent deployment in the proof stack.
+  CHECK: `bun test --timeout 30000 ./scripts/factory-graph-proof/deployment.test.ts`
+  EXPECT: 9 pass; `deployment.ts` 65/65 lines, 16/16 functions. EVIDENCE: `logs/r8prep-deployment.log`,
+  `logs/c8-cov-d.log`, `cov/d.lcov`. Cases: the folder only under `/run/user/<uid>/`, never in the repository, HOME
+  or the evidence folder; first start fresh name and secrets, nothing written; later start reuses the same database
+  and key material and asks for no new name; a folder that names a dropped database is refused by that name
+  (`deployment_database_missing`); half-written, tampered (including an injected database name) and unreadable
+  folders are `deployment_incomplete`; key files are 0600, the folder 0700; the probe environment points at the
+  deployment's database with its own secret and salt. `stack.ts`, `hold.ts`, `deployment-probe.ts` and `run.sh`
+  are harness code: proved only by a real start, under the lock at R8 (the first hold is that proof).
 - [ ] G8 (R8): the real legs. OPEN: waits for the coordinator (wave4h push, the user's sign-in, the heavy lock).
+  Scheduled into the same lock holds: the sign-in hold itself; `scripts/factory-graph-proof/run.sh pass mock none`
+  at this head (the harness changed); `tests/postgres/factory-definitions.test.ts`; and the lint fix below with its
+  hook-mapped PostgreSQL suites.
 
 ## Lock-free legs (final code head `ac33cd7eb`)
 
@@ -141,8 +156,13 @@ The coverage legs against `origin/main` measure the whole feature branch and fai
 
 Not run (heavy, needs the lock): `tests/postgres/factory-definitions.test.ts` reads the definitions, pins no model or digest.
 
+Accepted by the coordinator: `scripts/cache-proof-live.ts` stays on its Anthropic pin; it is a prompt-cache proof,
+not a factory pin.
+
 Notes:
 - The connection module's own info log line prints the PGlite path for a `pglite-file` store. The readiness record
   never does; a receipt that keeps the full stdout should be read with that in mind.
 - Pre-existing lint warning at the base: `tests/postgres/helpers/factory-recovery-databases.ts:50` (`noCommaOperator`).
-  A fix there maps PostgreSQL suites in the hook, which need the heavy lock; not fixed here.
+  Seen, fix scheduled: W10c fixes it at R8 time under the lock, where its hook-mapped PostgreSQL suites run.
+- Finding for the coordinator, not changed here: `scripts/factory-graph-proof/run.sh all` ends with
+  `podman image prune -f`, which the disk rule forbids (it is host-wide). `hold` and `probe` do not call it.
