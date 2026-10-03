@@ -5668,3 +5668,19 @@ From the read-only plan audit (w00/wave4h/leftover-audit-plan.md, section D, ded
       combined run at 1992630f3 is receipted: b73b13be4; W12e G5 is ticked in this commit.)
 
 Open factory items elsewhere in this file (class (a) of the todo audit, 41 boxes; not repeated here): see lines 2127, 2152, 2153, 2804, 2806, 2835, 2892, 2894, 3145, 3420, 3508, 3614, 3619, 3666, 3668, 3670, 3985, 3986, 3987, 4004, 4007, 4123, 4124, 5349, 5442, 5476, 5477, 5525, 5567, 5569, 5571, 5574, 5576, 5582, 5583, 5585, 5586, 5587, 5588, 5589, 5590.
+
+## W4H-3 — pinned Python base for the hosted shards (branch `wp/w4h-3`; gates `tasks/factory/w4h-3-GATES.md`)
+
+- [x] Red in a runner-shaped container at 52d8ba079: python-guest, applied-controls and the journey fail "image not known" as hosted.
+- [x] One pin source: the step reads DEFAULT_PYTHON_IMAGE; a unit test pins it, the data recipe's FROM and pinned.json's base together.
+- [x] Shared step `.github/actions/factory-python-base` in cov-shard after the podman setup; the test pins its place (8c93335e5).
+- [x] Green at 8c93335e5: step 4 s; applied-controls 5 pass; python-guest 12 pass.
+- [x] Data image: podman 4.9.3 builds e64f66da…, not the pinned f9cc7477… (podman 5.8.2); umask ruled out. The journey runs in the
+      factory-real lane (W4H-4). A registry for the data image stays the user's decision.
+- [x] Hook noise: run_staged_tests no longer prints "Broken pipe" (491b7cc22).
+- [x] Coverage: scripts/setup-factory-python-base.ts 18 of 18 lines (E/coverage-new-file.txt).
+
+Review: the hosted shards had no step that put the Python images on the runner, and three files spelled the base digest with nothing
+tying them. The base is now pulled from the one value the suites read, and a test holds the three spellings and the step's place.
+The data image cannot be rebuilt by digest on the hosted podman, so it is not faked: the build script refuses, and the journey stays in
+the lane that holds the image. Receipts: /tmp/factory-platform-evidence/w4h-3/.
