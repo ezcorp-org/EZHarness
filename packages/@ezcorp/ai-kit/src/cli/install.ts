@@ -5,7 +5,7 @@
 
 import * as nodePath from "node:path";
 import * as nodeFs from "node:fs";
-import { withoutGitContext } from "@ezcorp/sdk/git";
+import { findProjectRoot } from "@ezcorp/sdk/runtime";
 
 export type InstallTarget = "claude-code" | "cursor" | "zed" | "windsurf" | "ezcorp";
 
@@ -124,22 +124,20 @@ async function copySkills(destBase: string, dryRun: boolean): Promise<void> {
 // ── project root ──────────────────────────────────────────────────────────────
 
 /**
- * The git repository enclosing `startDir`, as git itself reports it. Asking
- * git (rather than probing for any `.git` entry) ignores a stray empty `.git`
- * directory above the project, such as one left in a shared `/tmp`. The
- * caller's `GIT_*` variables are dropped (via `@ezcorp/sdk/git`'s
- * `withoutGitContext` — the ai-kit package already lists `@ezcorp/sdk` as a
- * peer dependency; this reuses that one canonical definition rather than a
- * second hand-rolled copy of the same filter, item C2, W18 hygiene) so git
- * discovers from `startDir` even when this runs inside a git hook, which
- * exports `GIT_DIR`. The CLI runs outside EZCorp, so it cannot rely on the
- * SDK's walk — that is a separate function (`findProjectRoot`), not this
- * env-isolation rule.
+ * The git repository enclosing `startDir`, found by the SDK's one walk
+ * (`findProjectRoot`): a `.git` directory that holds `HEAD`, or a worktree or
+ * submodule `.git` file that names its `gitdir:`. A stray empty `.git`
+ * directory (such as one left in a shared `/tmp`) is not a repository. The
+ * walk reads the filesystem only, so it needs no `git` executable (the
+ * isolated extension build's runner image ships none, W4H-1) and no caller
+ * `GIT_*` variable can redirect it.
  */
-function gitProjectRoot(startDir: string): string | null {
-  const env = withoutGitContext(process.env);
-  const git = Bun.spawnSync(["git", "rev-parse", "--show-toplevel"], { cwd: nodePath.resolve(startDir), env, stdout: "pipe", stderr: "ignore" });
-  return git.exitCode === 0 ? git.stdout.toString().trim() : null;
+function enclosingProjectRoot(startDir: string): string {
+  try {
+    return findProjectRoot(nodePath.resolve(startDir));
+  } catch (cause) {
+    throw new Error("Could not find a project root (no git repository encloses the current directory). Pass --project <path>.", { cause });
+  }
 }
 
 // ── targets ───────────────────────────────────────────────────────────────────
@@ -216,12 +214,7 @@ async function installWindsurf(opts: Required<Pick<InstallOptions, "home" | "dry
 }
 
 async function installEzcorp(opts: Required<Pick<InstallOptions, "home" | "dryRun" | "cwd">> & { projectPath?: string }): Promise<void> {
-  const root = opts.projectPath ?? gitProjectRoot(opts.cwd);
-  if (!root) {
-    throw new Error(
-      "Could not find a project root (no .git directory found). Pass --project <path>.",
-    );
-  }
+  const root = opts.projectPath ?? enclosingProjectRoot(opts.cwd);
 
   const extensionsDir = nodePath.join(root, ".ezcorp", "extensions");
   const linkTarget = nodePath.join(extensionsDir, "ai-kit");
