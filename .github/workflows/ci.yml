@@ -1059,6 +1059,9 @@ jobs:
           sync: "true"
       - name: Verify rootless extension runner controls
         run: bash scripts/setup-extension-runner-ci.sh --install
+      # Any shard can draw the python guest, applied controls and reference data
+      # journey suites, which run the pinned Python images by digest (W4H-3).
+      - uses: ./.github/actions/factory-python-images
       # The backend suites spawn gate-integrity (rule 11), which needs its locked parser.
       - uses: ./.github/actions/gate-integrity-deps
       - name: Run shard (tests + coverage)
