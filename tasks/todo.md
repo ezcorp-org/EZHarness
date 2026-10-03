@@ -13,9 +13,9 @@ Service restoration, 3 October:
 - [x] Identify missing qualification services in current NixOS source; create a repair worktree from current `3914170`.
 - [x] Restore the qualification module on the current host configuration, keep automatic start off, and build/test a guarded candidate.
 - [x] Preserve and inspect a detached copy of the current database before any service start; do not restore September's older database.
-- [ ] Review the concrete candidate and then restore the services under the existing ingress hold.
+- [x] Review the concrete candidate and then restore the service definitions under the existing ingress hold; leave app and runner stopped until the guarded bundle/start checks pass.
 
-Verification: the restricted fast run passed lint, typecheck, gate integrity, visual-evidence checks, and 3,645 web tests. Backend results were 26,992 passes and 44 failures. A reproduced container failure is denied Podman runtime writes under the session sandbox; an approved unrestricted fast run is in progress. These results are not a passing full gate. Six focused management browser tests passed before the recovery journeys were added; the expanded suite is still being checked. The live CREATE/START are confirmed, but the full workload/cleanup milestone remains open.
+Verification: the unrestricted fast run passed with exit 0: 27,140 backend/example tests, 3,645 web Bun tests, and 7,579 Vitest tests, plus lint, typechecks, repository integrity checks, and the production build. The prior restricted run's container failures cleared with Podman access. Browser coverage and merged gates remain open. The expanded 11-journey management suite passed; two intercepted-request assertions are being strengthened and rerun. The live CREATE/START are confirmed, but the full workload/cleanup milestone remains open.
 
 # Resumed completion — 2 October 2026
 
