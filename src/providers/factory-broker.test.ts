@@ -223,7 +223,7 @@ describe("a local model the operator registered", () => {
 });
 
 describe("the openai pin under a ChatGPT-plan OAuth login (C10 revision, W10c)", () => {
-  const LUNA: FactoryProviderPin = { provider: "openai", model: "gpt-5.6-luna" };
+  const LUNA: FactoryProviderPin = { provider: "openai", model: "gpt-6-luna" };
   const OAUTH_TOKEN = "fixture-oauth-token";
   const API_KEY = "fixture-api-key";
   const API_KEY_SETTING = "provider:apiKey:openai";
@@ -259,7 +259,7 @@ describe("the openai pin under a ChatGPT-plan OAuth login (C10 revision, W10c)",
     expect(readiness).toEqual({
       schemaVersion: FACTORY_PROVIDER_READINESS_SCHEMA_VERSION,
       provider: "openai",
-      model: "gpt-5.6-luna",
+      model: "gpt-6-luna",
       ready: true,
       credentialKind: "oauth",
       failures: [],
@@ -278,7 +278,7 @@ describe("the openai pin under a ChatGPT-plan OAuth login (C10 revision, W10c)",
     expect((answered.content[0] as { text: string }).text).toBe(`luna:${OAUTH_TOKEN}`);
     expect(sent).toHaveLength(1);
     expect(sent[0]!.model).toMatchObject({
-      id: "gpt-5.6-luna",
+      id: "gpt-6-luna",
       // The public provider name stays, so later credential lookups still read the openai row.
       provider: "openai",
       api: "openai-codex-responses",
@@ -303,18 +303,18 @@ describe("the openai pin under a ChatGPT-plan OAuth login (C10 revision, W10c)",
     expect(readiness).toMatchObject({ ready: false, credentialKind: null, failures: ["provider_not_configured"] });
     const sent: Array<{ model: Model<Api>; options: { apiKey?: string } }> = [];
     const broker = createFactoryProviderBroker({ pin: LUNA, stream: capturing(sent) });
-    await expect(broker.stream(request({ model: model(LUNA.provider, LUNA.model) }))).rejects.toThrow(/factory_provider_not_ready: openai\/gpt-5\.6-luna \(provider_not_configured\)/);
+    await expect(broker.stream(request({ model: model(LUNA.provider, LUNA.model) }))).rejects.toThrow(/factory_provider_not_ready: openai\/gpt-6-luna \(provider_not_configured\)/);
     expect(sent).toHaveLength(0);
   });
 
   test("names a misspelt model id as unavailable, even with the login present", async () => {
     await signIn();
-    const misspelt: FactoryProviderPin = { provider: "openai", model: "gpt-5.6-lunna" };
+    const misspelt: FactoryProviderPin = { provider: "openai", model: "gpt-6-lunna" };
     const readiness = await factoryProviderReadiness(misspelt, { now: () => NOW });
     expect(readiness).toMatchObject({ ready: false, credentialKind: "oauth", failures: ["model_not_available"] });
     const sent: Array<{ model: Model<Api>; options: { apiKey?: string } }> = [];
     const broker = createFactoryProviderBroker({ pin: misspelt, stream: capturing(sent) });
-    await expect(broker.stream(request({ model: model(misspelt.provider, misspelt.model) }))).rejects.toThrow(/gpt-5\.6-lunna \(model_not_available\)/);
+    await expect(broker.stream(request({ model: model(misspelt.provider, misspelt.model) }))).rejects.toThrow(/gpt-6-lunna \(model_not_available\)/);
     expect(sent).toHaveLength(0);
   });
 

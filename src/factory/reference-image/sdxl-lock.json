@@ -297,7 +297,7 @@
     "minimumWordConfidence": 60
   },
   "evaluation": {
-    "model": "gpt-5.6-luna",
+    "model": "gpt-6-luna",
     "fields": [
       "oneOakTree",
       "greenFoliage",

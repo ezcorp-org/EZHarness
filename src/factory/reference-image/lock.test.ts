@@ -58,7 +58,7 @@ describe("the committed lock", () => {
   });
 
   test("it pins the evaluation model, fields, and quorum", () => {
-    expect(referenceImageLock.evaluation.model).toBe("gpt-5.6-luna");
+    expect(referenceImageLock.evaluation.model).toBe("gpt-6-luna");
     expect(referenceImageLock.evaluation.fields).toEqual(["oneOakTree", "greenFoliage", "plainWhiteBackground", "noText"]);
     expect(referenceImageLock.evaluation.evaluations).toBe(3);
     expect(referenceImageLock.evaluation.minimumPasses).toBe(2);

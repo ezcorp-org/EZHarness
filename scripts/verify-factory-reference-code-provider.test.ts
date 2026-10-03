@@ -37,8 +37,8 @@ function capture() {
 }
 
 describe("the reference code provider probe", () => {
-  test("pins the reviewed C10 revision: openai gpt-5.6-luna", () => {
-    expect(REFERENCE_CODE_MODEL_PIN).toEqual({ provider: "openai", model: "gpt-5.6-luna" });
+  test("pins the reviewed C10 revision: openai gpt-6-luna", () => {
+    expect(REFERENCE_CODE_MODEL_PIN).toEqual({ provider: "openai", model: "gpt-6-luna" });
     expect(Object.isFrozen(REFERENCE_CODE_MODEL_PIN)).toBe(true);
   });
 
@@ -48,7 +48,7 @@ describe("the reference code provider probe", () => {
     const { log, lines } = capture();
     expect(await runReferenceCodeProviderCheck({ evidencePath, log, env: MEMORY })).toBe(0);
     const record = JSON.parse(readFileSync(evidencePath, "utf8")) as Record<string, unknown>;
-    expect(record).toMatchObject({ provider: "openai", model: "gpt-5.6-luna", ready: true, credentialKind: "oauth", failures: [] });
+    expect(record).toMatchObject({ provider: "openai", model: "gpt-6-luna", ready: true, credentialKind: "oauth", failures: [] });
     expect(readFileSync(evidencePath, "utf8")).not.toContain(OAUTH_TOKEN);
     expect(lines.join("\n")).not.toContain(OAUTH_TOKEN);
   });
@@ -121,6 +121,6 @@ describe("the reference code provider probe", () => {
     const [stdout, exitCode] = await Promise.all([new Response(child.stdout).text(), child.exited]);
     expect(stdout).not.toContain("provider configuration could not be read");
     expect(exitCode).toBe(1);
-    expect(JSON.parse(readFileSync(evidencePath, "utf8"))).toMatchObject({ provider: "openai", model: "gpt-5.6-luna", ready: false, credentialKind: null, failures: ["provider_not_configured"] });
+    expect(JSON.parse(readFileSync(evidencePath, "utf8"))).toMatchObject({ provider: "openai", model: "gpt-6-luna", ready: false, credentialKind: null, failures: ["provider_not_configured"] });
   });
 });

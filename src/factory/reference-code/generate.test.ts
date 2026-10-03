@@ -12,7 +12,7 @@ import {
 import { sealReferenceCodeSnapshot } from "./snapshot";
 
 const BASE = "a".repeat(39) + "1";
-const MODEL = { provider: "openai", model: "gpt-5.6-luna" };
+const MODEL = { provider: "openai", model: "gpt-6-luna" };
 const decoder = new TextDecoder();
 
 const snapshot = sealReferenceCodeSnapshot({

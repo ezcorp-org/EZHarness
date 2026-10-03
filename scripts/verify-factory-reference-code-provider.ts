@@ -2,7 +2,7 @@
 /**
  * Records whether this deployment can run the reference code factory's pinned model.
  *
- * C10 pins `gpt-5.6-luna` on the OpenAI provider for both the native generator and the separate
+ * C10 pins `gpt-6-luna` on the OpenAI provider for both the native generator and the separate
  * supervised review validator (reviewed revision W10c, 2026-10-03: served by the ChatGPT-plan OAuth
  * login through the subscription endpoint; it replaced `claude-haiku-4-5-20251001`). A deployment that
  * cannot resolve that model or a credential for it does not fall back: the run is a readiness
@@ -29,7 +29,7 @@ import {
 
 export const REFERENCE_CODE_MODEL_PIN: FactoryProviderPin = Object.freeze({
   provider: "openai",
-  model: "gpt-5.6-luna",
+  model: "gpt-6-luna",
 });
 
 type Environment = Readonly<Record<string, string | undefined>>;

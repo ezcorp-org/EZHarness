@@ -47,12 +47,13 @@ const noRemediation = { kind: "literal" as const, value: "" };
 /**
  * The one model every model-backed reference runner names (contract C10).
  *
- * Reviewed revision W10c (2026-10-03, the user's decision): `gpt-5.6-luna` on the `openai` provider,
- * served through the deployment's ChatGPT-plan OAuth login. It replaced `claude-haiku-4-5-20251001`.
+ * Reviewed revision W10c (2026-10-03, the user's decision): `gpt-6-luna` on the `openai` provider,
+ * served through the deployment's ChatGPT-plan OAuth login. It replaced `claude-haiku-4-5-20251001`
+ * (first pick `gpt-5.6-luna` at 15:50Z, amended by the user to `gpt-6-luna` at 16:00Z).
  * A change here changes every model-backed definition digest, which is the point: a definition
  * names the model its evidence ran on.
  */
-const referenceModel = "gpt-5.6-luna";
+const referenceModel = "gpt-6-luna";
 
 function runner(packageName: string, exportName: string, hex: string, model?: string): RunnerReference {
   let packageCode = 0;

@@ -7,7 +7,7 @@ import { REFERENCE_CODE_DETERMINISTIC_CLAIM_IDS } from "./static-claims";
 import { REFERENCE_CODE_REVIEW_CLAIM_ID } from "./review";
 import { snapshotReferenceCodeRepository } from "./snapshot";
 
-const MODEL = { provider: "openai", model: "gpt-5.6-luna" };
+const MODEL = { provider: "openai", model: "gpt-6-luna" };
 import { REFERENCE_CODE_GUEST_MANIFEST } from "./guest-entry";
 import {
   referenceCodeDeclaredExports,
@@ -157,7 +157,7 @@ describe("the contract, as C10 writes it", () => {
 
   test("every pinned model is the one identifier C10 names, and nothing else", () => {
     const pinned = referenceCodeRunnerReferences().filter(reference => reference.model !== undefined);
-    expect([...new Set(pinned.map(reference => reference.model))]).toEqual(["gpt-5.6-luna"]);
+    expect([...new Set(pinned.map(reference => reference.model))]).toEqual(["gpt-6-luna"]);
     expect([...new Set(pinned.map(reference => reference.export))].sort())
       .toEqual(["generateCandidate", "protectedChecks", "supervisedReview"]);
   });

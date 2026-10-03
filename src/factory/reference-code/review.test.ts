@@ -17,7 +17,7 @@ import {
 import { sealReferenceCodeSnapshot } from "./snapshot";
 
 const BASE = "a".repeat(39) + "1";
-const MODEL = { provider: "openai", model: "gpt-5.6-luna" };
+const MODEL = { provider: "openai", model: "gpt-6-luna" };
 const NOW = Date.parse("2026-09-14T00:00:00.000Z");
 
 const snapshot = sealReferenceCodeSnapshot({
