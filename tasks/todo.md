@@ -1,5 +1,19 @@
 # Active completion — 3 October 2026
 
+## Latest verified state — 3 October, 22:29 UTC
+
+- [x] Complete linked v2 cleanup through EZHarness; preserve the original failed row, release reservations, and independently confirm no guests remain.
+- [x] Install verified diagnostics bundle `74970fa36` in the isolated app. One v4 attempt reported the actual failure: `enforcement / distinct_ip_literal_targets_are_required`. Both guests were cleaned up; independent Incus inventory is empty. Global v4 reservation readback remains pending the next stopped snapshot.
+- [x] Pass all five browser lanes at `82ba45f58`: 259 mock, 1,441 full mock, 393 evidence, 7 fresh setup, and 133 authenticated tests. All 22 management journeys passed; that page measured 280/280 lines. This is revision-specific evidence, not final merged-source proof.
+- [x] Merge main `605fde7e9` through `c53cf46e1`. Preserve both sets of contracts and gates; full types/lint and focused merge tests pass. Independent semantic review found the selected Incus authority/lifecycle code unchanged.
+- [x] Add and verify visible, safe qualification failure details. Fourteen route tests and one authenticated browser test pass.
+- [x] Strengthen the secret timeout test using actual child output and a controlled expiry callback; separately prove that late output is wiped. Fourteen targeted tests pass. The exact original full-pool assertion failure was not retained, so its precise cause remains unconfirmed.
+- [ ] Fix the confirmed hostname/IP mismatch using the verified Incus TLS connection; keep destination and network checks strict.
+- [ ] Complete live SP01–SP08, native project proof, and ten serial feature lifecycles on the final candidate. Normal feature admission correctly remains blocked until qualification passes.
+- [ ] Pass final-source browser, merged coverage, full local/hosted checks, and required non-author review. Do not repeat full captures for each intermediate diagnostic fix.
+
+The `74970fa36` fast run passed every check except the secret timeout test: 27,232 backend passes and one failure. Its corrected test has passed focused checks; the final full gate is still open. The current merged branch includes later main changes, so the installed bundle is not claimed to be the final source.
+
 ## GPT-6.1 Sol completion team
 
 - [x] Stage and verify source `241ab3836`; install the reviewed STOP readback fix in the isolated app.

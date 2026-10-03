@@ -480,3 +480,7 @@
 - An HTTP error does not prove no backend effect. Preserve the exact admitted receipt before awaiting replay; never treat a missing response as permission to repeat or delete.
 - Inspect only the saved operation. Preserve newer cleanup intent and resource reservations under the database binding lock; readback must not dispatch a superseded operation.
 - Keep operator diagnostics bounded and explicit about preserved operation IDs. Never project raw provider errors or private causes into responses or ordinary logs.
+- Save safe stage and cause identifiers before cleanup removes the evidence needed to diagnose a failed live qualification. A generic HTTP error is not sufficient.
+- For timeout tests, trigger the timeout only after the intended real input is observed. Test late input separately so deterministic timing does not hide a confidentiality defect.
+- Do not infer a specific failed assertion from elapsed time when the full failure output is missing. Record the uncertainty and prove the intended boundary directly.
+- Finish live diagnosis before repeating all browser and coverage lanes. Keep intermediate results tied to their source revision, then capture the final merged source once.
