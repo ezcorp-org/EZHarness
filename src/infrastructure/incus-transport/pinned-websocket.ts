@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
-import { isIP } from "node:net";
-import { connect as tlsConnect, type TLSSocket } from "node:tls";
+import type { TLSSocket } from "node:tls";
 import type { Session } from "./lifecycle";
+import { connectPinnedTls } from "./transport";
 
 const MAX_FRAME_BYTES = 2 * 1024 * 1024;
 const MAX_HEADER_BYTES = 8 * 1024;
@@ -24,7 +24,6 @@ class SocketBytes {
     if (this.#error) throw this.#error;
     await new Promise<void>(resolve => { this.#pending = resolve; });
     this.#pending = undefined;
-    if (this.#error) throw this.#error;
   }
   async read(length: number): Promise<Buffer> {
     while (this.#buffer.length < length) await this.#changed();
@@ -71,23 +70,12 @@ export interface PinnedWebSocket {
 export async function openPinnedWebSocket(session: Session, operationId: string, secret: string): Promise<PinnedWebSocket> {
   if (!/^[a-f0-9-]{36}$/.test(operationId) || !/^[a-f0-9]{64}$/.test(secret)) throw new Error("Invalid Incus WebSocket identity");
   const host = session.origin.hostname.replace(/^\[|\]$/g, "");
-  const socket = tlsConnect({ host, port: Number(session.origin.port || 443), servername: isIP(host) ? undefined : host,
-    cert: session.tls.cert, key: session.tls.key, ca: session.tls.ca, rejectUnauthorized: true, checkServerIdentity: session.tls.checkServerIdentity });
-  const abort = () => socket.destroy(new Error("Incus WebSocket deadline exceeded"));
-  session.signal.addEventListener("abort", abort, { once: true });
+  const socket = await connectPinnedTls(host, Number(session.origin.port || 443), session.tls, session.signal);
   try {
-    await new Promise<void>((resolve, reject) => {
-      socket.once("secureConnect", () => {
-        const peer = socket.getPeerCertificate(true);
-        if (!socket.authorized || !peer.raw || session.tls.checkServerIdentity(host, peer)) { reject(new Error("Incus peer identity rejected")); socket.destroy(); }
-        else resolve();
-      });
-      socket.once("error", () => reject(new Error("Incus TLS failed")));
-      if (session.signal.aborted) abort();
-    });
     const bytes = new SocketBytes(socket);
     const key = randomBytes(16).toString("base64");
     const project = encodeURIComponent(session.connection.project);
+    if (session.signal.aborted || socket.destroyed) throw new Error("Incus WebSocket deadline exceeded");
     socket.write(`GET /1.0/operations/${operationId}/websocket?secret=${secret}&project=${project} HTTP/1.1\r\nHost: ${session.origin.host}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: ${key}\r\n\r\n`);
     const header = (await bytes.until("\r\n\r\n", MAX_HEADER_BYTES)).toString("latin1");
     if (!/^HTTP\/1\.[01] 101(?: |\r\n)/.test(header)) throw new Error("Incus WebSocket upgrade denied");
@@ -110,18 +98,22 @@ export async function openPinnedWebSocket(session: Session, operationId: string,
         }
         if ((opcode === 8 || opcode === 9 || opcode === 10) && length > 125) throw new Error("Invalid Incus WebSocket control frame");
         const frame = await bytes.read(length);
-        if (opcode === 8) return Buffer.concat(chunks, total);
+        if (opcode === 8) throw new Error("Incus WebSocket closed before stream EOF");
         if (opcode === 9) { socket.write(maskedFrame(10, frame)); continue; }
+        if (opcode === 10) continue;
         if (opcode !== 0 && opcode !== 1 && opcode !== 2) throw new Error("Invalid Incus WebSocket frame");
+        if (opcode === 1) {
+          if (head[0] !== 0x81 || length !== 0) throw new Error("Invalid Incus WebSocket stream EOF");
+          return Buffer.concat(chunks, total);
+        }
         total += length;
         if (total > MAX_FRAME_BYTES) throw new Error("Incus WebSocket response is too large");
         chunks.push(frame);
       }
     };
-    return { send(data) { socket.write(maskedFrame(2, data)); }, finish() { socket.write(maskedFrame(8)); socket.end(); }, readAll, close() { socket.destroy(); session.signal.removeEventListener("abort", abort); } };
+    return { send(data) { socket.write(maskedFrame(2, data)); }, finish() { socket.write(maskedFrame(1)); }, readAll, close() { socket.destroy(); } };
   } catch (error) {
     socket.destroy();
-    session.signal.removeEventListener("abort", abort);
     throw error;
   }
 }

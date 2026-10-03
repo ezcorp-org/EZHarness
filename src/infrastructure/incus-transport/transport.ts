@@ -1,6 +1,6 @@
 import { createHash, X509Certificate } from "node:crypto";
 import { isIP } from "node:net";
-import { checkServerIdentity, connect as tlsConnect, type PeerCertificate } from "node:tls";
+import { checkServerIdentity, connect as tlsConnect, type PeerCertificate, type TLSSocket } from "node:tls";
 import {
   IncusTransportError,
   type IncusProbeResult,
@@ -131,38 +131,71 @@ function parseHttpResponse(wire: Buffer): Response {
   return new Response(status === 204 || status === 304 ? null : Uint8Array.from(body), { status, headers });
 }
 
-// Queue no HTTP bytes until the actual leaf matches the stored pin and the
-// endpoint name. The stored Incus leaf may be signed by an unavailable CA;
-// ordinary chain validation can reject it before the exact pin is checked.
-// Bun fetch and https.request can deliver a GET before a peer rejection, so
-// this socket is checked explicitly before writing any request bytes.
-export function verifiedHttpsRequest(url: string, init: Parameters<PinnedFetch>[1]): Promise<Response> {
+/** Connect only after the actual leaf matches the stored pin and endpoint name.
+ * Incus can use a leaf signed by an unavailable CA, so chain validation cannot
+ * replace the exact leaf pin. Callers write no application bytes until resolve. */
+export function connectPinnedTls(hostname: string, port: number, tls: Parameters<PinnedFetch>[1]["tls"], signal?: AbortSignal): Promise<TLSSocket> {
+  const pinnedLeaf = new X509Certificate(tls.ca);
+  const validFrom = Date.parse(pinnedLeaf.validFrom);
+  const validTo = Date.parse(pinnedLeaf.validTo);
+  const now = Date.now();
+  if (!Number.isFinite(validFrom) || !Number.isFinite(validTo) || now < validFrom || now > validTo) {
+    throw new Error("Incus server certificate is outside its validity window");
+  }
+  const expectedLeaf = createHash("sha256").update(pinnedLeaf.raw).digest("hex");
   return new Promise((resolve, reject) => {
-    const target = new URL(url);
-    const hostname = target.hostname.replace(/^\[|\]$/g, "");
-    const expectedLeaf = createHash("sha256").update(new X509Certificate(init.tls.ca).raw).digest("hex");
     const socket = tlsConnect({
       host: hostname,
-      port: target.port ? Number(target.port) : 443,
+      port,
       servername: isIP(hostname) ? undefined : hostname,
-      cert: init.tls.cert,
-      key: init.tls.key,
+      cert: tls.cert,
+      key: tls.key,
       rejectUnauthorized: false,
     });
-    const abort = () => socket.destroy(new Error("Incus probe was cancelled"));
-    init.signal?.addEventListener("abort", abort, { once: true });
-    if (init.signal?.aborted) abort();
-    socket.once("error", reject);
-    socket.once("close", () => reject(new Error("Incus HTTP connection closed before completion")));
+    let settled = false;
+    const abort = () => socket.destroy(new Error("Incus TLS connection was cancelled"));
+    socket.on("error", error => { if (!settled) { settled = true; reject(error); } });
+    socket.once("close", () => {
+      signal?.removeEventListener("abort", abort);
+      if (!settled) { settled = true; reject(new Error("Incus TLS connection closed")); }
+    });
     socket.once("secureConnect", () => {
-      const peer = socket.getPeerCertificate(true);
-      const identityError = checkServerIdentity(hostname, peer) ?? init.tls.checkServerIdentity(hostname, peer);
-      const leafMatches = peer.raw && createHash("sha256").update(peer.raw).digest("hex") === expectedLeaf;
-      if (!leafMatches || identityError) {
+      if (settled) return;
+      try {
+        const peer = socket.getPeerCertificate(true);
+        const identityError = checkServerIdentity(hostname, peer) ?? tls.checkServerIdentity(hostname, peer);
+        const leafMatches = peer.raw && createHash("sha256").update(peer.raw).digest("hex") === expectedLeaf;
+        if (!leafMatches || identityError) throw new Error("Incus server identity was rejected");
+        const handshakeTime = Date.now();
+        if (handshakeTime < validFrom || handshakeTime > validTo) throw new Error("Incus server certificate is outside its validity window");
+      } catch (error) {
         socket.destroy();
-        reject(new Error("Incus server identity was rejected"));
+        if (!settled) { settled = true; reject(error); }
         return;
       }
+      if (signal?.aborted || socket.destroyed) {
+        socket.destroy();
+        if (!settled) { settled = true; reject(new Error("Incus TLS connection was cancelled")); }
+        return;
+      }
+      settled = true;
+      resolve(socket);
+    });
+    signal?.addEventListener("abort", abort, { once: true });
+    if (signal?.aborted) abort();
+  });
+}
+
+// Bun fetch and https.request can deliver a GET before peer rejection, so use
+// the shared verified socket for HTTP as well as WebSocket upgrades.
+export async function verifiedHttpsRequest(url: string, init: Parameters<PinnedFetch>[1]): Promise<Response> {
+  const target = new URL(url);
+  const hostname = target.hostname.replace(/^\[|\]$/g, "");
+  const socket = await connectPinnedTls(hostname, target.port ? Number(target.port) : 443, init.tls, init.signal ?? undefined);
+  return new Promise((resolve, reject) => {
+      if (init.signal?.aborted || socket.destroyed) { socket.destroy(); reject(new Error("Incus probe was cancelled")); return; }
+      socket.once("error", reject);
+      socket.once("close", () => reject(new Error("Incus HTTP connection closed before completion")));
       const chunks: Buffer[] = [];
       let length = 0;
       socket.on("data", (chunk: Buffer) => {
@@ -195,8 +228,8 @@ export function verifiedHttpsRequest(url: string, init: Parameters<PinnedFetch>[
         socket.destroy(); reject(new Error("Invalid Incus ETag")); return;
       }
       const headers = `${method} ${target.pathname}${target.search} HTTP/1.1\r\nHost: ${target.host}\r\nAccept: application/json\r\nAccept-Encoding: identity\r\nConnection: close\r\n${ifMatch ? `If-Match: ${ifMatch}\r\n` : ""}${body ? `Content-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\n` : ""}\r\n`;
+      if (init.signal?.aborted || socket.destroyed) { socket.destroy(); reject(new Error("Incus probe was cancelled")); return; }
       socket.write(headers + body);
-    });
   });
 }
 

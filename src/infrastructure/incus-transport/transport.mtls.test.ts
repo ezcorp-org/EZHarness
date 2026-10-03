@@ -1,9 +1,9 @@
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, expect, spyOn, test } from "bun:test";
 import { createHash, X509Certificate } from "node:crypto";
 import { createServer, type Server } from "node:https";
 import type { AddressInfo } from "node:net";
 import { IncusTransportError, type IncusTransportRequest } from "../../../extensions/incus-sandbox/transport";
-import { HostIncusProbeTransport, verifiedHttpsRequest } from "./transport";
+import { connectPinnedTls, HostIncusProbeTransport, verifiedHttpsRequest } from "./transport";
 import { makeTestCertificates } from "./test-certificates";
 
 const certificates = makeTestCertificates();
@@ -21,6 +21,9 @@ const clientKey = fixture("client-key.pem");
 const wrongClientCert = fixture("wrong-client-cert.pem");
 const wrongClientKey = fixture("wrong-client-key.pem");
 const fingerprint = (pem: string) => createHash("sha256").update(new X509Certificate(pem).raw).digest("hex");
+const tls = (pinnedCert = serverCert, checkServerIdentity = () => undefined) => ({
+  cert: clientCert, key: clientKey, ca: pinnedCert, rejectUnauthorized: true as const, checkServerIdentity,
+});
 
 const scope = { providerInstallationId: "installation-a", providerReleaseId: "release-a", revision: 1 };
 
@@ -175,6 +178,70 @@ test("verified socket enforces the stored leaf even if its callback accepts a su
   } finally {
     await server.close();
   }
+}, 15_000);
+
+test("pinned TLS checks certificate validity before connecting", () => {
+  const certificate = new X509Certificate(serverCert);
+  const now = spyOn(Date, "now");
+  try {
+    for (const instant of [Date.parse(certificate.validFrom) - 1, Date.parse(certificate.validTo) + 1]) {
+      now.mockReturnValue(instant);
+      expect(() => connectPinnedTls("127.0.0.1", 1, tls())).toThrow("outside its validity window");
+    }
+  } finally { now.mockRestore(); }
+  expect(() => connectPinnedTls("127.0.0.1", 1, tls("invalid PEM"))).toThrow();
+});
+
+test("pinned TLS rejects a throwing identity callback before sending a request", async () => {
+  const server = await localIncusServer();
+  try {
+    await expect(verifiedHttpsRequest(`${server.endpoint}/1.0`, { method: "GET", proxy: false,
+      decompress: false, tls: tls(serverCert, () => { throw new Error("identity callback failed"); }) }))
+      .rejects.toThrow("identity callback failed");
+    expect(server.requests).toHaveLength(0);
+  } finally { await server.close(); }
+}, 15_000);
+
+test("pinned TLS rejects a certificate that expires during the handshake", async () => {
+  const server = await localIncusServer();
+  const certificate = new X509Certificate(serverCert);
+  const clock = spyOn(Date, "now");
+  try {
+    clock.mockReturnValue(Date.parse(certificate.validFrom) + 1);
+    const port = Number(new URL(server.endpoint).port);
+    await expect(connectPinnedTls("127.0.0.1", port, tls(serverCert, () => {
+      clock.mockReturnValue(Date.parse(certificate.validTo) + 1);
+      return undefined;
+    }))).rejects.toThrow("outside its validity window");
+    expect(server.requests).toHaveLength(0);
+  } finally { clock.mockRestore(); await server.close(); }
+}, 15_000);
+
+test("HTTP writes no request if abort occurs while preparing headers", async () => {
+  const server = await localIncusServer();
+  const controller = new AbortController();
+  const headers = { get "If-Match"() { controller.abort(); return "revision-a"; } };
+  try {
+    await expect(verifiedHttpsRequest(`${server.endpoint}/1.0`, { method: "GET", proxy: false,
+      decompress: false, signal: controller.signal, headers, tls: tls() }))
+      .rejects.toThrow();
+    expect(server.requests).toHaveLength(0);
+  } finally { await server.close(); }
+}, 15_000);
+
+test("pinned TLS closes on abort before and after verification", async () => {
+  const server = await localIncusServer();
+  const port = Number(new URL(server.endpoint).port);
+  try {
+    const before = new AbortController();
+    before.abort();
+    await expect(connectPinnedTls("127.0.0.1", port, tls(), before.signal)).rejects.toThrow();
+    const after = new AbortController();
+    const socket = await connectPinnedTls("127.0.0.1", port, tls(), after.signal);
+    after.abort();
+    expect(socket.destroyed).toBe(true);
+    expect(server.requests).toHaveLength(0);
+  } finally { await server.close(); }
 }, 15_000);
 
 test("real TLS probe rejects a server certificate with the wrong hostname", async () => {

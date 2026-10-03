@@ -1,5 +1,7 @@
 import { afterAll, expect, test } from "bun:test";
 import { createHash, X509Certificate } from "node:crypto";
+import type { AddressInfo } from "node:net";
+import { createServer } from "node:tls";
 import type { IncusTransportRequest } from "../../../extensions/incus-sandbox/transport";
 import { guestHelperSha256, GUEST_HELPER_VERSION } from "../incus-guest/protocol";
 import { HostIncusGuestTransport } from "./guest";
@@ -10,6 +12,11 @@ import { makeTestCertificates } from "./test-certificates";
 const certificates = makeTestCertificates();
 afterAll(() => certificates.dispose());
 const cert = certificates.read("server-cert.pem");
+const substituteCert = certificates.read("substitute-server-cert.pem");
+const substituteKey = certificates.read("substitute-server-key.pem");
+const clientCa = certificates.read("client-ca-cert.pem");
+const clientCert = certificates.read("client-cert.pem");
+const clientKey = certificates.read("client-key.pem");
 const fingerprint = createHash("sha256").update(new X509Certificate(cert).raw).digest("hex");
 const sandboxId = "sandbox-a";
 const sandboxName = resourceName("connection-a", sandboxId);
@@ -59,6 +66,93 @@ test("helper invocation fixes path, UID, guest user, and sandbox ID", async () =
   expect(routes).toEqual([`GET /1.0/instances/${sandboxName}`, `POST /1.0/instances/${sandboxName}/exec`, `GET /1.0/operations/${opId}/wait`]);
   expect(JSON.parse(request()!.toString())).toMatchObject({ action: "file.stat", user: "sandbox", sandboxId });
 });
+
+test("file.stat crosses real pinned HTTP and four Incus WebSocket streams", async () => {
+  const secrets = { "0": "a".repeat(64), "1": "b".repeat(64), "2": "c".repeat(64), control: "d".repeat(64) };
+  const routes: string[] = [];
+  const channels = new Map<string, import("node:net").Socket>();
+  const sockets = new Set<import("node:net").Socket>();
+  let requestBytes: Buffer | undefined;
+  const server = createServer({ cert: substituteCert, key: substituteKey, ca: clientCa,
+    requestCert: true, rejectUnauthorized: true }, socket => {
+    sockets.add(socket);
+    let headerBytes = Buffer.alloc(0);
+    const readHeader = (chunk: Buffer) => {
+      headerBytes = Buffer.concat([headerBytes, chunk]);
+      const end = headerBytes.indexOf("\r\n\r\n");
+      if (end < 0) return;
+      socket.off("data", readHeader);
+      const header = headerBytes.toString("latin1", 0, end);
+      const [method, path] = header.split("\r\n", 1)[0]!.split(" ");
+      if (!method || !path) { socket.destroy(); return; }
+      if (/^Upgrade: websocket$/im.test(header)) upgrade(path, header, socket);
+      else respond(method, path, socket);
+    };
+    socket.on("data", readHeader);
+  });
+  const respond = (method: string, pathWithQuery: string, socket: import("node:tls").TLSSocket) => {
+    const path = new URL(pathWithQuery, "https://127.0.0.1").pathname;
+    routes.push(`${method} ${path}`);
+    const metadata = path === `/1.0/instances/${sandboxName}` ? instance
+      : path.endsWith("/exec") ? { id: opId, resources: { instances: [`/1.0/instances/${sandboxName}`] }, metadata: { fds: secrets } }
+        : { id: opId, status: "Success", metadata: { return: 0 } };
+    const status = path.endsWith("/exec") ? 202 : 200;
+    const body = JSON.stringify({ type: status === 202 ? "async" : "sync", status_code: status, metadata });
+    socket.end(`HTTP/1.1 ${status} ${status === 202 ? "Accepted" : "OK"}\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\nConnection: close\r\n\r\n${body}`);
+  };
+  const upgrade = (path: string, header: string, socket: import("node:tls").TLSSocket) => {
+    const url = new URL(path, "https://127.0.0.1");
+    const channel = Object.entries(secrets).find(([, value]) => value === url.searchParams.get("secret"))?.[0];
+    const key = /^Sec-WebSocket-Key: (\S+)$/im.exec(header)?.[1];
+    if (!channel || !key) { socket.destroy(); return; }
+    channels.set(channel, socket);
+    const accept = createHash("sha1").update(key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").digest("base64");
+    socket.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`);
+    if (channel !== "0") return;
+    let wire = Buffer.alloc(0);
+    socket.on("data", chunk => {
+      wire = Buffer.concat([wire, Buffer.from(chunk)]);
+      for (;;) {
+        if (wire.length < 6) return;
+        const lengthCode = wire[1]! & 127;
+        const header = lengthCode === 126 ? 4 : 2;
+        if (lengthCode === 127 || wire.length < header + 4) return;
+        const length = lengthCode === 126 ? wire.readUInt16BE(2) : lengthCode;
+        if (wire.length < header + 4 + length) return;
+        const opcode = wire[0]! & 15;
+        const mask = wire.subarray(header, header + 4);
+        const payload = Buffer.from(wire.subarray(header + 4, header + 4 + length).map((byte, index) => byte ^ mask[index % 4]!));
+        wire = wire.subarray(header + 4 + length);
+        if (opcode === 2) requestBytes = payload;
+        if (opcode === 1 && length === 0) {
+          const output = Buffer.from(JSON.stringify({ version: GUEST_HELPER_VERSION, ok: true,
+            file: { path: "src/app.ts", kind: "file", revision: "rev", sizeBytes: 1, executable: false } }));
+          const stdout = channels.get("1");
+          const stderr = channels.get("2");
+          if (!stdout || !stderr) throw new Error("Incus output channels are missing");
+          const binaryHeader = output.length < 126 ? Buffer.from([0x82, output.length]) : Buffer.from([0x82, 126, output.length >> 8, output.length & 255]);
+          stdout.write(Buffer.concat([binaryHeader, output, Buffer.from([0x81, 0x00])]));
+          stderr.write(Buffer.from([0x81, 0x00]));
+        }
+      }
+    });
+  };
+  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const endpoint = `https://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    const transport = new HostIncusGuestTransport({ resolveForHost: async () => ({ endpoint, project: "sandbox",
+      serverCertificatePem: substituteCert, clientCertificatePem: clientCert, privateKeyPem: clientKey }) }, scope);
+    const result = await transport.request({ ...command, deadlineMs: Date.now() + 30_000,
+      pins: { ...command.pins, serverCertificateSha256: createHash("sha256").update(new X509Certificate(substituteCert).raw).digest("hex") } });
+    expect(result).toMatchObject({ ok: true, file: { path: "src/app.ts", revision: "rev" } });
+    expect(routes).toEqual([`GET /1.0/instances/${sandboxName}`, `POST /1.0/instances/${sandboxName}/exec`, `GET /1.0/operations/${opId}/wait`]);
+    expect([...channels.keys()].sort()).toEqual(["0", "1", "2", "control"]);
+    expect(JSON.parse(requestBytes!.toString())).toMatchObject({ action: "file.stat", sandboxId });
+  } finally {
+    for (const socket of sockets) socket.destroy();
+    await new Promise<void>(resolve => server.close(() => resolve()));
+  }
+}, 30_000);
 
 test("missing helper approval, wrong version, and forged sandbox name fail before HTTP", async () => {
   for (const changed of [
