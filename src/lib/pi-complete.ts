@@ -47,10 +47,11 @@ export type PiCompleteFn = (
 
 /** Default implementation: dynamic-import pi-ai and forward the call. */
 export const piComplete: PiCompleteFn = async (piModel, body, opts) => {
+  const { authCallOptions } = await import("../providers/credentials");
   const piAi = (await import("@earendil-works/pi-ai/compat")) as {
     complete: (...args: unknown[]) => Promise<unknown>;
   };
-  const piOpts: Record<string, unknown> = { apiKey: opts.apiKey };
+  const piOpts: Record<string, unknown> = { ...authCallOptions(opts.apiKey) };
   if (opts.maxTokens !== undefined) piOpts.maxTokens = opts.maxTokens;
   if (opts.temperature !== undefined) piOpts.temperature = opts.temperature;
   if (opts.timeoutMs !== undefined && typeof AbortSignal?.timeout === "function") {

@@ -32,7 +32,10 @@ export function statusDto(status: SandboxProjectStatus) {
 	return {
 		projectId: status.projectId,
 		bindingId: status.bindingId,
-		state: status.resource?.observedState ?? status.operation?.state ?? "unknown",
+		privateOwnerOnly: status.privateOwnerOnly === true,
+		initializationState: status.initializationState ?? "ready",
+		privateConversationId: status.privateConversationId ?? null,
+		state: status.resource?.observedState ?? (status.operation?.action === "destroy" && status.operation.state === "succeeded" ? "destroyed" : status.operation?.state) ?? "unknown",
 		provider: { label: status.provider.providerId },
 		resource: status.resource,
 		operation: status.operation,

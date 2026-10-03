@@ -34,7 +34,7 @@
  * sole writer and its supersede tombstones the row that rule re-reads.
  */
 import { test, expect } from "../fixtures/hydration.js";
-import { createAndActivateExtension } from "../fixtures/extension-v4";
+import { createAndActivateExtension, EXTENSION_SETUP_HOOK_TIMEOUT_MS } from "../fixtures/extension-v4";
 
 const ABSENT_DELEGATION = "e2e-no-such-delegation-0000";
 
@@ -54,10 +54,10 @@ function consentBody(extensionId: string, workflowName: string, jobRef: string) 
 test.describe("the delegation consent surface is session-only", () => {
   let extensionId: string;
   test.beforeAll(async ({ browser, request, baseURL }) => {
-    test.setTimeout(300000);
+    test.setTimeout(EXTENSION_SETUP_HOOK_TIMEOUT_MS);
     const context = await browser.newContext({ baseURL, storageState: await request.storageState() });
     try {
-      const { state } = await createAndActivateExtension({ page: await context.newPage(), request, baseURL: baseURL!, name: `consent-origin-${Date.now().toString(36)}` });
+      const { state } = await createAndActivateExtension({ page: await context.newPage(), request, baseURL: baseURL!, name: `consent-origin-${Date.now().toString(36)}`, hookTimeoutMs: EXTENSION_SETUP_HOOK_TIMEOUT_MS });
       extensionId = state.installation.id;
     } finally { await context.close(); }
   });

@@ -30,6 +30,11 @@ function envIdleMs(name: string, fallback: number): number {
 export const WATCHDOG_TICK_MS = 15_000;
 const WATCHDOG_IDLE_MS = envIdleMs("EZCORP_WATCHDOG_IDLE_MS", 90_000);
 const HEARTBEAT_REFRESH_MS = 30_000;
+// A gap between two ticks this much longer than WATCHDOG_TICK_MS means the
+// process was frozen — in practice the host slept (laptop lid closed, a
+// Colima/Podman VM paused). Timers catch up on wake, so the idle clock jumps
+// by the whole sleep and the run trips the moment the machine wakes.
+const SUSPEND_GAP_MS = 4 * WATCHDOG_TICK_MS;
 
 // Reasoning models (OpenAI gpt-5.x / o-series on the Codex/Responses path,
 // and any other model pi-ai flags `reasoning: true`) routinely go SILENT —
@@ -169,6 +174,13 @@ export class WatchdogManager {
   // cause (permission gate → tool in flight) still print, and `since`
   // gives the resume line a real duration instead of a bare event.
   private deferState = new Map<string, { reason: string; since: number }>();
+  // Per-run observation bookkeeping for suspend detection: when a tick or
+  // real progress last ran, and how much of the current idle stretch passed
+  // without scheduled ticks
+  // (reset by any real activity). Used only to word the kill reason — a
+  // "no activity" error after a sleep reads like a hung model otherwise.
+  private lastObservedAt = new Map<string, number>();
+  private suspendedMs = new Map<string, number>();
   private orphanInterval: ReturnType<typeof setInterval> | undefined;
 
   constructor(private host: WatchdogHost) {}
@@ -233,7 +245,10 @@ export class WatchdogManager {
    *  (token, tool start/complete/error, agent spawn/complete, turn boundaries). The watchdog
    *  uses this to distinguish "actually working" from "leaked promise that keeps the run alive". */
   bumpActivity(runId: string): void {
-    this.lastActivityAt.set(runId, Date.now());
+    const now = Date.now();
+    this.lastActivityAt.set(runId, now);
+    this.lastObservedAt.set(runId, now);
+    this.suspendedMs.delete(runId);
   }
 
   /**
@@ -349,6 +364,23 @@ export class WatchdogManager {
       : WATCHDOG_IDLE_REASONING_MS;
   }
 
+  private recordTick(runId: string, conversationId: string, now: number): void {
+    const previous = this.lastObservedAt.get(runId);
+    this.lastObservedAt.set(runId, now);
+    if (previous === undefined || now - previous < SUSPEND_GAP_MS) return;
+
+    const frozen = now - previous - WATCHDOG_TICK_MS;
+    this.suspendedMs.set(runId, (this.suspendedMs.get(runId) ?? 0) + frozen);
+    log.warn("Watchdog: process may have been suspended", { runId, conversationId, suspendedMs: frozen });
+  }
+
+  private suspendNote(runId: string, idleMs: number): string {
+    const suspended = this.suspendedMs.get(runId) ?? 0;
+    if (suspended < idleMs / 2) return "";
+    return ` — the computer may have been asleep or suspended for about ${Math.round(suspended / 60_000) || 1} min` +
+      ` during this run, which can interrupt the model connection. Send your message again to retry.`;
+  }
+
   /** Start the activity-based watchdog for a run. Replaces the old setInterval-based heartbeat.
    *  Ticks every WATCHDOG_TICK_MS. If idle > WATCHDOG_IDLE_MS (with no pending permission),
    *  marks the run interrupted in the DB and emits run:error. Otherwise refreshes
@@ -370,6 +402,7 @@ export class WatchdogManager {
       const now = Date.now();
       const last = this.lastActivityAt.get(runId) ?? run.startedAt;
       const idleMs = now - last;
+      this.recordTick(runId, conversationId, now);
       // Model-aware idle ceiling: reasoning models get a wider window (see
       // resolveIdleThreshold). Resolved every tick so a mid-run setModel /
       // setThinkingLevel takes effect immediately.
@@ -440,6 +473,7 @@ export class WatchdogManager {
             }
           }
         }
+        reason += this.suspendNote(runId, idleMs);
         log.error("Watchdog tripped, interrupting run", { runId, conversationId, idleMs, reason });
         // Terminalize BOTH representations of run state together. The
         // watchdog exists precisely to kill runs whose underlying await
@@ -573,6 +607,8 @@ export class WatchdogManager {
     }
     this.lastActivityAt.delete(runId);
     this.lastHeartbeatWriteAt.delete(runId);
+    this.lastObservedAt.delete(runId);
+    this.suspendedMs.delete(runId);
     this.inflightTools.delete(runId);
     this.persistError.delete(runId);
     // Same lifetime as the other per-run clocks: a run that dies mid-defer
@@ -596,6 +632,8 @@ export class WatchdogManager {
     this.heartbeats.clear();
     this.lastActivityAt.clear();
     this.lastHeartbeatWriteAt.clear();
+    this.lastObservedAt.clear();
+    this.suspendedMs.clear();
     this.inflightTools.clear();
     this.persistError.clear();
     this.deferState.clear();

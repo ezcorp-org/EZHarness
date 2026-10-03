@@ -24,6 +24,8 @@ function inputFor(name: string): Record<string, unknown> {
     "files/mkdir": { ...base, path: "/x", recursive: false },
     "files/remove": { ...base, path: "/x", recursive: false },
     "files/chmod": { ...base, path: "/x", mode: 0o644 },
+    "transfer/readExport": { ...base, snapshotId: "snapshot", offsetBytes: 0, lengthBytes: 1 },
+    "transfer/endExport": { ...base, snapshotId: "snapshot" },
   };
   return inputs[name] ?? base;
 }
@@ -35,7 +37,7 @@ describe("local sandbox provider", () => {
     expect(manifest).toBe(localSandboxExtension.manifest);
     expect(definition.manifest.permissions).toEqual({ hostApi: { events: false, routes: [{ method: "POST", path: "/api/local-sandbox/operations/:id/execute" }] } });
     expect(definition.manifest.providers?.[0]).toMatchObject({ id: "local", profiles: ["linux-exec.v1"], capabilities: [] });
-    expect(Object.keys(definition.methods!)).toHaveLength(16);
+    expect(Object.keys(definition.methods!)).toHaveLength(19);
     let served = false;
     await start(async (extension) => { expect(extension).toBe(localSandboxExtension); served = true; });
     expect(served).toBeTrue();

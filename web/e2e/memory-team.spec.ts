@@ -118,7 +118,7 @@ test.describe("Memory Management Team — Edit Page", () => {
     await expect(
       page.getByRole("heading", { name: "Edit Team: Memory Management Team" })
     ).toBeVisible({ timeout: 5000 });
-    await expect(page.getByRole("button", { name: "Chat" })).toBeVisible();
+		await expect(page.getByRole("button", { name: "Chat", exact: true })).toBeVisible();
   });
 
   test("loads all 3 members in member tree", async ({ page, mockApi }) => {

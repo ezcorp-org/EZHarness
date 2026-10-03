@@ -1,7 +1,7 @@
 import { test, expect, captureEvidence } from "./fixtures/test-base.js";
 import AxeBuilder from "@axe-core/playwright";
 import { sendComposerMessage } from "./fixtures/composer.js";
-import { makeProject, makeConversation } from "./fixtures/data.js";
+import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 
 type Page = import("@playwright/test").Page;
 
@@ -233,6 +233,65 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await captureEvidence(page, testInfo, `memory-unavailable-warning-${colorScheme}`);
 	});
 }
+
+// ---- Provider failure card: a rate limit is not an outage ----
+//
+// The payload is the one finalize.ts now writes for a rate-limited free model
+// (reason + upstreamProvider). Before, the same failure rendered as "Kilo is
+// unavailable right now. All providers are currently unavailable" — which sent
+// a user looking for an outage that did not exist.
+
+function failedTurnSetup(payload: Record<string, unknown>) {
+	const base = chatSetup();
+	return {
+		...base,
+		messages: [
+			makeMessage({ id: "m-user", role: "user", content: "test" }),
+			makeMessage({
+				id: "m-err",
+				role: "assistant",
+				parentMessageId: "m-user",
+				provider: "kilo",
+				model: "poolside/laguna-s-2.1:free",
+				content: `Error: ${JSON.stringify({ type: "provider_unavailable", failedProvider: "kilo", failedModel: "poolside/laguna-s-2.1:free", suggestion: null, message: "429", ...payload })}`,
+			}),
+		],
+	};
+}
+
+for (const colorScheme of ["light", "dark"] as const) {
+	test(`a rate-limited model says who is limiting it, not "all providers unavailable" (${colorScheme}) @evidence`, async ({ page, mockApi }, testInfo) => {
+		await mockApi(failedTurnSetup({ reason: "rate_limited", upstreamProvider: "Poolside" }));
+		await page.emulateMedia({ colorScheme });
+		await page.goto("/project/proj-1/chat/conv-1");
+
+		const card = page.getByTestId("provider-rate-limited");
+		await expect(card).toBeVisible();
+		await expect(card).toContainText("Poolside is rate-limiting");
+		await expect(card).toContainText("poolside/laguna-s-2.1:free");
+		await expect(card).toContainText("usually brief");
+		await expect(card.getByRole("button", { name: "Retry" })).toBeVisible();
+		await expect(page.getByText("All providers are currently unavailable")).toHaveCount(0);
+
+		const accessibility = await new AxeBuilder({ page }).include('[data-testid="provider-rate-limited"]').analyze();
+		expect(accessibility.violations).toEqual([]);
+		await captureEvidence(page, testInfo, `provider-rate-limited-${colorScheme}`);
+	});
+}
+
+test("without a named upstream, the rate-limit card names the provider", async ({ page, mockApi }) => {
+	await mockApi(failedTurnSetup({ reason: "rate_limited" }));
+	await page.goto("/project/proj-1/chat/conv-1");
+	await expect(page.getByTestId("provider-rate-limited")).toContainText("Kilo is rate-limiting");
+});
+
+test("a genuine outage still renders the unavailable card", async ({ page, mockApi }) => {
+	await mockApi(failedTurnSetup({}));
+	await page.goto("/project/proj-1/chat/conv-1");
+	await expect(page.getByText("Kilo is unavailable right now.")).toBeVisible();
+	await expect(page.getByText("All providers are currently unavailable")).toBeVisible();
+	await expect(page.getByTestId("provider-rate-limited")).toHaveCount(0);
+});
 
 test("memory warning does not repeat and clears when its run recovers", async ({ page, mockApi, emitSse }) => {
 	await mockApi(chatSetup());

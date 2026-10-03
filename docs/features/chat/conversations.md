@@ -86,7 +86,7 @@ Pure, rune-free helpers:
 ### UI entry points
 
 - The chat page (`web/src/routes/(app)/project/[id]/chat/[convId]/+page.svelte`) is the primary surface; send/edit/regenerate/retry/fallback/branch-navigation all run through `makeSendMessage(host)`.
-- The sidebar conversation list renders the `groupConversations` output (recency buckets + collapsible fork families).
+- On desktop, the Chat section in the main sidebar shows the eight most recent threads. It keeps a fork marker when a fork's parent falls outside that window. The "All chats" link opens the full list, including search, rename, and delete, even for an empty project. The chat page has no second conversation column.
 - Multi-select bulk actions (e.g. clone-turns, bulk save-to-memory) operate over selected turns.
 
 ### Composer mention sigils

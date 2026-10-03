@@ -21,8 +21,8 @@ The design is one capability probe + one DRY argv builder + three spawn seams, l
 
 `selectTier()` is pure and exhaustively tested:
 
-- **`bwrap`** — `arch === "x64"` AND `landlockAbi >= 1` AND `userns` works AND `bwrap` is **not** setuid. Adds `/proc` + PID hiding on top of the Landlock-equivalent fs jail.
-- **`landlock`** — usable Landlock (x64 + ABI ≥ 1) but no usable userns (or a setuid `bwrap`). fs-jail only, no PID/proc hiding. **This is the Docker app-container case** — Landlock needs zero namespaces/caps/setuid and its syscalls pass Docker's default seccomp, where the earlier bwrap/netns spike failed on unprivileged-userns restrictions.
+- **`bwrap`** — a verified x64 or arm64 syscall table, `landlockAbi >= 1`, working `userns`, and a non-setuid `bwrap`. Adds `/proc` + PID hiding on top of the Landlock-equivalent fs jail.
+- **`landlock`** — usable Landlock (verified x64 or arm64 table and ABI ≥ 1) but no usable userns (or a setuid `bwrap`). fs-jail only, no PID/proc hiding. **This is the Docker app-container case** — Landlock needs zero namespaces/caps/setuid and its syscalls pass Docker's default seccomp, where the earlier bwrap/netns spike failed on unprivileged-userns restrictions.
 - **`advisory`** — no usable Landlock. No OS isolation prefix; the inner command runs as-is and only the SDK module-poisoning (preload) applies.
 
 A setuid-root `bwrap` is deliberately *refused* (it rejects `--size` on its private `/tmp`, and on such hosts the runtime lives behind `/run/...` symlinks the minimal bind-set misses), so the tier drops to `landlock`.
@@ -115,7 +115,7 @@ This is infrastructure — there is no API route or UI page. It is exercised by 
 - `src/extensions/sandbox/build-sandbox-argv.ts` — the single DRY `buildSandboxArgv` seam (pure; argv + env per tier).
 - `src/extensions/sandbox/landlock.ts` — `buildLandlockJailSpec` / `applyLandlockJailSpec`; `canonicalizeForJail` (realpath, closes the symlink leak); rw/ro/list distinction.
 - `src/extensions/sandbox/landlock-shim.ts` — pre-exec `bun` shim: parse spec → chdir → apply jail → exec inner (fail-closed).
-- `src/extensions/sandbox/landlock-ffi.ts` — raw Landlock + prctl syscalls via FFI (`landlockAbiVersion`, `applyReadWriteJail`, ABI access masks; x86_64 only).
+- `src/extensions/sandbox/landlock-ffi.ts` — raw Landlock + prctl syscalls via FFI (`landlockAbiVersion`, `applyReadWriteJail`, ABI access masks; verified x64 and arm64 tables).
 - `src/extensions/runtime/sandbox-preload.ts` — `bun --preload` for extension subprocesses: poison fs always; net/shell unless granted; FFI/Worker/process.binding always denied; fetch wrapper.
 - `src/extensions/runtime/network-wrapper.ts` — `classifyFetch` (invalid/internal/deny/external) + allowlist parsers; the SSRF carve-out routing.
 - `src/extensions/runtime/internal-host.ts` — shared internal-host regex (`INTERNAL_HOST_RE`) so wrapper + host agree on "internal".
@@ -149,7 +149,7 @@ This is infrastructure — there is no API route or UI page. It is exercised by 
 ## Notes & gotchas
 
 - **The probe is lazy, not boot-eager.** `getSandboxTier()` memoizes on FIRST spawn, not at server boot — there is no explicit boot-time wiring; the first untrusted spawn pays the probe cost once per process.
-- **`landlock` is the production-container tier.** In the Docker app container userns is typically blocked, so the resolved tier is `landlock` (no PID/proc hiding) — not `bwrap`. `advisory` (SDK poisoning only) is the documented status-quo fallback on hosts with no usable Landlock, and Landlock FFI is **x86_64-only** (the probe refuses to guess syscall numbers on other arches → `advisory`).
+- **`landlock` is the production-container tier.** In the Docker app container userns is typically blocked, so the resolved tier is `landlock` (no PID/proc hiding) — not `bwrap`. `advisory` (SDK poisoning only) is the fallback on hosts with no usable Landlock or without a verified x64/arm64 syscall table; the probe does not guess numbers for other architectures.
 - **Lexical vs realpath asymmetry across the codebase.** This layer's jail invariant (both `landlock.ts:canonicalizeForJail` and `preview-jail.ts:canonicalizeJailPath`) resolves REAL paths to close the symlink-into-`.ezcorp/data` leak. By contrast the built-in file-tool path containment (`src/runtime/tools/validate.ts:validatePath`) is **lexical** (no realpath); only the FS scanner / `@`-autocomplete (`src/runtime/fs/scan-fs.ts:realpathInsideRoot`) realpaths. Don't assume one containment model everywhere.
 - **MCP fails OPEN by default.** Unless `EZCORP_MCP_REQUIRE_SANDBOX=1` is set, a host that can't set up netns/veth/bwrap silently runs the MCP at a weaker isolation stage (only an audit row). On many real Docker hosts netns/veth can't be set up even `--privileged`. The tier-gated fs-jail is the floor that always applies, but kernel network isolation is best-effort.
 - **The fs primitive denial is unconditional and flag-independent.** `EZCORP_FS_ALLOWED` does NOT unblock `Bun.file` / `node:fs` — granted fs access only means the host-mediated `ezcorp/fs.*` reverse-RPC is meaningful. This closed both the TOCTOU window in the old path-check-then-read pattern and the bypass where an extension ignored the SDK helper.

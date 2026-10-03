@@ -2920,3 +2920,135 @@ export const extensionRuntimeLocks = pgTable("extension_runtime_locks", {
   effects: integer("effects").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [primaryKey({ columns: [table.installationId, table.key] })]);
+
+/** A tombstone authority row remains after disconnect to fence old OAuth callbacks. */
+export const githubUserAuthorities = pgTable("github_user_authorities", {
+  userId: text("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
+  generation: integer("generation").notNull().default(0),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const githubUserConnections = pgTable("github_user_connections", {
+  userId: text("user_id").primaryKey().references(() => githubUserAuthorities.userId, { onDelete: "cascade" }),
+  connectionId: text("connection_id").notNull().unique(),
+  githubAccountId: bigint("github_account_id", { mode: "number" }).notNull(),
+  githubLogin: text("github_login").notNull(),
+  appId: bigint("app_id", { mode: "number" }).notNull(),
+  authFlow: text("auth_flow").notNull().$type<"oauth" | "device">().default("oauth"),
+  accessCiphertext: text("access_ciphertext").notNull(),
+  refreshCiphertext: text("refresh_ciphertext").notNull(),
+  accessExpiresAt: timestamp("access_expires_at", { withTimezone: true }).notNull(),
+  refreshExpiresAt: timestamp("refresh_expires_at", { withTimezone: true }).notNull(),
+  tokenRevision: integer("token_revision").notNull().default(0),
+  state: text("state").notNull().$type<"connected" | "reconnect_required">().default("connected"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const githubUserOAuthAttempts = pgTable("github_user_oauth_attempts", {
+  stateDigest: text("state_digest").primaryKey(),
+  userId: text("user_id").notNull().references(() => githubUserAuthorities.userId, { onDelete: "cascade" }),
+  sessionDigest: text("session_digest").notNull(),
+  expectedGeneration: integer("expected_generation").notNull(),
+  verifierCiphertext: text("verifier_ciphertext").notNull(),
+  returnReviewId: text("return_review_id"),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  consumedAt: timestamp("consumed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [index("idx_github_user_oauth_user").on(table.userId, table.expiresAt)]);
+
+export const githubUserDeviceAttempts = pgTable("github_user_device_attempts", {
+  attemptId: text("attempt_id").primaryKey(),
+  userId: text("user_id").notNull().references(() => githubUserAuthorities.userId, { onDelete: "cascade" }),
+  sessionDigest: text("session_digest").notNull(),
+  expectedGeneration: integer("expected_generation").notNull(),
+  appId: bigint("app_id", { mode: "number" }).notNull(),
+  clientId: text("client_id").notNull(),
+  deviceCiphertext: text("device_ciphertext").notNull(),
+  returnReviewId: text("return_review_id"),
+  status: text("status").notNull().$type<"pending" | "connected" | "expired" | "denied" | "cancelled">().default("pending"),
+  intervalSeconds: integer("interval_seconds").notNull(),
+  nextPollAt: timestamp("next_poll_at", { withTimezone: true }).notNull(),
+  pollClaimToken: text("poll_claim_token"),
+  pollClaimExpiresAt: timestamp("poll_claim_expires_at", { withTimezone: true }),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [index("idx_github_user_device_user").on(table.userId, table.expiresAt)]);
+
+export const githubUserEffectClaims = pgTable("github_user_effect_claims", {
+  operationId: text("operation_id").primaryKey(),
+  userId: text("user_id").notNull().references(() => githubUserAuthorities.userId, { onDelete: "restrict" }),
+  connectionId: text("connection_id").notNull(),
+  generation: integer("generation").notNull(),
+  repositoryId: bigint("repository_id", { mode: "number" }).notNull(),
+  kind: text("kind").notNull().$type<"import" | "publish">(),
+  state: text("state").notNull().$type<"dispatched" | "unknown" | "completed">(),
+  dispatchedAt: timestamp("dispatched_at", { withTimezone: true }).notNull().defaultNow(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+}, (table) => [index("idx_github_user_effect_user").on(table.userId, table.generation)]);
+
+export const githubPersonalPrImports = pgTable("github_personal_pr_imports", {
+  id: text("id").primaryKey(),
+  ownerId: text("owner_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  projectId: text("project_id").notNull().unique().references(() => projects.id, { onDelete: "cascade" }),
+  conversationId: text("conversation_id").references(() => conversations.id, { onDelete: "set null" }),
+  bindingId: text("binding_id").notNull(),
+  workspaceRevision: integer("workspace_revision").notNull(),
+  providerGeneration: integer("provider_generation").notNull(),
+  resourceId: text("resource_id"),
+  repositoryId: bigint("repository_id", { mode: "number" }).notNull(),
+  repositoryName: text("repository_name").notNull(),
+  baseRef: text("base_ref").notNull(),
+  baseSha: text("base_sha").notNull(),
+  baseDigest: text("base_digest").notNull(),
+  state: text("state").notNull().$type<"importing" | "ready" | "failed" | "unknown">(),
+  operationId: text("operation_id").notNull().unique(),
+  idempotencyKey: text("idempotency_key").notNull(),
+  artifact: jsonb("artifact"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+}, (table) => [index("github_personal_pr_imports_owner").on(table.ownerId, table.projectId)]);
+
+export const githubPersonalPrSnapshots = pgTable("github_personal_pr_snapshots", {
+  id: text("id").primaryKey(),
+  importId: text("import_id").notNull().references(() => githubPersonalPrImports.id, { onDelete: "cascade" }),
+  ownerId: text("owner_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  projectId: text("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  conversationId: text("conversation_id").notNull().references(() => conversations.id, { onDelete: "cascade" }),
+  runId: text("run_id").notNull().unique().references(() => runs.id, { onDelete: "cascade" }),
+  bindingId: text("binding_id").notNull(),
+  workspaceRevision: integer("workspace_revision").notNull(),
+  providerGeneration: integer("provider_generation").notNull(),
+  resourceId: text("resource_id").notNull(),
+  repositoryId: bigint("repository_id", { mode: "number" }).notNull(),
+  baseSha: text("base_sha").notNull(),
+  treeDigest: text("tree_digest").notNull(),
+  artifact: jsonb("artifact").notNull(),
+  checks: jsonb("checks").notNull().default([]),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [index("github_personal_pr_snapshots_owner").on(table.ownerId, table.runId)]);
+
+export const githubPersonalPrProposals = pgTable("github_personal_pr_proposals", {
+  id: text("id").primaryKey(),
+  snapshotId: text("snapshot_id").notNull().unique().references(() => githubPersonalPrSnapshots.id, { onDelete: "cascade" }),
+  ownerId: text("owner_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  githubAccountId: bigint("github_account_id", { mode: "number" }).notNull(),
+  connectionGeneration: integer("connection_generation").notNull(),
+  repositoryId: bigint("repository_id", { mode: "number" }).notNull(),
+  baseSha: text("base_sha").notNull(),
+  title: text("title").notNull(),
+  body: text("body").notNull(),
+  digest: text("digest").notNull(),
+  state: text("state").notNull().$type<"ready" | "reviewing" | "creating" | "created" | "stale" | "failed">(),
+  operationId: text("operation_id").notNull().unique(),
+  branch: text("branch").notNull().unique(),
+  commitSha: text("commit_sha"),
+  prUrl: text("pr_url"),
+  failureCode: text("failure_code"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  dispatchedAt: timestamp("dispatched_at", { withTimezone: true }),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  claimOwner: text("claim_owner"),
+  claimExpiresAt: timestamp("claim_expires_at", { withTimezone: true }),
+}, (table) => [index("github_personal_pr_proposals_owner").on(table.ownerId, table.id)]);

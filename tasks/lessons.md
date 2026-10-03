@@ -9,6 +9,8 @@
 
 ## Validation discipline
 
+- A new CI job that selects several backend Bun test files must run each file in a separate Bun process. The root pool requires process isolation because cross-file mocks can contaminate or deadlock a combined run; an explicit multi-file command is not an exception.
+
 - Select gpt-5.6-sol explicitly with fresh bounded briefs when the user requests a Sol team. Use distinct ownership and worktrees.
 - Match each new team to the model requested for that task; a previous Sol request does not override a later Terra request.
 - Read exact lifecycle and CI commands before selecting tests. A passing subset does not prove a full lane.
@@ -376,3 +378,4 @@
 - A summary reporter must be told which gates ran. Absence of a report is a failure, never an omission; there is no safe default for the expected set.
 - A PR in conflict with its base gets no pull_request workflow runs at all; GitHub cannot build the merge ref. When checks are silently absent, check `mergeable` before suspecting the workflow. Merge or rebase, then reinstall dependencies before the pre-push typecheck when the base moved a lockfile.
 - Budget a hosted-runner job against the 360-minute cap with a measured rate, not a guess. When one job cannot finish, shard the work and merge with an exact-count check so a missing slice fails instead of shrinking the denominator.
+- When hosted CI times out on fixture readiness, fix the test's synchronization even if the PR did not change that fixture. Wait for the producer's observable output or exit; do not treat a passing focused rerun as proof that a wall-clock deadline is safe.
