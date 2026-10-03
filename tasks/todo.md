@@ -5668,3 +5668,15 @@ From the read-only plan audit (w00/wave4h/leftover-audit-plan.md, section D, ded
       combined run at 1992630f3 is receipted: b73b13be4; W12e G5 is ticked in this commit.)
 
 Open factory items elsewhere in this file (class (a) of the todo audit, 41 boxes; not repeated here): see lines 2127, 2152, 2153, 2804, 2806, 2835, 2892, 2894, 3145, 3420, 3508, 3614, 3619, 3666, 3668, 3670, 3985, 3986, 3987, 4004, 4007, 4123, 4124, 5349, 5442, 5476, 5477, 5525, 5567, 5569, 5571, 5574, 5576, 5582, 5583, 5585, 5586, 5587, 5588, 5589, 5590.
+
+## W4H-5 — run lifecycle 'publication' credential set on the hosted runner (wp/w4h-5)
+
+- [x] Red in a runner-shaped container at 52d8ba079: coverage shard shape and external-postgres shape, 80 pass / 12 fail each.
+- [x] Root cause with a control leg: the set was written under the 0755 `$HOME`; a 0700 home is green with no credential dir or S3.
+- [x] Fix: the suite takes its root from `makeFactoryTempPrivateRoot` (e4059c18f).
+- [x] Guard `scripts/factory-private-root-registration.test.ts`: red at the base, green at the head, in the guard set by name.
+- [x] Green in the same container, both shapes, 92 pass / 0 fail; coverage gates, lint, typecheck, boundaries, gate-integrity, guard set green.
+
+Review: the brief named a missing S3 service and credential set as the cause. The evidence shows the W4G-4 class
+instead (a private file under the hosted runner's owned 0755 home). No workflow change was needed. Gates and receipts:
+tasks/factory/w4h-5-GATES.md.
