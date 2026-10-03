@@ -27,6 +27,7 @@
 		kind: string;
 		state: string;
 		errorCode?: string | null;
+		providerOperationRecorded?: boolean;
 		createdAt?: string;
 		updatedAt?: string;
 	} | null;
@@ -46,6 +47,8 @@
 		retired?: boolean;
 		tombstonedAt?: string | null;
 		cleanupConfirmedAt?: string | null;
+		cleanupRecovery?: { id: string; state: "STOP_REQUIRED" | "DESTROY_REQUIRED" | "COMPLETED";
+			failedDestroyOperationId: string; stopOperationId: string; destroyOperationId: string } | null;
 	};
 	type Project = { id: string; name: string };
 	type Snapshot = { environments: Environment[]; projects: Project[]; features: Feature[]; truncated?: boolean };
@@ -69,6 +72,7 @@
 	let fixturePlan = $state<FixturePlan | null>(null);
 	let acknowledgedQualification = $state(false);
 	let destroyBinding = $state("");
+	let recoveryReview = $state<{ bindingId: string; failedDestroyOperationId: string } | null>(null);
 	let pollTimer: ReturnType<typeof setInterval> | undefined;
 
 	const eligibleEnvironments = $derived(snapshot.environments.filter(item => item.active !== false));
@@ -392,6 +396,7 @@
 
 	async function featureAction(feature: Feature, action: "status" | "create" | "start" | "stop" | "destroy" | "destroyRetired") {
 		if (action === "destroy") {
+			if (!currentDisposalFeature(feature)) return;
 			destroyBinding = feature.bindingId;
 			return;
 		}
@@ -405,12 +410,46 @@
 	}
 
 	async function confirmDestroy(feature: Feature) {
+		const current = currentDisposalFeature(feature);
+		if (!current) { destroyBinding = ""; return; }
+		feature = current;
 		const action = feature.retired ? "destroyRetired" : "destroy";
 		const body = { action, projectId: feature.projectId, bindingId: feature.bindingId,
 			idempotencyScope: "incus-management-ui", idempotencyKey: mutationKey(feature, action) };
 		destroyBinding = "";
 		await act(`destroy:${feature.bindingId}`, "/api/infrastructure/incus/features", body,
 			"Sandbox disposal was requested. Disk space is released after cleanup is confirmed.");
+	}
+
+	function canDispose(feature: Feature): boolean {
+		return feature.observedState === "STOPPED" && !feature.tombstonedAt && !isUnknown(feature) && !isPending(feature);
+	}
+
+	function currentDisposalFeature(feature: Feature): Feature | undefined {
+		return snapshot.features.find(current => current.bindingId === feature.bindingId && canDispose(current));
+	}
+
+	function failedCleanupId(feature: Feature): string | null {
+		if (feature.retired || feature.cleanupConfirmedAt || !feature.tombstonedAt || isUnknown(feature) || isPending(feature)) return null;
+		const recovery = feature.cleanupRecovery;
+		const operation = feature.operation;
+		if (recovery) return operation?.state === "SUCCEEDED"
+			&& ((recovery.state === "STOP_REQUIRED" && operation.kind === "STOP" && operation.id === recovery.stopOperationId)
+				|| (recovery.state === "DESTROY_REQUIRED" && operation.kind === "DESTROY" && operation.id === recovery.destroyOperationId))
+			? recovery.failedDestroyOperationId : null;
+		return operation?.kind === "DESTROY" && operation.state === "FAILED" && operation.errorCode === "REVISION_CONFLICT"
+			&& operation.providerOperationRecorded === false ? operation.id : null;
+	}
+
+	async function recoverCleanup(feature: Feature) {
+		const current = snapshot.features.find(item => item.bindingId === feature.bindingId);
+		const failedDestroyOperationId = current ? failedCleanupId(current) : null;
+		const reviewedId = recoveryReview?.failedDestroyOperationId;
+		recoveryReview = null;
+		if (!failedDestroyOperationId || failedDestroyOperationId !== reviewedId) return;
+		await act(`recover:${feature.bindingId}`, "/api/infrastructure/incus/features",
+			{ action: "recoverCleanup", projectId: feature.projectId, bindingId: feature.bindingId, failedDestroyOperationId },
+			"Cleanup recovery was requested for the saved operation. Review its status before continuing.");
 	}
 
 	async function reconcile() {
@@ -629,11 +668,17 @@
 								{:else if feature.observedState === "STOPPED"}<button class="secondary" disabled={!!busy} onclick={() => void featureAction(feature, "start")}>Start</button>
 								{:else if feature.observedState === "ABSENT"}<button class="secondary" disabled={!!busy} onclick={() => void featureAction(feature, "create")}>Create guest</button>{/if}
 							{/if}
-							{#if feature.tombstonedAt && !feature.cleanupConfirmedAt}<button class="secondary" disabled={!!busy} onclick={() => void featureAction(feature, "destroyRetired")}>Retry cleanup</button>
-							{:else if !feature.tombstonedAt && !isUnknown(feature) && !isPending(feature)}<button class="danger-link" disabled={!!busy} onclick={() => void featureAction(feature, "destroy")}>Dispose…</button>{/if}
+							{#if failedCleanupId(feature)}<button class="secondary" disabled={!!busy} onclick={() => recoveryReview = { bindingId: feature.bindingId, failedDestroyOperationId: failedCleanupId(feature)! }}>Review cleanup recovery…</button>
+							{:else if !feature.tombstonedAt && !isUnknown(feature) && !isPending(feature)}<button class="danger-link" disabled={!!busy || !canDispose(feature)} onclick={() => void featureAction(feature, "destroy")}>Dispose…</button>{/if}
 						</div>
+						{#if !feature.tombstonedAt && feature.observedState === "RUNNING"}<p class="muted">Stop this sandbox before disposal.</p>{/if}
+						{#if isUnknown(feature) || isPending(feature)}<p class="muted">Refresh or reconcile the saved operation before another lifecycle action.</p>{/if}
+						{#if feature.cleanupRecovery}<p class="operation">Saved cleanup recovery: {feature.cleanupRecovery.id}</p><p class="muted">{feature.cleanupRecovery.state} · Failed destroy: {feature.cleanupRecovery.failedDestroyOperationId} · Stop: {feature.cleanupRecovery.stopOperationId} · Dispose: {feature.cleanupRecovery.destroyOperationId}</p>{/if}
+						{#if recoveryReview?.bindingId === feature.bindingId}
+							<div class="confirm-box compact" role="group" aria-label={`Confirm cleanup recovery of ${feature.projectName}`}><strong>Stop first, then dispose this saved sandbox.</strong><p>This permanently removes its workspace data. Recovery uses saved operation {recoveryReview.failedDestroyOperationId} and its exact cleanup steps. It does not repeat the failed destroy request.</p>{#if failedCleanupId(feature) !== recoveryReview.failedDestroyOperationId}<p>The saved status changed. Refresh or reconcile before reviewing recovery again.</p>{/if}<div class="button-row"><button class="danger" disabled={!!busy || failedCleanupId(feature) !== recoveryReview.failedDestroyOperationId} onclick={() => void recoverCleanup(feature)}>Recover cleanup</button><button class="quiet" onclick={() => recoveryReview = null}>Cancel</button></div></div>
+						{/if}
 						{#if destroyBinding === feature.bindingId}
-							<div class="confirm-box compact" role="group" aria-label={`Confirm disposal of ${feature.projectName}`}><strong>Dispose this project sandbox?</strong><p>This permanently removes its workspace data. The project remains, but its sandbox changes cannot be recovered.</p><div class="button-row"><button class="danger" disabled={!!busy} onclick={() => void confirmDestroy(feature)}>Dispose sandbox</button><button class="quiet" onclick={() => destroyBinding = ""}>Cancel</button></div></div>
+							<div class="confirm-box compact" role="group" aria-label={`Confirm disposal of ${feature.projectName}`}><strong>Dispose this project sandbox?</strong><p>This permanently removes its workspace data. The project remains, but its sandbox changes cannot be recovered.</p><div class="button-row"><button class="danger" disabled={!!busy || !canDispose(feature)} onclick={() => void confirmDestroy(feature)}>Dispose sandbox</button><button class="quiet" onclick={() => destroyBinding = ""}>Cancel</button></div></div>
 						{/if}
 					</article>
 				{/each}

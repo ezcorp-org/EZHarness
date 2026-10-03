@@ -27,7 +27,7 @@ const project = { id: "project-a", name: "Payments API" };
 const bindingId = "44444444-4444-4444-8444-444444444444";
 const planDigest = "a".repeat(64);
 
-function feature(state: string, operation: { id: string; kind: string; state: string; errorCode?: string | null } | null = null) {
+function feature(state: string, operation: { id: string; kind: string; state: string; errorCode?: string | null; providerOperationRecorded?: boolean } | null = null) {
 	return {
 		projectId: project.id,
 		projectName: project.name,
@@ -44,7 +44,8 @@ function feature(state: string, operation: { id: string; kind: string; state: st
 	};
 }
 
-type FeatureFixture = ReturnType<typeof feature> & { tombstonedAt?: string | null; cleanupConfirmedAt?: string | null };
+type FeatureFixture = ReturnType<typeof feature> & { tombstonedAt?: string | null; cleanupConfirmedAt?: string | null;
+	cleanupRecovery?: { id: string; state: string; failedDestroyOperationId: string; stopOperationId: string; destroyOperationId: string } | null };
 
 async function mockManagement(page: Page, options: { initiallyQualified?: boolean; initialFeature?: ReturnType<typeof feature>; loseFirstCreateResponse?: boolean; rejectFirstCreate?: boolean; holdApply?: boolean; preparedProject?: { id: string; name: string }; preparedBindingId?: string } = {}) {
 	let qualified = options.initiallyQualified ?? false;
@@ -142,7 +143,8 @@ async function mockManagement(page: Page, options: { initiallyQualified?: boolea
 		if (body.action === "status") return route.fulfill({ json: { binding: currentFeature, operation: currentFeature?.operation ?? null } });
 		return route.fulfill({ status: 202, json: { state: "DISPATCHED", operation: currentFeature?.operation } });
 	});
-	return { actions, createKeys, createKeyAttempts, applyStarted, releaseApplyReply: () => releaseApplyReply?.() };
+	return { actions, createKeys, createKeyAttempts, applyStarted, releaseApplyReply: () => releaseApplyReply?.(),
+		setFeature: (value: FeatureFixture) => { currentFeature = value; } };
 }
 
 async function savedKey(page: Page, suffix: string): Promise<string> {
@@ -280,6 +282,24 @@ test("a proven create rejection retries with a fresh key", async ({ page }) => {
 	expect(createKeyAttempts[0]).not.toBe(createKeyAttempts[1]);
 });
 
+test("running disposal requires Stop and a saved stopped result @evidence", async ({ page }, testInfo) => {
+	const { actions } = await mockManagement(page, { initiallyQualified: true,
+		initialFeature: feature("RUNNING", { id: "op-start", kind: "START", state: "SUCCEEDED" }) });
+	await page.goto("/extensions/incus-management");
+	const card = page.locator(".feature-card");
+	await expect(card.getByText("Stop this sandbox before disposal.")).toBeVisible();
+	await expect(card.getByRole("button", { name: "Dispose…" })).toBeDisabled();
+	expect(actions.some(item => item.body.action === "destroy")).toBe(false);
+	await card.scrollIntoViewIfNeeded();
+	await captureEvidence(page, testInfo, "incus-management-stop-before-dispose", { fullPage: true });
+	await card.getByRole("button", { name: "Stop", exact: true }).click();
+	await expect(card.getByText("stopped", { exact: true })).toBeVisible();
+	await card.getByRole("button", { name: "Dispose…" }).click();
+	await card.getByRole("button", { name: "Dispose sandbox" }).click();
+	await expect(card.getByText("Disposed", { exact: true })).toBeVisible();
+	expect(actions.filter(item => ["stop", "destroy"].includes(String(item.body.action))).map(item => item.body.action)).toEqual(["stop", "destroy"]);
+});
+
 test("a pending stop hides chat until the saved desired state is safe", async ({ page }) => {
 	const pendingStop = { ...feature("RUNNING", { id: "op-stop", kind: "STOP", state: "PROVIDER_PENDING" }), desiredState: "STOPPED" };
 	await mockManagement(page, { initiallyQualified: true, initialFeature: pendingStop });
@@ -288,6 +308,46 @@ test("a pending stop hides chat until the saved desired state is safe", async ({
 	await expect(card.getByText("Waiting for provider")).toBeVisible();
 	await expect(card.getByRole("link", { name: "Open chat" })).toHaveCount(0);
 	await expect(card.getByRole("button", { name: "Stop" })).toHaveCount(0);
+});
+
+test("failed cleanup recovery requires review and keeps exact saved operation IDs @evidence", async ({ page }, testInfo) => {
+	const failedId = "55555555-5555-4555-8555-555555555555";
+	const failed = { ...feature("RUNNING", { id: failedId, kind: "DESTROY", state: "FAILED",
+		errorCode: "REVISION_CONFLICT", providerOperationRecorded: false }), tombstonedAt: "2026-10-03T12:00:00Z" };
+	const { setFeature } = await mockManagement(page, { initiallyQualified: true, initialFeature: failed });
+	const requests: Record<string, unknown>[] = [];
+	const recovery = { id: "recovery-1", state: "STOP_REQUIRED", failedDestroyOperationId: failedId,
+		stopOperationId: "stop-recovery-1", destroyOperationId: "destroy-recovery-1" };
+	await page.route("**/api/infrastructure/incus/features", async route => {
+		const body = route.request().postDataJSON() as Record<string, unknown>;
+		requests.push(body);
+		if (body.action !== "recoverCleanup") return route.fulfill({ status: 409, json: { code: "stop_required" } });
+		if (requests.length === 1) setFeature({ ...failed, observedState: "STOPPED", operation: { id: recovery.stopOperationId,
+			kind: "STOP", state: "SUCCEEDED" }, cleanupRecovery: recovery });
+		else setFeature({ ...failed, observedState: "ABSENT", operation: { id: recovery.destroyOperationId,
+			kind: "DESTROY", state: "SUCCEEDED" }, cleanupConfirmedAt: "2026-10-03T12:01:00Z",
+			cleanupRecovery: { ...recovery, state: "COMPLETED" } });
+		return route.fulfill({ status: 202, json: { recovery, operation: {} } });
+	});
+	await page.goto("/extensions/incus-management");
+	const card = page.locator(".feature-card");
+	await expect(card.getByRole("button", { name: "Retry cleanup" })).toHaveCount(0);
+	await card.getByRole("button", { name: "Review cleanup recovery…" }).click();
+	const confirmation = card.getByRole("group", { name: "Confirm cleanup recovery of Payments API" });
+	await expect(confirmation).toContainText(failedId);
+	await expect(confirmation).toContainText("Stop first, then dispose");
+	expect(requests).toHaveLength(0);
+	await captureEvidence(page, testInfo, "incus-management-saved-cleanup-recovery", { fullPage: true });
+	await confirmation.getByRole("button", { name: "Recover cleanup", exact: true }).click();
+	await expect(card.getByText(`Saved cleanup recovery: ${recovery.id}`)).toBeVisible();
+	await page.reload();
+	await expect(card.getByText(`Saved cleanup recovery: ${recovery.id}`)).toBeVisible();
+	expect(requests).toHaveLength(1);
+	await card.getByRole("button", { name: "Review cleanup recovery…" }).click();
+	await card.getByRole("button", { name: "Recover cleanup", exact: true }).click();
+	await expect(card.getByText("Disposed", { exact: true })).toBeVisible();
+	expect(requests).toEqual(Array.from({ length: 2 }, () => ({ action: "recoverCleanup", projectId: project.id,
+		bindingId, failedDestroyOperationId: failedId })));
 });
 
 test("unknown provider outcomes block lifecycle actions until reconciliation", async ({ page }, testInfo) => {

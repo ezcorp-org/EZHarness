@@ -13,12 +13,13 @@ const environment = {
 };
 const project = { id: "project-1", name: "Project one" };
 const bindingId = "binding-1";
-const feature = (operation: { kind: string; state: string } | null = null) => ({
+const feature = (operation: { id?: string; kind: string; state: string; errorCode?: string; providerOperationRecorded?: boolean } | null = null) => ({
 	projectId: project.id, projectName: project.name, bindingId,
 	installationId: environment.installationId, releaseId: environment.releaseId,
 	connectionId: environment.connectionId, connectionRevision: 1, generation: 1,
 	presetId: environment.presetId, desiredState: "STOPPED", observedState: "STOPPED",
 	operation, tombstonedAt: null as string | null, cleanupConfirmedAt: null as string | null,
+	cleanupRecovery: null as { id: string; state: string; failedDestroyOperationId: string; stopOperationId: string; destroyOperationId: string } | null,
 });
 const reply = (body: unknown, status = 200) => new Response(JSON.stringify(body), {
 	status, headers: { "content-type": "application/json" },
@@ -55,6 +56,94 @@ beforeEach(() => localStorage.clear());
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe("Incus management recovery", () => {
+	test("refresh to unknown invalidates a reviewed cleanup recovery", async () => {
+		const failed = { ...feature({ id: "failed-1", kind: "DESTROY", state: "FAILED", errorCode: "REVISION_CONFLICT", providerOperationRecorded: false }), tombstonedAt: "2026-10-03T00:00:00Z" };
+		const { calls, setFeature } = serve({ feature: failed });
+		const view = render(Page, { props: { data: { operatorId } } });
+		await waitFor(() => expect(view.getByRole("button", { name: "Review cleanup recovery…" })).toBeEnabled());
+		await fireEvent.click(view.getByRole("button", { name: "Review cleanup recovery…" }));
+		const confirm = view.getByRole("button", { name: /^Recover cleanup$/ });
+		setFeature({ ...failed, observedState: "UNKNOWN" });
+		await fireEvent.click(view.getByRole("button", { name: "Refresh status" }));
+		await waitFor(() => expect(view.getByText("The saved status changed. Refresh or reconcile before reviewing recovery again.")).toBeInTheDocument());
+		await waitFor(() => expect(view.getByRole("button", { name: /^Recover cleanup$/ })).toBeDisabled());
+		expect(view.getByRole("group", { name: "Confirm cleanup recovery of Project one" })).toHaveTextContent("failed-1");
+		await fireEvent.click(confirm);
+		expect(calls.filter(body => body.action === "recoverCleanup")).toEqual([]);
+	});
+	test("a refreshed running state invalidates an open disposal confirmation", async () => {
+		const { calls, setFeature } = serve({ feature: feature() });
+		const view = render(Page, { props: { data: { operatorId } } });
+		await waitFor(() => expect(view.getByRole("button", { name: "Dispose…" })).toBeEnabled());
+		await fireEvent.click(view.getByRole("button", { name: "Dispose…" }));
+		setFeature({ ...feature(), observedState: "RUNNING" });
+		await fireEvent.click(view.getByRole("button", { name: "Refresh status" }));
+		await waitFor(() => expect(view.getByText("Stop this sandbox before disposal.")).toBeInTheDocument());
+		await waitFor(() => expect(view.getByRole("button", { name: "Dispose sandbox" })).toBeDisabled());
+		await fireEvent.click(view.getByRole("button", { name: "Dispose sandbox" }));
+		expect(calls.filter(body => body.action === "destroy")).toEqual([]);
+	});
+	test.each(["SUCCEEDED", "FAILED", "PROVIDER_PENDING", "OUTCOME_UNKNOWN"])("saved recovery STOP %s permits only successful continuation", async state => {
+		const recovery = { id: "recovery-1", state: "STOP_REQUIRED", failedDestroyOperationId: "failed-1",
+			stopOperationId: "stop-1", destroyOperationId: "destroy-1" };
+		serve({ feature: { ...feature({ id: "stop-1", kind: "STOP", state }), tombstonedAt: "2026-10-03T00:00:00Z", cleanupRecovery: recovery } });
+		const view = render(Page, { props: { data: { operatorId } } });
+		await waitFor(() => expect(view.getByText("Saved cleanup recovery: recovery-1")).toBeInTheDocument());
+		if (state === "SUCCEEDED") expect(view.getByRole("button", { name: "Review cleanup recovery…" })).toBeEnabled();
+		else expect(view.queryByRole("button", { name: "Review cleanup recovery…" })).not.toBeInTheDocument();
+	});
+	test.each([
+		["STOP_REQUIRED", "START", "stop-1", false],
+		["DESTROY_REQUIRED", "STOP", "stop-1", false],
+		["DESTROY_REQUIRED", "DESTROY", "destroy-1", true],
+		["DESTROY_REQUIRED", "DESTROY", "foreign-1", false],
+		["COMPLETED", "DESTROY", "destroy-1", false],
+	] as const)("recovery %s permits only matching %s/%s", async (state, kind, id, allowed) => {
+		serve({ feature: { ...feature({ id, kind, state: "SUCCEEDED" }), tombstonedAt: "2026-10-03T00:00:00Z",
+			cleanupRecovery: { id: "recovery-1", state, failedDestroyOperationId: "failed-1", stopOperationId: "stop-1", destroyOperationId: "destroy-1" } } });
+		const view = render(Page, { props: { data: { operatorId } } });
+		await waitFor(() => expect(view.getByText("Saved cleanup recovery: recovery-1")).toBeInTheDocument());
+		if (allowed) expect(view.getByRole("button", { name: "Review cleanup recovery…" })).toBeEnabled();
+		else expect(view.queryByRole("button", { name: "Review cleanup recovery…" })).not.toBeInTheDocument();
+	});
+	test.each(["RUNNING", "UNKNOWN", "ERROR", "ABSENT"])("%s cannot open disposal or submit destroy", async state => {
+		const { calls } = serve({ feature: { ...feature(), observedState: state } });
+		const view = render(Page, { props: { data: { operatorId } } });
+		await waitFor(() => expect(view.getByRole("heading", { name: project.name })).toBeInTheDocument());
+		const dispose = view.queryByRole("button", { name: "Dispose…" });
+		if (dispose) {
+			expect(dispose).toBeDisabled();
+			await fireEvent.click(dispose);
+		}
+		expect(view.queryByRole("button", { name: "Dispose sandbox" })).not.toBeInTheDocument();
+		expect(calls).toEqual([]);
+	});
+	test.each([
+		{ kind: "DESTROY", state: "FAILED", errorCode: "REVISION_CONFLICT" },
+		{ kind: "DESTROY", state: "FAILED", errorCode: "OTHER", providerOperationRecorded: false },
+		{ kind: "DESTROY", state: "FAILED", errorCode: "REVISION_CONFLICT", providerOperationRecorded: true },
+		{ kind: "DESTROY", state: "OUTCOME_UNKNOWN", errorCode: "REVISION_CONFLICT", providerOperationRecorded: false },
+		{ kind: "STOP", state: "FAILED", errorCode: "REVISION_CONFLICT", providerOperationRecorded: false },
+	])("cleanup $kind/$state/$errorCode cannot create a recovery", async operation => {
+		serve({ feature: { ...feature({ id: "failed-1", ...operation }), tombstonedAt: "2026-10-03T00:00:00Z" } });
+		const view = render(Page, { props: { data: { operatorId } } });
+		await waitFor(() => expect(view.getByText("Cleanup needs review")).toBeInTheDocument());
+		expect(view.queryByRole("button", { name: "Review cleanup recovery…" })).not.toBeInTheDocument();
+	});
+	test("saved failed cleanup requires confirmation and preserves the exact ID on refusal", async () => {
+		const { calls } = serve({ feature: { ...feature({ id: "failed-1", kind: "DESTROY", state: "FAILED",
+			errorCode: "REVISION_CONFLICT", providerOperationRecorded: false }), observedState: "RUNNING", tombstonedAt: "2026-10-03T00:00:00Z" },
+			onFeature: () => reply({ code: "cleanup_recovery_unavailable", message: "Saved cleanup authority changed. Review its status." }, 409) });
+		const view = render(Page, { props: { data: { operatorId } } });
+		await waitFor(() => expect(view.getByRole("button", { name: "Review cleanup recovery…" })).toBeEnabled());
+		await fireEvent.click(view.getByRole("button", { name: "Review cleanup recovery…" }));
+		expect(view.getByRole("group", { name: "Confirm cleanup recovery of Project one" })).toHaveTextContent("failed-1");
+		expect(calls).toEqual([]);
+		await fireEvent.click(view.getByRole("button", { name: /^Recover cleanup$/ }));
+		await waitFor(() => expect(view.getByRole("alert")).toHaveTextContent("Saved cleanup authority changed"));
+		expect(calls).toEqual([{ action: "recoverCleanup", projectId: project.id, bindingId, failedDestroyOperationId: "failed-1" }]);
+		expect(view.queryByRole("group", { name: "Confirm cleanup recovery of Project one" })).not.toBeInTheDocument();
+	});
 	test.each([
 		["qualification-draft", "qualification draft", false, "{not-json", "could not be read"],
 		["project-draft", "project sandbox request", true, "{not-json", "could not be read"],
@@ -264,22 +353,14 @@ describe("Incus management recovery", () => {
 		expect(destroys[0]?.idempotencyKey).toBe(destroys[1]?.idempotencyKey);
 	});
 
-	test("failed retired cleanup keeps its key and the retry control", async () => {
-		let attempts = 0;
+	test("a tombstoned cleanup has no generic retry mutation", async () => {
 		const retired = { ...feature(), tombstonedAt: "2026-09-25T00:00:00Z" };
-		const { calls } = serve({ feature: retired, onFeature: body => {
-			if (body.action !== "destroyRetired") return reply({});
-			attempts++;
-			return attempts === 1 ? reply({ reason: "Provider cleanup pending" }, 503) : reply({ state: "DISPATCHED" }, 202);
-		} });
+		const { calls } = serve({ feature: retired });
 		const view = render(Page, { props: { data: { operatorId } } });
 		await waitFor(() => expect(view.getByText("Cleanup needs review")).toBeInTheDocument());
-		await fireEvent.click(view.getByRole("button", { name: "Retry cleanup" }));
-		await waitFor(() => expect(view.getByRole("alert")).toHaveTextContent("Provider cleanup pending"));
-		await fireEvent.click(view.getByRole("button", { name: "Retry cleanup" }));
-		await waitFor(() => expect(attempts).toBe(2));
-		const destroys = calls.filter(body => body.action === "destroyRetired");
-		expect(destroys[0]?.idempotencyKey).toBe(destroys[1]?.idempotencyKey);
+		expect(view.queryByRole("button", { name: "Retry cleanup" })).not.toBeInTheDocument();
+		expect(view.queryByRole("button", { name: "Review cleanup recovery…" })).not.toBeInTheDocument();
+		expect(calls).toEqual([]);
 	});
 
 	test("a failed status refresh keeps unknown state blocked until reconcile succeeds", async () => {
