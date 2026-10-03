@@ -33,9 +33,9 @@ export async function getProject(id: string): Promise<Project | undefined> {
  * non-admin who just created a project can rename and delete it.
  *
  * `ownerUserId` is OPTIONAL rather than required, deliberately. Several
- * callers genuinely have no user — the `/api/__test/seed` fixture route and
- * ~30 backend tests build projects with no principal at all — and forcing a
- * placeholder id on them would either invent a member or need a sentinel
+ * callers genuinely have no user — backend tests build projects with no
+ * principal at all. Forcing a placeholder id on them would invent a member
+ * or need a sentinel
  * user. Omitting it is SAFE rather than a hole: a project with no members is
  * still mutable through the instance-admin override, and `migrate()`'s
  * ownerless backfill attributes it to the first admin on the next boot. The

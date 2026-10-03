@@ -16,6 +16,7 @@ const { getConversation, createConversation, getMessagesWithToolCalls } = await 
 const { createProject } = await import("../../../src/db/queries/projects");
 const { getSetting } = await import("../../../src/db/queries/settings");
 const { createUser } = await import("../../../src/db/queries/users");
+const { listProjectMembers } = await import("../../../src/db/queries/project-members");
 
 const savedE2E = process.env.PI_E2E_REAL;
 const savedNodeEnv = process.env.NODE_ENV;
@@ -64,7 +65,6 @@ describe("POST /api/__test/seed", () => {
     expect(out.project.id).toMatch(/^incus-project-[0-9a-f]{48}$/);
     expect(out.project.name).toBe("Incus browser fixture");
     expect(out.binding.projectId).toBe(out.project.id);
-    const { listProjectMembers } = await import("../../../src/db/queries/project-members");
     expect(await listProjectMembers(out.project.id)).toContainEqual(expect.objectContaining({ userId: user.id, role: "owner" }));
   });
 
@@ -73,6 +73,7 @@ describe("POST /api/__test/seed", () => {
     expect(res.status).toBe(201);
     const out = await res.json();
     expect(out.projectId).toBeTruthy();
+    expect(await listProjectMembers(out.projectId)).toContainEqual(expect.objectContaining({ userId: user.id, role: "owner" }));
     expect(out.conversationId).toBeTruthy();
     const conv = await getConversation(out.conversationId);
     expect(conv?.userId).toBe("u1");

@@ -131,7 +131,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   const project = await createProject({
     name: projectName,
     path: join(tmpdir(), `ezcorp-harness-${crypto.randomUUID()}`),
-  });
+  }, user.id);
   const conversation = await createConversation(project.id, {
     title,
     userId: user.id,
