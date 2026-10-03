@@ -18,11 +18,21 @@ export function sshGateRequest(argv: readonly string[], stdin?: string, planDige
 
 function quote(value: string): string { return `'${value.replaceAll("'", `'\\''`)}'`; }
 
-export async function verifyKnownHostPin(connection: IncusConnection): Promise<void> {
+export async function verifyKnownHostPin(connection: IncusConnection, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) throw new Error("SSH pin verification canceled");
   const target = /^(?<user>[a-z_][a-z0-9_-]{0,31})@(?<host>[A-Za-z0-9.-]{1,253})$/.exec(connection.sshTarget);
   if (!target?.groups || !isAbsolute(connection.sshIdentityFile) || !isAbsolute(connection.sshKnownHostsFile) || !/^SHA256:[A-Za-z0-9+/]{43}$/.test(connection.sshHostKeySha256)) throw new Error("SSH connection must use a closed target, absolute files and an exact host key fingerprint");
   const child = Bun.spawn(["ssh-keygen", "-F", target.groups.host!, "-f", connection.sshKnownHostsFile], { stdout: "pipe", stderr: "pipe" });
-  const [exitCode, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+  const abort = () => { child.kill("SIGKILL"); };
+  signal?.addEventListener("abort", abort, { once: true });
+  if (signal?.aborted) abort();
+  let exitCode: number;
+  let stdout: string;
+  let stderr: string;
+  try {
+    [exitCode, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+  } finally { signal?.removeEventListener("abort", abort); }
+  if (signal?.aborted) throw new Error("SSH pin verification canceled");
   if (exitCode !== 0) throw new Error(`SSH host is not pinned in known_hosts: ${stderr.trim() || `exit ${exitCode}`}`);
   const fingerprints = stdout.split("\n").filter(line => line && !line.startsWith("#")).flatMap(line => {
     const fields = line.trim().split(/\s+/);
@@ -41,50 +51,86 @@ export async function verifyKnownHostPin(connection: IncusConnection): Promise<v
   }
 }
 
+export function operatorSshFromEnvironment(env: NodeJS.ProcessEnv = process.env): IncusConnection | null {
+  const sshTarget = env.EZCORP_INCUS_SETUP_SSH_TARGET;
+  const sshIdentityFile = env.EZCORP_INCUS_SETUP_SSH_IDENTITY_FILE;
+  const sshKnownHostsFile = env.EZCORP_INCUS_SETUP_SSH_KNOWN_HOSTS_FILE;
+  const sshHostKeySha256 = env.EZCORP_INCUS_SETUP_SSH_HOST_KEY_SHA256;
+  const sshMode = env.EZCORP_INCUS_SETUP_SSH_MODE;
+  if (![sshTarget, sshIdentityFile, sshKnownHostsFile, sshHostKeySha256].every(Boolean)) return null;
+  if (sshMode !== undefined && sshMode !== "reviewed-envelope-v1") throw new Error("Incus setup SSH mode is unsupported");
+  return { sshTarget: sshTarget!, sshIdentityFile: sshIdentityFile!,
+    sshKnownHostsFile: sshKnownHostsFile!, sshHostKeySha256: sshHostKeySha256!, ...(sshMode ? { sshMode } : {}) };
+}
+
 export function sshRunner(connection: IncusConnection, planDigest?: string): RemoteRunner {
   return async (argv, stdin) => {
     if (connection.sshMode !== undefined && connection.sshMode !== "reviewed-envelope-v1") throw new Error("Unsupported Incus SSH mode");
     const reviewed = connection.sshMode === "reviewed-envelope-v1";
     const request = reviewed ? sshGateRequest(argv, stdin, planDigest) : stdin;
     const command = reviewed ? SSH_GATE_COMMAND : argv.map(quote).join(" ");
-    const args = [
-      "-F", "/dev/null", "-i", connection.sshIdentityFile, "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
-      "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=2",
-      "-o", "GlobalKnownHostsFile=/dev/null", "-o", "UpdateHostKeys=no",
-      "-o", `UserKnownHostsFile=${connection.sshKnownHostsFile}`, connection.sshTarget, command,
-    ];
-    return new Promise<CommandResult>((resolve) => {
-      const child = spawn("ssh", args, { stdio: ["pipe", "pipe", "pipe"] });
-      const stdout: Buffer[] = [];
-      const stderr: Buffer[] = [];
-      let size = 0;
-      let timedOut = false;
-      let failed = false;
-      const stop = () => {
-        child.kill("SIGTERM");
-        const force = setTimeout(() => child.kill("SIGKILL"), 3_000);
-        force.unref();
-      };
-      const timer = setTimeout(() => { timedOut = true; stop(); }, 60_000);
-      timer.unref();
-      const capture = (chunks: Buffer[]) => (chunk: Buffer) => {
-        size += chunk.length;
-        if (size > 1_048_576) { if (!timedOut) { timedOut = true; stop(); } return; }
-        chunks.push(chunk);
-      };
-      child.stdout.on("data", capture(stdout));
-      child.stderr.on("data", capture(stderr));
-      child.on("error", () => { failed = true; });
-      child.stdin.on("error", () => { /* SSH may exit before it reads the public certificate. */ });
-      child.on("close", code => {
-        clearTimeout(timer);
-        resolve({ exitCode: code ?? 127, stdout: Buffer.concat(stdout).toString("utf8"),
-          stderr: failed ? "SSH could not start" : Buffer.concat(stderr).toString("utf8"), ...(timedOut ? { timedOut: true } : {}) });
-      });
-      if (request === undefined) child.stdin.end();
-      else child.stdin.end(request);
-    });
+    return executeSsh(connection, command, request);
   };
+}
+
+export const OWNED_NEIGHBOR_COMMAND = "ezh-incus-owned-neighbor-challenge-v1";
+
+/** Only this fixed command can send the reviewed neighbor-control envelope. */
+export async function sshOwnedNeighborChallenge(connection: IncusConnection, request: unknown,
+  signal: AbortSignal): Promise<CommandResult> {
+  connection = { ...connection };
+  if (connection.sshMode !== "reviewed-envelope-v1") throw new Error("Reviewed SSH mode is required");
+  if (signal.aborted) throw new Error("Neighbor control deadline expired");
+  const input = JSON.stringify(request) + "\n";
+  if (Buffer.byteLength(input) > 4096) throw new Error("Neighbor control request is too large");
+  await verifyKnownHostPin(connection, signal);
+  if (signal.aborted) throw new Error("Neighbor control deadline expired");
+  return executeSsh(connection, OWNED_NEIGHBOR_COMMAND, input, 30_000, 4096, signal);
+}
+
+function executeSsh(connection: IncusConnection, command: string, request?: string,
+  timeoutMs = 60_000, maxOutputBytes = 1_048_576, signal?: AbortSignal): Promise<CommandResult> {
+  const args = [
+    "-F", "/dev/null", "-i", connection.sshIdentityFile, "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
+    "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=2",
+    "-o", "GlobalKnownHostsFile=/dev/null", "-o", "UpdateHostKeys=no",
+    "-o", `UserKnownHostsFile=${connection.sshKnownHostsFile}`, connection.sshTarget, command,
+  ];
+  return new Promise<CommandResult>((resolve) => {
+    const child = spawn("ssh", args, { stdio: ["pipe", "pipe", "pipe"] });
+    const stdout: Buffer[] = [];
+    const stderr: Buffer[] = [];
+    let size = 0;
+    let timedOut = false;
+    let failed = false;
+    const stop = () => {
+      child.kill("SIGTERM");
+      const force = setTimeout(() => child.kill("SIGKILL"), 3_000);
+      force.unref();
+    };
+    const abort = () => { timedOut = true; stop(); };
+    signal?.addEventListener("abort", abort, { once: true });
+    if (signal?.aborted) abort();
+    const timer = setTimeout(() => { timedOut = true; stop(); }, timeoutMs);
+    timer.unref();
+    const capture = (chunks: Buffer[]) => (chunk: Buffer) => {
+      size += chunk.length;
+      if (size > maxOutputBytes) { if (!timedOut) { timedOut = true; stop(); } return; }
+      chunks.push(chunk);
+    };
+    child.stdout.on("data", capture(stdout));
+    child.stderr.on("data", capture(stderr));
+    child.on("error", () => { failed = true; });
+    child.stdin.on("error", () => { /* SSH may exit before it reads the public certificate. */ });
+    child.on("close", code => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", abort);
+      resolve({ exitCode: code ?? 127, stdout: Buffer.concat(stdout).toString("utf8"),
+        stderr: failed ? "SSH could not start" : Buffer.concat(stderr).toString("utf8"), ...(timedOut ? { timedOut: true } : {}) });
+    });
+    if (request === undefined) child.stdin.end();
+    else child.stdin.end(request);
+  });
 }
 
 async function required(runner: RemoteRunner, argv: string[]): Promise<string> {

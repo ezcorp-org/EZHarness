@@ -12,6 +12,9 @@ import type { LiveReadbackContext } from "./incus-transport/live-readback";
 import { object, verifiedHttpsRequest, connectPinnedTls, type HostConnectionResolver, type PinnedFetch } from "./incus-transport/transport";
 import { ProviderConnectionStore } from "./provider-connections/store";
 
+import { bootstrapFromEnvironment, type IncusOperatorBootstrap } from "./incus-operator/service";
+import { sshOwnedNeighborChallenge } from "../../scripts/incus/inspect";
+
 const ID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
 const WAIT_MS = 100;
 const SERVICE_MS = 90_000;
@@ -37,6 +40,8 @@ type GuestCall = (installationId: string, bindingId: string, operation: SandboxP
 
 export interface IncusLiveNetworkProbeDependencies {
   db?: Database;
+  observerBootstrap?: () => IncusOperatorBootstrap | null;
+  observeNeighbor?: typeof sshOwnedNeighborChallenge;
   connections?: HostConnectionResolver;
   http?: PinnedFetch;
   /** Test seam. Production always calls the protected active release. */
@@ -57,6 +62,19 @@ export async function invokeProtectedIncusGuest(installationId: string, bindingI
   const process = new ReleaseProcess(installationId);
   try { return (await process.callIncusSandboxOperation(bindingId, operation, input)).result; }
   finally { process.kill(); await process.whenCallsSettled(); }
+}
+
+async function withControlDeadline<T>(signal: AbortSignal, operation: () => Promise<T>): Promise<T> {
+  let abort!: () => void;
+  const cancelled = new Promise<never>((_, reject) => {
+    abort = () => reject(new Error("Incus live network probe unavailable: pinned management connection deadline expired"));
+    signal.addEventListener("abort", abort, { once: true });
+    if (signal.aborted) abort();
+  });
+  try {
+    if (signal.aborted) return await cancelled;
+    return await Promise.race([operation(), cancelled]);
+  } finally { signal.removeEventListener("abort", abort); }
 }
 
 function ipv4(value: unknown): number | null {
@@ -115,7 +133,12 @@ export class IncusLiveNetworkProbe {
   private readonly invokeGuest: GuestCall;
   private readonly pinnedConnect: typeof connectPinnedTls;
   private readonly connect: NonNullable<IncusLiveNetworkProbeDependencies["connect"]>;
-  private readonly challenges = new WeakMap<IncusNetworkTarget, string>();
+  private readonly observerBootstrap: () => IncusOperatorBootstrap | null;
+  private readonly observeNeighbor: typeof sshOwnedNeighborChallenge;
+  private readonly challenges = new WeakMap<IncusNetworkTarget, {
+    token: string; context: LiveReadbackContext; neighbor: LiveFixtureHandle; generation: number;
+  }>();
+  private readonly managementTargets = new WeakSet<IncusNetworkTarget>();
   private readonly neighborTargets = new Map<string, WeakRef<IncusNetworkTarget>>();
 
   constructor(deps: IncusLiveNetworkProbeDependencies = {}) {
@@ -125,6 +148,75 @@ export class IncusLiveNetworkProbe {
     this.invokeGuest = deps.invokeGuest ?? invokeProtectedIncusGuest;
     this.pinnedConnect = deps.pinnedConnect ?? connectPinnedTls;
     this.connect = deps.connect ?? connectHostTarget;
+    this.observerBootstrap = deps.observerBootstrap ?? bootstrapFromEnvironment;
+    this.observeNeighbor = deps.observeNeighbor ?? sshOwnedNeighborChallenge;
+  }
+
+  private controlScope(context: LiveReadbackContext) {
+    return Object.freeze({
+      connectionId: context.scope.connectionId, project: context.recipe.project.name,
+      profile: context.preset.profile, incusProfile: context.recipe.profile.name,
+      network: context.recipe.network.name, bridgeCIDR: context.recipe.network.config["ipv4.address"],
+      presetId: context.preset.id, imageFingerprint: context.preset.imageDigest,
+    });
+  }
+
+  private async observer(context: LiveReadbackContext, extra: Record<string, unknown>) {
+    return this.pinnedSession(context, undefined, async session => {
+      const scope = { ...context.scope };
+      const revision = context.connection.revision;
+      const expected = { ...session.connection };
+      const bootstrap = this.observerBootstrap();
+      requireNetwork(bootstrap && bootstrap.ssh.sshMode === "reviewed-envelope-v1"
+        && bootstrap.endpoint === session.origin.origin
+        && bootstrap.ssh.sshHostKeySha256 === context.recipe.expected.sshHostKeySha256,
+      "reviewed neighbor control transport is unavailable");
+      const fixed = this.controlScope(context);
+      const result = await withControlDeadline(session.signal, () => this.observeNeighbor({ ...bootstrap.ssh },
+        { version: 1, ...fixed, ...extra }, session.signal));
+      await this.assertManagementConnection(scope, revision, expected, session.signal);
+      requireNetwork(!session.signal.aborted && result.exitCode === 0 && !result.timedOut
+        && result.stderr === "" && Buffer.byteLength(result.stdout) <= 4096,
+      "reviewed neighbor control response is invalid");
+      let reply: unknown;
+      try { reply = JSON.parse(result.stdout); }
+      catch { throw new Error("Incus live network probe unavailable: reviewed neighbor control response is invalid"); }
+      requireNetwork(reply && typeof reply === "object" && !Array.isArray(reply),
+        "reviewed neighbor control response is invalid");
+      return { reply: reply as Record<string, unknown>, fixed };
+    });
+  }
+
+  async assertControlCapability(context: LiveReadbackContext): Promise<void> {
+    let observed: Awaited<ReturnType<IncusLiveNetworkProbe["observer"]>>;
+    try { observed = await this.observer(structuredClone(context), { action: "capabilities" }); }
+    catch { throw new Error("Incus live network probe unavailable: reviewed neighbor control transport is unavailable"); }
+    const { reply, fixed } = observed;
+    const expected = { version: 1, purpose: "owned-neighbor-challenge", ...fixed, supported: true };
+    requireNetwork(Object.keys(reply).length === Object.keys(expected).length
+      && Object.entries(expected).every(([key, value]) => reply[key] === value),
+    "reviewed neighbor control response is invalid");
+  }
+
+  private async challenge(target: IncusNetworkTarget,
+    registered: { token: string; context: LiveReadbackContext; neighbor: LiveFixtureHandle; generation: number }): Promise<boolean> {
+    const { token, context, neighbor, generation } = registered;
+    requireNetwork(await this.exactFixture(context, neighbor) === generation, "neighbor binding changed or stopped");
+    requireNetwork(await this.backendAddress(context, neighbor.sandboxId) === target.address,
+      "backend neighbor state changed");
+    const { reply, fixed } = await this.observer(context, { action: "challenge",
+      sandboxId: neighbor.sandboxId, instance: resourceName(context.scope.connectionId, neighbor.sandboxId),
+      address: target.address, port: target.port, token });
+    const expected = { version: 1, purpose: "owned-neighbor-challenge", ...fixed, supported: true,
+      instance: resourceName(context.scope.connectionId, neighbor.sandboxId),
+      address: target.address, port: target.port };
+    requireNetwork(Object.keys(reply).length === Object.keys(expected).length + 1
+      && Object.entries(expected).every(([key, value]) => reply[key] === value)
+      && typeof reply.reachable === "boolean", "reviewed neighbor control response is invalid");
+    requireNetwork(await this.exactFixture(context, neighbor) === generation, "neighbor binding changed or stopped");
+    requireNetwork(await this.backendAddress(context, neighbor.sandboxId) === target.address,
+      "backend neighbor state changed");
+    return reply.reachable;
   }
 
   private async guest(context: LiveReadbackContext, bindingId: string,
@@ -142,7 +234,7 @@ export class IncusLiveNetworkProbe {
     return validated as Record<string, unknown>;
   }
 
-  private async exactFixture(context: LiveReadbackContext, neighbor: LiveFixtureHandle): Promise<void> {
+  private async exactFixture(context: LiveReadbackContext, neighbor: LiveFixtureHandle): Promise<number> {
     requireNetwork(ID.test(neighbor.sandboxId) && ID.test(neighbor.operationId), "invalid neighbor identity");
     const [fixture] = await this.db.select().from(incusQualificationFixtures)
       .where(eq(incusQualificationFixtures.operationId, neighbor.operationId)).limit(1);
@@ -161,6 +253,8 @@ export class IncusLiveNetworkProbe {
       && binding.resourceKey === fixture.bindingId && !binding.tombstonedAt
       && binding.desiredState === "RUNNING" && binding.observedState === "RUNNING",
     "neighbor binding changed or stopped");
+    requireNetwork(Number.isSafeInteger(binding.generation) && binding.generation > 0, "neighbor binding changed or stopped");
+    return binding.generation;
   }
 
   private async pinnedSession<T>(context: LiveReadbackContext, sandboxId: string | undefined,
@@ -200,27 +294,21 @@ export class IncusLiveNetworkProbe {
         requireNetwork(canonicalIncusProbeAddress(address) && peerPort === port,
           "pinned management peer address is unavailable");
         await this.assertManagementConnection(scope, revision, expected, session.signal);
-        return Object.freeze({ address: address!, port });
+        const target = Object.freeze({ address: address!, port });
+        this.managementTargets.add(target);
+        return target;
       } finally { socket.destroy(); }
     });
   }
 
   private async assertManagementConnection(scope: LiveReadbackContext["scope"], revision: number,
     expected: Session["connection"], signal: AbortSignal): Promise<void> {
-    let abort!: () => void;
-    const cancelled = new Promise<never>((_, reject) => {
-      abort = () => reject(new Error("Incus live network probe unavailable: pinned management connection deadline expired"));
-      signal.addEventListener("abort", abort, { once: true });
-      if (signal.aborted) abort();
-    });
-    try {
-      const current = await Promise.race([this.connections.resolveForHost({
-        connectionId: scope.connectionId, providerInstallationId: scope.installationId,
-        providerReleaseId: scope.releaseId, revision: revision }), cancelled]);
-      requireNetwork(!signal.aborted && ["endpoint", "project", "serverCertificatePem", "clientCertificatePem", "privateKeyPem"]
-        .every(key => current[key as keyof typeof current] === expected[key as keyof typeof current]),
-      "pinned management connection changed");
-    } finally { signal.removeEventListener("abort", abort); }
+    const current = await withControlDeadline(signal, () => this.connections.resolveForHost({
+      connectionId: scope.connectionId, providerInstallationId: scope.installationId,
+      providerReleaseId: scope.releaseId, revision }));
+    requireNetwork(!signal.aborted && ["endpoint", "project", "serverCertificatePem", "clientCertificatePem", "privateKeyPem"]
+      .every(key => current[key as keyof typeof current] === expected[key as keyof typeof current]),
+    "pinned management connection changed");
   }
 
   private async backendAddress(context: LiveReadbackContext, sandboxId: string): Promise<string> {
@@ -260,7 +348,9 @@ export class IncusLiveNetworkProbe {
 
   async neighborTarget(context: LiveReadbackContext,
     neighbor: LiveFixtureHandle): Promise<IncusNetworkTarget & { sandboxId: string }> {
-    await this.exactFixture(context, neighbor);
+    context = structuredClone(context);
+    neighbor = Object.freeze({ ...neighbor });
+    const generation = await this.exactFixture(context, neighbor);
     const address = await this.backendAddress(context, neighbor.sandboxId);
     const token = randomBytes(24).toString("hex");
     const started = await this.guest(context, neighbor.sandboxId, "processes.start", {
@@ -290,8 +380,10 @@ export class IncusLiveNetworkProbe {
       if (match) {
         requireNetwork(Number(match[1]) <= 65535, "neighbor listener port is invalid");
         const target = Object.freeze({ sandboxId: neighbor.sandboxId, address, port: Number(match[1]) });
-        await this.exactFixture(context, neighbor);
-        this.challenges.set(target, token);
+        requireNetwork(await this.exactFixture(context, neighbor) === generation, "neighbor binding changed or stopped");
+        this.challenges.set(target, {
+          token, generation, context: structuredClone(context), neighbor: Object.freeze({ ...neighbor }),
+        });
         this.neighborTargets.set(`${address}:${target.port}`, new WeakRef(target));
         return target;
       }
@@ -307,9 +399,10 @@ export class IncusLiveNetworkProbe {
   async hostCanConnect(target: IncusNetworkTarget): Promise<boolean> {
     const registered = this.neighborTargets.get(`${target.address}:${target.port}`)?.deref();
     if (registered && registered !== target) return false;
-    const token = this.challenges.get(target);
-    if (registered && !token) return false;
-    try { return await this.connect(target, token); }
+    const challenge = this.challenges.get(target);
+    if (registered && !challenge) return false;
+    if (!challenge && !this.managementTargets.has(target)) return false;
+    try { return challenge ? await this.challenge(target, challenge) : await this.connect(target); }
     catch { return false; }
   }
 }

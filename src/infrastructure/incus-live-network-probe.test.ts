@@ -25,7 +25,9 @@ const envelope = (metadata: unknown) => Response.json({ type: "sync", status_cod
 
 async function setup(overrides: { fixture?: Record<string, unknown>; binding?: Record<string, unknown>;
   instance?: Record<string, unknown>; state?: Record<string, unknown>; portOutput?: string;
-  hostReachable?: boolean; delayPort?: boolean } = {}) {
+  hostReachable?: boolean; delayPort?: boolean; observerMissing?: boolean;
+  observerReply?: unknown; stallObserver?: boolean; revokeConnection?: boolean; observerResult?: { exitCode: number; stderr: string; stdout: string; timedOut?: boolean };
+  onObserverSignal?: (signal: AbortSignal) => void; onObserve?: (binding: Record<string, unknown>) => void; directReachable?: boolean } = {}) {
   const context: LiveReadbackContext = {
     scope: { installationId: "installation", releaseId: "release", connectionId: "connection" },
     connection: { revision: 1, project: recipe.project.name,
@@ -38,7 +40,7 @@ async function setup(overrides: { fixture?: Record<string, unknown>; binding?: R
     connectionId: context.scope.connectionId, connectionRevision: 1, presetId: preset.id,
     presetDigest: context.presetDigest, effectiveSettingsDigest: context.effectiveSettingsDigest,
     projectId: "fixture-project", ...overrides.fixture };
-  const binding = { id: neighbor.sandboxId, resourceKey: neighbor.sandboxId,
+  const binding = { id: neighbor.sandboxId, generation: 1, resourceKey: neighbor.sandboxId,
     projectId: fixture.projectId, providerInstallationId: fixture.installationId,
     providerReleaseId: fixture.releaseId, connectionId: fixture.connectionId,
     connectionRevision: fixture.connectionRevision, presetId: fixture.presetId,
@@ -59,10 +61,11 @@ async function setup(overrides: { fixture?: Record<string, unknown>; binding?: R
   const operations: string[] = [];
   let outputReads = 0;
   const checked: Array<{ address: string; port: number; expected?: string }> = [];
+  const resolvedConnection = { ...connection };
   const probe = new IncusLiveNetworkProbe({
     db: { select: () => ({ from: (table: unknown) => ({ where: () => ({ limit: async () =>
       table === incusQualificationFixtures ? [fixture] : [binding] }) }) }) } as unknown as Database,
-    connections: { resolveForHost: async () => connection },
+    connections: { resolveForHost: async () => resolvedConnection },
     http: (async (url: string, init: RequestInit) => {
       expect(init.method).toBe("GET");
       const path = new URL(url).pathname;
@@ -71,6 +74,27 @@ async function setup(overrides: { fixture?: Record<string, unknown>; binding?: R
       if (path === `/1.0/instances/${name}/state`) return envelope(state);
       throw new Error(`unexpected path ${path}`);
     }) as never,
+    observerBootstrap: () => overrides.observerMissing ? null : ({ endpoint: connection.endpoint,
+      ssh: { sshTarget: "observer@xeon", sshIdentityFile: "/private/key",
+        sshKnownHostsFile: "/private/known_hosts", sshHostKeySha256: recipe.expected.sshHostKeySha256,
+        sshMode: "reviewed-envelope-v1" } }),
+    observeNeighbor: async (_ssh, raw, signal) => {
+      overrides.onObserverSignal?.(signal);
+      if (overrides.stallObserver) return await new Promise<never>(() => {});
+      if (overrides.revokeConnection) resolvedConnection.endpoint = "https://changed-server:8443";
+      if (overrides.observerResult) return overrides.observerResult;
+      overrides.onObserve?.(binding);
+      if (overrides.observerReply !== undefined) return { exitCode: 0, stderr: "", stdout: JSON.stringify(overrides.observerReply) };
+      const request = raw as Record<string, unknown>;
+      const { version, action, token, sandboxId, instance, address: peer, port, ...fixed } = request;
+      if (action === "capabilities") return { exitCode: 0, stderr: "",
+        stdout: JSON.stringify({ version, purpose: "owned-neighbor-challenge", ...fixed, supported: true }) };
+      checked.push({ address: String(peer), port: Number(port), expected: String(token) });
+      return { exitCode: 0, stderr: "", stdout: JSON.stringify({
+        version, purpose: "owned-neighbor-challenge", ...fixed, supported: true, instance,
+        address: peer, port, reachable: overrides.hostReachable ?? true,
+      }) };
+    },
     invokeGuest: async (installationId, bindingId, operation, input) => {
       expect(installationId).toBe(context.scope.installationId);
       expect(bindingId).toBe(neighbor.sandboxId);
@@ -96,7 +120,7 @@ async function setup(overrides: { fixture?: Record<string, unknown>; binding?: R
     },
     connect: async (target, expected) => {
       checked.push({ ...target, expected });
-      return overrides.hostReachable ?? true;
+      return overrides.directReachable ?? true;
     },
   });
   return { probe, context, paths, operations, checked };
@@ -177,7 +201,8 @@ test("production host control opens a real TCP connection and fails closed after
   const target = { address: "127.0.0.1", port: typeof endpoint === "string" ? 0 : endpoint!.port };
   const probe = new IncusLiveNetworkProbe({ db: {} as Database });
   try {
-    expect(await probe.hostCanConnect(target)).toBe(true);
+    expect(await probe.hostCanConnect(target)).toBe(false);
+    expect(await connectHostTarget(target)).toBe(true);
     expect(await connectHostTarget(target, "verified-token")).toBe(true);
     expect(await connectHostTarget(target, "wrong-token")).toBe(false);
   }
@@ -286,7 +311,78 @@ test("management target closes a peer that arrives after the existing session de
     for (const options of [{ expire: () => expire() }, { expireRefresh: () => expire() }]) {
       const fixture = await managementFixture(options);
       await expect(fixture.probe.managementTarget(fixture.context)).rejects.toThrow("deadline");
-      expect(fixture.counts()).toEqual({ reads: 2, connects: 1, destroyed: 1 });
+      expect(fixture.counts()).toEqual({ reads: options.expire ? 1 : 2, connects: 1, destroyed: 1 });
     }
   } finally { timer.mockRestore(); }
+});
+
+
+test("private neighbor positive control uses reviewed server challenge while direct guest route is absent", async () => {
+  const { probe, context, checked } = await setup({ directReachable: false });
+  await probe.assertControlCapability(context);
+  const target = await probe.neighborTarget(context, neighbor);
+  expect(await probe.hostCanConnect(target)).toBe(true);
+  expect(checked).toHaveLength(1);
+  expect(checked[0]?.expected).toMatch(/^[a-f0-9]{48}$/);
+  expect(await probe.hostCanConnect({ ...target })).toBe(false);
+});
+
+test("missing or malformed reviewed control fails closed before guest calls", async () => {
+  for (const overrides of [{ observerMissing: true }, { observerReply: {} },
+    { observerReply: { version: 1, supported: true, rawSecret: "never accepted" } }]) {
+    const { probe, context, operations } = await setup(overrides);
+    await expect(probe.assertControlCapability(context)).rejects.toThrow("reviewed neighbor control");
+    expect(operations).toHaveLength(0);
+  }
+});
+
+test("observer await cannot authorize a neighbor whose binding changes", async () => {
+  const binding = { observedState: "RUNNING" };
+  const { probe, context, checked } = await setup({ binding,
+    onObserve: current => { current.observedState = "STOPPED"; } });
+  const target = await probe.neighborTarget(context, neighbor);
+  expect(await probe.hostCanConnect(target)).toBe(false);
+  expect(checked).toHaveLength(1);
+});
+
+test("observer refuses protocol pollution, nonzero exit, stderr, oversized or malformed output", async () => {
+  for (const observerResult of [
+    { exitCode: 1, stdout: "{}", stderr: "" },
+    { exitCode: 0, stdout: "{}", stderr: "untrusted diagnostic" },
+    { exitCode: 0, stdout: "x".repeat(4097), stderr: "" },
+    { exitCode: 0, stdout: "not-json", stderr: "" },
+    { exitCode: 0, stdout: "null", stderr: "" },
+    { exitCode: 0, stdout: "[]", stderr: "" },
+    { exitCode: 0, stdout: "{}", stderr: "", timedOut: true },
+  ]) {
+    const fixture = await setup({ observerResult });
+    await expect(fixture.probe.assertControlCapability(fixture.context)).rejects.toThrow("reviewed neighbor control");
+    expect(fixture.operations).toHaveLength(0);
+  }
+});
+
+test("control deadline cancels an observer even if its adapter ignores cancellation", async () => {
+  const original = globalThis.setTimeout;
+  let expire!: () => void;
+  const timer = spyOn(globalThis, "setTimeout").mockImplementation(((callback: () => void, delay: number) => {
+    if (delay === 30_000) expire = callback;
+    return original(() => {}, delay);
+  }) as typeof setTimeout);
+  try {
+    const fixture = await setup({ stallObserver: true, onObserverSignal: signal => {
+      expire();
+      expect(signal.aborted).toBe(true);
+    } });
+    await expect(fixture.probe.assertControlCapability(fixture.context)).rejects.toThrow("reviewed neighbor control");
+    expect(fixture.operations).toHaveLength(0);
+  } finally { timer.mockRestore(); }
+});
+
+
+test("server challenge cannot survive changed connection authority or a forged reply", async () => {
+  for (const overrides of [{ revokeConnection: true }, { observerReply: { version: 1, reachable: true } }]) {
+    const fixture = await setup(overrides);
+    const target = await fixture.probe.neighborTarget(fixture.context, neighbor);
+    expect(await fixture.probe.hostCanConnect(target)).toBe(false);
+  }
 });

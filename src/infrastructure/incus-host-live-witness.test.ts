@@ -369,7 +369,10 @@ test("resource enforcement binds guest cgroups and network checks to two running
         calls.push(`backend:${sandboxId}`);
         return { state: "running", privateNetwork: true, diskBytes: preset.limits.diskBytes };
       } },
-    resourceNetwork: {
+    resourceNetwork: { assertControlCapability: async context => {
+      expect(context.scope).toEqual(scope);
+      expect(context.recipe.project.name).toBe(recipe.project.name);
+    },
       managementTarget: async () => Object.freeze({ address: "100.81.181.39", port: 8443 }),
       neighborTarget: async (_context, value) => {
         calls.push(`target:${value.sandboxId}`);
@@ -381,6 +384,7 @@ test("resource enforcement binds guest cgroups and network checks to two running
       },
     },
   });
+  await candidate.preflightNetwork(scope, preset);
   candidate.run = async (value, argv) => {
     expect(value).toEqual(handle);
     expect(argv.slice(3)).toEqual(["100.81.181.39", "8443", "10.173.0.22", "8080"]);
@@ -423,7 +427,7 @@ test("limit loads recheck the pinned host and neighbor after each guest load", a
     qualifications: {} as IncusQualificationStore,
     fixtures: {} as IncusQualificationFixtureService,
     backend: backend as never,
-    resourceNetwork: { managementTarget: async () => Object.freeze({ address: "100.81.181.39", port: 8443 }), neighborTarget: async () => ({ sandboxId: other.sandboxId,
+    resourceNetwork: { assertControlCapability: async () => {}, managementTarget: async () => Object.freeze({ address: "100.81.181.39", port: 8443 }), neighborTarget: async () => ({ sandboxId: other.sandboxId,
       address: "10.173.0.22", port: 8080 }),
       hostCanConnect: async target => { calls.push(`host:${target.address}:${target.port}`); return true; } },
   });

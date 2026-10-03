@@ -117,6 +117,7 @@ export interface IncusHostLiveWitnessDependencies {
   /** Host-owned source of a running, distinct sandbox service and independent
    * host reachability checks. */
   resourceNetwork?: {
+    assertControlCapability(context: LiveReadbackContext): Promise<void>;
     managementTarget(context: LiveReadbackContext): Promise<IncusNetworkTarget>;
     neighborTarget(context: LiveReadbackContext, neighbor: LiveFixtureHandle): Promise<IncusNetworkTarget & {
       sandboxId: string;
@@ -328,6 +329,12 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
     return { context: { scope, connection: selected.connection, preset,
       presetDigest: selected.presetDigest, effectiveSettingsDigest: selected.effectiveSettingsDigest,
       recipe: setup.recipe as IncusSetupRecipe }, helperDigest: image.helperSha256 };
+  }
+
+  async preflightNetwork(scope: IncusQualificationScope, preset: SandboxPreset): Promise<void> {
+    const { context } = await this.context(scope, preset);
+    if (!this.resourceNetwork) deny("host-owned sandbox network control targets are unavailable");
+    await this.resourceNetwork.assertControlCapability(context);
   }
 
   async observe(scope: IncusQualificationScope, preset: SandboxPreset): ReturnType<HostIncusLiveWitness["observe"]> {

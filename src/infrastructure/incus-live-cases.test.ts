@@ -33,6 +33,7 @@ function witness(overrides: Partial<HostIncusLiveWitness> = {}) {
     readinessErrorCode: "QUALIFICATION_CLEANUP_UNVERIFIED", reconciledOperationId: "destroy-op",
     finalState: "absent", unrelatedState: "stopped" };
   const base: HostIncusLiveWitness = {
+    preflightNetwork: async () => {},
     observe: async () => ({ observation, profile: preset.profile, imageDigest: preset.imageDigest,
       helperDigest: GUEST_HELPER_SHA256 }),
     controlFacts: async () => ({ baselinePlanDigest: "b".repeat(64), repeatedPlanDigest: "b".repeat(64),
@@ -333,4 +334,24 @@ test("preparation cause classification accepts only literal assertions and known
     expect(incusPreparationCauseCode(value)).toBe("unclassified");
   }
   expect(INCUS_PREPARATION_CAUSE_CODES.has("secret-code")).toBe(false);
+});
+
+test("missing reviewed neighbor control fails before any fixture allocation", async () => {
+  let allocations = 0;
+  const original = witness({ createFixture: async () => {
+    allocations++;
+    throw new Error("fixture allocation must not run");
+  } });
+  const durable: DurableIncusLiveWitness = {
+    ...original.value,
+    findFixture: async () => { throw new Error("fixture lookup must not run"); },
+    preflightNetwork: async () => { throw new Error("Incus live network probe unavailable: reviewed neighbor control transport is unavailable"); },
+    beginRestart: async () => { throw new Error("restart must not run"); },
+    claimRestart: async () => { throw new Error("restart must not run"); },
+  };
+  await expect(beginDurableIncusLiveCases({ witness: durable }, scope, preset,
+    { runId: "missing-control-run", nonce: "fresh-nonce", deadlineMs: Date.now() + 60_000 }))
+    .rejects.toMatchObject({ stage: "fixtures", cleanup: "confirmed",
+      causeCode: "reviewed_neighbor_control_transport_is_unavailable" });
+  expect(allocations).toBe(0);
 });

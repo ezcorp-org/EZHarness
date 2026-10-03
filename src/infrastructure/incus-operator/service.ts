@@ -6,7 +6,7 @@ import { sql } from "drizzle-orm";
 import { sandboxPresetDigest } from "@ezcorp/extension-contract";
 import recipeTemplate from "../../../scripts/incus/recipe.json";
 import { applySetupPlan } from "../../../scripts/incus/apply";
-import { inspectIncus, sshRunner, type RemoteRunner } from "../../../scripts/incus/inspect";
+import { inspectIncus, sshRunner, operatorSshFromEnvironment, type RemoteRunner } from "../../../scripts/incus/inspect";
 import type { ApplyReceipt, IncusConnection, IncusInventory, IncusSetupPlan, IncusSetupRecipe } from "../../../scripts/incus/model";
 import { assertSetupPlanDigest, digest } from "../../../scripts/incus/model";
 import { createSetupPlan, validateRecipe, verifySetupPlan } from "../../../scripts/incus/plan";
@@ -99,22 +99,16 @@ function assertSnapshot(row: SetupRow, snapshot: ActiveExtensionRelease): void {
 
 /** Only server process configuration can select an SSH key, host pin, or endpoint. */
 export function bootstrapFromEnvironment(env: NodeJS.ProcessEnv = process.env): IncusOperatorBootstrap | null {
-  const target = env.EZCORP_INCUS_SETUP_SSH_TARGET;
-  const identity = env.EZCORP_INCUS_SETUP_SSH_IDENTITY_FILE;
-  const knownHosts = env.EZCORP_INCUS_SETUP_SSH_KNOWN_HOSTS_FILE;
-  const hostKey = env.EZCORP_INCUS_SETUP_SSH_HOST_KEY_SHA256;
-  const sshMode = env.EZCORP_INCUS_SETUP_SSH_MODE;
+  const ssh = operatorSshFromEnvironment(env);
   const endpoint = env.EZCORP_INCUS_SETUP_ENDPOINT;
-  if (![target, identity, knownHosts, hostKey, endpoint].every(Boolean)) return null;
-  if (sshMode !== undefined && sshMode !== "reviewed-envelope-v1") throw new Error("Incus setup SSH mode is unsupported");
+  if (!ssh || !endpoint) return null;
   let url: URL;
   try { url = new URL(endpoint!); }
   catch { throw new Error("Incus setup endpoint must be a bare HTTPS origin"); }
   if (url.protocol !== "https:" || url.username || url.password || url.pathname !== "/" || url.search || url.hash) {
     throw new Error("Incus setup endpoint must be a bare HTTPS origin");
   }
-  return { ssh: { sshTarget: target!, sshIdentityFile: identity!, sshKnownHostsFile: knownHosts!, sshHostKeySha256: hostKey!,
-    ...(sshMode ? { sshMode } : {}) }, endpoint: url.origin };
+  return { ssh, endpoint: url.origin };
 }
 
 /** The engine reads one operator-owned recipe; its saved plan pins the exact bytes used for Apply. */

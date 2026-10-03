@@ -1,4 +1,5 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test, spyOn } from "bun:test";
+import * as childProcess from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -8,7 +9,7 @@ import checkedInRecipe from "./recipe.json";
 import imageBuildTemplate from "./recipe.template.json";
 import { digest, type IncusInventory, type IncusSetupPlan, type IncusSetupRecipe } from "./model";
 import { applyImageBootstrapPlan, applySetupPlan, classifyApplyResult, inspectStep } from "./apply";
-import { inspectIncus, sshGateRequest, verifyKnownHostPin } from "./inspect";
+import { inspectIncus, sshGateRequest, verifyKnownHostPin, sshOwnedNeighborChallenge, operatorSshFromEnvironment, OWNED_NEIGHBOR_COMMAND, sshRunner } from "./inspect";
 import { createOwnedNeighborChallengeSshPolicy, ownedNeighborScope, createReadOnlySshGatePolicy, createSshGatePolicy } from "./ssh-gate-policy";
 import { createImageBootstrapPlan, createSetupPlan, validateRecipe, verifyImageBootstrapPlan, verifySetupPlan } from "./plan";
 import { guestHelperSha256 } from "../../src/infrastructure/incus-guest/protocol";
@@ -895,4 +896,84 @@ test("verification names every missing postcondition", () => {
   expect(failures).toContain("unverified:compose-profile");
   expect(failures).toContain("unverified:https-listener");
   expect(failures).toContain("unverified:provider-client");
+});
+
+test("owned-neighbor SSH uses the pinned fixed command and bounded private stdin", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "incus-neighbor-ssh-"));
+  const previousPath = process.env.PATH;
+  try {
+    const encodedKey = "AAAAC3NzaC1lZDI1NTE5AAAAIM+s+GddlB2egyYtk02Vnyrzoqr0JQeX0bwgYIfedKwE";
+    const fingerprint = createHash("sha256").update(Buffer.from(encodedKey, "base64")).digest("base64").replace(/=+$/, "");
+    const knownHosts = join(directory, "known_hosts");
+    const receipt = join(directory, "receipt.json");
+    await writeFile(knownHosts, `host.example ssh-ed25519 ${encodedKey}\n`);
+    const script = `#!/usr/bin/env python3
+import json,sys,time
+from pathlib import Path
+request=json.loads(sys.stdin.read() or "{}")
+Path(${JSON.stringify(receipt)}).write_text(json.dumps({"argv":sys.argv[1:],"request":request}))
+if request.get("action")=="stall":
+ print("READY",flush=True)
+ while True: time.sleep(60)
+print(json.dumps({"version":1,"supported":True}))
+`;
+    await writeFile(join(directory, "ssh"), script);
+    await chmod(join(directory, "ssh"), 0o700);
+    process.env.PATH = `${directory}:${previousPath}`;
+    const connection = { sshTarget: "dev@host.example", sshIdentityFile: "/key", sshKnownHostsFile: knownHosts,
+      sshHostKeySha256: `SHA256:${fingerprint}`, sshMode: "reviewed-envelope-v1" as const };
+    const request = { version: 1, action: "capabilities" };
+    const response = await sshOwnedNeighborChallenge(connection, request, new AbortController().signal);
+    expect(response.exitCode).toBe(0);
+    expect(response.stderr).toBe("");
+    expect(JSON.parse(response.stdout)).toEqual({ version: 1, supported: true });
+    const observed = JSON.parse(await readFile(receipt, "utf8"));
+    expect(observed.request).toEqual(request);
+    expect(observed.argv.at(-1)).toBe(OWNED_NEIGHBOR_COMMAND);
+    for (const option of ["StrictHostKeyChecking=yes", "IdentitiesOnly=yes", "BatchMode=yes",
+      "GlobalKnownHostsFile=/dev/null", "UpdateHostKeys=no", `UserKnownHostsFile=${knownHosts}`]) {
+      expect(observed.argv).toContain(option);
+    }
+    expect((await sshRunner(connection)(["incus", "info"])).exitCode).toBe(0);
+    expect(JSON.parse(await readFile(receipt, "utf8")).argv.at(-1)).toBe("ezh-incus-operator-v1");
+    expect((await sshRunner({ ...connection, sshMode: undefined })(["incus", "info"])).exitCode).toBe(0);
+    expect(JSON.parse(await readFile(receipt, "utf8")).argv.at(-1)).toBe("'incus' 'info'");
+    await expect(sshRunner({ ...connection, sshMode: "unsupported" } as unknown as typeof connection)(["incus", "info"]))
+      .rejects.toThrow("Unsupported");
+    const canceledAfterOutput = new AbortController();
+    const originalSpawn = childProcess.spawn;
+    const spawnSpy = spyOn(childProcess, "spawn").mockImplementation(((...args: Parameters<typeof childProcess.spawn>) => {
+      const child = originalSpawn(...args);
+      child.stdout?.once("data", () => canceledAfterOutput.abort());
+      return child;
+    }) as typeof childProcess.spawn);
+    try {
+      const canceledResult = await sshOwnedNeighborChallenge(connection,
+        { version: 1, action: "stall" }, canceledAfterOutput.signal);
+      expect(canceledResult.timedOut).toBe(true);
+      expect(canceledResult.stdout.trim()).toBe("READY");
+      expect(canceledResult.exitCode).not.toBe(0);
+    } finally { spawnSpy.mockRestore(); }
+    await expect(sshOwnedNeighborChallenge({ ...connection, sshMode: undefined }, request,
+      new AbortController().signal)).rejects.toThrow("Reviewed SSH mode");
+    const canceled = new AbortController(); canceled.abort();
+    await expect(sshOwnedNeighborChallenge(connection, request, canceled.signal)).rejects.toThrow("deadline");
+    await expect(verifyKnownHostPin(connection, canceled.signal)).rejects.toThrow("canceled");
+    await expect(sshOwnedNeighborChallenge(connection, { value: "x".repeat(4097) },
+      new AbortController().signal)).rejects.toThrow("too large");
+  } finally {
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("operator SSH environment is shared and fails closed on incomplete or unsupported settings", () => {
+  expect(operatorSshFromEnvironment({})).toBeNull();
+  const env = { EZCORP_INCUS_SETUP_SSH_TARGET: "dev@host.example",
+    EZCORP_INCUS_SETUP_SSH_IDENTITY_FILE: "/key", EZCORP_INCUS_SETUP_SSH_KNOWN_HOSTS_FILE: "/known",
+    EZCORP_INCUS_SETUP_SSH_HOST_KEY_SHA256: `SHA256:${"A".repeat(43)}`,
+    EZCORP_INCUS_SETUP_SSH_MODE: "reviewed-envelope-v1" };
+  expect(operatorSshFromEnvironment(env)).toMatchObject({ sshTarget: "dev@host.example", sshMode: "reviewed-envelope-v1" });
+  expect(() => operatorSshFromEnvironment({ ...env, EZCORP_INCUS_SETUP_SSH_MODE: "arbitrary" })).toThrow("unsupported");
 });

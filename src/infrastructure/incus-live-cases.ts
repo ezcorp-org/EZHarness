@@ -75,6 +75,8 @@ export interface LiveCleanupRecoveryFact {
  * Its implementation must use the durable controller and protected guest RPC.
  * There is deliberately no production default or synthetic receipt path. */
 export interface HostIncusLiveWitness {
+  /** Prove reviewed network-control capability before allocating any fixture. */
+  preflightNetwork(scope: IncusQualificationScope, preset: SandboxPreset): Promise<void>;
   observe(scope: IncusQualificationScope, preset: SandboxPreset): Promise<{
     observation: SandboxCompatibilityObservation;
     profile: string;
@@ -255,7 +257,7 @@ interface FixtureRunState {
 export type IncusQualificationPreparationStage = "fixtures" | "enforcement" | "limit_loads" | "guest_preparation" | "restart_handoff";
 const preparationAssertions = new Map<string, string>();
 const diagnosticAssertions: Record<string, readonly string[]> = {
-  "Incus live network probe unavailable: ": ["pinned management peer address is unavailable", "pinned management connection changed", "pinned management connection deadline expired", "protected guest call failed", "invalid neighbor identity", "neighbor fixture ownership changed", "neighbor binding changed or stopped", "backend neighbor identity changed", "backend neighbor state changed", "exact neighbor bridge address is unavailable", "neighbor listener identity missing", "neighbor listener output has a gap", "neighbor listener output changed", "neighbor listener port is invalid", "neighbor listener ended before it was ready", "neighbor listener did not become ready"],
+  "Incus live network probe unavailable: ": ["reviewed neighbor control transport is unavailable", "reviewed neighbor control response is invalid", "pinned management peer address is unavailable", "pinned management connection changed", "pinned management connection deadline expired", "protected guest call failed", "invalid neighbor identity", "neighbor fixture ownership changed", "neighbor binding changed or stopped", "backend neighbor identity changed", "backend neighbor state changed", "exact neighbor bridge address is unavailable", "neighbor listener identity missing", "neighbor listener output has a gap", "neighbor listener output changed", "neighbor listener port is invalid", "neighbor listener ended before it was ready", "neighbor listener did not become ready"],
   "Incus resource probe unavailable: ": ["distinct IP-literal targets are required", "management control target is not reachable from the host", "otherSandbox control target is not reachable from the host", "guest control readout failed or exceeded its bound", "guest control readout is invalid JSON", "guest control readout is invalid", "exact fixture root quota is unavailable", "observed controls exceed the reviewed preset", "guest reached a forbidden network target", "guest UID map is not isolated from host root", "CPU cgroup quota is missing", "CPU cgroup quota has an invalid format", "CPU quota cannot be expressed exactly"],
   "Incus live qualification failed: ": ["guest cgroup, storage or network enforcement is unavailable", "controlled limit loads are incomplete", "qualification preparation deadline expired"],
   "Incus live witness unavailable: ": ["running fixture, root quota, or neighbor network identity changed", "resource probe fixtures have different reviewed scopes", "limit probe needs two distinct running fixtures", "limit probe fixture scopes differ", "guest action failed"],
@@ -296,6 +298,7 @@ export class IncusQualificationPreparationError extends Error {
 async function createLiveFixtures(witness: HostIncusLiveWitness, scope: IncusQualificationScope,
   preset: SandboxPreset, token: string, state: FixtureRunState,
   stage: (value: IncusQualificationPreparationStage) => void = () => {}): Promise<void> {
+  await witness.preflightNetwork(scope, preset);
   const primaryId = `qual-primary-${token}`;
   state.primary = await witness.createFixture(scope, preset, primaryId, true);
   const primary = state.primary;
