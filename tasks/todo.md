@@ -19,6 +19,16 @@ Verification: the restricted fast run passed lint, typecheck, gate integrity, vi
 
 # Resumed completion — 2 October 2026
 
+## Browser coverage continuation — 3 October 2026
+
+- [x] Run the six focused Incus management browser journeys with pinned Bun.
+- [x] Add real-auth browser journeys for missing management recovery behavior; verify each one.
+- [ ] Commit the browser changes and freeze the source revision.
+- [ ] Capture all five browser lanes against that revision and inspect management coverage.
+- [ ] Run exact-revision merged coverage, new-source, patch, and CRAP gates; record results.
+
+Review: The six original management journeys passed with pinned Bun 1.3.14. Five new recovery journeys cover a failed environment refresh, invalid fixture digest, changed saved plan, uncertain apply with saved status, and unconfirmed cleanup. The full 11-journey real-auth run passed, and Biome checked the edited spec. The canonical five-lane coverage and merged gates remain pending a final integrated source revision.
+
 - [x] Recover the saved branch and preserve the interrupted work.
 - [x] Fix the recovered browser selector failure without removing assertions.
 - [x] Add and test bounded smoke inspection diagnostics without exposing raw errors.

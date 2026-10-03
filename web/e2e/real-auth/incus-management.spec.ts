@@ -279,6 +279,89 @@ test("unknown provider outcomes block lifecycle actions until reconciliation", a
 	await captureEvidence(page, testInfo, "incus-management-unknown-outcome", { fullPage: true });
 });
 
+test("a failed environment refresh keeps the last approved view available", async ({ page }) => {
+	await mockManagement(page, { initiallyQualified: true });
+	await page.goto("/extensions/incus-management");
+	await expect(page.getByRole("heading", { name: environment.label })).toBeVisible();
+	await page.route("**/api/infrastructure/incus/management", route => route.fulfill({ status: 503, json: { message: "Environment service is temporarily unavailable" } }));
+	await page.getByRole("button", { name: "Refresh", exact: true }).click();
+	await expect(page.getByRole("alert")).toContainText("Environment service is temporarily unavailable");
+	await expect(page.getByRole("heading", { name: environment.label })).toBeVisible();
+});
+
+test("an invalid fixture plan cannot be reviewed or applied", async ({ page }) => {
+	const { actions } = await mockManagement(page);
+	await page.route("**/api/infrastructure/incus/probe-fixtures", route => route.fulfill({ json: { plan: { digest: "invalid" } } }));
+	await page.goto("/extensions/incus-management");
+	await page.getByRole("button", { name: "Prepare qualification…" }).click();
+	await expect(page.getByRole("alert")).toContainText("valid review digest");
+	await expect(page.getByTestId("qualification-workflow")).toHaveCount(0);
+	expect(actions.filter(item => item.endpoint === "probe-fixtures" && item.body.action === "apply")).toHaveLength(0);
+});
+
+test("a changed saved fixture plan blocks review after reload", async ({ page }) => {
+	const { actions } = await mockManagement(page);
+	await page.goto("/extensions/incus-management");
+	await page.getByRole("button", { name: "Prepare qualification…" }).click();
+	await expect(page.getByTestId("qualification-workflow")).toContainText(planDigest);
+	await page.route("**/api/infrastructure/incus/probe-fixtures", async route => {
+		const body = route.request().postDataJSON() as { action: string };
+		if (body.action === "plan") return route.fulfill({ json: { plan: { digest: "b".repeat(64) } } });
+		return route.fallback();
+	});
+	await page.reload();
+	await expect(page.getByRole("alert")).toContainText("saved fixture plan changed");
+	await expect(page.getByTestId("qualification-workflow")).toContainText("saved plan details are loading");
+	await expect(page.getByRole("button", { name: "Apply reviewed fixture plan" })).toBeDisabled();
+	expect(actions.filter(item => item.endpoint === "probe-fixtures" && item.body.action === "apply")).toHaveLength(0);
+});
+
+test("an uncertain fixture apply checks saved status before another action", async ({ page }) => {
+	const { actions } = await mockManagement(page);
+	let statusChecks = 0;
+	let applyAttempts = 0;
+	await page.route("**/api/infrastructure/incus/probe-fixtures", async route => {
+		const body = route.request().postDataJSON() as { action: string };
+		if (body.action === "apply") { applyAttempts++; return route.abort("failed"); }
+		if (body.action === "status") {
+			statusChecks++;
+			return route.fulfill({ json: { state: statusChecks === 1 ? "incomplete" : "absent" } });
+		}
+		return route.fallback();
+	});
+	await page.goto("/extensions/incus-management");
+	await page.getByRole("button", { name: "Prepare qualification…" }).click();
+	await page.getByRole("checkbox", { name: /I reviewed this plan/ }).check();
+	await page.getByRole("button", { name: "Apply reviewed fixture plan" }).click();
+	await expect(page.getByRole("alert")).toContainText("Fixture status is incomplete");
+	await expect(page.getByRole("button", { name: "Retry same apply" })).toHaveCount(0);
+	await page.getByRole("button", { name: "Check fixture status" }).click();
+	await expect(page.getByRole("status").filter({ hasText: "No fixture plan is saved yet" })).toBeVisible();
+	await expect(page.getByRole("button", { name: "Retry same apply" })).toBeVisible();
+	expect(actions.filter(item => item.endpoint === "probe-fixtures" && item.body.action === "plan")).toHaveLength(1);
+	expect(applyAttempts).toBe(1);
+	expect(statusChecks).toBe(2);
+});
+
+test("unconfirmed cleanup keeps the qualification workflow for review", async ({ page }) => {
+	const { actions } = await mockManagement(page);
+	await page.route("**/api/infrastructure/incus/probe-fixtures", async route => {
+		const body = route.request().postDataJSON() as { action: string };
+		if (body.action === "cleanup") return route.fulfill({ json: { receipt: { state: "pending", planDigest } } });
+		return route.fallback();
+	});
+	await page.goto("/extensions/incus-management");
+	await page.getByRole("button", { name: "Prepare qualification…" }).click();
+	await page.getByRole("checkbox", { name: /I reviewed this plan/ }).check();
+	await page.getByRole("button", { name: "Apply reviewed fixture plan" }).click();
+	await expect(page.getByText("Operator fixtures are ready", { exact: true })).toBeVisible();
+	await page.getByRole("button", { name: "Remove fixtures" }).click();
+	await expect(page.getByRole("alert")).toContainText("Cleanup was not confirmed");
+	await expect(page.getByText("Operator fixtures are ready", { exact: true })).toBeVisible();
+	await expect(page.getByRole("button", { name: "Remove fixtures" })).toBeEnabled();
+	expect(actions.filter(item => item.endpoint === "probe-fixtures" && item.body.action === "cleanup")).toHaveLength(0);
+});
+
 function scopeFromEnvironment() {
 	return { installationId: environment.installationId, releaseId: environment.releaseId,
 		connectionId: environment.connectionId, presetId: environment.presetId };
