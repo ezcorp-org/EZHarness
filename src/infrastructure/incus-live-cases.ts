@@ -253,9 +253,42 @@ interface FixtureRunState {
 }
 
 export type IncusQualificationPreparationStage = "fixtures" | "enforcement" | "limit_loads" | "guest_preparation" | "restart_handoff";
+const preparationAssertions = new Map<string, string>();
+const diagnosticAssertions: Record<string, readonly string[]> = {
+  "Incus live network probe unavailable: ": ["protected guest call failed", "invalid neighbor identity", "neighbor fixture ownership changed", "neighbor binding changed or stopped", "backend neighbor identity changed", "backend neighbor state changed", "exact neighbor bridge address is unavailable", "neighbor listener identity missing", "neighbor listener output has a gap", "neighbor listener output changed", "neighbor listener port is invalid", "neighbor listener ended before it was ready", "neighbor listener did not become ready"],
+  "Incus resource probe unavailable: ": ["distinct IP-literal targets are required", "management control target is not reachable from the host", "otherSandbox control target is not reachable from the host", "guest control readout failed or exceeded its bound", "guest control readout is invalid JSON", "guest control readout is invalid", "exact fixture root quota is unavailable", "observed controls exceed the reviewed preset", "guest reached a forbidden network target", "guest UID map is not isolated from host root", "CPU cgroup quota is missing", "CPU cgroup quota has an invalid format", "CPU quota cannot be expressed exactly"],
+  "Incus live qualification failed: ": ["guest cgroup, storage or network enforcement is unavailable", "controlled limit loads are incomplete", "qualification preparation deadline expired"],
+  "Incus live witness unavailable: ": ["running fixture, root quota, or neighbor network identity changed", "resource probe fixtures have different reviewed scopes", "limit probe needs two distinct running fixtures", "limit probe fixture scopes differ", "guest action failed"],
+  "Incus limit probe unavailable: ": ["host storage pool has insufficient independent free space for the quota probe", "host storage pool did not recover after the quota probe"],
+};
+for (const [prefix, messages] of Object.entries(diagnosticAssertions)) {
+  for (const message of messages) preparationAssertions.set(prefix + message, message.replace(/[^A-Za-z0-9]+/g, "_").toLowerCase());
+}
+for (const label of ["memory cgroup limit", "PID cgroup limit", "CPU quota", "CPU period"]) {
+  for (const suffix of ["is not a finite limit", "is outside safe integer range"]) {
+    const message = `${label} ${suffix}`;
+    preparationAssertions.set(`Incus resource probe unavailable: ${message}`, message.replace(/[^A-Za-z0-9]+/g, "_").toLowerCase());
+  }
+}
+for (const resource of ["memory", "cpu", "pids", "disk"]) {
+  for (const suffix of ["request is unsafe", "observed limit or requested load is invalid", "load did not finish cleanly", "load returned invalid JSON", "load did not prove containment", "load affected host or neighbor"]) {
+    preparationAssertions.set(`Incus limit probe unavailable: ${resource} ${suffix}`, `${resource}_${suffix.replaceAll(" ", "_")}`);
+  }
+  preparationAssertions.set(`Incus limit probe unavailable: host or neighbor was unhealthy before ${resource} load`, `${resource}_host_or_neighbor_unhealthy_before_load`);
+  preparationAssertions.set(`Incus live qualification failed: controlled ${resource} load escaped its sandbox or affected a neighbor`, `${resource}_containment_or_neighbor_assertion_failed`);
+}
+const preparationProviderCodes = new Set(["SCOPE_INVALID", "PERMISSION_DENIED", "TIMEOUT", "INVALID_INPUT", "REVISION_CONFLICT", "NOT_FOUND", "INTERNAL", "UNAVAILABLE"]);
+export const INCUS_PREPARATION_CAUSE_CODES: ReadonlySet<string> = new Set(["unclassified", ...preparationAssertions.values(), ...preparationProviderCodes]);
+export function incusPreparationCauseCode(error: unknown): string {
+  if (!(error instanceof Error)) return "unclassified";
+  const assertion = preparationAssertions.get(error.message);
+  if (assertion) return assertion;
+  const code = (error as Error & { code?: unknown }).code;
+  return typeof code === "string" && preparationProviderCodes.has(code) ? code : "unclassified";
+}
 /** Safe diagnostic fields only. The original provider exception is not projected. */
 export class IncusQualificationPreparationError extends Error {
-  constructor(readonly stage: IncusQualificationPreparationStage, readonly cleanup: "confirmed" | "unverified") {
+  constructor(readonly stage: IncusQualificationPreparationStage, readonly cleanup: "confirmed" | "unverified", readonly causeCode = "unclassified") {
     super("Incus qualification preparation failed");
   }
 }
@@ -424,7 +457,7 @@ export async function beginDurableIncusLiveCases(options: IncusLiveRunnerOptions
   }
   const errors = failure instanceof IncusQualificationOperationUnsettledError ? [] : await cleanupLiveFixtures(witness, state);
   if (failure instanceof IncusQualificationOperationUnsettledError) throw failure;
-  throw new IncusQualificationPreparationError(stage, errors.length ? "unverified" : "confirmed");
+  throw new IncusQualificationPreparationError(stage, errors.length ? "unverified" : "confirmed", incusPreparationCauseCode(failure));
 }
 
 /** Called only in the replacement app process, with a fresh witness and database connection. */

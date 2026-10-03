@@ -4,6 +4,8 @@ import { IncusQualificationOperationUnsettledError } from "./incus-qualification
 import { GUEST_HELPER_SHA256 } from "./incus-guest/protocol";
 import {
   beginDurableIncusLiveCases,
+  incusPreparationCauseCode,
+  INCUS_PREPARATION_CAUSE_CODES,
   createIncusLiveCaseRunner,
   resumeDurableIncusLiveCases,
   type DurableIncusLiveWitness,
@@ -295,7 +297,7 @@ test("unsettled saved fixture operations preserve admitted work in every runner"
 });
 
 test("durable preparation reports a safe enforcement stage and preserves cleanup", async () => {
-  const original = witness({ observeEnforcement: async () => { throw new Error("privateKeyPem provider secret"); } });
+  const original = witness({ observeEnforcement: async () => { throw new Error("Incus live network probe unavailable: neighbor listener ended before it was ready"); } });
   const durable: DurableIncusLiveWitness = { ...original.value,
     findFixture: async (_scope, operationId) => ({ operationId, sandboxId: `sandbox-${operationId}` }),
     beginRestart: async () => { throw new Error("unexpected handoff"); },
@@ -305,7 +307,7 @@ test("durable preparation reports a safe enforcement stage and preserves cleanup
   try { await beginDurableIncusLiveCases({ witness: durable }, scope, preset,
     { runId: "diagnostic-run", nonce: "fresh-nonce", deadlineMs: Date.now() + 60_000 }); }
   catch (error) { failure = error; }
-  expect(failure).toMatchObject({ stage: "enforcement", cleanup: "confirmed" });
+  expect(failure).toMatchObject({ stage: "enforcement", cleanup: "confirmed", causeCode: "neighbor_listener_ended_before_it_was_ready" });
   expect(JSON.stringify(failure)).not.toContain("secret");
   expect(original.destroyed).toHaveLength(2);
 });
@@ -321,4 +323,14 @@ test("preparation diagnostic distinguishes failed cleanup without exposing provi
   await expect(beginDurableIncusLiveCases({ witness: durable }, scope, preset,
     { runId: "failed-cleanup-run", nonce: "fresh-nonce", deadlineMs: Date.now() + 60_000 }))
     .rejects.toMatchObject({ stage: "limit_loads", cleanup: "unverified" });
+});
+
+
+test("preparation cause classification accepts only literal assertions and known typed codes", () => {
+  expect(incusPreparationCauseCode(new Error("Incus resource probe unavailable: guest reached a forbidden network target"))).toBe("guest_reached_a_forbidden_network_target");
+  expect(incusPreparationCauseCode(Object.assign(new Error("private credential"), { code: "PERMISSION_DENIED" }))).toBe("PERMISSION_DENIED");
+  for (const value of [null, "secret", new Error("private credential"), new Error("Incus resource probe unavailable: private credential"), Object.assign(new Error("secret"), { code: "secret-code" })]) {
+    expect(incusPreparationCauseCode(value)).toBe("unclassified");
+  }
+  expect(INCUS_PREPARATION_CAUSE_CODES.has("secret-code")).toBe(false);
 });

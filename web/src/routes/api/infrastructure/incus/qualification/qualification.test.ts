@@ -1,6 +1,6 @@
 import { afterEach, expect, mock, test } from "bun:test";
 
-const { IncusQualificationPreparationError } = await import("$server/infrastructure/incus-live-cases");
+const { IncusQualificationPreparationError, INCUS_PREPARATION_CAUSE_CODES } = await import("$server/infrastructure/incus-live-cases");
 let preparationError: InstanceType<typeof IncusQualificationPreparationError> | null = null;
 const calls: string[] = [];
 let fail = false;
@@ -32,7 +32,7 @@ mock.module("$server/infrastructure/incus-startup", () => ({
   },
 }));
 mock.module("$server/infrastructure/incus-live-cases", () => ({
-  IncusQualificationPreparationError,
+  IncusQualificationPreparationError, INCUS_PREPARATION_CAUSE_CODES,
   beginDurableIncusLiveCases: async (options: { witness: unknown; composeFixtureImageRef?: string },
     _scope: unknown, _preset: unknown, run: { runId: string; nonce: string; deadlineMs: number }) => {
     calls.push(`runner.begin:${Boolean(options.witness)}:${options.composeFixtureImageRef ?? "missing"}:${run.runId}`);
@@ -291,11 +291,11 @@ test("qualification preparation failure exposes only a safe stage and cleanup re
   process.env.EZCORP_INCUS_CONTROL_PROBE_ROOT = "/private/probe";
   warnings.length = 0;
   try {
-    preparationError = new IncusQualificationPreparationError("enforcement", "confirmed");
+    preparationError = new IncusQualificationPreparationError("enforcement", "confirmed", "guest_reached_a_forbidden_network_target");
     Object.assign(preparationError, { message: "privateKeyPem secret", cause: new Error("provider secret") });
     const response = await POST(event(admin, { ...scope, action: "qualify" }));
     expect(response.status).toBe(409);
-    expect(await response.json()).toMatchObject({ code: "qualification_preparation_failed", stage: "enforcement", cleanup: "confirmed" });
+    expect(await response.json()).toMatchObject({ code: "qualification_preparation_failed", stage: "enforcement", cleanup: "confirmed", causeCode: "guest_reached_a_forbidden_network_target" });
     expect(JSON.stringify(warnings)).not.toContain("secret");
     expect(warnings).toHaveLength(1);
     Object.assign(preparationError, { stage: "secret-stage" });

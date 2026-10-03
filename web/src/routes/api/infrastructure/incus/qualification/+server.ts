@@ -4,7 +4,7 @@ import { json } from "@sveltejs/kit";
 import { logger } from "$server/logger";
 import { requireAdminSession } from "$server/auth/middleware";
 import { incusHostLiveWitnessReady } from "$server/infrastructure/incus-host-live-witness";
-import { beginDurableIncusLiveCases, IncusQualificationPreparationError } from "$server/infrastructure/incus-live-cases";
+import { beginDurableIncusLiveCases, IncusQualificationPreparationError, INCUS_PREPARATION_CAUSE_CODES } from "$server/infrastructure/incus-live-cases";
 import { createIncusQualificationWitness } from "$server/infrastructure/incus-startup";
 import { IncusQualificationFixtureService, IncusQualificationStore, IncusQualificationOperationUnsettledError,
   type IncusQualificationScope } from "$server/infrastructure/incus-qualification";
@@ -95,8 +95,8 @@ export const POST: RequestHandler = async ({ locals, request }) => {
       { status: 409 });
     }
     if (error instanceof IncusQualificationPreparationError && input.action === "qualify"
-      && preparationStages.has(error.stage) && ["confirmed", "unverified"].includes(error.cleanup)) {
-      const diagnostic = { stage: error.stage, cleanup: error.cleanup };
+      && preparationStages.has(error.stage) && INCUS_PREPARATION_CAUSE_CODES.has(error.causeCode) && ["confirmed", "unverified"].includes(error.cleanup)) {
+      const diagnostic = { stage: error.stage, cleanup: error.cleanup, causeCode: error.causeCode };
       log.warn("Incus qualification preparation failed", { runId: input.operationId, ...diagnostic });
       return json({ code: "qualification_preparation_failed", ...diagnostic,
         message: "Qualification preparation failed. Inspect the saved fixtures before starting another run." }, { status: 409 });
