@@ -7,6 +7,10 @@ const require = createRequire(import.meta.url);
 const strykerRequire = createRequire(require.resolve("@stryker-mutator/core"));
 const typedRestRequire = createRequire(strykerRequire.resolve("typed-rest-client"));
 const kitRequire = createRequire(require.resolve("@sveltejs/kit/package.json"));
+const ajvRequire = createRequire(require.resolve("ajv/package.json"));
+const jsdomRequire = createRequire(require.resolve("jsdom/package.json"));
+const minimatchRequire = createRequire(require.resolve("minimatch/package.json"));
+const purifierRequire = createRequire(require.resolve("isomorphic-dompurify/package.json"));
 
 test("Stryker's HTTP client resolves the patched qs and still encodes query parameters", () => {
   const qs = typedRestRequire("qs");
@@ -57,4 +61,46 @@ test("SvelteKit sets, reads, and clears the app session with the patched cookie 
   add_cookies_to_headers(clearedHeaders, followUp.new_cookies.values());
   expect(clearedHeaders.get("set-cookie")).toContain("Max-Age=0");
   expect(followUp.cookies.get("ezcorp_session")).toBeUndefined();
+});
+
+test("SvelteKit serializes page data with the patched devalue", async () => {
+  expect(kitRequire("devalue/package.json").version).toBe("5.9.3");
+  const { parse, stringify } = await import(pathToFileURL(kitRequire.resolve("devalue")).href);
+  const pageData = { conversations: [{ id: "chat-1", title: "<script>unsafe</script>" }], active: true };
+  expect(parse(stringify(pageData))).toEqual(pageData);
+  expect(stringify(pageData)).not.toContain("<script>");
+});
+
+test("Ajv's patched URI parser treats percent-encoded host letters as equal", () => {
+  expect(ajvRequire("fast-uri/package.json").version).toBe("3.1.8");
+  const uri = ajvRequire("fast-uri");
+  // GHSA-hrr3-gc8f-f4qj: 3.1.7 kept the first host as A.com and equal() returned false.
+  expect(uri.parse("//%41.com").host).toBe("a.com");
+  expect(uri.equal("//%41.com", "//a.com")).toBe(true);
+});
+
+test("jsdom's WebSocket constructor loads the patched undici", () => {
+  expect(jsdomRequire("undici/package.json").version).toBe("8.10.2");
+  const { JSDOM } = jsdomRequire("jsdom");
+  const dom = new JSDOM("", { url: "https://example.test/" });
+  try {
+    expect(dom.window.WebSocket).toBeDefined();
+    expect(() => new dom.window.WebSocket("not-a-websocket-url")).toThrow();
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("minimatch expands normal braces with the patched bounded expander", () => {
+  expect(minimatchRequire("brace-expansion/package.json").version).toBe("5.0.12");
+  const { minimatch } = minimatchRequire("minimatch");
+  expect(minimatch("file.ts", "*.{ts,js}")).toBe(true);
+  expect(minimatch("file.md", "*.{ts,js}")).toBe(false);
+});
+
+test("isomorphic-dompurify removes active markup with the patched sanitizer", () => {
+  expect(purifierRequire("dompurify/package.json").version).toBe("3.4.16");
+  const purifier = require("isomorphic-dompurify");
+  expect(purifier.sanitize('<img src="x" onerror="alert(1)"><b>safe</b>'))
+    .toBe('<img src="x"><b>safe</b>');
 });
