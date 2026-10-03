@@ -231,7 +231,7 @@ test("slow controlled loads get a fresh short restart handoff, while preparation
     beginRestart: async () => { throw new Error("expired run must not restart"); } };
   await expect(beginDurableIncusLiveCases({ witness: denied, now: () => clock }, scope, preset,
     { runId: "expired-run", nonce: "fresh-nonce", deadlineMs: clock + 20 * 60_000 }))
-    .rejects.toThrow("preparation deadline expired");
+    .rejects.toMatchObject({ stage: "limit_loads", cleanup: "confirmed" });
   expect(expired.destroyed).toHaveLength(2);
 });
 
@@ -292,4 +292,33 @@ test("unsettled saved fixture operations preserve admitted work in every runner"
   const resumed: DurableIncusLiveWitness = { ...durable, observe: async () => { throw pending; } };
   await expect(resumeDurableIncusLiveCases({ witness: resumed }, scope, preset, run)).rejects.toBe(pending);
   expect(original.destroyed).toEqual([]);
+});
+
+test("durable preparation reports a safe enforcement stage and preserves cleanup", async () => {
+  const original = witness({ observeEnforcement: async () => { throw new Error("privateKeyPem provider secret"); } });
+  const durable: DurableIncusLiveWitness = { ...original.value,
+    findFixture: async (_scope, operationId) => ({ operationId, sandboxId: `sandbox-${operationId}` }),
+    beginRestart: async () => { throw new Error("unexpected handoff"); },
+    claimRestart: async () => { throw new Error("unexpected claim"); },
+  };
+  let failure: unknown;
+  try { await beginDurableIncusLiveCases({ witness: durable }, scope, preset,
+    { runId: "diagnostic-run", nonce: "fresh-nonce", deadlineMs: Date.now() + 60_000 }); }
+  catch (error) { failure = error; }
+  expect(failure).toMatchObject({ stage: "enforcement", cleanup: "confirmed" });
+  expect(JSON.stringify(failure)).not.toContain("secret");
+  expect(original.destroyed).toHaveLength(2);
+});
+
+
+test("preparation diagnostic distinguishes failed cleanup without exposing provider errors", async () => {
+  const original = witness({ exerciseLimits: async () => { throw new Error("provider secret"); },
+    destroyFixture: async () => { throw new Error("cleanup secret"); } });
+  const durable: DurableIncusLiveWitness = { ...original.value,
+    findFixture: async () => { throw new Error("unexpected lookup"); },
+    beginRestart: async () => { throw new Error("unexpected restart"); },
+    claimRestart: async () => { throw new Error("unexpected claim"); } };
+  await expect(beginDurableIncusLiveCases({ witness: durable }, scope, preset,
+    { runId: "failed-cleanup-run", nonce: "fresh-nonce", deadlineMs: Date.now() + 60_000 }))
+    .rejects.toMatchObject({ stage: "limit_loads", cleanup: "unverified" });
 });

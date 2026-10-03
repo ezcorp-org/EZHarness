@@ -252,8 +252,17 @@ interface FixtureRunState {
   recoveryDestroyed: boolean;
 }
 
+export type IncusQualificationPreparationStage = "fixtures" | "enforcement" | "limit_loads" | "guest_preparation" | "restart_handoff";
+/** Safe diagnostic fields only. The original provider exception is not projected. */
+export class IncusQualificationPreparationError extends Error {
+  constructor(readonly stage: IncusQualificationPreparationStage, readonly cleanup: "confirmed" | "unverified") {
+    super("Incus qualification preparation failed");
+  }
+}
+
 async function createLiveFixtures(witness: HostIncusLiveWitness, scope: IncusQualificationScope,
-  preset: SandboxPreset, token: string, state: FixtureRunState): Promise<void> {
+  preset: SandboxPreset, token: string, state: FixtureRunState,
+  stage: (value: IncusQualificationPreparationStage) => void = () => {}): Promise<void> {
   const primaryId = `qual-primary-${token}`;
   state.primary = await witness.createFixture(scope, preset, primaryId, true);
   const primary = state.primary;
@@ -273,7 +282,9 @@ async function createLiveFixtures(witness: HostIncusLiveWitness, scope: IncusQua
   assertInspection(await witness.inspectFixture(unrelated), unrelated, preset, "stopped");
   await witness.setPower(unrelated, "running");
   assertInspection(await witness.inspectFixture(unrelated), unrelated, preset, "running");
+  stage("enforcement");
   assertEnforcement(await witness.observeEnforcement(primary, unrelated), preset);
+  stage("limit_loads");
   assertLoadFacts(await witness.exerciseLimits(primary, unrelated), preset);
   await witness.setPower(unrelated, "stopped");
   assertInspection(await witness.inspectFixture(unrelated), unrelated, preset, "stopped");
@@ -395,13 +406,16 @@ export async function beginDurableIncusLiveCases(options: IncusLiveRunnerOptions
   const state: FixtureRunState = { primary: null, unrelated: null, recovery: null,
     primaryDestroyed: false, unrelatedDestroyed: false, recoveryDestroyed: false };
   let failure: unknown;
+  let stage: IncusQualificationPreparationStage = "fixtures";
   try {
-    await createLiveFixtures(witness, scope, preset, run.runId, state);
+    await createLiveFixtures(witness, scope, preset, run.runId, state, value => { stage = value; });
     requireFact(now() < run.deadlineMs, "qualification preparation deadline expired");
     requireFact(state.primary, "primary fixture was not created");
+    stage = "guest_preparation";
     await prepareGuestForRestart(witness, preset, state.primary, run.runId, options.composeFixtureImageRef);
     requireFact(now() < run.deadlineMs, "qualification preparation deadline expired");
     // The handoff clock starts after guest setup and controlled loads, not at HTTP admission.
+    stage = "restart_handoff";
     await witness.beginRestart(scope, preset, state.primary, run.runId, run.nonce,
       now() + RESTART_HANDOFF_MS);
     return { runId: run.runId, state: "AWAITING_RESTART" };
@@ -409,8 +423,8 @@ export async function beginDurableIncusLiveCases(options: IncusLiveRunnerOptions
     failure = error;
   }
   const errors = failure instanceof IncusQualificationOperationUnsettledError ? [] : await cleanupLiveFixtures(witness, state);
-  if (errors.length) throw new AggregateError([failure, ...errors], "Incus live fixture cleanup is unverified");
-  throw failure;
+  if (failure instanceof IncusQualificationOperationUnsettledError) throw failure;
+  throw new IncusQualificationPreparationError(stage, errors.length ? "unverified" : "confirmed");
 }
 
 /** Called only in the replacement app process, with a fresh witness and database connection. */

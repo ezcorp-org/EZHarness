@@ -4,7 +4,7 @@ import { json } from "@sveltejs/kit";
 import { logger } from "$server/logger";
 import { requireAdminSession } from "$server/auth/middleware";
 import { incusHostLiveWitnessReady } from "$server/infrastructure/incus-host-live-witness";
-import { beginDurableIncusLiveCases } from "$server/infrastructure/incus-live-cases";
+import { beginDurableIncusLiveCases, IncusQualificationPreparationError } from "$server/infrastructure/incus-live-cases";
 import { createIncusQualificationWitness } from "$server/infrastructure/incus-startup";
 import { IncusQualificationFixtureService, IncusQualificationStore, IncusQualificationOperationUnsettledError,
   type IncusQualificationScope } from "$server/infrastructure/incus-qualification";
@@ -12,6 +12,7 @@ import type { RequestHandler } from "./$types";
 
 const log = logger.child("api.incus.qualification");
 const preservationReasons = new Set(["outcome_unsettled", "newer_intent", "authority_changed"]);
+const preparationStages = new Set(["fixtures", "enforcement", "limit_loads", "guest_preparation", "restart_handoff"]);
 const unsettledStates = new Set(["JOURNALED", "DISPATCHING", "PROVIDER_PENDING", "OUTCOME_UNKNOWN"]);
 const identifier = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
 function isIdentifier(value: unknown): value is string { return typeof value === "string" && identifier.test(value); }
@@ -92,6 +93,13 @@ export const POST: RequestHandler = async ({ locals, request }) => {
       return json({ code: "qualification_operation_preserved", operation, reason,
         message: `Saved operation ${operation.id} is ${operation.state} and must be reviewed. Do not retry qualification or repeat the mutation. Check its saved status first.` },
       { status: 409 });
+    }
+    if (error instanceof IncusQualificationPreparationError && input.action === "qualify"
+      && preparationStages.has(error.stage) && ["confirmed", "unverified"].includes(error.cleanup)) {
+      const diagnostic = { stage: error.stage, cleanup: error.cleanup };
+      log.warn("Incus qualification preparation failed", { runId: input.operationId, ...diagnostic });
+      return json({ code: "qualification_preparation_failed", ...diagnostic,
+        message: "Qualification preparation failed. Inspect the saved fixtures before starting another run." }, { status: 409 });
     }
     if (error instanceof IncusStopRequiredError) return json({ code: "stop_required", message: "Stop this sandbox before disposal." }, { status: 409 });
     if (input.action === "recoverCleanup" || error instanceof IncusCleanupRecoveryUnavailableError) return json({ code: "cleanup_recovery_unavailable", message: "The saved cleanup needs review. Inspect its status." }, { status: 409 });
