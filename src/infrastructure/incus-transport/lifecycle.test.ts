@@ -4,12 +4,14 @@ import { createServer, type Server } from "node:https";
 import type { AddressInfo } from "node:net";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
-import { sandboxPresetDigest } from "@ezcorp/extension-contract";
+import { type SandboxProtocolOperation, sandboxPresetDigest } from "@ezcorp/extension-contract";
 import { IncusTransportError, type IncusTransportRequest } from "../../../extensions/incus-sandbox/transport";
+import { IncusSandboxAdapter } from "../../../extensions/incus-sandbox/adapter";
 import { incusManifest } from "../../../extensions/incus-sandbox/manifest";
 import { up as addSandboxController } from "../../db/migrations/add-sandbox-controller";
 import * as schema from "../../db/schema";
 import type { ActiveExtensionRelease } from "../../extensions/release-process";
+import { SandboxAdmissionStore } from "../../sandboxes/admission";
 import { SandboxController } from "../../sandboxes/controller";
 import { IncusSandboxProviderDispatcher } from "../../sandboxes/incus-dispatcher";
 import { ProviderRpcBroker, type ProviderConnectionResolver } from "../provider-rpc-broker";
@@ -541,4 +543,105 @@ test("instance list returns only owned, valid sandboxes in stable pages", async 
   const second = await list({ limit: 2, cursor: first.nextCursor }) as { sandboxes: Array<{ sandboxId: string }> };
   expect(second.sandboxes.map(item => item.sandboxId)).toEqual(["b", "c"]);
   expect(calls).toBe(2);
+});
+
+
+test("real adapter and controller preserve the host fence across a complete power lifecycle", async () => {
+  const database = new PGlite();
+  try {
+    await database.waitReady;
+    await database.exec("CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, path TEXT NOT NULL)");
+    const db = drizzle(database, { schema });
+    await addSandboxController(db);
+    await database.exec("INSERT INTO projects VALUES ('project', 'project', '/work/project')");
+    const manifest = structuredClone(incusManifest);
+    const preset = manifest.sandboxProviders![0]!.presets[0]!;
+    preset.imageDigest = "c".repeat(64);
+    const presetDigest = await sandboxPresetDigest(preset);
+    const snapshot = { installation: { id: "installation-a", generation: 1 }, release: { id: "release-a", releaseDigest: "d".repeat(64), manifest } } as ActiveExtensionRelease;
+    const configured = { ...connection, id: "connection-a", revision: 1, providerInstallationId: "installation-a", providerReleaseId: "release-a",
+      revokedAt: null, configuration: { kind: "incus" as const, profile: "ezharness", helperVersion: "0.1.0", guestUser: "sandbox" } };
+    const connections = { getMetadata: async () => configured, resolveForHost: async () => configured } as ProviderConnectionResolver;
+    let instance: { name: string; status: string; type: string; profiles: string[]; config: Record<string, string> } | undefined;
+    let nativeSequence = 0;
+    const writes: string[] = [];
+    const fetcher = async (url: string, init: RequestInit) => {
+      const path = new URL(url).pathname;
+      if (init.method === "GET") {
+        if (path.includes("/profiles/")) return reply(safeProfile);
+        if (path.includes("/operations/")) return reply({}, 404);
+        return instance ? Response.json({ type: "sync", status_code: 200, metadata: instance }, { headers: { etag: `"generation-${instance.config["user.ezharness.generation"]}"` } }) : reply({}, 404);
+      }
+      writes.push(`${init.method} ${path}`);
+      const body = init.body ? JSON.parse(String(init.body)) : {};
+      if (init.method === "POST") {
+        instance = { name: body.name, status: "Stopped", type: "container", profiles: body.profiles,
+          config: { ...body.config, "volatile.base_image": preset.imageDigest } };
+      } else if (init.method === "PATCH") {
+        expect(new Headers(init.headers).get("if-match")).toBe(`"generation-${instance!.config["user.ezharness.generation"]}"`);
+        Object.assign(instance!.config, body.config);
+        return reply({});
+      } else if (init.method === "PUT") instance!.status = body.action === "start" ? "Running" : "Stopped";
+      else if (init.method === "DELETE") {
+        expect(instance!.status).toBe("Stopped");
+        instance = undefined;
+      }
+      nativeSequence++;
+      return reply({ id: `11111111-1111-1111-1111-${String(nativeSequence).padStart(12, "0")}` }, 202);
+    };
+    const broker = new ProviderRpcBroker(connections, undefined, db, prepared => new HostIncusLifecycleTransport(connections, {
+      providerInstallationId: prepared.installationId, providerReleaseId: prepared.releaseId, revision: prepared.revision, approvedPreset: prepared.approvedPreset,
+    }, fetcher as never));
+    const controller = new SandboxController(db, new IncusSandboxProviderDispatcher({ call: async (_scope, method, input) => {
+      const operation = (method.endsWith("inspectOperation") ? "lifecycle.inspectOperation" : method.endsWith("create") ? "lifecycle.create"
+        : method.endsWith("destroy") ? "lifecycle.destroy" : "lifecycle.setPower") as SandboxProtocolOperation;
+      const prepared = await broker.prepareAction(snapshot, sandboxId, operation, input);
+      const adapter = new IncusSandboxAdapter(prepared.expectedCommand.pins, { request: async workerCommand => {
+        const result = await broker.request(prepared, { command: workerCommand }, Number(input.rpcDeadlineMs)) as { ok: boolean; result?: unknown; error?: { kind: ConstructorParameters<typeof IncusTransportError>[0] } };
+        if (!result.ok) throw new IncusTransportError(result.error!.kind, "Host broker denied transport");
+        return result.result;
+
+      } });
+      return adapter.invoke(operation, input);
+    } }));
+    await controller.createBinding({ id: sandboxId, projectId: "project", providerInstallationId: "installation-a", providerReleaseId: "release-a",
+      connectionId: "connection-a", connectionRevision: 1, resourceKey: sandboxId, profile: preset.profile, presetId: preset.id,
+      presetDigest, effectiveSettingsDigest: "b".repeat(64) });
+    await new SandboxAdmissionStore(db).configureHostCapacity({ providerInstallationId: "installation-a", connectionId: "connection-a",
+      allocatable: { memoryBytes: preset.limits.memoryBytes, cpuMillicores: preset.limits.cpuMillis, pids: preset.limits.pids, diskBytes: preset.limits.diskBytes, executionSlots: 1 },
+      safetyMargin: { memoryBytes: 0, cpuMillicores: 0, pids: 0, diskBytes: 0, executionSlots: 0 } });
+    await db.insert(schema.sandboxReservations).values({ bindingId: sandboxId, projectId: "project", providerInstallationId: "installation-a",
+      connectionId: "connection-a", generation: 1, memoryBytes: preset.limits.memoryBytes, cpuMillicores: preset.limits.cpuMillis,
+      pids: preset.limits.pids, diskBytes: preset.limits.diskBytes, executionSlots: 1, computeState: "RESERVED", diskState: "RESERVED" });
+    const sequence = ["CREATE", "START", "STOP", "START", "STOP", "DESTROY"] as const;
+    for (const [index, kind] of sequence.entries()) {
+      const journal = await controller.requestAndDispatch({ bindingId: sandboxId, generation: 1, kind, idempotencyScope: "actual-adapter", idempotencyKey: String(index),
+        payload: kind === "CREATE" ? { profile: preset.profile, presetId: preset.id, presetDigest, effectiveSettingsDigest: "b".repeat(64) }
+          : { expectedGeneration: Number(instance!.config["user.ezharness.generation"]) } });
+      expect({ kind, state: journal.state, error: journal.errorMessage }).toMatchObject({ state: "PROVIDER_PENDING" });
+      await controller.reconcile();
+      const saved = await db.query.sandboxOperations.findFirst({ where: (row, { eq }) => eq(row.id, journal.id) });
+      expect(saved?.state).toBe("SUCCEEDED");
+      const binding = await controller.getBinding(sandboxId);
+      expect(binding?.generation).toBe(1);
+      expect(binding?.observedState).toBe(kind === "DESTROY" ? "ABSENT" : kind === "START" ? "RUNNING" : "STOPPED");
+      if (instance) expect(Number(instance.config["user.ezharness.generation"])).toBe(index + 1);
+      if (kind === "START") {
+        const inspection = await broker.prepareAction(snapshot, sandboxId, "lifecycle.inspect", {
+          providerId: "incus", connectionId: "connection-a", sandboxId, rpcDeadlineMs: Date.now() + 30_000 });
+        const transport = new HostIncusLifecycleTransport(connections, { providerInstallationId: inspection.installationId,
+          providerReleaseId: inspection.releaseId, revision: inspection.revision, approvedPreset: inspection.approvedPreset }, fetcher as never);
+        const before = writes.length;
+        await expect(transport.request({ ...inspection.expectedCommand, action: "instance.destroy",
+          idempotency: { requestId: `refused-${index}`, key: `refused-${index}` },
+          payload: { expectedGeneration: index + 1 } })).rejects.toMatchObject({ kind: "revision_conflict", effect: "none" });
+        expect(writes).toHaveLength(before);
+        expect(instance?.status).toBe("Running");
+        expect(Number(instance?.config["user.ezharness.generation"])).toBe(index + 1);
+      }
+    }
+    expect(instance).toBeUndefined();
+    expect(writes.filter(value => value.startsWith("PUT"))).toHaveLength(4);
+    expect(writes.filter(value => value.startsWith("DELETE"))).toHaveLength(1);
+  } finally { await database.close(); }
 });
