@@ -667,7 +667,10 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
   }
 
   async destroyFixture(handle: LiveFixtureHandle): Promise<void> {
-    const { scope } = await this.persistedOwned(handle, false, true);
+    const { scope, binding } = await this.persistedOwned(handle, false, true);
+    if (!binding.tombstonedAt && binding.observedState === "RUNNING") {
+      await this.setPower(handle, "stopped");
+    }
     const operation = await this.settleOperation(scope, handle.operationId,
       await this.fixtures.destroy(scope, handle.operationId));
     if (operation.state !== "SUCCEEDED" || operation.kind !== "DESTROY" || operation.bindingId !== handle.sandboxId) {

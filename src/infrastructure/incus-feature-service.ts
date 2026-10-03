@@ -7,7 +7,7 @@ import {
   type SandboxPreset,
 } from "@ezcorp/extension-contract";
 import { getDb, type Database, type DbTransaction } from "../db/connection";
-import { incusQualificationFixtures, projectMembers, projects, sandboxBindings, sandboxOperations, sandboxReservations, type SandboxBinding, type SandboxOperation } from "../db/schema";
+import { incusQualificationFixtures, projectMembers, projects, sandboxBindings, sandboxCleanupRecoveries, sandboxOperations, sandboxReservations, type SandboxBinding, type SandboxCleanupRecovery, type SandboxOperation } from "../db/schema";
 import { getReleaseRuntime, ReleaseProcess, resolveActiveRelease, type ActiveExtensionRelease } from "../extensions/release-process";
 import { assertSandboxPresetReady } from "../extensions/v4/sandbox-preset-qualification";
 import { SandboxAdmissionStore, type SandboxResourceVector } from "../sandboxes/admission";
@@ -16,6 +16,8 @@ import { IncusSandboxProviderDispatcher } from "../sandboxes/incus-dispatcher";
 import { IncusMethodCaller } from "./incus-method-caller";
 import { callRetiredIncusCleanup } from "./incus-retired-cleanup";
 import { ProviderConnectionStore, type ProviderConnectionCredentials, type ProviderConnectionScope } from "./provider-connections/store";
+import { matchesCleanupRecoveryBinding, permitsFailedCleanupInspection } from "./incus-cleanup-stop-policy";
+import { resourceName } from "./incus-transport/lifecycle";
 import { digest as setupDigest } from "../../scripts/incus/model";
 
 export interface IncusFeatureServiceDependencies {
@@ -82,6 +84,11 @@ export async function inspectRelease(installationId: string, bindingId: string, 
   }
 }
 
+export class IncusStopRequiredError extends Error {
+  readonly code = "STOP_REQUIRED";
+  constructor() { super("Stop the Incus sandbox before disposal"); }
+}
+
 export async function readIncusProviderGeneration(binding: SandboxBinding,
   inspect: NonNullable<IncusFeatureServiceDependencies["inspect"]>, now: () => number,
   requiredState?: "running" | "stopped"): Promise<number> {
@@ -90,10 +97,14 @@ export async function readIncusProviderGeneration(binding: SandboxBinding,
   const result = validateSandboxProviderMethodExchange("lifecycle.inspect", input,
     await inspect(binding.providerInstallationId, binding.id, input)).result as Record<string, unknown>;
   if (result.ok !== true) throw new Error("Incus sandbox state is unavailable");
-  const sandbox = result.sandbox as { generation: number; observedState: string };
-  if (!Number.isSafeInteger(sandbox.generation) || sandbox.generation < 1
-    || !["running", "stopped"].includes(sandbox.observedState)
-    || requiredState && sandbox.observedState !== requiredState) {
+  const sandbox = result.sandbox as { sandboxId: string; profile: string; presetId: string; generation: number; observedState: string };
+  if (sandbox.sandboxId !== binding.id || sandbox.profile !== binding.profile || sandbox.presetId !== binding.presetId
+    || !Number.isSafeInteger(sandbox.generation) || sandbox.generation < 1
+    || !["running", "stopped"].includes(sandbox.observedState)) {
+    throw new Error("Incus sandbox generation is unavailable");
+  }
+  if (requiredState && sandbox.observedState !== requiredState) {
+    if (requiredState === "stopped" && sandbox.observedState === "running") throw new IncusStopRequiredError();
     throw new Error("Incus sandbox generation is unavailable");
   }
   return sandbox.generation;
@@ -416,12 +427,26 @@ export class IncusFeatureService {
     const replay = await this.existing(request, "DESTROY");
     if (replay) return replay;
     const { binding } = await this.readyBinding(request.bindingId, false);
-    const expectedGeneration = await this.providerGeneration(binding);
+    const expectedGeneration = await this.providerGeneration(binding, "stopped");
     await this.admission.markCleanupIntent(binding.id, binding.generation, intentId("DESTROY", request));
     const operation = await this.controller.requestAndDispatch({ ...request, kind: "DESTROY",
       generation: binding.generation, payload: { expectedGeneration } });
     await this.settle(operation);
     return operation;
+  }
+
+  async recoverCleanup(bindingId: string, failedDestroyOperationId: string) {
+    await this.assertUserBinding(bindingId);
+    return this.cleanupRecoveryService(true).recover(bindingId, failedDestroyOperationId);
+  }
+
+  private cleanupRecoveryService(userOnly = false): IncusCleanupRecoveryService {
+    return new IncusCleanupRecoveryService(this.db, this.controller, this.admission,
+      async binding => {
+        if (userOnly) await this.assertUserBinding(binding.id);
+        await this.approved({ projectId: binding.projectId, installationId: binding.providerInstallationId,
+          connectionId: binding.connectionId, presetId: binding.presetId ?? "" }, binding, false);
+      }, this.inspect, this.now);
   }
 
   /** Explicit host cleanup of a stopped guest after its approved release retires. */
@@ -456,6 +481,7 @@ export class IncusFeatureService {
     if (operation.state !== "SUCCEEDED") return;
     const binding = await this.controller.getBinding(operation.bindingId);
     if (!binding || binding.generation !== operation.generation || binding.currentOperationId !== operation.id) return;
+    if (await settleLinkedCleanupRecovery(this.db, this.admission, binding, operation)) return;
     const request = { bindingId: binding.id, idempotencyScope: operation.idempotencyScope,
       idempotencyKey: operation.idempotencyKey };
     const [fixture] = await this.db.select().from(incusQualificationFixtures)
@@ -537,7 +563,130 @@ export class IncusFeatureService {
         failures.push(error);
       }
     }
+    if (!operatorRecoveryOperationId) await this.advanceSavedCleanupRecoveries(settlementLimit, failures);
     if (failures.length) throw new AggregateError(failures, "Incus reservation settlement failed");
     return result;
   }
+  private async advanceSavedCleanupRecoveries(limit: number, failures: unknown[]): Promise<void> {
+    const saved = await this.db.select({ recovery: sandboxCleanupRecoveries }).from(sandboxCleanupRecoveries)
+      .innerJoin(sandboxBindings, eq(sandboxBindings.id, sandboxCleanupRecoveries.bindingId))
+      .innerJoin(sandboxOperations, eq(sandboxOperations.id, sandboxBindings.currentOperationId))
+      .where(or(and(eq(sandboxCleanupRecoveries.state, "STOP_REQUIRED"),
+        eq(sandboxOperations.id, sandboxCleanupRecoveries.stopOperationId), eq(sandboxOperations.state, "SUCCEEDED")),
+      and(eq(sandboxCleanupRecoveries.state, "DESTROY_REQUIRED"),
+        eq(sandboxOperations.id, sandboxCleanupRecoveries.destroyOperationId), inArray(sandboxOperations.state, ["JOURNALED", "SUCCEEDED"]))))
+      .orderBy(asc(sandboxCleanupRecoveries.updatedAt), asc(sandboxCleanupRecoveries.id)).limit(limit);
+    for (const { recovery } of saved) {
+      try { await this.cleanupRecoveryService().recover(recovery.bindingId, recovery.failedDestroyOperationId); }
+      catch (error) {
+        await this.db.update(sandboxCleanupRecoveries).set({ updatedAt: new Date() })
+          .where(eq(sandboxCleanupRecoveries.id, recovery.id));
+        failures.push(error);
+      }
+    }
+  }
+
+}
+
+
+export class IncusCleanupRecoveryUnavailableError extends Error {
+  readonly code = "CLEANUP_RECOVERY_UNAVAILABLE";
+  constructor() { super("The saved Incus cleanup needs review"); }
+}
+
+/** Shared product recovery. Each call can dispatch only its persisted linked step. */
+export class IncusCleanupRecoveryService {
+  constructor(private readonly db: Database, private readonly controller: SandboxController,
+    private readonly admission: SandboxAdmissionStore,
+    private readonly authorize: (binding: SandboxBinding) => Promise<void>,
+    private readonly inspect: NonNullable<IncusFeatureServiceDependencies["inspect"]>,
+    private readonly now: () => number = Date.now) {}
+
+  async recover(bindingId: string, failedDestroyOperationId: string): Promise<{
+    recovery: SandboxCleanupRecovery; operation: SandboxOperation;
+  }> {
+    const binding = await this.controller.getBinding(bindingId);
+    if (!binding?.tombstonedAt || binding.desiredState !== "ABSENT") throw new IncusCleanupRecoveryUnavailableError();
+    await this.authorize(binding);
+    let [recovery] = await this.db.select().from(sandboxCleanupRecoveries)
+      .where(eq(sandboxCleanupRecoveries.failedDestroyOperationId, failedDestroyOperationId));
+    if (recovery && !matchesCleanupRecoveryBinding(binding, recovery, resourceName(binding.connectionId, binding.id))) {
+      throw new IncusCleanupRecoveryUnavailableError();
+    }
+    recovery ??= await this.admit(binding, failedDestroyOperationId);
+    let operation = await this.controller.getOperation(recovery.state === "STOP_REQUIRED"
+      ? recovery.stopOperationId : recovery.destroyOperationId);
+    if (!operation) throw new IncusCleanupRecoveryUnavailableError();
+    if (recovery.state === "COMPLETED") {
+      if (operation.state !== "SUCCEEDED" || operation.kind !== "DESTROY"
+        || binding.currentOperationId !== operation.id || binding.observedState !== "ABSENT"
+        || !binding.cleanupConfirmedAt) throw new IncusCleanupRecoveryUnavailableError();
+      return { recovery, operation };
+    }
+    await this.authorize(binding);
+    if (operation.state === "JOURNALED") operation = await this.controller.executeOperation(operation.id);
+    else if (operation.providerOperationId && ["DISPATCHING", "PROVIDER_PENDING", "OUTCOME_UNKNOWN"].includes(operation.state)) {
+      operation = await this.controller.inspectOperation(operation.id);
+    }
+    if (recovery.state === "STOP_REQUIRED" && operation.state === "SUCCEEDED") {
+      const current = await this.controller.getBinding(bindingId);
+      if (!current) throw new IncusCleanupRecoveryUnavailableError();
+      await this.authorize(current);
+      const providerGeneration = await readIncusProviderGeneration(current, this.inspect, this.now, "stopped");
+      recovery = await this.controller.advanceCleanupRecovery(recovery.id, providerGeneration);
+      await this.authorize(current);
+      operation = await this.controller.executeOperation(recovery.destroyOperationId);
+    }
+    if (operation.kind === "DESTROY" && operation.state === "SUCCEEDED") {
+      const current = await this.controller.getBinding(bindingId);
+      if (!current || !await settleLinkedCleanupRecovery(this.db, this.admission, current, operation)) {
+        throw new IncusCleanupRecoveryUnavailableError();
+      }
+      [recovery] = await this.db.select().from(sandboxCleanupRecoveries).where(eq(sandboxCleanupRecoveries.id, recovery.id));
+    }
+    if (!recovery) throw new IncusCleanupRecoveryUnavailableError();
+    return { recovery, operation };
+  }
+  private async admit(binding: SandboxBinding, failedDestroyOperationId: string): Promise<SandboxCleanupRecovery> {
+      const failed = await this.controller.getOperation(failedDestroyOperationId);
+      if (!permitsFailedCleanupInspection(binding, failed ?? undefined)) throw new IncusCleanupRecoveryUnavailableError();
+      const providerGeneration = await readIncusProviderGeneration(binding, this.inspect, this.now, "running");
+      if (!binding.connectionRevision || providerGeneration !== failed!.requestPayload.expectedGeneration) {
+        throw new IncusCleanupRecoveryUnavailableError();
+      }
+      await this.authorize(binding);
+      return this.controller.admitCleanupRecovery({ bindingId: binding.id, generation: binding.generation,
+        failedDestroyOperationId, stopOperationId: randomUUID(), destroyOperationId: randomUUID(),
+        installationId: binding.providerInstallationId, releaseId: binding.providerReleaseId,
+        connectionId: binding.connectionId, connectionRevision: binding.connectionRevision,
+        providerResourceId: resourceName(binding.connectionId, binding.id), providerGeneration });
+  }
+
+}
+
+
+async function settleLinkedCleanupRecovery(db: Database, admission: SandboxAdmissionStore,
+  binding: SandboxBinding, operation: SandboxOperation): Promise<boolean> {
+  const [recovery] = await db.select().from(sandboxCleanupRecoveries).where(or(
+    eq(sandboxCleanupRecoveries.stopOperationId, operation.id), eq(sandboxCleanupRecoveries.destroyOperationId, operation.id)));
+  if (!recovery) return false;
+  if (!matchesCleanupRecoveryBinding(binding, recovery, resourceName(binding.connectionId, binding.id))
+    || operation.bindingId !== binding.id || operation.generation !== binding.generation
+    || binding.currentOperationId !== operation.id || !binding.tombstonedAt || binding.desiredState !== "ABSENT") {
+    throw new IncusCleanupRecoveryUnavailableError();
+  }
+  if (operation.kind === "STOP") {
+    if (recovery.state !== "STOP_REQUIRED" || recovery.stopOperationId !== operation.id) throw new IncusCleanupRecoveryUnavailableError();
+    return true;
+  }
+  if (operation.kind !== "DESTROY" || operation.state !== "SUCCEEDED" || binding.observedState !== "ABSENT"
+    || recovery.destroyOperationId !== operation.id || recovery.state !== "DESTROY_REQUIRED") {
+    throw new IncusCleanupRecoveryUnavailableError();
+  }
+  const reservation = await admission.getReservation(binding.id);
+  if (!reservation?.cleanupIntentId) throw new IncusCleanupRecoveryUnavailableError();
+  await admission.recordObservedState(binding.id, binding.generation, "ABSENT", reservation.cleanupIntentId, operation.id);
+  await db.update(sandboxCleanupRecoveries).set({ state: "COMPLETED", updatedAt: new Date() })
+    .where(eq(sandboxCleanupRecoveries.id, recovery.id));
+  return true;
 }

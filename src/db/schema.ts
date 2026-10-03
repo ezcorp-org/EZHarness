@@ -151,7 +151,7 @@ export const sandboxOperations = pgTable("provider_sandbox_operations", {
 /** Explicit host-owned recovery links. Tombstones and failed receipts remain intact. */
 export const sandboxCleanupRecoveries = pgTable("sandbox_cleanup_recoveries", {
   id: text("id").primaryKey(),
-  bindingId: text("binding_id").notNull().references(() => sandboxBindings.id, { onDelete: "restrict" }),
+  bindingId: text("binding_id").notNull().references(() => sandboxBindings.id, { onDelete: "restrict" }).unique(),
   generation: integer("generation").notNull(),
   failedDestroyOperationId: text("failed_destroy_operation_id").notNull().references(() => sandboxOperations.id, { onDelete: "restrict" }).unique(),
   stopOperationId: text("stop_operation_id").notNull().unique(),

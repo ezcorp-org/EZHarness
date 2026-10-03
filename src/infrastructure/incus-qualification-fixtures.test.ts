@@ -3,7 +3,8 @@ import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { eq } from "drizzle-orm";
 import { sandboxPresetDigest } from "@ezcorp/extension-contract";
-import { INCUS_PRESETS } from "../../extensions/incus-sandbox/manifest";
+import { releaseRuntimeFixture } from "../__tests__/helpers/release-runtime";
+import { incusManifest, INCUS_PRESETS } from "../../extensions/incus-sandbox/manifest";
 import { digest } from "../../scripts/incus/model";
 import { up as addController } from "../db/migrations/add-sandbox-controller";
 import { up as addQualificationFixtures } from "../db/migrations/add-incus-qualification-fixtures";
@@ -11,6 +12,7 @@ import * as schema from "../db/schema";
 import { SandboxAdmissionStore } from "../sandboxes/admission";
 import { SandboxController, type SandboxProviderRequest } from "../sandboxes/controller";
 import { IncusHostLiveWitness } from "./incus-host-live-witness";
+import { resourceName } from "./incus-transport/lifecycle";
 import { IncusFeatureService } from "./incus-feature-service";
 import { HostIncusLostDestroyReplyFault } from "./incus-destroy-reply-fault";
 import { IncusQualificationOperationUnsettledError, IncusQualificationFixtureService, type IncusQualificationScope, type IncusQualificationStore } from "./incus-qualification";
@@ -22,7 +24,7 @@ const assertCurrentScope = async () => {};
 
 async function setup(configureHost = true, pendingCreate = false, providerGeneration = 1,
   inspectError: Error | null = null, hostSlots = 2,
-  options: { pendingKinds?: string[]; inspectOutcome?: "UNKNOWN" | "PENDING"; inspectUnknownCount?: number; inspectFailureCount?: number; inspectTerminalFailure?: boolean; missingStartReceipt?: boolean; now?: () => number } = {}) {
+  options: { enforcePowerGeneration?: boolean; refuseRunningDestroy?: boolean; pendingKinds?: string[]; inspectOutcome?: "UNKNOWN" | "PENDING"; inspectUnknownCount?: number; inspectFailureCount?: number; inspectTerminalFailure?: boolean; missingStartReceipt?: boolean; missingStopReceipt?: boolean; now?: () => number } = {}) {
   const client = new PGlite();
   opened.push(client);
   await client.waitReady;
@@ -50,7 +52,11 @@ async function setup(configureHost = true, pendingCreate = false, providerGenera
   let providerState: "running" | "stopped" = "stopped";
   const controller = new SandboxController(db, { dispatch: async request => {
     dispatches.push(request);
-    if (options.missingStartReceipt && request.kind === "START") return { outcome: "UNKNOWN" };
+    if (options.refuseRunningDestroy && request.kind === "DESTROY" && providerState === "running") {
+      return { outcome: "FAILED", errorCode: "REVISION_CONFLICT" };
+    }
+    if (options.enforcePowerGeneration && (request.kind === "START" || request.kind === "STOP")) providerGeneration++;
+    if (options.missingStartReceipt && request.kind === "START" || options.missingStopReceipt && request.kind === "STOP") return { outcome: "UNKNOWN" };
     if (pendingCreate && request.kind === "CREATE" || options.pendingKinds?.includes(request.kind)) {
       return { outcome: "PENDING", providerOperationId: `provider-${request.operationId}` };
     }
@@ -79,16 +85,17 @@ async function setup(configureHost = true, pendingCreate = false, providerGenera
       executionSlots: hostSlots },
     safetyMargin: { memoryBytes: 0, cpuMillicores: 0, pids: 0, diskBytes: 0, executionSlots: 0 },
   });
-  const service = new IncusQualificationFixtureService({ db, qualifications, admission, controller, now: options.now,
+  const fixtureServiceDeps = { db, qualifications, admission, controller, now: options.now,
     assertCurrentScope,
-    inspect: async (_installationId, _bindingId, input) => {
+    inspect: async (_installationId: string, _bindingId: string, input: Record<string, unknown>) => {
       if (inspectError) throw inspectError;
       return { ok: true, sandbox: { sandboxId: input.sandboxId,
       profile: preset.profile,
       presetId: preset.id, desiredState: providerState, observedState: providerState,
       generation: providerGeneration, bootId: null, observedAt: new Date().toISOString() } };
-    } });
-  return { db, service, dispatches, inspections, controller, admission, qualifications, presetDigest, effectiveSettingsDigest };
+    } };
+  const service = new IncusQualificationFixtureService(fixtureServiceDeps);
+  return { db, service, fixtureServiceDeps, dispatches, inspections, controller, admission, qualifications, presetDigest, effectiveSettingsDigest };
 }
 
 afterEach(async () => { await Promise.all(opened.splice(0).map(client => client.close())); });
@@ -793,4 +800,205 @@ test("a terminal failed START readback is not polled or dispatched again", async
   expect((await service.status(scope, handle.operationId)).operation).toMatchObject({ kind: "START", state: "FAILED", errorCode: "TERMINAL_TEST_FAILURE" });
   expect(inspections).toHaveLength(1);
   expect(dispatches.map(request => request.kind)).toEqual(["CREATE", "START"]);
+});
+
+
+test("running fixture dispose refuses before tombstone or cleanup accounting", async () => {
+  const { db, service, controller, dispatches, admission } = await setup();
+  await service.create(scope, "running-dispose");
+  await service.setPower(scope, "running-dispose", "running", "start");
+  const [fixture] = await db.select().from(schema.incusQualificationFixtures);
+  const before = await controller.getBinding(fixture!.bindingId);
+  await expect(service.destroy(scope, "running-dispose")).rejects.toThrow();
+  expect(await controller.getBinding(fixture!.bindingId)).toEqual(before);
+  expect(dispatches.map(item => item.kind)).toEqual(["CREATE", "START"]);
+  expect((await admission.getReservation(fixture!.bindingId))?.diskState).toBe("RESERVED");
+});
+
+
+async function failedRunningCleanup(options: Parameters<typeof setup>[5] = {}) {
+  const fixture = await setup(true, false, 1, null, 2,
+    { ...options, enforcePowerGeneration: true, refuseRunningDestroy: true });
+  await fixture.service.create(scope, "failed-running-cleanup");
+  await fixture.service.setPower(scope, "failed-running-cleanup", "running", "start");
+  const [owned] = await fixture.db.select().from(schema.incusQualificationFixtures);
+  await fixture.admission.markCleanupIntent(owned!.bindingId, 1, "legacy-running-cleanup");
+  const failed = await fixture.controller.requestAndDispatch({ bindingId: owned!.bindingId, generation: 1,
+    kind: "DESTROY", idempotencyScope: "legacy-cleanup", idempotencyKey: "failed-running-cleanup",
+    payload: { expectedGeneration: 2 } });
+  expect(failed).toMatchObject({ state: "FAILED", errorCode: "REVISION_CONFLICT", providerOperationId: null });
+  return { ...fixture, owned: owned!, failed };
+}
+
+test("shared recovery stops then destroys while preserving failed receipt, tombstone and charges", async () => {
+  const { db, service, controller, admission, dispatches, owned, failed } = await failedRunningCleanup();
+  const before = await controller.getBinding(owned.bindingId);
+  const result = await service.recoverCleanup(scope, owned.operationId, failed.id);
+  expect(result.recovery.state).toBe("COMPLETED");
+  expect(result.operation).toMatchObject({ kind: "DESTROY", state: "SUCCEEDED", requestPayload: { expectedGeneration: 3 } });
+  expect(await controller.getOperation(failed.id)).toEqual(failed);
+  expect(await controller.getBinding(owned.bindingId)).toMatchObject({ desiredState: "ABSENT", observedState: "ABSENT",
+    generation: 1, tombstonedAt: before!.tombstonedAt, currentOperationId: result.recovery.destroyOperationId });
+  expect(await admission.getReservation(owned.bindingId)).toMatchObject({ computeState: "RELEASED", diskState: "RELEASED" });
+  expect(dispatches.map(item => item.kind)).toEqual(["CREATE", "START", "DESTROY", "STOP", "DESTROY"]);
+  const replay = await service.recoverCleanup(scope, owned.operationId, failed.id);
+  expect(replay.recovery).toEqual(result.recovery);
+  expect(dispatches).toHaveLength(5);
+  expect(await db.select().from(schema.sandboxCleanupRecoveries)).toHaveLength(1);
+});
+
+test("unknown linked stop preserves exact receipts, accounting, and restart continuation", async () => {
+  const { db, service, fixtureServiceDeps, controller, admission, dispatches, owned, failed } = await failedRunningCleanup({ pendingKinds: ["STOP"], inspectOutcome: "UNKNOWN" });
+  const first = await service.recoverCleanup(scope, owned.operationId, failed.id);
+  expect(first.recovery.state).toBe("STOP_REQUIRED");
+  expect(first.operation.state).toBe("PROVIDER_PENDING");
+  const restarted = new IncusQualificationFixtureService(fixtureServiceDeps);
+  const repeated = await restarted.recoverCleanup(scope, owned.operationId, failed.id);
+  expect(repeated.recovery.id).toBe(first.recovery.id);
+  expect(repeated.operation.id).toBe(first.operation.id);
+  expect(repeated.operation.state).toBe("OUTCOME_UNKNOWN");
+  expect(dispatches.map(item => item.kind)).toEqual(["CREATE", "START", "DESTROY", "STOP"]);
+  expect(await admission.getReservation(owned.bindingId)).toMatchObject({ computeState: "RELEASE_REQUESTED", diskState: "RELEASE_REQUESTED" });
+  expect(await controller.getOperation(failed.id)).toEqual(failed);
+  expect(await db.select().from(schema.sandboxCleanupRecoveries)).toHaveLength(1);
+});
+
+
+test("two concurrent recovery admissions share one durable pair and preserve unrelated bindings", async () => {
+  const { db, controller, owned, failed } = await failedRunningCleanup();
+  await db.insert(schema.projects).values({ id: "unrelated-project", name: "unrelated", path: "/unused" });
+  const unrelated = await controller.createBinding({ id: "unrelated", projectId: "unrelated-project",
+    providerInstallationId: scope.installationId, providerReleaseId: scope.releaseId,
+    connectionId: scope.connectionId });
+  const input = { bindingId: owned.bindingId, generation: 1, failedDestroyOperationId: failed.id,
+    installationId: scope.installationId, releaseId: scope.releaseId, connectionId: scope.connectionId,
+    connectionRevision: 1, providerResourceId: resourceName(scope.connectionId, owned.bindingId), providerGeneration: 2 };
+  const results = await Promise.all([1, 2].map(() => controller.admitCleanupRecovery({ ...input,
+    stopOperationId: crypto.randomUUID(), destroyOperationId: crypto.randomUUID() })));
+  expect(results[0]).toEqual(results[1]);
+  expect(await db.select().from(schema.sandboxCleanupRecoveries)).toHaveLength(1);
+  expect(await controller.getBinding(unrelated.id)).toEqual(unrelated);
+  expect(await controller.getOperation(failed.id)).toEqual(failed);
+});
+
+
+function restartedBackground(fixture: Awaited<ReturnType<typeof failedRunningCleanup>>) {
+  const snapshot = releaseRuntimeFixture(scope.installationId, incusManifest).snapshot;
+  snapshot.release.id = scope.releaseId;
+  snapshot.installation.activeReleaseId = scope.releaseId;
+  return new IncusFeatureService({ db: fixture.db, controller: fixture.controller, admission: fixture.admission,
+    activeRelease: async () => snapshot, loadQualification: async () => null,
+    resolveConnection: async requested => {
+      const [saved] = await fixture.db.select().from(schema.providerConnections).where(eq(schema.providerConnections.id, requested.connectionId));
+      if (!saved || saved.revokedAt || saved.revision !== requested.revision) throw new Error("Connection authority changed");
+      return { ...saved, configuration: { kind: "incus", profile: "ezharness", helperVersion: "0.1.0", guestUser: "sandbox" }, privateKeyPem: "private-test-key" };
+    }, inspect: fixture.fixtureServiceDeps.inspect });
+}
+
+test("failure after stop preserves restartable linked steps without early release", async () => {
+  const fixture = await failedRunningCleanup();
+  const { service, controller, admission, dispatches, owned, failed } = fixture;
+  const interruption = spyOn(controller, "advanceCleanupRecovery").mockRejectedValueOnce(new Error("host interrupted after stop"));
+  await expect(service.recoverCleanup(scope, owned.operationId, failed.id)).rejects.toThrow("host interrupted after stop");
+  interruption.mockRestore();
+  const [saved] = await fixture.db.select().from(schema.sandboxCleanupRecoveries);
+  expect(saved!.state).toBe("STOP_REQUIRED");
+  expect((await controller.getOperation(saved!.stopOperationId))?.state).toBe("SUCCEEDED");
+  expect(await controller.getOperation(saved!.destroyOperationId)).toBeNull();
+  expect(await admission.getReservation(owned.bindingId)).toMatchObject({ computeState: "RELEASE_REQUESTED", diskState: "RELEASE_REQUESTED" });
+  const restarted = restartedBackground(fixture);
+  await restarted.reconcile();
+  const [result] = await fixture.db.select().from(schema.sandboxCleanupRecoveries);
+  expect(result!.id).toBe(saved!.id);
+  expect(result!.state).toBe("COMPLETED");
+  expect(dispatches.filter(item => item.kind === "STOP")).toHaveLength(1);
+  expect(await controller.getOperation(failed.id)).toEqual(failed);
+});
+
+test("cleanup recovery denies changed authority before effect and leaves saved failure intact", async () => {
+  const { service, qualifications, controller, dispatches, db, owned, failed } = await failedRunningCleanup();
+  const denied = spyOn(qualifications, "authorizeFixture").mockRejectedValue(new Error("release retired"));
+  await expect(service.recoverCleanup(scope, owned.operationId, failed.id)).rejects.toThrow("release retired");
+  denied.mockRestore();
+  expect(await db.select().from(schema.sandboxCleanupRecoveries)).toEqual([]);
+  expect(dispatches.map(item => item.kind)).toEqual(["CREATE", "START", "DESTROY"]);
+  expect(await controller.getOperation(failed.id)).toEqual(failed);
+});
+
+test("recovery admission refuses wrong resource, revision and unsettled effects without new journals", async () => {
+  const { db, controller, owned, failed } = await failedRunningCleanup();
+  const input = { bindingId: owned.bindingId, generation: 1, failedDestroyOperationId: failed.id,
+    stopOperationId: crypto.randomUUID(), destroyOperationId: crypto.randomUUID(),
+    installationId: scope.installationId, releaseId: scope.releaseId, connectionId: scope.connectionId,
+    connectionRevision: 1, providerResourceId: resourceName(scope.connectionId, owned.bindingId), providerGeneration: 2 };
+  for (const changed of [{ providerResourceId: "foreign-resource" }, { generation: 2 },
+    { connectionRevision: 2 }, { releaseId: "retired" }, { providerGeneration: 3 },
+    { stopOperationId: failed.id }]) {
+    await expect(controller.admitCleanupRecovery({ ...input, ...changed })).rejects.toThrow("authority changed");
+  }
+  await db.insert(schema.sandboxOperations).values({ id: "uncertain-effect", bindingId: owned.bindingId,
+    kind: "START", generation: 1, idempotencyScope: "earlier", idempotencyKey: "uncertain", payloadHash: "hash",
+    requestPayload: { expectedGeneration: 1 }, state: "OUTCOME_UNKNOWN", providerOperationId: "saved-provider" });
+  await expect(controller.admitCleanupRecovery(input)).rejects.toThrow("authority changed");
+  expect(await db.select().from(schema.sandboxCleanupRecoveries)).toEqual([]);
+  expect(await controller.getOperation(input.stopOperationId)).toBeNull();
+  expect(await controller.getOperation(failed.id)).toEqual(failed);
+});
+
+
+test("interruption before linked stop dispatch resumes from durable admission in background", async () => {
+  const fixture = await failedRunningCleanup();
+  const interrupted = spyOn(fixture.controller, "executeOperation").mockRejectedValueOnce(new Error("host stopped before dispatch"));
+  await expect(fixture.service.recoverCleanup(scope, fixture.owned.operationId, fixture.failed.id)).rejects.toThrow("host stopped before dispatch");
+  interrupted.mockRestore();
+  const [saved] = await fixture.db.select().from(schema.sandboxCleanupRecoveries);
+  expect((await fixture.controller.getOperation(saved!.stopOperationId))?.state).toBe("JOURNALED");
+  await restartedBackground(fixture).reconcile();
+  expect((await fixture.db.select().from(schema.sandboxCleanupRecoveries))[0]).toMatchObject({ id: saved!.id, state: "COMPLETED" });
+  expect(fixture.dispatches.filter(operation => operation.kind === "STOP")).toHaveLength(1);
+  expect(await fixture.controller.getOperation(fixture.failed.id)).toEqual(fixture.failed);
+});
+
+test("destroy success before accounting failure settles exact recovery in background", async () => {
+  const fixture = await failedRunningCleanup();
+  const interrupted = spyOn(fixture.admission, "recordObservedState").mockRejectedValueOnce(new Error("accounting interrupted"));
+  await expect(fixture.service.recoverCleanup(scope, fixture.owned.operationId, fixture.failed.id)).rejects.toThrow("accounting interrupted");
+  interrupted.mockRestore();
+  const [saved] = await fixture.db.select().from(schema.sandboxCleanupRecoveries);
+  expect(saved!.state).toBe("DESTROY_REQUIRED");
+  expect((await fixture.controller.getOperation(saved!.destroyOperationId))?.state).toBe("SUCCEEDED");
+  expect(await fixture.admission.getReservation(fixture.owned.bindingId)).toMatchObject({ computeState: "RELEASE_REQUESTED", diskState: "RELEASE_REQUESTED" });
+  await restartedBackground(fixture).reconcile();
+  expect((await fixture.db.select().from(schema.sandboxCleanupRecoveries))[0]).toMatchObject({ id: saved!.id, state: "COMPLETED" });
+  expect(await fixture.admission.getReservation(fixture.owned.bindingId)).toMatchObject({ computeState: "RELEASED", diskState: "RELEASED" });
+  expect(fixture.dispatches.filter(operation => operation.kind === "DESTROY")).toHaveLength(2);
+});
+
+
+test("qualification failure cleanup durably stops a running fixture before stopped-only destroy", async () => {
+  const fixture = await setup(true, false, 1, null, 2, { enforcePowerGeneration: true, refuseRunningDestroy: true });
+  await fixture.service.create(scope, "failure-cleanup");
+  await fixture.service.setPower(scope, "failure-cleanup", "running", "start");
+  const [owned] = await fixture.db.select().from(schema.incusQualificationFixtures);
+  const witness = new IncusHostLiveWitness({ db: fixture.db, fixtures: fixture.service, qualifications: fixture.qualifications });
+  await witness.destroyFixture({ sandboxId: owned!.bindingId, operationId: owned!.operationId });
+  expect(fixture.dispatches.map(operation => operation.kind)).toEqual(["CREATE", "START", "STOP", "DESTROY"]);
+  expect(fixture.dispatches.at(-1)?.payload.expectedGeneration).toBe(3);
+  expect(await fixture.controller.getBinding(owned!.bindingId)).toMatchObject({ desiredState: "ABSENT", observedState: "ABSENT" });
+  expect(await fixture.admission.getReservation(owned!.bindingId)).toMatchObject({ computeState: "RELEASED", diskState: "RELEASED" });
+});
+
+
+test("unknown linked stop without provider receipt cannot inspect or admit another effect", async () => {
+  const fixture = await failedRunningCleanup({ missingStopReceipt: true });
+  const first = await fixture.service.recoverCleanup(scope, fixture.owned.operationId, fixture.failed.id);
+  expect(first.operation).toMatchObject({ state: "OUTCOME_UNKNOWN", providerOperationId: null });
+  const repeated = await new IncusQualificationFixtureService(fixture.fixtureServiceDeps)
+    .recoverCleanup(scope, fixture.owned.operationId, fixture.failed.id);
+  expect(repeated.recovery.id).toBe(first.recovery.id);
+  expect(repeated.operation.id).toBe(first.operation.id);
+  expect(fixture.inspections).toEqual([]);
+  expect(fixture.dispatches.map(operation => operation.kind)).toEqual(["CREATE", "START", "DESTROY", "STOP"]);
+  expect(await fixture.controller.getOperation(first.recovery.destroyOperationId)).toBeNull();
+  expect(await fixture.admission.getReservation(fixture.owned.bindingId)).toMatchObject({ computeState: "RELEASE_REQUESTED", diskState: "RELEASE_REQUESTED" });
 });

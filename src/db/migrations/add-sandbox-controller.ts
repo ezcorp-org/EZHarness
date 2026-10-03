@@ -173,7 +173,7 @@ export async function up(database: MigrationDb): Promise<void> {
     ON sandbox_admission_requests(state, created_at)`);
   await database.execute(sql`CREATE TABLE IF NOT EXISTS sandbox_cleanup_recoveries (
     id TEXT PRIMARY KEY,
-    binding_id TEXT NOT NULL REFERENCES sandbox_bindings(id) ON DELETE RESTRICT,
+    binding_id TEXT NOT NULL UNIQUE REFERENCES sandbox_bindings(id) ON DELETE RESTRICT,
     generation INTEGER NOT NULL CHECK (generation > 0),
     failed_destroy_operation_id TEXT NOT NULL UNIQUE REFERENCES provider_sandbox_operations(id) ON DELETE RESTRICT,
     stop_operation_id TEXT NOT NULL UNIQUE,

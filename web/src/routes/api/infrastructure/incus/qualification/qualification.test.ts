@@ -62,6 +62,11 @@ mock.module("$server/infrastructure/incus-qualification", () => ({
     return { fixture: { operationId: id, connectionId: scope.connectionId },
       binding: { id: "fixture-binding", observedState: "STOPPED" }, operation: { id: operation.id } };
   }
+  async recoverCleanup(scope: { connectionId: string }, id: string, failedId: string) {
+    calls.push(`recoverCleanup:${scope.connectionId}:${id}:${failedId}`);
+    return { recovery: { id: "recovery", state: "STOP_REQUIRED", failedDestroyOperationId: failedId,
+      stopOperationId: "saved-stop", destroyOperationId: "saved-destroy", privateKeyPem: "SECRET" }, operation };
+  }
   async destroy(scope: { connectionId: string }, id: string) {
     calls.push(`destroy:${scope.connectionId}:${id}`);
     if (fail) throw new Error("connection credentials secret");
@@ -263,4 +268,15 @@ test("saved successful operations remain reviewable only for an explicit intent 
     expect((await invalid.json()).code).toBe("qualification_unavailable");
     expect(warnings).toHaveLength(2);
   } finally { unsettledError = null; }
+});
+
+test("qualification recovery uses exact fixture scope and saved failed ID with safe receipts", async () => {
+  calls.length = 0;
+  const response = await POST(event(admin, { ...scope, action: "recoverCleanup", failedDestroyOperationId: "failed-destroy" }));
+  expect(response.status).toBe(202);
+  const result = await response.json();
+  expect(result.recovery).toEqual({ id: "recovery", state: "STOP_REQUIRED", failedDestroyOperationId: "failed-destroy", stopOperationId: "saved-stop", destroyOperationId: "saved-destroy" });
+  expect(JSON.stringify(result)).not.toContain("secret");
+  expect(JSON.stringify(result)).not.toContain("SECRET");
+  expect(calls).toEqual([`recoverCleanup:${scope.connectionId}:${scope.operationId}:failed-destroy`]);
 });

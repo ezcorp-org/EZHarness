@@ -3,13 +3,13 @@ import { desc, eq } from "drizzle-orm";
 import { checkProjectRole, requireAdminSession } from "$server/auth/middleware";
 import { getDb } from "$server/db/connection";
 import { projects, sandboxBindings, sandboxOperations } from "$server/db/schema";
-import { IncusFeatureService, validIncusProjectName } from "$server/infrastructure/incus-feature-service";
+import { IncusFeatureService, IncusStopRequiredError, IncusCleanupRecoveryUnavailableError, validIncusProjectName } from "$server/infrastructure/incus-feature-service";
 import { IncusQualificationStore } from "$server/infrastructure/incus-qualification";
 import type { RequestHandler } from "./$types";
 
 const identifier = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
 
-type Action = "prepare" | "prepareProject" | "create" | "start" | "stop" | "destroy" | "destroyRetired" | "status" | "reconcile";
+type Action = "prepare" | "prepareProject" | "create" | "start" | "stop" | "destroy" | "destroyRetired" | "recoverCleanup" | "status" | "reconcile";
 const fields: Record<Action, readonly string[]> = {
   prepare: ["action", "projectId", "installationId", "connectionId", "presetId"],
   prepareProject: ["action", "name", "installationId", "connectionId", "presetId", "idempotencyKey"],
@@ -18,6 +18,7 @@ const fields: Record<Action, readonly string[]> = {
   stop: ["action", "projectId", "bindingId", "idempotencyScope", "idempotencyKey"],
   destroy: ["action", "projectId", "bindingId", "idempotencyScope", "idempotencyKey"],
   destroyRetired: ["action", "projectId", "bindingId", "idempotencyScope", "idempotencyKey"],
+  recoverCleanup: ["action", "projectId", "bindingId", "failedDestroyOperationId"],
   status: ["action", "projectId", "bindingId"],
   reconcile: ["action", "limit"],
 };
@@ -68,6 +69,8 @@ function service(): IncusFeatureService {
 }
 
 function safeFailure(error: unknown): Response {
+  if (error instanceof IncusStopRequiredError) return json({ code: "stop_required", message: "Stop this sandbox before disposal." }, { status: 409 });
+  if (error instanceof IncusCleanupRecoveryUnavailableError) return json({ code: "cleanup_recovery_unavailable", message: "The saved cleanup needs review. Inspect its status." }, { status: 409 });
   const message = error instanceof Error ? error.message : "";
   if (message.includes("qualification") || message.includes("admission") || message.includes("capacity")) {
     return json({ code: "feature_unavailable", message: "The Incus feature sandbox is not qualified or has no available capacity." }, { status: 409 });
@@ -115,6 +118,15 @@ export const POST: RequestHandler = async ({ locals, request }) => {
         .orderBy(desc(sandboxOperations.createdAt)).limit(1);
       return json({ binding, operation: operation ?? null });
     }
+    if (action === "recoverCleanup") {
+      const result = await service().recoverCleanup(bindingId, input.failedDestroyOperationId as string);
+      return json({ recovery: { id: result.recovery.id, state: result.recovery.state,
+        failedDestroyOperationId: result.recovery.failedDestroyOperationId,
+        stopOperationId: result.recovery.stopOperationId, destroyOperationId: result.recovery.destroyOperationId },
+        operation: { id: result.operation.id, kind: result.operation.kind, state: result.operation.state,
+          generation: result.operation.generation, providerOperationId: result.operation.providerOperationId,
+          errorCode: result.operation.errorCode, createdAt: result.operation.createdAt, updatedAt: result.operation.updatedAt } }, { status: 202 });
+    }
     const mutation = { bindingId, idempotencyScope: input.idempotencyScope as string, idempotencyKey: input.idempotencyKey as string };
     const configured = service();
     if (action === "create" || action === "start") {
@@ -124,5 +136,8 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     if (action === "stop") return json({ operation: await configured.stop(mutation) }, { status: 202 });
     if (action === "destroyRetired") return json({ operation: await configured.destroyRetired(mutation) }, { status: 202 });
     return json({ operation: await configured.destroy(mutation) }, { status: 202 });
-  } catch (error) { return safeFailure(error); }
+  } catch (error) {
+    if (action === "recoverCleanup") return safeFailure(new IncusCleanupRecoveryUnavailableError());
+    return safeFailure(error);
+  }
 };

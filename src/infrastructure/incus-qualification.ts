@@ -10,7 +10,7 @@ import {
 import { and, desc, eq, sql } from "drizzle-orm";
 import { getDb, type Database, type DbTransaction } from "../db/connection";
 import { incusQualificationFixtures, projectWorkspaceBindings, projects, sandboxAdmissionRequests,
-  sandboxBindings, sandboxOperations, sandboxProjectQuotas, sandboxReservations,
+  sandboxBindings, sandboxCleanupRecoveries, sandboxOperations, sandboxProjectQuotas, sandboxReservations,
   type SandboxOperation } from "../db/schema";
 import { releaseRows } from "../db/queries/extension-releases";
 import { getReleaseRuntime, resolveActiveRelease, type ActiveExtensionRelease } from "../extensions/release-process";
@@ -24,7 +24,7 @@ import { IncusSandboxProviderDispatcher } from "../sandboxes/incus-dispatcher";
 import { IncusMethodCaller } from "./incus-method-caller";
 import { permitsCreateReadbackDuringQueuedCleanup } from "./incus-create-readback-policy";
 import type { HostIncusLostDestroyReplyFault } from "./incus-destroy-reply-fault";
-import { inspectRelease, readIncusProviderGeneration, type IncusFeatureServiceDependencies } from "./incus-feature-service";
+import { IncusCleanupRecoveryService, inspectRelease, readIncusProviderGeneration, type IncusFeatureServiceDependencies } from "./incus-feature-service";
 import { ProviderConnectionStore, type ProviderConnectionCredentials, type ProviderConnectionScope } from "./provider-connections/store";
 import type { IncusProbeResult, IncusTransportRequest } from "../../extensions/incus-sandbox/transport";
 import { IncusQualificationCheckpointStore } from "./incus-qualification-checkpoint";
@@ -399,7 +399,12 @@ export class IncusQualificationFixtureService {
       .from(sandboxOperations).where(eq(sandboxOperations.bindingId, row.bindingId))
       .orderBy(desc(sandboxOperations.reconcileOrder), desc(sandboxOperations.createdAt),
         desc(sandboxOperations.id)).limit(1);
-    return { fixture: { operationId: row.operationId, installationId: row.installationId,
+    const [recovery] = await this.db.select().from(sandboxCleanupRecoveries)
+      .where(eq(sandboxCleanupRecoveries.bindingId, binding.id)).limit(1);
+    return { ...(recovery ? { cleanupRecovery: { id: recovery.id, state: recovery.state,
+      failedDestroyOperationId: recovery.failedDestroyOperationId, stopOperationId: recovery.stopOperationId,
+      destroyOperationId: recovery.destroyOperationId } } : {}),
+      fixture: { operationId: row.operationId, installationId: row.installationId,
       releaseId: row.releaseId, connectionId: row.connectionId, connectionRevision: row.connectionRevision,
       presetId: row.presetId, projectId: row.projectId, bindingId: row.bindingId },
       binding: { id: binding.id, generation: binding.generation, desiredState: binding.desiredState,
@@ -669,6 +674,18 @@ export class IncusQualificationFixtureService {
     return operation;
   }
 
+  async recoverCleanup(scope: IncusQualificationScope, fixtureOperationId: string, failedDestroyOperationId: string) {
+    const owned = await this.ownedFixture(scope, fixtureOperationId);
+    return new IncusCleanupRecoveryService(this.db, this.controller, this.admission,
+      async binding => {
+        const { row, binding: current } = await this.ownedFixture(scope, fixtureOperationId);
+        const selected = await this.qualifications.authorizeFixture(scope);
+        this.assertFixture(row, scope, selected.connection.revision, selected.presetDigest, selected.effectiveSettingsDigest);
+        if (current.id !== binding.id || current.generation !== binding.generation
+          || current.providerReleaseId !== binding.providerReleaseId) throw new Error("Cleanup recovery authority changed");
+      }, this.inspect, this.now).recover(owned.binding.id, failedDestroyOperationId);
+  }
+
   async destroy(scope: IncusQualificationScope, operationId: string): Promise<SandboxOperation> {
     return this.destroyInternal(scope, operationId);
   }
@@ -695,7 +712,7 @@ export class IncusQualificationFixtureService {
       if (injection) throw new Error("Incus qualification destroy fault requires a fresh operation");
       return replay;
     }
-    const expectedGeneration = await readIncusProviderGeneration(binding, this.inspect, this.now);
+    const expectedGeneration = await readIncusProviderGeneration(binding, this.inspect, this.now, "stopped");
     const reservedId = injection ? crypto.randomUUID() : undefined;
     const armedScope = injection && reservedId ? { ...injection.authority, scope,
       fixtureOperationId: operationId, bindingId: row.bindingId,

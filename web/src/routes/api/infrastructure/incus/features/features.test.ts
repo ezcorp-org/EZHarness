@@ -1,6 +1,7 @@
 import { expect, mock, test } from "bun:test";
 import { projects, sandboxBindings, sandboxOperations } from "../../../../../../../src/db/schema";
 
+const errors = await import("../../../../../../../src/infrastructure/incus-feature-service");
 const calls: string[] = [];
 const project = { id: "project-a", purpose: "user" as "user" | "incus-qualification" };
 const binding = { id: "binding-a", projectId: "project-a", connectionId: "connection-a", desiredState: "RUNNING", observedState: "UNKNOWN" };
@@ -24,6 +25,8 @@ const database = {
 mock.module("$server/db/connection", () => ({ getDb: () => database }));
 mock.module("$server/infrastructure/incus-qualification", () => ({ IncusQualificationStore: class { async load() { calls.push("qualification.load"); return null; } } }));
 mock.module("$server/infrastructure/incus-feature-service", () => ({
+IncusStopRequiredError: errors.IncusStopRequiredError,
+IncusCleanupRecoveryUnavailableError: errors.IncusCleanupRecoveryUnavailableError,
 validIncusProjectName: (value: unknown) => typeof value === "string" && value.trim().length > 0
   && value.trim() === value && value.length <= 128 && !Array.from(value).some(c => c.charCodeAt(0) < 32),
 IncusFeatureService: class {
@@ -33,7 +36,13 @@ IncusFeatureService: class {
   async create(input: Record<string, unknown>) { calls.push(`create:${input.bindingId}`); return input.idempotencyKey === "denied" ? { state: "REJECTED", reason: "capacity", operation: null } : { state: "DISPATCHED", operation }; }
   async start(input: Record<string, unknown>) { calls.push(`start:${input.bindingId}`); return { state: "QUEUED", reason: "capacity", operation: null }; }
   async stop(input: Record<string, unknown>) { calls.push(`stop:${input.bindingId}`); return operation; }
-  async destroy(input: Record<string, unknown>) { calls.push(`destroy:${input.bindingId}`); return operation; }
+  async destroy(input: Record<string, unknown>) { calls.push(`destroy:${input.bindingId}`); if (input.idempotencyKey === "running") throw new errors.IncusStopRequiredError(); return operation; }
+  async recoverCleanup(bindingId: string, failedId: string) {
+    calls.push(`recoverCleanup:${bindingId}:${failedId}`);
+    if (failedId === "denied") throw new errors.IncusCleanupRecoveryUnavailableError();
+    return { recovery: { id: "recovery", state: "STOP_REQUIRED", failedDestroyOperationId: failedId,
+      stopOperationId: "saved-stop", destroyOperationId: "saved-destroy", privateKeyPem: "SECRET" }, operation };
+  }
   async destroyRetired(input: Record<string, unknown>) { calls.push(`destroyRetired:${input.bindingId}:${input.idempotencyScope}:${input.idempotencyKey}`); return operation; }
   async reconcile(limit?: number) { calls.push(`reconcile:${limit}`); if (limit === 13) throw new Error("SECRET-provider-detail"); return { processed: 0 }; }
 } }));
@@ -169,4 +178,28 @@ test("feature status does not expose a qualification fixture as a user project",
   } finally {
     project.purpose = "user";
   }
+});
+
+
+test("recovery uses exact saved failed receipt and returns only safe immutable links", async () => {
+  calls.length = 0;
+  const response = await POST(event(admin, { action: "recoverCleanup", projectId: "project-a", bindingId: "binding-a", failedDestroyOperationId: "failed-destroy" }));
+  expect(response.status).toBe(202);
+  const body = await response.json();
+  expect(body.recovery).toEqual({ id: "recovery", state: "STOP_REQUIRED", failedDestroyOperationId: "failed-destroy", stopOperationId: "saved-stop", destroyOperationId: "saved-destroy" });
+  expect(JSON.stringify(body)).not.toContain("SECRET");
+  expect(calls).toEqual(["recoverCleanup:binding-a:failed-destroy"]);
+  const denied = await POST(event(admin, { action: "recoverCleanup", projectId: "project-a", bindingId: "binding-a", failedDestroyOperationId: "denied" }));
+  expect(denied.status).toBe(409);
+  expect((await denied.json()).code).toBe("cleanup_recovery_unavailable");
+});
+
+test("running disposal gives Stop guidance and malformed recovery cannot select provider effects", async () => {
+  calls.length = 0;
+  const response = await POST(event(admin, { action: "destroy", projectId: "project-a", bindingId: "binding-a", idempotencyScope: "ui", idempotencyKey: "running" }));
+  expect(response.status).toBe(409);
+  expect((await response.json()).code).toBe("stop_required");
+  calls.length = 0;
+  expect((await POST(event(admin, { action: "recoverCleanup", projectId: "project-a", bindingId: "binding-a", failedDestroyOperationId: "failed-destroy", stopOperationId: "forged-stop" }))).status).toBe(400);
+  expect(calls).toEqual([]);
 });

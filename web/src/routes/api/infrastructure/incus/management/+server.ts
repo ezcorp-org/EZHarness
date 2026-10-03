@@ -41,10 +41,14 @@ export const GET: RequestHandler = async ({ locals }) => {
       b.preset_id AS "presetId", b.desired_state AS "desiredState",
       b.observed_state AS "observedState", b.tombstoned_at AS "tombstonedAt", b.cleanup_confirmed_at AS "cleanupConfirmedAt",
       CASE WHEN o.id IS NULL THEN NULL ELSE jsonb_build_object('id', o.id, 'kind', o.kind, 'state', o.state,
-        'errorCode', o.error_code, 'createdAt', o.created_at, 'updatedAt', o.updated_at) END AS operation
+        'errorCode', o.error_code, 'providerOperationRecorded', o.provider_operation_id IS NOT NULL, 'createdAt', o.created_at, 'updatedAt', o.updated_at) END AS operation,
+      CASE WHEN r.id IS NULL THEN NULL ELSE jsonb_build_object('id', r.id, 'state', r.state,
+        'failedDestroyOperationId', r.failed_destroy_operation_id, 'stopOperationId', r.stop_operation_id,
+        'destroyOperationId', r.destroy_operation_id) END AS "cleanupRecovery"
       FROM sandbox_bindings b JOIN projects p ON p.id = b.project_id
       JOIN provider_connections c ON c.id = b.connection_id
       LEFT JOIN provider_sandbox_operations o ON o.id = b.current_operation_id AND o.binding_id = b.id
+      LEFT JOIN sandbox_cleanup_recoveries r ON r.binding_id = b.id
       WHERE p.purpose = 'user' AND c.configuration->>'kind' = 'incus'
       ORDER BY b.created_at DESC, b.id LIMIT ${pageSize + 1}`));
     const qualifications = new IncusQualificationStore({ db });

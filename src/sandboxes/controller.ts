@@ -3,6 +3,8 @@ import { and, asc, eq, inArray, isNull, ne, not, sql } from "drizzle-orm";
 import type { Database, DbTransaction } from "../db/connection";
 import {
   sandboxBindings,
+  sandboxCleanupRecoveries,
+  type SandboxCleanupRecovery,
   sandboxOperations,
   type SandboxBinding,
   type SandboxDesiredState,
@@ -11,6 +13,9 @@ import {
   type SandboxOperationKind,
   type SandboxOperationState,
 } from "../db/schema";
+
+import { matchesCleanupRecoveryBinding, permitsLinkedCleanupStop, permitsFailedCleanupInspection } from "../infrastructure/incus-cleanup-stop-policy";
+import { resourceName } from "../infrastructure/incus-transport/lifecycle";
 
 const DESIRED_STATE_BY_OPERATION: Record<SandboxOperationKind, SandboxDesiredState> = {
   CREATE: "STOPPED",
@@ -361,6 +366,80 @@ export class SandboxController {
     return (await this.#dispatchJournaled(operationId)).operation;
   }
 
+  /** Admit explicit cleanup recovery without erasing the failed receipt or tombstone. */
+  async admitCleanupRecovery(input: Omit<SandboxCleanupRecovery, "id" | "state" | "createdAt" | "updatedAt">): Promise<SandboxCleanupRecovery> {
+    return this.db.transaction(async (tx: DbTransaction) => {
+      const [binding] = await tx.select().from(sandboxBindings)
+        .where(eq(sandboxBindings.id, input.bindingId)).for("update");
+      const [existing] = await tx.select().from(sandboxCleanupRecoveries)
+        .where(eq(sandboxCleanupRecoveries.failedDestroyOperationId, input.failedDestroyOperationId));
+      if (existing) {
+        if (!binding || existing.bindingId !== input.bindingId || existing.generation !== input.generation
+          || existing.installationId !== input.installationId || existing.releaseId !== input.releaseId
+          || existing.connectionId !== input.connectionId || existing.connectionRevision !== input.connectionRevision
+          || existing.providerResourceId !== input.providerResourceId || existing.providerGeneration !== input.providerGeneration) {
+          throw new SandboxControllerError("SUPERSEDED_OPERATION", "Cleanup recovery authority changed");
+        }
+        return existing;
+      }
+      const [failed] = await tx.select().from(sandboxOperations)
+        .where(eq(sandboxOperations.id, input.failedDestroyOperationId));
+      const [unsettled] = await tx.select({ id: sandboxOperations.id }).from(sandboxOperations).where(and(
+        eq(sandboxOperations.bindingId, input.bindingId), inArray(sandboxOperations.state, RECONCILE_STATES)));
+      if (!binding || !permitsFailedCleanupInspection(binding, failed) || binding.cleanupConfirmedAt
+        || binding.generation !== input.generation || binding.providerInstallationId !== input.installationId
+        || binding.providerReleaseId !== input.releaseId || binding.connectionId !== input.connectionId
+        || binding.connectionRevision !== input.connectionRevision
+        || input.providerResourceId !== resourceName(binding.connectionId, binding.id)
+        || failed?.requestPayload.expectedGeneration !== input.providerGeneration || unsettled
+        || new Set([input.failedDestroyOperationId, input.stopOperationId, input.destroyOperationId]).size !== 3) {
+        throw new SandboxControllerError("SUPERSEDED_OPERATION", "Cleanup recovery authority changed");
+      }
+      const [recovery] = await tx.insert(sandboxCleanupRecoveries).values({ ...input,
+        id: crypto.randomUUID(), state: "STOP_REQUIRED" }).returning();
+      if (!recovery) throw new Error("Cleanup recovery was not persisted");
+      await this.insertCleanupStep(tx, recovery, "STOP", input.providerGeneration);
+      return recovery;
+    });
+  }
+
+  private async insertCleanupStep(tx: DbTransaction, recovery: SandboxCleanupRecovery,
+    kind: "STOP" | "DESTROY", expectedGeneration: number): Promise<void> {
+    const operationId = kind === "STOP" ? recovery.stopOperationId : recovery.destroyOperationId;
+    const request = { bindingId: recovery.bindingId, generation: recovery.generation, kind,
+      idempotencyScope: "sandbox-cleanup-recovery", idempotencyKey: operationId,
+      payload: { expectedGeneration } };
+    await tx.insert(sandboxOperations).values({ id: operationId, bindingId: recovery.bindingId,
+      generation: recovery.generation, kind, idempotencyScope: request.idempotencyScope,
+      idempotencyKey: operationId, payloadHash: operationPayloadHash(request), requestPayload: request.payload,
+      state: "JOURNALED", reconcileOrder: sql`nextval('sandbox_reconcile_order_seq')` });
+    await tx.update(sandboxBindings).set({ currentOperationId: operationId, updatedAt: new Date() })
+      .where(eq(sandboxBindings.id, recovery.bindingId));
+  }
+
+  async advanceCleanupRecovery(recoveryId: string, expectedProviderGeneration: number): Promise<SandboxCleanupRecovery> {
+    return this.db.transaction(async (tx: DbTransaction) => {
+      const [saved] = await tx.select().from(sandboxCleanupRecoveries).where(eq(sandboxCleanupRecoveries.id, recoveryId));
+      if (!saved) throw new Error("Cleanup recovery is unavailable");
+      const [binding] = await tx.select().from(sandboxBindings).where(eq(sandboxBindings.id, saved.bindingId)).for("update");
+      const [recovery] = await tx.select().from(sandboxCleanupRecoveries).where(eq(sandboxCleanupRecoveries.id, recoveryId));
+      if (!recovery || !binding?.tombstonedAt || binding.desiredState !== "ABSENT"
+        || !matchesCleanupRecoveryBinding(binding, recovery, resourceName(binding.connectionId, binding.id))) throw new Error("Cleanup recovery authority changed");
+      if (recovery.state !== "STOP_REQUIRED") return recovery;
+      const [stop] = await tx.select().from(sandboxOperations).where(eq(sandboxOperations.id, recovery.stopOperationId));
+      const [failed] = await tx.select().from(sandboxOperations).where(eq(sandboxOperations.id, recovery.failedDestroyOperationId));
+      if (stop?.state !== "SUCCEEDED" || !permitsLinkedCleanupStop(binding, recovery, failed, stop,
+        resourceName(binding.connectionId, binding.id)) || binding.observedState !== "STOPPED"
+        || expectedProviderGeneration !== recovery.providerGeneration + 1) {
+        throw new Error("Cleanup recovery stop is not verified");
+      }
+      await this.insertCleanupStep(tx, recovery, "DESTROY", expectedProviderGeneration);
+      const [updated] = await tx.update(sandboxCleanupRecoveries).set({ state: "DESTROY_REQUIRED", updatedAt: new Date() })
+        .where(eq(sandboxCleanupRecoveries.id, recovery.id)).returning();
+      return updated!;
+    });
+  }
+
   /** Observe only this saved provider operation; never dispatch journaled work. */
   async inspectOperation(operationId: string): Promise<SandboxOperation> {
     const operation = await this.getOperation(operationId);
@@ -384,7 +463,13 @@ export class SandboxController {
       if (operation.state !== "JOURNALED") return { operation, binding, claimed: false, rejection: null };
       const staleGeneration = binding.generation !== operation.generation;
       const supersededIntent = binding.currentOperationId !== null && binding.currentOperationId !== operation.id;
-      const cleanupForbidsDispatch = binding.tombstonedAt !== null && operation.kind !== "DESTROY";
+      const [recovery] = await transaction.select().from(sandboxCleanupRecoveries)
+        .where(eq(sandboxCleanupRecoveries.stopOperationId, operation.id)).limit(1);
+      const failed = recovery ? (await transaction.select().from(sandboxOperations)
+        .where(eq(sandboxOperations.id, recovery.failedDestroyOperationId)).limit(1))[0] : undefined;
+      const linkedStop = permitsLinkedCleanupStop(binding, recovery, failed, operation,
+        resourceName(binding.connectionId, binding.id));
+      const cleanupForbidsDispatch = binding.tombstonedAt !== null && operation.kind !== "DESTROY" && !linkedStop;
       const rejection = staleGeneration
         ? "STALE_GENERATION"
         : supersededIntent || cleanupForbidsDispatch

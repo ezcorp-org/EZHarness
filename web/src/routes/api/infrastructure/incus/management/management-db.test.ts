@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, expect, mock, test } from "bun:test";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { closeTestDb, getTestDb, setupTestDb } from "../../../../../../../src/__tests__/helpers/test-pglite";
-import { projects, providerConnections, sandboxBindings, sandboxOperations } from "../../../../../../../src/db/schema";
+import { projects, providerConnections, sandboxBindings, sandboxCleanupRecoveries, sandboxOperations } from "../../../../../../../src/db/schema";
 
 mock.module("$server/db/connection", () => ({ getDb: () => getTestDb() }));
 mock.module("$server/auth/middleware", () => ({ requireAdminSession: () => ({ id: "admin", role: "admin" }) }));
@@ -41,6 +41,20 @@ test("real migrated database lists user bindings and excludes fixture projects a
     operation: { id: "operation-user", kind: "CREATE", state: "OUTCOME_UNKNOWN" } });
   expect(result.environments[0]).toMatchObject({ connectionId: "connection", qualified: false, setupId: null });
   expect(JSON.stringify(result)).not.toContain("SECRET");
+  expect(result.features[0].operation.providerOperationRecorded).toBe(true);
+  await db.update(sandboxOperations).set({ kind: "DESTROY", state: "FAILED", errorCode: "REVISION_CONFLICT",
+    providerOperationId: null, requestPayload: { expectedGeneration: 2 } }).where(eq(sandboxOperations.id, "operation-user"));
+  await db.update(sandboxBindings).set({ desiredState: "ABSENT", observedState: "RUNNING", tombstonedAt: new Date() })
+    .where(eq(sandboxBindings.id, "binding-user"));
+  await db.insert(sandboxCleanupRecoveries).values({ id: "recovery", bindingId: "binding-user", generation: 1,
+    failedDestroyOperationId: "operation-user", stopOperationId: "saved-stop", destroyOperationId: "saved-destroy",
+    installationId: "installation", releaseId: "release", connectionId: "connection", connectionRevision: 1,
+    providerResourceId: "SECRET-guest", providerGeneration: 2, state: "STOP_REQUIRED" });
+  const recoveryStatus = await (await GET({ locals: {} } as Parameters<typeof GET>[0])).json();
+  expect(recoveryStatus.features[0].operation.providerOperationRecorded).toBe(false);
+  expect(recoveryStatus.features[0].cleanupRecovery).toEqual({ id: "recovery", state: "STOP_REQUIRED",
+    failedDestroyOperationId: "operation-user", stopOperationId: "saved-stop", destroyOperationId: "saved-destroy" });
+  expect(JSON.stringify(recoveryStatus)).not.toContain("SECRET");
   for (const [id, release, revision, state] of [["setup-current", "release", 1, "verified"],
     ["setup-old-release", "old-release", 1, "verified"], ["setup-old-revision", "release", 2, "verified"],
     ["setup-unverified", "release", 1, "planned"]] as const) {
