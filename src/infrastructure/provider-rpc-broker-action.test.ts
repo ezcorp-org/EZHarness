@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
+import { eq } from "drizzle-orm";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { createIncusTransportCommand } from "../../extensions/incus-sandbox/adapter";
@@ -121,8 +122,12 @@ test("legacy CREATE inspection gains only its exact host-journaled identity afte
   expect(calls).toHaveLength(2);
 });
 
-test("expired power inspection gains only the exact current START journal identity and generation", async () => {
+test("expired power inspection keeps the controller fence while advancing the Incus guest generation", async () => {
   const { broker, calls, scope, db } = await setup();
+  await db.insert(schema.sandboxOperations).values({ id: "journal-create", bindingId: "binding", kind: "CREATE",
+    generation: 1, idempotencyScope: "feature", idempotencyKey: "create", payloadHash: "hash-create",
+    requestPayload: { profile: "linux-exec.v1", presetId: "incus-linux-exec-v1", presetDigest: "a".repeat(64),
+      effectiveSettingsDigest: "b".repeat(64) }, state: "SUCCEEDED" });
   const nativeId = "incus-setPower-11111111-1111-1111-1111-111111111111";
   const input = { providerId: "incus", connectionId: "connection", sandboxId: "binding",
     rpcDeadlineMs: Date.now() + 30_000, operationId: nativeId };
@@ -135,6 +140,8 @@ test("expired power inspection gains only the exact current START journal identi
   expect(calls[0]?.idempotency).toEqual({ requestId: "journal-start", key: "journal-start" });
   expect(calls[0]?.payload).toEqual({ operationId: nativeId,
     readback: { expectedGeneration: 1, desiredState: "running" } });
+  await db.update(schema.sandboxOperations).set({ state: "SUCCEEDED" })
+    .where(eq(schema.sandboxOperations.id, "journal-start"));
   await db.update(schema.sandboxBindings).set({ currentOperationId: "other-journal" });
   expect(await broker.request(action, { command: action.expectedCommand }, input.rpcDeadlineMs))
     .toMatchObject({ ok: false, error: { kind: "permission" } });
@@ -151,18 +158,80 @@ test("expired power inspection gains only the exact current START journal identi
     .toMatchObject({ ok: false, error: { kind: "permission" } });
   expect(calls).toHaveLength(1);
 
+  // CREATE produced guest generation 1; START produced guest generation 2.
+  // Qualification power operations retain controller binding generation 1.
   const stopId = "incus-setPower-22222222-2222-2222-2222-222222222222";
   await db.insert(schema.sandboxOperations).values({ id: "journal-stop", bindingId: "binding", kind: "STOP",
-    generation: 2, idempotencyScope: "feature", idempotencyKey: "client-stop", payloadHash: "hash-stop",
+    generation: 1, idempotencyScope: "feature", idempotencyKey: "client-stop", payloadHash: "hash-stop",
     requestPayload: { expectedGeneration: 2 }, state: "PROVIDER_PENDING", providerOperationId: stopId });
-  await db.update(schema.sandboxBindings).set({ generation: 2, currentOperationId: "journal-stop",
+  await db.update(schema.sandboxBindings).set({ currentOperationId: "journal-stop",
     desiredState: "STOPPED", observedState: "RUNNING" });
   const stopInput = { ...input, operationId: stopId };
-  const stopAction = { ...scope("lifecycle.inspectOperation", stopInput), bindingGeneration: 2, approvedGuest: undefined };
+  const stopAction = { ...scope("lifecycle.inspectOperation", stopInput), approvedGuest: undefined };
   expect(await broker.request(stopAction, { command: stopAction.expectedCommand }, stopInput.rpcDeadlineMs)).toMatchObject({ ok: true });
   expect(calls[1]?.idempotency).toEqual({ requestId: "journal-stop", key: "journal-stop" });
   expect(calls[1]?.payload).toEqual({ operationId: stopId,
     readback: { expectedGeneration: 2, desiredState: "stopped" } });
+  const forged = { ...stopAction.expectedCommand, payload: { operationId: stopId,
+    readback: { expectedGeneration: 999, desiredState: "stopped" } } };
+  expect(await broker.request(stopAction, { command: forged }, stopInput.rpcDeadlineMs))
+    .toMatchObject({ ok: false, error: { kind: "permission" } });
+  await db.update(schema.sandboxBindings).set({ currentOperationId: "journal-start" });
+  expect(await broker.request(stopAction, { command: stopAction.expectedCommand }, stopInput.rpcDeadlineMs))
+    .toMatchObject({ ok: false, error: { kind: "permission" } });
+  await db.update(schema.sandboxBindings).set({ currentOperationId: "journal-stop", generation: 2 });
+  expect(await broker.request(stopAction, { command: stopAction.expectedCommand }, stopInput.rpcDeadlineMs))
+    .toMatchObject({ ok: false, error: { kind: "permission" } });
+  await db.update(schema.sandboxBindings).set({ generation: 1, presetDigest: "f".repeat(64) });
+  expect(await broker.request(stopAction, { command: stopAction.expectedCommand }, stopInput.rpcDeadlineMs))
+    .toMatchObject({ ok: false, error: { kind: "permission" } });
+  await db.update(schema.sandboxBindings).set({ presetDigest: "a".repeat(64) });
+  expect(await broker.request({ ...stopAction, revision: 2 }, { command: stopAction.expectedCommand }, stopInput.rpcDeadlineMs))
+    .toMatchObject({ ok: false, error: { kind: "permission" } });
+  await db.update(schema.sandboxOperations).set({ providerOperationId: nativeId })
+    .where(eq(schema.sandboxOperations.id, "journal-stop"));
+  expect(await broker.request(stopAction, { command: stopAction.expectedCommand }, stopInput.rpcDeadlineMs))
+    .toMatchObject({ ok: false, error: { kind: "permission" } });
+  await db.update(schema.sandboxOperations).set({ providerOperationId: stopId,
+    requestPayload: { expectedGeneration: 0 } }).where(eq(schema.sandboxOperations.id, "journal-stop"));
+  expect(await broker.request(stopAction, { command: stopAction.expectedCommand }, stopInput.rpcDeadlineMs))
+    .toMatchObject({ ok: false, error: { kind: "permission" } });
+  await db.update(schema.sandboxOperations).set({ requestPayload: { expectedGeneration: 2, desiredState: "stopped" } })
+    .where(eq(schema.sandboxOperations.id, "journal-stop"));
+  expect(await broker.request(stopAction, { command: stopAction.expectedCommand }, stopInput.rpcDeadlineMs))
+    .toMatchObject({ ok: false, error: { kind: "permission" } });
+  expect(calls).toHaveLength(2);
+});
+
+test("START, STOP, and DESTROY readbacks use persisted guest generations independent of the binding fence", async () => {
+  const { broker, calls, scope, db } = await setup();
+  const steps = [
+    { kind: "START", desiredState: "RUNNING", providerGeneration: 2, guestState: "running" },
+    { kind: "STOP", desiredState: "STOPPED", providerGeneration: 3, guestState: "stopped" },
+    { kind: "DESTROY", desiredState: "ABSENT", providerGeneration: 3, guestState: "absent" },
+  ] as const;
+  for (const [index, step] of steps.entries()) {
+    const journalId = `journal-${step.kind.toLowerCase()}`;
+    const operationId = `incus-${step.kind === "DESTROY" ? "destroy" : "setPower"}-${String(index + 1).repeat(8)}-1111-1111-1111-111111111111`;
+    await db.insert(schema.sandboxOperations).values({ id: journalId, bindingId: "binding", kind: step.kind,
+      generation: 1, idempotencyScope: "feature", idempotencyKey: journalId,
+      payloadHash: journalId, requestPayload: { expectedGeneration: step.providerGeneration },
+      state: "OUTCOME_UNKNOWN", providerOperationId: operationId });
+    await db.update(schema.sandboxBindings).set({ currentOperationId: journalId,
+      desiredState: step.desiredState, observedState: step.kind === "START" ? "STOPPED" : "RUNNING",
+      tombstonedAt: step.kind === "DESTROY" ? new Date() : null });
+    const input = { providerId: "incus", connectionId: "connection", sandboxId: "binding",
+      rpcDeadlineMs: Date.now() + 30_000, operationId };
+    const action = { ...scope("lifecycle.inspectOperation", input), approvedGuest: undefined };
+    expect(await broker.request(action, { command: action.expectedCommand }, input.rpcDeadlineMs))
+      .toMatchObject({ ok: true });
+    expect(calls.at(-1)?.payload).toEqual({ operationId,
+      readback: { expectedGeneration: step.providerGeneration, desiredState: step.guestState } });
+    expect(calls.at(-1)?.idempotency).toEqual({ requestId: journalId, key: journalId });
+    await db.update(schema.sandboxOperations).set({ state: "SUCCEEDED" })
+      .where(eq(schema.sandboxOperations.id, journalId));
+  }
+  expect(calls).toHaveLength(steps.length);
 });
 
 test("expired DESTROY readback needs the exact tombstoned current journal", async () => {

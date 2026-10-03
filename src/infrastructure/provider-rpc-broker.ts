@@ -160,7 +160,11 @@ function readbackScopeMatches(scope: PreparedIncusAction, binding: SandboxBindin
 }
 
 function readbackIntentMatches(scope: PreparedIncusAction, journal: SandboxOperation, kind: ReadbackKind): boolean {
-  if (kind !== "CREATE") return journal.requestPayload.expectedGeneration === journal.generation;
+  if (kind !== "CREATE") {
+    const expectedGeneration = journal.requestPayload.expectedGeneration;
+    return Object.keys(journal.requestPayload).length === 1
+      && Number.isSafeInteger(expectedGeneration) && (expectedGeneration as number) >= 1;
+  }
   const preset = scope.approvedPreset;
   return journal.generation === 1 && journal.requestPayload.profile === preset.profile
     && journal.requestPayload.presetId === preset.presetId
@@ -170,7 +174,7 @@ function readbackIntentMatches(scope: PreparedIncusAction, journal: SandboxOpera
 
 async function lifecycleReadbackJournal(db: Database, scope: PreparedIncusAction,
   binding: SandboxBinding, providerOperationId: string, kind: ReadbackKind):
-  Promise<{ id: string; generation: number; desiredState: "running" | "stopped" | "absent" } | null> {
+  Promise<{ id: string; expectedGeneration: number; desiredState: "running" | "stopped" | "absent" } | null> {
   if (scope.expectedCommand.idempotency) return null;
   const rows = await db.select().from(sandboxOperations).where(and(
     eq(sandboxOperations.bindingId, scope.bindingId),
@@ -181,7 +185,7 @@ async function lifecycleReadbackJournal(db: Database, scope: PreparedIncusAction
   const journal = rows[0]!;
   if (!readbackScopeMatches(scope, binding, journal, kind)
     || !readbackIntentMatches(scope, journal, kind)) return null;
-  return { id: journal.id, generation: journal.generation,
+  return { id: journal.id, expectedGeneration: journal.requestPayload.expectedGeneration as number,
     desiredState: kind === "START" ? "running" : kind === "DESTROY" ? "absent" : "stopped" };
 }
 
@@ -212,7 +216,7 @@ async function journalBoundTransportCommand(db: Database, scope: PreparedIncusAc
   return { ...command,
     idempotency: { requestId: journal.id, key: journal.id },
     ...(kind === "CREATE" ? {} : { payload: { ...command.payload as Record<string, JsonValue>,
-      readback: { expectedGeneration: journal.generation, desiredState: journal.desiredState } } }),
+      readback: { expectedGeneration: journal.expectedGeneration, desiredState: journal.desiredState } } }),
   };
 }
 

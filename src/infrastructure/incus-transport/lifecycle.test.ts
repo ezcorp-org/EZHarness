@@ -343,6 +343,38 @@ test("real preset and broker scope use the backend Incus profile for transport",
       "user.ezharness.preset_id": preset.id, "user.ezharness.generation": "1",
     } })) as never);
     expect(await transport.request(action.expectedCommand)).toMatchObject({ ok: true, sandbox: { profile: preset.profile } });
+
+    // CREATE and START advanced the guest to generation 2 while the durable
+    // binding stayed at generation 1. A saved STOP must inspect generation 3.
+    const stopJournalId = "journal-stop";
+    const stopProviderId = "incus-setPower-22222222-2222-2222-2222-222222222222";
+    await db.insert(schema.sandboxOperations).values({ id: stopJournalId, bindingId: sandboxId,
+      kind: "STOP", generation: 1, idempotencyScope: "incus-qualification-power",
+      idempotencyKey: "fixture:stop", payloadHash: "stop-hash", requestPayload: { expectedGeneration: 2 },
+      state: "OUTCOME_UNKNOWN", providerOperationId: stopProviderId });
+    await db.update(schema.sandboxBindings).set({ currentOperationId: stopJournalId,
+      desiredState: "STOPPED", observedState: "RUNNING" });
+    const stableId = `ezh-setPower-${sandboxName.slice(4)}-${createHash("sha256")
+      .update(`connection-a\0${sandboxId}\0${stopJournalId}\0${stopJournalId}\0setPower`).digest("hex").slice(0, 32)}`;
+    const stoppedInstance = { name: sandboxName, status: "Stopped", type: "container", profiles: ["ezharness"],
+      config: { "user.ezharness.managed_by": "ezharness-incus-sandbox", "user.ezharness.connection_id": "connection-a",
+        "user.ezharness.sandbox_id": sandboxId, "user.ezharness.profile": preset.profile,
+        "user.ezharness.preset_id": preset.id, "volatile.base_image": preset.imageDigest,
+        "user.ezharness.generation": "3", "user.ezharness.operation_id": stableId,
+        "user.ezharness.desired_state": "stopped" } };
+    const readbackTransport = new HostIncusLifecycleTransport(connections, {
+      providerInstallationId: action.installationId, providerReleaseId: action.releaseId,
+      revision: action.revision, approvedPreset: action.approvedPreset,
+    }, (async (url: string) => new URL(url).pathname.includes("/operations/")
+      ? reply({}, 404) : reply(stoppedInstance)) as never);
+    const readbackBroker = new ProviderRpcBroker(connections, undefined, db, () => readbackTransport);
+    const stopInput = { ...input, operationId: stopProviderId };
+    const stopAction = await readbackBroker.prepareAction(snapshot, sandboxId, "lifecycle.inspectOperation", stopInput);
+    const inspected = await readbackBroker.request(stopAction,
+      { command: stopAction.expectedCommand }, stopInput.rpcDeadlineMs) as { ok: boolean;
+        result?: { operation?: { state: string; observedState: string } } };
+    expect(inspected).toMatchObject({ ok: true, result: { operation: {
+      state: "succeeded", observedState: "stopped" } } });
   } finally { await database.close(); }
 });
 
