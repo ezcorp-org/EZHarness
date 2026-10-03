@@ -11,13 +11,8 @@ import {
 import { ExtensionPageCache } from "$server/extensions/page-cache";
 import type { Extension } from "$server/db/schema";
 
-// The FIRST `renderExtensionPage` call in this file pays a one-time ~5.7s
-// warm-up (lazy transitive imports across the server graph resolve on first
-// use); every subsequent call in the same file measures <1ms. That lands
-// right on vitest's 5s default, so the file flipped red or green purely on
-// machine load — a real flake, not a slow assertion. What's under test here
-// is scope threading and cache keying, never latency, so give the file
-// headroom rather than racing the warm-up.
+// Scope fixtures do not boot the server; bus wiring has its own focused suite.
+vi.mock("$lib/server/context", () => ({ getBus: () => ({ on: vi.fn() }) }));
 vi.setConfig({ testTimeout: 30_000 });
 
 const EXT = {
