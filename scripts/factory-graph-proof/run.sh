@@ -80,8 +80,6 @@ case "${1:-}" in
     one_pass mock forced-failure control-forced-failure
     bun "$REPO/scripts/factory-graph-proof/verify-diagnostics.ts" "$W19A_OUT" control-forced-failure || status=1
     bun "$REPO/scripts/factory-graph-proof/summarize.ts" "$W19A_OUT" || status=1
-    # The guest images are built per pass; remove the untagged layers they leave.
-    podman image prune -f > "$W19A_OUT/image-prune.log" 2>&1
     exit $status
     ;;
   *)

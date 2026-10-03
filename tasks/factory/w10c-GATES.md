@@ -64,7 +64,8 @@ file and in `openai.json`, which is why the first round added no entry.)
 | `ac33cd7eb` | fix(providers): an API key alone cannot make the subscription-only pin ready | 1 |
 | `7bf9831eb` | docs(w10c): gates and C10 record for the gpt-6-luna amendment | 0 |
 | `71c6add0f` | feat(factory-graph-proof): opt-in persistent deployment for the sign-in flow | 1 |
-| this commit | docs(w10c): gates for the persistent deployment and the sign-in flow | 0 |
+| `86c7852e0` | docs(w10c): gates for the persistent deployment and the sign-in flow | 0 |
+| this commit | fix(factory-graph-proof): the harness never prunes shared image storage | 1 |
 
 All hook suites passed in the hook (logs/commit-c*.log). No commit mapped more than 12.
 
@@ -131,6 +132,25 @@ compiled digests. No test pins a reference digest literally, so no hash check wa
   folders are `deployment_incomplete`; key files are 0600, the folder 0700; the probe environment points at the
   deployment's database with its own secret and salt. `stack.ts`, `hold.ts`, `deployment-probe.ts` and `run.sh`
   are harness code: proved only by a real start, under the lock at R8 (the first hold is that proof).
+- [x] G9 (ruling item 4): the graph-proof harness never prunes shared image storage.
+  The runner stages files into one pinned image and builds none (`PodmanRunner.build` reports `imageDigest: this.image`),
+  so a pass has no image of its own to remove by tag; the line is removed, not replaced.
+  CHECK: `bun test --timeout 30000 ./scripts/factory-graph-proof/harness-hygiene.test.ts`
+  EXPECT: red with the line named, then 2 pass. EVIDENCE: `logs/g9-red.log`
+  (`run.sh:84: podman image prune -f > "$W19A_OUT/image-prune.log" 2>&1`), `logs/g9-green.log`, `logs/g9-diff.txt`.
+  Diff:
+  ```diff
+  @@ -80,8 +80,6 @@ case "${1:-}" in
+       one_pass mock forced-failure control-forced-failure
+       bun "$REPO/scripts/factory-graph-proof/verify-diagnostics.ts" "$W19A_OUT" control-forced-failure || status=1
+       bun "$REPO/scripts/factory-graph-proof/summarize.ts" "$W19A_OUT" || status=1
+  -    # The guest images are built per pass; remove the untagged layers they leave.
+  -    podman image prune -f > "$W19A_OUT/image-prune.log" 2>&1
+       exit $status
+  ```
+  The guard covers every `.sh`, `.ts`, `.mjs` and `.js` file under `scripts/factory-graph-proof/` and every prune
+  form (image, system, container, volume; podman or docker); its own first case checks the pattern on positive and
+  negative lines (grep here is ugrep). Guard set 468 pass, gate-integrity integ/w00 clean (`logs/*-c10.log`).
 - [ ] G8 (R8): the real legs. OPEN: waits for the coordinator (wave4h push, the user's sign-in, the heavy lock).
   Scheduled into the same lock holds: the sign-in hold itself; `scripts/factory-graph-proof/run.sh pass mock none`
   at this head (the harness changed); `tests/postgres/factory-definitions.test.ts`; and the lint fix below with its
@@ -164,5 +184,4 @@ Notes:
   never does; a receipt that keeps the full stdout should be read with that in mind.
 - Pre-existing lint warning at the base: `tests/postgres/helpers/factory-recovery-databases.ts:50` (`noCommaOperator`).
   Seen, fix scheduled: W10c fixes it at R8 time under the lock, where its hook-mapped PostgreSQL suites run.
-- Finding for the coordinator, not changed here: `scripts/factory-graph-proof/run.sh all` ends with
-  `podman image prune -f`, which the disk rule forbids (it is host-wide). `hold` and `probe` do not call it.
+- The `podman image prune -f` at the end of `run.sh all` is removed (G9).
