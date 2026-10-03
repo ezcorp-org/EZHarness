@@ -5677,6 +5677,8 @@ Open factory items elsewhere in this file (class (a) of the todo audit, 41 boxes
 - [x] Guard `scripts/factory-private-root-registration.test.ts`: red at the base, green at the head, in the guard set by name.
 - [x] Green in the same container, both shapes, 92 pass / 0 fail; coverage gates, lint, typecheck, boundaries, gate-integrity, guard set green.
 
+- [x] Widening: one composite action for the three storage start copies, stop only after a start that ran (R10), pin test red then green (1fa4a5354).
+
 Review: the brief named a missing S3 service and credential set as the cause. The evidence shows the W4G-4 class
 instead (a private file under the hosted runner's owned 0755 home). No workflow change was needed. Gates and receipts:
 tasks/factory/w4h-5-GATES.md.
