@@ -1,10 +1,12 @@
 import { describe, expect, test } from "bun:test";
+import { spawn } from "node:child_process";
 import { chmod, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { referenceCodeFixtureCandidate, referenceCodeLaunchRepository } from "./fixtures";
 import { referenceCodeFilesDigest, type ReferenceCodeFile } from "./snapshot";
 import {
   materializeReferenceCodeWorkspace,
+  killReferenceCodeProcessGroup,
   ReferenceCodeProcessRunner,
   ReferenceCodeWorkspaceError,
   REFERENCE_CODE_OUTPUT_LIMIT,
@@ -110,6 +112,28 @@ describe("the check command runner", () => {
     const result = await new ReferenceCodeProcessRunner().run(["sh", "-c", "sleep 30"], { cwd: process.cwd(), timeoutMs: 250 });
     expect(result.timedOut).toBe(true);
     expect(result.exitCode).not.toBe(0);
+  });
+
+  // A check command is a tree (`bun run typecheck` starts its own children), and a shell that does
+  // not exec its last command (Ubuntu's dash, for one) keeps even `sh -c "sleep 30"` as a parent and
+  // a child. The budget must end the whole tree: a descendant left alive holds the output pipe, so
+  // the result waits for it and reports whatever it printed after the budget ran out.
+  test("kills every process the command started when the budget runs out", async () => {
+    const result = await new ReferenceCodeProcessRunner().run(["sh", "-c", "(sleep 4; echo outlived-the-budget) & echo forked; wait"], { cwd: process.cwd(), timeoutMs: 1_000 });
+    expect(result.output).toContain("forked");
+    expect(result.timedOut).toBe(true);
+    expect(result.output).not.toContain("outlived-the-budget");
+  });
+
+  test("a budget that runs out after the whole group ended is not an error", () => {
+    // A live child of this process leads no group, so its pid names a group with no members: the
+    // state the budget meets when every process exited before the runner observed `close`. A live
+    // pid is used because a reaped one could be reused by an unrelated group.
+    const bystander = spawn("sleep", ["30"], { stdio: "ignore" });
+    try {
+      expect(() => killReferenceCodeProcessGroup(bystander.pid!)).not.toThrow();
+      expect(bystander.signalCode).toBeNull();
+    } finally { bystander.kill("SIGKILL"); }
   });
 
   test("truncates a flood of output instead of holding all of it", async () => {
