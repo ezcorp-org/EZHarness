@@ -18,7 +18,14 @@ Data image: the hosted runner's podman (4.9.3) does not rebuild the pinned data 
 builds), against the pin `sha256:f9cc7477…` (podman 5.8.2). The four base layers and the config are equal. Only the COPY and RUN layers
 differ. The copied requirements file is byte-identical, and a build under umask 077 (the host's) gives the same e64f66da…, so the cause is the
 podman toolchain. scripts/build-factory-data-image.sh refuses the mismatch, as designed. No retag and no repin. The journey suite therefore
-runs in the factory-real lane (W4H-4, its own commit). The hosted step pulls only the base. A registry for the data image stays the user's decision.
+runs in the factory-real lane (W4H-4, its own commit). The hosted step pulls only the base (coordinator ruling: option A; option C, a
+pinned podman 5.8.x in CI, rejected). Standing user decision (option B): publish the data image by digest to a registry; then a hosted
+step can pull it and the journey can return to the hosted shards.
+
+Placement: the step runs after the podman setup and before the gate-integrity step. It needs no uv, so it does not depend on W4H-2's
+setup-python-toolchain step, and the two hunks merge cleanly. The shared helper stepsNeedingAction (scripts/lib/ci-registration.ts) is
+only in integ/w00 (W4H-2), not in this base 52d8ba079. The placement test here uses its own step search; after integration it can use
+the helper.
 
 - [x] G1: red in the runner-shaped container at 52d8ba079 with the hosted errors. CHECK: E/run-tests-locked.sh after E/in-runner-setup.sh.
   EXPECT: applied-controls and python-guest "docker.io/library/python@sha256:3121f8b0…: image not known"; journey
