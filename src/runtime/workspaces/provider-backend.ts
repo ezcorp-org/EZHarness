@@ -3,7 +3,7 @@ import { posix } from "node:path";
 
 import { getToolOutputLimit, truncateText } from "../tools/output-limits";
 import { toolError } from "../tools/types";
-import type { SandboxWorkspaceBackend, SandboxWorkspaceBinding } from "./target";
+import type { SandboxWorkspaceBackend, SandboxWorkspaceBinding, SandboxWorkspacePrincipal } from "./target";
 
 /** The host owns the release, connection, deadline, and mutation identity.
  * This interface only carries declared guest actions and the pinned binding. */
@@ -18,6 +18,7 @@ export interface ProviderSandboxWorkspaceCaller {
     action: WorkspaceGuestAction;
     payload: Record<string, unknown>;
     signal?: AbortSignal;
+    principal?: SandboxWorkspacePrincipal;
   }): Promise<unknown>;
 }
 
@@ -94,7 +95,7 @@ export function createProviderSandboxWorkspaceBackend(caller: ProviderSandboxWor
       const call = async (action: WorkspaceGuestAction, payload: Record<string, unknown>): Promise<Reply> => {
         if (signal?.aborted) throw new Error("Sandbox operation aborted");
         return object(await caller.call({
-          binding, toolCallId: `${toolCallId}:${++actionSequence}`, action, payload, signal,
+          binding, toolCallId: `${toolCallId}:${++actionSequence}`, action, payload, signal, principal: request.principal,
         }));
       };
       const stat = async (path: string): Promise<Reply> => {

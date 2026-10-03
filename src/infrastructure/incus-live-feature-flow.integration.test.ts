@@ -102,7 +102,7 @@ async function fixture() {
       profile: preset.profile, presetId: preset.id, desiredState: guestState, observedState: guestState,
       generation: guestGeneration, bootId: "boot-1", observedAt: "2026-09-22T12:00:00Z" } }),
   });
-  const workspaceCaller = new IncusWorkspaceCaller({ db, resolveRelease: activeRelease,
+  const workspaceCaller = new IncusWorkspaceCaller({ db, hostOwned: true, resolveRelease: activeRelease,
     resolveConnection: scope => connections.resolveForHost(scope), now: () => Date.now(),
     invoke: async (_installationId, _bindingId, operation, input) => {
       guestCalls.push({ operation, input });

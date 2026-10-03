@@ -520,7 +520,7 @@ export class AgentExecutor {
       controller.signal.throwIfAborted();
       return effect();
     };
-    const sandboxProviders = workspaceTarget?.kind === "sandbox" ? createSandboxAgentProviders(workspaceTarget) : undefined;
+    const sandboxProviders = workspaceTarget?.kind === "sandbox" ? createSandboxAgentProviders(workspaceTarget, userId ? { userId } : undefined) : undefined;
     const shell: ShellProvider = serviceInvocation ? { run: denyServiceAdapter } : sandboxProviders ? { run: (...args) => guarded(() => sandboxProviders.shell.run(...args)) } : sandboxBound ? { run: denySandboxHostAdapter } : control ? { run: (...args) => guarded(() => this.shell.run(...args)) } : this.shell;
     const file: FileProvider = serviceInvocation ? { read: denyServiceAdapter, write: denyServiceAdapter, exists: denyServiceAdapter } : sandboxProviders ? {
       read: (...args) => guarded(() => sandboxProviders.file.read(...args)),
@@ -1042,6 +1042,8 @@ export class AgentExecutor {
     conversationId: string,
     userMessage: string,
     options: { projectId?: string; workingDir?: string; workspaceTarget?: import("./workspaces/target").WorkspaceTarget; provider?: string; model?: string; tier?: import("./tier-classifier").RoutingTier; system?: string; runId?: string; parentMessageId?: string; agentConfigId?: string; permissionMode?: import("./tools/types").PermissionMode; thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh"; modeId?: string; orchestrationDepth?: number; toolRestriction?: "all" | "read-only" | "none"; allowedTools?: string[]; deniedTools?: string[]; readOnlyAllowedTools?: string[]; memberOverrides?: Map<string, import("../types").TeamMemberOverrides>; subAgentMembers?: import("../types").TeamMember[]; attachments?: import("../chat/attachments/content-builder").StagedAttachment[]; commandResolver?: import("./mention-wiring").CommandResolver;
+      /** Authenticated run-start principal supplied by host routes, never request input. */
+      workspacePrincipal?: import("./workspaces/target").SandboxWorkspacePrincipal;
       /**
        * ── Per-API-key tool policy (Boundary 3) ──────────────────────────
        * Two scalars, BOTH defaulting to undefined so that a cookie session

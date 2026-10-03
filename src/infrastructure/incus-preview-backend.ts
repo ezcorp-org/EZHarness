@@ -88,6 +88,7 @@ function guestCaller(caller: ProviderSandboxWorkspaceCaller, request: SandboxPre
   const requestId = `preview-${createHash("sha256").update(request.previewId).update(randomUUID()).digest("hex").slice(0, 48)}`;
   let sequence = 0;
   return (action, input) => caller.call({ binding: request.binding, toolCallId: `${requestId}:${++sequence}`, action, payload: input,
+    principal: { userId: request.userId },
     signal: action === "process.cancel" ? undefined : request.request.signal });
 }
 

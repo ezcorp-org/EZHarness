@@ -88,6 +88,8 @@ export type OrchestratedRun = AgentRun & RunOrchestrationMeta;
 /** Subset of streamChat's options the setup-tools phase reads. */
 export interface SetupToolsOptions {
   projectId?: string;
+  /** Authenticated host run-start identity; never a model parameter. */
+  workspacePrincipal?: import("../workspaces/target").SandboxWorkspacePrincipal;
   /** Host-selected workspace route. Request payloads must not populate it. */
   workspaceTarget?: WorkspaceTarget;
   /** Absolute directory the built-in file/shell tools root at INSTEAD of the
@@ -1180,6 +1182,9 @@ export async function setupTools(
             // wired when we have an owning user; the launch itself is
             // fail-safe (refuses cleanly on a static-mode host).
             const previewUserId = convRecord?.userId ?? null;
+            const workspaceUserId = options.workspacePrincipal?.userId ?? previewUserId
+              ?? (resolvedWorkspaceTarget?.kind === "sandbox"
+                ? await (await import("../../db/queries/conversations")).resolveConversationOwnerUserId(conversationId) : null);
             const previewWiring = resolvedWorkspaceTarget?.kind === "local" && previewUserId && !legacySandboxBound
               ? await (async (): Promise<import("../tools").ShellPreviewWiring> => {
                   const [{ launchPreviewDevServer }, { getPreviewPortWatcher }] = await Promise.all([
@@ -1200,7 +1205,7 @@ export async function setupTools(
             // project back into a host checkout.
             const toolDefs = legacySandboxBound
               ? await resolveProjectBuiltinTools(options.projectId, options.workingDir, previewWiring, previewUserId ? { userId: previewUserId, conversationId } : undefined)
-              : await resolveProviderProjectBuiltinTools(options.projectId, resolvedWorkspaceTarget!, previewWiring);
+              : await resolveProviderProjectBuiltinTools(options.projectId, resolvedWorkspaceTarget!, previewWiring, workspaceUserId ? { userId: workspaceUserId, conversationId } : undefined);
             for (const def of toolDefs) ctx.builtinToolDefsMap.set(def.name, def);
 
             const wrappedTools: AgentTool[] = toolDefs.map((def) =>

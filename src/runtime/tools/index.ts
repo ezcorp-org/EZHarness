@@ -57,7 +57,7 @@ export function getBuiltinToolDefs(
       return {
         ...definition,
         execute: (toolCallId, params, signal, onUpdate) =>
-          executeSandboxWorkspaceTool(target, operation, toolCallId, params, signal, onUpdate),
+          executeSandboxWorkspaceTool(target, operation, toolCallId, params, signal, onUpdate, principal),
       };
     }
     const operation = definition.name as SandboxWorkspaceOperation;

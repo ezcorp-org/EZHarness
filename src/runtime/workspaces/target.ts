@@ -99,11 +99,15 @@ export interface SandboxPreviewBackend {
   close(request: SandboxPreviewCloseRequest): Promise<void>;
 }
 
+export interface SandboxWorkspacePrincipal { userId: string }
+
 export interface SandboxWorkspaceToolRequest {
   binding: Readonly<SandboxWorkspaceBinding>;
   toolName: WorkspaceToolName;
   toolCallId: string;
   params: unknown;
+  /** Host-derived initiating user, never a tool parameter. */
+  principal?: SandboxWorkspacePrincipal;
   signal?: AbortSignal;
   onUpdate?: AgentToolUpdateCallback;
 }
@@ -223,6 +227,7 @@ export async function executeSandboxWorkspaceTool(
   params: unknown,
   signal?: AbortSignal,
   onUpdate?: AgentToolUpdateCallback,
+  principal?: SandboxWorkspacePrincipal,
 ): Promise<AgentToolResult<unknown>> {
   if (!target.backend) return unavailable("backend_missing");
   try {
@@ -233,6 +238,7 @@ export async function executeSandboxWorkspaceTool(
       params,
       signal,
       onUpdate,
+      principal,
     });
   } catch {
     return unavailable("backend_failed");
@@ -286,6 +292,7 @@ function workspaceResultError(result: AgentToolResult<unknown>): Error | null {
  */
 export function createSandboxAgentProviders(
   target: SandboxWorkspaceTarget,
+  principal?: SandboxWorkspacePrincipal,
 ): { shell: ShellProvider; file: FileProvider } {
   let callSequence = 0;
   const execute = async (
@@ -296,6 +303,9 @@ export function createSandboxAgentProviders(
     toolName,
     `agent-provider-${++callSequence}`,
     params,
+    undefined,
+    undefined,
+    principal,
   );
 
   const shell: ShellProvider = {

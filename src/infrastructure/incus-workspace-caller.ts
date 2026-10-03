@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import {
   validateSandboxProviderMethodExchange,
   validateSandboxProviderMethodValue,
@@ -7,7 +7,7 @@ import {
 } from "@ezcorp/extension-contract";
 import type { Database } from "../db/connection";
 import { getDb } from "../db/connection";
-import { sandboxBindings } from "../db/schema";
+import { projectMembers, sandboxBindings, users } from "../db/schema";
 import {
   getReleaseRuntime,
   ReleaseProcess,
@@ -45,17 +45,19 @@ const mutations = new Set<WorkspaceGuestAction>(["file.writeAtomic", "process.st
 const actionSuffix = /^.+:[1-9][0-9]*$/;
 
 export interface IncusWorkspaceCallerDependencies {
+  /** Explicit host-owned qualification only. Never derived from provider or request data. */
+  hostOwned?: boolean;
   db?: Database;
   resolveRelease?: (installationId: string) => Promise<ActiveExtensionRelease>;
   resolveConnection?: (scope: ProviderConnectionScope) => Promise<ProviderConnectionCredentials>;
-  invoke?: (installationId: string, bindingId: string, operation: SandboxProtocolOperation, input: Record<string, unknown>, signal?: AbortSignal) => Promise<unknown>;
+  invoke?: (installationId: string, bindingId: string, operation: SandboxProtocolOperation, input: Record<string, unknown>, signal?: AbortSignal, invocationGuard?: () => Promise<void>) => Promise<unknown>;
   now?: () => number;
 }
 
-async function invokeRelease(installationId: string, bindingId: string, operation: SandboxProtocolOperation, input: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
+async function invokeRelease(installationId: string, bindingId: string, operation: SandboxProtocolOperation, input: Record<string, unknown>, signal?: AbortSignal, invocationGuard?: () => Promise<void>): Promise<unknown> {
   const process = new ReleaseProcess(installationId);
   try {
-    const response = await process.callIncusSandboxOperation(bindingId, operation, input, { signal });
+    const response = await process.callIncusSandboxOperation(bindingId, operation, input, { signal, invocationGuard });
     return response.result;
   } finally {
     process.kill();
@@ -87,6 +89,7 @@ export class IncusWorkspaceCaller implements ProviderSandboxWorkspaceCaller {
   private readonly resolveConnection: NonNullable<IncusWorkspaceCallerDependencies["resolveConnection"]>;
   private readonly invoke: NonNullable<IncusWorkspaceCallerDependencies["invoke"]>;
   private readonly now: () => number;
+  private readonly hostOwned: boolean;
 
   constructor(dependencies: IncusWorkspaceCallerDependencies = {}) {
     this.db = dependencies.db ?? getDb();
@@ -94,10 +97,29 @@ export class IncusWorkspaceCaller implements ProviderSandboxWorkspaceCaller {
     this.resolveConnection = dependencies.resolveConnection ?? (scope => new ProviderConnectionStore(this.db).resolveForHost(scope));
     this.invoke = dependencies.invoke ?? invokeRelease;
     this.now = dependencies.now ?? Date.now;
+    this.hostOwned = dependencies.hostOwned === true;
+  }
+
+  private async authorize(projectId: string, userId?: string): Promise<void> {
+    if (!userId) {
+      if (this.hostOwned) return;
+      throw new Error("Incus workspace principal is unavailable");
+    }
+    const [user] = await this.db.select({ role: users.role, status: users.status }).from(users).where(eq(users.id, userId)).limit(1);
+    if (user?.status !== "active") throw new Error("Incus workspace authority is unavailable");
+    if (user.role === "admin") return;
+    const [membership] = await this.db.select({ role: projectMembers.role }).from(projectMembers)
+      .where(and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, userId))).limit(1);
+    if (membership?.role !== "member" && membership?.role !== "owner") throw new Error("Incus workspace authority is unavailable");
   }
 
   async call(request: Parameters<ProviderSandboxWorkspaceCaller["call"]>[0]): Promise<unknown> {
     if (request.signal?.aborted) throw new Error("Incus workspace action was cancelled");
+    // Capture the host principal before any asynchronous work; payload fields cannot replace it.
+    const userId = request.principal?.userId;
+    const projectId = request.binding.projectId;
+    const authorize = () => this.authorize(projectId, userId);
+    await authorize();
     const [current] = await this.db.select().from(sandboxBindings)
       .where(eq(sandboxBindings.projectId, request.binding.projectId)).limit(1);
     if (!current) throw new Error("Incus workspace binding is unavailable");
@@ -146,7 +168,8 @@ export class IncusWorkspaceCaller implements ProviderSandboxWorkspaceCaller {
     }
     validateSandboxProviderMethodValue(operation, "input", input);
     if (request.signal?.aborted) throw new Error("Incus workspace action was cancelled");
-    const result = await this.invoke(current.providerInstallationId, current.id, operation, input, request.signal);
+    await authorize();
+    const result = await this.invoke(current.providerInstallationId, current.id, operation, input, request.signal, authorize);
     return validateSandboxProviderMethodExchange(operation, input, result).result;
   }
 }

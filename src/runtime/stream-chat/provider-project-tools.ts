@@ -7,9 +7,10 @@ export async function resolveProviderProjectBuiltinTools(
   projectId: string,
   target: WorkspaceTarget,
   preview?: import("../tools").ShellPreviewWiring,
+  principal?: import("../workspace/target").WorkspacePrincipal,
 ): Promise<import("../tools").BuiltinToolDef[]> {
   const { getBuiltinToolDefs } = await import("../tools");
-  return getBuiltinToolDefs(target, preview).map(definition => ({
+  return getBuiltinToolDefs(target, preview, undefined, principal).map(definition => ({
     ...definition,
     execute: async (toolCallId, params, signal, onUpdate) => {
       try {

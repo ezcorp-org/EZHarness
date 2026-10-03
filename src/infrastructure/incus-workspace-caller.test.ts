@@ -1,20 +1,25 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import type { SandboxProtocolOperation } from "@ezcorp/extension-contract";
 import { up as addSandboxController } from "../db/migrations/add-sandbox-controller";
 import * as schema from "../db/schema";
 import type { ActiveExtensionRelease } from "../extensions/release-process";
+import { ReleaseProcess } from "../extensions/release-process";
 import type { SandboxWorkspaceBinding } from "../runtime/workspaces/target";
 import { SandboxController } from "../sandboxes/controller";
 import { incusMethodName } from "../../extensions/incus-sandbox/manifest";
 import type { ProviderConnectionCredentials, ProviderConnectionScope } from "./provider-connections/store";
 import { IncusWorkspaceCaller } from "./incus-workspace-caller";
+import { eq } from "drizzle-orm";
+import { getBuiltinToolDefs } from "../runtime/tools";
+import { createProviderSandboxWorkspaceBackend } from "../runtime/workspaces/provider-backend";
+import { sandboxWorkspaceTarget, createSandboxAgentProviders } from "../runtime/workspaces/target";
 
 const open: PGlite[] = [];
 const now = Date.parse("2026-09-22T12:00:00Z");
 
-async function setup(defaultInvoke = false) {
+async function setup(defaultInvoke = false, hostOwned = true) {
   const pglite = new PGlite();
   open.push(pglite);
   await pglite.waitReady;
@@ -57,23 +62,92 @@ async function setup(defaultInvoke = false) {
   const calls: Array<{ installationId: string; bindingId: string; operation: SandboxProtocolOperation; input: Record<string, unknown> }> = [];
   const releaseLookups: string[] = [];
   const connectionLookups: ProviderConnectionScope[] = [];
+  let connectionHook = async () => {};
   let response: (operation: SandboxProtocolOperation, input: Record<string, unknown>) => unknown = () => ({ ok: true, file: {
     path: "src/app.ts", kind: "file", revision: "revision-1", sizeBytes: 5, executable: false,
   } });
   const caller = new IncusWorkspaceCaller({
-    db, now: () => now,
+    db, hostOwned, now: () => now,
     resolveRelease: async installationId => { releaseLookups.push(installationId); return release; },
-    resolveConnection: async scope => { connectionLookups.push(scope); return connection; },
+    resolveConnection: async scope => { connectionLookups.push(scope); await connectionHook(); return connection; },
     ...(!defaultInvoke ? { invoke: async (installationId: string, bindingId: string, operation: SandboxProtocolOperation, input: Record<string, unknown>) => {
       calls.push({ installationId, bindingId, operation, input });
       return response(operation, input);
     } } : {}),
   });
-  return { caller, binding, connection, release, calls, releaseLookups, connectionLookups,
+  return { caller, db, pglite, binding, connection, release, calls, releaseLookups, connectionLookups,
+    setConnectionHook: (hook: typeof connectionHook) => { connectionHook = hook; },
     setResponse: (next: typeof response) => { response = next; } };
 }
 
 afterEach(async () => { await Promise.all(open.splice(0).map(db => db.close())); });
+
+test("native tools deny the next guest call after the initiating member loses membership", async () => {
+  const { caller, db, pglite, binding, calls, setResponse } = await setup(false, false);
+  await pglite.exec("CREATE TABLE users (id TEXT PRIMARY KEY, role TEXT NOT NULL, status TEXT NOT NULL); CREATE TABLE project_members (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, user_id TEXT NOT NULL, role TEXT NOT NULL)");
+  await pglite.exec("INSERT INTO users VALUES ('member','member','active'); INSERT INTO project_members VALUES ('membership','project','member','member')");
+  setResponse(operation => operation === "files.stat"
+    ? { ok: true, file: { path: "src/app.ts", kind: "file", revision: "revision-1", sizeBytes: 0, executable: false } }
+    : { ok: true, path: "src/app.ts", revision: "revision-1", offsetBytes: 0, dataBase64: "", byteLength: 0, eof: true });
+  const target = sandboxWorkspaceTarget(binding, createProviderSandboxWorkspaceBackend(caller));
+  const read = getBuiltinToolDefs(target, undefined, undefined, { userId: "member", conversationId: "owned-conversation" }).find(tool => tool.name === "readFile")!;
+  expect((await read.execute("read-1", { path: "src/app.ts" })).content[0]).toMatchObject({ type: "text", text: "" });
+  expect(calls).toHaveLength(2);
+  await db.delete(schema.projectMembers).where(eq(schema.projectMembers.userId, "member"));
+  const denied = await read.execute("read-2", { path: "src/app.ts", userId: "admin" });
+  expect(JSON.stringify(denied)).toContain("unavailable");
+  const agent = createSandboxAgentProviders(target, { userId: "member" });
+  await expect(agent.shell.run("touch denied-marker")).rejects.toThrow("unavailable");
+  expect(calls).toHaveLength(2);
+});
+
+test("each call reads current active user and role; no principal or forged payload can grant authority", async () => {
+  const { caller, pglite, binding, calls } = await setup(false, false);
+  await pglite.exec("CREATE TABLE users (id TEXT PRIMARY KEY, role TEXT NOT NULL, status TEXT NOT NULL); CREATE TABLE project_members (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, user_id TEXT NOT NULL, role TEXT NOT NULL)");
+  await pglite.exec("INSERT INTO users VALUES ('actor','member','active'); INSERT INTO project_members VALUES ('membership','project','actor','owner')");
+  const request = { binding, toolCallId: "stat:1", action: "file.stat" as const, payload: { path: "src/app.ts" } };
+  await expect(caller.call(request)).rejects.toThrow("principal is unavailable");
+  await expect(caller.call({ ...request, principal: { userId: "missing" } })).rejects.toThrow("authority is unavailable");
+  await caller.call({ ...request, principal: { userId: "actor" } });
+  await pglite.exec("UPDATE project_members SET role='unknown'");
+  await expect(caller.call({ ...request, principal: { userId: "actor" } })).rejects.toThrow("authority is unavailable");
+  await pglite.exec("DELETE FROM project_members; UPDATE users SET role='admin'");
+  await caller.call({ ...request, principal: { userId: "actor" } });
+  await pglite.exec("UPDATE users SET status='disabled'");
+  await expect(caller.call({ ...request, principal: { userId: "actor" } })).rejects.toThrow("authority is unavailable");
+  await pglite.exec("UPDATE users SET status='active', role='member'");
+  await expect(caller.call({ ...request, principal: { userId: "actor" }, payload: { path: "src/app.ts", userId: "admin" } })).rejects.toThrow("authority is unavailable");
+  expect(calls).toHaveLength(2);
+});
+
+test("membership revoked during connection resolution denies before guest dispatch", async () => {
+  const { caller, pglite, binding, calls, setConnectionHook } = await setup(false, false);
+  await pglite.exec("CREATE TABLE users (id TEXT PRIMARY KEY, role TEXT NOT NULL, status TEXT NOT NULL); CREATE TABLE project_members (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, user_id TEXT NOT NULL, role TEXT NOT NULL); INSERT INTO users VALUES ('actor','member','active'); INSERT INTO project_members VALUES ('membership','project','actor','member')");
+  setConnectionHook(async () => { await pglite.exec("DELETE FROM project_members"); });
+  await expect(caller.call({ binding, principal: { userId: "actor" }, toolCallId: "stat:1", action: "file.stat", payload: { path: "src/app.ts" } }))
+    .rejects.toThrow("authority is unavailable");
+  expect(calls).toHaveLength(0);
+});
+
+test("the production release call receives a guard that rejects later revocation with the captured project", async () => {
+  const { caller, pglite, binding } = await setup(true, false);
+  await pglite.exec("CREATE TABLE users (id TEXT PRIMARY KEY, role TEXT NOT NULL, status TEXT NOT NULL); CREATE TABLE project_members (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, user_id TEXT NOT NULL, role TEXT NOT NULL); INSERT INTO users VALUES ('actor','member','active'); INSERT INTO project_members VALUES ('membership','project','actor','member')");
+  const invoke = spyOn(ReleaseProcess.prototype, "callIncusSandboxOperation").mockImplementation(async (_binding, _operation, _input, options) => {
+    expect(options?.invocationGuard).toBeFunction();
+    await options!.invocationGuard!();
+    await pglite.exec("DELETE FROM project_members");
+    await pglite.exec("INSERT INTO project_members VALUES ('forged','forged-project','actor','member')");
+    // A queued caller cannot replace the fixed authority while awaiting a worker.
+    binding.projectId = "forged-project";
+    await options!.invocationGuard!();
+    throw new Error("Guest effect must not run");
+  });
+  try {
+    await expect(caller.call({ binding, principal: { userId: "actor" }, toolCallId: "stat:1", action: "file.stat", payload: { path: "src/app.ts" } }))
+      .rejects.toThrow("authority is unavailable");
+    expect(invoke).toHaveBeenCalledTimes(1);
+  } finally { invoke.mockRestore(); }
+});
 
 test("file action uses the persisted binding and declared Incus method", async () => {
   const { caller, binding, calls, releaseLookups, connectionLookups } = await setup();
