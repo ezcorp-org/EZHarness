@@ -616,3 +616,24 @@ test("a management-created Incus project opens chat and saves its own conversati
 	expect(persisted.status()).toBe(200);
 	expect(await persisted.json()).toMatchObject({ id: conversation.id, projectId: prepared.project.id });
 });
+
+
+test("qualification failure shows the safe diagnostic and does not repeat the run", async ({ page }) => {
+	await mockManagement(page);
+	let attempts = 0;
+	const message = "Qualification failed during enforcement (guest_reached_a_forbidden_network_target); cleanup confirmed. Inspect the saved fixtures before starting another run.";
+	await page.route("**/api/infrastructure/incus/qualification", route => {
+		attempts++;
+		return route.fulfill({ status: 409, json: { code: "qualification_preparation_failed", stage: "enforcement", causeCode: "guest_reached_a_forbidden_network_target", cleanup: "confirmed", message } });
+	});
+	await page.goto("/extensions/incus-management");
+	await page.getByRole("button", { name: "Prepare qualification…" }).click();
+	await page.getByRole("checkbox", { name: /I reviewed this plan/ }).check();
+	await page.getByRole("button", { name: "Apply reviewed fixture plan" }).click();
+	await expect(page.getByTestId("qualification-workflow")).toContainText("Operator fixtures are ready");
+	await page.getByRole("checkbox", { name: /host is ready for a live sandbox qualification/ }).check();
+	await page.getByRole("button", { name: "Run live qualification" }).click();
+	await expect(page.getByRole("alert")).toContainText(message);
+	expect(attempts).toBe(1);
+	await expect(page.getByRole("button", { name: "Create project sandbox" })).toBeDisabled();
+});

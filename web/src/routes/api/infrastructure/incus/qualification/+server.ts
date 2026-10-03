@@ -99,7 +99,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
       const diagnostic = { stage: error.stage, cleanup: error.cleanup, causeCode: error.causeCode };
       log.warn("Incus qualification preparation failed", { runId: input.operationId, ...diagnostic });
       return json({ code: "qualification_preparation_failed", ...diagnostic,
-        message: "Qualification preparation failed. Inspect the saved fixtures before starting another run." }, { status: 409 });
+        message: `Qualification failed during ${diagnostic.stage} (${diagnostic.causeCode}); cleanup ${diagnostic.cleanup}. Inspect the saved fixtures before starting another run.` }, { status: 409 });
     }
     if (error instanceof IncusStopRequiredError) return json({ code: "stop_required", message: "Stop this sandbox before disposal." }, { status: 409 });
     if (input.action === "recoverCleanup" || error instanceof IncusCleanupRecoveryUnavailableError) return json({ code: "cleanup_recovery_unavailable", message: "The saved cleanup needs review. Inspect its status." }, { status: 409 });

@@ -295,7 +295,8 @@ test("qualification preparation failure exposes only a safe stage and cleanup re
     Object.assign(preparationError, { message: "privateKeyPem secret", cause: new Error("provider secret") });
     const response = await POST(event(admin, { ...scope, action: "qualify" }));
     expect(response.status).toBe(409);
-    expect(await response.json()).toMatchObject({ code: "qualification_preparation_failed", stage: "enforcement", cleanup: "confirmed", causeCode: "guest_reached_a_forbidden_network_target" });
+    expect(await response.json()).toEqual({ code: "qualification_preparation_failed", stage: "enforcement", cleanup: "confirmed", causeCode: "guest_reached_a_forbidden_network_target",
+      message: "Qualification failed during enforcement (guest_reached_a_forbidden_network_target); cleanup confirmed. Inspect the saved fixtures before starting another run." });
     expect(JSON.stringify(warnings)).not.toContain("secret");
     expect(warnings).toHaveLength(1);
     Object.assign(preparationError, { stage: "secret-stage" });
