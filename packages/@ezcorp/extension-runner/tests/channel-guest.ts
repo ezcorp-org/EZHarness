@@ -19,10 +19,11 @@ export interface EchoGuest { readonly guest: ChildProcess; readonly transport: F
  *
  * It opens all three FIFOs read-write as the sandbox shim does, so no open waits
  * for the host, echoes the first frame on `out`, and exits on the next line.
+ * A guest with `reads: false` never reads `in`, as a hostile guest may not.
  * `timeout` bounds it, so none outlives a failed run. Both reads run from the
  * start, as FramedExecution reads both for a worker's whole life.
  */
-export async function echoGuest(host: ChannelHost, id: string): Promise<EchoGuest> {
+export async function echoGuest(host: ChannelHost, id: string, { reads = true }: { reads?: boolean } = {}): Promise<EchoGuest> {
   const directory = host.directory(id);
   await mkdir(directory, { recursive: true });
   await chmod(directory, 0o755);
@@ -33,7 +34,8 @@ export async function echoGuest(host: ChannelHost, id: string): Promise<EchoGues
     facts[fifo] = { device: created.dev, inode: created.ino };
   }
   await writeFile(host.facts(id), JSON.stringify(facts), { mode: 0o600 });
-  const guest = spawn("timeout", ["30", "sh", "-c", 'exec 3<>"$0/in" 4<>"$0/out" 5<>"$0/err"; head -n1 <&3 >&4; read -r _ <&3', directory], { stdio: "ignore" });
+  const script = reads ? 'head -n1 <&3 >&4; read -r _ <&3' : "sleep 60";
+  const guest = spawn("timeout", ["30", "sh", "-c", `exec 3<>"$0/in" 4<>"$0/out" 5<>"$0/err"; ${script}`, directory], { stdio: "ignore" });
   const transport = await host.transport(id);
   transport.stderr.on("data", () => {});
   const echoed = new Promise<string>(resolve => transport.stdout.on("data", chunk => resolve(String(chunk).trim())));

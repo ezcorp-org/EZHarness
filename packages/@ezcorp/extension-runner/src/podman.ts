@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, writeFile, readFile, rename, rm, chmod, lstat, open, type FileHandle } from "node:fs/promises";
 import { constants as fsConstants } from "node:fs";
-import { Readable } from "node:stream";
+import { Readable, Writable } from "node:stream";
 import { dirname, join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
@@ -152,6 +152,22 @@ function channelReader(handle: FileHandle): Readable {
     read() { reader.read().then(({ done, value }) => { this.push(done ? null : Buffer.from(value)); }, error => { this.destroy(error); }); },
     destroy(error, callback) { reader.cancel().then(() => callback(error), () => callback(error)); },
   });
+}
+
+/**
+ * Writes the channel's `in` FIFO on the event loop.
+ *
+ * A pipe holds 64 KiB. A guest that stops reading leaves a larger write waiting,
+ * and `FileHandle.createWriteStream` waits on a file-system pool thread, so two
+ * such guests on a two-thread pool would stop every other worker's channel: a
+ * hostile guest could stall the runner. Bun's FileSink polls the FIFO instead.
+ * Each chunk completes only when its flush does, so `writableLength` still counts
+ * what the guest has not taken and FramedExecution's backpressure limit applies.
+ * Closing the handle drops anything still queued; the sink writes nothing after.
+ */
+function channelWriter(handle: FileHandle): Writable {
+  const sink = Bun.file(handle.fd).writer();
+  return new Writable({ write(chunk: Buffer, _encoding, callback) { Promise.resolve().then(() => { sink.write(chunk); return sink.flush(); }).then(() => callback(), callback); } });
 }
 
 /** Stops a channel reader, then closes its descriptor, which the reader polls until it has stopped. */
@@ -404,7 +420,7 @@ export class PodmanRunner implements Runner {
       this.openChannelEntry(id, "out", fsConstants.O_RDONLY),
       this.openChannelEntry(id, "err", fsConstants.O_RDONLY),
     ]);
-    const sink = input.createWriteStream();
+    const sink = channelWriter(input);
     const out = channelReader(output);
     const err = channelReader(errors);
     const closes: ((code: number | null) => void)[] = [];
