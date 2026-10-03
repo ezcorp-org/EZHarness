@@ -37,7 +37,9 @@ function backend(instance?: Record<string, unknown>, imageFingerprint = recipe.g
     paths.push(path);
     if (path.startsWith("/1.0/images/")) return envelope({ fingerprint: imageFingerprint,
       type: "container", aliases: [{ name: recipe.guestImage!.alias }] });
-    if (path === "/1.0/") return envelope({ api_version: "1.0", environment: {
+    // Incus 6.0.6 returns 404 for the trailing-slash API root.
+    if (path === "/1.0/") return envelope({}, 404);
+    if (path === "/1.0") return envelope({ api_version: "1.0", environment: {
       kernel_architecture: "x86_64", server_version: "6.0.6" } });
     if (path.endsWith("/resources")) return envelope(poolResources);
     if (path.startsWith("/1.0/storage-pools/")) return envelope({ name: recipe.storage.name,
@@ -94,6 +96,8 @@ test("pinned readback checks exact image inventory and instance resource state",
   const observed = await host.value.image(selected);
   expect(observed.imageDigest).toBe(selected.preset.imageDigest);
   expect(observed.helperDigest).toBe(recipe.guestImage!.helperSha256);
+  expect(host.paths).toContain("/1.0");
+  expect(host.paths).not.toContain("/1.0/");
   const fixture = await host.value.instance(selected, sandboxId);
   expect(fixture).toMatchObject({ state: "stopped", imageDigest: selected.preset.imageDigest,
     storageDriver: recipe.storage.driver, privateNetwork: true, restrictedProject: true, unprivileged: true });

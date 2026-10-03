@@ -13,7 +13,7 @@ import type { ActiveExtensionRelease } from "../../extensions/release-process";
 import { SandboxController } from "../../sandboxes/controller";
 import { IncusSandboxProviderDispatcher } from "../../sandboxes/incus-dispatcher";
 import { ProviderRpcBroker, type ProviderConnectionResolver } from "../provider-rpc-broker";
-import { HostIncusLifecycleTransport } from "./lifecycle";
+import { HostIncusLifecycleTransport, withSession } from "./lifecycle";
 import { makeTestCertificates } from "./test-certificates";
 
 const certificates = makeTestCertificates();
@@ -37,6 +37,22 @@ const connection = { endpoint: "https://127.0.0.1:8443", serverCertificatePem, p
 const reply = (metadata: unknown, status = 200) => Response.json({ type: status === 202 ? "async" : "sync", status_code: status, metadata }, { status });
 const safeProfile = { name: "ezharness", devices: { eth0: { type: "nic", name: "eth0", network: "ezharness0", "security.port_isolation": "true" },
   root: { type: "disk", path: "/", pool: "ezharness" } } };
+
+test("session permits the canonical read-only API root without widening route authority", async () => {
+  const requests: string[] = [];
+  const fetcher = async (url: string, init: RequestInit) => {
+    requests.push(`${init.method} ${new URL(url).pathname}${new URL(url).search}`);
+    return reply({ api_version: "1.0" });
+  };
+  await withSession({ resolveForHost: async () => connection }, scope, fetcher as never, command, async session => {
+    expect((await session.request("GET", "/1.0?project=sandbox")).status).toBe(200);
+    for (const path of ["/1.0-other", "/1.00", "/", "https://other.invalid/1.0"]) {
+      await expect(session.request("GET", path)).rejects.toMatchObject({ kind: "permission", effect: "none" });
+    }
+    await expect(session.request("PUT", "/1.0")).rejects.toMatchObject({ kind: "permission", effect: "none" });
+  });
+  expect(requests).toEqual(["GET /1.0?project=sandbox"]);
+});
 
 test("wrong project, stale scope, and missing approved policy deny before HTTP", async () => {
   let calls = 0;

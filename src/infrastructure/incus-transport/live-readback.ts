@@ -129,7 +129,7 @@ export class HostIncusLiveReadback {
       assert(imageRow.fingerprint === fingerprint && imageRow.type === "container"
         && Array.isArray(aliases) && aliases.some(alias => object(alias).name === image.alias),
       "backend image fingerprint, type, or alias changed");
-      const server = object(metadata(await session.request("GET", `/1.0/?project=${project}`)));
+      const server = object(metadata(await session.request("GET", `/1.0?project=${project}`)));
       const environment = object(server.environment);
       const architecture = environment.kernel_architecture === "x86_64" ? "amd64"
         : environment.kernel_architecture === "aarch64" ? "arm64" : null;

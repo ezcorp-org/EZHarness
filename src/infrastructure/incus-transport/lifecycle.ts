@@ -92,7 +92,7 @@ export async function withSession<T>(connections: HostConnectionResolver, scope:
       } };
     const session: Session = { connection, origin, tls, signal: controller.signal, request: async (method, path, body, etag) => {
       const url = new URL(path, origin);
-      if (url.origin !== origin.origin || !url.pathname.startsWith("/1.0/")) denied("Incus route escaped origin");
+      if (url.origin !== origin.origin || (url.pathname === "/1.0" ? method !== "GET" : !url.pathname.startsWith("/1.0/"))) denied("Incus route escaped origin");
       // Once a write is attempted, even a lost TLS reply can hide an Incus effect.
       if (method !== "GET") mutationAttempted = true;
       const response = await Promise.race([http(url.href, { method, body: body ? JSON.stringify(body) : undefined, headers: etag ? { "If-Match": etag } : undefined, redirect: "manual", proxy: false, decompress: false, signal: controller.signal, tls }), deadline]);
