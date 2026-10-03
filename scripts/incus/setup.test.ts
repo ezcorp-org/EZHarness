@@ -9,7 +9,7 @@ import imageBuildTemplate from "./recipe.template.json";
 import { digest, type IncusInventory, type IncusSetupPlan, type IncusSetupRecipe } from "./model";
 import { applyImageBootstrapPlan, applySetupPlan, classifyApplyResult, inspectStep } from "./apply";
 import { inspectIncus, sshGateRequest, verifyKnownHostPin } from "./inspect";
-import { createReadOnlySshGatePolicy, createSshGatePolicy } from "./ssh-gate-policy";
+import { createOwnedNeighborChallengeSshPolicy, createReadOnlySshGatePolicy, createSshGatePolicy } from "./ssh-gate-policy";
 import { createImageBootstrapPlan, createSetupPlan, validateRecipe, verifyImageBootstrapPlan, verifySetupPlan } from "./plan";
 import { guestHelperSha256 } from "../../src/infrastructure/incus-guest/protocol";
 
@@ -85,6 +85,19 @@ describe("reviewed Incus SSH gate", () => {
     expect(policy.commands.length).toBeGreaterThan(15);
     expect(policy.commands.every(command => command.stdinSha256 === undefined)).toBe(true);
     expect(policy.commands.some(command => command.argv.includes("create") || command.argv.includes("set") || command.argv.includes("add-certificate"))).toBe(false);
+  });
+  test("the owned neighbor policy pins scope without adding write or socket commands", () => {
+    const scope = { connectionId: "connection-1", project: "ezharness", profile: "persistent-web-compose.v1",
+      incusProfile: "ezh-compose", network: "ezhbr0", bridgeCIDR: "10.173.0.1/24",
+      presetId: "incus-compose-v1", imageFingerprint: "a".repeat(64) };
+    const policy = createOwnedNeighborChallengeSshPolicy(scope);
+    validateServerPolicy(policy);
+    expect(policy.commands).toEqual(createReadOnlySshGatePolicy().commands);
+    expect(policy.ownedNeighborChallenge).toEqual(scope);
+    expect(policy.planDigest).not.toBe(createReadOnlySshGatePolicy().planDigest);
+    expect(createOwnedNeighborChallengeSshPolicy({ ...scope, connectionId: "other" }).planDigest).not.toBe(policy.planDigest);
+    scope.project = "changed";
+    expect(policy.ownedNeighborChallenge?.project).toBe("ezharness");
   });
   test("binds the exact bootstrap plan to the transport and reviewed commands", async () => {
     const reviewed = checkedInRecipe as IncusSetupRecipe;

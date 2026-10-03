@@ -9,10 +9,30 @@ import { createImageBootstrapPlan, createSetupPlan } from "./plan";
 
 export interface SshGatePolicy {
   version: 1;
+  ownedNeighborChallenge?: OwnedNeighborChallengeScope;
   planDigest: string;
   issuedAt?: string;
   writeExpiresAt?: string;
   commands: Array<{ argv: string[]; stdinSha256?: string; write?: true }>;
+}
+
+export interface OwnedNeighborChallengeScope {
+  connectionId: string;
+  project: string;
+  profile: string;
+  incusProfile: string;
+  network: string;
+  bridgeCIDR: string;
+  presetId: string;
+  imageFingerprint: string;
+}
+
+/** A reviewed capability adds only the closed owned-neighbor challenge, never general sockets or writes. */
+export function createOwnedNeighborChallengeSshPolicy(scope: OwnedNeighborChallengeScope): SshGatePolicy {
+  const bootstrap = createReadOnlySshGatePolicy();
+  const ownedNeighborChallenge = { ...scope };
+  return { ...bootstrap, ownedNeighborChallenge,
+    planDigest: digest({ purpose: "owned-neighbor-challenge", version: 1, commands: bootstrap.commands, ownedNeighborChallenge }) };
 }
 
 export const SSH_GATE_WRITE_LIFETIME_MS = 15 * 60_000;

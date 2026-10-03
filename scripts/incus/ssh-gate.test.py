@@ -239,5 +239,122 @@ class ExecuteEnvironmentTest(unittest.TestCase):
                 gate.execute(["uname", "-m"], b"")
 
 
+
+class OwnedNeighborChallengeTest(unittest.TestCase):
+    def setUp(self):
+        self.scope = dict(connectionId="connection-1", project="ezharness", profile="persistent-web-compose.v1",
+                          incusProfile="ezh-compose", network="ezhbr0", bridgeCIDR="10.173.0.1/24",
+                          presetId="incus-compose-v1", imageFingerprint="a" * 64)
+        self.policy = dict(version=1, planDigest="a" * 64, commands=[dict(argv=["incus", "version"])],
+                           ownedNeighborChallenge=self.scope)
+        self.request = dict(version=1, action="challenge", **self.scope, sandboxId="sandbox-1",
+                            address="10.173.0.2", port=43123, token="b" * 48)
+        self.request["instance"] = "ezh-" + gate.hashlib.sha256(b"connection-1\0sandbox-1").hexdigest()[:32]
+        nic = dict(type="nic", network="ezhbr0", **{"security.port_isolation": "true"})
+        self.project = dict(name="ezharness", config={"restricted": "true"})
+        self.network = dict(name="ezhbr0", type="bridge", managed=True, config={"ipv4.address": "10.173.0.1/24"})
+        self.profile = dict(name="ezh-compose", config={"security.privileged": "false", "security.idmap.isolated": "true"},
+                            devices=dict(eth0=nic, root=dict(type="disk")))
+        self.instance = dict(name=self.request["instance"], type="container", status="Running", profiles=["ezh-compose"],
+                             expanded_devices=self.profile["devices"], config={
+            "user.ezharness.managed_by": "ezharness-incus-sandbox", "user.ezharness.connection_id": "connection-1",
+            "user.ezharness.sandbox_id": "sandbox-1", "user.ezharness.profile": self.scope["profile"],
+            "user.ezharness.preset_id": self.scope["presetId"], "volatile.base_image": "a" * 64,
+            "user.ezharness.generation": "2"})
+        self.state = dict(status="Running", network=dict(eth0=dict(addresses=[dict(family="inet", scope="global", address="10.173.0.2")])))
+
+    def query(self, path, deadline):
+        if path.startswith("/1.0/projects/"): return self.project
+        if path.startswith("/1.0/networks/"): return self.network
+        if path.startswith("/1.0/profiles/"): return self.profile
+        if "/state?" in path: return self.state
+        return self.instance
+
+    def call(self, request=None):
+        with patch.object(gate, "neighbor_query", side_effect=self.query):
+            return gate.observe_owned_neighbor(self.policy, gate.NEIGHBOR_COMMAND, request or self.request)
+
+    def test_capabilities_have_no_socket_or_instance_effect_and_closed_response(self):
+        request = dict(version=1, action="capabilities", **self.scope)
+        with patch.object(gate, "neighbor_token_matches") as tcp, patch.object(gate, "neighbor_instance") as instance:
+            result = self.call(request)
+        tcp.assert_not_called(); instance.assert_not_called()
+        self.assertEqual(result, dict(version=1, purpose="owned-neighbor-challenge", supported=True, **self.scope))
+
+    def test_owned_challenge_exact_response_and_pre_post_inspection(self):
+        with patch.object(gate, "neighbor_token_matches", return_value=True) as tcp:
+            result = self.call()
+        tcp.assert_called_once_with("10.173.0.2", 43123, "b" * 48, unittest.mock.ANY)
+        self.assertTrue(result["reachable"])
+        self.assertNotIn("token", result)
+        self.assertEqual(result["instance"], self.request["instance"])
+
+    def test_old_policy_wrong_command_extra_fields_and_scope_are_denied_before_tcp(self):
+        old = {key: value for key, value in self.policy.items() if key != "ownedNeighborChallenge"}
+        with self.assertRaises(gate.Denied): gate.observe_owned_neighbor(old, gate.NEIGHBOR_COMMAND, self.request)
+        for command in ("sh", gate.NEIGHBOR_COMMAND + ";id"):
+            with self.assertRaises(gate.Denied): gate.observe_owned_neighbor(self.policy, command, self.request)
+        for key, value in [(key, "other") for key in self.scope] + [("extra", "id"), ("instance", "foreign"), ("port", True), ("token", "x" * 48)]:
+            with self.subTest(key=key), patch.object(gate, "neighbor_token_matches") as tcp:
+                with self.assertRaises(gate.Denied): self.call({**self.request, key: value})
+                tcp.assert_not_called()
+
+    def test_backend_ownership_profile_bridge_and_state_changes_deny(self):
+        cases = [(self.project["config"], "restricted", "false"), (self.network["config"], "ipv4.address", "10.174.0.1/24"),
+                 (self.profile["config"], "security.privileged", "true"), (self.instance, "status", "Stopped")]
+        cases += [(self.instance["config"], key, "foreign") for key in self.instance["config"]]
+        for obj, key, value in cases:
+            original = obj[key]; obj[key] = value
+            try:
+                with self.subTest(key=key), patch.object(gate, "neighbor_token_matches") as tcp:
+                    with self.assertRaises(gate.Denied): self.call()
+                    tcp.assert_not_called()
+            finally: obj[key] = original
+
+    def test_gateway_metadata_loopback_foreign_lease_and_other_nic_deny(self):
+        for address in ("10.173.0.1", "10.173.0.0", "10.173.0.255", "169.254.169.254", "127.0.0.1", "192.168.0.2"):
+            self.state["network"]["eth0"]["addresses"][0]["address"] = address
+            with self.subTest(address=address), patch.object(gate, "neighbor_token_matches") as tcp:
+                with self.assertRaises(gate.Denied): self.call({**self.request, "address": address})
+                tcp.assert_not_called()
+        self.state["network"] = dict(eth1=dict(addresses=[dict(family="inet", scope="global", address="10.173.0.2")]))
+        with self.assertRaises(gate.Denied): self.call()
+
+    def test_ownership_change_during_socket_denies_result(self):
+        def changed(*args):
+            self.instance["config"]["user.ezharness.generation"] = "3"
+            return True
+        with patch.object(gate, "neighbor_token_matches", side_effect=changed):
+            with self.assertRaisesRegex(gate.Denied, "identity changed"): self.call()
+
+    def test_actual_tcp_exact_token_wrong_token_and_oversize(self):
+        import socket
+        import threading
+        for payload, expected in ((b"b" * 48, True), (b"c" * 48, False), (b"b" * 49, False)):
+            with socket.socket() as server:
+                server.bind(("127.0.0.1", 0)); server.listen(1)
+                def serve():
+                    with server.accept()[0] as peer: peer.sendall(payload)
+                worker = threading.Thread(target=serve); worker.start()
+                try:
+                    self.assertEqual(gate.neighbor_token_matches("127.0.0.1", server.getsockname()[1], "b" * 48, gate.time.monotonic() + 20), expected)
+                finally: worker.join(timeout=3)
+                self.assertFalse(worker.is_alive())
+        with patch.object(gate.socket, "create_connection", side_effect=TimeoutError):
+            self.assertFalse(gate.neighbor_token_matches("10.173.0.2", 43123, "b" * 48, gate.time.monotonic() + 20))
+        with self.assertRaises(gate.Denied): gate.neighbor_token_matches("10.173.0.2", 43123, "b" * 48, 0)
+
+    def test_queries_use_fixed_local_argv_bounded_output_and_deadline(self):
+        import json
+        reply = json.dumps(dict(type="sync", status_code=200, metadata={"name": "ezharness"})).encode()
+        with patch.object(gate, "execute", return_value=(0, reply, b"")) as execute:
+            self.assertEqual(gate.neighbor_query("/1.0/projects/ezharness", gate.time.monotonic() + 20), {"name": "ezharness"})
+            self.assertEqual(execute.call_args.args[:2], (["incus", "--force-local", "query", "/1.0/projects/ezharness"], b""))
+            self.assertLessEqual(execute.call_args.args[2], 3)
+        for result in ((1, reply, b""), (0, reply, b"private"), (0, b"x" * 65537, b""), (0, b"{}", b"")):
+            with patch.object(gate, "execute", return_value=result), self.assertRaises(gate.Denied):
+                gate.neighbor_query("/1.0/projects/ezharness", gate.time.monotonic() + 20)
+        with self.assertRaises(gate.Denied): gate.neighbor_query("/1.0/projects/ezharness", 0)
+
 if __name__ == "__main__":
     unittest.main()

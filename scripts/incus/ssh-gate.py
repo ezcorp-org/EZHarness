@@ -2,6 +2,8 @@
 """Forced SSH command for one reviewed Incus setup plan. Install as root-owned code."""
 
 import hashlib
+import ipaddress
+import socket
 import json
 import os
 import re
@@ -16,6 +18,8 @@ import time
 
 ORIGINAL_COMMAND = "ezh-incus-operator-v1"
 OBSERVE_COMMAND = "ezh-incus-noeffect-observe-v1"
+NEIGHBOR_COMMAND = "ezh-incus-owned-neighbor-challenge-v1"
+NEIGHBOR_SCOPE_KEYS = {"connectionId", "project", "profile", "incusProfile", "network", "bridgeCIDR", "presetId", "imageFingerprint"}
 MAX_REQUEST = 64 * 1024
 MAX_POLICY = 128 * 1024
 MAX_OUTPUT = 1024 * 1024
@@ -87,7 +91,7 @@ def read_policy(path):
 
 
 def validate_policy(policy):
-    if (not isinstance(policy, dict) or set(policy) not in ({"version", "planDigest", "commands"},
+    if (not isinstance(policy, dict) or set(policy) - {"ownedNeighborChallenge"} not in ({"version", "planDigest", "commands"},
             {"version", "planDigest", "issuedAt", "writeExpiresAt", "commands"}) or policy["version"] != 1):
         raise Denied("unsupported policy")
     if not isinstance(policy["planDigest"], str) or len(policy["planDigest"]) != 64 or any(c not in "0123456789abcdef" for c in policy["planDigest"]):
@@ -111,6 +115,8 @@ def validate_policy(policy):
             raise Denied("invalid input digest")
         if command.get("write") is not True and ("stdinSha256" in command or not is_read_only_argv(argv)):
             raise Denied("command cannot be classified as read-only")
+    if "ownedNeighborChallenge" in policy:
+        validate_neighbor_scope(policy["ownedNeighborChallenge"])
     has_writes = any(command.get("write") is True for command in policy["commands"])
     if has_writes != ("writeExpiresAt" in policy):
         raise Denied("write policy requires an absolute expiry")
@@ -289,6 +295,135 @@ def observe_noeffect(policy, original, raw):
             "absent": True, "activeOperations": [], "oldCertificateRevoked": True}
 
 
+
+def validate_neighbor_scope(scope):
+    if not isinstance(scope, dict) or set(scope) != NEIGHBOR_SCOPE_KEYS:
+        raise Denied("invalid owned neighbor policy")
+    if any(not isinstance(value, str) for value in scope.values()):
+        raise Denied("invalid owned neighbor policy")
+    if any(not re.fullmatch(SAFE_NAME, scope[key]) for key in ("project", "incusProfile", "network")) or scope["project"] == "default":
+        raise Denied("invalid owned neighbor scope")
+    if any(not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}", scope[key]) for key in ("connectionId", "profile", "presetId")):
+        raise Denied("invalid owned neighbor identity")
+    if not re.fullmatch(r"[a-f0-9]{64}", scope["imageFingerprint"]):
+        raise Denied("invalid owned neighbor image")
+    bridge = ipaddress.ip_interface(scope["bridgeCIDR"])
+    if bridge.version != 4 or not bridge.ip.is_private or bridge.ip.is_loopback or bridge.ip.is_link_local or not 2 <= bridge.network.prefixlen <= 30:
+        raise Denied("invalid owned neighbor bridge")
+    return bridge
+
+
+def neighbor_query(path, deadline):
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise Denied("owned neighbor deadline expired")
+    code, stdout, stderr = execute(["incus", "--force-local", "query", path], b"", min(3, remaining))
+    if code != 0 or stderr or len(stdout) > 64 * 1024:
+        raise Denied("owned neighbor readback unavailable")
+    reply = json.loads(stdout)
+    if not isinstance(reply, dict) or reply.get("type") != "sync" or reply.get("status_code") != 200 or not isinstance(reply.get("metadata"), dict):
+        raise Denied("owned neighbor readback unavailable")
+    return reply["metadata"]
+
+
+def neighbor_object(value):
+    if not isinstance(value, dict):
+        raise Denied("owned neighbor readback unavailable")
+    return value
+
+
+def neighbor_backend_scope(scope, deadline):
+    project = neighbor_query("/1.0/projects/" + scope["project"], deadline)
+    network = neighbor_query("/1.0/networks/" + scope["network"] + "?project=default", deadline)
+    profile = neighbor_query("/1.0/profiles/" + scope["incusProfile"] + "?project=" + scope["project"], deadline)
+    if project.get("name") != scope["project"] or neighbor_object(project.get("config")).get("restricted") != "true":
+        raise Denied("owned neighbor project changed")
+    if network.get("name") != scope["network"] or network.get("type") != "bridge" or network.get("managed") is not True or neighbor_object(network.get("config")).get("ipv4.address") != scope["bridgeCIDR"]:
+        raise Denied("owned neighbor bridge changed")
+    config = neighbor_object(profile.get("config"))
+    devices = neighbor_object(profile.get("devices"))
+    if profile.get("name") != scope["incusProfile"] or config.get("security.privileged") != "false" or config.get("security.idmap.isolated") != "true" or set(devices) != {"eth0", "root"} or neighbor_object(devices.get("eth0")).get("network") != scope["network"] or neighbor_object(devices.get("eth0")).get("security.port_isolation") != "true":
+        raise Denied("owned neighbor profile changed")
+
+
+def neighbor_instance(scope, request, deadline):
+    path = "/1.0/instances/" + request["instance"] + "?project=" + scope["project"]
+    instance = neighbor_query(path, deadline)
+    state = neighbor_query(path.replace("?", "/state?"), deadline)
+    config = neighbor_object(instance.get("config"))
+    expected = {"user.ezharness.managed_by": "ezharness-incus-sandbox", "user.ezharness.connection_id": scope["connectionId"],
+                "user.ezharness.sandbox_id": request["sandboxId"], "user.ezharness.profile": scope["profile"],
+                "user.ezharness.preset_id": scope["presetId"], "volatile.base_image": scope["imageFingerprint"]}
+    devices = neighbor_object(instance.get("expanded_devices"))
+    nic = neighbor_object(devices.get("eth0"))
+    if instance.get("name") != request["instance"] or instance.get("type") != "container" or instance.get("status") != "Running" or state.get("status") != "Running" or any(config.get(key) != value for key, value in expected.items()) or instance.get("profiles") != [scope["incusProfile"]] or set(devices) != {"eth0", "root"} or nic.get("type") != "nic" or nic.get("network") != scope["network"] or nic.get("security.port_isolation") != "true":
+        raise Denied("owned neighbor instance changed")
+    addresses = neighbor_object(neighbor_object(state.get("network")).get("eth0")).get("addresses")
+    if not isinstance(addresses, list):
+        raise Denied("owned neighbor address changed")
+    global_ips = [item.get("address") for item in addresses if isinstance(item, dict) and item.get("family") == "inet" and item.get("scope") == "global"]
+    bridge = validate_neighbor_scope(scope)
+    address = ipaddress.ip_address(request["address"])
+    if global_ips != [request["address"]] or address.version != 4 or address not in bridge.network or address in (bridge.ip, bridge.network.network_address, bridge.network.broadcast_address) or address.is_loopback or address.is_link_local:
+        raise Denied("owned neighbor address changed")
+    generation = config.get("user.ezharness.generation")
+    if not isinstance(generation, str) or not re.fullmatch(r"[1-9][0-9]*", generation):
+        raise Denied("owned neighbor generation unavailable")
+    return {**expected, "generation": generation, "address": request["address"]}
+
+
+def neighbor_token_matches(address, port, token, deadline):
+    deadline = min(deadline, time.monotonic() + 2)
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise Denied("owned neighbor deadline expired")
+    try:
+        with socket.create_connection((address, port), timeout=remaining) as connection:
+            received = b""
+            while len(received) <= len(token):
+                remaining = min(2, deadline - time.monotonic())
+                if remaining <= 0:
+                    return False
+                connection.settimeout(remaining)
+                chunk = connection.recv(len(token) + 1 - len(received))
+                if not chunk:
+                    break
+                received += chunk
+            return received == token.encode("ascii")
+    except OSError:
+        return False
+
+
+def observe_owned_neighbor(policy, original, request):
+    validate_policy(policy)
+    scope = policy.get("ownedNeighborChallenge")
+    if original != NEIGHBOR_COMMAND or scope is None:
+        raise Denied("owned neighbor capability is not approved")
+    common = {"version", "action", *NEIGHBOR_SCOPE_KEYS}
+    if not isinstance(request, dict) or type(request.get("version")) is not int or request.get("version") != 1 or request.get("action") not in ("capabilities", "challenge"):
+        raise Denied("invalid owned neighbor request")
+    fields = common if request["action"] == "capabilities" else common | {"sandboxId", "instance", "address", "port", "token"}
+    if set(request) != fields or any(request.get(key) != value for key, value in scope.items()):
+        raise Denied("owned neighbor request escaped policy")
+    deadline = time.monotonic() + 20
+    if request["action"] == "challenge":
+        sandbox_id = request["sandboxId"]
+        if not isinstance(sandbox_id, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}", sandbox_id):
+            raise Denied("invalid owned neighbor instance")
+        instance = "ezh-" + hashlib.sha256((scope["connectionId"] + "\0" + sandbox_id).encode()).hexdigest()[:32]
+        if request["instance"] != instance or type(request["port"]) is not int or not 1 <= request["port"] <= 65535 or not isinstance(request["address"], str) or not isinstance(request["token"], str) or not re.fullmatch(r"[a-f0-9]{48}", request["token"]):
+            raise Denied("invalid owned neighbor challenge")
+    neighbor_backend_scope(scope, deadline)
+    result = {"version": 1, "purpose": "owned-neighbor-challenge", **scope, "supported": True}
+    if request["action"] == "challenge":
+        before = neighbor_instance(scope, request, deadline)
+        reachable = neighbor_token_matches(request["address"], request["port"], request["token"], deadline)
+        neighbor_backend_scope(scope, deadline)
+        if neighbor_instance(scope, request, deadline) != before:
+            raise Denied("owned neighbor identity changed during challenge")
+        result.update({"instance": request["instance"], "address": request["address"], "port": request["port"], "reachable": reachable})
+    return result
+
 def main():
     if len(sys.argv) != 2:
         raise Denied("policy path is required")
@@ -297,6 +432,10 @@ def main():
     if len(raw) > MAX_REQUEST:
         raise Denied("SSH request is too large")
     policy = read_policy(sys.argv[1])
+    if original == NEIGHBOR_COMMAND:
+        result = observe_owned_neighbor(policy, original, json.loads(raw))
+        sys.stdout.write(json.dumps(result, separators=(",", ":")) + "\n")
+        return 0
     if original == OBSERVE_COMMAND:
         result = observe_noeffect(policy, original, raw)
         sys.stdout.write(json.dumps(result, separators=(",", ":")) + "\n")
