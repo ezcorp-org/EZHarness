@@ -148,6 +148,26 @@ export const sandboxOperations = pgTable("provider_sandbox_operations", {
   index("idx_provider_sandbox_operations_reconcile_order").on(table.state, table.reconcileOrder),
 ]);
 
+/** Explicit host-owned recovery links. Tombstones and failed receipts remain intact. */
+export const sandboxCleanupRecoveries = pgTable("sandbox_cleanup_recoveries", {
+  id: text("id").primaryKey(),
+  bindingId: text("binding_id").notNull().references(() => sandboxBindings.id, { onDelete: "restrict" }),
+  generation: integer("generation").notNull(),
+  failedDestroyOperationId: text("failed_destroy_operation_id").notNull().references(() => sandboxOperations.id, { onDelete: "restrict" }).unique(),
+  stopOperationId: text("stop_operation_id").notNull().unique(),
+  destroyOperationId: text("destroy_operation_id").notNull().unique(),
+  installationId: text("installation_id").notNull(),
+  releaseId: text("release_id").notNull(),
+  connectionId: text("connection_id").notNull(),
+  connectionRevision: integer("connection_revision").notNull(),
+  providerResourceId: text("provider_resource_id").notNull(),
+  providerGeneration: integer("provider_generation").notNull(),
+  state: text("state").notNull().$type<"STOP_REQUIRED" | "DESTROY_REQUIRED" | "COMPLETED">(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export type SandboxCleanupRecovery = typeof sandboxCleanupRecoveries.$inferSelect;
+
 export type SandboxBinding = typeof sandboxBindings.$inferSelect;
 export type NewSandboxBinding = typeof sandboxBindings.$inferInsert;
 export type SandboxOperation = typeof sandboxOperations.$inferSelect;
