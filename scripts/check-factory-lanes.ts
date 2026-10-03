@@ -97,7 +97,7 @@ export const FACTORY_LANES: readonly FactoryLane[] = [
       "./tests/postgres/factory-releases.test.ts",
       "./tests/postgres/factory-release-authority.test.ts",
       "./tests/postgres/factory-validator-materials.test.ts",
-      "scripts/setup-factory-storage.sh up",
+      "./.github/actions/factory-storage",
     ],
     artifacts: ["lcov-cov-factory-assurance-release"],
     requires: [],

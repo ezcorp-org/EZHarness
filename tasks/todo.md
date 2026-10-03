@@ -5682,3 +5682,16 @@ Review: the cause was a missing step, not a resolver defect. The pin and the act
 the action. The fix adds the action to the five backend-pool jobs in ci.yml and to the release job, and a test now fails
 on any job that runs the uv suites without the action first. The release job also lacked the W4G-6 parser action. The
 shared check found that gap after `bun run test` and `bun run test:coverage` were counted as pool runners.
+## W4H-5 — run lifecycle 'publication' credential set on the hosted runner (wp/w4h-5)
+
+- [x] Red in a runner-shaped container at 52d8ba079: coverage shard shape and external-postgres shape, 80 pass / 12 fail each.
+- [x] Root cause with a control leg: the set was written under the 0755 `$HOME`; a 0700 home is green with no credential dir or S3.
+- [x] Fix: the suite takes its root from `makeFactoryTempPrivateRoot` (e4059c18f).
+- [x] Guard `scripts/factory-private-root-registration.test.ts`: red at the base, green at the head, in the guard set by name.
+- [x] Green in the same container, both shapes, 92 pass / 0 fail; coverage gates, lint, typecheck, boundaries, gate-integrity, guard set green.
+
+- [x] Widening: one composite action for the three storage start copies, stop only after a start that ran (R10), pin test red then green (1fa4a5354).
+
+Review: the brief named a missing S3 service and credential set as the cause. The evidence shows the W4G-4 class
+instead (a private file under the hosted runner's owned 0755 home). No workflow change was needed. Gates and receipts:
+tasks/factory/w4h-5-GATES.md.

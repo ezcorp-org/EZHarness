@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, expect, spyOn, test } from "bun:test";
 import { generateKeyPairSync } from "node:crypto";
-import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { DeleteObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
 import { sql } from "drizzle-orm";
@@ -31,6 +31,7 @@ import { FactoryAttemptQueue } from "../../factory/attempt-queue";
 import { FactoryTaskExecutionAdmission } from "../../factory/task-execution-admission";
 import { FactoryNativeRunnerPolicy, type FactoryNativeRunnerProfile } from "../../factory/native-runner-policy";
 import { packagesTrustedForTest } from "./factory-live-attempt-world";
+import { makeFactoryTempPrivateRoot } from "./factory-private-root";
 import { FactoryAttemptDispatcher } from "../../factory/attempt-dispatcher";
 import { failedFactoryRunnerResult, nativeFactoryJournal } from "../../factory/runner/native";
 import { FACTORY_LOST_RESULT_CODES } from "../../factory/runner/remote-attempt-runtime";
@@ -1096,12 +1097,11 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
       },
     });
 
-    // The credential set is a private file the declaration names, read at composition. It lives
-    // under the home directory because the private reader refuses a world-writable ancestor such
-    // as the system temporary directory.
-    const root = await mkdtemp(join(process.env.HOME!, ".factory-lifecycle-release-"));
+    // The credential set is a private file the declaration names, read at composition. Its 0700
+    // root sits under the system temporary directory, never under $HOME: a hosted runner's home is
+    // an owned 0755 directory, which the private reader refuses.
+    const root = await makeFactoryTempPrivateRoot("factory-lifecycle-release-");
     publicationRoots.push(root);
-    await chmod(root, 0o700);
     const credentialsPath = join(root, "publication.json");
     await writeFile(credentialsPath, JSON.stringify({ identities: [{ name: tenantId, credentials: [{ accessKey: store.credentials.accessKeyId, secretKey: store.credentials.secretAccessKey }] }] }), { mode: 0o600 });
 
