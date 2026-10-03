@@ -514,6 +514,28 @@ describe("hook-lib > run_staged_tests", () => {
       rmSync(bin, { recursive: true, force: true });
     }
   });
+
+  test("routing a suite that sorts first in the bun set writes no error", () => {
+    // The bun set is over 100 KB. A membership check that pipes it into an
+    // early-exiting `grep -q` broke the pipe, and because the hook runs with
+    // SIGPIPE ignored (as under `git commit`), printf printed "write error:
+    // Broken pipe" on every commit that staged such a suite.
+    const bin = mkdtempSync(join(tmpdir(), "hook-lib-fake-bun-"));
+    try {
+      writeFileSync(join(bin, "bun"), '#!/bin/sh\necho "ran: $*"\n', { mode: 0o755 });
+      const first = sh(["bash", "-c", '. scripts/lib/test-file-sets.sh && { passfail_files; web_bunleg_files; } 2>/dev/null | sort -u | head -1'], { cwd: REPO_ROOT }).out.trim();
+      expect(first).toMatch(/\.test\.ts$/);
+      const res = sh(["bash", "-c", `trap "" PIPE; source "${HOOK_LIB}" && run_staged_tests "$@"`, "_", first], {
+        cwd: REPO_ROOT,
+        env: { ...baseEnv, PATH: `${bin}:${baseEnv.PATH}` },
+      });
+      expect(res.exitCode).toBe(0);
+      expect(res.out).toContain(`ran: test --timeout 30000 ./${first}`);
+      expect(res.out).not.toContain("Broken pipe");
+    } finally {
+      rmSync(bin, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("hook-lib > run_staged_tests > factory-orchestrator", () => {
