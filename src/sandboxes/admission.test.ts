@@ -354,3 +354,23 @@ describe("SandboxAdmissionStore", () => {
     })).rejects.toMatchObject({ code: "INVALID_ADMISSION_REQUEST" });
   });
 });
+
+
+test("reservation observation is fenced against a newer same-generation cleanup intent", async () => {
+  const { admission, controller } = await setup(["one"]);
+  await configure(admission, ["one"]);
+  await admission.requestAdmission(request("one", "fenced-create"));
+  const created = await controller.journalOperation({ bindingId: "binding-one", generation: 1,
+    kind: "CREATE", idempotencyScope: "fence", idempotencyKey: "create", payload: {} });
+  await admission.markStopIntent("binding-one", 1, "stop", created.id);
+  expect((await admission.recordObservedState("binding-one", 1, "STOPPED", "stop", created.id)).computeState).toBe("RELEASED");
+  await admission.requestAdmission({ ...request("one", "fenced-start"), kind: "START" });
+  const cleanup = await controller.journalOperation({ bindingId: "binding-one", generation: 1,
+    kind: "DESTROY", idempotencyScope: "fence", idempotencyKey: "destroy", payload: { expectedGeneration: 1 } });
+  await admission.markCleanupIntent("binding-one", 1, "cleanup");
+  const before = await admission.getReservation("binding-one");
+  await expect(admission.markStopIntent("binding-one", 1, "stop", created.id)).rejects.toThrow("newer operation intent");
+  await expect(admission.recordObservedState("binding-one", 1, "RUNNING", undefined, created.id)).rejects.toThrow("newer operation intent");
+  expect(await admission.getReservation("binding-one")).toEqual(before);
+  expect((await admission.recordObservedState("binding-one", 1, "ABSENT", "cleanup", cleanup.id)).diskState).toBe("RELEASED");
+});

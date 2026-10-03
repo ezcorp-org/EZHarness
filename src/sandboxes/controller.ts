@@ -361,6 +361,14 @@ export class SandboxController {
     return (await this.#dispatchJournaled(operationId)).operation;
   }
 
+  /** Observe only this saved provider operation; never dispatch journaled work. */
+  async inspectOperation(operationId: string): Promise<SandboxOperation> {
+    const operation = await this.getOperation(operationId);
+    if (!operation) throw new SandboxControllerError("OPERATION_NOT_FOUND", `Sandbox operation ${operationId} does not exist`);
+    if (!["DISPATCHING", "PROVIDER_PENDING", "OUTCOME_UNKNOWN"].includes(operation.state)) return operation;
+    return this.#inspectPersistedOperation(operation);
+  }
+
   async #dispatchJournaled(operationId: string): Promise<{ operation: SandboxOperation; dispatched: boolean }> {
     const claim = await this.db.transaction(async (transaction: DbTransaction) => {
       const [operation] = await transaction.select().from(sandboxOperations)

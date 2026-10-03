@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { INCUS_PRESETS } from "../../extensions/incus-sandbox/manifest";
+import { IncusQualificationOperationUnsettledError } from "./incus-qualification";
 import { GUEST_HELPER_SHA256 } from "./incus-guest/protocol";
 import {
   beginDurableIncusLiveCases,
@@ -270,4 +271,25 @@ test("a failed replacement observation cleans both claimed fixtures before retur
     .rejects.toThrow("host observation failed after restart");
   expect(original.destroyed).toHaveLength(2);
   expect([...original.states.values()]).toEqual(["absent", "absent"]);
+});
+
+
+test("unsettled saved fixture operations preserve admitted work in every runner", async () => {
+  const pending = new IncusQualificationOperationUnsettledError("saved-operation", "OUTCOME_UNKNOWN");
+  const original = witness({ setPower: async () => { throw pending; } });
+  await expect(createIncusLiveCaseRunner({ witness: original.value })(scope, preset)).rejects.toBe(pending);
+  expect(original.destroyed).toEqual([]);
+  const durable: DurableIncusLiveWitness = { ...original.value,
+    findFixture: async (_scope, operationId) => ({ operationId, sandboxId: `sandbox-${operationId}` }),
+    beginRestart: async () => { throw new Error("unexpected restart"); },
+    claimRestart: async () => ({ operationId: "qual-primary-pending-run", sandboxId: "sandbox-qual-primary-pending-run" }),
+  };
+  const run = { runId: "pending-run", nonce: "fresh-nonce", deadlineMs: Date.now() + 60_000 };
+  await expect(beginDurableIncusLiveCases({ witness: durable }, scope, preset, run)).rejects.toBe(pending);
+  expect(original.destroyed).toEqual([]);
+  original.states.set("sandbox-qual-primary-pending-run", "stopped");
+  original.states.set("sandbox-qual-unrelated-pending-run", "stopped");
+  const resumed: DurableIncusLiveWitness = { ...durable, observe: async () => { throw pending; } };
+  await expect(resumeDurableIncusLiveCases({ witness: resumed }, scope, preset, run)).rejects.toBe(pending);
+  expect(original.destroyed).toEqual([]);
 });

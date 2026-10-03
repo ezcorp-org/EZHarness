@@ -4,12 +4,12 @@ import { eq, sql } from "drizzle-orm";
 import { resolveSandboxPreset, sandboxPresetDigest, validateSandboxProviderMethodExchange,
   type SandboxPreset, type SandboxProtocolOperation } from "@ezcorp/extension-contract";
 import { getDb, type Database } from "../db/connection";
-import { incusQualificationFixtures, sandboxBindings } from "../db/schema";
+import { incusQualificationFixtures, sandboxBindings, type SandboxOperation } from "../db/schema";
 import { releaseRows } from "../db/queries/extension-releases";
 import { getReleaseRuntime, ReleaseProcess, resolveActiveRelease,
   type ActiveExtensionRelease } from "../extensions/release-process";
 import type { IncusSetupRecipe } from "../../scripts/incus/model";
-import { IncusQualificationFixtureService, IncusQualificationStore, type IncusImageReceipt,
+import { IncusQualificationOperationUnsettledError, IncusQualificationFixtureService, IncusQualificationStore, type IncusImageReceipt,
   type IncusQualificationScope } from "./incus-qualification";
 import type { HostIncusLiveWitness, LiveFixtureHandle, LiveFixtureInspection } from "./incus-live-cases";
 import { observeIncusResourceEnforcement, type IncusNetworkTarget } from "./incus-live-resource-probes";
@@ -410,23 +410,29 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
       || await sandboxPresetDigest(preset) !== selected.presetDigest) deny("fixture preset changed");
     // Throw away the first service reply at this host boundary, then ask the
     // durable controller for the same operation. Both IDs must be identical.
-    let effectPossible = false;
+    let admittedOperation: SandboxOperation | undefined;
     try {
-      effectPossible = true;
       const first = dropFirstReply ? await this.fixtures.create(scope, operationId) : null;
-      const operation = await this.fixtures.create(scope, operationId);
+      let operation = await this.fixtures.create(scope, operationId);
+      admittedOperation = operation;
       if (first && (first.id !== operation.id || first.bindingId !== operation.bindingId)) {
         deny("lost create reply replay allocated another fixture");
       }
+      operation = await this.settleOperation(scope, operationId, operation);
+      admittedOperation = operation;
       if (operation.state !== "SUCCEEDED" || operation.kind !== "CREATE") deny("fixture create is not verified");
       const handle = { sandboxId: operation.bindingId, operationId };
       await this.owned(handle, false);
       await this.assertDurableState(handle, scope, "STOPPED");
       return handle;
     } catch (error) {
-      if (effectPossible) {
+      if (error instanceof IncusQualificationOperationUnsettledError) throw error;
+      if (admittedOperation && admittedOperation.state !== "FAILED") {
+        throw new IncusQualificationOperationUnsettledError(admittedOperation.id, admittedOperation.state, error, "authority_changed");
+      }
+      if (admittedOperation?.state === "FAILED") {
         try {
-          const cleanup = await this.fixtures.destroy(scope, operationId);
+          const cleanup = await this.settleOperation(scope, operationId, await this.fixtures.destroy(scope, operationId));
           if (cleanup.state !== "SUCCEEDED") deny("failed create cleanup is not verified");
         } catch (cleanupError) {
           throw new AggregateError([error, cleanupError], "Incus live create and cleanup are unverified");
@@ -547,10 +553,16 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
     });
   }
 
+  private settleOperation(scope: IncusQualificationScope, fixtureOperationId: string,
+    operation: Awaited<ReturnType<IncusQualificationFixtureService["create"]>>) {
+    return operation.state === "SUCCEEDED" || operation.state === "FAILED" ? Promise.resolve(operation)
+      : this.fixtures.waitForOperation(scope, fixtureOperationId, operation.id);
+  }
+
   async setPower(handle: LiveFixtureHandle, state: "running" | "stopped"): Promise<void> {
     const { scope } = await this.owned(handle, false);
-    const operation = await this.fixtures.setPower(scope, handle.operationId, state,
-      `qual-power-${randomUUID()}`);
+    const operation = await this.settleOperation(scope, handle.operationId,
+      await this.fixtures.setPower(scope, handle.operationId, state, `qual-power-${randomUUID()}`));
     if (operation.state !== "SUCCEEDED" || operation.bindingId !== handle.sandboxId
       || operation.kind !== (state === "running" ? "START" : "STOP")) {
       deny("fixture power change is not verified");
@@ -655,7 +667,8 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
 
   async destroyFixture(handle: LiveFixtureHandle): Promise<void> {
     const { scope } = await this.persistedOwned(handle, false, true);
-    const operation = await this.fixtures.destroy(scope, handle.operationId);
+    const operation = await this.settleOperation(scope, handle.operationId,
+      await this.fixtures.destroy(scope, handle.operationId));
     if (operation.state !== "SUCCEEDED" || operation.kind !== "DESTROY" || operation.bindingId !== handle.sandboxId) {
       deny("fixture destroy is not verified");
     }

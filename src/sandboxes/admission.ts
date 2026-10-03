@@ -12,6 +12,12 @@ import {
   type SandboxReservation,
 } from "../db/schema";
 
+function assertCurrentOperation(binding: SandboxBinding, expectedOperationId?: string): void {
+  if (expectedOperationId !== undefined && binding.currentOperationId !== expectedOperationId) {
+    throw new SandboxAdmissionError("OPERATION_SUPERSEDED", "Reservation observation has a newer operation intent");
+  }
+}
+
 export interface SandboxResourceVector {
   memoryBytes: number;
   cpuMillicores: number;
@@ -79,6 +85,7 @@ export type SandboxAdmissionErrorCode =
   | "INVALID_CAPACITY"
   | "INVALID_PROJECT_QUOTA"
   | "INVALID_ADMISSION_REQUEST"
+  | "OPERATION_SUPERSEDED"
   | "BINDING_NOT_FOUND"
   | "RESERVATION_NOT_FOUND"
   | "IDEMPOTENCY_CONFLICT"
@@ -289,7 +296,7 @@ async function lockBinding(transaction: DbTransaction, bindingId: string): Promi
   const [binding] = releaseRows<SandboxBinding>(await transaction.execute(sql`
     SELECT id, project_id AS "projectId", provider_installation_id AS "providerInstallationId",
       provider_release_id AS "providerReleaseId", connection_id AS "connectionId", resource_key AS "resourceKey",
-      desired_state AS "desiredState", observed_state AS "observedState", generation,
+      desired_state AS "desiredState", observed_state AS "observedState", generation, current_operation_id AS "currentOperationId",
       tombstoned_at AS "tombstonedAt", cleanup_confirmed_at AS "cleanupConfirmedAt",
       created_at AS "createdAt", updated_at AS "updatedAt"
     FROM sandbox_bindings WHERE id = ${bindingId} FOR UPDATE`));
@@ -561,8 +568,8 @@ export class SandboxAdmissionStore {
     });
   }
 
-  async markStopIntent(bindingId: string, generation: number, intentId: string): Promise<SandboxReservation> {
-    return this.#markReleaseIntent(bindingId, generation, intentId, false);
+  async markStopIntent(bindingId: string, generation: number, intentId: string, expectedOperationId?: string): Promise<SandboxReservation> {
+    return this.#markReleaseIntent(bindingId, generation, intentId, false, expectedOperationId);
   }
 
   async markCleanupIntent(bindingId: string, generation: number, intentId: string): Promise<SandboxReservation> {
@@ -574,12 +581,14 @@ export class SandboxAdmissionStore {
     generation: number,
     intentId: string,
     cleanup: boolean,
+    expectedOperationId?: string,
   ): Promise<SandboxReservation> {
     if (!validateString(intentId)) {
       throw new SandboxAdmissionError("INVALID_ADMISSION_REQUEST", "Release intent ID must be bounded and non-empty");
     }
     return this.db.transaction(async (transaction: DbTransaction) => {
       const binding = await lockBinding(transaction, bindingId);
+      assertCurrentOperation(binding, expectedOperationId);
       const [reservation] = await transaction.select().from(sandboxReservations)
         .where(eq(sandboxReservations.bindingId, bindingId)).limit(1).for("update");
       if (!reservation) throw new SandboxAdmissionError("RESERVATION_NOT_FOUND", `Reservation for ${bindingId} does not exist`);
@@ -613,9 +622,11 @@ export class SandboxAdmissionStore {
     generation: number,
     state: "RUNNING" | "STOPPED" | "ABSENT",
     intentId?: string,
+    expectedOperationId?: string,
   ): Promise<SandboxReservation> {
     return this.db.transaction(async (transaction: DbTransaction) => {
       const binding = await lockBinding(transaction, bindingId);
+      assertCurrentOperation(binding, expectedOperationId);
       const [reservation] = await transaction.select().from(sandboxReservations)
         .where(eq(sandboxReservations.bindingId, bindingId)).limit(1).for("update");
       if (!reservation) throw new SandboxAdmissionError("RESERVATION_NOT_FOUND", `Reservation for ${bindingId} does not exist`);

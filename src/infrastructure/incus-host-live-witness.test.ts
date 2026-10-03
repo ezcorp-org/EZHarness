@@ -460,15 +460,16 @@ test("discarded create reply must replay the same durable fixture operation", as
   let cleanups = 0;
   const preset = INCUS_PRESETS[0]!;
   const presetDigest = await sandboxPresetDigest(preset);
-  const service = { create: async () => ({ id: `operation-${++calls}`, bindingId: "binding" }),
+  const service = { create: async () => ({ id: `operation-${++calls}`, bindingId: "binding", state: "PROVIDER_PENDING" }),
     destroy: async () => { cleanups++; return { state: "SUCCEEDED" }; } };
   const candidate = new IncusHostLiveWitness({ db: {} as Database,
     qualifications: { authorizeFixture: async () => ({ preset, presetDigest }) } as unknown as IncusQualificationStore,
     fixtures: service as unknown as IncusQualificationFixtureService });
   await expect(candidate.createFixture(scope, preset, "fixture", true))
-    .rejects.toThrow("replay allocated another fixture");
+    .rejects.toMatchObject({ operationId: "operation-2", reason: "authority_changed",
+      cause: expect.objectContaining({ message: expect.stringContaining("replay allocated another fixture") }) });
   expect(calls).toBe(2);
-  expect(cleanups).toBe(1);
+  expect(cleanups).toBe(0);
 });
 
 test("guest paths and process requests deny unsafe inputs before any fixture effect", async () => {
@@ -539,4 +540,17 @@ test("fixture guest file and process calls use the exact running release and con
     .toBe(true);
   binding.observedState = "STOPPED";
   await expect(candidate.readFile(handle, "marker")).rejects.toThrow("not running");
+});
+
+
+test("only a proven terminal create failure permits automatic cleanup", async () => {
+  const preset = INCUS_PRESETS[0]!;
+  const presetDigest = await sandboxPresetDigest(preset);
+  let cleanups = 0;
+  const candidate = new IncusHostLiveWitness({ db: {} as Database,
+    qualifications: { authorizeFixture: async () => ({ preset, presetDigest }) } as unknown as IncusQualificationStore,
+    fixtures: { create: async () => ({ id: "failed-create", bindingId: "binding", kind: "CREATE", state: "FAILED" }),
+      destroy: async () => { cleanups++; return { state: "SUCCEEDED" }; } } as unknown as IncusQualificationFixtureService });
+  await expect(candidate.createFixture(scope, preset, "fixture", false)).rejects.toThrow("fixture create is not verified");
+  expect(cleanups).toBe(1);
 });

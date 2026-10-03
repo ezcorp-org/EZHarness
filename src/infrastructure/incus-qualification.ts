@@ -18,7 +18,7 @@ import { digest } from "../../scripts/incus/model";
 import type { IncusSetupRecipe } from "../../scripts/incus/model";
 import { GUEST_HELPER_VERSION, guestHelperSha256 } from "./incus-guest/protocol";
 import { HostIncusProbeTransport } from "./incus-transport/transport";
-import { SandboxAdmissionStore } from "../sandboxes/admission";
+import { SandboxAdmissionError, SandboxAdmissionStore } from "../sandboxes/admission";
 import { SandboxController } from "../sandboxes/controller";
 import { IncusSandboxProviderDispatcher } from "../sandboxes/incus-dispatcher";
 import { IncusMethodCaller } from "./incus-method-caller";
@@ -309,6 +309,15 @@ export class IncusQualificationStore {
   }
 }
 
+/** An admitted effect still needs exact saved-operation readback, never a new mutation. */
+export class IncusQualificationOperationUnsettledError extends Error {
+  constructor(readonly operationId: string, readonly state: SandboxOperation["state"], cause?: unknown,
+    readonly reason: "outcome_unsettled" | "newer_intent" | "authority_changed" = "outcome_unsettled") {
+    super(`Incus qualification operation ${operationId} has saved state ${state} and needs review (${reason}); do not repeat its mutation`, { cause });
+    this.name = "IncusQualificationOperationUnsettledError";
+  }
+}
+
 export interface IncusQualificationFixtureDependencies {
   db?: Database;
   qualifications?: IncusQualificationStore;
@@ -394,6 +403,70 @@ export class IncusQualificationFixtureService {
       presetId: row.presetId, projectId: row.projectId, bindingId: row.bindingId },
       binding: { id: binding.id, generation: binding.generation, desiredState: binding.desiredState,
         observedState: binding.observedState }, operation: operation ?? null };
+  }
+
+  /** Settle only the exact operation already admitted for this owned fixture. */
+  async waitForOperation(scope: IncusQualificationScope, fixtureOperationId: string,
+    operationId: string): Promise<SandboxOperation> {
+    const saved = await this.controller.getOperation(operationId);
+    try { return await this.inspectSavedOperation(scope, fixtureOperationId, operationId); }
+    catch (cause) {
+      if (cause instanceof IncusQualificationOperationUnsettledError || !saved) throw cause;
+      throw new IncusQualificationOperationUnsettledError(saved.id, saved.state, cause, "authority_changed");
+    }
+  }
+
+  private async inspectSavedOperation(scope: IncusQualificationScope, fixtureOperationId: string,
+    operationId: string): Promise<SandboxOperation> {
+    const deadline = this.now() + 30_000;
+    for (;;) {
+      const { row, binding } = await this.ownedFixture(scope, fixtureOperationId);
+      let operation = await this.controller.getOperation(operationId);
+      if (!operation || operation.bindingId !== row.bindingId || operation.generation !== binding.generation) {
+        throw new Error("Incus qualification saved operation changed scope");
+      }
+      if (["DISPATCHING", "PROVIDER_PENDING", "OUTCOME_UNKNOWN"].includes(operation.state)) {
+        if (this.now() >= deadline) throw new IncusQualificationOperationUnsettledError(operation.id, operation.state);
+        operation = await this.controller.inspectOperation(operationId);
+      }
+      if (operation.state === "SUCCEEDED" || operation.state === "FAILED") {
+        await this.recordOperationObservation(scope, row, operation);
+        return operation;
+      }
+      if (operation.state !== "PROVIDER_PENDING" || this.now() >= deadline) {
+        throw new IncusQualificationOperationUnsettledError(operation.id, operation.state);
+      }
+      await Bun.sleep(100);
+    }
+  }
+
+  private async recordOperationObservation(scope: IncusQualificationScope,
+    row: NonNullable<Awaited<ReturnType<IncusQualificationFixtureService["fixture"]>>>,
+    operation: SandboxOperation): Promise<void> {
+    if (operation.state !== "SUCCEEDED") return;
+    const binding = await this.controller.getBinding(row.bindingId);
+    const state = operation.kind === "START" ? "RUNNING" : operation.kind === "DESTROY" ? "ABSENT" : "STOPPED";
+    if (binding?.currentOperationId !== operation.id || binding.generation !== operation.generation
+      || binding.observedState !== state || binding.desiredState !== state) return;
+    const reservation = await this.admission.getReservation(row.bindingId);
+    let intent = state === "ABSENT" ? reservation?.cleanupIntentId : reservation?.stopIntentId;
+    if (operation.kind === "CREATE") {
+      const identity = createHash("sha256").update(JSON.stringify([scope, row.operationId])).digest("hex");
+      intent = `incus-qualification-create-${identity}`;
+      await this.preserveSupersededObservation(operation, () => this.admission.markStopIntent(row.bindingId, operation.generation, intent!, operation.id));
+    }
+    await this.preserveSupersededObservation(operation, () => this.admission.recordObservedState(row.bindingId, operation.generation, state,
+      state === "RUNNING" ? undefined : intent ?? undefined, operation.id));
+  }
+
+  private async preserveSupersededObservation<T>(operation: SandboxOperation, action: () => Promise<T>): Promise<T> {
+    try { return await action(); }
+    catch (cause) {
+      if (cause instanceof SandboxAdmissionError && cause.code === "OPERATION_SUPERSEDED") {
+        throw new IncusQualificationOperationUnsettledError(operation.id, operation.state, cause, "newer_intent");
+      }
+      throw cause;
+    }
   }
 
   private assertFixture(row: NonNullable<Awaited<ReturnType<IncusQualificationFixtureService["fixture"]>>>,
@@ -489,11 +562,7 @@ export class IncusQualificationFixtureService {
       payload: { profile: selected.preset.profile, presetId: scope.presetId,
         presetDigest: selected.presetDigest,
         effectiveSettingsDigest: selected.effectiveSettingsDigest } });
-    if (operation.state === "SUCCEEDED" && (await this.controller.getBinding(bindingId))?.observedState === "STOPPED") {
-      const intent = `incus-qualification-create-${identity}`;
-      await this.admission.markStopIntent(bindingId, 1, intent);
-      await this.admission.recordObservedState(bindingId, 1, "STOPPED", intent);
-    }
+    await this.recordOperationObservation(scope, row, operation);
     return operation;
   }
 
@@ -585,11 +654,7 @@ export class IncusQualificationFixtureService {
     }
     const operation = await this.controller.requestAndDispatch({ ...request, kind,
       payload: { expectedGeneration } });
-    const observedState = desiredState === "running" ? "RUNNING" : "STOPPED";
-    if (operation.state === "SUCCEEDED" && (await this.controller.getBinding(row.bindingId))?.observedState === observedState) {
-      await this.admission.recordObservedState(row.bindingId, binding.generation, observedState,
-        `incus-qualification-${kind.toLowerCase()}-${operationId}-${idempotencyKey}`);
-    }
+    await this.recordOperationObservation(scope, row, operation);
     return operation;
   }
 
@@ -636,10 +701,7 @@ export class IncusQualificationFixtureService {
       if (journal.id !== reservedId) throw new Error("Incus qualification destroy fault lost its reserved operation identity");
       operation = await this.controller.executeOperation(journal.id);
     } else operation = await this.controller.requestAndDispatch(dispatch);
-    if (operation.state === "SUCCEEDED" && (await this.controller.getBinding(row.bindingId))?.observedState === "ABSENT") {
-      await this.admission.recordObservedState(row.bindingId, binding.generation, "ABSENT",
-        `incus-qualification-destroy-${operationId}`);
-    }
+    await this.recordOperationObservation(scope, row, operation);
     return operation;
   }
 }

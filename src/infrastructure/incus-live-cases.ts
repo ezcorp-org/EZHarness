@@ -5,7 +5,7 @@ import {
   type SandboxPreset,
 } from "@ezcorp/extension-contract";
 import { GUEST_HELPER_SHA256 } from "./incus-guest/protocol";
-import type { IncusLiveCaseEvidence, IncusQualificationScope } from "./incus-qualification";
+import { IncusQualificationOperationUnsettledError, type IncusLiveCaseEvidence, type IncusQualificationScope } from "./incus-qualification";
 
 const CASE_IDS = ["SP01", "SP02", "SP03", "SP04", "SP05", "SP06", "SP07", "SP08"] as const;
 const QUALIFICATION_PHASE_MS = 20 * 60_000;
@@ -408,7 +408,7 @@ export async function beginDurableIncusLiveCases(options: IncusLiveRunnerOptions
   } catch (error) {
     failure = error;
   }
-  const errors = await cleanupLiveFixtures(witness, state);
+  const errors = failure instanceof IncusQualificationOperationUnsettledError ? [] : await cleanupLiveFixtures(witness, state);
   if (errors.length) throw new AggregateError([failure, ...errors], "Incus live fixture cleanup is unverified");
   throw failure;
 }
@@ -440,7 +440,7 @@ export async function resumeDurableIncusLiveCases(options: IncusLiveRunnerOption
   } catch (error) {
     failure = error;
   }
-  const cleanupErrors = await cleanupLiveFixtures(witness, state);
+  const cleanupErrors = failure instanceof IncusQualificationOperationUnsettledError ? [] : await cleanupLiveFixtures(witness, state);
   if (cleanupErrors.length) throw new AggregateError([...(failure ? [failure] : []), ...cleanupErrors],
     "Incus live fixture cleanup is unverified");
   if (failure) throw failure;
@@ -474,7 +474,7 @@ export function createIncusLiveCaseRunner(options: IncusLiveRunnerOptions):
     } catch (error) {
       failure = error;
     } finally {
-      cleanupErrors = await cleanupLiveFixtures(witness, state);
+      cleanupErrors = failure instanceof IncusQualificationOperationUnsettledError ? [] : await cleanupLiveFixtures(witness, state);
     }
     if (cleanupErrors.length) throw new AggregateError([...(failure ? [failure] : []), ...cleanupErrors],
       "Incus live fixture cleanup is unverified");

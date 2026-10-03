@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { eq } from "drizzle-orm";
@@ -10,9 +10,10 @@ import { up as addQualificationFixtures } from "../db/migrations/add-incus-quali
 import * as schema from "../db/schema";
 import { SandboxAdmissionStore } from "../sandboxes/admission";
 import { SandboxController, type SandboxProviderRequest } from "../sandboxes/controller";
+import { IncusHostLiveWitness } from "./incus-host-live-witness";
 import { IncusFeatureService } from "./incus-feature-service";
 import { HostIncusLostDestroyReplyFault } from "./incus-destroy-reply-fault";
-import { IncusQualificationFixtureService, type IncusQualificationScope, type IncusQualificationStore } from "./incus-qualification";
+import { IncusQualificationOperationUnsettledError, IncusQualificationFixtureService, type IncusQualificationScope, type IncusQualificationStore } from "./incus-qualification";
 
 const opened: PGlite[] = [];
 const scope: IncusQualificationScope = { installationId: "installation", releaseId: "release",
@@ -20,7 +21,8 @@ const scope: IncusQualificationScope = { installationId: "installation", release
 const assertCurrentScope = async () => {};
 
 async function setup(configureHost = true, pendingCreate = false, providerGeneration = 1,
-  inspectError: Error | null = null, hostSlots = 2) {
+  inspectError: Error | null = null, hostSlots = 2,
+  options: { pendingKinds?: string[]; inspectOutcome?: "UNKNOWN" | "PENDING"; now?: () => number } = {}) {
   const client = new PGlite();
   opened.push(client);
   await client.waitReady;
@@ -44,17 +46,27 @@ async function setup(configureHost = true, pendingCreate = false, providerGenera
     connection: { revision: 1 }, preset,
     presetDigest, effectiveSettingsDigest }) } as unknown as IncusQualificationStore;
   const dispatches: SandboxProviderRequest[] = [];
+  const inspections: SandboxProviderRequest[] = [];
   let providerState: "running" | "stopped" = "stopped";
   const controller = new SandboxController(db, { dispatch: async request => {
     dispatches.push(request);
-    if (pendingCreate && request.kind === "CREATE") {
+    if (pendingCreate && request.kind === "CREATE" || options.pendingKinds?.includes(request.kind)) {
       return { outcome: "PENDING", providerOperationId: `provider-${request.operationId}` };
     }
     providerState = request.kind === "START" ? "running" : "stopped";
     return { outcome: "SUCCEEDED", observedState: request.kind === "DESTROY" ? "ABSENT"
       : request.kind === "START" ? "RUNNING" : "STOPPED" };
-  }, inspectOperation: async request => ({ outcome: "SUCCEEDED",
-    providerOperationId: request.providerOperationId ?? undefined, observedState: "STOPPED" }) });
+  }, inspectOperation: async request => {
+    inspections.push(request);
+    if (options.inspectOutcome === "PENDING") {
+      if (!request.providerOperationId) throw new Error("Pending test operation lacks its provider identity");
+      return { outcome: "PENDING", providerOperationId: request.providerOperationId };
+    }
+    if (options.inspectOutcome === "UNKNOWN") return { outcome: "UNKNOWN", providerOperationId: request.providerOperationId ?? undefined };
+    providerState = request.kind === "START" ? "running" : "stopped";
+    return { outcome: "SUCCEEDED", providerOperationId: request.providerOperationId ?? undefined,
+      observedState: request.kind === "DESTROY" ? "ABSENT" : request.kind === "START" ? "RUNNING" : "STOPPED" };
+  } });
   const admission = new SandboxAdmissionStore(db);
   if (configureHost) await admission.configureHostCapacity({ providerInstallationId: scope.installationId,
     connectionId: scope.connectionId,
@@ -64,7 +76,7 @@ async function setup(configureHost = true, pendingCreate = false, providerGenera
       executionSlots: hostSlots },
     safetyMargin: { memoryBytes: 0, cpuMillicores: 0, pids: 0, diskBytes: 0, executionSlots: 0 },
   });
-  const service = new IncusQualificationFixtureService({ db, qualifications, admission, controller,
+  const service = new IncusQualificationFixtureService({ db, qualifications, admission, controller, now: options.now,
     assertCurrentScope,
     inspect: async (_installationId, _bindingId, input) => {
       if (inspectError) throw inspectError;
@@ -73,7 +85,7 @@ async function setup(configureHost = true, pendingCreate = false, providerGenera
       presetId: preset.id, desiredState: providerState, observedState: providerState,
       generation: providerGeneration, bootId: null, observedAt: new Date().toISOString() } };
     } });
-  return { db, service, dispatches, controller, admission, qualifications, presetDigest, effectiveSettingsDigest };
+  return { db, service, dispatches, inspections, controller, admission, qualifications, presetDigest, effectiveSettingsDigest };
 }
 
 afterEach(async () => { await Promise.all(opened.splice(0).map(client => client.close())); });
@@ -506,4 +518,132 @@ test("operator recovery removes an old never-admitted fixture with exact scope",
   expect(await db.select().from(schema.projects)).toEqual([]);
   expect(await db.select().from(schema.sandboxBindings)).toEqual([]);
   expect(await db.select().from(schema.incusQualificationFixtures)).toEqual([]);
+});
+
+
+test("live witness reconciles the same pending CREATE before treating its dropped reply as failure", async () => {
+  const { db, service, qualifications, dispatches } = await setup(true, true);
+  const witness = new IncusHostLiveWitness({ db, fixtures: service, qualifications });
+  const handle = await witness.createFixture(scope, INCUS_PRESETS[0]!, "live-pending-create", true);
+  expect(handle.operationId).toBe("live-pending-create");
+  expect(dispatches.map(request => request.kind)).toEqual(["CREATE"]);
+  const saved = await service.status(scope, "live-pending-create");
+  expect(saved.operation).toMatchObject({ kind: "CREATE", state: "SUCCEEDED" });
+  expect(saved.binding).toMatchObject({ desiredState: "STOPPED", observedState: "STOPPED" });
+});
+
+
+test("pending native fixture power and destroy settle their exact saved operations", async () => {
+  const { db, service, qualifications, dispatches, admission } = await setup(true, false, 1, null, 2,
+    { pendingKinds: ["START", "STOP", "DESTROY"] });
+  const witness = new IncusHostLiveWitness({ db, fixtures: service, qualifications });
+  const handle = await witness.createFixture(scope, INCUS_PRESETS[0]!, "pending-power", false);
+  await witness.setPower(handle, "running");
+  expect((await service.status(scope, handle.operationId)).binding.observedState).toBe("RUNNING");
+  await witness.setPower(handle, "stopped");
+  expect((await admission.getReservation(handle.sandboxId))?.computeState).toBe("RELEASED");
+  await witness.destroyFixture(handle);
+  expect(dispatches.map(request => request.kind)).toEqual(["CREATE", "START", "STOP", "DESTROY"]);
+  expect(await admission.getReservation(handle.sandboxId)).toMatchObject({ computeState: "RELEASED", diskState: "RELEASED" });
+});
+
+test("unknown CREATE preserves its original effect and never queues cleanup or recreation", async () => {
+  const { db, service, qualifications, dispatches, admission } = await setup(true, true, 1, null, 2,
+    { inspectOutcome: "UNKNOWN" });
+  const witness = new IncusHostLiveWitness({ db, fixtures: service, qualifications });
+  await expect(witness.createFixture(scope, INCUS_PRESETS[0]!, "unknown-create", true))
+    .rejects.toBeInstanceOf(IncusQualificationOperationUnsettledError);
+  expect(dispatches.map(request => request.kind)).toEqual(["CREATE"]);
+  const saved = await service.status(scope, "unknown-create");
+  expect(saved.operation).toMatchObject({ kind: "CREATE", state: "OUTCOME_UNKNOWN" });
+  expect(await db.select().from(schema.sandboxOperations)).toHaveLength(1);
+  expect(await admission.getReservation(saved.fixture.bindingId)).toMatchObject({ computeState: "RESERVED", diskState: "RESERVED" });
+});
+
+test("bounded pending observation preserves receipt, scope and reservations", async () => {
+  const clockSamples = [0, 0, 0, 30_000];
+  const { db, service, qualifications, dispatches, inspections } = await setup(true, true, 1, null, 2,
+    { inspectOutcome: "PENDING", now: () => clockSamples.shift() ?? 30_000 });
+  const witness = new IncusHostLiveWitness({ db, fixtures: service, qualifications });
+  await expect(witness.createFixture(scope, INCUS_PRESETS[0]!, "bounded-pending", false))
+    .rejects.toBeInstanceOf(IncusQualificationOperationUnsettledError);
+  const saved = await service.status(scope, "bounded-pending");
+  expect(saved.operation?.state).toBe("PROVIDER_PENDING");
+  expect(inspections).toHaveLength(1);
+  expect(dispatches.map(request => request.kind)).toEqual(["CREATE"]);
+  await expect(service.waitForOperation({ ...scope, connectionId: "foreign" }, "bounded-pending", saved.operation!.id))
+    .rejects.toMatchObject({ reason: "authority_changed", operationId: saved.operation!.id,
+      cause: expect.objectContaining({ message: expect.stringContaining("fixture is unavailable") }) });
+  await expect(service.waitForOperation(scope, "bounded-pending", "foreign-operation"))
+    .rejects.toThrow("saved operation changed scope");
+});
+
+test("settling prior CREATE preserves newer queued destroy and unrelated work until absence is proven", async () => {
+  const { db, service, controller, admission, dispatches } = await setup(true, true);
+  const created = await service.create(scope, "paired-create");
+  const unrelated = await service.create(scope, "unrelated-pending");
+  const original = (await service.status(scope, "paired-create")).fixture;
+  expect((await service.destroy(scope, "paired-create")).state).toBe("JOURNALED");
+  const [destroy] = await db.select().from(schema.sandboxOperations).where(eq(schema.sandboxOperations.kind, "DESTROY"));
+  const beforeBinding = await controller.getBinding(original.bindingId);
+  const beforeReservation = await admission.getReservation(original.bindingId);
+  const beforeUnrelated = await controller.getOperation(unrelated.id);
+  expect(beforeBinding).toMatchObject({ currentOperationId: destroy!.id, desiredState: "ABSENT" });
+  expect(beforeBinding?.tombstonedAt).not.toBeNull();
+  expect(beforeReservation).toMatchObject({ computeState: "RELEASE_REQUESTED", diskState: "RELEASE_REQUESTED" });
+  expect((await service.waitForOperation(scope, "paired-create", created.id)).state).toBe("SUCCEEDED");
+  expect(await controller.getBinding(original.bindingId)).toEqual(beforeBinding);
+  expect(await admission.getReservation(original.bindingId)).toEqual(beforeReservation);
+  expect(await controller.getOperation(unrelated.id)).toEqual(beforeUnrelated);
+  expect(dispatches.map(request => request.kind)).toEqual(["CREATE", "CREATE"]);
+  await controller.executeOperation(destroy!.id);
+  expect((await service.waitForOperation(scope, "paired-create", destroy!.id)).state).toBe("SUCCEEDED");
+  expect(await admission.getReservation(original.bindingId)).toMatchObject({ computeState: "RELEASED", diskState: "RELEASED" });
+  expect((await controller.getOperation(unrelated.id))?.state).toBe("PROVIDER_PENDING");
+  expect(dispatches.map(request => request.kind)).toEqual(["CREATE", "CREATE", "DESTROY"]);
+});
+
+
+test("a cleanup admitted during create observation preserves the exact receipt and cause without automatic cleanup", async () => {
+  const { db, qualifications, service, controller, admission, dispatches } = await setup(true, true);
+  let cleanupId = "";
+  const original = admission.markStopIntent.bind(admission);
+  const spy = spyOn(admission, "markStopIntent").mockImplementation(async (bindingId, generation, intent, operationId) => {
+    const cleanup = await controller.journalOperation({ bindingId, generation, kind: "DESTROY",
+      idempotencyScope: "concurrent-cleanup", idempotencyKey: "destroy", payload: { expectedGeneration: generation } });
+    cleanupId = cleanup.id;
+    await admission.markCleanupIntent(bindingId, generation, "concurrent-cleanup");
+    return original(bindingId, generation, intent, operationId);
+  });
+  const witness = new IncusHostLiveWitness({ db, fixtures: service, qualifications });
+  try {
+    await expect(witness.createFixture(scope, INCUS_PRESETS[0]!, "create-observation-race", false))
+      .rejects.toMatchObject({ name: "IncusQualificationOperationUnsettledError", state: "SUCCEEDED",
+        cause: { code: "OPERATION_SUPERSEDED" } });
+    const saved = await service.status(scope, "create-observation-race");
+    expect(saved.operation).toMatchObject({ id: cleanupId, kind: "DESTROY", state: "JOURNALED" });
+    expect(await controller.getBinding(saved.fixture.bindingId)).toMatchObject({ currentOperationId: cleanupId, desiredState: "ABSENT" });
+    expect(await admission.getReservation(saved.fixture.bindingId)).toMatchObject({ computeState: "RELEASE_REQUESTED", diskState: "RELEASE_REQUESTED" });
+    expect(dispatches.map(request => request.kind)).toEqual(["CREATE"]);
+  } finally { spy.mockRestore(); }
+});
+
+
+test("a service error after admitting CREATE but before returning its receipt cannot trigger cleanup", async () => {
+  const { db, qualifications, service, dispatches } = await setup(true, true);
+  const original = service.create.bind(service);
+  const spy = spyOn(service, "create").mockImplementation(async (scope, operationId) => {
+    await original(scope, operationId);
+    throw new Error("receipt delivery failed after admission");
+  });
+  try {
+    const witness = new IncusHostLiveWitness({ db, fixtures: service, qualifications });
+    await expect(witness.createFixture(scope, INCUS_PRESETS[0]!, "lost-receipt-error", false))
+      .rejects.toThrow("receipt delivery failed after admission");
+    expect((await service.status(scope, "lost-receipt-error")).operation)
+      .toMatchObject({ kind: "CREATE", state: "PROVIDER_PENDING" });
+    expect(dispatches.map(request => request.kind)).toEqual(["CREATE"]);
+    const operations = await db.select().from(schema.sandboxOperations);
+    expect(operations.map(operation => operation.kind)).toEqual(["CREATE"]);
+  } finally { spy.mockRestore(); }
 });

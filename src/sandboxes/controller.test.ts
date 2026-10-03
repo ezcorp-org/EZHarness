@@ -635,3 +635,17 @@ describe("SandboxController durable dispatch", () => {
     );
   });
 });
+
+
+test("exact saved-operation inspection never dispatches a journal or unrelated operation", async () => {
+  const { db } = await setup("exact-inspection");
+  const provider = new FakeProvider();
+  const controller = new SandboxController(db, provider);
+  const target = await binding(controller, "exact-inspection");
+  const queued = await controller.journalOperation({ bindingId: target.id, generation: 1, kind: "CREATE",
+    idempotencyScope: "exact", idempotencyKey: "queued", payload: {} });
+  expect(await controller.inspectOperation(queued.id)).toEqual(queued);
+  expect(provider.dispatches).toEqual([]);
+  expect(provider.inspections).toEqual([]);
+  await expect(controller.inspectOperation("not-present")).rejects.toMatchObject({ code: "OPERATION_NOT_FOUND" });
+});
