@@ -5601,6 +5601,18 @@ Review: the wave added three workspaces and a web patch file, and no container f
 manifest, so the next added workspace or patch fails a fast unit test, not a hosted image job. Receipts:
 /tmp/factory-platform-evidence/w4g-1/report.txt.
 
+## W4H-1 — the bundled ai-kit bootstrap verifies inside the production image (branch `wp/w4h-1`; gates `tasks/factory/w4h-1-GATES.md`)
+
+- [x] Red from a clean `git archive` image of 52d8ba079: ai-kit's isolated build fails "Executable not found in $PATH: git"; the runner image has no git.
+- [x] Fix: the ai-kit installer uses the SDK's `findProjectRoot` walk; the tests build their repository with `markGitRepository` (2f2d689d7).
+- [x] Red-first test: the install works with only bun on PATH (fails on the old installer with the hosted ENOENT).
+- [x] The bundled bootstrap verifies 28/28 builds, ai-kit included (delivery and runtime proofs, exit 0).
+- [ ] runtime-resources: three local tries timed out at the 6-minute bootstrap deadline under host load (no failed build); the hosted rerun proves it.
+
+Review: the cause was a host tool, not a missing `.git`. The installer and its test both ran git, and the pinned Bun runner image
+ships none. The installer now reads the filesystem through the SDK's one repository rule, so it needs no git anywhere. Receipts:
+/tmp/factory-platform-evidence/w4h-1/report.txt.
+
 ## W4G — hosted CI pre-flight packages (landing records)
 
 - [x] First hosted CI run of the branch (2fd05e200) failed 14 jobs, the second (842ad9fe1) 26; eleven wave-side causes hidden by the local host.
