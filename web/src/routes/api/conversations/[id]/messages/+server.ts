@@ -613,6 +613,7 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
   });
 
   const streamPromise = executor.streamChat(conversationId, body.content, {
+    workspacePrincipal: { userId: user.id },
     projectId: conv.projectId,
     ...(streamWorkspaceTarget
       ? { workspaceTarget: streamWorkspaceTarget }

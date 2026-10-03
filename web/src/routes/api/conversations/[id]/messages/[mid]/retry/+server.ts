@@ -121,6 +121,7 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
   // Anchor the turn at the EXISTING user row: no new user message is created,
   // so the assistant response becomes a sibling of `target`.
   const streamPromise = executor.streamChat(conversationId, parentUser.content, {
+    workspacePrincipal: { userId: user.id },
     projectId: conv.projectId,
     provider,
     model,

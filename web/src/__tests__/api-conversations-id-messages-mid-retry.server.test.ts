@@ -254,6 +254,7 @@ describe("POST /api/conversations/[id]/messages/[mid]/retry", () => {
 		expect(convId).toBe("conv-owned");
 		expect(content).toBe("the prompt");
 		expect((opts as { parentMessageId: string }).parentMessageId).toBe("u1");
+		expect(opts).toMatchObject({ workspacePrincipal: { userId: "user-1" } });
 		expect((opts as { provider?: string }).provider).toBe("anthropic");
 		expect((opts as { model?: string }).model).toBe("claude");
 		expect((opts as { runId?: string }).runId).toBe(body.runId);

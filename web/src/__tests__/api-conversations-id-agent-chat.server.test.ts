@@ -274,6 +274,7 @@ describe("POST /api/conversations/[id]/agent-chat", () => {
       expect(streamChat).toHaveBeenCalledTimes(1);
       const opts = (streamChat.mock.calls[0] as unknown as [string, string, { provider?: string; model?: string }])[2];
       expect(opts.provider).toBe("openai");
+      expect(opts).toMatchObject({ workspacePrincipal: { userId: user.id } });
       expect(opts.model).toBe("gpt-5");
     });
 

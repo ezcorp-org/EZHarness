@@ -285,12 +285,13 @@ describe("POST /api/conversations/[id]/messages", () => {
     getProject.mockResolvedValue({ id: "p1", path: "/__incus_workspace__/guest-1", sandboxTarget });
     createMessage.mockResolvedValue({ id: "m1", role: "user", content: "Read README.md" });
 
-    const response = await POST(makeEvent({ method: "POST", locals: { user }, body: { content: "Read README.md" } }));
+    const response = await POST(makeEvent({ method: "POST", locals: { user }, body: { content: "Read README.md", workspacePrincipal: { userId: "forged-admin" } } }));
 
     expect(response.status).toBe(200);
     expect(streamChat).toHaveBeenCalledWith("c1", "Read README.md", expect.objectContaining({
       projectId: "p1",
       workspaceTarget: sandboxTarget,
+      workspacePrincipal: { userId: user.id },
     }));
   });
 

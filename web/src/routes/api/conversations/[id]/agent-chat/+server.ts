@@ -210,6 +210,7 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
   // `start-assignment.ts:auto-continue`); v1 doesn't thread overrides
   // through the active-run drain.
   const streamPromise = executor.streamChat(params.id, content, {
+    workspacePrincipal: { userId: user.id },
     projectId,
     agentConfigId,
     runId,
