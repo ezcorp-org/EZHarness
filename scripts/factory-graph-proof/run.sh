@@ -6,6 +6,12 @@
 #       three in mode `mock`, the two negative-control passes, and the summary.
 #   scripts/factory-graph-proof/run.sh pass <ollama|mock> <none|no-pin|missing-model> <label>
 #       one pass against the current build.
+#   scripts/factory-graph-proof/run.sh hold <deployment-dir> <label> [minutes]
+#       start ONE persistent deployment (folder under /run/user/<uid>/; see deployment.ts),
+#       pinned to the reference model, print its URL, and stop it on SIGTERM or after at most
+#       30 minutes. The deployment's database and key files stay for the next start.
+#   scripts/factory-graph-proof/run.sh probe <deployment-dir> <evidence.json>
+#       the reference code provider probe against that deployment (W10c sign-in check).
 #
 # Every pass boots a fresh installation on fresh pool and product databases,
 # runs the graph through public HTTP, and writes <label>.json into W19A_OUT.
@@ -52,6 +58,14 @@ one_pass() {
 case "${1:-}" in
   pass)
     one_pass "$2" "$3" "$4"
+    ;;
+  hold)
+    [ -n "${2:-}" ] && [ -n "${3:-}" ] || { echo "usage: run.sh hold <deployment-dir> <label> [minutes]" >&2; exit 2; }
+    W19A_DEPLOYMENT_DIR=$2 W19A_LABEL=$3 W19A_HOLD_MINUTES=${4:-30} timeout 2400 bun "$REPO/scripts/factory-graph-proof/hold.ts"
+    ;;
+  probe)
+    [ -n "${2:-}" ] || { echo "usage: run.sh probe <deployment-dir> <evidence.json>" >&2; exit 2; }
+    W19A_DEPLOYMENT_DIR=$2 bun "$REPO/scripts/factory-graph-proof/deployment-probe.ts" "${3:-}"
     ;;
   all)
     # The server runs its built output, so it is rebuilt from this tree first.
