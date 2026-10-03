@@ -11,6 +11,15 @@ const drizzleRequire = createRequire(rootRequire.resolve("drizzle-kit"));
 const loaderRequire = createRequire(drizzleRequire.resolve("@esbuild-kit/esm-loader"));
 const coreRequire = createRequire(loaderRequire.resolve("@esbuild-kit/core-utils"));
 const excelRequire = createRequire(rootRequire.resolve("exceljs"));
+const contractRequire = createRequire(rootRequire.resolve("@ezcorp/extension-contract"));
+const schemaRequire = createRequire(contractRequire.resolve("ts-json-schema-generator"));
+const schemaMinimatchRequire = createRequire(schemaRequire.resolve("minimatch"));
+const archiverRequire = createRequire(excelRequire.resolve("archiver"));
+const readGlobRequire = createRequire(archiverRequire.resolve("readdir-glob"));
+const readGlobMinimatchRequire = createRequire(readGlobRequire.resolve("minimatch"));
+const archiveUtilsRequire = createRequire(archiverRequire.resolve("archiver-utils"));
+const globRequire = createRequire(archiveUtilsRequire.resolve("glob"));
+const legacyMinimatchRequire = createRequire(globRequire.resolve("minimatch"));
 type EsbuildApi = {
   version: string;
   context: (options: {
@@ -82,4 +91,44 @@ test("ExcelJS writes and reads a workbook through its patched UUID dependency", 
   if (!restoredSheet) throw new Error("ExcelJS did not restore the worksheet");
   expect(restoredSheet.getCell("A1").value).toBe(42);
   expect((restoredSheet.model as { conditionalFormattings?: unknown[] }).conditionalFormattings).toHaveLength(1);
+});
+
+test("AJV resolves fast-uri with consistent percent-encoded host normalization", () => {
+  const ajvRequire = createRequire(contractRequire.resolve("ajv"));
+  const uri = ajvRequire("fast-uri") as { parse: (value: string) => { host?: string }; equal: (left: string, right: string) => boolean };
+  expect(ajvRequire("fast-uri/package.json").version).toBe("3.1.8");
+  // 3.1.6 returned A.com and incorrectly reported these hosts as unequal.
+  expect(uri.parse("//%41.com").host).toBe("a.com");
+  expect(uri.equal("//%41.com", "//a.com")).toBe(true);
+});
+
+test("the MCP rate limiter resolves ip-address with corrected IPv6 classification", () => {
+  const aiKitRequire = createRequire(rootRequire.resolve("@ezcorp/ai-kit"));
+  const mcpRequire = createRequire(aiKitRequire.resolve("@modelcontextprotocol/sdk/server/mcp.js"));
+  const rateLimitRequire = createRequire(mcpRequire.resolve("express-rate-limit"));
+  const ip = rateLimitRequire("ip-address") as {
+    Address4: new (value: string) => { isInSubnet: (other: unknown) => boolean };
+    Address6: new (value: string) => { isInSubnet: (other: unknown) => boolean; isLinkLocal: () => boolean };
+  };
+  expect(rateLimitRequire("ip-address/package.json").version).toBe("10.7.3");
+  // 10.4.0 treated the unrelated IPv6 address as inside this IPv4 subnet.
+  expect(new ip.Address6("a00::1").isInSubnet(new ip.Address4("10.0.0.0/8"))).toBe(false);
+  expect(new ip.Address6("fea0::1").isLinkLocal()).toBe(true);
+});
+
+test("schema glob and ExcelJS archiver use bounded brace expansion in each supported major", () => {
+  const callers: Array<[ReturnType<typeof createRequire>, string]> = [
+    [schemaMinimatchRequire, "5.0.12"],
+    [readGlobMinimatchRequire, "2.1.7"],
+    [legacyMinimatchRequire, "1.1.21"],
+  ];
+  const adverse = `{a}${"}".repeat(1000)},z}`;
+  for (const [caller, version] of callers) {
+    expect(caller("brace-expansion/package.json").version).toBe(version);
+    const module = caller("brace-expansion") as ((pattern: string) => string[]) | { expand: (pattern: string) => string[] };
+    const expand = typeof module === "function" ? module : module.expand;
+    expect(expand("file-{a,b}.txt")).toEqual(["file-a.txt", "file-b.txt"]);
+    // Vulnerable 1.1.18, 2.1.4, and 5.0.9 expanded this rewrite chain.
+    expect(expand(adverse)).toEqual([adverse]);
+  }
 });
