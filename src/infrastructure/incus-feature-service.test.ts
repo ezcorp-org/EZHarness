@@ -99,7 +99,7 @@ async function fixture() {
       limit: { memoryBytes: preset.limits.memoryBytes, cpuMillicores: preset.limits.cpuMillis,
         pids: preset.limits.pids, diskBytes: preset.limits.diskBytes, executionSlots: 1 } });
   };
-  return { db, service, controller, admission, dispatches, connection, setQualification: (value: boolean) => { qualificationAvailable = value; },
+  return { db, service, controller, admission, dispatches, provider, connection, setQualification: (value: boolean) => { qualificationAvailable = value; },
     setProvider: (state: "running" | "stopped", generation: number) => { providerState = state; providerGeneration = generation; },
     setInspectUnavailable: (value: boolean) => { inspectUnavailable = value; }, configureAdmission, preset, retiredCalls };
 }
@@ -276,6 +276,64 @@ test("expired qualification blocks new work but permits stop and destroy; destro
   expect(dispatches.filter(item => item.kind === "DESTROY")).toHaveLength(1);
 }, DB_TEST_TIMEOUT_MS);
 
+test("user project recovery preserves failed cleanup and charges until exact linked steps complete", async () => {
+  const { db, service, controller, admission, dispatches, provider, connection, configureAdmission, preset, setProvider } = await fixture();
+  await configureAdmission();
+  const { project, binding } = await service.prepareProject({ name: "Recovered guest", ownerUserId: "admin",
+    idempotencyKey: "user-recovery-project", installationId: "installation", connectionId: "connection", presetId: preset.id });
+  expect(project.purpose).toBe("user");
+  expect((await db.select().from(schema.projectMembers).where(eq(schema.projectMembers.projectId, project.id)))[0])
+    .toMatchObject({ userId: "admin", role: "owner" });
+  const request = (key: string) => ({ bindingId: binding.id, idempotencyScope: "user-recovery", idempotencyKey: key });
+  await service.create(request("create"));
+  await service.reconcile();
+  await service.start(request("start"));
+  await service.reconcile();
+  setProvider("running", 2);
+  const normalDispatch = provider.dispatch;
+  let rejectLegacyDestroy = true;
+  provider.dispatch = async input => {
+    if (input.kind === "DESTROY" && rejectLegacyDestroy) {
+      rejectLegacyDestroy = false;
+      dispatches.push(input);
+      return { outcome: "FAILED", errorCode: "REVISION_CONFLICT" };
+    }
+    return normalDispatch(input);
+  };
+  await admission.markCleanupIntent(binding.id, binding.generation, "legacy-user-cleanup");
+  const failed = await controller.requestAndDispatch({ ...request("legacy-destroy"), generation: binding.generation,
+    kind: "DESTROY", payload: { expectedGeneration: 2 } });
+  expect(failed).toMatchObject({ state: "FAILED", errorCode: "REVISION_CONFLICT", providerOperationId: null });
+  const before = await controller.getBinding(binding.id);
+  const stop = await service.recoverCleanup(binding.id, failed.id);
+  expect(stop.recovery.state).toBe("STOP_REQUIRED");
+  expect(stop.operation).toMatchObject({ id: stop.recovery.stopOperationId, kind: "STOP", state: "PROVIDER_PENDING",
+    requestPayload: { expectedGeneration: 2 } });
+  expect(await controller.getOperation(failed.id)).toEqual(failed);
+  expect(await admission.getReservation(binding.id)).toMatchObject({ computeState: "RELEASE_REQUESTED", diskState: "RELEASE_REQUESTED" });
+  connection.revision = 2;
+  await expect(service.recoverCleanup(binding.id, failed.id)).rejects.toThrow("connection changed");
+  expect(dispatches.map(item => item.kind)).toEqual(["CREATE", "START", "DESTROY", "STOP"]);
+  expect(await controller.getOperation(failed.id)).toEqual(failed);
+  connection.revision = 1;
+  setProvider("stopped", 3);
+  const destroy = await service.recoverCleanup(binding.id, failed.id);
+  expect(destroy.recovery).toMatchObject({ id: stop.recovery.id, state: "DESTROY_REQUIRED",
+    failedDestroyOperationId: failed.id, stopOperationId: stop.recovery.stopOperationId });
+  expect(destroy.operation).toMatchObject({ id: stop.recovery.destroyOperationId, kind: "DESTROY", state: "PROVIDER_PENDING",
+    requestPayload: { expectedGeneration: 3 } });
+  expect((await admission.getReservation(binding.id))?.diskState).toBe("RELEASE_REQUESTED");
+  const complete = await service.recoverCleanup(binding.id, failed.id);
+  expect(complete.recovery.state).toBe("COMPLETED");
+  expect(await controller.getBinding(binding.id)).toMatchObject({ desiredState: "ABSENT", observedState: "ABSENT",
+    generation: binding.generation, tombstonedAt: before!.tombstonedAt, currentOperationId: stop.recovery.destroyOperationId });
+  expect(await admission.getReservation(binding.id)).toMatchObject({ computeState: "RELEASED", diskState: "RELEASED" });
+  expect(await controller.getOperation(failed.id)).toEqual(failed);
+  expect((await service.recoverCleanup(binding.id, failed.id)).recovery).toEqual(complete.recovery);
+  expect(dispatches.map(item => item.kind)).toEqual(["CREATE", "START", "DESTROY", "STOP", "DESTROY"]);
+  expect(await db.select().from(schema.sandboxCleanupRecoveries)).toHaveLength(1);
+}, DB_TEST_TIMEOUT_MS);
+
 test("retired destroy journals an exact stopped guest and replays without another readback", async () => {
   const { service, controller, admission, dispatches, preset, configureAdmission, retiredCalls } = await fixture();
   const binding = await service.prepare({ projectId: "project", installationId: "installation",
@@ -380,6 +438,12 @@ test("uncertain fixture destroy denies Ready until the original operation confir
   expect(destroy.state).toBe("PROVIDER_PENDING");
   await db.update(schema.sandboxOperations).set({ state: "OUTCOME_UNKNOWN" })
     .where(eq(schema.sandboxOperations.id, destroy.id));
+  const savedFixtureDestroy = await controller.getOperation(destroy.id);
+  const savedFixtureBinding = await controller.getBinding(bindingId);
+  await expect(service.recoverCleanup(bindingId, destroy.id)).rejects.toThrow("feature binding is unavailable");
+  expect(await controller.getOperation(destroy.id)).toEqual(savedFixtureDestroy);
+  expect(await controller.getBinding(bindingId)).toEqual(savedFixtureBinding);
+  expect(await db.select().from(schema.sandboxCleanupRecoveries)).toEqual([]);
   await expect(service.prepare(input)).rejects.toMatchObject({ code: "QUALIFICATION_CLEANUP_UNVERIFIED" });
 
   // Reconciliation inspects the same operation. A provider absence receipt by
