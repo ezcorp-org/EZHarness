@@ -1,22 +1,33 @@
 import { randomBytes } from "node:crypto";
+import { existsSync } from "node:fs";
 import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { createFactoryCertificateAuthority } from "../../factory/provisioning/certificates";
 import { factoryDatabasePairs } from "../../factory/provisioning/database";
 import type { FactoryDeploymentSettings } from "../../factory/provisioning/deployment";
 import { FACTORY_HOST_FILES, factoryFleetHostIdentity, factoryFleetHostPaths, type FactoryFleetHostFacts } from "../../factory/provisioning/host";
 import type { FactoryInstallationContext } from "../../factory/provisioning/installation";
+import { privateDirectory } from "../../factory/private-files";
 
 /**
- * A 0700 temp root the private reader accepts. It lives under
- * XDG_RUNTIME_DIR or $HOME, never /tmp: /tmp is a world-writable ancestor,
- * and the private reader refuses it.
+ * A 0700 temp root the private reader accepts: under XDG_RUNTIME_DIR when that directory exists and the
+ * reader accepts a root there, otherwise under os.tmpdir(). Never under $HOME: a hosted runner's $HOME is an
+ * owned 0755 directory, which the reader refuses. (/tmp used to be refused as a world-writable ancestor; the
+ * reader now accepts a root-owned sticky one, see privateComponentVerdict.)
  */
 export async function makeFactoryPrivateRoot(): Promise<string> {
-  const root = await mkdtemp(join(process.env.XDG_RUNTIME_DIR ?? homedir(), "w16-test-"));
-  await chmod(root, 0o700);
-  return root;
+  const runtime = process.env.XDG_RUNTIME_DIR;
+  if (runtime && existsSync(runtime)) {
+    const root = await mkdtemp(join(runtime, "w16-test-"));
+    try {
+      await (await privateDirectory(root)).close();
+      return root;
+    } catch {
+      await rm(root, { recursive: true, force: true });
+    }
+  }
+  return makeFactoryTempPrivateRoot("w16-test-");
 }
 
 /**
