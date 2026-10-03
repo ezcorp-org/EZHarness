@@ -39,9 +39,17 @@ function assertScope(command: IncusTransportRequest, scope: HostConnectionScope)
     || !NAME.test(command.pins.project) || command.pins.project === "default"
     || !NAME.test(command.pins.profile) || command.pins.profile === "default"
     || !Number.isFinite(command.deadlineMs) || command.deadlineMs <= Date.now() || command.deadlineMs - Date.now() > MAX_DEADLINE_MS) invalid("Invalid Incus lifecycle scope");
+  assertSandboxIdentity(command);
+  assertOperationIdentity(command);
+}
+
+function assertSandboxIdentity(command: IncusTransportRequest): void {
   if (command.action !== "instance.list") {
     if (!command.tags.sandboxId || !ID.test(command.tags.sandboxId) || command.sandboxName !== resourceName(command.connectionId, command.tags.sandboxId)) invalid("Invalid Incus sandbox identity");
   } else if (command.tags.sandboxId || command.sandboxName) invalid("Invalid Incus list scope");
+}
+
+function assertOperationIdentity(command: IncusTransportRequest): void {
   if (["instance.create", "instance.setPower", "instance.destroy", "helper.file.writeAtomic", "helper.file.remove", "helper.process.start", "helper.process.cancel"].includes(command.action)) {
     if (!command.idempotency || !ID.test(command.idempotency.requestId) || !ID.test(command.idempotency.key)) invalid("Invalid Incus operation identity");
   } else if (command.idempotency && (command.action !== "operation.inspect" || !ID.test(command.idempotency.requestId) || !ID.test(command.idempotency.key))) invalid("Unexpected Incus operation identity");
