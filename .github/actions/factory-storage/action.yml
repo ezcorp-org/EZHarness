@@ -1,0 +1,38 @@
+name: "Factory object storage"
+description: >
+  Starts or stops the job-local factory object storage from the one committed recipe: scripts/setup-factory-storage.sh
+  drives compose.factory-storage.local.yml, which holds the SeaweedFS image digest and the loopback ports. `up` creates
+  a fresh, random credential set below a private runtime directory (never a repository secret, never printed) and
+  exports XDG_RUNTIME_DIR and EZCORP_FACTORY_STORAGE_SECRETS_DIR to the later steps. `down` removes the containers,
+  their volumes, and the set. Every job uses this action for both (W4H-5); a job's stop step runs only when its start
+  step ran (scripts/factory-storage-action-registration.test.ts holds both rules).
+
+inputs:
+  command:
+    description: "`up` or `down`."
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Factory object storage
+      shell: bash
+      env:
+        FACTORY_STORAGE_COMMAND: ${{ inputs.command }}
+      run: |
+        set -euo pipefail
+        case "$FACTORY_STORAGE_COMMAND" in
+          up)
+            runtime_dir="$RUNNER_TEMP/factory-storage-runtime"
+            install -d -m 700 "$runtime_dir"
+            export XDG_RUNTIME_DIR="$runtime_dir"
+            setup_output="$(scripts/setup-factory-storage.sh up)"
+            storage_dir="$(printf '%s\n' "$setup_output" | sed -n 's#^Factory local storage is ready. Credentials are in \(.*\) below.*#\1#p')"
+            test -n "$storage_dir"
+            test -d "$storage_dir"
+            echo "XDG_RUNTIME_DIR=$runtime_dir" >> "$GITHUB_ENV"
+            echo "EZCORP_FACTORY_STORAGE_SECRETS_DIR=$storage_dir" >> "$GITHUB_ENV"
+            ;;
+          down) scripts/setup-factory-storage.sh down ;;
+          *) echo "factory-storage: command must be up or down" >&2; exit 2 ;;
+        esac

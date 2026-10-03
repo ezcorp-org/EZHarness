@@ -18,7 +18,7 @@
 # W18: the W00 audit (discrepancy 12) found five real-PostgreSQL suites that
 # ran in NO producer at all — factory-budgets, factory-encryption-s3,
 # factory-inbox, factory-project-creation, and factory-records. They are now in
-# the real storage step below, after setup-factory-storage.sh has exported the
+# the real storage step below, after the factory-storage action has exported the
 # credential directory, because factory-encryption-s3 writes real objects.
 # scripts/factory-postgres-suite-registration.test.ts derives the requirement
 # from tests/postgres/ on disk, so the next unregistered suite fails closed
@@ -160,18 +160,10 @@ jobs:
       # credentials below a private runtime directory, starts SeaweedFS, and
       # seeds versioned tenant buckets without exposing credential values.
       - name: Start factory object storage
-        shell: bash
-        run: |
-          set -euo pipefail
-          runtime_dir="$RUNNER_TEMP/factory-storage-runtime"
-          install -d -m 700 "$runtime_dir"
-          export XDG_RUNTIME_DIR="$runtime_dir"
-          setup_output="$(scripts/setup-factory-storage.sh up)"
-          storage_dir="$(printf '%s\n' "$setup_output" | sed -n 's#^Factory local storage is ready. Credentials are in \(.*\) below.*#\1#p')"
-          test -n "$storage_dir"
-          test -d "$storage_dir"
-          echo "XDG_RUNTIME_DIR=$runtime_dir" >> "$GITHUB_ENV"
-          echo "EZCORP_FACTORY_STORAGE_SECRETS_DIR=$storage_dir" >> "$GITHUB_ENV"
+        id: factory-storage-up
+        uses: ./.github/actions/factory-storage
+        with:
+          command: up
 
       # Explicit files preserve each real storage and private-service proof.
       - name: Run factory storage and private services on Postgres and S3
@@ -234,10 +226,12 @@ jobs:
           retention-days: 3
           if-no-files-found: error
 
+      # Only after a start step that ran: `down` cannot prove ownership of a set it never made (W4H-5).
       - name: Stop factory object storage
-        if: always()
-        shell: bash
-        run: scripts/setup-factory-storage.sh down
+        if: always() && steps.factory-storage-up.outcome != 'skipped'
+        uses: ./.github/actions/factory-storage
+        with:
+          command: down
 
   # C11 lane 4 of 7: protected evidence, exact authorization, provider-adapter
   # conformance, and the F04 races. Real engine plus real object storage; these
@@ -272,18 +266,10 @@ jobs:
       - uses: ./.github/actions/setup
 
       - name: Start factory object storage
-        shell: bash
-        run: |
-          set -euo pipefail
-          runtime_dir="$RUNNER_TEMP/factory-storage-runtime"
-          install -d -m 700 "$runtime_dir"
-          export XDG_RUNTIME_DIR="$runtime_dir"
-          setup_output="$(scripts/setup-factory-storage.sh up)"
-          storage_dir="$(printf '%s\n' "$setup_output" | sed -n 's#^Factory local storage is ready. Credentials are in \(.*\) below.*#\1#p')"
-          test -n "$storage_dir"
-          test -d "$storage_dir"
-          echo "XDG_RUNTIME_DIR=$runtime_dir" >> "$GITHUB_ENV"
-          echo "EZCORP_FACTORY_STORAGE_SECRETS_DIR=$storage_dir" >> "$GITHUB_ENV"
+        id: factory-storage-up
+        uses: ./.github/actions/factory-storage
+        with:
+          command: up
 
       - name: Prove factory assurance against real PostgreSQL
         run: FACTORY_TEST_POSTGRES_URL="$DATABASE_URL" bun test --timeout 30000 ./tests/postgres/factory-assurance.test.ts
@@ -310,7 +296,9 @@ jobs:
           retention-days: 3
           if-no-files-found: error
 
+      # Only after a start step that ran: `down` cannot prove ownership of a set it never made (W4H-5).
       - name: Stop factory object storage
-        if: always()
-        shell: bash
-        run: scripts/setup-factory-storage.sh down
+        if: always() && steps.factory-storage-up.outcome != 'skipped'
+        uses: ./.github/actions/factory-storage
+        with:
+          command: down

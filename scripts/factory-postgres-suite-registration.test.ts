@@ -90,7 +90,7 @@ describe("factory PostgreSQL suite registration", () => {
 
   test("the five previously unregistered suites run against the real engine and real storage", async () => {
     const workflow = await readFile(POSTGRES_WORKFLOW, "utf8");
-    // They are placed in the storage step, after setup-factory-storage.sh has
+    // They are placed in the storage step, after the factory-storage action has
     // exported EZCORP_FACTORY_STORAGE_SECRETS_DIR, because factory-encryption-s3
     // writes real objects. Running them before it would measure PGlite-free
     // PostgreSQL but no object store.
@@ -105,6 +105,6 @@ describe("factory PostgreSQL suite registration", () => {
       expect(storageStep, `${suite} is not in the real storage producer step`).toContain(suite);
     }
     expect(workflow).toContain('FACTORY_TEST_POSTGRES_URL="$DATABASE_URL"');
-    expect(workflow).toContain("scripts/setup-factory-storage.sh up");
+    expect(workflow).toContain("uses: ./.github/actions/factory-storage");
   });
 });
