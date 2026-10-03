@@ -2,6 +2,14 @@ import { afterEach, expect, mock, test } from "bun:test";
 
 const calls: string[] = [];
 let fail = false;
+const { IncusQualificationOperationUnsettledError } = await import("$server/infrastructure/incus-qualification");
+function preservedError(operationId: string, state: unknown, reason: unknown = "outcome_unsettled") {
+  const error = new IncusQualificationOperationUnsettledError(operationId, "JOURNALED", new Error("privateKeyPem secret provider payload"));
+  return Object.assign(error, { state, reason });
+}
+let unsettledError: InstanceType<typeof IncusQualificationOperationUnsettledError> | null = null;
+const warnings: Array<{ message: string; fields: unknown }> = [];
+mock.module("$server/logger", () => ({ logger: { child: () => ({ warn: (message: string, fields: unknown) => warnings.push({ message, fields }) }) } }));
 let witnessReady = false;
 let beginResult = false;
 let fixtureReady = true;
@@ -16,6 +24,7 @@ mock.module("$server/infrastructure/incus-host-live-witness", () => ({
 mock.module("$server/infrastructure/incus-startup", () => ({
   createIncusQualificationWitness: async (input: { connectionId: string }, operationId: string) => {
     calls.push(`witness.create:${input.connectionId}:${operationId}`);
+    if (unsettledError) throw unsettledError;
     if (!process.env.EZCORP_INCUS_CONTROL_PROBE_ROOT || !fixtureReady) throw new Error("control unavailable");
     return { name: "operator-witness" };
   },
@@ -33,6 +42,7 @@ mock.module("$server/infrastructure/incus-live-cases", () => ({
 const operation = { id: "controller-operation", kind: "CREATE", state: "SUCCEEDED", generation: 1,
   providerOperationId: "provider-operation", errorCode: null, requestPayload: { privateKeyPem: "secret" } };
 mock.module("$server/infrastructure/incus-qualification", () => ({
+  IncusQualificationOperationUnsettledError,
   IncusQualificationStore: class {
     async authorizeFixture(scope: { connectionId: string }) {
       calls.push(`authorize:${scope.connectionId}`);
@@ -42,6 +52,7 @@ mock.module("$server/infrastructure/incus-qualification", () => ({
   IncusQualificationFixtureService: class {
   async create(scope: { connectionId: string }, id: string) {
     calls.push(`create:${scope.connectionId}:${id}`);
+    if (unsettledError) throw unsettledError;
     if (fail) throw new Error("connection credentials secret");
     return operation;
   }
@@ -186,9 +197,70 @@ test("operator actions pass the exact scope and return only safe durable state",
 test("fixture failures do not return provider or credential errors", async () => {
   calls.length = 0;
   fail = true;
+  warnings.length = 0;
   try {
     const response = await POST(event(admin, { ...scope, action: "create" }));
     expect(response.status).toBe(409);
     expect(JSON.stringify(await response.json())).not.toContain("secret");
+    expect(warnings).toEqual([]);
   } finally { fail = false; }
+});
+
+
+test("unsettled qualification returns its saved operation and forbids an unsafe retry", async () => {
+  warnings.length = 0;
+  witnessReady = true;
+  try {
+    for (const state of ["JOURNALED", "DISPATCHING", "PROVIDER_PENDING", "OUTCOME_UNKNOWN"]) {
+      unsettledError = preservedError("saved-controller-operation", state);
+      const response = await POST(event(admin, { ...scope, action: "qualify" }));
+      expect(response.status).toBe(409);
+      const body = await response.json();
+      expect(body).toMatchObject({ code: "qualification_operation_preserved", operation: { id: "saved-controller-operation", state } });
+      expect(body.message).toContain("Do not retry qualification");
+      expect(body.message).toContain("saved-controller-operation");
+      expect(JSON.stringify(body)).not.toMatch(/privateKeyPem|secret|provider payload/);
+    }
+    expect(warnings).toHaveLength(4);
+    expect(warnings[3]).toEqual({ message: "Saved Incus qualification operation requires review", fields: {
+      action: "qualify", installationId: "installation", connectionId: "connection", operationId: "saved-controller-operation", state: "OUTCOME_UNKNOWN", reason: "outcome_unsettled" } });
+    expect(JSON.stringify(warnings)).not.toMatch(/privateKeyPem|secret|provider payload/);
+  } finally { unsettledError = null; witnessReady = false; }
+});
+
+test("invalid or terminal typed diagnostics remain redacted", async () => {
+  warnings.length = 0;
+  try {
+    for (const [id, state] of [["../privateKeyPem-secret", "OUTCOME_UNKNOWN"], ["saved-operation", "SUCCEEDED"], ["saved-operation", "privateKeyPem-secret"]]) {
+      unsettledError = preservedError(id, state);
+      const response = await POST(event(admin, { ...scope, action: "create" }));
+      expect(response.status).toBe(409);
+      expect(await response.json()).toEqual({ code: "qualification_unavailable",
+        message: "The Incus qualification fixture is unavailable for this scope. Check host logs and its saved status." });
+    }
+    expect(warnings).toEqual([]);
+  } finally { unsettledError = null; }
+});
+
+
+test("saved successful operations remain reviewable only for an explicit intent or authority change", async () => {
+  warnings.length = 0;
+  try {
+    for (const reason of ["newer_intent", "authority_changed"]) {
+      unsettledError = preservedError("saved-successful-operation", "SUCCEEDED", reason);
+      const response = await POST(event(admin, { ...scope, action: "create" }));
+      expect(response.status).toBe(409);
+      const body = await response.json();
+      expect(body).toMatchObject({ code: "qualification_operation_preserved", operation: { id: "saved-successful-operation", state: "SUCCEEDED" }, reason });
+      expect(body.message).toContain("Do not retry qualification or repeat the mutation");
+      expect(JSON.stringify(body)).not.toContain("secret");
+    }
+    expect(warnings).toHaveLength(2);
+    expect(JSON.stringify(warnings)).not.toContain("secret");
+    unsettledError = preservedError("saved-operation", "SUCCEEDED", "secret reason");
+    const invalid = await POST(event(admin, { ...scope, action: "create" }));
+    expect(invalid.status).toBe(409);
+    expect((await invalid.json()).code).toBe("qualification_unavailable");
+    expect(warnings).toHaveLength(2);
+  } finally { unsettledError = null; }
 });

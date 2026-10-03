@@ -417,22 +417,37 @@ test("a saved plan reloads with its original operation before review", async ({ 
 	expect(plans[1]?.body.operationId).toBe(plans[0]?.body.operationId);
 });
 
-test("a lost qualification reply leaves the saved run available for status review", async ({ page }) => {
-	const { actions } = await mockManagement(page);
-	let qualificationAttempts = 0;
-	await page.route("**/api/infrastructure/incus/qualification", route => { qualificationAttempts++; return route.abort("failed"); });
-	await page.goto("/extensions/incus-management");
-	await page.getByRole("button", { name: "Prepare qualification…" }).click();
-	await page.getByRole("checkbox", { name: /I reviewed this plan/ }).check();
-	await page.getByRole("button", { name: "Apply reviewed fixture plan" }).click();
-	await page.getByRole("checkbox", { name: /host is ready for a live sandbox qualification/ }).check();
-	await page.getByRole("button", { name: "Run live qualification" }).click();
-	await expect(page.getByRole("alert")).toContainText("Check the saved qualification status before you retry");
-	await expect(page.getByTestId("qualification-workflow")).toContainText("Qualification status is being checked");
-	await expect(page.getByRole("button", { name: "Check saved status" })).toBeVisible();
-	expect(qualificationAttempts).toBe(1);
-	expect(actions.filter(item => item.endpoint === "probe-fixtures" && item.body.action === "cleanup")).toHaveLength(0);
-});
+for (const reply of ["lost", "preserved"] as const) {
+	test(`a ${reply} qualification reply leaves the saved run available for status review`, async ({ page }) => {
+		const { actions } = await mockManagement(page);
+		let qualificationAttempts = 0;
+		const savedOperationId = "55555555-5555-4555-8555-555555555555";
+		await page.route("**/api/infrastructure/incus/qualification", route => {
+			qualificationAttempts++;
+			if (reply === "lost") return route.abort("failed");
+			return route.fulfill({ status: 409, json: { code: "qualification_operation_preserved",
+				operation: { id: savedOperationId, state: "OUTCOME_UNKNOWN" }, reason: "outcome_unsettled",
+				message: `Saved operation ${savedOperationId} is OUTCOME_UNKNOWN and must be reviewed. Do not retry qualification or repeat the mutation. Check its saved status first.` } });
+		});
+		await page.goto("/extensions/incus-management");
+		await page.getByRole("button", { name: "Prepare qualification…" }).click();
+		await page.getByRole("checkbox", { name: /I reviewed this plan/ }).check();
+		await page.getByRole("button", { name: "Apply reviewed fixture plan" }).click();
+		await page.getByRole("checkbox", { name: /host is ready for a live sandbox qualification/ }).check();
+		await page.getByRole("button", { name: "Run live qualification" }).click();
+		await expect(page.getByRole("alert")).toContainText("Check the saved qualification status before you retry");
+		await expect(page.getByTestId("qualification-workflow")).toContainText("Qualification status is being checked");
+		await expect(page.getByRole("button", { name: "Check saved status" })).toBeVisible();
+		if (reply === "preserved") {
+			await expect(page.getByRole("alert")).toContainText(savedOperationId);
+			await expect(page.getByRole("alert")).toContainText("OUTCOME_UNKNOWN");
+			await expect(page.getByRole("alert")).toContainText("Do not retry qualification or repeat the mutation");
+			await expect(page.getByRole("button", { name: "Run live qualification" })).toHaveCount(0);
+		}
+		expect(qualificationAttempts).toBe(1);
+		expect(actions.filter(item => item.endpoint === "probe-fixtures" && item.body.action === "cleanup")).toHaveLength(0);
+	});
+}
 
 test("damaged qualification and retry-key records do not start another host plan", async ({ page }) => {
 	const { actions } = await mockManagement(page, { initialFeature: feature("STOPPED") });
