@@ -11,9 +11,12 @@ Sol live and coverage workers have separate worktrees; only the live worker may 
 Current continuation: the guarded host restoration and new app bundle start passed. The saved guest and CREATE/START IDs remain unchanged. One app inspection returned `host_inspect/unknown`; do not repeat its process start. Separate read-only helper file-stat diagnostics from a disposable database copy reached Incus HTTP 202 but failed the WebSocket TLS handshake. The diagnostic operations have ended. Local tests reproduced the CA-signed leaf mismatch and the separate Incus text-frame EOF mismatch; the shared pinned transport repair is in review. Additional browser recovery cases are integrated. Complete route coverage registration and the malformed-action validation repair, then freeze the combined revision for canonical coverage.
 
 - [x] Locate the live guest transport failure without another CREATE or process start.
-- [ ] Integrate and independently review the shared TLS and Incus stream EOF repair.
-- [ ] Prove the repaired file-stat path against the saved guest before updating the isolated app bundle.
-- [ ] Apply the forward-only app update with a fresh stopped database backup and repeat the owned workload checks.
+- [x] Integrate and independently review the shared TLS and Incus stream EOF repair.
+- [x] Prove the repaired file-stat path against the saved guest before updating the isolated app bundle.
+- [x] Apply the forward-only app update with a fresh stopped database backup.
+- [ ] Complete the owned workload checks through the updated app.
+
+Review at source `6803d1a71`: 32 focused transport tests, independent source review, and live helper file-stat passed. All four real Incus WebSockets opened and operation wait returned success. The fixed bundle passed a non-root health check, installed with manifest `7bb58678aaa8a951dadbabdb42a1eea3d041c48b2611eaddda5107c5d71c645d`, and started healthy with the current database preserved. The combined fast gate passed: 27,169 backend tests, 3,629 web Bun tests, 7,579 Vitest tests, lint, typechecks, integrity checks, and build. Browser-only test correction `24b7de911` also passed its focused run; the full 18-journey diagnostic measured 260/260 management-page lines. Canonical browser capture, merged coverage, final hosted checks, and remaining live workflow gates are still open.
 
 Service restoration, 3 October:
 - [x] Confirm the saved guest is running, the app bundle is unchanged, the ingress hold is active, and no process holds the live database.

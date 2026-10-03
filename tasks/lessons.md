@@ -459,3 +459,4 @@
 
 - Serialize Playwright runs in one worktree. Shared `web/test-results` cleanup can delete another run's trace files and cause false `browserContext.close ENOENT` failures.
 - Assert a concrete expected request ID before comparing it to captured browser traffic. Poll for exactly one request; optional values can otherwise pass as `undefined === undefined`.
+- Wait for the app's confirmed saved state before changing browser storage to reproduce recovery. A pending response can overwrite the injected state and make the test pass through the ordinary path.
