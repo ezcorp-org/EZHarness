@@ -455,3 +455,7 @@
 - Thaw a frozen user slice before switching NixOS generations. A switch can hang while reloading frozen user units and remove a temporary root SSH key before normal access returns. Keep an independent console path for guarded host access changes.
 - Recheck a temporarily denied SSH route after a pending generation switch settles. Treat loss of access as unverified host state, not permanent failure; a later successful login needs full generation, thaw, trust, and inventory readbacks before releasing local fences.
 - Create a short-deadline recovery request only after all observations and status updates are complete. Submit it immediately after fresh timer and fence checks; an expired local candidate must be recorded as never submitted and replaced with a new nonce before the one permitted supervisor call.
+## 2026-10-03 — Browser evidence isolation
+
+- Serialize Playwright runs in one worktree. Shared `web/test-results` cleanup can delete another run's trace files and cause false `browserContext.close ENOENT` failures.
+- Assert a concrete expected request ID before comparing it to captured browser traffic. Poll for exactly one request; optional values can otherwise pass as `undefined === undefined`.

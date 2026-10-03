@@ -1,12 +1,19 @@
 # Active completion — 3 October 2026
 
 - [x] Verify restored TCP socket, sandbox-server SSH, and GitHub access.
-- [ ] Recheck the existing app, guest, and saved operations; identify the inspection failure without duplicate effects.
+- [x] Recheck the existing app, guest, and saved operations; identify the inspection failure without duplicate effects.
 - [ ] Complete the saved guest workload and cleanup, then live qualification and the native project workflow.
 - [ ] Pass previously blocked tests and close management-page browser coverage gaps.
 - [ ] Pass final exact-head repository and hosted checks, record evidence, and update PR #303.
 
-Sol live and coverage workers have separate worktrees at `7a251ed01`; only the live worker may change the isolated app or server. Root owns integration and bundle staging. PR #303 remains open and draft at `18e46a7c8`; the local diagnostic and test repairs are not yet pushed. Existing lesson edits are preserved.
+Sol live and coverage workers have separate worktrees; only the live worker may change the isolated app or server. Root owns integration and bundle staging. PR #303 remains open and draft, with browser repairs pushed at `e9f1283a7`. The dependency audit fix is integrated locally at `fdae83895`. Existing lesson edits are preserved.
+
+Current continuation: the guarded host restoration and new app bundle start passed. The saved guest and CREATE/START IDs remain unchanged. One app inspection returned `host_inspect/unknown`; do not repeat its process start. Separate read-only helper file-stat diagnostics from a disposable database copy reached Incus HTTP 202 but failed the WebSocket TLS handshake. The diagnostic operations have ended. Local tests reproduced the CA-signed leaf mismatch and the separate Incus text-frame EOF mismatch; the shared pinned transport repair is in review. Additional browser recovery cases are integrated. Complete route coverage registration and the malformed-action validation repair, then freeze the combined revision for canonical coverage.
+
+- [x] Locate the live guest transport failure without another CREATE or process start.
+- [ ] Integrate and independently review the shared TLS and Incus stream EOF repair.
+- [ ] Prove the repaired file-stat path against the saved guest before updating the isolated app bundle.
+- [ ] Apply the forward-only app update with a fresh stopped database backup and repeat the owned workload checks.
 
 Service restoration, 3 October:
 - [x] Confirm the saved guest is running, the app bundle is unchanged, the ingress hold is active, and no process holds the live database.
