@@ -11,21 +11,24 @@
 
 Ownership: root owns integration and bundle staging; the GPT-6.1 Sol live worker alone changes the isolated app/server; coverage owns test captures in its worktree; project-flow owns a separate worktree and coordinates all live effects with the live worker. The generation fix has passed focused regression tests and independent review. Live proof remains open. No repeated STOP or new lifecycle request is allowed to hide an unknown effect.
 
-### Current review — 3 October, 21:27 UTC
+### Current review — 3 October, 22:00 UTC
 
 - [x] Pass the complete fast gate at `b417484ac`: 27,204 backend tests, 3,631 web Bun tests, 7,587 Vitest tests, lint, types, Svelte, integrity checks, and build. Push this revision to PR #303.
 - [x] Verify the same adapter, controller, broker, and transport through create/start/stop/start/stop/delete in a composed regression. Reject running deletion before any write.
 - [x] Add and review exact linked cleanup recovery authority checks; focused policy coverage is 100%.
 - [x] Add Stop-first UI and explicit saved-failure recovery confirmation. Four focused browser journeys passed, then two new journeys passed with reviewed screenshots. Final phase/kind checks passed unit tests; canonical capture remains open.
 - [x] Complete recovery orchestration review, real PostgreSQL concurrency proof, and source integration. Two real PostgreSQL tests pass, including concurrent admission/advancement across connections and no repeated unknown STOP effect. The integrated route tests preserve both saved-operation diagnostics and recovery.
-- [ ] Stage and verify the combined app, recover saved v2 cleanup through the product, and prove guest absence and released reservations.
+- [x] Stage and verify the combined app, recover saved v2 cleanup through the product, and prove guest absence and released reservations. Independent review passed; the original failed operation remains unchanged.
+- [ ] Save safe, actionable diagnostics for qualification failures before restart. The v3 run created and started both guests, then failed without recording its cause. Both guests were stopped and deleted; no pending operations or reservations remain.
+- [x] Reproduce the runner startup test failure under the full pool, then pass it alone. Remove the arbitrary 15-second startup assertion, retain the whole-test timeout and build assertions, and actually pass the long TMPDIR to the child.
+- [ ] Review the runner test correction and rerun the final combined gates.
 - [ ] Run a fresh SP qualification, native project proof, and ten serial feature lifecycles.
 - [x] Add a fixed-project, encrypted credential fixture for hosted source import. The scoped real browser import passes; production denies fixture access. The exact original upstream 403 cause remains unknown. Final hosted verification remains open.
 - [x] Add real user-project recovery and qualification-binding denial coverage. Thirteen service tests pass; resources stay charged until confirmed absence.
 - [x] Reproduce and fix separate Vitest route mocks missing new service error types. The related three-file suite passes 22 tests.
 - [ ] Pass final-source browser, merged coverage, fast, hosted checks, and non-author review.
 
-Recovery candidate `1907c09de` passed bundle verification and a non-root health check (HTTP 200), manifest `1df513a4a6bb65b7c9712a90a29873c8e24b6b95d2c4fc22811cc53f8bffeb54`. Its guarded isolated-app replacement is underway, with a fresh stopped database baseline and retained previous bundle. The guest recovery request has not yet run. The candidate fast run passed 27,225 backend tests, 3,631 web Bun tests, and all quality/build checks; two Vitest tests failed because their mocks lacked new error types. The fix passes targeted tests, but the full final gate remains open. Native proof driver is staged privately but has not run. Current before/after infrastructure configuration matches exactly, apart from the separately tracked owned guest. The historic pre-setup inventory gap remains unproved.
+Recovery candidate `1907c09de` passed bundle verification and a non-root health check (HTTP 200), manifest `1df513a4a6bb65b7c9712a90a29873c8e24b6b95d2c4fc22811cc53f8bffeb54`. Guarded installation and linked v2 recovery passed. The v3 qualification failure was cleaned up, but its original cause was lost before a checkpoint was saved. Native feature admission correctly remains blocked because qualification has not passed. The `82ba45f58` fast gate passed all checks except one runner startup timing test (27,228 backend passes and one failure); the unchanged test passed alone. Browser lanes are in progress on that exact revision. The latest server inventory has no guests and unchanged six infrastructure collections, but one host IPv6 address disappeared; full network parity and the historic pre-setup inventory gap remain unproved.
 
 ### Earlier recovery milestone review — 3 October, 20:12 UTC
 
