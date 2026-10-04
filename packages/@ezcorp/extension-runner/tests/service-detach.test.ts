@@ -417,3 +417,32 @@ test("the 3ec53eaa RunnerClient answers each reverse call once and keeps its wor
     await harness.close();
   }
 });
+
+test("a released worker refuses an event poll until a host attaches it again", async () => {
+  // The start claim (W4H-9) is for the host that started the worker. Once that attachment is released, the old rule
+  // holds: no poll without an explicit /v4/attach, so a surviving worker is only ever taken back on purpose.
+  const harness = await startHarness();
+  try {
+    await startAndAttach(harness, "released");
+    dropEventStream(await openParkedEventStream(harness, "released"), "request.destroy");
+    await until(() => harness.service.attachments().length === 0);
+    expect(await call(harness.socketPath, "/v4/events", { workerId: "released" })).toEqual({ status: 400, body: { error: { code: "unknown_worker", stage: "runner", message: "Worker event stream is unavailable or already attached", retryable: false } } });
+    expect(await call(harness.socketPath, "/v4/attach", { workerId: "released" })).toEqual({ status: 200, body: { workerId: "released" } });
+    expect(harness.service.attachments()).toEqual(["released"]);
+  } finally {
+    await harness.close();
+  }
+});
+
+test("after the starter claims its worker, a second attach is refused", async () => {
+  // The starter's first /v4/attach claims the start attachment instead of being refused; the single-holder rule then
+  // applies to every later attach, exactly as before W4H-9.
+  const harness = await startHarness();
+  try {
+    await startAndAttach(harness, "claimed");
+    expect(await call(harness.socketPath, "/v4/attach", { workerId: "claimed" })).toEqual({ status: 400, body: { error: { code: "unknown_worker", stage: "runner", message: "Worker is unavailable or already attached", retryable: false } } });
+    expect(harness.service.attachments()).toEqual(["claimed"]);
+  } finally {
+    await harness.close();
+  }
+});
