@@ -862,6 +862,11 @@ class FencedCleanupSignerTest(unittest.TestCase):
             return {"pid": 123, "startTicks": "456"}
         self.supervisor.stop_child = stop
         self.supervisor.start_child = lambda: self.events.append("start")
+        clear_hold = self.supervisor.clear_recovery_hold
+        def clear():
+            self.events.append("clear")
+            clear_hold()
+        self.supervisor.clear_recovery_hold = clear
         self.supervisor.verify_recovery_fence = lambda _r, _p: self.events.append("fence")
         self.supervisor.sign_payload = mock.Mock(side_effect=lambda p: {"payload": p, "signature": "signed"})
         self.observation = {"instanceState": "stopped", "nativeOperationAbsent": True,
@@ -870,10 +875,10 @@ class FencedCleanupSignerTest(unittest.TestCase):
 
     def write_config(self, **changes):
         self.config.write_text(json.dumps({"version": 1, "action": "recover-fenced-cleanup",
-            "target": self.target, "pins": self.pins, **changes}))
+            "target": self.target, "pins": self.pins, "observation": {"oldCertificateSha256": "5" * 64}, **changes}))
         self.config.chmod(0o600)
 
-    def execute(self, observations=None, durable=None):
+    def execute(self, observations=None, durable=None, restore="valid"):
         observations = iter(observations or [self.observation, self.observation])
         durable = durable or self.durable
         def stage(phase, value, _deadline):
@@ -883,6 +888,15 @@ class FencedCleanupSignerTest(unittest.TestCase):
                 return durable
             if phase == "backend":
                 return next(observations)
+            if phase == "restore":
+                self.assertEqual(value, {"cleanupOperationId": "cleanup",
+                    "target": {**self.target, "action": "recover-fenced-cleanup", "pins": self.pins},
+                    "clientCertificateSha256": "5" * 64})
+                self.assertTrue(self.supervisor.recovery_held())
+                self.assertIsNone(self.supervisor.child)
+                if isinstance(restore, Exception):
+                    raise restore
+                return {"transportReady": True, **value} if restore == "valid" else restore
             self.assertEqual(phase, "apply")
             return {"cleanupOperationId": "cleanup"}
         self.supervisor.recovery_stage = stage
@@ -903,8 +917,67 @@ class FencedCleanupSignerTest(unittest.TestCase):
         self.assertEqual(payload["second"]["observedAtMs"], 1_070_000)
         self.assertEqual(payload["oldProcess"], {"pid": 123, "startTicks": "456"})
         self.assertEqual(result["cleanupOperationId"], "cleanup")
-        self.assertEqual(self.events, ["stop", "fence", "durable", "backend", "durable", "backend", "fence", "apply", "start"])
+        self.assertEqual(self.events, ["stop", "fence", "durable", "backend", "durable", "backend", "fence", "apply", "restore", "clear", "start"])
         self.supervisor.sign_payload.assert_called_once()
+
+    def test_restore_failure_keeps_hold_and_never_starts_child(self):
+        with self.assertRaisesRegex(ValueError, "restore refused"):
+            self.execute(restore=ValueError("restore refused"))
+        self.assertEqual(self.events[-2:], ["apply", "restore"])
+        self.assertTrue(self.supervisor.recovery_held())
+        self.assertIsNone(self.supervisor.child)
+        self.assertNotIn("clear", self.events)
+        self.assertNotIn("start", self.events)
+
+    def test_restore_timeout_keeps_admitted_cleanup_held_without_startup(self):
+        with self.assertRaises(subprocess.TimeoutExpired):
+            self.execute(restore=subprocess.TimeoutExpired(["root-restore"], 5))
+        self.assertEqual(self.events[-2:], ["apply", "restore"])
+        self.assertTrue(self.supervisor.recovery_held())
+        self.assertIsNone(self.supervisor.child)
+        self.assertNotIn("clear", self.events)
+        self.assertNotIn("start", self.events)
+
+    def test_missing_malformed_or_changed_restore_reply_keeps_hold(self):
+        valid = {"transportReady": True, "cleanupOperationId": "cleanup",
+            "target": {**self.target, "action": "recover-fenced-cleanup", "pins": self.pins},
+            "clientCertificateSha256": "5" * 64}
+        for reply in (None, {}, {**valid, "transportReady": False},
+                {**valid, "cleanupOperationId": "other"},
+                {**valid, "target": {**valid["target"], "pins": {**self.pins, "imageFingerprint": "4" * 64}}},
+                {**valid, "clientCertificateSha256": "6" * 64}, {**valid, "extra": True}):
+            with self.subTest(reply=reply):
+                with self.assertRaises(ValueError):
+                    self.execute(restore=reply)
+                self.assertTrue(self.supervisor.recovery_held())
+                self.assertIsNone(self.supervisor.child)
+                self.assertNotIn("clear", self.events)
+                self.assertNotIn("start", self.events)
+                self.supervisor.clear_recovery_hold()
+                self.supervisor.used_recoveries.clear()
+                self.supervisor.child = object()
+                self.events.clear()
+
+
+    def test_restore_is_root_phase_while_durable_and_apply_drop_privileges(self):
+        with mock.patch.object(MODULE.time, "time", return_value=1000.0), \
+                mock.patch.object(MODULE.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, stdout=b"{}")) as run:
+            for phase in ("durable", "apply", "restore"):
+                self.supervisor.recovery_stage(phase, {"fixed": True}, self.request["deadlineMs"])
+                call = run.call_args
+                self.assertEqual(json.loads(call.kwargs["input"]), {"phase": phase, "fixed": True})
+                self.assertEqual(call.args[0], self.supervisor.recovery_command)
+                self.assertEqual(call.kwargs["preexec_fn"],
+                    None if phase == "restore" else self.supervisor.drop_app_privileges)
+
+    def test_missing_or_invalid_sealed_client_certificate_denies_before_stop(self):
+        for observation in (None, {}, {"oldCertificateSha256": "short"}, {"oldCertificateSha256": "A" * 64}):
+            with self.subTest(observation=observation):
+                self.write_config(observation=observation)
+                with self.assertRaises(ValueError):
+                    self.execute()
+                self.assertEqual(self.events, [])
+                self.supervisor.sign_payload.assert_not_called()
 
     def test_changed_sealed_target_refuses_before_stopping(self):
         self.write_config(target={**self.target, "bindingId": "other"})
@@ -957,7 +1030,6 @@ class FencedCleanupSignerTest(unittest.TestCase):
                 {"verified": True, "pins": changed})
         self.supervisor.sign_payload.assert_not_called()
         self.assertNotIn("apply", self.events)
-
 
 
 if __name__ == "__main__":

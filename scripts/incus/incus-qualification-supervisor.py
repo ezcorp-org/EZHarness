@@ -374,6 +374,9 @@ class Supervisor:
             target = {key: request[key] for key in ("scope", "fixtureOperationId", "bindingId", "operationId", "generation", "connectionRevision")}
             if sealed.get("target") != target or not isinstance(sealed.get("pins"), dict):
                 raise ValueError("sealed cleanup target changed")
+            transport_certificate = sealed.get("observation", {}).get("oldCertificateSha256") if isinstance(sealed.get("observation"), dict) else None
+            if not isinstance(transport_certificate, str) or not re.fullmatch(r"[a-f0-9]{64}", transport_certificate):
+                raise ValueError("sealed cleanup transport certificate invalid")
         else:
             self.preflight_recovery_config()
         self.used_recoveries.add(request["nonce"])
@@ -451,6 +454,18 @@ class Supervisor:
                 or not isinstance(result["cleanupOperationId"], str) \
                 or not IDENTIFIER.fullmatch(result["cleanupOperationId"]):
             raise ValueError("operator recovery apply result invalid")
+        if fenced_cleanup:
+            # Admission ran as the app UID. Restore only the sealed current
+            # transport in the trusted root phase, before startup reconciliation
+            # can dispatch the linked cleanup. Errors retain the durable hold.
+            restore = {"cleanupOperationId": result["cleanupOperationId"],
+                       "target": target,
+                       "clientCertificateSha256": transport_certificate}
+            ready = self.recovery_stage("restore", restore, request["deadlineMs"])
+            if not isinstance(ready, dict) or set(ready) != {"transportReady", *restore} \
+                    or ready.get("transportReady") is not True \
+                    or any(ready.get(key) != value for key, value in restore.items()):
+                raise ValueError("operator cleanup transport restoration proof invalid")
         self.clear_recovery_hold()
         self.start_child()
         return {"receipt": receipt, "cleanupOperationId": result["cleanupOperationId"]}
