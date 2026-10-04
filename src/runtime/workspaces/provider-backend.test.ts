@@ -298,3 +298,56 @@ test("guest process stops after its bounded poll count and cancels", async () =>
     expect(cancelled).toBe(true);
   } finally { timer.mockRestore(); }
 });
+
+
+test("native shell abort still cancels its exact guest process with current principal", async () => {
+  const controller = new AbortController();
+  const calls: Array<Parameters<ProviderSandboxWorkspaceCaller["call"]>[0]> = [];
+  const principal = { userId: "initiating-user", conversationId: "owned-conversation" };
+  const backend = createProviderSandboxWorkspaceBackend({ call: async input => {
+    calls.push(input);
+    if (input.action === "process.start") return { ok: true, processId: "started-process", bootId: "guest-boot" };
+    if (input.action === "process.readOutput") return { ok: true, chunks: [{ stream: "stdout", dataBase64: btoa("guest-ready\n") }], eof: false };
+    if (input.action === "process.cancel") return { ok: true };
+    throw new Error("Unexpected guest action");
+  } });
+  const tool = getBuiltinToolDefs(sandboxWorkspaceTarget(binding, backend), undefined, undefined, principal)
+    .find(candidate => candidate.name === "shell")!;
+  const updates: unknown[] = [];
+  const result = await tool.execute("native-cancel", { command: "sleep 45" }, controller.signal, update => {
+    updates.push(update);
+    controller.abort();
+  });
+  expect(updates).toHaveLength(1);
+  expect(JSON.stringify(updates)).toContain("guest-ready");
+  expect(result.details).toMatchObject({ isError: true });
+  expect(calls.map(input => input.action)).toEqual(["process.start", "process.readOutput", "process.cancel"]);
+  const cancellation = calls.at(-1)!;
+  expect(cancellation.payload).toEqual({ processId: "started-process", bootId: "guest-boot" });
+  expect(cancellation.binding).toEqual(binding);
+  expect(cancellation.principal).toEqual(principal);
+  expect(cancellation.signal?.aborted).toBe(false);
+  expect(cancellation.toolCallId).toBe("native-cancel:3");
+});
+
+
+test("cancel rejection remains an unconfirmed tool error and pre-abort starts nothing", async () => {
+  const controller = new AbortController();
+  const calls: WorkspaceGuestAction[] = [];
+  const tool = toolWithReply("shell", async input => {
+    calls.push(input.action);
+    if (input.action === "process.start") return { ok: true, processId: "process", bootId: "boot" };
+    if (input.action === "process.readOutput") { controller.abort(); throw new Error("Original read interrupted"); }
+    throw new Error("Cleanup authority denied");
+  });
+  const result = await tool.execute("cancel-denied", { command: "sleep 45" }, controller.signal);
+  expect(result.details).toMatchObject({ isError: true, processCancellation: "unconfirmed" });
+  expect(JSON.stringify(result.content)).toContain("Original read interrupted");
+  expect(JSON.stringify(result.content)).toContain("cancellation is unconfirmed");
+  expect(JSON.stringify(result)).not.toContain("Cleanup authority denied");
+  expect(calls).toEqual(["process.start", "process.readOutput", "process.cancel"]);
+  calls.length = 0;
+  const beforeStart = await tool.execute("pre-aborted", { command: "sleep 45" }, controller.signal);
+  expect(beforeStart.details).toEqual({ isError: true });
+  expect(calls).toEqual([]);
+});

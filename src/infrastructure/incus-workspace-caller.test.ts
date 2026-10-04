@@ -258,3 +258,32 @@ test("default caller settles and retires a failed release invocation", async () 
   await expect(caller.call({ binding, toolCallId: "tool-1:1", action: "file.stat",
     payload: { path: "src/app.ts" } })).rejects.toThrow();
 });
+
+
+test("native shell cleanup after abort keeps current membership authorization", async () => {
+  for (const revoke of [false, true]) {
+    const { caller, pglite, binding, calls, setResponse } = await setup(false, false);
+    await pglite.exec("CREATE TABLE users (id TEXT PRIMARY KEY, role TEXT NOT NULL, status TEXT NOT NULL); CREATE TABLE project_members (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, user_id TEXT NOT NULL, role TEXT NOT NULL); INSERT INTO users VALUES ('actor','member','active'); INSERT INTO project_members VALUES ('membership','project','actor','member')");
+    const controller = new AbortController();
+    setResponse(async operation => {
+      if (operation === "processes.start") return { ok: true, processId: "owned-process", bootId: "owned-boot", startedAt: "2026-09-22T12:00:00Z" };
+      if (operation === "processes.readOutput") {
+        if (revoke) await pglite.exec("DELETE FROM project_members");
+        return { ok: true, chunks: [{ stream: "stdout", offsetBytes: 0, byteLength: 6, dataBase64: btoa("ready\n") }], nextCursor: { sandboxId: "binding", processId: "owned-process", bootId: "owned-boot", offsetBytes: 6 }, eof: false };
+      }
+      if (operation === "processes.cancel") return { ok: true };
+      throw new Error("Unexpected provider action");
+    });
+    const tool = getBuiltinToolDefs(sandboxWorkspaceTarget(binding, createProviderSandboxWorkspaceBackend(caller)),
+      undefined, undefined, { userId: "actor", conversationId: "owned-conversation" }).find(candidate => candidate.name === "shell")!;
+    const result = await tool.execute("cancel-native", { command: "sleep 45" }, controller.signal, () => controller.abort());
+    expect(result.details).toMatchObject({ isError: true });
+    expect(calls.map(call => call.operation)).toEqual(revoke
+      ? ["processes.start", "processes.readOutput"]
+      : ["processes.start", "processes.readOutput", "processes.cancel"]);
+    if (!revoke) {
+      expect(calls.at(-1)!.bindingId).toBe("binding");
+      expect(calls.at(-1)!.input).toMatchObject({ processId: "owned-process", bootId: "owned-boot" });
+    }
+  }
+});

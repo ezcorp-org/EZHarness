@@ -92,10 +92,11 @@ export function createProviderSandboxWorkspaceBackend(caller: ProviderSandboxWor
     async execute(request) {
       const { binding, toolCallId, signal, onUpdate } = request;
       let actionSequence = 0;
-      const call = async (action: WorkspaceGuestAction, payload: Record<string, unknown>): Promise<Reply> => {
-        if (signal?.aborted) throw new Error("Sandbox operation aborted");
+      let processCancellation: "requested" | "unconfirmed" | undefined;
+      const call = async (action: WorkspaceGuestAction, payload: Record<string, unknown>, actionSignal = signal): Promise<Reply> => {
+        if (actionSignal?.aborted) throw new Error("Sandbox operation aborted");
         return object(await caller.call({
-          binding, toolCallId: `${toolCallId}:${++actionSequence}`, action, payload, signal, principal: request.principal,
+          binding, toolCallId: `${toolCallId}:${++actionSequence}`, action, payload, signal: actionSignal, principal: request.principal,
         }));
       };
       const stat = async (path: string): Promise<Reply> => {
@@ -178,7 +179,14 @@ export function createProviderSandboxWorkspaceBackend(caller: ProviderSandboxWor
           throw new Error("Sandbox process polling limit reached");
         } finally {
           if (!terminal || !["succeeded", "failed", "cancelled", "timed_out", "interrupted"].includes(String(terminal.state))) {
-            try { await call("process.cancel", { processId, bootId }); } catch { /* Retain the first failure. */ }
+            // Run cancellation must not cancel its own cleanup. This remains an
+            // exact process action through the same current-authority caller.
+            try {
+              await call("process.cancel", { processId, bootId }, AbortSignal.timeout(30_000));
+              processCancellation = "requested";
+            } catch {
+              processCancellation = "unconfirmed";
+            }
           }
         }
       };
@@ -328,7 +336,9 @@ export function createProviderSandboxWorkspaceBackend(caller: ProviderSandboxWor
             return await executeSearchTool(request.toolName);
         }
       } catch (error) {
-        return toolError(error instanceof Error ? error.message : String(error));
+        const message = error instanceof Error ? error.message : String(error);
+        return toolError(processCancellation === "unconfirmed" ? `${message}; guest process cancellation is unconfirmed` : message,
+          processCancellation ? { processCancellation } : undefined);
       }
     },
   };
