@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
+import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -13,6 +14,17 @@ import { provision, source } from "./helpers";
  * kernel actually gave the guest, from the host's own `/dev` listing inside it.
  */
 const HOST_DEVICES = ["/dev/kfd", "/dev/dri/renderD128", "/dev/dri/renderD129"] as const;
+/**
+ * This file's precondition is that host profile, which only the factory-gpu
+ * lane's runner has; the lane manifest (FACTORY_LANES in
+ * scripts/check-factory-lanes.ts) binds the file to that lane and keeps it out
+ * of every hosted shard. A host without the devices fails here by name, never
+ * with the container runtime's `stat` error and never by skipping a case.
+ */
+const MISSING_HOST_DEVICES = HOST_DEVICES.filter(device => !existsSync(device));
+function requireHostDevices(): void {
+  if (MISSING_HOST_DEVICES.length > 0) throw new Error(`Precondition failed: this host lacks ${MISSING_HOST_DEVICES.join(", ")}. podman-devices.integration runs only in the factory-gpu lane (job "Factory isolation").`);
+}
 const REPORT_DEVICES = `async () => { const fs = require("node:fs"); return { kfd: fs.existsSync("/dev/kfd"), dri: fs.existsSync("/dev/dri") ? fs.readdirSync("/dev/dri").sort() : null, dev: fs.readdirSync("/dev").sort() }; }`;
 
 type DeviceReport = { kfd: boolean; dri: string[] | null; dev: string[] };
@@ -41,6 +53,11 @@ async function report(devices?: readonly string[]): Promise<DeviceReport> {
   finally { await worker.close(); }
 }
 
+test("precondition: this host exposes the factory-gpu lane's device profile", () => {
+  requireHostDevices();
+  expect(MISSING_HOST_DEVICES).toEqual([]);
+});
+
 test("the host runner really does hold the local AMD device profile", () => {
   expect(configuredRunnerDevices(HOST_DEVICES)).toEqual(HOST_DEVICES);
   expect(startExecutionDevices(undefined, HOST_DEVICES)).toEqual(HOST_DEVICES);
@@ -63,12 +80,14 @@ test("a CPU factory start sees no GPU device although the host runner configures
  * is the legacy v4 path, which is required to keep that behaviour.
  */
 test("a v4 start that names no devices still receives the host configuration", async () => {
+  requireHostDevices();
   const observed = await report();
   expect(observed.kfd).toBe(true);
   expect(observed.dri).toEqual(["renderD128", "renderD129"]);
 }, 180_000);
 
 test("a factory start receives exactly the devices its grant names and nothing else", async () => {
+  requireHostDevices();
   const observed = await report(["/dev/dri/renderD128"]);
   expect(observed.kfd).toBe(false);
   expect(observed.dri).toEqual(["renderD128"]);
