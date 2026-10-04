@@ -73,6 +73,9 @@ describe("factory command outbox", () => {
     expect(await outbox.claim(100)).toBeNull();
     await expect(otherProject.settle(claimed!, "delivered")).rejects.toMatchObject({ code: "factory_command_scope_mismatch" });
     await expect(outbox.settle({ ...claimed!, leaseToken: "wrong" }, "delivered")).rejects.toMatchObject({ code: "delivery_lease_lost" });
+    expect(await outbox.renew(claimed!, 100)).toMatchObject({ id: delivery.id, state: "leased", leaseToken: claimed!.leaseToken, leaseUntil: now + 100 });
+    await expect(otherProject.renew(claimed!, 100)).rejects.toMatchObject({ code: "factory_command_scope_mismatch" });
+    await expect(outbox.renew({ ...claimed!, leaseToken: "wrong" }, 100)).rejects.toMatchObject({ code: "delivery_lease_lost" });
     now += 101;
     expect(await outbox.claim(100)).toBeNull();
     expect((await outbox.inspect(delivery.id))?.state).toBe("outcome_unknown");

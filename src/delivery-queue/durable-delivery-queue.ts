@@ -93,12 +93,18 @@ export class DurableDeliveryQueue<Record extends DurableDeliveryRecord> {
     return record;
   }
 
-  async settle(store: DurableDeliveryStore<Record>, scope: string, claimed: Record, now: number, outcome: "delivered" | "retry" | "cancelled" | "outcome_unknown", failureCode?: string): Promise<Record> {
+  /** The live lease `claimed` still owns. Settle and renew share this one check. */
+  private async owned(store: DurableDeliveryStore<Record>, scope: string, claimed: Record, now: number): Promise<Record> {
     const current = await store.findById(scope, claimed.id);
     if (!current) throw this.error("not_found", "Delivery not found.");
     if (current.state !== "leased" || current.leaseToken !== claimed.leaseToken || current.leaseUntil <= now) {
       throw this.error("delivery_lease_lost", "Delivery is no longer owned by this worker.");
     }
+    return current;
+  }
+
+  async settle(store: DurableDeliveryStore<Record>, scope: string, claimed: Record, now: number, outcome: "delivered" | "retry" | "cancelled" | "outcome_unknown", failureCode?: string): Promise<Record> {
+    const current = await this.owned(store, scope, claimed, now);
     current.state = outcome === "retry"
       ? current.attempts >= current.maxAttempts ? "dead_letter" : "queued"
       : outcome;
@@ -116,11 +122,7 @@ export class DurableDeliveryQueue<Record extends DurableDeliveryRecord> {
    */
   async renew(store: DurableDeliveryStore<Record>, scope: string, claimed: Record, now: number, leaseMs: number): Promise<Record> {
     validateLease(leaseMs, this.error);
-    const current = await store.findById(scope, claimed.id);
-    if (!current) throw this.error("not_found", "Delivery not found.");
-    if (current.state !== "leased" || current.leaseToken !== claimed.leaseToken || current.leaseUntil <= now) {
-      throw this.error("delivery_lease_lost", "Delivery is no longer owned by this worker.");
-    }
+    const current = await this.owned(store, scope, claimed, now);
     current.leaseUntil = now + leaseMs;
     await store.write(current);
     return current;

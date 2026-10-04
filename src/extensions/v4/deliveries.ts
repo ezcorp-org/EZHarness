@@ -107,6 +107,11 @@ export class ExtensionDeliveryQueue {
     return this.database.transaction(transaction => stateMachine.settle(new ExtensionDeliveryStore(transaction), delivery.installationId, delivery, this.now(), outcome, failureCode));
   }
 
+  /** Extends the lease `delivery` still owns; fenced like `settle`. */
+  async renew(delivery: ExtensionDelivery, leaseMs = LEASE_MS): Promise<ExtensionDelivery> {
+    return this.database.transaction(transaction => stateMachine.renew(new ExtensionDeliveryStore(transaction), delivery.installationId, delivery, this.now(), leaseMs));
+  }
+
   async inspect(installationId: string, deliveryId: string): Promise<ExtensionDelivery | null> {
     return stateMachine.inspect(new ExtensionDeliveryStore(this.database), installationId, deliveryId);
   }
@@ -117,7 +122,7 @@ export class ExtensionDeliveryQueue {
       return error instanceof RetryableDeliveryError ? error.code : null;
     }, {
       start: this.heartbeat,
-      renew: delivery => this.database.transaction(transaction => stateMachine.renew(new ExtensionDeliveryStore(transaction), delivery.installationId, delivery, this.now(), LEASE_MS)),
+      renew: delivery => this.renew(delivery),
     });
   }
 }

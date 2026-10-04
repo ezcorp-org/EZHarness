@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { randomUUID } from "node:crypto";
@@ -29,7 +29,8 @@ async function renewingQueue() {
   owned.push(own);
   const beats: (() => Promise<void>)[] = [];
   const renewing = new ExtensionDeliveryQueue(driver, () => now, beat => { beats.push(beat); return () => { beats.splice(beats.indexOf(beat), 1); }; });
-  return { renewing, beats, input: await installationFixture(new DatabaseLifecycleRepository(driver)) };
+  const lifecycle = new DatabaseLifecycleRepository(driver);
+  return { renewing, beats, lifecycle, input: await installationFixture(lifecycle) };
 }
 const owned: PGlite[] = [];
 afterAll(async () => { for (const own of owned) await own.close(); });
@@ -127,6 +128,35 @@ describe("durable extension deliveries", () => {
     });
     await expect(result).rejects.toMatchObject({ code: "delivery_lease_lost" });
     expect((await renewing.inspect(input.installationId, record.id))?.state).toBe("outcome_unknown");
+  });
+
+  test("a stale lease token cannot renew, before or after the delivery is reclaimed", async () => {
+    const { renewing, input } = await renewingQueue();
+    await renewing.enqueue(input);
+    const original = (await renewing.claim(100))!;
+    expect(await renewing.renew(original, 100)).toMatchObject({ id: original.id, leaseToken: original.leaseToken, attempts: 1, leaseUntil: now + 100 });
+    await expect(renewing.renew({ ...original, leaseToken: "stale-owner" }, 100)).rejects.toMatchObject({ code: "delivery_lease_lost" });
+    now += 101;
+    await expect(renewing.renew(original, 100)).rejects.toMatchObject({ code: "delivery_lease_lost" });
+    expect(await renewing.claim(100)).toBeNull();
+    expect((await renewing.inspect(input.installationId, original.id))?.state).toBe("outcome_unknown");
+    await expect(renewing.renew(original, 100)).rejects.toMatchObject({ code: "delivery_lease_lost" });
+  });
+
+  test("a running handler cannot keep a lease that a generation change revoked", async () => {
+    const { renewing, beats, lifecycle, input } = await renewingQueue();
+    const record = await renewing.enqueue(input);
+    const refusals: unknown[] = [];
+    const renew = renewing.renew.bind(renewing);
+    const renewal = spyOn(renewing, "renew").mockImplementation(async (delivery, leaseMs) => renew(delivery, leaseMs).catch((cause: unknown) => { refusals.push(cause); throw cause; }));
+    try {
+      await expect(renewing.dispatch(async () => {
+        await lifecycle.transact(input.installationId, (state) => { state.installation.generation += 1; state.installation.enabled = false; });
+        for (const beat of beats) await beat();
+      })).rejects.toMatchObject({ code: "delivery_lease_lost" });
+      expect(refusals).toEqual([expect.objectContaining({ code: "delivery_lease_lost" })]);
+      expect((await renewing.inspect(input.installationId, record.id))?.state).toBe("cancelled");
+    } finally { renewal.mockRestore(); }
   });
 
   test("ownerless and cross-user jobs are rejected", async () => {

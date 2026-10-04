@@ -104,7 +104,7 @@ describe("shared durable delivery queue concurrency", () => {
       inspect: async () => current,
     };
     const claimed = { ...current };
-    expect(await queue.renew(store, "scope", claimed, 50, 1000)).toMatchObject({ state: "leased", leaseToken: "owner", leaseUntil: 1050 });
+    expect(await queue.renew(store, "scope", claimed, 50, 1000)).toMatchObject({ state: "leased", leaseToken: "owner", attempts: 1, leaseUntil: 1050 });
     expect(current.leaseUntil).toBe(1050);
     await expect(queue.renew(store, "scope", { ...claimed, leaseToken: "stale-owner" }, 60, 1000)).rejects.toMatchObject({ code: "delivery_lease_lost" });
     await expect(queue.renew(store, "scope", claimed, 1050, 1000)).rejects.toMatchObject({ code: "delivery_lease_lost" });
