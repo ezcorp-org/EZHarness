@@ -14,6 +14,16 @@ before it (the 3ec53eaa app image that the historical-upgrade proof seeds). The 
    ("Host reply ID is stale or invalid") and the old client cancelled its worker. Break 2 was hidden behind break 1 and showed only in
    the logged rerun after fix 1.
 
+Breaks introduced, one line each (both by 11b9f72b9, confirmed with `git log -S` on the two code lines; no later commit added one):
+- Break 1: /v4/events refused until /v4/attach. Pinned by "a host that never calls /v4/attach still polls its events and completes a
+  forward request" and "the 3ec53eaa RunnerClient completes a forward request it sends after its first event poll". Fixed by 0498c0a52.
+- Break 2: an unanswered reverse call returned on every poll. Pinned by "the 3ec53eaa RunnerClient answers each reverse call once and
+  keeps its worker". Fixed by 02c53fb7a.
+
+The start claim in two sentences: the host that starts a worker is attached by the start itself, and that attachment stays unclaimed
+until the starter's first /v4/attach (accepted, not refused) or /v4/events. Once claimed, or once released, the old single-holder rule
+applies unchanged: a second attach is refused and a released or woken worker needs an explicit /v4/attach.
+
 Fix (both in packages/@ezcorp/extension-runner/src/service.ts):
 1. 0498c0a52: start attaches the session for its starter, as an unclaimed start claim. The starter's first `/v4/attach` (idempotent, not
    refused) or `/v4/events` claims it; after that the single-holder rule is unchanged. A release clears the claim, so a released or
@@ -43,9 +53,31 @@ Request sequence of the old app's seed build (stderr logging in a scratch copy, 
 - [ ] G3d: the full historical-upgrade lane (not semantic only), "if runnable locally". OPEN: queued at 23:02Z, the inner gate saw a 1-minute load of 10.0 to 16.7 at every try until 23:18Z, so it never started (r3d-full.log); stopped by me at 23:22Z to commit this file, re-queued at the docs head. The hosted "Production proof (recovery)" after the next push is its proof of record.
 - [x] G4: legs at 02c53fb7a. CHECK: checks.sh EXPECT: patch coverage PASSED (service.ts), new-file PASSED (no new source file; the fixture lives under tests/), CRAP changed max 18 (startRunnerService), dispatch 16, collectEvents 6, all at 100% coverage and under 30; typecheck, lint, boundaries 0; gate-integrity vs origin/main = the expected 8 label findings (findings-match PASS) and vs integ/w00 PASSED; guard set 39 files 477 pass 0 fail EVIDENCE: checks-02c53fb7a.log, checks/*.log, checks/gate-integrity-integ.log
 
-Recovery and attach tests by name (all unchanged and green): every case in packages/@ezcorp/extension-runner/tests/service-detach.test.ts
-(the disconnect matrix, the lease cases, the replacement-host cases), tests/client-reattach.test.ts, tests/service.test.ts,
-src/extensions/runner-connection.test.ts, src/factory/runner/host-launch-supervisor.test.ts, and the podman suites above.
+- [x] G5: the attach rules the start claim must keep, pinned by name (17d1762fd; hook 1 suite, service-detach 16/0). CHECK: the two cases
+  below, and a mutant without the claim-clearing line on attach EXPECT: both green at the head; the mutant fails "after the starter claims
+  its worker, a second attach is refused" (and one existing case) EVIDENCE: commit4.log, unit-pins.log, unit-mutant-claim.log, units-at-17d1762fd.log (six suites 47/0)
+
+Detach and reattach tests by name, all green at 17d1762fd (service-detach.test.ts and client-reattach.test.ts):
+- "every host disconnect form releases the worker attachment and a replacement host attaches again"
+- "a dropped connection releases the attachment from the runtime's own signal, never from the lease"
+- "a host that half-closes and stops collecting is released within one attachment lease"
+- "one host's disconnect never releases another worker's attachment"
+- "a process whose hosts all disconnect holds no attachment afterwards"
+- "a released attachment keeps every queued reverse call and notification for the replacement host"
+- "a host busy with a reverse call is never evicted while it still owes a reply"
+- "a host waiting inside a long forward request is never evicted while that call runs"
+- "a caller that does not hold the stream cannot renew the attachment lease"
+- "an event poll window or attachment lease outside its declared range is refused by name"
+- "oversized headers, an absent body and an unknown endpoint are each refused"
+- "a host that never calls /v4/attach still polls its events and completes a forward request"
+- "the 3ec53eaa RunnerClient completes a forward request it sends after its first event poll"
+- "the 3ec53eaa RunnerClient answers each reverse call once and keeps its worker"
+- "a released worker refuses an event poll until a host attaches it again"
+- "after the starter claims its worker, a second attach is refused"
+- "a host takes its event stream back after a refusal it did not cause"
+- "a host stops polling when the worker itself is gone rather than retrying forever"
+Also green: tests/service.test.ts, src/__tests__/ext-dev.test.ts, src/extensions/runner-connection.test.ts,
+src/factory/runner/host-launch-supervisor.test.ts, and the five podman suites under G3.
 
 Notes:
 - The fixture tests/runner-client-3ec53eaa-fixture.ts is the 3ec53eaa RunnerClient byte for byte except two import paths; it is frozen.
