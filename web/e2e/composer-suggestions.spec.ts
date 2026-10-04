@@ -146,9 +146,9 @@ test.describe("Composer suggestions", () => {
 		await textarea.press("Enter");
 		await textarea.pressSequentially("r");
 		await page.evaluate(() => {
-			const frameControl = window as unknown as { restoreComposerFrames?: () => void };
-			frameControl.restoreComposerFrames?.();
-			delete frameControl.restoreComposerFrames;
+			const frameControl = window as unknown as { restoreComposerFrames: () => void };
+			frameControl.restoreComposerFrames();
+			Reflect.deleteProperty(window, "restoreComposerFrames");
 		});
 		await textarea.pressSequentially("eview this");
 		await expect(textarea).toHaveValue(/^@app\.ts\s+review this$/);
