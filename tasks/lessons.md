@@ -493,3 +493,12 @@
 - For timeout tests, trigger the timeout only after the intended real input is observed. Test late input separately so deterministic timing does not hide a confidentiality defect.
 - Do not infer a specific failed assertion from elapsed time when the full failure output is missing. Record the uncertainty and prove the intended boundary directly.
 - Finish live diagnosis before repeating all browser and coverage lanes. Keep intermediate results tied to their source revision, then capture the final merged source once.
+
+## Guarded activation and CPU proof — 4 October 2026
+
+- Rehearse the actual timer through service-manager reload and firing. Pin a whole-second boot deadline; a relative activation timer can move during reload.
+- Run every old-policy SSH control as the actual service identity before arming a server update. Do not alter an established key's permissions to accommodate a diagnostic command running as the wrong user.
+- Preserve failed attempts and use a new explicit attempt identity only after confirmed rollback. Do not copy old execution markers into a new staging directory.
+- Publish asynchronous test receipts atomically. File existence must mean complete data; do not hide malformed published JSON with reader retries.
+- Test the advertised resource control, not an incidental counter. CPU placement can enforce a whole-CPU budget without quota throttling. Mutable process affinity is not equivalent to an outer cpuset restriction.
+- Keep bounded numeric load measurements when a qualification fails. A cause code alone cannot distinguish a failed worker, an incomplete sample, and a missing enforcement signal.

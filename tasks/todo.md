@@ -2264,3 +2264,24 @@ No source bug reproduced. No live mutation performed. The runbook identifies the
 - [ ] Finish management browser regression and real guest native tool proof with the live owner.
 
 Review: 49 backend middleware tests, 203 Vitest route tests, 52 schema tests and 86 plain web tests passed. The separate per-tool membership propagation repair is owned by the independent security worker. G5 remains open.
+
+## Live completion continuation — 4 October 2026
+
+- [x] Complete the approved neighbor-check server update with a fixed rollback deadline and the existing service SSH identity.
+- [x] Verify final system/profile, file hashes, closed rollback units, unrelated timer parity, and empty guest inventory.
+- [x] Integrate main and reproduce/fix the supervisor fixture JSON publication race.
+- [x] Verify and install source `214cc678bc251f9578e2fc0019a200094bd5aadb`, preserving the current isolated database.
+- [x] Pass its fast local gates: 27,382 backend, 3,638 web Bun, and 7,719 component tests, plus lint, types, integrity checks, and build.
+- [x] Run one v6 qualification attempt; retain its CPU-proof failure and confirmed deletion of both allocated guests.
+- [x] Reproduce the CPU probe's zero-throttle false negative with real workers under a finite two-CPU quota and two-CPU process affinity.
+- [x] Correct the CPU evidence for the actual enforcement mechanism; keep budgets unchanged and record bounded failure measurements.
+- [x] Review and test that correction before another live attempt. Do not attribute an exact numeric cause to v6: its measurements were not retained.
+- [ ] Audit v6 global accounting from a fresh stopped database copy.
+- [ ] Pass all eight qualification cases on the corrected installed candidate.
+- [ ] Prove normal UI/native work, logs, cancellation, and retained work across engine restart.
+- [ ] Complete ten serial normal feature cycles and the final reservation/inventory audit.
+- [ ] Complete exact-source browser, coverage, complexity, hosted CI, and non-author review gates.
+
+Plan review: The server update and app installation are complete. V6 progressed beyond the prior neighbor check but failed at `limit_loads / cpu_load_did_not_prove_containment`. This is a failed qualification, not a supported deployment claim. The provider applies both CPU placement and a quota; zero throttling alone does not prove absent enforcement. The local reproduction used process affinity because rootless cpuset control was unavailable. The corrected proof must distinguish mutable process affinity from an enforced outer CPU set. Keep full-suite reruns on hold until this live diagnostic gap is resolved.
+
+Review: Server activation evidence and v6 cleanup are recorded in the integrated live evidence document. The CPU correction passed 44 focused tests, full type checks, lint, measured probe coverage, and independent review. The original rootless reproduction used a real finite quota and process affinity; the true-cpuset branch has deterministic kernel-interface tests because local cpuset delegation was unavailable. The next Incus run must supply the real profile proof. Original historical inventory gaps remain explicit. Global v6 accounting, native feature proof, and the final release gates above remain open.
