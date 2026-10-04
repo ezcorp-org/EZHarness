@@ -2283,7 +2283,7 @@ Review: 49 backend middleware tests, 203 Vitest route tests, 52 schema tests and
 - [x] Install source `973609aa1917348d6108e80d3d9a72419d004bfe`; dispatch v8 once and retain its final recovery-probe failure after successful preparation and engine restart.
 - [x] Audit v8 from a stopped database copy: all three guests absent, all reservations released, no global pending operations.
 - [x] Reproduce and correct the supervisor's primary/recovery guest identity mismatch. Pass the real restart/socket/signature test and both fault-authority suites; preserve independent backend ownership checks.
-- [ ] Correct and test the lost-destroy probe's returned-UNKNOWN contract and error handling. Reproduce the complete native receipt path before another live attempt; the exact historical v8 cause is still unknown.
+- [x] Correct and test the lost-destroy probe's returned-UNKNOWN contract and error handling. Reproduce the delayed native receipt path, signed checkpoint, and exact consumed fault; retain the unavailable historical v8 exception.
 - [ ] Pass all eight qualification cases on the corrected installed candidate.
 - [ ] Prove normal UI/native work, logs, cancellation, and retained work across engine restart.
 - [ ] Complete ten serial normal feature cycles and the final reservation/inventory audit.
