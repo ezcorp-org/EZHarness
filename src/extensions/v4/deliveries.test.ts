@@ -14,12 +14,25 @@ let now = 1_000;
 beforeAll(async () => { database = new PGlite(); const driver = drizzle(database); await up(driver); repository = new DatabaseLifecycleRepository(driver); queue = new ExtensionDeliveryQueue(driver, () => now); });
 afterAll(async () => { await database.close(); });
 
-async function installationFixture() {
+async function installationFixture(lifecycle = repository) {
   const id = randomUUID();
   const releaseId = randomUUID();
-  await repository.create({ installation: { id, ownerId: "owner", scope: "global", activeReleaseId: releaseId, generation: 1, enabled: true, uninstalled: false, status: "active", grants: [], acknowledgedGeneration: 1 }, workspaces: {}, revisions: {}, releases: {}, approvals: {}, operations: {} });
+  await lifecycle.create({ installation: { id, ownerId: "owner", scope: "global", activeReleaseId: releaseId, generation: 1, enabled: true, uninstalled: false, status: "active", grants: [], acknowledgedGeneration: 1 }, workspaces: {}, revisions: {}, releases: {}, approvals: {}, operations: {} });
   return { installationId: id, releaseId, generation: 1, principalId: "owner", scope: "global", deduplicationId: randomUUID(), kind: "webhook" as const, input: { event: "created" } };
 }
+
+/** A queue on its own database whose lease heartbeat the test drives by hand. */
+async function renewingQueue() {
+  const own = new PGlite();
+  const driver = drizzle(own);
+  await up(driver);
+  owned.push(own);
+  const beats: (() => Promise<void>)[] = [];
+  const renewing = new ExtensionDeliveryQueue(driver, () => now, beat => { beats.push(beat); return () => { beats.splice(beats.indexOf(beat), 1); }; });
+  return { renewing, beats, input: await installationFixture(new DatabaseLifecycleRepository(driver)) };
+}
+const owned: PGlite[] = [];
+afterAll(async () => { for (const own of owned) await own.close(); });
 
 describe("durable extension deliveries", () => {
   test("duplicate enqueue returns one record and changed input conflicts", async () => {
@@ -86,6 +99,34 @@ describe("durable extension deliveries", () => {
     expect((await queue.inspect(input.installationId, delivery.id))?.state).toBe("cancelled");
     await expect(queue.settle(leased!, "delivered")).rejects.toMatchObject({ code: "delivery_lease_lost" });
     await expect(queue.enqueue({ ...input, deduplicationId: "after-disable" })).rejects.toMatchObject({ code: "delivery_authority_changed" });
+  });
+
+  test("a handler that runs past its claim lease, still inside its own bound, keeps the lease and settles delivered", async () => {
+    // W4H-8: the lease (60 s from claim) ended before a handler still inside its own
+    // 60 s invocation deadline, which starts later; the settle then failed with
+    // delivery_lease_lost. The dispatcher now renews the lease while the handler runs.
+    const { renewing, beats, input } = await renewingQueue();
+    const record = await renewing.enqueue(input);
+    const settled = await renewing.dispatch(async () => {
+      now += 40_000;
+      for (const beat of beats) await beat();
+      now += 40_000;
+    });
+    expect(settled).toMatchObject({ id: record.id, state: "delivered" });
+    expect(beats).toEqual([]);
+  });
+
+  test("a renewal never takes back a lease another worker already holds or expired", async () => {
+    const { renewing, beats, input } = await renewingQueue();
+    const record = await renewing.enqueue(input);
+    const result = renewing.dispatch(async () => {
+      now += 60_001;
+      // The lease lapsed: a claim marks it outcome_unknown, and the renewal must not revive it.
+      expect(await renewing.claim()).toBeNull();
+      for (const beat of beats) await beat();
+    });
+    await expect(result).rejects.toMatchObject({ code: "delivery_lease_lost" });
+    expect((await renewing.inspect(input.installationId, record.id))?.state).toBe("outcome_unknown");
   });
 
   test("ownerless and cross-user jobs are rejected", async () => {

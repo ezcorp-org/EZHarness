@@ -3,7 +3,7 @@ import { sql } from "drizzle-orm";
 import { assertJson, type InstallationRecord } from "@ezcorp/extension-contract";
 import type { MigrationDb } from "../../db/migrations/types";
 import { releaseRows as resultRows, type ReleaseDatabase } from "../../db/queries/extension-releases";
-import { DurableDeliveryQueue, dispatchDurableDelivery, durableInputHash, type DurableDeliveryStore } from "../../delivery-queue/durable-delivery-queue";
+import { DurableDeliveryQueue, dispatchDurableDelivery, durableInputHash, intervalHeartbeat, type DurableDeliveryStore, type LeaseHeartbeat } from "../../delivery-queue/durable-delivery-queue";
 import { LifecycleError } from "./types";
 
 export interface ExtensionDelivery {
@@ -70,8 +70,12 @@ export class RetryableDeliveryError extends Error {
   constructor(public readonly code: string) { super("Delivery failed before an external effect."); }
 }
 
+/** A claim's lease. The dispatcher renews it while the handler runs, so a handler
+ *  inside its own invocation deadline never loses it (W4H-8). */
+const LEASE_MS = 60_000;
+
 export class ExtensionDeliveryQueue {
-  constructor(private readonly database: ReleaseDatabase, private readonly now: () => number = Date.now) {}
+  constructor(private readonly database: ReleaseDatabase, private readonly now: () => number = Date.now, private readonly heartbeat: LeaseHeartbeat<ExtensionDelivery>["start"] = intervalHeartbeat(LEASE_MS)) {}
 
   async enqueue(input: Pick<ExtensionDelivery, "installationId" | "releaseId" | "generation" | "principalId" | "scope" | "deduplicationId" | "kind" | "input" | "transportContext">): Promise<ExtensionDelivery> {
     return this.database.transaction(transaction => ExtensionDeliveryQueue.enqueueInTransaction(transaction, input, this.now));
@@ -95,7 +99,7 @@ export class ExtensionDeliveryQueue {
       });
   }
 
-  async claim(leaseMs = 60_000): Promise<ExtensionDelivery | null> {
+  async claim(leaseMs = LEASE_MS): Promise<ExtensionDelivery | null> {
     return this.database.transaction(transaction => stateMachine.claim(new ExtensionDeliveryStore(transaction), null, this.now(), leaseMs));
   }
 
@@ -111,6 +115,9 @@ export class ExtensionDeliveryQueue {
     return dispatchDurableDelivery(() => this.claim(), (delivery, outcome, code) => this.settle(delivery, outcome, code), handler, error => {
       if (error instanceof LifecycleError && error.code === "delivery_lease_lost") throw error;
       return error instanceof RetryableDeliveryError ? error.code : null;
+    }, {
+      start: this.heartbeat,
+      renew: delivery => this.database.transaction(transaction => stateMachine.renew(new ExtensionDeliveryStore(transaction), delivery.installationId, delivery, this.now(), LEASE_MS)),
     });
   }
 }
