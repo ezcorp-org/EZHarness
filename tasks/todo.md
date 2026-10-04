@@ -2584,3 +2584,18 @@ after resource release. Qualification 55/0, recovery 28/0, feature flow 1/0,
 and retired cleanup 4/0 passed; type checks, lint, hooks, and predicate coverage
 passed. The three fixture repairs preserve production approvals and migrations.
 A new combined fast run and later exact-source coverage remain required.
+
+### Final recovery quality gate — 4 October 2026
+
+- [x] Run the combined fast gate on `fcc4693f3`: 27,500 backend, 3,638 web Bun, and 7,724 component/server tests passed; all other fast checks passed.
+- [x] Run all five canonical browser lanes on the same source; all passed.
+- [x] Push PR303 and inspect hosted results: 50 checks passed; the per-file gate failed its touched-function complexity check.
+- [x] Complete local merged coverage on `fcc4693f3`: 28,306 tests passed with no failures; 1,800 per-file thresholds, 93 new-file checks, and all 160 changed-file patch checks passed. Global coverage was 97.50%. The complexity check reproduced the same single failure.
+- [x] Reproduce the recovery transaction callback's complexity failure (44, limit 30) and split cohesive checks into named helpers without changing authority or transaction rules.
+- [ ] Review the change; pass focused recovery tests, coverage and complexity checks, then repeat the required gates on the final source.
+- [ ] Rebuild and pin the final app bundle before completing the operator artifact review.
+- [ ] Execute the reviewed cleanup, then build and verify provider 0.1.4 for exact human release approval.
+
+Review: the recovery callback has 100% measured coverage but fails the complexity policy. More tests alone cannot correct that failure. Preserve the failed CI result and keep the installed app unchanged until the correction is verified. The server recovery archive passed independent review and nine offline tests. The AMD execution artifact is still in preparation; no new live recovery has run.
+
+Correction: `e5b3e6ca6` integrates worker `f0e5cd154`. Two named guards preserve the original predicates, errors, transaction reads, locks, replay checks, and write order. The callback score is now 10; the two helpers score 21 and 15. All are fully covered. The real database recovery suite passed 28 tests and 84 assertions; the module covered 142/142 lines. Type checks, lint, and standard commit hooks passed. Final-source full gates remain pending.

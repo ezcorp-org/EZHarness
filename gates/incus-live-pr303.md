@@ -40,4 +40,4 @@ Resume status, 3 October 2026: the AMD services were restored and the current da
 - [ ] G6: Host, network, quota, resource, secret, and cross-sandbox negative checks for the selected deployment pass without weakening existing gates.
   EVIDENCE: pending
 - [ ] G7: Final PR head passes focused tests, build, lint, typecheck, repository gates, hosted CI, and independent code review; draft status and remaining unsupported profiles are reported honestly.
-  EVIDENCE: pending
+  EVIDENCE: Source `fcc4693f3` passed the full fast gate and all five canonical browser lanes. Merged coverage passed 28,306 tests, all 1,800 per-file thresholds, 93 new-file checks, and changed-line coverage for 160 files; global coverage was 97.50%. Hosted CI passed 50 checks and failed the touched-function complexity check: the recovery transaction callback scored 44 against a limit of 30, despite 100% measured coverage. A focused helper extraction is under review. Final-source gates, live proof, and non-author review remain required. The isolated app is still on `74cedcf397`; these source results do not close the live gates.
