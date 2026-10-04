@@ -1,0 +1,24 @@
+# trusted-local extension runner — extensions run UNSANDBOXED, inside the app.
+#
+# Layered only when .env records EZCORP_INSTALL_RUNNER_MODE=trusted-local, which
+# `ezcorp install` or `ezcorp runner-mode trusted-local` writes after terminal
+# confirmation (see consent_trusted_local in ./ezcorp). It is never an automatic
+# fallback from a missing or broken isolated runner.
+#
+# This is decision C in docs/decisions/2026-09-12-extension-runner-install-burden.md:
+# none of the seven sandbox controls apply and an extension has the app's full
+# reach — database, provider keys, every user's data, outbound network. It is
+# for a single-user machine whose owner reads the extensions they install. The
+# per-release approval in the app (each build and release still needs an
+# explicit human acknowledgement) is unchanged by this file.
+#
+# Mirrors deploy/extension-runner/compose.trusted-local.yml, held to it by
+# src/__tests__/installer-core.test.ts — except that the acknowledgement is
+# interpolated without `:?`, because the installer validates it before compose
+# ever runs (same reason as every other value in compose.installer.yml).
+services:
+  app:
+    user: "1000:1000"
+    environment:
+      EZCORP_EXTENSION_RUNNER: trusted-local
+      EZCORP_EXTENSIONS_UNSANDBOXED_ACK: "${EZCORP_EXTENSIONS_UNSANDBOXED_ACK}"

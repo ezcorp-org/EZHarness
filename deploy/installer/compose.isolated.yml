@@ -1,0 +1,29 @@
+# Isolated extension runner — the default, and the only mode called isolated.
+#
+# Layered by the installer when .env records EZCORP_INSTALL_RUNNER_MODE=isolated.
+# The app reaches a runner the operator provisioned on the host
+# (deploy/extension-runner/README.md); the installer never provisions it.
+#
+# Kept byte-for-byte equal to deploy/extension-runner/compose.runner.yml's
+# connection by src/__tests__/installer-core.test.ts, so an installed stack and
+# a documented server deployment connect to the runner the same way.
+services:
+  app:
+    environment:
+      EZCORP_EXTENSION_RUNNER_SOCKET: /run/ez-extension-runner/runner.sock
+      EZCORP_EXTENSION_RUNNER_TOKEN_FILE: /run/secrets/extension-runner-token
+    group_add:
+      - "${EZ_RUNNER_GROUP}"
+    volumes:
+      - type: bind
+        source: ${EZ_RUNNER_SOCKET_DIR}
+        target: /run/ez-extension-runner
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${EZ_RUNNER_TOKEN_FILE}
+        target: /run/secrets/extension-runner-token
+        read_only: true
+        bind:
+          create_host_path: false
