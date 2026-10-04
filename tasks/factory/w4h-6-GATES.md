@@ -98,5 +98,20 @@ unset; no target file and no runner code reads CI.
   place of the EAGAIN branch, the suite is red by name, 5 pass / 1 fail ("EAGAIN: resource temporarily unavailable, write");
   restored, green 6/0 and 20 of 20 runs; extension-runner neighbours green; typecheck and lint 0. EVIDENCE:
   /tmp/factory-platform-evidence/w4h-6/m1/red-mutant-eagain-8bc2089aa.log, m1/green-head.log, m1/loop-20.log.
-- [ ] G6 (heavy legs at the head) is still open: the gated hold gave up after 14400 s with zero lock tries (host disk 68-91 GB,
-  below the 100 GB floor); gated-flock.log.
+- [x] G6 of record (coordinator ruling after M1): the hosted shard lists 0, 2 and 7, ONCE, in the runner container at head
+  346e8767c, tree e2627561e (the container checkout's `git rev-parse HEAD^{tree}` at the start of the run). Run 2026-10-04
+  20:51:31Z-20:58:21Z through w00/gated-flock.sh 824013cc3cdfd471 (start margin 5 GB) with resource-gate.sh b01ba3ecb55c9a0e;
+  exit file g6/heavy.exit = 0; 1-minute load 4.59 at the start; host_oom 0 in every leg.
+  - list 0: 2524 pass / 0 fail, 165 files. out-g6-346e8767c/list_0.log sha256 9f452afd74f60696ae4f84b4262b3fcb767645a625da3e44d08a4651cafad36f
+  - list 2: 2300 pass / 0 fail, 167 files. out-g6-346e8767c/list_2.log sha256 3668bd622caba3b83f3effe15766e63dd091895d3774c73e0252b85e92be25fb
+  - list 7: 2220 pass / 3 fail, 167 files; workspace.test.ts green. out-g6-346e8767c/list_7.log sha256
+    b721f70d26586dd1d1b07ab3f31a8c5fdcfb3884d4cf51d35eef8fe537335c72. The 3 failures are the container's shape, the same at base, not a
+    W4H-6 defect: src/__tests__/biome-ignores-worktrees.test.ts (2 tests, exit 127, no node in the container) and
+    src/factory/runner/applied-controls.integration.test.ts (1, the pinned python image is absent). The shape fix (node and the python
+    pull in the shard container) is on the leftover list, not in W4H-6.
+  - Disk per list: 2 MB of coverage output inside the container; 2-3 GB transient host disk while a list runs.
+  - The checkout directory is named snap-56c9579d7 (a stale name): it was updated in place and held tree e2627561e = 346e8767c^{tree}
+    for this run.
+  - Void attempts, not G6 (each released by the in-lock gate before list 7 at disk 98-99 GB, under the 100 GB floor):
+    out-g6-346e8767c-void1/ (lists 0 and 2 green) and out-g6-346e8767c-void2/ (list 0 2524/0; list 2 2299/1, a tolerated
+    marketplace-search-perf wall-clock flake, which is on the leftover list). Record: g6/void-record.txt.
