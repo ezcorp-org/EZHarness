@@ -1,5 +1,6 @@
 # Lessons
 
+- Database JSON objects do not preserve field order. Build durable scope identities and plan digests from one fixed representation. Test the actual database round trip and reopened service, and keep legacy valid digests unchanged. Object stringification alone is not a scope equality check.
 - Before the final browser/coverage capture, audit cancellation through the actual tool-to-provider boundary. An aborted request signal must not prevent exact guest cleanup; cleanup still needs its own deadline and fresh authorization. Prove guest process absence independently of a cancelled host run.
 - Rehearse the exact staging command with the installed CLI. GNU tar rejects `--keep-old-files` together with `--no-overwrite-dir`. Nix JSON v2 can key path information by store basename; validate its store directory, exact basename, NAR hash and size against a real read-only response.
 - Privileged deployment failures must retain bounded private command diagnostics, including partial timeout output. A generic error with discarded stderr causes repeated diagnosis without useful evidence. Preserve phase markers and inspect state before any continuation.
