@@ -130,6 +130,20 @@ describe("durable extension deliveries", () => {
     expect((await renewing.inspect(input.installationId, record.id))?.state).toBe("outcome_unknown");
   });
 
+  test("by default a dispatch renews its 60 s lease every 20 s while the handler runs", async () => {
+    const own = new PGlite();
+    owned.push(own);
+    const driver = drizzle(own);
+    await up(driver);
+    const live = new ExtensionDeliveryQueue(driver, () => now);
+    await live.enqueue(await installationFixture(new DatabaseLifecycleRepository(driver)));
+    const schedule = spyOn(globalThis, "setInterval");
+    try {
+      const settled = await live.dispatch(async () => { expect(schedule.mock.calls.map(call => call[1])).toEqual([20_000]); });
+      expect(settled?.state).toBe("delivered");
+    } finally { schedule.mockRestore(); }
+  });
+
   test("a stale lease token cannot renew, before or after the delivery is reclaimed", async () => {
     const { renewing, input } = await renewingQueue();
     await renewing.enqueue(input);

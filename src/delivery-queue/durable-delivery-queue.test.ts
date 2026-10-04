@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { DurableDeliveryQueue, dispatchDurableDelivery, durableInputHash, intervalHeartbeat, type DurableDeliveryRecord, type DurableDeliveryStore } from "./durable-delivery-queue";
 
 type Record = DurableDeliveryRecord & { readonly value: string };
@@ -129,6 +129,15 @@ describe("lease heartbeat during dispatch", () => {
     // A stopped schedule never beats again: a later timer turn observes the same count.
     await new Promise(resolve => setTimeout(resolve, 5));
     expect(beats).toBe(counted);
+  });
+
+  test("the interval schedule renews at a third of the lease, so two renewals may fail before it lapses", () => {
+    const schedule = spyOn(globalThis, "setInterval");
+    try {
+      const stop = intervalHeartbeat(60_000)(async () => undefined);
+      stop();
+      expect(schedule.mock.calls.map(call => call[1])).toEqual([20_000]);
+    } finally { schedule.mockRestore(); }
   });
 
   test("renews while the handler runs, never two renewals at once, and stops before the settle", async () => {
