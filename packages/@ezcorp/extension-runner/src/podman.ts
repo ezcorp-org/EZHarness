@@ -154,30 +154,37 @@ function channelReader(handle: FileHandle): Readable {
   });
 }
 
+/** How long a write waits before it tries a full pipe again. */
+const CHANNEL_WRITE_RETRY_MS = 10;
+
 /**
- * Writes the channel's `in` FIFO on the event loop.
+ * Writes the channel's `in` FIFO without ever waiting on a thread.
  *
  * A pipe holds 64 KiB. A guest that stops reading leaves a larger write waiting,
- * and `FileHandle.createWriteStream` waits on a file-system pool thread, so two
- * such guests on a two-thread pool would stop every other worker's channel: a
- * hostile guest could stall the runner. Bun's FileSink polls the FIFO instead.
- * Each chunk completes only when its flush does, so `writableLength` still counts
- * what the guest has not taken and FramedExecution's backpressure limit applies.
- * Closing the handle drops anything still queued; the sink writes nothing after.
- * The flush a silent guest never drains never settles either, so destroying the
- * writer settles the chunk it waits on with a closed error, and nothing stays
- * pending for a worker that is gone.
+ * and a blocking write waits on a file-system pool thread, so two such guests on
+ * a two-thread pool would stop every other worker's channel: a hostile guest could
+ * stall the runner. The handle is opened non-blocking, so a full pipe answers
+ * EAGAIN at once and the rest of the chunk is tried again after
+ * CHANNEL_WRITE_RETRY_MS. Bun's FileSink would poll too, but it duplicates the
+ * descriptor and cannot release the duplicate while a write is pending, so every
+ * worker closed with unread input kept one open (measured). A chunk completes
+ * only when the guest has taken all of it, so `writableLength` still counts what
+ * the guest has not taken and FramedExecution's backpressure limit applies.
+ * Destroying the writer stops the retries and settles the waiting chunk with a
+ * closed error.
  */
 function channelWriter(handle: FileHandle): Writable {
-  const sink = Bun.file(handle.fd).writer();
   let pending: ((error?: Error | null) => void) | undefined;
+  let retry: ReturnType<typeof setTimeout> | undefined;
   const settle = (callback: (error?: Error | null) => void, error?: Error) => { if (pending !== callback) return; pending = undefined; callback(error); };
+  const later = (rest: Buffer, callback: (error?: Error | null) => void) => { if (pending === callback) retry = setTimeout(() => push(rest, callback), CHANNEL_WRITE_RETRY_MS); };
+  const push = (chunk: Buffer, callback: (error?: Error | null) => void): void => {
+    handle.write(chunk).then(({ bytesWritten }) => { if (bytesWritten === chunk.length) settle(callback); else later(chunk.subarray(bytesWritten), callback); }, (error: NodeJS.ErrnoException) => { if (error.code === "EAGAIN") later(chunk, callback); else settle(callback, error); });
+  };
   return new Writable({
-    write(chunk: Buffer, _encoding, callback) {
-      pending = callback;
-      Promise.resolve().then(() => { sink.write(chunk); return sink.flush(); }).then(() => settle(callback), error => settle(callback, error));
-    },
+    write(chunk: Buffer, _encoding, callback) { pending = callback; push(chunk, callback); },
     destroy(error, callback) {
+      clearTimeout(retry);
       if (pending) settle(pending, new RunnerError("worker_closed", "Worker channel closed before the guest read its input"));
       callback(error);
     },
@@ -426,11 +433,12 @@ export class PodmanRunner implements Runner {
    * Connects to a guest's channel. Opening `out` and `err` read-only settles as
    * soon as the shim holds them, and their end-of-file is the guest's exit.
    * `in` is opened read-write so this side never blocks and never signals a
-   * close to the guest.
+   * close to the guest, and non-blocking so a full pipe never holds a thread
+   * (see channelWriter).
    */
   private async channelTransport(id: string): Promise<FramedTransport> {
     const [input, output, errors] = await Promise.all([
-      this.openChannelEntry(id, "in", fsConstants.O_RDWR),
+      this.openChannelEntry(id, "in", fsConstants.O_RDWR | fsConstants.O_NONBLOCK),
       this.openChannelEntry(id, "out", fsConstants.O_RDONLY),
       this.openChannelEntry(id, "err", fsConstants.O_RDONLY),
     ]);

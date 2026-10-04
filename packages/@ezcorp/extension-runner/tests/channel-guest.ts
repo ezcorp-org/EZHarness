@@ -1,4 +1,4 @@
-import { chmod, lstat, mkdir, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, readdir, readlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 import { PodmanRunner } from "../src/podman";
@@ -14,6 +14,11 @@ export class ChannelHost extends PodmanRunner {
   closeChannel(id: string): void { (this as unknown as { channels: Map<string, () => void> }).channels.get(id)?.(); }
 }
 
+/** What a guest does with its channel: echo one frame, never read, or report the size of one frame. */
+export const GUEST_ECHO = 'head -n1 <&3 >&4; read -r _ <&3';
+export const GUEST_SILENT = "sleep 60";
+export const GUEST_COUNT = 'head -n1 <&3 | wc -c >&4; read -r _ <&3';
+
 export interface EchoGuest { readonly guest: ChildProcess; readonly transport: FramedTransport; readonly echoed: Promise<string>; readonly closed: Promise<"closed"> }
 
 /**
@@ -21,11 +26,11 @@ export interface EchoGuest { readonly guest: ChildProcess; readonly transport: F
  *
  * It opens all three FIFOs read-write as the sandbox shim does, so no open waits
  * for the host, echoes the first frame on `out`, and exits on the next line.
- * A guest with `reads: false` never reads `in`, as a hostile guest may not.
+ * GUEST_SILENT never reads `in`, as a hostile guest may not.
  * `timeout` bounds it, so none outlives a failed run. Both reads run from the
  * start, as FramedExecution reads both for a worker's whole life.
  */
-export async function echoGuest(host: ChannelHost, id: string, { reads = true }: { reads?: boolean } = {}): Promise<EchoGuest> {
+export async function echoGuest(host: ChannelHost, id: string, script = GUEST_ECHO): Promise<EchoGuest> {
   const directory = host.directory(id);
   await mkdir(directory, { recursive: true });
   await chmod(directory, 0o755);
@@ -36,11 +41,20 @@ export async function echoGuest(host: ChannelHost, id: string, { reads = true }:
     facts[fifo] = { device: created.dev, inode: created.ino };
   }
   await writeFile(host.facts(id), JSON.stringify(facts), { mode: 0o600 });
-  const script = reads ? 'head -n1 <&3 >&4; read -r _ <&3' : "sleep 60";
   const guest = spawn("timeout", ["30", "sh", "-c", `exec 3<>"$0/in" 4<>"$0/out" 5<>"$0/err"; ${script}`, directory], { stdio: "ignore" });
   const transport = await host.transport(id);
   transport.stderr.on("data", () => {});
   const echoed = new Promise<string>(resolve => transport.stdout.on("data", chunk => resolve(String(chunk).trim())));
   const closed = new Promise<"closed">(resolve => transport.once("close", () => resolve("closed")));
   return { guest, transport, echoed, closed };
+}
+
+/** How many of this process's descriptors still point into `root`'s channel directories. */
+export async function channelDescriptors(root: string): Promise<number> {
+  let count = 0;
+  for (const fd of await readdir("/proc/self/fd")) {
+    const target = await readlink(`/proc/self/fd/${fd}`).catch(() => "");
+    if (target.startsWith(root) && target.includes("/channels/")) count++;
+  }
+  return count;
 }

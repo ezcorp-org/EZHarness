@@ -3,7 +3,7 @@ import { constants as fsConstants } from "node:fs";
 import { mkdtemp, open, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ChannelHost, echoGuest } from "./channel-guest";
+import { ChannelHost, GUEST_COUNT, GUEST_SILENT, channelDescriptors, echoGuest } from "./channel-guest";
 
 test("a channel carries a frame both ways and reports the guest's exit", async () => {
   const root = await mkdtemp(join(tmpdir(), "ez-channel-pool-"));
@@ -13,6 +13,23 @@ test("a channel carries a frame both ways and reports the guest's exit", async (
     expect(await echoed).toBe("solo-frame");
     transport.stdin.write("stop\n");
     expect(await closed).toBe("closed");
+    // Every descriptor the channel opened is released with it.
+    await Bun.sleep(100);
+    expect(await channelDescriptors(root)).toBe(0);
+  } finally {
+    guest.kill("SIGKILL");
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("a frame larger than a pipe reaches a reading guest in full", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ez-channel-pool-"));
+  const { guest, transport, echoed } = await echoGuest(new ChannelHost({ root }), "worker-count", GUEST_COUNT);
+  try {
+    // Four pipes' worth plus the newline: the writer meets a full pipe and must finish the chunk later.
+    const written = new Promise<string>(resolve => transport.stdin.write(`${"x".repeat(256 * 1024)}\n`, error => resolve(error ? error.message : "written")));
+    expect(await echoed).toBe(String(256 * 1024 + 1));
+    expect(await written).toBe("written");
   } finally {
     guest.kill("SIGKILL");
     await rm(root, { recursive: true, force: true });
@@ -22,7 +39,7 @@ test("a channel carries a frame both ways and reports the guest's exit", async (
 test("closing a channel whose guest left its input unread settles the waiting write and writes nothing after", async () => {
   const root = await mkdtemp(join(tmpdir(), "ez-channel-pool-"));
   const host = new ChannelHost({ root });
-  const { guest, transport, closed } = await echoGuest(host, "worker-silent", { reads: false });
+  const { guest, transport, closed } = await echoGuest(host, "worker-silent", GUEST_SILENT);
   try {
     // More than a pipe holds, so the write waits on a guest that never reads.
     const settled = new Promise<string>(resolve => transport.stdin.write("x".repeat(256 * 1024), error => resolve(error ? error.message : "flushed")));
@@ -30,6 +47,9 @@ test("closing a channel whose guest left its input unread settles the waiting wr
     expect(await closed).toBe("closed");
     // A bound on liveness only: before the fix the waiting write never settled at all.
     expect(await Promise.race([settled, Bun.sleep(10_000).then(() => "never settled")])).toBe("Worker channel closed before the guest read its input");
+    // Nothing of the channel stays open for a guest that never read, so no closed worker holds a descriptor.
+    await Bun.sleep(100);
+    expect(await channelDescriptors(root)).toBe(0);
     // A pipe opened now may reuse the closed descriptor's number; the dropped bytes must never reach it.
     const victim = join(root, "victim");
     Bun.spawnSync(["mkfifo", victim]);
@@ -52,7 +72,7 @@ test("closing a channel whose guest left its input unread settles the waiting wr
  */
 async function withTwoPoolThreads(body: string): Promise<unknown> {
   const root = await mkdtemp(join(tmpdir(), "ez-channel-pool-"));
-  const child = `import { ChannelHost, echoGuest } from ${JSON.stringify(new URL("./channel-guest.ts", import.meta.url).pathname)};\nconst host = new ChannelHost({ root: process.argv[1] });\n${body}\nprocess.exit(0);`;
+  const child = `import { ChannelHost, GUEST_SILENT, echoGuest } from ${JSON.stringify(new URL("./channel-guest.ts", import.meta.url).pathname)};\nconst host = new ChannelHost({ root: process.argv[1] });\n${body}\nprocess.exit(0);`;
   const run = Bun.spawn([process.execPath, "-e", child, root], { env: { ...process.env, UV_THREADPOOL_SIZE: "2" }, stdout: "pipe", stderr: "pipe" });
   try {
     // A bound on liveness only: on a starved pool the child cannot even set up its next channel.
@@ -100,7 +120,7 @@ console.log(JSON.stringify(report));`)).toEqual({ "worker-a": "worker-a-frame", 
  */
 test("two guests that never read their input do not stop a third worker's channel when the pool has two threads", async () => {
   expect(await withTwoPoolThreads(`
-const silent = [await echoGuest(host, "silent-a", { reads: false }), await echoGuest(host, "silent-b", { reads: false })];
+const silent = [await echoGuest(host, "silent-a", GUEST_SILENT), await echoGuest(host, "silent-b", GUEST_SILENT)];
 for (const guest of silent) guest.transport.stdin.write("x".repeat(256 * 1024) + "\\n");
 const live = await Promise.race([echoGuest(host, "worker-c"), Bun.sleep(4_000).then(() => undefined)]);
 const report = { opened: live !== undefined };
