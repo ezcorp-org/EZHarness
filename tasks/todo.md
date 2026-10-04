@@ -2284,6 +2284,10 @@ Review: 49 backend middleware tests, 203 Vitest route tests, 52 schema tests and
 - [x] Audit v8 from a stopped database copy: all three guests absent, all reservations released, no global pending operations.
 - [x] Reproduce and correct the supervisor's primary/recovery guest identity mismatch. Pass the real restart/socket/signature test and both fault-authority suites; preserve independent backend ownership checks.
 - [x] Correct and test the lost-destroy probe's returned-UNKNOWN contract and error handling. Reproduce the delayed native receipt path, signed checkpoint, and exact consumed fault; retain the unavailable historical v8 exception.
+- [x] Install corrected source 63237 and run v9 once. Retain its cleanup-verification failure; all three saved deletes succeeded and independent guest/operation inventories are empty.
+- [x] Reproduce and correct bounded recovery reconciliation when the first backend observation is still pending; wait only on the original saved operation.
+- [x] Reproduce and correct readiness for an exact completed linked recovery while preserving the original failed receipt and rejecting forged/incomplete links.
+- [ ] Audit v9 accounting from the next stopped baseline; use the existing immutable pre-cutover baseline for historical predicate diagnosis.
 - [ ] Pass all eight qualification cases on the corrected installed candidate.
 - [ ] Prove normal UI/native work, logs, cancellation, and retained work across engine restart.
 - [ ] Complete ten serial normal feature cycles and the final reservation/inventory audit.
