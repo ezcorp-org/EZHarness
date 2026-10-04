@@ -446,7 +446,12 @@ test("limit loads recheck the pinned host and neighbor after each guest load", a
     const resource = argv[3]!;
     calls.push(`load:${resource}`);
     const detail = resource === "memory" ? { oomKillDelta: 1, childExit: 137 }
-      : resource === "cpu" ? { throttledDelta: 1, elapsedMs: 4000 }
+      : resource === "cpu" ? { throttledDelta: 1, elapsedMs: 4000,
+        quotaMicros: preset.limits.cpuMillis * 100, periodMicros: 100000,
+        cpusetCount: 2, affinityCount: 2, outsideCpuCount: 30,
+        workerCount: Math.max(2, Math.ceil(Number(argv[4]) / 1000)), workerFailures: 0,
+        workerCpuUsec: 7_000_000, usageDeltaUsec: 7_100_000,
+        controlsUnchanged: true, affinityConfined: true }
         : resource === "pids" ? { denialEventDelta: 1, spawned: 0 } : { errno: 28 };
     return { exitCode: 0, stderr: "", stdout: JSON.stringify({ resource,
       attempted: Number(argv[4]), observedLimit: Number(argv[5]), contained: true, detail }) };
