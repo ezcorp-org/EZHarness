@@ -66,7 +66,7 @@ export function incusMethodName(operation: SandboxProtocolOperation): string {
 }
 
 const commonPreset: Omit<SandboxPreset, "id" | "profile" | "recipeDigest" | "storage"> = {
-  imageDigest: "2f8868763f6cbec0452ab0d4db82ecb315c4aff1b9a3d2d1777cd878017e9fa1",
+  imageDigest: "ebe5ce977a726130fd1aa90d2c853467bb6d143141ed07f74b7a06e98efd3912",
   helperDigests: ["804d68bd8d83ca817c6413eb3b2365216778aa26421c81fb3e9f3810b82dcb75"],
   network: { mode: "private", outbound: "restricted" },
   limits: {
@@ -113,7 +113,7 @@ export const INCUS_PRESETS: SandboxPreset[] = [
 export const incusManifest: ExtensionManifestV4 = validateManifest({
   schemaVersion: 4,
   name: "incus-sandbox",
-  version: "0.1.2",
+  version: "0.1.3",
   description: "Incus sandbox provider over the host-owned protected transport.",
   author: { name: "EZCorp" },
   entrypoint: "./extension.ts",

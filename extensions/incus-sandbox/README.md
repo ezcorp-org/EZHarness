@@ -4,7 +4,7 @@ This package implements the 19 methods in `sandbox.provider.v1` as a translation
 
 `describe` is local. `preflight` makes one non-allocating, 30-second probe. It compares the observed server certificate fingerprint, Incus project, Incus profile and helper version with the connection pins. It also requires the restricted project, unprivileged instance, project limits, private network, `/workspace` root, explicit guest user, atomic file replacement, durable process, bounded output and endpoint proxy controls. A Compose preset also requires observed nested Compose support.
 
-The released presets pin the reviewed guest image fingerprint and helper source digest. The setup planner requires these pins to match its reviewed recipe and fresh server image inventory. The pins alone do not prove a running guest. Candidate verification and live SP01-SP08 qualification still require artifact receipts before activation.
+Release 0.1.3 pins image `ebe5ce977a726130fd1aa90d2c853467bb6d143141ed07f74b7a06e98efd3912` (recipe 1.2.3, alias `ezharness-guest-0-1-3`) and the unchanged helper source digest. The published image includes Git package `1:2.39.5-0+deb12u3`, verified by the image builder with an init, commit, and clean status as UID/GID 1000. Docker image caches remain empty at publication. This source update does not activate the release or qualify a provider connection. The setup planner requires these pins to match its reviewed recipe and fresh server image inventory. The pins alone do not prove a running guest. Candidate verification and live SP01-SP08 qualification still require artifact receipts before activation.
 
 ## Open live work
 

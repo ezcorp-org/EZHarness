@@ -22,11 +22,17 @@ const validConfig = {
 };
 
 describe("Incus extension manifest", () => {
-  test("release 0.1.2 binds the reviewed image and helper in each preset digest", async () => {
+  test("release 0.1.3 binds the reviewed image and helper in each preset digest", async () => {
     const presets = incusManifest.sandboxProviders![0]!.presets;
-    const image = "2f8868763f6cbec0452ab0d4db82ecb315c4aff1b9a3d2d1777cd878017e9fa1";
+    const image = "ebe5ce977a726130fd1aa90d2c853467bb6d143141ed07f74b7a06e98efd3912";
     const helper = "804d68bd8d83ca817c6413eb3b2365216778aa26421c81fb3e9f3810b82dcb75";
-    expect(incusManifest.version).toBe("0.1.2");
+    expect(incusManifest.version).toBe("0.1.3");
+    const recipe = await Bun.file(new URL("../../scripts/incus/recipe.json", import.meta.url)).json();
+    const packageMetadata = await Bun.file(new URL("./package.json", import.meta.url)).json();
+    expect(packageMetadata.version).toBe(incusManifest.version);
+    expect(recipe.version).toBe("1.2.3");
+    expect(recipe.guestImage).toMatchObject({ alias: "ezharness-guest-0-1-3", fingerprint: image,
+      helperSha256: helper, gitPackageVersion: "1:2.39.5-0+deb12u3" });
     for (const preset of presets) {
       expect(preset.imageDigest).toBe(image);
       expect(preset.helperDigests).toEqual([helper]);
