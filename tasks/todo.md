@@ -2289,7 +2289,9 @@ Review: 49 backend middleware tests, 203 Vitest route tests, 52 schema tests and
 - [x] Reproduce and correct readiness for an exact completed linked recovery while preserving the original failed receipt and rejecting forged/incomplete links.
 - [x] Audit v9 accounting from the next stopped baseline; use the existing immutable pre-cutover baseline for historical predicate diagnosis.
 - [x] Pass all eight qualification cases on the corrected installed candidate.
-- [ ] Integrate main `beaff68c8` (Pi 0.87.1 and composer correction) before final native proof and exact-source quality gates.
+- [x] Integrate main `beaff68c8` (Pi 0.87.1 and composer correction) without conflicts; pass both installs, targeted runtime/composer tests, types, and lint.
+- [x] Correct the new runtime's reproduced loss of system instructions and restored obsolete tools at the actual agent-to-provider boundary; pass targeted tests and type/lint checks.
+- [ ] Finish independent review and changed-line coverage for the runtime corrections before installing the merged candidate.
 - [ ] Prove normal UI/native work, logs, cancellation, and retained work across engine restart.
 - [ ] Complete ten serial normal feature cycles and the final reservation/inventory audit.
 - [ ] Complete exact-source browser, coverage, complexity, hosted CI, and non-author review gates.
