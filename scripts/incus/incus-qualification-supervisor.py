@@ -196,6 +196,7 @@ class Supervisor:
         self.recovery_abort_command = None
         self.recovery_request_path = None
         self.abort_stopped_guard = None
+        self.abort_offline = False
         self.recovery_fence_command = None
         key_stat = self.key_path.lstat()
         if not stat.S_ISREG(key_stat.st_mode) or key_stat.st_uid != os.geteuid() \
@@ -446,7 +447,7 @@ class Supervisor:
             os.fsync(handle.fileno())
         self.sync_hold_directory()
 
-    def assert_abort_actors_stopped(self, units, runner_uid, *, serving=False):
+    def assert_abort_actors_stopped(self, units, runner_uid):
         if type(runner_uid) is not int or runner_uid <= 0 or runner_uid == self.app_uid \
                 or not isinstance(units, list) or len(units) != 3 \
                 or not all(isinstance(unit, str) and re.fullmatch(r"[A-Za-z0-9_.@:-]+\.service", unit) for unit in units) \
@@ -467,8 +468,6 @@ class Supervisor:
                 raise ValueError("operator abort stopped-unit proof invalid")
             observed[item["Id"]] = item
         expected = {name: {"Id": name, "ActiveState": "inactive", "SubState": "dead", "MainPID": "0"} for name in units}
-        if serving:
-            expected[units[0]] = {"Id": units[0], "ActiveState": "active", "SubState": "running", "MainPID": str(os.getpid())}
         if observed != expected:
             raise ValueError("operator abort requires stopped units")
         for entry in Path("/proc").iterdir():
@@ -484,9 +483,11 @@ class Supervisor:
                 continue
 
     def abort_context(self, message):
+        if not self.abort_offline:
+            raise ValueError("operator abort requires offline control")
         if self.abort_stopped_guard:
             self.abort_stopped_guard()
-        elif self.enforce_distinct_uid:
+        else:
             raise ValueError("operator abort stopped-actor guard required")
         # Only the private operator socket can reach this action. The stopped
         # app UID owns the database transaction; no guest/provider assertion can
@@ -999,7 +1000,7 @@ class Supervisor:
                             if not self.peer_is_operator(connection):
                                 raise ValueError("unauthorized operator peer")
                             message = read_message(connection)
-                            send_message(connection, self.abort_recovery(message) if isinstance(message, dict) and message.get("action") == "abort-fenced-cleanup-before-admission" else self.recover_noeffect(message))
+                            send_message(connection, self.recover_noeffect(message))
                             continue
                         if not self.peer_is_child(connection):
                             raise ValueError("unauthorized control peer")
@@ -1145,12 +1146,13 @@ def main():
     if config.get("recoveryAbortCommand"):
         units = config.get("recoveryAbortStoppedUnits")
         runner_uid = config.get("recoveryAbortRunnerUid")
-        supervisor.abort_stopped_guard = lambda: supervisor.assert_abort_actors_stopped(units, runner_uid, serving=not bool(args.abort_request))
+        supervisor.abort_stopped_guard = lambda: supervisor.assert_abort_actors_stopped(units, runner_uid)
     if args.abort_request:
         if os.geteuid() != 0 or args.recover_request:
             raise ValueError("offline operator abort requires root and a single action")
         if json.loads(supervisor.private_recovery_bytes(args.config, maximum=128*1024)) != config:
             raise ValueError("offline operator abort config changed")
+        supervisor.abort_offline = True
         message = json.loads(supervisor.private_recovery_bytes(args.abort_request))
         print(json.dumps(supervisor.abort_recovery(message), sort_keys=True))
         return

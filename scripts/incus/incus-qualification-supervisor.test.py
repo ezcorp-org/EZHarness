@@ -1073,6 +1073,15 @@ class FencedCleanupAbortTests(unittest.TestCase):
     def setUp(self):
         FencedCleanupSignerTest.setUp(self)
         self.supervisor.child = None
+        self.supervisor.abort_offline = True
+        units = ['supervisor.service', 'runner.service', 'user@65003.service']
+        stopped = ('\n\n'.join('Id='+unit+'\nActiveState=inactive\nSubState=dead\nMainPID=0' for unit in units)+'\n').encode()
+        def guard():
+            # Controlled host unit/process observations, not a replacement for
+            # the stopped-actor validator. Real signer/CLI calls stay unmocked.
+            with mock.patch.object(MODULE.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, stdout=stopped, stderr=b'')), mock.patch.object(MODULE.Path, 'iterdir', return_value=iter([])):
+                self.supervisor.assert_abort_actors_stopped(units, 65003)
+        self.supervisor.abort_stopped_guard = guard
         self.root = self.config.parent
         self.request['deadlineMs'] = 1
         self.saved = self.root/'original.json'
@@ -1212,7 +1221,7 @@ class FencedCleanupAbortTests(unittest.TestCase):
         self.assertTrue(self.supervisor.recovery_hold_path.exists())
         self.assertFalse((self.root/'committed.json').exists())
 
-    def test_actual_operator_socket_aborts_without_app_start(self):
+    def test_actual_operator_socket_rejects_abort_and_retains_hold(self):
         runner_code = r"""
 import importlib.util,json,os,sys
 from pathlib import Path
@@ -1233,9 +1242,9 @@ s.operator_socket_path=root/'operator.sock';s.recovery_command=['true'];s.recove
                 connection.settimeout(5);connection.connect(str(self.root/'operator.sock'))
                 MODULE.send_message(connection,self.message)
                 response=MODULE.read_message(connection)
-            self.assertEqual(response['nonce'],'nonce')
-            self.assertEqual(response['requestSha256'],self.message['requestSha256'])
-            self.assertFalse(self.supervisor.recovery_hold_path.exists())
+            self.assertEqual(response,{'error':'invalid operator recovery request'})
+            self.assertTrue(self.supervisor.recovery_hold_path.exists())
+            self.assertFalse((self.root/'committed.json').exists())
             self.assertIsNone(process.poll())
         finally:
             process.terminate()
@@ -1303,7 +1312,8 @@ s.operator_socket_path=root/'operator.sock';s.recovery_command=['true'];s.recove
             return {'abortId':'committed'}
         with mock.patch.object(MODULE.sys,'argv',['supervisor','--config',str(config_path),'--abort-request',str(abort_path)]),mock.patch.object(MODULE.os,'geteuid',return_value=0),mock.patch.object(MODULE,'Supervisor',return_value=self.supervisor),mock.patch.object(self.supervisor,'private_recovery_bytes',side_effect=lambda path,**kwargs:Path(path).read_bytes()),mock.patch.object(self.supervisor,'assert_abort_actors_stopped') as stopped,mock.patch.object(self.supervisor,'abort_recovery',side_effect=dispatch) as handler,mock.patch.object(self.supervisor,'serve') as serve,mock.patch.object(self.supervisor,'start_child') as start,mock.patch('builtins.print'):
             MODULE.main()
-        stopped.assert_called_once_with(config['recoveryAbortStoppedUnits'],65003,serving=False)
+        stopped.assert_called_once_with(config['recoveryAbortStoppedUnits'],65003)
+        self.assertTrue(self.supervisor.abort_offline)
         handler.assert_called_once_with(self.message)
         serve.assert_not_called();start.assert_not_called()
 
@@ -1318,17 +1328,12 @@ s.operator_socket_path=root/'operator.sock';s.recovery_command=['true'];s.recove
         self.assertEqual((self.root/'phases').read_text().splitlines(),['abort','inspect-abort','inspect-abort'])
         self.assertEqual(self.events,[])
 
-    def test_serving_supervisor_requires_exact_own_unit_pid(self):
-        units=['supervisor.service','runner.service','user@65003.service']
-        def output(pid):
-            return ('Id=supervisor.service\nActiveState=active\nSubState=running\nMainPID='+str(pid)+
-                '\n\nId=runner.service\nActiveState=inactive\nSubState=dead\nMainPID=0'+
-                '\n\nId=user@65003.service\nActiveState=inactive\nSubState=dead\nMainPID=0\n').encode()
-        with mock.patch.object(MODULE.subprocess,'run',return_value=subprocess.CompletedProcess([],0,stdout=output(os.getpid()),stderr=b'')),mock.patch.object(MODULE.Path,'iterdir',return_value=iter([])):
-            self.supervisor.assert_abort_actors_stopped(units,65003,serving=True)
-        with mock.patch.object(MODULE.subprocess,'run',return_value=subprocess.CompletedProcess([],0,stdout=output(os.getpid()+1),stderr=b'')):
-            with self.assertRaisesRegex(ValueError,'stopped units'):
-                self.supervisor.assert_abort_actors_stopped(units,65003,serving=True)
+    def test_abort_handler_requires_explicit_offline_entry(self):
+        self.supervisor.abort_offline = False
+        with self.assertRaisesRegex(ValueError, "offline control"):
+            self.supervisor.abort_recovery(self.message)
+        self.assertTrue(self.supervisor.recovery_hold_path.exists())
+        self.assertFalse((self.root / "committed.json").exists())
 
     def test_authorization_archive_modified_parent_and_chain_limit_fail_closed(self):
         with mock.patch.object(self.supervisor,'recovery_stage',side_effect=OSError('before DB invocation')):
