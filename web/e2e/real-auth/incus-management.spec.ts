@@ -516,6 +516,8 @@ test("damaged qualification and retry-key records do not start another host plan
 	await expect(page.getByTestId("qualification-workflow")).toContainText(planDigest);
 	const qualificationKey = await savedKey(page, "qualification-draft");
 	await page.getByRole("button", { name: "Start", exact: true }).click();
+	await expect(page.locator(".feature-card").getByText("running", { exact: true })).toBeVisible();
+	await expect(page.getByRole("button", { name: "Stop", exact: true })).toBeEnabled();
 	const mutationKey = await savedKey(page, "mutation-keys");
 	await page.evaluate(storageKey => localStorage.setItem(storageKey, JSON.stringify({ valid: "11111111-1111-4111-8111-111111111111", damaged: "not-a-key", wrongType: 42 })), mutationKey);
 	await page.reload();

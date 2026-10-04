@@ -8,6 +8,7 @@ let projectExists = true;
 let projectPurpose = "user";
 let bindingExists = true;
 let operationExists = true;
+let recoverySucceeded = false;
 const binding = { id: "binding-a", projectId: "project-a" };
 const operation = { id: "operation-a", kind: "CREATE", state: "DISPATCHING", generation: 1,
  providerOperationId: "provider-operation-a", errorCode: null,
@@ -62,7 +63,7 @@ vi.mock("$server/infrastructure/incus-feature-service", () => ({
 		async start(input: { bindingId: string; idempotencyKey: string }) { calls.push(`start:${input.bindingId}`); return input.idempotencyKey === "receipt-key" ? { state: "DISPATCHED", operation: journalReceipt() } : { state: "QUEUED", reason: "capacity", operation: null }; }
 		async stop(input: { bindingId: string }) { calls.push(`stop:${input.bindingId}`); return journalReceipt(); }
 		async destroy(input: { bindingId: string }) { calls.push(`destroy:${input.bindingId}`); if (failWith) throw failWith; return journalReceipt(); }
-		async recoverCleanup(bindingId: string, failedDestroyOperationId: string) { calls.push(`recoverCleanup:${bindingId}:${failedDestroyOperationId}`); throw failWith ?? new Error("database secret"); }
+		async recoverCleanup(bindingId: string, failedDestroyOperationId: string) { calls.push(`recoverCleanup:${bindingId}:${failedDestroyOperationId}`); if (!recoverySucceeded) throw failWith ?? new Error("database secret"); return { recovery: { id: "recovery-a", state: "COMPLETED", failedDestroyOperationId, stopOperationId: "stop-a", destroyOperationId: "destroy-a" }, operation: { ...journalReceipt(), id: "destroy-a", kind: "DESTROY", state: "SUCCEEDED" } }; }
 		async destroyRetired(input: { bindingId: string }) { calls.push(`destroyRetired:${input.bindingId}`); return journalReceipt(); }
 		async reconcile(limit?: number) { calls.push(`reconcile:${limit}`); return { processed: 0 }; }
 	},
@@ -77,7 +78,7 @@ function event(body: unknown, locals: Record<string, unknown> = admin, origin: s
 }
 const mutation = { projectId: "project-a", bindingId: "binding-a", idempotencyScope: "scope-a", idempotencyKey: "key-a" };
 
-beforeEach(() => { operation.state = "DISPATCHING"; calls.length = 0; qualified = false; failWith = null; projectExists = true; projectPurpose = "user"; bindingExists = true; operationExists = true; });
+beforeEach(() => { recoverySucceeded = false; operation.state = "DISPATCHING"; calls.length = 0; qualified = false; failWith = null; projectExists = true; projectPurpose = "user"; bindingExists = true; operationExists = true; });
 
 test("denies non-admin, cross-origin, and non-JSON requests before effects", async () => {
 	expect((await POST(event({ action: "reconcile" }, {}))).status).toBe(401);
@@ -191,3 +192,15 @@ test("cleanup recovery preserves project authorization and hides service failure
      }
    }
  });
+
+
+test("completed cleanup recovery returns saved linked IDs without private journal fields", async () => {
+ recoverySucceeded = true;
+ const response = await POST(event({ action: "recoverCleanup", projectId: "project-a", bindingId: "binding-a", failedDestroyOperationId: "failed-a" }));
+ expect(response.status).toBe(202);
+ const body = await response.json();
+ expect(body).toEqual({ recovery: { id: "recovery-a", state: "COMPLETED", failedDestroyOperationId: "failed-a", stopOperationId: "stop-a", destroyOperationId: "destroy-a" }, operation: { ...operation, id: "destroy-a", kind: "DESTROY", state: "SUCCEEDED" } });
+ expect(JSON.stringify(body)).not.toContain("PRIVATE-JOURNAL-CANARY");
+ expect(body.operation).not.toHaveProperty("reconcileOrder");
+ expect(calls).toEqual(["role:member", "recoverCleanup:binding-a:failed-a"]);
+});
