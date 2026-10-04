@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { createHash, X509Certificate } from "node:crypto";
 import { readFileSync } from "node:fs";
 import {
@@ -16,6 +16,8 @@ import { createHostIncusTransport } from "../../extensions/incus-sandbox/host-tr
 import type { IncusTransportRequest } from "../../extensions/incus-sandbox/transport";
 import { releaseRuntimeFixture } from "../__tests__/helpers/release-runtime";
 import { ReleaseProcess } from "../extensions/release-process";
+import { handleCredentialBroker } from "../extensions/credential-broker";
+import type { RpcHandlerDeps } from "../extensions/tool-executor/rpc-handlers";
 import { registerCallProvenance, releaseCallProvenance } from "../extensions/call-provenance";
 import { digestObject } from "../extensions/v4/blobs";
 import { sandboxPresetQualificationReleaseDigest } from "../extensions/v4/sandbox-preset-qualification";
@@ -119,6 +121,51 @@ test("host-owned Incus preflight reaches reserved RPC and fails closed after a b
     expect(value.transportCalls).toBe(3);
     expect(JSON.stringify(failure)).not.toContain(secret);
   } finally { value.process.kill(); }
+});
+
+test("active Incus provider cannot resolve or expose undeclared credentials through reverse RPC", async () => {
+  const value = await fixture();
+  const canary = "incus-undeclared-credential-canary";
+  let resolverCalls = 0;
+  let credentialBrokerCalls = 0;
+  const resolveCredential = async () => { resolverCalls++; return canary; };
+  const dependencies = {
+    registry: {
+      getManifest: () => value.snapshot.release.manifest,
+      getGrantedPermissions: () => value.snapshot.release.manifest.permissions,
+    },
+    engine: { authorize: async () => ({ decision: "allow" }) },
+  } as unknown as RpcHandlerDeps;
+  value.process.setRequestHandler(async request => {
+    credentialBrokerCalls++;
+    return handleCredentialBroker(dependencies, value.snapshot.installation.id, request,
+      { resolveCredential, readRawCredential: resolveCredential });
+  });
+  const output: string[] = [];
+  const capture = (chunk: unknown) => { output.push(String(chunk)); return true; };
+  const stdout = spyOn(process.stdout, "write").mockImplementation(capture);
+  const stderr = spyOn(process.stderr, "write").mockImplementation(capture);
+  try {
+    expect(value.snapshot.release.manifest.permissions).toEqual({});
+    expect(value.snapshot.installation.grants).toEqual([]);
+    for (const method of ["ezcorp/env.get", "ezcorp/credentials.read"]) {
+      value.setDispatch((context, rpc) => rpc(method, { context, input: { name: "OPENAI_API_KEY" } }));
+      const failure = await value.process.callIncusProbe(value.input, value.input.connectionId)
+        .catch((error: unknown) => error);
+      expect(failure).toMatchObject({ code: "CAPABILITY_DENIED",
+        message: "Provider invocation permits only its transport" });
+      expect(String(failure)).not.toContain(canary);
+      expect(JSON.stringify(failure)).not.toContain(canary);
+    }
+    expect(credentialBrokerCalls).toBe(0);
+    expect(resolverCalls).toBe(0);
+    expect(value.transportCalls).toBe(0);
+    expect(output.join("")).not.toContain(canary);
+  } finally {
+    stdout.mockRestore();
+    stderr.mockRestore();
+    value.process.kill();
+  }
 });
 
 test("preview endpoint commands stay closed before a scoped host relay exists", async () => {
