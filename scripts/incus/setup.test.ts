@@ -7,11 +7,11 @@ import { join } from "node:path";
 import { INCUS_PROVIDER_ID, incusManifest } from "../../extensions/incus-sandbox/manifest";
 import checkedInRecipe from "./recipe.json";
 import imageBuildTemplate from "./recipe.template.json";
-import { digest, type IncusInventory, type IncusSetupPlan, type IncusSetupRecipe } from "./model";
+import { digest, inventoryFingerprint, type IncusInventory, type IncusSetupPlan, type IncusSetupRecipe } from "./model";
 import { applyImageBootstrapPlan, applySetupPlan, classifyApplyResult, inspectStep } from "./apply";
 import { inspectIncus, sshGateRequest, verifyKnownHostPin, sshOwnedNeighborChallenge, operatorSshFromEnvironment, OWNED_NEIGHBOR_COMMAND, sshRunner } from "./inspect";
 import { createOwnedNeighborChallengeSshPolicy, ownedNeighborScope, createReadOnlySshGatePolicy, createSshGatePolicy } from "./ssh-gate-policy";
-import { createImageBootstrapPlan, createSetupPlan, validateRecipe, verifyImageBootstrapPlan, verifySetupPlan } from "./plan";
+import { createImageBootstrapPlan, createSetupPlan, setupReviewInventoryFingerprint, validateRecipe, verifyImageBootstrapPlan, verifySetupPlan } from "./plan";
 import { guestHelperSha256 } from "../../src/infrastructure/incus-guest/protocol";
 
 const pem = "-----BEGIN CERTIFICATE-----\nZmFrZQ==\n-----END CERTIFICATE-----\n";
@@ -781,6 +781,29 @@ describe("Incus setup planning", () => {
     expect(await inspectStep(deviceStep, async () => result(0, "true\n"))).toBe("match");
     expect(await inspectStep(deviceStep, async () => result(0, "false\n"))).toBe("drift");
     expect(await inspectStep(deviceStep, async () => result(0, ""))).toBe("absent");
+  });
+
+  test("setup review excludes only sampled free bytes and keeps fresh capacity and configuration checks", () => {
+    const base = inventory();
+    const sampled = { ...base, host: { ...base.host, rootFreeBytes: base.host.rootFreeBytes - 4096 } };
+    expect(inventoryFingerprint(sampled)).not.toBe(inventoryFingerprint(base));
+    expect(setupReviewInventoryFingerprint(sampled)).toBe(setupReviewInventoryFingerprint(base));
+    expect(createSetupPlan(recipe(), sampled).planDigest).toBe(createSetupPlan(recipe(), base).planDigest);
+    const full = createSetupPlan(recipe(), { ...base, host: { ...base.host, rootFreeBytes: 0 } });
+    expect(full.status).toBe("blocked");
+    expect(full.blockedReasons).toContain("insufficient_root_capacity");
+    expect(full.planDigest).not.toBe(createSetupPlan(recipe(), base).planDigest);
+    for (const changed of [
+      { ...base, host: { ...base.host, hostname: "other-host" } },
+      { ...base, server: { ...base.server, serverVersion: "9.9.9" } },
+      { ...base, server: { ...base.server, certificateFingerprint: "0".repeat(64) } },
+      { ...base, images: [{ fingerprint: "0".repeat(64), aliases: ["other"] }] },
+      { ...base, profiles: [{ name: "compose", project: "project", description: "changed", config: { "security.privileged": "true" }, devices: {} }] },
+      { ...base, storagePools: [{ name: "pool", driver: "zfs", description: "changed", config: {}, status: "Created" }] },
+    ]) {
+      expect(setupReviewInventoryFingerprint(changed)).not.toBe(setupReviewInventoryFingerprint(base));
+      expect(createSetupPlan(recipe(), changed).planDigest).not.toBe(createSetupPlan(recipe(), base).planDigest);
+    }
   });
 
   test("is deterministic for reordered equivalent inventory and changes on meaningful input", () => {

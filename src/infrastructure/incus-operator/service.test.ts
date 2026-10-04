@@ -222,6 +222,38 @@ test("operator exports only the exact current reviewed gate policy", async () =>
   } finally { await value.close(); }
 }, 30_000);
 
+test("reviewed setup export tolerates free-space sampling while rechecking capacity and authority", async () => {
+  const value = await fixture();
+  try {
+    value.bootstrapConnection.ssh.sshMode = "reviewed-envelope-v1";
+    const base = inventory();
+    const current = { ...base, connection: { ...base.connection, sshMode: "reviewed-envelope-v1" as const } };
+    value.observe(current);
+    const setup = await value.service.plan(value.snapshot.installation.id, "admin");
+    await value.service.approveGatePlan(setup.id, setup.plan.planDigest, "admin");
+    const original = await value.service.gatePolicy(setup.id);
+    value.observe({ ...current, host: { ...current.host, rootFreeBytes: current.host.rootFreeBytes - 4096 } });
+    const sampled = await value.service.gatePolicy(setup.id);
+    expect(sampled.planDigest).toBe(original.planDigest);
+    expect(sampled.commands).toEqual(original.commands);
+    for (const changed of [
+      { ...current, host: { ...current.host, rootFreeBytes: recipe.expected.minimumRootFreeBytes - 1 } },
+      { ...current, host: { ...current.host, hostname: "other-host" } },
+      { ...current, server: { ...current.server, serverVersion: "9.9.9" } },
+      { ...current, images: [{ fingerprint: "0".repeat(64), aliases: [guestImage.alias] }] },
+      { ...current, networks: [{ name: "foreign", project: "default", type: "bridge", managed: true, config: {}, description: "foreign", status: "Created" }] },
+    ]) {
+      value.observe(changed);
+      await expect(value.service.gatePolicy(setup.id)).rejects.toThrow("differs");
+    }
+    value.observe({ ...current, host: { ...current.host, rootFreeBytes: recipe.expected.minimumRootFreeBytes - 1 } });
+    const refused = await value.service.apply(setup.id, setup.plan.planDigest, "admin");
+    expect(refused.state).toBe("review_required");
+    expect(refused.failures).toContain("insufficient_root_capacity");
+    expect(value.calls).toHaveLength(0);
+  } finally { await value.close(); }
+}, 30_000);
+
 test("a newer setup plan blocks export of an older approved SSH write policy", async () => {
   const value = await fixture();
   try {

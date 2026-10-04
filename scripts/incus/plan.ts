@@ -201,6 +201,11 @@ function partialProfileMatches(existing: IncusInventory["profiles"][number], des
     Object.entries(existing.devices).every(([key, device]) => desired.devices[key] !== undefined && sameRecord(device, desired.devices[key]!));
 }
 
+/** Setup review pins configuration; live free space is checked by the capacity predicate. */
+export function setupReviewInventoryFingerprint(inventory: IncusInventory): string {
+  return inventoryFingerprint({ ...inventory, host: { ...inventory.host, rootFreeBytes: 0 } });
+}
+
 export function createSetupPlan(recipe: IncusSetupRecipe, inventory: IncusInventory, presets: readonly SandboxPreset[] =
   incusManifest.sandboxProviders?.find(provider => provider.id === INCUS_PROVIDER_ID)?.presets ?? []): IncusSetupPlan {
   validateRecipe(recipe);
@@ -279,7 +284,7 @@ export function createSetupPlan(recipe: IncusSetupRecipe, inventory: IncusInvent
     steps.push(step("provider-client", "trust", `Trust only the scoped ${recipe.providerClient.name} certificate`, ["incus", "query", `/1.0/certificates/${recipe.providerClient.certificateFingerprint}`], desiredTrust, ["incus", "config", "trust", "add-certificate", "-", "--name", recipe.providerClient.name, "--projects", recipe.project.name, "--restricted"], recipe.providerClient.certificatePem));
   }
   const recipeDigest = digest(recipe);
-  const payload = { schemaVersion: SETUP_SCHEMA_VERSION, setupId: `${recipe.id}:${recipe.version}:${inventory.server.certificateFingerprint.slice(0, 16)}`, recipeId: recipe.id, recipeVersion: recipe.version, recipeDigest, inventoryFingerprint: inventoryFingerprint(inventory),
+  const payload = { schemaVersion: SETUP_SCHEMA_VERSION, setupId: `${recipe.id}:${recipe.version}:${inventory.server.certificateFingerprint.slice(0, 16)}`, recipeId: recipe.id, recipeVersion: recipe.version, recipeDigest, inventoryFingerprint: setupReviewInventoryFingerprint(inventory),
     ...(inventory.connection.sshMode ? { sshMode: inventory.connection.sshMode } : {}), status: blocked.length ? "blocked" as const : "ready" as const, blockedReasons: [...new Set(blocked)].sort(), steps };
   return { ...payload, planDigest: digest(payload) };
 }
