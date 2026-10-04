@@ -1,7 +1,7 @@
 import { describe, expect, test, spyOn } from "bun:test";
 import * as childProcess from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, cp, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { INCUS_PROVIDER_ID, incusManifest } from "../../extensions/incus-sandbox/manifest";
@@ -347,6 +347,25 @@ test("connection metadata must match the actual known-hosts key", async () => {
     otherKey[otherKey.length - 1] = (otherKey[otherKey.length - 1] ?? 0) ^ 1;
     await writeFile(knownHosts, `host.example ssh-ed25519 ${encodedKey}\nhost.example ssh-ed25519 ${otherKey.toString("base64")}\n`);
     await expect(verifyKnownHostPin(connection)).rejects.toThrow("does not match");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("Incus manifest tests run inside the sealed extension without repository recipe access", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "incus-sealed-extension-"));
+  try {
+    const source = join(import.meta.dir, "../../extensions/incus-sandbox");
+    for (const name of await readdir(source)) {
+      if (name.endsWith(".ts") || name === "package.json") await cp(join(source, name), join(directory, name));
+    }
+    await symlink(join(import.meta.dir, "../../node_modules"), join(directory, "node_modules"), "dir");
+    const child = Bun.spawnSync([process.execPath, "test", "--timeout", "30000", "./manifest.test.ts"], {
+      cwd: directory, env: { ...process.env }, stdout: "pipe", stderr: "pipe",
+    });
+    expect(child.exitCode).toBe(0);
+    expect(child.stderr.toString()).toContain("6 pass");
+    expect(child.stderr.toString()).not.toContain("ENOENT");
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -715,6 +734,10 @@ describe("Incus setup planning", () => {
     const presets = incusManifest.sandboxProviders!.find(provider => provider.id === INCUS_PROVIDER_ID)!.presets;
     const fingerprint = "ebe5ce977a726130fd1aa90d2c853467bb6d143141ed07f74b7a06e98efd3912";
     expect(reviewed.guestImage?.fingerprint).toBe(fingerprint);
+    expect(reviewed.version).toBe("1.2.3");
+    expect(reviewed.guestImage).toMatchObject({ alias: "ezharness-guest-0-1-3", fingerprint,
+      helperSha256: "804d68bd8d83ca817c6413eb3b2365216778aa26421c81fb3e9f3810b82dcb75",
+      gitPackageVersion: "1:2.39.5-0+deb12u3" });
     expect(presets.every(preset => preset.imageDigest === fingerprint &&
       JSON.stringify(preset.helperDigests) === JSON.stringify([reviewed.guestImage!.helperSha256]))).toBe(true);
     const withClient = { ...reviewed, providerClient: { name: "engine", certificateFingerprint: "b".repeat(64),
