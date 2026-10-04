@@ -11,7 +11,7 @@ type Event = { id?: string; method: string; params: unknown };
  * static shape: every endpoint validates the exact fields it reads.
  */
 type RunnerRequestBody = ReturnType<typeof JSON.parse>;
-interface Session { execution: RunnerExecution; events: Event[]; pending: Map<string, { resolve(value: unknown): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> }>; timer: ReturnType<typeof setTimeout>; wake?: () => void; attached: boolean; lease?: ReturnType<typeof setTimeout>; leaseDeadline: number; inFlight: number }
+interface Session { execution: RunnerExecution; events: Event[]; pending: Map<string, { resolve(value: unknown): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> }>; timer: ReturnType<typeof setTimeout>; wake?: () => void; attached: boolean; startClaim?: boolean; lease?: ReturnType<typeof setTimeout>; leaseDeadline: number; inFlight: number }
 export interface RunnerServiceOptions { socketPath: string; token: string; runner: Runner; allowedUid: number; python?: string; eventPollTimeoutMs?: number; attachmentLeaseMs?: number }
 export interface RunnerService {
   close(): Promise<void>;
@@ -70,6 +70,7 @@ function releaseAttachment(session: Session): void {
   clearTimeout(session.lease);
   session.lease = undefined;
   session.attached = false;
+  session.startClaim = false;
   const wake = session.wake;
   session.wake = undefined;
   wake?.();
@@ -167,6 +168,12 @@ export async function startRunnerService(options: RunnerServiceOptions): Promise
     const timer = setTimeout(() => { void closeSession(data.workerId); }, Math.max(1, Math.min(data.limits.timeoutMs, data.context.deadline - Date.now())));
     const session: Session = { execution, pending, events, timer, attached: false, leaseDeadline: 0, inFlight: 0 };
     sessions.set(data.workerId, session);
+    // The host that starts a worker owns it (W4H-9). A host from before the attach handshake (every app release before
+    // 11b9f72b9) starts, polls and requests without ever calling /v4/attach, so start itself attaches. The attachment
+    // stays unclaimed until the starter's first /v4/attach or /v4/events: that attach is then idempotent rather than
+    // refused, and anything after it follows the single-holder rule below. A released worker still needs /v4/attach.
+    attachHost(session);
+    session.startClaim = true;
     execution.onNotification((method, params) => {
       if (events.length >= 32) { void closeSession(data.workerId); return; }
       events.push({ method, params });
@@ -195,6 +202,7 @@ export async function startRunnerService(options: RunnerServiceOptions): Promise
   async function collectEvents(request: Request, data: RunnerRequestBody): Promise<Response> {
     const session = sessions.get(identifier(data.workerId));
     if (!session?.attached || session.wake) throw new RunnerError("unknown_worker", "Worker event stream is unavailable or already attached");
+    session.startClaim = false;
     renewAttachment(session);
     if (session.events.length === 0) await parkEventStream(session, request.signal, eventPollTimeoutMs);
     // A released attachment answers nothing and keeps every queued event, so a
@@ -233,7 +241,8 @@ export async function startRunnerService(options: RunnerServiceOptions): Promise
       case "/v4/events": return collectEvents(request, data);
       case "/v4/attach": {
         const session = sessions.get(identifier(data.workerId));
-        if (!session || session.attached) throw new RunnerError("unknown_worker", "Worker is unavailable or already attached");
+        if (!session || (session.attached && !session.startClaim)) throw new RunnerError("unknown_worker", "Worker is unavailable or already attached");
+        session.startClaim = false;
         attachHost(session);
         return respond(200, { workerId: data.workerId });
       }
