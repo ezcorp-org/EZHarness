@@ -1,0 +1,89 @@
+W4H-6 verdict, validator-5 (lock-veto lane validator-2), 2026-10-04T21:36Z
+
+VERDICT: ACCEPT wp/w4h-6 at 346e8767c (tree e2627561e), base 52d8ba079.
+
+Scope: three hosted timing failures (workspace check-command budget, worker channel FIFO transport, supervisor attach), then the
+write side and settle (56c9579d7, 2f307634d), the descriptor release (8bc2089aa) and my finding M1 (346e8767c, test only).
+
+1. Carry-over (w00/ruling-proof-carry-over.txt, instance W4H-6-M1, with the lead's 18:50Z paths amendment)
+   A = 8bc2089aa, B = 346e8767c. `git diff --name-only 8bc2089aa 346e8767c`:
+     packages/@ezcorp/extension-runner/tests/channel-guest.ts
+     packages/@ezcorp/extension-runner/tests/channel-pool.test.ts
+     tasks/factory/w4h-6-GATES.md
+   This is exactly the amended ALLOWED set (3 files, +30 -2). channel-guest.ts adds GUEST_SLOW_COUNT (a 0.3 s pause before the
+   guest reads) and one doc line. No runtime file. supervisor.ts is not in the diff, so its podman lcov from A is valid at B.
+   Carried from A: my lock-free phase, my heavy supervisor suite with lcov, my container runs. Shard lists do not carry (amendment).
+
+2. Lock-free phase at A = 8bc2089aa (hold-8bc2089aa/hold.log, sha256 409414adc6392a60b800a8676f9d40d0e8dcf0aecc9455c55a0975c6a2c8a452)
+   - workspace.test.ts 15/0. Red: the group kill replaced by child.kill("SIGKILL") is red by name, "kills every process the
+     command started when the budget runs out". (The whole-file revert of workspace.ts was a load error, not counted.)
+   - r7 lever (UV_THREADPOOL_SIZE=2): the old transport is BLOCKED, the new one delivers.
+   - channel-pool 20 of 20 green. Red with the base's podman.ts, with ca20a093c's (write side), with 56c9579d7's (settle), with
+     2f307634d's (descriptor leak), with the settle removed, with finish skipping the writer, with the write sink reverted alone,
+     and with the short-write retry removed.
+   - Descriptors (/proc/self/fd): at A a reading guest holds 5 and 0 after exit; a silent guest 0 after close. At 2f307634d:
+     6, 1 after exit, silent 2. CPU while a write waits 0.014 s, after close 0.002 s (no busy loop).
+   - Invariants: the openChannelEntry body is unchanged; no EOF listener changed; fd-reuse 3 of 3; supervisor.ts changes only
+     the export of factoryToolInvocationContext; the supervisor test refuses start by name.
+   - M1 found here: the mutant `settle(callback, error)` in place of the EAGAIN branch SURVIVED (5/0). eagain-probe: Bun's write
+     gives bytesWritten 65536, then rejects with EAGAIN. Lead ruling: fix before ACCEPT. Fixed at B (section 4).
+   - Low finding (FileSink write left pending at close): closed by 2f307634d, superseded by 8bc2089aa's non-blocking writer.
+
+3. Heavy phase at A (lock 18:03Z to 18:04Z, lock_veto validator-2 first)
+   - supervisor.podman.integration 2/0 with lcov.
+   - Red pin: the base's supervisor and test with only the start guard added is red by name, "the fresh supervisor started a
+     second worker instead of attaching" (1 pass, 1 fail; log sha256 be59739fa4e2cad4c6f31a2db415508e470810fa061013a419872ba813ac76cb).
+   - New-file PASSED; patch PASSED (3 files).
+
+4. Reruns at B = 346e8767c (hold-346e8767c/hold.log, sha256 1c91b7eb710e30103966547d9c51fce4b1de0002d96a2847940dd4bd2f6eb1b4)
+   - M1 red: my EAGAIN mutant is red by the new test's name, "a frame larger than a pipe waits out a guest that is slow to read,
+     then arrives in full" (5 pass, 1 fail; log sha256 6da7f099057238bfa2aa016696009e0680ffb925e3e8696d00088fb28f485b40).
+     The short-write mutant is red too.
+   - M1 green: the file 6/0, 20 of 20 runs judged by counts (hold-346e8767c-loop/hold.log, sha256
+     18e2620025add2361e70b889919afececab220a105c53a54a3d273bf63e4a6c8).
+   - typecheck 0, lint 0, both boundary checks 0.
+   - gate-integrity base leg PASSED; origin/main leg: findings set equal to w00/expected-integ-findings-vs-main.txt (the 8).
+   - Guard set 468 pass, 0 fail, 36 files.
+   - Hook-mapped suites with lcov: 8 of 8 green, at most 1 mapped file per commit (no hook-cap ruling needed).
+   - New-file PASSED (no new source files). Patch PASSED (3 files), with supervisor-podman lcov carried from A (sha256 03c0c05acd5eab04...).
+     Merged lcov sha256 26300907a6bcc6282804b3ccb366ac56293c2af1f28d82ebb5db163e52b9038e. CRAP 0. gitleaks 0.
+   - Identity: 11 of 11 commits over 52d8ba079 archy <281643943+EZArchy@users.noreply.github.com> as author and committer.
+   - Tree review: 9 files; 1 flag, "weakening-pattern" on tasks/factory/w4h-6-GATES.md (a gates document that names patterns; read, no code).
+
+5. Container runs, ruling (2): runner-shaped container (localhost/w4h-6-runner:24.04, systemd, --privileged, 4 CPUs, 16 GiB), the
+   owner's job-setup steps, each file alone (bun test --timeout 30000), under gated-flock, load < 10 (ctr/hold.log, sha256 below).
+     file                                   base 52d8ba079 (tree 47f9186cf)          head 8bc2089aa (tree 4ff19b319)
+     reference-code/workspace.test.ts       12/1 "kills a command that outruns its   15/0
+                                            budget and says so" (30 s timeout)
+     auto-note/e2e-server-pipeline.test.ts  6/1 "concurrent captures complete        7/0
+                                            without cross-wiring results"
+     runner/supervisor.podman.integration   1/1 "a fresh factory supervisor attaches 2/0
+                                            ... surviving real Podman worker"
+   Base: red by name, the hosted failure reproduced. Head: green. These carry to B (test-only diff).
+
+6. Owner's hosted shard lists 0, 2 and 7 (G6 of record), ruling (3) as amended
+   - Refused once: out-green-head-lists/ ran at 8a4cf8b04 (tree a3a644888), not at the head under review.
+   - Accepted: out-g6-346e8767c/, container tree e2627561e = 346e8767c^{tree} (checked with git), started 20:51:31Z at load 4.59,
+     exit file 0.
+       list_0.log 9f452afd74f60696ae4f84b4262b3fcb767645a625da3e44d08a4651cafad36f  2524 pass, 0 fail, 165 files
+       list_2.log 3668bd622caba3b83f3effe15766e63dd091895d3774c73e0252b85e92be25fb  2300 pass, 0 fail, 167 files
+       list_7.log b721f70d26586dd1d1b07ab3f31a8c5fdcfb3884d4cf51d35eef8fe537335c72  2220 pass, 3 fail, 167 files
+   - list 7's 3 failures are two files, both container-shape gaps, the same at base, not a W4H-6 defect (lead ruling; the fix goes
+     to W4H-4's lane manifest): src/__tests__/biome-ignores-worktrees.test.ts (exit 127: no node in the container) and
+     src/factory/runner/applied-controls.integration.test.ts (the pinned python image is not in the container).
+     The workspace file in list 7 is green.
+
+7. Standing items
+   - Prune scan at B: "prune scan: clean (0 hit(s))", w00/prune-scan.sh sha256 efffa0178530c74ab56cb06969a958e86d04fed6307aade907197f21c38d8b02.
+   - Config check: exit 0 at every start and end at B and in the container runs, and at 21:35Z (888c78b9e94ea660 = accepted baseline).
+     At A's lock-free start and end: exit 1, branch/remote sections only (recorded, not a stop).
+   - Pinned Bun 1.4.2 (bun and bunx) from .bun-version in every snapshot.
+
+8. Disclosures (my own faults, all reported to the lead)
+   - My first container try waited 17 min inside the lock on its own gate (disk 99 GB). Stopped; lib.sh gate now takes GATE_TRIES=1
+     inside the lock.
+   - My first 20-run check at B read 0 of 20: it looked for "(pass)" lines, which Bun 1.4.2 does not print off a terminal. Rerun by
+     counts: 20 of 20.
+   - One 2-second diagnostic run of the channel-pool file started while the disk read 99 GB, under a red gate.
+
+Evidence dir: /tmp/factory-platform-evidence/w4g-validation/v5-w4h6/ (ctr/hold.log sha256 bd3cf2cdc1ba3d7589dc8f47d0b7fd2f38e4923d67a4ed460ab0a3156bb854b2)

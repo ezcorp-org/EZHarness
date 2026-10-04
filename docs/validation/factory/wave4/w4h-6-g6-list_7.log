@@ -1,0 +1,121 @@
+nproc=4 bun=1.4.2 start=2026-10-04T20:56:15Z
+== host-shard mode (HOST_FILES_OVERRIDE, dev-only): 167 files ==
+
+--- pooled coverage failure: src/__tests__/biome-ignores-worktrees.test.ts (exit 1) ---
+bun test v1.4.2 (744846f84)
+
+src/__tests__/biome-ignores-worktrees.test.ts:
+73 |     // The exact symptom of the bug.
+74 |     expect(output).not.toContain("No files were processed");
+75 |     // `Checked 0 files` is the same failure stated positively.
+76 |     expect(output).not.toMatch(/Checked 0 files/);
+77 |     // And the clean-tree case must actually succeed.
+78 |     expect(exitCode).toBe(0);
+                          ^
+error: expect(received).toBe(expected)
+
+Expected: 0
+Received: 127
+
+      at <anonymous> (/home/runner/work/EZHarness/EZHarness/src/__tests__/biome-ignores-worktrees.test.ts:78:22)
+(fail) biome config vs agent worktrees > lint processes files when run from a .claude/worktrees/ checkout [7.85ms]
+(pass) biome config vs agent worktrees > the repo's own .claude/ directory is still ignored [0.14ms]
+108 | 
+109 |     const viaLintScript = run(["bun", "run", "lint"]);
+110 |     const viaWholeTree = run([join(REPO_ROOT, "node_modules", ".bin", "biome"), "check", "."]);
+111 | 
+112 |     expect(viaLintScript).not.toBeNull();
+113 |     expect(viaWholeTree).not.toBeNull();
+                                   ^
+error: expect(received).not.toBeNull()
+
+Received: null
+
+      at <anonymous> (/home/runner/work/EZHarness/EZHarness/src/__tests__/biome-ignores-worktrees.test.ts:113:30)
+(fail) biome config vs agent worktrees > the lint script's explicit paths reach every file `biome check .` would [8914.33ms]
+(pass) biome config vs agent worktrees > no ignore glob can match a path component of an agent worktree [6.59ms]
+
+ 2 pass
+ 2 fail
+ 8 expect() calls
+Ran 4 tests across 1 file. [9.59s]
+
+--- pooled coverage failure: src/factory/runner/applied-controls.integration.test.ts (exit 1) ---
+bun test v1.4.2 (744846f84)
+
+src/factory/runner/applied-controls.integration.test.ts:
+93 |       if (stderr) errors += chunk.toString(); else output += chunk.toString();
+94 |     };
+95 |     child.stdout.on("data", chunk => collect(chunk, false));
+96 |     child.stderr.on("data", chunk => collect(chunk, true));
+97 |     child.on("error", error => { clearTimeout(timer); reject(error); });
+98 |     child.on("close", code => { clearTimeout(timer); if (code === 0) resolve(output); else reject(new RunnerError("command_failed", (errors.trim() || output.trim()).slice(0, 8192) || `Runner control exited ${code}`)); });
+                                                                                                       ^
+RunnerError: Error: docker.io/library/python@sha256:3121f8b0804aa3698ab750d9a39ea4a42657a385c9b133722b915e55c51551a6: image not known
+     stage: "runner",
+ retryable: false,
+      code: "command_failed"
+
+      at <anonymous> (/home/runner/work/EZHarness/EZHarness/packages/@ezcorp/extension-runner/src/core.ts:98:99)
+      at emit (node:events:103:22)
+      at #maybeClose (node:child_process:827:16)
+      at #handleOnExit (node:child_process:570:72)
+(fail) (unnamed) [7194.13ms]
+
+ 0 pass
+ 1 fail
+ 1 expect() calls
+Ran 1 test across 1 file. [7.92s]
+merged 996 source files → coverage-shard/lcov_shard_7.info
+pre-merged 167 per-file lcov(s) → coverage-shard/lcov_shard_7.info
+emitted per-file timings → coverage-shard/timings-shard-7.json
+
+  2220 pass | 3 fail | 167 files (shard 7/12)
+
+Retry sweep: 2 failed pass/fail-set (P) file(s) — re-running each once, serial + isolated + PLAIN (no --coverage):
+  - src/__tests__/biome-ignores-worktrees.test.ts: STILL FAILING after isolated re-run (exit 1)
+      (pass) biome config vs agent worktrees > the repo's own .claude/ directory is still ignored [0.11ms]
+      108 | 
+      109 |     const viaLintScript = run(["bun", "run", "lint"]);
+      110 |     const viaWholeTree = run([join(REPO_ROOT, "node_modules", ".bin", "biome"), "check", "."]);
+      111 | 
+      112 |     expect(viaLintScript).not.toBeNull();
+      113 |     expect(viaWholeTree).not.toBeNull();
+                                         ^
+      error: expect(received).not.toBeNull()
+      
+      Received: null
+      
+            at <anonymous> (/home/runner/work/EZHarness/EZHarness/src/__tests__/biome-ignores-worktrees.test.ts:113:30)
+      (fail) biome config vs agent worktrees > the lint script's explicit paths reach every file `biome check .` would [4376.08ms]
+      (pass) biome config vs agent worktrees > no ignore glob can match a path component of an agent worktree [3.21ms]
+      
+       2 pass
+       2 fail
+       8 expect() calls
+      Ran 4 tests across 1 file. [4.79s]
+  - src/factory/runner/applied-controls.integration.test.ts: STILL FAILING after isolated re-run (exit 1)
+      95 |     child.stdout.on("data", chunk => collect(chunk, false));
+      96 |     child.stderr.on("data", chunk => collect(chunk, true));
+      97 |     child.on("error", error => { clearTimeout(timer); reject(error); });
+      98 |     child.on("close", code => { clearTimeout(timer); if (code === 0) resolve(output); else reject(new RunnerError("command_failed", (errors.trim() || output.trim()).slice(0, 8192) || `Runner control exited ${code}`)); });
+                                                                                                             ^
+      RunnerError: Error: docker.io/library/python@sha256:3121f8b0804aa3698ab750d9a39ea4a42657a385c9b133722b915e55c51551a6: image not known
+           stage: "runner",
+       retryable: false,
+            code: "command_failed"
+      
+            at <anonymous> (/home/runner/work/EZHarness/EZHarness/packages/@ezcorp/extension-runner/src/core.ts:98:99)
+            at emit (node:events:103:22)
+            at #maybeClose (node:child_process:827:16)
+            at #handleOnExit (node:child_process:570:72)
+      (fail) (unnamed) [5447.92ms]
+      
+       0 pass
+       1 fail
+       1 expect() calls
+      Ran 1 test across 1 file. [5.85s]
+
+Shard FAILED: 2 pass/fail-set (P) file(s) failed the pooled run AND the isolated plain re-run:
+  - src/__tests__/biome-ignores-worktrees.test.ts
+  - src/factory/runner/applied-controls.integration.test.ts
