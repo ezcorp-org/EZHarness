@@ -2279,7 +2279,11 @@ Review: 49 backend middleware tests, 203 Vitest route tests, 52 schema tests and
 - [x] Audit v6 global accounting from a fresh stopped database copy: all eight operations succeeded; both bindings are absent; all reservations are released; no pending operations remain.
 - [x] Install corrected source `9bc0cd5f9143139866ef567fc4dba70332862bb3` and dispatch v7 once. CPU preparation passed; automatic restart continuation failed at the saved fixture receipt check.
 - [x] Reproduce and fix the restart receipt mismatch through an actual database dump, close, and reopen. Preserve legacy digests and fixture IDs; pass 67 focused tests, types, lint, and independent review.
-- [ ] Finish v7 global accounting from the next stopped baseline. Both product DESTROY operations succeeded and independent inventory is empty; retain the original failed run.
+- [x] Finish v7 global accounting from the next stopped baseline: both bindings absent, all reservations released, no global pending operations. Retain the original failed run.
+- [x] Install source `973609aa1917348d6108e80d3d9a72419d004bfe`; dispatch v8 once and retain its final recovery-probe failure after successful preparation and engine restart.
+- [x] Audit v8 from a stopped database copy: all three guests absent, all reservations released, no global pending operations.
+- [x] Reproduce and correct the supervisor's primary/recovery guest identity mismatch. Pass the real restart/socket/signature test and both fault-authority suites; preserve independent backend ownership checks.
+- [ ] Correct and test the lost-destroy probe's returned-UNKNOWN contract and error handling. Reproduce the complete native receipt path before another live attempt; the exact historical v8 cause is still unknown.
 - [ ] Pass all eight qualification cases on the corrected installed candidate.
 - [ ] Prove normal UI/native work, logs, cancellation, and retained work across engine restart.
 - [ ] Complete ten serial normal feature cycles and the final reservation/inventory audit.
