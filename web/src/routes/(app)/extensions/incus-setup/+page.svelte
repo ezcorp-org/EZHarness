@@ -34,7 +34,7 @@
       probeResult = action === "probe" ? result.result : null;
       acknowledged = false;
       if (action === "plan") message = setup.plan.status === "ready" ? "Review every server change before you apply it." : "The plan is blocked. Resolve the reasons below, then make a new plan.";
-      if (action === "apply") message = setup.state === "verified" ? "Server setup verified. Run the provider probe next." : "The server needs review. Check the receipt before you retry.";
+      if (action === "apply") message = setup.state === "verified" ? "Server setup verified. Review capacity and run live qualification before the provider probe." : "The server needs review. Check the receipt before you retry.";
       if (action === "probe") message = "Provider probe finished. Read its result before using this connection.";
     } catch (cause) {
       message = cause instanceof Error ? cause.message : "Setup request failed";
@@ -79,7 +79,7 @@
   <p><a class="manage-link" href="/extensions/incus-management">Manage qualified environments and project sandboxes →</a></p>
 
   <div class="steps" aria-label="Setup stages">
-    <span class="active">01 Inspect</span><span>02 Review</span><span>03 Apply</span><span>04 Probe</span>
+    <span class="active">01 Inspect</span><span>02 Review</span><span>03 Apply</span><span>04 Qualify</span>
   </div>
 
   <section class="panel">
@@ -126,7 +126,8 @@
       </section>
     {/if}
     {#if setup.state === "verified" && installations.find(item => item.id === selected)?.inactive !== true}
-      <section class="panel"><div class="panel-heading"><span class="number">04</span><div><h2>Probe the provider</h2><p>Check the approved release through its pinned mTLS connection.</p></div></div>
+      <section class="panel"><div class="panel-heading"><span class="number">04</span><div><h2>Qualify, then probe</h2><p>Review capacity and run live qualification in environment management. After qualification passes, return here to check the provider through its pinned mTLS connection.</p></div></div>
+        <p><a class="qualification-link" href="/extensions/incus-management">Review capacity and live qualification</a></p>
         <button class="primary" disabled={busy} onclick={() => void request("probe")}>Run read-only probe</button>
         {#if probeResult !== null}<pre class="probe">{JSON.stringify(probeResult, null, 2)}</pre>{/if}
       </section>
@@ -140,6 +141,7 @@
   .manage-link{display:inline-block;margin:-12px 0 24px;color:var(--color-accent,#82b5ff);font-size:13px;text-decoration:none}.manage-link:hover{text-decoration:underline}
   h1{font-size:clamp(28px,4vw,42px);line-height:1.1;letter-spacing:-.03em;margin:12px 0}
   .intro{max-width:690px;color:var(--color-text-muted);line-height:1.55;margin-bottom:28px}
+  .qualification-link{display:inline-block;margin:0 0 16px;color:var(--color-accent,#82b5ff)}
   .steps{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:24px}.steps span{padding:7px 11px;border:1px solid var(--color-border);border-radius:6px;font-size:12px;color:var(--color-text-muted)}.steps .active{color:var(--color-text-primary);border-color:var(--color-accent,#82b5ff)}
   .panel{background:var(--color-surface,#171b23);border:1px solid var(--color-border);border-radius:12px;padding:24px;margin:16px 0;box-shadow:0 10px 32px rgba(0,0,0,.08)}
   .panel-heading{display:flex;gap:16px;align-items:flex-start;margin-bottom:20px}.number{font:700 12px ui-monospace,monospace;color:var(--color-accent,#82b5ff);border:1px solid var(--color-border);padding:6px;border-radius:5px}.panel h2{font-size:18px;margin:0 0 4px}.panel p{margin:0;color:var(--color-text-muted);font-size:13px}

@@ -49,7 +49,12 @@ test("an admin reviews a saved Incus plan before SSH apply and probes only after
   await page.getByRole("checkbox", { name: /I reviewed this exact plan/ }).check();
   await apply.click();
   await expect(page.getByRole("heading", { name: "Server result" })).toBeVisible();
-  await expect(page.getByText("Server setup verified. Run the provider probe next.")).toBeVisible();
+  await expect(page.getByText("Server setup verified. Review capacity and run live qualification before the provider probe.")).toBeVisible();
+  const qualificationLink = page.getByRole("link", { name: "Review capacity and live qualification", exact: true });
+  await expect(qualificationLink).toBeVisible();
+  await expect(qualificationLink).toHaveAttribute("href", "/extensions/incus-management");
+  expect(actions).toEqual(["plan", "apply"]);
+  await captureEvidence(page, testInfo, "incus-operator-qualification-next", { fullPage: true });
   await page.getByRole("button", { name: "Run read-only probe" }).click();
   await expect(page.locator("pre.probe")).toContainText('"ok": true');
   const contrast = await page.evaluate(() => {
