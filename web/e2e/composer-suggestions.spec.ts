@@ -124,6 +124,42 @@ async function openSuggestionSubTool(
 }
 
 test.describe("Composer suggestions", () => {
+	test("@evidence file mention keeps immediate typing in order across delayed frames", async ({ page, mockApi }, testInfo) => {
+		const textarea = await setupAndFocus(page, mockApi, {});
+		await page.route("**/api/mentions/search**", (route) => route.fulfill({
+			json: [{ name: "src/app.ts", description: "/tmp/proj/src/app.ts", kind: "file" }],
+		}));
+		await textarea.fill("@app");
+		await expect(page.locator("#mention-listbox").getByText("src/app.ts", { exact: true })).toBeVisible();
+		await page.evaluate(() => {
+			const requestFrame = window.requestAnimationFrame.bind(window);
+			const callbacks: FrameRequestCallback[] = [];
+			window.requestAnimationFrame = (callback) => {
+				callbacks.push(callback);
+				return callbacks.length;
+			};
+			(window as unknown as { restoreComposerFrames: () => void }).restoreComposerFrames = () => {
+				window.requestAnimationFrame = requestFrame;
+				for (const callback of callbacks) callback(performance.now());
+			};
+		});
+		await textarea.press("Enter");
+		await textarea.pressSequentially("r");
+		await page.evaluate(() => {
+			const frameControl = window as unknown as { restoreComposerFrames?: () => void };
+			frameControl.restoreComposerFrames?.();
+			delete frameControl.restoreComposerFrames;
+		});
+		await textarea.pressSequentially("eview this");
+		await expect(textarea).toHaveValue(/^@app\.ts\s+review this$/);
+		const sent = page.waitForRequest((request) =>
+			request.method() === "POST" && request.url().includes(`/api/conversations/${conv.id}/messages`),
+		);
+		await captureEvidence(page, testInfo, "file-mention-immediate-typing");
+		await page.getByRole("button", { name: "Send message" }).click();
+		expect((await sent).postDataJSON()).toMatchObject({ content: "@[file:src/app.ts] review this" });
+	});
+
 	test("typing pause pops ranked tool chips + enhancement @evidence", async ({ page, mockApi }, testInfo) => {
 		const textarea = await setupAndFocus(page, mockApi, {
 			tools: SUGGEST_TOOLS,
