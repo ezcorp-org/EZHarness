@@ -1,0 +1,71 @@
+W4H-8 verdict, validator-5 (lock-veto lane validator-2), 2026-10-04T23:20Z
+
+VERDICT: ACCEPT wp/w4h-8 at d40da7a8b, base integ/w00 87e1e197c.
+Scope: (b) delivery lease renewal fenced like settle, heartbeat at lease/3 (c18a31f27, a64f80cdb, baa11afc3); (c) one failed drain
+logged once (fb7fc8cf4); gates doc (36bc7afb8); test-only fix of my F1 and F2 (d40da7a8b). No transport code.
+
+1. Carry-over (w00/ruling-proof-carry-over.txt, instance W4H-8-F, with the 22:40Z paths amendment)
+   A = 36bc7afb8, B = d40da7a8b. `git diff --name-only 36bc7afb8 d40da7a8b`:
+     src/delivery-queue/durable-delivery-queue.test.ts
+     src/extensions/__tests__/delivery-runtime.test.ts
+     tasks/factory/w4h-8-GATES.md
+   Exactly the ALLOWED set (3 files, +76 -0). No runtime file. My heavy phase at A carries to B. I reran the whole lock-free phase at B.
+
+2. Rebase and new commits (item a)
+   Patch-ids equal: e357a5775 = c18a31f27, 24ac54d19 = fb7fc8cf4, 6e82ac56f = a64f80cdb. a64f80cdb (renew on the three queues) is
+   equal to the old 6e82ac56f by patch-id, and validated in full here as part of the head. New since the owner's first report:
+   baa11afc3 (lease/3 tests), 36bc7afb8 (docs), d40da7a8b (F1/F2 tests); validated in full, not by carry-over.
+
+3. Lock-free phase at B = d40da7a8b (hold-d40da7a8b/hold.log, sha256 a2bdf3816394ec0385ed1688da7283239a8642967b147b125c9dea6651b14bf4)
+   - Unit set 70/0 (durable-delivery-queue, deliveries, delivery-runtime, outbox, releases.integration).
+   - Base red by name: base deliveries.ts under the head tests, 8 pass / 4 fail, among them "a handler that runs past its claim lease,
+     still inside its own bound, keeps the lease and settles delivered" and "by default a dispatch renews its 60 s lease every 20 s
+     while the handler runs". Base delivery-runtime.ts: 14 / 2, "one failing drain is logged once, however many timer ticks find it in
+     flight" and the F2 case. (Reverting both queue files is a load error; not counted.)
+   - Mutants, each red by a named test (item b): renew without the token fence; owned() ignoring expiry (settle and renew share it);
+     heartbeat at the full lease; at half the lease; heartbeat that never stops; renew after a lost lease; overlapping renewals; no
+     stop before settle; extension heartbeat unwired; outbox renew without the scope check; drain failure logged per tick; and the
+     two former survivors:
+       F1 `await inFlight;` removed before settle: red, "a renewal still pending when the handler returns finishes before the settle starts" (69/1)
+       F2 `if (ticking) return;`: red, "ticks never re-attach to a drain another caller started: its failure reaches that caller, not the tick log" (69/1)
+     Probe: extension renew with a 1 ms lease also fails the suite.
+   - At A (36bc7afb8) F1 and F2 survived 68/0 (hold-36bc7afb8/hold.log, sha256 18df54370bb9521ac26f156d12e2bbeb33847ab32b59bf57f74bb9ec2ca942bb).
+   - typecheck 0, lint 0, both boundary checks 0. Gate-integrity base leg PASSED; origin/main findings set equal to the 8.
+   - Guard set 477 pass, 2 skip, 0 fail, 39 files. No guard file is in the diff; the 2 skips are conditional skips in base files
+     (mcp-seccomp-profile, podman-compose-wrapper).
+   - Hook-mapped suites with lcov: 10 of 10 green; at most 3 mapped files per commit (no hook-cap ruling). Changed helper
+     factory-release-suite.ts: its PGlite importer releases.integration 24/0, with lcov.
+   - New-file PASSED, patch PASSED vs 87e1e197c, CRAP 0, gitleaks 0. Merged lcov sha256 fd4a0f846ab155fe2a96be2447f1a8a8c74ac32a45769bc51220de3c7d9989ca.
+   - Identity: 6 of 6 commits over 87e1e197c archy <281643943+EZArchy@users.noreply.github.com> as author and committer.
+
+4. Heavy phase at A, carried (gated-flock, lock_veto validator-2 first, load < 10; heavy/hold.log sha256
+   433706e49494d77d40c4056100f13962a2c94409b2a85411c2474f53eafd9e7e)
+   - The two real-auth specs alone, e2e/real-auth/extension-browser-cancel.spec.ts and ez-factory-job-run.spec.ts, browser build
+     first, taskset 0-3 (lock 22:38Z to 22:54Z):
+       base 87e1e197c: 2 passed, delivery_lease_lost 0 (log sha256 8ff7baa20aef770dab9247a4392db1f264a598e0bddbdf339ecfd94fe7d13f9f)
+       head 36bc7afb8: 2 passed, delivery_lease_lost 0 (log sha256 677050376122b37dd5f22fc8763ab059b827b0af78a5ecf071b438846303fb09)
+   - Item (c), as measured: the specs are NOT red at this package's base. The spec-level red (hosted 63 lines; the owner's 65 and 46
+     at 52d8ba079) predates W4H-6, and W4H-6's merged transport fix cures it. W4H-8's own red/green is the unit level above. F3
+     (below) records this.
+   - PostgreSQL consumers at A with lcov (tests/postgres factory-attempt-queue, -inbox, -records, -releases): 45/0 (log sha256
+     f4bb981a7f342998a78b1d9f8208534253a926f2f746bded220d967c111fc15c). Merged with the lock-free lcov: new-file and patch PASSED.
+     The first try failed in 0.2 s with bun_sql_pipelining_guard (my harness lacked the CI's pipelining flag); the heavy exit file
+     of that first run is 1 for this reason; the rerun's exit file is 0.
+
+5. Duplicate transport (item e): b455014f4 is contained only by proof/w4h-8-dup-transport; it is not an ancestor of the head, and
+   `git diff --name-only 87e1e197c d40da7a8b -- packages/@ezcorp/extension-runner` is empty, so the head's transport code is integ's
+   (W4H-6's). Per the lead's ruling it is a second copy of W4H-6's fix: no open defect, no leftover item.
+
+6. Findings
+   - F1, F2: closed at d40da7a8b (section 3).
+   - F3 (low, docs, open): the gates doc's G4 says "red at base", but that red ran at 52d8ba079, before W4H-6. At 87e1e197c both
+     specs pass with 0 lease lines. The doc should name 52d8ba079 and W4H-6 as the spec-level fix. Disclosed; not a code defect.
+   - Observation, not a finding (lead ruling): FactoryCommandOutbox.renew and FactoryReleases.renewNotification have no production
+     caller; the heartbeat is wired for extension deliveries only. The gates doc at d40da7a8b states this.
+
+7. Standing items
+   - Prune scan at B: "prune scan: clean (0 hit(s))", w00/prune-scan.sh sha256 efffa0178530c74ab56cb06969a958e86d04fed6307aade907197f21c38d8b02.
+   - Config check: exit 0 at every start and end, lock-free and in both locks (888c78b9e94ea660 = accepted baseline).
+   - Pinned Bun 1.4.2 (bun and bunx). Snapshots removed after use.
+
+Evidence dir: /tmp/factory-platform-evidence/w4g-validation/v5-w4h8/

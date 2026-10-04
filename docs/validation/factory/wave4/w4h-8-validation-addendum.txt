@@ -1,0 +1,22 @@
+W4H-8 verdict addendum, validator-5, 2026-10-04: docs-only head 2aec44d68 (F3) over the validated head d40da7a8b
+
+VERDICT: ACCEPT wp/w4h-8 at 2aec44d68. Everything in the base verdict carries (instance W4H-8-F: tasks/factory/w4h-8-GATES.md "any";
+the tree-reading legs ran at d40da7a8b, and 2aec44d68 changes no file they read; the heavy phase at 36bc7afb8 carries).
+Base verdict: verdict-validator-5-w4h8.txt, sha256 a67967674b059d7869e26c4c95771e02ec8a3171586868fce0e7f3601b2fcc55.
+
+1. `git diff --name-only d40da7a8b 2aec44d68`:
+     tasks/factory/w4h-8-GATES.md   (+9 -5)
+   `git diff --name-only 36bc7afb8 2aec44d68` (instance A to this head):
+     src/delivery-queue/durable-delivery-queue.test.ts
+     src/extensions/__tests__/delivery-runtime.test.ts
+     tasks/factory/w4h-8-GATES.md
+   Exactly the ALLOWED set. No runtime file.
+2. F3 closed. The new G4 states, as the lead ruled: the spec-level red ran at 52d8ba079, before W4H-6 (65 and 46 lines); the
+   spec-level fix is W4H-6's; at 87e1e197c both specs pass at base and head with 0 lines (my measurement, section 4 of the base
+   verdict); "the specs are not W4H-8's red/green"; W4H-8's own red/green is unit level (base deliveries.ts red by name, 4 fails;
+   the log-once red; 13 red mutants, which is the count in my set). Checked against my logs: matches.
+3. Identity: 2aec44d68 archy <281643943+EZArchy@users.noreply.github.com> as author and committer. Config check exit 0
+   (888c78b9e94ea660 = accepted baseline).
+4. Disclosure (my fault): my first PostgreSQL consumer run failed in 0.2 s with bun_sql_pipelining_guard, because my lib.sh lacked
+   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING=1, which CI sets for the PostgreSQL jobs. lib.sh exports it now; the rerun under the
+   lock was 45/0 with lcov, and new-file and patch passed with it (base verdict section 4).

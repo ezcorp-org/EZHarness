@@ -1,0 +1,32 @@
+Checked 10 files in 30ms. No fixes applied.
+── Tests (staged) ─────────────────────────────────
+  bun: src/delivery-queue/durable-delivery-queue.test.ts
+bun test v1.4.2 (744846f84)
+
+ 11 pass
+ 0 fail
+ 33 expect() calls
+Ran 11 tests across 1 file. [521.00ms]
+  bun: src/extensions/__tests__/delivery-runtime.test.ts
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-04T23:18:47.350Z","level":"warn","msg":"call-provenance resolve miss — token unknown or already released","subsystem":"ext.call-provenance","liveEntries":0}
+
+ 16 pass
+ 0 fail
+ 58 expect() calls
+Ran 16 tests across 1 file. [925.00ms]
+  bun: src/extensions/v4/deliveries.test.ts
+bun test v1.4.2 (744846f84)
+
+ 12 pass
+ 0 fail
+ 44 expect() calls
+Ran 12 tests across 1 file. [6.74s]
+  bun: src/factory/outbox.test.ts
+bun test v1.4.2 (744846f84)
+
+ 7 pass
+ 0 fail
+ 49 expect() calls
+Ran 7 tests across 1 file. [1.62s]
+[detached HEAD 5b8d5556f] merge: wp/w4h-8 2aec44d68 into integ/w00 (a delivery lease renews while its handler runs)
