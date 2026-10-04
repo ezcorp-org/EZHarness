@@ -649,3 +649,25 @@ The setup guidance defect was reproduced in the browser and corrected in
 `f5e5c8ac8` (worker `c120315a5`): the page now directs capacity, qualification,
 then probe. Four operator-setup browser tests, type checks, lint, and hooks
 passed. This change is local; the installed app still uses source `74cedcf397`.
+
+The first lifecycle correction is integrated as `08dba2940`, with shared
+controller settlement in `2edd93c5f` and its typing correction in `552c947f2`.
+It saves native operation IDs before waiting, waits for intent PATCH completion
+before dispatching power, and saves captured terminal results before returning
+through the worker. The shared controller transaction checks the exact current
+binding, journal, generation, payload, and native ID. It does not release a
+reservation on native failure.
+
+An independent review passed. On the combined branch, Bun 1.3.14 passed 20
+controller tests (112 assertions), 36 lifecycle tests (411 assertions), and
+13 dispatcher tests (61 assertions). The lifecycle tests include actual child
+worker termination at both the accepted-ID and terminal-failure checkpoints.
+The new optional terminal receipt requires host contract 4.1; frozen 4.0
+schema equivalence and legacy cleanup remain tested. The unbuilt provider
+source is version 0.1.4, with the same image and helper. It is not activated.
+
+Release remains blocked on long-operation observation as well as cleanup.
+The normal reconciler's 30-second interval can miss Incus's five-second
+terminal receipt window after the first bounded call ends. Host-owned bounded
+observation is being added. Intent PATCH success must never be reported as
+power success. Unknown effects remain preserved; no blind retry is allowed.

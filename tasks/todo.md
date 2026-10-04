@@ -2485,8 +2485,11 @@ receipts in the continuation evidence document as each milestone completes.
 - [x] Reproduce async PATCH allowing power dispatch before PATCH completion.
 - [x] Correct setup UI guidance, with an E2E failure first and four passing
   browser cases afterward; integrated as `f5e5c8ac8`.
-- [ ] Fix native lifecycle barriers and preserve terminal observations durably.
+- [x] Fix native lifecycle barriers and preserve captured terminal observations durably.
   Keep frozen 4.0 schemas compatible; new producer declares host-contract 4.1.
+- [ ] Keep host-owned observation active for long operations after the initial
+  bounded worker call. The normal 30-second reconciliation interval exceeds
+  Incus's short terminal-result retention; reducing a timer alone is insufficient.
 - [ ] Add signed, fenced cleanup recovery for an owned unknown power operation.
   Preserve original uncertainty; admit only one linked normal-broker DESTROY.
 - [ ] Independently review and verify both fixes before host/provider deployment.
@@ -2517,3 +2520,29 @@ The negative admission cases now reject forged scope, signature, expiry,
 future observations, a present native operation, active operations, changing
 generation, and a running guest. Drain stays blocked until cleanup and normal
 reservation release both finish. Independent review remains in progress.
+
+Controller checkpoint milestone: integrated `2edd93c5f` from `d3d0f8e4a`.
+The root branch's explicit controller test file passed with Bun 1.3.14:
+20 tests, 112 assertions, zero failures. Shared settlement checks the exact
+binding, current operation, generation, payload hash, and accepted native ID.
+The first test invocation matched no files; it is not test evidence. The
+successful explicit-path run is `.cache/incus-controller-terminal-review-green.log`.
+Type checks and the composed provider tests are still required.
+
+Lifecycle milestone: integrated `08dba2940` from `dbfd8ae18`; controller typing
+follow-up is `552c947f2`. Independent review passed. The combined root branch
+passed 36 lifecycle tests (411 assertions) and 13 dispatcher tests (61 assertions),
+both with Bun 1.3.14. The worker's full type check passed. These tests include
+actual child-worker loss after receipt acceptance and after failure capture.
+This is not release readiness: long-operation observation and signed cleanup
+remain open, and no new provider release has been activated.
+
+The broad milestone fast gate failed honestly. Its backend pool reported
+27,437 passing tests and two old assertions that minor 1 was unsupported.
+Those assertions were reproduced, corrected to reject minor 2, and supplemented
+with supported-minor checks in `51f4d4b3d`: 15 tests, 74 assertions, zero failures.
+Stale ignored SDK build output caused the type, Svelte, Vitest, and build
+failures. After the standard SDK rebuild, full typecheck and all 7,724 Vitest
+tests passed. Svelte check passed with zero errors or warnings, and the web
+production build passed. Do not report the
+original fast run as green or reuse it as the final push gate.
