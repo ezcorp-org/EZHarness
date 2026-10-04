@@ -173,7 +173,39 @@ compiled digests. No test pins a reference digest literally, so no hash check wa
   --tcp=37223 -> 127.0.0.1:37223` was added during the hold and removed at 14:10Z. The shared .git/config changed at
   13:38:45Z (other sessions' branch sections); `config-check.py --check-only` exit 1, benign (`logs/config-check-c12.log`). EVIDENCE: `logs/r8-hold-signin.log`, `logs/r8-probe-signed-in.log`,
   `readiness-signed-in.json`, `hold/w10c-signin.json`, `logs/r8-web-build.log`.
-- [ ] G8 (R8): the real legs. OPEN: waits for the coordinator (wave4h push, the user's sign-in, the heavy lock).
+- [x] G8b (R8 legs 1-2, 2026-10-04): ONE bounded run of the reference code journey on the signed-in persistent
+  deployment. Driver: host-side journey (`scripts/verify-factory-reference-code-journey.ts`), NOT the started
+  application. W10 G27 (the journey through the started application) stays OPEN: `REFERENCE_CODE_IMPLEMENTATIONS`
+  (`src/factory/reference-code/pack.ts`) has no user outside its own module, so the started app never registers the
+  reference code runners.
+  CHECK: `bash /tmp/factory-platform-evidence/w00/gated-flock.sh w10c-r8-journey <log> bash /tmp/factory-platform-evidence/w10c/r8/journey.sh`
+  (gate green outside the lock at 14:22:50Z: disk 113 GB, MemAvailable 11 GiB, swap 3.5 GiB; lock held 14:23:22Z,
+  journey exit 0 at 14:23:45Z; record 14:23:23.788Z to 14:23:44.568Z). No --keep, no retry; run once, not repeated.
+  RESULT (`/tmp/factory-platform-evidence/w10c/r8/journey.json`, sha256 `1b15abdcad386e5a...`):
+  - readiness: `openai` / `gpt-6-luna`, ready true, credentialKind `oauth`, failures [].
+  - generation: source `provider`, model `openai/gpt-6-luna`, 3 iterations of the 12 bound, stop `model-finished`,
+    3 tool calls (read_file, write_file, then finish), usage 1,702 input and 155 output tokens.
+  - supervised review: `PASS`, reason `review_rubric_satisfied` (one reviewer call). Its claim record carries no model
+    field; the broker refuses any model but the pin (`model_pin_mismatch`), and `gpt-6-luna` is the only model id in
+    the whole receipt.
+  - deterministic claims, 9 of 9 PASS: dependency-advisory, secret-scan, allowed-paths, protected-assets-unchanged,
+    frozen-install, build, typecheck, declared-tests, protected-fixtures. Unsatisfied claims: none. Contract satisfied.
+  - publication: a draft pull request on `ezcorp-org/factory-platform-publication-tests` (`github:1368432892:pull:8`),
+    then cleaned up (`cleanedUp`: the release branch). 11 GitHub API calls recorded.
+  - credentials: GitHub through the CLI login (`credentialKind: github-cli`, narrower smoke-test scope); the W07 flags
+    `selectedRepositoryAppVerified` and `brokerOnlyNamespaceVerified` are false, as known. No token-like string in the
+    receipt (checked).
+  EVIDENCE: `r8/journey.json`, `r8/journey.log`, `r8/gated.log`.
+- [ ] G8c (R8 leg 3, W11 semantic quorum on the car and tree fixtures): BLOCKED, `semantic_evaluator_not_implemented`.
+  No code sends an image to a model and reads the answer: `readSemanticAnswer` and `evaluationVerdict`
+  (`src/factory/reference-image/semantic-quorum.ts`) have no caller outside tests, and
+  `scripts/verify-factory-image-publication.ts` records the quorum from fixed values. W11 G16 also names the missing
+  production `broker.invoke` for `IsolatedFactoryAttemptRuntime` (`src/factory/runner/attempt-runtime.ts`) and G15
+  (variant bytes cannot leave the guest). Missing code, not a model failure; plan audit section D item 3.
+- [ ] G8d (R8 leg 4, W13 catalog journey to a draft pull request with child bytes): BLOCKED,
+  `catalog_driver_not_implemented`. `referenceCatalogV1` has no driver: its only non-test user is
+  `src/factory/reference-catalog/pack.ts`. It also needs G8c and W11 G15. Plan audit section D item 4.
+- [ ] G8 (R8): the real legs. Legs 1-2 done host-side (G8a, G8b); legs 3-4 blocked by name (G8c, G8d); W10 G27 open.
   Scheduled into the same lock holds: the sign-in hold itself; `scripts/factory-graph-proof/run.sh pass mock none`
   at this head (the harness changed); `tests/postgres/factory-definitions.test.ts`; and the lint fix below with its
   hook-mapped PostgreSQL suites.
