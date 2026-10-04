@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import type { Database } from "../db/connection";
 import { sandboxBindings, sandboxOperations, sandboxReservations } from "../db/schema";
 import type { IncusQualificationCheckpointStore } from "./incus-qualification-checkpoint";
-import type { IncusQualificationFixtureService, IncusQualificationStore } from "./incus-qualification";
+import { IncusQualificationOperationUnsettledError, type IncusQualificationFixtureService, type IncusQualificationStore } from "./incus-qualification";
 import type { HostIncusLostDestroyReplyFault } from "./incus-destroy-reply-fault";
 import type { IncusFeatureService } from "./incus-feature-service";
 import { IncusLiveCleanupController, IncusCleanupFaultError } from "./incus-live-cleanup-controller";
@@ -12,7 +12,7 @@ const scope = { installationId: "install", releaseId: "release", connectionId: "
 const handle = { operationId: "qual-recovery-run-one", sandboxId: "recovery-binding" };
 const destroyId = "11111111-1111-4111-8111-111111111111";
 
-function harness(fault?: "readback" | "other-operation" | "readiness" | "expired") {
+function harness(fault?: "readback" | "other-operation" | "readiness" | "expired" | "unsettled") {
   let phase = 0;
   let settled = false;
   const calls: string[] = [];
@@ -39,6 +39,12 @@ function harness(fault?: "readback" | "other-operation" | "readiness" | "expired
           diskState: settled ? "RELEASED" : "RESERVED" }] : [],
   }) }) }) } as unknown as Database;
   const fixtures = { status: async () => status(),
+    waitForOperation: async (_scope: unknown, fixtureId: string, operationId: string) => {
+      expect(fixtureId).toBe(handle.operationId);
+      expect(operationId).toBe(destroyId);
+      if (fault === "unsettled") throw new IncusQualificationOperationUnsettledError(operationId, "OUTCOME_UNKNOWN");
+      return status().operation;
+    },
     destroyWithLostReplyFault: async () => { calls.push("destroy"); phase = 1; },
   } as unknown as IncusQualificationFixtureService;
   const checkpoints = { get: async () => ({ state: "CLAIMED", nonce: "nonce", scope,
@@ -59,7 +65,7 @@ function harness(fault?: "readback" | "other-operation" | "readiness" | "expired
     calls.push("readiness");
     if (fault === "readiness") return;
     throw Object.assign(new Error("cleanup pending"), { code: "QUALIFICATION_CLEANUP_UNVERIFIED" });
-  }, reconcile: async () => { calls.push("reconcile"); phase = 2; },
+  }, reconcile: async () => { calls.push("reconcile"); phase = fault === "unsettled" ? 1 : 2; },
   settleCompletedOperation: async (id: string) => {
     expect(id).toBe(destroyId); calls.push("settle"); settled = true; },
   } as unknown as IncusFeatureService;
@@ -144,4 +150,14 @@ test("cleanup diagnostics retain a known outcome and omit arbitrary outcome byte
   expect(failure.operationState).toBeNull();
   expect(String(failure)).not.toContain("PRIVATE_DIAGNOSTIC_CANARY");
   expect(JSON.stringify(failure)).not.toContain("PRIVATE_DIAGNOSTIC_CANARY");
+});
+
+test("exact recovery readback uncertainty preserves its receipt without claiming settlement", async () => {
+  const { controller, calls } = harness("unsettled");
+  await controller.injectLostDestroyReply(scope, handle);
+  await expect(controller.reconcileFromReopenedController(scope, handle)).rejects.toMatchObject({
+    operationId: destroyId, state: "OUTCOME_UNKNOWN", reason: "outcome_unsettled",
+  });
+  expect(calls).toEqual(["destroy", "readback", "readiness", "reconcile"]);
+  expect(calls).not.toContain("settle");
 });

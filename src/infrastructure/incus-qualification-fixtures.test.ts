@@ -11,9 +11,10 @@ import { up as addController } from "../db/migrations/add-sandbox-controller";
 import { up as addQualificationFixtures } from "../db/migrations/add-incus-qualification-fixtures";
 import * as schema from "../db/schema";
 import { SandboxAdmissionStore } from "../sandboxes/admission";
-import { SandboxController, type SandboxProviderRequest } from "../sandboxes/controller";
+import { SandboxController, type SandboxProviderRequest, type SandboxProviderOutcome } from "../sandboxes/controller";
 import { IncusHostLiveWitness } from "./incus-host-live-witness";
 import { resourceName } from "./incus-transport/lifecycle";
+import { observeFailedCleanupRecovery } from "./incus-live-recovery-probes";
 import { IncusLiveCleanupController } from "./incus-live-cleanup-controller";
 import { join } from "node:path";
 import { generateKeyPairSync, sign } from "node:crypto";
@@ -30,7 +31,7 @@ const assertCurrentScope = async () => {};
 
 async function setup(configureHost = true, pendingCreate = false, providerGeneration = 1,
   inspectError: Error | null = null, hostSlots = 2,
-  options: { destroyEffect?: (request: SandboxProviderRequest) => Promise<void>; enforcePowerGeneration?: boolean; refuseRunningDestroy?: boolean; pendingKinds?: string[]; inspectOutcome?: "UNKNOWN" | "PENDING"; inspectUnknownCount?: number; inspectFailureCount?: number; inspectTerminalFailure?: boolean; missingStartReceipt?: boolean; missingStopReceipt?: boolean; now?: () => number } = {}) {
+  options: { destroyEffect?: (request: SandboxProviderRequest) => Promise<void> | Promise<SandboxProviderOutcome>; enforcePowerGeneration?: boolean; refuseRunningDestroy?: boolean; pendingKinds?: string[]; inspectOutcome?: "UNKNOWN" | "PENDING"; inspectUnknownCount?: number; inspectFailureCount?: number; inspectTerminalFailure?: boolean; missingStartReceipt?: boolean; missingStopReceipt?: boolean; now?: () => number } = {}) {
   const client = new PGlite();
   opened.push(client);
   await client.waitReady;
@@ -58,7 +59,10 @@ async function setup(configureHost = true, pendingCreate = false, providerGenera
   let providerState: "running" | "stopped" = "stopped";
   const controller = new SandboxController(db, { dispatch: async request => {
     dispatches.push(request);
-    if (request.kind === "DESTROY") await options.destroyEffect?.(request);
+    if (request.kind === "DESTROY") {
+      const injected = await options.destroyEffect?.(request);
+      if (injected) return injected;
+    }
     if (options.refuseRunningDestroy && request.kind === "DESTROY" && providerState === "running") {
       return { outcome: "FAILED", errorCode: "REVISION_CONFLICT" };
     }
@@ -889,7 +893,7 @@ test("two concurrent recovery admissions share one durable pair and preserve unr
 });
 
 
-function restartedBackground(fixture: Awaited<ReturnType<typeof failedRunningCleanup>>) {
+function restartedBackground(fixture: Awaited<ReturnType<typeof setup>>) {
   const snapshot = releaseRuntimeFixture(scope.installationId, incusManifest).snapshot;
   snapshot.release.id = scope.releaseId;
   snapshot.installation.activeReleaseId = scope.releaseId;
@@ -1067,16 +1071,21 @@ async function signedRecoveryCheckpoint(db: Awaited<ReturnType<typeof setup>>["d
 
 test("real fixture/controller durable UNKNOWN confirms the consumed operator fault without a thrown service reply", async () => {
   let fault!: HostIncusLostDestroyReplyFault;
-  const { db, service, dispatches, controller, admission, qualifications } = await setup(true, false, 1, null, 2, {
+  const fixtureSetup = await setup(true, false, 1, null, 3, {
+    inspectUnknownCount: 1,
     destroyEffect: async request => {
       expect(fault.consume({ action: "instance.destroy", connectionId: scope.connectionId,
         tags: { sandboxId: request.binding.id }, idempotency: { requestId: request.operationId, key: request.operationId },
         payload: { expectedGeneration: 1 } } as never,
       { providerInstallationId: scope.installationId, providerReleaseId: scope.releaseId, revision: 1 })).toBe(true);
-      throw new Error("post-effect reply lost");
+      return { outcome: "UNKNOWN", providerOperationId: `provider-${request.operationId}` };
     },
   });
+  const { db, service, dispatches, controller, admission, qualifications } = fixtureSetup;
+  await db.update(schema.providerConnections).set({ configuration: { kind: "incus", profile: "ezharness", helperVersion: "0.1.0", guestUser: "sandbox" } }).where(eq(schema.providerConnections.id, scope.connectionId));
+  await db.insert(schema.projects).values({ id: "user-project", name: "User project", path: "/workspace", purpose: "user" });
   const checkpoint = await signedRecoveryCheckpoint(db, service);
+  await service.create(checkpoint.scope, "qual-unrelated-run-one");
   await service.create(checkpoint.scope, "qual-recovery-run-one");
   const fixture = (await service.status(scope, "qual-recovery-run-one")).fixture;
   const handle = { operationId: fixture.operationId, sandboxId: fixture.bindingId };
@@ -1094,14 +1103,38 @@ test("real fixture/controller durable UNKNOWN confirms the consumed operator fau
     }));
   const cleanup = new IncusLiveCleanupController({ db, fixtures: service, qualifications,
     readinessProjectId: "user-project", fault: async () => fault,
-    checkpoints: checkpoint.store });
-  await cleanup.injectLostDestroyReply(checkpoint.scope, handle);
-  const saved = await service.status(scope, handle.operationId);
-  expect(saved.operation?.state).toBe("OUTCOME_UNKNOWN");
-  expect(saved.binding.desiredState).toBe("ABSENT");
-  expect(dispatches.map(request => request.kind)).toEqual(["CREATE", "CREATE", "DESTROY"]);
-  expect((await admission.getReservation(handle.sandboxId))?.diskState).toBe("RELEASE_REQUESTED");
-  expect((await controller.reconcile()).examined).toBe(0);
+    checkpoints: checkpoint.store, freshFeatureGate: () => restartedBackground(fixtureSetup) });
+  const unrelatedFixture = (await service.status(scope, "qual-unrelated-run-one")).fixture;
+  const unrelated = { operationId: unrelatedFixture.operationId, sandboxId: unrelatedFixture.bindingId };
+  const result = await observeFailedCleanupRecovery(checkpoint.scope, handle, unrelated, {
+    readDurable: value => service.status(checkpoint.scope, value.operationId),
+    readBackend: async value => {
+      const status = await service.status(checkpoint.scope, value.operationId);
+      const preset = INCUS_PRESETS[0]!;
+      return { sandboxId: value.sandboxId, state: status.binding.observedState.toLowerCase() as "absent" | "stopped",
+        bootId: null, imageDigest: preset.imageDigest, helperDigest: preset.helperDigests[0]!,
+        profile: preset.profile, workspaceRoot: "/workspace", guestUser: "sandbox", memoryBytes: preset.limits.memoryBytes,
+        cpuMillis: preset.limits.cpuMillis, pids: preset.limits.pids, diskBytes: preset.limits.diskBytes,
+        storageDriver: "btrfs", privateNetwork: true, restrictedProject: true, unprivileged: true };
+    },
+    injectLostDestroyReply: async () => {
+      await cleanup.injectLostDestroyReply(checkpoint.scope, handle);
+      const saved = await service.status(scope, handle.operationId);
+      expect(saved.operation?.state).toBe("OUTCOME_UNKNOWN");
+      expect(saved.binding.desiredState).toBe("ABSENT");
+      expect((await admission.getReservation(handle.sandboxId))?.diskState).toBe("RELEASE_REQUESTED");
+      expect((await controller.reconcile()).examined).toBe(0);
+    },
+    attemptReadiness: () => cleanup.attemptReadiness(checkpoint.scope, handle),
+    reconcileFromReopenedController: () => cleanup.reconcileFromReopenedController(checkpoint.scope, handle),
+  });
+  expect(result.recovered.operation).toMatchObject({ id: result.failed.operation!.id, state: "SUCCEEDED" });
+  expect(result.unrelated.binding).toMatchObject({ observedState: "STOPPED", desiredState: "STOPPED" });
+  expect(await admission.getReservation(handle.sandboxId)).toMatchObject({ computeState: "RELEASED", diskState: "RELEASED" });
+  expect(dispatches.map(request => request.kind)).toEqual(["CREATE", "CREATE", "CREATE", "DESTROY"]);
+  expect(fixtureSetup.inspections).toHaveLength(2);
+  expect(new Set(fixtureSetup.inspections.map(request => request.operationId)).size).toBe(1);
+  expect(new Set(fixtureSetup.inspections.map(request => request.providerOperationId)).size).toBe(1);
   expect(commands).toEqual(["presence", "arm", "arm", "presence", "readback"]);
 });
 
