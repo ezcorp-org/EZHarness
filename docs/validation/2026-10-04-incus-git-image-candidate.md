@@ -14,6 +14,8 @@ The complete builder regression rejects missing/mismatched Git pins before launc
 
 Use a new recipe version `1.2.3` and alias `ezharness-guest-0-1-3`. Keep its published fingerprint null until a reviewed build returns one. Reuse the exact reviewed base, Python, Docker, Compose, and helper pins. The builder now takes eleven arguments:
 
+The temporary build guest is bounded at initial launch: 4 GiB hard memory, two CPUs with `2000ms/1000ms` hard allowance, 1,024 processes, and a 20 GiB root disk. These are fixed builder limits, not a new image capability. The operator's external execution wrapper must also enforce the reviewed 20-minute total deadline.
+
 ```text
 build-guest-image.sh RECIPE_JSON BASE_FINGERPRINT PYTHON_PACKAGE_VERSION GIT_PACKAGE_VERSION DOCKER_TAR DOCKER_SHA256 COMPOSE_BINARY COMPOSE_SHA256 HELPER_PY HELPER_SHA256 ALIAS
 ```

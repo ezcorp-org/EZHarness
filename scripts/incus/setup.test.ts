@@ -412,6 +412,11 @@ exit 0
     expect(launchArgs).toContain("security.nesting=true");
     expect(launchArgs).toContain("security.idmap.isolated=true");
     expect(launchArgs).toContain("security.privileged=false");
+    for (const limit of ["limits.memory=4294967296", "limits.memory.enforce=hard", "limits.cpu=2",
+      "limits.cpu.allowance=2000ms/1000ms", "limits.processes=1024"]) {
+      expect(launchArgs[launchArgs.indexOf(limit) - 1]).toBe("--config");
+    }
+    expect(launchArgs[launchArgs.indexOf("root,size=20GiB") - 1]).toBe("--device");
 
     const capture = join(directory, "build-calls");
     await writeFile(incus, `#!/bin/sh

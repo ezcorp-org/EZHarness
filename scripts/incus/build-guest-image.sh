@@ -95,7 +95,10 @@ print("\n".join(sorted(fingerprints)))
 assert_alias_absent
 
 incus launch "$base_fingerprint" "$name" --project default --storage "$storage_pool" --network "$network_name" \
-  --config security.nesting=true --config security.privileged=false --config security.idmap.isolated=true
+  --config security.nesting=true --config security.privileged=false --config security.idmap.isolated=true \
+  --config limits.memory=4294967296 --config limits.memory.enforce=hard \
+  --config limits.cpu=2 --config limits.cpu.allowance=2000ms/1000ms --config limits.processes=1024 \
+  --device root,size=20GiB
 if ! timeout 75s incus exec "$name" --project default -- sh -eu -c '
   bridge=$1
   set --
