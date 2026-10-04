@@ -76,3 +76,16 @@ unset; no target file and no runner code reads CI.
   image ships Node, so this is a gap in the container's shape, the same at base and at head. Disclosed, not fixed mid-run.
 - The memory-cgroup kills in some legs are guests at their own --memory limit inside the shard's limit tests (uid 231071 = guest
   65534), not host OOMs (host_oom=0 in every leg).
+
+## Widening ordered after report 1 (ruling 3) and validator-5's finding
+
+- [x] G5 write side and settle (commits 56c9579d7, 2f307634d). The `in` FIFO is written through Bun's FileSink, so a guest that
+  stops reading pins no pool thread; closing a channel settles the chunk a silent guest left waiting. CHECK: tests/channel-pool.test.ts
+  "two guests that never read their input do not stop a third worker's channel when the pool has two threads" and "closing a channel
+  whose guest left its input unread settles the waiting write and writes nothing after". EXPECT: red before each fix, green after.
+  RESULT: red at ca20a093c (the third channel never opens) and at 56c9579d7 ("never settled"); green at 2f307634d, the file 20 of 20
+  runs; extension-runner neighbours green; typecheck, lint, boundaries, gate-integrity (integ/w00) 0; guard set 468/0 (started with
+  host SwapFree at 0.1 GiB, disclosed); new-file and patch coverage passed. EVIDENCE: red-pin-write-side-host-ca20a093c.log,
+  red-pin-settle-host-56c9579d7.log, loop-write-side-host.log, loop-settle-host.log, guard-suites-2f3.log, cov56/.
+- [ ] G6 heavy legs at 2f307634d (container tree 71d3b6e53 = the commit's tree): host real-guest podman suites, the three target files
+  alone and the hosted shard lists in the runner container. Queued behind the host gate (gated-launch.sh, hold-56c.sh).
