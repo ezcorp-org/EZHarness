@@ -14,7 +14,9 @@ connection `5ee601f8-b0f2-46d5-b65c-0250e66edd28`, revision 1, digest
 That plan is approved and verified. All 15 matching resources were skipped;
 the exact capacity budget is applied. Before/after inventory comparison and
 final read-only policy controls passed independently. The AMD verifier update
-also passed. Fresh qualification remains required. G2–G4 below retain historical, release-specific proofs; they
+also passed. Fresh qualification then stopped with one unknown START and a
+retained stopped guest. Async operation tracking and signed cleanup fixes are
+under local test; they are not deployed. G2–G4 below retain historical, release-specific proofs; they
 do not qualify the new connection. See the [current evidence record](../docs/validation/2026-10-03-incus-live-continuation.md).
 
 Current status, 25 September 2026: provider release 0.1.2 is approved and active at generation 3. The exact setup plan is approved, applied, and read back as verified. The existing evidence does not include a full independent before/after inventory proving unrelated server resources remained unchanged. The 0.1.2 transport can reach Incus, but no recorded negative call proves that its certificate is denied from an unapproved project. G1 and G2 therefore remain open.
