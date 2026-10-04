@@ -6,6 +6,11 @@ import { IncusSandboxProviderDispatcher } from "../sandboxes/incus-dispatcher";
 import { ProviderRpcBroker, type ProviderConnectionResolver } from "./provider-rpc-broker";
 import { HostIncusLifecycleTransport } from "./incus-transport/lifecycle";
 import { afterAll, afterEach, expect, spyOn, test } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { handleFencedCleanupPhase } from "../../scripts/incus/incus-create-noeffect-recovery";
+import { up as migrateFencedCleanup } from "../db/migrations/add-incus-fenced-cleanup-recoveries";
 import { createHash, generateKeyPairSync, sign, X509Certificate } from "node:crypto";
 import { sandboxPresetDigest } from "@ezcorp/extension-contract";
 import { incusManifest, INCUS_PRESETS } from "../../extensions/incus-sandbox/manifest";
@@ -27,7 +32,7 @@ import { SandboxController, operationPayloadHash } from "../sandboxes/controller
 import type { IncusTransportRequest } from "../../extensions/incus-sandbox/transport";
 import { incusLifecycleOperationId, resourceName } from "./incus-transport/lifecycle";
 import { canonicalRecoveryJson } from "./incus-create-noeffect-recovery";
-import { applyFencedCleanupRecovery, verifyFencedCleanupReceipt, type FencedCleanupPayload, type FencedCleanupReceipt } from "./incus-fenced-cleanup-recovery";
+import { applyFencedCleanupRecovery, applyFencedCleanupAbort, inspectFencedCleanupAbort, verifyFencedCleanupReceipt, type FencedCleanupAbortPayload, type FencedCleanupAbortReceipt, type FencedCleanupPayload, type FencedCleanupReceipt } from "./incus-fenced-cleanup-recovery";
 const clients: PGlite[] = [];
 const fixtureOperationId = "live-fixture-20260924";
 const bindingId = "binding-recovery";
@@ -36,6 +41,7 @@ const scope = { installationId: "installation", releaseId: "release",
   connectionId: "connection", presetId: "incus-compose-v1" };
 const { privateKey, publicKey } = generateKeyPairSync("ed25519");
 const publicKeyPem = publicKey.export({ type: "spki", format: "pem" }).toString();
+const realNow = Date.now.bind(Date);
 const now = Date.now();
 const clock = spyOn(Date, "now").mockReturnValue(now);
 afterAll(() => clock.mockRestore());
@@ -75,8 +81,8 @@ function receipt(overrides: Partial<FencedCleanupPayload> = {}): FencedCleanupRe
   return { payload, signature: sign(null, Buffer.from(canonicalRecoveryJson(payload)), privateKey).toString("base64") };
 }
 
-async function setup() {
-  const client = new PGlite();
+async function setup(path?: string) {
+  const client = new PGlite(path);
   clients.push(client);
   await client.waitReady;
   await client.exec(`CREATE TABLE projects (
@@ -319,3 +325,313 @@ for (const observed of [1, 2, 3]) test(`signed observed provider generation ${ob
   if (observed === 3) { await expect(applyFencedCleanupRecovery(db, selected, publicKeyPem, now)).rejects.toThrow("original uncertain power operation changed"); expect(await db.select().from(schema.incusFencedCleanupRecoveries)).toEqual([]); }
   else { const id = await applyFencedCleanupRecovery(db, selected, publicKeyPem, now); expect((await db.select().from(schema.sandboxOperations).where(eq(schema.sandboxOperations.id, id)))[0]?.requestPayload.expectedGeneration).toBe(observed); }
 }, 30000);
+
+function abortReceipt(overrides: Partial<FencedCleanupAbortPayload> = {}, recovery = receipt().payload): FencedCleanupAbortReceipt {
+  const { nonce, reviewId, scope, fixtureOperationId, bindingId, operationId, generation, connectionRevision } = recovery;
+  const originalRequest = { version: 1 as const, action: "recover-fenced-cleanup" as const, nonce, reviewId, scope,
+    fixtureOperationId, bindingId, operationId, generation, connectionRevision, deadlineMs: now - 1,
+    allClientsFenced: true as const, fenceEvidence: recovery.fenceEvidence };
+  const keys = ["installationGeneration", "releaseDigest", "grantsDigest", "endpoint", "project", "providerOperationId", "nativeOperationId", "operationTag", "payloadHash", "presetDigest", "effectiveSettingsDigest", "imageFingerprint", "helperVersion", "serverCertificateSha256"] as const;
+  const pins = Object.fromEntries(keys.map(key => [key, recovery[key]])) as FencedCleanupAbortPayload["pins"];
+  const payload: FencedCleanupAbortPayload = { version: 1, action: "abort-fenced-cleanup-before-admission", originalRequest, pins,
+    requestSha256: createHash("sha256").update(canonicalRecoveryJson(originalRequest)).digest("hex"),
+    holdSha256: createHash("sha256").update(canonicalRecoveryJson({ nonce, reviewId }) + "\n").digest("hex"),
+    issuedAtMs: now, expiresAtMs: now + 30_000, ...overrides };
+  return { payload, signature: sign(null, Buffer.from(canonicalRecoveryJson(payload)), privateKey).toString("base64") };
+}
+
+test("signed pre-admission abort preserves UNKNOWN and blocks the same cleanup nonce", async () => {
+  const { db } = await setup();
+  const signed = abortReceipt();
+  const proof = await applyFencedCleanupAbort(db, signed, publicKeyPem, now);
+  expect(proof).toMatchObject({ nonce: signed.payload.originalRequest.nonce, requestSha256: signed.payload.requestSha256, holdSha256: signed.payload.holdSha256 });
+  await expect(applyFencedCleanupRecovery(db, receipt(), publicKeyPem, now)).rejects.toThrow("nonce");
+  const rows = await db.select().from(schema.sandboxOperations);
+  expect(rows.filter(row => row.kind === "DESTROY")).toHaveLength(0);
+  expect(rows.find(row => row.id === operationId)?.state).toBe("OUTCOME_UNKNOWN");
+});
+
+test("committed abort replay and inspection survive expiry; changed signed receipt refuses", async () => {
+  const { db } = await setup();
+  const signed = abortReceipt();
+  const proof = await applyFencedCleanupAbort(db, signed, publicKeyPem, now);
+  expect(await applyFencedCleanupAbort(db, signed, publicKeyPem, now + 60_000)).toEqual(proof);
+  expect(await inspectFencedCleanupAbort(db, signed, publicKeyPem)).toEqual(proof);
+  await expect(applyFencedCleanupAbort(db, abortReceipt({ issuedAtMs: now + 1 }), publicKeyPem, now + 2)).rejects.toThrow("nonce");
+  await expect(inspectFencedCleanupAbort(db, abortReceipt({ issuedAtMs: now + 1 }), publicKeyPem)).rejects.toThrow("proof");
+});
+
+test("abort rejects expired, future, malformed and forged proofs without consuming nonce", async () => {
+  const { db } = await setup();
+  for (const signed of [abortReceipt({ issuedAtMs: now - 60_000, expiresAtMs: now - 30_000 }),
+    abortReceipt({ issuedAtMs: now + 1 }), abortReceipt({ requestSha256: "a".repeat(64) }),
+    abortReceipt({ holdSha256: "a".repeat(64) }), abortReceipt({ expiresAtMs: now + 30_001 }),
+    { ...abortReceipt(), signature: "AAAA" }]) {
+    await expect(applyFencedCleanupAbort(db, signed, publicKeyPem, now)).rejects.toThrow();
+  }
+  expect(await db.select().from(schema.incusFencedCleanupNonceClaims)).toHaveLength(0);
+  expect(await inspectFencedCleanupAbort(db, abortReceipt(), publicKeyPem)).toMatchObject({ status: "uncommitted", nonce: "nonce-one" });
+});
+
+test("admitted cleanup cannot be aborted and legacy consumed nonce cannot be reused", async () => {
+  const { db } = await setup();
+  await applyFencedCleanupRecovery(db, receipt(), publicKeyPem, now);
+  await expect(applyFencedCleanupAbort(db, abortReceipt(), publicKeyPem, now)).rejects.toThrow("nonce");
+  await db.delete(schema.incusFencedCleanupNonceClaims);
+  await expect(applyFencedCleanupAbort(db, abortReceipt(), publicKeyPem, now)).rejects.toThrow("nonce");
+  expect(await db.select().from(schema.incusFencedCleanupAborts)).toHaveLength(0);
+});
+
+function synchronizedActions(actions: Array<() => Promise<unknown>>) {
+  let pending = actions.length;
+  let release!: () => void;
+  const barrier = new Promise<void>(resolve => { release = resolve; });
+  return Promise.allSettled(actions.map(async action => {
+    if (--pending === 0) release();
+    await barrier;
+    return action();
+  }));
+}
+
+test("abort and cleanup race has exactly one durable winner", async () => {
+  const { db } = await setup();
+  const results = await synchronizedActions([() => applyFencedCleanupAbort(db, abortReceipt(), publicKeyPem, now),
+    () => applyFencedCleanupRecovery(db, receipt(), publicKeyPem, now)]);
+  expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
+  expect(await db.select().from(schema.incusFencedCleanupNonceClaims)).toHaveLength(1);
+  const aborted = await db.select().from(schema.incusFencedCleanupAborts);
+  const recovered = await db.select().from(schema.incusFencedCleanupRecoveries);
+  expect(aborted.length + recovered.length).toBe(1);
+  expect((await db.select().from(schema.sandboxOperations).where(eq(schema.sandboxOperations.id, operationId)))[0]?.state).toBe("OUTCOME_UNKNOWN");
+});
+
+
+test("abort validation rollback and fresh distinct review leave original authority intact", async () => {
+  const { db } = await setup();
+  const original = (await db.select().from(schema.sandboxOperations).where(eq(schema.sandboxOperations.id, operationId)))[0];
+  const binding = (await db.select().from(schema.sandboxBindings))[0];
+  const reservation = (await db.select().from(schema.sandboxReservations))[0];
+  clock.mockReturnValue(now + 30_001);
+  try { await expect(applyFencedCleanupAbort(db, abortReceipt(), publicKeyPem, now)).rejects.toThrow("before commit"); }
+  finally { clock.mockReturnValue(now); }
+  expect(await db.select().from(schema.incusFencedCleanupNonceClaims)).toHaveLength(0);
+  await applyFencedCleanupAbort(db, abortReceipt(), publicKeyPem, now);
+  expect((await db.select().from(schema.sandboxOperations).where(eq(schema.sandboxOperations.id, operationId)))[0]).toEqual(original);
+  expect((await db.select().from(schema.sandboxBindings))[0]).toEqual(binding);
+  expect((await db.select().from(schema.sandboxReservations))[0]).toEqual(reservation);
+  await expect(applyFencedCleanupRecovery(db, receipt({ nonce: "fresh-independent-nonce", reviewId: "fresh-review" }), publicKeyPem, now)).resolves.toBeString();
+});
+
+test("shared nonce denies a concurrent recovery on another exact binding", async () => {
+  const { db } = await setup();
+  const otherBinding = "other-binding", otherOperation = "62633686-a1bc-4b93-b87a-54fdbc96c2fe", otherFixture = "other-fixture";
+  const [project] = await db.select().from(schema.projects);
+  const [binding] = await db.select().from(schema.sandboxBindings);
+  const [fixture] = await db.select().from(schema.incusQualificationFixtures);
+  const [operation] = await db.select().from(schema.sandboxOperations);
+  const [reservation] = await db.select().from(schema.sandboxReservations);
+  await db.insert(schema.projects).values({ ...project!, id: "other-project" });
+  await db.insert(schema.sandboxBindings).values({ ...binding!, id: otherBinding, resourceKey: otherBinding, projectId: "other-project", currentOperationId: otherOperation });
+  await db.insert(schema.incusQualificationFixtures).values({ ...fixture!, operationId: otherFixture, projectId: "other-project", bindingId: otherBinding });
+  const payloadHash = operationPayloadHash({ bindingId: otherBinding, kind: "START", generation: 1,
+    idempotencyScope: "incus-qualification-power", idempotencyKey: `${otherFixture}:start`, payload: { expectedGeneration: 1 } });
+  await db.insert(schema.sandboxOperations).values({ ...operation!, id: otherOperation, bindingId: otherBinding,
+    idempotencyKey: `${otherFixture}:start`, payloadHash });
+  await db.insert(schema.sandboxReservations).values({ ...reservation!, bindingId: otherBinding, projectId: "other-project" });
+  const other = receipt({ bindingId: otherBinding, operationId: otherOperation, fixtureOperationId: otherFixture, payloadHash,
+    resourceName: resourceName(scope.connectionId, otherBinding),
+    operationTag: incusLifecycleOperationId("setPower", { connectionId: scope.connectionId,
+      sandboxName: resourceName(scope.connectionId, otherBinding), tags: { managedBy: "ezharness-incus-sandbox", connectionId: scope.connectionId, sandboxId: otherBinding },
+      idempotency: { requestId: otherOperation, key: otherOperation } } as IncusTransportRequest) });
+  const results = await synchronizedActions([() => applyFencedCleanupAbort(db, abortReceipt(), publicKeyPem, now),
+    () => applyFencedCleanupRecovery(db, other, publicKeyPem, now)]);
+  expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
+  expect(await db.select().from(schema.incusFencedCleanupNonceClaims)).toHaveLength(1);
+  expect((await db.select().from(schema.incusFencedCleanupAborts)).length + (await db.select().from(schema.incusFencedCleanupRecoveries)).length).toBe(1);
+});
+
+test("migration backfills legacy consumed nonces idempotently", async () => {
+  const { db } = await setup();
+  await applyFencedCleanupRecovery(db, receipt(), publicKeyPem, now);
+  await db.delete(schema.incusFencedCleanupNonceClaims);
+  await migrateFencedCleanup(db); await migrateFencedCleanup(db);
+  expect(await db.select().from(schema.incusFencedCleanupNonceClaims)).toMatchObject([{ nonce: "nonce-one", action: "recovery", operationId, bindingId }]);
+});
+
+test("offline abort CLI commits then SELECT-only inspection matches exact signer proof", async () => {
+  const root = mkdtempSync(join(tmpdir(), "incus-abort-cli-"));
+  const path = join(root, "db");
+  const { client } = await setup(path);
+  await client.close(); clients.splice(clients.indexOf(client), 1);
+  const saved = { db: process.env.EZCORP_INCUS_SUPERVISOR_DB_PATH, key: process.env.EZCORP_INCUS_SUPERVISOR_PUBLIC_KEY,
+    b64: process.env.EZCORP_INCUS_SUPERVISOR_PUBLIC_KEY_B64, external: process.env.DATABASE_URL };
+  process.env.EZCORP_INCUS_SUPERVISOR_DB_PATH = path;
+  process.env.EZCORP_INCUS_SUPERVISOR_PUBLIC_KEY = publicKeyPem;
+  delete process.env.EZCORP_INCUS_SUPERVISOR_PUBLIC_KEY_B64; delete process.env.DATABASE_URL;
+  try {
+    const issuedAtMs = realNow();
+    const signed = abortReceipt({ issuedAtMs, expiresAtMs: issuedAtMs + 30_000 });
+    const child = Bun.spawn([process.execPath, "scripts/incus/incus-create-noeffect-recovery.ts"], {
+      stdin: "pipe", stdout: "pipe", stderr: "pipe", env: { ...process.env } });
+    child.stdin.write(JSON.stringify({ phase: "abort", receipt: signed, publicKeyPem })); child.stdin.end();
+    const [stdout, stderr, status] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+    expect({ status, stderr }).toEqual({ status: 0, stderr: "" });
+    const proof = JSON.parse(stdout);
+    expect(proof).toMatchObject({ nonce: signed.payload.originalRequest.nonce, requestSha256: signed.payload.requestSha256 });
+    expect(await handleFencedCleanupPhase({ phase: "inspect-abort", receipt: signed, publicKeyPem })).toEqual(proof);
+    const { originalRequest: r, pins } = signed.payload;
+    const target = { action: "recover-fenced-cleanup", scope: r.scope, fixtureOperationId: r.fixtureOperationId,
+      bindingId: r.bindingId, operationId: r.operationId, generation: r.generation, connectionRevision: r.connectionRevision, pins };
+    expect(await handleFencedCleanupPhase({ phase: "durable", target })).toEqual({ verified: true, pins });
+    expect(await handleFencedCleanupPhase({ phase: "apply", receipt: receipt({ nonce: "independent-cli-cleanup" }), publicKeyPem })).toMatchObject({ cleanupOperationId: expect.any(String) });
+    await expect(handleFencedCleanupPhase({ phase: "abort", receipt: signed, publicKeyPem, extra: true })).rejects.toThrow("fields");
+    const wrong = generateKeyPairSync("ed25519").publicKey.export({ format: "pem", type: "spki" }).toString();
+    await expect(handleFencedCleanupPhase({ phase: "abort", receipt: signed, publicKeyPem: wrong })).rejects.toThrow("configured");
+  } finally {
+    for (const [key, value] of Object.entries({ EZCORP_INCUS_SUPERVISOR_DB_PATH: saved.db,
+      EZCORP_INCUS_SUPERVISOR_PUBLIC_KEY: saved.key, EZCORP_INCUS_SUPERVISOR_PUBLIC_KEY_B64: saved.b64, DATABASE_URL: saved.external })) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    }
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+
+test("expired uncommitted inspection permits only explicitly fresh same-request abort", async () => {
+  const { db } = await setup();
+  const expired = abortReceipt({ issuedAtMs: now - 60_000, expiresAtMs: now - 30_000 });
+  expect(await inspectFencedCleanupAbort(db, expired, publicKeyPem)).toMatchObject({ status: "uncommitted", requestSha256: expired.payload.requestSha256 });
+  const fresh = abortReceipt();
+  const proof = await applyFencedCleanupAbort(db, fresh, publicKeyPem, now);
+  await expect(inspectFencedCleanupAbort(db, expired, publicKeyPem)).rejects.toThrow("changed");
+  expect(await inspectFencedCleanupAbort(db, fresh, publicKeyPem)).toEqual(proof);
+});
+
+test("late old abort commit cannot be replaced after uncommitted inspection", async () => {
+  const { db } = await setup();
+  const original = abortReceipt();
+  expect(await inspectFencedCleanupAbort(db, original, publicKeyPem)).toMatchObject({ status: "uncommitted" });
+  const oldProof = await applyFencedCleanupAbort(db, original, publicKeyPem, now);
+  await expect(applyFencedCleanupAbort(db, abortReceipt({ issuedAtMs: now + 1 }), publicKeyPem, now + 2)).rejects.toThrow("nonce");
+  expect(await inspectFencedCleanupAbort(db, original, publicKeyPem)).toEqual(oldProof);
+});
+
+test("uncommitted inspection never treats admitted cleanup or broken storage as absence", async () => {
+  const { db } = await setup();
+  await applyFencedCleanupRecovery(db, receipt(), publicKeyPem, now);
+  await expect(inspectFencedCleanupAbort(db, abortReceipt(), publicKeyPem)).rejects.toThrow("claimed");
+  const other = await setup();
+  await other.db.execute(sql`DROP TABLE incus_fenced_cleanup_aborts`);
+  await expect(inspectFencedCleanupAbort(other.db, abortReceipt(), publicKeyPem)).rejects.toThrow();
+});
+
+test("abort and uncommitted inspection reject already-admitted target even with a different nonce", async () => {
+  const { db } = await setup();
+  await applyFencedCleanupRecovery(db, receipt(), publicKeyPem, now);
+  const signed = abortReceipt({}, receipt({ nonce: "unused-abort-nonce" }).payload);
+  await expect(applyFencedCleanupAbort(db, signed, publicKeyPem, now)).rejects.toThrow("already admitted");
+  await expect(inspectFencedCleanupAbort(db, signed, publicKeyPem)).rejects.toThrow("already admitted");
+  expect(await db.select().from(schema.incusFencedCleanupNonceClaims)).toHaveLength(1);
+});
+
+test("abort refuses changed original state, payload, current binding and signed scope", async () => {
+  const { db } = await setup();
+  for (const change of [{ state: "SUCCEEDED" as const }, { requestPayload: { expectedGeneration: 2 } }]) {
+    const [original] = await db.select().from(schema.sandboxOperations).where(eq(schema.sandboxOperations.id, operationId));
+    await db.update(schema.sandboxOperations).set(change).where(eq(schema.sandboxOperations.id, operationId));
+    await expect(applyFencedCleanupAbort(db, abortReceipt(), publicKeyPem, now)).rejects.toThrow("original operation");
+    await db.update(schema.sandboxOperations).set(original!).where(eq(schema.sandboxOperations.id, operationId));
+  }
+  await db.update(schema.sandboxBindings).set({ desiredState: "STOPPED" }).where(eq(schema.sandboxBindings.id, bindingId));
+  await expect(applyFencedCleanupAbort(db, abortReceipt(), publicKeyPem, now)).rejects.toThrow("original operation");
+  await db.update(schema.sandboxBindings).set({ desiredState: "RUNNING" }).where(eq(schema.sandboxBindings.id, bindingId));
+  const base = abortReceipt();
+  const changed = abortReceipt({ originalRequest: { ...base.payload.originalRequest, scope: { ...scope, presetId: "other" } } });
+  await expect(applyFencedCleanupAbort(db, changed, publicKeyPem, now)).rejects.toThrow("hash");
+  expect(await db.select().from(schema.incusFencedCleanupNonceClaims)).toHaveLength(0);
+});
+
+test("inspection observes the exact old abort that commits between lookup and binding lock", async () => {
+  const { db } = await setup();
+  const signed = abortReceipt();
+  let proof: Awaited<ReturnType<typeof applyFencedCleanupAbort>> | undefined;
+  // Sample the genuine absent row first, then commit on the same real database
+  // before the inspector takes its transaction lock. No clock or storage fake.
+  const observer = {
+    select: () => ({ from: (table: typeof schema.incusFencedCleanupAborts) => ({ where: async (predicate: ReturnType<typeof eq>) => {
+      const rows = await db.select().from(table).where(predicate);
+      proof = await applyFencedCleanupAbort(db, signed, publicKeyPem, now);
+      return rows;
+    } }) }),
+    transaction: db.transaction.bind(db),
+  };
+  expect(await inspectFencedCleanupAbort(observer, signed, publicKeyPem)).toEqual(proof!);
+});
+
+
+test("actual Python abort signer and hold archive compose with production Bun CLI", async () => {
+  const root = mkdtempSync(join(tmpdir(), "incus-abort-python-cli-"));
+  const path = join(root, "db");
+  const { client } = await setup(path);
+  await client.close(); clients.splice(clients.indexOf(client), 1);
+  const { originalRequest, pins } = abortReceipt({}, receipt({ fenceEvidence: "operator stopped clients — café 🧪" }).payload).payload;
+  const keyPath = join(root, "supervisor-key.pem");
+  const originalPath = join(root, "original-request.json"), sealedPath = join(root, "sealed.json");
+  writeFileSync(keyPath, privateKey.export({ format: "pem", type: "pkcs8" }), { mode: 0o600 });
+  writeFileSync(originalPath, JSON.stringify(originalRequest, null, 2) + "\n", { mode: 0o600 });
+  const target = { scope: originalRequest.scope, fixtureOperationId: originalRequest.fixtureOperationId,
+    bindingId: originalRequest.bindingId, operationId: originalRequest.operationId,
+    generation: originalRequest.generation, connectionRevision: originalRequest.connectionRevision };
+  writeFileSync(sealedPath, JSON.stringify({ version: 1, action: "recover-fenced-cleanup", target, pins }), { mode: 0o600 });
+  const python = `import hashlib, importlib.util, json, os, sys
+from pathlib import Path
+source, root, bun, cli = map(Path, sys.argv[1:5])
+spec = importlib.util.spec_from_file_location('supervisor', source)
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+original_file = root/'original-request.json'
+original = json.loads(original_file.read_text())
+s = m.Supervisor(str(root/'unused.sock'), ['must-not-start'], os.getuid(), os.getgid(), root/'supervisor-key.pem', ['true'], ['true'], enforce_distinct_uid=False)
+s.recovery_request_path=original_file
+s.recovery_abort_command=[str(bun),str(cli)]
+s.set_recovery_hold(original)
+request={'version':1,'action':'abort-fenced-cleanup-before-admission','originalRequest':original,
+ 'requestFileSha256':hashlib.sha256(original_file.read_bytes()).hexdigest(),
+ 'requestSha256':hashlib.sha256(m.canonical(original)).hexdigest(),
+ 'holdSha256':hashlib.sha256(s.recovery_hold_path.read_bytes()).hexdigest()}
+try:
+ s.abort_recovery({**request,'extra':'unreviewed'})
+ raise AssertionError('extra fields accepted')
+except ValueError:
+ pass
+assert s.recovery_hold_path.exists()
+proof=s.abort_recovery(request)
+assert not s.recovery_hold_path.exists() and s.child is None
+assert s.abort_recovery(request)==proof
+print(json.dumps(proof))`;
+  const env: NodeJS.ProcessEnv = { ...process.env, PYTHONDONTWRITEBYTECODE: "1", EZCORP_INCUS_SUPERVISOR_DB_PATH: path,
+    EZCORP_INCUS_SUPERVISOR_PUBLIC_KEY: publicKeyPem, EZCORP_INCUS_FENCED_CLEANUP_CONFIG: sealedPath };
+  delete env.DATABASE_URL; delete env.EZCORP_INCUS_SUPERVISOR_PUBLIC_KEY_B64;
+  try {
+    const child = Bun.spawn(["python3", "-c", python, join(import.meta.dir, "../../scripts/incus/incus-qualification-supervisor.py"),
+      root, process.execPath, join(import.meta.dir, "../../scripts/incus/incus-create-noeffect-recovery.ts")], { env, stdout: "pipe", stderr: "pipe" });
+    const [stdout, stderr, status] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+    expect({ status, stderr }).toEqual({ status: 0, stderr: "" });
+    const proof = JSON.parse(stdout);
+    const reopened = new PGlite(path); clients.push(reopened); await reopened.waitReady;
+    const db = drizzle(reopened, { schema });
+    const aborts = await db.select().from(schema.incusFencedCleanupAborts);
+    expect(aborts).toHaveLength(1);
+    const saved = aborts[0]!;
+    expect(proof).toEqual({ abortId: saved.id, nonce: originalRequest.nonce,
+      requestSha256: createHash("sha256").update(canonicalRecoveryJson(originalRequest)).digest("hex"),
+      holdSha256: createHash("sha256").update(canonicalRecoveryJson({ nonce: originalRequest.nonce, reviewId: originalRequest.reviewId }) + "\n").digest("hex"),
+      receiptSha256: saved.receiptSha256 });
+    const archived = keyPath + ".noeffect-hold.aborted." + proof.requestSha256;
+    expect(readFileSync(archived, "utf8")).toBe(canonicalRecoveryJson({ nonce: originalRequest.nonce, reviewId: originalRequest.reviewId }) + "\n");
+    expect(await db.select().from(schema.incusFencedCleanupRecoveries)).toHaveLength(0);
+    const operations = await db.select().from(schema.sandboxOperations);
+    expect(operations).toHaveLength(1);
+    expect(operations[0]).toMatchObject({ id: operationId, state: "OUTCOME_UNKNOWN", providerOperationId: pins.providerOperationId, payloadHash: pins.payloadHash });
+    await reopened.close(); clients.splice(clients.indexOf(reopened), 1);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+}, 30_000);

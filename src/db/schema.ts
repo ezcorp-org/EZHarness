@@ -184,6 +184,28 @@ export const incusFencedCleanupRecoveries = pgTable("incus_fenced_cleanup_recove
   appliedAt: timestamp("applied_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+/** Shared nonce ledger serializes signed abort and compensation across bindings. */
+export const incusFencedCleanupNonceClaims = pgTable("incus_fenced_cleanup_nonce_claims", {
+  nonce: text("nonce").primaryKey(),
+  action: text("action").notNull().$type<"recovery" | "abort">(),
+  bindingId: text("binding_id").notNull().references(() => sandboxBindings.id, { onDelete: "restrict" }),
+  operationId: text("operation_id").notNull().references(() => sandboxOperations.id, { onDelete: "restrict" }),
+  receiptSha256: text("receipt_sha256").notNull(),
+});
+
+/** An aborted request is consumed; the original uncertain operation is unchanged. */
+export const incusFencedCleanupAborts = pgTable("incus_fenced_cleanup_aborts", {
+  id: text("id").primaryKey(),
+  nonce: text("nonce").notNull().unique().references(() => incusFencedCleanupNonceClaims.nonce, { onDelete: "restrict" }),
+  operationId: text("operation_id").notNull().references(() => sandboxOperations.id, { onDelete: "restrict" }),
+  bindingId: text("binding_id").notNull().references(() => sandboxBindings.id, { onDelete: "restrict" }),
+  requestSha256: text("request_sha256").notNull(),
+  holdSha256: text("hold_sha256").notNull(),
+  receiptSha256: text("receipt_sha256").notNull(),
+  receipt: jsonb("receipt").notNull().$type<Record<string, unknown>>(),
+  abortedAt: timestamp("aborted_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export type SandboxBinding = typeof sandboxBindings.$inferSelect;
 export type NewSandboxBinding = typeof sandboxBindings.$inferInsert;
 export type SandboxOperation = typeof sandboxOperations.$inferSelect;

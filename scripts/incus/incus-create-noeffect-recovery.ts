@@ -11,7 +11,7 @@ import { applyNoEffectRecovery, type NoEffectRecoveryPayload,
   type NoEffectRecoveryReceipt } from "../../src/infrastructure/incus-create-noeffect-recovery";
 import { resourceName } from "../../src/infrastructure/incus-transport/lifecycle";
 import type { LiveReadbackContext } from "../../src/infrastructure/incus-transport/live-readback";
-import { applyFencedCleanupRecovery, requireFencedCleanupAuthority, type FencedCleanupReceipt } from "../../src/infrastructure/incus-fenced-cleanup-recovery";
+import { applyFencedCleanupRecovery, applyFencedCleanupAbort, inspectFencedCleanupAbort, requireFencedCleanupAuthority, type FencedCleanupAbortReceipt, type FencedCleanupReceipt } from "../../src/infrastructure/incus-fenced-cleanup-recovery";
 import { observeFencedCleanup, type FencedCleanupPins, type FencedCleanupTarget } from "../../src/infrastructure/incus-fenced-cleanup-observer";
 import { canonicalRecoveryJson } from "../../src/infrastructure/incus-create-noeffect-recovery";
 import { incusSupervisorPublicKeyPem } from "../../src/infrastructure/incus-supervisor-public-key";
@@ -166,6 +166,15 @@ function sealedFencedConfig(target: SealedFencedTarget): FencedConfig {
   return sealed;
 }
 
+function trustedSupervisorSigner(publicKeyPem: unknown): string {
+  const trustedKey = incusSupervisorPublicKeyPem();
+  requireFact(trustedKey && typeof publicKeyPem === "string"
+    && createPublicKey(trustedKey).export({ format: "der", type: "spki" }).equals(
+      createPublicKey(publicKeyPem).export({ format: "der", type: "spki" })),
+  "fenced cleanup requires the configured supervisor signer");
+  return trustedKey;
+}
+
 export async function handleFencedCleanupPhase(input: Record<string, unknown>): Promise<unknown> {
   if (input.phase === "durable" || input.phase === "backend") {
     requireFact(Object.keys(input).sort().join() === "phase,target", "fenced cleanup phase fields changed");
@@ -184,12 +193,15 @@ export async function handleFencedCleanupPhase(input: Record<string, unknown>): 
         serverCertificatePem: sealed.context.connection.serverCertificatePem, clientCertificatePem, privateKeyPem };
     } }, sealed.context, sealed.target, sealed.pins);
   }
+  if (input.phase === "abort" || input.phase === "inspect-abort") {
+    requireFact(Object.keys(input).sort().join() === "phase,publicKeyPem,receipt", "abort phase fields changed");
+    const trustedKey = trustedSupervisorSigner(input.publicKeyPem);
+    return withOfflineDb(db => input.phase === "abort"
+      ? applyFencedCleanupAbort(db, input.receipt as FencedCleanupAbortReceipt, trustedKey)
+      : inspectFencedCleanupAbort(db, input.receipt as FencedCleanupAbortReceipt, trustedKey));
+  }
   requireFact(input.phase === "apply" && Object.keys(input).sort().join() === "phase,publicKeyPem,receipt", "fenced cleanup phase invalid");
-  const trustedKey = incusSupervisorPublicKeyPem();
-  requireFact(trustedKey && typeof input.publicKeyPem === "string"
-    && createPublicKey(trustedKey).export({ format: "der", type: "spki" }).equals(
-      createPublicKey(input.publicKeyPem).export({ format: "der", type: "spki" })),
-  "fenced cleanup requires the configured supervisor signer");
+  const trustedKey = trustedSupervisorSigner(input.publicKeyPem);
   const cleanupOperationId = await withOfflineDb(db => applyFencedCleanupRecovery(db,
     input.receipt as FencedCleanupReceipt, trustedKey));
   return { cleanupOperationId };
@@ -197,7 +209,7 @@ export async function handleFencedCleanupPhase(input: Record<string, unknown>): 
 
 if (import.meta.main) {
   const input = JSON.parse(await Bun.stdin.text());
-  if (input.target?.action === "recover-fenced-cleanup" || input.receipt?.payload?.action === "recover-fenced-cleanup") {
+  if (input.target?.action === "recover-fenced-cleanup" || ["recover-fenced-cleanup", "abort-fenced-cleanup-before-admission"].includes(input.receipt?.payload?.action)) {
     process.stdout.write(JSON.stringify(await handleFencedCleanupPhase(input)) + "\n");
   } else if (input.phase === "durable") {
     process.stdout.write(JSON.stringify(await durable(input.target)) + "\n");

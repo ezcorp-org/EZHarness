@@ -53,3 +53,40 @@ test("provider connection migration and credentials survive a PostgreSQL client 
   expect(await reopenedStore.resolveForHost({ connectionId: "connection", providerInstallationId: "installation", providerReleaseId: "release", revision: 1 })).toMatchObject({ privateKeyPem: "private-key-secret", configuration });
   expect(JSON.stringify(await reopenedStore.getMetadata("connection"))).not.toContain("private-key-secret");
 }, 30_000);
+
+test("fenced cleanup migration backfills consumed nonces and serializes cross-binding claims", async () => {
+  if (!client) throw new Error("PostgreSQL test client was not initialized");
+  const { up } = await import("../../db/migrations/add-incus-fenced-cleanup-recoveries");
+  await client`CREATE TABLE sandbox_bindings (id TEXT PRIMARY KEY)`;
+  await client`CREATE TABLE provider_sandbox_operations (id TEXT PRIMARY KEY)`;
+  await client`INSERT INTO sandbox_bindings (id) VALUES ('legacy'), ('claim-a'), ('claim-b')`;
+  await client`INSERT INTO provider_sandbox_operations (id) VALUES ('unknown'), ('destroy'), ('operation-a'), ('operation-b')`;
+  await up(drizzle(client));
+  await client`INSERT INTO incus_fenced_cleanup_recoveries
+    (operation_id,binding_id,fixture_operation_id,nonce,review_id,generation,provider_generation,
+     original_operation,receipt,receipt_sha256,cleanup_operation_id)
+    VALUES ('unknown','legacy','fixture','legacy-nonce','review',1,2,'{}','{}','legacy-sha','destroy')`;
+  await up(drizzle(client)); await up(drizzle(client));
+  const ledger = await client`SELECT nonce,action,binding_id,operation_id,receipt_sha256 FROM incus_fenced_cleanup_nonce_claims`;
+  expect(Array.from(ledger, row => ({ ...(row as Record<string, unknown>) }))).toEqual([{ nonce: "legacy-nonce", action: "recovery", binding_id: "legacy", operation_id: "unknown", receipt_sha256: "legacy-sha" }]);
+  const database = client;
+  let arrived = 0;
+  let release!: () => void;
+  const simultaneousTransactions = new Promise<void>(resolve => { release = resolve; });
+  const claim = (binding: string, operation: string) => database.begin(async tx => {
+    if (++arrived === 2) release();
+    await simultaneousTransactions;
+    await tx`INSERT INTO incus_fenced_cleanup_nonce_claims (nonce,action,binding_id,operation_id,receipt_sha256)
+      VALUES ('competing-nonce','abort',${binding},${operation},${binding}) ON CONFLICT (nonce) DO NOTHING`;
+    const rows = await tx`SELECT binding_id,operation_id,receipt_sha256 FROM incus_fenced_cleanup_nonce_claims
+      WHERE nonce='competing-nonce' FOR UPDATE`;
+    if (rows[0]?.binding_id !== binding || rows[0]?.operation_id !== operation || rows[0]?.receipt_sha256 !== binding) {
+      throw new Error("nonce already consumed by another binding");
+    }
+    return binding;
+  });
+  const results = await Promise.allSettled([claim("claim-a", "operation-a"), claim("claim-b", "operation-b")]);
+  expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
+  expect(results.filter(result => result.status === "rejected")).toHaveLength(1);
+  expect(await client`SELECT nonce FROM incus_fenced_cleanup_nonce_claims WHERE nonce='competing-nonce'`).toHaveLength(1);
+}, 30_000);

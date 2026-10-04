@@ -3,7 +3,7 @@ import { canonicalJson, sandboxPresetDigest } from "@ezcorp/extension-contract";
 import { DatabaseLifecycleRepository } from "../db/queries/extension-releases";
 import { eq, sql } from "drizzle-orm";
 import type { Database, DbTransaction } from "../db/connection";
-import { incusFencedCleanupRecoveries, incusQualificationFixtures, projects,
+import { incusFencedCleanupRecoveries, incusFencedCleanupNonceClaims, incusFencedCleanupAborts, incusQualificationFixtures, projects,
   projectWorkspaceBindings, providerConnections, sandboxBindings, sandboxOperations, sandboxReservations } from "../db/schema";
 import { operationPayloadHash } from "../sandboxes/controller";
 import { ProviderConnectionStore } from "./provider-connections/store";
@@ -104,7 +104,7 @@ type CleanupOperation = typeof sandboxOperations.$inferSelect;
 
 /** Bind the signed proof to the exact retained qualification resource. */
 function requireCleanupFixture(binding: CleanupBinding | undefined,
-  fixture: CleanupFixture | undefined, p: FencedCleanupPayload):
+  fixture: CleanupFixture | undefined, p: Pick<FencedCleanupPayload, "fixtureOperationId" | "bindingId" | "scope" | "connectionRevision" | "generation" | "operationId" | "presetDigest" | "effectiveSettingsDigest">):
   { binding: CleanupBinding; fixture: CleanupFixture } {
   requireFact(binding && fixture && fixture.bindingId === p.bindingId
       && fixture.installationId === p.scope.installationId && fixture.releaseId === p.scope.releaseId
@@ -151,8 +151,10 @@ export async function applyFencedCleanupRecovery(db: Database, receipt: FencedCl
     const [existing] = await tx.select().from(incusFencedCleanupRecoveries).where(eq(incusFencedCleanupRecoveries.operationId, p.operationId));
     if (existing) {
       requireFact(existing.receiptSha256 === receiptSha256, "recovery receipt changed");
+      await claimFencedCleanupNonce(tx, p.nonce, "recovery", p.bindingId, p.operationId, receiptSha256);
       return existing.cleanupOperationId;
     }
+    await claimFencedCleanupNonce(tx, p.nonce, "recovery", p.bindingId, p.operationId, receiptSha256);
     const [savedFixture] = await tx.select().from(incusQualificationFixtures).where(eq(incusQualificationFixtures.operationId, p.fixtureOperationId)).for("update");
     const { binding, fixture } = requireCleanupFixture(savedBinding, savedFixture, p);
     const [project] = await tx.select().from(projects).where(eq(projects.id, binding.projectId)).for("update");
@@ -183,5 +185,162 @@ export async function applyFencedCleanupRecovery(db: Database, receipt: FencedCl
     await tx.update(sandboxReservations).set({ cleanupIntentId: `incus-qualification-destroy-${p.fixtureOperationId}`,
       cleanupRequestedAt: new Date(now), updatedAt: new Date(now) }).where(eq(sandboxReservations.bindingId, p.bindingId));
     return cleanupId;
+  });
+}
+
+
+export type FencedCleanupOriginalRequest = Pick<FencedCleanupPayload, "version" | "action" | "nonce" | "reviewId" | "scope" | "fixtureOperationId" | "bindingId" | "operationId" | "generation" | "connectionRevision" | "allClientsFenced" | "fenceEvidence"> & { deadlineMs: number };
+export type FencedCleanupAbortPayload = {
+  version: 1; action: "abort-fenced-cleanup-before-admission";
+  originalRequest: FencedCleanupOriginalRequest;
+  pins: import("./incus-fenced-cleanup-observer").FencedCleanupPins;
+  requestSha256: string; holdSha256: string; issuedAtMs: number; expiresAtMs: number;
+};
+export type FencedCleanupAbortReceipt = { payload: FencedCleanupAbortPayload; signature: string };
+export type FencedCleanupAbortProof = { abortId: string; nonce: string; requestSha256: string; holdSha256: string; receiptSha256: string };
+
+function recoveryDigest(value: unknown): string {
+  return createHash("sha256").update(canonicalRecoveryJson(value)).digest("hex");
+}
+
+/** A portable unique row protects the nonce even when bindings differ. */
+async function claimFencedCleanupNonce(tx: DbTransaction, nonce: string, action: "abort" | "recovery",
+  bindingId: string, operationId: string, receiptSha256: string): Promise<void> {
+  const [legacy] = await tx.select().from(incusFencedCleanupRecoveries).where(eq(incusFencedCleanupRecoveries.nonce, nonce));
+  requireFact(!legacy || (action === "recovery" && legacy.bindingId === bindingId
+    && legacy.operationId === operationId && legacy.receiptSha256 === receiptSha256), "nonce already consumed by recovery");
+  await tx.insert(incusFencedCleanupNonceClaims).values({ nonce, action, bindingId, operationId, receiptSha256 }).onConflictDoNothing();
+  const [claim] = await tx.select().from(incusFencedCleanupNonceClaims).where(eq(incusFencedCleanupNonceClaims.nonce, nonce)).for("update");
+  requireFact(claim && claim.action === action && claim.bindingId === bindingId
+    && claim.operationId === operationId && claim.receiptSha256 === receiptSha256, "nonce already consumed or changed");
+}
+
+function verifyAbortRequest(p: FencedCleanupAbortPayload): void {
+  const r = p.originalRequest;
+  requireFact(r && Object.keys(r).sort().join() === "action,allClientsFenced,bindingId,connectionRevision,deadlineMs,fenceEvidence,fixtureOperationId,generation,nonce,operationId,reviewId,scope,version"
+    && r.version === 1 && r.action === "recover-fenced-cleanup"
+    && Object.keys(r.scope ?? {}).sort().join() === "connectionId,installationId,presetId,releaseId"
+    && [r.nonce, r.reviewId, r.bindingId, r.operationId, r.fixtureOperationId, ...Object.values(r.scope)].every(v => typeof v === "string" && v.length > 0 && v.length <= 256)
+    && [r.generation, r.connectionRevision].every(v => Number.isSafeInteger(v) && v > 0)
+    && Number.isSafeInteger(r.deadlineMs) && r.allClientsFenced === true
+    && typeof r.fenceEvidence === "string" && r.fenceEvidence.length >= 8 && r.fenceEvidence.length <= 512,
+  "abort original request changed");
+  requireFact(p.requestSha256 === recoveryDigest(r)
+    && p.holdSha256 === createHash("sha256").update(canonicalRecoveryJson({ nonce: r.nonce, reviewId: r.reviewId }) + "\n").digest("hex"), "abort request or hold hash changed");
+}
+
+function verifyAbortPins(p: FencedCleanupAbortPayload): void {
+  const pins = p.pins;
+  requireFact(pins && Object.keys(pins).sort().join() === "effectiveSettingsDigest,endpoint,grantsDigest,helperVersion,imageFingerprint,installationGeneration,nativeOperationId,operationTag,payloadHash,presetDigest,project,providerOperationId,releaseDigest,serverCertificateSha256"
+    && [pins.effectiveSettingsDigest, pins.grantsDigest, pins.imageFingerprint, pins.payloadHash, pins.presetDigest, pins.releaseDigest, pins.serverCertificateSha256].every(v => /^[a-f0-9]{64}$/.test(v))
+    && Number.isSafeInteger(pins.installationGeneration) && pins.installationGeneration > 0
+    && typeof pins.endpoint === "string" && pins.endpoint.startsWith("https://")
+    && typeof pins.helperVersion === "string" && pins.helperVersion.length > 0
+    && /^[a-z][a-z0-9-]{0,62}$/.test(pins.project) && pins.project !== "default"
+    && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(pins.nativeOperationId)
+    && pins.providerOperationId === `incus-setPower-${pins.nativeOperationId}`
+    && /^ezh-setPower-[a-f0-9]{32}-[a-f0-9]{32}$/.test(pins.operationTag), "abort pins changed");
+}
+
+export function verifyFencedCleanupAbortReceipt(receipt: FencedCleanupAbortReceipt, publicKeyPem: string): FencedCleanupAbortPayload {
+  const p = receipt?.payload;
+  requireFact(p?.version === 1 && p.action === "abort-fenced-cleanup-before-admission"
+    && Object.keys(p).sort().join() === "action,expiresAtMs,holdSha256,issuedAtMs,originalRequest,pins,requestSha256,version",
+  "abort fields changed");
+  verifyAbortRequest(p); verifyAbortPins(p);
+  requireFact([p.issuedAtMs, p.expiresAtMs].every(Number.isSafeInteger)
+    && p.expiresAtMs > p.issuedAtMs && p.expiresAtMs - p.issuedAtMs <= 30_000, "abort expiry interval changed");
+  const signature = Buffer.from(receipt.signature ?? "", "base64");
+  requireFact(signature.length === 64 && verify(null, Buffer.from(canonicalRecoveryJson(p)), publicKeyPem, signature), "abort signature changed");
+  return p;
+}
+
+function abortProof(row: typeof incusFencedCleanupAborts.$inferSelect): FencedCleanupAbortProof {
+  return { abortId: row.id, nonce: row.nonce, requestSha256: row.requestSha256,
+    holdSha256: row.holdSha256, receiptSha256: row.receiptSha256 };
+}
+
+function requireAbortOriginal(operations: CleanupOperation[], binding: CleanupBinding, p: FencedCleanupAbortPayload): void {
+  const r = p.originalRequest;
+  const original = operations.find(o => o.id === r.operationId);
+  requireFact(original && ["START", "STOP"].includes(original.kind) && original.state === "OUTCOME_UNKNOWN"
+    && binding.desiredState === (original.kind === "START" ? "RUNNING" : "STOPPED")
+    && original.generation === r.generation && original.providerOperationId === p.pins.providerOperationId
+    && original.payloadHash === p.pins.payloadHash && original.idempotencyScope === "incus-qualification-power"
+    && original.idempotencyKey.startsWith(`${r.fixtureOperationId}:`)
+    && operationPayloadHash({ bindingId: r.bindingId, kind: original.kind, generation: r.generation,
+      idempotencyScope: original.idempotencyScope, idempotencyKey: original.idempotencyKey,
+      payload: original.requestPayload }) === p.pins.payloadHash
+    && !operations.some(o => o.kind === "DESTROY")
+    && operations.filter(o => ["JOURNALED", "DISPATCHING", "PROVIDER_PENDING", "OUTCOME_UNKNOWN"].includes(o.state)).length === 1,
+  "abort original operation changed or cleanup admitted");
+}
+
+/** Close only the failed request. No original outcome, resource or reservation changes. */
+export async function applyFencedCleanupAbort(db: Database, receipt: FencedCleanupAbortReceipt,
+  publicKeyPem: string, now = Date.now()): Promise<FencedCleanupAbortProof> {
+  const p = verifyFencedCleanupAbortReceipt(receipt, publicKeyPem);
+  const r = p.originalRequest; const receiptSha256 = recoveryDigest(receipt);
+  return db.transaction(async (tx: DbTransaction) => {
+    await requireFencedCleanupAuthority(tx, { ...r, ...p.pins });
+    const [binding] = await tx.select().from(sandboxBindings).where(eq(sandboxBindings.id, r.bindingId)).for("update");
+    await claimFencedCleanupNonce(tx, r.nonce, "abort", r.bindingId, r.operationId, receiptSha256);
+    const [existing] = await tx.select().from(incusFencedCleanupAborts).where(eq(incusFencedCleanupAborts.nonce, r.nonce));
+    if (existing) return abortProof(existing);
+    requireFact(p.issuedAtMs <= now && now < p.expiresAtMs, "abort authorization expired or future");
+    await requireUncommittedAbortTarget(tx, p, binding);
+    requireFact(Date.now() < p.expiresAtMs, "abort expired before commit");
+    const [saved] = await tx.insert(incusFencedCleanupAborts).values({ id: randomUUID(), nonce: r.nonce,
+      operationId: r.operationId, bindingId: r.bindingId, requestSha256: p.requestSha256,
+      holdSha256: p.holdSha256, receiptSha256, receipt: receipt as unknown as Record<string, unknown> }).returning();
+    return abortProof(saved!);
+  });
+}
+
+
+
+/** Negative admission proof never asserts an outcome for the backend RPC. */
+async function requireUncommittedAbortTarget(tx: DbTransaction, p: FencedCleanupAbortPayload,
+  binding: CleanupBinding | undefined): Promise<void> {
+  const r = p.originalRequest;
+  const [recovery] = await tx.select().from(incusFencedCleanupRecoveries).where(eq(incusFencedCleanupRecoveries.bindingId, r.bindingId));
+  requireFact(!recovery, "abort cleanup already admitted");
+  const [fixture] = await tx.select().from(incusQualificationFixtures).where(eq(incusQualificationFixtures.operationId, r.fixtureOperationId)).for("update");
+  const valid = requireCleanupFixture(binding, fixture, { ...r, ...p.pins });
+  const operations = await tx.select().from(sandboxOperations).where(eq(sandboxOperations.bindingId, r.bindingId));
+  requireAbortOriginal(operations, valid.binding, p);
+}
+
+export type FencedCleanupAbortInspection = FencedCleanupAbortProof | {
+  status: "uncommitted"; nonce: string; requestSha256: string; holdSha256: string; receiptSha256: string;
+};
+
+function requireCommittedAbortProof(saved: typeof incusFencedCleanupAborts.$inferSelect,
+  p: FencedCleanupAbortPayload, receiptSha256: string): FencedCleanupAbortProof {
+  requireFact(saved.operationId === p.originalRequest.operationId && saved.bindingId === p.originalRequest.bindingId
+    && saved.requestSha256 === p.requestSha256 && saved.holdSha256 === p.holdSha256
+    && saved.receiptSha256 === receiptSha256, "committed abort proof changed");
+  return abortProof(saved);
+}
+
+/** Only the explicit uncommitted result permits a separately reviewed renewal.
+ * Signature verification remains required after expiry; inspection adds no authority. */
+export async function inspectFencedCleanupAbort(db: Database, receipt: FencedCleanupAbortReceipt,
+  publicKeyPem: string): Promise<FencedCleanupAbortInspection> {
+  const p = verifyFencedCleanupAbortReceipt(receipt, publicKeyPem);
+  const receiptSha256 = recoveryDigest(receipt), r = p.originalRequest;
+  const [saved] = await db.select().from(incusFencedCleanupAborts).where(eq(incusFencedCleanupAborts.nonce, r.nonce));
+  if (saved) return requireCommittedAbortProof(saved, p, receiptSha256);
+  return db.transaction(async (tx: DbTransaction) => {
+    await requireFencedCleanupAuthority(tx, { ...r, ...p.pins });
+    const [binding] = await tx.select().from(sandboxBindings).where(eq(sandboxBindings.id, r.bindingId)).for("update");
+    const [committed] = await tx.select().from(incusFencedCleanupAborts).where(eq(incusFencedCleanupAborts.nonce, r.nonce));
+    if (committed) return requireCommittedAbortProof(committed, p, receiptSha256);
+    const [claim] = await tx.select().from(incusFencedCleanupNonceClaims).where(eq(incusFencedCleanupNonceClaims.nonce, r.nonce)).for("update");
+    const [legacy] = await tx.select().from(incusFencedCleanupRecoveries).where(eq(incusFencedCleanupRecoveries.nonce, r.nonce));
+    requireFact(!claim && !legacy, "abort nonce already claimed or recovery admitted");
+    await requireUncommittedAbortTarget(tx, p, binding);
+    return { status: "uncommitted" as const, nonce: r.nonce, requestSha256: p.requestSha256,
+      holdSha256: p.holdSha256, receiptSha256 };
   });
 }
