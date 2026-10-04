@@ -583,8 +583,9 @@ test("actual Python abort signer and hold archive compose with production Bun CL
     bindingId: originalRequest.bindingId, operationId: originalRequest.operationId,
     generation: originalRequest.generation, connectionRevision: originalRequest.connectionRevision };
   writeFileSync(sealedPath, JSON.stringify({ version: 1, action: "recover-fenced-cleanup", target, pins }), { mode: 0o600 });
-  const python = `import hashlib, importlib.util, json, os, sys
+  const python = `import hashlib, importlib.util, json, os, subprocess, sys
 from pathlib import Path
+from unittest import mock
 source, root, bun, cli = map(Path, sys.argv[1:5])
 spec = importlib.util.spec_from_file_location('supervisor', source)
 m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
@@ -593,6 +594,13 @@ original = json.loads(original_file.read_text())
 s = m.Supervisor(str(root/'unused.sock'), ['must-not-start'], os.getuid(), os.getgid(), root/'supervisor-key.pem', ['true'], ['true'], enforce_distinct_uid=False)
 s.recovery_request_path=original_file
 s.recovery_abort_command=[str(bun),str(cli)]
+s.abort_offline=True
+units=['supervisor.service','runner.service','user@65003.service']
+stopped=('\\n\\n'.join('Id='+unit+'\\nActiveState=inactive\\nSubState=dead\\nMainPID=0' for unit in units)+'\\n').encode()
+def guard():
+ with mock.patch.object(m.subprocess,'run',return_value=subprocess.CompletedProcess([],0,stdout=stopped,stderr=b'')), mock.patch.object(m.Path,'iterdir',return_value=iter([])):
+  s.assert_abort_actors_stopped(units,65003)
+s.abort_stopped_guard=guard
 s.set_recovery_hold(original)
 request={'version':1,'action':'abort-fenced-cleanup-before-admission','originalRequest':original,
  'requestFileSha256':hashlib.sha256(original_file.read_bytes()).hexdigest(),
