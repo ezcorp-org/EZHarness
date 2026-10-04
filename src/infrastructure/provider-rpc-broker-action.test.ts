@@ -389,3 +389,136 @@ test("tombstoned linked STOP dispatch and readback require fresh persisted recov
   expect(await broker.request(readback, { command: readback.expectedCommand }, base.rpcDeadlineMs)).toMatchObject({ ok: false, error: { kind: "permission" } });
   expect(calls).toHaveLength(4);
 });
+
+async function observationFixture() {
+  const fixture = await setup();
+  const now = Date.UTC(2026, 9, 4, 17);
+  const actions: PreparedIncusAction[] = [];
+  const add = async (index: number, age = 0, recovery = false) => {
+    const bindingId = `observation-${index}`;
+    const id = `observation-journal-${index}`;
+    const [original] = await fixture.db.select().from(schema.sandboxBindings).where(eq(schema.sandboxBindings.id, "binding"));
+    await fixture.db.insert(schema.projects).values({ id: bindingId, name: bindingId, path: `/work/${bindingId}` });
+    const [binding] = await fixture.db.insert(schema.sandboxBindings).values({ ...original!, id: bindingId, projectId: bindingId,
+      resourceKey: bindingId, currentOperationId: id, desiredState: recovery ? "ABSENT" : "STOPPED",
+      observedState: "UNKNOWN", tombstonedAt: recovery ? new Date(now) : null }).returning();
+    const payload = recovery ? { expectedGeneration: 1 } : { profile: binding!.profile, presetId: binding!.presetId,
+      presetDigest: binding!.presetDigest, effectiveSettingsDigest: binding!.effectiveSettingsDigest, desiredState: "stopped" };
+    await fixture.db.insert(schema.sandboxOperations).values({ id, bindingId, generation: 1,
+      kind: recovery ? "DESTROY" : "CREATE", state: "DISPATCHING", idempotencyScope: recovery ? "incus-qualification" : "feature",
+      idempotencyKey: recovery ? `qual-recovery-${id}:destroy` : id, payloadHash: "observer-hash",
+      requestPayload: payload, createdAt: new Date(now - age) });
+    const input = { providerId: "incus", connectionId: "connection", sandboxId: bindingId,
+      requestId: id, idempotencyKey: id, rpcDeadlineMs: Date.now() + 30_000, ...payload };
+    const action = fixture.scope(recovery ? "lifecycle.destroy" : "lifecycle.create", input);
+    const { id: capturedId, projectId, providerInstallationId, providerReleaseId, connectionId,
+      connectionRevision, resourceKey, generation, currentOperationId, desiredState, tombstonedAt } = binding!;
+    const prepared: PreparedIncusAction = { ...action, bindingId, projectId: bindingId, resourceKey: bindingId, hostContractMinor: 1,
+      approvedGuest: undefined, settlementScope: { id: capturedId, projectId, providerInstallationId, providerReleaseId,
+        connectionId, connectionRevision, resourceKey, generation, currentOperationId, desiredState, tombstonedAt,
+        kind: recovery ? "DESTROY" : "CREATE", payloadHash: "observer-hash" } };
+    actions.push(prepared);
+    return prepared;
+  };
+  return { ...fixture, now, add, actions };
+}
+
+function pendingUntilAbort(signal: AbortSignal | undefined, entered: () => void): Promise<unknown> {
+  entered();
+  return new Promise(resolve => {
+    if (signal?.aborted) resolve({ ok: false });
+    else signal?.addEventListener("abort", () => resolve({ ok: false }), { once: true });
+  });
+}
+
+test("host observer capacity is reserved before effects and shutdown drains all accepted dispatches", async () => {
+  const fixture = await observationFixture();
+  let effects = 0;
+  let entered!: () => void;
+  const broker = new ProviderRpcBroker(fixture.connections, undefined, fixture.db,
+    (_scope, signal) => ({ request: () => pendingUntilAbort(signal, () => { effects++; entered(); }) }), undefined,
+    { now: () => fixture.now, resolveActiveRelease: async () => { throw new Error("No native acceptance yet"); } });
+  const calls: Promise<unknown>[] = [];
+  for (let index = 0; index < 32; index++) {
+    const action = await fixture.add(index);
+    const ready = new Promise<void>(resolve => { entered = resolve; });
+    calls.push(broker.request(action, { command: action.expectedCommand }, action.expectedCommand.deadlineMs));
+    await ready;
+  }
+  const refused = await fixture.add(32);
+  expect(await broker.request(refused, { command: refused.expectedCommand }, refused.expectedCommand.deadlineMs))
+    .toMatchObject({ ok: false, error: { kind: "unavailable" } });
+  expect(effects).toBe(32);
+  await broker.stopObservations();
+  await Promise.all(calls);
+  expect(await broker.request(refused, { command: refused.expectedCommand }, refused.expectedCommand.deadlineMs))
+    .toMatchObject({ ok: false, error: { kind: "unavailable" } });
+  const afterStop = await fixture.add(33);
+  expect(await broker.request(afterStop, { command: afterStop.expectedCommand }, afterStop.expectedCommand.deadlineMs))
+    .toMatchObject({ ok: false, error: { kind: "unavailable" } });
+  expect(effects).toBe(32);
+  expect((await fixture.db.select().from(schema.sandboxOperations)).every(row => row.state === "DISPATCHING")).toBe(true);
+});
+
+test("observer budget is absolute from journal creation and never resets on a new host", async () => {
+  const fixture = await observationFixture();
+  const expired = await fixture.add(0, 600_000);
+  let effects = 0;
+  const broker = new ProviderRpcBroker(fixture.connections, undefined, fixture.db,
+    () => ({ request: async () => { effects++; return { ok: true }; } }), undefined,
+    { now: () => fixture.now, resolveActiveRelease: async () => { throw new Error("Expired journal must not resolve"); } });
+  expect(await broker.request(expired, { command: expired.expectedCommand }, expired.expectedCommand.deadlineMs))
+    .toMatchObject({ ok: false, error: { kind: "unavailable" } });
+  await fixture.db.update(schema.sandboxOperations).set({ providerOperationId: "incus-create-11111111-1111-4111-8111-111111111111", state: "OUTCOME_UNKNOWN" });
+  await broker.resumePendingObservations();
+  expect(effects).toBe(0);
+  expect((await fixture.db.select().from(schema.sandboxOperations))[0]?.state).toBe("OUTCOME_UNKNOWN");
+  await broker.stopObservations();
+});
+
+test("an accepted observer refreshes authority independently and revoked release preserves the journal", async () => {
+  const fixture = await observationFixture();
+  const action = await fixture.add(0);
+  const nativeId = "incus-create-11111111-1111-4111-8111-111111111111";
+  let writes = 0;
+  let reads = 0;
+  let authorityChecks = 0;
+  const broker = new ProviderRpcBroker(fixture.connections, undefined, fixture.db,
+    (_scope, _signal, accepted, _terminal, observing) => ({ request: async () => {
+      if (observing) { reads++; throw new Error("Revocation must precede read"); }
+      writes++;
+      await accepted!(nativeId);
+      return { ok: true, receipt: { operationId: nativeId } };
+    } }), undefined,
+    { now: () => fixture.now, resolveActiveRelease: async () => { authorityChecks++; throw new Error("Release revoked"); } });
+  const first = await broker.request(action, { command: action.expectedCommand }, action.expectedCommand.deadlineMs);
+  expect(await broker.request(action, { command: action.expectedCommand }, action.expectedCommand.deadlineMs)).toEqual(first);
+  await broker.awaitObservation(action.expectedCommand.idempotency!.requestId);
+  expect({ writes, reads, authorityChecks }).toEqual({ writes: 1, reads: 0, authorityChecks: 1 });
+  expect((await fixture.db.select().from(schema.sandboxOperations))[0]).toMatchObject({ state: "DISPATCHING", providerOperationId: nativeId });
+  await broker.stopObservations();
+});
+
+test("only the exact operator recovery DESTROY is excluded from independent observers", async () => {
+  const fixture = await observationFixture();
+  const action = await fixture.add(0, 600_001, true);
+  const nearMiss = await fixture.add(1, 600_001, true);
+  await fixture.db.update(schema.sandboxOperations).set({ idempotencyScope: "feature" })
+    .where(eq(schema.sandboxOperations.id, nearMiss.expectedCommand.idempotency!.requestId));
+  let effects = 0;
+  let reads = 0;
+  const nativeId = "incus-destroy-11111111-1111-4111-8111-111111111111";
+  const broker = new ProviderRpcBroker(fixture.connections, undefined, fixture.db,
+    (_scope, _signal, accepted) => ({ request: async () => { effects++; await accepted!(nativeId); return { ok: true }; } }), undefined,
+    { now: () => fixture.now, resolveActiveRelease: async () => { reads++; throw new Error("Fault observer must remain excluded"); } });
+  expect(await broker.request(action, { command: action.expectedCommand }, action.expectedCommand.deadlineMs)).toMatchObject({ ok: true });
+  expect(await broker.request(nearMiss, { command: nearMiss.expectedCommand }, nearMiss.expectedCommand.deadlineMs))
+    .toMatchObject({ ok: false, error: { kind: "unavailable" } });
+  await broker.resumePendingObservations();
+  await broker.awaitObservation(action.expectedCommand.idempotency!.requestId);
+  expect({ effects, reads }).toEqual({ effects: 1, reads: 0 });
+  expect((await fixture.db.select().from(schema.sandboxOperations)
+    .where(eq(schema.sandboxOperations.id, action.expectedCommand.idempotency!.requestId)))[0])
+    .toMatchObject({ state: "DISPATCHING", providerOperationId: nativeId });
+  await broker.stopObservations();
+});
