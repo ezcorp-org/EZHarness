@@ -614,9 +614,10 @@ m.Supervisor(sys.argv[2],[sys.executable,'-c','raise SystemExit(7)'],
             (root / "request.json").write_text(json.dumps(request))
             (root / "fault.json").write_text(json.dumps({
                 "runId": "run", "nonce": "nonce", "deadlineMs": int(time.time()*1000)+20000,
-                "scope": request["scope"], "fixtureOperationId": "fixture", "bindingId": "binding",
+                "scope": request["scope"], "fixtureOperationId": "qual-recovery-run",
+                "bindingId": "recovery-binding",
                 "destroyOperationId": "e3a94f88-c426-4bc3-8cd3-263681049a1b",
-                "generation": 3, "providerGeneration": 2, "connectionRevision": 2}))
+                "generation": 1, "providerGeneration": 2, "connectionRevision": 2}))
             (root / "hold-restart").write_text("1")
             # Production constructor rejects a shared app/operator UID.
             with self.assertRaisesRegex(RuntimeError, "distinct UIDs"):
@@ -671,7 +672,7 @@ supervisor.serve()
                 self.assertEqual(wait_file(root / "fault-arm.json"), {"authorized": True})
                 self.assertEqual(wait_file(root / "fault-same-arm.json"), {"authorized": True})
                 self.assertEqual(wait_file(root / "fault-changed-arm.json"),
-                                 {"error": "fault claim mismatch"})
+                                 {"error": "different fault already armed"})
                 self.assertEqual(wait_file(root / "fault-readback.json"), {"authorized": True})
                 public = subprocess.run(["openssl", "pkey", "-in", str(key), "-pubout"],
                                         check=True, capture_output=True).stdout

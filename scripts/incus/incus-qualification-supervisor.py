@@ -475,11 +475,13 @@ class Supervisor:
         original = claimed["request"]
         if arm["runId"] != original["runId"] or arm["nonce"] != original["nonce"] \
                 or arm["scope"] != original["scope"] \
-                or arm["fixtureOperationId"] != original["fixtureOperationId"] \
-                or arm["bindingId"] != original["bindingId"] \
-                or arm["generation"] != original["generation"] \
+                or arm["fixtureOperationId"] != f"qual-recovery-{original['runId']}" \
+                or arm["bindingId"] == original["bindingId"] \
                 or arm["connectionRevision"] != original["connectionRevision"]:
             raise ValueError("fault claim mismatch")
+        # Cleanup uses a new fixture, not the stopped restart fixture. The app
+        # checkpoint binds its exact database identity; the independent verifier
+        # below checks the supplied binding and provider generation on Incus.
         arm_bytes = canonical(arm)
         if self.fault_armed is not None and arm_bytes != self.fault_armed:
             raise ValueError("different fault already armed")

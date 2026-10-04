@@ -32,10 +32,10 @@ def request():
 def arm(restart):
     return {"runId": restart["runId"], "nonce": restart["nonce"],
             "deadlineMs": int(time.time()*1000)+20000, "scope": restart["scope"],
-            "fixtureOperationId": restart["fixtureOperationId"],
-            "bindingId": restart["bindingId"],
+            "fixtureOperationId": f"qual-recovery-{restart['runId']}",
+            "bindingId": "recovery-binding",
             "destroyOperationId": "e3a94f88-c426-4bc3-8cd3-263681049a1b",
-            "generation": restart["generation"], "providerGeneration": 2,
+            "generation": 1, "providerGeneration": 2,
             "connectionRevision": restart["connectionRevision"]}
 
 
@@ -111,7 +111,9 @@ class FaultSupervisorTest(unittest.TestCase):
     def test_cross_run_scope_and_deadline_are_rejected_before_verifier(self):
         self.supervisor.fault_authority_command = ["verifier"]
         changed = [{**self.arm, "runId": "another"},
-                   {**self.arm, "bindingId": "user-binding"},
+                   {**self.arm, "fixtureOperationId": self.restart["fixtureOperationId"]},
+                   {**self.arm, "fixtureOperationId": "qual-recovery-another"},
+                   {**self.arm, "bindingId": self.restart["bindingId"]},
                    {**self.arm, "scope": {**SCOPE, "connectionId": "another"}},
                    {**self.arm, "deadlineMs": int(time.time()*1000)+40000},
                    {**self.arm, "providerGeneration": True}]
@@ -121,6 +123,19 @@ class FaultSupervisorTest(unittest.TestCase):
                     self.supervisor.fault({"version": 1, "action": "fault",
                         "phase": "arm", "arm": value})
             verifier.assert_not_called()
+
+    def test_recovery_binding_still_requires_independent_backend_approval(self):
+        self.supervisor.fault_authority_command = ["verifier"]
+        denied = subprocess.CompletedProcess([], 1, stdout=b"")
+        with mock.patch.object(MODULE.subprocess, "run", return_value=denied) as verifier:
+            with self.assertRaisesRegex(ValueError, "independent fault readback rejected"):
+                self.supervisor.fault({"version": 1, "action": "fault", "phase": "arm",
+                    "arm": {**self.arm, "bindingId": "unowned-binding", "generation": 99}})
+            verifier.assert_called_once()
+            sent = json.loads(verifier.call_args.kwargs["input"])
+            self.assertEqual(sent["arm"]["bindingId"], "unowned-binding")
+            self.assertEqual(sent["arm"]["generation"], 99)
+        self.assertIsNone(self.supervisor.fault_armed)
 
 
 if __name__ == "__main__":
