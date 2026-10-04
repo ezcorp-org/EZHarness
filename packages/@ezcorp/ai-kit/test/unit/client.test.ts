@@ -32,7 +32,7 @@ describe("EzcorpClient — auth + errors", () => {
   test("rejects malformed health and identity response envelopes", async () => {
     const malformed = new EzcorpClient({
       baseUrl: "http://stub.invalid",
-      fetch: (async (input) =>
+      fetch: (async (input: unknown) =>
         Response.json(
           String(input).endsWith("/api/health") ? { ok: true } : { id: "unwrapped" },
         )) as unknown as typeof fetch,
