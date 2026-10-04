@@ -26,10 +26,17 @@ function certificateSubject(xfcc) { return /Subject="CN=([^,"]+)"/.exec(xfcc)?.[
 function certificateHash(xfcc) { return /(?:^|;)Hash=([a-f0-9]{64})(?:;|$)/.exec(xfcc)?.[1]; }
 
 /**
+ * @typedef {{ readonly schemaVersion?: "factory.temporal-revocations.v1", readonly subjects: readonly string[], readonly certificateHashes: readonly string[], readonly tokenIds: readonly string[] }} Revocations
+ * A list read from a file carries its schemaVersion; the empty list for "no path configured" does not.
+ */
+
+/**
  * The fleet's revocation list, read on EVERY request so a revocation is
  * immediate. A list that exists but cannot be read or parsed denies
  * everything: a revocation that silently stopped applying is worse than an
  * outage. An absent path means no list was configured.
+ * @param {string | undefined} path
+ * @returns {Revocations | null}
  */
 export function readRevocations(path) {
   if (!path) return { subjects: [], certificateHashes: [], tokenIds: [] };
@@ -44,7 +51,13 @@ function revokedCertificate(revocations, certificate, hash) {
   return revocations.subjects.includes(certificate) || Boolean(hash && revocations.certificateHashes.includes(hash));
 }
 
-/** The gRPC route: the certificate and the presented token must name the same subject, with its namespace's admin permission. */
+/**
+ * The gRPC route: the certificate and the presented token must name the same subject, with its namespace's admin permission.
+ * A `null` list is one that exists but cannot be read, and denies everything.
+ * @param {Headers} headers
+ * @param {Revocations | null} [revocations]
+ * @returns {boolean}
+ */
 export function authorize(headers, revocations = { subjects: [], certificateHashes: [], tokenIds: [] }) {
   if (revocations === null) return false;
   const token = headers.get("authorization")?.replace(/^Bearer\s+/i, "");
