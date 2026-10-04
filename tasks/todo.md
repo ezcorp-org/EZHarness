@@ -1,5 +1,8 @@
 # Active completion — 3 October 2026
 
+Current execution checklist: **October 4, 13:36 UTC — approved release execution**
+below. Earlier sections are historical checkpoints, not current open-task lists.
+
 ## Latest verified state — 4 October, 00:20 UTC
 
 - [x] Pass the complete `407891196` fast gate, including 27,356 backend, 3,638 web Bun, and 7,719 Vitest tests, lint, types, Svelte and build.
@@ -2352,3 +2355,106 @@ types, lint, hooks, and independent review. The older failure has no retained
 OOM metadata, so its precise cause remains unknown. Root integrated and reviewed
 the exact two-line change. No runtime bundle change is required. Final same-head
 full gates are still pending, not retrospectively green.
+
+### October 4, 13:36 UTC — approved release execution
+
+User approved the exact 0.1.3 release packet and guarded activation sequence.
+The Sol team will execute it without asking for the same approval again.
+
+- [x] Fresh-check the app, pending review, retained guest, and saved evidence.
+- [x] Record exact release approval; prove activation refuses the retained guest. On installed `c2aa96415`, approval returned 200/approved; activation `b5b007a4-6cfe-4e15-bd6b-03cb9b52c37f` failed with `provider_not_drained` before replacement.
+- [x] Stop and dispose of the exported diagnostic guest through the reviewed UI driver; verify terminal cleanup and independent backend absence. STOP `35b82945-c365-47bb-a133-7aafa067a5f0` and DESTROY `d7bc140c-cb58-4931-831e-cd4b83f5db80` succeeded. Root checked the receipt and disposed UI screenshot.
+- [x] Record explicit reservation-release metadata from a stopped database copy. Receipt `3569ebe23b94925758540cd5cd57c620cc3ca1c5c241a46a3b8321a27e69f171` proves exact diagnostic binding absent, compute and disk released, no global pending operations, and no unreleased reservations. Root checked the receipt. Activation also passed the production reservation drain guard.
+- [x] Activate the approved release after drain succeeds. Operation `4e6ca150-b321-4ec4-a627-4d503655d685` is `active`; independent app inspect confirms release `1fd0e129-f000-4b68-8f4a-7720a3101346`, generation 4, and the same approval consumed.
+- [ ] Prepare the actual new connection and server plan.
+- [ ] Review the concrete connection-bound policy/setup changes, then qualify and prove the full native workflow.
+- [ ] Complete the final consecutive lifecycle batch and same-source PR gates.
+
+Plan review: live changes have one owner. Independent policy review and local
+code checks run in separate worktrees. No prior failed receipt is overwritten.
+
+Approval attempt: fresh checks passed, but the normal approval API returned
+`INVALID_QUALIFICATION`: sealed build fixture evidence expired while human
+review was pending. The user approval still authorizes the exact reviewed
+candidate; the application decision remains pending. No activation or cleanup
+ran. Investigate the supported immutable-release evidence path before changing
+anything. Do not edit stored verification, invent timestamps, or weaken current
+live connection qualification. The failed API response is preserved.
+
+Root cause: `checkApproval()` incorrectly applies current expiry to a sealed
+build report. Activation already obtains and checks fresh verification. The
+minimal correction uses the existing integrity mode for the saved report and
+retains current-time checks for fresh activation and live qualification.
+The exact candidate and user approval remain unchanged. The normal API failure
+is reproduced by a five-hour-delay database regression; implementation and
+independent review are in progress.
+
+Resolution, 14:09 UTC: correction `c2aa96415` is installed with verified manifest
+`bce14c5c60ed004e7bce085d1e94fb239862364c399a474b9455d597ac65bde8`.
+Twenty focused tests, the Chromium approval flow, types, lint, and independent
+review passed. The real app accepted the exact approval, then refused activation
+with `provider_not_drained`. Fresh app and server reads show the old active
+release and retained running guest unchanged. The refusal receipt hashes to
+`f6b659d2610c185b00acf14edd411393cbbaa1e97c44d1c127fcb01156239081`.
+Root checked the cleanup config hash and its three changes: current source,
+current manifest, and a fresh preflight path. Historical evidence is unchanged.
+The sole live owner may now run the already authorized diagnostic cleanup.
+This guest earns no full-cycle credit.
+
+The complete fast gate passed at prior source `958b77a30`: 27,416 backend,
+3,638 web Bun, and 7,724 Vitest tests, plus all static checks and build.
+Final combined-source browser, coverage, and hosted gates remain open.
+
+Cleanup driver preflight then failed before any API effect: its proof planner
+required the cookie-file path deliberately omitted from a saved receipt.
+The minimal diagnostic-only amendment reconstructs a non-executable placeholder
+for receipt validation; live execution still requires its private login file.
+The new regression and existing suite pass (25 tests, 157 assertions), with
+strict types. Root reviewed the exact diff and archive hash `cb3914d7...`.
+An offline replay of all actual pinned inputs and independent review must pass
+before the next browser attempt. The original failure remains saved.
+
+### October 4 — complete the new connection before final live proof
+
+- [x] Prepare actual setup `c3290fd7-40c4-4d0e-b618-ad1141a669e0`, plan
+  `26161c66...`, with no server Apply. All 15 current server predicates match.
+- [x] Review final read-only policy. Identify the separate temporary setup
+  policy needed by normal Apply; include both in one concrete review packet.
+- [x] Reproduce unstable setup review identity using production generators and
+  real captured inputs: changing only free disk space by 1 MiB changes the plan
+  digest despite identical commands, recipe, ready status, and sufficient space.
+  Zero free space correctly blocks setup. The old plan remains unapplied.
+- [x] Fix only the setup review fingerprint, keep fresh capacity and all other
+  identity/configuration checks, test and independently review, then install the
+  corrected host bundle. Provider release 0.1.3 remains unchanged.
+- [x] Generate a fresh actual plan and policy; do not rewrite the old plan.
+- [ ] Finish guarded policy/config review, request one combined approval, then
+  use normal setup Apply and verify the new connection.
+- [ ] Run new-scope qualification, full native proof, ten cycles, and final gates.
+
+Current same-bundle stopped snapshot completed and restarted healthy. Open only
+a disposable copy for resolver and accounting checks. No second process may open
+the live database. No server policy or setup approval has been applied.
+
+Review result: source `74cedcf397` is installed, manifest `487d2f72...`.
+All 55 focused tests, types, lint, and independent review passed. Replacement
+setup `129bf7e6...`, connection `5ee601f8...`, plan `263ddc5b...` is ready and
+unapproved. Its 15 steps match the prior plan. The server policy procedure passed
+15 offline tests and independent review. Private AMD verifier files are prepared
+from the production resolver on a disposable database copy; no installation.
+Their independent review and guarded refresh procedure remain open.
+
+The final server procedure is frozen as archive `e15ef84e...`: eighteen offline
+tests and independent review pass. It runs exact setup and capacity Plan/Apply
+under one enforced 240-second budget before installing the final read-only
+policy. Full capacity authority, fixed budgets, digest, and expiry are checked
+before Apply. Both historical capacity connections fail active-provider
+resolution. Only the AMD refresh/restore procedure remains under review before
+the combined packet can be presented. No server writes have run.
+
+Final review: AMD refresh/restore `53091fdb...` and deployment guard snapshot
+`0d37d884...` passed independent review and nine rerun offline tests. Both
+execution procedures are now reviewable. The combined packet contains exact
+pins, ordered normal API actions, fixed capacity, server timed rollback, and
+explicit AMD restore. The original approved release work is complete. A new
+server/config approval is required by the scope of that release packet.

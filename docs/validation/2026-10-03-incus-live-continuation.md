@@ -1,6 +1,6 @@
 # Incus live continuation — 3 October 2026
 
-Current status, 4 October 2026: real provider qualification and normal UI CREATE, START, and Open chat have passed. Native guest file tools, search, shell, and three Python tests have passed. One owned user guest still runs the old image, which lacks Git. The corrected Git image has built successfully; provider 0.1.3 passed all six sealed-build checks and awaits exact human release approval. The terminal supervisor and provider drain fixes pass focused tests, changed-line coverage, and independent review. Their app bundle passed inventory verification, non-root startup, and all six guarded installation steps; the same guest remains running. Full native Git/Compose/retention proof, the ten-cycle run, and final PR gates remain open.
+Current status, 4 October 2026: provider 0.1.3 is active in the isolated app at generation 4. The update correctly refused replacement while the diagnostic guest remained, then succeeded after UI Stop/Dispose and independent confirmation of guest absence. Earlier real qualification, UI CREATE/START/Open chat, native file/search/shell tools, and three Python tests passed on the previous release. The corrected Git image has built successfully. New connection planning and exact server policy review are next. Full native Git/Compose/retention proof on the new image, the ten-cycle run, and final PR gates remain open.
 
 This is a chronological evidence record. Earlier snapshots below describe their observation times, not the current state. It begins with host restoration, Incus transport repair, and continuation of the saved fixture. At the initial snapshot, no new CREATE, START, STOP, DESTROY, marker, or Compose action had been sent. The first inspection's guest process outcome was uncertain; the later inspection succeeded after the transport repair.
 
@@ -374,3 +374,142 @@ Podman file passed twice with 11 tests and 62 assertions; types, lint, hooks, an
 review passed. This demonstrates and corrects the confound without claiming the
 unrecorded historical worker exit was certainly an OOM. The earlier failed gate
 remains failed; final same-head gates remain pending.
+
+## Delayed human approval correction
+
+At 13:36 UTC, the user approved the exact 0.1.3 review packet. Fresh app,
+release, guest, file, canary, and idle-job checks passed. The normal approval
+API then returned HTTP 400 `INVALID_QUALIFICATION`: the saved build report's
+validity ended at 09:01 UTC. Approval remained pending; no activation or cleanup
+ran. The failed response remains recorded.
+
+The defect was `checkApproval()` applying current expiry to immutable build
+evidence before activation could obtain fresh evidence. Commit `c2aa96415`
+uses the existing integrity mode for that saved report. Digest, scope,
+timestamp structure, future timestamps, and required passing cases remain
+checked. New builds, fresh activation verification, and configured live
+qualification still use current-time validity. No stored report, release
+digest, approval scope, or provider source was changed.
+
+Twenty focused database/contract tests passed with 137 assertions, including
+a five-hour review delay and six fresh-evidence denial cases that preserve the
+old active release. The browser human-approval flow, types, lint, hooks, and
+changed-line coverage passed. Independent review approved the exact fix.
+The earlier source `958b77a30` also passed the entire fast gate on its first
+run: 27,416 backend, 3,638 web Bun, and 7,724 Vitest tests. This older-head gate
+is kept distinct from the new fix's focused proof and the final release gates.
+
+The new bundle is source `c2aa964158003da409d71c1117e789d55b70eac0`, manifest
+`bce14c5c60ed004e7bce085d1e94fb239862364c399a474b9455d597ac65bde8`.
+Inventory verification and non-root health 200 passed. Root reviewed the
+constants-only forward installer
+`c05b9134b49ad4eb73e808c1960dc2754bcc8535aec7324fbc2e89762d868808`
+and authorized its guarded execution. The existing user approval remains valid
+for the unchanged provider candidate; no repeated release approval is needed.
+
+All six update steps passed, with exact installed `c2aa96415` source and `bce14c5c`
+manifest readback. The fresh approval/candidate and retained-guest checks passed.
+One normal approval request returned 200/approved. One activation attempt returned
+terminal failure `provider_not_drained`, operation
+`b5b007a4-6cfe-4e15-bd6b-03cb9b52c37f`. This proves the installed drain guard
+refuses replacement before cleanup. The requests and responses were saved;
+there was no repeated activation or substitute release.
+
+## Diagnostic cleanup and proof-script corrections
+
+Fresh app and server readback confirmed the old release, generation 3, and
+retained running guest were unchanged after the refusal. The sanitized receipt
+SHA-256 is `f6b659d2610c185b00acf14edd411393cbbaa1e97c44d1c127fcb01156239081`.
+The cleanup config preserves all historical source and evidence pins. Its only
+changes from the reviewed post-update config are the installed source, manifest,
+and fresh preflight path; its SHA-256 is
+`c5761df30b9c411cddf5d6303d1e694b13b0908cb710e2c8b660c69f8212445c`.
+
+The first cleanup browser attempt stopped before an attempt marker or API effect:
+its receipt validator required a private cookie-file path deliberately omitted
+from saved evidence. Diagnostic archive
+`cb3914d7d10dc18fa5e858212cea80eb64f7276e96bd5ff7c47b40a297039f05`
+reconstructs a receipt-only placeholder inside pure validation. Live execution
+still requires its real private login file. Twenty-five tests, 157 assertions,
+strict types, independent review, and an offline replay of the exact saved
+CREATE, partial-tool, export, config, and canary inputs passed. The failed
+attempt remains preserved. This is diagnostic cleanup, with no full-cycle credit.
+
+Preflight of the later native supplement found a second proof-script mismatch:
+the base fixture allowed one omitted final newline, while the supplement assumed
+canonical file hashes. The reproduced failure is fixed in archive
+`8b45b78fb61a3535bc479b62a23c7e62a3dc603dc8fb0cdf35db81e8fe57891a`.
+It derives expected hashes from one successful, strictly validated saved edit per
+Python file and requires the fresh saved tool feed to match those bytes. The
+independent guest observer and exact hash comparison remain unchanged. Eighteen
+tests, 107 assertions, types, build, and independent review pass. Four additional
+denial checks pass. This artifact has not yet run on the new live guest.
+
+The corrected diagnostic UI run passed once. STOP
+`35b82945-c365-47bb-a133-7aafa067a5f0` and DESTROY
+`d7bc140c-cb58-4931-831e-cd4b83f5db80` both settled as `SUCCEEDED`.
+Binding `31cc88eb-28a6-4627-9750-28c24e339f12` is `ABSENT/ABSENT`,
+tombstoned, and cleanup-confirmed. Independent all-project Incus inventory is
+empty. The complete diagnostic receipt SHA-256 is
+`a0be1c32bfb5e0a9b40a4fb3373b2c12b694d8b8fd3579c53ea70c87e8572aa1`;
+root checked the saved IDs, two requests, terminal state, classification, and
+disposed UI screenshot. This remains diagnostic-only, with no full-cycle credit.
+The activation drain guard must also confirm released reservations. A separate
+explicit accounting readback will use a stopped database copy at the next
+required verifier-configuration restart, never an independent live database reader.
+
+Activation after cleanup succeeded once through the normal API: operation
+`4e6ca150-b321-4ec4-a627-4d503655d685`, state `active`, no diagnostics.
+The collector expected the wrong terminal label (`completed`) and exited 1
+after saving the successful response. No activation was repeated. Independent
+app inspection confirms release `1fd0e129-f000-4b68-8f4a-7720a3101346`
+active at generation 4 and approval `58e2b991-5170-4f74-850e-c3e678506782`
+consumed for the original reviewed digest. Root checked both saved responses:
+activation SHA-256 `32a9934735320b82ba106e693d563f8d257eb5344d6158773ce868dc5206dff6`,
+inspection SHA-256 `70441601689bba09420dd4dca6d06b2c37130a035235d96c00c98673f72a4152`.
+The production drain guard passed before replacement. New connection planning
+and its exact server policy review remain separate from this completed approval.
+
+The reviewed same-bundle stop/copy/restart procedure
+`840b490c3ad60ac247570ac3b1610e9f8624ccd7cd054d8d42f1f39facea976e`
+then passed. With the app stopped and no database holders, it made and verified
+an immutable current baseline and restarted the same app healthy behind the hold.
+Only a distinct disposable clone was opened for accounting. Receipt SHA-256
+`3569ebe23b94925758540cd5cd57c620cc3ca1c5c241a46a3b8321a27e69f171`
+proves the exact diagnostic binding absent and cleanup-confirmed, compute and
+disk reservations both `RELEASED`, no global pending operations, and no
+unreleased reservations. Root checked the receipt. The new setup remains
+planned with no approval; no server policy was changed.
+
+## Stable setup review and replacement connection
+
+Production-generator reproduction showed that a 1 MiB change in sampled free
+disk space invalidated setup review even when all commands and capacity checks
+were unchanged. Correction `74cedcf3970e8d416a43f5b17afc7241f885e89f` removes
+only this volatile sample from the setup review fingerprint. Fresh capacity
+checks still run; insufficient capacity blocks export and Apply, with zero
+runner commands. Host, image, certificate, and resource changes still invalidate
+review. Fifty-five focused tests, types, lint, and independent review passed.
+
+The corrected isolated app is installed with manifest
+`487d2f724006d7dad7180f0e1081258549c4cd10deaf94b2d9ed222ad09008f1`.
+Normal Plan generated setup `129bf7e6-9037-4f52-a09b-6b4b5a112ef4`,
+connection `5ee601f8-b0f2-46d5-b65c-0250e66edd28`, revision 1, digest
+`263ddc5bf0a699675773bd97bc49d6d65bfd5669f5cb3c16dbf5e657e856f926`.
+Its 15 steps exactly match the prior plan. The prior unapproved plan and all
+receipts remain preserved. The replacement is ready, unapproved, and unapplied.
+
+Private verifier files were generated with the production resolver from a
+disposable stopped-database copy. They bind the new connection and active release
+generation 4; credential bytes match the existing credentials. The server policy
+procedure passed 15 offline tests and independent review. The combined
+[connection review](2026-10-04-incus-0.1.3-connection-review.md) is being completed
+with the guarded AMD refresh and capacity step. No new server policy is installed.
+
+The final combined procedure is reviewed. Frozen server archive
+`e15ef84ec6ca4b6c44cee82aaccd5376430cb3348bff1849c255818395dcf7c1`
+passed eighteen offline tests and independent review. Exact AMD refresh/restore
+`53091fdb29abff726df1d50578ce38fc2e73dc214cce90949ad33b0c57e1f7a7`
+passed nine independently rerun tests. Root verified the archive pins and
+script hash. The new server plan, temporary/final policies, capacity Apply, and
+AMD refresh await the separate human review reserved by the release packet.

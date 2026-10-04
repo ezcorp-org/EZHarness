@@ -518,3 +518,16 @@
   keep the independent memory-limit test unchanged.
 - Preserve the first failure. A later controlled reproduction can establish a
   fixture defect without proving the exact cause of an older uninstrumented exit.
+
+## Chained live-proof artifacts — 4 October 2026
+
+- Rehearse each consumer with the actual sanitized receipt its predecessor emits.
+  Execution config contains private paths that saved evidence must omit. A
+  proof-only validator must not require those omitted secrets or weaken the live
+  execution validator.
+- Any accepted fixture variant must survive every later exact-hash check. Derive
+  expected bytes from the validated successful tool payload, then independently
+  verify the guest bytes; do not silently rewrite the guest to fit the checker.
+- Use the operation contract's terminal labels in collectors (`active` for
+  release activation). A collector assertion after a saved successful response
+  does not mean the effect failed. Inspect the saved operation before any retry.

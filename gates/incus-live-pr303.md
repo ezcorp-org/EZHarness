@@ -2,6 +2,19 @@
 
 Scope: Review and apply a plan bound to the pinned provider release on the named sandbox server, prove the EZHarness-to-Incus workflow with the isolated app, and close the PR's code and CI gates without claiming unsupported features.
 
+Latest status, 4 October 2026: provider 0.1.3 is approved and active at generation
+4. The retained diagnostic guest was stopped and disposed through the UI; its
+terminal receipt and independent empty Incus inventory passed. The update first
+refused the retained guest, then passed the production drain guard after cleanup.
+Installed source `74cedcf397` corrects setup review invalidation by sampled free
+disk space, while retaining fresh capacity checks. Its replacement setup
+`129bf7e6-9037-4f52-a09b-6b4b5a112ef4` has a ready plan for real
+connection `5ee601f8-b0f2-46d5-b65c-0250e66edd28`, revision 1, digest
+`263ddc5bf0a699675773bd97bc49d6d65bfd5669f5cb3c16dbf5e657e856f926`.
+That plan has not been approved or applied. New scope-bound policy review and qualification
+remain required. G2–G4 below retain historical, release-specific proofs; they
+do not qualify the new connection. See the [current evidence record](../docs/validation/2026-10-03-incus-live-continuation.md).
+
 Current status, 25 September 2026: provider release 0.1.2 is approved and active at generation 3. The exact setup plan is approved, applied, and read back as verified. The existing evidence does not include a full independent before/after inventory proving unrelated server resources remained unchanged. The 0.1.2 transport can reach Incus, but no recorded negative call proves that its certificate is denied from an unapproved project. G1 and G2 therefore remain open.
 
 Resume status, 3 October 2026: the AMD services were restored and the current database was preserved. The original guest completed inspection, marker write/read, and Compose execution. The same saved STOP settled after the broker repair; one DESTROY settled with released reservations and independently empty inventory. The restricted client passed a real project-object denial check. Separate SP01–SP08 qualification and native project/chat proof remain open. Qualification found a disabled host verifier configuration, missing control fixtures, and a trailing-slash root API error before guest allocation; the wiring and fixtures are now prepared and the API correction has passed live read-only proof. Preserve the existing qualification run ID.
