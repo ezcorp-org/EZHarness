@@ -1058,18 +1058,3 @@ Review: The exact-head browser lanes and full host coverage passed, but the sepa
 Plan review: The hosted Per-file coverage job passed line coverage but failed the touched-function CRAP limit: tick() scored 31 over its limit of 30. The PR also missed a sleep before the first tick and progress just before a delayed tick. Keep kill thresholds unchanged. Move sleep accounting and reason text into small helpers, and prove visible and persisted wording through browser SSE and reload.
 
 Review: A new frozen-clock test failed at the original head when the host slept before the first timer callback. The fix initializes observation time on start and resets it on real progress. A tool timeout that expired during sleep also lost the sleep note; the selected tool reason now keeps precedence and gains the note. The text says sleep *may* have happened, since timer delay alone cannot prove it. Six focused suspension tests, the watchdog file suite, typecheck, lint, and six Chromium browser cases passed. Browser cases show both sleep error forms after SSE and page reload. Exact quality gate and hosted CI remain for the integrating agent.
-
-# PR 323 review
-
-- [x] Review description, history, reviews, threads, and failed CI.
-- [x] Preserve Dependabot refresh d431f8d0.
-- [x] Reproduce pin guard failure: 1 pass, 2 fail; installed pi-ai 0.85.1.
-- [x] Align all pi family pins at 0.87.1 and regenerate lock.
-- [x] Repair the widened message type and normalize the real Anthropic provider fixture.
-- [x] Pass typecheck, lint, Svelte check, build, gate integrity, boundaries, and 89 focused assertions/tests (3 pin + 55 estimator/SSE + 3 transport + 3 real compaction + 5 tool reassembly + 20 registry).
-- [ ] Verify compatibility and required checks.
-- [ ] Report exact head and evidence to parent.
-
-## Review
-
-No unresolved threads. Existing pin guard correctly rejects independently bumped pi packages. Root assigned the atomic family upgrade to this PR. Latest hosted Coverage shard 6 reproduces the same guard failure. Local aligned pins pass. Both frozen installs succeeded under Bun 1.3.14. Shared core.bare mutation is under separate investigation; root restored the shared setting.
