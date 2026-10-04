@@ -160,6 +160,19 @@ compiled digests. No test pins a reference digest literally, so no hash check wa
   The guard covers every `.sh`, `.ts`, `.mjs` and `.js` file under `scripts/factory-graph-proof/` and every prune
   form (image, system, container, volume; podman or docker); its own first case checks the pattern on positive and
   negative lines (grep here is ugrep). Guard set 468 pass, gate-integrity integ/w00 clean (`logs/*-c10.log`).
+- [x] G8a (R8 sign-in hold, 2026-10-04): the user signed the persistent deployment in; the probe reads ready.
+  Waiver for THIS hold only (the user's decision, reaffirmed three times, relayed by the coordinator): the disk and
+  swap floors were waived; the memory floor was kept. Gate at the lock: disk 75 GB, swap 1.4 GiB, MemAvailable
+  16.5 GiB (16667020 kB at the wrapper), load 1.2 (1.67 at the wrapper). Lock taken 13:58:10Z, released 14:09:13Z.
+  CHECK: `flock --close /tmp/ezcorp-validation-heavy.lock timeout 2400 bash /tmp/factory-platform-evidence/w10c/hold-signin.sh`
+  (`run.sh hold /run/user/1001/w10c-proof-deployment w10c-signin 30`), then `run.sh probe` with the same folder.
+  RESULT: deployment `w19a_product_1791122291712_f10a85` (fresh), probe exit 0:
+  `{"provider":"openai","model":"gpt-6-luna","ready":true,"credentialKind":"oauth","failures":[],"store":{"kind":"postgres","opened":true}}`.
+  The hold stopped on SIGTERM (outcome `held`); the deployment folder (4 files, 0600) and its database are kept for
+  R8. No secret in any log or record (checked). Tailnet forward for the user's laptop (coordinator): `tailscale serve
+  --tcp=37223 -> 127.0.0.1:37223` was added during the hold and removed at 14:10Z. The shared .git/config changed at
+  13:38:45Z (other sessions' branch sections); `config-check.py --check-only` exit 1, benign (`logs/config-check-c12.log`). EVIDENCE: `logs/r8-hold-signin.log`, `logs/r8-probe-signed-in.log`,
+  `readiness-signed-in.json`, `hold/w10c-signin.json`, `logs/r8-web-build.log`.
 - [ ] G8 (R8): the real legs. OPEN: waits for the coordinator (wave4h push, the user's sign-in, the heavy lock).
   Scheduled into the same lock holds: the sign-in hold itself; `scripts/factory-graph-proof/run.sh pass mock none`
   at this head (the harness changed); `tests/postgres/factory-definitions.test.ts`; and the lint fix below with its
