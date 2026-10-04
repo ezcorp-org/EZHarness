@@ -197,9 +197,10 @@ compiled digests. No test pins a reference digest literally, so no hash check wa
     receipt (checked).
   EVIDENCE: `r8/journey.json`, `r8/journey.log`, `r8/gated.log`.
 - [ ] G8c (R8 leg 3, W11 semantic quorum on the car and tree fixtures): BLOCKED, `semantic_evaluator_not_implemented`.
-  No code sends an image to a model and reads the answer: `readSemanticAnswer` and `evaluationVerdict`
-  (`src/factory/reference-image/semantic-quorum.ts`) have no caller outside tests, and
-  `scripts/verify-factory-image-publication.ts` records the quorum from fixed values. W11 G16 also names the missing
+  No code sends an image to a model and reads the answer: `evaluationVerdict`'s callers (`semanticClaimOutcome`,
+  `scoreSemanticQuorum` in `src/factory/reference-image/semantic-quorum.ts`, and
+  `scripts/verify-factory-image-publication.ts:90`) feed it fixed values, and `readSemanticAnswer` has no caller
+  outside tests. W11 G16 also names the missing
   production `broker.invoke` for `IsolatedFactoryAttemptRuntime` (`src/factory/runner/attempt-runtime.ts`) and G15
   (variant bytes cannot leave the guest). Missing code, not a model failure; plan audit section D item 3.
 - [ ] G8d (R8 leg 4, W13 catalog journey to a draft pull request with child bytes): BLOCKED,
