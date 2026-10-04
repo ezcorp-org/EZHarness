@@ -572,7 +572,7 @@ export class SandboxController {
           || binding.currentOperationId !== journal.id || binding.generation !== journal.generation
           || !["SUCCEEDED", "FAILED"].includes(outcome.outcome)
           || (outcome.providerOperationId !== undefined && outcome.providerOperationId !== authority.providerOperationId)
-          || (outcome.outcome === "SUCCEEDED" && outcome.observedState !== DESIRED_STATE_BY_OPERATION[journal.kind])) {
+          || (outcome.outcome === "SUCCEEDED" && outcome.observedState !== DESIRED_STATE_BY_OPERATION[kind])) {
           throw new SandboxControllerError("SUPERSEDED_OPERATION", "Host observation no longer owns the exact provider journal");
         }
       }
