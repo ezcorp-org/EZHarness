@@ -39,11 +39,15 @@ Rebase receipt: `E/receipts/rebase-equivalence.txt` (patch-ids equal per commit;
   body, green at head. EVIDENCE: red `E/c-red.log` (one failing drain logged 6 times), green `E/commit-c.log` (15 pass).
 - [x] G3 mutants. CHECK: `E/mutants.sh`. EXPECT: each red. EVIDENCE: `E/mutants.txt`: renew without the token fence (4 fail),
   heartbeat at the full lease (2 fail), at half the lease (2 fail), drain failure logged per tick (1 fail).
-- [x] G4 the two real-auth specs on 4 CPUs. CHECK: `E/repro.sh` via `w00/gated-flock.sh` (load < 10). EXPECT: red at base, green at
-  head, no delivery_lease_lost line. EVIDENCE: red `E/red-full/` (full lane at 52d8ba079: 103 passed, 3 failed, 1 did not run,
-  65 delivery_lease_lost lines) and `E/dbg-two/` (the two specs alone: 2 failed, 46 lines); green `E/final-two/` at baa11afc3
-  (integ/w00 87e1e197c with W4H-6's transport + this package): 2 passed, 0 failed, 0 delivery_lease_lost lines; gated-flock exit
-  file `E/final.exit` = 0, log `E/gated-final.log`.
+- [x] G4 the two real-auth specs on 4 CPUs (corrected, F3 from validator-5). The spec-level red ran at 52d8ba079, before W4H-6:
+  `E/red-full/` (full lane: 103 passed, 3 failed, 1 did not run, 65 delivery_lease_lost lines) and `E/dbg-two/` (the two specs
+  alone: 2 failed, 46 lines). The spec-level fix is W4H-6's transport fix. At this package's real base, integ/w00 87e1e197c, both
+  specs already pass: validator-5 measured base 2 passed / 0 delivery_lease_lost lines and head 2 passed / 0 lines on 4 CPUs; this
+  package's run at baa11afc3 agrees (`E/final-two/`: 2 passed, 0 lines; gated-flock exit file `E/final.exit` = 0). So the specs are
+  not W4H-8's red/green. W4H-8's own red/green is at unit level, for the defect it fixes, a lease not renewed while its handler
+  runs: base `src/extensions/v4/deliveries.ts` is red by name under the head tests ("a handler that runs past its claim lease,
+  still inside its own bound, keeps the lease and settles delivered"; 4 fails, validator-5), the log-once red (G2, `E/c-red.log`),
+  and the red mutants (G3, F1, F2; 13 in validator-5's set).
 - [x] G5 queue consumers on PostgreSQL. CHECK: `E/heavy-pg.sh` (tests/postgres factory-attempt-queue, -inbox, -records,
   -releases; attempt-queue and releases integration; factory-inbox, -records, -compute-admissions) at baa11afc3. EVIDENCE: `E/heavy-pg/summary.txt` (PostgreSQL 45 pass 0 fail; integration and unit
   consumers 65 pass 0 fail).
