@@ -10,6 +10,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import textwrap
 import time
 import unittest
 from unittest import mock
@@ -23,12 +24,23 @@ SPEC.loader.exec_module(MODULE)
 
 
 APP = r'''
-import json, os, socket, sys, time
+import json, os, socket, sys, tempfile, time
 from pathlib import Path
+def publish_json(path, value):
+    fd, name = tempfile.mkstemp(prefix='.' + path.name + '.', dir=path.parent)
+    temporary = Path(name)
+    try:
+        with os.fdopen(fd, 'w') as output:
+            json.dump(value, output)
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
 root = Path(sys.argv[1]); control = sys.argv[2]
 stat = Path('/proc/self/stat').read_text(); ticks = stat[stat.rfind(')')+2:].split()[19]
 index = len(list(root.glob('app-*.json')))
-(root / f'app-{index}.json').write_text(json.dumps({'pid': os.getpid(), 'startTicks': ticks}))
+publish_json(root / f'app-{index}.json', {'pid': os.getpid(), 'startTicks': ticks})
 def call(data):
     with socket.socket(socket.AF_UNIX) as sock:
         sock.connect(control); sock.sendall(json.dumps(data).encode()+b'\n')
@@ -39,14 +51,14 @@ request = json.loads((root / 'request.json').read_text())
 if index == 0:
     if (root / 'hold-restart').exists():
         while not (root / 'allow-restart').exists(): time.sleep(0.01)
-    (root / 'accepted.json').write_text(json.dumps(call(request)))
+    publish_json(root / 'accepted.json', call(request))
 else:
     receipt = {'version':1,'action':'receipt','runId':request['runId'],
                'nonce':request['nonce'],'afterDigest':'b'*64}
     stale = dict(receipt, afterDigest='c'*64)
-    (root / 'stale.json').write_text(json.dumps(call(stale)))
-    (root / 'receipt.json').write_text(json.dumps(call(receipt)))
-    (root / 'replay.json').write_text(json.dumps(call(receipt)))
+    publish_json(root / 'stale.json', call(stale))
+    publish_json(root / 'receipt.json', call(receipt))
+    publish_json(root / 'replay.json', call(receipt))
     if (root / 'fault.json').exists():
         arm = json.loads((root / 'fault.json').read_text())
         for label, phase, value in [('presence', 'presence', None),
@@ -55,7 +67,7 @@ else:
                 ('readback', 'readback', arm)]:
             message = {'version':1,'action':'fault','phase':phase}
             if value is not None: message['arm'] = value
-            (root / f'fault-{label}.json').write_text(json.dumps(call(message)))
+            publish_json(root / f'fault-{label}.json', call(message))
 while True: time.sleep(0.1)
 '''
 
@@ -104,6 +116,58 @@ def process_live(pid):
 
 
 class SupervisorTest(unittest.TestCase):
+    def test_child_json_publication_is_complete_before_visible(self):
+        for interrupted in (False, True):
+            with self.subTest(interrupted=interrupted), tempfile.TemporaryDirectory(
+                    prefix="incus-publish-", dir="/tmp") as directory:
+                child = subprocess.Popen([sys.executable, "-c", textwrap.dedent(r"""
+    import os, sys
+    from pathlib import Path
+    original_replace = os.replace
+    def paused_write(path, text, *args, **kwargs):
+        with path.open('w') as output:
+            output.flush()
+            print('publication paused', flush=True)
+            sys.stdin.readline()
+            output.write(text)
+    def paused_replace(source, target):
+        print('publication paused', flush=True)
+        sys.stdin.readline()
+        return original_replace(source, target)
+    Path.write_text = paused_write
+    os.replace = paused_replace
+    source = sys.argv[2]
+    sys.argv = ['fixture', sys.argv[1], 'unused-control']
+    exec(source)
+    """), directory, APP.split("def call(data):")[0]],
+                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                try:
+                    self.assertEqual(child.stdout.readline().strip(), "publication paused")
+                    destination = Path(directory) / "app-0.json"
+                    self.assertFalse(destination.exists(), "partial JSON must not be published")
+                    temporary = list(Path(directory).glob(".app-0.json.*"))
+                    self.assertEqual(len(temporary), 1)
+                    self.assertEqual(json.loads(temporary[0].read_text())["pid"], child.pid)
+                    if interrupted:
+                        child.kill()
+                finally:
+                    _, errors = child.communicate("publish\n", timeout=5)
+                if interrupted:
+                    self.assertLess(child.returncode, 0)
+                    self.assertFalse(destination.exists())
+                else:
+                    self.assertEqual(child.returncode, 0, errors)
+                    published = wait_file(destination)
+                    self.assertEqual(published["pid"], child.pid)
+                    self.assertGreater(int(published["startTicks"]), 0)
+
+    def test_json_reader_does_not_hide_malformed_published_receipt(self):
+        with tempfile.TemporaryDirectory(prefix="incus-invalid-", dir="/tmp") as directory:
+            path = Path(directory) / "receipt.json"
+            path.write_text("{")
+            with self.assertRaises(json.JSONDecodeError):
+                wait_file(path)
+
     def test_restart_refuses_snapshot_if_app_uid_stays_live(self):
         with tempfile.TemporaryDirectory(prefix="incus-supervisor-", dir="/tmp") as directory:
             root = Path(directory)
