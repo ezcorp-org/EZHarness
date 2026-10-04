@@ -8,6 +8,8 @@ import { type SandboxProtocolOperation, sandboxPresetDigest } from "@ezcorp/exte
 import { IncusTransportError, type IncusTransportRequest } from "../../../extensions/incus-sandbox/transport";
 import { IncusSandboxAdapter } from "../../../extensions/incus-sandbox/adapter";
 import { incusManifest } from "../../../extensions/incus-sandbox/manifest";
+import { up as addQualificationFixtures } from "../../db/migrations/add-incus-qualification-fixtures";
+import { HostIncusLostDestroyReplyFault } from "../incus-destroy-reply-fault";
 import { up as addSandboxController } from "../../db/migrations/add-sandbox-controller";
 import * as schema from "../../db/schema";
 import type { ActiveExtensionRelease } from "../../extensions/release-process";
@@ -546,14 +548,14 @@ test("instance list returns only owned, valid sandboxes in stable pages", async 
 });
 
 
-test("real adapter and controller preserve the host fence across a complete power lifecycle", async () => {
+async function exerciseAdapterLifecycle(faultMode?: "consume" | "expire") {
   const database = new PGlite();
   try {
     await database.waitReady;
-    await database.exec("CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, path TEXT NOT NULL)");
+    await database.exec("CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, path TEXT NOT NULL, purpose TEXT NOT NULL DEFAULT 'user', icon TEXT, variables JSONB NOT NULL DEFAULT '{}', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())");
     const db = drizzle(database, { schema });
     await addSandboxController(db);
-    await database.exec("INSERT INTO projects VALUES ('project', 'project', '/work/project')");
+    await database.exec("INSERT INTO projects (id,name,path) VALUES ('project', 'project', '/work/project')");
     const manifest = structuredClone(incusManifest);
     const preset = manifest.sandboxProviders![0]!.presets[0]!;
     preset.imageDigest = "c".repeat(64);
@@ -564,12 +566,32 @@ test("real adapter and controller preserve the host fence across a complete powe
     const connections = { getMetadata: async () => configured, resolveForHost: async () => configured } as ProviderConnectionResolver;
     let instance: { name: string; status: string; type: string; profiles: string[]; config: Record<string, string> } | undefined;
     let nativeSequence = 0;
+    let faultNow = Date.now();
+    let destroyInspections = 0;
+    let armedDestroyId = "";
+    const fault = faultMode ? new HostIncusLostDestroyReplyFault(db, {
+      authenticateOperator: async () => {}, authorizeRun: async () => {}, authorizeReadback: async () => {},
+    }, () => faultNow) : undefined;
+    if (fault) {
+      await database.exec("CREATE TABLE provider_connections (id TEXT PRIMARY KEY, revision INTEGER NOT NULL, provider_installation_id TEXT NOT NULL, provider_release_id TEXT NOT NULL, endpoint TEXT NOT NULL, server_certificate_pem TEXT NOT NULL, project TEXT NOT NULL, configuration JSONB, client_certificate_pem TEXT NOT NULL, private_key_ciphertext TEXT NOT NULL, revoked_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())");
+      await addQualificationFixtures(db);
+      await db.update(schema.projects).set({ purpose: "incus-qualification" });
+      await db.insert(schema.providerConnections).values({ id: "connection-a", revision: 1, providerInstallationId: "installation-a", providerReleaseId: "release-a", endpoint: connection.endpoint, serverCertificatePem, project: "sandbox", clientCertificatePem: connection.clientCertificatePem, privateKeyCiphertext: "test-not-a-secret" });
+    }
     const writes: string[] = [];
     const fetcher = async (url: string, init: RequestInit) => {
       const path = new URL(url).pathname;
       if (init.method === "GET") {
         if (path.includes("/profiles/")) return reply(safeProfile);
-        if (path.includes("/operations/")) return reply({}, 404);
+        if (path.includes("/operations/")) {
+          if (!fault || nativeSequence !== 6) return reply({}, 404);
+          destroyInspections++;
+          if (destroyInspections === 1) {
+            if (faultMode === "expire") faultNow += 25_001;
+            return reply({ status: "Running", resources: { instances: [`/1.0/instances/${sandboxName}`] } });
+          }
+          return reply({ status: "Success", resources: { instances: [`/1.0/instances/${sandboxName}`] } });
+        }
         return instance ? Response.json({ type: "sync", status_code: 200, metadata: instance }, { headers: { etag: `"generation-${instance.config["user.ezharness.generation"]}"` } }) : reply({}, 404);
       }
       writes.push(`${init.method} ${path}`);
@@ -591,14 +613,14 @@ test("real adapter and controller preserve the host fence across a complete powe
     };
     const broker = new ProviderRpcBroker(connections, undefined, db, prepared => new HostIncusLifecycleTransport(connections, {
       providerInstallationId: prepared.installationId, providerReleaseId: prepared.releaseId, revision: prepared.revision, approvedPreset: prepared.approvedPreset,
-    }, fetcher as never));
+    }, fetcher as never, fault));
     const controller = new SandboxController(db, new IncusSandboxProviderDispatcher({ call: async (_scope, method, input) => {
       const operation = (method.endsWith("inspectOperation") ? "lifecycle.inspectOperation" : method.endsWith("create") ? "lifecycle.create"
         : method.endsWith("destroy") ? "lifecycle.destroy" : "lifecycle.setPower") as SandboxProtocolOperation;
       const prepared = await broker.prepareAction(snapshot, sandboxId, operation, input);
       const adapter = new IncusSandboxAdapter(prepared.expectedCommand.pins, { request: async workerCommand => {
-        const result = await broker.request(prepared, { command: workerCommand }, Number(input.rpcDeadlineMs)) as { ok: boolean; result?: unknown; error?: { kind: ConstructorParameters<typeof IncusTransportError>[0] } };
-        if (!result.ok) throw new IncusTransportError(result.error!.kind, "Host broker denied transport");
+        const result = await broker.request(prepared, { command: workerCommand }, Number(input.rpcDeadlineMs)) as { ok: boolean; result?: unknown; error?: { kind: ConstructorParameters<typeof IncusTransportError>[0]; effect: "none" | "unknown"; operationId?: string } };
+        if (!result.ok) throw new IncusTransportError(result.error!.kind, "Host broker denied transport", { effect: result.error!.effect, operationId: result.error!.operationId });
         return result.result;
 
       } });
@@ -613,13 +635,34 @@ test("real adapter and controller preserve the host fence across a complete powe
     await db.insert(schema.sandboxReservations).values({ bindingId: sandboxId, projectId: "project", providerInstallationId: "installation-a",
       connectionId: "connection-a", generation: 1, memoryBytes: preset.limits.memoryBytes, cpuMillicores: preset.limits.cpuMillis,
       pids: preset.limits.pids, diskBytes: preset.limits.diskBytes, executionSlots: 1, computeState: "RESERVED", diskState: "RESERVED" });
+    if (fault) await db.insert(schema.incusQualificationFixtures).values({ operationId: "qual-recovery-composed", projectId: "project", bindingId: sandboxId, installationId: "installation-a", releaseId: "release-a", connectionId: "connection-a", connectionRevision: 1, presetId: preset.id, presetDigest, effectiveSettingsDigest: "b".repeat(64) });
     const sequence = ["CREATE", "START", "STOP", "START", "STOP", "DESTROY"] as const;
     for (const [index, kind] of sequence.entries()) {
-      const journal = await controller.requestAndDispatch({ bindingId: sandboxId, generation: 1, kind, idempotencyScope: "actual-adapter", idempotencyKey: String(index),
+      if (kind === "DESTROY" && fault) {
+        armedDestroyId = crypto.randomUUID();
+        const arm = { runId: "composed", nonce: "nonce-composed", deadlineMs: faultNow + 25_000,
+          scope: { installationId: "installation-a", releaseId: "release-a", connectionId: "connection-a", presetId: preset.id }, fixtureOperationId: "qual-recovery-composed", bindingId: sandboxId, destroyOperationId: armedDestroyId, generation: 1, providerGeneration: 5, connectionRevision: 1 };
+        await fault.arm(arm);
+        await fault.assertArmedFor(arm);
+      }
+      const request = { bindingId: sandboxId, generation: 1, kind, idempotencyScope: kind === "DESTROY" && fault ? "incus-qualification" : "actual-adapter", idempotencyKey: kind === "DESTROY" && fault ? "qual-recovery-composed:destroy" : String(index),
         payload: kind === "CREATE" ? { profile: preset.profile, presetId: preset.id, presetDigest, effectiveSettingsDigest: "b".repeat(64) }
-          : { expectedGeneration: Number(instance!.config["user.ezharness.generation"]) } });
-      expect({ kind, state: journal.state, error: journal.errorMessage }).toMatchObject({ state: "PROVIDER_PENDING" });
+          : { expectedGeneration: Number(instance!.config["user.ezharness.generation"]) } };
+      const journal = kind === "DESTROY" && fault
+        ? await controller.executeOperation((await controller.journalOperation(request, armedDestroyId)).id)
+        : await controller.requestAndDispatch(request);
+      expect({ kind, state: journal.state, error: journal.errorMessage }).toMatchObject({ state: kind === "DESTROY" && faultMode === "consume" ? "OUTCOME_UNKNOWN" : "PROVIDER_PENDING" });
+      if (kind === "DESTROY" && fault) {
+        expect(journal.providerOperationId).toBe("incus-destroy-11111111-1111-1111-1111-000000000006");
+        expect(destroyInspections).toBe(2);
+        expect(fault.matches({ ...command, action: "instance.destroy", idempotency: { requestId: armedDestroyId, key: armedDestroyId }, payload: { expectedGeneration: 5 } }, scope)).toBe(false);
+        expect((await controller.getOperation(journal.id))?.state).toBe(journal.state);
+      }
       await controller.reconcile();
+      if (kind === "DESTROY" && fault) {
+        expect((await controller.getOperation(journal.id))?.state).toBe(journal.state);
+        await controller.reconcile(1, journal.id);
+      }
       const saved = await db.query.sandboxOperations.findFirst({ where: (row, { eq }) => eq(row.id, journal.id) });
       expect(saved?.state).toBe("SUCCEEDED");
       const binding = await controller.getBinding(sandboxId);
@@ -644,4 +687,8 @@ test("real adapter and controller preserve the host fence across a complete powe
     expect(writes.filter(value => value.startsWith("PUT"))).toHaveLength(4);
     expect(writes.filter(value => value.startsWith("DELETE"))).toHaveLength(1);
   } finally { await database.close(); }
-});
+}
+
+test("real adapter and controller preserve the host fence across a complete power lifecycle", () => exerciseAdapterLifecycle());
+test("delayed native destroy receipt through the real broker and adapter persists consumed fault as UNKNOWN", () => exerciseAdapterLifecycle("consume"));
+test("expired fault cannot suppress a delayed native destroy receipt or fabricate UNKNOWN", () => exerciseAdapterLifecycle("expire"));
