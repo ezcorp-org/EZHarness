@@ -2592,10 +2592,49 @@ A new combined fast run and later exact-source coverage remain required.
 - [x] Push PR303 and inspect hosted results: 50 checks passed; the per-file gate failed its touched-function complexity check.
 - [x] Complete local merged coverage on `fcc4693f3`: 28,306 tests passed with no failures; 1,800 per-file thresholds, 93 new-file checks, and all 160 changed-file patch checks passed. Global coverage was 97.50%. The complexity check reproduced the same single failure.
 - [x] Reproduce the recovery transaction callback's complexity failure (44, limit 30) and split cohesive checks into named helpers without changing authority or transaction rules.
-- [ ] Review the change; pass focused recovery tests, coverage and complexity checks, then repeat the required gates on the final source.
-- [ ] Rebuild and pin the final app bundle before completing the operator artifact review.
+- [x] Review the change; pass focused recovery tests, coverage and complexity checks, then repeat the required gates on the final source.
+- [x] Rebuild and pin the final app bundle before completing the operator artifact review.
 - [ ] Execute the reviewed cleanup, then build and verify provider 0.1.4 for exact human release approval.
 
 Review: the recovery callback has 100% measured coverage but fails the complexity policy. More tests alone cannot correct that failure. Preserve the failed CI result and keep the installed app unchanged until the correction is verified. The server recovery archive passed independent review and nine offline tests. The AMD execution artifact is still in preparation; no new live recovery has run.
 
 Correction: `e5b3e6ca6` integrates worker `f0e5cd154`. Two named guards preserve the original predicates, errors, transaction reads, locks, replay checks, and write order. The callback score is now 10; the two helpers score 21 and 15. All are fully covered. The real database recovery suite passed 28 tests and 84 assertions; the module covered 142/142 lines. Type checks, lint, and standard commit hooks passed. Final-source full gates remain pending.
+
+Final source `d88744e76` passed the fast gate, all five canonical browser lanes, all merged coverage/complexity checks, and all 51 hosted CI checks. Its exact bundle was installed and passed health checks. This is source validation, not completed live qualification.
+
+### Live verifier failure and pre-admission hold — 4 October 2026
+
+- [x] Preserve both controlled live attempts and their failures. Correct archive ownership and process identity checks; prove the latter against the real runner.
+- [x] Prove normal startup, actual signer-key inheritance, and runner shutdown in the second attempt.
+- [x] Preserve the one failed recovery response and prove with stopped-database reads that no cleanup was admitted. Restore the server, certificate, and timer state; keep the app paused and its recovery hold intact.
+- [x] Reproduce diagnostic loss through the actual supervisor-to-wrapper subprocess boundary using a disposable failing child. The historical verifier failure itself remains unclassified.
+- [x] Add bounded private verifier evidence with phase and failure classification; test the real subprocess path and ensure no sensitive output reaches ordinary responses or logs.
+- [x] Design and implement an authenticated, durable pre-admission abort. Recheck negative admission evidence under the same transaction locks as admission, consume the attempt nonce permanently, preserve the original UNKNOWN, and never start the app automatically.
+- [x] Test abort/apply races, crashes, replay, scope/hash mismatch, prior admission, and retained work. Review both changes independently.
+- [ ] Rehearse the actual supervisor path with production identity/configuration boundaries before any new timed recovery; do not treat standalone CLI passes as proof of the composed path.
+- [ ] Run required source gates on the integrated change, prepare the exact deployment/hold-close result, and continue only within verified authority.
+- [ ] Complete real cleanup, provider 0.1.4 build/review/activation, and normal sandbox lifecycle qualification. No full native feature cycle has been credited yet.
+
+Review: the installed supervisor discards captured verifier error output. Standalone durable and backend diagnostics passed, but do not identify the original failing call. No existing supported action closes a pre-admission recovery hold; manual deletion is not acceptable. The detailed execution record is `.cache/2026-10-04-incus-fenced-cleanup-execution.md`. The app, runner and dedicated manager are stopped; the unchanged guest remains stopped and the original START remains UNKNOWN. No further blind timed attempt is permitted.
+
+Diagnostics milestone: `9bb0c9c53` integrates independently reviewed worker `c8e4ccd7d`. Nine new cases cover actual subprocess failures (including pre-exec failure), output parsing, bounded partial timeout output, file limits, and unsafe file metadata. All three supervisor wrapper tests passed. The installed app is still `d887`; this fix has not been deployed. The earlier green full gates apply to `d887`, not this new source. Systemd namespace and security settings remain part of the required real-context rehearsal.
+
+The DURABLE-only service-context rehearsal passed against a privately mounted DB copy, with actual unit controls and UID transition. The live database, services, and hold remained unchanged. It does not prove the remote backend path or explain the earlier failure.
+
+Abort controller milestone: `a38f3a754` integrates independently reviewed worker `4c2570f65`. The offline root entry does not start the daemon, runner, or app. It checks stopped actors, exact private original request and hold, immutable signed authorizations, committed proof, and crash-safe archival. The full supervisor wrapper suite passed. Backend integration is pending final source checks.
+
+Worker combined proof passed using the real Python controller and signer, actual Bun abort/inspect CLI, and a closed/reopened disposable PGlite database. It covers full thirteen-field request hashing with Unicode evidence, persisted abort, hold archive, retry, unchanged UNKNOWN, no cleanup, and no child. A separate isolated PostgreSQL test passed migration/backfill/idempotence and concurrent cross-binding nonce claims. These are test results, not a live hold abort or release qualification.
+
+Offline-only correction: `df7cf357a` integrates reviewed worker `0336d33a2`.
+The socket rejects abort. Only the offline command may close the hold, and
+the supervisor, runner, and runner manager must all be stopped. This avoids
+an active daemon restarting the app after its hold was archived. The real
+socket rejection and stopped-actor tests passed. `061cc2d8e` integrates
+reviewed backend `7c106c421`: shared nonce claims, signed abort records, exact
+proof inspection, and migration. The worker reported 44 integrated tests,
+two PostgreSQL tests, full type/lint checks, and full recovery-module coverage.
+The final offline-mode combined fixture passed 44 tests and 148 assertions;
+`9fef7b718` integrates worker `092c62eb9`. It uses the production stopped-actor
+guard with controlled host observations and the real signer, CLI, and database.
+Full integrated gates remain pending. The installed app and live hold are
+unchanged.

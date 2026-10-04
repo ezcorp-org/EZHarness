@@ -489,7 +489,7 @@ class Supervisor:
             self.abort_stopped_guard()
         else:
             raise ValueError("operator abort stopped-actor guard required")
-        # Only the private operator socket can reach this action. The stopped
+        # Only the offline root command can reach this action. The stopped
         # app UID owns the database transaction; no guest/provider assertion can
         # clear the hold, and this method never starts the app.
         keys = {"version", "action", "originalRequest", "requestFileSha256", "requestSha256", "holdSha256"}

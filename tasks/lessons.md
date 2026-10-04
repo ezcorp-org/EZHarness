@@ -551,3 +551,28 @@
   probe intentionally lacks verified guest claims until qualification passes.
   Use the approved fixture path first; do not diagnose its expected refusal as
   a broken image or weaken the probe to get past it.
+
+## Recovery verification boundaries — 4 October 2026
+
+- Verify the complete current/prior bundle and install-state chain on the
+  actual stopped host before sealing a continuation packet. Changing one
+  manifest constant does not update inherited backup paths or state guards.
+- Preserve phase, exit status, and bounded private verifier output. A generic
+  failure cannot establish which phase ran or whether an effect was admitted.
+  Later successful diagnostics do not explain an earlier unrecorded failure.
+- Process-directory ownership is not process identity. Check authoritative
+  status credentials and stable process start identity. Exercise the actual
+  service and credential boundary, not only a direct helper invocation.
+- A copied environment does not reproduce a service's filesystem mounts.
+  Inspect downstream overrides before relying on a test database variable;
+  verify the disposable mount from inside the actual execution namespace.
+- Require a real cross-language signer-to-CLI integration test. A Python stub
+  and a TypeScript unit test can both pass while rejecting each other's exact
+  request fields and canonical hash.
+- A failed pre-admission hold needs a supported, audited abort path. Consume
+  its nonce under the same transaction protection as admission. Never delete
+  the hold manually, reset the original UNKNOWN, or silently renew an expired
+  authorization to make progress.
+- Check restart behavior after a hold is archived, not just the immediate
+  response. A serving daemon can restart and launch its child when the hold
+  is absent. Keep this abort offline-only, with all dependent services stopped.
