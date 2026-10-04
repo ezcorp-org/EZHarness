@@ -517,9 +517,17 @@ test("damaged qualification and retry-key records do not start another host plan
 	const qualificationKey = await savedKey(page, "qualification-draft");
 	await page.getByRole("button", { name: "Start", exact: true }).click();
 	const mutationKey = await savedKey(page, "mutation-keys");
-	await page.evaluate(storageKey => localStorage.setItem(storageKey, JSON.stringify({ valid: "11111111-1111-4111-8111-111111111111", damaged: "not-a-key" })), mutationKey);
+	await page.evaluate(storageKey => localStorage.setItem(storageKey, JSON.stringify({ valid: "11111111-1111-4111-8111-111111111111", damaged: "not-a-key", wrongType: 42 })), mutationKey);
 	await page.reload();
 	await expect(page.getByRole("heading", { name: project.name })).toBeVisible();
+	// A visible server heading can appear before retry-key restoration. Complete a
+	// normal action to prove hydration restored and persisted the filtered keys.
+	await page.getByRole("button", { name: "Stop", exact: true }).click();
+	await expect(page.getByText("Stopped", { exact: true })).toBeVisible();
+	const restoredKeys = await page.evaluate(storageKey => JSON.parse(localStorage.getItem(storageKey)!), mutationKey);
+	expect(restoredKeys.valid).toBe("11111111-1111-4111-8111-111111111111");
+	expect(restoredKeys).not.toHaveProperty("damaged");
+	expect(restoredKeys).not.toHaveProperty("wrongType");
 	const planAttemptsBeforeCorruption = actions.filter(item => item.endpoint === "probe-fixtures" && item.body.action === "plan").length;
 	await page.evaluate(({ qualificationKey, mutationKey }) => {
 		localStorage.setItem(qualificationKey, "{");
