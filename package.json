@@ -61,7 +61,7 @@
   },
   "dependencies": {
     "@balena/dockerignore": "1.0.2",
-    "@earendil-works/pi-agent-core": "0.85.1",
+    "@earendil-works/pi-agent-core": "0.87.1",
     "@earendil-works/pi-ai": "0.85.1",
     "@electric-sql/pglite": "0.5.8",
     "@electric-sql/pglite-pgvector": "0.0.9",
