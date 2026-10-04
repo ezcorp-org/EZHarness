@@ -251,7 +251,10 @@ async function initialize(): Promise<LifecycleServices> {
         return proveSandboxLocalFallbackDenied(binding);
       },
     }),
-    prepareActivation: (installation, previous, release, operation) => migrations.prepare(installation, previous, release, operation),
+    prepareActivation: async (installation, previous, release, operation) => {
+      await repository.assertProviderReleaseDrained(installation.id, release.id);
+      await migrations.prepare(installation, previous, release, operation);
+    },
     abortActivation: (installationId, operation) => migrations.abort(installationId, operation.id, operation.lease?.fence),
     publish: async (installation, release) => { await migrations.finalize(installation.id); await publishExtensionGeneration(installation, release, release ? await getFiles(blobs, release.artifactDigest, "artifact") : undefined); },
     onBuildSettled: deferredByRunner => { recoveryCapacityAvailable ||= !deferredByRunner; lifecycleRecovery.request({ followUp: !deferredByRunner }); },

@@ -14,6 +14,29 @@ export function releaseRows<Result>(result: unknown): Result[] {
   throw new LifecycleError("database_result", "The database returned an unsupported result.");
 }
 
+/** The installation lock fences admission while an active provider is retired. */
+export async function hasUnfinishedProviderSandboxes(database: MigrationDb, installationId: string, connectionId?: string): Promise<boolean> {
+  const connection = connectionId === undefined ? sql`` : sql`AND binding.connection_id = ${connectionId}`;
+  const rows = releaseRows(await database.execute(sql`SELECT binding.id FROM sandbox_bindings AS binding
+    WHERE binding.provider_installation_id = ${installationId} ${connection}
+    AND (binding.tombstoned_at IS NULL OR binding.cleanup_confirmed_at IS NULL
+      OR binding.desired_state <> 'ABSENT' OR binding.observed_state <> 'ABSENT'
+      OR EXISTS (SELECT 1 FROM provider_sandbox_operations AS operation WHERE operation.binding_id = binding.id
+        AND operation.state IN ('JOURNALED', 'DISPATCHING', 'PROVIDER_PENDING', 'OUTCOME_UNKNOWN'))
+      OR EXISTS (SELECT 1 FROM sandbox_reservations AS reservation WHERE reservation.binding_id = binding.id
+        AND (reservation.compute_state <> 'RELEASED' OR reservation.disk_state <> 'RELEASED')))
+    LIMIT 1 FOR SHARE`));
+  return rows.length > 0;
+}
+
+async function assertProviderReleaseChangeDrained(database: MigrationDb, state: InstallationState, nextReleaseId: string | null): Promise<void> {
+  const previous = state.installation.activeReleaseId;
+  if (previous === nextReleaseId || !previous || !state.releases[previous]?.manifest.sandboxProviders?.length) return;
+  if (await hasUnfinishedProviderSandboxes(database, state.installation.id)) {
+    throw new LifecycleError("provider_not_drained", "Drain all provider sandboxes before changing the active release.");
+  }
+}
+
 const recordKinds = ["workspaces", "revisions", "operations", "releases", "approvals"] as const;
 
 async function readState(db: MigrationDb, installationId: string, lock: "update" | "share"): Promise<InstallationState | null> {
@@ -60,6 +83,15 @@ export class DatabaseLifecycleRepository implements LifecycleRepository {
     return this.database.transaction((transaction) => readState(transaction, installationId, "update"));
   }
 
+  /** Preflight before storage migration; transact repeats this under the commit lock. */
+  async assertProviderReleaseDrained(installationId: string, nextReleaseId: string): Promise<void> {
+    await this.database.transaction(async transaction => {
+      const state = await readState(transaction, installationId, "share");
+      if (!state) throw new LifecycleError("not_found", "Installation not found.");
+      await assertProviderReleaseChangeDrained(transaction, state, nextReleaseId);
+    });
+  }
+
   async list(ownerId: string, scope: string): Promise<InstallationRecord[]> {
     return releaseRows<{ payload: string }>(await this.database.execute(sql`SELECT payload FROM extension_release_installations WHERE owner_id = ${ownerId} AND scope = ${scope} ORDER BY id`)).map((row) => JSON.parse(row.payload));
   }
@@ -70,6 +102,7 @@ export class DatabaseLifecycleRepository implements LifecycleRepository {
       if (!state) throw new LifecycleError("not_found", "Installation not found.");
       const original = structuredClone(state);
       const result = await change(state);
+      await assertProviderReleaseChangeDrained(transaction, original, state.installation.activeReleaseId);
       if (state.installation.id !== original.installation.id || state.installation.ownerId !== original.installation.ownerId || state.installation.scope !== original.installation.scope) throw new LifecycleError("immutable_identity", "Installation identity cannot change.");
       if (state.installation.activeReleaseId && state.installation.activeReleaseId !== original.installation.activeReleaseId) {
         const release = state.releases[state.installation.activeReleaseId];

@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 import type { MigrationDb } from "../../db/migrations/types";
-import { DatabaseLifecycleRepository, releaseRows, type ReleaseDatabase } from "../../db/queries/extension-releases";
+import { DatabaseLifecycleRepository, hasUnfinishedProviderSandboxes, releaseRows, type ReleaseDatabase } from "../../db/queries/extension-releases";
 import { decryptWithAad, encryptWithAad } from "../../providers/encryption";
 
 /** Reviewed provider setup values. Add another kind only with a host parser. */
@@ -209,14 +209,9 @@ export class ProviderConnectionStore {
       if (retiredDigest === null) await this.assertActive(row.providerInstallationId, row.providerReleaseId, transaction);
       else await this.retiredRelease(scope.providerInstallationId, scope.providerReleaseId, transaction, retiredDigest);
       if (requireDrained) {
-        const dependents = releaseRows<{ id: string }>(await transaction.execute(sql`SELECT binding.id
-          FROM sandbox_bindings AS binding WHERE binding.connection_id = ${scope.connectionId}
-          AND (binding.tombstoned_at IS NULL OR binding.cleanup_confirmed_at IS NULL OR EXISTS (
-            SELECT 1 FROM provider_sandbox_operations AS operation
-            WHERE operation.binding_id = binding.id AND operation.state IN
-              ('JOURNALED', 'DISPATCHING', 'PROVIDER_PENDING', 'OUTCOME_UNKNOWN')))
-          LIMIT 1 FOR SHARE`));
-        if (dependents.length) throw new Error("Retired provider connection has unfinished sandboxes");
+        if (await hasUnfinishedProviderSandboxes(transaction, scope.providerInstallationId, scope.connectionId)) {
+          throw new Error("Retired provider connection has unfinished sandboxes");
+        }
       }
       try {
         const publicRow = metadata(row);

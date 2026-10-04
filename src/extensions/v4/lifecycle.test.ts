@@ -1,3 +1,5 @@
+import { up as addSandboxController } from "../../db/migrations/add-sandbox-controller";
+import { database, drizzle, repository } from "../../__tests__/helpers/durable-lifecycle-fixture";
 import { expect, test } from "bun:test";
 import { CANDIDATE_SANDBOX_QUALIFICATION_CASES, sandboxPresetDigest, type CandidateVerificationReport, type ReleaseRecord } from "@ezcorp/extension-contract";
 import { actor, approved, chmod, rm, symlink, writeFile, join, workspaceText, canonicalJson, FileBlobStore, getFiles, putFiles, runnerBusyRetryMs, root, blobs, digestObject, harness, human, releaseFixture } from "../../__tests__/helpers/durable-lifecycle-fixture";
@@ -127,4 +129,61 @@ test("sandbox reconciliation accepts expired candidate evidence after publicatio
   expect(activation.state).toBe("active");
   setup.clock.now = Date.parse("2026-09-21T13:00:00.000Z");
   await expect(setup.lifecycle.reconcile(actor, built.installation.id)).resolves.toBeUndefined();
+});
+
+
+test("provider release update retains the active release until its sandbox is drained", async () => {
+  await database.exec("CREATE TABLE IF NOT EXISTS projects (id TEXT PRIMARY KEY)");
+  await addSandboxController(drizzle(database));
+  await expect(repository.assertProviderReleaseDrained("missing-installation", "next-release")).rejects.toMatchObject({ code: "not_found" });
+  const setup = sandboxLifecycleHarness();
+  const first = await releaseFixture(setup);
+  expect((await setup.lifecycle.activate(actor, await approved(first))).state).toBe("active");
+  const projectId = `${first.installation.id}-project`;
+  await database.query("INSERT INTO projects (id) VALUES ($1)", [projectId]);
+  await database.query(`INSERT INTO sandbox_bindings (id,project_id,provider_installation_id,provider_release_id,connection_id,desired_state,observed_state)
+    VALUES ($1,$1,$2,$3,'connection','STOPPED','STOPPED')`, [projectId, first.installation.id, first.releaseId]);
+  const build = await setup.lifecycle.build(actor, { installationId: first.installation.id, workspaceId: first.workspace.id, expectedRevision: 1, idempotencyKey: "second-build" });
+  const second = await setup.lifecycle.runBuild(actor, first.installation.id, build.id);
+  let preparations = 0;
+  setup.dependencies.prepareActivation = async installation => {
+    await repository.assertProviderReleaseDrained(installation.id, second.releaseId!);
+    preparations += 1;
+  };
+  const update = await setup.lifecycle.activate(actor, await approved({ ...first, releaseId: second.releaseId! }, "update"));
+  expect(update.state).toBe("failed");
+  expect(preparations).toBe(0);
+  expect((await setup.lifecycle.inspect(actor, first.installation.id)).installation.activeReleaseId).toBe(first.releaseId);
+  for (const observed of ["RUNNING", "UNKNOWN"]) {
+    await database.query("UPDATE sandbox_bindings SET observed_state=$1 WHERE id=$2", [observed, projectId]);
+    expect((await setup.lifecycle.activate(actor, await approved({ ...first, releaseId: second.releaseId! }, `update-${observed}`))).state).toBe("failed");
+  }
+  await database.query("UPDATE sandbox_bindings SET desired_state='ABSENT', observed_state='ABSENT', tombstoned_at=NOW(), cleanup_confirmed_at=NOW() WHERE id=$1", [projectId]);
+  await database.query(`INSERT INTO provider_sandbox_operations (id,binding_id,kind,generation,idempotency_scope,idempotency_key,payload_hash,request_payload,state)
+    VALUES ($1,$1,'DESTROY',1,'test','destroy','hash','{}','OUTCOME_UNKNOWN')`, [projectId]);
+  expect((await setup.lifecycle.activate(actor, await approved({ ...first, releaseId: second.releaseId! }, "unknown-cleanup"))).state).toBe("failed");
+  await database.query("UPDATE provider_sandbox_operations SET state='SUCCEEDED' WHERE id=$1", [projectId]);
+  await database.query(`INSERT INTO sandbox_host_capacities VALUES ($1,'connection',10,10,10,10,10,0,0,0,0,0,NOW())`, [first.installation.id]);
+  await database.query(`INSERT INTO sandbox_reservations (binding_id,project_id,provider_installation_id,connection_id,generation,memory_bytes,cpu_millicores,pids,disk_bytes,execution_slots,compute_state,disk_state)
+    VALUES ($1,$1,$2,'connection',1,1,1,1,1,1,'RELEASED','RELEASE_REQUESTED')`, [projectId, first.installation.id]);
+  expect((await setup.lifecycle.activate(actor, await approved({ ...first, releaseId: second.releaseId! }, "unreleased-disk"))).state).toBe("failed");
+  await database.query("UPDATE sandbox_reservations SET disk_state='RELEASED', compute_state='RELEASE_REQUESTED' WHERE binding_id=$1", [projectId]);
+  expect((await setup.lifecycle.activate(actor, await approved({ ...first, releaseId: second.releaseId! }, "unreleased-compute"))).state).toBe("failed");
+  await database.query("UPDATE sandbox_reservations SET compute_state='RELEASED' WHERE binding_id=$1", [projectId]);
+  setup.dependencies.prepareActivation = async installation => {
+    await repository.assertProviderReleaseDrained(installation.id, second.releaseId!);
+    await database.query("UPDATE sandbox_bindings SET observed_state='UNKNOWN' WHERE id=$1", [projectId]);
+  };
+  expect((await setup.lifecycle.activate(actor, await approved({ ...first, releaseId: second.releaseId! }, "changed-after-preflight"))).state).toBe("failed");
+  expect((await setup.lifecycle.inspect(actor, first.installation.id)).installation.activeReleaseId).toBe(first.releaseId);
+  await database.query("UPDATE sandbox_bindings SET observed_state='ABSENT' WHERE id=$1", [projectId]);
+  setup.dependencies.prepareActivation = async installation => {
+    await repository.assertProviderReleaseDrained(installation.id, second.releaseId!);
+    preparations += 1;
+  };
+  expect((await setup.lifecycle.activate(actor, await approved({ ...first, releaseId: second.releaseId! }, "drained"))).state).toBe("active");
+  expect((await setup.lifecycle.inspect(actor, first.installation.id)).installation.activeReleaseId).toBe(second.releaseId!);
+  expect(preparations).toBe(1);
+  await database.query("UPDATE sandbox_bindings SET desired_state='RUNNING', observed_state='RUNNING', tombstoned_at=NULL, cleanup_confirmed_at=NULL WHERE id=$1", [projectId]);
+  expect((await setup.lifecycle.disable(human, first.installation.id)).enabled).toBe(false);
 });

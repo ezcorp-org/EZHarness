@@ -1,3 +1,5 @@
+import { DatabaseLifecycleRepository } from "../db/queries/extension-releases";
+import { ExtensionDataMigrations } from "./v4/data-migrations";
 import { afterAll, expect, mock, spyOn, test } from "bun:test";
 import type { CandidateVerificationReport, ReleaseRecord, RunnerExecution } from "@ezcorp/extension-contract";
 import { closeTestDb, mockDbConnection, setupTestDb } from "../__tests__/helpers/test-pglite";
@@ -275,5 +277,30 @@ test("service candidate verification executes the host workspace-routing proof",
     }
   } finally {
     runner.start = originalStart;
+  }
+});
+
+
+test("service refuses provider migration before preparation when the provider is not drained", async () => {
+  const lifecycle = await getExtensionLifecycle();
+  const events: string[] = [];
+  let blocked = true;
+  const drain = spyOn(DatabaseLifecycleRepository.prototype, "assertProviderReleaseDrained").mockImplementation(async (id, releaseId) => {
+    events.push(`drain:${id}:${releaseId}`);
+    if (blocked) throw new Error("provider_not_drained");
+  });
+  const migrate = spyOn(ExtensionDataMigrations.prototype, "prepare").mockImplementation(async () => { events.push("prepare"); });
+  try {
+    const prepare = (lifecycle as unknown as { dependencies: { prepareActivation: ExtensionDataMigrations["prepare"] } }).dependencies.prepareActivation;
+    const release = { id: "next-release" } as ReleaseRecord;
+    const operation = {} as Parameters<ExtensionDataMigrations["prepare"]>[3];
+    await expect(prepare(installation, null, release, operation)).rejects.toThrow("provider_not_drained");
+    expect(events).toEqual([`drain:${installation.id}:next-release`]);
+    blocked = false;
+    await prepare(installation, null, release, operation);
+    expect(events).toEqual([`drain:${installation.id}:next-release`, `drain:${installation.id}:next-release`, "prepare"]);
+  } finally {
+    drain.mockRestore();
+    migrate.mockRestore();
   }
 });
