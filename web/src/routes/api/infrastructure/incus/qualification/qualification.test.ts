@@ -305,3 +305,23 @@ test("qualification preparation failure exposes only a safe stage and cleanup re
     expect(warnings).toHaveLength(1);
   } finally { preparationError = null; witnessReady = false; }
 });
+
+test("CPU failure response and logger expose only bounded numeric measurement fields", async () => {
+  const cpuLoad = { throttledDelta: 0, elapsedMs: 4000, quotaMicros: 200000, periodMicros: 100000,
+    cpusetCount: 32, affinityCount: 32, outsideCpuCount: 0, workerCount: 3, workerFailures: 0, workerCpuUsec: 7_000_000,
+    usageDeltaUsec: 7_100_000, controlsUnchanged: true, affinityConfined: true };
+  try {
+    witnessReady = true; process.env.EZCORP_INCUS_CONTROL_PROBE_ROOT = "/approved-controls";
+    preparationError = new IncusQualificationPreparationError("limit_loads", "confirmed", "cpu_load_did_not_prove_containment", cpuLoad);
+    Object.assign(cpuLoad, { token: "private-secret", stderr: "private-error" });
+    const response = await POST(event(admin, { action: "qualify", installationId: "installation", releaseId: "release", connectionId: "connection", presetId: "preset", operationId: "cpu-run" }));
+    expect(response.status).toBe(409);
+    const body = await response.json();
+    expect(body.cpuLoad.workerCount).toBe(3); expect(body.cpuLoad.token).toBeUndefined();
+    expect(JSON.stringify(body)).not.toContain("private");
+    expect(JSON.stringify(warnings.at(-1))).not.toContain("private");
+    Object.assign(cpuLoad, { usageDeltaUsec: Infinity });
+    const malformed = await POST(event(admin, { action: "qualify", installationId: "installation", releaseId: "release", connectionId: "connection", presetId: "preset", operationId: "cpu-run" }));
+    expect((await malformed.json()).cpuLoad).toBeUndefined();
+  } finally { preparationError = null; witnessReady = false; }
+});

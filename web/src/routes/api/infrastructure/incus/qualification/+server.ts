@@ -1,3 +1,4 @@
+import { incusCpuLoadDiagnostic } from "$server/infrastructure/incus-live-limit-probe";
 import { IncusStopRequiredError, IncusCleanupRecoveryUnavailableError } from "$server/infrastructure/incus-feature-service";
 import { randomUUID } from "node:crypto";
 import { json } from "@sveltejs/kit";
@@ -96,7 +97,8 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     }
     if (error instanceof IncusQualificationPreparationError && input.action === "qualify"
       && preparationStages.has(error.stage) && INCUS_PREPARATION_CAUSE_CODES.has(error.causeCode) && ["confirmed", "unverified"].includes(error.cleanup)) {
-      const diagnostic = { stage: error.stage, cleanup: error.cleanup, causeCode: error.causeCode };
+      const cpuLoad = incusCpuLoadDiagnostic(error.cpuLoad);
+      const diagnostic = { stage: error.stage, cleanup: error.cleanup, causeCode: error.causeCode, ...(cpuLoad ? { cpuLoad } : {}) };
       log.warn("Incus qualification preparation failed", { runId: input.operationId, ...diagnostic });
       return json({ code: "qualification_preparation_failed", ...diagnostic,
         message: `Qualification failed during ${diagnostic.stage} (${diagnostic.causeCode}); cleanup ${diagnostic.cleanup}. Inspect the saved fixtures before starting another run.` }, { status: 409 });

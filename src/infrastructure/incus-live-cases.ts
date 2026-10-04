@@ -1,3 +1,4 @@
+import { IncusCpuLoadProofError, incusCpuLoadDiagnostic, type IncusCpuLoadDiagnostic } from "./incus-live-limit-probe";
 import { randomUUID } from "node:crypto";
 import {
   sandboxPresetDigest,
@@ -290,7 +291,7 @@ export function incusPreparationCauseCode(error: unknown): string {
 }
 /** Safe diagnostic fields only. The original provider exception is not projected. */
 export class IncusQualificationPreparationError extends Error {
-  constructor(readonly stage: IncusQualificationPreparationStage, readonly cleanup: "confirmed" | "unverified", readonly causeCode = "unclassified") {
+  constructor(readonly stage: IncusQualificationPreparationStage, readonly cleanup: "confirmed" | "unverified", readonly causeCode = "unclassified", readonly cpuLoad: IncusCpuLoadDiagnostic | null = null) {
     super("Incus qualification preparation failed");
   }
 }
@@ -460,7 +461,7 @@ export async function beginDurableIncusLiveCases(options: IncusLiveRunnerOptions
   }
   const errors = failure instanceof IncusQualificationOperationUnsettledError ? [] : await cleanupLiveFixtures(witness, state);
   if (failure instanceof IncusQualificationOperationUnsettledError) throw failure;
-  throw new IncusQualificationPreparationError(stage, errors.length ? "unverified" : "confirmed", incusPreparationCauseCode(failure));
+  throw new IncusQualificationPreparationError(stage, errors.length ? "unverified" : "confirmed", incusPreparationCauseCode(failure), failure instanceof IncusCpuLoadProofError ? incusCpuLoadDiagnostic(failure.diagnostic) : null);
 }
 
 /** Called only in the replacement app process, with a fresh witness and database connection. */

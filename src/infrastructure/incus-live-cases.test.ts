@@ -1,3 +1,4 @@
+import { IncusCpuLoadProofError } from "./incus-live-limit-probe";
 import { expect, test } from "bun:test";
 import { INCUS_PRESETS } from "../../extensions/incus-sandbox/manifest";
 import { IncusQualificationOperationUnsettledError } from "./incus-qualification";
@@ -354,4 +355,19 @@ test("missing reviewed neighbor control fails before any fixture allocation", as
     .rejects.toMatchObject({ stage: "fixtures", cleanup: "confirmed",
       causeCode: "reviewed_neighbor_control_transport_is_unavailable" });
   expect(allocations).toBe(0);
+});
+
+test("durable CPU proof failure preserves bounded numeric evidence through cleanup", async () => {
+  const cpuLoad = { throttledDelta: 0, elapsedMs: 4000, quotaMicros: 200000, periodMicros: 100000,
+    cpusetCount: 32, affinityCount: 32, outsideCpuCount: 0, workerCount: 3, workerFailures: 0, workerCpuUsec: 7_000_000,
+    usageDeltaUsec: 7_100_000, controlsUnchanged: true, affinityConfined: true };
+  const original = witness({ exerciseLimits: async () => { throw new IncusCpuLoadProofError(cpuLoad); } });
+  const durable: DurableIncusLiveWitness = { ...original.value,
+    findFixture: async () => { throw new Error("unexpected lookup"); },
+    beginRestart: async () => { throw new Error("unexpected restart"); },
+    claimRestart: async () => { throw new Error("unexpected claim"); } };
+  await expect(beginDurableIncusLiveCases({ witness: durable }, scope, preset,
+    { runId: "cpu-diagnostic-run", nonce: "fresh-nonce", deadlineMs: Date.now() + 60_000 }))
+    .rejects.toMatchObject({ stage: "limit_loads", cleanup: "confirmed", causeCode: "cpu_load_did_not_prove_containment", cpuLoad });
+  expect(original.destroyed).toHaveLength(2);
 });
