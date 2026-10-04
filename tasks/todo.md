@@ -5710,3 +5710,13 @@ Review: the hosted shards had no step that put the Python images on the runner, 
 tying them. The base is now pulled from the one value the suites read, and a test holds the three spellings and the step's place.
 The data image cannot be rebuilt by digest on the hosted podman, so it is not faked: the build script refuses, and the journey stays in
 the lane that holds the image. Receipts: /tmp/factory-platform-evidence/w4h-3/.
+
+## W4H-3c — scripts tests typechecked (branch `wp/w4h-3c`; gates `tasks/factory/w4h-3c-GATES.md`)
+
+- [x] Red at edd373c59: a type-only mutant (WorkflowStep.shell dropped) leaves `bun run typecheck` at 0.
+- [x] tsconfig.tests.json includes scripts/**/*.test.ts (46 files); 8 errors in 2 files fixed at the root (eedfeab4a).
+- [x] Green: the mutant fails typecheck; typecheck, lint, guard set and gate integrity green; both changed modules at 100 percent.
+
+Review: the scripts tests were typechecked by no program, so a test that relied on a removed type still passed the gate. They now
+join the backend test program. The two errors that surfaced were real type gaps: an untyped JS module and an over-claimed matcher type.
+Receipts: /tmp/factory-platform-evidence/w4h-3/w4h-3c/.
