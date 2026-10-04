@@ -37,6 +37,7 @@ import type { JsonValue } from "@ezcorp/factory-sdk";
 import { collectSecretValues, openProcessLog, preserveStackDiagnostics, redactStreamedLogs, type PassDiagnostics, type ProcessLog } from "./diagnostics";
 import { GUEST_BROKER_ISSUER, INSTALLATION, distinctPortPicker, MASTER_KEY_ID, NAMESPACE, SUPERVISOR_SUBJECT, TENANT, orchestratorDocument, poolDatabaseDocument, poolDocument, startupDocument, supervisorDocument, wrapsDocument, type StackLayout } from "./stack-documents";
 import { FACTORY_GUEST_BROKER_AUDIENCE } from "../../src/factory/runner/guest-broker-contract";
+import { openDeployment, recordDeployment, type PersistentDeployment } from "./deployment";
 
 export { HOST_ID, INSTALLATION, TENANT } from "./stack-documents";
 /** How often the streamed logs are redacted while a pass runs. */
@@ -58,6 +59,12 @@ export interface StackOptions {
   readonly record: Record<string, unknown>;
   /** Where each process's output streams as it arrives, and where a failed pass's stack files are kept. */
   readonly diagnostics: PassDiagnostics;
+  /**
+   * Opt-in persistent deployment (`deployment.ts`): a folder under `/run/user/<uid>/`. The first
+   * start records the product database's name and the key material there; later starts reuse
+   * both, and the product database is never dropped. Absent, every start is a new installation.
+   */
+  readonly deploymentDir?: string;
 }
 
 interface Child { readonly name: string; child: ReturnType<typeof spawn>; log: string[]; readonly file: ProcessLog; readonly closed: Promise<void> }
@@ -185,9 +192,11 @@ export async function startStack(options: StackOptions): Promise<Stack> {
   const created: string[] = [];
   // Secrets that live only in a process environment, never in a file: the
   // redaction and the copy scan must know them too.
-  const webSecrets = { jwt: `w19a-jwt-${randomBytes(12).toString("hex")}`, encryption: `w19a-enc-${randomBytes(12).toString("hex")}` };
-  const secretsInEnvironment = [webSecrets.jwt, webSecrets.encryption];
-  const secretValues = () => collectSecretValues(secrets, [...secretsInEnvironment, process.env.FACTORY_TEST_POSTGRES_URL ?? ""]);
+  // A persistent deployment replaces them with its recorded ones once it is opened.
+  const webSecrets: { jwt: string; encryption: string; salt?: string } = { jwt: `w19a-jwt-${randomBytes(12).toString("hex")}`, encryption: `w19a-enc-${randomBytes(12).toString("hex")}` };
+  const secretsInEnvironment = () => [webSecrets.jwt, webSecrets.encryption, webSecrets.salt ?? ""];
+  const secretValues = () => collectSecretValues(secrets, [...secretsInEnvironment(), process.env.FACTORY_TEST_POSTGRES_URL ?? ""]);
+  let deployment: PersistentDeployment | undefined;
   // Redaction runs while the pass runs, not only at its end, so a harness that
   // dies leaves at most one interval of output unredacted.
   const redactions: Record<string, number> = {};
@@ -279,10 +288,25 @@ export async function startStack(options: StackOptions): Promise<Stack> {
   const stamp = `${Date.now()}_${randomBytes(3).toString("hex")}`;
   const poolDatabase = `w19a_pool_${stamp}`;
   productDatabase = `w19a_product_${stamp}`;
-  for (const database of [poolDatabase, productDatabase]) {
+  if (options.deploymentDir !== undefined) {
+    const sql = admin;
+    deployment = await openDeployment(options.deploymentDir, {
+      places: { uid: process.getuid!(), home: process.env.HOME ?? "/", repo, evidence: "/tmp/factory-platform-evidence" },
+      databaseExists: async (name) => (await sql.unsafe("SELECT 1 FROM pg_database WHERE datname = $1", [name])).length > 0,
+      newDatabaseName: () => productDatabase,
+    });
+    productDatabase = deployment.productDatabase;
+    Object.assign(webSecrets, deployment.webSecrets);
+  }
+  // The pool's database is always fresh. The product's is fresh unless a persistent deployment
+  // reuses it. A fresh persistent one stays on the drop list until its folder is recorded, so a
+  // start that dies halfway leaves no database behind; once recorded, no stop drops it.
+  for (const database of deployment?.mode === "reuse" ? [poolDatabase] : [poolDatabase, productDatabase]) {
     await admin.unsafe(`CREATE DATABASE "${database}"`);
     created.push(database);
   }
+  // Named by database only: the folder holds credentials, and a record never names it.
+  record.deployment = deployment === undefined ? { mode: "per-start" } : { mode: deployment.mode, productDatabase };
   const productUrl = new URL(process.env.FACTORY_TEST_POSTGRES_URL!);
   productUrl.pathname = `/${productDatabase}`;
   const poolUrl = new URL(process.env.FACTORY_TEST_POSTGRES_URL!);
@@ -294,14 +318,21 @@ export async function startStack(options: StackOptions): Promise<Stack> {
   const { InstallationDataKey, StaticMasterKeyProvider } = await import(join(repo, "src/factory/encryption.ts"));
   const masterKeyPath = join(secrets, "master.key");
   const masterKeyId = MASTER_KEY_ID;
-  await privateWrite(masterKeyPath, randomBytes(32));
-  const heldWraps: Array<{ installationId: string; wrapVersion: number; masterKeyId: string; wrappedDataKey: Uint8Array }> = [];
+  await privateWrite(masterKeyPath, deployment?.masterKey ?? randomBytes(32));
+  // A reused deployment keeps its installation data key: its rows were written under it.
+  const heldWraps: Array<{ installationId: string; wrapVersion: number; masterKeyId: string; wrappedDataKey: Uint8Array }> = deployment?.wraps === undefined ? [] :
+    (JSON.parse(deployment.wraps) as { wraps: Array<{ installationId: string; wrapVersion: number; masterKeyId: string; wrappedDataKey: string }> }).wraps
+      .map((wrap) => ({ ...wrap, wrappedDataKey: Uint8Array.from(Buffer.from(wrap.wrappedDataKey, "base64")) }));
   await InstallationDataKey.loadOrCreate(INSTALLATION, {
     async load() { return heldWraps.map((wrap) => ({ ...wrap, wrappedDataKey: Uint8Array.from(wrap.wrappedDataKey) })); },
     async save(wrap: (typeof heldWraps)[number]) { heldWraps.push({ ...wrap }); },
   } as never, new StaticMasterKeyProvider({ id: masterKeyId, bytes: new Uint8Array(await readFile(masterKeyPath)) }));
   const wrappedKeyPath = join(secrets, "wraps.json");
   await privateWrite(wrappedKeyPath, JSON.stringify(wrapsDocument(heldWraps)));
+  if (deployment?.mode === "fresh") {
+    await recordDeployment(options.deploymentDir!, deployment, new Uint8Array(await readFile(masterKeyPath)), await readFile(wrappedKeyPath, "utf8"));
+    created.splice(created.indexOf(productDatabase), 1);
+  }
 
   // ── The guest, built into the store the supervisor will launch from ──
   const runnerRoot = join(root, "runner");
@@ -370,6 +401,8 @@ export async function startStack(options: StackOptions): Promise<Stack> {
       DATABASE_URL: productUrl.toString(),
       EZCORP_JWT_SECRET: webSecrets.jwt,
       EZCORP_ENCRYPTION_SECRET: webSecrets.encryption,
+      // Per start the salt is generated beside the secrets; a persistent deployment must keep its own.
+      ...(webSecrets.salt === undefined ? {} : { EZCORP_ENCRYPTION_SALT: webSecrets.salt }),
       EZCORP_FACTORY_STORAGE_SECRETS_DIR: process.env.EZCORP_FACTORY_STORAGE_SECRETS_DIR!,
       ...options.webEnv,
     },

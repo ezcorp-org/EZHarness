@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { referenceImageLock } from "./lock.ts";
 
 import {
   evaluationVerdict,
@@ -181,7 +182,7 @@ describe("scoring the quorum", () => {
 
   test("it records the shared provenance and never calls the agreement independent", () => {
     const quorum = scoreSemanticQuorum([held(0), held(1), held(2)], CONFIGURATION);
-    expect(quorum.commonProvenance).toEqual({ model: "claude-haiku-4-5-20251001", configurationDigest: CONFIGURATION, independent: false });
+    expect(quorum.commonProvenance).toEqual({ model: referenceImageLock.evaluation.model, configurationDigest: CONFIGURATION, independent: false });
   });
 
   test("it carries one claim outcome per evaluation, whatever the verdict", () => {

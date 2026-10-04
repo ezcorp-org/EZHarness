@@ -5710,3 +5710,21 @@ Review: the hosted shards had no step that put the Python images on the runner, 
 tying them. The base is now pulled from the one value the suites read, and a test holds the three spellings and the step's place.
 The data image cannot be rebuilt by digest on the hosted podman, so it is not faked: the build script refuses, and the journey stays in
 the lane that holds the image. Receipts: /tmp/factory-platform-evidence/w4h-3/.
+## W10c — Codex provider pin revision (branch `wp/w10c-codex-pin`; gates `tasks/factory/w10c-GATES.md`)
+
+- [x] R1 red first: base probe and pin-only probe logs (both `provider_not_configured`); the "unavailable model" red was withdrawn by the coordinator.
+- [x] R2 registry: the pin is `gpt-6-luna` (user amendment 16:00Z). pi-ai 0.85.1 does not ship it, so one `LOCAL_OAUTH_OVERRIDES` entry, red first (`model_not_available` before it); misspelt id refused by name.
+- [x] R3 re-pin every factory pin to `openai` / `gpt-6-luna` (one SDK constant); `cache-proof-live.ts` left as an Anthropic cache proof.
+- [x] R4 routing proof: OAuth login reaches the subscription endpoint; regression pair on gpt-5.5; misspelt, api-key-only under a login, and subscription-only under a key are `model_not_available`.
+- [x] Ruling (a): the probe names its store (`store_not_named`, `store_unavailable`, store kind and opened), never writes to HOME or the checkout.
+- [x] R5 digests recorded for haiku, gpt-5.6-luna and gpt-6-luna: code, image and image lock change; data and catalog do not.
+- [x] R6 W11 evaluator pin re-pinned; SDXL model and image pins unchanged.
+- [x] R7 `/tmp/factory-platform-evidence/w10c/SIGN-IN.md` written.
+- [ ] R8 real legs: wait for the coordinator (wave4h push, the user's sign-in, the heavy lock).
+
+Review: the brief assumed the id was missing from the registry; for the first pick it was not, and the real defects were
+elsewhere. The probe and the code journey never opened the configuration store, and with none named the probe would have
+created one under HOME. The broker sent an OAuth login to the api-key endpoint, and an API key alone made a
+subscription-only pin read ready. All are fixed red first inside the probe and factory-broker.ts. One question stays open
+for R8: the proof stack makes a new database and encryption secret per start, so the sign-in must happen inside the R8
+hold or the stack needs a fixed-database option.

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { referenceImageV1 } from "@ezcorp/factory-sdk";
 
 import {
   parseReferenceImageLock,
@@ -57,8 +58,24 @@ describe("the committed lock", () => {
     expect(referenceImageLock.ocr.language).toBe("eng");
   });
 
-  test("it pins the evaluation model, fields, and quorum", () => {
-    expect(referenceImageLock.evaluation.model).toBe("claude-haiku-4-5-20251001");
+  test("its evaluation model is the image definition's evaluator pin, not a second hand-kept copy", () => {
+    // Every runner reference in the definition that names a model (the three semantic evaluations and the
+    // image validator), wherever it sits in the graph or the acceptance contract.
+    const pinned: string[] = [];
+    const walk = (value: unknown): void => {
+      if (Array.isArray(value)) { value.forEach(walk); return; }
+      if (value === null || typeof value !== "object") return;
+      const entry = value as Record<string, unknown>;
+      if (typeof entry.package === "string" && typeof entry.export === "string" && typeof entry.model === "string") pinned.push(entry.model);
+      Object.values(entry).forEach(walk);
+    };
+    walk(referenceImageV1);
+    expect(pinned.length).toBeGreaterThanOrEqual(4);
+    expect(new Set(pinned).size).toBe(1);
+    expect(referenceImageLock.evaluation.model).toBe(pinned[0]!);
+  });
+
+  test("it pins the evaluation fields and quorum", () => {
     expect(referenceImageLock.evaluation.fields).toEqual(["oneOakTree", "greenFoliage", "plainWhiteBackground", "noText"]);
     expect(referenceImageLock.evaluation.evaluations).toBe(3);
     expect(referenceImageLock.evaluation.minimumPasses).toBe(2);

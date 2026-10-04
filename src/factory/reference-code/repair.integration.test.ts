@@ -28,7 +28,7 @@ import { sealReferenceCodeSnapshot, type ReferenceCodeFile } from "./snapshot";
  */
 
 const BASE = "a".repeat(39) + "1";
-const MODEL = { provider: "anthropic", model: "claude-haiku-4-5-20251001" };
+const MODEL = { provider: "openai", model: "gpt-6-luna" };
 const PROTECTED_TESTS = ["test/slugify.protected.test.ts"];
 
 const snapshot = sealReferenceCodeSnapshot({

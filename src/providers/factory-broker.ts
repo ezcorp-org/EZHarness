@@ -1,7 +1,8 @@
-import { streamSimple } from "@earendil-works/pi-ai/compat";
+import { getModel, streamSimple } from "@earendil-works/pi-ai/compat";
 import type { Api, AssistantMessageEventStream, Model } from "@earendil-works/pi-ai";
 import type { FactoryBroker, FactoryBrokerRequest } from "../runtime/factory-execution";
 import { authCallOptions, tryGetCredential, type ProviderCredential } from "./credentials";
+import { resolveModelForCredential, resolveOAuthModel } from "./registry";
 import { resolvePinnedModel, type PinnedModelResolution } from "./router";
 
 /**
@@ -89,8 +90,11 @@ export async function factoryProviderReadiness(
   const available = options.isAvailableModel ?? isFactoryServableModel;
   const resolve = options.resolveCredential ?? tryGetCredential;
   const failures: FactoryProviderReadinessFailure[] = [];
-  if (!await available(pin.provider, pin.model)) failures.push("model_not_available");
   const credential = await resolve(pin.provider);
+  // A model the catalog serves can still be one this credential cannot run: a ChatGPT-plan login
+  // runs only subscription-eligible ids. That is the same named failure, not a call left to 401.
+  const servable = await available(pin.provider, pin.model) && (credential === null || credentialRunsPin(pin, credential.type));
+  if (!servable) failures.push("model_not_available");
   if (credential === null) failures.push("provider_not_configured");
   return {
     schemaVersion: FACTORY_PROVIDER_READINESS_SCHEMA_VERSION,
@@ -101,6 +105,31 @@ export async function factoryProviderReadiness(
     failures,
     checkedAtMs: now(),
   };
+}
+
+/**
+ * Whether a credential of this kind can run the pin, asked of the one OAuth swap every model call
+ * in the application makes (build-pi-agent.ts, providers/llm.ts), so the rule is never restated.
+ * The swap decides on the model id alone: it returns the subscription sibling, returns the model
+ * unchanged, or refuses with the only error it throws ("not supported with <provider> OAuth").
+ */
+function credentialRunsPin(pin: FactoryProviderPin, kind: ProviderCredential["type"]): boolean {
+  if (kind === "apikey") return !subscriptionOnly(pin);
+  try {
+    resolveModelForCredential({ id: pin.model } as Model<Api>, pin.provider, kind);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * An id only the subscription backend serves (an OAuth-only entry the api-key catalog does not
+ * hold, such as gpt-6-luna). The swap leaves an API key's model unchanged, so this is the one case
+ * it cannot refuse: the call would reach the subscription endpoint with a key and be rejected.
+ */
+function subscriptionOnly(pin: FactoryProviderPin): boolean {
+  return resolveOAuthModel(pin.provider, pin.model) !== null && getModel(pin.provider as never, pin.model as never) === undefined;
 }
 
 /** A request for a model other than the pin: refused by name, never served by the pin instead. */
@@ -160,7 +189,10 @@ export function createFactoryProviderBroker(options: FactoryProviderBrokerOption
       // `readiness` already resolved one; a credential that vanished in between is a failure, not
       // a reason to proceed without authentication.
       if (credential === null) throw new FactoryProviderReadinessError({ ...readiness, ready: false, credentialKind: null, failures: ["provider_not_configured"] });
-      return send(await resolveModel(options.pin.provider, options.pin.model), request.context, { ...request.options, ...authCallOptions(credential.token) });
+      // The credential decides the wire: an OAuth login is sent to the subscription endpoint, the
+      // same swap every other model call in the application makes (providers/llm.ts).
+      const model = resolveModelForCredential(await resolveModel(options.pin.provider, options.pin.model), options.pin.provider, credential.type);
+      return send(model, request.context, { ...request.options, ...authCallOptions(credential.token) });
     },
   };
 }

@@ -39,7 +39,7 @@ import { ReferenceCodeGitReader } from "../src/factory/reference-code/git-reader
 import { referenceCodeReviewClaim, referenceCodeSupervisedReview } from "../src/factory/reference-code/review";
 import { snapshotReferenceCodeRepository, type ReferenceCodeFile } from "../src/factory/reference-code/snapshot";
 import { createFactoryProviderBroker, factoryProviderReadiness, factoryProviderReadinessRecord } from "../src/providers/factory-broker";
-import { REFERENCE_CODE_MODEL_PIN } from "./verify-factory-reference-code-provider.ts";
+import { REFERENCE_CODE_MODEL_PIN, withDeploymentStore } from "./verify-factory-reference-code-provider.ts";
 
 const argv = process.argv.slice(2);
 const option = (name: string, fallback: string): string => {
@@ -334,4 +334,5 @@ async function main(): Promise<void> {
   if (result.outcome !== "completed") process.exitCode = 1;
 }
 
-if (import.meta.main) await main();
+// The provider readiness and the broker read this deployment's configuration store.
+if (import.meta.main) await withDeploymentStore(main);
