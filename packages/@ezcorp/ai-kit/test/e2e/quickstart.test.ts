@@ -16,7 +16,7 @@ describe.skipIf(!(E2E_BASE_URL && E2E_API_KEY))("e2e: quickstart", () => {
       markStreamOpen = resolve;
     });
     const observedFetch = Object.assign(
-      async (input: RequestInfo | URL, init?: RequestInit) => {
+      async (input: string | URL | Request, init?: RequestInit) => {
         const response = await fetch(input, init);
         if (String(input).includes("/api/runtime-events")) markStreamOpen();
         return response;
