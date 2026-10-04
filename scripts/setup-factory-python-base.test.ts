@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { join, resolve } from "node:path";
 import { DEFAULT_PYTHON_IMAGE } from "@ezcorp/extension-runner";
+import { readWorkflows, stepsNeedingAction, type WorkflowStep } from "./lib/ci-registration.ts";
 import { type Run, runInherited, setupFactoryPythonBase } from "./setup-factory-python-base";
 
 /**
@@ -22,14 +23,10 @@ async function text(relPath: string): Promise<string> {
   return Bun.file(join(ROOT, relPath)).text();
 }
 
-type Step = { uses?: string; run?: string; env?: Record<string, string> };
-
 /** A coverage step in host-shard mode runs the backend files, so the two suites can land in it. */
-const runsHostShard = (step: Step) => step.run?.includes("scripts/test-coverage.sh") === true && step.env?.SHARD_INDEX !== undefined;
+const runsHostShard = (run: string, step: WorkflowStep) => run.includes("scripts/test-coverage.sh") && step.env?.SHARD_INDEX !== undefined;
 
-async function ciJobs(): Promise<Record<string, { steps?: Step[] }>> {
-  return (Bun.YAML.parse(await text(".github/workflows/ci.yml")) as { jobs: Record<string, { steps?: Step[] }> }).jobs;
-}
+const workflows = () => readWorkflows(join(ROOT, ".github/workflows"));
 
 function recorder(failAt?: number): { run: Run; calls: string[][] } {
   const calls: string[][] = [];
@@ -93,27 +90,33 @@ describe("runInherited", () => {
 describe("the workflow runs the step where the suites run", () => {
   test("the action runs this script and names no image itself", async () => {
     const source = await text(".github/actions/factory-python-base/action.yml");
-    const action = Bun.YAML.parse(source) as { runs: { using: string; steps: Step[] } };
+    const action = Bun.YAML.parse(source) as { runs: { using: string; steps: WorkflowStep[] } };
     expect(action.runs.using).toBe("composite");
     expect(action.runs.steps.map((step) => step.uses ?? step.run?.trim())).toEqual(["bun scripts/setup-factory-python-base.ts"]);
     expect(source).not.toMatch(/sha256:[a-f0-9]{64}|python:\d/);
   });
 
-  test("every job that runs host-shard coverage gets the base after podman, before the tests", async () => {
-    const jobs = Object.entries(await ciJobs()).filter(([, job]) => (job.steps ?? []).some(runsHostShard));
-    expect(jobs.map(([name]) => name)).toContain("cov-shard");
-    for (const [name, job] of jobs) {
-      const steps = job.steps ?? [];
-      const base = steps.findIndex((step) => step.uses === ACTION);
+  test("every host-shard coverage step runs after the base action", () => {
+    const steps = stepsNeedingAction(workflows(), ACTION, runsHostShard);
+    expect(steps.map((step) => step.where)).toContain("ci.yml cov-shard (Coverage shard ${{ matrix.shard }}): Run shard (tests + coverage)");
+    expect(steps.filter((step) => !step.preceded).map((step) => step.where)).toEqual([]);
+  });
+
+  test("the base action runs after the podman setup in its job", () => {
+    const jobs = workflows().flatMap(({ file, jobs }) => Object.entries(jobs).map(([id, job]) => ({ where: `${file} ${id}`, steps: job.steps ?? [] })));
+    const withAction = jobs.filter(({ steps }) => steps.some((step) => step.uses === ACTION));
+    expect(withAction.length).toBeGreaterThan(0);
+    for (const { where, steps } of withAction) {
       const podman = steps.findIndex((step) => step.run?.includes("scripts/setup-extension-runner-ci.sh --install") === true);
-      const tests = steps.findIndex(runsHostShard);
-      expect({ name, base: base >= 0, afterPodman: podman >= 0 && base > podman, beforeTests: base < tests }).toEqual({ name, base: true, afterPodman: true, beforeTests: true });
+      expect({ where, afterPodman: podman >= 0 && steps.findIndex((step) => step.uses === ACTION) > podman }).toEqual({ where, afterPodman: true });
     }
   });
 
-  test("no workflow step restates a Python image reference", async () => {
-    for (const job of Object.values(await ciJobs())) {
-      for (const step of job.steps ?? []) expect(step.run ?? "").not.toMatch(/library\/python@|ezcorp-factory-python-data[@:]/);
+  test("no workflow step restates a Python image reference", () => {
+    for (const { jobs } of workflows()) {
+      for (const job of Object.values(jobs)) {
+        for (const step of job.steps ?? []) expect(step.run ?? "").not.toMatch(/library\/python@|ezcorp-factory-python-data[@:]/);
+      }
     }
   });
 });

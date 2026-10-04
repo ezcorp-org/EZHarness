@@ -103,4 +103,13 @@ describe("stepsNeedingAction", () => {
     const split: Workflow[] = [{ file: "w.yml", text: "", jobs: { a: { steps: [{ uses: ACTION }] }, b: { steps: [{ run: "needs-tool" }] } } }];
     expect(stepsNeedingAction(split, ACTION, needs)).toEqual([{ where: "w.yml b (b): needs-tool", preceded: false }]);
   });
+
+  test("the selection also sees the step, so it can tell two steps with the same command apart by their env", () => {
+    const sharded: Workflow[] = [{
+      file: "w.yml",
+      text: "",
+      jobs: { shard: { steps: [{ uses: ACTION }, { name: "Shard", run: "needs-tool", env: { SHARD_INDEX: "0" } }] }, legs: { steps: [{ name: "Legs", run: "needs-tool", env: { LEGS_ONLY: "1" } }] } },
+    }];
+    expect(stepsNeedingAction(sharded, ACTION, (run, step) => needs(run) && step.env?.SHARD_INDEX !== undefined)).toEqual([{ where: "w.yml shard (shard): Shard", preceded: true }]);
+  });
 });

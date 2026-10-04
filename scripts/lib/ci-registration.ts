@@ -49,7 +49,7 @@ export function missingThresholds(thresholds: string, sources: readonly string[]
   return sources.filter((source) => !thresholds.includes(`"${source}": 100`)).map((source) => `${source} threshold`);
 }
 
-export interface WorkflowStep { readonly uses?: string; readonly run?: string; readonly name?: string; readonly shell?: string }
+export interface WorkflowStep { readonly uses?: string; readonly run?: string; readonly name?: string; readonly shell?: string; readonly env?: Readonly<Record<string, string>> }
 export interface WorkflowJob { readonly name?: string; readonly steps?: readonly WorkflowStep[] }
 export interface Workflow { readonly file: string; readonly text: string; readonly jobs: Record<string, WorkflowJob> }
 
@@ -72,15 +72,18 @@ export function runsBackendSuites(run: string): boolean {
 /** One step a job must prepare with a shared action, and whether that action ran before it in the same job. */
 export interface PreparedStep { readonly where: string; readonly preceded: boolean }
 
-/** Each run step that `needs(run)` selects, with whether `action` (a `uses:` value) ran earlier in the same job. */
-export function stepsNeedingAction(workflows: readonly Workflow[], action: string, needs: (run: string) => boolean): PreparedStep[] {
+/**
+ * Each run step that `needs(run, step)` selects, with whether `action` (a `uses:` value) ran earlier in the same job.
+ * The step is passed too, for a selection that also reads the step's `env` (a host-shard coverage step sets SHARD_INDEX).
+ */
+export function stepsNeedingAction(workflows: readonly Workflow[], action: string, needs: (run: string, step: WorkflowStep) => boolean): PreparedStep[] {
   const found: PreparedStep[] = [];
   for (const { file, jobs } of workflows) {
     for (const [id, job] of Object.entries(jobs)) {
       let installed = false;
       for (const step of job.steps ?? []) {
         if (step.uses === action) installed = true;
-        if (step.run !== undefined && needs(step.run)) found.push({ where: `${file} ${id} (${job.name ?? id}): ${step.name ?? step.run.split("\n")[0]}`, preceded: installed });
+        if (step.run !== undefined && needs(step.run, step)) found.push({ where: `${file} ${id} (${job.name ?? id}): ${step.name ?? step.run.split("\n")[0]}`, preceded: installed });
       }
     }
   }
