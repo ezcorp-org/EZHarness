@@ -503,3 +503,18 @@
 - Publish asynchronous test receipts atomically. File existence must mean complete data; do not hide malformed published JSON with reader retries.
 - Test the advertised resource control, not an incidental counter. CPU placement can enforce a whole-CPU budget without quota throttling. Mutable process affinity is not equivalent to an outer cpuset restriction.
 - Keep bounded numeric load measurements when a qualification fails. A cause code alone cannot distinguish a failed worker, an incomplete sample, and a missing enforcement signal.
+
+## Live readback timing — 4 October 2026
+
+- A client timeout is not a failed server run. Read the exact latest run ID, state, and validity after cleanup; a prior saved success can remain visible while a new run continues.
+- Compare process start time or start ticks with a recorded pre-operation baseline. Two observations made after an event do not prove that no restart happened during the event.
+- Collect a bounded response for at least the server operation deadline plus cleanup allowance. Preserve the original request and poll its saved state; do not repeat it when the client stops waiting.
+
+## Independent resource-limit fixtures — 4 October 2026
+
+- Keep the test's resource demand separate from the limit it measures. A large
+  single buffer can hit the worker memory ceiling before its disk fills. Use
+  bounded writes and assert the disk error, bytes written, and kernel capacity;
+  keep the independent memory-limit test unchanged.
+- Preserve the first failure. A later controlled reproduction can establish a
+  fixture defect without proving the exact cause of an older uninstrumented exit.

@@ -2291,7 +2291,18 @@ Review: 49 backend middleware tests, 203 Vitest route tests, 52 schema tests and
 - [x] Pass all eight qualification cases on the corrected installed candidate.
 - [x] Integrate main `beaff68c8` (Pi 0.87.1 and composer correction) without conflicts; pass both installs, targeted runtime/composer tests, types, and lint.
 - [x] Correct the new runtime's reproduced loss of system instructions and restored obsolete tools at the actual agent-to-provider boundary; pass targeted tests and type/lint checks.
-- [ ] Finish independent review and changed-line coverage for the runtime corrections before installing the merged candidate.
+- [x] Finish independent review and changed-line coverage for both runtime corrections; install the merged candidate after bundle verification and non-root startup.
+- [x] Confirm completed v10 qualification and released accounting from the next stopped copy; refresh qualification once on the merged app for the longer normal-flow batch.
+- [x] Complete isolated-account onboarding and correct the proof's environment selector after a real-browser reproduction; preserve both no-effect browser attempts.
+- [x] Preserve the first real UI-created sandbox after its API returned 409; confirm that the same saved CREATE succeeded and the owned guest is stopped.
+- [x] Reproduce the post-admission BigInt serialization failure with a real database result; project public operation fields for every lifecycle response and pass focused checks plus independent review.
+- [x] Install the response fix and clean up only the original blank diagnostic sandbox through the UI; preserve its failed cycle without replaying CREATE.
+- [x] Refresh qualification at the empty-work boundary; verify successful V12 by exact latest run ID after the client timeout.
+- [x] Repair terminal supervisor claim release and the readiness deadline contract; preserve active runs, cleanup requirements, and replay fences. Commit `b88660c56`; focused tests and independent review pass, installed proof pending.
+- [x] Start the original successful CREATE through the normal UI and open its project chat without replaying CREATE.
+- [x] Correct the reproduced missing-Git guest image recipe with a reviewed package pin and an actual non-root Git smoke before publishing. Commits `d8b7889d8` and `110ba5c9e`; signed package, 33 tests, and independent review pass. Actual Incus publication remains next.
+- [ ] Build and qualify the corrected pinned image through the existing review flow; keep the old guest and image evidence intact until normal cleanup.
+- [ ] Complete a normal UI/native vertical slice, then start the final consecutive batch on the fixed candidate.
 - [ ] Prove normal UI/native work, logs, cancellation, and retained work across engine restart.
 - [ ] Complete ten serial normal feature cycles and the final reservation/inventory audit.
 - [ ] Complete exact-source browser, coverage, complexity, hosted CI, and non-author review gates.
@@ -2299,3 +2310,45 @@ Review: 49 backend middleware tests, 203 Vitest route tests, 52 schema tests and
 Plan review: The server update and app installation are complete. V6 progressed beyond the prior neighbor check but failed at `limit_loads / cpu_load_did_not_prove_containment`. This is a failed qualification, not a supported deployment claim. The provider applies both CPU placement and a quota; zero throttling alone does not prove absent enforcement. The local reproduction used process affinity because rootless cpuset control was unavailable. The corrected proof must distinguish mutable process affinity from an enforced outer CPU set. Keep full-suite reruns on hold until this live diagnostic gap is resolved.
 
 Review: Server activation evidence and v6 cleanup are recorded in the integrated live evidence document. The CPU correction passed 44 focused tests, full type checks, lint, measured probe coverage, and independent review. The original rootless reproduction used a real finite quota and process affinity; the true-cpuset branch has deterministic kernel-interface tests because local cpuset delegation was unavailable. The next Incus run must supply the real profile proof. Original historical inventory gaps remain explicit. Global v6 accounting, native feature proof, and the final release gates above remain open.
+
+Current plan review: UI CREATE, START, and Open chat now work on the installed app. The first real development prerequisite check found no Git in the pinned image; its builder never installed it. Fix the image recipe for future guests and verify real non-root Git operations before publication. The BusyBox image and unique canary are test fixtures and are prepared separately in each guest; do not keep Docker build caches in the published image or patch the current guest as a substitute for fixing the recipe. The corrected supervisor source is independently reviewed and ready for focused coverage and a guarded app update.
+
+### October 4, 08:05 UTC — current closeout plan
+
+- [x] Independently check partial native tool evidence: same guest and conversation, exact edits, three Python tests passed, AMD canary unchanged. Full G5 is still false.
+- [x] Build Git-enabled image `ebe5ce977a726130fd1aa90d2c853467bb6d143141ed07f74b7a06e98efd3912` on Incus. Non-root Git smoke passed; temporary builder removed.
+- [x] Add provider activation drain guard with real database tests and mock UI refusal coverage. Keep these distinct from pending live refusal proof.
+- [x] Correct the sealed-package test boundary after its real extension build failure. Candidate revision 3 passed all six checks; revision 2 remains recorded.
+- [x] Stage, inventory-check, and smoke app source `65b63669609bde76eff041b53c1e0b294b3841a0`; non-root health returned 200. Manifest `ca749d392f571bb0f77dda5c11209bc264dc44d7450db33423715a17ab4f3da7`.
+- [x] Finish guarded app installation with the existing guest and database preserved. All six steps passed; exact source/manifest and health verified.
+- [x] Audit V11/V12 and earlier diagnostic cleanup from a separate stopped-copy clone. Seven bindings fully released; only the retained guest remains reserved; no pending operations.
+- [ ] Obtain exact human review for verified provider release `c0f6ee10ff0c5cd9761b32a138af8a9f08e13d1ec10c490f73e8c1e95df45e4c`; request is pending.
+- [ ] Prove retained-guest activation refusal, perform separately classified diagnostic cleanup, audit released reservations, then activate the same approved candidate.
+- [ ] Review actual new connection/server policy pins and run fresh qualification; do not reuse old release evidence.
+- [ ] Complete full native/Git/Compose/restart flow, ten serial cycles, same-source gates, and PR review.
+
+Review: The root fast gate passed all lanes except one backend test (27,414 pass,
+1 fail). That test's miniature database lacked fields used by the new shared
+drain query. Test-only correction `9dcefa6ae` models the required fields and adds
+HELD-to-RELEASED disk accounting assertions; owner reports 19 tests and types/lint
+passed. The production guard is unchanged. Full fast gate is not yet green.
+
+The follow-up root fast run at `f39e22d0b` passed all other lanes, including
+27,415 backend tests, 3,638 web Bun tests, and 7,724 Vitest tests. One real
+Podman resource-limit integration case failed because its first disk worker
+exited before replying. The failure is preserved in
+`.cache/incus-oct04-f39-podman-first-failure.log`. Both the isolated case and
+complete integration file later passed; those passes do not erase the failure.
+Sol investigation is checking disk-buffer allocation against the independent
+memory limit. Final source freeze and canonical gates remain held.
+
+Resolution: `fb2e43ae5` changes only the disk test fixture. Under controlled
+112 MiB worker memory use, the original 20 MiB allocation caused exit 137 with
+OOMKilled=true; bounded 1 MiB writes reached the unchanged 8 MiB tmpfs limit and
+returned ENOSPC. The fixed test asserts that error, exact written bytes, and
+kernel capacity. All memory/PID/disk limits and the separate OOM test remain.
+The full real Podman file passed twice (11 tests, 62 assertions each), with
+types, lint, hooks, and independent review. The older failure has no retained
+OOM metadata, so its precise cause remains unknown. Root integrated and reviewed
+the exact two-line change. No runtime bundle change is required. Final same-head
+full gates are still pending, not retrospectively green.

@@ -1,6 +1,8 @@
 # Incus live continuation — 3 October 2026
 
-This records fresh host observations, guarded restoration of the isolated qualification app, a verified Incus transport repair, and continuation of the exact saved fixture. No new CREATE, START, STOP, DESTROY, marker, or Compose action was sent through this record. The first inspection's guest process outcome was uncertain; the later inspection succeeded after the transport repair.
+Current status, 4 October 2026: real provider qualification and normal UI CREATE, START, and Open chat have passed. Native guest file tools, search, shell, and three Python tests have passed. One owned user guest still runs the old image, which lacks Git. The corrected Git image has built successfully; provider 0.1.3 passed all six sealed-build checks and awaits exact human release approval. The terminal supervisor and provider drain fixes pass focused tests, changed-line coverage, and independent review. Their app bundle passed inventory verification, non-root startup, and all six guarded installation steps; the same guest remains running. Full native Git/Compose/retention proof, the ten-cycle run, and final PR gates remain open.
+
+This is a chronological evidence record. Earlier snapshots below describe their observation times, not the current state. It begins with host restoration, Incus transport repair, and continuation of the saved fixture. At the initial snapshot, no new CREATE, START, STOP, DESTROY, marker, or Compose action had been sent. The first inspection's guest process outcome was uncertain; the later inspection succeeded after the transport repair.
 
 Evidence snapshot: 3 October 2026, 16:05 UTC, after the successful post-START inspection and before the marker and Compose actions.
 
@@ -230,3 +232,145 @@ Main `beaff68c8a4aa53dd1ac9968b440efbb321923df` landed during this proof with Pi
 That review reproduced two new dependency-integration failures through the actual EZHarness agent loop and a loopback HTTP provider. Short and compacted turns lost system instructions because the converter removed system messages. A separate historical tool-update fixture showed trimming restore an obsolete tool and discard updated instructions. Pi 0.85.1 supplied system instructions and tools separately; 0.87.1 derives them from the converted transcript. The earlier passing tests did not cover this boundary. Corrections and actual-wire regressions are in progress; no normal guest workflow has run on the affected candidate.
 
 The corrections are integrated as `3b3a8c517` (shared compaction) and `c5789d770` (provider conversion). They use Pi's existing system-state replay helper, reserve the full effective declaration cost before trimming or summarizing history, and preserve system messages at provider conversion. Removed tools stay removed; current instructions and named sections survive. Saved history and model limits are unchanged. Seventy-three focused trim/summarize tests and five actual agent-to-HTTP tests with 44 assertions pass, including initial and post-tool requests. Full type checks, lint, and hooks pass. The compaction fix passed independent review; final converter review and changed-line coverage are in progress before isolated installation.
+
+## October 4 merged candidate and refreshed qualification
+
+Both runtime corrections passed independent review. Combined focused coverage passed 96 tests with 300 assertions, both production modules at 100% measured coverage, all 17 changed measured lines covered, and maximum CRAP 23. Source `aaa3cf9f91c847085eb54a9f05bb6b6005ec9b60` passed all fast local gates: 27,409 backend tests, 3,638 web Bun tests, 7,722 component/server tests, types, lint, Svelte checks, integrity checks, and production build. It is pushed to PR #303; current-head hosted checks are still running. All 51 hosted checks passed on the previous 8cf769 revision.
+
+Bundle manifest `036fcb6ed300756928612ec1a57ebbff9e722d0006cd764ad535cd0c2dfd1950` passed independent verification and non-root startup (HTTP 200, UID 1001). Guarded installer SHA256 `005517ce3c1942fe350396dbc176cefccfbc3c525a0713092318ae5778b7a69c` completed all six steps. The current database and completed onboarding were preserved. A subsequent test-only commit, `a7dc77d27`, does not change deployed production code, configuration, or dependencies.
+
+The fresh stopped baseline supplied v10 accounting through a distinct disposable clone. Private receipt `oct04-v10-accounting.json` SHA256 is `3a369b8e358e1023d44e3a6feeb9d2241e0aa6b9bbab3790633478e4e6cd160a`. It records COMPLETED, all SP01–SP08 cases passed, the exact approved release/connection/profile/image/helper, three absent tombstoned and cleanup-confirmed bindings, all reservations released, and no global pending operations or unreleased reservations.
+
+Because that qualification was near expiry, one refresh ran on the merged app under the unchanged expiry policy and resource budget. Operation `incus-live-sp01-08-20261004-v11` used plan digest `1a1dff5dd74c1e557d55fc4d66a20dc5cab1ad7532c737606561483f2ccfac95`. One Apply, exact READY, fresh installed/server checks, and one durably marked qualification request completed successfully through restart. Private management receipt `109-SP-v11-management-terminal.json` SHA256 is `7d0fe24955af608cd93a2b54d04ca6702b39c074e806c8e809bdc56d33772cc6`. The exact Compose profile is qualified until `2026-10-04T06:17:45.066Z`. All three saved fixture deletes succeeded with absent bindings; independent instance/operation inventories and all four local control projects/two inert bindings are empty. V11 reservation accounting will be included in the final stopped-copy audit.
+
+The next browser attempt again stopped before any request: the proof used exact label text for a select whose wrapping label includes option text. Both the installed page and an independent Chromium reproduction have the correct accessible combobox name; no product accessibility defect was established. The original incomplete receipt, empty mutation list, absent project/binding, and no-effect readback remain. The amended archive SHA256 `55d0ee0a5b599b01070802b79121ea766a68ee728b1beb88ec1d4e36143431f1` changes only that locator, adds the actual-browser regression, and updates its manifest. Independent review and 19 artifact tests with 129 assertions pass; native files and authority/retry guards are unchanged. No product redeployment was needed.
+
+The test-only credential boundary proof in `a7dc77d27` composes the active Incus manifest, production ReleaseProcess reverse-RPC dispatcher, and attached credential handler with a synthetic resolver. Undeclared `env.get` and `credentials.read` return CAPABILITY_DENIED before handler, resolver, or backend dispatch; captured output excludes the canary. The focused suites, types, lint, hooks, and independent review pass. This proves the host boundary with an in-memory runner transport; it does not claim live guest secret delivery. Managed DNS, disabled global IPv6, and the absence of an approved metadata test target remain explicit limits of the live negative-test evidence.
+
+## October 4 first UI-created sandbox and lifecycle-response correction
+
+The amended normal browser flow prepared project `incus-project-37aba303d95baf7ca8d1bc525e8b3df813e01fb83a402688` and binding `3fcc24fc-66da-4d51-a0ca-31ea90470fd9`, generation 1. Preparation returned 200. The single CREATE, idempotency key `0ded506e-0a9e-4082-bb50-7c22fca9500e`, returned HTTP 409 without a response receipt. No CREATE retry, START, or native inference followed. Normal status exposed saved operation `9b542086-2b46-40cf-9ba4-7ce0c36d558d` as PROVIDER_PENDING with its provider receipt recorded. That same operation settled SUCCEEDED at `2026-10-04T05:32:52.676Z`; the binding became STOPPED/STOPPED. Independent backend readback confirms stopped guest `ezh-34b610683213b5e219592c7bf10b512f`, exact ownership tags, and the original create key. Its reservation is legitimate held capacity while diagnosis proceeds.
+
+The original browser did not retain the 409 body, and the bounded journal window had no exception stack. A subsequent actual PGlite/controller/service regression found that the returned operation contains the internal `reconcileOrder` BigInt; SvelteKit JSON serialization throws on that real result. An unchanged route test reproduced expected 202 versus actual 409 with the same database-shaped operation. These are reproduced defects at the observed post-admission response path, not a recovered historical response body.
+
+Commit `d2de80a8a` projects the same public operation fields already used by status/recovery across all lifecycle responses. Saved IDs, provider receipts, state, generation, timestamps, and error code remain; internal counters and private journal data do not leave the route. Controller behavior, HTTP admission rules, and authority checks are unchanged. An admitted response may carry explicit OUTCOME_UNKNOWN; it is not a completion claim and does not authorize redispatch. Real database/SvelteKit tests pass 14 cases with 161 assertions, Bun route tests pass 14 with 63 assertions, and Vitest route tests pass 10. Full types, lint, hooks, and independent review pass. Installation and normal-flow validation of this correction remain pending. The failed first UI cycle will remain separate from the subsequent consecutive-success batch.
+
+Hosted CI on aaa3cf9 passed 50 checks and failed the per-file coverage gate: management page line 323 was not measured, leaving 99.65% against its unchanged 100% threshold. The damaged-storage journey could overwrite its stored record again before client hydration restored retry keys. A test-only repair now waits for a real lifecycle action and checks valid-key retention and malformed-entry removal before the next corruption. Focused browser measurement is in progress; no production UI code or coverage threshold changed.
+
+Focused DTO coverage confirms all five changed measured route lines hit and the new public projection at 100%, with maximum measured route CRAP below 30. The focused producer does not cover five existing route paths; it is not a full per-file gate result. Bundle manifest `0214958bb6fdcac24f3d06bceddee2b5a3dca05fe4e6e791aa57b79fc1b39896` for d2de80a8a passed independent integrity verification and non-root startup (HTTP 200, UID 1001). Installer SHA256 `3119d9105f8396068560cedf95b532be4ed8ecaa903cf3bacfd2c358458fa11c` matches the reviewed template after only source and manifest substitutions. The guarded update and exact normal UI disposal of the stopped diagnostic guest are authorized; their results remain pending.
+
+The retry-record test repair is integrated through `e7e005206` (test-only changes). Its first focused run found an incorrect test state label; the second exposed a second race, where initial START completion overwrote the deliberately damaged record. Both failed logs remain. The final test waits for running state and enabled Stop before inserting the record, then completes a real Stop after reload before asserting retained and rejected keys. Independent review and the focused real-auth browser run pass. The same-build browser coverage records three hits on line 323, versus zero in hosted CI. This focused diagnostic is not the complete browser coverage gate. A separate successful linked-cleanup response test brings route tests to 11 passing cases and covers the existing recovery response branch; all five changed measured route lines remain covered.
+
+All six guarded update steps passed for d2de80a8a. The current database and prior bundle were preserved. The exact diagnostic guest was then disposed through its normal UI after fresh source checks. One DESTROY `511c7dc4-3f68-45b2-82bc-8b36960f6cfc` settled SUCCEEDED; binding `3fcc24fc-66da-4d51-a0ca-31ea90470fd9` is ABSENT with tombstone and confirmed cleanup. Private terminal receipt SHA256 is `97b63a6ed11a8a2b92f13907a4bc4b3cf3ddcc70794354fb65a6be44a9d25efa`. Independent instance and backend operation inventories are empty. The original failed UI cycle remains excluded from the success batch; reservation release will be checked in the final stopped-copy audit.
+
+V12 renewal plan digest `f0aac05e2ed11b21e73db1c90f891c4a426e4f238ea6d771d7d429b5bcda2160`, file SHA256 `fadef996818c9e144263794bb8ff39479d526ca5a77ccca0d58795ed5a19cc1b`, preserves the approved release, connection, profile, settings, and budget. It is scheduled before the new batch because V11 has only 11 minutes left. Qualification restarts the engine and does not drain active model jobs; renewals therefore run between disposed cycles. No expiry rule changes. The fresh normal batch uses nonce `4ab484d79eb2bc3a`; no success is claimed before its actual execution.
+
+V12's single request timed out at the client after 180 seconds without a response body, but **the server run passed**. An initial interpretation incorrectly treated an earlier management snapshot and later cleanup as preparation failure. Independent process start times showed that the engine was replaced at `06:11:49 UTC`, during V12. The subsequent full management receipt selects `incus-live-sp01-08-20261004-v12`, reports `qualified=true`, and gives validity through `2026-10-04T07:12:54.605Z`. Receipt `121-SP-v12-management-current.json` SHA256 is `bd3975d2eebc963f5ab245c35b07074b36ca704a44b52330405bd15474e1171c`. The earlier no-handoff and failed-run interpretations are withdrawn; the client timeout record remains unchanged.
+
+Primary DESTROY `c69b0884-f769-4e74-8bdc-ae55f58ca6a4`, unrelated DESTROY `4a1a91bf-5936-4a60-a960-89a30f09bbc9`, and recovery DESTROY `6dfebda6-3d62-4ddb-8cf3-5686e336906d` are SUCCEEDED with ABSENT bindings. Independent instance and backend operation inventories are empty. Their private receipt hashes are `8ebedec80ed1e4289c065b839bc85eadb19362857502bd96ad24111413fffcb4`, `4eb7fa041da3b1f5a327aff2c77c0fc55d80b3864b4f4365158c2a705d39c4b8`, and `2c3d0749339e5c6c15ca26c1473350fedf961350321047fe9b83f011832a511c`. Final stopped-copy reservation accounting remains pending. No normal feature creation had run when these observations were recorded.
+
+A real disconnected HTTP client against the durable runner and controlled witness still produced the correct typed preparation error and cleaned both fixtures; no cleanup escape was reproduced. The compiled route imports its error class and runner from the same chunk. The old response collector's 180-second bound was shorter than the route's independent 20-minute preparation deadline. A reviewed replacement collects one request's private response for up to 30 minutes, with an exclusive durable marker and no retry. This collection fix does not change server deadlines, qualification expiry, or production behavior.
+
+Source `e7e005206ebeca30d25807929a736f3b12d2451a` passed the fast local gate: 27,410 backend tests across 1,782 files, 3,638 web Bun tests, 7,724 component/server tests, types, lint, Svelte checks, integrity checks, and production build. It differs from installed d2de80a8a only in tests. Final same-head browser coverage, merged coverage, and hosted CI remain pending.
+
+V13 plan digest `6cb4fb0d423b52e98874699616aa3633053e980ecfeb2329f8bfb94ce8b54f83`, file SHA256 `f9082db92b013b53539de24d0b802e7a66b13cd08db1d3bc48997287107a4eb7`, retains the same approved scope and budget. One Apply matched READY. V12's four local control projects and two inert bindings were removed through the supported API; its run and guest operation receipts remain. The new collector SHA256 is `373f0580d8f820729b686a1078e590c9b4b53d72d5bb13ee85d516fcbc11d726`; concrete input SHA256 is `a48e75eb2881718dd41ea794836fd5c50b36e8c316f8171bfefa8a693200a2fc`. Its single request captured HTTP 503, `qualification_unavailable`, because the host witness readiness check refused it. Exact fixture status and independent backend reads confirm no V13 guest allocation. This redundant attempt followed the stale V12 interpretation; it is not a V12 failure or qualification pass.
+
+Both live readiness verifier commands pass with exact output in 20 ms and 35 ms. Filesystem metadata and environment checks pass. Source review found a separate deterministic budget mismatch (a five-second client versus two sequential five-second verifier budgets) and a retained supervisor claim that blocks later readiness even after successful continuation. The timing mismatch is reproduced without a wall-clock assertion; it is not asserted as V13's cause. A fix must release only a matching durable terminal claim with verified cleanup, preserve active-run and replay protections, and keep database access inside the engine. Work is in progress. The normal UI/native vertical slice can use successful V12 qualification; the final ten-cycle batch waits for a fixed candidate.
+
+## October 4 normal UI create with a valid receipt
+
+After V13's unused controls were removed, the fresh browser flow admitted CREATE `ade854fa-2857-42b8-a21e-06fc04b29310` with HTTP 202. Project `incus-project-9000f04eb6f091909de2dc4c549f4ec16d418223c62cb71a`, binding `31cc88eb-28a6-4627-9750-28c24e339f12`, and create key `d08f7fb8-5581-4db8-a237-dda6fbca6882` remain fixed. The same operation changed from PROVIDER_PENDING to SUCCEEDED through reconciliation. Independent Incus readback confirms stopped owned guest `ezh-30b37c2d0f1a5730593017a9f40af7e6`, matching the binding, connection, create receipt, and generation. No START or CREATE replay occurred.
+
+The browser artifact stopped after admission and before its first recorded readback. Its private receipt SHA256 is `788f3e691dea82f0021d2d9a639df621ccaf56b47f03702e604da7617a19935f`; it retained the operation DTO but not the complete response body. An offline regression reproduces rejection of the real initial binding shape, desired STOPPED/observed UNKNOWN with the exact pending CREATE, by the artifact's readback validator. Admission already permits PROVIDER_PENDING and will remain unchanged. The correction permits bounded read-only polling of that exact admitted operation while preserving scope, terminal-state, and OUTCOME_UNKNOWN checks. A guarded continuation will start this existing sandbox through the UI; it will not replace the CREATE or claim that the original incomplete artifact passed.
+
+The repaired proof archive SHA256 is `94580c666d67899eef9f0d60ec8ca138b2ad5399c434c5d2da30184d149cac75`. It passes 25 Bun tests with 160 assertions, strict type checks, and an actual Node Playwright worker test. The latter verifies exact-byte receipt hashing with Bun absent. Independent review confirms that the portable hash and timer preserve the admission, scope, timeout, and unknown-effect rules. Its resume path requires the immutable failed receipt hash, original operation and request keys, matching current source, and a fresh successful CREATE readback before one normal UI START. It cannot replay preparation or CREATE. Root reviewed concrete config SHA256 `f9c86cf37e75b8a79c997873530690a19499231a6a3803f8f1aa6d1333735b41`; live execution remains separately evidenced.
+
+The guarded continuation passed in 31.9 seconds. START `7f95c7cd-c0cc-4a70-acf0-b8473b1329b6` settled SUCCEEDED with the same binding RUNNING. Open chat entered the correct project. Private completed receipt SHA256 is `dc0bfefd66a753f4e9f161c6661a52beca58f5a790becfa5864ad8733ce93aa5`; root independently checked its original incomplete-receipt link and sole new START request, and visually inspected both screenshots. The initial CREATE attempt remains incomplete in its original artifact. This proves management CREATE/START/chat entry, not native development work.
+
+Before inference, actual UID/GID 1000 guest checks found Python and Docker/Compose available, but no Git. The current image builder installs Python and the Docker firewall dependencies, not Git. Sudo requires a password; no permission change or package installation was made. The published image deliberately has an empty Docker cache, so the absent pinned BusyBox test image is a per-guest fixture prerequisite rather than a shared-cache defect. Native development proof is held while the Git image recipe is corrected; no test administrator will patch this guest merely to pass the proof.
+
+The terminal supervisor correction is integrated as `b88660c56`, reviewed from `a408bbbc70104f57f9ce6f701411ced01a353646`. Only the managed engine can attest to a signed, durable terminal run with all three exact fixtures cleaned, successful current deletes, released reservations, and no unsettled operations. The supervisor retains run and fault replay fences. Failed-state persistence must succeed before release. Readiness uses a 12-second budget for two sequential five-second verifier calls; restart acknowledgment remains five seconds. Fifty-three focused Bun tests with 396 assertions, 14 actual Python supervisor tests, full types, lint, hooks, and independent review pass. The real managed-client test completes a second distinct restart handoff in the same supervisor without a manual reset. Focused coverage and installed proof remain pending.
+
+Focused coverage for that correction passes all 77 changed measured lines, with full touched-function coverage and no measured complexity above 30. The focused producer does not cover several unchanged feature-service and witness paths, so it is not a complete per-file gate. Installed validation remains pending.
+
+The first actual native conversation is `787033df-8505-40e0-a7d5-cf3e79439d0b`, on the existing running feature. Normal saved API records prove nine successful tool calls: shell directory creation, file creation/editing, reads of the proof and guest canary, grep, glob, and listFiles. Independent guest observation confirms the edited content and exact guest canary; the AMD canary's hash, inode, size, and timestamp are unchanged. Saved messages SHA256 is `3083dd9e4daf35f8fa326bada81367cff307646fc9d52740da66453b43e4a3ed`; independent readback SHA256 is `fcc88e20bab177dc304093def958014609c1630f49cfff5398ec470997f14d5a`.
+
+The partial driver denied tool call `12c5e539-b524-4db0-96b9-dceaacb281f2`: the model omitted one trailing newline from the approved Python source. The code otherwise matched. This is a proof allowlist mismatch, not a transport error. Run `cfe67b3a-f4ed-43eb-b01e-7573c415e15c` then became terminal; both Python files remain absent. The original partial receipt stays incomplete. A separately reviewed continuation archive `39765bcd0cd71b03a6676a69d419b857d9a2d62f8b069a3ce4143a24b2532d0e` allows only that optional final newline for the two known fixtures. It requires the original receipt, terminal run, unchanged successful prefix, denied call, and independent absence proof before one remaining message in the same conversation. It cannot replay the completed work. Python tests, Git, Compose, retention, and the ten-cycle claim remain unproven at this point.
+
+The Git recipe correction is integrated as `d8b7889d8`, with temporary builder resource bounds in `110ba5c9e`. The exact signed Debian package and normal-user local smoke are recorded in [the candidate evidence](2026-10-04-incus-git-image-candidate.md). All 33 setup tests pass with 323 assertions; changed TypeScript validation lines are covered. The legacy recipe validator has diagnostic complexity 70 and is outside the existing complexity enforcement scope; no gate was changed. Builder SHA256 `fd7ba0631037ec37cbac9e1e42b5c906db511b2c8b42e836b506f7466d9a0246` and unpublished recipe SHA256 `f7ac880c52c494b30b4ae9e6fe1ebec10556a2cc09cc10667a0c4aa0e50f0374` pass independent review. The exact build packet SHA256 is `73f183651ec5dc8e32658d2e9ebc3d8f220c96d4e281dd7090930715c6ef8958`; it creates only a bounded temporary builder and a new image alias, preserving the current guest and old images. Publication, provider release approval, image-bound host policy review, setup, and fresh qualification are separate remaining steps.
+
+The single bounded image build passed. New fingerprint `ebe5ce977a726130fd1aa90d2c853467bb6d143141ed07f74b7a06e98efd3912` is published as `ezharness-guest-0-1-3`. The builder ran the exact package and UID/GID 1000 Git checks before publication. Temporary guest `ezh-build-1791099062-2312744` is absent; backend operations are empty. Old image aliases and immutable fields, pool and network configuration, and the existing running user guest are preserved. Private result SHA256 is `231dd078823b5c29951896cd8c42260c119fdddbb1ed2f543cb7c3460c16f77a`; build log SHA256 is `6dcec87a0233c92f6adc89c8f50fd4909ef441e8e26f4119be9d410a8fa3b8de`. No new provider activation occurred.
+
+The partial native continuation also passed. It used the same conversation and one new run, `fecd2006-ecae-4087-b2fc-0c746756addb`, with only the remaining three tool calls. The complete continuation receipt SHA256 is `9551bfb25482ef8955d5126ae50fa06c5c04d64373c6619028d7249b47a16673`. It keeps the original denied call and links the unchanged incomplete receipt. Independent guest code/test hashes match the approved fixtures without the optional final newline; positive, zero, and negative Python tests pass as UID 1000. The AMD canary's hash and metadata remain unchanged. Independent receipt SHA256 is `195193ddea991eb0001eb1e1350f4d9d1d782f44f9fe046ad694f27e62154ab3`. This closes the partial workspace-tools proof, not Git, Compose, lifecycle retention, ten cycles, or all of G5.
+
+Reviewed source `2dbc7fba3` prepares provider 0.1.3 and canonical recipe 1.2.3 for the new exact image; recipe SHA256 is `f260fc92d4aa477422ecea5fba66a6c4f1494f9df79fd55c4c52a34a5bffcff8`. Helper, base, Python, Docker, Compose, capabilities, and permission scope remain unchanged. Extension tests pass 24 cases with 344 assertions, conformance passes eight with 24 assertions, and types, lint, hooks, and source-lock checks pass. Exact human release review remains required. The existing release cannot select another image through connection settings: its preset pins the image digest. The current guest must be drained before activation; the new release-bound connection, image-bound host policies, and qualification must then be established through the existing review flow.
+
+## Verified 0.1.3 candidate and guarded host update
+
+The first sealed build failed because its manifest test read the repository-only
+recipe. Commit `47341ea65` keeps package assertions inside the extension and moves
+recipe parity to the existing setup suite. An actual copied-package subprocess
+checks this boundary. Revision 2 remains failed. New revision 3 passed all six
+checks; candidate release and exact approval scope are recorded in the
+[0.1.3 review packet](2026-10-04-isolated-incus-release-0.1.3-review.md).
+
+Commit `65b636696` prevents provider activation while dependent sandboxes,
+unresolved operations, or reserved resources remain. It checks before migration
+preparation and again while holding the installation lock. The same predicate
+protects retired connection identity reuse. Twenty-nine real database tests,
+all 25 changed measured lines, and independent review passed. The separate mock
+browser test in `d9401c9d7` passed Chromium and proves visible refusal guidance,
+unchanged active release/generation, and one activation request. Live activation
+refusal is still pending; mock UI evidence does not establish it.
+
+The source-65 bundle passed inventory verification and non-root health 200;
+manifest SHA256 is `ca749d392f571bb0f77dda5c11209bc264dc44d7450db33423715a17ab4f3da7`.
+The guarded installer SHA256 is
+`ad5d6f57ec70250237341c09fe25773b490ca62a58a07b5c027f769967d4a041`.
+Root checked its constant-only change from the previous installer. It preserves
+the database, current guest, previous bundles, and forward-only startup rules.
+Installation began only after all native jobs and extension builds were terminal.
+
+The broad fast gate passed type checks, lint, boundaries, integrity, visual-spec,
+source-lock, route, both web test lanes, Svelte, and production build. Backend
+results were 27,414 passed and one failed. That failure was an incomplete
+miniature test database after sharing the drain predicate. Test-only correction
+`9dcefa6ae` restored the required columns and reservation table; root independently
+ran its 19 cases with 99 assertions successfully. This is not yet a green full
+gate or final same-source coverage result.
+
+All six guarded update steps passed. The installed source and manifest match
+the staged bundle. Health returned 200 behind the unchanged ingress hold;
+management and independent Incus readback still show the same running guest,
+host generation 1, provider generation 2, and successful original START.
+Pending approval `58e2b991-5170-4f74-850e-c3e678506782` was created through the
+normal review API for the exact 0.1.3 candidate. No approval decision or
+activation has been submitted.
+
+The stopped pre-update database baseline was copied into a separate disposable
+audit directory. The audit never opened the live database or immutable baseline.
+V11/V12's six fixtures and the earlier disposed diagnostic binding are all
+ABSENT, tombstoned, cleanup-confirmed, and released for both compute and disk.
+All 28 selected operations succeeded; there are no global pending operations.
+Only retained binding `31cc88eb-28a6-4627-9750-28c24e339f12` is running and
+reserved. Root independently checked these assertions. Derived receipt SHA256
+is `ffd255c9617cd4d0a4d23ffdce4366c21351f0ebe3a2f9ad76515b5bbe0ab89c`.
+
+Post-update retention receipt SHA256
+`eec4831d0c6b9a37673ef919b9c71f358d46a2ddab2c5ba263207929b12b49ba`
+confirms the same guest boot ID, four unchanged file hashes read as UID 1000,
+unchanged AMD canary hash and metadata, and all 13 saved tool calls in the same
+conversation. Root checked the receipt against earlier evidence. This proves
+partial workspace and transcript retention across this guarded app update;
+it does not prove full native Git/Compose retention or cancelled-job retention.
+
+The next fast run passed all other lanes but reported 27,415 backend passes and
+one Podman disk-worker failure. A later controlled comparison exposed a test
+confound: allocating a 20 MiB write buffer can exhaust the separate 128 MiB
+worker memory limit before filling the 8 MiB tmpfs. Test-only `fb2e43ae5` uses
+bounded 1 MiB writes and asserts exact ENOSPC, written bytes, and kernel capacity.
+No resource ceiling, deadline, or separate memory test changed. The entire real
+Podman file passed twice with 11 tests and 62 assertions; types, lint, hooks, and
+review passed. This demonstrates and corrects the confound without claiming the
+unrecorded historical worker exit was certainly an OOM. The earlier failed gate
+remains failed; final same-head gates remain pending.
