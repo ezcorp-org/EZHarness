@@ -53,6 +53,16 @@ def identity(pid):
     return {"pid": pid, "startTicks": fields[19]}
 
 
+def process_credentials(pid):
+    before = identity(pid)
+    status = Path(f"/proc/{pid}/status").read_text()
+    rows = [row.split()[1:] for row in status.splitlines() if row.startswith("Uid:")]
+    if len(rows) != 1 or len(rows[0]) != 4 or not all(value.isdigit() for value in rows[0]) \
+            or identity(pid) != before:
+        raise ValueError("process credentials unavailable or changed")
+    return tuple(int(value) for value in rows[0])
+
+
 def canonical(value):
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
 
@@ -99,7 +109,7 @@ def validate_request(message):
         raise ValueError("restart deadline expired or excessive")
 
 
-def validate_recovery(message):
+def validate_recovery(message, *, historical=False):
     if not isinstance(message, dict) or set(message) != RECOVERY_KEYS \
             or message["version"] != 1 or message["action"] not in ("recover-noeffect", "recover-fenced-cleanup") \
             or message["allClientsFenced"] is not True \
@@ -118,7 +128,7 @@ def validate_recovery(message):
         if type(message[name]) is not int or message[name] <= 0:
             raise ValueError("invalid operator recovery number")
     now = int(time.time() * 1000)
-    if not now + 145000 < message["deadlineMs"] <= now + 180000:
+    if not historical and not now + 145000 < message["deadlineMs"] <= now + 180000:
         raise ValueError("operator recovery deadline invalid")
 
 
@@ -183,6 +193,9 @@ class Supervisor:
         self.used_recoveries = set()
         self.operator_socket_path = None
         self.recovery_command = None
+        self.recovery_abort_command = None
+        self.recovery_request_path = None
+        self.abort_stopped_guard = None
         self.recovery_fence_command = None
         key_stat = self.key_path.lstat()
         if not stat.S_ISREG(key_stat.st_mode) or key_stat.st_uid != os.geteuid() \
@@ -270,7 +283,7 @@ class Supervisor:
                 status = (entry / "stat").read_text()
                 if status[status.rfind(")") + 2] == "Z":
                     continue
-                yield int(entry.name), entry.stat().st_uid, os.getpgid(int(entry.name))
+                yield int(entry.name), process_credentials(int(entry.name))[1], os.getpgid(int(entry.name))
             except (FileNotFoundError, ProcessLookupError):
                 continue
 
@@ -310,7 +323,8 @@ class Supervisor:
     def assert_exclusive_app_uid(self):
         if not self.enforce_distinct_uid:
             return
-        if any(uid == self.app_uid and group != self.child.pid
+        managed_group = self.child.pid if self.child is not None else None
+        if any(uid == self.app_uid and group != managed_group
                for _pid, uid, group in self.live_processes()):
             raise ValueError("app UID is shared outside the managed process group")
 
@@ -360,13 +374,16 @@ class Supervisor:
             sys.stderr.write("Private recovery stage diagnostic unavailable\n")
 
     def recovery_stage(self, phase, value, deadline_ms):
-        if phase not in ("durable", "backend", "apply", "restore"):
+        if phase not in ("durable", "backend", "apply", "restore", "abort", "inspect-abort"):
             raise ValueError("invalid operator recovery stage")
+        command = self.recovery_abort_command if phase in ("abort", "inspect-abort") else self.recovery_command
+        if not command:
+            raise ValueError("operator recovery command unavailable")
         try:
-            check = subprocess.run(self.recovery_command,
+            check = subprocess.run(command,
                 input=canonical({"phase": phase, **value}) + b"\n", capture_output=True,
                 timeout=bounded_timeout(deadline_ms, VERIFY_TIMEOUT_SECONDS), check=False,
-                preexec_fn=self.drop_app_privileges if phase in ("durable", "apply") else None)
+                preexec_fn=self.drop_app_privileges if phase in ("durable", "apply", "abort", "inspect-abort") else None)
         except OSError:
             self.recovery_diagnostic(phase, "spawn_failed", None, b"", b"")
             raise ValueError("independent operator recovery verifier failed") from None
@@ -387,6 +404,269 @@ class Supervisor:
 
         self.recovery_diagnostic(phase, "returned", check.returncode, check.stdout, check.stderr)
         return result
+
+    def private_recovery_bytes(self, path, maximum=16384, links=1):
+        path = Path(path)
+        if not path.is_absolute() or path.parent.resolve(strict=True) != path.parent:
+            raise ValueError("private recovery path changed")
+        parent = path.parent.lstat()
+        if not stat.S_ISDIR(parent.st_mode) or parent.st_uid != os.geteuid() or parent.st_mode & 0o022:
+            raise ValueError("private recovery directory changed")
+        directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            opened = os.fstat(directory)
+            if (opened.st_dev, opened.st_ino) != (parent.st_dev, parent.st_ino):
+                raise ValueError("private recovery directory changed")
+            descriptor = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=directory)
+            try:
+                info = os.fstat(descriptor)
+                if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or stat.S_IMODE(info.st_mode) != 0o600 \
+                        or not 1 <= info.st_nlink <= links or not 0 < info.st_size <= maximum:
+                    raise ValueError("private recovery file changed")
+                data = os.read(descriptor, maximum + 1)
+                if len(data) != info.st_size:
+                    raise ValueError("private recovery file changed")
+                return data
+            finally:
+                os.close(descriptor)
+        finally:
+            os.close(directory)
+
+    def persist_abort_file(self, path, value):
+        data = canonical(value) + b"\n"
+        try:
+            descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        except FileExistsError:
+            if self.private_recovery_bytes(path) != data:
+                raise ValueError("operator abort record changed")
+            return
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        self.sync_hold_directory()
+
+    def assert_abort_actors_stopped(self, units, runner_uid, *, serving=False):
+        if type(runner_uid) is not int or runner_uid <= 0 or runner_uid == self.app_uid \
+                or not isinstance(units, list) or len(units) != 3 \
+                or not all(isinstance(unit, str) and re.fullmatch(r"[A-Za-z0-9_.@:-]+\.service", unit) for unit in units) \
+                or len(set(units)) != 3 or units[2] != f"user@{runner_uid}.service":
+            raise ValueError("operator abort stopped-actor configuration invalid")
+        check = subprocess.run(["systemctl", "show", *units, "--no-pager",
+            "--property=Id,ActiveState,SubState,MainPID"], capture_output=True, timeout=5, check=False)
+        if check.returncode != 0 or check.stderr:
+            raise ValueError("operator abort stopped-unit proof unavailable")
+        blocks = check.stdout.decode("ascii").strip().split("\n\n")
+        observed = {}
+        for block in blocks:
+            rows = [line.split("=", 1) for line in block.splitlines()]
+            if any(len(row) != 2 for row in rows) or len(rows) != 4:
+                raise ValueError("operator abort stopped-unit proof invalid")
+            item = dict(rows)
+            if set(item) != {"Id", "ActiveState", "SubState", "MainPID"} or item["Id"] in observed:
+                raise ValueError("operator abort stopped-unit proof invalid")
+            observed[item["Id"]] = item
+        expected = {name: {"Id": name, "ActiveState": "inactive", "SubState": "dead", "MainPID": "0"} for name in units}
+        if serving:
+            expected[units[0]] = {"Id": units[0], "ActiveState": "active", "SubState": "running", "MainPID": str(os.getpid())}
+        if observed != expected:
+            raise ValueError("operator abort requires stopped units")
+        for entry in Path("/proc").iterdir():
+            if not entry.name.isdigit():
+                continue
+            try:
+                state = (entry / "stat").read_text()
+                if state[state.rfind(")") + 2] == "Z":
+                    continue
+                if {self.app_uid, runner_uid}.intersection(process_credentials(int(entry.name))):
+                    raise ValueError("operator abort has live app or runner actor")
+            except (FileNotFoundError, ProcessLookupError):
+                continue
+
+    def abort_context(self, message):
+        if self.abort_stopped_guard:
+            self.abort_stopped_guard()
+        elif self.enforce_distinct_uid:
+            raise ValueError("operator abort stopped-actor guard required")
+        # Only the private operator socket can reach this action. The stopped
+        # app UID owns the database transaction; no guest/provider assertion can
+        # clear the hold, and this method never starts the app.
+        keys = {"version", "action", "originalRequest", "requestFileSha256", "requestSha256", "holdSha256"}
+        if not isinstance(message, dict) or set(message) not in (keys, keys | {"reauthorizeAbort"}) or message.get("reauthorizeAbort", True) is not True or message["version"] != 1 \
+                or message["action"] != "abort-fenced-cleanup-before-admission" \
+                or not self.recovery_abort_command or not self.recovery_request_path:
+            raise ValueError("operator abort unavailable or invalid")
+        original = message["originalRequest"]
+        validate_recovery(original, historical=True)
+        if original["action"] != "recover-fenced-cleanup":
+            raise ValueError("operator abort requires fenced cleanup")
+        saved = self.private_recovery_bytes(self.recovery_request_path)
+        if json.loads(saved) != original or hashlib.sha256(saved).hexdigest() != message["requestFileSha256"] \
+                or hashlib.sha256(canonical(original)).hexdigest() != message["requestSha256"]:
+            raise ValueError("operator abort original request changed")
+        hold_bytes = canonical({"nonce": original["nonce"], "reviewId": original["reviewId"]}) + b"\n"
+        if hashlib.sha256(hold_bytes).hexdigest() != message["holdSha256"]:
+            raise ValueError("operator abort hold hash changed")
+        suffix = message["requestSha256"]
+        archive = self.recovery_hold_path.with_name(self.recovery_hold_path.name + ".aborted." + suffix)
+        receipt_path = self.recovery_hold_path.with_name(self.recovery_hold_path.name + ".abort-receipt." + suffix)
+        proof_path = self.recovery_hold_path.with_name(self.recovery_hold_path.name + ".abort-proof." + suffix)
+        try:
+            actual_hold = self.private_recovery_bytes(self.recovery_hold_path, links=2)
+        except FileNotFoundError:
+            actual_hold = self.private_recovery_bytes(archive)
+        if actual_hold != hold_bytes:
+            raise ValueError("operator abort held request changed")
+        if self.recovery_hold_path.exists() and self.recovery_hold_path.stat().st_nlink != 1:
+            if not archive.exists() or self.recovery_hold_path.stat().st_nlink != 2 \
+                    or (self.recovery_hold_path.stat().st_dev, self.recovery_hold_path.stat().st_ino) != (archive.stat().st_dev, archive.stat().st_ino):
+                raise ValueError("operator abort hold link changed")
+        if self.child is not None and not self.child_exited():
+            raise ValueError("operator abort requires stopped app")
+        self.assert_exclusive_app_uid()
+        sealed = self.preflight_recovery_config("recover-fenced-cleanup")
+        target = {key: original[key] for key in ("scope", "fixtureOperationId", "bindingId", "operationId", "generation", "connectionRevision")}
+        if sealed.get("target") != target or not isinstance(sealed.get("pins"), dict):
+            raise ValueError("operator abort sealed target changed")
+        return original, sealed, hold_bytes, archive, receipt_path, proof_path
+
+    def validate_abort_receipt(self, stored, message, original, sealed):
+        if not isinstance(stored, dict) or set(stored) != {"payload", "signature"} or not isinstance(stored["signature"], str) or not re.fullmatch(r"[A-Za-z0-9+/]{86}==", stored["signature"]):
+            raise ValueError("operator abort receipt changed")
+        payload = stored["payload"]
+        expected = {"version": 1, "action": message["action"], "originalRequest": original,
+            "pins": sealed["pins"], "requestSha256": message["requestSha256"], "holdSha256": message["holdSha256"]}
+        if not isinstance(payload, dict) or set(payload) != set(expected) | {"issuedAtMs", "expiresAtMs"} \
+                or any(payload[key] != value for key, value in expected.items()) \
+                or type(payload["issuedAtMs"]) is not int or type(payload["expiresAtMs"]) is not int \
+                or payload["expiresAtMs"] - payload["issuedAtMs"] != 30000:
+            raise ValueError("operator abort receipt changed")
+
+    def abort_receipt(self, message, original, sealed, receipt_path):
+        base_path = receipt_path
+        history = []
+        try:
+            journal = json.loads(self.private_recovery_bytes(receipt_path))
+            if not isinstance(journal, dict) or set(journal) != {"requestFileSha256", "receipt"} or journal["requestFileSha256"] != message["requestFileSha256"]:
+                raise ValueError("operator abort source file changed")
+            stored = journal["receipt"]
+            self.validate_abort_receipt(stored, message, original, sealed)
+            history.append(stored)
+            for _ in range(8):
+                following = base_path.with_name(base_path.name + ".reauthorized." + hashlib.sha256(canonical(stored)).hexdigest())
+                try:
+                    child = json.loads(self.private_recovery_bytes(following))
+                except FileNotFoundError:
+                    break
+                if not isinstance(child, dict) or set(child) != {"requestFileSha256", "receipt"} or child["requestFileSha256"] != message["requestFileSha256"]:
+                    raise ValueError("operator abort authorization archive changed")
+                receipt_path, stored = following, child["receipt"]
+                self.validate_abort_receipt(stored, message, original, sealed)
+                history.append(stored)
+            else:
+                raise ValueError("operator abort authorization archive limit reached")
+        except FileNotFoundError:
+            now = int(time.time()*1000)
+            payload = {"version": 1, "action": message["action"], "originalRequest": original,
+                "pins": sealed["pins"], "requestSha256": message["requestSha256"],
+                "holdSha256": message["holdSha256"], "issuedAtMs": now, "expiresAtMs": now+30000}
+            stored = self.sign_payload(payload)
+            self.persist_abort_file(receipt_path, {"requestFileSha256": message["requestFileSha256"], "receipt": stored})
+            phase = "abort"
+        else:
+            phase = "inspect-abort"
+        self.validate_abort_receipt(stored, message, original, sealed)
+        return stored, phase, base_path, history
+
+    def archive_abort_hold(self, original, hold_bytes, archive, proof_path, proof):
+        if self.abort_stopped_guard:
+            self.abort_stopped_guard()
+        self.persist_abort_file(proof_path, proof)
+        try:
+            os.link(self.recovery_hold_path, archive, follow_symlinks=False)
+        except FileExistsError:
+            if self.private_recovery_bytes(archive, links=2) != hold_bytes:
+                raise ValueError("operator abort archive changed")
+        except FileNotFoundError:
+            if self.private_recovery_bytes(archive) != hold_bytes:
+                raise ValueError("operator abort archive unavailable")
+        self.sync_hold_directory()
+        if self.recovery_hold_path.exists():
+            if self.private_recovery_bytes(self.recovery_hold_path, links=2) != hold_bytes \
+                    or self.recovery_hold_path.stat().st_ino != archive.stat().st_ino:
+                raise ValueError("operator abort archive identity changed")
+            self.recovery_hold_path.unlink()
+            self.sync_hold_directory()
+        self.used_recoveries.add(original["nonce"])
+        return proof
+
+    def validate_abort_proof(self, proof, stored, original, message, *, uncommitted=False):
+        state_keys = {"status"} if uncommitted else {"abortId"}
+        common_keys = {"nonce", "requestSha256", "holdSha256", "receiptSha256"}
+        if not isinstance(proof, dict) or set(proof) != common_keys | state_keys \
+                or proof["nonce"] != original["nonce"] or proof["requestSha256"] != message["requestSha256"] \
+                or proof["holdSha256"] != message["holdSha256"] \
+                or proof["receiptSha256"] != hashlib.sha256(canonical(stored)).hexdigest():
+            raise ValueError("operator abort committed proof invalid")
+        if uncommitted:
+            if proof["status"] != "uncommitted":
+                raise ValueError("operator abort absence proof invalid")
+        elif not isinstance(proof["abortId"], str) or not UUID.fullmatch(proof["abortId"]):
+            raise ValueError("operator abort committed proof invalid")
+
+    def renew_abort_receipt(self, message, stored, receipt_path):
+        # An explicit root request plus a DB-authoritative uncommitted proof is
+        # required. Keep every previous signature immutable; a child file binds
+        # its parent receipt hash. A retry follows the same persisted child.
+        if message.get("reauthorizeAbort") is not True:
+            raise ValueError("expired uncommitted abort requires explicit reauthorization")
+        now = int(time.time()*1000)
+        payload = {**stored["payload"], "issuedAtMs": now, "expiresAtMs": now+30000}
+        following = receipt_path.with_name(receipt_path.name + ".reauthorized." + hashlib.sha256(canonical(stored)).hexdigest())
+        renewed = self.sign_payload(payload)
+        self.persist_abort_file(following, {"requestFileSha256": message["requestFileSha256"], "receipt": renewed})
+        return renewed
+
+    def inspect_abort_winner(self, phase, arguments, history, original, message, deadline_ms):
+        try:
+            return self.recovery_stage(phase, arguments, deadline_ms), arguments["receipt"], phase
+        except ValueError as failure:
+            # Another exact old signature can win the shared DB nonce lock
+            # during explicit renewal. Only its independently inspected exact
+            # committed proof can close the hold; an error is never absence.
+            for previous in reversed(history):
+                if previous == arguments["receipt"]:
+                    continue
+                try:
+                    proof = self.recovery_stage("inspect-abort", {**arguments, "receipt": previous}, deadline_ms)
+                except ValueError:
+                    continue
+                if isinstance(proof, dict) and "abortId" in proof:
+                    self.validate_abort_proof(proof, previous, original, message)
+                    return proof, previous, "inspect-abort"
+            raise failure
+
+    def abort_recovery(self, message):
+        deadline_ms = int(time.time()*1000)+90000
+        original, sealed, hold_bytes, archive, receipt_path, proof_path = self.abort_context(message)
+        stored, phase, receipt_path, history = self.abort_receipt(message, original, sealed, receipt_path)
+        public = subprocess.run(["openssl", "pkey", "-in", str(self.key_path), "-pubout"],
+            capture_output=True, timeout=SIGN_TIMEOUT_SECONDS, check=True)
+        arguments = {"receipt": stored, "publicKeyPem": public.stdout.decode("ascii")}
+        proof, stored, phase = self.inspect_abort_winner(phase, arguments, history, original, message, deadline_ms)
+        if phase == "inspect-abort" and isinstance(proof, dict) and proof.get("status") == "uncommitted":
+            self.validate_abort_proof(proof, stored, original, message, uncommitted=True)
+            now = int(time.time()*1000)
+            if not stored["payload"]["issuedAtMs"] <= now < stored["payload"]["expiresAtMs"]:
+                stored = self.renew_abort_receipt(message, stored, receipt_path)
+                arguments = {**arguments, "receipt": stored}
+            phase = "abort"
+            proof, stored, phase = self.inspect_abort_winner(phase, arguments, history, original, message, deadline_ms)
+        self.validate_abort_proof(proof, stored, original, message)
+        # Re-read the database's exact signed record before consuming any hold.
+        if phase == "abort" and self.recovery_stage("inspect-abort", arguments, deadline_ms) != proof:
+            raise ValueError("operator abort committed proof changed")
+        return self.archive_abort_hold(original, hold_bytes, archive, proof_path, proof)
 
     def verify_recovery_fence(self, request, old_process):
         if not self.recovery_fence_command:
@@ -719,7 +999,7 @@ class Supervisor:
                             if not self.peer_is_operator(connection):
                                 raise ValueError("unauthorized operator peer")
                             message = read_message(connection)
-                            send_message(connection, self.recover_noeffect(message))
+                            send_message(connection, self.abort_recovery(message) if isinstance(message, dict) and message.get("action") == "abort-fenced-cleanup-before-admission" else self.recover_noeffect(message))
                             continue
                         if not self.peer_is_child(connection):
                             raise ValueError("unauthorized control peer")
@@ -792,12 +1072,16 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True)
     parser.add_argument("--recover-request")
+    parser.add_argument("--abort-request")
     args = parser.parse_args()
+    if args.abort_request and args.recover_request:
+        raise ValueError("operator control requires a single action")
     config = json.loads(Path(args.config).read_text())
     required = {"socket", "appCommand", "appUid", "appGid", "key", "authorityCommand",
                 "receiptAuthorityCommand"}
     optional = {"operatorSocket", "recoveryCommand", "recoveryFenceCommand",
-                "faultAuthorityCommand"}
+                "faultAuthorityCommand", "recoveryAbortCommand", "recoveryRequestPath",
+                "recoveryAbortStoppedUnits", "recoveryAbortRunnerUid"}
     if not required <= set(config) or set(config) - required - optional \
             or bool(config.get("operatorSocket")) != bool(config.get("recoveryCommand")) \
             or not all(type(config[name]) is int and config[name] > 0
@@ -823,6 +1107,13 @@ def main():
             or not config["faultAuthorityCommand"]
             or not all(isinstance(value, str) and value for value in config["faultAuthorityCommand"])):
         raise ValueError("invalid operator fault verifier")
+    if bool(config.get("recoveryAbortCommand")) != bool(config.get("recoveryRequestPath")) \
+            or (config.get("recoveryAbortCommand") and (not config.get("operatorSocket")
+                or not isinstance(config["recoveryAbortCommand"], list)
+                or not all(isinstance(value, str) and value for value in config["recoveryAbortCommand"])
+                or not isinstance(config["recoveryRequestPath"], str)
+                or not config["recoveryRequestPath"].startswith("/"))):
+        raise ValueError("invalid operator abort configuration")
     if args.recover_request:
         if os.geteuid() != 0 or not config.get("operatorSocket"):
             raise ValueError("operator recovery requires root and a private socket")
@@ -831,7 +1122,8 @@ def main():
         if not stat.S_ISREG(file.st_mode) or file.st_uid != 0 or file.st_mode & 0o077:
             raise ValueError("operator recovery request must be a private root-owned file")
         request = json.loads(path.read_text())
-        validate_recovery(request)
+        if not isinstance(request, dict) or request.get("action") != "abort-fenced-cleanup-before-admission":
+            validate_recovery(request)
         with socket.socket(socket.AF_UNIX) as connection:
             connection.settimeout(180)
             connection.connect(config["operatorSocket"])
@@ -846,8 +1138,22 @@ def main():
     if config.get("operatorSocket"):
         supervisor.operator_socket_path = Path(config["operatorSocket"])
         supervisor.recovery_command = config["recoveryCommand"]
+        supervisor.recovery_abort_command = config.get("recoveryAbortCommand")
+        supervisor.recovery_request_path = config.get("recoveryRequestPath")
         supervisor.recovery_fence_command = config.get("recoveryFenceCommand")
     supervisor.fault_authority_command = config.get("faultAuthorityCommand")
+    if config.get("recoveryAbortCommand"):
+        units = config.get("recoveryAbortStoppedUnits")
+        runner_uid = config.get("recoveryAbortRunnerUid")
+        supervisor.abort_stopped_guard = lambda: supervisor.assert_abort_actors_stopped(units, runner_uid, serving=not bool(args.abort_request))
+    if args.abort_request:
+        if os.geteuid() != 0 or args.recover_request:
+            raise ValueError("offline operator abort requires root and a single action")
+        if json.loads(supervisor.private_recovery_bytes(args.config, maximum=128*1024)) != config:
+            raise ValueError("offline operator abort config changed")
+        message = json.loads(supervisor.private_recovery_bytes(args.abort_request))
+        print(json.dumps(supervisor.abort_recovery(message), sort_keys=True))
+        return
     supervisor.serve()
 
 

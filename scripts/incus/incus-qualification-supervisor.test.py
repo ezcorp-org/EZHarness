@@ -2,6 +2,7 @@
 """Process-level proof of the Linux control socket and restart handoff."""
 
 import importlib.util
+import hashlib
 import json
 import os
 import signal
@@ -175,7 +176,7 @@ class SupervisorTest(unittest.TestCase):
                         "claimedProcess": process, **{key: request[key] for key in ("runId", "nonce", "scope", "connectionRevision")}}
             for field, value in (("runId", "other"), ("nonce", "other"), ("connectionRevision", 2),
                                  ("scope", {**request["scope"], "presetId": "other"}), ("process", {"pid": 1, "startTicks": "1"}),
-                                 ("claimedProcess", {"pid": 1, "startTicks": "1"}), ("state", "CLAIMED")):
+                                 ("claimedProcess", {"pid": 1, "startTicks": "1"}), ("state", "CLAIMED"), ("reauthorizeAbort", True)):
                 with self.assertRaises(ValueError):
                     supervisor.terminal({**terminal, field: value})
                 self.assertIsNotNone(supervisor.claimed)
@@ -1030,6 +1031,351 @@ class FencedCleanupSignerTest(unittest.TestCase):
                 {"verified": True, "pins": changed})
         self.supervisor.sign_payload.assert_not_called()
         self.assertNotIn("apply", self.events)
+
+
+ABORT_CLI = r"""
+import hashlib,json,os,subprocess,sys,tempfile,uuid
+from pathlib import Path
+root=Path(sys.argv[1]); value=json.load(sys.stdin); receipt=value['receipt']
+assert value['phase'] in ('abort','inspect-abort')
+assert value['publicKeyPem']==(root/'public.pem').read_text()
+def canonical(v):return json.dumps(v,sort_keys=True,separators=(',',':'),ensure_ascii=False).encode()
+with tempfile.TemporaryDirectory(dir=root) as directory:
+    data=Path(directory)/'data'; signature=Path(directory)/'signature'
+    import base64
+    data.write_bytes(canonical(receipt['payload']));signature.write_bytes(base64.b64decode(receipt['signature']))
+    verified=subprocess.run(['openssl','pkeyutl','-verify','-pubin','-inkey',str(root/'public.pem'),'-rawin','-in',str(data),'-sigfile',str(signature)],capture_output=True)
+    assert verified.returncode==0
+proof_path=root/'committed.json'
+if value['phase']=='abort':
+    assert not proof_path.exists()
+    payload=receipt['payload']
+    proof={'abortId':'12345678-1234-4123-8123-123456789abc','nonce':payload['originalRequest']['nonce'],
+        'requestSha256':payload['requestSha256'],'holdSha256':payload['holdSha256'],
+        'receiptSha256':hashlib.sha256(canonical(receipt)).hexdigest()}
+    fd=os.open(proof_path,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+    with os.fdopen(fd,'wb') as out:out.write(canonical(proof));out.flush();os.fsync(out.fileno())
+else:
+    if proof_path.exists():
+        proof=json.loads(proof_path.read_text())
+        assert proof['receiptSha256']==hashlib.sha256(canonical(receipt)).hexdigest()
+    else:
+        payload=receipt['payload']
+        proof={'status':'uncommitted','nonce':payload['originalRequest']['nonce'],'requestSha256':payload['requestSha256'],'holdSha256':payload['holdSha256'],'receiptSha256':hashlib.sha256(canonical(receipt)).hexdigest()}
+with (root/'phases').open('a') as out:out.write(value['phase']+'\n')
+print(json.dumps(proof))
+"""
+
+
+class FencedCleanupAbortTests(unittest.TestCase):
+    write_config = FencedCleanupSignerTest.write_config
+
+    def setUp(self):
+        FencedCleanupSignerTest.setUp(self)
+        self.supervisor.child = None
+        self.root = self.config.parent
+        self.request['deadlineMs'] = 1
+        self.saved = self.root/'original.json'
+        self.saved.write_text(json.dumps(self.request, indent=2)+'\n')
+        self.saved.chmod(0o600)
+        self.supervisor.recovery_request_path = self.saved
+        key = self.supervisor.key_path
+        subprocess.run(['openssl','genpkey','-algorithm','Ed25519','-out',str(key)],check=True,capture_output=True)
+        key.chmod(0o600)
+        public=subprocess.run(['openssl','pkey','-in',str(key),'-pubout'],check=True,capture_output=True).stdout
+        (self.root/'public.pem').write_bytes(public)
+        self.supervisor.sign_payload = MODULE.Supervisor.sign_payload.__get__(self.supervisor)
+        self.supervisor.recovery_abort_command = [sys.executable,'-c',ABORT_CLI,str(self.root)]
+        self.supervisor.set_recovery_hold(self.request)
+        self.message={'version':1,'action':'abort-fenced-cleanup-before-admission','originalRequest':self.request,
+            'requestFileSha256':hashlib.sha256(self.saved.read_bytes()).hexdigest(),
+            'requestSha256':hashlib.sha256(MODULE.canonical(self.request)).hexdigest(),
+            'holdSha256':hashlib.sha256(self.supervisor.recovery_hold_path.read_bytes()).hexdigest()}
+        self.environment=mock.patch.dict(os.environ,{'EZCORP_INCUS_FENCED_CLEANUP_CONFIG':str(self.config)})
+        self.environment.start();self.addCleanup(self.environment.stop)
+
+    def test_real_signer_cli_and_archive_never_start_app(self):
+        proof=self.supervisor.abort_recovery(self.message)
+        self.assertEqual(proof['nonce'],self.request['nonce'])
+        self.assertEqual((self.root/'phases').read_text().splitlines(),['abort','inspect-abort'])
+        self.assertFalse(self.supervisor.recovery_hold_path.exists())
+        self.assertEqual(self.events,[])
+        self.assertIn(self.request['nonce'],self.supervisor.used_recoveries)
+        archives=list(self.root.glob('*.aborted.*'))
+        self.assertEqual(len(archives),1)
+        self.assertEqual(archives[0].stat().st_mode&0o777,0o600)
+        self.assertEqual(json.loads(archives[0].read_text()),{'nonce':'nonce','reviewId':'review'})
+        original=self.saved.read_bytes()
+        self.assertEqual(self.supervisor.abort_recovery(self.message),proof)
+        self.assertEqual(self.saved.read_bytes(),original)
+        self.assertEqual((self.root/'phases').read_text().splitlines(),['abort','inspect-abort','inspect-abort'])
+
+    def test_commit_before_archive_crash_reuses_signed_receipt_after_expiry(self):
+        persist=self.supervisor.persist_abort_file
+        def crash(path,value):
+            if '.abort-proof.' in str(path):raise OSError('injected archival failure')
+            persist(path,value)
+        with mock.patch.object(self.supervisor,'persist_abort_file',side_effect=crash):
+            with self.assertRaisesRegex(OSError,'injected archival failure'):
+                self.supervisor.abort_recovery(self.message)
+        self.assertTrue(self.supervisor.recovery_hold_path.exists())
+        receipt=list(self.root.glob('*.abort-receipt.*'))[0].read_bytes()
+        stored=json.loads(receipt)['receipt']
+        with mock.patch.object(MODULE.time,'time',return_value=(stored['payload']['expiresAtMs']+100000)/1000), mock.patch.object(self.supervisor,'sign_payload',side_effect=AssertionError('must not sign again')):
+            self.supervisor.abort_recovery(self.message)
+        self.assertEqual(list(self.root.glob('*.abort-receipt.*'))[0].read_bytes(),receipt)
+        self.assertFalse(self.supervisor.recovery_hold_path.exists())
+        self.assertEqual((self.root/'phases').read_text().splitlines(),['abort','inspect-abort','inspect-abort'])
+
+    def test_receipt_persisted_before_commit_crash_retries_identical_fresh_abort(self):
+        original_stage=self.supervisor.recovery_stage
+        with mock.patch.object(self.supervisor,'recovery_stage',side_effect=OSError('before DB invocation')):
+            with self.assertRaisesRegex(OSError,'before DB invocation'):
+                self.supervisor.abort_recovery(self.message)
+        receipt=list(self.root.glob('*.abort-receipt.*'))[0].read_bytes()
+        with mock.patch.object(self.supervisor,'sign_payload',side_effect=AssertionError('must not sign again')):
+            proof=self.supervisor.abort_recovery(self.message)
+        self.assertEqual(proof['nonce'],'nonce')
+        self.assertEqual(list(self.root.glob('*.abort-receipt.*'))[0].read_bytes(),receipt)
+        self.assertFalse(self.supervisor.recovery_hold_path.exists())
+        self.assertEqual((self.root/'phases').read_text().splitlines(),['inspect-abort','abort','inspect-abort'])
+
+    def test_expired_uncommitted_receipt_never_retries_write(self):
+        with mock.patch.object(self.supervisor,'recovery_stage',side_effect=OSError('before DB invocation')):
+            with self.assertRaises(OSError):self.supervisor.abort_recovery(self.message)
+        receipt=json.loads(list(self.root.glob('*.abort-receipt.*'))[0].read_text())['receipt']
+        with mock.patch.object(MODULE.time,'time',return_value=(receipt['payload']['expiresAtMs']+1)/1000), mock.patch.object(self.supervisor,'recovery_stage',side_effect=ValueError('uncommitted')) as stage:
+            with self.assertRaisesRegex(ValueError,'uncommitted'):self.supervisor.abort_recovery(self.message)
+        self.assertEqual([call.args[0] for call in stage.call_args_list],['inspect-abort'])
+        self.assertTrue(self.supervisor.recovery_hold_path.exists())
+
+    def test_expired_uncommitted_requires_explicit_authorization_and_archives_old_signature(self):
+        with mock.patch.object(self.supervisor,'recovery_stage',side_effect=OSError('before DB invocation')):
+            with self.assertRaises(OSError):self.supervisor.abort_recovery(self.message)
+        receipt_path=list(self.root.glob('*.abort-receipt.*'))[0]
+        old=receipt_path.read_bytes(); old_receipt=json.loads(old)['receipt']
+        with mock.patch.object(MODULE.time,'time',return_value=(old_receipt['payload']['expiresAtMs']+1)/1000):
+            with self.assertRaisesRegex(ValueError,'explicit reauthorization'):
+                self.supervisor.abort_recovery(self.message)
+            proof=self.supervisor.abort_recovery({**self.message,'reauthorizeAbort':True})
+        self.assertEqual(proof['nonce'],'nonce')
+        self.assertEqual(receipt_path.read_bytes(),old)
+        renewed=list(self.root.glob('*.reauthorized.*'))
+        self.assertEqual(len(renewed),1)
+        self.assertNotEqual(json.loads(renewed[0].read_text())['receipt']['signature'],old_receipt['signature'])
+        with mock.patch.object(self.supervisor,'sign_payload',side_effect=AssertionError('no renewed authority on retry')):
+            self.assertEqual(self.supervisor.abort_recovery(self.message),proof)
+        self.assertEqual(self.events,[])
+
+    def test_late_old_receipt_winner_requires_exact_committed_old_proof(self):
+        with mock.patch.object(self.supervisor,'recovery_stage',side_effect=OSError('before DB invocation')):
+            with self.assertRaises(OSError):self.supervisor.abort_recovery(self.message)
+        old=json.loads(list(self.root.glob('*.abort-receipt.*'))[0].read_text())['receipt']
+        stage=self.supervisor.recovery_stage
+        def old_wins(phase,arguments,deadline):
+            if phase=='abort' and arguments['receipt']!=old and not (self.root/'committed.json').exists():
+                stage('abort',{**arguments,'receipt':old},deadline)
+            return stage(phase,arguments,deadline)
+        with mock.patch.object(MODULE.time,'time',return_value=(old['payload']['expiresAtMs']+1)/1000),mock.patch.object(self.supervisor,'recovery_stage',side_effect=old_wins):
+            proof=self.supervisor.abort_recovery({**self.message,'reauthorizeAbort':True})
+        self.assertEqual(proof['receiptSha256'],hashlib.sha256(MODULE.canonical(old)).hexdigest())
+        self.assertFalse(self.supervisor.recovery_hold_path.exists())
+        self.assertEqual(self.supervisor.abort_recovery(self.message),proof)
+        self.assertEqual(self.events,[])
+
+    def test_archive_link_before_unlink_crash_is_recoverable(self):
+        unlink=Path.unlink
+        def crash(path,*args,**kwargs):
+            if path==self.supervisor.recovery_hold_path:raise OSError('injected unlink failure')
+            return unlink(path,*args,**kwargs)
+        with mock.patch.object(Path,'unlink',new=crash):
+            with self.assertRaisesRegex(OSError,'injected unlink failure'):
+                self.supervisor.abort_recovery(self.message)
+        self.assertTrue(self.supervisor.recovery_hold_path.exists())
+        self.supervisor.abort_recovery(self.message)
+        self.assertFalse(self.supervisor.recovery_hold_path.exists())
+        self.assertEqual(self.events,[])
+
+    def test_changed_request_hash_hold_target_and_peer_state_refuse_before_cli(self):
+        for field in ('requestFileSha256','requestSha256','holdSha256'):
+            with self.subTest(field=field),mock.patch.object(self.supervisor,'recovery_stage') as stage:
+                with self.assertRaises(ValueError):self.supervisor.abort_recovery({**self.message,field:'0'*64})
+                stage.assert_not_called()
+        changed=json.loads(json.dumps(self.message));changed['originalRequest']['bindingId']='other'
+        with self.assertRaises(ValueError):self.supervisor.abort_recovery(changed)
+        self.write_config(target={**self.target,'bindingId':'other'})
+        with self.assertRaisesRegex(ValueError,'sealed target changed'):self.supervisor.abort_recovery(self.message)
+        self.write_config()
+        self.supervisor.child=object()
+        with mock.patch.object(self.supervisor,'child_exited',return_value=False):
+            with self.assertRaisesRegex(ValueError,'stopped app'):self.supervisor.abort_recovery(self.message)
+        self.assertTrue(self.supervisor.recovery_hold_path.exists())
+        self.assertFalse((self.root/'committed.json').exists())
+
+    def test_actual_operator_socket_aborts_without_app_start(self):
+        runner_code = r"""
+import importlib.util,json,os,sys
+from pathlib import Path
+spec=importlib.util.spec_from_file_location('supervisor',sys.argv[1]);m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+root=Path(sys.argv[2]);commands=json.loads((root/'commands.json').read_text())
+s=m.Supervisor(str(root/'control.sock'),[sys.executable,'-c',"raise AssertionError('must not start app')"],os.getuid(),os.getgid(),root/'key.pem',['true'],['true'],enforce_distinct_uid=False)
+s.operator_socket_path=root/'operator.sock';s.recovery_command=['true'];s.recovery_abort_command=commands;s.recovery_request_path=root/'original.json';s.serve()
+"""
+        (self.root/'commands.json').write_text(json.dumps(self.supervisor.recovery_abort_command))
+        process=subprocess.Popen([sys.executable,'-c',runner_code,str(SOURCE),str(self.root)],stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+        try:
+            for _ in range(200):
+                if (self.root/'operator.sock').exists():break
+                if process.poll() is not None:self.fail('supervisor exited before operator socket')
+                time.sleep(0.01)
+            self.assertTrue((self.root/'operator.sock').exists())
+            with socket.socket(socket.AF_UNIX) as connection:
+                connection.settimeout(5);connection.connect(str(self.root/'operator.sock'))
+                MODULE.send_message(connection,self.message)
+                response=MODULE.read_message(connection)
+            self.assertEqual(response['nonce'],'nonce')
+            self.assertEqual(response['requestSha256'],self.message['requestSha256'])
+            self.assertFalse(self.supervisor.recovery_hold_path.exists())
+            self.assertIsNone(process.poll())
+        finally:
+            process.terminate()
+            try:stdout,stderr=process.communicate(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill();stdout,stderr=process.communicate()
+        self.assertNotIn(b'must not start app',stdout+stderr)
+
+    def test_unsafe_saved_request_and_changed_receipt_refuse(self):
+        raw=self.saved.read_bytes()
+        self.saved.unlink();other=self.root/'other';other.write_bytes(raw);other.chmod(0o600)
+        self.saved.symlink_to(other)
+        with self.assertRaises(OSError):self.supervisor.abort_recovery(self.message)
+        self.saved.unlink();self.saved.write_bytes(raw);self.saved.chmod(0o644)
+        with self.assertRaisesRegex(ValueError,'file changed'):self.supervisor.abort_recovery(self.message)
+        self.saved.chmod(0o600)
+        self.supervisor.abort_recovery(self.message)
+        receipt_path=list(self.root.glob('*.abort-receipt.*'))[0]
+        receipt=json.loads(receipt_path.read_text());receipt['receipt']['payload']['originalRequest']['bindingId']='other'
+        receipt_path.write_bytes(MODULE.canonical(receipt)+b'\n')
+        with self.assertRaisesRegex(ValueError,'receipt changed'):self.supervisor.abort_recovery(self.message)
+        self.assertEqual((self.root/'phases').read_text().splitlines(),['abort','inspect-abort'])
+
+    def test_database_rejection_does_not_archive_hold(self):
+        self.supervisor.recovery_abort_command=[sys.executable,'-c',"import sys;sys.stderr.write('PRIVATE_DENIAL');sys.exit(1)"]
+        with self.assertRaisesRegex(ValueError,'independent operator recovery verifier failed') as error:
+            self.supervisor.abort_recovery(self.message)
+        self.assertNotIn('PRIVATE_DENIAL',str(error.exception))
+        self.assertTrue(self.supervisor.recovery_hold_path.exists())
+        self.assertEqual(list(self.root.glob('*.aborted.*')),[])
+        self.assertEqual(self.events,[])
+
+    def test_offline_actor_guard_requires_all_units_and_real_credentials(self):
+        units=['supervisor.service','runner.service','user@65003.service']
+        def output(change=None):
+            blocks=[]
+            for unit in units:
+                values={'Id':unit,'ActiveState':'inactive','SubState':'dead','MainPID':'0'}
+                if unit=='runner.service' and change:values.update(change)
+                blocks.append('\n'.join(key+'='+value for key,value in values.items()))
+            return ('\n\n'.join(blocks)+'\n').encode()
+        for changed in ({'ActiveState':'active'},{'MainPID':'42'},{'SubState':'running'}):
+            with self.subTest(changed=changed),mock.patch.object(MODULE.subprocess,'run',return_value=subprocess.CompletedProcess([],0,stdout=output(changed),stderr=b'')):
+                with self.assertRaisesRegex(ValueError,'requires stopped units'):
+                    self.supervisor.assert_abort_actors_stopped(units,65003)
+        with mock.patch.object(MODULE.subprocess,'run',return_value=subprocess.CompletedProcess([],0,stdout=output(),stderr=b'')):
+            # The current test process is a real app-UID actor. Directory inode
+            # ownership is not used to establish its process credentials.
+            with self.assertRaisesRegex(ValueError,'live app or runner actor'):
+                self.supervisor.assert_abort_actors_stopped(units,65003)
+        with mock.patch.object(MODULE.subprocess,'run',return_value=subprocess.CompletedProcess([],0,stdout=output(),stderr=b'')),mock.patch.object(MODULE.Path,'iterdir',return_value=iter([])):
+            self.supervisor.assert_abort_actors_stopped(units,65003)
+
+    def test_offline_main_routes_same_handler_without_daemon_or_child(self):
+        config={'socket':str(self.root/'control.sock'),'appCommand':['true'],'appUid':1234,'appGid':1234,
+            'key':str(self.supervisor.key_path),'authorityCommand':['true'],'receiptAuthorityCommand':['true'],
+            'operatorSocket':str(self.root/'operator.sock'),'recoveryCommand':['true'],
+            'recoveryAbortCommand':['fixed-cli'],'recoveryRequestPath':str(self.saved),
+            'recoveryAbortStoppedUnits':['supervisor.service','runner.service','user@65003.service'],
+            'recoveryAbortRunnerUid':65003}
+        config_path=self.root/'supervisor.json';config_path.write_bytes(MODULE.canonical(config));config_path.chmod(0o600)
+        abort_path=self.root/'abort.json';abort_path.write_bytes(MODULE.canonical(self.message));abort_path.chmod(0o600)
+        def dispatch(message):
+            self.supervisor.abort_stopped_guard()
+            return {'abortId':'committed'}
+        with mock.patch.object(MODULE.sys,'argv',['supervisor','--config',str(config_path),'--abort-request',str(abort_path)]),mock.patch.object(MODULE.os,'geteuid',return_value=0),mock.patch.object(MODULE,'Supervisor',return_value=self.supervisor),mock.patch.object(self.supervisor,'private_recovery_bytes',side_effect=lambda path,**kwargs:Path(path).read_bytes()),mock.patch.object(self.supervisor,'assert_abort_actors_stopped') as stopped,mock.patch.object(self.supervisor,'abort_recovery',side_effect=dispatch) as handler,mock.patch.object(self.supervisor,'serve') as serve,mock.patch.object(self.supervisor,'start_child') as start,mock.patch('builtins.print'):
+            MODULE.main()
+        stopped.assert_called_once_with(config['recoveryAbortStoppedUnits'],65003,serving=False)
+        handler.assert_called_once_with(self.message)
+        serve.assert_not_called();start.assert_not_called()
+
+    def test_late_actor_restart_preserves_committed_abort_and_hold(self):
+        self.supervisor.abort_stopped_guard=mock.Mock(side_effect=[None,ValueError('runner restarted')])
+        with self.assertRaisesRegex(ValueError,'runner restarted'):
+            self.supervisor.abort_recovery(self.message)
+        self.assertTrue((self.root/'committed.json').exists())
+        self.assertTrue(self.supervisor.recovery_hold_path.exists())
+        self.supervisor.abort_stopped_guard=mock.Mock(return_value=None)
+        self.supervisor.abort_recovery(self.message)
+        self.assertEqual((self.root/'phases').read_text().splitlines(),['abort','inspect-abort','inspect-abort'])
+        self.assertEqual(self.events,[])
+
+    def test_serving_supervisor_requires_exact_own_unit_pid(self):
+        units=['supervisor.service','runner.service','user@65003.service']
+        def output(pid):
+            return ('Id=supervisor.service\nActiveState=active\nSubState=running\nMainPID='+str(pid)+
+                '\n\nId=runner.service\nActiveState=inactive\nSubState=dead\nMainPID=0'+
+                '\n\nId=user@65003.service\nActiveState=inactive\nSubState=dead\nMainPID=0\n').encode()
+        with mock.patch.object(MODULE.subprocess,'run',return_value=subprocess.CompletedProcess([],0,stdout=output(os.getpid()),stderr=b'')),mock.patch.object(MODULE.Path,'iterdir',return_value=iter([])):
+            self.supervisor.assert_abort_actors_stopped(units,65003,serving=True)
+        with mock.patch.object(MODULE.subprocess,'run',return_value=subprocess.CompletedProcess([],0,stdout=output(os.getpid()+1),stderr=b'')):
+            with self.assertRaisesRegex(ValueError,'stopped units'):
+                self.supervisor.assert_abort_actors_stopped(units,65003,serving=True)
+
+    def test_authorization_archive_modified_parent_and_chain_limit_fail_closed(self):
+        with mock.patch.object(self.supervisor,'recovery_stage',side_effect=OSError('before DB invocation')):
+            with self.assertRaises(OSError):self.supervisor.abort_recovery(self.message)
+        base=list(self.root.glob('*.abort-receipt.*'))[0]
+        node=json.loads(base.read_text());current=node['receipt']
+        for index in range(8):
+            following=base.with_name(base.name+'.reauthorized.'+hashlib.sha256(MODULE.canonical(current)).hexdigest())
+            payload={**current['payload'],'issuedAtMs':current['payload']['issuedAtMs']+index+1,'expiresAtMs':current['payload']['expiresAtMs']+index+1}
+            current=self.supervisor.sign_payload(payload)
+            self.supervisor.persist_abort_file(following,{'requestFileSha256':self.message['requestFileSha256'],'receipt':current})
+        with self.assertRaisesRegex(ValueError,'archive limit reached'):
+            self.supervisor.abort_recovery(self.message)
+        self.assertTrue(self.supervisor.recovery_hold_path.exists())
+        self.assertFalse((self.root/'committed.json').exists())
+        for path in self.root.glob('*.reauthorized.*'):path.unlink()
+        changed=json.loads(base.read_text());changed['receipt']['payload']['pins']['payloadHash']='0'*64
+        base.write_bytes(MODULE.canonical(changed)+b'\n')
+        with self.assertRaisesRegex(ValueError,'receipt changed'):
+            self.supervisor.abort_recovery(self.message)
+
+    def test_two_control_actions_are_rejected_before_config_read(self):
+        with mock.patch.object(MODULE.sys, "argv", ["supervisor", "--config", "/does-not-exist", "--abort-request", "/abort", "--recover-request", "/recover"]):
+            with self.assertRaisesRegex(ValueError, "single action"):
+                MODULE.main()
+
+    def test_bad_committed_proof_keeps_hold(self):
+        for proof in ({}, {'abortId':'bad','nonce':'nonce','requestSha256':'a'*64,'holdSha256':'b'*64,'receiptSha256':'c'*64}):
+            with self.subTest(proof=proof),mock.patch.object(self.supervisor,'recovery_stage',return_value=proof):
+                with self.assertRaisesRegex(ValueError,'committed proof invalid'):self.supervisor.abort_recovery(self.message)
+            self.assertTrue(self.supervisor.recovery_hold_path.exists())
+            self.assertEqual(self.events,[])
+
+
+class ProcessCredentialTests(unittest.TestCase):
+    def test_actual_credentials_and_changed_start_identity(self):
+        credentials = MODULE.process_credentials(os.getpid())
+        self.assertEqual(credentials[:3], os.getresuid())
+        self.assertEqual(credentials[3], os.geteuid())
+        with mock.patch.object(MODULE, "identity", side_effect=[{"pid": 1, "startTicks": "1"}, {"pid": 1, "startTicks": "2"}]), mock.patch.object(MODULE.Path, "read_text", return_value="Uid:\t1\t2\t3\t4\n"):
+            with self.assertRaisesRegex(ValueError, "credentials unavailable or changed"):
+                MODULE.process_credentials(1)
+
+    def test_malformed_uid_fields_fail_closed(self):
+        for status in ("Uid: 1 2 3", "Uid: 1 2 3 x", "Uid: 1 2 3 4\nUid: 1 2 3 4"):
+            with self.subTest(status=status), mock.patch.object(MODULE, "identity", return_value={"pid": 1, "startTicks": "1"}), mock.patch.object(MODULE.Path, "read_text", return_value=status):
+                with self.assertRaises(ValueError): MODULE.process_credentials(1)
 
 
 class RecoveryDiagnosticsTests(unittest.TestCase):

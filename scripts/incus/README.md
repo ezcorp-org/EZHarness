@@ -147,3 +147,26 @@ Focused validation uses the checked-in TypeScript project:
 PATH=/home/dev/.bun/bin:$PATH bun test ./scripts/incus/setup.test.ts
 PATH=/home/dev/.bun/bin:$PATH bun x tsc --project scripts/incus/tsconfig.json
 ```
+
+## Abort a held cleanup before admission
+
+A failed fenced-cleanup attempt can leave the supervisor stopped with a private hold. Use the same executable without starting the daemon, runner, or app:
+
+```sh
+python3 incus-qualification-supervisor.py --config /etc/ezharness/supervisor.json --abort-request /root/reviewed-abort-request.json
+```
+
+Add these optional fields to the root-private supervisor configuration only after reviewing the exact paths and units:
+
+```json
+{
+  "recoveryAbortCommand": ["/run/current-system/sw/bin/bun", "/opt/ezharness/scripts/incus/incus-create-noeffect-recovery.ts"],
+  "recoveryRequestPath": "/root/exact-saved-original-recovery-request.json",
+  "recoveryAbortRunnerUid": 62041,
+  "recoveryAbortStoppedUnits": ["ezharness-qual-supervisor.service", "ezharness-qual-runner.service", "user@62041.service"]
+}
+```
+
+The abort request has exactly `version: 1`, `action: "abort-fenced-cleanup-before-admission"`, `originalRequest`, `requestFileSha256`, `requestSha256`, and `holdSha256`. The first hash covers the exact private saved file bytes; the second covers sorted compact UTF-8 JSON without a newline; the third covers canonical `{nonce,reviewId}` followed by one newline. The sealed cleanup configuration supplies the original target and authority pins. The private operator socket also accepts this action. Offline use requires all three units and every app/runner UID actor stopped. No service is stopped automatically.
+
+The app-UID CLI commits the exact signed abort under the same database admission lock. The supervisor inspects that committed proof before archiving the hold. It never starts the app, changes the original UNKNOWN operation, or renews authority on retry. An expired **uncommitted** signature needs an explicit root request with `reauthorizeAbort: true` and a database-authoritative uncommitted proof. Previous signatures stay immutable in a bounded hash-linked archive. Each signature lasts 30 seconds; the CLI stages share a 90-second deadline and each unit read is bounded to five seconds. Schema or permission failures retain the hold. Required database migrations must already exist; this command does not migrate the database.
