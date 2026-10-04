@@ -83,10 +83,18 @@ function requireAvailableResources(connection: typeof providerConnections.$infer
     && reservation.diskState === "RESERVED");
 }
 
+function armIdentity(arm: Readonly<LostDestroyReplyArm>): string {
+  return JSON.stringify([arm.runId, arm.nonce, arm.deadlineMs, arm.fixtureOperationId,
+    arm.bindingId, arm.destroyOperationId, arm.generation, arm.providerGeneration,
+    arm.connectionRevision, arm.scope.installationId, arm.scope.releaseId,
+    arm.scope.connectionId, arm.scope.presetId]);
+}
+
 /** Host-only, single-use fault. No model or public request can arm it. */
 export class HostIncusLostDestroyReplyFault implements PostEffectDestroyReplyFault {
   private armed: LostDestroyReplyArm | null = null;
   private wasArmed = false;
+  private consumedArm: LostDestroyReplyArm | null = null;
   private arming = false;
 
   constructor(private readonly db: Database, private readonly authority: Authority,
@@ -125,16 +133,7 @@ export class HostIncusLostDestroyReplyFault implements PostEffectDestroyReplyFau
   /** Recheck the exact arm after cleanup intent, before a dispatchable journal is published. */
   async assertArmedFor(input: Readonly<LostDestroyReplyArm>): Promise<void> {
     const armed = this.armed;
-    requireScope(armed && armed.runId === input.runId && armed.nonce === input.nonce
-      && armed.deadlineMs === input.deadlineMs && armed.fixtureOperationId === input.fixtureOperationId
-      && armed.bindingId === input.bindingId && armed.destroyOperationId === input.destroyOperationId
-      && armed.generation === input.generation && armed.providerGeneration === input.providerGeneration
-      && armed.connectionRevision === input.connectionRevision
-      && armed.scope.installationId === input.scope.installationId
-      && armed.scope.releaseId === input.scope.releaseId
-      && armed.scope.connectionId === input.scope.connectionId
-      && armed.scope.presetId === input.scope.presetId
-      && this.now() < armed.deadlineMs);
+    requireScope(armed && armIdentity(armed) === armIdentity(input) && this.now() < armed.deadlineMs);
     await this.authority.authorizeRun(input);
     requireScope(this.armed === armed && this.now() < armed.deadlineMs);
   }
@@ -157,6 +156,7 @@ export class HostIncusLostDestroyReplyFault implements PostEffectDestroyReplyFau
 
   consume(command: IncusTransportRequest, scope: HostConnectionScope): boolean {
     if (!this.matches(command, scope)) return false;
+    this.consumedArm = this.armed;
     this.armed = null;
     return true;
   }
@@ -164,7 +164,8 @@ export class HostIncusLostDestroyReplyFault implements PostEffectDestroyReplyFau
   async readback(input: Readonly<LostDestroyReplyArm>) {
     await this.authority.authenticateOperator();
     await this.authority.authorizeReadback(input);
-    requireScope(input.deadlineMs > this.now());
+    requireScope(this.consumedArm && armIdentity(this.consumedArm) === armIdentity(input)
+      && input.deadlineMs > this.now());
     return readIncusLostDestroyReplyState(this.db, input);
   }
 }

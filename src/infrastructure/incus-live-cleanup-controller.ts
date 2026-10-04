@@ -29,6 +29,16 @@ function requireCleanup(value: unknown, message: string): asserts value {
   if (!value) throw new Error(`Incus live cleanup unavailable: ${message}`);
 }
 
+/** Safe operator diagnostics contain only a fixed stage and a saved outcome. */
+export class IncusCleanupFaultError extends Error {
+  constructor(readonly stage: "authority" | "dispatch" | "durable_state" | "operator_readback",
+    readonly operationState: string | null = null) {
+    const state = ["JOURNALED", "DISPATCHING", "PROVIDER_PENDING", "OUTCOME_UNKNOWN", "SUCCEEDED", "FAILED"].includes(operationState ?? "") ? operationState : null;
+    super(`Incus live cleanup fault failed: stage=${stage} state=${state ?? "unavailable"}`);
+    this.operationState = state;
+  }
+}
+
 /** Operator-only SP05 effects. Missing socket/authority in the shared fault object denies before dispatch. */
 export class IncusLiveCleanupController {
   private readonly checkpoints: IncusQualificationCheckpointStore;
@@ -74,18 +84,20 @@ export class IncusLiveCleanupController {
   }
 
   async injectLostDestroyReply(scope: IncusQualificationScope, handle: LiveFixtureHandle): Promise<void> {
-    const authority = await this.claimed(scope, handle);
-    const fault = await this.fault();
-    let lost: unknown;
+    let authority: Awaited<ReturnType<IncusLiveCleanupController["claimed"]>>;
+    let fault: HostIncusLostDestroyReplyFault;
+    try { authority = await this.claimed(scope, handle); fault = await this.fault(); }
+    catch { throw new IncusCleanupFaultError("authority"); }
     try {
       await this.deps.fixtures.destroyWithLostReplyFault(scope, handle.operationId,
         { runId: authority.runId, nonce: authority.nonce, deadlineMs: authority.deadlineMs }, fault);
-    } catch (error) { lost = error; }
-    requireCleanup(lost, "destroy reply was not lost");
+    } catch { throw new IncusCleanupFaultError("dispatch"); }
     const status = await this.deps.fixtures.status(scope, handle.operationId);
-    requireCleanup(status.fixture.bindingId === handle.sandboxId && status.operation?.kind === "DESTROY"
+    if (!(status.fixture.bindingId === handle.sandboxId && status.operation?.kind === "DESTROY"
       && status.operation.state === "OUTCOME_UNKNOWN" && status.operation.generation === authority.generation
-      && status.binding.desiredState === "ABSENT", "destroy effect is not durably uncertain");
+      && status.binding.desiredState === "ABSENT")) {
+      throw new IncusCleanupFaultError("durable_state", status.operation?.state ?? null);
+    }
     const [operation] = await this.deps.db.select().from(sandboxOperations)
       .where(and(eq(sandboxOperations.id, status.operation.id),
         eq(sandboxOperations.bindingId, handle.sandboxId))).limit(1);
@@ -95,12 +107,11 @@ export class IncusLiveCleanupController {
       "destroy provider generation is unavailable");
     const arm: LostDestroyReplyArm = { ...authority, destroyOperationId: operation.id,
       providerGeneration: Number(providerGeneration) };
-    const readback = await fault.readback(arm);
-    requireCleanup(readback.fact === "RECONCILE_REQUIRED"
-      && readback.destroyOperationId === operation.id
-      && readback.bindingId === handle.sandboxId,
-    "operator destroy readback did not confirm uncertainty");
-    throw lost;
+    try {
+      const readback = await fault.readback(arm);
+      if (!(readback.fact === "RECONCILE_REQUIRED" && readback.destroyOperationId === operation.id
+        && readback.bindingId === handle.sandboxId)) throw new IncusCleanupFaultError("operator_readback", operation.state);
+    } catch { throw new IncusCleanupFaultError("operator_readback", operation.state); }
   }
 
   private async claimedRecovery(scope: IncusQualificationScope, handle: LiveFixtureHandle) {

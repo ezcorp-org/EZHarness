@@ -5,7 +5,7 @@ import type { IncusQualificationCheckpointStore } from "./incus-qualification-ch
 import type { IncusQualificationFixtureService, IncusQualificationStore } from "./incus-qualification";
 import type { HostIncusLostDestroyReplyFault } from "./incus-destroy-reply-fault";
 import type { IncusFeatureService } from "./incus-feature-service";
-import { IncusLiveCleanupController } from "./incus-live-cleanup-controller";
+import { IncusLiveCleanupController, IncusCleanupFaultError } from "./incus-live-cleanup-controller";
 
 const now = Date.now();
 const scope = { installationId: "install", releaseId: "release", connectionId: "connection", presetId: "preset" };
@@ -39,7 +39,7 @@ function harness(fault?: "readback" | "other-operation" | "readiness" | "expired
           diskState: settled ? "RELEASED" : "RESERVED" }] : [],
   }) }) }) } as unknown as Database;
   const fixtures = { status: async () => status(),
-    destroyWithLostReplyFault: async () => { calls.push("destroy"); phase = 1; throw new Error("reply lost"); },
+    destroyWithLostReplyFault: async () => { calls.push("destroy"); phase = 1; },
   } as unknown as IncusQualificationFixtureService;
   const checkpoints = { get: async () => ({ state: "CLAIMED", nonce: "nonce", scope,
     bindingId: "primary-binding", connectionRevision: 2,
@@ -74,7 +74,7 @@ function harness(fault?: "readback" | "other-operation" | "readiness" | "expired
 
 test("the default production readiness gate denies an unprepared user project", async () => {
   const { controller, reopenWithDefaultGate, calls } = harness();
-  await expect(controller.injectLostDestroyReply(scope, handle)).rejects.toThrow("reply lost");
+  await expect(controller.injectLostDestroyReply(scope, handle)).resolves.toBeUndefined();
   await expect(reopenWithDefaultGate().attemptReadiness(scope, handle))
     .rejects.toThrow("Incus feature project is unavailable");
   expect(calls).toEqual(["destroy", "readback"]);
@@ -82,7 +82,7 @@ test("the default production readiness gate denies an unprepared user project", 
 
 test("reopened controller resumes the exact uncertain destroy from durable identities", async () => {
   const { controller, reopen, calls } = harness();
-  await expect(controller.injectLostDestroyReply(scope, handle)).rejects.toThrow("reply lost");
+  await expect(controller.injectLostDestroyReply(scope, handle)).resolves.toBeUndefined();
   const replacement = reopen();
   await expect(replacement.attemptReadiness(scope, handle)).rejects.toMatchObject({
     code: "QUALIFICATION_CLEANUP_UNVERIFIED" });
@@ -104,7 +104,7 @@ test("reopened controller settles an already completed destroy without another p
 
 test("operator cleanup uses one lost reply, exact readback, readiness denial and same journal recovery", async () => {
   const { controller, calls } = harness();
-  await expect(controller.injectLostDestroyReply(scope, handle)).rejects.toThrow("reply lost");
+  await expect(controller.injectLostDestroyReply(scope, handle)).resolves.toBeUndefined();
   await expect(controller.attemptReadiness(scope, handle)).rejects.toMatchObject({
     code: "QUALIFICATION_CLEANUP_UNVERIFIED" });
   await controller.reconcileFromReopenedController(scope, handle);
@@ -116,24 +116,32 @@ test("operator cleanup uses one lost reply, exact readback, readiness denial and
 test("missing independent readback or an unrelated pending operation fails closed", async () => {
   const expired = harness("expired");
   await expect(expired.controller.injectLostDestroyReply(scope, handle))
-    .rejects.toThrow("claimed operator run is unavailable");
+    .rejects.toMatchObject({ stage: "authority" });
   expect(expired.calls).toEqual([]);
   const noReadback = harness("readback");
   await expect(noReadback.controller.injectLostDestroyReply(scope, handle))
-    .rejects.toThrow("operator destroy readback did not confirm uncertainty");
+    .rejects.toMatchObject({ stage: "operator_readback" });
   await expect(noReadback.controller.attemptReadiness(scope, handle))
     .rejects.toMatchObject({ code: "QUALIFICATION_CLEANUP_UNVERIFIED" });
   const competing = harness("other-operation");
-  await expect(competing.controller.injectLostDestroyReply(scope, handle)).rejects.toThrow("reply lost");
+  await expect(competing.controller.injectLostDestroyReply(scope, handle)).resolves.toBeUndefined();
   await expect(competing.controller.attemptReadiness(scope, handle))
     .rejects.toMatchObject({ code: "QUALIFICATION_CLEANUP_UNVERIFIED" });
   await expect(competing.controller.reconcileFromReopenedController(scope, handle))
     .rejects.toThrow("another pending operation blocks exact recovery");
   expect(competing.calls).not.toContain("reconcile");
   const noDenial = harness("readiness");
-  await expect(noDenial.controller.injectLostDestroyReply(scope, handle)).rejects.toThrow("reply lost");
+  await expect(noDenial.controller.injectLostDestroyReply(scope, handle)).resolves.toBeUndefined();
   await noDenial.controller.attemptReadiness(scope, handle);
   await expect(noDenial.controller.reconcileFromReopenedController(scope, handle))
     .rejects.toThrow("production readiness did not deny");
   expect(noDenial.calls).not.toContain("reconcile");
+});
+
+test("cleanup diagnostics retain a known outcome and omit arbitrary outcome bytes", () => {
+  expect(new IncusCleanupFaultError("durable_state", "PROVIDER_PENDING").operationState).toBe("PROVIDER_PENDING");
+  const failure = new IncusCleanupFaultError("durable_state", "PRIVATE_DIAGNOSTIC_CANARY");
+  expect(failure.operationState).toBeNull();
+  expect(String(failure)).not.toContain("PRIVATE_DIAGNOSTIC_CANARY");
+  expect(JSON.stringify(failure)).not.toContain("PRIVATE_DIAGNOSTIC_CANARY");
 });

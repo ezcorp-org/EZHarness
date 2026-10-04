@@ -162,7 +162,7 @@ test("cleanup witness reads durable fault, real readiness denial, and same-opera
     cleanupRecovery: {
       injectLostDestroyReply: async (seenScope, seenHandle) => {
         expect(seenScope).toEqual(scope); expect(seenHandle).toEqual(handle);
-        calls.push("fault"); phase = 1; throw new Error("reply lost");
+        calls.push("fault"); phase = 1;
       },
       attemptReadiness: async (seenScope, seenHandle) => {
         expect(seenScope).toEqual(scope); expect(seenHandle).toEqual(handle);

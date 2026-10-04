@@ -111,10 +111,7 @@ export async function observeFailedCleanupRecovery(scope: IncusQualificationScop
     && otherBefore.binding.observedState === "STOPPED"
     && otherBefore.binding.desiredState === "STOPPED" && otherBefore.operation?.state === "SUCCEEDED",
   "fixture is not stopped or scope changed");
-  let lostReply = false;
-  try { await probe.injectLostDestroyReply(); }
-  catch { lostReply = true; }
-  requireFact(lostReply, "injected destroy reply was not lost");
+  await probe.injectLostDestroyReply();
   const failed = await probe.readDurable(handle);
   requireFact(matchesScope(failed, scope, handle)
     && failed.binding.generation === initial.binding.generation

@@ -60,7 +60,7 @@ test("lost destroy reply needs durable uncertainty, readiness denial, same-opera
     readDurable: async fixture => fixture.sandboxId === other.sandboxId ? otherStatus
       : phase === 0 ? initial : phase === 1 ? failed : recovered,
     readBackend: async fixture => backend(fixture, fixture.sandboxId === handle.sandboxId ? "absent" : "stopped"),
-    injectLostDestroyReply: async () => { phase = 1; throw new Error("provider response lost"); },
+    injectLostDestroyReply: async () => { phase = 1; },
     attemptReadiness: async () => { throw Object.assign(new Error("cleanup uncertain"),
       { code: "QUALIFICATION_CLEANUP_UNVERIFIED" }); },
     reconcileFromReopenedController: async () => { phase = 2; },
@@ -72,8 +72,8 @@ test("lost destroy reply needs durable uncertainty, readiness denial, same-opera
 
   phase = 0;
   await expect(observeFailedCleanupRecovery(scope, handle, other, {
-    ...probe, injectLostDestroyReply: async () => { phase = 1; },
-  })).rejects.toThrow("reply was not lost");
+    ...probe, injectLostDestroyReply: async () => { throw new Error("operator injection denied"); },
+  })).rejects.toThrow("operator injection denied");
   phase = 0;
   await expect(observeFailedCleanupRecovery(scope, handle, other, {
     ...probe, attemptReadiness: async () => {},

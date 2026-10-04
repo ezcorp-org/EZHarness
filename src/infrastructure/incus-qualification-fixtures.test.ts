@@ -1,8 +1,9 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { sandboxPresetDigest } from "@ezcorp/extension-contract";
+import { incusOperatorFaultAuthority } from "../extensions/extension-lifecycle-service";
 import { releaseRuntimeFixture } from "../__tests__/helpers/release-runtime";
 import { incusManifest, INCUS_PRESETS } from "../../extensions/incus-sandbox/manifest";
 import { digest } from "../../scripts/incus/model";
@@ -13,6 +14,11 @@ import { SandboxAdmissionStore } from "../sandboxes/admission";
 import { SandboxController, type SandboxProviderRequest } from "../sandboxes/controller";
 import { IncusHostLiveWitness } from "./incus-host-live-witness";
 import { resourceName } from "./incus-transport/lifecycle";
+import { IncusLiveCleanupController } from "./incus-live-cleanup-controller";
+import { join } from "node:path";
+import { generateKeyPairSync, sign } from "node:crypto";
+import { up as addQualificationRuns } from "../db/migrations/add-incus-qualification-runs";
+import { IncusQualificationCheckpointStore, currentProcessIdentity, observationDigest, processIdentityKey, restartHandoffSigningBytes, type RestartHandoffPayload } from "./incus-qualification-checkpoint";
 import { IncusFeatureService } from "./incus-feature-service";
 import { HostIncusLostDestroyReplyFault } from "./incus-destroy-reply-fault";
 import { IncusQualificationOperationUnsettledError, IncusQualificationFixtureService, type IncusQualificationScope, type IncusQualificationStore } from "./incus-qualification";
@@ -24,7 +30,7 @@ const assertCurrentScope = async () => {};
 
 async function setup(configureHost = true, pendingCreate = false, providerGeneration = 1,
   inspectError: Error | null = null, hostSlots = 2,
-  options: { enforcePowerGeneration?: boolean; refuseRunningDestroy?: boolean; pendingKinds?: string[]; inspectOutcome?: "UNKNOWN" | "PENDING"; inspectUnknownCount?: number; inspectFailureCount?: number; inspectTerminalFailure?: boolean; missingStartReceipt?: boolean; missingStopReceipt?: boolean; now?: () => number } = {}) {
+  options: { destroyEffect?: (request: SandboxProviderRequest) => Promise<void>; enforcePowerGeneration?: boolean; refuseRunningDestroy?: boolean; pendingKinds?: string[]; inspectOutcome?: "UNKNOWN" | "PENDING"; inspectUnknownCount?: number; inspectFailureCount?: number; inspectTerminalFailure?: boolean; missingStartReceipt?: boolean; missingStopReceipt?: boolean; now?: () => number } = {}) {
   const client = new PGlite();
   opened.push(client);
   await client.waitReady;
@@ -52,6 +58,7 @@ async function setup(configureHost = true, pendingCreate = false, providerGenera
   let providerState: "running" | "stopped" = "stopped";
   const controller = new SandboxController(db, { dispatch: async request => {
     dispatches.push(request);
+    if (request.kind === "DESTROY") await options.destroyEffect?.(request);
     if (options.refuseRunningDestroy && request.kind === "DESTROY" && providerState === "running") {
       return { outcome: "FAILED", errorCode: "REVISION_CONFLICT" };
     }
@@ -1019,3 +1026,124 @@ test("JSONB-reordered scope replays the legacy CREATE binding and accounting int
   expect(new Set(intents).size).toBe(1);
   observed.mockRestore();
 });
+
+async function signedRecoveryCheckpoint(db: Awaited<ReturnType<typeof setup>>["db"], service: IncusQualificationFixtureService) {
+  await addQualificationRuns(db);
+  await service.create(scope, "qual-primary-run-one");
+  const durable = await service.status(scope, "qual-primary-run-one");
+  const writer = Bun.spawn([process.execPath, "-e", `import { currentProcessIdentity } from ${JSON.stringify(join(import.meta.dir, "incus-qualification-checkpoint.ts"))}; console.log(JSON.stringify(currentProcessIdentity()));`], { stdout: "pipe", stderr: "pipe" });
+  const oldProcess = JSON.parse(await new Response(writer.stdout).text());
+  expect(await writer.exited).toBe(0);
+  const newProcess = currentProcessIdentity();
+  const backend = { sandboxId: durable.binding.id, state: "stopped", bootId: null,
+    imageDigest: INCUS_PRESETS[0]!.imageDigest, helperDigest: INCUS_PRESETS[0]!.helperDigests[0]!,
+    profile: INCUS_PRESETS[0]!.profile, workspaceRoot: "/workspace", guestUser: "sandbox",
+    memoryBytes: INCUS_PRESETS[0]!.limits.memoryBytes, cpuMillis: INCUS_PRESETS[0]!.limits.cpuMillis,
+    pids: INCUS_PRESETS[0]!.limits.pids, diskBytes: INCUS_PRESETS[0]!.limits.diskBytes,
+    storageDriver: "btrfs", privateNetwork: true, restrictedProject: true, unprivileged: true } as const;
+  const before = { durable, backend, processId: processIdentityKey(oldProcess) };
+  const after = { ...before, processId: processIdentityKey(newProcess) };
+  const deadlineMs = Date.now() + 110000;
+  await db.execute(sql`INSERT INTO incus_qualification_runs (run_id, fixture_operation_id, scope, binding_id,
+    generation, connection_revision, last_operation_id, nonce, deadline_at, before_observation, before_digest, old_process_identity)
+    VALUES ('run-one', ${durable.fixture.operationId}, ${JSON.stringify(scope)}::jsonb, ${durable.binding.id},
+    ${durable.binding.generation}, ${durable.fixture.connectionRevision}, ${durable.operation!.id}, 'nonce', ${new Date(deadlineMs)},
+    ${JSON.stringify(before)}::jsonb, ${observationDigest(before)}, ${JSON.stringify(oldProcess)}::jsonb)`);
+  const keys = generateKeyPairSync("ed25519");
+  const store = new IncusQualificationCheckpointStore(db, keys.publicKey.export({ type: "spki", format: "pem" }).toString());
+  const payload: RestartHandoffPayload = { version: 1, runId: "run-one", nonce: "nonce", deadlineMs, scope,
+    fixtureOperationId: durable.fixture.operationId, bindingId: durable.binding.id,
+    generation: durable.binding.generation, connectionRevision: durable.fixture.connectionRevision,
+    lastOperationId: durable.operation!.id, oldProcess, newProcess,
+    beforeDigest: observationDigest(before), afterDigest: observationDigest(after) };
+  await store.claim({ runId: "run-one", nonce: "nonce", after,
+    receipt: { payload, signature: sign(null, restartHandoffSigningBytes(payload), keys.privateKey).toString("base64") } });
+  const restored = await store.get("run-one");
+  expect(restored!.scope).toEqual(scope);
+  expect(JSON.stringify(restored!.scope)).not.toBe(JSON.stringify(scope));
+  expect(restored!.state).toBe("CLAIMED");
+  return { store, scope: restored!.scope };
+}
+
+test("real fixture/controller durable UNKNOWN confirms the consumed operator fault without a thrown service reply", async () => {
+  let fault!: HostIncusLostDestroyReplyFault;
+  const { db, service, dispatches, controller, admission, qualifications } = await setup(true, false, 1, null, 2, {
+    destroyEffect: async request => {
+      expect(fault.consume({ action: "instance.destroy", connectionId: scope.connectionId,
+        tags: { sandboxId: request.binding.id }, idempotency: { requestId: request.operationId, key: request.operationId },
+        payload: { expectedGeneration: 1 } } as never,
+      { providerInstallationId: scope.installationId, providerReleaseId: scope.releaseId, revision: 1 })).toBe(true);
+      throw new Error("post-effect reply lost");
+    },
+  });
+  const checkpoint = await signedRecoveryCheckpoint(db, service);
+  await service.create(checkpoint.scope, "qual-recovery-run-one");
+  const fixture = (await service.status(scope, "qual-recovery-run-one")).fixture;
+  const handle = { operationId: fixture.operationId, sandboxId: fixture.bindingId };
+  const commands: string[] = [];
+  fault = new HostIncusLostDestroyReplyFault(db, incusOperatorFaultAuthority(checkpoint.store,
+    "/private/supervisor.sock", async (socket, phase, arm) => {
+      expect(socket).toBe("/private/supervisor.sock");
+      commands.push(phase);
+      if (arm) {
+        expect(arm.fixtureOperationId).toBe("qual-recovery-run-one");
+        expect(arm.bindingId).toBe(handle.sandboxId);
+        expect(arm.scope).toEqual(checkpoint.scope);
+        expect(arm.bindingId).not.toBe((await checkpoint.store.get("run-one"))!.bindingId);
+      }
+    }));
+  const cleanup = new IncusLiveCleanupController({ db, fixtures: service, qualifications,
+    readinessProjectId: "user-project", fault: async () => fault,
+    checkpoints: checkpoint.store });
+  await cleanup.injectLostDestroyReply(checkpoint.scope, handle);
+  const saved = await service.status(scope, handle.operationId);
+  expect(saved.operation?.state).toBe("OUTCOME_UNKNOWN");
+  expect(saved.binding.desiredState).toBe("ABSENT");
+  expect(dispatches.map(request => request.kind)).toEqual(["CREATE", "CREATE", "DESTROY"]);
+  expect((await admission.getReservation(handle.sandboxId))?.diskState).toBe("RELEASE_REQUESTED");
+  expect((await controller.reconcile()).examined).toBe(0);
+  expect(commands).toEqual(["presence", "arm", "arm", "presence", "readback"]);
+});
+
+for (const mode of ["pending", "unconsumed_unknown", "expired_arm", "permission_denied"] as const) {
+  test(`signed cleanup refuses ${mode} without treating it as an injected loss`, async () => {
+    let fault!: HostIncusLostDestroyReplyFault;
+    let clock = Date.now();
+    const canary = "PRIVATE_BACKEND_ERROR_CANARY";
+    const fixture = await setup(true, false, 1, null, 2, {
+      pendingKinds: ["DESTROY"], destroyEffect: async request => {
+        if (mode === "unconsumed_unknown") throw new Error(canary);
+        if (mode === "expired_arm") {
+          clock += 30000;
+          expect(fault.matches({ action: "instance.destroy", connectionId: scope.connectionId,
+            tags: { sandboxId: request.binding.id }, idempotency: { requestId: request.operationId, key: request.operationId },
+            payload: { expectedGeneration: 1 } } as never,
+          { providerInstallationId: scope.installationId, providerReleaseId: scope.releaseId, revision: 1 })).toBe(false);
+        }
+      },
+    });
+    const checkpoint = await signedRecoveryCheckpoint(fixture.db, fixture.service);
+    await fixture.service.create(checkpoint.scope, "qual-recovery-run-one");
+    const saved = await fixture.service.status(checkpoint.scope, "qual-recovery-run-one");
+    const handle = { operationId: saved.fixture.operationId, sandboxId: saved.fixture.bindingId };
+    fault = new HostIncusLostDestroyReplyFault(fixture.db, { authenticateOperator: async () => {},
+      authorizeRun: async arm => { await checkpoint.store.authorizeRecoveryFixtureForRun(arm);
+        if (mode === "permission_denied") throw new Error(canary); },
+      authorizeReadback: arm => checkpoint.store.authorizeRecoveryReadbackForRun(arm) }, () => clock);
+    const cleanup = new IncusLiveCleanupController({ db: fixture.db, fixtures: fixture.service,
+      qualifications: fixture.qualifications, readinessProjectId: "user-project",
+      fault: async () => fault, checkpoints: checkpoint.store });
+    let failure: unknown;
+    try { await cleanup.injectLostDestroyReply(checkpoint.scope, handle); }
+    catch (error) { failure = error; }
+    expect(failure).toMatchObject({ stage: mode === "permission_denied" ? "dispatch"
+      : mode === "unconsumed_unknown" ? "operator_readback" : "durable_state" });
+    expect(String(failure)).not.toContain(canary);
+    expect(JSON.stringify(failure)).not.toContain(canary);
+    const current = await fixture.service.status(checkpoint.scope, handle.operationId);
+    expect(current.operation?.state).toBe(mode === "permission_denied" ? "SUCCEEDED"
+      : mode === "unconsumed_unknown" ? "OUTCOME_UNKNOWN" : "PROVIDER_PENDING");
+    expect(fixture.dispatches.filter(request => request.kind === "DESTROY")).toHaveLength(mode === "permission_denied" ? 0 : 1);
+    expect((await fixture.admission.getReservation(handle.sandboxId))?.diskState).not.toBe("RELEASED");
+  });
+}
