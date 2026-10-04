@@ -217,7 +217,10 @@ run_staged_tests() {
   local bun_targets=() vitest_targets=() t
   while IFS= read -r t; do
     [ -n "$t" ] || continue
-    if printf '%s\n' "$bunset" | grep -qxF -- "$t"; then
+    # A here-string, not a pipe: `grep -q` exits at the first match, and with
+    # SIGPIPE ignored (as under `git commit`) a piped printf then prints
+    # "write error: Broken pipe".
+    if grep -qxF -- "$t" <<<"$bunset"; then
       bun_targets+=("$t")
     elif [ "${t#web/}" != "$t" ]; then
       vitest_targets+=("${t#web/}")

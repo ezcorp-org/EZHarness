@@ -5695,3 +5695,18 @@ shared check found that gap after `bun run test` and `bun run test:coverage` wer
 Review: the brief named a missing S3 service and credential set as the cause. The evidence shows the W4G-4 class
 instead (a private file under the hosted runner's owned 0755 home). No workflow change was needed. Gates and receipts:
 tasks/factory/w4h-5-GATES.md.
+## W4H-3 — pinned Python base for the hosted shards (branch `wp/w4h-3`; gates `tasks/factory/w4h-3-GATES.md`)
+
+- [x] Red in a runner-shaped container at 52d8ba079: python-guest, applied-controls and the journey fail "image not known" as hosted.
+- [x] One pin source: the step reads DEFAULT_PYTHON_IMAGE; a unit test pins it, the data recipe's FROM and pinned.json's base together.
+- [x] Shared step `.github/actions/factory-python-base` in cov-shard after the podman setup; the test pins its place (8c93335e5).
+- [x] Green at 8c93335e5: step 4 s; applied-controls 5 pass; python-guest 12 pass.
+- [x] Data image: podman 4.9.3 builds e64f66da…, not the pinned f9cc7477… (podman 5.8.2); umask ruled out. The journey runs in the
+      factory-real lane (W4H-4). A registry for the data image stays the user's decision.
+- [x] Hook noise: run_staged_tests no longer prints "Broken pipe" (491b7cc22).
+- [x] Coverage: scripts/setup-factory-python-base.ts 18 of 18 lines (E/coverage-new-file.txt).
+
+Review: the hosted shards had no step that put the Python images on the runner, and three files spelled the base digest with nothing
+tying them. The base is now pulled from the one value the suites read, and a test holds the three spellings and the step's place.
+The data image cannot be rebuilt by digest on the hosted podman, so it is not faked: the build script refuses, and the journey stays in
+the lane that holds the image. Receipts: /tmp/factory-platform-evidence/w4h-3/.
