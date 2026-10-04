@@ -74,6 +74,90 @@ afterEach(async () => {
 });
 
 describe("SandboxController durable dispatch", () => {
+  test("a host terminal observation uses the same atomic journal and binding settlement", async () => {
+    const { db } = await setup("host-terminal");
+    const provider = new FakeProvider();
+    const controller = new SandboxController(db, provider);
+    const target = await binding(controller, "host-terminal");
+    provider.dispatchHandler = async request => {
+      await db.update(schema.sandboxOperations).set({ providerOperationId: "incus-create-native" })
+        .where(eq(schema.sandboxOperations.id, request.operationId));
+      const current = (await controller.getBinding(target.id))!;
+      const { id, projectId, providerInstallationId, providerReleaseId, connectionId,
+        connectionRevision, resourceKey, generation, currentOperationId, desiredState, tombstonedAt } = current;
+      const scope = { id, projectId, providerInstallationId, providerReleaseId, connectionId,
+        connectionRevision, resourceKey, generation, currentOperationId, desiredState, tombstonedAt,
+        kind: request.kind, payloadHash: (await controller.getOperation(request.operationId))!.payloadHash };
+      await expect(controller.recordProviderObservation(request.operationId, "foreign-native",
+        { outcome: "SUCCEEDED", observedState: "STOPPED" }, scope)).rejects.toMatchObject({ code: "SUPERSEDED_OPERATION" });
+      await expect(controller.recordProviderObservation(request.operationId, "incus-create-native",
+        { outcome: "PENDING" }, scope)).rejects.toMatchObject({ code: "SUPERSEDED_OPERATION" });
+      await expect(controller.recordProviderObservation(request.operationId, "incus-create-native",
+        { outcome: "SUCCEEDED", observedState: "STOPPED" }, { ...scope, connectionId: "foreign" })).rejects.toMatchObject({ code: "SUPERSEDED_OPERATION" });
+      const saved = await controller.recordProviderObservation(request.operationId, "incus-create-native",
+        { outcome: "SUCCEEDED", observedState: "STOPPED" }, scope);
+      expect(saved.state).toBe("SUCCEEDED");
+      expect((await controller.getBinding(target.id))?.observedState).toBe("STOPPED");
+      await expect(controller.recordProviderObservation(request.operationId, "incus-create-native",
+        { outcome: "SUCCEEDED", observedState: "STOPPED" }, scope))
+        .rejects.toMatchObject({ code: "SUPERSEDED_OPERATION" });
+      expect(await controller.getOperation(request.operationId)).toEqual(saved);
+      return { outcome: "UNKNOWN" };
+    };
+    const operation = await controller.requestAndDispatch({ bindingId: target.id, generation: 1,
+      kind: "CREATE", idempotencyScope: "incus-qualification", idempotencyKey: "fixture", payload: {} });
+    expect(operation.state).toBe("SUCCEEDED");
+    expect(operation.providerOperationId).toBe("incus-create-native");
+    await expect(controller.recordProviderObservation("missing", "native", { outcome: "SUCCEEDED" }, {} as never))
+      .rejects.toMatchObject({ code: "OPERATION_NOT_FOUND" });
+  });
+
+  test("a timeout reply preserves the native handle accepted during dispatch", async () => {
+    const { db } = await setup("accepted-native-timeout");
+    const provider = new FakeProvider();
+    const controller = new SandboxController(db, provider);
+    const target = await binding(controller, "accepted-native-timeout");
+    provider.dispatchHandler = async request => {
+      await db.update(schema.sandboxOperations).set({ providerOperationId: "incus-setPower-native-accepted" })
+        .where(eq(schema.sandboxOperations.id, request.operationId));
+      return { outcome: "UNKNOWN" };
+    };
+    const operation = await controller.requestAndDispatch({ bindingId: target.id, generation: 1,
+      kind: "START", idempotencyScope: "incus-qualification-power", idempotencyKey: "fixture:start",
+      payload: { expectedGeneration: 1 } });
+    expect(operation.state).toBe("OUTCOME_UNKNOWN");
+    expect(operation.providerOperationId).toBe("incus-setPower-native-accepted");
+    expect((await controller.getOperation(operation.id))?.providerOperationId).toBe("incus-setPower-native-accepted");
+    provider.inspectHandler = async request => {
+      expect(request.providerOperationId).toBe("incus-setPower-native-accepted");
+      return { outcome: "UNKNOWN" };
+    };
+    await controller.reconcile();
+    expect((await controller.getOperation(operation.id))?.providerOperationId).toBe("incus-setPower-native-accepted");
+  });
+
+  test("an uncertain START blocks normal cleanup without rewriting its receipt", async () => {
+    const { db } = await setup("uncertain-power-cleanup");
+    const provider = new FakeProvider();
+    provider.dispatchHandler = async request => request.kind === "CREATE"
+      ? { outcome: "SUCCEEDED", observedState: "STOPPED" }
+      : { outcome: "UNKNOWN", providerOperationId: "incus-setPower-native-start" };
+    const controller = new SandboxController(db, provider);
+    const target = await binding(controller, "uncertain-power-cleanup");
+    const request = { bindingId: target.id, generation: 1,
+      idempotencyScope: "incus-qualification", payload: { expectedGeneration: 1 } };
+    const create = await controller.requestAndDispatch({ ...request, kind: "CREATE", idempotencyKey: "fixture" });
+    expect(create.state).toBe("SUCCEEDED");
+    const start = await controller.requestAndDispatch({ ...request, kind: "START", idempotencyKey: "fixture:start" });
+    expect(start.state).toBe("OUTCOME_UNKNOWN");
+    const retained = await controller.getOperation(start.id);
+    const destroy = await controller.requestAndDispatch({ ...request, kind: "DESTROY", idempotencyKey: "fixture:destroy" });
+    expect(destroy.state).toBe("JOURNALED");
+    expect(provider.dispatches.map(row => row.kind)).toEqual(["CREATE", "START"]);
+    expect(await controller.getOperation(start.id)).toEqual(retained);
+    expect((await controller.getBinding(target.id))?.cleanupConfirmedAt).toBeNull();
+  });
+
   test("general reconciliation skips an SP05 journal inserted after its startup check", async () => {
     const { db } = await setup("sp05-fence");
     const provider = new FakeProvider();

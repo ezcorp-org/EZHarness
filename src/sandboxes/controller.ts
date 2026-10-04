@@ -58,6 +58,11 @@ export class SandboxControllerError extends Error {
   }
 }
 
+export type SandboxProviderObservationScope = Pick<SandboxBinding, "id" | "projectId"
+  | "providerInstallationId" | "providerReleaseId" | "connectionId" | "connectionRevision"
+  | "resourceKey" | "generation" | "currentOperationId" | "desiredState" | "tombstonedAt">
+  & { kind: SandboxOperationKind; payloadHash: string };
+
 export interface SandboxProviderRequest {
   operationId: string;
   kind: SandboxOperationKind;
@@ -528,9 +533,19 @@ export class SandboxController {
     }
   }
 
+  /** Host transport alone calls this after observing a terminal native result.
+   * Acceptance is not success; reservation settlement remains a separate step. */
+  async recordProviderObservation(operationId: string, providerOperationId: string,
+    outcome: SandboxProviderOutcome, expectedScope: SandboxProviderObservationScope): Promise<SandboxOperation> {
+    const operation = await this.getOperation(operationId);
+    if (!operation) throw new SandboxControllerError("OPERATION_NOT_FOUND", "Provider observation has no journal");
+    return this.#persistOutcome(operation, outcome, { providerOperationId, expectedScope });
+  }
+
   async #persistOutcome(
     operation: SandboxOperation,
     outcome: SandboxProviderOutcome,
+    authority?: { providerOperationId: string; expectedScope: SandboxProviderObservationScope },
   ): Promise<SandboxOperation> {
     const state: SandboxOperationState = outcome.outcome === "PENDING"
       ? "PROVIDER_PENDING"
@@ -540,11 +555,32 @@ export class SandboxController {
     return this.db.transaction(async (transaction: DbTransaction) => {
       // Claims take the binding lock before changing an operation. Use the
       // same order here so a concurrent claim and provider reply cannot deadlock.
-      await transaction.select({ id: sandboxBindings.id }).from(sandboxBindings)
+      const [binding] = await transaction.select().from(sandboxBindings)
         .where(eq(sandboxBindings.id, operation.bindingId)).for("update");
+      if (authority) {
+        const { kind, payloadHash, ...scope } = authority.expectedScope;
+        const [journal] = await transaction.select().from(sandboxOperations)
+          .where(eq(sandboxOperations.id, operation.id)).limit(1);
+        const matches = binding && Object.keys(scope).sort().join() ===
+          "connectionId,connectionRevision,currentOperationId,desiredState,generation,id,projectId,providerInstallationId,providerReleaseId,resourceKey,tombstonedAt"
+          && Object.entries(scope).every(([key, expected]) => {
+          const actual = binding[key as keyof SandboxBinding];
+          return expected instanceof Date ? actual instanceof Date && actual.getTime() === expected.getTime() : actual === expected;
+        });
+        if (!matches || !journal || journal.state !== "DISPATCHING" || journal.kind !== kind
+          || journal.payloadHash !== payloadHash || journal.providerOperationId !== authority.providerOperationId
+          || binding.currentOperationId !== journal.id || binding.generation !== journal.generation
+          || !["SUCCEEDED", "FAILED"].includes(outcome.outcome)
+          || (outcome.providerOperationId !== undefined && outcome.providerOperationId !== authority.providerOperationId)
+          || (outcome.outcome === "SUCCEEDED" && outcome.observedState !== DESIRED_STATE_BY_OPERATION[journal.kind])) {
+          throw new SandboxControllerError("SUPERSEDED_OPERATION", "Host observation no longer owns the exact provider journal");
+        }
+      }
       const [updated] = await transaction.update(sandboxOperations).set({
         state,
-        providerOperationId: outcome.providerOperationId ?? operation.providerOperationId,
+        // Acceptance may have persisted the native handle while this RPC was waiting.
+        // An omitted reply handle must preserve that durable value.
+        providerOperationId: outcome.providerOperationId ?? sql`${sandboxOperations.providerOperationId}`,
         errorCode: outcome.outcome === "FAILED" ? outcome.errorCode : null,
         errorMessage: outcome.outcome === "FAILED" ? outcome.errorMessage ?? null : null,
         updatedAt: new Date(),
@@ -649,7 +685,7 @@ export class SandboxController {
         }).where(and(
           eq(sandboxOperations.id, candidate.id),
           inArray(sandboxOperations.state, RECONCILE_STATES),
-        ));
+          ));
         let operation: SandboxOperation;
         if (candidate.state === "JOURNALED") {
           const dispatch = await this.#dispatchJournaled(candidate.id);
