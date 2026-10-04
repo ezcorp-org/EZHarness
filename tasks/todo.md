@@ -1,6 +1,17 @@
 # Active completion — 3 October 2026
 
-## Latest verified state — 3 October, 23:32 UTC
+## Latest verified state — 4 October, 00:20 UTC
+
+- [x] Pass the complete `407891196` fast gate, including 27,356 backend, 3,638 web Bun, and 7,719 Vitest tests, lint, types, Svelte and build.
+- [x] Reproduce guest cancellation failure through the actual native tool/workspace/provider boundary. Integrate the independently reviewed correction: exact cleanup has a fresh bounded signal and current authority; denied cleanup remains explicitly unconfirmed. Twenty-eight focused tests pass; backend coverage is 286/286 lines. Final combined validation remains required.
+- [x] Complete exact approved server staging after two reviewed compatibility repairs (tar flag conflict and Nix JSON key shape). The test activation detected a moved rollback deadline. Reviewed rollback restored the original system, external files and observer/service state. No guest qualification was started.
+- [ ] Correct and validate the rollback timer against service-manager reload, then complete guarded activation before live qualification. Preserve all failed phase receipts; do not replay unknown effects.
+- [ ] Prove normal user-project log paging, cancellation with independent process absence, and retention across browser disconnect/engine restart before disposal. Supplementary proof preserves the original project and conversation evidence.
+
+- [x] Install bundle `9c3dc7ff7` in the isolated app, preserve the current database, and verify healthy startup behind the ingress hold. The stopped snapshot proves v5 cleanup: all eight operations succeeded, both guests are absent, reservations are released, and global pending operations/reservations are empty. Independent server inventory is empty.
+- [x] Complete independent review of the exact server activation scripts and baseline/candidate comparison. Nine offline guards pass. Human approval received for packet SHA `409698055db2471455a733e9fc1b0bbed03031536805b4beb2ddcc92fa60535c`; activation remains in progress until live receipts confirm it.
+- [x] Pass all 27,356 backend tests at `9c3dc7ff7`. Full fast validation found one Vitest timeout; isolate four real boot collaborators in that test without changing timeouts or production code. Focused checks and independent review pass. Candidate `407891196` differs from the installed bundle only in that test; all 11,042 other tracked entries match.
+- [x] Complete `407891196` fast validation. Stop its browser capture after the confirmed cancellation defect; retain partial results only as diagnostics. Restart final browser/coverage validation on the combined corrected source.
 
 - [x] Complete linked v2 cleanup through EZHarness; preserve the original failed row, release reservations, and independently confirm no guests remain.
 - [x] Install verified diagnostics bundle `74970fa36` in the isolated app. One v4 attempt reported the actual failure: `enforcement / distinct_ip_literal_targets_are_required`. Both guests were cleaned up; independent Incus inventory is empty. A fresh stopped snapshot proves all eight lifecycle operations succeeded, both bindings are absent, and global pending operations and unreleased reservations are empty.
@@ -12,12 +23,13 @@
 - [x] Close the missing agent-run coverage measurement and split journal authorization checks without changing policy. Focused tests, coverage, types, and review pass.
 - [x] Review and integrate the agent-chat refactor. Thirty focused tests pass; all 72 measured lines are covered and the highest function complexity score is 9.
 - [x] Implement the v5 network-control correction: a reviewed, bounded Xeon-side challenge for the exact owned neighbor, and capability checks before allocation. Keep guest isolation and management checks intact. Focused host tests, 25 Python gate tests, and replay of actual read-only project/network/profile responses pass. The replay is not an installed-gate or live network qualification pass.
-- [ ] Complete independent gate review, exact NixOS baseline comparison, reviewed activation, and live qualification. No additional server authority has been activated.
+- [x] Complete independent gate review and exact NixOS baseline comparison; obtain approval for the exact guarded activation.
+- [ ] Complete guarded server activation and live qualification.
 - [x] Reproduce the latest fast gate's eight failures: two guard-location checks and six dependency-security checks. Keep the guard at the handler boundary (10 structural and 30 behavior tests pass). Prove the dependency lock is correct using a clean install, then repair stale local resolutions with a forced frozen install (all seven security tests pass). No gate or dependency pin was weakened.
 - [ ] Complete live SP01–SP08, native project proof, and ten serial feature lifecycles on the final candidate. Normal feature admission correctly remains blocked until qualification passes.
 - [ ] Pass final-source browser, merged coverage, full local/hosted checks, and required non-author review. Do not repeat full captures for each intermediate diagnostic fix.
 
-The `e177f21e6` fast run reported 27,337 backend passes and eight failures, all diagnosed and corrected above; 3,638 web Bun tests, 7,719 Vitest tests, types, lint, Svelte checks, and build passed. The combined final gate remains open. The installed app is still `ad2b151df`; the newer source is not yet deployed.
+The `407891196` fast gate passes. The isolated app still runs `9c3dc7ff7`, whose production files match `407891196`. The newer guest-cancellation correction changes production code and must be installed before live user-workspace proof. Final combined browser/coverage and hosted gates remain open.
 
 ## GPT-6.1 Sol completion team
 

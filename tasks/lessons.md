@@ -1,5 +1,9 @@
 # Lessons
 
+- Before the final browser/coverage capture, audit cancellation through the actual tool-to-provider boundary. An aborted request signal must not prevent exact guest cleanup; cleanup still needs its own deadline and fresh authorization. Prove guest process absence independently of a cancelled host run.
+- Rehearse the exact staging command with the installed CLI. GNU tar rejects `--keep-old-files` together with `--no-overwrite-dir`. Nix JSON v2 can key path information by store basename; validate its store directory, exact basename, NAR hash and size against a real read-only response.
+- Privileged deployment failures must retain bounded private command diagnostics, including partial timeout output. A generic error with discarded stderr causes repeated diagnosis without useful evidence. Preserve phase markers and inspect state before any continuation.
+
 - Incus qualification must model a remote control plane. Do not assume AMD can route to a private Xeon guest address. Negotiate the reviewed host-side positive-control capability before allocating test guests, while preserving guest-to-guest denial checks.
 - Test CLI response shapes against the installed CLI before pinning a privileged script. `incus query` unwraps metadata; an API-envelope parser needs explicit `--raw`. Mocked envelopes alone hid this mismatch.
 - After dependency overrides change, a frozen install can retain stale caller resolutions in an existing Bun install. Compare with a clean isolated install and inspect actual runtime resolutions before changing a correct lockfile or security test.
