@@ -1,0 +1,167 @@
+Checked 5 files in 7ms. No fixes applied.
+── Tests (staged) ─────────────────────────────────
+  bun: packages/@ezcorp/ai-kit/test/e2e/quickstart.test.ts
+bun test v1.4.2 (744846f84)
+
+ 0 pass
+ 3 skip
+ 0 fail
+Ran 3 tests across 1 file. [358.00ms]
+  bun: packages/@ezcorp/ai-kit/test/unit/client.test.ts
+bun test v1.4.2 (744846f84)
+
+ 27 pass
+ 0 fail
+ 41 expect() calls
+Ran 27 tests across 1 file. [381.00ms]
+  bun: packages/@ezcorp/ai-kit/test/unit/cli-install.test.ts
+bun test v1.4.2 (744846f84)
+
+packages/@ezcorp/ai-kit/test/unit/cli-install.test.ts:
+Installed: claude-code MCP config written.
+Installed: claude-code MCP config written.
+Installed: claude-code MCP config written.
+Installed: claude-code MCP config written.
+[dry-run] Would write /tmp/ai-kit-test-qIc5OJ/.claude.json:
+{
+  "mcpServers": {
+    "ezcorp-ai-kit": {
+      "command": "bunx",
+      "args": [
+        "@ezcorp/ai-kit",
+        "mcp"
+      ],
+      "env": {
+        "EZCORP_BASE_URL": "http://localhost:5173",
+        "EZCORP_API_KEY": "<your-api-key>"
+      }
+    }
+  }
+}
+
+[dry-run] Would copy /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/ai-kit/skills/ezcorp-auth/SKILL.md -> /tmp/ai-kit-test-qIc5OJ/.claude/skills/ezcorp-auth/SKILL.md
+[dry-run] Would copy /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/ai-kit/skills/ezcorp-orchestrate/SKILL.md -> /tmp/ai-kit-test-qIc5OJ/.claude/skills/ezcorp-orchestrate/SKILL.md
+[dry-run] Would copy /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/ai-kit/skills/ezcorp-chat/SKILL.md -> /tmp/ai-kit-test-qIc5OJ/.claude/skills/ezcorp-chat/SKILL.md
+[dry-run] Would copy /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/ai-kit/skills/ezcorp-projects/SKILL.md -> /tmp/ai-kit-test-qIc5OJ/.claude/skills/ezcorp-projects/SKILL.md
+[dry-run] Would copy /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/ai-kit/skills/ezcorp-agents/SKILL.md -> /tmp/ai-kit-test-qIc5OJ/.claude/skills/ezcorp-agents/SKILL.md
+Installed: claude-code MCP config written.
+Installed: claude-code MCP config written.
+Installed: claude-code MCP config written.
+Installed: claude-code MCP config written.
+[dry-run] Would write /tmp/ai-kit-test-FftFOH/.claude.json:
+{
+  "mcpServers": {
+    "ezcorp-ai-kit": {
+      "command": "bunx",
+      "args": [
+        "@ezcorp/ai-kit",
+        "mcp"
+      ],
+      "env": {
+        "EZCORP_BASE_URL": "http://localhost:5173",
+        "EZCORP_API_KEY": "<your-api-key>"
+      }
+    }
+  }
+}
+
+[dry-run] Would copy /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/ai-kit/skills/ezcorp-auth/SKILL.md -> /tmp/ai-kit-test-FftFOH/.claude/skills/ezcorp-auth/SKILL.md
+[dry-run] Would copy /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/ai-kit/skills/ezcorp-orchestrate/SKILL.md -> /tmp/ai-kit-test-FftFOH/.claude/skills/ezcorp-orchestrate/SKILL.md
+[dry-run] Would copy /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/ai-kit/skills/ezcorp-chat/SKILL.md -> /tmp/ai-kit-test-FftFOH/.claude/skills/ezcorp-chat/SKILL.md
+[dry-run] Would copy /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/ai-kit/skills/ezcorp-projects/SKILL.md -> /tmp/ai-kit-test-FftFOH/.claude/skills/ezcorp-projects/SKILL.md
+[dry-run] Would copy /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/ai-kit/skills/ezcorp-agents/SKILL.md -> /tmp/ai-kit-test-FftFOH/.claude/skills/ezcorp-agents/SKILL.md
+Installed: claude-code MCP config written.
+Installed: cursor MCP config written.
+Installed: cursor MCP config written.
+Installed: cursor MCP config written.
+[dry-run] Would write /tmp/ai-kit-test-3vUfxo/.cursor/mcp.json:
+{
+  "mcpServers": {
+    "ezcorp-ai-kit": {
+      "command": "bunx",
+      "args": [
+        "@ezcorp/ai-kit",
+        "mcp"
+      ],
+      "env": {
+        "EZCORP_BASE_URL": "http://localhost:5173",
+        "EZCORP_API_KEY": "<your-api-key>"
+      }
+    }
+  }
+}
+
+Installed: cursor MCP config written.
+Installed: zed context_servers config written.
+Installed: zed context_servers config written.
+Installed: zed context_servers config written.
+[dry-run] Would write /tmp/ai-kit-test-0fORGk/.config/zed/settings.json:
+{
+  "context_servers": {
+    "ezcorp-ai-kit": {
+      "command": "bunx",
+      "args": [
+        "@ezcorp/ai-kit",
+        "mcp"
+      ],
+      "env": {
+        "EZCORP_BASE_URL": "http://localhost:5173",
+        "EZCORP_API_KEY": "<your-api-key>"
+      }
+    }
+  }
+}
+
+Installed: zed context_servers config written.
+Installed: zed context_servers config written.
+Installed: windsurf MCP config written.
+Installed: windsurf MCP config written.
+Installed: windsurf MCP config written.
+[dry-run] Would write /tmp/ai-kit-test-YWN45W/.codeium/windsurf/mcp_config.json:
+{
+  "mcpServers": {
+    "ezcorp-ai-kit": {
+      "command": "bunx",
+      "args": [
+        "@ezcorp/ai-kit",
+        "mcp"
+      ],
+      "env": {
+        "EZCORP_BASE_URL": "http://localhost:5173",
+        "EZCORP_API_KEY": "<your-api-key>"
+      }
+    }
+  }
+}
+
+Installed: windsurf MCP config written.
+ai-kit: data directory initialized at /tmp/ai-kit-test-tc3oGy/.ezcorp/extension-data/ai-kit
+  (project root: /tmp/ai-kit-test-tc3oGy)
+Installed: ezcorp extension symlinked at /tmp/ai-kit-test-tc3oGy/.ezcorp/extensions/ai-kit
+ai-kit: data directory initialized at /tmp/ai-kit-test-L4zFM0/.ezcorp/extension-data/ai-kit
+  (project root: /tmp/ai-kit-test-L4zFM0)
+Installed: ezcorp extension symlinked at /tmp/ai-kit-test-L4zFM0/.ezcorp/extensions/ai-kit
+ai-kit: data directory initialized at /tmp/ai-kit-test-L4zFM0/.ezcorp/extension-data/ai-kit
+  (project root: /tmp/ai-kit-test-L4zFM0)
+Installed: ezcorp extension symlinked at /tmp/ai-kit-test-L4zFM0/.ezcorp/extensions/ai-kit
+[dry-run] Would create symlink: /tmp/ai-kit-test-4HPLQb/.ezcorp/extensions/ai-kit -> /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/ai-kit
+[dry-run] Would run: bun /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/ai-kit/scripts/postinstall.ts
+ai-kit: data directory initialized at /tmp/ai-kit-test-tzZBRz/.ezcorp/extension-data/ai-kit
+  (project root: /tmp/ai-kit-test-tzZBRz)
+Installed: ezcorp extension symlinked at /tmp/ai-kit-test-tzZBRz/.ezcorp/extensions/ai-kit
+ai-kit: data directory initialized at /tmp/ai-kit-test-q156jF/.ezcorp/extension-data/ai-kit
+  (project root: /tmp/ai-kit-test-q156jF)
+Installed: ezcorp extension symlinked at /tmp/ai-kit-test-q156jF/.ezcorp/extensions/ai-kit
+ai-kit: data directory initialized at /tmp/ai-kit-test-eiYEfZ/.ezcorp/extension-data/ai-kit
+  (project root: /tmp/ai-kit-test-eiYEfZ)
+Installed: ezcorp extension symlinked at /tmp/ai-kit-test-eiYEfZ/.ezcorp/extensions/ai-kit
+Installed: claude-code MCP config written.
+Installed: cursor MCP config written.
+Installed: zed context_servers config written.
+Installed: windsurf MCP config written.
+
+ 30 pass
+ 0 fail
+ 63 expect() calls
+Ran 30 tests across 1 file. [1.61s]
+[detached HEAD daf2aa776] merge: wp/w4h-1 d341d8690 into integ/w00 (ai-kit bootstraps without git in the hosted bundled build)

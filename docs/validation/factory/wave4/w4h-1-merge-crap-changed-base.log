@@ -1,0 +1,9 @@
+CRAP: --changed against 2510fa8369cc1f94fa8baf02a1229102b9d526b4 → 1 measured file(s) in diff
+
+CRAP: 2 functions in 1 files (max 30, warn 15)
+
+Worst 2:
+      6.0  cc=  6 cov=100%  packages/@ezcorp/ai-kit/src/cli/install.ts:216 installEzcorp
+      2.0  cc=  2 cov=100%  packages/@ezcorp/ai-kit/src/cli/install.ts:135 enclosingProjectRoot
+
+✓ no touched function exceeds CRAP 30
