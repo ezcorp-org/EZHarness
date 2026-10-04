@@ -1002,3 +1002,20 @@ test("unknown linked stop without provider receipt cannot inspect or admit anoth
   expect(await fixture.controller.getOperation(first.recovery.destroyOperationId)).toBeNull();
   expect(await fixture.admission.getReservation(fixture.owned.bindingId)).toMatchObject({ computeState: "RELEASE_REQUESTED", diskState: "RELEASE_REQUESTED" });
 });
+
+test("JSONB-reordered scope replays the legacy CREATE binding and accounting intent", async () => {
+  const { service, db, dispatches, admission } = await setup();
+  const observed = spyOn(admission, "recordObservedState");
+  const first = await service.create(scope, "fixture-jsonb");
+  const [fixture] = await db.select().from(schema.incusQualificationFixtures);
+  const reordered = { presetId: scope.presetId, connectionId: scope.connectionId,
+    releaseId: scope.releaseId, installationId: scope.installationId };
+  const replay = await service.create(reordered, "fixture-jsonb");
+  expect(replay.id).toBe(first.id);
+  expect(await db.select().from(schema.incusQualificationFixtures)).toEqual([fixture]);
+  expect(dispatches).toHaveLength(1);
+  const intents = observed.mock.calls.map(call => call[3]);
+  expect(intents.length).toBeGreaterThan(0);
+  expect(new Set(intents).size).toBe(1);
+  observed.mockRestore();
+});

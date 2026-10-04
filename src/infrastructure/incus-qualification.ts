@@ -27,7 +27,7 @@ import type { HostIncusLostDestroyReplyFault } from "./incus-destroy-reply-fault
 import { IncusCleanupRecoveryService, inspectRelease, readIncusProviderGeneration, type IncusFeatureServiceDependencies } from "./incus-feature-service";
 import { ProviderConnectionStore, type ProviderConnectionCredentials, type ProviderConnectionScope } from "./provider-connections/store";
 import type { IncusProbeResult, IncusTransportRequest } from "../../extensions/incus-sandbox/transport";
-import { IncusQualificationCheckpointStore } from "./incus-qualification-checkpoint";
+import { IncusQualificationCheckpointStore, qualificationFixtureIdentity } from "./incus-qualification-checkpoint";
 
 export interface IncusQualificationScope {
   installationId: string;
@@ -467,7 +467,7 @@ export class IncusQualificationFixtureService {
     const reservation = await this.admission.getReservation(row.bindingId);
     let intent = state === "ABSENT" ? reservation?.cleanupIntentId : reservation?.stopIntentId;
     if (operation.kind === "CREATE") {
-      const identity = createHash("sha256").update(JSON.stringify([scope, row.operationId])).digest("hex");
+      const identity = qualificationFixtureIdentity(scope, row.operationId);
       intent = `incus-qualification-create-${identity}`;
       await this.preserveSupersededObservation(operation, () => this.admission.markStopIntent(row.bindingId, operation.generation, intent!, operation.id));
     }
@@ -517,7 +517,7 @@ export class IncusQualificationFixtureService {
 
   private async createLocked(scope: IncusQualificationScope, operationId: string): Promise<SandboxOperation> {
     const selected = await this.qualifications.authorizeFixture(scope);
-    const identity = createHash("sha256").update(JSON.stringify([scope, operationId])).digest("hex");
+    const identity = qualificationFixtureIdentity(scope, operationId);
     const projectId = `incus-qual-project-${identity}`;
     const bindingId = `incus-qual-binding-${identity}`;
     let row = await this.fixture(operationId);

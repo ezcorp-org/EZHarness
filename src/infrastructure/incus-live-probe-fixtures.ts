@@ -7,6 +7,7 @@ import { getDb, type Database, type DbTransaction } from "../db/connection";
 import { projectWorkspaceBindings, projects, sandboxAdmissionRequests, sandboxBindings,
   sandboxHostCapacities, sandboxOperations, sandboxProjectQuotas, sandboxReservations } from "../db/schema";
 import { IncusQualificationStore, type IncusQualificationScope } from "./incus-qualification";
+import { canonicalQualificationScope } from "./incus-qualification-checkpoint";
 import { ProviderConnectionStore } from "./provider-connections/store";
 import type { IncusControlDenial, IncusControlProbeConfig } from "./incus-live-control-probes";
 
@@ -118,6 +119,7 @@ export class IncusLiveProbeFixtureService {
   }
 
   async plan(scope: IncusQualificationScope, operationId: string): Promise<IncusProbeFixturePlan> {
+    scope = canonicalQualificationScope(scope);
     assertScope(scope, operationId);
     await privateDirectory(this.deps.rootDirectory);
     const selected = await this.qualifications.authorizeFixture(scope);
@@ -281,7 +283,7 @@ export class IncusLiveProbeFixtureService {
     catch { throw new Error("Incus probe fixture receipt is invalid"); }
     const { digest: savedDigest, ...body } = plan;
     if (savedDigest !== digest(body) || plan.operationId !== operationId
-      || JSON.stringify(plan.scope) !== JSON.stringify(scope) || plan.directory !== directory
+      || JSON.stringify(canonicalQualificationScope(plan.scope)) !== JSON.stringify(canonicalQualificationScope(scope)) || plan.directory !== directory
       || JSON.stringify(plan.config?.cases) !== JSON.stringify(expectedCases(directory, id))
       || !identifier.test(plan.config?.unqualifiedPresetId)
       || !Number.isSafeInteger(plan.connectionRevision) || plan.connectionRevision < 1

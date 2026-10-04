@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
 import { sandboxPresetDigest } from "@ezcorp/extension-contract";
 import { drizzle } from "drizzle-orm/pglite";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { up as addSandboxController } from "../db/migrations/add-sandbox-controller";
 import { up as addQualificationFixtures } from "../db/migrations/add-incus-qualification-fixtures";
 import { up as addProjectWorkspaceBindings } from "../db/migrations/add-project-workspace-bindings";
@@ -46,7 +46,7 @@ async function fixture() {
   const qualifications = { authorizeFixture: async (input: typeof scope) => {
     authorized++;
     if (disabled) throw new Error("release disabled");
-    if (JSON.stringify(input) !== JSON.stringify(scope)) throw new Error("scope denied");
+    if (Object.keys(input).length !== 4 || Object.entries(scope).some(([key, value]) => input[key as keyof typeof scope] !== value)) throw new Error("scope denied");
     return { ...selected, connection: { ...selected.connection, revision: connectionRevision } };
   }, load: async () => null } as unknown as IncusQualificationStore;
   await db.insert(schema.sandboxHostCapacities).values({
@@ -188,4 +188,27 @@ test("cleanup refuses a provider effect or altered canary and keeps all records"
   expect(await db.select().from(schema.sandboxBindings)).toHaveLength(2);
   expect(await db.select().from(schema.sandboxOperations).where(eq(schema.sandboxOperations.id, "effect")))
     .toHaveLength(1);
+});
+
+test("JSONB checkpoint scope preserves the reviewed fixture after database reopen", async () => {
+  const { db, scope, service, root, qualifications } = await fixture();
+  const plan = await service.plan(scope, "restart-run");
+  await service.apply(scope, "restart-run", plan.digest);
+  await db.execute(sql`CREATE TABLE restart_scope (scope JSONB NOT NULL)`);
+  await db.execute(sql`INSERT INTO restart_scope VALUES (${JSON.stringify(scope)}::jsonb)`);
+  const original = active.at(-1)!;
+  const snapshot = await original.pglite.dumpDataDir();
+  await original.pglite.close();
+  const reopened = new PGlite({ loadDataDir: snapshot });
+  await reopened.waitReady;
+  original.pglite = reopened;
+  const restored = drizzle(reopened, { schema });
+  const { rows: [row] } = await restored.execute(sql`SELECT scope FROM restart_scope`);
+  const resumed = row!.scope as typeof scope;
+  expect(resumed).toEqual(scope);
+  expect(JSON.stringify(resumed)).not.toBe(JSON.stringify(scope));
+  const restarted = new IncusLiveProbeFixtureService({ db: restored, rootDirectory: root,
+    qualifications, assertCurrentScope: async () => {} });
+  expect(await restarted.readyConfig(resumed, "restart-run")).toEqual(plan.config);
+  expect((await restarted.plan(resumed, "restart-run")).digest).toBe(plan.digest);
 });

@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { generateKeyPairSync, randomUUID, sign, type KeyObject } from "node:crypto";
+import { createHash, generateKeyPairSync, randomUUID, sign, type KeyObject } from "node:crypto";
 import { spawn } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -9,7 +9,7 @@ import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { up } from "../db/migrations/add-incus-qualification-runs";
 import { up as completeRuns } from "../db/migrations/complete-incus-qualification-runs";
-import { IncusQualificationCheckpointStore, currentProcessIdentity, observationDigest,
+import { IncusQualificationCheckpointStore, canonicalQualificationScope, qualificationFixtureIdentity, currentProcessIdentity, observationDigest,
   processIdentityKey, restartHandoffSigningBytes, type ProcessIdentity,
   type RestartHandoffPayload } from "./incus-qualification-checkpoint";
 import { checkpointTestHandle as handle, checkpointTestObservation as observation,
@@ -323,4 +323,24 @@ test("a changed binding or unpinned guest cannot create a restart checkpoint", a
       .rejects.toThrow("exact stopped qualification binding");
     expect((await client.query("SELECT run_id FROM incus_qualification_runs")).rows).toEqual([]);
   } finally { await client.close(); }
+});
+
+test("qualification scope and fixture identity preserve legacy bytes across JSONB order", () => {
+  const canonical = { installationId: "installation", releaseId: "release", connectionId: "connection", presetId: "preset" };
+  const reordered = { presetId: "preset", connectionId: "connection", releaseId: "release", installationId: "installation" };
+  const legacy = createHash("sha256").update(JSON.stringify([canonical, "operation"])).digest("hex");
+  expect(legacy).toBe("303a5e9b15b4b90e4a91a9a247520bd0c36face7b06719c424c299c49c2ef020");
+  expect(canonicalQualificationScope(reordered)).toEqual(canonical);
+  expect(Object.keys(canonicalQualificationScope(reordered))).toEqual(Object.keys(canonical));
+  expect(qualificationFixtureIdentity(reordered, "operation")).toBe(legacy);
+  expect(qualificationFixtureIdentity(canonical, "operation")).toBe(legacy);
+  for (const key of Object.keys(canonical)) {
+    expect(qualificationFixtureIdentity({ ...canonical, [key]: "changed" }, "operation")).not.toBe(legacy);
+    const missing = { ...canonical } as Record<string, string>;
+    delete missing[key];
+    expect(() => canonicalQualificationScope(missing as typeof canonical)).toThrow("Invalid Incus qualification scope");
+  }
+  for (const malformed of [Object.assign(Object.create({ presetId: "preset" }), { installationId: "installation", releaseId: "release", connectionId: "connection", extra: "value" }), null, { ...canonical, extra: "value" }, { ...canonical, presetId: "" }, { ...canonical, presetId: 1 }]) {
+    expect(() => canonicalQualificationScope(malformed as typeof canonical)).toThrow("Invalid Incus qualification scope");
+  }
 });

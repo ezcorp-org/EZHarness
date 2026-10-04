@@ -15,6 +15,7 @@ import { SandboxController, operatorRecoveryDestroy } from "../sandboxes/control
 import { IncusSandboxProviderDispatcher } from "../sandboxes/incus-dispatcher";
 import { IncusMethodCaller } from "./incus-method-caller";
 import { callRetiredIncusCleanup } from "./incus-retired-cleanup";
+import { qualificationFixtureIdentity } from "./incus-qualification-checkpoint";
 import { ProviderConnectionStore, type ProviderConnectionCredentials, type ProviderConnectionScope } from "./provider-connections/store";
 import { matchesCleanupRecoveryBinding, permitsFailedCleanupInspection } from "./incus-cleanup-stop-policy";
 import { resourceName } from "./incus-transport/lifecycle";
@@ -495,7 +496,7 @@ export class IncusFeatureService {
         && operation.idempotencyKey === fixture.operationId) {
         const scope = { installationId: fixture.installationId, releaseId: fixture.releaseId,
           connectionId: fixture.connectionId, presetId: fixture.presetId };
-        const identity = createHash("sha256").update(JSON.stringify([scope, fixture.operationId])).digest("hex");
+        const identity = qualificationFixtureIdentity(scope, fixture.operationId);
         return `incus-qualification-create-${identity}`;
       }
       if (operation.idempotencyScope === "incus-qualification-power" && operation.kind === "STOP"

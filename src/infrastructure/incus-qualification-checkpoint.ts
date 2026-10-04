@@ -12,6 +12,21 @@ const identifier = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
 const sha256 = /^[a-f0-9]{64}$/;
 const zeroDigest = "0".repeat(64);
 
+/** Preserve the original reviewed scope order across JSONB storage. */
+export function canonicalQualificationScope(scope: IncusQualificationScope): IncusQualificationScope {
+  const keys = ["installationId", "releaseId", "connectionId", "presetId"] as const;
+  if (!scope || Object.keys(scope).length !== keys.length
+    || !keys.every(key => Object.hasOwn(scope, key) && typeof scope[key] === "string" && identifier.test(scope[key]))) {
+    throw new Error("Invalid Incus qualification scope");
+  }
+  const { installationId, releaseId, connectionId, presetId } = scope;
+  return { installationId, releaseId, connectionId, presetId };
+}
+
+export function qualificationFixtureIdentity(scope: IncusQualificationScope, operationId: string): string {
+  return createHash("sha256").update(JSON.stringify([canonicalQualificationScope(scope), operationId])).digest("hex");
+}
+
 export interface ProcessIdentity { pid: number; startTicks: string }
 
 /** Linux's process start tick distinguishes a recycled PID from a restart. */
