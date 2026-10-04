@@ -386,3 +386,34 @@ test("the 3ec53eaa RunnerClient completes a forward request it sends after its f
     await harness.close();
   }
 });
+
+test("the 3ec53eaa RunnerClient answers each reverse call once and keeps its worker", async () => {
+  // The old client hands each reverse call to its handler without awaiting it and polls again at once. A reverse call
+  // must therefore reach one attachment once; redelivery is for a replacement holder after a release, not for the
+  // holder that is still answering it (W4H-9: the seed's second reply was refused as stale and the old client quit).
+  const harness = await startHarness();
+  const release = harness.holdForwardRequests();
+  let finishReverse = () => {};
+  try {
+    let answered = 0;
+    const reverseDone = new Promise<void>(resolve => { finishReverse = resolve; });
+    const client = new PreAttachRunnerClient({ socketPath: harness.socketPath, token: TOKEN });
+    const worker = await client.start(startBody("legacy-reverse") as unknown as StartRequest, async method => { answered += 1; await reverseDone; return { method }; });
+    const forward = settled(worker.request("extension/discover", {}));
+    const reverse = settled(harness.reverse("legacy-reverse", "host/storage", {}));
+    await until(() => answered >= 1);
+    // While its answer is pending the old client polls again: that poll must park, not hand the same call back.
+    await until(() => harness.service.eventStreams().includes("legacy-reverse") || answered > 1);
+    finishReverse();
+    expect(await reverse).toEqual({ resolved: { method: "host/storage" } });
+    release();
+    expect(await forward).toEqual({ resolved: "done" });
+    expect(answered).toBe(1);
+    expect(harness.cancelled("legacy-reverse")).toBe(false);
+    await worker.close();
+  } finally {
+    finishReverse();
+    release();
+    await harness.close();
+  }
+});
