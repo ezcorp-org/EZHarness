@@ -567,7 +567,7 @@ export class SandboxController {
           const actual = binding[key as keyof SandboxBinding];
           return expected instanceof Date ? actual instanceof Date && actual.getTime() === expected.getTime() : actual === expected;
         });
-        if (!matches || !journal || journal.state !== "DISPATCHING" || journal.kind !== kind
+        if (!matches || !journal || !["DISPATCHING", "PROVIDER_PENDING", "OUTCOME_UNKNOWN"].includes(journal.state) || journal.kind !== kind
           || journal.payloadHash !== payloadHash || journal.providerOperationId !== authority.providerOperationId
           || binding.currentOperationId !== journal.id || binding.generation !== journal.generation
           || !["SUCCEEDED", "FAILED"].includes(outcome.outcome)

@@ -94,6 +94,8 @@ describe("SandboxController durable dispatch", () => {
         { outcome: "PENDING", providerOperationId: "incus-create-native" }, scope)).rejects.toMatchObject({ code: "SUPERSEDED_OPERATION" });
       await expect(controller.recordProviderObservation(request.operationId, "incus-create-native",
         { outcome: "SUCCEEDED", observedState: "STOPPED" }, { ...scope, connectionId: "foreign" })).rejects.toMatchObject({ code: "SUPERSEDED_OPERATION" });
+      await db.update(schema.sandboxOperations).set({ state: "OUTCOME_UNKNOWN" })
+        .where(eq(schema.sandboxOperations.id, request.operationId));
       const saved = await controller.recordProviderObservation(request.operationId, "incus-create-native",
         { outcome: "SUCCEEDED", observedState: "STOPPED" }, scope);
       expect(saved.state).toBe("SUCCEEDED");
