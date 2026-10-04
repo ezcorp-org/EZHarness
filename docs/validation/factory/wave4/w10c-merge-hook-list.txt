@@ -1,0 +1,13 @@
+packages/@ezcorp/factory-sdk/src/reference-execution.test.ts
+scripts/factory-graph-proof/deployment.test.ts
+scripts/factory-graph-proof/harness-hygiene.test.ts
+scripts/verify-factory-reference-code-provider.test.ts
+src/factory/reference-code/generate.test.ts
+src/factory/reference-code/pack.test.ts
+src/factory/reference-code/repair.integration.test.ts
+src/factory/reference-code/review.test.ts
+src/factory/reference-image/lock.test.ts
+src/factory/reference-image/publication.test.ts
+src/factory/reference-image/semantic-quorum.test.ts
+src/providers/factory-broker.test.ts
+src/__tests__/registry-oauth-model-resolution.test.ts

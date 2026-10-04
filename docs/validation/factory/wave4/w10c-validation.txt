@@ -1,0 +1,168 @@
+VERDICT (validator-6) — W10c at f98d620a57c91167efb462757ec1f3e5dc1317a3 (wp/w10c-codex-pin), base integ/w00 1992630f3: ACCEPT (lock-free phase; R8 open)
+
+Scope: the lock-free phase the coordinator ordered (2026-10-03). No heavy lock, no stack start, no podman run, no real model call.
+Where: my own snapshot /tmp/v6-w10c-snap: `git archive f98d620a5`, the index built from `git ls-tree -r f98d620a5` (13339 files,
+equal), then the base, origin/main and the branch fetched into the snapshot's own repository and HEAD set to f98d620a5 (tree
+equal; `git status` clean before and after every leg). The owner's worktree was never used. Bun and bunx 1.4.2 (.bun-version).
+Shared .git/config 44962525f1ca1a8b at the start and end.
+Commits: 10 over 1992630f3 (the order said 11), all `archy <281643943+EZArchy@users.noreply.github.com>` as author and committer:
+cccf8a0cb 935acc794 46c2e573c 90fa8ffa4 e6ea78c22 ac33cd7eb 7bf9831eb 71c6add0f 86c7852e0 f98d620a5. Changed files: 27, equal
+to w10c/logs/changed-files.txt.
+
+1 DECISION RECORD — PASS
+  - tasks/factory/w10c-GATES.md "Contract revision (C10)" holds the user's decision with the brief's wording and date, the terms
+    risk ("a ChatGPT-plan login used outside Codex may breach OpenAI's terms and may be rate limited; that risk is the user's"),
+    and both picks with times: "first `gpt-5.6-luna` (15:50Z), amended to `gpt-6-luna` (16:00Z)".
+  - docs/plans/2026-09-12-composable-factory-platform-contracts.md: `git diff --numstat` = 4 added, 0 removed. Two blockquoted
+    "Amendment W10c (2026-10-03, reviewed C10 revision)" notes after the reference code v1 and reference image v1 paragraphs;
+    the original text stays. Notes, not rewrites.
+  - The live pin is one constant: packages/@ezcorp/factory-sdk/src/references.ts:56 `const referenceModel = "gpt-6-luna";`,
+    used by all seven model-backed runners (lines 130, 132, 179, 186, 189-191). Provider `openai` in the probe pin
+    (scripts/verify-factory-reference-code-provider.ts:31-32).
+  - `claude-haiku-4-5-20251001` at the head: history comments (references.ts:51, the probe's :7); the generic application
+    tests (src/__tests__/workflow-*, model-router, modes, kilo-provider, db-queries-workflows, model-registry; web api-workflows
+    tests and web/e2e/workflows-demos.spec.ts); the seo-watcher example; receipts (docs/validation/factory/wave3/w10, w11);
+    scripts/cache-proof-live.ts (ruled: cache proof); plan and gate documents. Two more, neither a factory pin:
+    src/runtime/routing/tier-ladder.ts:80 (the application's routing ladder; not changed by this branch) and
+    src/providers/factory-broker.test.ts:35 (a sample pin for the broker's generic refusal tests).
+  - FINDING (not blocking, DRY): src/factory/reference-image/sdxl-lock.json `evaluation.model` is a second, hand-kept copy of the
+    pin ("gpt-6-luna"). It feeds the publication's provenance (publication.ts:158); the evaluator runners use the constant. Only
+    lock.test.ts:61 checks it, against a literal; no test ties it to the definition's evaluator model, so the two can drift.
+    The structure predates W10c (the lock held the Haiku id before). Suggested: a test that the lock's evaluation model equals
+    the image definition's semantic evaluator pin.
+
+2 CATALOG — PASS
+  - Installed pi-ai: node_modules/@earendil-works/pi-ai -> .bun/@earendil-works+pi-ai@0.85.1+aa153870851897c9 (package.json
+    version 0.85.1; bun.lock "@earendil-works/pi-ai": "0.85.1"). dist/providers/data/openai-codex.json lists 8 ids:
+    gpt-5.3-codex-spark, gpt-5.4, gpt-5.4-mini, gpt-5.5, gpt-5.6-luna, gpt-5.6-sol, gpt-5.6-terra, gpt-6-astra. No file under
+    dist/providers/data/ names gpt-6-luna. The one LOCAL_OAUTH_OVERRIDES entry is therefore justified.
+  - The entry (src/providers/registry.ts:77-88) equals the gpt-5.5 entry and the catalog's gpt-5.5 record field by field except
+    id and name: api openai-codex-responses, provider openai-codex, baseUrl https://chatgpt.com/backend-api, reasoning true,
+    input [text, image], contextWindow 272_000, maxTokens 128_000, plan cost 0.
+  - Red before the entry: w10c/logs/r2-gpt6-probe-red.log at 90fa8ffa4 (whose registry.ts names gpt-6-luna 0 times):
+    "ready": false, "failures": ["model_not_available", ...].
+  - src/__tests__/registry-oauth-model-resolution.test.ts: 11 pass, 0 fail (the id enters only for the openai-codex OAuth
+    provider).
+
+3 BROKER — PASS (src/providers/factory-broker.ts)
+  - The stream sends `resolveModelForCredential(await resolveModel(pin), provider, credential.type)`: the shared swap from
+    registry.ts, the one every model call uses; readiness asks the same swap (credentialRunsPin). No copy of the swap logic.
+  - Static mutants (w4g-validation/w10c-mutants.sh; suite = factory-broker.test.ts + registry-oauth-model-resolution.test.ts;
+    each: 33 pass before, killed by assertion, 33 pass after restore; no load error):
+      M1 OAuth not swapped (the model sent unchanged): 31 pass, 2 fail ("sends the call to the ChatGPT subscription endpoint with
+         the OAuth token, never the api-key ..." and the regression pair).
+      M2 an API key swapped as if OAuth: 32 pass, 1 fail (the regression pair: subscription endpoint on a login, api-key
+         endpoint on a key).
+      M3 an API key allowed to run the subscription-only pin: 32 pass, 1 fail ("an API key alone cannot run the
+         subscription-only pin: named as unavailable, never sent").
+
+4 PROBE — PASS (scripts/verify-factory-reference-code-provider.ts; run by me from the snapshot with `env -i` and a scratch HOME)
+  - No store named: exit 1, failures ["store_not_named"], store {kind: null, opened: false}; nothing created under HOME except
+    Bun's own install cache (.bun/), 0 files outside it; the snapshot unchanged.
+  - :memory: with EZCORP_SECRETS_DIR: store {kind: pglite-memory, opened: true}, failures ["provider_not_configured"].
+  - DATABASE_URL on a closed local port: failures ["store_unavailable"], store {kind: postgres, opened: false}; the URL is in
+    no log line and no record.
+  - EZCORP_DB_PATH file: store {kind: pglite-file, opened: true}. The record holds no path in any case. The application's own
+    database log line ("Database mode: embedded PGlite", path = the operator-named file) predates W10c.
+  - Old behaviour red: w10c/logs/a-store-red.log at 46c2e573c shows PGlite opened at <HOME>/ez-corp/.data/ez-corp-db.
+  - deployment-probe.ts hands the database name and secret to the probe in the child's environment; the child's argv is the
+    script and the evidence path only.
+
+5 PERSISTENT DEPLOYMENT — PASS for the unit; the runtime is NOT YET PROVEN
+  - deployment.ts: folder only under /run/user/<uid>/ (not the folder itself), refused inside the repository, HOME and
+    /tmp/factory-platform-evidence (deployment_dir_not_allowed); mkdir 0700 and chmod 0700; files written mode 0600 then chmod
+    0600; reuse of the recorded database by name; deployment_database_missing and deployment_incomplete refused by name; a fresh
+    start records nothing until recordDeployment. Default per-start behaviour in stack.ts unchanged when no folder is given.
+  - Unit: scripts/factory-graph-proof/deployment.test.ts 9 pass, 0 fail; lcov for deployment.ts LF 65 LH 65, FNF 16 FNH 16 (mine).
+  - Secrets: stack.ts passes the web secrets in the web process's environment and adds them to the live redaction list
+    (secretValues); hold.ts reads only environment values; run.sh passes the folder by path only. No secret on argv.
+  - hold.ts: MAX_MINUTES = 30; minutes = min(W19A_HOLD_MINUTES, 30); run.sh wraps it in `timeout 2400`.
+  - stack.ts, hold.ts and run.sh are proven at runtime only by the R8 hold under the lock: NOT YET PROVEN.
+
+6 G9 — PASS
+  - run.sh holds no prune. The owner's red log w10c/logs/g9-red.log names "run.sh:84: podman image prune -f ...".
+  - scripts/factory-graph-proof/harness-hygiene.test.ts: 2 pass. Mutant (one `podman image prune -f` line appended to run.sh in
+    my snapshot): 1 pass, 1 fail, naming "run.sh:90"; restored: 2 pass, the tree clean. The pattern covers podman and docker
+    image, system, container and volume prune, and a test checks it on positive and negative lines.
+
+7 SECRETS — PASS
+  - Scan of the 27 files at the head and all 110 files under /tmp/factory-platform-evidence/w10c (patterns: sk- keys, eyJ JWTs,
+    "access_token":"…, Bearer tokens, .codex): no token-like string. The one `.codex` hit is SIGN-IN.md:83, a sentence that
+    forbids reading ~/.codex/auth.json. No changed file reads ~/.codex. "fixture-oauth-token" is in 5 files.
+
+8 GATES at the head, from my snapshot (w4g-validation/w10c/gates/results.jsonl, w4g-validation/w10c-gates.sh) — PASS
+  - typecheck, lint, check-factory-boundaries, check-boundaries: exit 0.
+  - Hook-mapped suites (scripts/lib/hook-lib.sh staged_test_targets over the 27 files: 13 files). Unit leg 12 files with lcov,
+    each run alone first (void check: every file nonzero, none VOID, 0 skip): 207 pass, 0 fail. The 13th,
+    packages/@ezcorp/factory-sdk/src/reference-execution.test.ts, runs in the SDK leg: 246 pass, 0 fail.
+  - Coverage against 1992630f3: new-file gate PASSED (no new source file in the gated globs); patch gate PASSED, all changed
+    executable lines covered in 3 measured files.
+  - CRAP (scripts/crap-score.ts --changed, BASE_REF=1992630f3): 5 functions in 3 files, max 9.0 (factoryProviderReadiness),
+    every one at 100 percent coverage.
+  - Guard set: w00/guard-suites.sh sha256 f678fe26e1bfcf07, 36 files: 468 pass, 2 skip (mcp-seccomp-profile's BPF cases),
+    0 fail.
+  - gate-integrity: the base leg against 1992630f3 PASSED (no gate-weakening change); the origin/main leg (origin/main
+    31052930d) equals the 8 expected paths.
+  - Attestations: scripts/coverage-attestations.json unchanged against the base.
+  - Digests (w4g-validation/w10c-digests.ts, compiled from my snapshot and from an archive of 1992630f3) reproduce the gate file:
+      reference.code.v1    head e2fd8db63abab006276871d5e787c0e34e2aabae4dcaccc100fd5f5995534b70  base c09d3752…1005
+      reference.image.v1   head 4e97085263457f42031f6cd7e002074f75403bf8a2d305083a9ccf062d3ff112  base 37933156…53d8
+      reference image lock head c8ba8b1faa4badcd3f581baf27e84cdc385103b00e100b9c13725a5a243930fd  base 5ea903d2…58fe
+      reference.data.v1 1113c493…9412 and reference.catalog.v1 2a322470…8792 unchanged.
+  - Not run here: gitleaks (my library runs it in a podman container, which this order forbids; item 7's scan stands for it);
+    tests/postgres/factory-definitions.test.ts (needs PostgreSQL; the owner lists it as not run).
+
+OPEN: R8 (the real legs) waits for the wave4h push, the user's sign-in and the heavy lock. The persistent deployment's runtime
+(stack.ts, hold.ts, run.sh hold/probe) is proven only by that hold.
+
+ADDENDUM (validator-6, 2026-10-03 16:55Z) — W10c at 2484115d5796cdf9bfa4ea48c8668510f44a004b: ACCEPT (lock-free phase; R8 open)
+Proof carry-over, test-only delta. `git diff --name-only f98d620a5 2484115d5` = src/factory/reference-image/lock.test.ts,
+src/factory/reference-image/publication.test.ts, src/factory/reference-image/semantic-quorum.test.ts, tasks/factory/w10c-GATES.md:
+test files and the gate file only. One commit, 2484115d, archy noreply as author and committer. My snapshot was moved to the new
+head (changed files archived in, HEAD set, tree clean). The changed suites with lcov, each run alone first (none VOID, 0 skip):
+lock 54, publication 19, semantic-quorum 33; together 106 pass, 0 fail. gate-integrity: the base leg against 1992630f3 PASSED;
+the origin/main leg equals the 8 expected paths. scripts/coverage-attestations.json unchanged. The DRY finding is closed: the
+new lock.test.ts case collects every model the image definition's runners name (at least 4, all equal) and requires the lock's
+evaluation.model to equal it; my mutant (references.ts referenceModel set to "gpt-6-lunx") turns it red, 53 pass, 1 fail, by
+assertion; restored, 54 pass. Out of scope, as ruled: src/runtime/routing/tier-ladder.ts:80 (the application's routing ladder,
+not a factory pin) stays as it is. Everything else in this verdict carries from f98d620a5 unchanged.
+
+ADDENDUM 2 (validator-6, 2026-10-04 14:34Z) — W10c at 62dd32a04: ACCEPT for the package as a whole; G27 (W10), G8c and G8d stay OPEN as recorded
+Read-only: no model call, no deployment start, no lock. `git diff --name-only 2484115d5 62dd32a04` = tasks/factory/w10c-GATES.md
+only (a8aead494 G8a, 62dd32a04 G8b–G8d; both archy noreply as author and committer; docs only, hook 0).
+(1) RECEIPT /tmp/factory-platform-evidence/w10c/r8/journey.json, sha256 1b15abdcad386e5a… (matches): providerReadiness openai /
+  gpt-6-luna, ready true, credentialKind oauth, failures []. generation: source provider, model openai/gpt-6-luna, iterations 3
+  (the definition's bound is maxIterations 12, packages/@ezcorp/factory-sdk/src/references.ts:151), stopReason model-finished,
+  usage 1,702 input / 155 output tokens. reviewClaim supervised-review PASS, review_rubric_satisfied. deterministicClaims 9, all
+  PASS (dependency-advisory, secret-scan, allowed-paths, protected-assets-unchanged, frozen-install, build, typecheck,
+  declared-tests, protected-fixtures). unsatisfiedClaims []; contractSatisfied true; outcome completed; publication attempted
+  (pull 8), cleanedUp names the release branch. The only model id in the receipt is gpt-6-luna. remoteVerification: tree matches
+  the candidate exactly (5 of 5 files), parent is the tested base, pull draft, not merged.
+(2) GITHUB, read-only `gh api`: repository ezcorp-org/factory-platform-publication-tests has id 1368432892 (= github:1368432892);
+  pull 8: state closed, draft true, merged false, closed_at 2026-10-04T14:23:44Z (inside the run, which ended 14:23:44.568Z), head
+  ezcorp-factory/factory-release%3Aed2dadd4…, base reference-code-base. The head branch: `git/ref/heads/…` 404 and
+  `branches/…` 404 — it no longer exists. The 11 recorded API calls are the run's own: 1 repository read, 5 blob uploads, 1 tree
+  upload, then reads of the base ref, the tree, the commit and pull 8. Consistent with the trail; the commit, ref and pull
+  creation and the close/delete are not among the 11 recorded calls (the receipt's publication record and cleanedUp carry them).
+(3) SECRETS: 0 token-like strings (eyJ…, sk-…, "access_token":", "refresh_token":", Bearer …, gh?_…, postgres URL with a
+  password, .codex/auth) in journey.json, journey.log, gated.log, readiness-signed-in.json, logs/r8-hold-signin.log,
+  logs/r8-probe-signed-in.log, hold/w10c-signin.json and the 7 hold/w10c-signin.process-*.log files. readiness-signed-in.json:
+  openai gpt-6-luna, ready true, credentialKind oauth, failures [], store {kind postgres, opened true}.
+(4) BLOCKED-BY-NAME CLAIMS at 62dd32a04 (git grep):
+  - readSemanticAnswer: no caller outside tests. TRUE.
+  - evaluationVerdict: called outside tests inside its own module (semanticClaimOutcome, scoreSemanticQuorum), and
+    scoreSemanticQuorum is called by scripts/verify-factory-image-publication.ts:90 with fixed evaluations (line 89). G8c's
+    sentence "readSemanticAnswer and evaluationVerdict … have no caller outside tests" is therefore inexact for evaluationVerdict;
+    its substance holds (no code sends an image to a model and reads its answer; the script scores fixed values, as G8c also
+    says). FINDING (wording, not blocking; G8c is open): say "readSemanticAnswer has no caller outside tests; evaluationVerdict
+    runs only on fixed values".
+  - IsolatedFactoryAttemptRuntime: outside tests only its own definition (src/factory/runner/attempt-runtime.ts), a comment in
+    src/factory/runtime-workers.ts:196 and a string in scripts/__tests__/live/verify-factory-attempt-gpu.ts; no production
+    construction or broker.invoke. TRUE.
+  - referenceCatalogV1: non-test files are its definition (references.ts), the SDK re-export (index.ts) and
+    src/factory/reference-catalog/pack.ts, the only user. TRUE.
+  - REFERENCE_CODE_IMPLEMENTATIONS: only src/factory/reference-code/pack.ts (its module) and pack.test.ts. TRUE.
+(5) GATE FILE: G8a states the waiver for that hold only (disk and swap floors waived, memory floor kept; gate at the lock disk
+  75 GB, swap 1.4 GiB, MemAvailable 16.5 GiB) and the probe result; G8b states "Driver: host-side journey … NOT the started
+  application. W10 G27 … stays OPEN". Both match the ruling.
+NOTE (validator-6, 2026-10-04 14:35Z): final head 8141f423c — `git diff --name-only 62dd32a04 8141f423c` = tasks/factory/w10c-GATES.md only (1 commit, archy noreply); G8c now names evaluationVerdict's callers (semanticClaimOutcome, scoreSemanticQuorum, scripts/verify-factory-image-publication.ts:90) as feeding it fixed values and readSemanticAnswer as having no caller outside tests, which matches my addendum-2 finding; the ACCEPT of addendum 2 stands for 8141f423c.
