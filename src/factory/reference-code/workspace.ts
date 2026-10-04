@@ -47,6 +47,15 @@ export interface ReferenceCodeCommandRunner {
 export const REFERENCE_CODE_OUTPUT_LIMIT = 64 * 1024;
 
 /**
+ * Ends a check command's whole process group. A group that already ended is not an error: the
+ * budget can run out after the last process exited but before the runner observed `close`.
+ */
+export function killReferenceCodeProcessGroup(leader: number): void {
+  try { process.kill(-leader, "SIGKILL"); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error; }
+}
+
+/**
  * Runs one check command and records what it did.
  *
  * The exit code is captured from the process itself rather than from a pipeline, because a piped
@@ -61,8 +70,11 @@ export class ReferenceCodeProcessRunner implements ReferenceCodeCommandRunner {
     if (!executable) throw new TypeError("a check command needs an executable");
     const startedAt = Date.now();
     return new Promise(resolvePromise => {
+      // The command leads its own process group, so the budget ends every process it started. A
+      // descendant left alive holds the output pipe, and `close` would wait for it.
       const child = spawn(executable, args, {
         cwd: options.cwd,
+        detached: true,
         stdio: ["ignore", "pipe", "pipe"],
         env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "", ...this.environment },
       });
@@ -79,7 +91,7 @@ export class ReferenceCodeProcessRunner implements ReferenceCodeCommandRunner {
       };
       child.stdout.on("data", collect);
       child.stderr.on("data", collect);
-      const timer = setTimeout(() => { timedOut = true; child.kill("SIGKILL"); }, options.timeoutMs);
+      const timer = setTimeout(() => { timedOut = true; killReferenceCodeProcessGroup(child.pid!); }, options.timeoutMs);
       const settle = (exitCode: number): void => {
         clearTimeout(timer);
         resolvePromise({ command: [...command], exitCode, output: chunks.join(""), truncated, durationMs: Date.now() - startedAt, timedOut });
