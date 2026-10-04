@@ -2287,8 +2287,9 @@ Review: 49 backend middleware tests, 203 Vitest route tests, 52 schema tests and
 - [x] Install corrected source 63237 and run v9 once. Retain its cleanup-verification failure; all three saved deletes succeeded and independent guest/operation inventories are empty.
 - [x] Reproduce and correct bounded recovery reconciliation when the first backend observation is still pending; wait only on the original saved operation.
 - [x] Reproduce and correct readiness for an exact completed linked recovery while preserving the original failed receipt and rejecting forged/incomplete links.
-- [ ] Audit v9 accounting from the next stopped baseline; use the existing immutable pre-cutover baseline for historical predicate diagnosis.
-- [ ] Pass all eight qualification cases on the corrected installed candidate.
+- [x] Audit v9 accounting from the next stopped baseline; use the existing immutable pre-cutover baseline for historical predicate diagnosis.
+- [x] Pass all eight qualification cases on the corrected installed candidate.
+- [ ] Integrate main `beaff68c8` (Pi 0.87.1 and composer correction) before final native proof and exact-source quality gates.
 - [ ] Prove normal UI/native work, logs, cancellation, and retained work across engine restart.
 - [ ] Complete ten serial normal feature cycles and the final reservation/inventory audit.
 - [ ] Complete exact-source browser, coverage, complexity, hosted CI, and non-author review gates.
