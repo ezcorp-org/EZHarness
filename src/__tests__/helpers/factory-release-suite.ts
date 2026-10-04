@@ -250,6 +250,8 @@ test("approval request and its human notification commit together once", async (
   await expect(releases.requestApproval(admin, projectId, operation.operationId, now + 1_000, 1, mutationKey("approval-stale-generation"))).rejects.toMatchObject({ code: "factory_release_not_claimable" });
   const notification = await releases.claimNotification(projectId);
   expect(notification).toMatchObject({ kind: "approval_requested", operationId: operation.operationId, payload: { approvalId: approval.approvalId } });
+  expect(await releases.renewNotification(projectId, notification!)).toMatchObject({ id: notification!.id, state: "leased", leaseToken: notification!.leaseToken });
+  await expect(releases.renewNotification(projectId, { ...notification!, leaseToken: "stale-owner" })).rejects.toMatchObject({ code: "delivery_lease_lost" });
   await releases.settleNotification(projectId, notification!, "delivered");
   expect(await releases.inspectNotification(projectId, notification!.id)).toMatchObject({ state: "delivered" });
   expect(rows<{ state: string }>(await database.execute(sql`SELECT state FROM factory_notifications WHERE notification_id=${notification!.id}`))).toEqual([{ state: "delivered" }]);

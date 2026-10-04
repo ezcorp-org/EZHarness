@@ -221,8 +221,18 @@ export class FactoryCommandOutbox {
     return stateMachine.claim(new FactoryCommandStore(transaction, this.tenantId, this.projectId, this.destination), this.scope, this.now(), leaseMs);
   }
 
-  async settle(delivery: FactoryCommandDelivery, outcome: "delivered" | "retry" | "outcome_unknown", failureCode?: string): Promise<FactoryCommandDelivery> {
+  /** Extends the lease `delivery` still owns; scoped and fenced like `settle`. */
+  async renew(delivery: FactoryCommandDelivery, leaseMs = 60_000): Promise<FactoryCommandDelivery> {
+    this.assertOwnScope(delivery);
+    return this.database.transaction(transaction => stateMachine.renew(new FactoryCommandStore(transaction, this.tenantId, this.projectId, this.destination), this.scope, delivery, this.now(), leaseMs));
+  }
+
+  private assertOwnScope(delivery: FactoryCommandDelivery): void {
     if (delivery.tenantId !== this.tenantId || delivery.projectId !== this.projectId) throw new FactoryOutboxError("factory_command_scope_mismatch");
+  }
+
+  async settle(delivery: FactoryCommandDelivery, outcome: "delivered" | "retry" | "outcome_unknown", failureCode?: string): Promise<FactoryCommandDelivery> {
+    this.assertOwnScope(delivery);
     return this.database.transaction(transaction => stateMachine.settle(new FactoryCommandStore(transaction, this.tenantId, this.projectId, this.destination), this.scope, delivery, this.now(), outcome, failureCode));
   }
 

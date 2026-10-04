@@ -93,18 +93,37 @@ export class DurableDeliveryQueue<Record extends DurableDeliveryRecord> {
     return record;
   }
 
-  async settle(store: DurableDeliveryStore<Record>, scope: string, claimed: Record, now: number, outcome: "delivered" | "retry" | "cancelled" | "outcome_unknown", failureCode?: string): Promise<Record> {
+  /** The live lease `claimed` still owns. Settle and renew share this one check. */
+  private async owned(store: DurableDeliveryStore<Record>, scope: string, claimed: Record, now: number): Promise<Record> {
     const current = await store.findById(scope, claimed.id);
     if (!current) throw this.error("not_found", "Delivery not found.");
     if (current.state !== "leased" || current.leaseToken !== claimed.leaseToken || current.leaseUntil <= now) {
       throw this.error("delivery_lease_lost", "Delivery is no longer owned by this worker.");
     }
+    return current;
+  }
+
+  async settle(store: DurableDeliveryStore<Record>, scope: string, claimed: Record, now: number, outcome: "delivered" | "retry" | "cancelled" | "outcome_unknown", failureCode?: string): Promise<Record> {
+    const current = await this.owned(store, scope, claimed, now);
     current.state = outcome === "retry"
       ? current.attempts >= current.maxAttempts ? "dead_letter" : "queued"
       : outcome;
     current.availableAt = now + Math.min(60_000, 1000 * 2 ** (current.attempts - 1));
     current.leaseUntil = 0;
     if (failureCode) current.failureCode = /^[a-zA-Z0-9_-]{1,128}$/.test(failureCode) ? failureCode : "delivery_failed";
+    await store.write(current);
+    return current;
+  }
+
+  /**
+   * Extend the lease its owner still holds. Fenced like `settle`: a lease that
+   * another worker holds, that a claim already marked `outcome_unknown`, or that
+   * has run out is never taken back.
+   */
+  async renew(store: DurableDeliveryStore<Record>, scope: string, claimed: Record, now: number, leaseMs: number): Promise<Record> {
+    validateLease(leaseMs, this.error);
+    const current = await this.owned(store, scope, claimed, now);
+    current.leaseUntil = now + leaseMs;
     await store.write(current);
     return current;
   }
@@ -141,19 +160,52 @@ export class DurableDeliveryQueue<Record extends DurableDeliveryRecord> {
   }
 }
 
+/**
+ * Keeps a claimed lease alive while its handler runs. `start` schedules `beat`
+ * and returns the function that stops it; `renew` extends the lease.
+ */
+export interface LeaseHeartbeat<Record extends DurableDeliveryRecord> {
+  start(beat: () => Promise<void>): () => void;
+  renew(record: Record): Promise<Record>;
+}
+
+/** The production schedule: renew at a third of the lease, so two beats may fail before it lapses. */
+export function intervalHeartbeat(leaseMs: number): LeaseHeartbeat<never>["start"] {
+  return beat => {
+    const timer = setInterval(() => { void beat(); }, Math.max(1, Math.floor(leaseMs / 3)));
+    timer.unref?.();
+    return () => clearInterval(timer);
+  };
+}
+
 export async function dispatchDurableDelivery<Record extends DurableDeliveryRecord>(
   claim: () => Promise<Record | null>,
   settle: (record: Record, outcome: "delivered" | "retry" | "outcome_unknown", failureCode?: string) => Promise<Record>,
   handler: (record: Record) => Promise<void>,
   retryCode: (error: unknown) => string | null,
+  heartbeat?: LeaseHeartbeat<Record>,
 ): Promise<Record | null> {
   const record = await claim();
   if (!record) return null;
+  // A lost lease stops the renewals; the settle below then reports it, fenced.
+  let renewing = true;
+  let inFlight: Promise<void> | undefined;
+  const stop = heartbeat?.start(() => {
+    if (!renewing || inFlight) return inFlight ?? Promise.resolve();
+    inFlight = heartbeat.renew(record).then(() => undefined, () => { renewing = false; }).finally(() => { inFlight = undefined; });
+    return inFlight;
+  });
+  let failure: { error: unknown } | undefined;
   try {
     await handler(record);
   } catch (error) {
-    const code = retryCode(error);
-    return settle(record, code ? "retry" : "outcome_unknown", code ?? "external_outcome_unknown");
+    failure = { error };
+  } finally {
+    // Renewals end before any settle, so none can race the settlement.
+    stop?.();
+    await inFlight;
   }
-  return settle(record, "delivered");
+  if (!failure) return settle(record, "delivered");
+  const code = retryCode(failure.error);
+  return settle(record, code ? "retry" : "outcome_unknown", code ?? "external_outcome_unknown");
 }
