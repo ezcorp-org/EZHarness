@@ -14,10 +14,12 @@ export class ChannelHost extends PodmanRunner {
   closeChannel(id: string): void { (this as unknown as { channels: Map<string, () => void> }).channels.get(id)?.(); }
 }
 
-/** What a guest does with its channel: echo one frame, never read, or report the size of one frame. */
+/** What a guest does with its channel: echo one frame, never read, or report the size of one frame (now or after a pause). */
 export const GUEST_ECHO = 'head -n1 <&3 >&4; read -r _ <&3';
 export const GUEST_SILENT = "sleep 60";
 export const GUEST_COUNT = 'head -n1 <&3 | wc -c >&4; read -r _ <&3';
+/** As GUEST_COUNT, but it starts reading only after a pause, so a full pipe answers the host's writes with EAGAIN first. */
+export const GUEST_SLOW_COUNT = `sleep 0.3; ${GUEST_COUNT}`;
 
 export interface EchoGuest { readonly guest: ChildProcess; readonly transport: FramedTransport; readonly echoed: Promise<string>; readonly closed: Promise<"closed"> }
 

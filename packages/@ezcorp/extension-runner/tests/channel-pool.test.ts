@@ -3,7 +3,7 @@ import { constants as fsConstants } from "node:fs";
 import { mkdtemp, open, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ChannelHost, GUEST_COUNT, GUEST_SILENT, channelDescriptors, echoGuest } from "./channel-guest";
+import { ChannelHost, GUEST_COUNT, GUEST_SILENT, GUEST_SLOW_COUNT, channelDescriptors, echoGuest } from "./channel-guest";
 
 test("a channel carries a frame both ways and reports the guest's exit", async () => {
   const root = await mkdtemp(join(tmpdir(), "ez-channel-pool-"));
@@ -30,6 +30,21 @@ test("a frame larger than a pipe reaches a reading guest in full", async () => {
     const written = new Promise<string>(resolve => transport.stdin.write(`${"x".repeat(256 * 1024)}\n`, error => resolve(error ? error.message : "written")));
     expect(await echoed).toBe(String(256 * 1024 + 1));
     expect(await written).toBe("written");
+  } finally {
+    guest.kill("SIGKILL");
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("a frame larger than a pipe waits out a guest that is slow to read, then arrives in full", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ez-channel-pool-"));
+  const { guest, transport, echoed } = await echoGuest(new ChannelHost({ root }), "worker-slow", GUEST_SLOW_COUNT);
+  try {
+    // The pipe fills at once and the guest reads only after its pause, so the writer's retries meet a full pipe
+    // (EAGAIN) several times; a full pipe must mean "try again", never a failed write.
+    const written = new Promise<string>(resolve => transport.stdin.write(`${"x".repeat(256 * 1024)}\n`, error => resolve(error ? error.message : "written")));
+    expect(await written).toBe("written");
+    expect(await echoed).toBe(String(256 * 1024 + 1));
   } finally {
     guest.kill("SIGKILL");
     await rm(root, { recursive: true, force: true });

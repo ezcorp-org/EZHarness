@@ -89,3 +89,14 @@ unset; no target file and no runner code reads CI.
   red-pin-settle-host-56c9579d7.log, loop-write-side-host.log, loop-settle-host.log, guard-suites-2f3.log, cov56/.
 - [ ] G6 heavy legs at 2f307634d (container tree 71d3b6e53 = the commit's tree): host real-guest podman suites, the three target files
   alone and the hosted shard lists in the runner container. Queued behind the host gate (gated-launch.sh, hold-56c.sh).
+
+## M1 (validator-5 at 8bc2089aa; carry-over instance W4H-6-M1, w00/ruling-proof-carry-over.txt)
+
+- [x] M1 the writer's EAGAIN branch has a test that fails without it. Test only: tests/channel-pool.test.ts "a frame larger than a
+  pipe waits out a guest that is slow to read, then arrives in full" (tests/channel-guest.ts GUEST_SLOW_COUNT: the guest pauses
+  0.3 s before it reads, so the retries meet a full pipe). No runtime change. RESULT: with the mutant `settle(callback, error)` in
+  place of the EAGAIN branch, the suite is red by name, 5 pass / 1 fail ("EAGAIN: resource temporarily unavailable, write");
+  restored, green 6/0 and 20 of 20 runs; extension-runner neighbours green; typecheck and lint 0. EVIDENCE:
+  /tmp/factory-platform-evidence/w4h-6/m1/red-mutant-eagain-8bc2089aa.log, m1/green-head.log, m1/loop-20.log.
+- [ ] G6 (heavy legs at the head) is still open: the gated hold gave up after 14400 s with zero lock tries (host disk 68-91 GB,
+  below the 100 GB floor); gated-flock.log.
