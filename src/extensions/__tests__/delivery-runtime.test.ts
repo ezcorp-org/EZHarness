@@ -292,3 +292,36 @@ test("one failing drain is logged once, however many timer ticks find it in flig
     expect(drains).toBe(2);
   } finally { capture.mockRestore(); dispatchOverride = undefined; }
 });
+
+test("ticks never re-attach to a drain another caller started: its failure reaches that caller, not the tick log", async () => {
+  // A drain started outside the ticker (the enqueue path) is that caller's to report.
+  // A tick that re-attached to it would log the same failure a second time.
+  let tick: (() => void) | undefined;
+  startExtensionDeliveryRuntime(() => {}, next => { tick = next; return () => { tick = undefined; }; });
+  const release = Promise.withResolvers<void>();
+  let drains = 0;
+  dispatchOverride = async () => {
+    drains += 1;
+    await release.promise;
+    throw new LifecycleError("delivery_lease_lost", "Delivery is no longer owned by this worker.");
+  };
+  const failures: string[] = [];
+  const stderr = globalThis.process.stderr;
+  const write = stderr.write.bind(stderr);
+  const capture = spyOn(stderr, "write").mockImplementation(((chunk: string | Uint8Array, ...rest: unknown[]) => {
+    if (String(chunk).includes("Extension delivery drain failed")) { failures.push(String(chunk)); return true; }
+    return (write as (...args: unknown[]) => boolean)(chunk, ...rest);
+  }) as typeof stderr.write);
+  try {
+    const caller = drainExtensionDeliveries();
+    while (drains === 0) await new Promise(resolve => setTimeout(resolve, 0));
+    for (let waiting = 0; waiting < 5; waiting++) tick!();
+    release.resolve();
+    await expect(caller).rejects.toMatchObject({ code: "delivery_lease_lost" });
+    // Every attached waiter settles in the same turn as the caller: one more turn shows them all.
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(failures).toEqual([]);
+    expect(drains).toBe(1);
+  } finally { capture.mockRestore(); dispatchOverride = undefined; }
+});
+

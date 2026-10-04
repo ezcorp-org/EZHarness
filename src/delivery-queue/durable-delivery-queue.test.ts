@@ -159,6 +159,28 @@ describe("lease heartbeat during dispatch", () => {
     expect(events).toEqual(["start", "renewing", "renewed", "stop", "settle:delivered"]);
   });
 
+  test("a renewal still pending when the handler returns finishes before the settle starts", async () => {
+    const events: string[] = [];
+    let beat: (() => Promise<void>) | undefined;
+    const renewal = Promise.withResolvers<Record>();
+    const returned = Promise.withResolvers<void>();
+    const dispatched = dispatchDurableDelivery(async () => leased, async (value, outcome) => { events.push(`settle:${outcome}`); return { ...value, state: "delivered" }; }, async () => {
+      void beat!();
+      events.push("handler returned");
+      returned.resolve();
+    }, () => null, {
+      start: value => { beat = value; return () => { events.push("stop"); }; },
+      renew: async () => { const renewed = await renewal.promise; events.push("renewed"); return renewed; },
+    });
+    await returned.promise;
+    // Give the dispatcher every turn it would need to settle early.
+    for (let turn = 0; turn < 5; turn++) await new Promise(resolve => setTimeout(resolve, 0));
+    expect(events).toEqual(["handler returned", "stop"]);
+    renewal.resolve(leased);
+    expect((await dispatched)?.state).toBe("delivered");
+    expect(events).toEqual(["handler returned", "stop", "renewed", "settle:delivered"]);
+  });
+
   test("a lost lease ends the renewals, and a failing handler still settles after they stop", async () => {
     let beat: (() => Promise<void>) | undefined;
     let renewals = 0;

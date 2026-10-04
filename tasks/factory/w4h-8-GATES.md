@@ -49,3 +49,24 @@ Rebase receipt: `E/receipts/rebase-equivalence.txt` (patch-ids equal per commit;
   consumers 65 pass 0 fail).
 - [x] G6 static and guard legs at a64f80cdb (baa11afc3 adds tests only; its hook ran both mapped suites, 10 and 12 pass). EVIDENCE: `E/light/` (queue-unit 86 pass, typecheck 0, lint 0, boundaries 0,
   gate-integrity the eight standing label findings only), `E/guard.log` (39 files, 477 pass, 2 skip, 0 fail).
+
+## Carry-over W4H-8-F (validator-5 at 36bc7afb8; ruling: one test-only commit, `w00/ruling-proof-carry-over.txt`)
+
+- [x] F1 (low): removing `await inFlight;` before the settle in `dispatchDurableDelivery` (keeping `stop?.()`) survived, so "renewals
+  end before any settle" was unpinned. New case in `src/delivery-queue/durable-delivery-queue.test.ts`: a renewal still pending when
+  the handler returns; the settle starts only after it resolves. EVIDENCE: red with the mutant `E/f1f2/f1-red.log` (1 fail, the new
+  case), green `E/f1f2/green.log`.
+- [x] F2 (medium): the tick guard mutated to `if (ticking) return;` survived: a drain started by another caller (the enqueue path)
+  was re-attached by a tick and its failure logged again; the log-once test started every drain by a tick. New case in
+  `src/extensions/__tests__/delivery-runtime.test.ts`: a drain started outside the ticker, five ticks while it is in flight; the
+  caller gets the failure once and the tick path logs nothing. EVIDENCE: red with the mutant `E/f1f2/f2-red.log` (1 fail, the new
+  case), green `E/f1f2/green.log` (39 pass, 0 fail, product unmodified); the earlier mutant set stays red
+  (`E/f1f2/mutants-rerun.txt`). Script: `E/f1f2.sh`. The diff of this commit is test files and this document only.
+
+## Observations (not changed)
+
+- `FactoryCommandOutbox.renew` and `FactoryReleases.renewNotification` have no production caller: the renewal heartbeat is wired for
+  extension deliveries only. Their dispatchers keep their 60 s claim lease without renewal; both methods are tested and ready for a
+  caller.
+- The transport defect (FIFO reads parking Bun's file-I/O pool) is fixed on integ by W4H-6. Its second implementation exists only on
+  `proof/w4h-8-dup-transport` (b455014f4), not in this head; it is evidence, not an open defect.
