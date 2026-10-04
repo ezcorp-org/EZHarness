@@ -5740,3 +5740,13 @@ created one under HOME. The broker sent an OAuth login to the api-key endpoint, 
 subscription-only pin read ready. All are fixed red first inside the probe and factory-broker.ts. One question stays open
 for R8: the proof stack makes a new database and encryption secret per start, so the sign-in must happen inside the R8
 hold or the stack needs a fixed-database option.
+
+## W4H-3c — scripts tests typechecked (branch `wp/w4h-3c`; gates `tasks/factory/w4h-3c-GATES.md`)
+
+- [x] Red at edd373c59: a type-only mutant (WorkflowStep.shell dropped) leaves `bun run typecheck` at 0.
+- [x] tsconfig.tests.json includes scripts/**/*.test.ts (46 files); 8 errors in 2 files fixed at the root (eedfeab4a).
+- [x] Green: the mutant fails typecheck; typecheck, lint, guard set and gate integrity green; both changed modules at 100 percent.
+
+Review: the scripts tests were typechecked by no program, so a test that relied on a removed type still passed the gate. They now
+join the backend test program. The two errors that surfaced were real type gaps: an untyped JS module and an over-claimed matcher type.
+Receipts: /tmp/factory-platform-evidence/w4h-3/w4h-3c/.

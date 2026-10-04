@@ -1,7 +1,7 @@
 import { expect, spyOn, test } from "bun:test";
 import type { HarnessClient } from "@ezcorp/harness-client";
 import { resolveBundledExtensions } from "../../src/extensions/bundled";
-import { BundledBootstrapTimeoutError, requireBundledBootstrapVerified, waitForBundledBootstrap } from "./shipping-bootstrap-state";
+import { type BundledBootstrapObserver, BundledBootstrapTimeoutError, requireBundledBootstrapVerified, waitForBundledBootstrap } from "./shipping-bootstrap-state";
 
 function state(
   status: "queued" | "building" | "verified" | "failed",
@@ -60,7 +60,8 @@ test("reports no snapshot when the bounded bootstrap observer has no poll", asyn
     name: "BundledBootstrapTimeoutError",
     snapshot: null,
     observer: { deadlineMs: -1 },
-  } satisfies Partial<BundledBootstrapTimeoutError>);
+    // The matcher names only the observer field it pins, so the claim is a partial error with a partial observer.
+  } satisfies Partial<Omit<BundledBootstrapTimeoutError, "observer">> & { observer: Partial<BundledBootstrapObserver> });
 });
 
 test("reports the final pending operations in a bounded bootstrap timeout", async () => {
