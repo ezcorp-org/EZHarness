@@ -2490,7 +2490,7 @@ receipts in the continuation evidence document as each milestone completes.
 - [ ] Keep host-owned observation active for long operations after the initial
   bounded worker call. The normal 30-second reconciliation interval exceeds
   Incus's short terminal-result retention; reducing a timer alone is insufficient.
-- [ ] Add signed, fenced cleanup recovery for an owned unknown power operation.
+- [x] Add signed, fenced cleanup recovery for an owned unknown power operation.
   Preserve original uncertainty; admit only one linked normal-broker DESTROY.
 - [ ] Independently review and verify both fixes before host/provider deployment.
 - [ ] Recover the retained fixture through the reviewed normal recovery path,
@@ -2546,3 +2546,16 @@ failures. After the standard SDK rebuild, full typecheck and all 7,724 Vitest
 tests passed. Svelte check passed with zero errors or warnings, and the web
 production build passed. Do not report the
 original fast run as green or reuse it as the final push gate.
+
+Signed cleanup milestone: `3eeb16a61` integrates reviewed worker `857e56516`.
+The root branch passed 28 recovery tests (81 assertions) and six connection
+authority tests (27 assertions). Four new sources have 100% worker line coverage.
+The original UNKNOWN operation remains unchanged. One signed request admits
+one linked normal-broker DESTROY; reservations remain until confirmed absence.
+
+Restore barrier milestone: `cb0d0a990` integrates reviewed worker `59475bf06`.
+The root branch passed all 26 supervisor tests. Root-only transport restoration
+must return exact proof before the supervisor starts the app. Failure keeps
+the app held with the same saved cleanup intent. The concrete operator adapter
+and deployment packet are still being built and tested. No live cleanup or
+new release activation has occurred for these changes.

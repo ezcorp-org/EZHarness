@@ -671,3 +671,19 @@ The normal reconciler's 30-second interval can miss Incus's five-second
 terminal receipt window after the first bounded call ends. Host-owned bounded
 observation is being added. Intent PATCH success must never be reported as
 power success. Unknown effects remain preserved; no blind retry is allowed.
+
+Signed cleanup is integrated in `3eeb16a61`, with the supervisor restore
+barrier in `cb0d0a990`. Independent review passed both changes. The combined
+branch passed 28 recovery tests (81 assertions), six connection authority tests
+(27 assertions), and 26 Python supervisor tests. The worker measured 100%
+line coverage for all four new recovery sources. These are code-test results,
+not proof of recovery on the server.
+
+Recovery preserves the original unknown START and its native handle. An exact
+signed fence receipt can admit one linked ordinary DESTROY. Reservations are
+released only after ordinary confirmed-absence settlement. After admission,
+root-owned transport restoration must return exact proof before the app starts;
+failed restoration leaves the app held and the same cleanup intent saved.
+The concrete operator adapter and pinned deployment packet remain in progress.
+The installed app is still `74cedcf397`; no live recovery, provider update,
+new connection, or new CREATE has occurred during this code milestone.
