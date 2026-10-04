@@ -1,5 +1,29 @@
 import { test, expect, describe } from "vitest";
-import { isChatDisabled, chatPlaceholder, shouldAutofocusComposer } from "../lib/chat-input-logic";
+import { isChatDisabled, chatPlaceholder, shouldAutofocusComposer, setComposerDisplay } from "../lib/chat-input-logic";
+
+describe("setComposerDisplay", () => {
+	test("commits text and selection before focusing the native textarea", () => {
+		const textarea = document.createElement("textarea");
+		document.body.append(textarea);
+		let focusedState: unknown;
+		textarea.addEventListener("focus", () => {
+			focusedState = [textarea.value, textarea.selectionStart, textarea.selectionEnd];
+		});
+		try {
+			setComposerDisplay(textarea, "@app.ts ", 8);
+			expect(focusedState).toEqual(["@app.ts ", 8, 8]);
+			expect(document.activeElement).toBe(textarea);
+		} finally {
+			textarea.remove();
+		}
+	});
+
+	test("accepts an unmounted composer without changing focus", () => {
+		const focused = document.activeElement;
+		expect(setComposerDisplay(undefined, "draft", 5)).toBeUndefined();
+		expect(document.activeElement).toBe(focused);
+	});
+});
 
 describe("isChatDisabled", () => {
 	test("disabled when streaming", () => {
