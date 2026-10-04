@@ -817,5 +817,148 @@ verifyRestartHandoff(receipt, key);
                                      "supervisor left its managed app running after shutdown")
 
 
+class FencedCleanupSignerTest(unittest.TestCase):
+    """Exercise the real signer orchestration with sealed private inputs.
+
+    Process fencing and TLS observations are separate integration surfaces.
+    This suite pins their replies and proves the supervisor cannot widen them.
+    """
+
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory(prefix="incus-cleanup-signer-", dir="/tmp")
+        self.addCleanup(self.directory.cleanup)
+        root = Path(self.directory.name)
+        key = root / "key.pem"
+        key.write_text("private test key")
+        key.chmod(0o600)
+        self.supervisor = MODULE.Supervisor(str(root / "control.sock"), ["true"],
+            os.getuid(), os.getgid(), key, ["true"], ["true"], enforce_distinct_uid=False)
+        self.supervisor.recovery_command = ["verifier"]
+        self.supervisor.recovery_fence_command = ["fence"]
+        self.supervisor.child = object()
+        self.events = []
+        self.request = {"version": 1, "action": "recover-fenced-cleanup", "nonce": "nonce",
+            "reviewId": "review", "scope": {"installationId": "installation",
+                "releaseId": "release", "connectionId": "connection", "presetId": "preset"},
+            "fixtureOperationId": "fixture", "bindingId": "binding", "operationId": "unknown-start",
+            "generation": 1, "connectionRevision": 1, "allClientsFenced": True,
+            "fenceEvidence": "independently fenced app and runner", "deadlineMs": 1_160_000}
+        self.pins = {"installationGeneration": 4, "releaseDigest": "a" * 64,
+            "grantsDigest": "b" * 64, "endpoint": "https://server:8443", "project": "ezharness",
+            "providerOperationId": "incus-setPower-182045d2-7795-4fdb-81de-faf6c6a744c3",
+            "nativeOperationId": "182045d2-7795-4fdb-81de-faf6c6a744c3",
+            "operationTag": "ezh-setPower-" + "c" * 32 + "-" + "d" * 32,
+            "payloadHash": "e" * 64, "presetDigest": "f" * 64,
+            "effectiveSettingsDigest": "1" * 64, "imageFingerprint": "2" * 64,
+            "helperVersion": "0.1.0", "serverCertificateSha256": "3" * 64}
+        self.target = {key: self.request[key] for key in
+            ("scope", "fixtureOperationId", "bindingId", "operationId", "generation", "connectionRevision")}
+        self.config = root / "sealed.json"
+        self.write_config()
+        self.supervisor.assert_exclusive_app_uid = lambda: None
+        def stop():
+            self.events.append("stop")
+            self.supervisor.child = None
+            return {"pid": 123, "startTicks": "456"}
+        self.supervisor.stop_child = stop
+        self.supervisor.start_child = lambda: self.events.append("start")
+        self.supervisor.verify_recovery_fence = lambda _r, _p: self.events.append("fence")
+        self.supervisor.sign_payload = mock.Mock(side_effect=lambda p: {"payload": p, "signature": "signed"})
+        self.observation = {"instanceState": "stopped", "nativeOperationAbsent": True,
+            "activeOperations": [], "providerGeneration": 2, "pins": self.pins}
+        self.durable = {"verified": True, "pins": self.pins}
+
+    def write_config(self, **changes):
+        self.config.write_text(json.dumps({"version": 1, "action": "recover-fenced-cleanup",
+            "target": self.target, "pins": self.pins, **changes}))
+        self.config.chmod(0o600)
+
+    def execute(self, observations=None, durable=None):
+        observations = iter(observations or [self.observation, self.observation])
+        durable = durable or self.durable
+        def stage(phase, value, _deadline):
+            self.events.append(phase)
+            if phase == "durable":
+                self.assertEqual(value["target"]["pins"], self.pins)
+                return durable
+            if phase == "backend":
+                return next(observations)
+            self.assertEqual(phase, "apply")
+            return {"cleanupOperationId": "cleanup"}
+        self.supervisor.recovery_stage = stage
+        clock = [1000.0]
+        with mock.patch.dict(os.environ, {"EZCORP_INCUS_FENCED_CLEANUP_CONFIG": str(self.config)}), \
+                mock.patch.object(MODULE.time, "time", lambda: clock[0]), \
+                mock.patch.object(MODULE.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds)), \
+                mock.patch.object(MODULE.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, stdout=b"public key")):
+            return self.supervisor.recover_noeffect(self.request)
+
+    def test_exact_sealed_pins_and_stopped_observations_sign_one_cleanup(self):
+        result = self.execute()
+        payload = result["receipt"]["payload"]
+        self.assertEqual(payload["action"], "recover-fenced-cleanup")
+        self.assertEqual(payload["scope"], self.request["scope"])
+        self.assertEqual({key: payload[key] for key in self.pins}, self.pins)
+        self.assertEqual(payload["first"]["observedAtMs"], 1_065_000)
+        self.assertEqual(payload["second"]["observedAtMs"], 1_070_000)
+        self.assertEqual(payload["oldProcess"], {"pid": 123, "startTicks": "456"})
+        self.assertEqual(result["cleanupOperationId"], "cleanup")
+        self.assertEqual(self.events, ["stop", "fence", "durable", "backend", "durable", "backend", "fence", "apply", "start"])
+        self.supervisor.sign_payload.assert_called_once()
+
+    def test_changed_sealed_target_refuses_before_stopping(self):
+        self.write_config(target={**self.target, "bindingId": "other"})
+        with self.assertRaisesRegex(ValueError, "sealed cleanup target changed"):
+            self.execute()
+        self.assertEqual(self.events, [])
+        self.supervisor.sign_payload.assert_not_called()
+
+    def test_caller_extra_scope_field_refuses_before_stopping(self):
+        self.request["scope"] = {**self.request["scope"], "forged": "scope"}
+        with self.assertRaisesRegex(ValueError, "invalid operator recovery"):
+            self.execute()
+        self.assertEqual(self.events, [])
+        self.supervisor.sign_payload.assert_not_called()
+
+    def test_sealed_action_cannot_cross_into_create_recovery(self):
+        self.write_config(action="recover-noeffect")
+        with self.assertRaisesRegex(ValueError, "sealed cleanup config action invalid"):
+            self.execute()
+        self.assertEqual(self.events, [])
+        self.supervisor.sign_payload.assert_not_called()
+
+    def test_signer_refuses_extra_public_pin_fields(self):
+        self.pins["arbitraryAuthority"] = True
+        self.write_config()
+        with self.assertRaisesRegex(ValueError, "operator durable recovery pins invalid"):
+            self.execute()
+        self.supervisor.sign_payload.assert_not_called()
+        self.assertNotIn("apply", self.events)
+
+    def test_unverified_backend_evidence_never_signs_or_applies(self):
+        for changes in ({"instanceState": "running"}, {"nativeOperationAbsent": False},
+                {"activeOperations": ["pending"]}, {"providerGeneration": True},
+                {"pins": {**self.pins, "imageFingerprint": "4" * 64}}):
+            with self.subTest(changes=changes):
+                bad = {**self.observation, **changes}
+                with self.assertRaisesRegex(ValueError, "owned stopped state"):
+                    self.execute([self.observation, bad])
+                self.assertNotIn("apply", self.events)
+                self.supervisor.sign_payload.assert_not_called()
+                self.supervisor.clear_recovery_hold()
+                self.supervisor.used_recoveries.clear()
+                self.supervisor.child = object()
+                self.events.clear()
+
+    def test_durable_and_observer_cannot_replace_sealed_pins(self):
+        changed = {**self.pins, "imageFingerprint": "4" * 64}
+        with self.assertRaisesRegex(ValueError, "operator durable recovery verification failed"):
+            self.execute([{**self.observation, "pins": changed}] * 2,
+                {"verified": True, "pins": changed})
+        self.supervisor.sign_payload.assert_not_called()
+        self.assertNotIn("apply", self.events)
+
+
+
 if __name__ == "__main__":
     unittest.main()

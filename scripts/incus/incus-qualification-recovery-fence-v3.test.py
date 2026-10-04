@@ -68,9 +68,9 @@ print(json.dumps({'frozen':state != 'thawed',
         }))
         self.config.chmod(0o600)
 
-    def run_wrapper(self, state="valid"):
+    def run_wrapper(self, state="valid", action="recover-noeffect"):
         self.state.write_text(state)
-        request = {"request": {"action": "recover-noeffect", "allClientsFenced": True,
+        request = {"request": {"action": action, "allClientsFenced": True,
                                "fenceEvidence": "reviewed local and server fences",
                                "deadlineMs": int(time.time() * 1000) + 160000},
                    "oldProcess": {"pid": 123, "startTicks": "456"}}
@@ -94,6 +94,34 @@ print(json.dumps({'frozen':state != 'thawed',
     def test_local_denial_does_not_call_server(self):
         self.local_state.write_text("error")
         result = self.run_wrapper()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "")
+        self.assertFalse(self.ssh_called.exists())
+
+    def test_old_fence_config_rejects_new_cleanup_action_before_server(self):
+        result = self.run_wrapper(action="recover-fenced-cleanup")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "")
+        self.assertFalse(self.ssh_called.exists())
+
+    def test_exact_cleanup_action_requires_explicit_sealed_config(self):
+        config = json.loads(self.config.read_text())
+        self.config.write_text(json.dumps({**config, "recoveryAction": "recover-fenced-cleanup"}))
+        self.config.chmod(0o600)
+        rejected = self.run_wrapper()
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertEqual(rejected.stdout, "")
+        self.assertFalse(self.ssh_called.exists())
+        accepted = self.run_wrapper(action="recover-fenced-cleanup")
+        self.assertEqual(accepted.returncode, 0, accepted.stderr)
+        self.assertEqual(json.loads(accepted.stdout),
+                         {"fenced": True, "evidence": "reviewed local and server fences"})
+
+    def test_unknown_sealed_action_denies_before_server(self):
+        config = json.loads(self.config.read_text())
+        self.config.write_text(json.dumps({**config, "recoveryAction": "delete-anything"}))
+        self.config.chmod(0o600)
+        result = self.run_wrapper(action="delete-anything")
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(result.stdout, "")
         self.assertFalse(self.ssh_called.exists())

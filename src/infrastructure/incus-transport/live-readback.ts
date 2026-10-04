@@ -214,3 +214,6 @@ export class HostIncusLiveReadback {
     });
   }
 }
+
+/** Shared host-only pins for operator readback. */
+export { command as incusLiveReadbackCommand, policy as incusLiveReadbackPolicy };

@@ -1,4 +1,5 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { compensatedCleanupOriginal } from "./incus-fenced-cleanup-policy";
+import { and, eq, inArray, not } from "drizzle-orm";
 import type { Database } from "../db/connection";
 import { sandboxBindings, sandboxOperations, sandboxReservations } from "../db/schema";
 import { getHostIncusLostDestroyReplyFault } from "../extensions/extension-lifecycle-service";
@@ -245,8 +246,8 @@ export class IncusLiveCleanupController {
     requireCleanup(denied, "production readiness did not deny uncertain cleanup");
     // The bounded reconciliation pass must not dispatch an unrelated pending effect.
     const candidates = await this.deps.db.select({ id: sandboxOperations.id }).from(sandboxOperations)
-      .where(inArray(sandboxOperations.state, ["JOURNALED", "DISPATCHING",
-        "PROVIDER_PENDING", "OUTCOME_UNKNOWN"])).limit(2);
+      .where(and(inArray(sandboxOperations.state, ["JOURNALED", "DISPATCHING",
+        "PROVIDER_PENDING", "OUTCOME_UNKNOWN"]), not(compensatedCleanupOriginal))).limit(2);
     requireCleanup(candidates.length === 1 && candidates[0]?.id === operationId,
       "another pending operation blocks exact recovery");
     await this.freshFeatureGate().reconcile(1, operationId);

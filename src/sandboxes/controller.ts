@@ -16,6 +16,7 @@ import {
 
 import { matchesCleanupRecoveryBinding, permitsLinkedCleanupStop, permitsFailedCleanupInspection } from "../infrastructure/incus-cleanup-stop-policy";
 import { resourceName } from "../infrastructure/incus-transport/lifecycle";
+import { fencedCleanupOriginal, frozenFencedCleanupOriginal } from "../infrastructure/incus-fenced-cleanup-policy";
 
 const DESIRED_STATE_BY_OPERATION: Record<SandboxOperationKind, SandboxDesiredState> = {
   CREATE: "STOPPED",
@@ -501,6 +502,7 @@ export class SandboxController {
           eq(sandboxOperations.bindingId, operation.bindingId),
           ne(sandboxOperations.id, operation.id),
           inArray(sandboxOperations.state, ["DISPATCHING", "PROVIDER_PENDING", "OUTCOME_UNKNOWN"]),
+          not(fencedCleanupOriginal),
         )).limit(1);
       if (unsettled) return { operation, binding, claimed: false, rejection: null };
       const [claimed] = await transaction.update(sandboxOperations).set({
@@ -587,6 +589,7 @@ export class SandboxController {
       }).where(and(
         eq(sandboxOperations.id, operation.id),
         inArray(sandboxOperations.state, ["DISPATCHING", "PROVIDER_PENDING", "OUTCOME_UNKNOWN"]),
+        not(frozenFencedCleanupOriginal),
       )).returning();
       if (!updated) {
         const [current] = await transaction.select().from(sandboxOperations)
@@ -626,6 +629,7 @@ export class SandboxController {
     }).where(and(
       eq(sandboxOperations.id, operationId),
       inArray(sandboxOperations.state, ["DISPATCHING", "PROVIDER_PENDING", "OUTCOME_UNKNOWN"]),
+      not(frozenFencedCleanupOriginal),
     )).returning();
     if (updated) return updated;
     const operation = await this.getOperation(operationId);
@@ -636,6 +640,9 @@ export class SandboxController {
   }
 
   async #inspectPersistedOperation(operation: SandboxOperation): Promise<SandboxOperation> {
+    const [frozen] = await this.db.select().from(sandboxOperations)
+      .where(and(eq(sandboxOperations.id, operation.id), frozenFencedCleanupOriginal)).limit(1);
+    if (frozen) return frozen;
     const binding = await this.getBinding(operation.bindingId);
     if (!binding) {
       throw new SandboxControllerError("BINDING_NOT_FOUND", `Sandbox binding ${operation.bindingId} does not exist`);
@@ -664,6 +671,7 @@ export class SandboxController {
     const limit = Math.min(Math.max(1, requested), this.#maxReconcileBatch);
     const candidates = await this.db.select().from(sandboxOperations)
       .where(and(inArray(sandboxOperations.state, RECONCILE_STATES),
+        not(frozenFencedCleanupOriginal),
         operatorRecoveryOperationId
           ? and(eq(sandboxOperations.id, operatorRecoveryOperationId), operatorRecoveryDestroy)
           : not(operatorRecoveryDestroy)))
@@ -685,7 +693,8 @@ export class SandboxController {
         }).where(and(
           eq(sandboxOperations.id, candidate.id),
           inArray(sandboxOperations.state, RECONCILE_STATES),
-          ));
+          not(frozenFencedCleanupOriginal),
+        ));
         let operation: SandboxOperation;
         if (candidate.state === "JOURNALED") {
           const dispatch = await this.#dispatchJournaled(candidate.id);

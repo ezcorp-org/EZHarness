@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import type { MigrationDb } from "../migrations/types";
 import { LifecycleError, type InstallationRecord, type InstallationState, type LifecycleRepository, type LifecycleActor } from "../../extensions/v4/types";
 import { insertTransactionalAuditEntry } from "./audit-log";
+import { compensatedCleanupPredicate } from "../../infrastructure/incus-fenced-cleanup-policy";
 import { digestObject } from "../../extensions/v4/blobs";
 
 export interface ReleaseDatabase extends MigrationDb {
@@ -16,13 +17,14 @@ export function releaseRows<Result>(result: unknown): Result[] {
 
 /** The installation lock fences admission while an active provider is retired. */
 export async function hasUnfinishedProviderSandboxes(database: MigrationDb, installationId: string, connectionId?: string): Promise<boolean> {
+  const compensated = compensatedCleanupPredicate({ id: sql`operation.id`, bindingId: sql`operation.binding_id`, generation: sql`operation.generation`, state: sql`operation.state`, payloadHash: sql`operation.payload_hash`, providerOperationId: sql`operation.provider_operation_id` });
   const connection = connectionId === undefined ? sql`` : sql`AND binding.connection_id = ${connectionId}`;
   const rows = releaseRows(await database.execute(sql`SELECT binding.id FROM sandbox_bindings AS binding
     WHERE binding.provider_installation_id = ${installationId} ${connection}
     AND (binding.tombstoned_at IS NULL OR binding.cleanup_confirmed_at IS NULL
       OR binding.desired_state <> 'ABSENT' OR binding.observed_state <> 'ABSENT'
       OR EXISTS (SELECT 1 FROM provider_sandbox_operations AS operation WHERE operation.binding_id = binding.id
-        AND operation.state IN ('JOURNALED', 'DISPATCHING', 'PROVIDER_PENDING', 'OUTCOME_UNKNOWN'))
+        AND operation.state IN ('JOURNALED', 'DISPATCHING', 'PROVIDER_PENDING', 'OUTCOME_UNKNOWN') AND NOT (${compensated}))
       OR EXISTS (SELECT 1 FROM sandbox_reservations AS reservation WHERE reservation.binding_id = binding.id
         AND (reservation.compute_state <> 'RELEASED' OR reservation.disk_state <> 'RELEASED')))
     LIMIT 1 FOR SHARE`));

@@ -168,6 +168,22 @@ export const sandboxCleanupRecoveries = pgTable("sandbox_cleanup_recoveries", {
 });
 export type SandboxCleanupRecovery = typeof sandboxCleanupRecoveries.$inferSelect;
 
+/** Signed compensation authority; the original operation remains UNKNOWN. */
+export const incusFencedCleanupRecoveries = pgTable("incus_fenced_cleanup_recoveries", {
+  operationId: text("operation_id").primaryKey().references(() => sandboxOperations.id, { onDelete: "restrict" }),
+  bindingId: text("binding_id").notNull().unique().references(() => sandboxBindings.id, { onDelete: "restrict" }),
+  fixtureOperationId: text("fixture_operation_id").notNull(),
+  nonce: text("nonce").notNull().unique(),
+  reviewId: text("review_id").notNull(),
+  generation: integer("generation").notNull(),
+  providerGeneration: integer("provider_generation").notNull(),
+  originalOperation: jsonb("original_operation").notNull().$type<Record<string, unknown>>(),
+  receipt: jsonb("receipt").notNull().$type<Record<string, unknown>>(),
+  receiptSha256: text("receipt_sha256").notNull(),
+  cleanupOperationId: text("cleanup_operation_id").notNull().unique().references(() => sandboxOperations.id, { onDelete: "restrict" }),
+  appliedAt: timestamp("applied_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export type SandboxBinding = typeof sandboxBindings.$inferSelect;
 export type NewSandboxBinding = typeof sandboxBindings.$inferInsert;
 export type SandboxOperation = typeof sandboxOperations.$inferSelect;

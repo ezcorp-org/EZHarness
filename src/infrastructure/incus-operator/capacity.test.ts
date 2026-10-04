@@ -70,7 +70,7 @@ async function fixture() {
   await client.query("INSERT INTO extension_release_records (installation_id,kind,id,payload) VALUES ($1,'approvals',$2,$3)",
     [snapshot.installation.id, "approval", JSON.stringify({ id: "approval", installationId: snapshot.installation.id,
       releaseId: snapshot.release.id, releaseDigest: snapshot.release.releaseDigest,
-      principalId: snapshot.installation.ownerId, scope: "global", status: "consumed", expectedGeneration: 1 })]);
+      principalId: snapshot.installation.ownerId, scope: "global", status: "consumed", grants: snapshot.installation.grants, expectedGeneration: 1 })]);
   const connection = await new ProviderConnectionStore(db).create({ id: "connection", providerInstallationId: snapshot.installation.id,
     providerReleaseId: snapshot.release.id, endpoint: "https://host:8443", serverCertificatePem: "certificate",
     project: recipe.project.name, configuration: { kind: "incus", profile: "compose", helperVersion: "0.1.0", guestUser: "sandbox" },

@@ -45,7 +45,7 @@ def private_file(path):
 
 def load_config(path):
     config = json.loads(private_file(path))
-    require(isinstance(config, dict) and set(config) == CONFIG_KEYS,
+    require(isinstance(config, dict) and set(config) in (CONFIG_KEYS, CONFIG_KEYS | {"recoveryAction"}),
             "exact v3 fence config required")
     local = config["localFenceCommand"]
     require(isinstance(local, list) and 1 <= len(local) <= 8
@@ -62,6 +62,7 @@ def load_config(path):
             and isinstance(config["serverAuditSha256"], str)
             and DIGEST.fullmatch(config["serverAuditSha256"]),
             "pinned server authority required")
+    require(config.get("recoveryAction", "recover-noeffect") in ("recover-noeffect", "recover-fenced-cleanup"), "sealed v3 fence action invalid")
     return config
 
 
@@ -69,7 +70,7 @@ def run_fence(config, message):
     require(isinstance(message, dict) and set(message) == {"request", "oldProcess"},
             "supervisor fence input invalid")
     request = message["request"]
-    require(isinstance(request, dict) and request.get("action") == "recover-noeffect"
+    require(isinstance(request, dict) and request.get("action") == config.get("recoveryAction", "recover-noeffect")
             and request.get("allClientsFenced") is True
             and isinstance(request.get("fenceEvidence"), str)
             and 8 <= len(request["fenceEvidence"]) <= 512

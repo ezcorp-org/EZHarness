@@ -59,7 +59,7 @@ def resource_name(target):
 
 def load_config(path):
     config = private_root_file(path)
-    require(isinstance(config, dict) and set(config) == CONFIG_KEYS,
+    require(isinstance(config, dict) and set(config) in (CONFIG_KEYS, CONFIG_KEYS | {"recoveryAction"}),
             "fence config keys changed")
     target = config["target"]
     require(isinstance(target, dict) and set(target) == TARGET_KEYS
@@ -83,7 +83,11 @@ def load_config(path):
     require(isinstance(observer_path, str)
             and observer_path == os.environ.get("EZCORP_INCUS_NOEFFECT_CONFIG"),
             "fence and observer must use the same sealed config")
+    action = config.get("recoveryAction", "recover-noeffect")
+    require(action in ("recover-noeffect", "recover-fenced-cleanup"), "sealed fence action invalid")
     observer = private_root_file(observer_path)
+    require(action != "recover-fenced-cleanup" or observer.get("action") == action,
+            "sealed observer action differs from fence")
     observation = observer.get("observation") if isinstance(observer, dict) else None
     require(config["instance"] == resource_name(target)
             and isinstance(config["project"], str)
@@ -196,7 +200,7 @@ def verify(config, message):
     require(isinstance(message, dict) and set(message) == {"request", "oldProcess"},
             "supervisor fence input invalid")
     request = message["request"]
-    require(isinstance(request, dict) and request.get("action") == "recover-noeffect"
+    require(isinstance(request, dict) and request.get("action") == config.get("recoveryAction", "recover-noeffect")
             and request.get("allClientsFenced") is True
             and type(request.get("deadlineMs")) is int
             and int(time.time() * 1000) < request["deadlineMs"]

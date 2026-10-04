@@ -2,6 +2,8 @@
  * this process opens PGlite; the supervisor keeps it stopped through apply. */
 import { closeSync, constants, fstatSync, openSync, readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { createPublicKey } from "node:crypto";
+import { eq } from "drizzle-orm";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { IncusQualificationFixtureService } from "../../src/infrastructure/incus-qualification";
@@ -9,6 +11,11 @@ import { applyNoEffectRecovery, type NoEffectRecoveryPayload,
   type NoEffectRecoveryReceipt } from "../../src/infrastructure/incus-create-noeffect-recovery";
 import { resourceName } from "../../src/infrastructure/incus-transport/lifecycle";
 import type { LiveReadbackContext } from "../../src/infrastructure/incus-transport/live-readback";
+import { applyFencedCleanupRecovery, requireFencedCleanupAuthority, type FencedCleanupReceipt } from "../../src/infrastructure/incus-fenced-cleanup-recovery";
+import { observeFencedCleanup, type FencedCleanupPins, type FencedCleanupTarget } from "../../src/infrastructure/incus-fenced-cleanup-observer";
+import { canonicalRecoveryJson } from "../../src/infrastructure/incus-create-noeffect-recovery";
+import { incusSupervisorPublicKeyPem } from "../../src/infrastructure/incus-supervisor-public-key";
+import { incusQualificationFixtures, sandboxBindings, sandboxOperations } from "../../src/db/schema";
 
 function requireFact(value: unknown, message: string): asserts value {
   if (!value) throw new Error(`operator no-effect recovery denied: ${message}`);
@@ -115,9 +122,84 @@ async function backend(target: Target): Promise<{ absent: true; activeOperations
   return verifiedObservation(result, observation);
 }
 
+type SealedFencedTarget = FencedCleanupTarget & { action: "recover-fenced-cleanup"; pins: FencedCleanupPins };
+type FencedConfig = { version: 1; action: "recover-fenced-cleanup"; target: FencedCleanupTarget;
+  pins: FencedCleanupPins; context: LiveReadbackContext;
+  observation: Pick<Observation, "project" | "instance" | "oldCertificateSha256">;
+  operatorClientCertificateFile: string; operatorPrivateKeyFile: string };
+
+/** These public pins come from the root-owned config, not the control request. */
+async function durableFenced(target: SealedFencedTarget): Promise<{ verified: true; pins: FencedCleanupPins }> {
+  await withOfflineDb(async db => {
+    await requireFencedCleanupAuthority(db, { ...target, ...target.pins });
+    const [fixture] = await db.select().from(incusQualificationFixtures)
+      .where(eq(incusQualificationFixtures.operationId, target.fixtureOperationId));
+    const [binding] = await db.select().from(sandboxBindings).where(eq(sandboxBindings.id, target.bindingId));
+    const [operation] = await db.select().from(sandboxOperations).where(eq(sandboxOperations.id, target.operationId));
+    requireFact(fixture && binding && operation && fixture.bindingId === target.bindingId
+      && fixture.installationId === target.scope.installationId && fixture.releaseId === target.scope.releaseId
+      && fixture.connectionId === target.scope.connectionId && fixture.presetId === target.scope.presetId
+      && fixture.connectionRevision === target.connectionRevision
+      && binding.currentOperationId === operation.id && binding.generation === target.generation
+      && !binding.tombstonedAt && operation.generation === target.generation
+      && ["START", "STOP"].includes(operation.kind) && operation.state === "OUTCOME_UNKNOWN"
+      && operation.providerOperationId === target.pins.providerOperationId
+      && operation.payloadHash === target.pins.payloadHash
+      && operation.idempotencyScope === "incus-qualification-power"
+      && operation.idempotencyKey.startsWith(`${target.fixtureOperationId}:`), "fenced cleanup durable target changed");
+  });
+  return { verified: true, pins: target.pins };
+}
+
+function sealedFencedConfig(target: SealedFencedTarget): FencedConfig {
+  const path = process.env.EZCORP_INCUS_FENCED_CLEANUP_CONFIG;
+  requireFact(path, "fenced cleanup sealed config required");
+  const sealed = JSON.parse(privateFile(path)) as FencedConfig;
+  const { action, pins, ...publicTarget } = target;
+  requireFact(sealed.version === 1 && sealed.action === action
+    && Object.keys(sealed).sort().join() === "action,context,observation,operatorClientCertificateFile,operatorPrivateKeyFile,pins,target,version"
+    && canonicalRecoveryJson(sealed.target) === canonicalRecoveryJson(publicTarget)
+    && canonicalRecoveryJson(sealed.pins) === canonicalRecoveryJson(pins)
+    && sealed.observation.project === pins.project
+    && sealed.observation.instance === resourceName(target.scope.connectionId, target.bindingId),
+  "fenced cleanup sealed policy changed");
+  return sealed;
+}
+
+export async function handleFencedCleanupPhase(input: Record<string, unknown>): Promise<unknown> {
+  if (input.phase === "durable" || input.phase === "backend") {
+    requireFact(Object.keys(input).sort().join() === "phase,target", "fenced cleanup phase fields changed");
+    const target = input.target as SealedFencedTarget;
+    requireFact(target?.action === "recover-fenced-cleanup", "fenced cleanup action required");
+    if (input.phase === "durable") return durableFenced(target);
+    const sealed = sealedFencedConfig(target);
+    const clientCertificatePem = privateFile(sealed.operatorClientCertificateFile);
+    const privateKeyPem = privateFile(sealed.operatorPrivateKeyFile);
+    return observeFencedCleanup({ resolveForHost: async scope => {
+      requireFact(scope.connectionId === target.scope.connectionId
+        && scope.providerInstallationId === target.scope.installationId
+        && scope.providerReleaseId === target.scope.releaseId && scope.revision === target.connectionRevision,
+      "fenced cleanup operator scope changed");
+      return { endpoint: sealed.pins.endpoint, project: sealed.pins.project,
+        serverCertificatePem: sealed.context.connection.serverCertificatePem, clientCertificatePem, privateKeyPem };
+    } }, sealed.context, sealed.target, sealed.pins);
+  }
+  requireFact(input.phase === "apply" && Object.keys(input).sort().join() === "phase,publicKeyPem,receipt", "fenced cleanup phase invalid");
+  const trustedKey = incusSupervisorPublicKeyPem();
+  requireFact(trustedKey && typeof input.publicKeyPem === "string"
+    && createPublicKey(trustedKey).export({ format: "der", type: "spki" }).equals(
+      createPublicKey(input.publicKeyPem).export({ format: "der", type: "spki" })),
+  "fenced cleanup requires the configured supervisor signer");
+  const cleanupOperationId = await withOfflineDb(db => applyFencedCleanupRecovery(db,
+    input.receipt as FencedCleanupReceipt, trustedKey));
+  return { cleanupOperationId };
+}
+
 if (import.meta.main) {
   const input = JSON.parse(await Bun.stdin.text());
-  if (input.phase === "durable") {
+  if (input.target?.action === "recover-fenced-cleanup" || input.receipt?.payload?.action === "recover-fenced-cleanup") {
+    process.stdout.write(JSON.stringify(await handleFencedCleanupPhase(input)) + "\n");
+  } else if (input.phase === "durable") {
     process.stdout.write(JSON.stringify(await durable(input.target)) + "\n");
   } else if (input.phase === "backend") {
     process.stdout.write(JSON.stringify(await backend(input.target)) + "\n");

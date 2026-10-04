@@ -1,3 +1,4 @@
+import { canonicalJson } from "@ezcorp/extension-contract";
 import { sql } from "drizzle-orm";
 import type { MigrationDb } from "../../db/migrations/types";
 import { DatabaseLifecycleRepository, hasUnfinishedProviderSandboxes, releaseRows, type ReleaseDatabase } from "../../db/queries/extension-releases";
@@ -100,7 +101,7 @@ export class ProviderConnectionStore {
       candidate.principalId === installation.ownerId && candidate.scope === installation.scope);
     if (!installation.enabled || installation.uninstalled || installation.status !== "active" ||
       installation.activeReleaseId !== releaseId || installation.acknowledgedGeneration !== installation.generation || !release ||
-      !approval) {
+      !approval || !Array.isArray(installation.grants) || !Array.isArray(approval.grants) || canonicalJson(installation.grants) !== canonicalJson(approval.grants)) {
       throw new Error("Provider release is not active and approved");
     }
     return { installation, release, approval };

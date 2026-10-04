@@ -1,3 +1,4 @@
+import { compensatedCleanupOriginal } from "./incus-fenced-cleanup-policy";
 import { createHash, randomUUID } from "node:crypto";
 import { and, asc, eq, inArray, ne, not, or, sql } from "drizzle-orm";
 import {
@@ -257,7 +258,7 @@ export class IncusFeatureService {
         || current.generation !== status.generation) throw new IncusQualificationCleanupError();
       const unsettled = await this.db.select({ id: sandboxOperations.id }).from(sandboxOperations).where(and(
         eq(sandboxOperations.bindingId, fixture.bindingId),
-        inArray(sandboxOperations.state, ["JOURNALED", "DISPATCHING", "PROVIDER_PENDING", "OUTCOME_UNKNOWN"]))).limit(1);
+        inArray(sandboxOperations.state, ["JOURNALED", "DISPATCHING", "PROVIDER_PENDING", "OUTCOME_UNKNOWN"]), sql`NOT (${compensatedCleanupOriginal})`)).limit(1);
       if (unsettled.length) throw new IncusQualificationCleanupError();
       await this.assertFixtureCleanupVerified({ ...scope, connectionRevision,
         presetDigest: fixture.presetDigest, effectiveSettingsDigest: fixture.effectiveSettingsDigest });

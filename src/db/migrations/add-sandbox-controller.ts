@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import type { MigrationDb } from "./types";
+import { up as addFencedCleanupRecoveries } from "./add-incus-fenced-cleanup-recoveries";
 
 /** Durable host-owned sandbox state. Provider-specific state stays behind the adapter. */
 export async function up(database: MigrationDb): Promise<void> {
@@ -191,5 +192,5 @@ export async function up(database: MigrationDb): Promise<void> {
       AND stop_operation_id <> failed_destroy_operation_id
       AND destroy_operation_id <> failed_destroy_operation_id)
   )`);
-
+  await addFencedCleanupRecoveries(database);
 }

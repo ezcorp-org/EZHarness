@@ -13,7 +13,7 @@ import { ProviderConnectionStore } from "./store";
 
 const installation = { id: "provider-installation", ownerId: "owner", scope: "global", activeReleaseId: "release-a", generation: 2, enabled: true, uninstalled: false, status: "active", grants: [], acknowledgedGeneration: 2 };
 const release = { id: "release-a", installationId: installation.id, releaseDigest: "sha256:test" };
-const approval = { id: "approval-a", installationId: installation.id, releaseId: release.id, releaseDigest: release.releaseDigest, principalId: "owner", scope: "global", status: "consumed", expectedGeneration: 1 };
+const approval = { id: "approval-a", installationId: installation.id, releaseId: release.id, releaseDigest: release.releaseDigest, principalId: "owner", scope: "global", status: "consumed", grants: [], expectedGeneration: 1 };
 
 async function fixture(directory: string) {
   const client = new PGlite(directory);

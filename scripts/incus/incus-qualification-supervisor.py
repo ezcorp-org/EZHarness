@@ -101,7 +101,7 @@ def validate_request(message):
 
 def validate_recovery(message):
     if not isinstance(message, dict) or set(message) != RECOVERY_KEYS \
-            or message["version"] != 1 or message["action"] != "recover-noeffect" \
+            or message["version"] != 1 or message["action"] not in ("recover-noeffect", "recover-fenced-cleanup") \
             or message["allClientsFenced"] is not True \
             or not isinstance(message["scope"], dict) or set(message["scope"]) != SCOPE_KEYS:
         raise ValueError("invalid operator recovery request")
@@ -335,8 +335,9 @@ class Supervisor:
                 "fenced": True, "evidence": request["fenceEvidence"]}:
             raise ValueError("independent runner client fence verification failed")
 
-    def preflight_recovery_config(self):
-        path = os.environ.get("EZCORP_INCUS_NOEFFECT_CONFIG")
+    def preflight_recovery_config(self, action="recover-noeffect"):
+        variable = "EZCORP_INCUS_FENCED_CLEANUP_CONFIG" if action == "recover-fenced-cleanup" else "EZCORP_INCUS_NOEFFECT_CONFIG"
+        path = os.environ.get(variable)
         if not path or not Path(path).is_absolute():
             raise ValueError("operator recovery config requires an absolute path")
         try:
@@ -346,6 +347,19 @@ class Supervisor:
         if not stat.S_ISREG(file.st_mode) or file.st_uid != os.geteuid() \
                 or file.st_mode & 0o077 or not 0 < file.st_size <= 128 * 1024:
             raise ValueError("operator recovery config must be a private operator-owned regular file")
+        if action == "recover-fenced-cleanup":
+            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+            try:
+                info = os.fstat(fd)
+                if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o077 or not 0 < info.st_size <= 128 * 1024:
+                    raise ValueError("sealed cleanup config changed")
+                config = json.loads(os.read(fd, 128 * 1024 + 1))
+            finally:
+                os.close(fd)
+            if not isinstance(config, dict) or config.get("version") != 1 or config.get("action") != action:
+                raise ValueError("sealed cleanup config action invalid")
+            return config
+
 
     def recover_noeffect(self, request):
         validate_recovery(request)
@@ -354,7 +368,14 @@ class Supervisor:
                 or self.child is None:
             raise ValueError("operator recovery unavailable, replayed, or held for operator review")
         self.assert_exclusive_app_uid()
-        self.preflight_recovery_config()
+        fenced_cleanup = request["action"] == "recover-fenced-cleanup"
+        if fenced_cleanup:
+            sealed = self.preflight_recovery_config(request["action"])
+            target = {key: request[key] for key in ("scope", "fixtureOperationId", "bindingId", "operationId", "generation", "connectionRevision")}
+            if sealed.get("target") != target or not isinstance(sealed.get("pins"), dict):
+                raise ValueError("sealed cleanup target changed")
+        else:
+            self.preflight_recovery_config()
         self.used_recoveries.add(request["nonce"])
         self.set_recovery_hold(request)
         old_process = self.stop_child()
@@ -366,18 +387,29 @@ class Supervisor:
         bounded_timeout(request["deadlineMs"], VERIFY_TIMEOUT_SECONDS)
         target = {key: request[key] for key in ("scope", "fixtureOperationId", "bindingId",
                   "operationId", "generation", "connectionRevision")}
-        if self.recovery_stage("durable", {"target": target}, request["deadlineMs"]) != {
-                "verified": True}:
-            raise ValueError("operator durable CREATE verification failed")
+        if fenced_cleanup:
+            target["action"] = request["action"]
+            target["pins"] = sealed["pins"]
+        durable = self.recovery_stage("durable", {"target": target}, request["deadlineMs"])
+        if not isinstance(durable, dict) or durable.get("verified") is not True or (
+                (set(durable) != {"verified", "pins"} or durable.get("pins") != sealed["pins"]) if fenced_cleanup else durable != {"verified": True}):
+            raise ValueError("operator durable recovery verification failed")
         first = self.recovery_stage("backend", {"target": target}, request["deadlineMs"])
         first_at = int(time.time() * 1000)
         time.sleep(5)
-        if self.recovery_stage("durable", {"target": target}, request["deadlineMs"]) != {
-                "verified": True}:
-            raise ValueError("operator durable CREATE changed")
+        if self.recovery_stage("durable", {"target": target}, request["deadlineMs"]) != durable:
+            raise ValueError("operator durable recovery changed")
         second = self.recovery_stage("backend", {"target": target}, request["deadlineMs"])
         second_at = int(time.time() * 1000)
-        if first != {"absent": True, "activeOperations": []} \
+        if fenced_cleanup:
+            observation_keys = {"instanceState", "nativeOperationAbsent", "activeOperations", "providerGeneration", "pins"}
+            if any(not isinstance(o, dict) or set(o) != observation_keys
+                   or o["instanceState"] != "stopped" or o["nativeOperationAbsent"] is not True
+                   or o["activeOperations"] != [] or type(o["providerGeneration"]) is not int
+                   or o["providerGeneration"] <= 0 or o["pins"] != durable["pins"] for o in (first, second)) \
+                    or first != second:
+                raise ValueError("operator backend owned stopped state not independently verified")
+        elif first != {"absent": True, "activeOperations": []} \
                 or second != {"absent": True, "activeOperations": []}:
             raise ValueError("operator backend absence not independently verified")
         scope = request["scope"]
@@ -396,6 +428,17 @@ class Supervisor:
                              "activeOperations": []},
                    "second": {"observedAtMs": second_at, "instanceState": "absent",
                               "activeOperations": []}}
+        if fenced_cleanup:
+            pins = durable["pins"]
+            pin_keys = {"installationGeneration", "releaseDigest", "grantsDigest", "endpoint", "project", "providerOperationId", "nativeOperationId", "operationTag", "payloadHash", "presetDigest",
+                        "effectiveSettingsDigest", "imageFingerprint", "helperVersion", "serverCertificateSha256"}
+            if not isinstance(pins, dict) or set(pins) != pin_keys:
+                raise ValueError("operator durable recovery pins invalid")
+            payload.update(pins)
+            payload["action"] = request["action"]
+            for label, observation, observed_at in (("first", first, first_at), ("second", second, second_at)):
+                payload[label] = {key: value for key, value in observation.items() if key != "pins"}
+                payload[label]["observedAtMs"] = observed_at
         receipt = self.sign_payload(payload)
         public = subprocess.run(["openssl", "pkey", "-in", str(self.key_path), "-pubout"],
                                 capture_output=True, timeout=SIGN_TIMEOUT_SECONDS, check=True)
