@@ -2487,7 +2487,7 @@ receipts in the continuation evidence document as each milestone completes.
   browser cases afterward; integrated as `f5e5c8ac8`.
 - [x] Fix native lifecycle barriers and preserve captured terminal observations durably.
   Keep frozen 4.0 schemas compatible; new producer declares host-contract 4.1.
-- [ ] Keep host-owned observation active for long operations after the initial
+- [x] Keep host-owned observation active for long operations after the initial
   bounded worker call. The normal 30-second reconciliation interval exceeds
   Incus's short terminal-result retention; reducing a timer alone is insufficient.
 - [x] Add signed, fenced cleanup recovery for an owned unknown power operation.
@@ -2559,3 +2559,18 @@ must return exact proof before the supervisor starts the app. Failure keeps
 the app held with the same saved cleanup intent. The concrete operator adapter
 and deployment packet are still being built and tested. No live cleanup or
 new release activation has occurred for these changes.
+
+Observer milestone: `229b8b852` integrates reviewed worker `b7074397a` and
+the independent admission/scheduling tests. Focused suites passed 41 lifecycle,
+26 broker, and nine startup cases. The worker measured 215/215 changed lines
+covered, all touched functions at 100%, and maximum CRAP 25. Shutdown waits for
+both the observer and original dispatch. The current journal, authority,
+accepted native ID, fixed time budget, and capacity limits remain enforced.
+
+The combined fast gate on `229b8b852` failed: 27,493 backend passes and seven
+failures across four integration files. All other fast checks passed. The
+PostgreSQL fixture omitted the consumed approval's grants; the real PostgreSQL
+reproduction failed before the test-only correction and passed after it
+(one test, three assertions; `ee19cd3f7`). The other three fixture suites are
+under repair. Preserve the failed pool result; rerun the full fast gate before
+pushing. Browser captures on `229b8b852` are source-milestone evidence only.

@@ -687,3 +687,20 @@ failed restoration leaves the app held and the same cleanup intent saved.
 The concrete operator adapter and pinned deployment packet remain in progress.
 The installed app is still `74cedcf397`; no live recovery, provider update,
 new connection, or new CREATE has occurred during this code milestone.
+
+Host-owned native observation is now integrated as `229b8b852` from reviewed
+worker `b7074397a`. Its independent review passed. Focused tests passed 41
+lifecycle, 26 broker, and nine startup cases; 215/215 measured changed lines
+were covered. Observation starts from the saved native handle, refreshes
+authorization, and has a fixed ten-minute journal-age budget and 32-slot bound.
+It never resumes an intent-only PATCH as a power effect. Shutdown drains both
+observation and the original dispatch before the database closes.
+
+The combined fast gate on that revision is **failed**, not release evidence:
+27,493 backend tests passed and seven failed across four integration files.
+Typecheck, lint, integrity checks, web tests, Svelte checks, and production
+build passed. One real PostgreSQL failure was reproduced as missing reviewed
+grants in its test fixture and corrected in `ee19cd3f7`; its focused test and
+normal commit hook passed. Remaining fixture repairs and a new full fast run
+are required before pushing. Source-milestone browser receipts remain bound
+to their original revision and cannot qualify a later revision.
