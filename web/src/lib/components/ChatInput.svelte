@@ -31,7 +31,7 @@
 	} from "$lib/composer-suggest-logic";
 	import type { ToolDefinition } from '../../../../src/extensions/types';
 	import { connectionState } from "$lib/stores/connection";
-	import { isChatDisabled, chatPlaceholder } from "$lib/chat-input-logic";
+	import { isChatDisabled, chatPlaceholder, setComposerDisplay } from "$lib/chat-input-logic";
 	import { isNavBlockedByOverlay } from "$lib/chat-prompt-nav.js";
 	import { detectMentionTrigger, insertMentionToken, insertCommandLiteral, getSegments, parseMentions, descendIntoFolder, MENTION_REGEX } from "$lib/mention-logic";
 	import { toDisplay, displayTokenText, applyDisplayEdit, displayPosToWire, wirePosToDisplay } from "$lib/mention-display";
@@ -255,12 +255,7 @@
 		const { display, spans } = toDisplay(newWire);
 		displayValue = display;
 		const dCursor = wirePosToDisplay(spans, wireCursor);
-		requestAnimationFrame(() => {
-			if (textarea) {
-				textarea.selectionStart = textarea.selectionEnd = dCursor;
-				textarea.focus();
-			}
-		});
+		setComposerDisplay(textarea, display, dCursor);
 	}
 
 	// ── Attachment staging (multi-modal uploads) ────────────────────
