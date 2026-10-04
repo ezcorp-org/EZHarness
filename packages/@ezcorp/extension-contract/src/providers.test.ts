@@ -42,6 +42,8 @@ describe("provider manifest contributions", () => {
     expect(validateManifest(legacy)).toEqual(legacy);
     expect(validateManifest({ ...legacy, skills: [{ name: "summarize", description: "Summarize a document" }] }).skills?.[0]?.name).toBe("summarize");
     expect(validateManifest({ ...base, providers: [sandboxProvider] }).providers?.[0]).toEqual(sandboxProvider);
+    const additiveHost = { ...sandboxProvider, minimumHostContract: { major: 4, minor: 1 } };
+    expect(validateManifest({ ...base, providers: [additiveHost] }).providers?.[0]).toEqual(additiveHost);
     const transfer = { name: "sandbox.transfer.v1" as const, methods: { beginExport: "transfer/beginExport", readExport: "transfer/readExport", endExport: "transfer/endExport" } };
     const withTransfer = { ...base, methods: [...base.methods, ...declaredMethods(transfer.name, transfer.methods)], providers: [{ ...sandboxProvider, methodGroups: [...sandboxGroups, transfer] }] };
     expect(validateManifest(withTransfer).providers?.[0]?.methodGroups.at(-1)).toEqual(transfer);
@@ -60,7 +62,7 @@ describe("provider manifest contributions", () => {
   test("rejects unsupported protocol, host, profile, capability, and permission declarations", () => {
     const invalidProviders = [
       { ...sandboxProvider, protocolMajor: 2 },
-      { ...sandboxProvider, minimumHostContract: { major: 4, minor: 1 } },
+      { ...sandboxProvider, minimumHostContract: { major: 4, minor: 2 } },
       { ...sandboxProvider, profiles: ["unknown.v1"] },
       { ...sandboxProvider, profiles: ["persistent-web-compose.v1"] },
       { ...sandboxProvider, profiles: ["linux-exec.v1", "linux-exec.v1"] },

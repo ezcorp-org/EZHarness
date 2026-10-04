@@ -63,6 +63,13 @@ describe("sandbox provider contribution seam", () => {
     }, { observation })).toBeTruthy();
   });
 
+  test("accepts the supported additive host minor for unchanged discovery methods", () => {
+    const provider = contribution();
+    provider.minimumHostContract = { major: 4, minor: 1 };
+    const manifest = contributionManifest(provider);
+    expect(validateManifest(manifest)).toEqual(manifest);
+  });
+
   test("matches a multi-profile description as a set against the reviewed contribution", () => {
     const provider = contribution([linuxSandboxPreset(), composeSandboxPreset()]);
     const described = {
@@ -84,7 +91,7 @@ describe("sandbox provider contribution seam", () => {
     const invalidManifests: ExtensionManifestV4[] = [
       { ...manifestWithSandboxPresets([linuxSandboxPreset()]), sandboxProviders: [{ ...manifestWithSandboxPresets([linuxSandboxPreset()]).sandboxProviders![0]!, kind: "sandbox" }] },
       contributionManifest({ ...valid, protocolMajor: 2 } as unknown as SandboxProtocolContribution),
-      contributionManifest({ ...valid, minimumHostContract: { major: 4, minor: 1 } } as unknown as SandboxProtocolContribution),
+      contributionManifest({ ...valid, minimumHostContract: { major: 4, minor: 2 } } as unknown as SandboxProtocolContribution),
       contributionManifest({ ...valid, requiredPermissions: ["storage", "storage"] }),
       { ...contributionManifest(valid), permissions: {} },
       contributionManifest({ ...valid, methodGroups: [] }),
