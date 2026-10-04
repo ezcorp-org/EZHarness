@@ -2574,3 +2574,13 @@ reproduction failed before the test-only correction and passed after it
 (one test, three assertions; `ee19cd3f7`). The other three fixture suites are
 under repair. Preserve the failed pool result; rerun the full fast gate before
 pushing. Browser captures on `229b8b852` are source-milestone evidence only.
+
+The final qualification failure exposed a production SQL precedence defect:
+negating an ungrouped compensation condition hid ordinary unknown operations.
+`0bc06267e` integrates reviewed worker `b39cbf228` and groups the shared
+condition once for all callers. Its real-database regression checks ordinary
+UNKNOWN visibility, retained reservations after deletion, and exclusion only
+after resource release. Qualification 55/0, recovery 28/0, feature flow 1/0,
+and retired cleanup 4/0 passed; type checks, lint, hooks, and predicate coverage
+passed. The three fixture repairs preserve production approvals and migrations.
+A new combined fast run and later exact-source coverage remain required.

@@ -704,3 +704,15 @@ grants in its test fixture and corrected in `ee19cd3f7`; its focused test and
 normal commit hook passed. Remaining fixture repairs and a new full fast run
 are required before pushing. Source-milestone browser receipts remain bound
 to their original revision and cannot qualify a later revision.
+
+The remaining qualification failure exposed a production SQL precedence defect
+in the new compensation predicate: its negation could hide an ordinary unknown
+operation. Reviewed correction `0bc06267e` groups the shared predicate once for
+all callers. A real-database regression now checks visibility before recovery,
+after deletion with reservations retained, and after confirmed resource release.
+The other repairs complete consumed-approval grants and a minimal test schema
+with the production recovery migration. No production authority check was relaxed.
+Focused qualification (55), recovery (28), feature flow (1), and retired cleanup
+(4) tests all passed. The predicate has 100% focused coverage; type checks,
+lint, and normal hooks passed. These results do not replace the new combined
+fast run or final source-bound browser/coverage and live tests.
