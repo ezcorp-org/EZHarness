@@ -143,7 +143,7 @@ interface ChannelInode { readonly device: number; readonly inode: number }
  * one thread per CPU. So at half as many live workers as CPUs (two on a 4-CPU
  * host) no other file operation in the process can run, the next request frame
  * included, until a worker's deadline closes it. Bun's own file stream polls a
- * FIFO instead. It does not own the descriptor; see `closeChannelReader`.
+ * FIFO instead. It does not own the descriptor; see `closeChannelStream`.
  * Destroying the stream cancels the reader, which stops the polling.
  */
 function channelReader(handle: FileHandle): Readable {
@@ -164,14 +164,28 @@ function channelReader(handle: FileHandle): Readable {
  * Each chunk completes only when its flush does, so `writableLength` still counts
  * what the guest has not taken and FramedExecution's backpressure limit applies.
  * Closing the handle drops anything still queued; the sink writes nothing after.
+ * The flush a silent guest never drains never settles either, so destroying the
+ * writer settles the chunk it waits on with a closed error, and nothing stays
+ * pending for a worker that is gone.
  */
 function channelWriter(handle: FileHandle): Writable {
   const sink = Bun.file(handle.fd).writer();
-  return new Writable({ write(chunk: Buffer, _encoding, callback) { Promise.resolve().then(() => { sink.write(chunk); return sink.flush(); }).then(() => callback(), callback); } });
+  let pending: ((error?: Error | null) => void) | undefined;
+  const settle = (callback: (error?: Error | null) => void, error?: Error) => { if (pending !== callback) return; pending = undefined; callback(error); };
+  return new Writable({
+    write(chunk: Buffer, _encoding, callback) {
+      pending = callback;
+      Promise.resolve().then(() => { sink.write(chunk); return sink.flush(); }).then(() => settle(callback), error => settle(callback, error));
+    },
+    destroy(error, callback) {
+      if (pending) settle(pending, new RunnerError("worker_closed", "Worker channel closed before the guest read its input"));
+      callback(error);
+    },
+  });
 }
 
-/** Stops a channel reader, then closes its descriptor, which the reader polls until it has stopped. */
-async function closeChannelReader(stream: Readable, handle: FileHandle): Promise<void> {
+/** Stops a channel stream, then closes its descriptor: a reader polls it and a writer may still hold a chunk until it has stopped. */
+async function closeChannelStream(stream: Readable | Writable, handle: FileHandle): Promise<void> {
   if (!stream.closed) await new Promise(resolve => { stream.once("close", resolve); stream.destroy(); });
   await handle.close();
 }
@@ -430,7 +444,7 @@ export class PodmanRunner implements Runner {
       if (closed) return;
       closed = true;
       for (const listener of closes) listener(null);
-      void Promise.allSettled([input.close(), closeChannelReader(out, output), closeChannelReader(err, errors)]);
+      void Promise.allSettled([closeChannelStream(sink, input), closeChannelStream(out, output), closeChannelStream(err, errors)]);
     };
     out.once("end", finish);
     out.once("close", finish);

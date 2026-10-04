@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { constants as fsConstants } from "node:fs";
+import { mkdtemp, open, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ChannelHost, echoGuest } from "./channel-guest";
@@ -12,6 +13,32 @@ test("a channel carries a frame both ways and reports the guest's exit", async (
     expect(await echoed).toBe("solo-frame");
     transport.stdin.write("stop\n");
     expect(await closed).toBe("closed");
+  } finally {
+    guest.kill("SIGKILL");
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("closing a channel whose guest left its input unread settles the waiting write and writes nothing after", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ez-channel-pool-"));
+  const host = new ChannelHost({ root });
+  const { guest, transport, closed } = await echoGuest(host, "worker-silent", { reads: false });
+  try {
+    // More than a pipe holds, so the write waits on a guest that never reads.
+    const settled = new Promise<string>(resolve => transport.stdin.write("x".repeat(256 * 1024), error => resolve(error ? error.message : "flushed")));
+    host.closeChannel("worker-silent");
+    expect(await closed).toBe("closed");
+    // A bound on liveness only: before the fix the waiting write never settled at all.
+    expect(await Promise.race([settled, Bun.sleep(10_000).then(() => "never settled")])).toBe("Worker channel closed before the guest read its input");
+    // A pipe opened now may reuse the closed descriptor's number; the dropped bytes must never reach it.
+    const victim = join(root, "victim");
+    Bun.spawnSync(["mkfifo", victim]);
+    const reused = await open(victim, fsConstants.O_RDWR);
+    const reader = await open(victim, fsConstants.O_RDONLY | fsConstants.O_NONBLOCK);
+    try {
+      await Bun.sleep(200); // A window for a stale poll to fire; the assertion is that nothing arrives in it.
+      await expect(reader.read(Buffer.alloc(1024), 0, 1024, null)).rejects.toMatchObject({ code: "EAGAIN" });
+    } finally { await reader.close(); await reused.close(); }
   } finally {
     guest.kill("SIGKILL");
     await rm(root, { recursive: true, force: true });

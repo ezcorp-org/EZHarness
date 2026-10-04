@@ -10,6 +10,8 @@ export class ChannelHost extends PodmanRunner {
   directory(id: string): string { return this.reach("channelDirectory", id); }
   facts(id: string): string { return this.reach("channelFactsPath", id); }
   transport(id: string): Promise<FramedTransport> { return this.reach("channelTransport", id); }
+  /** Ends a channel the way removing its container does. */
+  closeChannel(id: string): void { (this as unknown as { channels: Map<string, () => void> }).channels.get(id)?.(); }
 }
 
 export interface EchoGuest { readonly guest: ChildProcess; readonly transport: FramedTransport; readonly echoed: Promise<string>; readonly closed: Promise<"closed"> }
