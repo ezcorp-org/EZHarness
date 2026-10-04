@@ -144,9 +144,11 @@ export function buildPiAgent(
     transformContext: makeCompactionTransform(model, options.compaction, {
       summarize: makeSummarizer(model, conversationId, credentialConversationId),
     }),
+    // Pi replays system prompt and tool declarations from system messages.
+    // Keep these alongside standard turns; exclude only custom host events.
     convertToLlm: (messages) => {
       return messages.filter((m) =>
-        "role" in m && (m.role === "user" || m.role === "assistant" || m.role === "toolResult"),
+        "role" in m && (m.role === "system" || m.role === "user" || m.role === "assistant" || m.role === "toolResult"),
       ) as Message[];
     },
     getApiKey: async (provider) => {
