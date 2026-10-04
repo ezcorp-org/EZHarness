@@ -314,14 +314,79 @@ class Supervisor:
                for _pid, uid, group in self.live_processes()):
             raise ValueError("app UID is shared outside the managed process group")
 
+    def recovery_diagnostic(self, phase, outcome, exit_code, stdout, stderr):
+        # These bytes may contain credentials. They stay in a bounded private
+        # operator file, never the RPC response, app log or public journal.
+        def clipped(value):
+            data = value.encode("utf8") if isinstance(value, str) else value or b""
+            return data[:4096].decode("utf8", errors="replace"), len(data) > 4096
+        out, out_truncated = clipped(stdout)
+        err, err_truncated = clipped(stderr)
+        record = canonical({"stage": phase, "outcome": outcome, "exitCode": exit_code,
+            "stdout": out, "stderr": err, "stdoutTruncated": out_truncated,
+            "stderrTruncated": err_truncated}) + b"\n"
+        path = self.key_path.with_name(self.key_path.name + ".recovery-stage-diagnostics.jsonl")
+        try:
+            if not path.is_absolute() or path.parent.resolve(strict=True) != path.parent:
+                raise ValueError("private diagnostic path changed")
+            parent = path.parent.lstat()
+            if not stat.S_ISDIR(parent.st_mode) or parent.st_uid != os.geteuid() or parent.st_mode & 0o022:
+                raise ValueError("private diagnostic parent changed")
+            parent_fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            try:
+                opened = os.fstat(parent_fd)
+                if (opened.st_dev, opened.st_ino) != (parent.st_dev, parent.st_ino):
+                    raise ValueError("private diagnostic parent changed")
+                fd = os.open(path.name, os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW, 0o600, dir_fd=parent_fd)
+            finally:
+                os.close(parent_fd)
+            try:
+                status = os.fstat(fd)
+                if not stat.S_ISREG(status.st_mode) or status.st_uid != os.geteuid() \
+                        or stat.S_IMODE(status.st_mode) != 0o600 or status.st_nlink != 1 \
+                        or status.st_size + len(record) > 65536:
+                    raise ValueError("private diagnostic metadata or bound changed")
+                remaining = memoryview(record)
+                while remaining:
+                    written = os.write(fd, remaining)
+                    if written <= 0:
+                        raise OSError("private diagnostic write failed")
+                    remaining = remaining[written:]
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+        except (OSError, ValueError):
+            # Do not replace the actual recovery error, or expose captured data.
+            sys.stderr.write("Private recovery stage diagnostic unavailable\n")
+
     def recovery_stage(self, phase, value, deadline_ms):
-        check = subprocess.run(self.recovery_command,
-            input=canonical({"phase": phase, **value}) + b"\n", capture_output=True,
-            timeout=bounded_timeout(deadline_ms, VERIFY_TIMEOUT_SECONDS), check=False,
-            preexec_fn=self.drop_app_privileges if phase in ("durable", "apply") else None)
+        if phase not in ("durable", "backend", "apply", "restore"):
+            raise ValueError("invalid operator recovery stage")
+        try:
+            check = subprocess.run(self.recovery_command,
+                input=canonical({"phase": phase, **value}) + b"\n", capture_output=True,
+                timeout=bounded_timeout(deadline_ms, VERIFY_TIMEOUT_SECONDS), check=False,
+                preexec_fn=self.drop_app_privileges if phase in ("durable", "apply") else None)
+        except OSError:
+            self.recovery_diagnostic(phase, "spawn_failed", None, b"", b"")
+            raise ValueError("independent operator recovery verifier failed") from None
+        except subprocess.TimeoutExpired as error:
+            self.recovery_diagnostic(phase, "timeout", None, error.stdout, error.stderr)
+            raise ValueError("independent operator recovery verifier failed") from None
+        except subprocess.SubprocessError:
+            self.recovery_diagnostic(phase, "spawn_failed", None, b"", b"")
+            raise ValueError("independent operator recovery verifier failed") from None
         if check.returncode != 0:
+            self.recovery_diagnostic(phase, "nonzero", check.returncode, check.stdout, check.stderr)
             raise ValueError("independent operator recovery verifier failed")
-        return json.loads(check.stdout)
+        try:
+            result = json.loads(check.stdout)
+        except (ValueError, UnicodeError):
+            self.recovery_diagnostic(phase, "invalid_json", check.returncode, check.stdout, check.stderr)
+            raise ValueError("independent operator recovery verifier failed") from None
+
+        self.recovery_diagnostic(phase, "returned", check.returncode, check.stdout, check.stderr)
+        return result
 
     def verify_recovery_fence(self, request, old_process):
         if not self.recovery_fence_command:

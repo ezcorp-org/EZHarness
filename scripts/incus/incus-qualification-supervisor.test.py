@@ -1032,5 +1032,126 @@ class FencedCleanupSignerTest(unittest.TestCase):
         self.assertNotIn("apply", self.events)
 
 
+class RecoveryDiagnosticsTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(prefix="ezh-diag-")
+        self.root = Path(self.tmp.name)
+        self.root.chmod(0o700)
+        key = self.root / "key"
+        key.write_text("disposable key")
+        key.chmod(0o600)
+        self.supervisor = MODULE.Supervisor(str(self.root / "socket"), ["true"],
+            os.getuid(), os.getgid(), key, ["true"], ["true"], enforce_distinct_uid=False)
+        self.log = self.root / "key.recovery-stage-diagnostics.jsonl"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def invoke(self, script):
+        self.supervisor.recovery_command = [sys.executable, "-c", script]
+        return self.supervisor.recovery_stage("backend", {"privateInput": "NEVER_RECORD_INPUT"},
+            int(time.time() * 1000) + 30000)
+
+    def record(self):
+        self.assertEqual(self.log.stat().st_uid, os.geteuid())
+        self.assertEqual(self.log.stat().st_mode & 0o777, 0o600)
+        self.assertNotIn("NEVER_RECORD_INPUT", self.log.read_text())
+        return json.loads(self.log.read_text())
+
+    def test_real_verifier_failure_retains_private_output_only(self):
+        with self.assertRaisesRegex(ValueError, "independent operator recovery verifier failed") as error:
+            self.invoke("import sys,json; assert json.load(sys.stdin)['phase']=='backend'; print('PRIVATE_CANARY'); sys.stderr.write('PRIVATE_CANARY'); sys.exit(7)")
+        self.assertNotIn("PRIVATE_CANARY", str(error.exception))
+        record = self.record()
+        self.assertEqual((record["stage"], record["outcome"], record["exitCode"]), ("backend", "nonzero", 7))
+        self.assertIn("PRIVATE_CANARY", record["stdout"])
+        self.assertIn("PRIVATE_CANARY", record["stderr"])
+
+    def test_real_invalid_json_and_success(self):
+        with self.assertRaisesRegex(ValueError, "independent operator recovery verifier failed"):
+            self.invoke("print('PRIVATE_CANARY')")
+        self.assertEqual(self.record()["outcome"], "invalid_json")
+        self.log.unlink()
+        self.assertEqual(self.invoke("print('{\"verified\":true}')"), {"verified": True})
+        self.assertEqual(self.record()["outcome"], "returned")
+
+    def test_timeout_partial_output_and_spawn_failure(self):
+        self.supervisor.recovery_command = ["not-used"]
+        with mock.patch.object(MODULE.subprocess, "run", side_effect=subprocess.TimeoutExpired("private command", 1, output=b"PRIVATE_CANARY", stderr=b"partial")):
+            with self.assertRaisesRegex(ValueError, "independent operator recovery verifier failed") as error:
+                self.supervisor.recovery_stage("backend", {}, int(time.time()*1000)+30000)
+        self.assertNotIn("private command", str(error.exception))
+        self.assertEqual(self.record()["outcome"], "timeout")
+        self.assertEqual(self.record()["stderr"], "partial")
+        self.log.unlink()
+        self.supervisor.recovery_command = [str(self.root / "missing")]
+        with self.assertRaisesRegex(ValueError, "independent operator recovery verifier failed"):
+            self.supervisor.recovery_stage("backend", {}, int(time.time()*1000)+30000)
+        self.assertEqual(self.record()["outcome"], "spawn_failed")
+
+    def test_real_preexec_failure_is_private_spawn_failure(self):
+        def denied():
+            raise ValueError("PRIVATE_CANARY")
+        self.supervisor.drop_app_privileges = denied
+        self.supervisor.recovery_command = [sys.executable, "-c", "print('{}')"]
+        with self.assertRaisesRegex(ValueError, "independent operator recovery verifier failed") as error:
+            self.supervisor.recovery_stage("durable", {}, int(time.time()*1000)+30000)
+        self.assertNotIn("PRIVATE_CANARY", str(error.exception))
+        self.assertEqual(self.record()["outcome"], "spawn_failed")
+
+    def test_failed_private_write_has_static_warning(self):
+        with mock.patch.object(MODULE.os, "write", return_value=0), mock.patch.object(MODULE.sys.stderr, "write") as warning:
+            self.supervisor.recovery_diagnostic("backend", "nonzero", 1, b"PRIVATE_CANARY", b"")
+        warning.assert_called_once_with("Private recovery stage diagnostic unavailable\n")
+        self.assertEqual(self.log.read_bytes(), b"")
+
+    def test_invalid_phase_has_no_command_or_file_effect(self):
+        with mock.patch.object(MODULE.subprocess, "run") as command:
+            with self.assertRaisesRegex(ValueError, "invalid operator recovery stage"):
+                self.supervisor.recovery_stage("invented", {}, 1)
+        command.assert_not_called()
+        self.assertFalse(self.log.exists())
+
+    def test_symlinked_ancestor_cannot_receive_output(self):
+        alias = self.root / "alias"
+        alias.symlink_to(self.root, target_is_directory=True)
+        self.supervisor.key_path = alias / "key"
+        with mock.patch.object(MODULE.sys.stderr, "write") as warning:
+            self.supervisor.recovery_diagnostic("backend", "nonzero", 1, b"PRIVATE_CANARY", b"")
+        warning.assert_called_once_with("Private recovery stage diagnostic unavailable\n")
+        self.assertFalse(self.log.exists())
+
+    def test_prefix_and_total_file_bounds(self):
+        self.supervisor.recovery_diagnostic("backend", "nonzero", 1, b"x"*5000, b"y"*5000)
+        record = self.record()
+        self.assertEqual(len(record["stdout"]), 4096)
+        self.assertTrue(record["stdoutTruncated"])
+        self.assertTrue(record["stderrTruncated"])
+        self.log.write_bytes(b"z"*65536)
+        with mock.patch.object(MODULE.sys.stderr, "write") as warning:
+            self.supervisor.recovery_diagnostic("backend", "nonzero", 1, b"PRIVATE_CANARY", b"")
+        self.assertEqual(self.log.read_bytes(), b"z"*65536)
+        warning.assert_called_once_with("Private recovery stage diagnostic unavailable\n")
+
+    def test_unsafe_file_or_parent_cannot_receive_output(self):
+        target = self.root / "target"
+        target.write_text("unchanged")
+        for kind in ("symlink", "mode", "hardlink", "parent"):
+            with self.subTest(kind=kind):
+                if kind == "symlink": self.log.symlink_to(target)
+                elif kind == "hardlink": os.link(target, self.log)
+                else:
+                    self.log.write_text("unchanged")
+                    self.log.chmod(0o644 if kind == "mode" else 0o600)
+                    if kind == "parent": self.root.chmod(0o777)
+                with mock.patch.object(MODULE.sys.stderr, "write") as warning:
+                    self.supervisor.recovery_diagnostic("backend", "nonzero", 1, b"PRIVATE_CANARY", b"")
+                warning.assert_called_once_with("Private recovery stage diagnostic unavailable\n")
+                self.assertEqual(target.read_text(), "unchanged")
+                if not self.log.is_symlink(): self.assertEqual(self.log.read_text(), "unchanged")
+                self.root.chmod(0o700)
+                self.log.unlink()
+
+
 if __name__ == "__main__":
     unittest.main()
