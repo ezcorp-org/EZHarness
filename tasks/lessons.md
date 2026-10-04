@@ -531,3 +531,23 @@
 - Use the operation contract's terminal labels in collectors (`active` for
   release activation). A collector assertion after a saved successful response
   does not mean the effect failed. Inspect the saved operation before any retry.
+
+## Private deployment staging — 4 October 2026
+
+- Check file modes as well as hashes before the guarded command runs. A reviewed
+  executable may require mode 0700 even when the archive preserves mode 0600.
+- Do not expand a root-private path glob in the unprivileged shell. Use exact
+  reviewed paths for mode changes, then check their bytes and modes.
+- Separate preparation errors from infrastructure effects. Confirm policy,
+  timer, and durable state before deciding whether a failed client call may
+  continue; never allocate a new attempt merely because staging failed.
+- Run the complete offline comparison on the actual mixed-language packet
+  before activation. A hash reader must accept raw bytes; only JSON inputs
+  belong in a JSON parser. Passing individual helper tests is not enough.
+- When fixing a read-only evidence producer, preserve its failure and record
+  the actual replacement producer hash. A frozen packet hash identifies the
+  checked inputs, not proof that a failed original script ran successfully.
+- Follow the qualification bootstrap order. A new connection's normal provider
+  probe intentionally lacks verified guest claims until qualification passes.
+  Use the approved fixture path first; do not diagnose its expected refusal as
+  a broken image or weaken the probe to get past it.

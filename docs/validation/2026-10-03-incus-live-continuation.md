@@ -513,3 +513,139 @@ passed eighteen offline tests and independent review. Exact AMD refresh/restore
 passed nine independently rerun tests. Root verified the archive pins and
 script hash. The new server plan, temporary/final policies, capacity Apply, and
 AMD refresh await the separate human review reserved by the release packet.
+
+## Approved combined connection execution
+
+The user approved the combined work on 4 October: “approve the work do with
+sub agent sol team”. Root rechecked the exact approved packet SHA-256
+`3abf0e0e99f83ae200fb5c5f027b3ff20a30d517369ce68f18ddd332b5d9371d`.
+The packet is immutable. One Sol agent owns live execution; another verifies
+saved results independently. The remaining agents prepare native workflow
+evidence and final gates. Execution results will be recorded below; approval
+alone does not close the setup or full-workflow gates.
+
+The normal setup approval and official policy export succeeded once. The
+exported policy hash is
+`4db4e44ddf6728359ddc8d64a9fb7c8a6f6ea6773bf3e35dae15b38df3929349`;
+its canonical permissions match `9e79c6c9...`. Its write window is exactly
+15:57:57.035–16:12:57.035 UTC. Initial staging stopped before a policy effect
+because the engine file was mode 0600 rather than required 0700. Exact file
+mode correction, fresh byte checks, and fresh old-policy controls passed.
+The original error is preserved. The same attempt then armed rollback and
+installed its exact temporary policy.
+
+Independent review of the saved normal API responses confirms setup
+`129bf7e6...` is `verified`, with no failures. All 15 existing-resource steps
+were skipped successfully; no Incus resource write was needed. Setup Apply,
+capacity Plan, capacity Apply, and capacity GET each returned HTTP 200. The
+capacity receipt binds the exact reviewed release, generation, connection,
+revision, budget, and safety reserve. Its plan digest is
+`98461a0c009470ee30d416c045682c708e191a72bc94e5d98e47a6f8a17bcdc9`,
+applied at 16:01:38.468 UTC before expiry at 16:11:33.778 UTC. Final policy,
+inventory comparison, and AMD refresh results remain separate checks.
+
+## Combined setup milestone passed
+
+The frozen offline comparison helper failed before producing a result because
+its hash reader also tried to parse Python files as JSON. The failure was
+preserved. A separate read-only correction hashes raw helper bytes, parses only
+JSON inputs, and retains every original artifact and manifest check. It uses
+the same installed production fingerprint function. Correction SHA-256
+`3ed624243721814579c23b27644f5ba94bcff8ad1017bcc6ff12d1799880361f`
+passed regression tests and independent review. A separate producer sidecar
+records its actual hash and the failed original producer; the original packet,
+config, and armed state were not changed.
+
+Before and after inventories have zero guests and equal normalized fingerprint
+`4db05cfdac73013e19a0e7841d324118999eda6f20837916f656a2a249f0e50f`.
+The independent reviewer recomputed this with the installed production helper.
+The final read-only policy is installed and confirmed. All eight final controls
+passed, including denial of the former temporary authority, wrong scopes,
+extra fields, shell access, and forwarding. The original rollback timer is
+inactive after confirmation; it was not reset or rearmed.
+
+Saved evidence under `/root/ezh-qualification-stage/oct04-policy-capacity-approved`:
+
+| Receipt | SHA-256 |
+| --- | --- |
+| `setup-verified.json` | `d905667bee1b5e5d1bb44ed46e3f40f21ed589564b4ab7a066c44bebf2a0b8a2` |
+| `capacity-verified.json` | `668339515d4b806df5d59f30eb52501ac56529bb10bf008dd14598778a40c520` |
+| `inventory-comparison.json` | `97d14d86d9a9785e00abb60a3b1c037400917c360258d5fee0435636e6caee2e` |
+| `inventory-comparison.json.producer.json` | `926c2b173a4c78769ed5be0d7fb40d0f97ab130e558ab12a15255226e6fc1b75` |
+| `new-controls.json` | `0e51982b246ccadc5009e408d1f0c0cfe4db13847e9b57c3534203ccd1e5403e` |
+| `completed.json` | `53308b322ad6ece10b682db252908109a0bdc5848a00882bbbf716ae2637d813` |
+| `server-final-readback.json` | `775b104aa1d28fac836a6ad942c3361645b4494cb2530f44e2d72d47d7dcb06a` |
+
+Root checked these receipts and hashes. Independent review closed the exact
+setup/capacity/policy milestone. The approved AMD refresh then exited zero once:
+the new verifier wiring is installed, the same app is healthy behind the hold,
+and the old config is retained. Fresh connection qualification and the full
+native workflow remain separate live gates.
+
+The first normal probe returned `helper_version_unverified` before any fixture
+allocation. Source review confirmed this is the expected pre-qualification
+refusal: the normal provider probe receives guest claims only from a matching,
+unexpired qualification. It does not establish an image/helper mismatch.
+The separate qualification bootstrap checks current release, connection, and
+published-image pins without requiring an earlier qualification. No source or
+policy change was needed. Normal fixture Plan then returned HTTP 200 for
+`incus-live-sp01-08-20261004-git-v1`, digest
+`70adb3d4a59bee450205cee3e7df6c45e57ed5df6ba938d8547028ae0d1c3492`.
+The normal probe must be repeated after qualification passes.
+
+AMD post-update receipt
+`07-amd-postapply-sanitized.json`, SHA-256
+`a0bdaccde9b4198081f7d8c3dc11674391ad20dec608ffd804187aeeff7603d1`,
+confirms current manifest `487d2f72...`, supervisor config `0883f155...`, both
+services active, database device/inode `66306/65145597`, and the ingress hold.
+Root checked the saved metadata without opening the database.
+
+The new qualification fixture Apply reached `READY`. One qualification request
+then returned HTTP 409 `qualification_operation_preserved`, preserving operation
+`069a01c0-83e0-42ca-9efa-8e8e65b4340f` as `OUTCOME_UNKNOWN`. The collector
+completed its transport successfully; this is not a qualification pass. The
+independent reviewer confirmed one request, zero retries, and no new qualified
+profile or expiry. Backend read-only inventory found one owned, stopped primary
+guest `ezh-a51a9153641e7cb3d3d7880a9c64c4d3` using image `ebe5ce97...` and
+connection `5ee601f8...`. The guest remains retained. No cleanup or recovery
+is claimed. A guarded stopped snapshot and disposable-clone journal audit are
+used to diagnose the exact saved operation; no new CREATE is sent.
+
+The disposable-copy audit identifies `069a01c0...` as START. Its native receipt
+is `incus-setPower-182045d2-7795-4fdb-81de-faf6c6a744c3`; a read-only native
+lookup returns 404. CREATE `009c7ac3...` is recorded as successful in the host
+journal. Current guest state is stopped, PID zero, with no recorded start time.
+Volume metadata and the image exist, but rootfs readiness is not proved. A
+daemon `statfs` warning mentions a missing rootfs path; it does not establish
+the cause of the failed start. Both compute and disk reservations remain held.
+The complete sanitized copied snapshot SHA-256 is
+`571a63e38a85c3bdce9c1f8c7558bacb9cb6d41a64d64769e456cdd049858695`.
+
+Code investigation found a concrete async lifecycle race. CREATE discarded its
+native operation ID and could report success from a visible stopped instance
+before asynchronous volume creation completed. PATCH also lacked a completion
+barrier before the power request. A composed test through the real database,
+controller, dispatcher, broker, adapter, and transport reproduces premature
+CREATE success while native CREATE is still running. Focused tests reproduce
+both missing barriers. This proves code defects, not the unrecoverable historic
+native error. Fixes must preserve terminal native results and remain compatible
+with the frozen 4.0 provider contract.
+
+Incus documents background operation IDs and a wait endpoint. Its maintainer
+also documents a five-second retention window after an operation reaches a
+final state. This supports immediate bounded capture of terminal results;
+later polling cannot guarantee recovery of a discarded failure. See the
+[official REST API](https://linuxcontainers.org/incus/docs/main/rest-api/) and
+[maintainer explanation](https://discuss.linuxcontainers.org/t/creating-new-instance-over-rest-api/22812).
+
+The current recovery path also has no way to close an unknown START whose
+requested running state is not observed after its native receipt disappears.
+The original record must remain uncertain. A separate signed, fenced cleanup
+path is being implemented to admit one normal-broker DESTROY, retain the original
+history, and release reservations only after confirmed absence. No recovery
+or backend power request has been executed during this investigation.
+
+The setup guidance defect was reproduced in the browser and corrected in
+`f5e5c8ac8` (worker `c120315a5`): the page now directs capacity, qualification,
+then probe. Four operator-setup browser tests, type checks, lint, and hooks
+passed. This change is local; the installed app still uses source `74cedcf397`.

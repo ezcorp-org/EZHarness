@@ -2458,3 +2458,62 @@ execution procedures are now reviewable. The combined packet contains exact
 pins, ordered normal API actions, fixed capacity, server timed rollback, and
 explicit AMD restore. The original approved release work is complete. A new
 server/config approval is required by the scope of that release packet.
+
+### Execute the approved combined plan
+
+User approval received: “approve the work do with sub agent sol team”. Exact
+packet SHA-256 `3abf0e0e99f83ae200fb5c5f027b3ff20a30d517369ce68f18ddd332b5d9371d`
+is unchanged. Plan checked in: one live owner; separate read-only verification.
+
+- [x] Record approval and verify frozen packet bytes.
+- [x] Run fresh checks and official setup approval/policy export.
+- [x] Execute guarded setup and exact capacity Apply; verify inventory and final policy.
+- [x] Refresh AMD verifier configuration and verify service health.
+- [ ] Qualify the new connection and run the complete native feature workflow.
+- [ ] Complete ten real lifecycles, final repository gates, and PR checks.
+
+Do not repeat unknown effects or alter the approved packet. Record actual
+receipts in the continuation evidence document as each milestone completes.
+
+### Live qualification exposed lifecycle gaps
+
+- [x] Preserve the one failed qualification and retained guest; do not replay.
+- [x] Audit the stopped database copy: CREATE succeeded; START `069a01c0...`
+  remains unknown, with a missing native operation receipt. Preserve reservations.
+- [x] Reproduce the async CREATE race through the real controller, dispatcher,
+  broker, and transport: a visible stopped record must not mean clone completed.
+- [x] Reproduce async PATCH allowing power dispatch before PATCH completion.
+- [x] Correct setup UI guidance, with an E2E failure first and four passing
+  browser cases afterward; integrated as `f5e5c8ac8`.
+- [ ] Fix native lifecycle barriers and preserve terminal observations durably.
+  Keep frozen 4.0 schemas compatible; new producer declares host-contract 4.1.
+- [ ] Add signed, fenced cleanup recovery for an owned unknown power operation.
+  Preserve original uncertainty; admit only one linked normal-broker DESTROY.
+- [ ] Independently review and verify both fixes before host/provider deployment.
+- [ ] Recover the retained fixture through the reviewed normal recovery path,
+  then qualify the corrected provider and complete the original live gates.
+
+Ownership: coverage agent owns contract/versioning, provider lifecycle and
+dispatcher; recovery agent owns controller, database, signed operator recovery
+and drain checks; root integrates. The live owner retains all existing evidence
+and performs no retry or direct backend lifecycle action while fixes are built.
+
+Validation in progress: lifecycle regressions pass in the worker, including
+the composed premature-CREATE case and preserved native terminal failures.
+Frozen 4.0 schema equivalence is tested. New terminal observations require
+minor 4.1; emission is derived from the reviewed manifest, not caller input.
+Before bounded waiting, the host must durably save accepted native handles so
+a worker timeout cannot lose them. Controller outcome writes must preserve
+that concurrent receipt rather than overwrite it from stale memory.
+The same requirement applies to terminal results: persist a captured native
+failure or success before returning through the worker. Use the controller's
+shared settlement transaction; do not duplicate journal or binding updates in
+the transport. Test worker loss at both receipt boundaries.
+
+Recovery's first signed-admission test passes: one cleanup operation, original
+START still unknown, resources still reserved. Adversarial, late-reply, real
+broker, and signer/fence tests remain required before integration or deployment.
+The negative admission cases now reject forged scope, signature, expiry,
+future observations, a present native operation, active operations, changing
+generation, and a running guest. Drain stays blocked until cleanup and normal
+reservation release both finish. Independent review remains in progress.
