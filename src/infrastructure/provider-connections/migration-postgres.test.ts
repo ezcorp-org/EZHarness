@@ -32,7 +32,7 @@ beforeAll(async () => {
     VALUES ('installation', 'owner', 'global', ${JSON.stringify({ id: "installation", ownerId: "owner", scope: "global", activeReleaseId: "release", generation: 2, enabled: true, uninstalled: false, status: "active", grants: [], acknowledgedGeneration: 2 })})`;
   await client`INSERT INTO extension_release_records (installation_id, kind, id, payload)
     VALUES ('installation', 'releases', 'release', ${JSON.stringify({ id: "release", releaseDigest: "sha256:test" })}),
-      ('installation', 'approvals', 'approval', ${JSON.stringify({ id: "approval", installationId: "installation", releaseId: "release", releaseDigest: "sha256:test", principalId: "owner", scope: "global", status: "consumed", expectedGeneration: 1 })})`;
+      ('installation', 'approvals', 'approval', ${JSON.stringify({ id: "approval", installationId: "installation", releaseId: "release", releaseDigest: "sha256:test", principalId: "owner", scope: "global", status: "consumed", expectedGeneration: 1, grants: [] })})`;
 }, 30_000);
 
 afterAll(async () => {
