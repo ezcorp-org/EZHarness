@@ -83,29 +83,61 @@ test("sandbox builds fail closed before storing an unqualified release", async (
   expect(Object.keys((await setup.lifecycle.inspect(actor, installation.id)).releases)).toHaveLength(0);
 });
 
-test("sandbox approval and activation require current stored and freshly verified evidence", async () => {
+test("delayed sandbox approval preserves immutable evidence and activation requires fresh verification", async () => {
   const setup = sandboxLifecycleHarness();
   const built = await releaseFixture(setup);
-  const approvalInput = await approved(built);
-  setup.dependencies.verifyCandidate = release => setup.report(release, "failed");
-  expect((await setup.lifecycle.activate(actor, approvalInput)).state).toBe("failed");
-  expect((await setup.lifecycle.inspect(actor, built.installation.id)).installation.enabled).toBe(false);
+  const before = await setup.lifecycle.inspect(actor, built.installation.id);
+  const release = before.releases[built.releaseId]!;
+  const approval = await setup.lifecycle.requestApproval(actor, { installationId: built.installation.id, releaseId: built.releaseId, grants: ["storage:read"], expectedActiveReleaseId: null });
+  setup.clock.now = qualificationNow + 5 * 60 * 60 * 1000;
+  expect((await setup.lifecycle.approve(human, built.installation.id, approval.id, true)).status).toBe("approved");
+  let verified = 0;
+  setup.dependencies.verifyCandidate = async candidate => {
+    verified += 1;
+    expect(candidate.releaseDigest).toBe(release.releaseDigest);
+    const report = await setup.report(candidate);
+    report.sandboxPresetQualifications![0]!.verifiedAt = new Date(setup.clock.now).toISOString();
+    report.sandboxPresetQualifications![0]!.validUntil = new Date(setup.clock.now + 60 * 60 * 1000).toISOString();
+    return report;
+  };
+  expect((await setup.lifecycle.activate(actor, { installationId: built.installation.id, approvalId: approval.id, idempotencyKey: "delayed-activation" })).state).toBe("active");
+  const after = await setup.lifecycle.inspect(actor, built.installation.id);
+  expect(verified).toBe(1);
+  expect(after.releases[built.releaseId]).toEqual(release);
+  expect(after.installation.activeReleaseId).toBe(built.releaseId);
+});
 
-  const stale = sandboxLifecycleHarness();
-  const staleBuild = await releaseFixture(stale);
-  const state = await stale.lifecycle.inspect(actor, staleBuild.installation.id);
-  const approval = await stale.lifecycle.requestApproval(actor, { installationId: staleBuild.installation.id, releaseId: staleBuild.releaseId, grants: ["storage:read"], expectedActiveReleaseId: null });
-  stale.clock.now = Date.parse("2026-09-21T13:00:00.000Z");
-  await expect(stale.lifecycle.approve(human, staleBuild.installation.id, approval.id, true)).rejects.toMatchObject({ code: "INVALID_QUALIFICATION" });
-  expect((await stale.lifecycle.inspect(actor, staleBuild.installation.id)).approvals[approval.id]!.status).toBe("pending");
-  expect(state.installation.enabled).toBe(false);
-
-  const expiredActivation = sandboxLifecycleHarness();
-  const expiringRelease = await releaseFixture(expiredActivation);
-  const approvedInput = await approved(expiringRelease);
-  expiredActivation.clock.now = Date.parse("2026-09-21T13:00:00.000Z");
-  await expect(expiredActivation.lifecycle.activate(actor, approvedInput)).rejects.toMatchObject({ code: "INVALID_QUALIFICATION" });
-  expect((await expiredActivation.lifecycle.inspect(actor, expiringRelease.installation.id)).installation.enabled).toBe(false);
+test("expired stored proof does not bypass current activation verification", async () => {
+  for (const failure of ["stale", "future", "malformed", "binding", "failed", "missing"] as const) {
+    const setup = sandboxLifecycleHarness();
+    const built = await releaseFixture(setup);
+    expect((await setup.lifecycle.activate(actor, await approved(built))).state).toBe("active");
+    const build = await setup.lifecycle.build(actor, { installationId: built.installation.id, workspaceId: built.workspace.id, expectedRevision: 1, idempotencyKey: "update-build" });
+    const candidate = await setup.lifecycle.runBuild(actor, built.installation.id, build.id);
+    const input = await approved({ ...built, releaseId: candidate.releaseId! }, "delayed-update");
+    setup.clock.now = qualificationNow + 5 * 60 * 60 * 1000;
+    let verified = 0;
+    setup.dependencies.verifyCandidate = async release => {
+      verified += 1;
+      const report = await setup.report(release, failure === "failed" ? "failed" : "passed");
+      const proof = report.sandboxPresetQualifications![0]!;
+      if (failure !== "stale") {
+        proof.verifiedAt = new Date(setup.clock.now).toISOString();
+        proof.validUntil = new Date(setup.clock.now + 60 * 60 * 1000).toISOString();
+      }
+      if (failure === "future") proof.verifiedAt = new Date(setup.clock.now + 1000).toISOString();
+      if (failure === "malformed") proof.validUntil = "invalid";
+      if (failure === "binding") proof.releaseDigest = "f".repeat(64);
+      if (failure === "missing") delete report.sandboxPresetQualifications;
+      return report;
+    };
+    expect((await setup.lifecycle.activate(actor, input)).state).toBe("failed");
+    const state = await setup.lifecycle.inspect(actor, built.installation.id);
+    expect(verified).toBe(1);
+    expect(state.installation.activeReleaseId).toBe(built.releaseId);
+    expect(state.installation.generation).toBe(1);
+    expect(state.approvals[input.approvalId]!.status).toBe("approved");
+  }
 });
 
 test("sandbox reconciliation retries publication after candidate expiry", async () => {

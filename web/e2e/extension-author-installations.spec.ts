@@ -169,3 +169,40 @@ test("provider update refusal keeps the current release visible and gives drain 
   expect(requests.filter(request => request.tool === "extensions_inspect")).toHaveLength(1);
   await captureEvidence(page, testInfo, "provider-update-requires-drain");
 });
+
+/** UI approval protocol; actual expired-proof validation is covered by the durable lifecycle suite. */
+test("a human can approve the exact reviewed release after its build proof interval @evidence", async ({ page, mockApi }, testInfo) => {
+  await mockApi({ projects: [proj] });
+  const releaseDigest = "a".repeat(64);
+  const candidate = { id: "historical-provider", installationId: NAMED, runnerProfile: "isolated", releaseDigest,
+    createdAt: "2026-09-21T10:00:00.000Z", manifest: { schemaVersion: 4, name: "incus-provider", version: "0.1.3", permissions: {} },
+    verification: { sandboxPresetQualifications: [{ verifiedAt: "2026-09-21T11:00:00.000Z", validUntil: "2026-09-21T13:00:00.000Z" }] },
+    evidence: { tests: [{ name: "provider-conformance", passed: true }] } };
+  const approval = { id: "historical-review", releaseId: candidate.id, releaseDigest, principalId: "mock-owner",
+    scope: "global", grants: [], status: "pending", runnerProfile: "isolated" };
+  const state = { installation: installation(NAMED, "incus-provider", "verified"), workspaces: {}, revisions: {},
+    releases: { [candidate.id]: candidate }, operations: {}, approvals: { [approval.id]: approval } };
+  let decisions = 0;
+  await page.route(`**/api/extensions/releases/${NAMED}/approve`, async route => {
+    expect(route.request().postDataJSON()).toEqual({ approvalId: approval.id, decision: true });
+    decisions += 1;
+    approval.status = "approved";
+    await route.fulfill({ json: approval });
+  });
+  await page.route("**/api/extensions/control", async route => {
+    expect(route.request().postDataJSON()).toEqual({ tool: "extensions_inspect", input: { installationId: NAMED } });
+    await route.fulfill({ json: state });
+  });
+  await mockPageData(page, "/extensions/author", { ...listData, installations: [], state,
+    extensionName: "incus-provider", breadcrumbTail: "incus-provider", canApprove: true });
+  await resumePage(page, `/extensions/author?installation=${NAMED}`);
+  await expect(page.getByRole("button", { name: "Approve exact release", exact: true })).toBeDisabled();
+  await page.getByRole("checkbox", { name: "I reviewed this release and its permissions.", exact: true }).check();
+  await page.getByRole("button", { name: "Approve exact release", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Approved release", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Activate approved release", exact: true })).toBeVisible();
+  expect(decisions).toBe(1);
+  expect(state.installation.activeReleaseId).toBe(null);
+  expect(state.releases[candidate.id].releaseDigest).toBe(releaseDigest);
+  await captureEvidence(page, testInfo, "delayed-exact-release-human-approval");
+});

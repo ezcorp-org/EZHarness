@@ -333,7 +333,8 @@ export class ExtensionLifecycle {
   private async checkApproval(state: InstallationState, approval: LifecycleApproval, requireApproved: boolean): Promise<LifecycleRelease> {
     const release = this.release(state, approval.releaseId);
     if ((requireApproved && approval.status !== "approved") || approval.principalId !== state.installation.ownerId || approval.scope !== state.installation.scope || approval.releaseDigest !== release.releaseDigest || release.policyDigest !== this.policyDigest() || approval.runnerProfile !== this.dependencies.runnerProfile || release.evidence.validatorVersion !== this.dependencies.validatorVersion || approval.expectedActiveReleaseId !== state.installation.activeReleaseId || approval.expectedGeneration !== state.installation.generation || state.installation.uninstalled) throw new LifecycleError("stale_approval", "Approval is missing, revoked, or no longer matches this activation.");
-    await assertSandboxPresetReleaseQualification(release, release.verification, this.now());
+    // Approval binds immutable build evidence. Activation verifies a fresh report before effects.
+    await assertSandboxPresetReleaseQualification(release, release.verification, this.now(), "integrity");
     return release;
   }
 
