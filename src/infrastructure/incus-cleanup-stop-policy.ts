@@ -10,7 +10,7 @@ export function matchesCleanupRecoveryBinding(binding: Binding, recovery: Sandbo
     && recovery.providerResourceId === providerResourceId;
 }
 
-function matchesFailedDestroy(binding: Binding, recovery: SandboxCleanupRecovery, failed: Journal): boolean {
+export function matchesFailedCleanupDestroy(binding: Binding, recovery: SandboxCleanupRecovery, failed: Journal): boolean {
   return failed.id === recovery.failedDestroyOperationId && failed.bindingId === binding.id && failed.generation === binding.generation
     && failed.kind === "DESTROY" && failed.state === "FAILED" && failed.errorCode === "REVISION_CONFLICT" && failed.providerOperationId === null
     && failed.requestPayload.expectedGeneration === recovery.providerGeneration && Object.keys(failed.requestPayload).length === 1;
@@ -30,7 +30,7 @@ export function permitsLinkedCleanupStop(binding: Binding, recovery: SandboxClea
   return Boolean(recovery && failed && stop && binding.tombstonedAt !== null && binding.desiredState === "ABSENT" && recovery.state === "STOP_REQUIRED"
     && Number.isSafeInteger(recovery.providerGeneration) && recovery.providerGeneration >= 1
     && matchesCleanupRecoveryBinding(binding, recovery, providerResourceId)
-    && matchesFailedDestroy(binding, recovery, failed) && matchesLinkedStop(binding, recovery, stop));
+    && matchesFailedCleanupDestroy(binding, recovery, failed) && matchesLinkedStop(binding, recovery, stop));
 }
 
 /** Inspect the exact retained failed cleanup without granting any mutation. */

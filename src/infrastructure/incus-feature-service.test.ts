@@ -12,7 +12,7 @@ import { SandboxController, type SandboxProviderDispatcher, type SandboxProvider
 import { incusManifest, INCUS_PRESETS } from "../../extensions/incus-sandbox/manifest";
 import { digest } from "../../scripts/incus/model";
 import type { ProviderConnectionCredentials } from "./provider-connections/store";
-import { IncusFeatureService } from "./incus-feature-service";
+import { IncusCleanupRecoveryService, IncusFeatureService, type IncusFeatureServiceDependencies } from "./incus-feature-service";
 
 const databases: PGlite[] = [];
 // Each case starts and migrates a fresh PGlite database. In the combined
@@ -59,7 +59,7 @@ async function fixture() {
   let providerGeneration = 1;
   let inspectUnavailable = false;
   const retiredCalls: string[] = [];
-  const service = new IncusFeatureService({
+  const serviceDependencies: IncusFeatureServiceDependencies = {
     db, controller, admission, activeRelease: async () => snapshot,
     assertCurrentScope: async scope => {
       if (scope.providerReleaseId !== snapshot.installation.activeReleaseId) {
@@ -89,7 +89,8 @@ async function fixture() {
         generation: providerGeneration, bootId: "boot-1", observedAt: "2026-09-22T12:00:00Z" } };
     },
     now: () => Date.parse("2026-09-22T12:00:00Z"),
-  });
+  };
+  const service = new IncusFeatureService(serviceDependencies);
   const configureAdmission = async () => {
     await admission.configureHostCapacity({ providerInstallationId: "installation", connectionId: "connection",
       allocatable: { memoryBytes: 2 * preset.limits.memoryBytes, cpuMillicores: 2 * preset.limits.cpuMillis,
@@ -99,7 +100,7 @@ async function fixture() {
       limit: { memoryBytes: preset.limits.memoryBytes, cpuMillicores: preset.limits.cpuMillis,
         pids: preset.limits.pids, diskBytes: preset.limits.diskBytes, executionSlots: 1 } });
   };
-  return { db, service, controller, admission, dispatches, provider, connection, setQualification: (value: boolean) => { qualificationAvailable = value; },
+  return { db, service, serviceDependencies, controller, admission, dispatches, provider, connection, setQualification: (value: boolean) => { qualificationAvailable = value; },
     setProvider: (state: "running" | "stopped", generation: number) => { providerState = state; providerGeneration = generation; },
     setInspectUnavailable: (value: boolean) => { inspectUnavailable = value; }, configureAdmission, preset, retiredCalls };
 }
@@ -405,8 +406,9 @@ test("reservation settlement is bounded, fair after a bad row, and durable acros
   expect((await admission.getReservation("settlement-binding-0"))?.computeState).toBe("RELEASED");
 }, DB_TEST_TIMEOUT_MS);
 
-test("uncertain fixture destroy denies Ready until the original operation confirms absence and cleanup settles", async () => {
-  const { db, service, controller, admission, preset, configureAdmission } = await fixture();
+async function qualificationFixture() {
+  const f = await fixture();
+  const { db, preset, configureAdmission } = f;
   await configureAdmission();
   const presetDigest = await sandboxPresetDigest(preset);
   const effectiveSettingsDigest = digest({ presetDigest, connectionRevision: 1 });
@@ -430,6 +432,11 @@ test("uncertain fixture destroy denies Ready until the original operation confir
     computeState: "RELEASED", diskState: "RESERVED" });
   const input = { projectId: "project", installationId: "installation", connectionId: "connection",
     presetId: preset.id };
+  return { ...f, fixtureOperationId, bindingId, input };
+}
+
+test("uncertain fixture destroy denies Ready until the original operation confirms absence and cleanup settles", async () => {
+  const { db, service, controller, admission, bindingId, fixtureOperationId, input } = await qualificationFixture();
   await service.prepare(input);
   await admission.markCleanupIntent(bindingId, 1, `incus-qualification-destroy-${fixtureOperationId}`);
   const destroy = await controller.requestAndDispatch({ bindingId, generation: 1,
@@ -466,4 +473,69 @@ test("uncertain fixture destroy denies Ready until the original operation confir
   await db.update(schema.sandboxBindings).set({ cleanupConfirmedAt: new Date() })
     .where(eq(schema.sandboxBindings.id, bindingId));
   expect(await service.prepare(input)).toMatchObject({ projectId: "project" });
+}, DB_TEST_TIMEOUT_MS);
+
+ test("completed exact linked recovery clears fixture readiness while retaining the failed receipt", async () => {
+  const { db, service, controller, admission, provider, setProvider, serviceDependencies, connection, bindingId, fixtureOperationId, input } = await qualificationFixture();
+  setProvider("running", 2);
+  await db.update(schema.sandboxBindings).set({ desiredState: "RUNNING", observedState: "RUNNING" }).where(eq(schema.sandboxBindings.id,bindingId));
+  const dispatch = provider.dispatch;
+  provider.dispatch = async request => request.kind === "DESTROY" ? { outcome: "FAILED", errorCode: "REVISION_CONFLICT" } : dispatch(request);
+  await admission.markCleanupIntent(bindingId,1,`incus-qualification-destroy-${fixtureOperationId}`);
+  const failed = await controller.requestAndDispatch({ bindingId,generation:1,kind:"DESTROY",idempotencyScope:"incus-qualification",idempotencyKey:`${fixtureOperationId}:destroy`,payload:{expectedGeneration:2} });
+  provider.dispatch = dispatch;
+  expect(failed.state).toBe("FAILED");
+  const recovery = new IncusCleanupRecoveryService(db,controller,admission,async () => {},serviceDependencies.inspect!,serviceDependencies.now!);
+  await recovery.recover(bindingId,failed.id);
+  setProvider("stopped",3);
+  await recovery.recover(bindingId,failed.id);
+  const completed = await recovery.recover(bindingId,failed.id);
+  expect(completed.recovery.state).toBe("COMPLETED");
+  expect(await controller.getOperation(failed.id)).toEqual(failed);
+  await service.checkReadiness(input);
+  const beforeDispatches = (await db.select().from(schema.sandboxOperations)).length;
+  const deny = () => expect(service.checkReadiness(input)).rejects.toMatchObject({ code: "QUALIFICATION_CLEANUP_UNVERIFIED" });
+  const recoveryPatches: Partial<schema.SandboxCleanupRecovery>[] = [{ state: "STOP_REQUIRED" }, { state: "DESTROY_REQUIRED" },
+    { generation: 2 }, { connectionRevision: 2 }, { releaseId: "foreign" }, { installationId: "foreign" },
+    { connectionId: "foreign" }, { providerResourceId: "foreign" }, { providerGeneration: 1 },
+    { stopOperationId: "foreign" }, { destroyOperationId: "foreign" }];
+  for (const patch of recoveryPatches) {
+    await db.update(schema.sandboxCleanupRecoveries).set(patch).where(eq(schema.sandboxCleanupRecoveries.id,completed.recovery.id));
+    await deny();
+    await db.update(schema.sandboxCleanupRecoveries).set(completed.recovery).where(eq(schema.sandboxCleanupRecoveries.id,completed.recovery.id));
+  }
+  for (const id of [completed.recovery.stopOperationId, completed.recovery.destroyOperationId]) {
+    const saved = (await controller.getOperation(id))!;
+    for (const patch of [{ state: "OUTCOME_UNKNOWN" as const }, { providerOperationId: null }, { kind: "START" as const }, { generation: 2 },
+      { idempotencyScope: "unlinked" }, { idempotencyKey: "unlinked" }, { requestPayload: { expectedGeneration: 99 } },
+      { requestPayload: { ...saved.requestPayload, extra: true } }]) {
+      await db.update(schema.sandboxOperations).set(patch).where(eq(schema.sandboxOperations.id,id));
+      await deny();
+      await db.update(schema.sandboxOperations).set(saved).where(eq(schema.sandboxOperations.id,id));
+    }
+  }
+  for (const patch of [{ state: "SUCCEEDED" as const }, { errorCode: "INTERNAL" }, { providerOperationId: "forged" },
+    { idempotencyScope: "unlinked" }, { idempotencyKey: "unlinked" }, { requestPayload: { expectedGeneration: 99 } }]) {
+    await db.update(schema.sandboxOperations).set(patch).where(eq(schema.sandboxOperations.id,failed.id));
+    await deny();
+    await db.update(schema.sandboxOperations).set(failed).where(eq(schema.sandboxOperations.id,failed.id));
+  }
+  const reservation = (await admission.getReservation(bindingId))!;
+  for (const patch of [{ diskState: "RELEASE_REQUESTED" as const }, { computeState: "RELEASE_REQUESTED" as const },
+    { cleanupIntentId: "unlinked" }, { generation: 2 }]) {
+    await db.update(schema.sandboxReservations).set(patch).where(eq(schema.sandboxReservations.bindingId,bindingId));
+    await deny();
+    await db.update(schema.sandboxReservations).set(reservation).where(eq(schema.sandboxReservations.bindingId,bindingId));
+  }
+  connection.revokedAt = new Date();
+  await expect(service.checkReadiness(input)).rejects.toThrow("connection changed");
+  connection.revokedAt = null;
+  const unrelated = { ...completed.operation, id: crypto.randomUUID(), idempotencyScope:"unlinked", idempotencyKey:"unlinked" };
+  await db.insert(schema.sandboxOperations).values(unrelated);
+  await deny();
+  await db.delete(schema.sandboxOperations).where(eq(schema.sandboxOperations.id,unrelated.id));
+  await db.update(schema.sandboxBindings).set({currentOperationId:completed.recovery.destroyOperationId}).where(eq(schema.sandboxBindings.id,bindingId));
+  await service.checkReadiness(input);
+  expect((await db.select().from(schema.sandboxOperations)).length).toBe(beforeDispatches);
+  expect(await controller.getOperation(failed.id)).toEqual(failed);
 }, DB_TEST_TIMEOUT_MS);

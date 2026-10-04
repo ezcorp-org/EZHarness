@@ -17,7 +17,7 @@ import { IncusMethodCaller } from "./incus-method-caller";
 import { callRetiredIncusCleanup } from "./incus-retired-cleanup";
 import { qualificationFixtureIdentity } from "./incus-qualification-checkpoint";
 import { ProviderConnectionStore, type ProviderConnectionCredentials, type ProviderConnectionScope } from "./provider-connections/store";
-import { matchesCleanupRecoveryBinding, permitsFailedCleanupInspection } from "./incus-cleanup-stop-policy";
+import { matchesCleanupRecoveryBinding, matchesFailedCleanupDestroy, permitsFailedCleanupInspection } from "./incus-cleanup-stop-policy";
 import { resourceName } from "./incus-transport/lifecycle";
 import { digest as setupDigest } from "../../scripts/incus/model";
 
@@ -139,6 +139,14 @@ function fixtureMatchesBinding(fixture: QualificationFixture, binding: SandboxBi
     && binding.effectiveSettingsDigest === fixture.effectiveSettingsDigest;
 }
 
+function linkedCleanupStepMatches(binding: SandboxBinding, operation: SandboxOperation | undefined,
+  kind: "STOP" | "DESTROY", expectedGeneration: number): boolean {
+  return Boolean(operation && operation.bindingId === binding.id && operation.generation === binding.generation
+    && operation.kind === kind && operation.state === "SUCCEEDED" && Boolean(operation.providerOperationId) && operation.idempotencyScope === "sandbox-cleanup-recovery"
+    && operation.idempotencyKey === operation.id && operation.requestPayload.expectedGeneration === expectedGeneration
+    && Object.keys(operation.requestPayload).length === 1);
+}
+
 function qualificationDestroyIntent(operationId: string): string {
   return `incus-qualification-destroy-${operationId}`;
 }
@@ -245,9 +253,12 @@ export class IncusFeatureService {
         eq(incusQualificationFixtures.presetDigest, scope.presetDigest),
         eq(incusQualificationFixtures.effectiveSettingsDigest, scope.effectiveSettingsDigest)));
     for (const { fixture, binding, operation, reservation } of destroys) {
-      if (!fixtureMatchesBinding(fixture, binding) || operation.idempotencyScope !== "incus-qualification"
-        || operation.idempotencyKey !== `${fixture.operationId}:destroy`
-        || operation.state !== "SUCCEEDED" || binding.currentOperationId !== operation.id
+      const recovery = await this.completedFixtureRecovery(binding, fixture.operationId);
+      const acceptedOperation = recovery
+        ? [recovery.failedDestroyOperationId, recovery.destroyOperationId].includes(operation.id)
+        : operation.idempotencyScope === "incus-qualification" && operation.idempotencyKey === `${fixture.operationId}:destroy` && operation.state === "SUCCEEDED";
+      if (!fixtureMatchesBinding(fixture, binding) || !acceptedOperation
+        || binding.currentOperationId !== (recovery?.destroyOperationId ?? operation.id)
         || binding.generation !== operation.generation || binding.desiredState !== "ABSENT"
         || binding.observedState !== "ABSENT" || !binding.tombstonedAt || !binding.cleanupConfirmedAt
         || !reservation || reservation.generation !== operation.generation
@@ -257,6 +268,32 @@ export class IncusFeatureService {
         throw new IncusQualificationCleanupError();
       }
     }
+  }
+
+  /** A completed linked cleanup proves only its original failed receipt and saved destroy. */
+  private async completedFixtureRecovery(binding: SandboxBinding, fixtureOperationId: string): Promise<SandboxCleanupRecovery | null> {
+    const recoveries = await this.db.select().from(sandboxCleanupRecoveries)
+      .where(eq(sandboxCleanupRecoveries.bindingId, binding.id)).limit(2);
+    if (!recoveries.length) return null;
+    const recovery = recoveries[0]!;
+    if (recoveries.length !== 1 || recovery.state !== "COMPLETED"
+      || !Number.isSafeInteger(recovery.providerGeneration) || recovery.providerGeneration < 1
+      || !matchesCleanupRecoveryBinding(binding, recovery, resourceName(binding.connectionId, binding.id))) {
+      throw new IncusQualificationCleanupError();
+    }
+    const operations: SandboxOperation[] = await this.db.select().from(sandboxOperations).where(inArray(sandboxOperations.id,
+      [recovery.failedDestroyOperationId, recovery.stopOperationId, recovery.destroyOperationId]));
+    const failed = operations.find(operation => operation.id === recovery.failedDestroyOperationId);
+    const stop = operations.find(operation => operation.id === recovery.stopOperationId);
+    const destroy = operations.find(operation => operation.id === recovery.destroyOperationId);
+    if (failed?.idempotencyScope !== "incus-qualification" || failed.idempotencyKey !== `${fixtureOperationId}:destroy`
+      || !matchesFailedCleanupDestroy(binding, recovery, failed)
+      || !linkedCleanupStepMatches(binding, stop, "STOP", recovery.providerGeneration)
+      || !linkedCleanupStepMatches(binding, destroy, "DESTROY", recovery.providerGeneration + 1)
+      || new Set([recovery.failedDestroyOperationId, recovery.stopOperationId, recovery.destroyOperationId]).size !== 3) {
+      throw new IncusQualificationCleanupError();
+    }
+    return recovery;
   }
 
   private async checkedPreparation(input: PrepareIncusFeatureInput) {

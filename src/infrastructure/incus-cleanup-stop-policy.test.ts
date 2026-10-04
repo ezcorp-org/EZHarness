@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { matchesCleanupRecoveryBinding, permitsLinkedCleanupStop as permits, permitsFailedCleanupInspection as permitsInspect } from "./incus-cleanup-stop-policy";
+import { matchesCleanupRecoveryBinding, matchesFailedCleanupDestroy, permitsLinkedCleanupStop as permits, permitsFailedCleanupInspection as permitsInspect } from "./incus-cleanup-stop-policy";
 
 type Binding = Parameters<typeof permits>[0];
 type Recovery = NonNullable<Parameters<typeof permits>[1]>;
@@ -58,4 +58,12 @@ test("failed cleanup inspection grants readback only for the exact current no-ef
   const patches: Partial<Recovery>[] = [{ bindingId: "foreign" }, { generation: 2 }, { installationId: "foreign" },
     { releaseId: "foreign" }, { connectionId: "foreign" }, { connectionRevision: 2 }, { providerResourceId: "foreign" }];
   for (const patch of patches) expect(matchesCleanupRecoveryBinding(binding, { ...recovery, ...patch }, "guest")).toBe(false);
+});
+
+test("failed receipt matcher stays exact when reused for completed history", () => {
+  expect(matchesFailedCleanupDestroy(binding,{...recovery,state:"COMPLETED"},failed)).toBe(true);
+  for (const patch of [{ id:"foreign" },{ bindingId:"foreign" },{ generation:2 },{ kind:"STOP" as const },
+    { state:"SUCCEEDED" as const },{ errorCode:"INTERNAL" },{ providerOperationId:"forged" },
+    { requestPayload:{expectedGeneration:3} },{requestPayload:{expectedGeneration:2,extra:true}}])
+    expect(matchesFailedCleanupDestroy(binding,recovery,{...failed,...patch})).toBe(false);
 });
