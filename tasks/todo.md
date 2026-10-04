@@ -5613,6 +5613,17 @@ Review: the cause was a host tool, not a missing `.git`. The installer and its t
 ships none. The installer now reads the filesystem through the SDK's one repository rule, so it needs no git anywhere. Receipts:
 /tmp/factory-platform-evidence/w4h-1/report.txt.
 
+## W4H-9 — the extension runner stays compatible with pre-attach hosts (branch `wp/w4h-9`; gates `tasks/factory/w4h-9-GATES.md`)
+
+- [x] Red first: a host that never attaches gets unknown_worker; the frozen 3ec53eaa RunnerClient loses its worker; it answers one reverse call 6 times.
+- [x] Fix 1 (0498c0a52): the host that starts a worker owns it (an unclaimed start claim; attach stays required after a release).
+- [x] Fix 2 (02c53fb7a): each reverse call reaches an attachment once; a release hands every unanswered call to the next holder.
+- [x] Green: 14/14 detach, 45/0 unit, 31/0 podman integration, the E2E upgrade (semantic only) exit 0.
+- [ ] The full historical-upgrade lane locally: starved by host load; the hosted recovery proof is its proof of record.
+
+Review: 11b9f72b9 changed the runner protocol twice in ways only an older host notices, and the old app hides every runner error as
+operation_failed. A request log in a scratch copy named each break in turn. Receipts: /tmp/factory-platform-evidence/w4h-9/report.txt.
+
 ## W4G — hosted CI pre-flight packages (landing records)
 
 - [x] First hosted CI run of the branch (2fd05e200) failed 14 jobs, the second (842ad9fe1) 26; eleven wave-side causes hidden by the local host.
