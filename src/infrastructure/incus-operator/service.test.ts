@@ -277,7 +277,7 @@ test("a reviewed upgrade reuses one scoped client identity only after the old co
     await expect(value.service.plan(value.snapshot.installation.id, "admin"))
       .rejects.toThrow("unfinished sandboxes");
     await value.client.query("UPDATE provider_sandbox_operations SET state = 'FAILED' WHERE id = 'old-operation'");
-    await value.client.query("INSERT INTO sandbox_reservations (id,binding_id,compute_state,disk_state) VALUES ('old-reservation','unfinished-binding','RELEASED','HELD')");
+    await value.client.query("INSERT INTO sandbox_reservations (id,binding_id,compute_state,disk_state) VALUES ('old-reservation','unfinished-binding','RELEASED','RELEASE_REQUESTED')");
     await expect(value.service.plan(value.snapshot.installation.id, "admin"))
       .rejects.toThrow("unfinished sandboxes");
     await value.client.query("UPDATE sandbox_reservations SET disk_state = 'RELEASED' WHERE id = 'old-reservation'");
