@@ -39,7 +39,7 @@ async function fixture() {
   const release = snapshot.release;
   const approval = { id: "approval", installationId: installation.id, releaseId: release.id,
     releaseDigest: release.releaseDigest, principalId: installation.ownerId, scope: installation.scope,
-    status: "consumed", expectedGeneration: 0 };
+    status: "consumed", expectedGeneration: 0, grants: installation.grants };
   await pglite.query("INSERT INTO extension_release_installations (id, owner_id, scope, payload) VALUES ($1, $2, $3, $4)",
     [installation.id, installation.ownerId, installation.scope, JSON.stringify(installation)]);
   for (const [kind, record] of [["releases", release], ["approvals", approval]] as const) {

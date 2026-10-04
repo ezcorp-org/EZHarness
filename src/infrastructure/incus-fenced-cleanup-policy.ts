@@ -28,7 +28,7 @@ export const frozenFencedCleanupOriginal = fencedCleanupPredicate(sandboxOperati
 /** Drain excludes historical uncertainty only after ordinary cleanup proved
  * absence and released both reservations. Admission alone never drains it. */
 export function compensatedCleanupPredicate(operation: Parameters<typeof fencedCleanupPredicate>[0]) {
-  return sql`(${fencedCleanupPredicate(operation)}) AND EXISTS (
+  return sql`((${fencedCleanupPredicate(operation)}) AND EXISTS (
   SELECT 1 FROM incus_fenced_cleanup_recoveries r
   JOIN provider_sandbox_operations cleanup ON cleanup.id = r.cleanup_operation_id
   JOIN sandbox_bindings b ON b.id = r.binding_id
@@ -39,7 +39,7 @@ export function compensatedCleanupPredicate(operation: Parameters<typeof fencedC
     AND reservation.generation = r.generation
     AND reservation.compute_state = 'RELEASED' AND reservation.disk_state = 'RELEASED'
     AND reservation.cleanup_intent_id = 'incus-qualification-destroy-' || r.fixture_operation_id
-)`;
+))`;
 
 }
 export const compensatedCleanupOriginal = compensatedCleanupPredicate(sandboxOperations);

@@ -38,7 +38,7 @@ async function fixture() {
   preset.imageDigest = "c".repeat(64);
   const release = { id: "release", installationId: "installation", releaseDigest: "digest", manifest };
   const approval = { id: "approval", installationId: "installation", releaseId: "release", releaseDigest: "digest",
-    principalId: "owner", scope: "global", status: "consumed", expectedGeneration: 1 };
+    principalId: "owner", scope: "global", status: "consumed", expectedGeneration: 1, grants: installation.grants };
   await client.query("INSERT INTO extension_release_installations (id, owner_id, scope, payload) VALUES ($1, $2, $3, $4)",
     [installation.id, installation.ownerId, installation.scope, JSON.stringify(installation)]);
   for (const [kind, row] of [["releases", release], ["approvals", approval]] as const) {

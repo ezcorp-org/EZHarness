@@ -12,7 +12,8 @@ import { incusManifest, INCUS_PRESETS } from "../../extensions/incus-sandbox/man
 import { makeTestCertificates } from "./incus-transport/test-certificates";
 import { up as addReleaseTables } from "../db/migrations/add-extension-releases";
 import { up as addConnections } from "../db/migrations/add-provider-connections";
-import { eq, sql } from "drizzle-orm";
+import { eq, sql, not } from "drizzle-orm";
+import { compensatedCleanupOriginal } from "./incus-fenced-cleanup-policy";
 import { SandboxAdmissionStore } from "../sandboxes/admission";
 import { hasUnfinishedProviderSandboxes } from "../db/queries/extension-releases";
 import { PGlite } from "@electric-sql/pglite";
@@ -152,6 +153,10 @@ afterEach(async () => {
 test("signed recovery journals one real DESTROY without changing the uncertain START", async () => {
   const { db } = await setup();
   const original = (await db.select().from(schema.sandboxOperations))[0]!;
+  const visibleOriginal = async () => (await db.select({ id: schema.sandboxOperations.id })
+    .from(schema.sandboxOperations).where(not(compensatedCleanupOriginal)))
+    .some(row => row.id === operationId);
+  expect(await visibleOriginal()).toBe(true);
   expect(await hasUnfinishedProviderSandboxes(db, scope.installationId)).toBe(true);
   const cleanupId = await applyFencedCleanupRecovery(db, receipt(), publicKeyPem, now);
   const dispatches: string[] = [];
@@ -168,9 +173,11 @@ test("signed recovery journals one real DESTROY without changing the uncertain S
   expect(await controller.getOperation(operationId)).toEqual(original);
   expect((await controller.getBinding(bindingId))?.cleanupConfirmedAt).not.toBeNull();
   expect(await hasUnfinishedProviderSandboxes(db, scope.installationId)).toBe(true);
+  expect(await visibleOriginal()).toBe(true);
   await new SandboxAdmissionStore(db).recordObservedState(bindingId, 1, "ABSENT",
     `incus-qualification-destroy-${fixtureOperationId}`, cleanupId);
   expect(await hasUnfinishedProviderSandboxes(db, scope.installationId)).toBe(false);
+  expect(await visibleOriginal()).toBe(false);
   await controller.inspectOperation(operationId);
   await controller.reconcile();
   expect(await controller.getOperation(operationId)).toEqual(original);
