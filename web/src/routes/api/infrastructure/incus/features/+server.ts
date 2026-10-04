@@ -68,6 +68,13 @@ function service(): IncusFeatureService {
   return new IncusFeatureService({ loadQualification: scope => qualifications.load(scope) });
 }
 
+/** Public receipt only: internal journal counters and provider error text are not API data. */
+function publicOperation(operation: typeof sandboxOperations.$inferSelect) {
+  return { id: operation.id, kind: operation.kind, state: operation.state,
+    generation: operation.generation, providerOperationId: operation.providerOperationId,
+    errorCode: operation.errorCode, createdAt: operation.createdAt, updatedAt: operation.updatedAt };
+}
+
 function safeFailure(error: unknown): Response {
   if (error instanceof IncusStopRequiredError) return json({ code: "stop_required", message: "Stop this sandbox before disposal." }, { status: 409 });
   if (error instanceof IncusCleanupRecoveryUnavailableError) return json({ code: "cleanup_recovery_unavailable", message: "The saved cleanup needs review. Inspect its status." }, { status: 409 });
@@ -123,19 +130,18 @@ export const POST: RequestHandler = async ({ locals, request }) => {
       return json({ recovery: { id: result.recovery.id, state: result.recovery.state,
         failedDestroyOperationId: result.recovery.failedDestroyOperationId,
         stopOperationId: result.recovery.stopOperationId, destroyOperationId: result.recovery.destroyOperationId },
-        operation: { id: result.operation.id, kind: result.operation.kind, state: result.operation.state,
-          generation: result.operation.generation, providerOperationId: result.operation.providerOperationId,
-          errorCode: result.operation.errorCode, createdAt: result.operation.createdAt, updatedAt: result.operation.updatedAt } }, { status: 202 });
+        operation: publicOperation(result.operation) }, { status: 202 });
     }
     const mutation = { bindingId, idempotencyScope: input.idempotencyScope as string, idempotencyKey: input.idempotencyKey as string };
     const configured = service();
     if (action === "create" || action === "start") {
       const effect = action === "create" ? await configured.create(mutation) : await configured.start(mutation);
-      return json(effect, { status: effect.state === "REJECTED" ? 409 : 202 });
+      return json(effect.state === "DISPATCHED" ? { ...effect, operation: publicOperation(effect.operation) } : effect,
+        { status: effect.state === "REJECTED" ? 409 : 202 });
     }
-    if (action === "stop") return json({ operation: await configured.stop(mutation) }, { status: 202 });
-    if (action === "destroyRetired") return json({ operation: await configured.destroyRetired(mutation) }, { status: 202 });
-    return json({ operation: await configured.destroy(mutation) }, { status: 202 });
+    if (action === "stop") return json({ operation: publicOperation(await configured.stop(mutation)) }, { status: 202 });
+    if (action === "destroyRetired") return json({ operation: publicOperation(await configured.destroyRetired(mutation)) }, { status: 202 });
+    return json({ operation: publicOperation(await configured.destroy(mutation)) }, { status: 202 });
   } catch (error) {
     if (action === "recoverCleanup") return safeFailure(new IncusCleanupRecoveryUnavailableError());
     return safeFailure(error);

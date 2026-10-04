@@ -9,7 +9,11 @@ let projectPurpose = "user";
 let bindingExists = true;
 let operationExists = true;
 const binding = { id: "binding-a", projectId: "project-a" };
-const operation = { id: "operation-a", state: "DISPATCHING" };
+const operation = { id: "operation-a", kind: "CREATE", state: "DISPATCHING", generation: 1,
+ providerOperationId: "provider-operation-a", errorCode: null,
+ createdAt: "2026-10-04T05:30:00.000Z", updatedAt: "2026-10-04T05:30:01.000Z" };
+const journalReceipt = () => ({ ...operation, reconcileOrder: 1n,
+  requestPayload: { privateMaterial: "PRIVATE-JOURNAL-CANARY" }, errorMessage: "PRIVATE-JOURNAL-CANARY" });
 const database = {
 	select() {
 		let source: unknown;
@@ -53,13 +57,13 @@ vi.mock("$server/infrastructure/incus-feature-service", () => ({
 		async create(input: { idempotencyKey: string }) {
 			calls.push(`create:${input.idempotencyKey}`);
 			if (failWith) throw failWith;
-			return input.idempotencyKey === "denied" ? { state: "REJECTED", reason: "capacity" } : { state: "DISPATCHED", operation };
+			return input.idempotencyKey === "denied" ? { state: "REJECTED", reason: "capacity" } : { state: "DISPATCHED", operation: journalReceipt() };
 		}
-		async start(input: { bindingId: string }) { calls.push(`start:${input.bindingId}`); return { state: "QUEUED", operation }; }
-		async stop(input: { bindingId: string }) { calls.push(`stop:${input.bindingId}`); return operation; }
-		async destroy(input: { bindingId: string }) { calls.push(`destroy:${input.bindingId}`); if (failWith) throw failWith; return operation; }
+		async start(input: { bindingId: string; idempotencyKey: string }) { calls.push(`start:${input.bindingId}`); return input.idempotencyKey === "receipt-key" ? { state: "DISPATCHED", operation: journalReceipt() } : { state: "QUEUED", reason: "capacity", operation: null }; }
+		async stop(input: { bindingId: string }) { calls.push(`stop:${input.bindingId}`); return journalReceipt(); }
+		async destroy(input: { bindingId: string }) { calls.push(`destroy:${input.bindingId}`); if (failWith) throw failWith; return journalReceipt(); }
 		async recoverCleanup(bindingId: string, failedDestroyOperationId: string) { calls.push(`recoverCleanup:${bindingId}:${failedDestroyOperationId}`); throw failWith ?? new Error("database secret"); }
-		async destroyRetired(input: { bindingId: string }) { calls.push(`destroyRetired:${input.bindingId}`); return operation; }
+		async destroyRetired(input: { bindingId: string }) { calls.push(`destroyRetired:${input.bindingId}`); return journalReceipt(); }
 		async reconcile(limit?: number) { calls.push(`reconcile:${limit}`); return { processed: 0 }; }
 	},
 }));
@@ -73,7 +77,7 @@ function event(body: unknown, locals: Record<string, unknown> = admin, origin: s
 }
 const mutation = { projectId: "project-a", bindingId: "binding-a", idempotencyScope: "scope-a", idempotencyKey: "key-a" };
 
-beforeEach(() => { calls.length = 0; qualified = false; failWith = null; projectExists = true; projectPurpose = "user"; bindingExists = true; operationExists = true; });
+beforeEach(() => { operation.state = "DISPATCHING"; calls.length = 0; qualified = false; failWith = null; projectExists = true; projectPurpose = "user"; bindingExists = true; operationExists = true; });
 
 test("denies non-admin, cross-origin, and non-JSON requests before effects", async () => {
 	expect((await POST(event({ action: "reconcile" }, {}))).status).toBe(401);
@@ -172,3 +176,18 @@ test("cleanup recovery preserves project authorization and hides service failure
 	expect(await response.json()).toEqual({ code: "cleanup_recovery_unavailable", message: "The saved cleanup needs review. Inspect its status." });
 	expect(calls).toEqual(["role:member", "recoverCleanup:binding-a:failed-a"]);
 });
+
+ test("admitted asynchronous lifecycle receipts exclude internal bigint and private journal fields", async () => {
+   for (const state of ["PROVIDER_PENDING", "SUCCEEDED", "OUTCOME_UNKNOWN"]) {
+     operation.state = state;
+     for (const action of ["create", "start", "stop", "destroy", "destroyRetired"]) {
+       const response = await POST(event({ action, projectId: "project-a", bindingId: "binding-a",
+         idempotencyScope: "scope-a", idempotencyKey: "receipt-key" }));
+       expect(response.status).toBe(202);
+       const body = await response.json();
+       expect(body.operation).toEqual(operation);
+       expect(JSON.stringify(body)).not.toContain("PRIVATE-JOURNAL-CANARY");
+       expect(body.operation).not.toHaveProperty("reconcileOrder");
+     }
+   }
+ });

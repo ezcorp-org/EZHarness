@@ -199,6 +199,13 @@ test("prepare, create, start, stop and destroy use durable admission and provide
   const request = (key: string) => ({ bindingId: binding.id, idempotencyScope: "feature", idempotencyKey: key });
   const created = await service.create(request("create"));
   expect(created.state).toBe("DISPATCHED");
+  if (created.state !== "DISPATCHED") throw new Error("CREATE was not dispatched");
+  expect(created.operation.state).toBe("PROVIDER_PENDING");
+  expect(typeof created.operation.reconcileOrder).toBe("bigint");
+  const kitExports = "../../web/node_modules/@sveltejs/kit/src/exports/index.js";
+  const { json }: { json(data: unknown): Response } = await import(kitExports);
+  expect(() => json(created)).toThrow("BigInt");
+  expect(created.operation.providerOperationId).toBe(`provider-${created.operation.id}`);
   expect(dispatches[0]?.kind).toBe("CREATE");
   expect(dispatches[0]?.binding.connectionRevision).toBe(1);
   expect((await service.create(request("create"))).state).toBe("DISPATCHED");
