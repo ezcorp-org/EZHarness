@@ -250,8 +250,9 @@ test("a reviewed upgrade reuses one scoped client identity only after the old co
     await value.client.query("UPDATE incus_operator_setups SET state = 'verified' WHERE id = $1", [prior.id]);
     value.observe({ ...inventory(), trust: [{ fingerprint: identity.fingerprint, name: "engine",
       restricted: true, projects: [recipe.project.name], type: "client" }] });
-    await value.client.query("CREATE TABLE sandbox_bindings (id TEXT PRIMARY KEY, connection_id TEXT NOT NULL, tombstoned_at TIMESTAMPTZ, cleanup_confirmed_at TIMESTAMPTZ)");
+    await value.client.query("CREATE TABLE sandbox_bindings (id TEXT PRIMARY KEY, provider_installation_id TEXT NOT NULL, connection_id TEXT NOT NULL, desired_state TEXT NOT NULL, observed_state TEXT NOT NULL, tombstoned_at TIMESTAMPTZ, cleanup_confirmed_at TIMESTAMPTZ)");
     await value.client.query("CREATE TABLE provider_sandbox_operations (id TEXT PRIMARY KEY, binding_id TEXT NOT NULL, state TEXT NOT NULL)");
+    await value.client.query("CREATE TABLE sandbox_reservations (id TEXT PRIMARY KEY, binding_id TEXT NOT NULL, compute_state TEXT NOT NULL, disk_state TEXT NOT NULL)");
     const oldRelease = structuredClone(value.snapshot.release);
     const nextRelease = { ...oldRelease, id: "release-upgrade", releaseDigest: "e".repeat(64) };
     value.snapshot.release = nextRelease;
@@ -267,15 +268,19 @@ test("a reviewed upgrade reuses one scoped client identity only after the old co
         installationId: value.snapshot.installation.id, releaseId: nextRelease.id,
         releaseDigest: nextRelease.releaseDigest, principalId: value.snapshot.installation.ownerId,
         scope: "global", status: "consumed", expectedGeneration: 2 })]);
-    await value.client.query("INSERT INTO sandbox_bindings (id,connection_id) VALUES ($1,$2)",
-      ["unfinished-binding", prior.connectionId]);
+    await value.client.query("INSERT INTO sandbox_bindings (id,provider_installation_id,connection_id,desired_state,observed_state) VALUES ($1,$2,$3,'RUNNING','RUNNING')",
+      ["unfinished-binding", value.snapshot.installation.id, prior.connectionId]);
     await expect(value.service.plan(value.snapshot.installation.id, "admin"))
       .rejects.toThrow("unfinished sandboxes");
-    await value.client.query("UPDATE sandbox_bindings SET tombstoned_at = NOW(), cleanup_confirmed_at = NOW() WHERE id = 'unfinished-binding'");
+    await value.client.query("UPDATE sandbox_bindings SET tombstoned_at = NOW(), cleanup_confirmed_at = NOW(), desired_state = 'ABSENT', observed_state = 'ABSENT' WHERE id = 'unfinished-binding'");
     await value.client.query("INSERT INTO provider_sandbox_operations (id,binding_id,state) VALUES ('old-operation','unfinished-binding','OUTCOME_UNKNOWN')");
     await expect(value.service.plan(value.snapshot.installation.id, "admin"))
       .rejects.toThrow("unfinished sandboxes");
     await value.client.query("UPDATE provider_sandbox_operations SET state = 'FAILED' WHERE id = 'old-operation'");
+    await value.client.query("INSERT INTO sandbox_reservations (id,binding_id,compute_state,disk_state) VALUES ('old-reservation','unfinished-binding','RELEASED','HELD')");
+    await expect(value.service.plan(value.snapshot.installation.id, "admin"))
+      .rejects.toThrow("unfinished sandboxes");
+    await value.client.query("UPDATE sandbox_reservations SET disk_state = 'RELEASED' WHERE id = 'old-reservation'");
     const upgraded = await value.service.plan(value.snapshot.installation.id, "admin");
     expect(upgraded.state).toBe("planned");
     expect(upgraded.connectionId).not.toBe(prior.connectionId);
