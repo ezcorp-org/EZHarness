@@ -98,21 +98,15 @@ export async function requireFencedCleanupAuthority(db: Database | DbTransaction
   "current release or preset pins changed");
 }
 
-/** Admit compensation only. This never assigns an outcome to the original RPC. */
-export async function applyFencedCleanupRecovery(db: Database, receipt: FencedCleanupReceipt,
-  publicKeyPem: string, now = Date.now()): Promise<string> {
-  const p = verifyFencedCleanupReceipt(receipt, publicKeyPem, now);
-  const receiptSha256 = createHash("sha256").update(canonicalRecoveryJson(receipt)).digest("hex");
-  return db.transaction(async (tx: DbTransaction) => {
-    await requireFencedCleanupAuthority(tx, p);
-    const [binding] = await tx.select().from(sandboxBindings).where(eq(sandboxBindings.id, p.bindingId)).for("update");
-    const [existing] = await tx.select().from(incusFencedCleanupRecoveries).where(eq(incusFencedCleanupRecoveries.operationId, p.operationId));
-    if (existing) {
-      requireFact(existing.receiptSha256 === receiptSha256, "recovery receipt changed");
-      return existing.cleanupOperationId;
-    }
-    const [fixture] = await tx.select().from(incusQualificationFixtures).where(eq(incusQualificationFixtures.operationId, p.fixtureOperationId)).for("update");
-    requireFact(binding && fixture && fixture.bindingId === p.bindingId
+type CleanupBinding = typeof sandboxBindings.$inferSelect;
+type CleanupFixture = typeof incusQualificationFixtures.$inferSelect;
+type CleanupOperation = typeof sandboxOperations.$inferSelect;
+
+/** Bind the signed proof to the exact retained qualification resource. */
+function requireCleanupFixture(binding: CleanupBinding | undefined,
+  fixture: CleanupFixture | undefined, p: FencedCleanupPayload):
+  { binding: CleanupBinding; fixture: CleanupFixture } {
+  requireFact(binding && fixture && fixture.bindingId === p.bindingId
       && fixture.installationId === p.scope.installationId && fixture.releaseId === p.scope.releaseId
       && fixture.connectionId === p.scope.connectionId && fixture.presetId === p.scope.presetId
       && fixture.connectionRevision === p.connectionRevision && binding.generation === p.generation
@@ -123,12 +117,14 @@ export async function applyFencedCleanupRecovery(db: Database, receipt: FencedCl
       && binding.presetDigest === p.presetDigest && fixture.presetDigest === p.presetDigest
       && binding.effectiveSettingsDigest === p.effectiveSettingsDigest
       && fixture.effectiveSettingsDigest === p.effectiveSettingsDigest, "fixture or binding changed");
-    const [project] = await tx.select().from(projects).where(eq(projects.id, binding.projectId)).for("update");
-    const [workspace] = await tx.select().from(projectWorkspaceBindings).where(eq(projectWorkspaceBindings.projectId, binding.projectId));
-    requireFact(project?.purpose === "incus-qualification" && fixture.projectId === project.id && !workspace, "fixture is not an exclusive qualification resource");
-    const operations: Array<typeof sandboxOperations.$inferSelect> = await tx.select().from(sandboxOperations).where(eq(sandboxOperations.bindingId, p.bindingId));
-    const original = operations.find(o => o.id === p.operationId);
-    requireFact(original && ["START", "STOP"].includes(original.kind) && original.state === "OUTCOME_UNKNOWN"
+  return { binding, fixture };
+}
+
+/** Preserve uncertainty and refuse compensation while another effect remains. */
+function requireUncertainPowerOperation(operations: CleanupOperation[],
+  binding: CleanupBinding, p: FencedCleanupPayload): CleanupOperation {
+  const original = operations.find(o => o.id === p.operationId);
+  requireFact(original && ["START", "STOP"].includes(original.kind) && original.state === "OUTCOME_UNKNOWN"
       && original.generation === p.generation && original.providerOperationId === p.providerOperationId
       && original.payloadHash === p.payloadHash && original.idempotencyScope === "incus-qualification-power"
       && binding.desiredState === (original.kind === "START" ? "RUNNING" : "STOPPED")
@@ -141,6 +137,29 @@ export async function applyFencedCleanupRecovery(db: Database, receipt: FencedCl
         payload: original.requestPayload }) === p.payloadHash
       && operations.filter(o => ["JOURNALED", "DISPATCHING", "PROVIDER_PENDING", "OUTCOME_UNKNOWN"].includes(o.state)).length === 1,
     "original uncertain power operation changed or another effect remains unresolved");
+  return original;
+}
+
+/** Admit compensation only. This never assigns an outcome to the original RPC. */
+export async function applyFencedCleanupRecovery(db: Database, receipt: FencedCleanupReceipt,
+  publicKeyPem: string, now = Date.now()): Promise<string> {
+  const p = verifyFencedCleanupReceipt(receipt, publicKeyPem, now);
+  const receiptSha256 = createHash("sha256").update(canonicalRecoveryJson(receipt)).digest("hex");
+  return db.transaction(async (tx: DbTransaction) => {
+    await requireFencedCleanupAuthority(tx, p);
+    const [savedBinding] = await tx.select().from(sandboxBindings).where(eq(sandboxBindings.id, p.bindingId)).for("update");
+    const [existing] = await tx.select().from(incusFencedCleanupRecoveries).where(eq(incusFencedCleanupRecoveries.operationId, p.operationId));
+    if (existing) {
+      requireFact(existing.receiptSha256 === receiptSha256, "recovery receipt changed");
+      return existing.cleanupOperationId;
+    }
+    const [savedFixture] = await tx.select().from(incusQualificationFixtures).where(eq(incusQualificationFixtures.operationId, p.fixtureOperationId)).for("update");
+    const { binding, fixture } = requireCleanupFixture(savedBinding, savedFixture, p);
+    const [project] = await tx.select().from(projects).where(eq(projects.id, binding.projectId)).for("update");
+    const [workspace] = await tx.select().from(projectWorkspaceBindings).where(eq(projectWorkspaceBindings.projectId, binding.projectId));
+    requireFact(project?.purpose === "incus-qualification" && fixture.projectId === project.id && !workspace, "fixture is not an exclusive qualification resource");
+    const operations: Array<typeof sandboxOperations.$inferSelect> = await tx.select().from(sandboxOperations).where(eq(sandboxOperations.bindingId, p.bindingId));
+    const original = requireUncertainPowerOperation(operations, binding, p);
     const [reservation] = await tx.select().from(sandboxReservations).where(eq(sandboxReservations.bindingId, p.bindingId)).for("update");
     requireFact(reservation && reservation.generation === p.generation && reservation.projectId === project.id
       && reservation.providerInstallationId === p.scope.installationId && reservation.connectionId === p.scope.connectionId
