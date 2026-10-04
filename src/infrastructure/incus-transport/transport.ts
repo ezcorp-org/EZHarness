@@ -21,6 +21,8 @@ export interface HostConnectionScope {
   revision: number;
   /** Negotiated only from the reviewed provider manifest, never worker configuration. */
   hostContractMinor?: 0 | 1;
+  /** Host observer only: a scoped native read waits within this request budget. */
+  observeNativeWait?: boolean;
   /** Host-only durable receipt checkpoint. It does not claim terminal effect. */
   recordAcceptedOperation?: (operationId: string) => Promise<void>;
   recordTerminalObservation?: (observation: SandboxOperationInspection) => Promise<void>;

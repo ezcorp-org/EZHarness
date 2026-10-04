@@ -8,7 +8,8 @@ import { up as addQualificationFixtures } from "../db/migrations/add-incus-quali
 import { up as addQualificationRuns } from "../db/migrations/add-incus-qualification-runs";
 import * as schema from "../db/schema";
 import type { SandboxWorkspaceTargetResolver } from "../runtime/workspaces/project-target";
-import type { ActiveExtensionRelease } from "../extensions/release-process";
+import { configureReleaseRuntime, type ActiveExtensionRelease } from "../extensions/release-process";
+import { ProviderRpcBroker } from "./provider-rpc-broker";
 import type { ProviderConnectionMetadata } from "./provider-connections/store";
 import type { createProviderSandboxWorkspaceBackend } from "../runtime/workspaces/provider-backend";
 import { IncusLiveProbeFixtureService } from "./incus-live-probe-fixtures";
@@ -161,7 +162,7 @@ test("startup reconciler runs immediately and closes without scheduling more wor
   expect(reconcileCalls).toBe(1);
 });
 
-test("startup reconciler reads durable state through the real service before shutdown", async () => {
+test("startup reconciler resumes native observation and drains it before database shutdown", async () => {
   const pglite = new PGlite();
   try {
     await pglite.waitReady;
@@ -179,9 +180,28 @@ test("startup reconciler reads durable state through the real service before shu
       };
       return typeof value === "function" ? value.bind(target) : value;
     } });
-    const stop = startIncusSandboxReconciler(30_000, undefined, observedDb);
-    await stop();
-    expect(reads).toBeGreaterThan(0);
+    const broker = new ProviderRpcBroker({ resolveForHost: async () => { throw new Error("No transport is requested"); },
+      getMetadata: async () => null }, undefined, observedDb);
+    let entered!: () => void;
+    let release!: () => void;
+    const ready = new Promise<void>(resolve => { entered = resolve; });
+    const running = new Promise<void>(resolve => { release = resolve; });
+    const calls: string[] = [];
+    const resume = spyOn(broker, "resumePendingObservations").mockImplementation(async () => {
+      calls.push("resume"); entered(); await running;
+    });
+    const drain = spyOn(broker, "stopObservations").mockImplementation(async () => { calls.push("drain"); release(); });
+    const runtime = { runner: async () => { throw new Error("No runner is requested"); }, resolve: async () => null };
+    configureReleaseRuntime({ ...runtime, providerRpcBroker: broker });
+    try {
+      const stop = startIncusSandboxReconciler(30_000, undefined, observedDb);
+      await ready;
+      await stop();
+      expect(reads).toBeGreaterThan(0);
+      expect(calls).toEqual(["resume", "drain"]);
+    } finally {
+      resume.mockRestore(); drain.mockRestore(); configureReleaseRuntime(runtime);
+    }
   } finally {
     await pglite.close();
   }

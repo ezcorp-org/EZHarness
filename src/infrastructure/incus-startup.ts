@@ -155,7 +155,10 @@ export async function reconcileIncusWithClaimedCleanup(deps: {
 
 export function startIncusSandboxReconciler(intervalMs = 30_000,
   reconcile?: () => Promise<unknown>, databaseOverride?: Database): () => Promise<void> {
+  let observationBroker: ReturnType<typeof getReleaseRuntime>["providerRpcBroker"];
   if (!reconcile) {
+    try { observationBroker = getReleaseRuntime().providerRpcBroker; }
+    catch { log.warn("Incus native observation runtime is unavailable"); }
     const database = databaseOverride ?? getDb();
     const qualifications = new IncusQualificationStore({ db: database });
     const service = new IncusFeatureService({ db: database,
@@ -172,7 +175,7 @@ export function startIncusSandboxReconciler(intervalMs = 30_000,
       recover: async (scope, handle) => (await cleanup()).reconcileFromReopenedController(scope, handle),
       verifySettled: async (scope, handle, operationId) =>
         (await cleanup()).settleAlreadyCompletedDestroy(scope, handle, operationId),
-      reconcile: () => service.reconcile(),
+      reconcile: async () => { await observationBroker?.resumePendingObservations(); return service.reconcile(); },
     });
   }
   let stopped = false;
@@ -189,6 +192,7 @@ export function startIncusSandboxReconciler(intervalMs = 30_000,
   return async () => {
     stopped = true;
     clearInterval(timer);
+    await observationBroker?.stopObservations();
     await pending;
   };
 }

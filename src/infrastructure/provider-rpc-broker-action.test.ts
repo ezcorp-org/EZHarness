@@ -1,5 +1,5 @@
 import { resourceName } from "./incus-transport/lifecycle";
-import { afterAll, afterEach, expect, test } from "bun:test";
+import { afterAll, afterEach, expect, spyOn, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { makeTestCertificates } from "./incus-transport/test-certificates";
 import { sandboxPresetDigest } from "@ezcorp/extension-contract";
@@ -661,3 +661,94 @@ test("startup resumes only current final native handles without replaying mutati
   expect((await fixture.db.select().from(schema.sandboxReservations)).every(row => row.computeState === "RESERVED" && row.diskState === "RESERVED")).toBe(true);
   await broker.stopObservations();
 });
+
+
+for (const boundary of ["missing", "missing-journal", "rebound", "replacement"] as const) {
+  test(`native acceptance refuses ${boundary} authority without replacing saved truth`, async () => {
+    const fixture = await observationFixture();
+    const action = await fixture.add(0);
+    const nativeId = "incus-create-11111111-1111-4111-8111-111111111111";
+    const replacementId = "incus-create-22222222-2222-4222-8222-222222222222";
+    let effects = 0;
+    const broker = new ProviderRpcBroker(fixture.connections, undefined, fixture.db,
+      (_scope, _signal, accepted) => ({ request: async () => {
+        effects++;
+        if (boundary === "rebound") await fixture.db.update(schema.sandboxBindings)
+          .set({ currentOperationId: "newer-intent" }).where(eq(schema.sandboxBindings.id, action.bindingId));
+        await accepted!(nativeId);
+        if (boundary === "replacement") await accepted!(replacementId);
+        return { ok: true };
+      } }), undefined, { now: () => fixture.now,
+        resolveActiveRelease: async () => { throw new Error("No independent read is authorized in this boundary"); } });
+    const target = boundary === "missing" ? { ...action, settlementScope: undefined } : action;
+    if (boundary === "missing-journal") await fixture.db.delete(schema.sandboxOperations);
+    const beforeEffect = boundary === "missing" || boundary === "missing-journal";
+    try {
+      expect(await broker.request(target, { command: target.expectedCommand }, target.expectedCommand.deadlineMs))
+        .toMatchObject({ ok: false, error: beforeEffect ? { kind: "permission", effect: "none" }
+          : { effect: "unknown", operationId: boundary === "replacement" ? replacementId : nativeId } });
+      const [saved] = await fixture.db.select().from(schema.sandboxOperations);
+      if (boundary === "missing-journal") expect(saved).toBeUndefined();
+      else {
+        expect(saved.state).toBe("DISPATCHING");
+        expect(saved.providerOperationId).toBe(boundary === "replacement" ? nativeId : null);
+      }
+      expect(effects).toBe(beforeEffect ? 0 : 1);
+    } finally { await broker.stopObservations(); }
+  });
+}
+
+for (const state of ["succeeded", "running"] as const) {
+  test(`shutdown drains original dispatch after observer ${state}`, async () => {
+    const fixture = await observerReadFixture();
+    const action = await fixture.add(0);
+    const nativeId = "incus-create-11111111-1111-4111-8111-111111111111";
+    let entered!: () => void;
+    const ready = new Promise<void>(resolve => { entered = resolve; });
+    let acceptedReady!: () => void;
+    const acceptance = new Promise<void>(resolve => { acceptedReady = resolve; });
+    let pauseReady!: () => void;
+    const pause = new Promise<void>(resolve => { pauseReady = resolve; });
+    const schedule = globalThis.setTimeout;
+    const timerSpy = spyOn(globalThis, "setTimeout").mockImplementation(((callback: TimerHandler, milliseconds?: number, ...args: unknown[]) => {
+      const timer = schedule(callback, milliseconds, ...args);
+      if (milliseconds === 250) pauseReady();
+      return timer;
+    }) as typeof setTimeout);
+    let aborted = false;
+    let drained = false;
+    let allowDispatch!: () => void;
+    const dispatchBarrier = new Promise<void>(resolve => { allowDispatch = resolve; });
+    const broker = new ProviderRpcBroker(fixture.connections, undefined, fixture.db,
+      (prepared, signal, accepted, _terminal, observing) => ({ request: async () => {
+        if (!observing) {
+          signal!.addEventListener("abort", () => { aborted = true; entered(); }, { once: true });
+          await accepted!(nativeId);
+          acceptedReady();
+          await dispatchBarrier;
+          drained = true;
+          return { ok: true };
+        }
+        const result = { ok: true, operation: { operationId: nativeId, kind: "create", sandboxId: action.bindingId,
+          state, desiredState: "stopped", observedState: state === "succeeded" ? "stopped" : "unknown",
+          resourceId: prepared.expectedCommand.sandboxName, startedAt: new Date(fixture.now).toISOString(),
+          finishedAt: state === "succeeded" ? new Date(fixture.now + 1).toISOString() : null, error: null } };
+        return result;
+      } }), undefined, { now: () => fixture.now, resolveActiveRelease: async () => fixture.snapshot });
+    const request = broker.request(action, { command: action.expectedCommand }, action.expectedCommand.deadlineMs);
+    await acceptance;
+    if (state === "succeeded") await broker.awaitObservation(action.expectedCommand.idempotency!.requestId);
+    else await pause;
+    timerSpy.mockRestore();
+    const stop = broker.stopObservations();
+    await ready;
+    expect(aborted).toBe(true);
+    expect(drained).toBe(false);
+    allowDispatch();
+    await stop;
+    await request;
+    expect(drained).toBe(true);
+    expect((await fixture.db.select().from(schema.sandboxOperations))[0]!.state)
+      .toBe(state === "succeeded" ? "SUCCEEDED" : "DISPATCHING");
+  });
+}

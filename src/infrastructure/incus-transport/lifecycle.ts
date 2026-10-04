@@ -163,6 +163,7 @@ type LifecycleContext = {
   input: Record<string, unknown>;
   policy: ReturnType<typeof sourceConfig>;
   hostContractMinor: 0 | 1;
+  observeNativeWait?: boolean;
   recordAcceptedOperation?: HostConnectionScope["recordAcceptedOperation"];
   recordTerminalObservation?: HostConnectionScope["recordTerminalObservation"];
 };
@@ -245,7 +246,7 @@ async function verifyCompletedOperation(
   kind: string,
   status: unknown,
 ) {
-  let state = status === "Success" ? "succeeded" : status === "Failure" ? "failed" : "running";
+  let state = status === "Success" ? "succeeded" : status === "Failure" ? "failed" : status === "Cancelled" ? "cancelled" : "running";
   let observedState: "running" | "stopped" | "absent" | "unknown" = "unknown";
   let desiredState: "running" | "stopped" | "absent" = kind === "destroy" ? "absent" : "stopped";
   if (state === "succeeded") {
@@ -272,20 +273,41 @@ async function verifyCompletedOperation(
   return { state, observedState, desiredState };
 }
 
+function assertNativeOperationResource(context: LifecycleContext, native: Record<string, unknown>): void {
+  const resources = object(native.resources);
+  if (!Array.isArray(resources.instances) || !resources.instances.some(item => typeof item === "string"
+    && new URL(item, "https://incus.invalid").pathname === `/1.0/instances/${context.command.sandboxName}`)) denied("Incus operation escaped sandbox scope");
+}
+
+async function inspectPowerIntent(context: LifecycleContext, id: string,
+  operationReply: Awaited<ReturnType<Session["request"]>>) {
+  const native = operationReply.status === 404 ? null : object(metadata(operationReply));
+  if (native) assertNativeOperationResource(context, native);
+  const failed = native?.status === "Failure" || native?.status === "Cancelled";
+  return { ok: true, operation: { operationId: id, kind: "setPower", sandboxId: context.command.tags.sandboxId,
+    state: failed ? native!.status === "Cancelled" ? "cancelled" : "failed" : "outcome_unknown",
+    desiredState: "stopped", observedState: "unknown", resourceId: native ? context.command.sandboxName : null,
+    startedAt: String(native?.created_at ?? new Date().toISOString()), finishedAt: new Date().toISOString(),
+    error: failed ? { code: "INTERNAL", message: "Incus intent update failed", retryable: false }
+      : { code: "OUTCOME_UNKNOWN", message: "Incus power effect was not admitted", retryable: false, operationId: id } } };
+}
+
 async function inspectIncusOperation(context: LifecycleContext, id: string) {
   const { session, command, project } = context;
-  const operationMatch = /^incus-(create|setPower|destroy)-([a-f0-9-]{36})$/.exec(id);
+  const operationMatch = /^incus-(create|setPower|setPowerIntent|destroy)-([a-f0-9-]{36})$/.exec(id);
   if (!operationMatch) invalid("Invalid Incus operation identity");
-  const operationReply = await session.request("GET", `/1.0/operations/${operationMatch[2]}?project=${project}`);
+  const wait = context.observeNativeWait && operationMatch[1] !== "setPowerIntent"
+    ? `/wait?timeout=${Math.max(0, Math.floor((command.deadlineMs - Date.now()) / 1000))}&project=${project}`
+    : `?project=${project}`;
+  const operationReply = await session.request("GET", `/1.0/operations/${operationMatch[2]}${wait}`);
+  if (operationMatch[1] === "setPowerIntent") return inspectPowerIntent(context, id, operationReply);
   if (operationMatch[1] === "create" && operationReply.status === 404) return inspectExpiredCreateOperation(context, id);
   if (operationMatch[1] === "setPower" && operationReply.status === 404) return inspectExpiredPowerOperation(context, id);
   if (operationMatch[1] === "destroy" && operationReply.status === 404) return inspectExpiredDestroyOperation(context, id);
   const reply = object(metadata(operationReply));
-  const resources = object(reply.resources);
-  const instances = resources.instances;
-  if (!Array.isArray(instances) || !instances.some(item => typeof item === "string" && new URL(item, "https://incus.invalid").pathname === `/1.0/instances/${command.sandboxName}`)) denied("Incus operation escaped sandbox scope");
+  assertNativeOperationResource(context, reply);
   const { state, observedState, desiredState } = await verifyCompletedOperation(context, operationMatch[1]!, reply.status);
-  return { ok: true, operation: { operationId: id, kind: operationMatch[1], sandboxId: command.tags.sandboxId, state, desiredState, observedState, resourceId: command.sandboxName, startedAt: String(reply.created_at ?? new Date().toISOString()), finishedAt: state === "succeeded" || state === "failed" || state === "outcome_unknown" ? String(reply.updated_at ?? new Date().toISOString()) : null, error: state === "outcome_unknown" ? { code: "OUTCOME_UNKNOWN", message: "Incus mutation outcome is unknown", retryable: false, operationId: id } : state === "failed" ? { code: "INTERNAL", message: "Incus operation failed", retryable: false } : null } };
+  return { ok: true, operation: { operationId: id, kind: operationMatch[1], sandboxId: command.tags.sandboxId, state, desiredState, observedState, resourceId: command.sandboxName, startedAt: String(reply.created_at ?? new Date().toISOString()), finishedAt: state === "succeeded" || state === "failed" || state === "cancelled" || state === "outcome_unknown" ? String(reply.updated_at ?? new Date().toISOString()) : null, error: state === "outcome_unknown" ? { code: "OUTCOME_UNKNOWN", message: "Incus mutation outcome is unknown", retryable: false, operationId: id } : state === "failed" || state === "cancelled" ? { code: "INTERNAL", message: "Incus operation failed", retryable: false } : null } };
 }
 
 async function inspectExpiredDestroyOperation({ session, command, instancePath, input }: LifecycleContext, id: string) {
@@ -369,9 +391,7 @@ async function waitNativeOperation(context: LifecycleContext, nativeId: string) 
   const result = await session.request("GET", `/1.0/operations/${match[2]}/wait?timeout=${timeout}&project=${project}`);
   if (result.status === 404) return null;
   const operation = object(metadata(result));
-  const resources = object(operation.resources);
-  if (!Array.isArray(resources.instances) || !resources.instances.some(item => typeof item === "string"
-    && new URL(item, "https://incus.invalid").pathname === `/1.0/instances/${command.sandboxName}`)) denied("Incus operation escaped sandbox scope");
+  assertNativeOperationResource(context, operation);
   return operation;
 }
 
@@ -469,13 +489,18 @@ async function patchMutationIntent(context: LifecycleContext, kind: "setPower" |
     await context.recordAcceptedOperation?.(stableId);
     if (reply.envelope.type === "async") {
       const id = acceptedOperationId(reply, "setPower", stableId);
-      const result = id === stableId ? null : await waitNativeOperation(context, id);
+      const intentId = kind === "setPower" && context.hostContractMinor === 1 && id !== stableId
+        ? id.replace("incus-setPower-", "incus-setPowerIntent-") : stableId;
+      if (intentId !== stableId) await context.recordAcceptedOperation?.(intentId);
+      let result: Record<string, unknown> | null;
+      try { result = id === stableId ? null : await waitNativeOperation(context, id); }
+      catch (error) { throw uncertain(error, intentId); }
       if (result && ["Failure", "Cancelled"].includes(String(result.status))) {
-        const failedId = id.replace("incus-setPower-", `incus-${kind}-`);
+        const failedId = intentId !== stableId ? intentId : id.replace("incus-setPower-", `incus-${kind}-`);
         await context.recordAcceptedOperation?.(failedId);
         return terminalLifecycleReceipt(context, kind, failedId, result);
       }
-      if (result?.status !== "Success") throw new IncusTransportError("unavailable", "Incus intent update is unresolved", { effect: "unknown", operationId: stableId });
+      if (result?.status !== "Success") throw new IncusTransportError("unavailable", "Incus intent update is unresolved", { effect: "unknown", operationId: intentId });
     }
   }
   catch (error) { throw uncertain(error, stableId); }
@@ -539,7 +564,7 @@ async function requestLifecycleAction(session: Session, command: IncusTransportR
   const instancePath = `/1.0/instances/${command.sandboxName}?project=${project}`;
   const input = payload(command);
   const policy = sourceConfig(scope);
-  const context: LifecycleContext = { session, command, project, collection, instancePath, input, policy, hostContractMinor: scope.hostContractMinor ?? 0, recordAcceptedOperation: scope.recordAcceptedOperation, recordTerminalObservation: scope.recordTerminalObservation };
+  const context: LifecycleContext = { session, command, project, collection, instancePath, input, policy, hostContractMinor: scope.hostContractMinor ?? 0, observeNativeWait: scope.observeNativeWait, recordAcceptedOperation: scope.recordAcceptedOperation, recordTerminalObservation: scope.recordTerminalObservation };
   if (command.action === "instance.inspect") return inspectInstance(context);
   if (command.action === "instance.list") return listInstances(context);
   if (command.action === "operation.inspect") return inspectLifecycleOperation(context);

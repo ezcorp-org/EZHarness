@@ -596,8 +596,9 @@ async function invokeActualAdapterWorker(config: IncusTransportRequest["pins"], 
   finally { child.kill(); await child.exited; await reader; }
 }
 
-async function exerciseAdapterLifecycle(faultMode?: "consume" | "expire", pendingCreate = false, failureKind?: "CREATE" | "START" | "PATCH", legacyProducer = false, lostReturnPhase?: "accepted" | "terminal") {
+async function exerciseAdapterLifecycle(faultMode?: "consume" | "expire", pendingCreate = false, failureKind?: "CREATE" | "START" | "PATCH" | "PATCH_SUCCESS", legacyProducer = false, lostReturnPhase?: "accepted" | "terminal", slowCreate = false, resumeCreate = false) {
   const database = new PGlite();
+  let observationBroker: ProviderRpcBroker | undefined;
   try {
     await database.waitReady;
     await database.exec("CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, path TEXT NOT NULL, purpose TEXT NOT NULL DEFAULT 'user', icon TEXT, variables JSONB NOT NULL DEFAULT '{}', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())");
@@ -635,12 +636,22 @@ async function exerciseAdapterLifecycle(faultMode?: "consume" | "expire", pendin
       await db.insert(schema.providerConnections).values({ id: "connection-a", revision: 1, providerInstallationId: "installation-a", providerReleaseId: "release-a", endpoint: connection.endpoint, serverCertificatePem, project: "sandbox", clientCertificatePem: connection.clientCertificatePem, privateKeyCiphertext: "test-not-a-secret" });
     }
     const writes: string[] = [];
+    let createWaits = 0;
     const fetcher = async (url: string, init: RequestInit) => {
       const path = new URL(url).pathname;
       if (init.method === "GET") {
         if (path.includes("/profiles/")) return reply(safeProfile);
         if (path.includes("/operations/")) {
-          if (failureKind && nativeSequence === (failureKind === "CREATE" ? 1 : 2)) return reply({ status: "Failure", err: "private provider error bytes", resources: { instances: [`/1.0/instances/${sandboxName}`] } });
+          if (slowCreate && nativeSequence === 1) {
+            // The first bounded invocation returns while cloning remains pending.
+            // A later normal tick sees an expired receipt; an already waiting
+            // host observer alone can capture the terminal completion.
+            if (!path.endsWith("/wait")) return reply({}, 404);
+            createWaits++;
+            return reply({ status: createWaits === 1 ? "Running" : "Success",
+              resources: { instances: [`/1.0/instances/${sandboxName}`] } });
+          }
+          if (failureKind && failureKind !== "PATCH_SUCCESS" && nativeSequence === (failureKind === "CREATE" ? 1 : 2)) return reply({ status: "Failure", err: "private provider error bytes", resources: { instances: [`/1.0/instances/${sandboxName}`] } });
           if (pendingCreate && nativeSequence === 1) return reply({ status: "Running", resources: { instances: [`/1.0/instances/${sandboxName}`] } });
           if (!fault || nativeSequence !== 6) return reply({ status: "Success", resources: { instances: [`/1.0/instances/${sandboxName}`] } });
           destroyInspections++;
@@ -660,7 +671,7 @@ async function exerciseAdapterLifecycle(faultMode?: "consume" | "expire", pendin
       } else if (init.method === "PATCH") {
         expect(new Headers(init.headers).get("if-match")).toBe(`"generation-${instance!.config["user.ezharness.generation"]}"`);
         Object.assign(instance!.config, body.config);
-        if (failureKind === "PATCH") { nativeSequence++; return reply({ id: `11111111-1111-1111-1111-${String(nativeSequence).padStart(12, "0")}` }, 202); }
+        if (failureKind === "PATCH" || failureKind === "PATCH_SUCCESS") { nativeSequence++; return reply({ id: `11111111-1111-1111-1111-${String(nativeSequence).padStart(12, "0")}` }, 202); }
         return reply({});
       } else if (init.method === "PUT") instance!.status = body.action === "start" ? "Running" : "Stopped";
       else if (init.method === "DELETE") {
@@ -671,11 +682,14 @@ async function exerciseAdapterLifecycle(faultMode?: "consume" | "expire", pendin
       return reply({ id: `11111111-1111-1111-1111-${String(nativeSequence).padStart(12, "0")}` }, 202);
     };
     let loseWorkerReturn: () => void = () => { throw new Error("Worker loss barrier is not installed"); };
-    const broker = new ProviderRpcBroker(connections, undefined, db, (prepared, _signal, recordAcceptedOperation, recordTerminalObservation) => new HostIncusLifecycleTransport(connections, {
-      providerInstallationId: prepared.installationId, providerReleaseId: prepared.releaseId, revision: prepared.revision, approvedPreset: prepared.approvedPreset, hostContractMinor: prepared.hostContractMinor,
-      recordAcceptedOperation: async id => { await recordAcceptedOperation!(id); if (lostReturnPhase === "accepted") loseWorkerReturn(); },
-      recordTerminalObservation: async observation => { await recordTerminalObservation!(observation); if (lostReturnPhase === "terminal") loseWorkerReturn(); },
-    }, fetcher as never, fault));
+    const actionTransportFactory: ConstructorParameters<typeof ProviderRpcBroker>[3] = (prepared, _signal, recordAcceptedOperation, recordTerminalObservation, observeNativeWait) => new HostIncusLifecycleTransport(connections, {
+      providerInstallationId: prepared.installationId, providerReleaseId: prepared.releaseId, revision: prepared.revision, approvedPreset: prepared.approvedPreset, hostContractMinor: prepared.hostContractMinor, observeNativeWait,
+      recordAcceptedOperation: recordAcceptedOperation ? async id => { await recordAcceptedOperation(id); if (lostReturnPhase === "accepted") loseWorkerReturn(); } : undefined,
+      recordTerminalObservation: recordTerminalObservation ? async observation => { await recordTerminalObservation(observation); if (lostReturnPhase === "terminal") loseWorkerReturn(); } : undefined,
+    }, fetcher as never, fault);
+    const broker = new ProviderRpcBroker(connections, undefined, db, actionTransportFactory, undefined,
+      slowCreate ? { resolveActiveRelease: async () => { if (resumeCreate) throw new Error("Original engine observation is unavailable"); return snapshot; } } : undefined);
+    observationBroker = broker;
     const controller = new SandboxController(db, new IncusSandboxProviderDispatcher({ call: async (_scope, method, input) => {
       const operation = (method.endsWith("inspectOperation") ? "lifecycle.inspectOperation" : method.endsWith("create") ? "lifecycle.create"
         : method.endsWith("destroy") ? "lifecycle.destroy" : "lifecycle.setPower") as SandboxProtocolOperation;
@@ -730,7 +744,7 @@ async function exerciseAdapterLifecycle(faultMode?: "consume" | "expire", pendin
       }
       if (kind === failureKind || failureKind === "PATCH" && kind === "START") {
         expect(journal).toMatchObject({ state: "FAILED", errorCode: "INTERNAL",
-          providerOperationId: `incus-${kind === "CREATE" ? "create" : "setPower"}-11111111-1111-1111-1111-${String(nativeSequence).padStart(12, "0")}` });
+          providerOperationId: `incus-${kind === "CREATE" ? "create" : failureKind === "PATCH" ? "setPowerIntent" : "setPower"}-11111111-1111-1111-1111-${String(nativeSequence).padStart(12, "0")}` });
         expect(journal.errorMessage).toBe("Incus native lifecycle operation failed");
         if (failureKind === "PATCH") expect(writes.some(value => value.startsWith("PUT"))).toBe(false);
         const before = writes.length;
@@ -741,7 +755,25 @@ async function exerciseAdapterLifecycle(faultMode?: "consume" | "expire", pendin
         expect((await controller.getBinding(sandboxId))?.cleanupConfirmedAt).toBeNull();
         return;
       }
-      expect({ kind, state: journal.state, error: journal.errorMessage }).toMatchObject({ state: kind === "DESTROY" && faultMode === "consume" ? "OUTCOME_UNKNOWN" : pendingCreate || legacyProducer ? "PROVIDER_PENDING" : "SUCCEEDED" });
+      if (slowCreate && kind === "CREATE") {
+        expect(["PROVIDER_PENDING", "SUCCEEDED"]).toContain(journal.state);
+        await broker.awaitObservation(journal.id);
+        if (resumeCreate) {
+          await broker.stopObservations();
+          const replacement = new ProviderRpcBroker(connections, undefined, db, actionTransportFactory, undefined,
+            { resolveActiveRelease: async () => snapshot });
+          observationBroker = replacement;
+          await replacement.resumePendingObservations();
+          await replacement.awaitObservation(journal.id);
+          expect((await controller.getOperation(journal.id))?.state).toBe("SUCCEEDED");
+          expect((await controller.getBinding(sandboxId))?.observedState).toBe("STOPPED");
+          expect(writes.filter(value => value.startsWith("POST"))).toHaveLength(1);
+          expect(writes.some(value => value.startsWith("PUT"))).toBe(false);
+          expect(createWaits).toBe(2);
+          return;
+        }
+        expect(createWaits).toBe(2);
+      } else expect({ kind, state: journal.state, error: journal.errorMessage }).toMatchObject({ state: kind === "DESTROY" && faultMode === "consume" ? "OUTCOME_UNKNOWN" : pendingCreate || legacyProducer || slowCreate && kind === "CREATE" ? "PROVIDER_PENDING" : "SUCCEEDED" });
       if (kind === "DESTROY" && fault) {
         expect(journal.providerOperationId).toBe("incus-destroy-11111111-1111-1111-1111-000000000006");
         expect(destroyInspections).toBe(faultMode === "consume" ? 2 : 3);
@@ -782,7 +814,7 @@ async function exerciseAdapterLifecycle(faultMode?: "consume" | "expire", pendin
     expect(instance).toBeUndefined();
     expect(writes.filter(value => value.startsWith("PUT"))).toHaveLength(4);
     expect(writes.filter(value => value.startsWith("DELETE"))).toHaveLength(1);
-  } finally { await database.close(); }
+  } finally { await observationBroker?.stopObservations(); await database.close(); }
 }
 
 test("real adapter and controller preserve the host fence across a complete power lifecycle", () => exerciseAdapterLifecycle());
@@ -891,7 +923,7 @@ test("terminal PATCH failure retains its accepted native handle and never dispat
   const transport = new HostIncusLifecycleTransport({ resolveForHost: async () => connection }, scope, fetcher as never);
   const result = await transport.request({ ...command, deadlineMs: Date.now() + 30_000,
     action: "instance.setPower", payload: { desiredState: "running", expectedGeneration: 1 } });
-  expect(result).toMatchObject({ receipt: { operationId: `incus-setPower-${id}`, terminalObservation: {
+  expect(result).toMatchObject({ receipt: { operationId: `incus-setPowerIntent-${id}`, terminalObservation: {
     state: "failed", observedState: "unknown", error: { code: "INTERNAL", retryable: false } } } });
   expect(JSON.stringify(result)).not.toContain("secret provider detail");
   expect(writes).toEqual(["PATCH"]);
@@ -940,3 +972,56 @@ test("an actual adapter worker lost after terminal failure capture retains the d
 
 
 test("real broker persists terminal PATCH failure under its native handle without dispatching power", () => exerciseAdapterLifecycle(undefined, false, "PATCH"));
+
+
+test("pending power intent retains its distinct native handle and later PATCH success never settles power", async () => {
+  const id = "22222222-2222-4222-8222-222222222222";
+  let nativeStatus = "Running";
+  const writes: string[] = [];
+  const instance = { name: sandboxName, status: "Stopped", config: {
+    "user.ezharness.managed_by": "ezharness-incus-sandbox", "user.ezharness.connection_id": "connection-a",
+    "user.ezharness.sandbox_id": sandboxId, "user.ezharness.generation": "1" } };
+  const fetcher = async (url: string, init: RequestInit) => {
+    if (new URL(url).pathname.includes("/operations/")) return reply({ status: nativeStatus,
+      resources: { instances: [`/1.0/instances/${sandboxName}`] } });
+    if (init.method === "GET") return Response.json({ type: "sync", metadata: instance }, { headers: { etag: '"revision-a"' } });
+    writes.push(init.method!);
+    return reply({ id }, 202);
+  };
+  const transport = new HostIncusLifecycleTransport({ resolveForHost: async () => connection }, scope, fetcher as never);
+  const intentId = `incus-setPowerIntent-${id}`;
+  await expect(transport.request({ ...command, deadlineMs: Date.now() + 30_000,
+    action: "instance.setPower", payload: { desiredState: "running", expectedGeneration: 1 } })).rejects.toMatchObject({
+      effect: "unknown", operationId: intentId });
+  nativeStatus = "Success";
+  const inspected = await transport.request({ ...command, deadlineMs: Date.now() + 30_000,
+    action: "operation.inspect", payload: { operationId: intentId } });
+  expect(inspected).toMatchObject({ operation: { operationId: intentId, kind: "setPower", state: "outcome_unknown", observedState: "unknown" } });
+  expect(writes).toEqual(["PATCH"]);
+});
+
+
+test("known native cancellation stays terminal and rejects foreign resource identity", async () => {
+  const id = "11111111-1111-4111-8111-111111111111";
+  for (const resource of [sandboxName, "foreign-sandbox"]) {
+    const transport = new HostIncusLifecycleTransport({ resolveForHost: async () => connection }, scope,
+      (async () => reply({ status: "Cancelled", resources: { instances: [`/1.0/instances/${resource}`] } })) as never);
+    const operation = transport.request({ ...command, deadlineMs: Date.now() + 30_000,
+      action: "operation.inspect", payload: { operationId: `incus-create-${id}` } });
+    if (resource === sandboxName) await expect(operation).resolves.toMatchObject({ operation: {
+      state: "cancelled", observedState: "unknown", error: { code: "INTERNAL", retryable: false } } });
+    else await expect(operation).rejects.toMatchObject({ kind: "permission" });
+  }
+});
+
+
+test("a slow CREATE terminal result is captured before the normal reconciliation receipt has expired", () =>
+  exerciseAdapterLifecycle(undefined, false, undefined, false, undefined, true));
+
+
+test("a replacement host resumes the saved CREATE observer without replaying its mutation", () =>
+  exerciseAdapterLifecycle(undefined, false, undefined, false, undefined, true, true));
+
+
+test("real async PATCH intent advances to one final power receipt only after its successful barrier", () =>
+  exerciseAdapterLifecycle(undefined, false, "PATCH_SUCCESS"));

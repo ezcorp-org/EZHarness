@@ -1,11 +1,12 @@
-import { SandboxController, type SandboxProviderObservationScope } from "../sandboxes/controller";
-import { inspectedOutcome } from "../sandboxes/incus-dispatcher";
+import { logger } from "../logger";
+import { SandboxController, SandboxControllerError, operatorRecoveryDestroy, type SandboxProviderObservationScope } from "../sandboxes/controller";
+import { inspectedOutcome, mutationInput } from "../sandboxes/incus-dispatcher";
 import { permitsLinkedCleanupStop, permitsFailedCleanupInspection } from "./incus-cleanup-stop-policy";
 import { resourceName } from "./incus-transport/lifecycle";
 import { permitsCreateReadbackDuringQueuedCleanup } from "./incus-create-readback-policy";
 import { createHash, X509Certificate } from "node:crypto";
 import { ContractError, canonicalJson, sandboxPresetDigest, validateSandboxProviderMethodValue, type JsonValue, type SandboxOperationInspection, type SandboxProtocolOperation } from "@ezcorp/extension-contract";
-import { and, eq, sql, or, isNull } from "drizzle-orm";
+import { and, eq, sql, or, isNull, not, inArray, gte, exists } from "drizzle-orm";
 import { getDb, type Database } from "../db/connection";
 import { releaseRows } from "../db/queries/extension-releases";
 import { sandboxBindings, sandboxOperations, sandboxCleanupRecoveries, sandboxReservations, type SandboxBinding, type SandboxOperation } from "../db/schema";
@@ -19,6 +20,26 @@ import { createIncusTransportCommand } from "../../extensions/incus-sandbox/adap
 import { incusMethodName } from "../../extensions/incus-sandbox/manifest";
 import type { IncusConnectionConfig } from "../../extensions/incus-sandbox/config";
 import { IncusTransportError, type IncusTransport, type IncusTransportRequest } from "../../extensions/incus-sandbox/transport";
+
+export interface IncusObservationRuntime {
+  resolveActiveRelease(installationId: string): Promise<ActiveExtensionRelease>;
+  now?: () => number;
+  delay?: (milliseconds: number, signal: AbortSignal) => Promise<void>;
+}
+interface IncusObservationSlot {
+  scope: PreparedIncusAction;
+  expiresAt: number;
+  abort: AbortController;
+  providerOperationId?: string;
+  work?: Promise<void>;
+  dispatch?: Promise<unknown>;
+  observationFinished?: boolean;
+  dispatchFinished?: boolean;
+}
+const OBSERVATION_LIMIT = 32;
+const OBSERVATION_BUDGET_MS = 10 * 60_000;
+const OBSERVATION_PAUSE_MS = 250;
+const observationStates = ["DISPATCHING", "PROVIDER_PENDING", "OUTCOME_UNKNOWN"] as const;
 
 export const INCUS_PROVIDER_TRANSPORT_RPC = "ezcorp/provider.incus.transport";
 export const INCUS_PROVIDER_PREFLIGHT_METHOD = "incus/preflight";
@@ -66,6 +87,18 @@ export interface PreparedIncusAction extends PreparedIncusProbe {
     limits: { memoryBytes: number; cpuMillis: number; pids: number; diskBytes: number };
   };
   readonly approvedGuest?: { user: string; uid: number; gid: number; helperSha256: string };
+}
+
+function observationBindingPredicate(scope: SandboxProviderObservationScope) {
+  return and(eq(sandboxBindings.id, scope.id), eq(sandboxBindings.projectId, scope.projectId),
+    eq(sandboxBindings.providerInstallationId, scope.providerInstallationId), eq(sandboxBindings.providerReleaseId, scope.providerReleaseId),
+    eq(sandboxBindings.connectionId, scope.connectionId),
+    scope.connectionRevision === null ? isNull(sandboxBindings.connectionRevision) : eq(sandboxBindings.connectionRevision, scope.connectionRevision),
+    scope.resourceKey === null ? isNull(sandboxBindings.resourceKey) : eq(sandboxBindings.resourceKey, scope.resourceKey),
+    eq(sandboxBindings.generation, scope.generation),
+    scope.currentOperationId === null ? isNull(sandboxBindings.currentOperationId) : eq(sandboxBindings.currentOperationId, scope.currentOperationId),
+    eq(sandboxBindings.desiredState, scope.desiredState),
+    scope.tombstonedAt === null ? isNull(sandboxBindings.tombstonedAt) : eq(sandboxBindings.tombstonedAt, scope.tombstonedAt));
 }
 
 const mutationOperations = new Set<SandboxProtocolOperation>([
@@ -226,11 +259,11 @@ function lifecycleReadbackKind(scope: PreparedIncusProbe, command: IncusTranspor
   binding: SandboxBinding | undefined, providerOperationId: unknown): "CREATE" | "START" | "STOP" | "DESTROY" | null {
   if (!isAction(scope) || scope.operation !== "lifecycle.inspectOperation"
     || command.idempotency || typeof providerOperationId !== "string") return null;
-  const match = /^(?:incus-(create|setPower|destroy)-[a-f0-9-]{36}|ezh-(create|setPower|destroy)-[a-f0-9]{32}-[a-f0-9]{32})$/.exec(providerOperationId);
+  const match = /^(?:incus-(create|setPower|setPowerIntent|destroy)-[a-f0-9-]{36}|ezh-(create|setPower|destroy)-[a-f0-9]{32}-[a-f0-9]{32})$/.exec(providerOperationId);
   const kind = match?.[1] ?? match?.[2];
   if (kind === "create") return "CREATE";
   if (kind === "destroy") return "DESTROY";
-  if (kind !== "setPower") return null;
+  if (kind !== "setPower" && kind !== "setPowerIntent") return null;
   if (binding?.desiredState === "RUNNING") return "START";
   if (binding?.desiredState === "STOPPED" || binding?.desiredState === "ABSENT" && binding.tombstonedAt) return "STOP";
   throw new IncusTransportError("permission", "Incus power journal has no desired state");
@@ -255,6 +288,8 @@ async function journalBoundTransportCommand(db: Database, scope: PreparedIncusAc
 
 /** Only ReleaseProcess calls this broker. No generic extension capability exposes it. */
 export class ProviderRpcBroker {
+  private readonly observations = new Map<string, IncusObservationSlot>();
+  private observationsStopped = false;
   private readonly dispatchedMutations = new WeakMap<PreparedIncusAction, Promise<JsonValue>>();
   constructor(
     private readonly connections: ProviderConnectionResolver,
@@ -267,8 +302,8 @@ export class ProviderRpcBroker {
         signal,
       }),
     private readonly db?: Database,
-    private readonly actionTransportFactory: (scope: PreparedIncusAction, signal?: AbortSignal, recordAcceptedOperation?: (id: string) => Promise<void>, recordTerminalObservation?: (observation: SandboxOperationInspection) => Promise<void>) => IncusTransport =
-      (scope, signal, recordAcceptedOperation, recordTerminalObservation) => {
+    private readonly actionTransportFactory: (scope: PreparedIncusAction, signal?: AbortSignal, recordAcceptedOperation?: (id: string) => Promise<void>, recordTerminalObservation?: (observation: SandboxOperationInspection) => Promise<void>, observeNativeWait?: boolean) => IncusTransport =
+      (scope, signal, recordAcceptedOperation, recordTerminalObservation, observeNativeWait) => {
         const hostScope = {
         providerInstallationId: scope.installationId,
         providerReleaseId: scope.releaseId,
@@ -277,6 +312,7 @@ export class ProviderRpcBroker {
         hostContractMinor: scope.hostContractMinor,
         recordAcceptedOperation,
         recordTerminalObservation,
+        observeNativeWait,
         ...(scope.approvedGuest ? { approvedGuest: scope.approvedGuest } : {}),
         signal,
         };
@@ -285,6 +321,7 @@ export class ProviderRpcBroker {
           : new HostIncusLifecycleTransport(connections, hostScope, undefined, lostDestroyReply);
       },
     lostDestroyReply?: PostEffectDestroyReplyFault,
+    private readonly observationRuntime?: IncusObservationRuntime,
   ) {}
 
   private get database(): Database { return this.db ?? getDb(); }
@@ -347,7 +384,7 @@ export class ProviderRpcBroker {
     const helperSha256 = approvedGuestHelper(operation, base, preset);
     const [settlementJournal] = await this.database.select().from(sandboxOperations)
       .where(eq(sandboxOperations.id, expectedCommand.idempotency?.requestId ?? "")).limit(1);
-    const settlementScope = settlementJournal?.state === "DISPATCHING" ? Object.freeze({
+    const settlementScope = settlementJournal && observationStates.includes(settlementJournal.state as typeof observationStates[number]) ? Object.freeze({
       id: approvedBinding.id, projectId: approvedBinding.projectId,
       providerInstallationId: approvedBinding.providerInstallationId, providerReleaseId: approvedBinding.providerReleaseId,
       connectionId: approvedBinding.connectionId, connectionRevision: approvedBinding.connectionRevision,
@@ -424,22 +461,172 @@ export class ProviderRpcBroker {
     });
   }
 
+  private async observationRelease(installationId: string): Promise<ActiveExtensionRelease> {
+    if (this.observationRuntime) return this.observationRuntime.resolveActiveRelease(installationId);
+    const runtime = await import("../extensions/release-process");
+    return runtime.resolveActiveRelease(installationId, runtime.getReleaseRuntime());
+  }
+
+  private observationNow(): number { return (this.observationRuntime?.now ?? Date.now)(); }
+
+  private async reserveObservation(scope: PreparedIncusAction): Promise<IncusObservationSlot | undefined> {
+    if (scope.hostContractMinor !== 1) return undefined;
+    if (!scope.expectedCommand.idempotency || !scope.settlementScope) throw new IncusTransportError("permission", "Incus host journal scope is missing");
+    const id = scope.expectedCommand.idempotency.requestId;
+    const [saved] = await this.database.select({ journal: sandboxOperations, operatorOwned: operatorRecoveryDestroy })
+      .from(sandboxOperations).where(eq(sandboxOperations.id, id)).limit(1);
+    if (!saved || !observationStates.includes(saved.journal.state as typeof observationStates[number])) {
+      throw new IncusTransportError("permission", "Incus host journal is no longer admitted");
+    }
+    const journal = saved.journal;
+    if (saved.operatorOwned === true) return undefined;
+    const [owned] = await this.database.select({ id: sandboxBindings.id }).from(sandboxBindings)
+      .where(observationBindingPredicate(scope.settlementScope)).limit(1);
+    if (!owned) throw new IncusTransportError("permission", "Incus binding changed before effect admission");
+    if (this.observationsStopped || journal.createdAt.getTime() + OBSERVATION_BUDGET_MS <= this.observationNow()) {
+      throw new IncusTransportError("unavailable", "Incus host observation budget is unavailable");
+    }
+    const existing = this.observations.get(id);
+    if (existing) {
+      if (existing.scope !== scope) throw new IncusTransportError("permission", "Incus journal already has a host observation owner");
+      return existing;
+    }
+    if (this.observations.size >= OBSERVATION_LIMIT) throw new IncusTransportError("unavailable", "Incus host observation capacity is full");
+    const slot = { scope, expiresAt: journal.createdAt.getTime() + OBSERVATION_BUDGET_MS, abort: new AbortController() };
+    this.observations.set(id, slot);
+    return slot;
+  }
+
+  private async observationPause(signal: AbortSignal): Promise<void> {
+    if (this.observationRuntime?.delay) return this.observationRuntime.delay(OBSERVATION_PAUSE_MS, signal);
+    if (signal.aborted) return;
+    await new Promise<void>(resolve => {
+      const finish = () => { clearTimeout(timer); signal.removeEventListener("abort", finish); resolve(); };
+      const timer = setTimeout(finish, OBSERVATION_PAUSE_MS);
+      signal.addEventListener("abort", finish, { once: true });
+    });
+  }
+
+  private async observe(slot: IncusObservationSlot): Promise<void> {
+    const original = slot.scope;
+    const id = original.expectedCommand.idempotency!.requestId;
+    try {
+      while (!slot.abort.signal.aborted && this.observationNow() < slot.expiresAt) {
+        const [journal] = await this.database.select().from(sandboxOperations)
+          .where(and(eq(sandboxOperations.id, id), not(operatorRecoveryDestroy))).limit(1);
+        if (!journal || !observationStates.includes(journal.state as typeof observationStates[number])
+          || journal.providerOperationId !== slot.providerOperationId) return;
+        const expected = original.settlementScope!;
+        const [binding] = await this.database.select().from(sandboxBindings).where(observationBindingPredicate(expected)).limit(1);
+        if (!binding || journal.kind !== expected.kind || journal.payloadHash !== expected.payloadHash) return;
+        const snapshot = await this.observationRelease(original.installationId);
+        if (snapshot.release.id !== original.releaseId || snapshot.release.releaseDigest !== original.releaseDigest
+          || snapshot.installation.generation !== original.generation) return;
+        const deadlineMs = Math.min(slot.expiresAt, this.observationNow() + 30_000);
+        const fresh = await this.prepareAction(snapshot, original.bindingId, "lifecycle.inspectOperation", {
+          providerId: "incus", connectionId: original.connectionId, sandboxId: original.bindingId,
+          operationId: slot.providerOperationId, rpcDeadlineMs: deadlineMs,
+        });
+        const command = await journalBoundTransportCommand(this.database, fresh, binding, fresh.expectedCommand);
+        const result = validateSandboxProviderMethodValue("lifecycle.inspectOperation", "result",
+          await this.actionTransportFactory(fresh, slot.abort.signal, undefined, undefined, true).request(command)) as {
+            ok: boolean; operation?: SandboxOperationInspection };
+        if (!result.ok || !result.operation || result.operation.operationId !== slot.providerOperationId) return;
+        if (["succeeded", "failed", "cancelled"].includes(result.operation.state)) {
+          const [current] = await this.database.select().from(sandboxOperations).where(eq(sandboxOperations.id, id)).limit(1);
+          if (!current || !observationStates.includes(current.state as typeof observationStates[number])
+            || current.providerOperationId !== slot.providerOperationId) return;
+          await this.recordLifecycleTerminal(original, result.operation);
+          return;
+        }
+        if (result.operation.state === "outcome_unknown") return;
+        await this.observationPause(slot.abort.signal);
+      }
+    } catch (error) {
+      // The saved journal remains authoritative; an obsolete observer has no effect.
+      if (!slot.abort.signal.aborted && !(error instanceof SandboxControllerError && error.code === "SUPERSEDED_OPERATION")) logger.child("incus.observation").warn("Native observation ended without terminal settlement", { operationId: id });
+    } finally {
+      slot.observationFinished = true;
+      this.releaseObservation(slot);
+    }
+  }
+
+  private releaseObservation(slot: IncusObservationSlot): void {
+    const id = slot.scope.expectedCommand.idempotency!.requestId;
+    if ((!slot.work || slot.observationFinished) && (!slot.dispatch || slot.dispatchFinished)
+      && this.observations.get(id) === slot) this.observations.delete(id);
+  }
+
+  async resumePendingObservations(): Promise<void> {
+    if (this.observationsStopped) return;
+    const pending = await this.database.select().from(sandboxOperations).where(and(
+      inArray(sandboxOperations.state, [...observationStates]), not(operatorRecoveryDestroy),
+      gte(sandboxOperations.createdAt, new Date(this.observationNow() - OBSERVATION_BUDGET_MS)),
+      sql`${sandboxOperations.providerOperationId} ~ ${"^incus-(create|setPower|destroy)-[a-f0-9-]{36}$"}`,
+    )).limit(OBSERVATION_LIMIT);
+    for (const journal of pending) {
+      if (this.observations.has(journal.id)) continue;
+      if (this.observations.size >= OBSERVATION_LIMIT) return;
+      try {
+        const [binding] = await this.database.select().from(sandboxBindings).where(eq(sandboxBindings.id, journal.bindingId)).limit(1);
+        if (!binding || binding.currentOperationId !== journal.id || binding.generation !== journal.generation) continue;
+        const nativeKind = journal.kind === "CREATE" ? "create" : journal.kind === "DESTROY" ? "destroy" : "setPower";
+        if (!journal.providerOperationId?.startsWith(`incus-${nativeKind}-`)) continue;
+        const snapshot = await this.observationRelease(binding.providerInstallationId);
+        const operation: SandboxProtocolOperation = journal.kind === "CREATE" ? "lifecycle.create"
+          : journal.kind === "DESTROY" ? "lifecycle.destroy" : "lifecycle.setPower";
+        const input = mutationInput({ operationId: journal.id, kind: journal.kind, generation: journal.generation,
+          idempotency: { scope: journal.idempotencyScope, key: journal.idempotencyKey, payloadHash: journal.payloadHash },
+          payload: journal.requestPayload, binding }, this.observationNow() + 30_000);
+        const prepared = await this.prepareAction(snapshot, binding.id, operation, input);
+        const slot = await this.reserveObservation(prepared);
+        if (slot) {
+          slot.providerOperationId = journal.providerOperationId;
+          slot.work = this.observe(slot);
+        }
+      } catch {
+        logger.child("incus.observation").warn("Saved native observation could not resume", { operationId: journal.id });
+      }
+    }
+  }
+
+  async awaitObservation(operationId: string): Promise<void> { await this.observations.get(operationId)?.work; }
+
+  async stopObservations(): Promise<void> {
+    this.observationsStopped = true;
+    const slots = [...this.observations.values()];
+    for (const slot of slots) slot.abort.abort();
+    await Promise.allSettled(slots.flatMap(slot => [slot.work, slot.dispatch]));
+    this.observations.clear();
+  }
+
   private async recordLifecycleAcceptance(scope: PreparedIncusAction, providerOperationId: string): Promise<void> {
     const kind = scope.operation === "lifecycle.create" ? "CREATE" : scope.operation === "lifecycle.destroy" ? "DESTROY"
       : scope.expectedCommand.payload && (scope.expectedCommand.payload as Record<string, unknown>).desiredState === "running" ? "START" : "STOP";
     const nativeKind = kind === "CREATE" ? "create" : kind === "DESTROY" ? "destroy" : "setPower";
     const stableId = incusLifecycleOperationId(nativeKind, scope.expectedCommand);
     if (!scope.expectedCommand.idempotency || providerOperationId !== stableId
-      && !new RegExp(`^incus-${nativeKind}-[a-f0-9-]{36}$`).test(providerOperationId)) {
+      && !new RegExp(`^incus-${nativeKind}${kind === "START" || kind === "STOP" ? "(?:Intent)?" : ""}-[a-f0-9-]{36}$`).test(providerOperationId)) {
       throw new IncusTransportError("permission", "Incus accepted receipt escaped its host journal");
     }
+    const authority = scope.settlementScope;
+    if (!authority || authority.currentOperationId !== scope.expectedCommand.idempotency.requestId
+      || authority.kind !== kind) throw new IncusTransportError("unavailable", "Incus accepted receipt lost its host scope", { effect: "unknown", operationId: providerOperationId });
     const [saved] = await this.database.update(sandboxOperations).set({ providerOperationId }).where(and(
       eq(sandboxOperations.id, scope.expectedCommand.idempotency.requestId), eq(sandboxOperations.bindingId, scope.bindingId),
       eq(sandboxOperations.generation, scope.bindingGeneration), eq(sandboxOperations.kind, kind), eq(sandboxOperations.state, "DISPATCHING"),
-      ...(scope.settlementScope ? [eq(sandboxOperations.payloadHash, scope.settlementScope.payloadHash)] : []),
-      or(isNull(sandboxOperations.providerOperationId), eq(sandboxOperations.providerOperationId, stableId), eq(sandboxOperations.providerOperationId, providerOperationId)),
+      eq(sandboxOperations.payloadHash, authority.payloadHash),
+      exists(this.database.select({ id: sandboxBindings.id }).from(sandboxBindings).where(observationBindingPredicate(authority))),
+      or(isNull(sandboxOperations.providerOperationId), eq(sandboxOperations.providerOperationId, stableId), eq(sandboxOperations.providerOperationId, providerOperationId),
+        ...(nativeKind === "setPower" && /^incus-setPower-[a-f0-9-]{36}$/.test(providerOperationId)
+          ? [sql`${sandboxOperations.providerOperationId} ~ ${"^incus-setPowerIntent-[a-f0-9-]{36}$"}`] : [])),
     )).returning({ id: sandboxOperations.id });
     if (!saved) throw new IncusTransportError("unavailable", "Incus accepted receipt journal changed", { effect: "unknown", operationId: providerOperationId });
+    const slot = this.observations.get(scope.expectedCommand.idempotency.requestId);
+    if (slot && !slot.work && /^incus-(create|setPower|destroy)-[a-f0-9-]{36}$/.test(providerOperationId)) {
+      slot.providerOperationId = providerOperationId;
+      slot.work = this.observe(slot);
+    }
   }
 
   private async recordLifecycleTerminal(scope: PreparedIncusAction, observation: SandboxOperationInspection): Promise<void> {
@@ -461,6 +648,26 @@ export class ProviderRpcBroker {
       inspectOperation: async () => { throw new Error("Observation settlement cannot inspect"); },
     });
     await controller.recordProviderObservation(identity.requestId, observation.operationId, outcome, scope.settlementScope);
+  }
+
+  private async requestTransport(scope: PreparedIncusProbe, reviewedScope: PreparedIncusProbe,
+    transportCommand: IncusTransportRequest, deadline: number, signal?: AbortSignal): Promise<JsonValue> {
+    const observation = isAction(scope) && mutationOperations.has(scope.operation) ? await this.reserveObservation(scope) : undefined;
+      try {
+        const dispatchSignal = observation ? AbortSignal.any([observation.abort.signal, ...(signal ? [signal] : [])]) : signal;
+        const transport = isAction(scope)
+          ? this.actionTransportFactory(scope, dispatchSignal, id => this.recordLifecycleAcceptance(scope, id), observation => this.recordLifecycleTerminal(scope, observation))
+          : this.transportFactory(reviewedScope, signal);
+        const invocation = transport.request({ ...transportCommand, deadlineMs: Math.min(transportCommand.deadlineMs, deadline) });
+        if (observation) observation.dispatch = invocation;
+        return await invocation as JsonValue;
+      }
+      finally {
+        if (observation) {
+          observation.dispatchFinished = true;
+          this.releaseObservation(observation);
+        }
+      }
   }
 
   async request(scope: PreparedIncusProbe, input: Record<string, unknown>, deadline: number, signal?: AbortSignal): Promise<JsonValue> {
@@ -523,10 +730,7 @@ export class ProviderRpcBroker {
         : scope;
       const transportCommand = isAction(scope)
         ? await journalBoundTransportCommand(this.database, scope, binding, command) : command;
-      const transport = isAction(scope)
-        ? this.actionTransportFactory(scope, signal, id => this.recordLifecycleAcceptance(scope, id), observation => this.recordLifecycleTerminal(scope, observation))
-        : this.transportFactory(reviewedScope, signal);
-      return await transport.request({ ...transportCommand, deadlineMs: Math.min(command.deadlineMs, deadline) }) as JsonValue;
+      return this.requestTransport(scope, reviewedScope, transportCommand, deadline, signal);
     };
     if (isAction(scope) && mutationOperations.has(scope.operation)) {
       const prior = this.dispatchedMutations.get(scope);

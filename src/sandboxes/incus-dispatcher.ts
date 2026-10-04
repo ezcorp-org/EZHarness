@@ -61,7 +61,7 @@ function hasOnlyKeys(value: Record<string, unknown>, allowed: string[]): boolean
   return Object.keys(value).every((key) => allowed.includes(key));
 }
 
-function mutationInput(request: SandboxProviderRequest, deadlineMs: number): Record<string, unknown> {
+export function mutationInput(request: SandboxProviderRequest, deadlineMs: number): Record<string, unknown> {
   const common = {
     providerId: "incus",
     connectionId: request.binding.connectionId,
