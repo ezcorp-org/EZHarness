@@ -113,14 +113,14 @@ export const INCUS_PRESETS: SandboxPreset[] = [
 export const incusManifest: ExtensionManifestV4 = validateManifest({
   schemaVersion: 4,
   name: "incus-sandbox",
-  version: "0.1.3",
+  version: "0.1.4",
   description: "Incus sandbox provider over the host-owned protected transport.",
   author: { name: "EZCorp" },
   entrypoint: "./extension.ts",
   permissions: {},
   methods: SANDBOX_PROVIDER_OPERATIONS.map((operation) => ({
     name: incusMethodName(operation),
-    ...sandboxProviderMethodSchemas(operation),
+    ...sandboxProviderMethodSchemas(operation, 1),
   })),
   sandboxProviders: [
     {
@@ -130,7 +130,7 @@ export const incusManifest: ExtensionManifestV4 = validateManifest({
       capabilities: INCUS_CAPABILITIES,
       kind: "sandbox",
       protocolMajor: 1,
-      minimumHostContract: { major: 4, minor: 0 },
+      minimumHostContract: { major: 4, minor: 1 },
       configSchema: INCUS_CONNECTION_CONFIG_SCHEMA,
       requiredPermissions: [],
       methodGroups: [INCUS_METHOD_GROUP],

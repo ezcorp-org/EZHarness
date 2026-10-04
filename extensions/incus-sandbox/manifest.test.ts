@@ -22,11 +22,11 @@ const validConfig = {
 };
 
 describe("Incus extension manifest", () => {
-  test("release 0.1.3 binds the reviewed image and helper in each preset digest", async () => {
+  test("release 0.1.4 binds the reviewed image and helper in each preset digest", async () => {
     const presets = incusManifest.sandboxProviders![0]!.presets;
     const image = "ebe5ce977a726130fd1aa90d2c853467bb6d143141ed07f74b7a06e98efd3912";
     const helper = "804d68bd8d83ca817c6413eb3b2365216778aa26421c81fb3e9f3810b82dcb75";
-    expect(incusManifest.version).toBe("0.1.3");
+    expect(incusManifest.version).toBe("0.1.4");
     const packageMetadata = await Bun.file(new URL("./package.json", import.meta.url)).json();
     expect(packageMetadata.version).toBe(incusManifest.version);
     for (const preset of presets) {
@@ -68,7 +68,7 @@ describe("Incus extension manifest", () => {
     for (const operation of SANDBOX_PROVIDER_OPERATIONS) {
       const declared = incusManifest.methods!.find((method) => method.name === incusMethodName(operation));
       expect(declared).toBeDefined();
-      const canonical = sandboxProviderMethodSchemas(operation);
+      const canonical = sandboxProviderMethodSchemas(operation, 1);
       expect(canonicalJson(declared!.inputSchema)).toBe(canonicalJson(canonical.inputSchema));
       expect(canonicalJson(declared!.outputSchema)).toBe(canonicalJson(canonical.outputSchema));
     }

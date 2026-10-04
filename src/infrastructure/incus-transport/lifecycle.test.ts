@@ -1,10 +1,11 @@
+import { RunnerError } from "@ezcorp/extension-runner";
 import { afterAll, expect, test } from "bun:test";
 import { createHash, X509Certificate } from "node:crypto";
 import { createServer, type Server } from "node:https";
 import type { AddressInfo } from "node:net";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
-import { type SandboxProtocolOperation, sandboxPresetDigest } from "@ezcorp/extension-contract";
+import { type SandboxProtocolOperation, sandboxPresetDigest, sandboxProviderMethodSchemas, SANDBOX_PROVIDER_OPERATIONS, compileValueSchema } from "@ezcorp/extension-contract";
 import { IncusTransportError, type IncusTransportRequest } from "../../../extensions/incus-sandbox/transport";
 import { IncusSandboxAdapter } from "../../../extensions/incus-sandbox/adapter";
 import { incusManifest } from "../../../extensions/incus-sandbox/manifest";
@@ -27,7 +28,7 @@ const serverCertificatePem = read("server-cert.pem");
 const serverKey = read("server-key.pem");
 const clientCa = read("client-ca-cert.pem");
 const fingerprint = createHash("sha256").update(new X509Certificate(serverCertificatePem).raw).digest("hex");
-const scope = { providerInstallationId: "installation-a", providerReleaseId: "release-a", revision: 1,
+const scope = { hostContractMinor: 1 as const, providerInstallationId: "installation-a", providerReleaseId: "release-a", revision: 1,
   approvedPreset: { profile: "linux-exec.v1", incusProfile: "ezharness", presetId: "incus-linux-exec-v1", presetDigest: "a".repeat(64), effectiveSettingsDigest: "b".repeat(64), imageFingerprint: "c".repeat(64),
     limits: { memoryBytes: 4_294_967_296, cpuMillis: 2_000, pids: 1_024, diskBytes: 21_474_836_480 } } };
 const sandboxId = "sandbox-a";
@@ -80,14 +81,14 @@ test("create takes image, profile and limits only from the host-approved policy"
     if (init.method === "GET") return new URL(url).pathname.includes("/profiles/")
       ? reply(safeProfile) : reply({}, 404);
     created = JSON.parse(String(init.body)) as Record<string, unknown>;
-    return reply({ id: "operation-a" }, 202);
+    return reply({ id: "11111111-1111-4111-8111-111111111111" }, 202);
   };
   const transport = new HostIncusLifecycleTransport({ resolveForHost: async () => connection }, scope, fetcher as never);
   const result = await transport.request({ ...command, payload: { ...command.payload as object, image: "evil", profiles: ["default"], limits: { memoryBytes: 1 } } }) as Record<string, unknown>;
   expect(result.ok).toBe(true);
-  expect((result.receipt as { operationId: string }).operationId).toMatch(/^ezh-create-/);
-  expect((result.receipt as { operationId: string }).operationId).toBe((created!.config as Record<string, string>)["user.ezharness.operation_id"]!);
-  expect(routes).toEqual([`GET /1.0/instances/${sandboxName}?project=sandbox`, "GET /1.0/profiles/ezharness?project=sandbox", "POST /1.0/instances?project=sandbox"]);
+  expect((result.receipt as { operationId: string }).operationId).toBe("incus-create-11111111-1111-4111-8111-111111111111");
+  expect((created!.config as Record<string, string>)["user.ezharness.operation_id"]).toMatch(/^ezh-create-/);
+  expect(routes).toEqual([`GET /1.0/instances/${sandboxName}?project=sandbox`, "GET /1.0/profiles/ezharness?project=sandbox", "POST /1.0/instances?project=sandbox", expect.stringMatching(/^GET \/1\.0\/operations\/11111111-1111-4111-8111-111111111111\/wait\?timeout=\d+&project=sandbox$/)]);
   expect(created?.source).toEqual({ type: "image", fingerprint: "c".repeat(64) });
   expect(created?.profiles).toEqual(["ezharness"]);
   expect((created!.config as Record<string, unknown>)["limits.memory"]).toBe("4294967296");
@@ -152,7 +153,7 @@ test("lost mutation response stays unknown with a stable operation identity", as
   expect(writes).toBe(1);
 });
 
-test("readback settles a matching create and rejects another sandbox operation", async () => {
+test("lost CREATE reply remains unknown despite a visible matching instance and rejects foreign operation", async () => {
   let created: Record<string, unknown> | undefined;
   const fetcher = async (url: string, init: RequestInit) => {
     if (init.method === "GET") return new URL(url).pathname.includes("/profiles/")
@@ -164,11 +165,11 @@ test("readback settles a matching create and rejects another sandbox operation",
   const transport = new HostIncusLifecycleTransport({ resolveForHost: async () => connection }, scope, fetcher as never);
   const failure = await transport.request(command).catch((error: unknown) => error) as { operationId: string };
   const inspected = await transport.request({ ...command, action: "operation.inspect", payload: { operationId: failure.operationId } }) as Record<string, unknown>;
-  expect((inspected.operation as Record<string, unknown>).state).toBe("succeeded");
+  expect((inspected.operation as Record<string, unknown>).state).toBe("outcome_unknown");
   await expect(transport.request({ ...command, action: "operation.inspect", payload: { operationId: `ezh-create-${"0".repeat(64)}` } })).rejects.toMatchObject({ kind: "permission" });
 });
 
-test("expired native CREATE settles only from its exact stopped journal-tagged instance", async () => {
+test("expired native CREATE preserves uncertainty even with an exact stopped journal-tagged instance", async () => {
   const nativeId = "11111111-1111-1111-1111-111111111111";
   const create = { ...command, payload: { ...command.payload as object, desiredState: "stopped" } };
   let instance: Record<string, unknown> | null = null;
@@ -189,12 +190,12 @@ test("expired native CREATE settles only from its exact stopped journal-tagged i
   };
   const transport = new HostIncusLifecycleTransport({ resolveForHost: async () => connection }, scope, fetcher as never);
   const accepted = await transport.request(create) as { receipt: { operationId: string } };
-  expect(accepted.receipt.operationId).toMatch(/^ezh-create-/);
+  expect(accepted.receipt.operationId).toBe(`incus-create-${nativeId}`);
   const inspect = async (idempotency = create.idempotency) => transport.request({ ...create, action: "operation.inspect", idempotency,
     payload: { operationId: `incus-create-${nativeId}` } }) as Promise<{ operation: { state: string; observedState: string } }>;
-  expect((await inspect()).operation).toMatchObject({ state: "succeeded", observedState: "stopped" });
+  expect((await inspect()).operation).toMatchObject({ state: "outcome_unknown", observedState: "unknown" });
   expect(posts).toBe(1);
-  expect(routes.slice(-2)).toEqual([`GET /1.0/operations/${nativeId}`, `GET /1.0/instances/${sandboxName}`]);
+  expect(routes.at(-1)).toBe(`GET /1.0/operations/${nativeId}`);
 
   const exact = structuredClone(instance) as unknown as Record<string, unknown>;
   const config = exact.config as Record<string, unknown>;
@@ -230,7 +231,8 @@ test("completed Incus operations settle only after owned instance state or absen
     config: { "user.ezharness.managed_by": "ezharness-incus-sandbox", "user.ezharness.connection_id": "connection-a",
       "user.ezharness.sandbox_id": sandboxId, "user.ezharness.profile": "linux-exec.v1",
       "user.ezharness.preset_id": "incus-linux-exec-v1", "user.ezharness.create_key": "key-a",
-      "user.ezharness.desired_state": "stopped", "user.ezharness.generation": "1" } };
+      "user.ezharness.desired_state": "stopped", "user.ezharness.generation": "1",
+      "volatile.base_image": "c".repeat(64), "user.ezharness.operation_id": `ezh-create-${sandboxName.slice(4)}-${createHash("sha256").update("connection-a\0sandbox-a\0request-a\0key-a\0create").digest("hex").slice(0, 32)}` } };
   let present = true;
   const fetcher = async (url: string) => {
     const route = new URL(url).pathname;
@@ -238,11 +240,11 @@ test("completed Incus operations settle only after owned instance state or absen
     return present ? reply(instance) : reply({}, 404);
   };
   const transport = new HostIncusLifecycleTransport({ resolveForHost: async () => connection }, scope, fetcher as never);
-  const inspect = async (kind: string) => transport.request({ ...command, action: "operation.inspect", idempotency: undefined,
+  const inspect = async (kind: string) => transport.request({ ...command, action: "operation.inspect", idempotency: command.idempotency,
     payload: { operationId: `incus-${kind}-${op}` } }) as Promise<{ operation: { state: string; observedState: string | null } }>;
   expect((await inspect("create")).operation).toMatchObject({ state: "succeeded", observedState: "stopped" });
   const dispatcher = new IncusSandboxProviderDispatcher({ call: async (_scope, _method, input) =>
-    transport.request({ ...command, action: "operation.inspect", idempotency: undefined,
+    transport.request({ ...command, action: "operation.inspect", idempotency: command.idempotency,
       payload: { operationId: input.operationId as string } }) });
   const request = (kind: "CREATE" | "DESTROY") => ({ kind, operationId: "journal-a", generation: 1,
     providerOperationId: `incus-${kind === "CREATE" ? "create" : "destroy"}-${op}`,
@@ -415,7 +417,7 @@ test("power intent advances generation with ETag before state change", async () 
   const transport = new HostIncusLifecycleTransport({ resolveForHost: async () => connection }, scope, fetcher as never);
   const result = await transport.request({ ...command, action: "instance.setPower", payload: { desiredState: "running", expectedGeneration: 1 } }) as { receipt: { operationId: string } };
   expect(result.receipt.operationId).toBe("incus-setPower-11111111-1111-1111-1111-111111111111");
-  expect(calls).toEqual([`GET /1.0/instances/${sandboxName}`, `PATCH /1.0/instances/${sandboxName}`, `PUT /1.0/instances/${sandboxName}/state`]);
+  expect(calls).toEqual([`GET /1.0/instances/${sandboxName}`, `PATCH /1.0/instances/${sandboxName}`, `PUT /1.0/instances/${sandboxName}/state`, "GET /1.0/operations/11111111-1111-1111-1111-111111111111/wait"]);
 });
 
 test("expired native power receipt settles only the exact host-journaled instance intent", async () => {
@@ -508,7 +510,7 @@ test("real TLS socket writes a create only after peer and client authentication"
       response.end(JSON.stringify({ type: "error", status_code: 404, metadata: {} }));
     } else {
       response.statusCode = 202;
-      response.end(JSON.stringify({ type: "async", status_code: 100, metadata: { id: "operation-a" } }));
+      response.end(JSON.stringify({ type: "async", status_code: 100, metadata: { id: "11111111-1111-4111-8111-111111111111" } }));
     }
   });
   await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(0, "127.0.0.1", resolve); });
@@ -516,7 +518,7 @@ test("real TLS socket writes a create only after peer and client authentication"
   try {
     const transport = new HostIncusLifecycleTransport({ resolveForHost: async () => ({ ...connection, endpoint }) }, scope);
     await expect(transport.request(command)).resolves.toMatchObject({ ok: true });
-    expect(requests).toEqual([`GET /1.0/instances/${sandboxName}?project=sandbox`, "GET /1.0/profiles/ezharness?project=sandbox", "POST /1.0/instances?project=sandbox"]);
+    expect(requests).toEqual([`GET /1.0/instances/${sandboxName}?project=sandbox`, "GET /1.0/profiles/ezharness?project=sandbox", "POST /1.0/instances?project=sandbox", expect.stringMatching(/^GET \/1\.0\/operations\/11111111-1111-4111-8111-111111111111\/wait\?timeout=\d+&project=sandbox$/)]);
     requests.length = 0;
     const wrong = new HostIncusLifecycleTransport({ resolveForHost: async () => ({ ...connection, endpoint, clientCertificatePem: "", privateKeyPem: "" }) }, scope);
     await expect(wrong.request(command)).rejects.toMatchObject({ kind: "unavailable" });
@@ -548,7 +550,53 @@ test("instance list returns only owned, valid sandboxes in stable pages", async 
 });
 
 
-async function exerciseAdapterLifecycle(faultMode?: "consume" | "expire") {
+async function invokeActualAdapterWorker(config: IncusTransportRequest["pins"], operation: SandboxProtocolOperation,
+  input: Record<string, unknown>, request: (command: IncusTransportRequest) => Promise<unknown>,
+  installLoss: (lose: () => void) => void) {
+  const script = `import { createInterface } from "node:readline";
+    import { IncusSandboxAdapter } from ${JSON.stringify(new URL("../../../extensions/incus-sandbox/adapter.ts", import.meta.url).href)};
+    let resolve;
+    const lines = createInterface({input:process.stdin});
+    lines.on("line", async line => {
+      const message = JSON.parse(line);
+      if (message.type === "response") { resolve(message.result); return; }
+      const adapter = new IncusSandboxAdapter(message.config, {request: command => new Promise(done => {
+        resolve = done; console.log(JSON.stringify({type:"request",command}));
+      })});
+      try { console.log(JSON.stringify({type:"result",result:await adapter.invoke(message.operation,message.input)})); }
+      catch(error) { console.log(JSON.stringify({type:"error",message:String(error)})); }
+    });`;
+  const child = Bun.spawn([process.execPath, "--eval", script], { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+  let rejectResult!: (error: unknown) => void;
+  let resolveResult!: (value: unknown) => void;
+  const result = new Promise<unknown>((resolve, reject) => { resolveResult = resolve; rejectResult = reject; });
+  installLoss(() => { child.kill(); rejectResult(new RunnerError("runner_unavailable", "Actual adapter worker terminated before its RPC reply")); });
+  child.stdin.write(`${JSON.stringify({type:"invoke",config,operation,input})}\n`);
+  const reader = (async () => {
+    let buffered = "";
+    const decoder = new TextDecoder();
+    const outputReader = child.stdout.getReader();
+    for (;;) {
+      const { done, value: chunk } = await outputReader.read();
+      if (done) break;
+      buffered += decoder.decode(chunk, { stream: true });
+      let newline: number;
+      while ((newline = buffered.indexOf("\n")) >= 0) {
+        const message = JSON.parse(buffered.slice(0, newline));
+        buffered = buffered.slice(newline + 1);
+        if (message.type === "request") {
+          const response = await request(message.command);
+          if (child.exitCode === null && child.signalCode === null) child.stdin.write(`${JSON.stringify({type:"response",result:response})}\n`);
+        } else if (message.type === "result") resolveResult(message.result);
+        else rejectResult(new Error(message.message));
+      }
+    }
+  })().catch(rejectResult);
+  try { return await result; }
+  finally { child.kill(); await child.exited; await reader; }
+}
+
+async function exerciseAdapterLifecycle(faultMode?: "consume" | "expire", pendingCreate = false, failureKind?: "CREATE" | "START" | "PATCH", legacyProducer = false, lostReturnPhase?: "accepted" | "terminal") {
   const database = new PGlite();
   try {
     await database.waitReady;
@@ -557,6 +605,14 @@ async function exerciseAdapterLifecycle(faultMode?: "consume" | "expire") {
     await addSandboxController(db);
     await database.exec("INSERT INTO projects (id,name,path) VALUES ('project', 'project', '/work/project')");
     const manifest = structuredClone(incusManifest);
+    if (legacyProducer) {
+      manifest.version = "0.1.3";
+      manifest.sandboxProviders![0]!.minimumHostContract!.minor = 0;
+      for (const operation of SANDBOX_PROVIDER_OPERATIONS) {
+        const method = manifest.methods!.find(item => item.name === `incus/${operation.replace(".", "/")}`)!;
+        Object.assign(method, sandboxProviderMethodSchemas(operation, 0));
+      }
+    }
     const preset = manifest.sandboxProviders![0]!.presets[0]!;
     preset.imageDigest = "c".repeat(64);
     const presetDigest = await sandboxPresetDigest(preset);
@@ -584,7 +640,9 @@ async function exerciseAdapterLifecycle(faultMode?: "consume" | "expire") {
       if (init.method === "GET") {
         if (path.includes("/profiles/")) return reply(safeProfile);
         if (path.includes("/operations/")) {
-          if (!fault || nativeSequence !== 6) return reply({}, 404);
+          if (failureKind && nativeSequence === (failureKind === "CREATE" ? 1 : 2)) return reply({ status: "Failure", err: "private provider error bytes", resources: { instances: [`/1.0/instances/${sandboxName}`] } });
+          if (pendingCreate && nativeSequence === 1) return reply({ status: "Running", resources: { instances: [`/1.0/instances/${sandboxName}`] } });
+          if (!fault || nativeSequence !== 6) return reply({ status: "Success", resources: { instances: [`/1.0/instances/${sandboxName}`] } });
           destroyInspections++;
           if (destroyInspections === 1) {
             if (faultMode === "expire") faultNow += 25_001;
@@ -602,6 +660,7 @@ async function exerciseAdapterLifecycle(faultMode?: "consume" | "expire") {
       } else if (init.method === "PATCH") {
         expect(new Headers(init.headers).get("if-match")).toBe(`"generation-${instance!.config["user.ezharness.generation"]}"`);
         Object.assign(instance!.config, body.config);
+        if (failureKind === "PATCH") { nativeSequence++; return reply({ id: `11111111-1111-1111-1111-${String(nativeSequence).padStart(12, "0")}` }, 202); }
         return reply({});
       } else if (init.method === "PUT") instance!.status = body.action === "start" ? "Running" : "Stopped";
       else if (init.method === "DELETE") {
@@ -611,20 +670,29 @@ async function exerciseAdapterLifecycle(faultMode?: "consume" | "expire") {
       nativeSequence++;
       return reply({ id: `11111111-1111-1111-1111-${String(nativeSequence).padStart(12, "0")}` }, 202);
     };
-    const broker = new ProviderRpcBroker(connections, undefined, db, prepared => new HostIncusLifecycleTransport(connections, {
-      providerInstallationId: prepared.installationId, providerReleaseId: prepared.releaseId, revision: prepared.revision, approvedPreset: prepared.approvedPreset,
+    let loseWorkerReturn: () => void = () => { throw new Error("Worker loss barrier is not installed"); };
+    const broker = new ProviderRpcBroker(connections, undefined, db, (prepared, _signal, recordAcceptedOperation, recordTerminalObservation) => new HostIncusLifecycleTransport(connections, {
+      providerInstallationId: prepared.installationId, providerReleaseId: prepared.releaseId, revision: prepared.revision, approvedPreset: prepared.approvedPreset, hostContractMinor: prepared.hostContractMinor,
+      recordAcceptedOperation: async id => { await recordAcceptedOperation!(id); if (lostReturnPhase === "accepted") loseWorkerReturn(); },
+      recordTerminalObservation: async observation => { await recordTerminalObservation!(observation); if (lostReturnPhase === "terminal") loseWorkerReturn(); },
     }, fetcher as never, fault));
     const controller = new SandboxController(db, new IncusSandboxProviderDispatcher({ call: async (_scope, method, input) => {
       const operation = (method.endsWith("inspectOperation") ? "lifecycle.inspectOperation" : method.endsWith("create") ? "lifecycle.create"
         : method.endsWith("destroy") ? "lifecycle.destroy" : "lifecycle.setPower") as SandboxProtocolOperation;
       const prepared = await broker.prepareAction(snapshot, sandboxId, operation, input);
-      const adapter = new IncusSandboxAdapter(prepared.expectedCommand.pins, { request: async workerCommand => {
+      expect(prepared.hostContractMinor).toBe(legacyProducer ? 0 : 1);
+      const requestTransport = async (workerCommand: IncusTransportRequest) => {
         const result = await broker.request(prepared, { command: workerCommand }, Number(input.rpcDeadlineMs)) as { ok: boolean; result?: unknown; error?: { kind: ConstructorParameters<typeof IncusTransportError>[0]; effect: "none" | "unknown"; operationId?: string } };
         if (!result.ok) throw new IncusTransportError(result.error!.kind, "Host broker denied transport", { effect: result.error!.effect, operationId: result.error!.operationId });
+        if (legacyProducer) {
+          compileValueSchema(sandboxProviderMethodSchemas(operation, 0).outputSchema)(result.result);
+          if (result.result && typeof result.result === "object" && "receipt" in result.result) expect((result.result as { receipt: object }).receipt).not.toHaveProperty("terminalObservation");
+        }
         return result.result;
 
-      } });
-      return adapter.invoke(operation, input);
+      };
+      if (lostReturnPhase) return invokeActualAdapterWorker(prepared.expectedCommand.pins, operation, input, requestTransport, lose => { loseWorkerReturn = lose; });
+      return new IncusSandboxAdapter(prepared.expectedCommand.pins, { request: requestTransport }).invoke(operation, input);
     } }));
     await controller.createBinding({ id: sandboxId, projectId: "project", providerInstallationId: "installation-a", providerReleaseId: "release-a",
       connectionId: "connection-a", connectionRevision: 1, resourceKey: sandboxId, profile: preset.profile, presetId: preset.id,
@@ -651,14 +719,42 @@ async function exerciseAdapterLifecycle(faultMode?: "consume" | "expire") {
       const journal = kind === "DESTROY" && fault
         ? await controller.executeOperation((await controller.journalOperation(request, armedDestroyId)).id)
         : await controller.requestAndDispatch(request);
-      expect({ kind, state: journal.state, error: journal.errorMessage }).toMatchObject({ state: kind === "DESTROY" && faultMode === "consume" ? "OUTCOME_UNKNOWN" : "PROVIDER_PENDING" });
+      if (lostReturnPhase) {
+        expect(journal.state).toBe(lostReturnPhase === "accepted" ? "OUTCOME_UNKNOWN" : "FAILED");
+        expect(journal.providerOperationId).toBe("incus-create-11111111-1111-1111-1111-000000000001");
+        expect(writes.filter(value => value.startsWith("POST"))).toHaveLength(1);
+        expect(writes.some(value => value.startsWith("PUT"))).toBe(false);
+        const reservations = await db.select().from(schema.sandboxReservations);
+        expect(reservations[0]).toMatchObject({ computeState: "RESERVED", diskState: "RESERVED" });
+        return;
+      }
+      if (kind === failureKind || failureKind === "PATCH" && kind === "START") {
+        expect(journal).toMatchObject({ state: "FAILED", errorCode: "INTERNAL",
+          providerOperationId: `incus-${kind === "CREATE" ? "create" : "setPower"}-11111111-1111-1111-1111-${String(nativeSequence).padStart(12, "0")}` });
+        expect(journal.errorMessage).toBe("Incus native lifecycle operation failed");
+        if (failureKind === "PATCH") expect(writes.some(value => value.startsWith("PUT"))).toBe(false);
+        const before = writes.length;
+        expect((await controller.requestAndDispatch(request)).id).toBe(journal.id);
+        expect(writes).toHaveLength(before);
+        const reservations = await db.select().from(schema.sandboxReservations);
+        expect(reservations[0]).toMatchObject({ computeState: "RESERVED", diskState: "RESERVED" });
+        expect((await controller.getBinding(sandboxId))?.cleanupConfirmedAt).toBeNull();
+        return;
+      }
+      expect({ kind, state: journal.state, error: journal.errorMessage }).toMatchObject({ state: kind === "DESTROY" && faultMode === "consume" ? "OUTCOME_UNKNOWN" : pendingCreate || legacyProducer ? "PROVIDER_PENDING" : "SUCCEEDED" });
       if (kind === "DESTROY" && fault) {
         expect(journal.providerOperationId).toBe("incus-destroy-11111111-1111-1111-1111-000000000006");
-        expect(destroyInspections).toBe(2);
+        expect(destroyInspections).toBe(faultMode === "consume" ? 2 : 3);
         expect(fault.matches({ ...command, action: "instance.destroy", idempotency: { requestId: armedDestroyId, key: armedDestroyId }, payload: { expectedGeneration: 5 } }, scope)).toBe(false);
         expect((await controller.getOperation(journal.id))?.state).toBe(journal.state);
       }
       await controller.reconcile();
+      if (pendingCreate && kind === "CREATE") {
+        expect((await controller.getOperation(journal.id))?.state).toBe("PROVIDER_PENDING");
+        expect((await controller.getBinding(sandboxId))?.observedState).toBe("UNKNOWN");
+        expect(writes.some(value => value.startsWith("PUT"))).toBe(false);
+        return;
+      }
       if (kind === "DESTROY" && fault) {
         expect((await controller.getOperation(journal.id))?.state).toBe(journal.state);
         await controller.reconcile(1, journal.id);
@@ -692,3 +788,155 @@ async function exerciseAdapterLifecycle(faultMode?: "consume" | "expire") {
 test("real adapter and controller preserve the host fence across a complete power lifecycle", () => exerciseAdapterLifecycle());
 test("delayed native destroy receipt through the real broker and adapter persists consumed fault as UNKNOWN", () => exerciseAdapterLifecycle("consume"));
 test("expired fault cannot suppress a delayed native destroy receipt or fabricate UNKNOWN", () => exerciseAdapterLifecycle("expire"));
+
+
+test("async CREATE keeps the native completion barrier while its stopped instance is visible", async () => {
+  const nativeId = "11111111-1111-4111-8111-111111111111";
+  let instance: Record<string, unknown> | undefined;
+  const calls: string[] = [];
+  const fetcher = async (url: string, init: RequestInit) => {
+    const path = new URL(url).pathname;
+    calls.push(`${init.method} ${path}`);
+    if (path.includes("/profiles/")) return reply(safeProfile);
+    if (path.includes("/operations/")) return reply({ status: "Running", resources: { instances: [`/1.0/instances/${sandboxName}`] } });
+    if (init.method === "POST") {
+      const body = JSON.parse(String(init.body));
+      instance = { ...body, status: "Stopped", config: { ...body.config, "volatile.base_image": "c".repeat(64) } };
+      return reply({ id: nativeId }, 202);
+    }
+    return instance ? reply(instance) : reply({}, 404);
+  };
+  const transport = new HostIncusLifecycleTransport({ resolveForHost: async () => connection }, scope, fetcher as never);
+  const created = await transport.request({ ...command, deadlineMs: Date.now() + 30_000,
+    payload: { ...command.payload as object, desiredState: "stopped" } }) as { receipt: { operationId: string } };
+  expect(created.receipt.operationId).toBe(`incus-create-${nativeId}`);
+  const inspected = await transport.request({ ...command, deadlineMs: Date.now() + 30_000,
+    action: "operation.inspect", payload: { operationId: created.receipt.operationId } }) as { operation: { state: string } };
+  expect(inspected.operation.state).toBe("running");
+  expect(calls.filter(call => call.startsWith("POST"))).toHaveLength(1);
+  expect(calls.some(call => call.startsWith("PUT"))).toBe(false);
+});
+
+test("async intent PATCH must finish before the native power PUT", async () => {
+  const calls: string[] = [];
+  const instance = { name: sandboxName, status: "Stopped", config: {
+    "user.ezharness.managed_by": "ezharness-incus-sandbox", "user.ezharness.connection_id": "connection-a",
+    "user.ezharness.sandbox_id": sandboxId, "user.ezharness.profile": "linux-exec.v1",
+    "user.ezharness.preset_id": "incus-linux-exec-v1", "user.ezharness.generation": "1" } };
+  const fetcher = async (url: string, init: RequestInit) => {
+    const path = new URL(url).pathname;
+    calls.push(`${init.method} ${path}`);
+    if (path.includes("/operations/")) return reply({ status: "Running", resources: { instances: [`/1.0/instances/${sandboxName}`] } });
+    if (init.method === "GET") return Response.json({ type: "sync", metadata: instance }, { headers: { etag: '"revision-a"' } });
+    return reply({ id: "22222222-2222-4222-8222-222222222222" }, 202);
+  };
+  const transport = new HostIncusLifecycleTransport({ resolveForHost: async () => connection }, scope, fetcher as never);
+  await expect(transport.request({ ...command, deadlineMs: Date.now() + 30_000,
+    action: "instance.setPower", payload: { desiredState: "running", expectedGeneration: 1 } })).rejects.toMatchObject({ effect: "unknown" });
+  expect(calls.some(call => call.startsWith("PUT"))).toBe(false);
+  expect(calls.filter(call => call.startsWith("PATCH"))).toHaveLength(1);
+});
+
+
+test("real broker adapter and controller do not settle a visible instance before native CREATE completes", () => exerciseAdapterLifecycle(undefined, true));
+
+
+test("real native CREATE failure is durably retained without releasing reservations or replay", () => exerciseAdapterLifecycle(undefined, false, "CREATE"));
+test("real native START failure is durably retained without releasing reservations or replay", () => exerciseAdapterLifecycle(undefined, false, "START"));
+
+test("a pending async PATCH waits once for terminal success before power dispatch", async () => {
+  let release!: () => void;
+  let ready!: () => void;
+  const barrier = new Promise<void>(resolve => { release = resolve; });
+  const entered = new Promise<void>(resolve => { ready = resolve; });
+  const calls: string[] = [];
+  const instance = { name: sandboxName, status: "Stopped", config: {
+    "user.ezharness.managed_by": "ezharness-incus-sandbox", "user.ezharness.connection_id": "connection-a",
+    "user.ezharness.sandbox_id": sandboxId, "user.ezharness.generation": "1" } };
+  const patchId = "22222222-2222-4222-8222-222222222222";
+  const powerId = "33333333-3333-4333-8333-333333333333";
+  const fetcher = async (url: string, init: RequestInit) => {
+    const path = new URL(url).pathname;
+    calls.push(`${init.method} ${path}`);
+    if (path.includes(patchId)) { ready(); await barrier; return reply({ status: "Success", resources: { instances: [`/1.0/instances/${sandboxName}`] } }); }
+    if (path.includes(powerId)) return reply({}, 404);
+    if (init.method === "GET") return Response.json({ type: "sync", metadata: instance }, { headers: { etag: '"revision-a"' } });
+    return reply({ id: init.method === "PATCH" ? patchId : powerId }, 202);
+  };
+  const transport = new HostIncusLifecycleTransport({ resolveForHost: async () => connection }, scope, fetcher as never);
+  const operation = transport.request({ ...command, deadlineMs: Date.now() + 30_000,
+    action: "instance.setPower", payload: { desiredState: "running", expectedGeneration: 1 } });
+  await entered;
+  expect(calls.some(call => call.startsWith("PUT"))).toBe(false);
+  release();
+  expect(await operation).toMatchObject({ receipt: { operationId: `incus-setPower-${powerId}` } });
+  expect(calls.filter(call => call.startsWith("PATCH"))).toHaveLength(1);
+  expect(calls.filter(call => call.startsWith("PUT"))).toHaveLength(1);
+});
+
+
+test("terminal PATCH failure retains its accepted native handle and never dispatches power", async () => {
+  const id = "22222222-2222-4222-8222-222222222222";
+  const writes: string[] = [];
+  const instance = { name: sandboxName, status: "Stopped", config: {
+    "user.ezharness.managed_by": "ezharness-incus-sandbox", "user.ezharness.connection_id": "connection-a",
+    "user.ezharness.sandbox_id": sandboxId, "user.ezharness.generation": "1" } };
+  const fetcher = async (url: string, init: RequestInit) => {
+    if (new URL(url).pathname.includes("/operations/")) return reply({ status: "Failure", err: "secret provider detail",
+      resources: { instances: [`/1.0/instances/${sandboxName}`] } });
+    if (init.method === "GET") return Response.json({ type: "sync", metadata: instance }, { headers: { etag: '"revision-a"' } });
+    writes.push(init.method!);
+    return reply({ id }, 202);
+  };
+  const transport = new HostIncusLifecycleTransport({ resolveForHost: async () => connection }, scope, fetcher as never);
+  const result = await transport.request({ ...command, deadlineMs: Date.now() + 30_000,
+    action: "instance.setPower", payload: { desiredState: "running", expectedGeneration: 1 } });
+  expect(result).toMatchObject({ receipt: { operationId: `incus-setPower-${id}`, terminalObservation: {
+    state: "failed", observedState: "unknown", error: { code: "INTERNAL", retryable: false } } } });
+  expect(JSON.stringify(result)).not.toContain("secret provider detail");
+  expect(writes).toEqual(["PATCH"]);
+});
+
+test("native wait expiry, pending and transport loss retain one accepted CREATE identity", async () => {
+  const id = "11111111-1111-4111-8111-111111111111";
+  for (const waitReply of ["missing", "pending", "lost"] as const) {
+    let posts = 0;
+    const fetcher = async (url: string, init: RequestInit) => {
+      const path = new URL(url).pathname;
+      if (path.includes("/operations/")) {
+        if (waitReply === "lost") throw new Error("lost wait response");
+        return waitReply === "missing" ? reply({}, 404) : reply({ status: "Running", resources: { instances: [`/1.0/instances/${sandboxName}`] } });
+      }
+      if (path.includes("/profiles/")) return reply(safeProfile);
+      if (init.method === "POST") { posts++; return reply({ id }, 202); }
+      return reply({}, 404);
+    };
+    const transport = new HostIncusLifecycleTransport({ resolveForHost: async () => connection }, scope, fetcher as never);
+    const accepted = await transport.request({ ...command, deadlineMs: Date.now() + 30_000 });
+    expect(accepted).toMatchObject({ receipt: { operationId: `incus-create-${id}` } });
+    expect((accepted as { receipt: object }).receipt).not.toHaveProperty("terminalObservation");
+    expect(posts).toBe(1);
+  }
+});
+
+test("an async CREATE without a native handle cannot become a synthetic successful CREATE", async () => {
+  let posts = 0;
+  const transport = new HostIncusLifecycleTransport({ resolveForHost: async () => connection }, scope,
+    (async (url: string, init: RequestInit) => {
+      if (new URL(url).pathname.includes("/profiles/")) return reply(safeProfile);
+      if (init.method === "POST") { posts++; return reply({}, 202); }
+      return reply({}, 404);
+    }) as never);
+  await expect(transport.request({ ...command, deadlineMs: Date.now() + 30_000 })).rejects.toMatchObject({ effect: "unknown", operationId: undefined });
+  expect(posts).toBe(1);
+});
+
+
+test("frozen host 4.0 adapter receipt contract remains valid through normal stopped cleanup on a new host", () => exerciseAdapterLifecycle(undefined, false, undefined, true));
+
+
+test("an actual adapter worker lost after native acceptance retains the durable handle", () => exerciseAdapterLifecycle(undefined, true, undefined, false, "accepted"));
+test("an actual adapter worker lost after terminal failure capture retains the durable failure", () => exerciseAdapterLifecycle(undefined, false, "CREATE", false, "terminal"));
+
+
+test("real broker persists terminal PATCH failure under its native handle without dispatching power", () => exerciseAdapterLifecycle(undefined, false, "PATCH"));

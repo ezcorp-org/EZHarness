@@ -2,6 +2,7 @@ import {
   validateSandboxProviderMethodExchange,
   type SandboxProtocolOperation,
 } from "@ezcorp/extension-contract";
+import { resourceName } from "../infrastructure/incus-transport/lifecycle";
 import type {
   SandboxProviderDispatcher,
   SandboxProviderOutcome,
@@ -135,6 +136,29 @@ function observation(value: unknown): SandboxProviderOutcome {
   }
 }
 
+export function inspectedOutcome(kind: SandboxProviderRequest["kind"], providerOperationId: string,
+  operation: { kind: string; state: string; observedState: string | null; error: { code: string; message?: string } | null }): SandboxProviderOutcome {
+  if (operation.kind !== expectedKinds[kind]) {
+    return { outcome: "UNKNOWN", providerOperationId: providerOperationId };
+  }
+  if (operation.state === "pending" || operation.state === "running") {
+    return { outcome: "PENDING", providerOperationId: providerOperationId };
+  }
+  if (operation.state === "outcome_unknown") {
+    return { outcome: "UNKNOWN", providerOperationId: providerOperationId };
+  }
+  if (operation.state === "succeeded") {
+    const mapped = observation(operation.observedState);
+    const expected = kind === "START" ? "RUNNING" : kind === "DESTROY" ? "ABSENT" : "STOPPED";
+    if (mapped.outcome !== "SUCCEEDED" || mapped.observedState !== expected) {
+      return { outcome: "UNKNOWN", providerOperationId: providerOperationId };
+    }
+    return { ...mapped, providerOperationId: providerOperationId };
+  }
+  return { outcome: "FAILED", providerOperationId: providerOperationId,
+    errorCode: operation.error?.code ?? "PROVIDER_CANCELLED", errorMessage: operation.error?.message };
+}
+
 /** Converts durable controller requests to the approved Incus release protocol. */
 export class IncusSandboxProviderDispatcher implements SandboxProviderDispatcher {
   constructor(
@@ -156,6 +180,12 @@ export class IncusSandboxProviderDispatcher implements SandboxProviderDispatcher
       if (receipt.kind !== expectedKinds[request.kind] || receipt.requestId !== request.operationId
         || receipt.idempotencyKey !== request.operationId || receipt.sandboxId !== request.binding.id) {
         return { outcome: "UNKNOWN" };
+      }
+      const terminal = (validated.receipt as Record<string, unknown>).terminalObservation as
+        (Parameters<typeof inspectedOutcome>[2] & { resourceId: string }) | undefined;
+      if (terminal) {
+        if (terminal.resourceId !== resourceName(request.binding.connectionId, request.binding.id)) return { outcome: "UNKNOWN", providerOperationId: receipt.operationId };
+        return inspectedOutcome(request.kind, receipt.operationId, terminal);
       }
       return { outcome: "PENDING", providerOperationId: receipt.operationId };
     } catch (error) {
@@ -182,26 +212,8 @@ export class IncusSandboxProviderDispatcher implements SandboxProviderDispatcher
         // An inspection failure, including NOT_FOUND, proves nothing about the mutation.
         return { outcome: "UNKNOWN", providerOperationId: request.providerOperationId };
       }
-      const operation = validated.operation as { kind: string; state: string; observedState: string | null; error: { code: string; message?: string } | null };
-      if (operation.kind !== expectedKinds[request.kind]) {
-        return { outcome: "UNKNOWN", providerOperationId: request.providerOperationId };
-      }
-      if (operation.state === "pending" || operation.state === "running") {
-        return { outcome: "PENDING", providerOperationId: request.providerOperationId };
-      }
-      if (operation.state === "outcome_unknown") {
-        return { outcome: "UNKNOWN", providerOperationId: request.providerOperationId };
-      }
-      if (operation.state === "succeeded") {
-        const mapped = observation(operation.observedState);
-        const expected = request.kind === "START" ? "RUNNING" : request.kind === "DESTROY" ? "ABSENT" : "STOPPED";
-        if (mapped.outcome !== "SUCCEEDED" || mapped.observedState !== expected) {
-          return { outcome: "UNKNOWN", providerOperationId: request.providerOperationId };
-        }
-        return { ...mapped, providerOperationId: request.providerOperationId };
-      }
-      return { outcome: "FAILED", providerOperationId: request.providerOperationId,
-        errorCode: operation.error?.code ?? "PROVIDER_CANCELLED", errorMessage: operation.error?.message };
+      return inspectedOutcome(request.kind, request.providerOperationId,
+        validated.operation as Parameters<typeof inspectedOutcome>[2]);
     } catch (error) {
       if (error instanceof IncusDispatchAuthorizationError) return { outcome: "UNKNOWN", providerOperationId: request.providerOperationId };
       throw error;

@@ -1,3 +1,4 @@
+import type { SandboxOperationInspection } from "@ezcorp/extension-contract";
 import { createHash } from "node:crypto";
 import { isIP } from "node:net";
 import { checkServerIdentity, type PeerCertificate } from "node:tls";
@@ -20,6 +21,8 @@ function operationId(kind: string, command: IncusTransportRequest): string {
   const seed = `${command.connectionId}\0${command.tags.sandboxId}\0${command.idempotency?.requestId}\0${command.idempotency?.key}\0${kind}`;
   return `ezh-${kind}-${command.sandboxName!.slice(4)}-${createHash("sha256").update(seed).digest("hex").slice(0, 32)}`;
 }
+export { operationId as incusLifecycleOperationId };
+
 function sourceConfig(scope: HostConnectionScope) {
   const lifecycle = scope.approvedPreset;
   if (!lifecycle || !ID.test(lifecycle.profile) || !NAME.test(lifecycle.incusProfile) || lifecycle.incusProfile === "default" || !ID.test(lifecycle.presetId)
@@ -159,6 +162,9 @@ type LifecycleContext = {
   instancePath: string;
   input: Record<string, unknown>;
   policy: ReturnType<typeof sourceConfig>;
+  hostContractMinor: 0 | 1;
+  recordAcceptedOperation?: HostConnectionScope["recordAcceptedOperation"];
+  recordTerminalObservation?: HostConnectionScope["recordTerminalObservation"];
 };
 
 /** Injected only by the authenticated host operator path. */
@@ -219,7 +225,7 @@ function matchesApprovedInstance(instance: Record<string, unknown>, policy: Life
     && (instance.type === undefined || instance.type === "container");
 }
 
-async function inspectSyntheticOperation({ session, command, instancePath, policy }: LifecycleContext, id: string) {
+async function inspectSyntheticOperation({ session, command, instancePath }: LifecycleContext, id: string) {
   const match = /^ezh-(create|setPower|destroy)-([a-f0-9]{32})-([a-f0-9]{32})$/.exec(id);
   if (!match || `ezh-${match[2]}` !== command.sandboxName) denied("Incus operation escaped sandbox scope");
   if (match[1] === "create" && (!command.idempotency || operationId("create", command) !== id)) denied("Incus creation operation does not match journal scope");
@@ -229,7 +235,7 @@ async function inspectSyntheticOperation({ session, command, instancePath, polic
   const config = instance ? object(instance.config) : null;
   const desired = config?.["user.ezharness.desired_state"];
   const observed = instance?.status === "Running" ? "running" : instance?.status === "Stopped" ? "stopped" : "unknown";
-  const createProof = match[1] !== "create" || Boolean(instance && matchesCreateInstance(instance, command, policy, id, null));
+  const createProof = match[1] !== "create";
   const proven = config?.["user.ezharness.operation_id"] === id && desired === observed && createProof && (match[1] === "create" || match[1] === "setPower");
   return { ok: true, operation: { operationId: id, kind: match[1], sandboxId: command.tags.sandboxId, state: proven ? "succeeded" : "outcome_unknown", desiredState: match[1] === "destroy" ? "absent" : desired === "running" ? "running" : "stopped", observedState: observed, resourceId: instance ? command.sandboxName : null, startedAt: new Date().toISOString(), finishedAt: new Date().toISOString(), error: proven ? null : { code: "OUTCOME_UNKNOWN", message: "Incus mutation outcome is unknown", retryable: false, operationId: id } } };
 }
@@ -256,7 +262,7 @@ async function verifyCompletedOperation(
       const desired = config["user.ezharness.desired_state"];
       if (config["user.ezharness.profile"] === policy.profile && config["user.ezharness.preset_id"] === policy.presetId
         && Array.isArray(instance.profiles) && instance.profiles.includes(policy.incusProfile)
-        && (kind !== "create" || config["user.ezharness.create_key"])
+        && (kind !== "create" || matchesCreateInstance(instance, command, policy, operationId("create", command), null))
         && (desired === "running" || desired === "stopped") && observed === desired) {
         observedState = observed;
         desiredState = desired;
@@ -338,23 +344,13 @@ async function inspectExpiredPowerOperation({ session, command, instancePath, in
     error: proven ? null : { code: "OUTCOME_UNKNOWN", message: "Incus mutation outcome is unknown", retryable: false, operationId: id } } };
 }
 
-async function inspectExpiredCreateOperation({ session, command, instancePath, policy }: LifecycleContext, id: string) {
-  // The daemon can discard completed operations. Only the host-authorized
-  // journal identity and the exact instance created by that journal can settle it.
-  const stableId = command.idempotency ? operationId("create", command) : null;
-  const found = stableId ? metadata(await session.request("GET", instancePath), true) : null;
-  let proven = false;
-  if (found) {
-    try {
-      const instance = object(found);
-      instanceIdentity(instance, command);
-      proven = matchesCreateInstance(instance, command, policy, stableId!, "stopped");
-    } catch { /* An untrusted or malformed instance is no proof of this CREATE. */ }
-  }
+async function inspectExpiredCreateOperation({ command }: LifecycleContext, id: string) {
+  // A visible stopped record can precede volume creation. An expired native
+  // receipt cannot prove that CREATE completed, even when every tag matches.
   return { ok: true, operation: { operationId: id, kind: "create", sandboxId: command.tags.sandboxId,
-    state: proven ? "succeeded" : "outcome_unknown", desiredState: "stopped", observedState: proven ? "stopped" : "unknown",
-    resourceId: proven ? command.sandboxName : null, startedAt: new Date().toISOString(), finishedAt: new Date().toISOString(),
-    error: proven ? null : { code: "OUTCOME_UNKNOWN", message: "Incus mutation outcome is unknown", retryable: false, operationId: id } } };
+    state: "outcome_unknown", desiredState: "stopped", observedState: "unknown",
+    resourceId: null, startedAt: new Date().toISOString(), finishedAt: new Date().toISOString(),
+    error: { code: "OUTCOME_UNKNOWN", message: "Incus creation completion is unknown", retryable: false, operationId: id } } };
 }
 
 async function inspectLifecycleOperation(context: LifecycleContext) {
@@ -364,7 +360,57 @@ async function inspectLifecycleOperation(context: LifecycleContext) {
   return id.startsWith("ezh-") ? inspectSyntheticOperation(context, id) : inspectIncusOperation(context, id);
 }
 
-async function createInstance({ session, command, project, collection, input, policy }: LifecycleContext, existing: Record<string, unknown> | null, stableId: string) {
+/** Capture short-lived native results in the same bounded, pinned RPC. */
+async function waitNativeOperation(context: LifecycleContext, nativeId: string) {
+  const match = /^incus-(create|setPower|destroy)-([a-f0-9-]{36})$/.exec(nativeId);
+  if (!match) return null;
+  const { session, command, project } = context;
+  const timeout = Math.max(0, Math.floor((command.deadlineMs - Date.now()) / 1000));
+  const result = await session.request("GET", `/1.0/operations/${match[2]}/wait?timeout=${timeout}&project=${project}`);
+  if (result.status === 404) return null;
+  const operation = object(metadata(result));
+  const resources = object(operation.resources);
+  if (!Array.isArray(resources.instances) || !resources.instances.some(item => typeof item === "string"
+    && new URL(item, "https://incus.invalid").pathname === `/1.0/instances/${command.sandboxName}`)) denied("Incus operation escaped sandbox scope");
+  return operation;
+}
+
+async function acceptedLifecycleReceipt(context: LifecycleContext, kind: "create" | "setPower" | "destroy",
+  reply: Awaited<ReturnType<Session["request"]>>, stableId: string) {
+  const { command } = context;
+  const id = acceptedOperationId(reply, kind, stableId);
+  if (reply.envelope.type === "async" && id === stableId) throw new IncusTransportError("unavailable",
+    "Incus accepted an asynchronous mutation without its native identity", { effect: "unknown" });
+  await context.recordAcceptedOperation?.(id);
+  const accepted = receipt(kind, command, id);
+  if (id === stableId) return terminalLifecycleReceipt(context, kind, id, { status: "Success" });
+  let native: Record<string, unknown> | null;
+  try { native = await waitNativeOperation(context, id); }
+  catch { return accepted; }
+  return terminalLifecycleReceipt(context, kind, id, native);
+}
+
+async function terminalLifecycleReceipt(context: LifecycleContext, kind: "create" | "setPower" | "destroy",
+  id: string, native: Record<string, unknown> | null) {
+  const { command } = context;
+  const accepted = receipt(kind, command, id);
+  if (context.hostContractMinor !== 1) return accepted;
+  if (!native || !["Success", "Failure", "Cancelled"].includes(String(native.status))) return accepted;
+  const verified = await verifyCompletedOperation(context, kind, native.status);
+  if (verified.state === "outcome_unknown") return accepted;
+  const failed = native.status !== "Success";
+  const terminal: SandboxOperationInspection = { operationId: id, kind, sandboxId: command.tags.sandboxId!,
+    state: failed ? native.status === "Cancelled" ? "cancelled" : "failed" : "succeeded",
+    desiredState: kind === "destroy" ? "absent" : payload(command).desiredState === "running" ? "running" : "stopped",
+    observedState: failed ? "unknown" : verified.observedState, resourceId: command.sandboxName!,
+    startedAt: new Date().toISOString(), finishedAt: new Date().toISOString(),
+    error: failed ? { code: "INTERNAL", message: "Incus native lifecycle operation failed", retryable: false } : null };
+  await context.recordTerminalObservation?.(terminal);
+  return { ...accepted, receipt: { ...accepted.receipt, terminalObservation: terminal } };
+}
+
+async function createInstance(context: LifecycleContext, existing: Record<string, unknown> | null, stableId: string) {
+  const { session, command, project, collection, input, policy } = context;
   if (existing) {
     const config = object(existing.config);
     if (config["user.ezharness.create_key"] !== command.idempotency!.key) throw new IncusTransportError("already_exists", "Incus sandbox already exists");
@@ -395,7 +441,7 @@ async function createInstance({ session, command, project, collection, input, po
     "limits.memory": String(policy.limits.memoryBytes), "limits.cpu": String(Math.ceil(policy.limits.cpuMillis / 1000)),
     "limits.cpu.allowance": `${policy.limits.cpuMillis}ms/1000ms`, "limits.processes": String(policy.limits.pids),
   } };
-  try { const reply = await session.request("POST", collection, body); metadata(reply); return receipt("create", command, stableId); }
+  try { const reply = await session.request("POST", collection, body); metadata(reply); return acceptedLifecycleReceipt(context, "create", reply, stableId); }
   catch (error) { throw uncertain(error, stableId); }
 }
 
@@ -416,29 +462,42 @@ function assertMutationAllowed(context: LifecycleContext, kind: "setPower" | "de
 }
 
 async function patchMutationIntent(context: LifecycleContext, kind: "setPower" | "destroy",
-  currentReply: Awaited<ReturnType<Session["request"]>>, generation: number, stableId: string): Promise<void> {
+  currentReply: Awaited<ReturnType<Session["request"]>>, generation: number, stableId: string) {
   const { session, instancePath, input } = context;
   if (!currentReply.etag) denied("Incus instance ETag is required for mutation");
-  try { metadata(await session.request("PATCH", instancePath, { config: { "user.ezharness.generation": String(generation + 1), "user.ezharness.operation_id": stableId, "user.ezharness.desired_state": kind === "setPower" ? input.desiredState : "destroyed" } }, currentReply.etag)); }
+  try { const reply = await session.request("PATCH", instancePath, { config: { "user.ezharness.generation": String(generation + 1), "user.ezharness.operation_id": stableId, "user.ezharness.desired_state": kind === "setPower" ? input.desiredState : "destroyed" } }, currentReply.etag); metadata(reply);
+    await context.recordAcceptedOperation?.(stableId);
+    if (reply.envelope.type === "async") {
+      const id = acceptedOperationId(reply, "setPower", stableId);
+      const result = id === stableId ? null : await waitNativeOperation(context, id);
+      if (result && ["Failure", "Cancelled"].includes(String(result.status))) {
+        const failedId = id.replace("incus-setPower-", `incus-${kind}-`);
+        await context.recordAcceptedOperation?.(failedId);
+        return terminalLifecycleReceipt(context, kind, failedId, result);
+      }
+      if (result?.status !== "Success") throw new IncusTransportError("unavailable", "Incus intent update is unresolved", { effect: "unknown", operationId: stableId });
+    }
+  }
   catch (error) { throw uncertain(error, stableId); }
 }
 
 async function applyPowerMutation(context: LifecycleContext, observedState: string, stableId: string) {
   const { session, command, project, input } = context;
   if (observedState === input.desiredState) return receipt("setPower", command, stableId);
-  try { const reply = await session.request("PUT", `/1.0/instances/${command.sandboxName}/state?project=${project}`, { action: input.desiredState === "running" ? "start" : "stop", timeout: 30 }); metadata(reply); return receipt("setPower", command, acceptedOperationId(reply, "setPower", stableId)); }
+  try { const reply = await session.request("PUT", `/1.0/instances/${command.sandboxName}/state?project=${project}`, { action: input.desiredState === "running" ? "start" : "stop", timeout: 30 }); metadata(reply); return acceptedLifecycleReceipt(context, "setPower", reply, stableId); }
   catch (error) { throw uncertain(error, stableId); }
 }
 
 async function applyDestroyMutation(context: LifecycleContext, stableId: string,
   fault?: PostEffectDestroyReplyFault, scope?: HostConnectionScope) {
-  const { session, command, instancePath } = context;
+  const { session, instancePath } = context;
   let reply: Awaited<ReturnType<Session["request"]>>;
   try { reply = await session.request("DELETE", instancePath); metadata(reply); }
   catch (error) { throw uncertain(error, stableId); }
   const providerId = acceptedOperationId(reply, "destroy", stableId);
+  await context.recordAcceptedOperation?.(providerId);
   await maybeLoseDestroyReply(context, providerId, fault, scope);
-  return receipt("destroy", command, providerId);
+  return acceptedLifecycleReceipt(context, "destroy", reply, stableId);
 }
 
 async function maybeLoseDestroyReply(context: LifecycleContext, providerId: string,
@@ -468,7 +527,8 @@ async function mutateInstance(context: LifecycleContext, kind: "setPower" | "des
   }
   const { current, alreadyDone } = assertMutationAllowed(context, kind, existing, stableId);
   if (alreadyDone) return receipt("setPower", command, stableId);
-  await patchMutationIntent(context, kind, currentReply, current.generation, stableId);
+  const failedIntent = await patchMutationIntent(context, kind, currentReply, current.generation, stableId);
+  if (failedIntent) return failedIntent;
   return kind === "setPower" ? applyPowerMutation(context, current.observedState, stableId)
     : applyDestroyMutation(context, stableId, fault, scope);
 }
@@ -479,7 +539,7 @@ async function requestLifecycleAction(session: Session, command: IncusTransportR
   const instancePath = `/1.0/instances/${command.sandboxName}?project=${project}`;
   const input = payload(command);
   const policy = sourceConfig(scope);
-  const context: LifecycleContext = { session, command, project, collection, instancePath, input, policy };
+  const context: LifecycleContext = { session, command, project, collection, instancePath, input, policy, hostContractMinor: scope.hostContractMinor ?? 0, recordAcceptedOperation: scope.recordAcceptedOperation, recordTerminalObservation: scope.recordTerminalObservation };
   if (command.action === "instance.inspect") return inspectInstance(context);
   if (command.action === "instance.list") return listInstances(context);
   if (command.action === "operation.inspect") return inspectLifecycleOperation(context);
@@ -507,5 +567,5 @@ export class HostIncusLifecycleTransport implements IncusTransport {
 
 function uncertain(error: unknown, id: string): IncusTransportError {
   if (error instanceof IncusTransportError && error.effect === "none") return error;
-  return new IncusTransportError(error instanceof IncusTransportError ? error.kind : "unavailable", "Incus mutation outcome is unknown", { effect: "unknown", operationId: id });
+  return new IncusTransportError(error instanceof IncusTransportError ? error.kind : "unavailable", "Incus mutation outcome is unknown", { effect: "unknown", operationId: error instanceof IncusTransportError ? error.operationId ?? id : id });
 }

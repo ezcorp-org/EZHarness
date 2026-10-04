@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, expect, test } from "bun:test";
 import type { ExtensionManifestV4, SandboxProviderCapability, SandboxProtocolContribution, SandboxProtocolMethodGroup } from "./types";
 import { linuxSandboxPreset, sandboxFixtureManifest } from "./sandbox-presets.fixture";
@@ -242,4 +243,41 @@ describe("sandbox.provider.v1 canonical protocol", () => {
     expect(() => validateSandboxProviderMethodValue("endpoints.open", "input", { ...open, expiresAt: "2026-09-24T13:00:00Z" })).toThrow("24 hours");
     expect(() => validateSandboxProviderMethodValue("endpoints.open", "input", { ...open, rpcDeadlineMs: Date.parse("2026-03-02T11:00:00Z"), expiresAt: "2026-02-30T12:00:00Z" })).toThrow("endpoint expiry");
   });
+});
+
+
+test("host 4.0 canonical schemas remain byte-identical to the frozen producer", () => {
+  const frozen = {"describe":"e5217b5acc71c4402bfe1238063bbf196b760e8ca5178dd0b162c10319aa8ca2","preflight":"3edb6d8b364b0928b04f68675985260cdd4a647261c103499903337425302a08","lifecycle.create":"80260ff2e5089b53e18cd69c61a8f6f2cd1f9983e9b062e4dd7a7a0b3af7ea50","lifecycle.inspect":"b65057e4671025959b2d0df557bfedd6466fee4a5b6f5e1914b350ab1d9cbb67","lifecycle.list":"40a77268215fd8e8453176272c9666030baacf3b031bfe00628eaab6655d9a3b","lifecycle.setPower":"2fe8f3e8c80ecabd17a1657909d87e5e544bf33a9df4ae58daddf3c01648b9b7","lifecycle.destroy":"90ce9835a85b89cc56baaf0dd1b4a8371eb92419bfc1c37ab00529256704a6ac","lifecycle.inspectOperation":"8075816138594bc3f6c120a5015420f50d85ffae919649efcd00e961fda003ad","files.stat":"906621d04641a6160c32c52c3a5aed1b5a9278cc03eeb5ae558c083c757960a1","files.list":"a08592812b5666645975069736bcc386b4f9751262448cb360465dc882dbf73f","files.readRange":"a5f8b5ed41be8cae2159db1b624ab5ba5883b1c7b1216e0d209a836e1e815f82","files.writeAtomic":"67cfa74ce9a015b3ff96a5b9bb190369d123c4aa32afa568d8fb9892cc602d30","files.remove":"84ff011c7df1785baf436de9d352e949382d3df46501fa3611523d82bd39e407","processes.start":"735ed80b231e5d8c243ac51eb2849621cab2bffcf4f4363818583fcbdd32bc55","processes.inspect":"188c85c28f3270f08732d4a6485a20b8887fa5407d24f1ec6981a5cde2d33215","processes.readOutput":"a97a285e8549ab09e8f324a4e57e147b3fb80a53996bb3e819aa046285e16584","processes.cancel":"893eecfea55a24d55e057c1be6a15a15be014cc495101fe2c2bf7df967706bb5","endpoints.open":"4bc3b287b8b777d222846563992327c147e9fcbcb44e17a9326e8673baa696a4","endpoints.close":"ac4345af69b20e12c4a92cc4ed8e899a8183c7c967c1bd272b6330d1adb62165"};
+  for (const operation of SANDBOX_PROVIDER_OPERATIONS) {
+    expect(createHash("sha256").update(JSON.stringify(sandboxProviderMethodSchemas(operation, 0))).digest("hex")).toBe(frozen[operation]);
+  }
+  expect(validateManifest(protocolManifest()).sandboxProviders?.[0]?.minimumHostContract).toEqual({ major: 4, minor: 0 });
+});
+
+test("terminal lifecycle receipts require host 4.1 canonical schemas", () => {
+  const manifest = protocolManifest();
+  manifest.sandboxProviders![0]!.minimumHostContract.minor = 1;
+  for (const operation of SANDBOX_PROVIDER_OPERATIONS) {
+    Object.assign(manifest.methods!.find(method => method.name === methodName(operation))!, sandboxProviderMethodSchemas(operation, 1));
+  }
+  expect(validateManifest(manifest).sandboxProviders?.[0]?.minimumHostContract.minor).toBe(1);
+  manifest.sandboxProviders![0]!.minimumHostContract.minor = 0;
+  expect(() => validateManifest(manifest)).toThrow("canonical wire schemas");
+  Object.assign(manifest.sandboxProviders![0]!.minimumHostContract, { minor: 2 });
+  expect(() => validateManifest(manifest)).toThrow();
+});
+
+test("terminal receipt evidence is scoped and cannot be pending, forged or retried", () => {
+  const input = { ...mutation, profile: "linux-exec.v1", presetId: "linux", presetDigest: "a".repeat(64), effectiveSettingsDigest: "b".repeat(64), desiredState: "stopped" };
+  const observation = { operationId: receipt.operationId, kind: "create", sandboxId: receipt.sandboxId,
+    state: "failed", desiredState: "stopped", observedState: "unknown", resourceId: "owned-resource",
+    startedAt: "2026-09-22T12:00:00Z", finishedAt: "2026-09-22T12:00:01Z",
+    error: { code: "INTERNAL", message: "Native operation failed", retryable: false } };
+  const value = (terminal: object) => ({ ok: true, receipt: { ...receipt, terminalObservation: terminal } });
+  expect(validateSandboxProviderMethodExchange("lifecycle.create", input, value(observation)).result).toEqual(value(observation));
+  for (const patch of [{ operationId: "other" }, { sandboxId: "other" }, { kind: "destroy" },
+    { state: "running", finishedAt: null }, { resourceId: null }, { error: null },
+    { error: { ...observation.error, retryable: true } }, { state: "succeeded" }]) {
+    expect(() => validateSandboxProviderMethodExchange("lifecycle.create", input, value({ ...observation, ...patch }))).toThrow();
+  }
 });

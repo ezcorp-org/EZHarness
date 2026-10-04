@@ -177,7 +177,7 @@ export interface SandboxProviderDeclaration {
   capabilities?: SandboxProviderCapability[];
   kind?: "sandbox";
   protocolMajor?: 1;
-  minimumHostContract?: { major: 4; minor: 0 };
+  minimumHostContract?: { major: 4; minor: 0 | 1 };
   configSchema?: ValueSchema;
   requiredPermissions?: SandboxProviderRequiredPermission[];
   methodGroups?: SandboxProtocolMethodGroup[];
@@ -228,7 +228,7 @@ export interface SandboxProtocolMethodGroup {
 export interface SandboxProtocolContribution extends SandboxProviderDeclaration {
   kind: "sandbox";
   protocolMajor: 1;
-  minimumHostContract: { major: 4; minor: 0 };
+  minimumHostContract: { major: 4; minor: 0 | 1 };
   configSchema: ValueSchema;
   requiredPermissions: SandboxProviderRequiredPermission[];
   methodGroups: SandboxProtocolMethodGroup[];
@@ -305,6 +305,7 @@ export interface SandboxOperationReceipt {
   idempotencyKey: string;
   sandboxId: string;
   acceptedAt: string;
+  terminalObservation?: SandboxOperationInspection;
 }
 export interface SandboxOperationAccepted {
   ok: true;

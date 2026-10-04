@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
+import { resourceName } from "../infrastructure/incus-transport/lifecycle";
 import { RunnerError } from "@ezcorp/extension-runner";
 import { up as addSandboxController } from "../db/migrations/add-sandbox-controller";
 import * as schema from "../db/schema";
@@ -16,7 +17,7 @@ const open: PGlite[] = [];
 const deadline = Date.parse("2026-09-22T13:00:00Z");
 type Call = { scope: IncusDispatchScope; method: string; input: Record<string, unknown> };
 
-async function setup(revision: number | null = 7) {
+async function setup(revision: number | null = 7, observedState: "UNKNOWN" | "STOPPED" = "STOPPED") {
   const pglite = new PGlite();
   open.push(pglite);
   await pglite.waitReady;
@@ -40,7 +41,7 @@ async function setup(revision: number | null = 7) {
     providerReleaseId: "release", connectionId: "connection", connectionRevision: revision,
     profile: "linux-exec.v1", presetId: "incus-linux-exec-v1",
     presetDigest: "a".repeat(64), effectiveSettingsDigest: "b".repeat(64),
-    resourceKey: "backend-resource", observedState: "STOPPED",
+    resourceKey: "backend-resource", observedState,
   });
   return { controller, binding, calls, setRespond: (next: typeof respond) => { respond = next; } };
 }
@@ -284,4 +285,30 @@ test("invalid mutation payload and stale journal cannot select another sandbox",
   await controller.advanceGeneration("binding", 1);
   await expect(controller.executeOperation(stale.id)).rejects.toMatchObject({ code: "STALE_GENERATION" });
   expect(calls).toHaveLength(0);
+});
+
+
+test("terminal accepted CREATE validates resource and observed-state parity before durable success", async () => {
+  for (const [resourceId, observedState, expected] of [
+    [resourceName("connection", "binding"), "stopped", "SUCCEEDED"],
+    ["another-resource", "stopped", "OUTCOME_UNKNOWN"],
+    [resourceName("connection", "binding"), "running", "OUTCOME_UNKNOWN"],
+  ] as const) {
+    const { controller, calls, setRespond } = await setup(7, "UNKNOWN");
+    setRespond(call => {
+      const value = accepted(call);
+      return { ...value, receipt: { ...value.receipt, terminalObservation: {
+        operationId: value.receipt.operationId, kind: "create", sandboxId: "binding", state: "succeeded",
+        desiredState: observedState, observedState, resourceId,
+        startedAt: "2026-09-22T12:00:00Z", finishedAt: "2026-09-22T12:00:01Z", error: null } } };
+    });
+    const operation = await controller.requestAndDispatch({ bindingId: "binding", kind: "CREATE", generation: 1,
+      idempotencyScope: "terminal", idempotencyKey: "create",
+      payload: { profile: "linux-exec.v1", presetId: "incus-linux-exec-v1",
+        presetDigest: "a".repeat(64), effectiveSettingsDigest: "b".repeat(64) } });
+    expect(operation.state).toBe(expected);
+    expect(operation.providerOperationId).toBe("provider-operation");
+    expect(calls).toHaveLength(1);
+    expect((await controller.getBinding("binding"))?.observedState).toBe(expected === "SUCCEEDED" ? "STOPPED" : "UNKNOWN");
+  }
 });

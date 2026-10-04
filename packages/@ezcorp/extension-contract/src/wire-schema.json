@@ -4008,6 +4008,9 @@
         },
         "sandboxId": {
           "type": "string"
+        },
+        "terminalObservation": {
+          "$ref": "#/definitions/SandboxOperationInspection"
         }
       },
       "required": [
@@ -5154,7 +5157,10 @@
               "type": "number"
             },
             "minor": {
-              "const": 0,
+              "enum": [
+                0,
+                1
+              ],
               "type": "number"
             }
           },

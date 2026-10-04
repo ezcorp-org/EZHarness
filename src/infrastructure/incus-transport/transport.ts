@@ -1,3 +1,4 @@
+import type { SandboxOperationInspection } from "@ezcorp/extension-contract";
 import { createHash, X509Certificate } from "node:crypto";
 import { isIP } from "node:net";
 import { checkServerIdentity, connect as tlsConnect, type PeerCertificate, type TLSSocket } from "node:tls";
@@ -18,6 +19,11 @@ export interface HostConnectionScope {
   providerInstallationId: string;
   providerReleaseId: string;
   revision: number;
+  /** Negotiated only from the reviewed provider manifest, never worker configuration. */
+  hostContractMinor?: 0 | 1;
+  /** Host-only durable receipt checkpoint. It does not claim terminal effect. */
+  recordAcceptedOperation?: (operationId: string) => Promise<void>;
+  recordTerminalObservation?: (observation: SandboxOperationInspection) => Promise<void>;
   signal?: AbortSignal;
   approvedPreset?: {
     /** Contract profile identifier, such as linux-exec.v1. */

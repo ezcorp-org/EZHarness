@@ -62,7 +62,7 @@ const providerMethodDefinitions = {
 export type SandboxProviderOperation<Group extends SandboxProviderGroup> = keyof typeof providerMethodDefinitions[Group] & string;
 const providerSchemaCache = new Map<string, { inputSchema: ValueSchema; outputSchema: ValueSchema }>();
 
-function standaloneWireSchema(definitionName: string): ValueSchema {
+function standaloneWireSchema(definitionName: string, hostMinor = 1): ValueSchema {
   const definitions = schema.definitions as Record<string, ValueSchema>;
   const included = new Map<string, ValueSchema>();
   const rewrite = (value: unknown): unknown => {
@@ -74,7 +74,10 @@ function standaloneWireSchema(definitionName: string): ValueSchema {
       if (!definitions[name]) throw new ContractError("INVALID_CONTRACT", `Missing provider wire definition: ${name}`);
       if (!included.has(name)) {
         included.set(name, {});
-        included.set(name, rewrite(definitions[name]) as ValueSchema);
+        const definition = definitions[name];
+        const legacy = hostMinor === 0 && name === "SandboxOperationReceipt"
+          ? { ...definition, properties: Object.fromEntries(Object.entries(definition.properties as Record<string, unknown>).filter(([key]) => key !== "terminalObservation")) } : definition;
+        included.set(name, rewrite(legacy) as ValueSchema);
       }
       return { $ref: `#/$defs/${name}` };
     }
@@ -191,10 +194,10 @@ function sandboxMethodName(methods: SandboxProtocolMethodGroup["methods"], opera
   return (methods[group] as Record<string, string> | undefined)?.[name];
 }
 
-export function sandboxProviderMethodSchemas(operation: SandboxProtocolOperation): { inputSchema: ValueSchema; outputSchema: ValueSchema } {
+export function sandboxProviderMethodSchemas(operation: SandboxProtocolOperation, hostMinor = 0): { inputSchema: ValueSchema; outputSchema: ValueSchema } {
   const definitions = sandboxProviderMethodDefinitions[operation];
   if (!definitions) throw new ContractError("INVALID_CONTRACT", "Unsupported sandbox provider method");
-  return { inputSchema: standaloneWireSchema(definitions[0]), outputSchema: standaloneWireSchema(definitions[1]) };
+  return { inputSchema: standaloneWireSchema(definitions[0], hostMinor), outputSchema: standaloneWireSchema(definitions[1], hostMinor) };
 }
 
 function requireUniqueBoundedStrings(values: string[], label: string, allowEmpty = false): void {
@@ -734,7 +737,7 @@ function validateProviderId(provider: ManifestProvider, providerIds: Set<string>
 }
 
 function validateProviderHostAndProfiles(provider: ManifestProvider): void {
-  if (provider.minimumHostContract.minor !== 0) throw new ContractError("INVALID_MANIFEST", "Provider minimum host contract must be supported host contract 4.0");
+  if (![0, 1].includes(provider.minimumHostContract.minor)) throw new ContractError("INVALID_MANIFEST", "Provider minimum host contract must be supported host contract 4.0 or 4.1");
   if (!provider.profiles.length || provider.profiles.length > 8 || new Set(provider.profiles).size !== provider.profiles.length) throw new ContractError("INVALID_MANIFEST", "Provider profiles must be a unique bounded list");
 }
 
@@ -758,15 +761,15 @@ function validateProviderPermissions(provider: ManifestProvider, manifest: Exten
   }
 }
 
-function validateSandboxProviderMethodSchema(group: string, operation: string, mapped: string, manifest: ExtensionManifestV4): void {
+function validateSandboxProviderMethodSchema(group: string, operation: string, mapped: string, manifest: ExtensionManifestV4, hostMinor: number): void {
   const definitions = (providerMethodDefinitions[group as SandboxProviderGroup] as Record<string, readonly [string, string]>)[operation];
   const method = manifest.methods?.find(candidate => candidate.name === mapped);
-  if (!definitions || !method || canonicalJson(method.inputSchema) !== canonicalJson(standaloneWireSchema(definitions[0])) || canonicalJson(method.outputSchema) !== canonicalJson(standaloneWireSchema(definitions[1]))) throw new ContractError("INVALID_MANIFEST", "Sandbox provider methods must use the canonical wire schemas");
+  if (!definitions || !method || canonicalJson(method.inputSchema) !== canonicalJson(standaloneWireSchema(definitions[0], hostMinor)) || canonicalJson(method.outputSchema) !== canonicalJson(standaloneWireSchema(definitions[1], hostMinor))) throw new ContractError("INVALID_MANIFEST", "Sandbox provider methods must use the canonical wire schemas");
 }
 
 function validateProviderMethodKind(provider: ManifestProvider, group: string, operation: string, mapped: string, manifest: ExtensionManifestV4, methodSensitivity: Map<string, MethodSensitivity>): void {
   if (provider.kind === "static-secret" && methodSensitivity.get(mapped) !== "sensitive") throw new ContractError("INVALID_MANIFEST", "Secret provider methods must be sensitive");
-  if (provider.kind === "sandbox") validateSandboxProviderMethodSchema(group, operation, mapped, manifest);
+  if (provider.kind === "sandbox") validateSandboxProviderMethodSchema(group, operation, mapped, manifest, provider.minimumHostContract.minor);
 }
 
 function validateProviderMethodMapping(provider: ManifestProvider, group: string, operation: string, mapped: string, manifest: ExtensionManifestV4, methodNames: Set<string>, methodSensitivity: Map<string, MethodSensitivity>, mappedMethods: Set<string>): void {
@@ -873,7 +876,7 @@ function validateSandboxProviderManifestSeams(manifest: ExtensionManifestV4, too
         throw new ContractError("INVALID_MANIFEST", "Sandbox provider methods must uniquely reference non-tool runtime methods");
       }
       mappedMethods.add(methodName);
-      const canonical = sandboxProviderMethodSchemas(operation);
+      const canonical = sandboxProviderMethodSchemas(operation, provider.minimumHostContract.minor);
       if (canonicalJson(method.inputSchema) !== canonicalJson(canonical.inputSchema)
         || canonicalJson(method.outputSchema) !== canonicalJson(canonical.outputSchema)) {
         throw new ContractError("INVALID_MANIFEST", "Sandbox provider methods must use the canonical wire schemas");
@@ -1012,6 +1015,18 @@ function validateSandboxRequestScope(record: Record<string, unknown>, mutation: 
 function validateSandboxReceipt(receipt: Record<string, unknown>): void {
   for (const field of ["operationId", "requestId", "idempotencyKey", "sandboxId"] as const) requireStableId(receipt[field], `receipt ${field}`);
   requireUtcTimestamp(receipt.acceptedAt, "receipt acceptedAt");
+  const terminal = receipt.terminalObservation as Record<string, unknown> | undefined;
+  if (terminal) {
+    validateSandboxLifecycleValue("lifecycle.inspectOperation", "result", { operation: terminal });
+    if (!["create", "setPower", "destroy"].includes(String(receipt.kind))
+      || !["succeeded", "failed", "cancelled"].includes(String(terminal.state))
+      || terminal.operationId !== receipt.operationId || terminal.kind !== receipt.kind
+      || terminal.sandboxId !== receipt.sandboxId || terminal.resourceId === null
+      || terminal.state === "succeeded" && terminal.error !== null
+      || terminal.state !== "succeeded" && (terminal.error === null || (terminal.error as SandboxProviderError).retryable)) {
+      throw new ContractError("INVALID_PROVIDER_VALUE", "Terminal observation changed the accepted operation or its terminal evidence");
+    }
+  }
 }
 
 function validateSandboxInspection(sandbox: Record<string, unknown>): void {
@@ -1231,7 +1246,7 @@ function validateSandboxProtocolValue(operation: SandboxProtocolOperation, direc
 }
 
 export function validateSandboxProviderMethodValue(operation: SandboxProtocolOperation, direction: SandboxProviderSchemaDirection, value: unknown): unknown {
-  const schemas = sandboxProviderMethodSchemas(operation);
+  const schemas = sandboxProviderMethodSchemas(operation, 1);
   compileValueSchema(direction === "input" ? schemas.inputSchema : schemas.outputSchema)(value);
   const record = value as Record<string, unknown>;
   validateSandboxProtocolValue(operation, direction, record);
