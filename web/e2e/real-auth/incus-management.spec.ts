@@ -523,7 +523,7 @@ test("damaged qualification and retry-key records do not start another host plan
 	// A visible server heading can appear before retry-key restoration. Complete a
 	// normal action to prove hydration restored and persisted the filtered keys.
 	await page.getByRole("button", { name: "Stop", exact: true }).click();
-	await expect(page.getByText("Stopped", { exact: true })).toBeVisible();
+	await expect(page.locator(".feature-card").getByText("stopped", { exact: true })).toBeVisible();
 	const restoredKeys = await page.evaluate(storageKey => JSON.parse(localStorage.getItem(storageKey)!), mutationKey);
 	expect(restoredKeys.valid).toBe("11111111-1111-4111-8111-111111111111");
 	expect(restoredKeys).not.toHaveProperty("damaged");
