@@ -2276,7 +2276,9 @@ Review: 49 backend middleware tests, 203 Vitest route tests, 52 schema tests and
 - [x] Reproduce the CPU probe's zero-throttle false negative with real workers under a finite two-CPU quota and two-CPU process affinity.
 - [x] Correct the CPU evidence for the actual enforcement mechanism; keep budgets unchanged and record bounded failure measurements.
 - [x] Review and test that correction before another live attempt. Do not attribute an exact numeric cause to v6: its measurements were not retained.
-- [ ] Audit v6 global accounting from a fresh stopped database copy.
+- [x] Audit v6 global accounting from a fresh stopped database copy: all eight operations succeeded; both bindings are absent; all reservations are released; no pending operations remain.
+- [x] Install corrected source `9bc0cd5f9143139866ef567fc4dba70332862bb3` and dispatch v7 once. CPU preparation passed; automatic restart continuation failed at the saved fixture receipt check.
+- [ ] Reproduce and fix the restart receipt mismatch through actual database persistence. Preserve the v7 failure and account for both stopped guests before another qualification attempt.
 - [ ] Pass all eight qualification cases on the corrected installed candidate.
 - [ ] Prove normal UI/native work, logs, cancellation, and retained work across engine restart.
 - [ ] Complete ten serial normal feature cycles and the final reservation/inventory audit.
