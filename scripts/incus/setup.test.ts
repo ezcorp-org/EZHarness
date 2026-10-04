@@ -362,14 +362,19 @@ test("guest image builder refuses unpinned, mismatched, and changed inputs befor
     const recipePath = join(directory, "recipe.json");
     await Promise.all([writeFile(docker, "docker"), writeFile(compose, "compose"), writeFile(helper, "helper")]);
     const hash = (value: string) => createHash("sha256").update(value).digest("hex");
-    const pins = { ...image, sourceFingerprint: "b".repeat(64), pythonPackageVersion: "3.11.2-6+deb12u1",
+    const pins = { ...image, sourceFingerprint: "b".repeat(64), pythonPackageVersion: "3.11.2-6+deb12u1", gitPackageVersion: "1:2.39.5-0+deb12u3",
       dockerArchiveSha256: hash("docker"), composeSha256: hash("compose"), helperSha256: hash("helper") };
-    const args = [recipePath, pins.sourceFingerprint, pins.pythonPackageVersion, docker, pins.dockerArchiveSha256,
+    const args = [recipePath, pins.sourceFingerprint, pins.pythonPackageVersion, pins.gitPackageVersion, docker, pins.dockerArchiveSha256,
       compose, pins.composeSha256, helper, pins.helperSha256, pins.alias];
     const run = () => Bun.spawnSync(["bash", join(import.meta.dir, "build-guest-image.sh"), ...args]);
 
     await writeFile(recipePath, JSON.stringify({ guestImage: image }));
     expect(run().stderr.toString()).toContain("reviewed recipe pins");
+    await writeFile(recipePath, JSON.stringify({ guestImage: { ...pins, gitPackageVersion: undefined } }));
+    expect(run().stderr.toString()).toContain("reviewed recipe pins");
+    await writeFile(recipePath, JSON.stringify({ guestImage: { ...pins, gitPackageVersion: "1:2.39.5-0+deb12u2" } }));
+    expect(run().stderr.toString()).toContain("reviewed recipe pins");
+
 
     await writeFile(recipePath, JSON.stringify({ guestImage: pins }));
     expect(run().stderr.toString()).toContain("build storage or network does not match the reviewed recipe");
@@ -472,6 +477,7 @@ case "$1" in
       *'guest has no APT source files'*) guest_script=$(printf '%s\\n' "$4" | sed "s#/etc/apt#$EZH_APT_ROOT#g"); sh -eu -c "$guest_script" sh "$6";;
       *'/etc/os-release'*) exit 0;;
       *'ExecStart=/usr/local/bin/dockerd'*) printf '%s\\n' "$4" > "$EZH_SERVICE_SCRIPT"; exit 0;;
+      *'dpkg-query -W'*) printf 'sandbox-git-check\\n' >> "$EZH_BUILD_CAPTURE"; printf '%s\\n' "$7" > "$EZH_GIT_SCRIPT"; sh -n -c "$4"; sh -n -c "$7"; [ "$EZH_SANDBOX_GIT_READY" = yes ];;
       *'setpriv --reuid=1000 --regid=1000 --clear-groups'*) printf 'sandbox-docker-check\\n' >> "$EZH_BUILD_CAPTURE"; [ "$EZH_SANDBOX_DOCKER_READY" = yes ];;
       *'docker info'*) printf 'docker-check\\n' >> "$EZH_BUILD_CAPTURE"; [ "$EZH_DOCKER_READY" = yes ];;
       *'rm -rf -- /var/lib/docker /var/lib/containerd'*) printf 'hygiene\\n' >> "$EZH_BUILD_CAPTURE"; printf '%s\\n' "$4" > "$EZH_HYGIENE_SCRIPT"; [ "$EZH_HYGIENE_READY" = yes ];;
@@ -506,13 +512,14 @@ case "$1" in
     esac;;
 esac
 `);
-    const publishRun = async (mode: string, secondAlias = false, dockerReady = true, hygieneReady = true, sandboxDockerReady = true) => {
+    const publishRun = async (mode: string, secondAlias = false, dockerReady = true, hygieneReady = true, sandboxDockerReady = true, sandboxGitReady = true) => {
       await Promise.all([writeFile(aliasCounter, "0\n"), writeFile(capture, ""), rm(publishMarker, { force: true })]);
       const runResult = Bun.spawnSync(["bash", join(import.meta.dir, "build-guest-image.sh"), ...args],
         { env: { ...process.env, PATH: `${directory}:${process.env.PATH ?? ""}`, EZH_IPV4: "yes", EZH_DNS: "yes",
           EZH_APT_ROOT: aptRoot, EZH_BUILD_CAPTURE: capture, EZH_ALIAS_COUNT: aliasCounter, EZH_ALIAS: pins.alias,
           EZH_SECOND_ALIAS: secondAlias ? "yes" : "no", EZH_DOCKER_READY: dockerReady ? "yes" : "no",
           EZH_SANDBOX_DOCKER_READY: sandboxDockerReady ? "yes" : "no",
+          EZH_SANDBOX_GIT_READY: sandboxGitReady ? "yes" : "no", EZH_GIT_SCRIPT: join(directory, "git-script"),
           EZH_HYGIENE_READY: hygieneReady ? "yes" : "no", EZH_HYGIENE_SCRIPT: hygieneScript, EZH_SERVICE_SCRIPT: serviceScript,
           EZH_PUBLISHED: published, EZH_WRONG_TARGET: "b".repeat(64), EZH_QUERY_MODE: mode,
           EZH_PUBLISH_MARKER: publishMarker } });
@@ -522,6 +529,8 @@ esac
     expect(directAlias.runResult.exitCode).toBe(0);
     expect(directAlias.runResult.stdout.toString().trim()).toBe(published);
     expect(directAlias.calls).toContain("publish");
+    expect(directAlias.calls).toContain("git=1:2.39.5-0+deb12u3");
+    expect(directAlias.calls).toContain("sandbox-git-check");
     expect(directAlias.calls).toContain("iptables=1.8.9-2");
     expect(directAlias.calls).toContain("nftables=1.0.6-2+deb12u2");
     expect(directAlias.calls).toContain("docker-check");
@@ -543,6 +552,13 @@ esac
     expect(directAlias.calls).toContain("--expire 2099-12-31T00:00:00Z");
     expect(directAlias.calls).toContain('retention query -X PUT -d {"public":false,"auto_update":false,"properties":{"os":"Debian"},"profiles":["default"],"expires_at":"2099-12-31T00:00:00Z"}');
     expect(directAlias.calls.indexOf("publish")).toBeLessThan(directAlias.calls.indexOf("retention query"));
+    const noGit = await publishRun("direct", false, true, true, true, false);
+    expect(noGit.runResult.exitCode).not.toBe(0);
+    expect(noGit.runResult.stderr.toString()).toContain("sandbox Git package or init/commit/status verification failed");
+    expect(noGit.calls).toContain("sandbox-git-check");
+    expect(noGit.calls).not.toContain("publish");
+    const gitScript = await readFile(join(directory, "git-script"), "utf8");
+    for (const required of ["1000:1000", "git -c init.defaultBranch=main init --quiet", "git add proof.txt", "commit --quiet", "git status --porcelain", "trap 'rm -rf"]) expect(gitScript).toContain(required);
     const wrongTarget = await publishRun("wrong");
     expect(wrongTarget.runResult.exitCode).not.toBe(0);
     expect(wrongTarget.runResult.stderr.toString()).toContain("alias target differs from the published fingerprint");
@@ -674,6 +690,12 @@ describe("Incus setup planning", () => {
     const image = { alias: "ezharness-guest-0-1-0", fingerprint: "a".repeat(64), sourceFingerprint: "b".repeat(64),
       helperSha256: guestHelperSha256(), user: "sandbox" as const, uid: 1000 as const, gid: 1000 as const,
       pythonPackageVersion: "3.11.2-6+deb12u1", dockerArchiveSha256: "c".repeat(64), composeSha256: "d".repeat(64) };
+    expect(() => validateRecipe(recipe({ guestImage: { ...image, gitPackageVersion: "1:2.39.5-0+deb12u3" } }))).not.toThrow();
+    expect(() => validateRecipe(recipe({ guestImage: { ...image, gitPackageVersion: null } }))).not.toThrow();
+    expect(() => validateRecipe(recipe({ guestImage: { ...image, gitPackageVersion: "latest; echo unsafe" } }))).toThrow("Git package version must be exact");
+    for (const gitPackageVersion of [123, {}]) {
+      expect(() => validateRecipe(recipe({ guestImage: { ...image, gitPackageVersion } } as unknown as Partial<IncusSetupRecipe>))).toThrow("Git package version must be exact");
+    }
     expect(() => validateRecipe(recipe({ guestImage: { ...image, helperSha256: "e".repeat(64) } }))).toThrow("guest helper source differs");
     const missing = createSetupPlan(recipe({ guestImage: image }), inventory());
     expect(missing.blockedReasons).toContain("guest_image_missing_or_drifted");

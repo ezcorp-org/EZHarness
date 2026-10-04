@@ -2,34 +2,35 @@
 # Run on the approved Incus server only after the input fingerprints are reviewed.
 set -euo pipefail
 
-if [ "$#" -ne 10 ]; then
-  echo 'usage: build-guest-image.sh RECIPE_JSON BASE_FINGERPRINT PYTHON_PACKAGE_VERSION DOCKER_TAR DOCKER_SHA256 COMPOSE_BINARY COMPOSE_SHA256 HELPER_PY HELPER_SHA256 ALIAS' >&2
+if [ "$#" -ne 11 ]; then
+  echo 'usage: build-guest-image.sh RECIPE_JSON BASE_FINGERPRINT PYTHON_PACKAGE_VERSION GIT_PACKAGE_VERSION DOCKER_TAR DOCKER_SHA256 COMPOSE_BINARY COMPOSE_SHA256 HELPER_PY HELPER_SHA256 ALIAS' >&2
   exit 2
 fi
 
 recipe_file=$1
 base_fingerprint=$2
 python_version=$3
-docker_tar=$4
-docker_sha=$5
-compose_binary=$6
-compose_sha=$7
-helper_file=$8
-helper_sha=$9
-alias=${10}
+git_version=$4
+docker_tar=$5
+docker_sha=$6
+compose_binary=$7
+compose_sha=$8
+helper_file=$9
+helper_sha=${10}
+alias=${11}
 iptables_version=1.8.9-2
 nftables_version=1.0.6-2+deb12u2
 
 for value in "$base_fingerprint" "$docker_sha" "$compose_sha" "$helper_sha"; do
   if [[ ! "$value" =~ ^[a-f0-9]{64}$ ]]; then echo 'expected exact SHA-256 fingerprint' >&2; exit 2; fi
 done
-if [[ ! "$python_version" =~ ^[A-Za-z0-9.+:~_-]{1,128}$ ]] || [[ ! "$alias" =~ ^[a-z][a-z0-9-]{0,62}$ ]]; then
+if [[ ! "$python_version" =~ ^[A-Za-z0-9.+:~_-]{1,128}$ ]] || [[ ! "$git_version" =~ ^[A-Za-z0-9.+:~_-]{1,128}$ ]] || [[ ! "$alias" =~ ^[a-z][a-z0-9-]{0,62}$ ]]; then
   echo 'invalid pinned package version or alias' >&2; exit 2
 fi
 for artifact in "$recipe_file" "$docker_tar" "$compose_binary" "$helper_file"; do
   if [ ! -f "$artifact" ]; then echo "missing artifact: $artifact" >&2; exit 2; fi
 done
-build_targets=$(python3 - "$recipe_file" "$base_fingerprint" "$python_version" "$docker_sha" "$compose_sha" "$helper_sha" "$alias" <<'PY'
+build_targets=$(python3 - "$recipe_file" "$base_fingerprint" "$python_version" "$git_version" "$docker_sha" "$compose_sha" "$helper_sha" "$alias" <<'PY'
 import json
 import re
 import sys
@@ -37,7 +38,7 @@ import sys
 with open(sys.argv[1], encoding="utf-8") as source:
     recipe = json.load(source)
 image = recipe["guestImage"]
-expected = (image["sourceFingerprint"], image["pythonPackageVersion"],
+expected = (image["sourceFingerprint"], image["pythonPackageVersion"], image.get("gitPackageVersion"),
             image["dockerArchiveSha256"], image["composeSha256"],
             image["helperSha256"], image["alias"])
 if any(value is None for value in expected) or tuple(sys.argv[2:]) != expected:
@@ -133,7 +134,7 @@ if ! incus exec "$name" --project default -- sh -eu -c '. /etc/os-release; [ "$I
 fi
 incus exec "$name" --project default -- env DEBIAN_FRONTEND=noninteractive apt-get update
 incus exec "$name" --project default -- env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-  "python3=$python_version" "iptables=$iptables_version" "nftables=$nftables_version"
+  "python3=$python_version" "git=$git_version" "iptables=$iptables_version" "nftables=$nftables_version"
 incus exec "$name" --project default -- sh -eu -c '
   update-alternatives --set iptables /usr/sbin/iptables-nft
   update-alternatives --set ip6tables /usr/sbin/ip6tables-nft
@@ -174,6 +175,27 @@ EOF
   apt-get clean
   rm -rf /var/lib/apt/lists/*
 '
+git_check=$(cat <<'SH'
+[ "$(id -u):$(id -g)" = "1000:1000" ]
+directory=$(mktemp -d /workspace/.ezh-git-build-XXXXXX)
+trap 'rm -rf -- "$directory"' EXIT
+cd "$directory"
+git -c init.defaultBranch=main init --quiet
+printf "Git build proof\n" > proof.txt
+git add proof.txt
+git -c user.name="EZHarness image verification" -c user.email="image-proof@invalid" commit --quiet -m "Verify sandbox Git"
+[ "$(git rev-list --count HEAD)" = 1 ]
+[ -z "$(git status --porcelain)" ]
+SH
+)
+if ! timeout 30s incus exec "$name" --project default -- sh -eu -c '
+  [ "$(dpkg-query -W -f="\${Version}" git)" = "$1" ]
+  git --version
+  setpriv --reuid=1000 --regid=1000 --clear-groups env HOME=/workspace sh -eu -c "$2"
+' sh "$git_version" "$git_check"; then
+  echo 'sandbox Git package or init/commit/status verification failed; refusing to publish' >&2
+  exit 1
+fi
 if ! timeout 120s incus exec "$name" --project default -- sh -eu -c '
   command -v iptables >/dev/null
   command -v nft >/dev/null

@@ -115,7 +115,8 @@ export function validateRecipe(recipe: IncusSetupRecipe): void {
   if (recipe.guestImage) {
     const image = recipe.guestImage;
     assertRecord(image, "guest image");
-    assertExactKeys(image, ["alias", "fingerprint", "sourceFingerprint", "helperSha256", "user", "uid", "gid", "pythonPackageVersion", "dockerArchiveSha256", "composeSha256"], "guest image");
+    assertExactKeys(image, ["alias", "fingerprint", "sourceFingerprint", "helperSha256", "user", "uid", "gid", "pythonPackageVersion", "dockerArchiveSha256", "composeSha256",
+      ...(Object.hasOwn(image, "gitPackageVersion") ? ["gitPackageVersion"] : [])], "guest image");
     assertSafeName(image.alias, "guest image alias");
     if (image.user !== "sandbox" || image.uid !== 1000 || image.gid !== 1000) throw new Error("guest image must pin sandbox user 1000:1000");
     assertSha256(image.helperSha256, "guest helper digest");
@@ -125,6 +126,8 @@ export function validateRecipe(recipe: IncusSetupRecipe): void {
       if (value !== null) assertSha256(value, label);
     }
     if (image.pythonPackageVersion !== null && !/^[A-Za-z0-9.+:~_-]{1,128}$/.test(image.pythonPackageVersion)) throw new Error("Python package version must be exact");
+    if (image.gitPackageVersion !== undefined && image.gitPackageVersion !== null
+      && (typeof image.gitPackageVersion !== "string" || !/^[A-Za-z0-9.+:~_-]{1,128}$/.test(image.gitPackageVersion))) throw new Error("Git package version must be exact");
   }
   assertSafeName(recipe.id, "recipe id");
   if (!VERSION.test(recipe.version)) throw new Error("recipe version must be exact semantic version");

@@ -87,6 +87,8 @@ export interface IncusSetupRecipe {
     uid: 1000;
     gid: 1000;
     pythonPackageVersion: string | null;
+    /** Absent only in older published recipes; new builds require this pin. */
+    gitPackageVersion?: string | null;
     dockerArchiveSha256: string | null;
     composeSha256: string | null;
   };
