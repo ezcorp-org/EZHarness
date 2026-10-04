@@ -1,0 +1,39 @@
+Checked 5 files in 103ms. No fixes applied.
+── Tests (staged) ─────────────────────────────────
+/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/scripts/lib/hook-lib.sh: line 220: printf: Broken pipe
+/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/scripts/lib/hook-lib.sh: line 220: printf: write error: Broken pipe
+/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/scripts/lib/hook-lib.sh: line 220: printf: Broken pipe
+/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/scripts/lib/hook-lib.sh: line 220: printf: write error: Broken pipe
+/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/scripts/lib/hook-lib.sh: line 220: printf: Broken pipe
+/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/scripts/lib/hook-lib.sh: line 220: printf: write error: Broken pipe
+/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/scripts/lib/hook-lib.sh: line 220: printf: Broken pipe
+/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/scripts/lib/hook-lib.sh: line 220: printf: write error: Broken pipe
+  bun: scripts/check-factory-lanes.test.ts
+bun test v1.4.2 (744846f84)
+
+ 20 pass
+ 0 fail
+ 44 expect() calls
+Ran 20 tests across 1 file. [591.00ms]
+  bun: scripts/factory-postgres-suite-registration.test.ts
+bun test v1.4.2 (744846f84)
+
+ 6 pass
+ 0 fail
+ 18 expect() calls
+Ran 6 tests across 1 file. [490.00ms]
+  bun: scripts/factory-private-root-registration.test.ts
+bun test v1.4.2 (744846f84)
+
+ 2 pass
+ 0 fail
+ 4 expect() calls
+Ran 2 tests across 1 file. [585.00ms]
+  bun: scripts/factory-storage-action-registration.test.ts
+bun test v1.4.2 (744846f84)
+
+ 4 pass
+ 0 fail
+ 17 expect() calls
+Ran 4 tests across 1 file. [524.00ms]
+[detached HEAD a9088b2c6] merge: wp/w4h-5 f9638e217 into integ/w00 (W4H-5 the hosted jobs start the proof's S3 service with a fresh storage credential set)

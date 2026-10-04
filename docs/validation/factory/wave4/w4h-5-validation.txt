@@ -1,0 +1,78 @@
+VERDICT (validator-6) — W4H-5 at f9638e217 (wp/w4h-5, owner w4h-5), base integ/w00 52d8ba079: ACCEPT
+
+4 commits, all archy noreply as author and committer: e4059c18f (test fix), ef519d13f (gates 1), 1fa4a5354 (one
+factory-storage action; stop only after a start that ran), f9638e217 (gates 2). Files changed over the base: the lifecycle
+suite helper, scripts/factory-private-root-registration.test.ts (new), .github/actions/factory-storage/action.yml (new),
+.github/workflows/ci.yml, .github/workflows/db-postgres.yml, scripts/check-factory-lanes.ts,
+scripts/factory-postgres-suite-registration.test.ts, scripts/factory-storage-action-registration.test.ts (new),
+tasks/factory/w4h-5-GATES.md, tasks/todo.md. No product source change.
+Scope: the W4H-5 REDIRECT (w4h.md amendment 17:45Z): R1, the suite's credential root, and R10, the stop step. The W4H-5b work is
+folded in (coordinator 21:28Z).
+CARRY: `git diff --name-only ef519d13f f9638e217` touches neither the lifecycle suite nor its helper (workflows, the action, one
+script, two registration tests, the gate file, todo), so the container legs (1)-(3), run at 52d8ba079 and the test-fix head
+e4059c18f/ef519d13f, stand for f9638e217. Items (4)-(12) ran at f9638e217.
+Shared config (config-check.py --check-only) in the f9638e217 hold: start and end "exit 1: … 943cc5e58a5165a6 -> cecabf1f5b05be37
+only in branch/remote sections" (benign, recorded, not a stop); in the ef519d13f hold: exit 0 at start and end.
+
+(1)(2) RUNNER-SHAPED CONTAINER, mine (validator-6/runner-shaped.sh: Ubuntu 24.04, OpenSSL 3.0.13, Node 24.14.1, uid 1001
+  keep-id, a fresh HOME of the given mode with the checkout under it, a git-archive snapshot whose index is the tracked files, no
+  XDG_RUNTIME_DIR, no storage secrets dir), `bun test --timeout 30000 ./src/__tests__/factory-run-lifecycle.test.ts`:
+  - 52d8ba079, home 0755: RED 80 pass, 12 fail. 7 release tests fail with factory_release_destination_unreadable: publication:
+    "Factory storage credential set 'publication' is missing or malformed"; 5 later tests fail by assertion (approval and retry
+    ordering) without that message. The 0700 control passes all 92, so all 12 depend on the home mode.
+  - 52d8ba079, home 0700 (control): 92 pass, 0 fail. The home mode alone decides it.
+  - ef519d13f, home 0755: GREEN 92 pass, 0 fail.
+(3) EXTERNAL-POSTGRES SHAPE, mine, under the heavy lock (`COV_OUT=… bash scripts/factory-compute-admissions-coverage.sh` in the
+  same container shape, home 0755), each run against a FRESH throwaway pgvector/pgvector:pg15 container of my own (random
+  password in a 0600 file, passed by variable name only, the container removed by name afterwards; never the proof PostgreSQL,
+  never its env file; no URL or password in any log):
+  - 52d8ba079: RED, the suites in order 19/0, 2/0 and tests/postgres/factory-run-lifecycle.test.ts 80 pass, 12 fail, with the
+    same 7 publication-set errors. (My first attempt stopped at the in-container `bun install`, "@ezcorp/sdk prepare: Cannot find
+    module re2js", an install flake; the second found pgvector/pgvector:pg15 gone from the host; I pulled it by the digest seen
+    earlier, sha256:47af0b65960b14f1c6945aa4ccae37836c632e9a6fe0eea9160936e616e5b2e9, the same image the head leg used.)
+  - ef519d13f: GREEN, the three suites in order 19/0, 2/0 and tests/postgres/factory-run-lifecycle.test.ts 92 pass, 0 fail.
+(4) DRY and HOME: the helper calls makeFactoryTempPrivateRoot from src/__tests__/helpers/factory-private-root.ts (no new
+  helper; the chmod is dropped because that helper's mkdtemp makes a 0700 folder). `git grep -nE 'mkdtemp\(.*HOME' --
+  src/__tests__ tests/` at the head: 0 outside the guard test.
+(5) GUARD scripts/factory-private-root-registration.test.ts: green at the head, 2 pass. Red against the base content (the
+  base helper file put back, the head's guard run): RED, named "factory-run-lifecycle-suite.ts:1102". Mutants re-adding a
+  HOME root (mkdtemp(join(process.env.HOME!, …)) and mkdtemp(join(homedir(), …))): both RED, by assertion; restored clean.
+  It is in the guard set by name (w00/guard-suites.sh prints ./scripts/factory-private-root-registration.test.ts).
+(6) GATES at ef519d13f from my snapshot (validator-5/lib.sh v5_snapshot; w4g-validation/w4h5/hold-ef519d13f/results.jsonl):
+  typecheck, lint, check-factory-boundaries, check-boundaries 0; hook-mapped suites (scripts/lib/hook-lib.sh): the guard test,
+  run alone first (void check: 2 pass, not VOID), with lcov 2/0; SDK 246/0; guard set 37 files 470 pass, 2 skip (the BPF
+  cases), 0 fail; new-file gate PASSED (no new source file), patch gate PASSED (0 changed executable lines); CRAP 0 (no
+  measured source changed); gate-integrity base leg clean against 52d8ba079, origin/main leg equals the 8 paths.
+  Prune scan at ef519d13f (sha256 b0556a8a1b8ec916): "STOP (21 hit(s))", all inside a checkout copy in the owner's evidence
+  folder (w4h-5/home-1fa4a5354), now removed. Coordinator ruling 19:48Z: checkout copies are repository content, judged
+  through the merge diff only; the scanner skips them since sha b0c947773ae51234 (see the f9638e217 result below).
+(7) IDENTITY: 4/4 archy noreply.
+(8) STORAGE ACTION (w4g-validation/w4h5/hold-f9638e217): .github/actions/factory-storage runs scripts/setup-factory-storage.sh
+  up|down; the image digest and the ports stay in compose.factory-storage.local.yml (no seaweedfs image or digest literal in the
+  action, ci.yml or db-postgres.yml: 0 lines). The three call sites (ci.yml factory-deployment-operations, db-postgres.yml
+  external-postgres and factory-assurance-release) use it for up and down. scripts/factory-storage-action-registration.test.ts:
+  4 pass; mutant "ci.yml start step back to an inline `run: scripts/setup-factory-storage.sh up`": RED by assertion.
+(9) R10: every stop step reads `if: always() && steps.factory-storage-up.outcome != 'skipped'` with `id: factory-storage-up` on
+  its start. Mutant "the condition on ci.yml's stop step back to `if: always()`": RED by assertion. The test's own cases for a
+  missing guard and a missing start id run inside its 4 tests (nonzero; void check pass=4).
+(10) HOOK-MAPPED SUITES at f9638e217 (scripts/lib/hook-lib.sh over the diff), each alone first, none VOID, then with lcov:
+  check-factory-lanes 20/0, factory-postgres-suite-registration 6/0, factory-private-root-registration 2/0,
+  factory-storage-action-registration 4/0 (32 pass). Patch gate PASSED: 1 measured file, scripts/check-factory-lanes.ts,
+  LH 200 / LF 200. New-file gate PASSED. CRAP: 0 measured functions (the one changed line in check-factory-lanes.ts is a
+  list entry outside any function). SDK 246/0.
+(11) WORKFLOW READERS: the union of the owner's list (w4h-5/workflow-readers.txt) and mine (git grep of .github/workflows or
+  .github/actions in *.test.ts): 26 files, each alone, all nonzero, 0 fail (tests/postgres/pool-one.test.ts run against my own
+  throwaway pgvector:pg15 with DATABASE_URL and DB_POOL_MAX=1, as db-postgres.yml runs it: 1 pass, 0 fail; no password in its
+  log). actionlint 1.7.12 on ci.yml and db-postgres.yml: head 3 findings = base 3 findings (the three unknown self-hosted labels
+  factory-gpu, factory-real, factory-real). Guard set (w00/guard-suites.sh, 38 files): 474 pass, 2 skip (BPF), 0 fail.
+  typecheck, lint, both boundary checks 0; gate-integrity: base leg clean against 52d8ba079, origin/main leg equals the 8 paths.
+  Prune scan (w00/prune-scan.sh, sha256 b0c947773ae51234): "prune scan: clean (0 hit(s))".
+(12) BEHAVIOUR: the action's `up` branch equals the old inline start steps line for line (install -d -m 700 the runtime dir;
+  export XDG_RUNTIME_DIR; scripts/setup-factory-storage.sh up; the storage dir read from its output; test -n; test -d; the two
+  GITHUB_ENV lines); the db-postgres.yml steps had all of them; ci.yml's old step lacked `test -d "$storage_dir"`, which the
+  shared action now also runs there (one stricter check). `down` equals the old `scripts/setup-factory-storage.sh down`. The only
+  other change is the stop condition of item (9).
+
+ENVIRONMENT EVENT (not a package finding): docker.io/pgvector/pgvector:pg15 disappeared from the host between about 19:30Z and
+22:30Z; the coordinator reports w4h-5 removed it by name after its PostgreSQL leg (rule restated: a public image is shared). I
+pulled it back by digest sha256:47af0b65960b14f1c6945aa4ccae37836c632e9a6fe0eea9160936e616e5b2e9 and pinned my legs to that digest.

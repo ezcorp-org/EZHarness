@@ -1,0 +1,4 @@
+scripts/check-factory-lanes.test.ts
+scripts/factory-postgres-suite-registration.test.ts
+scripts/factory-private-root-registration.test.ts
+scripts/factory-storage-action-registration.test.ts
