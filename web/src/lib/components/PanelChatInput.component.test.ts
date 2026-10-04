@@ -31,6 +31,28 @@ async function chooseAgent(input: HTMLElement) {
 }
 
 describe("PanelChatInput", () => {
+	test("preserves immediate text after a mention across the next Svelte update", async () => {
+		vi.useFakeTimers();
+		const frames: FrameRequestCallback[] = [];
+		vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+			frames.push(callback);
+			return frames.length;
+		});
+		const onsubmit = vi.fn(async () => {});
+		render(PanelChatInput, { onsubmit });
+		const input = screen.getByRole<HTMLTextAreaElement>("combobox");
+		await chooseAgent(input);
+		const cursor = input.selectionStart;
+		const draft = `${input.value.slice(0, cursor)}r${input.value.slice(cursor)}`;
+		await fireEvent.input(input, { target: { value: draft } });
+		input.setSelectionRange(cursor + 1, cursor + 1);
+		for (const frame of frames) frame(0);
+		expect(input.selectionStart).toBe(cursor + 1);
+		await fireEvent.input(input, { target: { value: `${draft.slice(0, input.selectionStart)}eview this${draft.slice(input.selectionStart)}` } });
+		await fireEvent.keyDown(input, { key: "Enter" });
+		expect(onsubmit).toHaveBeenCalledWith("![agent:Reviewer] review this");
+	});
+
 	test("submits trimmed text from the real composer and clears it after success", async () => {
 		const onsubmit = vi.fn(async () => {});
 		render(PanelChatInput, { onsubmit });

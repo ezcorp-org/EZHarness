@@ -1,3 +1,15 @@
+/** Commit the DOM projection and caret before another native input can arrive. */
+export function setComposerDisplay(
+	textarea: HTMLTextAreaElement | undefined,
+	display: string,
+	cursor: number,
+): void {
+	if (!textarea) return;
+	textarea.value = display;
+	textarea.setSelectionRange(cursor, cursor);
+	textarea.focus();
+}
+
 export function isChatDisabled(streaming: boolean, connectionState: string): boolean {
 	return streaming || connectionState !== "connected";
 }
