@@ -26,10 +26,15 @@ binary; the tests build their repository with the shared `markGitRepository` hel
 | green2 | runtime-resources | 20:23:55 | about 19 / 14-19 | 11 GiB, 2 GiB | starved, not a defect: deadline with 5 verified, no failed build |
 | green3 (flock 1010413, timeout 9000) | runtime-resources | 21:57:22 | 8.58 / up to 61 | 12 GiB, 2 GiB | starved, not a defect: deadline with 6 verified, no failed build |
 
+Proof of record for runtime-resources (lead ruling): the local leg may stay "starved" if the host does not quiet down; the
+validator attempts it once under the load rule (1-minute load under 10, gate passes, timeout of 3000 s or less); the hosted rerun
+of "Production proof (resources)" is the proof of record for that leg.
+
 The lead's load rule (start only when the 1-minute load is under 10, timeout of 3000 s or less) reached this lane at 22:05Z, after
 these attempts. Disclosed: green and green2 were queued with timeout 9000 and started under a load of 10 or more.
 - [x] G5: coverage. CHECK: `checks.sh` (merge-lcov, check-new-file-coverage, check-patch-coverage with BASE_REF=integ/w00) EXPECT: both PASSED EVIDENCE: checks/patch-coverage.log, checks/new-file-coverage.log
 - [x] G6: static and guard checks. CHECK: `checks.sh`, `guard.sh`, findings-match.py EXPECT: typecheck, lint, boundaries, manifest lock 0; gate-integrity findings equal the expected label set; guard set 36 files 0 fail EVIDENCE: checks.log, checks/*.log, checks/guard-run.log
+- [x] G8: the ai-kit package typecheck is clean. CHECK: `bun run typecheck` in packages/@ezcorp/ai-kit at ef7391fc5 EXPECT: exit 0, no error (before: test/e2e/quickstart.test.ts:19 TS2552 "Cannot find name 'RequestInfo'", test/unit/client.test.ts:35 TS7006 "Parameter 'input' implicitly has an 'any' type"); root typecheck, lint and manifest lock --check 0 EVIDENCE: commit4.log (hook: client.test.ts 27 pass; quickstart.test.ts 0 pass 3 skip, opt-in live-server e2e, void by design, type-only change), checks/typecheck-ef7391fc5.log, checks/lint-ef7391fc5.log, checks/manifest-ef7391fc5.log
 - [x] G7: hook count. CHECK: the hook's printed list at commit 1 EXPECT: 1 suite (packages/@ezcorp/ai-kit/test/unit/cli-install.test.ts), 30 pass EVIDENCE: commit1.log, hook-mapped-c1.txt
 
 Notes:
