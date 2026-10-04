@@ -17,7 +17,7 @@
 import { test, expect } from "./fixtures/test-base.js";
 import { captureEvidence } from "./fixtures/evidence.js";
 import { makeProject } from "./fixtures/data.js";
-import { mockPageData } from "./fixtures/page-data.js";
+import { mockPageData, resumePage } from "./fixtures/page-data.js";
 import type { Page } from "@playwright/test";
 
 const NAMED = "3b0f9c41-6f3a-4d0b-9a2e-1c7d5e8f4a62";
@@ -109,4 +109,63 @@ test.describe("Extension author page — installation list", () => {
 			await captureEvidence(page, testInfo, "extension-author-installations-named-mobile");
 		});
 	});
+});
+
+
+/** Render-tier proof only. Real DB drain/refusal and cleaned activation are covered
+ * by src/extensions/v4/lifecycle.test.ts and the lifecycle-service/store suites. */
+test("provider update refusal keeps the current release visible and gives drain guidance @evidence", async ({ page, mockApi }, testInfo) => {
+  await mockApi({ projects: [proj] });
+  const timestamp = "2026-10-04T00:00:00.000Z";
+  const release = (id: string, version: string) => ({
+    id, installationId: NAMED, workspaceId: "workspace", workspaceRevision: 1,
+    sourceDigest: `${id}-source`, artifactDigest: `${id}-artifact`, releaseDigest: `${id}-digest`,
+    imageDigest: "image", runnerProfile: "isolated", policyDigest: "policy", createdAt: timestamp,
+    manifest: { schemaVersion: 4, name: "incus-provider", version, permissions: {} },
+    evidence: { tests: [{ name: "provider-conformance", passed: true }] },
+  });
+  const current = release("current-provider", "0.1.2");
+  const candidate = release("next-provider", "0.1.3");
+  const state = {
+    installation: { ...installation(NAMED, "incus-provider", "active"), activeReleaseId: current.id,
+      generation: 3, enabled: true, acknowledgedGeneration: 3 },
+    workspaces: {}, revisions: {}, releases: { [current.id]: current, [candidate.id]: candidate }, operations: {} as Record<string, unknown>,
+    approvals: { approved: { id: "approved", releaseId: candidate.id, releaseDigest: candidate.releaseDigest,
+      principalId: "mock-owner", scope: "global", grants: [], status: "approved", runnerProfile: "isolated" } },
+  };
+  const requests: { tool: string; input: Record<string, unknown> }[] = [];
+  await page.route("**/api/extensions/control", async route => {
+    const request = route.request().postDataJSON();
+    requests.push(request);
+    if (request.tool === "extensions_release") {
+      expect(request.input.action).toBe("activate");
+      expect(request.input.installationId).toBe(NAMED);
+      expect(request.input.approvalId).toBe("approved");
+      expect(request.input.idempotencyKey).toEqual(expect.any(String));
+      const operation = { id: "refused-update", kind: "activate", state: "failed", createdAt: timestamp,
+        diagnostics: [{ stage: "activate", code: "provider_not_drained", message: "Drain all provider sandboxes before changing the active release." }], events: [] };
+      state.operations[operation.id] = operation;
+      await route.fulfill({ json: operation });
+      return;
+    }
+    expect(request.tool).toBe("extensions_inspect");
+    await route.fulfill({ json: state });
+  });
+  await mockPageData(page, "/extensions/author", { ...listData, installations: [], state,
+    extensionName: "incus-provider", breadcrumbTail: "incus-provider", canApprove: true });
+  await resumePage(page, `/extensions/author?installation=${NAMED}`);
+  const currentCard = page.locator("article.release").filter({ has: page.getByRole("heading", { name: "incus-provider 0.1.2" }) });
+  const nextCard = page.locator("article.release").filter({ has: page.getByRole("heading", { name: "incus-provider 0.1.3" }) });
+  await expect(currentCard.getByText("Active", { exact: true })).toBeVisible();
+  await expect(nextCard.getByText("Verified", { exact: true })).toBeVisible();
+  await expect(page.getByText("provider_not_drained", { exact: false })).toHaveCount(0);
+  await page.getByRole("button", { name: "Activate approved release", exact: true }).click();
+  await expect(page.getByText("activate / provider_not_drained", { exact: true })).toBeVisible();
+  await expect(page.getByText("Drain all provider sandboxes before changing the active release.", { exact: false })).toBeVisible();
+  await expect(currentCard.getByText("Active", { exact: true })).toBeVisible();
+  await expect(nextCard.getByText("Verified", { exact: true })).toBeVisible();
+  await expect(page.locator(".state-badge")).toHaveText("active · generation 3");
+  expect(requests.filter(request => request.tool === "extensions_release")).toHaveLength(1);
+  expect(requests.filter(request => request.tool === "extensions_inspect")).toHaveLength(1);
+  await captureEvidence(page, testInfo, "provider-update-requires-drain");
 });
