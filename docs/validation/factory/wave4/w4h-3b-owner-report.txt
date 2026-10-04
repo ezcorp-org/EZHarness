@@ -1,0 +1,25 @@
+W4H-3b (W4H-3 DRY follow-up), 2026-10-04. Branch wp/w4h-3b, base integ/w00 edd373c59, head 91351d6b5. One commit:
+  91351d6b5 test(factory): W4H-3 DRY - the Python base placement test uses the shared stepsNeedingAction   hook count 2
+  (ci-registration.test.ts 14 pass, setup-factory-python-base.test.ts 10 pass). Identity: archy noreply, author and committer.
+
+Change (3 files, +37 -22; no workflow, action, script or gate change):
+  - scripts/setup-factory-python-base.test.ts: its own ci.yml parse and step search are gone. It reads every workflow with
+    readWorkflows and asks stepsNeedingAction whether the base action precedes each host-shard coverage step.
+    The "after the podman setup" check and the "no step restates a Python image" check now read the same readWorkflows result;
+    the second now covers every workflow, not only ci.yml.
+  - scripts/lib/ci-registration.ts: stepsNeedingAction passes the step to `needs` as a second argument, and WorkflowStep gains `env`.
+    A host-shard step differs from the legs-only step only by env (SHARD_INDEX). The two existing one-argument callers are unchanged.
+  - scripts/lib/ci-registration.test.ts: one new case, a selection by env.
+
+Evidence (this dir):
+  unit.log            4 files (the two changed tests and both helper consumers): 31 pass, 0 fail
+  unit-negative.log   with the action line removed from ci.yml: the two placement tests fail (29 pass, 2 fail); ci.yml restored
+  typecheck.log 0, lint.log 0, boundaries.log 0, build-packages.log 0
+  gate-integrity-head.log: the same eight standing coverage-tool findings as W4H-3's head, none from this change
+  guard.log           guard set plus the two changed tests: 41 files, 501 pass, 2 skip, 0 fail
+  coverage.log        ci-registration.ts LF 44 LH 44; setup-factory-python-base.ts LF 18 LH 18.
+                      vs origin/main both gates fail on the whole feature branch (439 new files, 492 patch files measured by two
+                      LCOVs only); neither list names a file of this change.
+  coverage-vs-base.log vs edd373c59: new-file PASSED (no new files), patch PASSED (1 file, all changed lines covered)
+  prune scan clean. image-removal.txt: `podman rmi localhost/w4h3-runner:24.04` found the tag already gone ("image not known");
+  nothing else was removed.
