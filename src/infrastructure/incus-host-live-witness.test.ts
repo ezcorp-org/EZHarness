@@ -39,6 +39,8 @@ test("live readiness requires private host wiring and exact supervisor protocol"
     EZCORP_INCUS_QUALIFICATION_USER_PROJECT_ID: "reviewed-project",
     EZCORP_INCUS_COMPOSE_FIXTURE_IMAGE_REF: `registry.example/proof@sha256:${"a".repeat(64)}`,
     EZCORP_INCUS_SUPERVISOR_PUBLIC_KEY: key };
+  let releases = 0;
+  const terminalRelease = async () => { releases++; };
   let response = { ready: true, protocol: "incus-qualification.v1" };
   const server = createServer(connection => {
     let request = "";
@@ -51,20 +53,22 @@ test("live readiness requires private host wiring and exact supervisor protocol"
   });
   try {
     await new Promise<void>((resolve, reject) => server.listen(socket, () => resolve()).once("error", reject));
-    expect(await incusHostLiveWitnessReady({ env })).toBe(true);
+    expect(await incusHostLiveWitnessReady({ env, terminalRelease })).toBe(true);
     const { EZCORP_INCUS_SUPERVISOR_PUBLIC_KEY: _inlineKey, ...singleLineEnv } = env;
-    expect(await incusHostLiveWitnessReady({ env: { ...singleLineEnv,
+    expect(await incusHostLiveWitnessReady({ terminalRelease, env: { ...singleLineEnv,
       EZCORP_INCUS_SUPERVISOR_PUBLIC_KEY_B64: Buffer.from(key).toString("base64") } })).toBe(true);
+    expect(releases).toBe(2);
+    expect(await incusHostLiveWitnessReady({ env, terminalRelease: async () => { throw new Error("dirty cleanup"); } })).toBe(true);
     response = { ready: true, protocol: "wrong" };
-    expect(await incusHostLiveWitnessReady({ env })).toBe(false);
-    expect(await incusHostLiveWitnessReady({ env: { ...env,
+    expect(await incusHostLiveWitnessReady({ env, terminalRelease })).toBe(false);
+    expect(await incusHostLiveWitnessReady({ terminalRelease, env: { ...env,
       EZCORP_INCUS_COMPOSE_FIXTURE_IMAGE_REF: "registry.example/proof:latest" } })).toBe(false);
-    expect(await incusHostLiveWitnessReady({ env: { ...env,
+    expect(await incusHostLiveWitnessReady({ terminalRelease, env: { ...env,
       EZCORP_INCUS_SUPERVISOR_PUBLIC_KEY: "not a key" } })).toBe(false);
-    expect(await incusHostLiveWitnessReady({ env: { ...env,
+    expect(await incusHostLiveWitnessReady({ terminalRelease, env: { ...env,
       EZCORP_INCUS_QUALIFICATION_USER_PROJECT_ID: "../other" } })).toBe(false);
     await chmod(root, 0o750);
-    expect(await incusHostLiveWitnessReady({ env })).toBe(false);
+    expect(await incusHostLiveWitnessReady({ env, terminalRelease })).toBe(false);
   } finally {
     await new Promise<void>(resolve => server.close(() => resolve()));
     await rm(root, { recursive: true, force: true });

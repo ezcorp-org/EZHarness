@@ -176,6 +176,7 @@ class Supervisor:
         self.child = None
         self.pending = None
         self.claimed = None
+        self.terminal_claim = None
         self.fault_armed = None
         self.fault_authority_command = None
         self.used_runs = set()
@@ -501,6 +502,39 @@ class Supervisor:
             self.fault_armed = arm_bytes
         return {"authorized": True}
 
+    def terminal(self, message):
+        # The managed host owns its live database and reports only committed
+        # terminal state after exact fixture cleanup/accounting verification.
+        # Providers and public requests have no path to this child-only RPC.
+        keys = {"version", "action", "runId", "nonce", "scope", "connectionRevision",
+                "process", "claimedProcess", "state"}
+        if not isinstance(message, dict) or set(message) != keys or message["version"] != 1 \
+                or message["action"] != "terminal" or message["state"] not in ("COMPLETED", "FAILED"):
+            raise ValueError("invalid terminal claim")
+        if message["process"] != self.child_identity:
+            raise ValueError("terminal process changed")
+        if self.pending is not None:
+            raise ValueError("restart is still pending")
+        if self.claimed is None:
+            if self.terminal_claim == canonical(message):
+                return {"released": True}
+            raise ValueError("terminal claim unavailable")
+        request = self.claimed["request"]
+        if any(message[key] != request[key] for key in ("runId", "nonce", "scope", "connectionRevision")) \
+                or message["claimedProcess"] != self.claimed["newProcess"]:
+            raise ValueError("terminal claim changed")
+        historical = self.claimed["newProcess"]
+        if historical != self.child_identity:
+            try:
+                if identity(historical["pid"]) == historical:
+                    raise ValueError("claimed process is still alive")
+            except (FileNotFoundError, ProcessLookupError):
+                pass
+        self.terminal_claim = canonical(message)
+        self.claimed = None
+        # used_runs and fault_armed intentionally remain replay fences.
+        return {"released": True}
+
     def readiness(self, message):
         if message != {"version": 1, "action": "readiness"}:
             raise ValueError("invalid readiness request")
@@ -580,6 +614,8 @@ class Supervisor:
                             send_message(connection, {"receipt": self.receipt(message)})
                         elif message.get("action") == "fault":
                             send_message(connection, self.fault(message))
+                        elif message.get("action") == "terminal":
+                            send_message(connection, self.terminal(message))
                         elif message.get("action") == "readiness":
                             send_message(connection, self.readiness(message))
                         else:

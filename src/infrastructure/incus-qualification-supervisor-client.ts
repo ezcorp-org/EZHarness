@@ -20,6 +20,8 @@ export interface SupervisorRestartRequest {
 }
 
 const RESTART_ACK_TIMEOUT_MS = 5_000;
+// Two sequential verifier commands each have a five-second server budget, plus IPC.
+const READINESS_TIMEOUT_MS = 12_000;
 const RECEIPT_TIMEOUT_MS = 40_000;
 const FAULT_TIMEOUT_MS = 20_000;
 
@@ -60,7 +62,7 @@ export async function requestIncusSupervisorRestart(socketPath: string,
 
 /** Read-only preflight from the authenticated managed app process. */
 export async function requestIncusSupervisorReadiness(socketPath: string): Promise<boolean> {
-  const response = await exchange(socketPath, { version: 1, action: "readiness" }, RESTART_ACK_TIMEOUT_MS) as {
+  const response = await exchange(socketPath, { version: 1, action: "readiness" }, READINESS_TIMEOUT_MS) as {
     ready?: unknown; protocol?: unknown;
   };
   return response.ready === true && response.protocol === "incus-qualification.v1";
@@ -92,4 +94,26 @@ export async function requestIncusSupervisorFault(socketPath: string,
   const response = await exchange(socketPath, { version: 1, action: "fault", phase,
     ...(arm ? { arm } : {}) }, Math.min(remaining, FAULT_TIMEOUT_MS)) as { authorized?: unknown };
   if (response.authorized !== true) throw new Error("Incus operator supervisor denied fault authorization");
+}
+
+/** Internal managed-host report after durable terminal state and exact cleanup proof. */
+export async function requestIncusSupervisorTerminal(socketPath: string,
+  attestation: import("./incus-qualification-checkpoint").IncusTerminalAttestation): Promise<void> {
+  const response = await exchange(socketPath, { version: 1, action: "terminal", ...attestation },
+    RESTART_ACK_TIMEOUT_MS) as { released?: unknown };
+  if (response.released !== true) throw new Error("Incus terminal claim was not released");
+}
+
+export async function releaseTerminalIncusQualification(db?: import("../db/connection").Database,
+  env: NodeJS.ProcessEnv = process.env): Promise<void> {
+  const socket = env.EZCORP_INCUS_SUPERVISOR_SOCKET;
+  if (!socket) return;
+  const [{ IncusQualificationCheckpointStore }, { getDb }, { incusSupervisorPublicKeyPem }] = await Promise.all([
+    import("./incus-qualification-checkpoint"), import("../db/connection"), import("./incus-supervisor-public-key")]);
+  const attestation = await new IncusQualificationCheckpointStore(db ?? getDb(), incusSupervisorPublicKeyPem(env)).terminalAttestation();
+  if (attestation) {
+    await requestIncusSupervisorTerminal(socket, attestation);
+    const { logger } = await import("../logger");
+    logger.child("incus.qualification").info("Terminal claim released", { runId: attestation.runId, state: attestation.state });
+  }
 }

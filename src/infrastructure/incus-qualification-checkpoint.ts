@@ -128,6 +128,11 @@ interface FixtureIdentityRow {
   lastOperationGeneration: number | null;
 }
 
+export interface IncusTerminalAttestation {
+  runId: string; nonce: string; scope: IncusQualificationScope;
+  connectionRevision: number; process: ProcessIdentity; claimedProcess: ProcessIdentity; state: "COMPLETED" | "FAILED";
+}
+
 interface RunRow {
   runId: string;
   fixtureOperationId: string;
@@ -233,6 +238,32 @@ export class IncusQualificationCheckpointStore {
   constructor(private readonly db: Database,
     private readonly publicKeyPem: string | undefined = incusSupervisorPublicKeyPem(),
     private readonly now: () => number = Date.now) {}
+
+  /** Only the managed app reads its live DB. Never open PGlite in a supervisor verifier. */
+  async terminalAttestation(): Promise<IncusTerminalAttestation | null> {
+    const process = currentProcessIdentity();
+    const rows = releaseRows<RunRow>(await this.db.execute(sql`SELECT ${runColumns}
+      FROM incus_qualification_runs WHERE state IN ('COMPLETED', 'FAILED') AND receipt IS NOT NULL
+      ORDER BY claimed_at DESC, run_id DESC LIMIT 1`));
+    const row = rows[0];
+    if (!row) return null;
+    if (!this.publicKeyPem || !row.receipt) throw new Error("Incus terminal receipt is unavailable");
+    verifyRestartHandoff(row.receipt, this.publicKeyPem);
+    const payload = row.receipt.payload;
+    if (payload.runId !== row.runId || payload.nonce !== row.nonce || !sameScope(payload.scope, row.scope)
+      || payload.connectionRevision !== row.connectionRevision || payload.bindingId !== row.bindingId
+      || payload.fixtureOperationId !== row.fixtureOperationId || payload.generation !== row.generation
+      || payload.lastOperationId !== row.lastOperationId || payload.beforeDigest !== row.beforeDigest
+      || payload.deadlineMs !== new Date(row.deadlineAt).getTime()
+      || processIdentityKey(payload.oldProcess) !== processIdentityKey(row.oldProcessIdentity)
+      || row.fixtureOperationId !== `qual-primary-${row.runId}`) {
+      throw new Error("Incus terminal receipt changed");
+    }
+    const { IncusFeatureService } = await import("./incus-feature-service");
+    await new IncusFeatureService({ db: this.db, loadQualification: async () => null }).assertTerminalRunCleanup(row.scope, row.runId, row.connectionRevision);
+    return { runId: row.runId, nonce: row.nonce, scope: canonicalQualificationScope(row.scope),
+      connectionRevision: row.connectionRevision, process, claimedProcess: payload.newProcess, state: row.state as "COMPLETED" | "FAILED" };
+  }
 
   async begin(input: { runId: string; nonce: string; deadlineMs: number;
     scope: IncusQualificationScope; handle: LiveFixtureHandle;

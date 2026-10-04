@@ -21,7 +21,7 @@ import { ProviderConnectionStore, type ProviderConnectionCredentials,
 import { IncusQualificationCheckpointStore } from "./incus-qualification-checkpoint";
 import { IncusQualificationContinuation } from "./incus-qualification-continuation";
 import { requestIncusSupervisorReadiness, requestIncusSupervisorReceipt,
-  requestIncusSupervisorRestart } from "./incus-qualification-supervisor-client";
+  requestIncusSupervisorRestart, releaseTerminalIncusQualification } from "./incus-qualification-supervisor-client";
 import { observeFailedCleanupRecovery } from "./incus-live-recovery-probes";
 import { IncusLiveCleanupController } from "./incus-live-cleanup-controller";
 import { incusSupervisorPublicKeyPem } from "./incus-supervisor-public-key";
@@ -38,6 +38,7 @@ const guestOperations = new Set<SandboxProtocolOperation>([
 export async function incusHostLiveWitnessReady(deps: {
   env?: NodeJS.ProcessEnv;
   supervisorReadiness?: typeof requestIncusSupervisorReadiness;
+  terminalRelease?: typeof releaseTerminalIncusQualification;
 } = {}): Promise<boolean> {
   const env = deps.env ?? process.env;
   const root = env.EZCORP_INCUS_CONTROL_PROBE_ROOT;
@@ -56,6 +57,9 @@ export async function incusHostLiveWitnessReady(deps: {
     if (canonicalRoot !== root || !rootStat.isDirectory() || rootStat.isSymbolicLink()
       || (rootStat.mode & 0o077) !== 0 || rootStat.uid !== process.getuid()
       || !socketStat.isSocket() || socketStat.isSymbolicLink()) return false;
+    // A missed post-commit IPC can be recovered from the host-owned terminal row.
+    // Failed proof leaves the supervisor claim intact; readiness still refuses it.
+    await (deps.terminalRelease ?? releaseTerminalIncusQualification)(undefined, env).catch(() => undefined);
     return await (deps.supervisorReadiness ?? requestIncusSupervisorReadiness)(socket);
   } catch { return false; }
 }

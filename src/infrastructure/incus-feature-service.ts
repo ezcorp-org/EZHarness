@@ -15,6 +15,7 @@ import { SandboxController, operatorRecoveryDestroy } from "../sandboxes/control
 import { IncusSandboxProviderDispatcher } from "../sandboxes/incus-dispatcher";
 import { IncusMethodCaller } from "./incus-method-caller";
 import { callRetiredIncusCleanup } from "./incus-retired-cleanup";
+import type { IncusQualificationScope } from "./incus-qualification";
 import { qualificationFixtureIdentity } from "./incus-qualification-checkpoint";
 import { ProviderConnectionStore, type ProviderConnectionCredentials, type ProviderConnectionScope } from "./provider-connections/store";
 import { matchesCleanupRecoveryBinding, matchesFailedCleanupDestroy, permitsFailedCleanupInspection } from "./incus-cleanup-stop-policy";
@@ -234,6 +235,35 @@ export class IncusFeatureService {
 
   /** A fixture destroy is cleared only by the original journaled operation,
    * provider-confirmed absence, and settled admission reservation. */
+  /** Host database proof only; no user or provider can supply a terminal attestation. */
+  async assertTerminalRunCleanup(scope: IncusQualificationScope, runId: string, connectionRevision: number): Promise<void> {
+    const operationIds = ["primary", "unrelated", "recovery"].map(kind => `qual-${kind}-${runId}`);
+    const fixtures: QualificationFixture[] = await this.db.select().from(incusQualificationFixtures).where(and(
+      inArray(incusQualificationFixtures.operationId, operationIds),
+      eq(incusQualificationFixtures.installationId, scope.installationId),
+      eq(incusQualificationFixtures.releaseId, scope.releaseId),
+      eq(incusQualificationFixtures.connectionId, scope.connectionId),
+      eq(incusQualificationFixtures.connectionRevision, connectionRevision),
+      eq(incusQualificationFixtures.presetId, scope.presetId)));
+    if (fixtures.length !== 3 || new Set(fixtures.map(fixture => fixture.operationId)).size !== 3) {
+      throw new IncusQualificationCleanupError();
+    }
+    for (const fixture of fixtures) {
+      const status = await this.controller.getBinding(fixture.bindingId);
+      if (!status || !fixtureMatchesBinding(fixture, status) || status.desiredState !== "ABSENT"
+        || status.observedState !== "ABSENT" || !status.cleanupConfirmedAt) throw new IncusQualificationCleanupError();
+      const current = status.currentOperationId ? await this.controller.getOperation(status.currentOperationId) : null;
+      if (current?.kind !== "DESTROY" || current.state !== "SUCCEEDED" || current.bindingId !== status.id
+        || current.generation !== status.generation) throw new IncusQualificationCleanupError();
+      const unsettled = await this.db.select({ id: sandboxOperations.id }).from(sandboxOperations).where(and(
+        eq(sandboxOperations.bindingId, fixture.bindingId),
+        inArray(sandboxOperations.state, ["JOURNALED", "DISPATCHING", "PROVIDER_PENDING", "OUTCOME_UNKNOWN"]))).limit(1);
+      if (unsettled.length) throw new IncusQualificationCleanupError();
+      await this.assertFixtureCleanupVerified({ ...scope, connectionRevision,
+        presetDigest: fixture.presetDigest, effectiveSettingsDigest: fixture.effectiveSettingsDigest });
+    }
+  }
+
   private async assertFixtureCleanupVerified(scope: {
     installationId: string; releaseId: string; connectionId: string; connectionRevision: number;
     presetId: string; presetDigest: string; effectiveSettingsDigest: string;

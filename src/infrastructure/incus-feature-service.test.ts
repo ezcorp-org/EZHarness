@@ -1,6 +1,15 @@
 import { afterEach, expect, test } from "bun:test";
+import { generateKeyPairSync, sign } from "node:crypto";
+import { createServer } from "node:net";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { releaseTerminalIncusQualification } from "./incus-qualification-supervisor-client";
+import { up as addQualificationRuns } from "../db/migrations/add-incus-qualification-runs";
+import { up as completeQualificationRuns } from "../db/migrations/complete-incus-qualification-runs";
+import { IncusQualificationCheckpointStore, currentProcessIdentity, observationDigest, restartHandoffSigningBytes } from "./incus-qualification-checkpoint";
 import { PGlite } from "@electric-sql/pglite";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { sandboxPresetDigest } from "@ezcorp/extension-contract";
 import { up as addSandboxController } from "../db/migrations/add-sandbox-controller";
@@ -413,15 +422,11 @@ test("reservation settlement is bounded, fair after a bad row, and durable acros
   expect((await admission.getReservation("settlement-binding-0"))?.computeState).toBe("RELEASED");
 }, DB_TEST_TIMEOUT_MS);
 
-async function qualificationFixture() {
-  const f = await fixture();
-  const { db, preset, configureAdmission } = f;
-  await configureAdmission();
+async function addQualificationFixture(f: Awaited<ReturnType<typeof fixture>>, fixtureOperationId: string, bindingId: string) {
+  const { db, preset } = f;
+  const fixtureProjectId = `${bindingId}-project`;
   const presetDigest = await sandboxPresetDigest(preset);
   const effectiveSettingsDigest = digest({ presetDigest, connectionRevision: 1 });
-  const fixtureOperationId = "qual-recovery-run-one";
-  const bindingId = "qualification-binding";
-  const fixtureProjectId = "qualification-project";
   await db.insert(schema.projects).values({ id: fixtureProjectId, name: fixtureProjectId,
     purpose: "incus-qualification", path: "/__incus_qualification__/test" });
   await db.insert(schema.sandboxBindings).values({ id: bindingId, projectId: fixtureProjectId,
@@ -437,8 +442,15 @@ async function qualificationFixture() {
     memoryBytes: preset.limits.memoryBytes, cpuMillicores: preset.limits.cpuMillis,
     pids: preset.limits.pids, diskBytes: preset.limits.diskBytes, executionSlots: 1,
     computeState: "RELEASED", diskState: "RESERVED" });
-  const input = { projectId: "project", installationId: "installation", connectionId: "connection",
-    presetId: preset.id };
+}
+
+async function qualificationFixture() {
+  const f = await fixture();
+  await f.configureAdmission();
+  const fixtureOperationId = "qual-recovery-run-one";
+  const bindingId = "qualification-binding";
+  await addQualificationFixture(f, fixtureOperationId, bindingId);
+  const input = { projectId: "project", installationId: "installation", connectionId: "connection", presetId: f.preset.id };
   return { ...f, fixtureOperationId, bindingId, input };
 }
 
@@ -545,4 +557,101 @@ test("uncertain fixture destroy denies Ready until the original operation confir
   await service.checkReadiness(input);
   expect((await db.select().from(schema.sandboxOperations)).length).toBe(beforeDispatches);
   expect(await controller.getOperation(failed.id)).toEqual(failed);
+}, DB_TEST_TIMEOUT_MS);
+
+ test("terminal host proof requires all three exact cleaned fixtures and released accounting", async () => {
+  const f = await fixture();
+  const scope = { installationId: "installation", releaseId: "release", connectionId: "connection", presetId: f.preset.id };
+  await f.configureAdmission();
+  await expect(f.service.assertTerminalRunCleanup(scope, "terminal", 1)).rejects.toThrow();
+  const ids: string[] = [];
+  for (const kind of ["primary", "unrelated", "recovery"]) {
+    const op = `qual-${kind}-terminal`; const bindingId = `terminal-${kind}`; ids.push(bindingId);
+    await addQualificationFixture(f, op, bindingId);
+    await f.admission.markCleanupIntent(bindingId, 1, `incus-qualification-destroy-${op}`);
+    const destroy = await f.controller.requestAndDispatch({ bindingId, generation: 1, kind: "DESTROY",
+      idempotencyScope: "incus-qualification", idempotencyKey: `${op}:destroy`, payload: { expectedGeneration: 1 } });
+    await expect(f.service.assertTerminalRunCleanup(scope, "terminal", 1)).rejects.toThrow();
+    await f.service.reconcile(100, kind === "recovery" ? destroy.id : undefined);
+  }
+  await f.service.assertTerminalRunCleanup(scope, "terminal", 1);
+  await addQualificationRuns(f.db); await completeQualificationRuns(f.db);
+  const keys = generateKeyPairSync("ed25519"); const process = currentProcessIdentity();
+  const before = {} as Parameters<typeof observationDigest>[0];
+  const payload = { version: 1 as const, runId: "terminal", nonce: "terminal-nonce", scope,
+    fixtureOperationId: "qual-primary-terminal", bindingId: ids[0]!, generation: 1, connectionRevision: 1,
+    deadlineMs: 1, lastOperationId: "saved-stop", oldProcess: { pid: 1, startTicks: "1" },
+    newProcess: process, beforeDigest: observationDigest(before), afterDigest: "a".repeat(64) };
+  const receipt = { payload, signature: sign(null, restartHandoffSigningBytes(payload), keys.privateKey).toString("base64") };
+  await f.db.execute(sql`INSERT INTO incus_qualification_runs
+    (run_id,nonce,scope,fixture_operation_id,binding_id,generation,connection_revision,last_operation_id,
+     deadline_at,before_observation,before_digest,old_process_identity,state,receipt,claimed_at)
+    VALUES (${payload.runId},${payload.nonce},${JSON.stringify(scope)}::jsonb,${payload.fixtureOperationId},
+      ${payload.bindingId},1,1,${payload.lastOperationId},${new Date(1)},${JSON.stringify(before)}::jsonb,
+      ${payload.beforeDigest},${JSON.stringify(payload.oldProcess)}::jsonb,'COMPLETED',${JSON.stringify(receipt)}::jsonb,NOW())`);
+  const checkpoints = new IncusQualificationCheckpointStore(f.db, keys.publicKey.export({type:"spki",format:"pem"}).toString());
+  const attestation = await checkpoints.terminalAttestation();
+  if (!attestation) throw new Error("Expected the terminal host attestation");
+  expect(attestation).toEqual({ runId: "terminal", nonce: "terminal-nonce", scope, connectionRevision: 1,
+    state: "COMPLETED", process, claimedProcess: process });
+  await f.db.execute(sql`UPDATE incus_qualification_runs SET state = 'CLAIMED'`);
+  expect(await checkpoints.terminalAttestation()).toBeNull();
+  await f.db.execute(sql`UPDATE incus_qualification_runs SET state = 'FAILED'`);
+  expect((await checkpoints.terminalAttestation())?.state).toBe("FAILED");
+  await f.db.execute(sql`UPDATE incus_qualification_runs SET nonce = 'forged'`);
+  await expect(checkpoints.terminalAttestation()).rejects.toThrow("receipt changed");
+  await f.db.execute(sql`UPDATE incus_qualification_runs SET nonce = 'terminal-nonce'`);
+  await expect(f.service.assertTerminalRunCleanup({ ...scope, connectionId: "foreign" }, "terminal", 1)).rejects.toThrow();
+  await expect(f.service.assertTerminalRunCleanup(scope, "terminal", 2)).rejects.toThrow();
+  await f.db.update(schema.sandboxReservations).set({ diskState: "RELEASE_REQUESTED" }).where(eq(schema.sandboxReservations.bindingId, ids[0]!));
+  await expect(f.service.assertTerminalRunCleanup(scope, "terminal", 1)).rejects.toThrow();
+  await f.db.update(schema.sandboxReservations).set({ diskState: "RELEASED" }).where(eq(schema.sandboxReservations.bindingId, ids[0]!));
+  await f.db.update(schema.sandboxBindings).set({ observedState: "RUNNING" }).where(eq(schema.sandboxBindings.id, ids[0]!));
+  await expect(f.service.assertTerminalRunCleanup(scope, "terminal", 1)).rejects.toThrow();
+  await f.db.update(schema.sandboxBindings).set({ observedState: "ABSENT" }).where(eq(schema.sandboxBindings.id, ids[0]!));
+  const binding = (await f.controller.getBinding(ids[0]!))!;
+  const original = (await f.controller.getOperation(binding.currentOperationId!))!;
+  const outstandingId = crypto.randomUUID();
+  await f.db.insert(schema.sandboxOperations).values({ ...original, id: outstandingId,
+    idempotencyScope: "unsettled-terminal-test", idempotencyKey: outstandingId, state: "OUTCOME_UNKNOWN" });
+  await expect(f.service.assertTerminalRunCleanup(scope, "terminal", 1)).rejects.toThrow();
+  await f.db.delete(schema.sandboxOperations).where(eq(schema.sandboxOperations.id, outstandingId));
+  const client = databases.pop()!; const saved = await client.dumpDataDir(); await client.close();
+  const reopened = new PGlite({ loadDataDir: saved }); databases.push(reopened); await reopened.waitReady;
+  const reopenedStore = new IncusQualificationCheckpointStore(drizzle(reopened, { schema }), keys.publicKey.export({type:"spki",format:"pem"}).toString());
+  expect(await reopenedStore.terminalAttestation()).toEqual({ ...attestation, state: "FAILED" });
+  const reopenedDb = drizzle(reopened, { schema });
+  const root = await mkdtemp(join(tmpdir(), "incus-terminal-db-"));
+  const socket = join(root, "control.sock");
+  const frames: unknown[] = [];
+  let released = true;
+  const server = createServer(connection => {
+    let data = "";
+    connection.on("data", chunk => {
+      data += chunk.toString();
+      if (!data.includes("\n")) return;
+      frames.push(JSON.parse(data));
+      connection.end(`${JSON.stringify({ released })}\n`);
+    });
+  });
+  try {
+    await new Promise<void>(resolve => server.listen(socket, resolve));
+    const env = { EZCORP_INCUS_SUPERVISOR_SOCKET: socket,
+      EZCORP_INCUS_SUPERVISOR_PUBLIC_KEY: keys.publicKey.export({ type: "spki", format: "pem" }).toString() };
+    await releaseTerminalIncusQualification(reopenedDb, {});
+    await reopenedDb.execute(sql`UPDATE incus_qualification_runs SET state = 'CLAIMED'`);
+    await releaseTerminalIncusQualification(reopenedDb, env);
+    expect(frames).toEqual([]);
+    await reopenedDb.execute(sql`UPDATE incus_qualification_runs SET state = 'FAILED'`);
+    await releaseTerminalIncusQualification(reopenedDb, env);
+    expect(frames).toEqual([{ version: 1, action: "terminal", ...attestation, state: "FAILED" }]);
+    expect(JSON.stringify(frames)).not.toContain("reconcileOrder");
+    expect(JSON.stringify(frames)).not.toContain("requestPayload");
+    released = false;
+    await expect(releaseTerminalIncusQualification(reopenedDb, env)).rejects.toThrow("not released");
+    expect(frames).toHaveLength(2);
+  } finally {
+    await new Promise<void>(resolve => server.close(() => resolve()));
+    await rm(root, { recursive: true, force: true });
+  }
 }, DB_TEST_TIMEOUT_MS);

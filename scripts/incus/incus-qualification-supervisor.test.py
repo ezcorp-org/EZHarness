@@ -24,7 +24,7 @@ SPEC.loader.exec_module(MODULE)
 
 
 APP = r'''
-import json, os, socket, sys, tempfile, time
+import json, os, socket, subprocess, sys, tempfile, time
 from pathlib import Path
 def publish_json(path, value):
     fd, name = tempfile.mkstemp(prefix='.' + path.name + '.', dir=path.parent)
@@ -68,6 +68,38 @@ else:
             message = {'version':1,'action':'fault','phase':phase}
             if value is not None: message['arm'] = value
             publish_json(root / f'fault-{label}.json', call(message))
+    if index == 1 and (root / 'terminal-client-source').exists():
+        while not (root / 'terminal-go').exists(): time.sleep(0.01)
+        payload = json.loads((root / 'receipt.json').read_text())['receipt']['payload']
+        attestation = {key: payload[key] for key in ['runId','nonce','scope','connectionRevision']}
+        attestation.update(process=payload['newProcess'], claimedProcess=payload['newProcess'], state='COMPLETED')
+        publish_json(root/'terminal-python-readiness.json', call({'version':1,'action':'readiness'}))
+        os.execvpe('bun', ['bun', '-e', """
+const { writeFileSync, renameSync, existsSync, readFileSync } = await import('node:fs');
+const client = await import(process.env.CLIENT_SOURCE);
+try {
+const attestation = JSON.parse(process.env.TERMINAL_ATTESTATION);
+let activeDenied = false;
+try { await client.requestIncusSupervisorReadiness(process.env.CONTROL); }
+catch { activeDenied = true; }
+await client.requestIncusSupervisorTerminal(process.env.CONTROL, attestation);
+await client.requestIncusSupervisorTerminal(process.env.CONTROL, attestation);
+const ready = await client.requestIncusSupervisorReadiness(process.env.CONTROL);
+writeFileSync(process.env.RESULT + '.tmp', JSON.stringify({exit:0,result:{activeDenied,ready},error:''}));
+} catch (error) {
+writeFileSync(process.env.RESULT + '.tmp', JSON.stringify({exit:1,result:null,error:String(error)}));
+}
+renameSync(process.env.RESULT + '.tmp', process.env.RESULT);
+while (!existsSync(process.env.NEXT_GO)) await Bun.sleep(10);
+const next = {...JSON.parse(readFileSync(process.env.REQUEST, 'utf8')),
+  runId:'run-next',nonce:'nonce-next',bindingId:'binding-next',fixtureOperationId:'fixture-next',
+  deadlineMs:Date.now()+30000};
+writeFileSync(process.env.REQUEST, JSON.stringify(next));
+await client.requestIncusSupervisorRestart(process.env.CONTROL, next);
+setInterval(() => {}, 1000);
+"""], dict(os.environ, CLIENT_SOURCE=(root/'terminal-client-source').read_text(),
+              TERMINAL_ATTESTATION=json.dumps(attestation), CONTROL=control, RESULT=str(root/'terminal-client.json'),
+              NEXT_GO=str(root/'next-go'), REQUEST=str(root/'request.json')))
 while True: time.sleep(0.1)
 '''
 
@@ -75,8 +107,9 @@ AUTH = r'''
 import json, sys
 from pathlib import Path
 root = Path(sys.argv[1]); request=json.loads(sys.stdin.read())
-old=json.loads((root/'app-0.json').read_text())
-if request['runId'] != 'run' or request['bindingId'] != 'binding': sys.exit(1)
+expected = {'run':('binding','app-0.json'),'run-next':('binding-next','app-1.json')}.get(request['runId'])
+if expected is None or request['bindingId'] != expected[0]: sys.exit(1)
+old=json.loads((root/expected[1]).read_text())
 print(json.dumps({'authorized': True, 'oldProcess': old}))
 '''
 
@@ -86,14 +119,18 @@ input=json.loads(sys.stdin.read())
 if input['phase'] == 'snapshot':
     print(json.dumps({'snapshot':{'fixture':input['request']['bindingId']}}))
 elif input['phase'] == 'verify':
-    if input['snapshot'] != {'fixture':'binding'}: sys.exit(1)
+    if input['snapshot'] not in ({'fixture':'binding'},{'fixture':'binding-next'}): sys.exit(1)
     print(json.dumps({'afterDigest':'b'*64}))
+elif input['phase'] == 'readiness':
+    print(json.dumps({'ready':'receipt.v1'}, separators=(',',':')))
 else: sys.exit(1)
 '''
 
 FAULT_AUTH = r'''
 import hashlib, json, sys
 message=json.loads(sys.stdin.read())
+if message['phase'] == 'readiness':
+    print(json.dumps({'ready':'fault.v1'}, separators=(',',':'))); sys.exit(0)
 arm=message['arm']
 canonical=json.dumps(arm,sort_keys=True,separators=(',',':'),ensure_ascii=False).encode()
 print(json.dumps({'authorized':True,'armDigest':hashlib.sha256(canonical).hexdigest()}))
@@ -116,6 +153,64 @@ def process_live(pid):
 
 
 class SupervisorTest(unittest.TestCase):
+    def test_terminal_claim_release_requires_exact_host_report_and_preserves_replay_fences(self):
+        with tempfile.TemporaryDirectory() as directory:
+            key = Path(directory) / "key.pem"
+            key.write_text("private fixture")
+            key.chmod(0o600)
+            supervisor = MODULE.Supervisor(str(Path(directory) / "control.sock"), ["true"],
+                os.getuid(), os.getgid(), key, ["authority"], ["receipt"], enforce_distinct_uid=False)
+            supervisor.fault_authority_command = ["fault"]
+            process = MODULE.identity(os.getpid())
+            request = {"runId": "completed-run", "nonce": "nonce", "scope": {
+                "installationId": "installation", "releaseId": "release", "connectionId": "connection", "presetId": "preset"},
+                "connectionRevision": 1, "deadlineMs": 1}
+            supervisor.child_identity = process
+            supervisor.claimed = {"request": request, "newProcess": process}
+            supervisor.used_runs.add(request["runId"])
+            supervisor.fault_armed = b"retained-fault"
+            with self.assertRaisesRegex(ValueError, "already active"):
+                supervisor.readiness({"version": 1, "action": "readiness"})
+            terminal = {"version": 1, "action": "terminal", "state": "COMPLETED", "process": process,
+                        "claimedProcess": process, **{key: request[key] for key in ("runId", "nonce", "scope", "connectionRevision")}}
+            for field, value in (("runId", "other"), ("nonce", "other"), ("connectionRevision", 2),
+                                 ("scope", {**request["scope"], "presetId": "other"}), ("process", {"pid": 1, "startTicks": "1"}),
+                                 ("claimedProcess", {"pid": 1, "startTicks": "1"}), ("state", "CLAIMED")):
+                with self.assertRaises(ValueError):
+                    supervisor.terminal({**terminal, field: value})
+                self.assertIsNotNone(supervisor.claimed)
+            supervisor.pending = {"active": True}
+            with self.assertRaisesRegex(ValueError, "pending"):
+                supervisor.terminal(terminal)
+            supervisor.pending = None
+            self.assertEqual(supervisor.terminal(terminal), {"released": True})
+            self.assertEqual(supervisor.terminal(terminal), {"released": True})
+            self.assertEqual(supervisor.used_runs, {"completed-run"})
+            self.assertEqual(supervisor.fault_armed, b"retained-fault")
+            with mock.patch.object(MODULE.subprocess, "run", side_effect=[
+                    subprocess.CompletedProcess([], 0, stdout=b'{"ready":"receipt.v1"}\n'),
+                    subprocess.CompletedProcess([], 0, stdout=b'{"ready":"fault.v1"}\n')]):
+                self.assertEqual(supervisor.readiness({"version": 1, "action": "readiness"}),
+                                 {"ready": True, "protocol": "incus-qualification.v1"})
+            with self.assertRaises(ValueError):
+                supervisor.terminal({**terminal, "nonce": "forged"})
+            # A later managed engine can recover a missed post-commit report.
+            # Historical PID reuse is distinguished by kernel start ticks.
+            supervisor.claimed = {"request": request, "newProcess": process}
+            current = {"pid": process["pid"] + 1, "startTicks": "replacement"}
+            supervisor.child_identity = current
+            recovered = {**terminal, "process": current, "state": "FAILED"}
+            with mock.patch.object(MODULE, "identity", return_value=process):
+                with self.assertRaisesRegex(ValueError, "still alive"):
+                    supervisor.terminal(recovered)
+            with mock.patch.object(MODULE, "identity", return_value={**process, "startTicks": "reused"}):
+                self.assertEqual(supervisor.terminal(recovered), {"released": True})
+            supervisor.claimed = {"request": request, "newProcess": process}
+            with mock.patch.object(MODULE, "identity", side_effect=ProcessLookupError):
+                self.assertEqual(supervisor.terminal(recovered), {"released": True})
+            self.assertEqual(supervisor.used_runs, {"completed-run"})
+            self.assertEqual(supervisor.fault_armed, b"retained-fault")
+
     def test_child_json_publication_is_complete_before_visible(self):
         for interrupted in (False, True):
             with self.subTest(interrupted=interrupted), tempfile.TemporaryDirectory(
@@ -619,6 +714,8 @@ m.Supervisor(sys.argv[2],[sys.executable,'-c','raise SystemExit(7)'],
                 "destroyOperationId": "e3a94f88-c426-4bc3-8cd3-263681049a1b",
                 "generation": 1, "providerGeneration": 2, "connectionRevision": 2}))
             (root / "hold-restart").write_text("1")
+            (root / 'terminal-client-source').write_text(str(SOURCE.parents[2] /
+                'src/infrastructure/incus-qualification-supervisor-client.ts'))
             # Production constructor rejects a shared app/operator UID.
             with self.assertRaisesRegex(RuntimeError, "distinct UIDs"):
                 MODULE.Supervisor(str(socket_path), ["true"], os.getuid(), os.getgid(), key,
@@ -694,6 +791,22 @@ const key = await Bun.file(process.argv[2]).text();
 verifyRestartHandoff(receipt, key);
 """, str(receipt_file), str(pub)], cwd=SOURCE.parents[2], capture_output=True)
                 self.assertEqual(app_verified.returncode, 0, app_verified.stderr)
+                (root / 'terminal-client-source').write_text(str(SOURCE.parents[2] /
+                    'src/infrastructure/incus-qualification-supervisor-client.ts'))
+                # Tell the already managed child to use the real TypeScript client.
+                (root / 'terminal-go').touch()
+                terminal = wait_file(root / 'terminal-client.json')
+                self.assertEqual(wait_file(root/'terminal-python-readiness.json'),
+                                 {'error':'qualification run is already active'})
+                if runner.poll() is not None:
+                    self.fail(runner.stderr.read().decode())
+                self.assertEqual(terminal['exit'], 0, terminal['error'])
+                self.assertEqual(terminal['result'], {'activeDenied':True, 'ready':True})
+                (root/'next-go').touch()
+                third = wait_file(root/'app-2.json')
+                self.assertNotEqual(third, new)
+                self.assertFalse(process_live(new['pid']))
+                new_pid = third['pid']
             finally:
                 runner.terminate()
                 try: runner.wait(timeout=5)

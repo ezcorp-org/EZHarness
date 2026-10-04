@@ -231,6 +231,7 @@ test("replacement startup uses one pending checkpoint and persists only resumed 
   const evidence = { cases: [{ caseId: "SP01", status: "passed" }] };
   const deps = {
     db: {} as never,
+    releaseTerminal: async () => { calls.push("released"); },
     checkpoints: { pending: async () => { calls.push("pending"); return pending; },
       fail: async () => { calls.push("failed"); } },
     qualifications: {
@@ -250,18 +251,23 @@ test("replacement startup uses one pending checkpoint and persists only resumed 
     },
   };
   await resumePendingIncusQualification(deps as never);
-  expect(calls).toEqual(["pending", "authorize", "witness:run", "resume:run:nonce", "record"]);
+  expect(calls).toEqual(["pending", "authorize", "witness:run", "resume:run:nonce", "record", "released"]);
   calls.length = 0;
   await expect(resumePendingIncusQualification({ ...deps,
     resume: async () => { throw new Error("pinned backend changed"); },
   } as never)).rejects.toThrow("pinned backend changed");
-  expect(calls).toEqual(["pending", "authorize", "witness:run", "failed"]);
+  expect(calls).toEqual(["pending", "authorize", "witness:run", "failed", "released"]);
   calls.length = 0;
   await expect(resumePendingIncusQualification({ ...deps,
     checkpoints: { ...deps.checkpoints, fail: async () => { throw new Error("checkpoint write failed"); } },
     resume: async () => { throw new Error("pinned backend changed"); },
   } as never)).rejects.toThrow("pinned backend changed");
   expect(calls).toEqual(["pending", "authorize", "witness:run"]);
+  calls.length = 0;
+  await resumePendingIncusQualification({ ...deps,
+    releaseTerminal: async () => { calls.push("release-unconfirmed"); throw new Error("socket unavailable"); },
+  } as never);
+  expect(calls).toEqual(["pending", "authorize", "witness:run", "resume:run:nonce", "record", "release-unconfirmed"]);
   calls.length = 0;
   await resumePendingIncusQualification({ ...deps,
     checkpoints: { ...deps.checkpoints, pending: async () => { calls.push("pending"); return null; } },

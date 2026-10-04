@@ -17,6 +17,7 @@ import { IncusLiveControlProbes } from "./incus-live-control-probes";
 import { IncusLiveProbeFixtureService } from "./incus-live-probe-fixtures";
 import { resumeDurableIncusLiveCases } from "./incus-live-cases";
 import type { IncusQualificationScope } from "./incus-qualification";
+import { releaseTerminalIncusQualification } from "./incus-qualification-supervisor-client";
 import { logger } from "../logger";
 
 const log = logger.child("incus.reconcile");
@@ -35,6 +36,7 @@ type QualificationContinuationDependencies = {
   qualifications?: Pick<IncusQualificationStore, "authorizeFixture" | "recordVerified">;
   createWitness?: typeof createIncusQualificationWitness;
   resume?: typeof resumeDurableIncusLiveCases;
+  releaseTerminal?: typeof releaseTerminalIncusQualification;
 };
 
 /** Run only after the replacement process has opened its own database connection. */
@@ -43,6 +45,8 @@ export async function resumePendingIncusQualification(deps: QualificationContinu
   const checkpoints = deps.checkpoints ?? new IncusQualificationCheckpointStore(db);
   const pending = await checkpoints.pending();
   if (!pending) return;
+  const releaseTerminal = () => (deps.releaseTerminal ?? releaseTerminalIncusQualification)(db).catch(() =>
+    log.warn("Incus terminal claim release remains unconfirmed"));
   try {
     const qualifications = deps.qualifications ?? new IncusQualificationStore({ db });
     const selected = await qualifications.authorizeFixture(pending.scope);
@@ -52,9 +56,13 @@ export async function resumePendingIncusQualification(deps: QualificationContinu
     pending.scope, selected.preset, { runId: pending.runId, nonce: pending.nonce });
     await qualifications.recordVerified(pending.scope, evidence,
       { runId: pending.runId, nonce: pending.nonce });
+    await releaseTerminal();
   } catch (error) {
-    await checkpoints.fail(pending.runId).catch(failure =>
-      log.warn("Incus qualification failure could not be saved", { error: String(failure) }));
+    const saved = await checkpoints.fail(pending.runId).then(() => true).catch(failure => {
+      log.warn("Incus qualification failure could not be saved", { error: String(failure) });
+      return false;
+    });
+    if (saved) await releaseTerminal();
     throw error;
   }
 }

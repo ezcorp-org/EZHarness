@@ -1,9 +1,9 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
 import { createServer, type Server } from "node:net";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { requestIncusSupervisorFault, requestIncusSupervisorReceipt, requestIncusSupervisorRestart,
+import { requestIncusSupervisorFault, requestIncusSupervisorReceipt, requestIncusSupervisorRestart, requestIncusSupervisorReadiness, requestIncusSupervisorTerminal,
   type SupervisorRestartRequest } from "./incus-qualification-supervisor-client";
 import type { SignedRestartHandoff } from "./incus-qualification-checkpoint";
 
@@ -117,4 +117,34 @@ test("fault client sends the exact operator arm and refuses missing or denied au
     .rejects.toThrow("arm is unavailable");
   await expect(requestIncusSupervisorFault(socket, "arm", { ...arm, deadlineMs: Date.now() - 1 }))
     .rejects.toThrow("deadline expired");
+});
+
+test("readiness permits both bounded verifier budgets while restart ACK stays separate", async () => {
+  let budget = 0; const realTimer = globalThis.setTimeout;
+  const timer = spyOn(globalThis, "setTimeout").mockImplementation(((callback: (...args: unknown[]) => void, ms: number, ...args: unknown[]) => {
+    if (ms !== 12_000) return realTimer(callback, ms, ...args);
+    budget = ms; return realTimer(() => {}, 60_000);
+  }) as typeof setTimeout);
+  try {
+    const path = await server(input => {
+      expect(input).toEqual({ version: 1, action: "readiness" });
+      expect(budget).toBe(2 * 5_000 + 2_000);
+      expect(2 * 4_000).toBeLessThan(budget);
+      return '{"ready":true,"protocol":"incus-qualification.v1"}\n';
+    });
+    expect(await requestIncusSupervisorReadiness(path)).toBe(true);
+  } finally { timer.mockRestore(); }
+});
+
+test("terminal client reports only the exact validated host receipt and rejects refusal", async () => {
+  const attestation = { runId: "run", nonce: "nonce", scope: restart.scope, connectionRevision: 2,
+    process: { pid: 2, startTicks: "2" }, claimedProcess: { pid: 1, startTicks: "1" }, state: "COMPLETED" as const };
+  const path = await server(input => {
+    expect(input).toEqual({ version: 1, action: "terminal", ...attestation });
+    expect(JSON.stringify(input)).not.toContain("reconcileOrder");
+    return '{"released":true}\n';
+  });
+  await requestIncusSupervisorTerminal(path, attestation);
+  await expect(requestIncusSupervisorTerminal(await server('{"released":false}\n'), attestation))
+    .rejects.toThrow("not released");
 });
