@@ -1,6 +1,9 @@
 import { resourceName } from "./incus-transport/lifecycle";
-import { afterEach, expect, test } from "bun:test";
+import { afterAll, afterEach, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
+import { makeTestCertificates } from "./incus-transport/test-certificates";
+import { sandboxPresetDigest } from "@ezcorp/extension-contract";
+import type { ActiveExtensionRelease } from "../extensions/release-process";
 import { eq } from "drizzle-orm";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
@@ -10,6 +13,7 @@ import type { IncusTransportRequest } from "../../extensions/incus-sandbox/trans
 import { up as addSandboxController } from "../db/migrations/add-sandbox-controller";
 import * as schema from "../db/schema";
 import { SandboxController } from "../sandboxes/controller";
+import { SandboxAdmissionStore } from "../sandboxes/admission";
 import { guestHelperSha256 } from "./incus-guest/protocol";
 import {
   ProviderRpcBroker,
@@ -18,6 +22,8 @@ import {
 } from "./provider-rpc-broker";
 
 const open: PGlite[] = [];
+const observerCertificates = makeTestCertificates();
+afterAll(() => observerCertificates.dispose());
 
 async function setup() {
   const pglite = new PGlite();
@@ -403,13 +409,13 @@ async function observationFixture() {
       resourceKey: bindingId, currentOperationId: id, desiredState: recovery ? "ABSENT" : "STOPPED",
       observedState: "UNKNOWN", tombstonedAt: recovery ? new Date(now) : null }).returning();
     const payload = recovery ? { expectedGeneration: 1 } : { profile: binding!.profile, presetId: binding!.presetId,
-      presetDigest: binding!.presetDigest, effectiveSettingsDigest: binding!.effectiveSettingsDigest, desiredState: "stopped" };
+      presetDigest: binding!.presetDigest, effectiveSettingsDigest: binding!.effectiveSettingsDigest };
     await fixture.db.insert(schema.sandboxOperations).values({ id, bindingId, generation: 1,
       kind: recovery ? "DESTROY" : "CREATE", state: "DISPATCHING", idempotencyScope: recovery ? "incus-qualification" : "feature",
       idempotencyKey: recovery ? `qual-recovery-${id}:destroy` : id, payloadHash: "observer-hash",
       requestPayload: payload, createdAt: new Date(now - age) });
     const input = { providerId: "incus", connectionId: "connection", sandboxId: bindingId,
-      requestId: id, idempotencyKey: id, rpcDeadlineMs: Date.now() + 30_000, ...payload };
+      requestId: id, idempotencyKey: id, rpcDeadlineMs: Date.now() + 30_000, ...payload, ...(!recovery ? { desiredState: "stopped" } : {}) };
     const action = fixture.scope(recovery ? "lifecycle.destroy" : "lifecycle.create", input);
     const { id: capturedId, projectId, providerInstallationId, providerReleaseId, connectionId,
       connectionRevision, resourceKey, generation, currentOperationId, desiredState, tombstonedAt } = binding!;
@@ -520,5 +526,138 @@ test("only the exact operator recovery DESTROY is excluded from independent obse
   expect((await fixture.db.select().from(schema.sandboxOperations)
     .where(eq(schema.sandboxOperations.id, action.expectedCommand.idempotency!.requestId)))[0])
     .toMatchObject({ state: "DISPATCHING", providerOperationId: nativeId });
+  await broker.stopObservations();
+});
+
+async function observerReadFixture() {
+  const fixture = await observationFixture();
+  const manifest = structuredClone(incusManifest);
+  const preset = manifest.sandboxProviders![0]!.presets[0]!;
+  const digest = await sandboxPresetDigest(preset);
+  await new SandboxAdmissionStore(fixture.db).configureHostCapacity({ providerInstallationId: "installation", connectionId: "connection",
+    allocatable: { memoryBytes: preset.limits.memoryBytes * 4, cpuMillicores: preset.limits.cpuMillis * 4,
+      pids: preset.limits.pids * 4, diskBytes: preset.limits.diskBytes * 4, executionSlots: 4 },
+    safetyMargin: { memoryBytes: 0, cpuMillicores: 0, pids: 0, diskBytes: 0, executionSlots: 0 } });
+  const snapshot = { installation: { id: "installation", generation: 1 },
+    release: { id: "release", releaseDigest: "d".repeat(64), manifest } } as ActiveExtensionRelease;
+  const certificate = observerCertificates.read("server-cert.pem");
+  let connectionsChecked = 0;
+  const connection = { id: "connection", revision: 1, providerInstallationId: "installation", providerReleaseId: "release",
+    revokedAt: null, serverCertificatePem: certificate, project: "ezharness",
+    configuration: { kind: "incus", profile: "ezharness-feature", helperVersion: "0.1.0", guestUser: "sandbox" } };
+  const connections = { getMetadata: async () => connection,
+    resolveForHost: async () => { connectionsChecked++; return connection; } } as unknown as ProviderConnectionResolver;
+  const add = async (index: number) => {
+    const action = await fixture.add(index);
+    await fixture.db.update(schema.sandboxBindings).set({ presetId: preset.id, profile: preset.profile, presetDigest: digest })
+      .where(eq(schema.sandboxBindings.id, action.bindingId));
+    const payload = { profile: preset.profile, presetId: preset.id, presetDigest: digest,
+      effectiveSettingsDigest: "b".repeat(64) };
+    await fixture.db.update(schema.sandboxOperations).set({ requestPayload: payload })
+      .where(eq(schema.sandboxOperations.id, action.expectedCommand.idempotency!.requestId));
+    await fixture.db.insert(schema.sandboxReservations).values({ bindingId: action.bindingId, projectId: action.projectId,
+      providerInstallationId: "installation", connectionId: "connection", generation: 1,
+      memoryBytes: preset.limits.memoryBytes, cpuMillicores: preset.limits.cpuMillis, pids: preset.limits.pids,
+      diskBytes: preset.limits.diskBytes, executionSlots: 1, computeState: "RESERVED", diskState: "RESERVED" });
+    return action;
+  };
+  return { ...fixture, add, snapshot, connections, connectionChecks: () => connectionsChecked };
+}
+
+for (const completion of ["terminal", "revoked", "expired"] as const) {
+  test(`independent observer schedules bounded reads and ${completion} preserves exact journal truth`, async () => {
+    const fixture = await observerReadFixture();
+    const action = await fixture.add(0);
+    const nativeId = "incus-create-11111111-1111-4111-8111-111111111111";
+    let now = fixture.now;
+    let releaseAllowed = true;
+    let reads = 0;
+    let writes = 0;
+    let authorityChecks = 0;
+    let pauseReady!: () => void;
+    const paused = new Promise<void>(resolve => { pauseReady = resolve; });
+    let resume!: () => void;
+    const barrier = new Promise<void>(resolve => { resume = resolve; });
+    const delays: number[] = [];
+    const broker = new ProviderRpcBroker(fixture.connections, undefined, fixture.db,
+      (prepared, _signal, accepted, _terminal, observing) => ({ request: async () => {
+        if (!observing) { writes++; await accepted!(nativeId); return { ok: true }; }
+        reads++;
+        return { ok: true, operation: { operationId: nativeId, kind: "create", sandboxId: action.bindingId,
+          state: reads === 1 ? "running" : "succeeded", desiredState: "stopped", observedState: reads === 1 ? "unknown" : "stopped",
+          resourceId: prepared.expectedCommand.sandboxName, startedAt: new Date(fixture.now).toISOString(),
+          finishedAt: reads === 1 ? null : new Date(fixture.now + 1).toISOString(), error: null } };
+      } }), undefined, { now: () => now,
+        resolveActiveRelease: async () => { authorityChecks++; if (!releaseAllowed) throw new Error("Revoked"); return fixture.snapshot; },
+        delay: async (milliseconds, signal) => { delays.push(milliseconds); pauseReady();
+          signal.addEventListener("abort", resume, { once: true }); await barrier; } });
+    expect(await broker.request(action, { command: action.expectedCommand }, action.expectedCommand.deadlineMs)).toMatchObject({ ok: true });
+    await paused;
+    expect(delays).toEqual([250]);
+    expect({ reads, writes, authorityChecks }).toEqual({ reads: 1, writes: 1, authorityChecks: 1 });
+    // A new prepared owner of this same journal cannot consume another observation slot or dispatch.
+    expect(await broker.request({ ...action }, { command: action.expectedCommand }, action.expectedCommand.deadlineMs))
+      .toMatchObject({ ok: false, error: { kind: "permission" } });
+    if (completion === "revoked") releaseAllowed = false;
+    if (completion === "expired") now += 600_000;
+    const complete = broker.awaitObservation(action.expectedCommand.idempotency!.requestId);
+    resume();
+    await complete;
+    const journal = (await fixture.db.select().from(schema.sandboxOperations))[0]!;
+    expect(journal).toMatchObject({ state: completion === "terminal" ? "SUCCEEDED" : "DISPATCHING", providerOperationId: nativeId });
+    expect(writes).toBe(1);
+    expect(reads).toBe(completion === "terminal" ? 2 : 1);
+    expect(authorityChecks).toBe(completion === "expired" ? 1 : 2);
+    expect(fixture.connectionChecks()).toBe(completion === "terminal" ? 2 : 1);
+    const binding = (await fixture.db.select().from(schema.sandboxBindings).where(eq(schema.sandboxBindings.id, action.bindingId)))[0]!;
+    expect(binding.observedState).toBe(completion === "terminal" ? "STOPPED" : "UNKNOWN");
+    await broker.stopObservations();
+  });
+}
+
+test("startup resumes only current final native handles without replaying mutations or intent phases", async () => {
+  const fixture = await observerReadFixture();
+  const actions = await Promise.all([0, 1, 2, 3].map(index => fixture.add(index)));
+  const nativeId = "incus-create-11111111-1111-4111-8111-111111111111";
+  for (const action of actions) await fixture.db.update(schema.sandboxOperations).set({ state: "PROVIDER_PENDING", providerOperationId: nativeId })
+    .where(eq(schema.sandboxOperations.id, action.expectedCommand.idempotency!.requestId));
+  await fixture.db.update(schema.sandboxBindings).set({ currentOperationId: "superseded" })
+    .where(eq(schema.sandboxBindings.id, actions[1]!.bindingId));
+  await fixture.db.update(schema.sandboxOperations).set({ kind: "START", providerOperationId: "incus-setPowerIntent-22222222-2222-4222-8222-222222222222" })
+    .where(eq(schema.sandboxOperations.id, actions[2]!.expectedCommand.idempotency!.requestId));
+  await fixture.db.update(schema.sandboxOperations).set({ kind: "DESTROY", idempotencyScope: "incus-qualification",
+    idempotencyKey: "qual-recovery-saved:destroy", providerOperationId: "incus-destroy-33333333-3333-4333-8333-333333333333" })
+    .where(eq(schema.sandboxOperations.id, actions[3]!.expectedCommand.idempotency!.requestId));
+  let entered!: () => void;
+  const ready = new Promise<void>(resolve => { entered = resolve; });
+  let release!: () => void;
+  const barrier = new Promise<void>(resolve => { release = resolve; });
+  const reads: string[] = [];
+  let effects = 0;
+  const broker = new ProviderRpcBroker(fixture.connections, undefined, fixture.db,
+    (prepared, _signal, _accepted, _terminal, observing) => ({ request: async () => {
+      if (!observing) { effects++; throw new Error("Startup cannot dispatch"); }
+      reads.push(prepared.bindingId);
+      entered();
+      await barrier;
+      return { ok: true, operation: { operationId: nativeId, kind: "create", sandboxId: prepared.bindingId,
+        state: "failed", desiredState: "stopped", observedState: "unknown", resourceId: prepared.expectedCommand.sandboxName,
+        startedAt: new Date(fixture.now).toISOString(), finishedAt: new Date(fixture.now + 1).toISOString(),
+        error: { code: "INTERNAL", message: "Native creation failed", retryable: false } } };
+    } }), undefined, { now: () => fixture.now, resolveActiveRelease: async () => fixture.snapshot });
+  await broker.resumePendingObservations();
+  await ready;
+  await broker.resumePendingObservations();
+  expect(reads).toEqual([actions[0]!.bindingId]);
+  const complete = broker.awaitObservation(actions[0]!.expectedCommand.idempotency!.requestId);
+  release();
+  await complete;
+  expect(effects).toBe(0);
+  const operations = await fixture.db.select().from(schema.sandboxOperations);
+  expect(operations.find(row => row.id === actions[0]!.expectedCommand.idempotency!.requestId))
+    .toMatchObject({ state: "FAILED", providerOperationId: nativeId, errorCode: "INTERNAL" });
+  expect(operations.filter(row => row.id !== actions[0]!.expectedCommand.idempotency!.requestId).map(row => row.state))
+    .toEqual(["PROVIDER_PENDING", "PROVIDER_PENDING", "PROVIDER_PENDING"]);
+  expect((await fixture.db.select().from(schema.sandboxReservations)).every(row => row.computeState === "RESERVED" && row.diskState === "RESERVED")).toBe(true);
   await broker.stopObservations();
 });
