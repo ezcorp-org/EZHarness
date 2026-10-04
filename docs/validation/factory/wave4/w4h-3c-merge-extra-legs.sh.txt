@@ -1,0 +1,2 @@
+# W4H-3c changes tsconfig.tests.json (scripts tests join the CI typecheck program): the full typecheck (all four programs), as ci.yml job typecheck runs it.
+NOTEST=1 leg typecheck-all bun run typecheck

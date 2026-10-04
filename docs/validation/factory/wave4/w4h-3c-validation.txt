@@ -1,0 +1,33 @@
+VERDICT (validator-6) — W4H-3c at 67b1e13ec (wp/w4h-3c, owner w4h-3), base integ/w00 edd373c59: ACCEPT
+
+3 commits, all archy noreply as author and committer: eedfeab4a (scripts/**/*.test.ts into the backend test program, two root
+fixes), 758f4bf27 (a test for a pre-existing uncovered line), 67b1e13ec (gates and todo). Files: tsconfig.tests.json,
+scripts/factory-temporal-authorizer.mjs, scripts/factory-temporal-authorizer.test.ts, scripts/lib/shipping-bootstrap-state.test.ts,
+tasks/factory/w4h-3c-GATES.md, tasks/todo.md.
+Where: a clean snapshot (v5_snapshot) in /tmp/v6-w4h3c-hold-67b1e13ec, OUTSIDE the evidence dir; the record (snapshot excluded) is
+in w4g-validation/w4h3c/hold-67b1e13ec (4.4 MB) and the working dir is removed. The resource gate refused the unit leg at 19:50Z
+(disk 98-99 GB against 104); I stopped the hold, kept the snapshot, and resumed the remaining legs at 20:35Z when disk was 146 GB.
+Shared config (config-check.py --check-only): exit 0 at start, at the resume and at the end ("888c78b9e94ea660 = accepted baseline").
+
+(a) RED FIRST (typecheck = `bun run typecheck`, all four programs):
+  - Base tree (tsconfig.tests.json and the three scripts files checked out at edd373c59 inside the head snapshot; the rest is
+    identical to the base apart from tasks/) with WorkflowStep.shell dropped (the equivalent of my W4H-3b env mutant, since
+    W4H-3b is not on this base): exit 0, 0 TS errors — the gap.
+  - Head 67b1e13ec with the same mutant: exit 1, 2 × TS2339.
+  - Head + W4H-3b's diff (git diff edd373c59 91351d6b5, applied cleanly): exit 0. Then my `env` mutant (WorkflowStep.env dropped):
+    exit 1, 4 errors (2 × TS2339, 2 × TS2353). The W4H-3b finding is closed.
+(b) ROOT FIXES: the only tsconfig change is `+ "scripts/**/*.test.ts"` in tsconfig.tests.json (no option changed); no @ts-ignore,
+  @ts-expect-error or @ts-nocheck in the diff; scripts/factory-temporal-authorizer.mjs differs from the base only in JSDoc (the
+  Revocations typedef and @param/@returns): both versions transpiled with Bun.Transpiler (minifyWhitespace) are identical.
+  shipping-bootstrap-state.test.ts narrows its `satisfies` to a partial error with a partial observer.
+(c) PROGRAM: 46 scripts test files tracked; the backend-tests program runs with "0 ratcheted file(s) excluded", and its include now
+  matches all of them. ci.yml job `typecheck` (line 332) runs `bun run typecheck` (line 349) → scripts/typecheck-tests.ts.
+(d) COVERAGE: hook-mapped suites (scripts/lib/hook-lib.sh): factory-temporal-authorizer.test.ts 15/0 and
+  shipping-bootstrap-state.test.ts 6/0, each run alone first (none VOID); with lcov 21/0. scripts/lib/shipping-bootstrap-state.ts
+  LF 78 LH 78; scripts/factory-temporal-authorizer.mjs LF 70 LH 70. New-file gate PASSED (no new source file); patch gate PASSED
+  (0 measured files: the .mjs change is comments only). CRAP: 0 measured functions. vs origin/main (measure, this run's lcov): both
+  gates fail on the whole feature branch, and neither output names a file of this change (0 lines).
+(e) typecheck, lint, check-factory-boundaries, check-boundaries 0; gate-integrity: base leg clean against edd373c59, origin/main leg
+  equals the 8 expected paths; SDK 246/0; guard set (39 files) 477 pass, 2 skip (BPF), 0 fail; prune scan (w00/prune-scan.sh
+  sha256 efffa0178530c74a): "prune scan: clean (0 hit(s))".
+IDENTITY: 3/3 archy noreply.
