@@ -27,6 +27,11 @@ describe("the gRPC route: certificate and token bound to one subject", () => {
     expect(authorize(headers({ ...valid, permissions: ["admin:tenant-02"] }))).toBeFalse();
   });
 
+  test("a token whose payload is not JSON carries no claims and is rejected", () => {
+    const notJson = Buffer.from("not json").toString("base64url");
+    expect(authorize(new Headers({ authorization: `Bearer x.${notJson}.x`, "x-forwarded-client-cert": 'By=spiffe;Subject="CN=tenant-01"' }))).toBeFalse();
+  });
+
   test("a revoked subject, certificate hash, or token ID is denied even with aligned claims", () => {
     expect(authorize(hashed(valid), none)).toBeTrue();
     expect(authorize(hashed(valid), { ...none, subjects: ["tenant-01"] })).toBeFalse();
