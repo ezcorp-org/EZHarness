@@ -579,8 +579,8 @@ export class SandboxController {
       const [updated] = await transaction.update(sandboxOperations).set({
         state,
         // Acceptance may have persisted the native handle while this RPC was waiting.
-        // An omitted reply handle must preserve that durable value.
-        providerOperationId: outcome.providerOperationId ?? sql`${sandboxOperations.providerOperationId}`,
+        // A worker reply cannot replace a handle already accepted by the host.
+        providerOperationId: sql`COALESCE(${sandboxOperations.providerOperationId}, ${outcome.providerOperationId ?? null})`,
         errorCode: outcome.outcome === "FAILED" ? outcome.errorCode : null,
         errorMessage: outcome.outcome === "FAILED" ? outcome.errorMessage ?? null : null,
         updatedAt: new Date(),

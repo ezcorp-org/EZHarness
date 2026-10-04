@@ -122,7 +122,7 @@ describe("SandboxController durable dispatch", () => {
     provider.dispatchHandler = async request => {
       await db.update(schema.sandboxOperations).set({ providerOperationId: "incus-setPower-native-accepted" })
         .where(eq(schema.sandboxOperations.id, request.operationId));
-      return { outcome: "UNKNOWN" };
+      return { outcome: "UNKNOWN", providerOperationId: "stale-worker-intent" };
     };
     const operation = await controller.requestAndDispatch({ bindingId: target.id, generation: 1,
       kind: "START", idempotencyScope: "incus-qualification-power", idempotencyKey: "fixture:start",
