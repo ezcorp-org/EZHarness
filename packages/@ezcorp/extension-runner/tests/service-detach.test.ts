@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type { Runner, RunnerExecution, StartRequest } from "@ezcorp/extension-contract";
 import { startRunnerService, type RunnerService, type RunnerServiceOptions } from "../src/service";
 import { executionLimits } from "../src/core";
+import { RunnerClient as PreAttachRunnerClient } from "./runner-client-3ec53eaa-fixture";
 
 const TOKEN = "test-service-credential-32-bytes-minimum";
 /** Short enough that a whole disconnect matrix runs inside one test budget. */
@@ -31,6 +32,8 @@ interface Harness {
   reverse(workerId: string, method: string, params: unknown): Promise<unknown>;
   /** Make every later forward /v4/request block; the returned function releases them. */
   holdForwardRequests(): () => void;
+  /** True once a host has cancelled this worker through /v4/cancel. */
+  cancelled(workerId: string): boolean;
   close(): Promise<void>;
 }
 
@@ -40,6 +43,7 @@ async function startHarness(overrides: Partial<RunnerServiceOptions> = {}): Prom
   const notifiers = new Map<string, Set<(method: string, params: unknown) => void>>();
   const reversers = new Map<string, (method: string, params: unknown) => Promise<unknown>>();
   let forwardGate: Promise<void> | undefined;
+  const cancelledWorkers = new Set<string>();
   const runner = {
     start: async (input: StartRequest, reverseRpc: (method: string, params: unknown) => Promise<unknown>) => {
       const listeners = new Set<(method: string, params: unknown) => void>();
@@ -48,7 +52,7 @@ async function startHarness(overrides: Partial<RunnerServiceOptions> = {}): Prom
       const execution: RunnerExecution = { workerId: input.workerId, request: async () => { await forwardGate; return "done"; }, close: async () => {}, onNotification: listener => { listeners.add(listener); return () => listeners.delete(listener); } };
       return execution;
     },
-    cancel: async () => {},
+    cancel: async (id: string) => { cancelledWorkers.add(id); },
     inspect: async (id: string) => ({ id, state: "running", diagnostics: [] }),
   } as unknown as Runner;
   const service = await startRunnerService({ runner, socketPath, token: TOKEN, allowedUid: process.getuid!(), eventPollTimeoutMs: POLL_MS, attachmentLeaseMs: UNREACHABLE_LEASE_MS, ...overrides });
@@ -57,6 +61,7 @@ async function startHarness(overrides: Partial<RunnerServiceOptions> = {}): Prom
     socketPath,
     notify: (workerId, method, params) => { for (const listener of notifiers.get(workerId) ?? []) listener(method, params); },
     reverse: (workerId, method, params) => reversers.get(workerId)!(method, params),
+    cancelled: workerId => cancelledWorkers.has(workerId),
     holdForwardRequests: () => { let release = () => {}; forwardGate = new Promise<void>(resolve => { release = resolve; }); return () => { forwardGate = undefined; release(); }; },
     close: async () => { await service.close(); await rm(root, { recursive: true, force: true }); },
   };
@@ -346,3 +351,98 @@ test("oversized headers, an absent body and an unknown endpoint are each refused
     expect(unknown.body).toEqual({ error: { code: "unknown_method", message: "Unknown runner endpoint" } });
   } finally { await harness.close(); }
 }, 15_000);
+
+// W4H-9: hosts from before the attach handshake. Every app release before 11b9f72b9 (for example 3ec53eaa, which the
+// historical-upgrade proof seeds) starts a worker, polls /v4/events and sends /v4/request without ever calling /v4/attach.
+test("a host that never calls /v4/attach still polls its events and completes a forward request", async () => {
+  const harness = await startHarness();
+  const release = harness.holdForwardRequests();
+  try {
+    expect((await call(harness.socketPath, "/v4/start", startBody("legacy"))).status).toBe(200);
+    const forward = settled(call(harness.socketPath, "/v4/request", { workerId: "legacy", method: "extension/discover", params: {} }));
+    harness.notify("legacy", "log", { line: "ready" });
+    expect(await call(harness.socketPath, "/v4/events", { workerId: "legacy" })).toEqual({ status: 200, body: { events: [{ method: "log", params: { line: "ready" } }] } });
+    release();
+    expect(await forward).toEqual({ resolved: { status: 200, body: { result: "done" } } });
+  } finally {
+    release();
+    await harness.close();
+  }
+});
+
+test("the 3ec53eaa RunnerClient completes a forward request it sends after its first event poll", async () => {
+  const harness = await startHarness();
+  try {
+    const client = new PreAttachRunnerClient({ socketPath: harness.socketPath, token: TOKEN });
+    const worker = await client.start(startBody("legacy-client") as unknown as StartRequest, async () => null);
+    // As in the upgrade seed, the old client polls /v4/events in the background as soon as start returns and sends its
+    // first request later. Wait until that poll has had its answer: parked (the worker is served) or refused (the old
+    // client then cancels the worker it started).
+    await until(() => harness.service.eventStreams().includes("legacy-client") || harness.cancelled("legacy-client"));
+    expect(await settled(worker.request("extension/discover", {}))).toEqual({ resolved: "done" });
+    expect(harness.cancelled("legacy-client")).toBe(false);
+    await worker.close();
+  } finally {
+    await harness.close();
+  }
+});
+
+test("the 3ec53eaa RunnerClient answers each reverse call once and keeps its worker", async () => {
+  // The old client hands each reverse call to its handler without awaiting it and polls again at once. A reverse call
+  // must therefore reach one attachment once; redelivery is for a replacement holder after a release, not for the
+  // holder that is still answering it (W4H-9: the seed's second reply was refused as stale and the old client quit).
+  const harness = await startHarness();
+  const release = harness.holdForwardRequests();
+  let finishReverse = () => {};
+  try {
+    let answered = 0;
+    const reverseDone = new Promise<void>(resolve => { finishReverse = resolve; });
+    const client = new PreAttachRunnerClient({ socketPath: harness.socketPath, token: TOKEN });
+    const worker = await client.start(startBody("legacy-reverse") as unknown as StartRequest, async method => { answered += 1; await reverseDone; return { method }; });
+    const forward = settled(worker.request("extension/discover", {}));
+    const reverse = settled(harness.reverse("legacy-reverse", "host/storage", {}));
+    await until(() => answered >= 1);
+    // While its answer is pending the old client polls again: that poll must park, not hand the same call back.
+    await until(() => harness.service.eventStreams().includes("legacy-reverse") || answered > 1);
+    finishReverse();
+    expect(await reverse).toEqual({ resolved: { method: "host/storage" } });
+    release();
+    expect(await forward).toEqual({ resolved: "done" });
+    expect(answered).toBe(1);
+    expect(harness.cancelled("legacy-reverse")).toBe(false);
+    await worker.close();
+  } finally {
+    finishReverse();
+    release();
+    await harness.close();
+  }
+});
+
+test("a released worker refuses an event poll until a host attaches it again", async () => {
+  // The start claim (W4H-9) is for the host that started the worker. Once that attachment is released, the old rule
+  // holds: no poll without an explicit /v4/attach, so a surviving worker is only ever taken back on purpose.
+  const harness = await startHarness();
+  try {
+    await startAndAttach(harness, "released");
+    dropEventStream(await openParkedEventStream(harness, "released"), "request.destroy");
+    await until(() => harness.service.attachments().length === 0);
+    expect(await call(harness.socketPath, "/v4/events", { workerId: "released" })).toEqual({ status: 400, body: { error: { code: "unknown_worker", stage: "runner", message: "Worker event stream is unavailable or already attached", retryable: false } } });
+    expect(await call(harness.socketPath, "/v4/attach", { workerId: "released" })).toEqual({ status: 200, body: { workerId: "released" } });
+    expect(harness.service.attachments()).toEqual(["released"]);
+  } finally {
+    await harness.close();
+  }
+});
+
+test("after the starter claims its worker, a second attach is refused", async () => {
+  // The starter's first /v4/attach claims the start attachment instead of being refused; the single-holder rule then
+  // applies to every later attach, exactly as before W4H-9.
+  const harness = await startHarness();
+  try {
+    await startAndAttach(harness, "claimed");
+    expect(await call(harness.socketPath, "/v4/attach", { workerId: "claimed" })).toEqual({ status: 400, body: { error: { code: "unknown_worker", stage: "runner", message: "Worker is unavailable or already attached", retryable: false } } });
+    expect(harness.service.attachments()).toEqual(["claimed"]);
+  } finally {
+    await harness.close();
+  }
+});

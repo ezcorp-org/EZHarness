@@ -11,7 +11,7 @@ type Event = { id?: string; method: string; params: unknown };
  * static shape: every endpoint validates the exact fields it reads.
  */
 type RunnerRequestBody = ReturnType<typeof JSON.parse>;
-interface Session { execution: RunnerExecution; events: Event[]; pending: Map<string, { resolve(value: unknown): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> }>; timer: ReturnType<typeof setTimeout>; wake?: () => void; attached: boolean; lease?: ReturnType<typeof setTimeout>; leaseDeadline: number; inFlight: number }
+interface Session { execution: RunnerExecution; events: Event[]; pending: Map<string, { resolve(value: unknown): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> }>; timer: ReturnType<typeof setTimeout>; wake?: () => void; attached: boolean; startClaim?: boolean; delivered: Set<string>; lease?: ReturnType<typeof setTimeout>; leaseDeadline: number; inFlight: number }
 export interface RunnerServiceOptions { socketPath: string; token: string; runner: Runner; allowedUid: number; python?: string; eventPollTimeoutMs?: number; attachmentLeaseMs?: number }
 export interface RunnerService {
   close(): Promise<void>;
@@ -70,6 +70,9 @@ function releaseAttachment(session: Session): void {
   clearTimeout(session.lease);
   session.lease = undefined;
   session.attached = false;
+  session.startClaim = false;
+  // The next holder has seen none of the unanswered reverse calls: hand every one of them over again.
+  session.delivered.clear();
   const wake = session.wake;
   session.wake = undefined;
   wake?.();
@@ -165,8 +168,14 @@ export async function startRunnerService(options: RunnerServiceOptions): Promise
       session.wake?.();
     })).finally(() => { starting--; });
     const timer = setTimeout(() => { void closeSession(data.workerId); }, Math.max(1, Math.min(data.limits.timeoutMs, data.context.deadline - Date.now())));
-    const session: Session = { execution, pending, events, timer, attached: false, leaseDeadline: 0, inFlight: 0 };
+    const session: Session = { execution, pending, events, timer, attached: false, delivered: new Set(), leaseDeadline: 0, inFlight: 0 };
     sessions.set(data.workerId, session);
+    // The host that starts a worker owns it (W4H-9). A host from before the attach handshake (every app release before
+    // 11b9f72b9) starts, polls and requests without ever calling /v4/attach, so start itself attaches. The attachment
+    // stays unclaimed until the starter's first /v4/attach or /v4/events: that attach is then idempotent rather than
+    // refused, and anything after it follows the single-holder rule below. A released worker still needs /v4/attach.
+    attachHost(session);
+    session.startClaim = true;
     execution.onNotification((method, params) => {
       if (events.length >= 32) { void closeSession(data.workerId); return; }
       events.push({ method, params });
@@ -184,6 +193,7 @@ export async function startRunnerService(options: RunnerServiceOptions): Promise
     session?.pending.delete(data.id);
     const eventIndex = session?.events.findIndex(event => event.id === data.id) ?? -1;
     if (eventIndex >= 0) session!.events.splice(eventIndex, 1);
+    session!.delivered.delete(data.id);
     // A valid reply identifier reaches a caller only through the stream, so
     // this proves the holder is still there. Renew after the drain above.
     renewAttachment(session!);
@@ -195,16 +205,23 @@ export async function startRunnerService(options: RunnerServiceOptions): Promise
   async function collectEvents(request: Request, data: RunnerRequestBody): Promise<Response> {
     const session = sessions.get(identifier(data.workerId));
     if (!session?.attached || session.wake) throw new RunnerError("unknown_worker", "Worker event stream is unavailable or already attached");
+    session.startClaim = false;
     renewAttachment(session);
-    if (session.events.length === 0) await parkEventStream(session, request.signal, eventPollTimeoutMs);
+    // A reverse call reaches each attachment once (W4H-9): a holder may poll again while it is still answering one, as
+    // every host before the attach handshake does, and must not be handed the same call twice.
+    const undelivered = () => session.events.filter(event => event.id === undefined || !session.delivered.has(event.id));
+    if (undelivered().length === 0) await parkEventStream(session, request.signal, eventPollTimeoutMs);
     // A released attachment answers nothing and keeps every queued event, so a
     // replacement host resumes the reverse calls AND the notifications.
     if (!session.attached) throw new RunnerError("unknown_worker", "Worker event stream is unavailable or already attached");
-    // Reverse calls stay queued until their matching reply is accepted.
-    // A replacement client can therefore resume after a dropped poll.
-    const events = session.events.filter(event => event.id !== undefined);
-    const notifications = session.events.filter(event => event.id === undefined);
-    session.events.splice(0, session.events.length, ...events);
+    // Reverse calls stay queued until their matching reply is accepted, and a
+    // release forgets what was delivered, so a replacement client can resume
+    // after a dropped poll.
+    const fresh = undelivered();
+    const events = fresh.filter(event => event.id !== undefined);
+    const notifications = fresh.filter(event => event.id === undefined);
+    for (const event of events) session.delivered.add(event.id!);
+    session.events.splice(0, session.events.length, ...session.events.filter(event => event.id !== undefined));
     return respond(200, { events: [...events, ...notifications] });
   }
 
@@ -233,7 +250,8 @@ export async function startRunnerService(options: RunnerServiceOptions): Promise
       case "/v4/events": return collectEvents(request, data);
       case "/v4/attach": {
         const session = sessions.get(identifier(data.workerId));
-        if (!session || session.attached) throw new RunnerError("unknown_worker", "Worker is unavailable or already attached");
+        if (!session || (session.attached && !session.startClaim)) throw new RunnerError("unknown_worker", "Worker is unavailable or already attached");
+        session.startClaim = false;
         attachHost(session);
         return respond(200, { workerId: data.workerId });
       }
