@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -439,12 +439,97 @@ describe("hosted selection: no shard selects a lane-bound test", () => {
     for (const file of laneBoundTestFiles()) expect(shards.files).not.toContain(file);
   });
 
-  test("an unreadable manifest fails the hosted sets by name instead of keeping a bound test", () => {
-    for (const set of ["lane_bound_test_files", "passfail_files", "coverage_host_files"]) {
-      const result = hostedSet(`bun() { return 3; }; ${set}`);
-      expect(result.exitCode, set).toBe(1);
-      expect(result.files, set).toEqual([]);
-      expect(result.stderr).toContain("lane_bound_test_files: the lane manifest (scripts/check-factory-lanes.ts --bound-tests) gave no list");
+});
+
+const REPO = import.meta.dir + "/..";
+const PINNED_VERSION = readFileSync(join(REPO, ".bun-version"), "utf8").trim();
+const MANIFEST_STOP = "test-file-sets: the lane manifest (scripts/check-factory-lanes.ts --bound-tests) gave no list; stopping before any test set is built";
+
+/** A directory holding a fake `bun` that reports `version` and records every other call, then exits `exit`. */
+function fakeBun(root: string, version: string, exit: number): string {
+  const bin = join(root, `bin-${version}-${exit}`);
+  mkdirSync(bin, { recursive: true });
+  writeFileSync(join(bin, "bun"), `#!/usr/bin/env bash\nif [ "\${1:-}" = --version ]; then echo ${version}; exit 0; fi\necho "$*" >> "${root}/calls"\nexit ${exit}\n`, { mode: 0o755 });
+  return bin;
+}
+
+describe("the manifest lookup runs the pinned Bun and stops its caller when it fails", () => {
+  test("a fake bun of another version first on PATH cannot answer the lookup", () => {
+    const root = mkdtempSync(join(tmpdir(), "w4h4-fake-bun-"));
+    try {
+      const bin = fakeBun(root, "0.0.1", 0);
+      const result = Bun.spawnSync(["bash", "-c", "source scripts/lib/test-file-sets.sh; lane_bound_test_files; passfail_files | wc -l"], {
+        cwd: REPO,
+        env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+      });
+      expect(result.exitCode).toBe(0);
+      const lines = result.stdout.toString().trim().split("\n");
+      expect(lines.slice(0, -1)).toEqual(laneBoundTestFiles());
+      expect(Number(lines.at(-1))).toBeGreaterThan(1000);
+      expect(existsSync(join(root, "calls"))).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a failed lookup stops the sourcing shell by name, before any set function runs", () => {
+    const root = mkdtempSync(join(tmpdir(), "w4h4-fake-bun-"));
+    try {
+      const bin = fakeBun(root, PINNED_VERSION, 3);
+      const result = Bun.spawnSync(["bash", "-c", "set -e; source scripts/lib/test-file-sets.sh; echo REACHED; passfail_files"], {
+        cwd: REPO,
+        env: { ...process.env, EZCORP_PINNED_BUN_DIR: bin },
+      });
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr.toString()).toContain(MANIFEST_STOP);
+      expect(result.stdout.toString()).toBe("");
+      expect(readFileSync(join(root, "calls"), "utf8")).toContain("check-factory-lanes.ts --bound-tests");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("the coverage wrapper exits with the named error and runs no test when the lookup fails", () => {
+    const root = mkdtempSync(join(tmpdir(), "w4h4-fake-bun-"));
+    try {
+      const bin = fakeBun(root, PINNED_VERSION, 0);
+      const files = join(root, "files.txt");
+      writeFileSync(files, "scripts/check-factory-lanes.test.ts\n");
+      const result = Bun.spawnSync(["timeout", "-k", "2", "60", "bash", "scripts/test-coverage.sh"], {
+        cwd: REPO,
+        env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, EZCORP_PINNED_BUN_DIR: bin, CI: "", COVERAGE_LEGS_ONLY: "", COV_OUT: "", HOST_FILES_OVERRIDE: files, SHARD_INDEX: "0", SHARD_TOTAL: "1", PARALLEL: "1" },
+      });
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr.toString()).toContain(MANIFEST_STOP);
+      const calls = readFileSync(join(root, "calls"), "utf8").trim().split("\n");
+      expect(calls).toHaveLength(1);
+      expect(calls[0]).toMatch(/\/check-factory-lanes\.ts --bound-tests$/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("the resolver prefers EZCORP_PINNED_BUN_DIR, skips other versions, and fails by name when nothing matches", () => {
+    const root = mkdtempSync(join(tmpdir(), "w4h4-fake-bun-"));
+    try {
+      const pinned = fakeBun(root, PINNED_VERSION, 0);
+      const other = fakeBun(root, "0.0.1", 0);
+      // A PATH with nothing but bash (the fakes' interpreter): this host's system Bun is itself the pin.
+      const tools = join(root, "tools");
+      mkdirSync(tools);
+      symlinkSync(Bun.which("bash")!, join(tools, "bash"));
+      const resolve = (env: Record<string, string>) => Bun.spawnSync([join(tools, "bash"), "-c", "source scripts/lib/lane-bun.sh; pinned_bun_binary"], { cwd: REPO, env });
+      const preferred = resolve({ ...process.env, EZCORP_PINNED_BUN_DIR: pinned } as Record<string, string>);
+      expect(preferred.exitCode).toBe(0);
+      expect(preferred.stdout.toString()).toBe(`${pinned}/bun\n`);
+      const onPath = resolve({ PATH: `${other}:${pinned}:${tools}`, HOME: root });
+      expect(onPath.stdout.toString()).toBe(`${pinned}/bun\n`);
+      const none = resolve({ PATH: `${other}:${tools}`, HOME: root, EZCORP_PINNED_BUN_DIR: other });
+      expect(none.exitCode).toBe(1);
+      expect(none.stdout.toString()).toBe("");
+      expect(none.stderr.toString()).toContain(`pinned Bun: no bun ${PINNED_VERSION} in EZCORP_PINNED_BUN_DIR, ~/.bun/bin or PATH`);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 });

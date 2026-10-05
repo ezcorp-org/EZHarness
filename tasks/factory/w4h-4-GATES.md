@@ -55,6 +55,24 @@ Commits on `wp/w4h-4` (hook-printed suites; all green):
   device test from the hosted shards drops no runner line: every device-related line in podman.ts is a single line
   that the remaining hosted tests also run.
 
+- [x] G7: merge-hold finding (2026-10-05): the manifest lookup must not depend on PATH's bun, and a failed lookup must
+  stop the wrapper. At 32b7a3f99, src/__tests__/coverage-leg-lcov-guard.test.ts was 47/1. Its fake `bun` first on
+  PATH answered `bun scripts/check-factory-lanes.ts --bound-tests` with nothing. passfail_files failed inside
+  `< <(passfail_files)`, and scripts/test-coverage.sh went on with an EMPTY P, so the pooled failure was never retried.
+  Fix:
+  (1) The lookup runs the pinned Bun by path. `pinned_bun_binary` was added to the repo's pinned-Bun helper,
+      scripts/lib/lane-bun.sh. It checks EZCORP_PINNED_BUN_DIR, then ~/.bun/bin, then each PATH entry, takes the first
+      bun whose version equals .bun-version, leaves PATH unchanged, and fails by name otherwise.
+  (2) The lookup runs once, when scripts/lib/test-file-sets.sh is sourced, in the caller's shell. A failed or empty
+      lookup prints "test-file-sets: the lane manifest ... gave no list; stopping before any test set is built" and
+      returns 1. Every caller runs `set -e` before it sources the file, and the hook checks `|| return 1`, so the
+      wrapper stops before any test runs.
+  Red: `logs/red-lcov-guard-32b7a3f99.log` (47/1). The 4 new cases fail against the 32b7a3f99 library
+  (`logs/red-unit-abort-32b7a3f99.log`, 40/4); there the wrapper exits 0 instead of stopping.
+  Green, at the fix commit: coverage-leg-lcov-guard 48/0 (file unchanged); check-factory-lanes 44/0. Every reader of
+  the two library files is green: ci-test-set-drift 17/0, combined-runner-legs 8/0, e2e-lanes 31/0,
+  factory-ci-registration 3/0, macos-local-dev 11/0, shard-plan 18/0, workflows-sdk-runfor-shape 10/0.
+
 ## Container limit for the device test (nested rootless podman in a rootless container)
 The device test's beforeAll starts real guests, so the container needs a working nested runtime. Three variants, no
 device, never `--privileged`, each red in beforeAll before any device step:

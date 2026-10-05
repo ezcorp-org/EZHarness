@@ -116,21 +116,29 @@ factory_orchestrator_test_files() {
 # them: FACTORY_LANES[].boundTests in scripts/check-factory-lanes.ts. The lane
 # job reads it through scripts/run-factory-lane-tests.sh; P and C below
 # subtract it, so the shards and the residual job never select those files.
-# Fails closed (non-zero, message on stderr) when the manifest cannot be read.
+#
+# The lookup runs ONCE, here, while the caller sources this file, and in the
+# caller's own shell. A failed or empty lookup therefore stops the caller:
+# every caller runs `set -e` before it sources this file, and the hook checks
+# `|| return 1`. Doing the lookup inside passfail_files instead would fail in a
+# subshell (`< <(passfail_files)`), and the wrapper would continue with an
+# empty P. The lookup is tooling, so it runs the pinned Bun by path
+# (pinned_bun_binary). A fake `bun` that a test puts first on PATH cannot answer it.
+# shellcheck source=scripts/lib/lane-bun.sh
+. "${BASH_SOURCE[0]%/*}/lane-bun.sh"
+if ! LANE_BOUND_TEST_FILES=$(pinned=$(pinned_bun_binary) && "$pinned" "${BASH_SOURCE[0]%/*}/../check-factory-lanes.ts" --bound-tests) \
+  || [ -z "$LANE_BOUND_TEST_FILES" ]; then
+  echo "test-file-sets: the lane manifest (scripts/check-factory-lanes.ts --bound-tests) gave no list; stopping before any test set is built" >&2
+  return 1 2>/dev/null || exit 1
+fi
+LANE_BOUND_TEST_FILES=$(printf '%s\n' "$LANE_BOUND_TEST_FILES" | sort -u)
+
 lane_bound_test_files() {
-  local list
-  if ! list=$(bun scripts/check-factory-lanes.ts --bound-tests) || [ -z "$list" ]; then
-    echo "lane_bound_test_files: the lane manifest (scripts/check-factory-lanes.ts --bound-tests) gave no list" >&2
-    return 1
-  fi
-  printf '%s\n' "$list" | sort -u
+  printf '%s\n' "$LANE_BOUND_TEST_FILES"
 }
 
 passfail_files() {
-  # Read the lane manifest first, outside the 2>/dev/null group, so a failure
-  # to read it is loud and empties the set rather than keeping a bound file.
-  local bound
-  bound=$(lane_bound_test_files) || return 1
+  local bound=$LANE_BOUND_TEST_FILES
   {
     # `set +e` is essential: the callers run under `set -e`, and a find against
     # a not-yet-created dir (e.g. a feature branch's integration tree) exits
@@ -366,8 +374,7 @@ web_host_files() {
 # include/exclude rationale.
 coverage_host_files() {
   # The lane-bound files leave C exactly as they leave P (see lane_bound_test_files).
-  local bound
-  bound=$(lane_bound_test_files) || return 1
+  local bound=$LANE_BOUND_TEST_FILES
   {
     # See passfail_files: scoped `set +e` so a missing dir doesn't silently
     # truncate the list under the callers' `set -e`.
