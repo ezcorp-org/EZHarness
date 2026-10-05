@@ -2638,3 +2638,34 @@ The final offline-mode combined fixture passed 44 tests and 148 assertions;
 guard with controlled host observations and the real signer, CLI, and database.
 Full integrated gates remain pending. The installed app and live hold are
 unchanged.
+
+## 2026-10-05 — Finish retained guest cleanup
+
+- [x] Verify exact 3fe source gates and installed bundle; preserve earlier proof.
+- [x] Admit one cleanup for the retained stopped guest; preserve original UNKNOWN.
+- [x] Diagnose failed restore, secure actors, and restore normal server/SSH/certificate.
+- [x] Verify final stopped DB, timer and hold records after safe close.
+- [x] Add a separate offline restoration authority for the already-admitted cleanup, with independent review and real boundary tests. Do not extend the expired request or create another admission.
+- [ ] Validate the composed restoration path before any live restore, then complete the same saved cleanup and prove guest absence/accounting release.
+- [ ] Record exact results and limits; no full E2E claim before proof.
+
+Review: cleanup `8157dc85-d05a-4bb2-9550-726a0a7c2bbb` was admitted once.
+Restore failed, and its original deadline expired before a reviewed continuation
+could start. The original hold remains. The guest still exists, stopped.
+Current APIs have no post-expiry restoration path for an admitted cleanup.
+The new source work is restricted to that missing recovery step; no new guest,
+provider activation, timer reset, or database rewrite is authorized by it.
+
+Producer milestone: `42d477dac` integrates reviewed `ded795c2d`.
+All 63 Python tests passed, including eight focused restoration cases;
+existing wrapper tests and lint passed. Independent source review passed.
+The offline source hash is `c43e3728…`. Installed app remains `3fe533583`.
+Actual admission/server consumer composition is required before live use.
+Normal server/SSH/certificate and both temporary unit removals are verified.
+
+Independent signing/subprocess and refusal tests are integrated through
+`0bd63523d`. The instrumented Python suite passed 76/0 and exercised all 131
+changed executable statement lines. This is not full branch or child-process
+coverage. Fast repository checks passed on the unchanged producer at 42d:
+27,517 backend tests, web tests/build, lint and type checks. The final full
+gate and actual database/consumer rehearsal remain pending.
