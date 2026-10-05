@@ -26,7 +26,7 @@ class CycleTests(unittest.TestCase):
         self.base = Path(self.temporary.name)
         self.hook = self.base / "hook.py"
         # A subprocess fixture, not a live provider or a fake live receipt.
-        self.hook.write_text('''import hashlib, json, pathlib, sys, time
+        self.hook.write_text('''import hashlib, json, os, pathlib, sys, time
 request = json.loads(pathlib.Path(sys.argv[-1]).read_text())
 phase = request['phase']
 mode = sys.argv[1]
@@ -34,6 +34,21 @@ artifact = pathlib.Path(sys.argv[-1]).with_suffix('.artifact')
 artifact.write_text(json.dumps(request))
 checks = json.loads(sys.argv[2])[phase]
 identity = {} if phase in ('preflight', 'denied_credentials') else {key: f'{key}-{request["cycle"]}' for key in ('projectId', 'bindingId', 'workspaceId', 'instanceName')}
+if request.get('routingProof') == 'virtual-workspace-absence':
+    checks = ['hostWorkspaceAbsent' if key in ('hostCanarySaved', 'hostCanaryUnchanged') else key for key in checks]
+    project_id = 'incus-project-' + str(request['cycle']).zfill(48)
+    if identity: identity['projectId'] = project_id
+    if 'hostWorkspaceAbsent' in checks:
+        project_path = pathlib.Path('/__incus_workspace_unavailable__') / project_id
+        canary_path = project_path / '.cache/incus-normal-fixture/canary.txt'
+        observations = []
+        for when in ('before', 'after'):
+            for path in (project_path, canary_path):
+                try: os.lstat(path)
+                except FileNotFoundError as error:
+                    observations.append(dict(when=when, path=str(path), errno=error.errno))
+                else: raise RuntimeError('unexpected host workspace')
+        artifact.write_text(json.dumps(dict(projectId=project_id, projectPath=str(project_path), observations=observations)))
 receipt = dict(requestId=request['requestId'], cycle=request['cycle'], phase=phase, state='SUCCEEDED', identity=identity, checks={key: True for key in checks}, artifacts=[dict(path=str(artifact), sha256=hashlib.sha256(artifact.read_bytes()).hexdigest())])
 if mode == phase + ':unknown': receipt['state'] = 'OUTCOME_UNKNOWN'
 if mode == phase + ':mismatch': receipt['requestId'] = 'another-request'
@@ -85,6 +100,45 @@ print(json.dumps(receipt))
         guests = [json.loads((self.base / "run" / f"{cycle:02d}-create.stdout").read_text())["identity"] for cycle in range(1, 11)]
         for key in flow.IDENTITY:
             self.assertEqual(len({guest[key] for guest in guests}), 10)
+
+    def test_virtual_workspace_absence_uses_truthful_subprocess_evidence(self):
+        config = {**self.config(), "routingProof": "virtual-workspace-absence"}
+        root = self.base / "virtual"
+        result = flow.run(config, root)
+        self.assertEqual(result["state"], "SUCCEEDED")
+        self.assertEqual(result["routingProof"], config["routingProof"])
+        identity = json.loads((root / "01-create.stdout").read_text())["identity"]
+        for phase in flow.phases_for(config, 1):
+            request = json.loads((root / f"01-{phase}-request.json").read_text())
+            self.assertEqual(request["routingProof"], config["routingProof"])
+            receipt = json.loads((root / f"01-{phase}.stdout").read_text())
+            if "hostWorkspaceAbsent" not in receipt["checks"]:
+                continue
+            self.assertNotIn("hostCanarySaved", receipt["checks"])
+            self.assertNotIn("hostCanaryUnchanged", receipt["checks"])
+            evidence = json.loads((root / f"01-{phase}-request.artifact").read_text())
+            self.assertEqual(evidence["projectId"], identity["projectId"])
+            self.assertEqual(evidence["projectPath"], "/__incus_workspace_unavailable__/" + identity["projectId"])
+            self.assertEqual(evidence["observations"], [
+                {"when": when, "path": path, "errno": 2}
+                for when in ("before", "after") for path in (
+                    evidence["projectPath"], evidence["projectPath"] + "/.cache/incus-normal-fixture/canary.txt")
+            ])
+
+    def test_routing_variant_does_not_waive_existing_checks(self):
+        for phase, checks in flow.CHECKS.items():
+            self.assertEqual(flow.checks_for(phase), checks)
+            self.assertEqual(flow.checks_for(phase, "host-canary"), checks)
+            expected = tuple("hostWorkspaceAbsent" if name in ("hostCanarySaved", "hostCanaryUnchanged")
+                             else name for name in checks)
+            self.assertEqual(flow.checks_for(phase, "virtual-workspace-absence"), expected)
+        for mode in ("preflight:false", "preflight:missing", "native_work:hash"):
+            with self.subTest(mode=mode):
+                root = self.base / mode.replace(":", "-")
+                config = {**self.config(mode), "routingProof": "virtual-workspace-absence"}
+                with self.assertRaises(ValueError):
+                    flow.run(config, root)
+                self.assertEqual(json.loads((root / "journal.json").read_text())["state"], "BLOCKED")
 
     def test_unproved_step_blocks_without_next_effect_or_replay(self):
         for mode in ("unknown", "mismatch", "identity", "hash", "missing", "false", "empty", "incomplete",
@@ -146,6 +200,7 @@ print(json.dumps(receipt))
                     {"hooks": {phase: ["relative-hook"] for phase in flow.PHASES}}, {"extra": True}]
         variants += [{"faultCycles": [1]}, {"faultCycles": [2]}, {"faultCycles": [True]}, {"faultCycles": [2, 2]}]
         variants += [{"cycles": 10, "faultCycles": []}]
+        variants += [{"routingProof": value} for value in (None, "", "skip", True, [])]
         for variant in variants:
             with self.subTest(variant=variant):
                 with self.assertRaises(ValueError):

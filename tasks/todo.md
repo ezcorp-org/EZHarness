@@ -2892,8 +2892,8 @@ new test commit. The final combined source must get fresh required evidence.
 - [x] Fix the separate GitHub avatar fixture with offline RED/25-test GREEN
   evidence (`d3282a479`).
 - [x] Review the narrow diagnostic design before edits.
-- [ ] Add a finite load-resource field and safe transport-phase failure log.
-- [ ] Test each diagnostic branch and prove raw errors/output cannot leak.
+- [x] Add a finite load-resource field and safe transport-phase failure log.
+- [x] Test each diagnostic branch and prove raw errors/output cannot leak.
 - [ ] Independently review, build and install one combined diagnostic candidate.
 - [ ] Run one fresh informative live qualification; preserve unknown effects.
 - [ ] Run final source gates with isolated mock browser networking.
@@ -2903,3 +2903,24 @@ Incus swap behavior from Docker defaults: Incus source handles the omitted
 option differently. Verify actual behavior before changing any resource policy.
 The exact temporary-access approval request remains pending; no key or timer
 has been installed.
+
+### Approved recovery and normal-workspace routing proof
+
+The user approved exact recovery packet `00c8c10321d18bcf8d27ebd1c9b74917840c9bf8a4f19061c9aeee795fee012d`.
+The live operator will complete runtime preparation and independent review
+before arming its ten-minute lease. No repeated approval is needed within that plan.
+
+- [x] Reproduce the coordinator's rejection of truthful virtual-workspace absence evidence.
+- [x] Add an explicit routing-proof variant; retain the existing host-canary contract.
+- [x] Verify both variants, refusal cases, and independent review before committing.
+- [ ] Complete the approved recovery, restoration, thaw, and temporary-key removal.
+- [ ] Install the reviewed diagnostic candidate after recovery, then run one informative qualification.
+
+Review so far: candidate `c07ed31e5` passed build, bundle verification, source
+comparison, 27,583 backend tests, 3,638 web unit tests, and the 283-test browser
+mock gate. Its full gate is still running. These are source checks, not completed live qualification.
+
+Coordinator review: the actual subprocess absence regression failed before the
+fix. All 18 Python tests then passed with 222/222 executable statements covered.
+The supported Bun wrapper passed all four Python suites. Independent Sol review,
+JSON lint, and whitespace checks passed. No gate or existing proof was weakened.

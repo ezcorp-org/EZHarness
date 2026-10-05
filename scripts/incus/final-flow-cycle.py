@@ -45,6 +45,15 @@ CHECKS = {
     "independent_absence": ("instanceAbsent", "inventoryEmpty", "hostCanaryUnchanged"),
     "accounting": ("bindingAbsent", "computeReleased", "diskReleased", "cleanupConfirmed"),
 }
+ROUTING_PROOFS = ("host-canary", "virtual-workspace-absence")
+
+
+def checks_for(phase, routing_proof="host-canary"):
+    if routing_proof not in ROUTING_PROOFS:
+        raise ValueError("unsupported routing proof")
+    return tuple("hostWorkspaceAbsent" if routing_proof == "virtual-workspace-absence"
+                 and check in ("hostCanarySaved", "hostCanaryUnchanged") else check
+                 for check in CHECKS[phase])
 
 
 def sync_directory(path):
@@ -71,8 +80,9 @@ def publish(path, value):
 
 
 def validate_config(config):
-    if set(config) != {"sequenceId", "sourceCommit", "bundleSha256", "cycles", "timeoutSeconds", "faultCycles", "hooks"}:
+    if set(config) - {"routingProof"} != {"sequenceId", "sourceCommit", "bundleSha256", "cycles", "timeoutSeconds", "faultCycles", "hooks"}:
         raise ValueError("config fields differ from the reviewed contract")
+    checks_for("preflight", config.get("routingProof", "host-canary"))
     if not isinstance(config["cycles"], int) or isinstance(config["cycles"], bool) or not 1 <= config["cycles"] <= 10:
         raise ValueError("cycles must be 1 through 10")
     if not isinstance(config["timeoutSeconds"], int) or isinstance(config["timeoutSeconds"], bool) or not 1 <= config["timeoutSeconds"] <= 1800:
@@ -174,7 +184,7 @@ def validate_receipt(receipt, request, identity, root):
         raise ValueError("receipt belongs to another request")
     if receipt["state"] != "SUCCEEDED":
         raise ValueError("hook did not prove terminal success")
-    if set(receipt["checks"]) != set(CHECKS[request["phase"]]) or any(value is not True for value in receipt["checks"].values()):
+    if set(receipt["checks"]) != set(checks_for(request["phase"], request.get("routingProof", "host-canary"))) or any(value is not True for value in receipt["checks"].values()):
         raise ValueError("required check did not pass")
     artifacts = receipt["artifacts"]
     if not isinstance(artifacts, list) or not 1 <= len(artifacts) <= 32:
@@ -203,6 +213,8 @@ def run(config, root):
     sync_directory(root.parent)
     journal = {"sequenceId": config["sequenceId"], "sourceCommit": config["sourceCommit"],
                "bundleSha256": config["bundleSha256"], "state": "RUNNING", "steps": []}
+    if "routingProof" in config:
+        journal["routingProof"] = config["routingProof"]
     journal_path = root / "journal.json"
     publish(journal_path, journal)
     used_identities = {field: set() for field in IDENTITY}
@@ -213,6 +225,8 @@ def run(config, root):
                 request = {"requestId": str(uuid.uuid4()), "cycle": cycle, "phase": phase,
                            "sequenceId": config["sequenceId"], "identity": identity,
                            "sourceCommit": config["sourceCommit"], "bundleSha256": config["bundleSha256"]}
+                if "routingProof" in config:
+                    request["routingProof"] = config["routingProof"]
                 request_path = root / f"{cycle:02d}-{phase}-request.json"
                 publish(request_path, request)
                 step = {"cycle": cycle, "phase": phase, "requestId": request["requestId"], "state": "ADMITTED"}

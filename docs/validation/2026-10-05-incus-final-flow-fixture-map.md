@@ -213,11 +213,26 @@ python3 scripts/incus/final-flow-cycle.py \
   --output /private/new-exclusive-sequence
 ```
 
-The config has exactly `sequenceId`, `sourceCommit`, `bundleSha256`, `cycles`
+The config requires `sequenceId`, `sourceCommit`, `bundleSha256`, `cycles`
 (1–10), `timeoutSeconds` (1–1800), `faultCycles`, and `hooks` (one argv array
 for every phase). `faultCycles` selects distinct cycles from 2 onward. Cycle
 one must use ordinary DESTROY. A ten-cycle sequence must include at least one
 selected cleanup-failure/recovery cycle. The example selects cycle ten.
+The optional `routingProof` selects `host-canary` (the unchanged default) or
+`virtual-workspace-absence` (used by the example). The selected value is saved
+in the journal and sent to every hook. Unknown values are refused.
+
+Use `virtual-workspace-absence` for normal sandbox projects whose saved
+`project.path` is `/__incus_workspace_unavailable__/<projectId>`. In preflight,
+native work, stopped refusal, work after restart, and final absence, this
+variant requires `hostWorkspaceAbsent` instead of the host-canary check.
+The hook must retain actual `lstat` ENOENT observations for that exact saved
+project path and its canary path before and after the phase. Permission errors
+and other read failures are not absence evidence. Do not create an AMD checkout
+or claim that a nonexistent host canary was saved. Guest nonce, file-hash, tool,
+identity, and all other checks remain required. Artifact truth still requires
+independent review; the coordinator verifies the receipt and artifact hashes.
+
 The executable path must be absolute. Do not put credentials in argv. The
 output parent must exist. The output directory must not exist: this prevents
 replay after either success or interruption. Its mode is 0700.
@@ -228,7 +243,8 @@ request contains `requestId`, `cycle`, `phase`, `sequenceId`, `identity`,
 exact fields `requestId`, `cycle`, `phase`, `state`, `identity`, `checks`, and
 `artifacts`. State must be SUCCEEDED, meaning that the phase-specific checks
 passed; for `cleanup_fault` those checks establish a known failed operation,
-not a successful DESTROY. Required checks are listed in the driver's `CHECKS`.
+not a successful DESTROY. Required checks come from the driver's `checks_for`,
+which applies the selected routing proof to `CHECKS`.
 Every check must be the JSON boolean true. Artifact entries contain an actual
 local `path` and its `sha256`; hooks must copy observed receipts below this
 run's private output root. The coordinator rejects path escape, symlinks at

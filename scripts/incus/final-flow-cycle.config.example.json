@@ -2,6 +2,7 @@
   "sequenceId": "REPLACE-WITH-REVIEWED-SEQUENCE",
   "sourceCommit": "REPLACE-WITH-EXACT-SOURCE",
   "bundleSha256": "REPLACE-WITH-EXACT-BUNDLE-HASH",
+  "routingProof": "virtual-workspace-absence",
   "cycles": 10,
   "timeoutSeconds": 600,
   "hooks": {
