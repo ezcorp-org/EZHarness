@@ -346,6 +346,10 @@ controller regression reproduces the rejection. A bounded shared rule and
 matching UI tests are in progress; UNKNOWN is not eligible for that path.
 
 Candidate `c07ed31e5` passed all five browser lanes and strict browser coverage
-provenance. Coverage-pool test timeouts remain under investigation, so its
-full gate is not green. Normal UI/native-agent workflow, ten live lifecycle
+provenance. Its full gate finished with exit 1: coverage for all 1,800 enforced
+files, new-file coverage and patch coverage passed, but a Python test wrapper
+timed out both in the pool and in isolation. Five other pooled timeout files
+passed the supported isolated checks. The original failures remain recorded.
+A test tracing efficiency fix is in progress without changing the timeout or
+product coverage requirements. Normal UI/native-agent workflow, ten live lifecycle
 cycles, current qualification and final source gates still block release.

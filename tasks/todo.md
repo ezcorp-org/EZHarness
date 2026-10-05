@@ -2951,3 +2951,9 @@ history and UI. UNKNOWN effects must remain ineligible for this normal path.
 Candidate `c07ed31e5` passed all five browser lanes (283, 1,441, 396, 7 and 136
 tests) and strict browser coverage provenance. Its coverage pool has recorded
 test timeouts; the full gate is not green. Preserve those failures.
+
+The c07 full gate finished with exit 1. Coverage, new-file coverage and patch
+coverage passed, including all 1,800 enforced files. Six files timed out in
+the coverage pool; five passed the supported isolated checks. The remaining
+Python supervisor wrapper also timed out in isolation. A tracer-only test
+efficiency fix is in progress, with the same timeout and product-line gate.
