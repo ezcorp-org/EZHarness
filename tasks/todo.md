@@ -2678,3 +2678,24 @@ no replacement guest or new EZHarness cleanup was admitted, and the installed
 app remains `3fe533583`. Exact receipts, host recovery limits and the operator
 cleanup are recorded in `docs/validation/2026-10-05-retained-incus-cleanup.md`.
 The detailed working ledger remains `.cache/incus-cleanup-GATES.md`.
+
+## 2026-10-05 — Qualify unmerged sandbox release
+
+- [x] Pin candidate source, deployment requirements and exact provider package.
+- [ ] Independently review lifecycle coverage and prevent recurrence of the storage failure.
+- [x] Build and verify the isolated candidate; prepare exact provider activation review.
+- [ ] Run the full live feature workflow without manual repair.
+- [ ] Complete ten consecutive qualified lifecycle runs with the required fault cases.
+- [ ] Verify final source checks and record release readiness separately from merge status.
+
+Plan checked against the user's request: work may proceed before merge in the
+isolated app. Four separate Sol worktrees own build, flow tests, review and
+live operations; only the live operator changes the server or isolated app.
+Detailed gates: `.cache/incus-final-qualification/GATES.md`.
+
+Review: live release `792beac5-3649-4843-8d6b-79870a92045b` passed all six
+builder checks. It remains inactive. The temporary staging key was revoked
+and its old bearer returned 401. Both supplied-login attempts failed; no
+password reset occurred. Full real workflow and ten-cycle proof are pending.
+The fixture signal-mask defect is fixed in `d964cbfc4`; independent review
+passed and the parent reran its wrapper with four passes and zero failures.
