@@ -1741,6 +1741,85 @@ class RestorationCommandBoundary(unittest.TestCase):
             self.supervisor.restore_admitted(self.message)
         self.assertEqual((self.root / 'command-phases').read_bytes(), phases)
 
+    def test_self_consistent_history_cannot_change_original_target(self):
+        config = json.loads(self.restore_config.read_bytes())
+        config['target']['bindingId'] = 'changed-binding'
+        self.restore_config.write_bytes(MODULE.canonical(config))
+        self.message['configSha256'] = hashlib.sha256(self.restore_config.read_bytes()).hexdigest()
+        journal = json.loads(self.journal.read_bytes())
+        journal['configSha256'] = self.message['configSha256']
+        journal['request']['target'] = config['target']
+        self.journal.write_bytes(MODULE.canonical(journal))
+        self.message['journalSha256'] = hashlib.sha256(self.journal.read_bytes()).hexdigest()
+        with self.assertRaisesRegex(ValueError, 'target changed'):
+            self.supervisor.restore_admitted(self.message)
+        self.assertFalse((self.root / 'command-phases').exists())
+
+    def test_invalid_phase_refuses_before_subprocess(self):
+        with self.assertRaisesRegex(ValueError, 'invalid admitted restoration stage'):
+            self.supervisor.restoration_stage('apply', {}, int(time.time()*1000)+30000)
+        self.assertFalse((self.root / 'command-phases').exists())
+
+    def test_hold_changed_after_inspection_refuses_signature(self):
+        guard = self.supervisor.abort_stopped_guard
+        count = 0
+        def changing_guard():
+            nonlocal count
+            guard()
+            count += 1
+            if count == 2:
+                self.supervisor.recovery_hold_path.write_bytes(b'changed hold')
+        with mock.patch.object(self.supervisor, 'abort_stopped_guard', side_effect=changing_guard), \
+                mock.patch.object(self.supervisor, 'sign_payload') as sign:
+            with self.assertRaisesRegex(ValueError, 'hold changed before signing'):
+                self.supervisor.restore_admitted(self.message)
+        sign.assert_not_called()
+        self.assertEqual((self.root / 'command-phases').read_text().splitlines(),
+                         ['inspect-admitted-restoration'])
+
+    def test_hold_changed_after_real_transport_command_is_not_archived(self):
+        stage = self.supervisor.restoration_stage
+        def changed_after_command(phase, value, deadline):
+            result = stage(phase, value, deadline)
+            if phase == 'restore-admitted':
+                self.supervisor.recovery_hold_path.write_bytes(b'changed hold')
+            return result
+        with mock.patch.object(self.supervisor, 'restoration_stage', side_effect=changed_after_command):
+            with self.assertRaisesRegex(ValueError, 'hold changed before archive'):
+                self.supervisor.restore_admitted(self.message)
+        self.assertTrue(self.supervisor.recovery_hold_path.exists())
+        self.assertEqual(list(self.root.glob('*.restored.*')), [])
+        self.assertTrue((self.root / 'restoration-verified').exists())
+
+    def test_offline_cli_invalid_configuration_and_nonroot_never_dispatch(self):
+        config = {'socket': str(self.root/'socket'), 'appCommand': ['fixed-app'],
+                  'appUid': 65002, 'appGid': 65002, 'key': str(self.supervisor.key_path),
+                  'authorityCommand': ['fixed-authority'], 'receiptAuthorityCommand': ['fixed-receipt'],
+                  'recoveryRestoreCommand': ['fixed-restore'], 'recoveryRequestPath': str(self.saved),
+                  'recoveryRestoreJournalPath': str(self.journal),
+                  'recoveryRestoreConfigPath': str(self.restore_config),
+                  'recoveryAbortStoppedUnits': ['supervisor.service', 'runner.service', 'user@65003.service'],
+                  'recoveryAbortRunnerUid': 65003}
+        path = self.root/'offline-config.json'
+        req = self.root/'fresh-restore.json'
+        req.write_bytes(MODULE.canonical(self.message))
+        req.chmod(0o600)
+        for bad_config, uid, expected in (
+                ({**config, 'recoveryRestoreConfigPath': ''}, 0, 'invalid admitted restoration configuration'),
+                (config, 65002, 'requires root and exact private config')):
+            path.write_bytes(MODULE.canonical(bad_config))
+            path.chmod(0o600)
+            with self.subTest(uid=uid), \
+                    mock.patch.object(MODULE.sys, 'argv', ['supervisor', '--config', str(path), '--restore-admitted-request', str(req)]), \
+                    mock.patch.object(MODULE.os, 'geteuid', return_value=uid), \
+                    mock.patch.object(MODULE, 'Supervisor', return_value=self.supervisor), \
+                    mock.patch.object(self.supervisor, 'restore_admitted') as handler, \
+                    mock.patch.object(self.supervisor, 'serve') as serve:
+                with self.assertRaisesRegex(ValueError, expected):
+                    MODULE.main()
+                handler.assert_not_called()
+                serve.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()
