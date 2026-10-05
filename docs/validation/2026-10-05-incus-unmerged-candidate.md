@@ -155,12 +155,35 @@ All 15 steps matched and were skipped. A read-only SSH gate denied every Apply
 command, so a state change would have stopped verification instead of writing
 server resources. No pool, network, profile, endpoint or certificate changed.
 
-After verification, the minimal 22-read-command policy was restored with only
-its owned-neighbor connection ID changed to the new connection. Its exact hash
-is `36644ccf63669d6593cf8955398c746bfdc356cf73716119140658e1ad7c4fe5`.
-The old policy backup is retained. Independent review verified both the
-15-skipped-step receipt and final policy hash. Capacity and live qualification
-remain pending.
+After verification, a 22-read-command policy was restored with its
+owned-neighbor connection ID changed to the new connection. Capacity planning
+then correctly refused five missing read commands. The reviewed final policy
+includes those exact capacity reads, for 27 read-only commands. Its hash is
+`37482141d54daecb1d23eec91ed58e2dfae228dd8a2f575dd35ef76946592006`.
+All 15 Apply commands remain denied. The old policy backup is retained.
+Capacity planning and Apply passed with 32 GiB memory, eight CPU equivalents,
+4,096 PIDs, 80 GiB disk and four slots available for reservations.
+
+## Live lifecycle result and current blocker
+
+The first qualification-only guest completed CREATE, START, STOP and DESTROY
+through EZHarness. Server inspection confirmed an actual Btrfs rootfs
+subvolume, its 20 GiB quota, the pinned helper and guest Docker/Git. Independent
+inventory inspection then confirmed absence. This proves the basic lifecycle;
+it does not prove a native user feature workflow.
+
+The following durable qualification request
+`incus-final-014-qualify-20261005-1` failed before creating a qualification run:
+HTTP 409, `qualification_preparation_failed`, stage `fixtures`, cause
+`guest_action_failed`. The current witness code omits the failed native method
+and provider error code, and the journal contains no more precise diagnosis.
+Do not infer a process failure cause from this generic result.
+
+Automatic disposal succeeded, backend inventory was empty and the supported
+probe cleanup completed. Private receipts 51–56 record this attempt. The next
+step is a tested, bounded diagnostic change followed by one fresh reproduction.
+Full qualification, native feature execution and ten consecutive cycles remain
+unproved.
 
 The local native-work fixture passed its independent checkout, failing-test,
 repair and retained-commit tests. The Incus transport suite passed 44 tests,

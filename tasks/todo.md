@@ -2711,3 +2711,21 @@ same-resource connection verification with all 15 steps skipped under a
 read-only gate; real keyless-model READY run. Full native feature work and ten
 cycles remain pending. New UI fixes passed 24 E2E/45 component tests; native
 fixture tests passed 2/0 and transport lifecycle tests passed 44/0.
+
+### Current qualification blocker
+
+- [x] Apply measured capacity and verify all required read-only gate roles.
+- [x] Prove one real create/start/stop/destroy cycle and actual Btrfs rootfs.
+- [x] Clean failed qualification resources and confirm empty backend inventory.
+- [ ] Preserve safe native method/provider error diagnostics, with tests.
+- [ ] Build and install the tested isolated app bundle through its guarded path.
+- [ ] Reproduce with a fresh qualification ID; fix the confirmed cause.
+- [ ] Complete full qualification, native feature work and ten-cycle evidence.
+
+Review: the first durable qualification failed during fixture preparation with
+`guest_action_failed`. The current error hides the native method and provider
+code. Automatic guest disposal and supported probe cleanup passed. No unknown
+effect remains from this attempt. Do not repeat its operation ID or infer a
+root cause from the generic error. The Sol debug worker owns a narrow safe
+diagnostic change; the sole live operator prepares a normal bundle update.
+The full repository gate is running on exact `fd84d600e` in a separate tree.

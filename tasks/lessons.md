@@ -612,3 +612,7 @@
 - Validate every recovery input's file type, ownership and permissions before
   creating temporary authority. Preserve exact bytes when tightening an input
   file's permissions, and never repeat a successful key mint.
+- Derive operational read-only gate permissions from the source command roles,
+  including capacity and owned-neighbor checks. A smaller command count is
+  not proof of completeness. Test every required role and every forbidden
+  write before replacing a working policy.
