@@ -197,6 +197,10 @@ class Supervisor:
         self.recovery_request_path = None
         self.abort_stopped_guard = None
         self.abort_offline = False
+        self.restore_offline = False
+        self.recovery_restore_command = None
+        self.recovery_restore_journal_path = None
+        self.recovery_restore_config_path = None
         self.recovery_fence_command = None
         key_stat = self.key_path.lstat()
         if not stat.S_ISREG(key_stat.st_mode) or key_stat.st_uid != os.geteuid() \
@@ -375,9 +379,12 @@ class Supervisor:
             sys.stderr.write("Private recovery stage diagnostic unavailable\n")
 
     def recovery_stage(self, phase, value, deadline_ms):
-        if phase not in ("durable", "backend", "apply", "restore", "abort", "inspect-abort"):
+        if phase not in ("durable", "backend", "apply", "restore", "abort", "inspect-abort",
+                         "inspect-admitted-restoration", "restore-admitted"):
             raise ValueError("invalid operator recovery stage")
         command = self.recovery_abort_command if phase in ("abort", "inspect-abort") else self.recovery_command
+        if phase in ("inspect-admitted-restoration", "restore-admitted"):
+            command = self.recovery_restore_command
         if not command:
             raise ValueError("operator recovery command unavailable")
         try:
@@ -433,11 +440,13 @@ class Supervisor:
         finally:
             os.close(directory)
 
-    def persist_abort_file(self, path, value):
+    def persist_abort_file(self, path, value, exclusive=False):
         data = canonical(value) + b"\n"
         try:
             descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
         except FileExistsError:
+            if exclusive:
+                raise ValueError("operator restoration record already exists") from None
             if self.private_recovery_bytes(path) != data:
                 raise ValueError("operator abort record changed")
             return
@@ -482,6 +491,116 @@ class Supervisor:
             except (FileNotFoundError, ProcessLookupError):
                 continue
 
+    def trusted_recovery_original(self, message):
+        original = message["originalRequest"]
+        validate_recovery(original, historical=True)
+        saved = self.private_recovery_bytes(self.recovery_request_path)
+        if original["action"] != "recover-fenced-cleanup" or json.loads(saved) != original \
+                or hashlib.sha256(saved).hexdigest() != message["requestFileSha256"] \
+                or hashlib.sha256(canonical(original)).hexdigest() != message["requestSha256"]:
+            raise ValueError("operator original recovery request changed")
+        return original
+
+    def restoration_context(self, message):
+        if not self.restore_offline or not self.abort_stopped_guard:
+            raise ValueError("admitted restoration requires offline stopped actors")
+        self.abort_stopped_guard()
+        keys = {"version", "action", "originalRequest", "requestFileSha256", "requestSha256",
+                "holdSha256", "cleanupOperationId", "journalSha256", "configSha256",
+                "originalReceiptSha256", "currentSourceCommit", "currentManifestSha256"}
+        if not isinstance(message, dict) or set(message) != keys or type(message["version"]) is not int or message["version"] != 1 \
+                or message["action"] != "restore-already-admitted-cleanup" \
+                or not self.recovery_restore_command or not self.recovery_request_path \
+                or not self.recovery_restore_config_path or not self.recovery_restore_journal_path:
+            raise ValueError("admitted restoration configuration or request invalid")
+        if not isinstance(message["currentSourceCommit"], str) or not re.fullmatch(r"[0-9a-f]{40}", message["currentSourceCommit"]) or any(
+                not isinstance(message[k], str) or not re.fullmatch(r"[0-9a-f]{64}", message[k])
+                for k in ("originalReceiptSha256", "currentManifestSha256")):
+            raise ValueError("admitted restoration source or receipt pin invalid")
+        original = self.trusted_recovery_original(message)
+        hold = self.private_recovery_bytes(self.recovery_hold_path)
+        if hold != canonical({"nonce": original["nonce"], "reviewId": original["reviewId"]}) + b"\n" \
+                or hashlib.sha256(hold).hexdigest() != message["holdSha256"]:
+            raise ValueError("admitted restoration hold changed")
+        config_raw = self.private_recovery_bytes(self.recovery_restore_config_path, maximum=128*1024)
+        journal_raw = self.private_recovery_bytes(self.recovery_restore_journal_path, maximum=128*1024)
+        if hashlib.sha256(config_raw).hexdigest() != message["configSha256"] \
+                or hashlib.sha256(journal_raw).hexdigest() != message["journalSha256"]:
+            raise ValueError("admitted restoration history changed")
+        request = self.restoration_history(message, original, config_raw, journal_raw)
+        return original, hold, request
+
+    def restoration_history(self, message, original, config_raw, journal_raw):
+        config, journal = json.loads(config_raw), json.loads(journal_raw)
+        request = journal.get("request")
+        if set(journal) != {"configSha256", "request"} or journal["configSha256"] != message["configSha256"] \
+                or not isinstance(request, dict) or set(request) != {"cleanupOperationId", "target", "clientCertificateSha256"} \
+                or request["cleanupOperationId"] != message["cleanupOperationId"] \
+                or not isinstance(request["cleanupOperationId"], str) or not re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", request["cleanupOperationId"]) \
+                or request["target"] != config.get("target") \
+                or request["clientCertificateSha256"] != config.get("clientCertificateSha256") \
+                or config.get("holdSha256") != message["holdSha256"]:
+            raise ValueError("admitted restoration journal linkage changed")
+        target = request["target"]
+        expected = {k: original[k] for k in ("scope", "fixtureOperationId", "bindingId", "operationId", "generation", "connectionRevision")}
+        if not isinstance(target, dict) or set(target) != {*expected, "action", "pins"} \
+                or any(target[k] != v for k, v in expected.items()) or target["action"] != original["action"]:
+            raise ValueError("admitted restoration target changed")
+        return request
+
+    def restoration_stage(self, phase, value, deadline_ms):
+        if phase not in ("inspect-admitted-restoration", "restore-admitted"):
+            raise ValueError("invalid admitted restoration stage")
+        return self.recovery_stage(phase, value, deadline_ms)
+
+    def restore_admitted(self, message):
+        original, hold, request = self.restoration_context(message)
+        receipt_path = self.recovery_hold_path.with_name(self.recovery_hold_path.name + ".restoration-receipt")
+        proof_path = self.recovery_hold_path.with_name(self.recovery_hold_path.name + ".restoration-proof")
+        if os.path.lexists(receipt_path) or os.path.lexists(proof_path):
+            raise ValueError("admitted restoration already attempted; inspect saved stage")
+        inspection_deadline = int(time.time()*1000) + 30000
+        # The fixed trusted consumer checks current release/admission linkage and
+        # exact current certificate without creating another recovery or journal.
+        inspect = self.restoration_stage("inspect-admitted-restoration", {"request": request,
+            "history": message}, inspection_deadline)
+        authority = {k: message[k] for k in ("originalReceiptSha256", "currentSourceCommit", "currentManifestSha256")}
+        if inspect != {"admitted": True, **request, **authority}:
+            raise ValueError("admitted restoration current linkage unverified")
+        self.abort_stopped_guard()
+        if self.private_recovery_bytes(self.recovery_hold_path) != hold:
+            raise ValueError("admitted restoration hold changed before signing")
+        now = int(time.time()*1000)
+        deadline = now + 30000
+        bounded_timeout(deadline, SIGN_TIMEOUT_SECONDS)
+        payload = {**message, "restoration": request, "issuedAtMs": now, "expiresAtMs": deadline}
+        receipt = self.sign_payload(payload)
+        self.persist_abort_file(receipt_path, receipt, exclusive=True)
+        bounded_timeout(deadline, VERIFY_TIMEOUT_SECONDS)
+        ready = self.restoration_stage("restore-admitted", {"receipt": receipt}, deadline)
+        if ready != {"transportReady": True, **request}:
+            raise ValueError("admitted restoration transport unverified")
+        bounded_timeout(deadline, SIGN_TIMEOUT_SECONDS)
+        if self.private_recovery_bytes(self.recovery_hold_path) != hold:
+            raise ValueError("admitted restoration hold changed before archive")
+        receipt_hash = hashlib.sha256(canonical(receipt)).hexdigest()
+        proof = {"cleanupOperationId": request["cleanupOperationId"], "restorationReceiptSha256": receipt_hash,
+                 "transportReady": True}
+        self.persist_abort_file(proof_path, proof, exclusive=True)
+        archive = self.recovery_hold_path.with_name(self.recovery_hold_path.name + ".restored." + receipt_hash)
+        bounded_timeout(deadline, SIGN_TIMEOUT_SECONDS)
+        os.link(self.recovery_hold_path, archive, follow_symlinks=False)
+        self.sync_hold_directory()
+        bounded_timeout(deadline, SIGN_TIMEOUT_SECONDS)
+        self.recovery_hold_path.unlink()
+        self.sync_hold_directory()
+        proof = {**proof, "holdArchived": True}
+        self.persist_abort_file(proof_path.with_name(proof_path.name + ".complete"), proof, exclusive=True)
+        # Explicit normal service startup remains an operator decision. This
+        # offline command does not launch the app or reconciliation; its fixed
+        # trusted restoration consumer can start only the verified runner.
+        return proof
+
     def abort_context(self, message):
         if not self.abort_offline:
             raise ValueError("operator abort requires offline control")
@@ -497,14 +616,7 @@ class Supervisor:
                 or message["action"] != "abort-fenced-cleanup-before-admission" \
                 or not self.recovery_abort_command or not self.recovery_request_path:
             raise ValueError("operator abort unavailable or invalid")
-        original = message["originalRequest"]
-        validate_recovery(original, historical=True)
-        if original["action"] != "recover-fenced-cleanup":
-            raise ValueError("operator abort requires fenced cleanup")
-        saved = self.private_recovery_bytes(self.recovery_request_path)
-        if json.loads(saved) != original or hashlib.sha256(saved).hexdigest() != message["requestFileSha256"] \
-                or hashlib.sha256(canonical(original)).hexdigest() != message["requestSha256"]:
-            raise ValueError("operator abort original request changed")
+        original = self.trusted_recovery_original(message)
         hold_bytes = canonical({"nonce": original["nonce"], "reviewId": original["reviewId"]}) + b"\n"
         if hashlib.sha256(hold_bytes).hexdigest() != message["holdSha256"]:
             raise ValueError("operator abort hold hash changed")
@@ -1074,15 +1186,17 @@ def main():
     parser.add_argument("--config", required=True)
     parser.add_argument("--recover-request")
     parser.add_argument("--abort-request")
+    parser.add_argument("--restore-admitted-request")
     args = parser.parse_args()
-    if args.abort_request and args.recover_request:
+    if sum(bool(v) for v in (args.abort_request, args.recover_request, args.restore_admitted_request)) > 1:
         raise ValueError("operator control requires a single action")
     config = json.loads(Path(args.config).read_text())
     required = {"socket", "appCommand", "appUid", "appGid", "key", "authorityCommand",
                 "receiptAuthorityCommand"}
     optional = {"operatorSocket", "recoveryCommand", "recoveryFenceCommand",
                 "faultAuthorityCommand", "recoveryAbortCommand", "recoveryRequestPath",
-                "recoveryAbortStoppedUnits", "recoveryAbortRunnerUid"}
+                "recoveryAbortStoppedUnits", "recoveryAbortRunnerUid", "recoveryRestoreCommand",
+                "recoveryRestoreJournalPath", "recoveryRestoreConfigPath"}
     if not required <= set(config) or set(config) - required - optional \
             or bool(config.get("operatorSocket")) != bool(config.get("recoveryCommand")) \
             or not all(type(config[name]) is int and config[name] > 0
@@ -1108,13 +1222,20 @@ def main():
             or not config["faultAuthorityCommand"]
             or not all(isinstance(value, str) and value for value in config["faultAuthorityCommand"])):
         raise ValueError("invalid operator fault verifier")
-    if bool(config.get("recoveryAbortCommand")) != bool(config.get("recoveryRequestPath")) \
+    if bool(config.get("recoveryAbortCommand") or config.get("recoveryRestoreCommand")) != bool(config.get("recoveryRequestPath")) \
             or (config.get("recoveryAbortCommand") and (not config.get("operatorSocket")
                 or not isinstance(config["recoveryAbortCommand"], list)
                 or not all(isinstance(value, str) and value for value in config["recoveryAbortCommand"])
                 or not isinstance(config["recoveryRequestPath"], str)
                 or not config["recoveryRequestPath"].startswith("/"))):
         raise ValueError("invalid operator abort configuration")
+    restore_keys = ("recoveryRestoreCommand", "recoveryRestoreJournalPath", "recoveryRestoreConfigPath")
+    if any(config.get(k) for k in restore_keys) and (not all(config.get(k) for k in restore_keys)
+            or not isinstance(config.get("recoveryRequestPath"), str) or not config["recoveryRequestPath"].startswith("/")
+            or not isinstance(config["recoveryRestoreCommand"], list)
+            or not all(isinstance(v, str) and v for v in config["recoveryRestoreCommand"])
+            or not all(isinstance(config[k], str) and config[k].startswith("/") for k in restore_keys[1:])):
+        raise ValueError("invalid admitted restoration configuration")
     if args.recover_request:
         if os.geteuid() != 0 or not config.get("operatorSocket"):
             raise ValueError("operator recovery requires root and a private socket")
@@ -1140,13 +1261,23 @@ def main():
         supervisor.operator_socket_path = Path(config["operatorSocket"])
         supervisor.recovery_command = config["recoveryCommand"]
         supervisor.recovery_abort_command = config.get("recoveryAbortCommand")
-        supervisor.recovery_request_path = config.get("recoveryRequestPath")
         supervisor.recovery_fence_command = config.get("recoveryFenceCommand")
+    supervisor.recovery_request_path = config.get("recoveryRequestPath")
     supervisor.fault_authority_command = config.get("faultAuthorityCommand")
-    if config.get("recoveryAbortCommand"):
+    if config.get("recoveryAbortCommand") or config.get("recoveryRestoreCommand"):
         units = config.get("recoveryAbortStoppedUnits")
         runner_uid = config.get("recoveryAbortRunnerUid")
         supervisor.abort_stopped_guard = lambda: supervisor.assert_abort_actors_stopped(units, runner_uid)
+    if args.restore_admitted_request:
+        if os.geteuid() != 0 or json.loads(supervisor.private_recovery_bytes(args.config, maximum=128*1024)) != config:
+            raise ValueError("offline admitted restoration requires root and exact private config")
+        supervisor.restore_offline = True
+        supervisor.recovery_restore_command = config.get("recoveryRestoreCommand")
+        supervisor.recovery_restore_journal_path = config.get("recoveryRestoreJournalPath")
+        supervisor.recovery_restore_config_path = config.get("recoveryRestoreConfigPath")
+        message = json.loads(supervisor.private_recovery_bytes(args.restore_admitted_request))
+        print(json.dumps(supervisor.restore_admitted(message), sort_keys=True))
+        return
     if args.abort_request:
         if os.geteuid() != 0 or args.recover_request:
             raise ValueError("offline operator abort requires root and a single action")

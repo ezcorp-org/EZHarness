@@ -1504,5 +1504,91 @@ class RecoveryDiagnosticsTests(unittest.TestCase):
                 self.log.unlink()
 
 
+class AdmittedRestorationTests(unittest.TestCase):
+    write_config = FencedCleanupSignerTest.write_config
+    def setUp(self):
+        FencedCleanupAbortTests.setUp(self)
+        self.supervisor.restore_offline = True
+        self.supervisor.recovery_restore_command = ['fixed-restoration-consumer']
+        self.journal = self.root/'held-journal.json'
+        target={k:self.request[k] for k in ('scope','fixtureOperationId','bindingId','operationId','generation','connectionRevision')}
+        target.update(action='recover-fenced-cleanup',pins=self.pins)
+        self.restore_config=self.root/'restore-config.json'
+        config={'target':target,'clientCertificateSha256':'a'*64,'holdSha256':self.message['holdSha256']}
+        self.restore_config.write_bytes(MODULE.canonical(config));self.restore_config.chmod(0o600)
+        request={'cleanupOperationId':'81570000-1234-4123-8123-123456789abc','target':target,'clientCertificateSha256':'a'*64}
+        self.journal.write_bytes(MODULE.canonical({'configSha256':hashlib.sha256(self.restore_config.read_bytes()).hexdigest(),'request':request}));self.journal.chmod(0o600)
+        self.supervisor.recovery_restore_journal_path=self.journal
+        self.supervisor.recovery_restore_config_path=self.restore_config
+        self.message={**self.message,'action':'restore-already-admitted-cleanup','cleanupOperationId':request['cleanupOperationId'],'journalSha256':hashlib.sha256(self.journal.read_bytes()).hexdigest(),'configSha256':hashlib.sha256(self.restore_config.read_bytes()).hexdigest(),'originalReceiptSha256':'b'*64,'currentSourceCommit':'c'*40,'currentManifestSha256':'d'*64}
+        self.calls=[]
+        def command(phase,value,deadline):
+            self.calls.append(phase)
+            if phase=='inspect-admitted-restoration':return {'admitted':True,**request,**{k:self.message[k] for k in ('originalReceiptSha256','currentSourceCommit','currentManifestSha256')}}
+            return {'transportReady':True,**request}
+        self.supervisor.restoration_stage=mock.Mock(side_effect=command)
+    def test_expired_original_gets_distinct_authority_without_admission(self):
+        with mock.patch.object(self.supervisor,'start_child') as start:
+            result=self.supervisor.restore_admitted(self.message)
+        self.assertEqual(result['cleanupOperationId'],self.message['cleanupOperationId'])
+        self.assertEqual(self.calls,['inspect-admitted-restoration','restore-admitted'])
+        self.assertFalse(self.supervisor.recovery_hold_path.exists());start.assert_not_called()
+        self.assertEqual(self.request['deadlineMs'],1)
+        with self.assertRaises((ValueError, OSError)):self.supervisor.restore_admitted(self.message)
+    def test_exclusive_statement_refuses_identical_concurrent_publication(self):
+        path=self.root/'statement.json'
+        self.supervisor.persist_abort_file(path,{'same':True},exclusive=True)
+        with self.assertRaisesRegex(ValueError,'already exists'):
+            self.supervisor.persist_abort_file(path,{'same':True},exclusive=True)
+        self.assertEqual(json.loads(path.read_bytes()),{'same':True})
+    def test_offline_cli_restore_only_configuration_never_serves(self):
+        config={'socket':str(self.root/'socket'),'appCommand':['fixed-app'],'appUid':65002,'appGid':65002,'key':str(self.supervisor.key_path),'authorityCommand':['fixed-authority'],'receiptAuthorityCommand':['fixed-receipt'],'recoveryRestoreCommand':['fixed-restore'],'recoveryRequestPath':str(self.saved),'recoveryRestoreJournalPath':str(self.journal),'recoveryRestoreConfigPath':str(self.restore_config),'recoveryAbortStoppedUnits':['supervisor.service','runner.service','user@65003.service'],'recoveryAbortRunnerUid':65003}
+        path=self.root/'offline-config.json';path.write_bytes(MODULE.canonical(config));path.chmod(0o600)
+        req=self.root/'fresh-restore.json';req.write_bytes(MODULE.canonical(self.message));req.chmod(0o600)
+        with mock.patch.object(MODULE.sys,'argv',['supervisor','--config',str(path),'--restore-admitted-request',str(req)]),mock.patch.object(MODULE.os,'geteuid',return_value=0),mock.patch.object(MODULE,'Supervisor',return_value=self.supervisor),mock.patch.object(self.supervisor,'private_recovery_bytes',side_effect=lambda p,**kw:Path(p).read_bytes()),mock.patch.object(self.supervisor,'restore_admitted',return_value={'transportReady':True}) as handler,mock.patch.object(self.supervisor,'serve') as serve,mock.patch.object(self.supervisor,'start_child') as start,mock.patch('builtins.print'):
+            MODULE.main()
+        handler.assert_called_once_with(self.message);serve.assert_not_called();start.assert_not_called()
+        self.assertTrue(self.supervisor.restore_offline)
+        self.assertEqual(self.supervisor.recovery_request_path,str(self.saved))
+        self.assertEqual(self.supervisor.recovery_restore_command,['fixed-restore'])
+    def test_closed_history_and_source_pin_negatives(self):
+        from copy import deepcopy
+        for key,value in (("currentSourceCommit",123),("currentManifestSha256","wrong"),("originalReceiptSha256","wrong"),("journalSha256","0"*64),("configSha256","0"*64),("holdSha256","0"*64),("requestSha256","0"*64)):
+            with self.subTest(key=key),mock.patch.object(self.supervisor,'sign_payload') as sign:
+                bad=deepcopy(self.message);bad[key]=value
+                with self.assertRaises(ValueError):self.supervisor.restore_admitted(bad)
+                sign.assert_not_called()
+        for bad in ({**self.message,'extra':True},{**self.message,'action':'recover-fenced-cleanup'}):
+            with self.assertRaises(ValueError):self.supervisor.restore_admitted(bad)
+        self.assertTrue(self.supervisor.recovery_hold_path.exists())
+    def test_offline_and_stopped_guard_are_required(self):
+        self.supervisor.restore_offline=False
+        with self.assertRaisesRegex(ValueError,'offline'):self.supervisor.restore_admitted(self.message)
+        self.supervisor.restore_offline=True
+        self.supervisor.abort_stopped_guard=mock.Mock(side_effect=ValueError('active actor'))
+        with self.assertRaisesRegex(ValueError,'active actor'):self.supervisor.restore_admitted(self.message)
+        self.supervisor.restoration_stage.assert_not_called()
+    def test_expiry_after_transport_keeps_hold_and_records_attempt(self):
+        real=self.supervisor.restoration_stage.side_effect
+        def stage(phase,value,deadline):
+            result=real(phase,value,deadline)
+            if phase=='restore-admitted':self.clock.return_value=100000000000
+            return result
+        with mock.patch.object(MODULE.time,'time',return_value=1000) as self.clock:
+            self.supervisor.restoration_stage.side_effect=stage
+            with self.assertRaises(ValueError):self.supervisor.restore_admitted(self.message)
+        self.assertTrue(self.supervisor.recovery_hold_path.exists())
+        self.assertTrue(self.supervisor.recovery_hold_path.with_name(self.supervisor.recovery_hold_path.name+'.restoration-receipt').exists())
+    def test_wrong_link_or_hold_refuses_before_signature(self):
+        with mock.patch.object(self.supervisor,'sign_payload') as sign:
+            self.message['cleanupOperationId']='wrong'
+            with self.assertRaises(ValueError):self.supervisor.restore_admitted(self.message)
+            sign.assert_not_called();self.assertTrue(self.supervisor.recovery_hold_path.exists())
+    def test_failed_transport_retains_hold_and_no_implicit_retry(self):
+        self.supervisor.restoration_stage.side_effect=[{'admitted':True,**json.loads(self.journal.read_bytes())['request'],**{k:self.message[k] for k in ('originalReceiptSha256','currentSourceCommit','currentManifestSha256')}},ValueError('private canary')]
+        with self.assertRaises(ValueError):self.supervisor.restore_admitted(self.message)
+        self.assertTrue(self.supervisor.recovery_hold_path.exists())
+        with self.assertRaises(ValueError):self.supervisor.restore_admitted(self.message)
+
 if __name__ == "__main__":
     unittest.main()
