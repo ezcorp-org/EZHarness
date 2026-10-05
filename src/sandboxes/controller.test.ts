@@ -372,7 +372,7 @@ describe("SandboxController durable dispatch", () => {
     }));
   });
 
-  test("does not let a late dispatch result replace a terminal recovered outcome", async () => {
+  test("another controller waits for active dispatch and recovers after its owner throws", async () => {
     const { db } = await setup("late-dispatch-result");
     const dispatchProvider = new FakeProvider();
     const controller = new SandboxController(db, dispatchProvider);
@@ -388,7 +388,7 @@ describe("SandboxController durable dispatch", () => {
     dispatchProvider.dispatchHandler = async () => {
       signalDispatchStarted();
       await dispatchCanFinish;
-      return { outcome: "SUCCEEDED", observedState: "STOPPED" };
+      throw new Error("dispatch response lost");
     };
 
     const dispatch = controller.requestAndDispatch({
@@ -408,8 +408,10 @@ describe("SandboxController durable dispatch", () => {
     releaseDispatch();
     const completed = await dispatch;
 
-    expect(recovery).toEqual(expect.objectContaining({ examined: 1, inspected: 1, completed: 1 }));
-    expect(completed.state).toBe("SUCCEEDED");
+    expect(recovery).toEqual(expect.objectContaining({ examined: 0, inspected: 0, completed: 0 }));
+    expect(recoveryProvider.inspections).toHaveLength(0);
+    expect(completed.state).toBe("OUTCOME_UNKNOWN");
+    expect(await recoveryController.reconcile()).toMatchObject({ examined: 1, inspected: 1, completed: 1 });
     expect((await controller.getOperation(completed.id))?.state).toBe("SUCCEEDED");
     expect((await controller.getBinding(createdBinding.id))?.observedState).toBe("RUNNING");
   });

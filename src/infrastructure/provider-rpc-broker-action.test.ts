@@ -1,4 +1,4 @@
-import { resourceName } from "./incus-transport/lifecycle";
+import { incusLifecycleOperationId, resourceName } from "./incus-transport/lifecycle";
 import { afterAll, afterEach, expect, spyOn, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { makeTestCertificates } from "./incus-transport/test-certificates";
@@ -803,3 +803,58 @@ for (const state of ["succeeded", "running"] as const) {
       .toBe(state === "succeeded" ? "SUCCEEDED" : "DISPATCHING");
   });
 }
+
+
+test("two controllers preserve active START through stable and native acceptance", async () => {
+  const fixture = await observationFixture();
+  const original = await fixture.add(0);
+  const id = original.expectedCommand.idempotency!.requestId;
+  const payload = { expectedGeneration: 1, desiredState: "running" };
+  await fixture.db.update(schema.sandboxOperations).set({ kind: "START", state: "JOURNALED", requestPayload: payload })
+    .where(eq(schema.sandboxOperations.id, id));
+  await fixture.db.update(schema.sandboxBindings).set({ desiredState: "RUNNING", observedState: "STOPPED" })
+    .where(eq(schema.sandboxBindings.id, original.bindingId));
+  const input = { providerId: "incus", connectionId: "connection", sandboxId: original.bindingId,
+    requestId: id, idempotencyKey: id, rpcDeadlineMs: original.expectedCommand.deadlineMs, ...payload };
+  const action: PreparedIncusAction = { ...original, operation: "lifecycle.setPower",
+    method: "incus/lifecycle/setPower", expectedCommand: createIncusTransportCommand("lifecycle.setPower", input, original.config),
+    settlementScope: { ...original.settlementScope!, kind: "START", desiredState: "RUNNING" } };
+  const stableId = incusLifecycleOperationId("setPower", action.expectedCommand);
+  const nativeId = "incus-setPowerIntent-11111111-1111-4111-8111-111111111111";
+  let inspections = 0;
+  const controller = new SandboxController(fixture.db, {
+    dispatch: async () => { throw new Error("reconcile must not replay START"); },
+    inspectOperation: async request => {
+      inspections++;
+      expect(request.providerOperationId).toBe(nativeId);
+      return { outcome: "UNKNOWN", providerOperationId: nativeId };
+    },
+  });
+  let statePutReached = false;
+  const broker = new ProviderRpcBroker(fixture.connections, undefined, fixture.db,
+    (_scope, _signal, accepted) => ({ request: async () => {
+      await accepted!(stableId);
+      expect(await controller.inspectOperation(id)).toMatchObject({ state: "DISPATCHING", providerOperationId: stableId });
+      expect(await controller.reconcile()).toMatchObject({ inspected: 0, preservedUnknown: 0 });
+      expect(await apiController.executeOperation(id)).toMatchObject({ state: "DISPATCHING" });
+      await accepted!(nativeId);
+      expect(await controller.inspectOperation(id)).toMatchObject({ state: "DISPATCHING", providerOperationId: nativeId });
+      expect(await controller.reconcile()).toMatchObject({ inspected: 0 });
+      statePutReached = true;
+      return { ok: true, receipt: { operationId: nativeId } };
+    } }), undefined, { now: () => fixture.now, resolveActiveRelease: async () => { throw new Error("intent phase must not start a native observer"); } });
+  const apiController = new SandboxController(fixture.db, {
+    dispatch: async () => {
+      const reply = await broker.request(action, { command: action.expectedCommand }, action.expectedCommand.deadlineMs);
+      expect(reply).toMatchObject({ ok: true });
+      return { outcome: "PENDING", providerOperationId: nativeId };
+    },
+    inspectOperation: async () => { throw new Error("API dispatch must not inspect itself"); },
+  });
+  expect(await apiController.executeOperation(id)).toMatchObject({ state: "PROVIDER_PENDING", providerOperationId: nativeId });
+  expect(statePutReached).toBe(true);
+  expect(inspections).toBe(0);
+  expect(await controller.inspectOperation(id)).toMatchObject({ state: "OUTCOME_UNKNOWN", providerOperationId: nativeId });
+  expect(inspections).toBe(1);
+  await broker.stopObservations();
+});

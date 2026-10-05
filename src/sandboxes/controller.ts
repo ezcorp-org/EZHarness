@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { and, asc, eq, inArray, isNull, ne, not, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, ne, not, notInArray, sql } from "drizzle-orm";
 import type { Database, DbTransaction } from "../db/connection";
 import {
   sandboxBindings,
@@ -48,6 +48,10 @@ export type SandboxControllerErrorCode =
   | "STALE_GENERATION"
   | "SUPERSEDED_OPERATION"
   | "IDEMPOTENCY_CONFLICT";
+
+// Controllers share one host database object. Ownership is deliberately transient:
+// after a restart, an abandoned DISPATCHING journal still becomes UNKNOWN.
+const activeDispatches = new WeakMap<Database, Map<string, symbol>>();
 
 export class SandboxControllerError extends Error {
   constructor(
@@ -455,6 +459,23 @@ export class SandboxController {
   }
 
   async #dispatchJournaled(operationId: string): Promise<{ operation: SandboxOperation; dispatched: boolean }> {
+    let owners = activeDispatches.get(this.db);
+    if (!owners) { owners = new Map(); activeDispatches.set(this.db, owners); }
+    if (owners.has(operationId)) {
+      const operation = await this.getOperation(operationId);
+      if (!operation) throw new SandboxControllerError("OPERATION_NOT_FOUND", `Sandbox operation ${operationId} does not exist`);
+      return { operation, dispatched: false };
+    }
+    const owner = Symbol(operationId);
+    owners.set(operationId, owner);
+    try {
+      return await this.#dispatchOwnedJournaled(operationId);
+    } finally {
+      if (owners.get(operationId) === owner) owners.delete(operationId);
+    }
+  }
+
+  async #dispatchOwnedJournaled(operationId: string): Promise<{ operation: SandboxOperation; dispatched: boolean }> {
     const claim = await this.db.transaction(async (transaction: DbTransaction) => {
       const [operation] = await transaction.select().from(sandboxOperations)
         .where(eq(sandboxOperations.id, operationId)).limit(1);
@@ -640,6 +661,9 @@ export class SandboxController {
   }
 
   async #inspectPersistedOperation(operation: SandboxOperation): Promise<SandboxOperation> {
+    if (activeDispatches.get(this.db)?.has(operation.id)) {
+      return (await this.getOperation(operation.id)) ?? operation;
+    }
     const [frozen] = await this.db.select().from(sandboxOperations)
       .where(and(eq(sandboxOperations.id, operation.id), frozenFencedCleanupOriginal)).limit(1);
     if (frozen) return frozen;
@@ -669,8 +693,10 @@ export class SandboxController {
     operatorRecoveryOperationId?: string): Promise<ReconcileResult> {
     const requested = Number.isFinite(requestedLimit) ? Math.trunc(requestedLimit) : this.#maxReconcileBatch;
     const limit = Math.min(Math.max(1, requested), this.#maxReconcileBatch);
+    const activeIds = [...(activeDispatches.get(this.db)?.keys() ?? [])];
     const candidates = await this.db.select().from(sandboxOperations)
       .where(and(inArray(sandboxOperations.state, RECONCILE_STATES),
+        activeIds.length ? notInArray(sandboxOperations.id, activeIds) : undefined,
         not(frozenFencedCleanupOriginal),
         operatorRecoveryOperationId
           ? and(eq(sandboxOperations.id, operatorRecoveryOperationId), operatorRecoveryDestroy)
