@@ -5,6 +5,33 @@ import { captureEvidence } from "../fixtures/evidence.js";
 // These journeys use a real authenticated admin and database, while route-stubbing Incus APIs.
 // They prove the operator UI contract; live-host qualification remains a separate milestone.
 
+test("long sandbox names fit mobile and connections remain distinct @evidence", async ({ page }, testInfo) => {
+	const longName = `incus-probe-project-${"7e742b58".repeat(8)}-missingControl`;
+	await mockManagement(page, { initialFeature: { ...feature("UNKNOWN", null), projectName: longName } });
+	await page.route("**/api/infrastructure/incus/management", route => route.fulfill({ json: {
+		environments: [environment, { ...environment, connectionId: "44444444-4444-4444-8444-444444444444" }],
+		projects: [project], features: [{ ...feature("UNKNOWN", null), projectName: longName }],
+	} }));
+	for (const width of [1440, 390]) {
+		await page.setViewportSize({ width, height: 1000 });
+		await page.goto("/extensions/incus-management");
+		await expect(page.getByRole("heading", { name: longName, exact: true })).toBeVisible();
+		await expect(page.locator(".environment-card").nth(0)).toContainText("Connection 33333333");
+		await expect(page.locator(".environment-card").nth(1)).toContainText("Connection 44444444");
+		const options = page.getByLabel("Qualified environment").locator("option");
+		await expect(options.nth(0)).toContainText("Connection 33333333");
+		await expect(options.nth(1)).toContainText("Connection 44444444");
+		const card = page.locator(".feature-card");
+		await card.scrollIntoViewIfNeeded();
+		await expect(card.locator(".pill")).toHaveText("Needs reconciliation");
+		await expect(card.getByRole("link", { name: "Open chat" })).toHaveCount(0);
+		const overflow = await page.locator("main,.panel,.feature-list,.feature-card").evaluateAll(elements =>
+			elements.filter(element => element.scrollWidth > element.clientWidth + 1).map(element => element.className));
+		expect(overflow).toEqual([]);
+		await captureEvidence(page, testInfo, `incus-long-name-${width}`);
+	}
+});
+
 const environment = {
 	installationId: "11111111-1111-4111-8111-111111111111",
 	releaseId: "22222222-2222-4222-8222-222222222222",

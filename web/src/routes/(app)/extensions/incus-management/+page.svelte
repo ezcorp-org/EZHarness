@@ -84,6 +84,10 @@
 		return `${item.installationId}:${item.releaseId}:${item.releaseGeneration}:${item.connectionId}:${item.connectionRevision}:${item.presetId}`;
 	}
 
+	function connectionLabel(item: Environment): string {
+		return `Connection ${item.connectionId.slice(0, 8)}`;
+	}
+
 	function scope(item: Environment) {
 		return { installationId: item.installationId, releaseId: item.releaseId,
 			connectionId: item.connectionId, presetId: item.presetId };
@@ -588,6 +592,7 @@
 						<div class="env-top"><div><h3>{environment.label}</h3><p>{environment.profile} · preset {environment.presetId}</p></div>
 							<span class="pill" class:good={environment.qualified} class:waiting={environment.qualificationState === "running"}>{environment.qualificationState === "running" ? "Qualifying" : environment.qualified ? "Qualified" : "Not qualified"}</span>
 						</div>
+						<p class="qualification-date">{connectionLabel(environment)}</p>
 						<p class="qualification-date">{dateLabel(environment.qualificationValidUntil)}</p>
 						<p class="qualification-date">Limits: {resourceLabel(environment)}</p>
 						{#if environment.blockedReason}<p class="blocked-reason">{environment.blockedReason}</p>{/if}
@@ -643,7 +648,7 @@
 			<div class="create-row">
 				<label>Qualified environment<select bind:value={selectedEnvironment} disabled={!!busy}>
 					{#each eligibleEnvironments as environment (environmentKey(environment))}
-						<option value={environmentKey(environment)} disabled={!environment.qualified}>{environment.label} · {environment.presetId}{environment.qualified ? "" : " · qualification required"}</option>
+						<option value={environmentKey(environment)} disabled={!environment.qualified}>{environment.label} · {environment.presetId} · {connectionLabel(environment)}{environment.qualified ? "" : " · qualification required"}</option>
 					{/each}
 				</select></label>
 				<label>New project name<input bind:value={projectName} maxlength="120" disabled={!!busy} placeholder="Payments prototype" /></label>
@@ -695,7 +700,8 @@
 	.header-row>a{padding:9px 12px;border:1px solid var(--color-border);border-radius:7px;color:var(--color-text-secondary);font-size:13px;text-decoration:none;white-space:nowrap}
 	.panel{background:var(--color-surface,#171b23);border:1px solid var(--color-border);border-radius:12px;padding:22px;margin:16px 0;box-shadow:0 10px 32px rgba(0,0,0,.07)}
 	.section-heading{margin-bottom:18px}.section-heading h2{font-size:19px;margin:0}.section-heading p{font-size:13px}
-	.environment-list,.feature-list{display:grid;gap:12px}.environment-card,.feature-card{border:1px solid var(--color-border);border-radius:9px;padding:16px;background:var(--color-surface-secondary)}
+	.environment-list,.feature-list{display:grid;grid-template-columns:minmax(0,1fr);gap:12px}.environment-card,.feature-card{min-width:0;overflow-wrap:anywhere;border:1px solid var(--color-border);border-radius:9px;padding:16px;background:var(--color-surface-secondary)}
+	.env-top>div,.feature-heading>div{min-width:0}
 	.environment-card.chosen{border-color:var(--color-accent,#82b5ff);box-shadow:0 0 0 1px color-mix(in srgb,var(--color-accent,#82b5ff) 35%,transparent)}
 	h3{font-size:15px;margin:0}.env-top p,.feature-heading p{font:12px ui-monospace,monospace;color:var(--color-text-muted);margin:5px 0 0;overflow-wrap:anywhere}
 	.pill{flex:none;border:1px solid var(--color-border);border-radius:999px;padding:5px 9px;font-size:11px;color:var(--color-text-muted)}.pill.good{border-color:#19875466;color:#52bf83;background:#19875412}.pill.waiting{border-color:#2a74bf66;color:#82b5ff}.pill.warning{border-color:#cb7b3566;color:#e7a765;background:#cb7b3512}

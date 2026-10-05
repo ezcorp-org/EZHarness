@@ -17,6 +17,19 @@ const project = { id: "project-1", name: "Sample project" };
 const bindingId = "binding-1";
 const planDigest = "a".repeat(64);
 
+test("shows connection identity in cards and environment choices with the same label", async () => {
+	vi.stubGlobal("fetch", vi.fn(async () => response({
+		environments: [{ ...environment, connectionId: "12345678-first" }, { ...environment, connectionId: "87654321-second" }],
+		projects: [project], features: [],
+	})));
+	const view = render(Page, { props: { data: { operatorId: "admin-1" } } });
+	await waitFor(() => expect(view.getByText("Connection 12345678")).toBeVisible());
+	expect(view.getByText("Connection 87654321")).toBeVisible();
+	const choices = view.getAllByRole("option");
+	expect(choices[0]).toHaveTextContent("Connection 12345678");
+	expect(choices[1]).toHaveTextContent("Connection 87654321");
+});
+
 function response(body: unknown, status = 200) {
 	return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 }
