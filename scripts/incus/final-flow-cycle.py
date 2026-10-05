@@ -136,7 +136,11 @@ def artifact_digest(root, name, maximum=16 * 1024 * 1024):
 
 
 def supervise(command, output, error, timeout):
-    """Kill the entire hook process group on exit, timeout or interruption."""
+    """Kill the hook group on exit, timeout or interruption.
+
+    This standalone fixture has one thread. Its pre-exec mask reset must not
+    be reused from a threaded Python process, where preexec_fn can deadlock.
+    """
     def interrupted(_number, _frame):
         raise KeyboardInterrupt()
     previous = signal.signal(signal.SIGTERM, interrupted)
@@ -144,7 +148,10 @@ def supervise(command, output, error, timeout):
     try:
         blocked = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTERM, signal.SIGINT})
         try:
-            child = subprocess.Popen(command, stdout=output, stderr=error, start_new_session=True)
+            child = subprocess.Popen(
+                command, stdout=output, stderr=error, start_new_session=True,
+                preexec_fn=lambda: signal.pthread_sigmask(signal.SIG_SETMASK, blocked - {signal.SIGTERM, signal.SIGINT}),
+            )
         finally:
             signal.pthread_sigmask(signal.SIG_SETMASK, blocked)
         return child.wait(timeout=timeout)

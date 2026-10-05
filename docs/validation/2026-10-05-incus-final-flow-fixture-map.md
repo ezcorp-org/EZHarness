@@ -243,7 +243,12 @@ request remains available for the owner's saved-state inspection. Hook stdout
 and stderr remain private; the public failure message contains no diagnostics.
 Every hook starts in a new process group. The coordinator kills that group on
 normal exit, timeout or interruption, then reaps the direct child. Hooks must
-not detach descendants from that group. Hooks must bound external requests.
+not detach descendants from that group. Parent SIGINT/SIGTERM are blocked
+across process assignment, then restored. Before exec, the child explicitly
+unblocks those signals; a new session alone does not reset an inherited mask.
+This standalone Python fixture has one thread. Its `preexec_fn` must not be
+used from a threaded Python host, where pre-exec Python code can deadlock.
+Hooks must bound external requests.
 Killing or
 timing out a hook does not prove that a remote effect stopped. Each hook must
 collect the real saved operation and independent observations, not manufacture

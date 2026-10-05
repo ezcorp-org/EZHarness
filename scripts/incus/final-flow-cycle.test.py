@@ -272,6 +272,27 @@ if sys.argv[2] == 'wait': time.sleep(120)
             self.assertEqual(child.wait.call_count, 2)
         self.assertIs(signal.getsignal(signal.SIGTERM), previous)
 
+    def test_actual_hook_has_unblocked_signals_and_receives_term(self):
+        hook = self.base / "signal-hook.py"
+        hook.write_text('''import json, os, signal
+mask = signal.pthread_sigmask(signal.SIG_BLOCK, set())
+assert signal.SIGINT not in mask and signal.SIGTERM not in mask
+received = []
+signal.signal(signal.SIGTERM, lambda number, frame: received.append(number))
+os.kill(os.getpid(), signal.SIGTERM)
+assert received == [signal.SIGTERM]
+print(json.dumps({'unblocked': True, 'termReceived': True}), flush=True)
+''')
+        previous = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGINT, signal.SIGTERM})
+        try:
+            with tempfile.TemporaryFile() as output:
+                self.assertEqual(flow.supervise([sys.executable, str(hook)], output, output, 5), 0)
+                output.seek(0)
+                self.assertEqual(json.loads(output.read()), {"unblocked": True, "termReceived": True})
+            self.assertTrue({signal.SIGINT, signal.SIGTERM}.issubset(signal.pthread_sigmask(signal.SIG_BLOCK, set())))
+        finally:
+            signal.pthread_sigmask(signal.SIG_SETMASK, previous)
+
 
 if __name__ == "__main__":
     result = TRACE.runfunc(unittest.TextTestRunner().run, unittest.defaultTestLoader.loadTestsFromTestCase(CycleTests))
