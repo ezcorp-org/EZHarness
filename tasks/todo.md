@@ -5868,7 +5868,7 @@ evidence and gates.
       (hook: list-bound ruling 45ba088481f9e09f for the merge commit; EZ_PRECOMMIT_TEST_MAX=62 under the lock; nothing skipped).
 - [x] wave4i-2 combined run at 1c84df6d5 (binding coverage judgement vs beaff68c8): runner part green except gate-integrity (the 8 expected lines);
       standalone coverage producers shard 30068/0 and extras 1454/0; after-runner re-run green (browser lanes mock-full 1466, evidence 394,
-      fresh-setup 7, real-auth 108, factory-services 13); merged lcov 0ab908e0f9d79cde over 2297 files; final gates green on both passes (vs origin/main: gates.txt 5546a3218bef5bf1, new-file 460 files, patch 517 files, global floor margin 8.08, gate-integrity = the 8 expected lines, findings-match PASS; vs 1992630f3: gates.txt 14d9cb03a1819cda, gate-integrity PASSED); receipts 71838dfa3 (81 receipt files; SHA256SUMS 1995→2076, append-only).
+      fresh-setup 7, real-auth 108, factory-services 13); merged lcov of the final gates f73fe033c1d5cee4 over 2383 files (runner interim merge 0ab908e0f9d79cde over 2297, before the browser lcov joined); final gates green on both passes (vs origin/main: gates.txt 5546a3218bef5bf1, new-file 460 files, patch 517 files, global floor margin 8.08, gate-integrity = the 8 expected lines, findings-match PASS; vs 1992630f3: gates.txt 14d9cb03a1819cda, gate-integrity PASSED); receipts 71838dfa3 (81 receipt files; SHA256SUMS 1995→2076, append-only).
 
 ## Leftover after wave 4i — 2026-10-05
 

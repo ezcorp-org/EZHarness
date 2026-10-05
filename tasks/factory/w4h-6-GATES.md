@@ -87,8 +87,8 @@ unset; no target file and no runner code reads CI.
   runs; extension-runner neighbours green; typecheck, lint, boundaries, gate-integrity (integ/w00) 0; guard set 468/0 (started with
   host SwapFree at 0.1 GiB, disclosed); new-file and patch coverage passed. EVIDENCE: red-pin-write-side-host-ca20a093c.log,
   red-pin-settle-host-56c9579d7.log, loop-write-side-host.log, loop-settle-host.log, guard-suites-2f3.log, cov56/.
-- [ ] G6 heavy legs at 2f307634d (container tree 71d3b6e53 = the commit's tree): host real-guest podman suites, the three target files
-  alone and the hosted shard lists in the runner container. Queued behind the host gate (gated-launch.sh, hold-56c.sh).
+- [x] G6 heavy legs at 2f307634d (container tree 71d3b6e53 = the commit's tree): host real-guest podman suites, the three target files
+  alone and the hosted shard lists in the runner container. Queued behind the host gate (gated-launch.sh, hold-56c.sh). — superseded by the G6 of record (line 101; coordinator ruling after M1 and validator-5's addendum of record; receipt 798c2935e, amendment 87e1e197c).
 
 ## M1 (validator-5 at 8bc2089aa; carry-over instance W4H-6-M1, w00/ruling-proof-carry-over.txt)
 
