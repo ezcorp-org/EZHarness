@@ -1994,9 +1994,59 @@ smokes under the lock, detached-job wake-ups) are not repeated.
 - A "lost update" signature (fewer writes than calls) can be a stall, not a race: W4H-7's two task_add workers never raced. A test-helper
   trace of every reverse RPC showed the second write answered only when the deadline closed the other worker (the FIFO-pool stall W4H-6
   fixed). Trace the frames before you change a write path that already holds a row lock and a revision check.
-- Gate before the lock: a hold script checks the resource gate with no wait (`RESOURCE_GATE_MAX_WAIT_S=0`) and exits 75; the waiting
-  happens outside, in w00/gated-flock.sh. W4H-7's first loop waited ten minutes for disk inside the lock. A loop counts only the runs
-  it executed; a gate-skipped iteration is not a run.
 - A status check is answered with results (counts, file:line, cause, what is blocked), never only "queued".
 - A runner-shaped snapshot that a container bind-mounts goes outside the evidence dir, and is removed (with `podman unshare rm -rf`) the
   moment its last leg ends.
+
+### W4H, W10c and the wave4i run (2026-10-03 to 2026-10-05)
+
+#### Integrator (integrator-3)
+- A merge prep takes its trial tree from the tool that resolved the conflicts. prep.sh took merge-tree's raw tree while hook-map.sh had
+  built the docs-union tree, and the W4H-5 commit was refused twice ("staged tree differs"). Rule: one place computes the tree; the
+  prep reads it from there and stops on an empty value.
+- A gate that waits inside the heavy lock holds the lock for everyone. Rule (common.md "Gate before the lock"): wait for the resource
+  gate outside the lock; inside, check once without waiting and release at once on red (exit 75, re-queue). A released hold is VOID.
+  gated-flock.sh adds a start margin (104 GB, 2.5 GiB) so a hold does not start at the floor and void mid-run.
+  A loop counts only the runs it executed; a gate-skipped iteration is not a run (W4H-7's first loop waited ten minutes for disk
+  inside the lock).
+- A waiter's own end needs a waiter. My first gated-flock call gave up after its 4-hour bound at 05:42Z and nobody saw it until 14:34Z,
+  so the hold missed the 14:19Z green window. Rule: poll the waiter's output in the foreground too, and read every completion notice.
+- The exit file of a hold is written by the wrapper (GATED_FLOCK_EXIT_FILE), never by hand; the publish command runs alone on its line.
+  A permission classifier refused a hand-written exit file plus publish as a "blind apply"; the user then granted publish.sh by rule.
+- Read a script's usage before calling it, and pass absolute paths. One receipts call with the wrong first argument and a relative
+  sources path copied 56 untracked files into the receipts directory before it failed; they were removed after a tracked/identical check.
+- A package-base patch leg runs at the BRANCH HEAD, not at the merge commit: at the merge commit the merge-base with the package base is
+  the base itself, so the diff holds every integ change since then (W10c: two red files from W4H-5 and W4H-2).
+- Disk at the floor: compress receipted raw artifacts in place with a README per directory (original name, receipt sha256, gzip date,
+  .gz sha256) and remove rebuildable outputs that are not evidence; never touch another session's files. (2.4 GiB freed on 2026-10-04.)
+- Above the hook cap, a ruling to run every mapped file is applied with the hook's own EZ_PRECOMMIT_TEST_MAX for that one commit; nothing
+  is skipped and the refused attempt is kept.
+- A document that quotes a command it removes is not a command: the prune scan classes a prune subcommand in *.md as "candidate (doc file):
+  validator reads" (prune-scan.sh efffa0178530c74a), as it does for test files.
+
+#### Coordinator (team-lead)
+- When a wrapper replaces another, check the files its callers used to write: W4H-5's publish refused because heavy.exit was gone with the
+  old wrapper.
+- A permission denial is handed to the user as the exact command, never worked around; a peer's denied step is never run for it.
+- A carry-over ruling names the exact paths from the real diff, not a guessed directory (W4H-6-M1 amendment).
+- Running bash scripts are replaced with `mv` (atomic), never edited in place, and waiters are restarted to pick up the new text.
+- Commands handed to the user are zsh-safe: literal pid lists; `$P` does not split in zsh.
+
+#### Validators (validator-5, validator-6; their pending-lesson.md files)
+- Inside the heavy lock, check the resource gate once (GATE_TRIES=1) and exit 75 when it is red; never wait while you hold the lock.
+- Judge a test run by its counts ("N pass", "0 fail", the file's test count), not by "(pass)" lines: Bun 1.4.2 prints none when output is not a terminal.
+- Start nothing under a red gate, not even a 2-second diagnostic run.
+- Count a leg's own disk use (such as an install inside a container, about 6 GB) as its peak in the gate outside the lock, and make a snapshot only when the legs are about to run.
+- Refuse owner evidence whose head differs from the head under review: check the head each log ran at (the W4H-6 shard lists ran at an older head).
+- Keep hold snapshots outside /tmp/factory-platform-evidence (for example /tmp/v6-<pkg>-hold or /run/user/<uid>), copy only logs, lcov and results into the evidence dir, and delete the snapshot the moment the legs end.
+- Inside the heavy lock, check the resource gate once (GATE_TRIES=1) and stop on red; wait for the gate only outside the lock, through gated-flock with its start margin.
+- A type-level change needs a typecheck program that compiles its users: W4H-3b's type-only mutant (WorkflowStep.env dropped) survived because scripts/**/*.test.ts were in no program, until W4H-3c added them.
+- Record a load-sensitive timeout as a flake on the leftover list, with its time, limit and host load; rerun it once only to show the cause, never retry it into green without saying so.
+- A per-file leg counts tests, not exit codes: a file whose run executes zero tests (opt-in, all skipped) is VOID and is named, never counted as a pass.
+
+#### Owners (from w4h-5/pending-lesson.md)
+- Read the inbox before each report and before each new leg of work; when an order changes the plan (a split, a hold, a start word), stop
+  and follow it.
+- Runner homes and checkout snapshots live outside the evidence dir (/tmp/<pkg>-home-*/) or are removed after each run.
+- A public image you pulled (for example docker.io/pgvector/pgvector:pg15) is not your tag; leave public images in place. Only tags you
+  built (localhost/<pkg>-*) are yours to remove by name.

@@ -5649,7 +5649,7 @@ From the read-only plan audit (w00/wave4h/leftover-audit-plan.md, section D, ded
       proof; this also closes W09 L270/L271. Not deferred.
 - [ ] W19: freeze the workload; run the capacity experiment, the 26.5 h local campaign, the fault matrix, and 1 and 10 concurrent
       10,000-node runs. Not deferred.
-- [ ] W10/W11/W13: provision the model provider credential; run the real generator, supervised review, image semantic quorum and actual
+- [ ] W10/W11/W13: provision the model provider credential; run the real generator, supervised review, image semantic quorum and actual Note (wave4i): the credential and the pin landed with W10c (openai gpt-6-luna, OAuth; merge 49dbcc562); still open: W10 G27, G8c and G8d.
       usage. Not deferred (recorded readiness failure).
 - [ ] W10/W13: real code and catalog journeys through the started app to a draft PR with actual child bytes (W10 G27). Not deferred.
 - [ ] W20: freeze the candidate, run full regression at the final head, area-separated review, F01–F13 evidence manifest, close
@@ -5788,3 +5788,43 @@ with 32 CPUs needs 16. The supervisor test hid a second defect: it never attache
 Review: W4H-7 changes no product or test file. The write path was already serialised (host row lock through withLock, FOR UPDATE and a
 revision check). The two red lanes are the worker-channel stall that W4H-6 fixes, so W4H-7 merges after W4H-6 and carries only its
 evidence and gates.
+
+## W4H — hosted CI 37138524741 follow-up packages (landing records)
+
+- [x] Hosted CI 37138524741 at 52d8ba079 failed 20 jobs against the baseline's 26; the causes were routed to W4H-1..9.
+- [x] Landings (merge / receipts; verdicts under docs/validation/factory/wave4/, prefix <pkg>-merge):
+      W4H-2 66decce3e / b296e70ab; W4H-5 a9088b2c6 / 3a7aad76c; W4H-3 5f7722ae1 / edd373c59; W10c 49dbcc562 / 2510fa836;
+      W4H-1 daf2aa776 / 36ece5b99 (side finding 2 -> W4H-9; amendment 96c96029e); W4H-3b 536b8ae42 / a5b0866e0; W4H-3c 392dac7dd / 104cb2237;
+      W4H-6 463837a12 / 798c2935e (amendment 87e1e197c); W4H-8 5b8d5556f / 9ede86fd1 (amendments 60f8fcaa9, e87f3804e);
+      W4H-4 20c3f0641 / 645406221 (red merge hold f38f3db4e, fix 5bdbecd3c); W4H-7 8221bec84 / f07f1ed63 (docs only);
+      W4H-9 (side finding 2: runner pre-attach compatibility) 4550c2f66 / 2808ff324 (amendments da78aab05, a5c5afebe:
+      R3d closed locally by validator-6; the hosted historical-upgrade lane is still expected green).
+- [x] W10c: the C10 contract revision by the user's decision (2026-10-03): factory pin claude-haiku-4-5-20251001 -> openai gpt-6-luna under the
+      Codex OAuth credential; R8 journey receipt 1b15abdcad386e5a...; W10 G27, G8c and G8d stay open.
+- [x] wave4i combined run at 98c59f562: green (runner 38 legs, 48893 tests; after-runner and browser part green; final gates vs origin/main green, gate-integrity = the 8 expected lines; extra pass vs 1992630f3 green); receipts f1bee005a.
+
+## Leftover after wave 4i — 2026-10-05
+
+Changed:
+- [ ] W10/W11/W13 provider line: the credential and the pin landed with W10c (gpt-6-luna, OAuth); still open: W10 G27 (real code and catalog
+      journeys to a draft PR with actual child bytes), G8c and G8d.
+
+Added (w00/wave4h/leftover-additions.md, coordinator 2026-10-04, and the W4H merges):
+- [ ] Patch gate scope: new-file and patch gates measure src/ and packages/ only; scripts/ is outside (W4H-3: setup-factory-python-base.ts
+      measured 0 files, coverage shown by validator-5 instead). Decide whether scripts/ joins the gate's scope.
+- [ ] Load-sensitive test: factory-sdk schema-generation test (7.1 s against 5 s under load; rerun 246/0). Make it load-independent.
+- [ ] Load-sensitive test: src/__tests__/marketplace-search-perf.test.ts asserts wall-clock < 10 ms (10.497 ms under load). Make it
+      load-independent; review the shard script's "isolated plain re-run" tolerance.
+- [ ] Shard container shape: the local hosted-shard container lacks node and the python data image pull (W4H-6 list 7).
+- [x] W4H-1 side finding 2, cause named: the branch runner service requires /v4/attach before /v4/events (11b9f72b9), so previous-release
+      hosts fail historical-upgrade with operation_failed. Fixed by W4H-9 4550c2f66 / 2808ff324 (closed).
+- [x] W4H-1 production-image proofs: closed by validator-6's addendum (49813b3b9dbc8293; runtime-resources green at d341d8690,
+      28/28 verified; receipt amendment 96c96029e).
+- [ ] Data image registry publication by digest: the user's decision; only then does the reference-data journey suite return to the hosted
+      shards.
+- [ ] Lane manifest hardening (W4H-4, validator-6's limit): refuse any --bound-tests list line that is not an existing *.test.ts file;
+      today a fake bun lying about its version, with no real pinned bun in ~/.bun/bin or EZCORP_PINNED_BUN_DIR, would be trusted.
+- [ ] The legacy-adoption proof calls docker directly; the podman lane cannot run it. (Not in the carried wave4h list: one box, added here.)
+- [x] Hook noise: scripts/lib/hook-lib.sh "printf: Broken pipe" (grep -q early close) was fixed by W4H-3 (491b7cc22): 8 lines in the
+      W4H-5 hook log, 0 in every hook log from the W4H-3 merge on (W4H-3, W10c, W4H-1, W4H-3b, W4H-3c).
+- [x] W4H-3c: scripts/**/*.test.ts join the CI typecheck program (merged 392dac7dd).
