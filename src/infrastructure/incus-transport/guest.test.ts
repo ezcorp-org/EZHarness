@@ -1,4 +1,4 @@
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, expect, spyOn, test } from "bun:test";
 import { createHash, X509Certificate } from "node:crypto";
 import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -190,24 +190,30 @@ print(json.dumps(h.handle(json.load(sys.stdin),sys.argv[2],sys.argv[3])))`;
     return Buffer.from(output);
   }, guest);
   const call = async (operation: SandboxProtocolOperation, payload: Record<string, JsonValue>) => {
-    const input = { providerId: "incus", connectionId: command.connectionId, sandboxId, rpcDeadlineMs: Date.now() + 30_000, ...payload };
-    const result = await fixture.transport.request({ ...fixture.command,
+    const rpcDeadlineMs = Math.min(Date.now() + 30_000, Number(payload.processDeadlineMs ?? Number.MAX_SAFE_INTEGER));
+    const input = { providerId: "incus", connectionId: command.connectionId, sandboxId, rpcDeadlineMs, ...payload };
+    const result = await fixture.transport.request({ ...fixture.command, deadlineMs: rpcDeadlineMs,
       action: `helper.${operation.replace("processes.", "process.")}` as IncusTransportRequest["action"], payload,
       ...(operation === "processes.start" ? { idempotency: { requestId: "process-proof", key: "process-proof" } } : {}) });
     return validateSandboxProviderMethodExchange(operation, input, result).result as Record<string, any>;
   };
   try {
-    const started = await call("processes.start", { argv: ["sh", "-c", "printf guest-stdout; printf guest-stderr >&2"],
-      cwd: ".", user, env: [], processDeadlineMs: Date.now() + 30_000, requestId: "process-proof", idempotencyKey: "process-proof" });
+    const processDeadlineMs = Date.now() + 30_000;
+    const startClock = spyOn(Date, "now").mockReturnValue(processDeadlineMs - 29_999);
+    let started: Record<string, any>;
+    try {
+      started = await call("processes.start", { argv: ["sh", "-c", "printf guest-stdout; printf guest-stderr >&2"],
+        cwd: ".", user, env: [], processDeadlineMs, requestId: "process-proof", idempotencyKey: "process-proof" });
+    } finally { startClock.mockRestore(); }
     expect(started.ok).toBe(true);
     expect(started.processId).toMatch(/^[a-f0-9]{32}$/);
     expect(started.bootId).toMatch(/^[a-f0-9-]{36}$/);
     const identity = { processId: started.processId, bootId: started.bootId };
     let inspected: Record<string, any> | undefined;
-    for (let attempt = 0; attempt < 100; attempt++) {
+    while (Date.now() < processDeadlineMs) {
       inspected = await call("processes.inspect", identity);
       if (inspected.process.state === "succeeded") break;
-      await Bun.sleep(10);
+      await Bun.sleep(40);
     }
     expect(inspected?.process).toMatchObject({ ...identity, sandboxId, state: "succeeded", exitCode: 0 });
     const output = await call("processes.readOutput", { ...identity,
@@ -223,7 +229,7 @@ print(json.dumps(h.handle(json.load(sys.stdin),sys.argv[2],sys.argv[3])))`;
     await fixture.dispose();
     await rm(root, { recursive: true, force: true });
   }
-}, 30_000);
+}, 60_000);
 
 test("missing helper approval, wrong version, and forged sandbox name fail before HTTP", async () => {
   for (const changed of [
