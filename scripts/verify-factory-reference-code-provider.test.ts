@@ -37,8 +37,8 @@ function capture() {
 }
 
 describe("the reference code provider probe", () => {
-  test("pins the reviewed C10 revision: openai gpt-6-luna", () => {
-    expect(REFERENCE_CODE_MODEL_PIN).toEqual({ provider: "openai", model: "gpt-6-luna" });
+  test("pins the reviewed C10 revision: openai gpt-6-luna on the OAuth login only", () => {
+    expect(REFERENCE_CODE_MODEL_PIN).toEqual({ provider: "openai", model: "gpt-6-luna", credentialKind: "oauth" });
     expect(Object.isFrozen(REFERENCE_CODE_MODEL_PIN)).toBe(true);
   });
 
@@ -48,9 +48,23 @@ describe("the reference code provider probe", () => {
     const { log, lines } = capture();
     expect(await runReferenceCodeProviderCheck({ evidencePath, log, env: MEMORY })).toBe(0);
     const record = JSON.parse(readFileSync(evidencePath, "utf8")) as Record<string, unknown>;
-    expect(record).toMatchObject({ provider: "openai", model: "gpt-6-luna", ready: true, credentialKind: "oauth", failures: [] });
+    expect(record).toMatchObject({ provider: "openai", model: "gpt-6-luna", ready: true, credentialKind: "oauth", requiredCredentialKind: "oauth", failures: [] });
     expect(readFileSync(evidencePath, "utf8")).not.toContain(OAUTH_TOKEN);
     expect(lines.join("\n")).not.toContain(OAUTH_TOKEN);
+  });
+
+  test("names the required kind on a deployment that holds only an API key", async () => {
+    const apiKey = "fixture-api-key";
+    await upsertSetting("provider:apiKey:openai", encrypt(apiKey));
+    try {
+      const evidencePath = join(scratch, "key-only.json");
+      const { log, lines } = capture();
+      expect(await runReferenceCodeProviderCheck({ evidencePath, log, env: MEMORY })).not.toBe(0);
+      expect(JSON.parse(readFileSync(evidencePath, "utf8"))).toMatchObject({ ready: false, credentialKind: "apikey", requiredCredentialKind: "oauth", failures: ["credential_kind_required"] });
+      expect(readFileSync(evidencePath, "utf8") + lines.join("\n")).not.toContain(apiKey);
+    } finally {
+      await deleteSetting("provider:apiKey:openai");
+    }
   });
 
   test("names the missing credential, and only that, on a deployment with no login", async () => {

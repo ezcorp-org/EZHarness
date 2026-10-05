@@ -17,6 +17,7 @@
  * the checkout. The record names the store's KIND and whether it opened, never a path or a URL.
  */
 import { writeFile } from "node:fs/promises";
+import { referenceModelPin } from "@ezcorp/factory-sdk";
 import { closeDb, initDb } from "../src/db/connection.ts";
 import { getSetting } from "../src/db/queries/settings.ts";
 import {
@@ -27,10 +28,8 @@ import {
   type FactoryProviderReadinessFailure,
 } from "../src/providers/factory-broker.ts";
 
-export const REFERENCE_CODE_MODEL_PIN: FactoryProviderPin = Object.freeze({
-  provider: "openai",
-  model: "gpt-6-luna",
-});
+/** The C10 pin, read from the reference definitions' own module rather than restated here. */
+export const REFERENCE_CODE_MODEL_PIN: FactoryProviderPin = referenceModelPin;
 
 type Environment = Readonly<Record<string, string | undefined>>;
 

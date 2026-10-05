@@ -3,19 +3,23 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Agent } from "@earendil-works/pi-agent-core";
-import type { AssistantMessage, AssistantMessageEventStream, Model } from "@earendil-works/pi-ai";
+import { type AssistantMessage, type AssistantMessageEventStream, type Model, normalizeContext } from "@earendil-works/pi-ai";
 import { buildPiAgent } from "./stream-chat/build-pi-agent";
 import { createStreamChatContext } from "./stream-chat/context";
 import { runWithFailover } from "./stream-chat/failover";
 import { resolveModelTierAndCredential } from "./stream-chat/setup-tools";
 import { AgentExecutor } from "./executor";
 import {
+
   assertFactoryExecutionContext,
   createFactoryAgentRuntime,
   type FactoryBrokerRequest,
   type FactoryExecutionContext,
   type FactoryOperationResult,
 } from "./factory-execution";
+
+// Pi 0.87.1 streams take a normalized transcript; an empty prompt, no messages and no tools.
+const EMPTY_CONTEXT = normalizeContext({ systemPrompt: "", messages: [], tools: [] });
 
 const temporaryDirectories: string[] = [];
 
@@ -143,9 +147,9 @@ test("factory transport fails closed before a broker call on abort, host key, mi
   const controller = new AbortController();
   controller.abort();
 
-  await expect(runtime.streamFn(model, { systemPrompt: "", messages: [], tools: [] }, { signal: controller.signal } as any)).rejects.toThrow("aborted");
-  await expect(runtime.streamFn(model, { systemPrompt: "", messages: [], tools: [] }, { apiKey: "host-secret" } as any)).rejects.toThrow("rejects host API keys");
-  await expect(runtime.streamFn(model, { systemPrompt: "", messages: [], tools: [] }, { toolChoice: "auto", reasoning: "low", deferred: true, thinkingBudgets: { low: 10 } } as any)).rejects.toThrow("journal unavailable");
+  await expect(runtime.streamFn(model, EMPTY_CONTEXT, { signal: controller.signal } as any)).rejects.toThrow("aborted");
+  await expect(runtime.streamFn(model, EMPTY_CONTEXT, { apiKey: "host-secret" } as any)).rejects.toThrow("rejects host API keys");
+  await expect(runtime.streamFn(model, EMPTY_CONTEXT, { toolChoice: "auto", reasoning: "low", deferred: true, thinkingBudgets: { low: 10 } } as any)).rejects.toThrow("journal unavailable");
   expect(brokerCalls).toBe(0);
   await expect(runtime.afterToolCall({ toolCall: { id: "missing" }, result: { content: [] }, isError: false } as any)).rejects.toThrow("no prepared journal");
   expect(() => assertFactoryExecutionContext({ ...execution, journal: { ...execution.journal, checkpointWorkspace: undefined } } as any)).toThrow("all durable journal hooks");
@@ -185,13 +189,13 @@ test("factory records failed broker and stream results without retrying the prov
     { after: async (operation) => { recorded.push(operation); } },
   );
   const runtime = createFactoryAgentRuntime(execution);
-  await expect(runtime.streamFn(model, { systemPrompt: "", messages: [], tools: [] }, {})).rejects.toThrow("broker unavailable");
+  await expect(runtime.streamFn(model, EMPTY_CONTEXT, {})).rejects.toThrow("broker unavailable");
 
   execution.broker.stream = async () => ({
     async *[Symbol.asyncIterator]() { yield await Promise.reject(new Error("stream broke")); },
     async result() { throw new Error("result broke"); },
   } as unknown as AssistantMessageEventStream);
-  const broken = await runtime.streamFn(model, { systemPrompt: "", messages: [], tools: [] }, {});
+  const broken = await runtime.streamFn(model, EMPTY_CONTEXT, {});
   await expect((async () => { for await (const _event of broken) { /* stream is expected to reject */ } })()).rejects.toThrow("stream broke");
   await expect(broken.result()).rejects.toThrow("result broke");
 
@@ -212,7 +216,7 @@ test("a rejected durable stream settlement rejects every concurrent result calle
     },
   });
   const runtime = createFactoryAgentRuntime(execution);
-  const stream = await runtime.streamFn(model, { systemPrompt: "", messages: [], tools: [] }, {});
+  const stream = await runtime.streamFn(model, EMPTY_CONTEXT, {});
   const first = stream.result();
   const second = stream.result();
   const results = await Promise.allSettled([first, second]);
@@ -230,14 +234,14 @@ test("factory rejects non-JSON broker payloads and exhausted operation indexes b
     before: async () => { beforeCalls += 1; },
   });
   const runtime = createFactoryAgentRuntime(execution);
-  await expect(runtime.streamFn({ ...model, invalid: () => undefined } as any, { systemPrompt: "", messages: [], tools: [] }, {})).rejects.toThrow("non-JSON");
+  await expect(runtime.streamFn({ ...model, invalid: () => undefined } as any, EMPTY_CONTEXT, {})).rejects.toThrow("non-JSON");
   expect(beforeCalls).toBe(0);
 
   const exhausted = createFactoryAgentRuntime({
     ...execution,
     attempt: { ...execution.attempt, nextOperationIndex: Number.MAX_SAFE_INTEGER },
   });
-  await expect(exhausted.streamFn(model, { systemPrompt: "", messages: [], tools: [] }, {})).rejects.toThrow("index is exhausted");
+  await expect(exhausted.streamFn(model, EMPTY_CONTEXT, {})).rejects.toThrow("index is exhausted");
   expect(beforeCalls).toBe(0);
 });
 

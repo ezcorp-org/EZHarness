@@ -70,21 +70,8 @@ const LOCAL_OAUTH_OVERRIDES: AnyModel[] = [
     contextWindow: 272_000,
     maxTokens: 128_000,
   },
-  // The factory's reference model (C10 revision W10c, 2026-10-03). The Codex
-  // catalog on the host lists it; pi-ai 0.85.1 does not. Values follow its
-  // Codex siblings in pi-ai's openai-codex.json (272k window, 128k output).
-  {
-    id: "gpt-6-luna",
-    name: "GPT-6 Luna",
-    api: "openai-codex-responses",
-    provider: "openai-codex",
-    baseUrl: "https://chatgpt.com/backend-api",
-    reasoning: true,
-    input: ["text", "image"],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 272_000,
-    maxTokens: 128_000,
-  },
+  // gpt-6-luna (the C10 pin, W10c) needs no entry: pi-ai 0.87.1's
+  // openai-codex catalog ships it, and the catalog wins in resolveOAuthModel.
 ];
 
 // Load discovered models from settings (populated by /api/providers/:provider/refresh-models).

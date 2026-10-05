@@ -55,6 +55,15 @@ const noRemediation = { kind: "literal" as const, value: "" };
  */
 const referenceModel = "gpt-6-luna";
 
+/**
+ * The C10 pin as the host's provider broker takes it: the provider, the model, and the credential
+ * kind the user's decision requires. W10c chose the ChatGPT-plan OAuth login ("use our Codex account
+ * cheaply"); since pi-ai 0.87.1 the api-key catalog also serves gpt-6-luna, so the model alone no
+ * longer keeps an API key (and API billing) away, and the pin states the kind instead. The
+ * definitions name only the model, so their digests do not move with this requirement.
+ */
+export const referenceModelPin = Object.freeze({ provider: "openai", model: referenceModel, credentialKind: "oauth" } as const);
+
 function runner(packageName: string, exportName: string, hex: string, model?: string): RunnerReference {
   let packageCode = 0;
   for (const character of packageName) packageCode = (packageCode + character.charCodeAt(0)) % 6;

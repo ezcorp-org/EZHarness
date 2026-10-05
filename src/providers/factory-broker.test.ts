@@ -6,6 +6,8 @@ mockDbConnection();
 
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 import type { Api, AssistantMessage, Model } from "@earendil-works/pi-ai";
+import { getModel } from "@earendil-works/pi-ai/compat";
+import { referenceModelPin } from "@ezcorp/factory-sdk";
 import type { FactoryBrokerRequest } from "../runtime/factory-execution";
 import {
   createFactoryProviderBroker,
@@ -223,7 +225,8 @@ describe("a local model the operator registered", () => {
 });
 
 describe("the openai pin under a ChatGPT-plan OAuth login (C10 revision, W10c)", () => {
-  const LUNA: FactoryProviderPin = { provider: "openai", model: "gpt-6-luna" };
+  // The C10 pin itself, so these cases test the pin the reference factories run.
+  const LUNA: FactoryProviderPin = referenceModelPin;
   const OAUTH_TOKEN = "fixture-oauth-token";
   const API_KEY = "fixture-api-key";
   const API_KEY_SETTING = "provider:apiKey:openai";
@@ -262,6 +265,7 @@ describe("the openai pin under a ChatGPT-plan OAuth login (C10 revision, W10c)",
       model: "gpt-6-luna",
       ready: true,
       credentialKind: "oauth",
+      requiredCredentialKind: "oauth",
       failures: [],
       checkedAtMs: NOW,
     });
@@ -350,17 +354,32 @@ describe("the openai pin under a ChatGPT-plan OAuth login (C10 revision, W10c)",
     expect(viaKey[0]!.options.apiKey).toBe(API_KEY);
   });
 
-  test("an API key alone cannot run the subscription-only pin: named as unavailable, never sent", async () => {
-    // gpt-6-luna exists only behind the ChatGPT login; an API key at that endpoint is refused.
+  test("an API key alone cannot run the OAuth-only pin: refused by name, never sent", async () => {
+    // Since pi-ai 0.87.1 the api-key catalog serves gpt-6-luna too, so the model no longer keeps a
+    // key off the public endpoint. The pin's required credential kind does: C10 runs on the
+    // ChatGPT-plan login (W10c, the user's decision), never on API billing.
+    expect(getModel("openai" as never, LUNA.model as never)).toBeDefined();
     await upsertSetting(API_KEY_SETTING, encrypt(API_KEY));
-    const readiness = await factoryProviderReadiness(LUNA, { now: () => NOW });
-    expect(readiness).toMatchObject({ ready: false, credentialKind: "apikey", failures: ["model_not_available"] });
+    expect(await factoryProviderReadiness(LUNA, { now: () => NOW })).toMatchObject({ ready: false, credentialKind: "apikey", requiredCredentialKind: "oauth", failures: ["credential_kind_required"] });
     const sent: Array<{ model: Model<Api>; options: { apiKey?: string } }> = [];
     const broker = createFactoryProviderBroker({ pin: LUNA, stream: capturing(sent) });
-    await expect(broker.stream(request({ model: model(LUNA.provider, LUNA.model) }))).rejects.toThrow(/gpt-6-luna \(model_not_available\)/);
+    await expect(broker.stream(request({ model: model(LUNA.provider, LUNA.model) }))).rejects.toThrow(/gpt-6-luna \(credential_kind_required\)/);
     expect(sent).toHaveLength(0);
-    // A model both endpoints serve stays runnable on the key.
-    expect(await factoryProviderReadiness({ provider: "openai", model: "gpt-5.5" }, { now: () => NOW })).toMatchObject({ ready: true, credentialKind: "apikey" });
+    // The requirement is the pin's, not the model's: a pin that names no kind still runs on the key.
+    expect(await factoryProviderReadiness({ provider: LUNA.provider, model: LUNA.model }, { now: () => NOW })).toMatchObject({ ready: true, credentialKind: "apikey", failures: [] });
+  });
+
+  test("an API key that replaces the login between readiness and the call is refused at call time, never sent", async () => {
+    let reads = 0;
+    const sent: Array<{ model: Model<Api>; options: { apiKey?: string } }> = [];
+    const broker = createFactoryProviderBroker({
+      pin: LUNA,
+      resolveCredential: async () => { reads += 1; return reads === 1 ? { type: "oauth", token: OAUTH_TOKEN } : { type: "apikey", token: API_KEY }; },
+      stream: capturing(sent),
+    });
+    await expect(broker.stream(request({ model: model(LUNA.provider, LUNA.model) }))).rejects.toThrow(/gpt-6-luna \(credential_kind_required\)/);
+    expect(reads).toBe(2);
+    expect(sent).toHaveLength(0);
   });
 
   test("a login that disappears between readiness and the call is refused, not sent unauthenticated", async () => {

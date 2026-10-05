@@ -13,7 +13,7 @@ export { FactoryParseError, parseFactoryJson, parseFactoryYaml, parseIJson, pars
 export { compileFactory, createCompiledExecutionManifest, createCompiledPartitionArtifact, factoryRunnerRequestDigest, factoryRunnerRequestIdentity, verifyCompiledFactoryArtifact } from "./compiler.js";
 export type { CompiledFactoryPageBytes } from "./compiler.js";
 export { defineFactory, FactoryAuthoringError } from "./authoring.js";
-export { manifestNameOf, referenceCatalogV1, referenceCodeV1, referenceDataV1, referenceFactories, referenceImageV1 } from "./references.js";
+export { manifestNameOf, referenceCatalogV1, referenceCodeV1, referenceDataV1, referenceFactories, referenceImageV1, referenceModelPin } from "./references.js";
 export { assertFactoryChildAcceptanceResult, FactoryChildAcceptanceError, factoryChildAcceptancePortSchema, factoryChildAcceptanceResult, FACTORY_CHILD_ACCEPTANCE_SCHEMA_VERSION } from "./child-acceptance.js";
 export type { FactoryChildAcceptanceResult } from "./child-acceptance.js";
 export { factoryGraphNodes, firstValidationIssue, isManifestName, isSchemaContained, resolveSchemaReference, validateCompiledExecutionManifest, validateCompiledFactory, validateCompiledPartitionArtifact, validateFactoryApiRequest, validateFactoryApiResponse, isFactoryGuestMaterialFrame, validateFactoryGuestMaterialRequest, validateFactoryGuestMaterialResponse, validateFactoryGuestModelRequest, validateFactoryGuestModelResponse, validateFactoryRunnerRequest, validateFactoryRunnerResult, validateFactoryValidatorClaimReport, validateFactoryValidatorReport, validatePortSchema, validateValue, validateDurableInputPorts } from "./validation.js";
