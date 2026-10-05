@@ -68,6 +68,13 @@
     "accounting": [
       "/REPLACE-WITH-REVIEWED-HOOK",
       "accounting"
+    ],
+    "destroy": [
+      "/REPLACE-WITH-REVIEWED-HOOK",
+      "destroy"
     ]
-  }
+  },
+  "faultCycles": [
+    10
+  ]
 }

@@ -4,7 +4,8 @@ import { join } from "node:path";
 
 for (const filename of ["incus-qualification-supervisor.test.py",
   "incus-qualification-supervisor-fault.test.py",
-  "incus-qualification-fault-authorize.test.py"]) test(filename, async () => {
+  "incus-qualification-fault-authorize.test.py",
+  "final-flow-cycle.test.py"]) test(filename, async () => {
   const result = await new Promise<{ code: number | null; stderr: string; timedOut: boolean }>((resolve, reject) => {
     const child = spawn("python3", [join(import.meta.dir, filename)], { detached: true, stdio: ["ignore", "ignore", "pipe"] });
     let stderr = "";

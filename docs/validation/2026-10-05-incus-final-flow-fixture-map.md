@@ -189,9 +189,18 @@ Run its offline tests with:
 
 ```sh
 python3 scripts/incus/final-flow-cycle.test.py
+PATH=/home/dev/.bun/bin:$PATH bun test --timeout 30000 ./scripts/incus/incus-qualification-supervisor.test.ts
 ```
 
-For a reviewed hook configuration, the reusable command is:
+The Python test entrypoint enforces 100% executable statement coverage through
+stdlib `trace` and the compiled source's line table. It fails on a missed line.
+The existing Bun wrapper includes this entrypoint and is already discovered
+by the backend pass/fail and coverage test pools. No gate file or threshold
+exception is needed. This Python coverage is separate from Bun's JS lcov.
+
+Copy `scripts/incus/final-flow-cycle.config.example.json` into a private
+directory and replace its placeholders with reviewed hooks and identities.
+For that reviewed hook configuration, the reusable command is:
 
 ```sh
 python3 scripts/incus/final-flow-cycle.py \
@@ -200,7 +209,10 @@ python3 scripts/incus/final-flow-cycle.py \
 ```
 
 The config has exactly `sequenceId`, `sourceCommit`, `bundleSha256`, `cycles`
-(1–10), `timeoutSeconds` (1–1800), and `hooks` (one argv array for every phase).
+(1–10), `timeoutSeconds` (1–1800), `faultCycles`, and `hooks` (one argv array
+for every phase). `faultCycles` selects distinct cycles from 2 onward. Cycle
+one must use ordinary DESTROY. A ten-cycle sequence must include at least one
+selected cleanup-failure/recovery cycle. The example selects cycle ten.
 The executable path must be absolute. Do not put credentials in argv. The
 output parent must exist. The output directory must not exist: this prevents
 replay after either success or interruption. Its mode is 0700.
@@ -213,22 +225,33 @@ exact fields `requestId`, `cycle`, `phase`, `state`, `identity`, `checks`, and
 passed; for `cleanup_fault` those checks establish a known failed operation,
 not a successful DESTROY. Required checks are listed in the driver's `CHECKS`.
 Every check must be the JSON boolean true. Artifact entries contain an actual
-local `path` and its `sha256`; the coordinator reads and verifies their bytes.
+local `path` and its `sha256`; hooks must copy observed receipts below this
+run's private output root. The coordinator rejects path escape, symlinks at
+any path component, special files, files larger than 16 MiB, and more than 32
+artifact entries. It streams bytes to verify hashes.
 Receipts must be no larger than 64 KiB. Identity is empty before create and
 then contains exactly projectId, bindingId, workspaceId and instanceName.
-Every later phase must return the same identity within that cycle.
+Every later phase must return the same identity within that cycle. All four
+identity fields must be fresh across cycles.
 
 The coordinator saves the exact request and ADMITTED journal step before
-invoking a hook. A failed, timed-out, unknown, malformed or mismatched result
+invoking a hook. It fsyncs published files and their directories, including
+the initial output directory's parent before dispatch. A failed, timed-out,
+unknown, malformed or mismatched result
 blocks the sequence. It issues no automatic cleanup or replay. The unresolved
 request remains available for the owner's saved-state inspection. Hook stdout
 and stderr remain private; the public failure message contains no diagnostics.
-Hooks must bound their own child processes and external requests. Killing or
+Every hook starts in a new process group. The coordinator kills that group on
+normal exit, timeout or interruption, then reaps the direct child. Hooks must
+not detach descendants from that group. Hooks must bound external requests.
+Killing or
 timing out a hook does not prove that a remote effect stopped. Each hook must
 collect the real saved operation and independent observations, not manufacture
 success from its checks. Offline tests prove coordinator behavior only.
 
-All phases run in every cycle, including negative and cleanup-recovery cases.
+Every cycle runs negative checks and the full work/retain/restart workflow.
+Ordinary cycles use `destroy`; selected fault cycles use `cleanup_fault` and
+`recover_cleanup`. Both paths then require independent absence and accounting.
 The owner must first supply a supported known-failure capability for a user
 project. The existing qualification lost-reply fault is not that capability.
 Changing this schedule or hook contract requires review before live use.
