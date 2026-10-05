@@ -91,5 +91,20 @@ The supplied login failed for both the supplied email and the isolated app's
 recorded test-account email. No password reset or session insertion occurred.
 Correct credentials or a separately reviewed supported reset are still needed.
 
+Qualification expiry alone does not require a new release or approval. Normal
+activation checks the stored evidence in integrity mode, reruns qualification
+against the same immutable release and artifact, and requires the fresh report
+to pass. Active release, generation and policy must still match.
+
+## Current repository checks
+
+The fast local gate completed with exit zero: 27,520 backend/example tests,
+3,638 web unit tests and 7,724 component tests passed, along with lint,
+type/Svelte checks, dependency/gate checks and production build. This run
+started at `8e9b65790`; the only later executable change was the child signal
+fix in `d964cbfc4`, whose complete wrapper was separately rerun with four
+passes and zero failures. Later commits contain records only. Do not describe
+this as a new full coverage or live E2E run: fast mode skips those gates.
+
 This qualification can run before merge. Required pull-request review, exact
 provider activation approval and live release evidence remain separate gates.
