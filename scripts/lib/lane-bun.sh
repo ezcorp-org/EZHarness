@@ -34,3 +34,22 @@ lane_bun_pin() {
   [ "$status" -ne 0 ] || echo "lane Bun: ${record[0]}, ${record[1]}" >&2
   return "$status"
 }
+
+# pinned_bun_binary prints the path of a `bun` whose --version equals .bun-version, and leaves PATH alone. It looks
+# in EZCORP_PINNED_BUN_DIR, then ~/.bun/bin, then each PATH entry in order. Repository tooling that must not run under a
+# substitute calls the binary it prints. Examples of a substitute: a test's fake `bun` first on PATH, or a stale system Bun.
+# The lane manifest lookup in scripts/lib/test-file-sets.sh is one such caller. It fails by name when no candidate matches.
+pinned_bun_binary() {
+  local root want dir IFS=:
+  root="${BASH_SOURCE[0]%/*}/../.."
+  read -r want < "$root/.bun-version" || true
+  want="${want//[[:space:]]/}"
+  for dir in "${EZCORP_PINNED_BUN_DIR:-}" "${HOME:-}/.bun/bin" $PATH; do
+    if [ -n "$dir" ] && [ -x "$dir/bun" ] && [ "$("$dir/bun" --version 2>/dev/null)" = "$want" ]; then
+      printf '%s\n' "$dir/bun"
+      return 0
+    fi
+  done
+  echo "pinned Bun: no bun $want in EZCORP_PINNED_BUN_DIR, ~/.bun/bin or PATH (.bun-version pins $want)" >&2
+  return 1
+}

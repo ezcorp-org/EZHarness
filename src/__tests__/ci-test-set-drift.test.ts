@@ -8,6 +8,7 @@
  *   - C  (coverage_host_files)   — the cov-shard host pool
  *   - CRIT (critical_backend_files) — the `backend-critical` job
  *   - the cov-extras legs        — suggest / sdk / harness-client / ai-kit
+ *   - LANE (lane_bound_test_files) — the self-hosted lane jobs, from the lane manifest
  *
  * All definitions live in scripts/lib/test-file-sets.sh — this test shells
  * out to the SAME functions the CI runners source, so it can never check a
@@ -42,6 +43,8 @@ const SET_FUNCTIONS = [
   "harness_client_leg_files",
   "aikit_leg_files",
   "factory_orchestrator_test_files",
+  // Run only by their self-hosted lane job (scripts/run-factory-lane-tests.sh).
+  "lane_bound_test_files",
 ] as const;
 
 /**

@@ -61,6 +61,7 @@ export const CI_TEST_SET_FUNCTIONS = [
   "security_test_files",
   "web_bunleg_files",
   "residual_passfail_files",
+  "lane_bound_test_files",
 ] as const;
 
 /** Trees that hold test files for gated sources. */
