@@ -624,3 +624,8 @@
   live SSH key, address, user and command before claiming a recovery route works.
   Check that the route remains usable while its target user slice is frozen;
   passwordless sudo alone does not provide an independent recovery path.
+- Check exact runner-marker metadata and every restore precondition before a
+  recovery lease starts. Run deterministic checks in one bounded procedure;
+  avoid spending its safety margin on separate model/tool round trips. Keep
+  an independent proof review before revocation or signed admission. A missed
+  margin means abort and restore, never extend or rebind the consumed lease.

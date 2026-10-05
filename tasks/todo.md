@@ -2913,8 +2913,9 @@ before arming its ten-minute lease. No repeated approval is needed within that p
 - [x] Reproduce the coordinator's rejection of truthful virtual-workspace absence evidence.
 - [x] Add an explicit routing-proof variant; retain the existing host-canary contract.
 - [x] Verify both variants, refusal cases, and independent review before committing.
-- [ ] Complete the approved recovery, restoration, thaw, and temporary-key removal.
-- [ ] Install the reviewed diagnostic candidate after recovery, then run one informative qualification.
+- [x] Close the approved attempt safely; independently verify restoration, thaw, and temporary-key removal.
+- [ ] Prepare and review a new exact recovery attempt; the original stopped UNKNOWN remains preserved.
+- [ ] Install the reviewed diagnostic candidate with explicit preserved-UNKNOWN checks, then run one informative qualification.
 
 Review so far: candidate `c07ed31e5` passed build, bundle verification, source
 comparison, 27,583 backend tests, 3,638 web unit tests, and the 283-test browser
@@ -2924,3 +2925,29 @@ Coordinator review: the actual subprocess absence regression failed before the
 fix. All 18 Python tests then passed with 222/222 executable statements covered.
 The supported Bun wrapper passed all four Python suites. Independent Sol review,
 JSON lint, and whitespace checks passed. No gate or existing proof was weakened.
+
+### Recovery closure and remaining product work
+
+The approved temporary-access attempt ended SAFE_ABORT before certificate
+revocation, signing, or recovery admission. The final clock check left less
+time than the required margin. Receipts 151–153 and independent review confirm
+the key is removed, the server user is thawed, the original certificate is
+unchanged, and source `5080f3792` is healthy. The c7 START is still UNKNOWN;
+its guest is still STOPPED. No cleanup success is claimed.
+
+- [ ] Resolve the existing runner marker's exact metadata in local preparation.
+- [ ] Batch deterministic recovery checks before starting a new bounded lease.
+- [ ] Reproduce and fix normal recovery of a confirmed native failed DELETE.
+- [ ] Expose that bounded recovery through the existing management UI and test it.
+- [ ] Complete full source gates; investigate raw coverage-pool timeouts.
+- [ ] Prove the normal UI/native-agent workflow and ten live lifecycle cycles.
+
+The cleanup regression now fails through the actual feature service and
+controller: a native protected DELETE produces FAILED/INTERNAL with a native
+operation ID, but recovery only accepts the earlier REVISION_CONFLICT form.
+The fix will share one strict eligibility rule across service, controller,
+history and UI. UNKNOWN effects must remain ineligible for this normal path.
+
+Candidate `c07ed31e5` passed all five browser lanes (283, 1,441, 396, 7 and 136
+tests) and strict browser coverage provenance. Its coverage pool has recorded
+test timeouts; the full gate is not green. Preserve those failures.

@@ -322,3 +322,30 @@ The next change reports only the finite load resource and transport failure
 phase. Deadlines, retries, assertions, provider code and configuration remain
 unchanged by that diagnostic design. Another live attempt must preserve that
 evidence rather than repeat the same opaque failure.
+
+## Latest recovery and release status
+
+The user approved temporary-access packet
+`00c8c10321d18bcf8d27ebd1c9b74917840c9bf8a4f19061c9aeee795fee012d`.
+Its attempt ended SAFE_ABORT before certificate revocation, signing or
+recovery admission: the remaining time failed the required safety margin.
+Receipts 151–153 and independent review confirm temporary-key removal,
+server thaw, unchanged restricted certificate, restored configuration and a
+healthy isolated app on source `5080f3792`. No database restore occurred.
+The original c7 START remains UNKNOWN and its guest remains STOPPED.
+
+Diagnostic candidate `c07ed31e5` is built but not yet installed. Its update
+must preserve the exact UNKNOWN and resource reservation, using stopped-copy
+accounting checks. A new recovery lease requires a new reviewed attempt;
+the consumed attempt must not be replayed or extended.
+
+Normal cleanup recovery also has a confirmed product gap. A protected native
+DELETE can finish FAILED/INTERNAL with a native operation ID, but the existing
+recovery path only accepts the earlier REVISION_CONFLICT form. A service and
+controller regression reproduces the rejection. A bounded shared rule and
+matching UI tests are in progress; UNKNOWN is not eligible for that path.
+
+Candidate `c07ed31e5` passed all five browser lanes and strict browser coverage
+provenance. Coverage-pool test timeouts remain under investigation, so its
+full gate is not green. Normal UI/native-agent workflow, ten live lifecycle
+cycles, current qualification and final source gates still block release.
