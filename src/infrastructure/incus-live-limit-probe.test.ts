@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { INCUS_PRESETS } from "../../extensions/incus-sandbox/manifest";
-import { exerciseIncusLimits, LIMIT_PROBE_SCRIPT, incusCpuLoadDiagnostic, IncusCpuLoadProofError, type IncusLimitProbeDependencies } from "./incus-live-limit-probe";
+import { exerciseIncusLimits, LIMIT_PROBE_SCRIPT, IncusLimitLoadFailure, incusLimitResource, incusCpuLoadDiagnostic, IncusCpuLoadProofError, type IncusLimitProbeDependencies } from "./incus-live-limit-probe";
 
 const preset = INCUS_PRESETS[0]!;
 const handle = { sandboxId: "exact-fixture", operationId: "exact-operation" };
@@ -13,7 +13,7 @@ const facts = { memoryMaxBytes: preset.limits.memoryBytes, cpuQuotaMillis: prese
   privateNetworkProbeBlocked: true, unprivilegedUidMap: true };
 
 function harness(fault?: { resource?: string; detail?: boolean; neighbor?: boolean; host?: boolean;
-  pool?: "full" | "leak" }) {
+  pool?: "full" | "leak"; thrownResource?: string; thrown?: unknown }) {
   const calls: string[] = [];
   const poolFreeBytes = preset.limits.diskBytes + 128 * 1024 * 1024;
   const deps: IncusLimitProbeDependencies = {
@@ -23,6 +23,7 @@ function harness(fault?: { resource?: string; detail?: boolean; neighbor?: boole
       expect(timeout).toBeLessThanOrEqual(120_000);
       const resource = argv[3]!;
       calls.push(resource);
+      if (fault?.thrownResource === resource) throw fault.thrown;
       const attempted = Number(argv[4]);
       const observedLimit = Number(argv[5]);
       const detail = resource === "memory" ? { oomKillDelta: 1, childExit: -9 }
@@ -188,4 +189,19 @@ exec(sys.argv_script)
   expect(proof.detail.workerCount).toBe(3); expect(proof.detail.workerFailures).toBe(0);
   expect(proof.detail.workerCpuUsec).toBeGreaterThan(0);
   expect(proof.detail.controlsUnchanged).toBe(true); expect(proof.detail.affinityConfined).toBe(true);
+});
+
+test("each failed load preserves only its finite resource and privately keeps the original failure", async () => {
+  const secret = new Error("secret-canary credentials stdio");
+  for (const resource of ["memory", "cpu", "pids", "disk"] as const) {
+    let failure: unknown;
+    try { await harness({ thrownResource: resource, thrown: secret }).run(); }
+    catch (error) { failure = error; }
+    expect(failure).toBeInstanceOf(IncusLimitLoadFailure);
+    expect((failure as IncusLimitLoadFailure).resource).toBe(resource);
+    expect((failure as IncusLimitLoadFailure).failure()).toBe(secret);
+    expect(JSON.stringify(failure)).not.toContain("secret-canary");
+  }
+  expect(incusLimitResource("secret-canary")).toBeNull();
+  expect(() => new IncusLimitLoadFailure("secret-canary" as "memory", secret)).toThrow("invalid load diagnostic resource");
 });

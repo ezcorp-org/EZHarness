@@ -325,3 +325,20 @@ test("CPU failure response and logger expose only bounded numeric measurement fi
     expect((await malformed.json()).cpuLoad).toBeUndefined();
   } finally { preparationError = null; witnessReady = false; }
 });
+
+test("load diagnostic projects each finite resource and excludes arbitrary causes from reply and logs", async () => {
+  witnessReady = true; process.env.EZCORP_INCUS_CONTROL_PROBE_ROOT = "/approved-controls";
+  try {
+    for (const resource of ["memory", "cpu", "pids", "disk", "secret-canary"] as const) {
+      preparationError = new IncusQualificationPreparationError("limit_loads", "unverified", "guest_processes_readOutput_deadline_exceeded", null, resource as "memory");
+      Object.assign(preparationError, { message: "secret-canary stderr", cause: new Error("secret-canary credentials"), detail: "secret-canary output" });
+      const response = await POST(event(admin, { action: "qualify", ...scope, operationId: "load-diagnostic" }));
+      const body = await response.json();
+      expect(response.status).toBe(409);
+      expect(body.causeCode).toBe("guest_processes_readOutput_deadline_exceeded");
+      expect(body.limitResource).toBe(resource === "secret-canary" ? undefined : resource);
+      expect(JSON.stringify(body)).not.toContain("secret-canary");
+      expect(JSON.stringify(warnings.at(-1))).not.toContain("secret-canary");
+    }
+  } finally { preparationError = null; witnessReady = false; }
+});

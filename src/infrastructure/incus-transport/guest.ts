@@ -1,3 +1,4 @@
+import { extensionLogger } from "../../logger";
 import { createHash } from "node:crypto";
 import { IncusTransportError, type IncusTransport, type IncusTransportRequest } from "../../../extensions/incus-sandbox/transport";
 import { decodeGuestResponse, encodeGuestRequest, guestHelperSha256, GUEST_HELPER_PATH, GUEST_HELPER_VERSION, GuestProtocolError, type GuestAction } from "../incus-guest/protocol";
@@ -65,10 +66,12 @@ export class HostIncusGuestTransport implements IncusTransport {
     catch (error) { throw helperFailure(error); }
     const operationIdentity = mutations.has(command.action) ? stableId(command) : undefined;
     let execAttempted = false;
+    let phase: "session" | "instance" | "exec" | "channels" | "output" | "wait" | "decode" = "session";
     try {
       return await withSession(this.connections, this.scope, this.http, command, async session => {
         const project = encodeURIComponent(session.connection.project);
         const instancePath = `/1.0/instances/${command.sandboxName}`;
+        phase = "instance";
         const found = object(metadata(await session.request("GET", `${instancePath}?project=${project}`)));
         const config = object(found.config);
         if (found.name !== command.sandboxName || found.status !== "Running"
@@ -77,6 +80,7 @@ export class HostIncusGuestTransport implements IncusTransport {
           || config["user.ezharness.sandbox_id"] !== command.tags.sandboxId
           || config["volatile.base_image"] !== this.scope.approvedPreset?.imageFingerprint
           || !Array.isArray(found.profiles) || !found.profiles.includes(this.scope.approvedPreset?.incusProfile)) denied("Incus guest instance is not ready or owned");
+        phase = "exec";
         execAttempted = true;
         const posted = await session.request("POST", `${instancePath}/exec?project=${project}`, {
           command: [GUEST_HELPER_PATH], user: approved.uid, group: approved.gid, cwd: "/workspace",
@@ -85,8 +89,10 @@ export class HostIncusGuestTransport implements IncusTransport {
         });
         if (posted.status !== 202 || posted.envelope.type !== "async") unexpected("Incus guest exec was not accepted");
         const exec = operation(posted.envelope, command.sandboxName!);
+        phase = "channels";
         const sockets = await Promise.all(["0", "1", "2", "control"].map(channel => this.websocket(session, exec.id, exec.fds[channel] as string)));
         try {
+          phase = "output";
           const [stdin, stdout, stderr] = sockets;
           const stdoutPromise = stdout!.readAll();
           const stderrPromise = stderr!.readAll();
@@ -94,10 +100,12 @@ export class HostIncusGuestTransport implements IncusTransport {
           stdin!.finish();
           const [output, errors] = await Promise.all([stdoutPromise, stderrPromise]);
           if (errors.length > 8 * 1024) unexpected("Incus helper stderr is too large");
+          phase = "wait";
           const wait = object(metadata(await session.request("GET", `/1.0/operations/${exec.id}/wait?timeout=30&project=${project}`)));
           if (wait.id !== exec.id) denied("Incus exec operation identity changed");
           const result = object(wait.metadata);
           if (wait.status !== "Success" || result.return !== 0) throw new IncusTransportError("unsupported", "Incus guest helper could not run");
+          phase = "decode";
           let decoded: Record<string, unknown>;
           try { decoded = decodeGuestResponse(output); }
           catch (error) { throw helperFailure(error); }
@@ -108,6 +116,8 @@ export class HostIncusGuestTransport implements IncusTransport {
       });
     } catch (error) {
       const failure = helperFailure(error);
+      extensionLogger("incus-sandbox", "guest").warn("Guest helper request failed", { action: command.action, phase,
+        errorKind: failure.kind === "deadline" ? "deadline" : "failed", sandboxId: command.tags.sandboxId });
       if (operationIdentity && execAttempted) throw new IncusTransportError(failure.kind, "Guest mutation outcome is unknown", { effect: "unknown", operationId: operationIdentity });
       throw failure;
     }

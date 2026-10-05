@@ -1,4 +1,4 @@
-import { IncusCpuLoadProofError, incusCpuLoadDiagnostic, type IncusCpuLoadDiagnostic } from "./incus-live-limit-probe";
+import { IncusLimitLoadFailure, incusLimitResource, IncusCpuLoadProofError, incusCpuLoadDiagnostic, type IncusCpuLoadDiagnostic } from "./incus-live-limit-probe";
 import { randomUUID } from "node:crypto";
 import {
   sandboxPresetDigest,
@@ -299,7 +299,15 @@ export function incusGuestFailureCauseCode(operation: unknown, code: unknown): s
     ? guestFailureCodes.get(`${operation}:${code}`) ?? "guest_action_failed" : "guest_action_failed";
 }
 export const INCUS_PREPARATION_CAUSE_CODES: ReadonlySet<string> = new Set(["unclassified", ...preparationAssertions.values(), ...preparationProviderCodes, ...guestFailureCodes.values()]);
+function originalPreparationFailure(error: unknown): unknown {
+  return error instanceof IncusLimitLoadFailure ? error.failure() : error;
+}
+function preservedPreparationFailure(error: unknown): IncusQualificationOperationUnsettledError | null {
+  const original = originalPreparationFailure(error);
+  return original instanceof IncusQualificationOperationUnsettledError ? original : null;
+}
 export function incusPreparationCauseCode(error: unknown): string {
+  error = originalPreparationFailure(error);
   if (!(error instanceof Error)) return "unclassified";
   const diagnosticCode = (error as Error & { code?: unknown }).code;
   if (typeof diagnosticCode === "string" && guestFailureCauseCodes.has(diagnosticCode)) return diagnosticCode;
@@ -309,7 +317,7 @@ export function incusPreparationCauseCode(error: unknown): string {
 }
 /** Safe diagnostic fields only. The original provider exception is not projected. */
 export class IncusQualificationPreparationError extends Error {
-  constructor(readonly stage: IncusQualificationPreparationStage, readonly cleanup: "confirmed" | "unverified", readonly causeCode = "unclassified", readonly cpuLoad: IncusCpuLoadDiagnostic | null = null) {
+  constructor(readonly stage: IncusQualificationPreparationStage, readonly cleanup: "confirmed" | "unverified", readonly causeCode = "unclassified", readonly cpuLoad: IncusCpuLoadDiagnostic | null = null, readonly limitResource: LiveLimitLoadFact["resource"] | null = null) {
     super("Incus qualification preparation failed");
   }
 }
@@ -477,9 +485,11 @@ export async function beginDurableIncusLiveCases(options: IncusLiveRunnerOptions
   } catch (error) {
     failure = error;
   }
-  const errors = failure instanceof IncusQualificationOperationUnsettledError ? [] : await cleanupLiveFixtures(witness, state);
-  if (failure instanceof IncusQualificationOperationUnsettledError) throw failure;
-  throw new IncusQualificationPreparationError(stage, errors.length ? "unverified" : "confirmed", incusPreparationCauseCode(failure), failure instanceof IncusCpuLoadProofError ? incusCpuLoadDiagnostic(failure.diagnostic) : null);
+  const preservedFailure = preservedPreparationFailure(failure);
+  const errors = preservedFailure ? [] : await cleanupLiveFixtures(witness, state);
+  if (preservedFailure) throw preservedFailure;
+  throw new IncusQualificationPreparationError(stage, errors.length ? "unverified" : "confirmed", incusPreparationCauseCode(failure), failure instanceof IncusCpuLoadProofError ? incusCpuLoadDiagnostic(failure.diagnostic) : null,
+    failure instanceof IncusLimitLoadFailure ? incusLimitResource(failure.resource) : null);
 }
 
 /** Called only in the replacement app process, with a fresh witness and database connection. */
@@ -543,7 +553,9 @@ export function createIncusLiveCaseRunner(options: IncusLiveRunnerOptions):
     } catch (error) {
       failure = error;
     } finally {
-      cleanupErrors = failure instanceof IncusQualificationOperationUnsettledError ? [] : await cleanupLiveFixtures(witness, state);
+      const preservedFailure = preservedPreparationFailure(failure);
+      if (preservedFailure) failure = preservedFailure;
+      cleanupErrors = preservedFailure ? [] : await cleanupLiveFixtures(witness, state);
     }
     if (cleanupErrors.length) throw new AggregateError([...(failure ? [failure] : []), ...cleanupErrors],
       "Incus live fixture cleanup is unverified");

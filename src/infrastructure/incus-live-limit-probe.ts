@@ -117,6 +117,23 @@ print(json.dumps({'resource':mode,'attempted':target,'observedLimit':actual,'con
 const TIMEOUT_MS = 110_000;
 const RESOURCES: readonly Resource[] = ["memory", "cpu", "pids", "disk"];
 
+/** Only the finite load identity crosses qualification's diagnostic boundary. */
+export function incusLimitResource(value: unknown): Resource | null {
+  return RESOURCES.find(resource => resource === value) ?? null;
+}
+export class IncusLimitLoadFailure extends Error {
+  readonly resource: Resource;
+  #failure: unknown;
+  constructor(resource: Resource, failure: unknown) {
+    super("Incus limit load failed");
+    const selected = incusLimitResource(resource);
+    requireLimit(selected, "invalid load diagnostic resource");
+    this.resource = selected;
+    this.#failure = failure;
+  }
+  failure(): unknown { return this.#failure; }
+}
+
 export interface IncusCpuLoadDiagnostic {
   throttledDelta: number; elapsedMs: number; quotaMicros: number; periodMicros: number;
   cpusetCount: number; affinityCount: number; outsideCpuCount: number; workerCount: number; workerFailures: number;
@@ -192,8 +209,11 @@ export async function exerciseIncusLimits(handle: LiveFixtureHandle, preset: San
     if (resource === "disk") requireLimit(Number.isSafeInteger(poolFreeBefore)
       && poolFreeBefore! > attempted + 32 * 1024 * 1024,
     "host storage pool has insufficient independent free space for the quota probe");
-    const run = await deps.runGuest(handle,
-      ["python3", "-c", LIMIT_PROBE_SCRIPT, resource, String(attempted), String(limit)], TIMEOUT_MS);
+    let run: LiveCommandResult;
+    try {
+      run = await deps.runGuest(handle,
+        ["python3", "-c", LIMIT_PROBE_SCRIPT, resource, String(attempted), String(limit)], TIMEOUT_MS);
+    } catch (error) { throw new IncusLimitLoadFailure(resource, error); }
     requireLimit(run.exitCode === 0 && run.stderr.length === 0 && run.stdout.length <= 4096,
       `${resource} load did not finish cleanly`);
     let proof: Record<string, unknown>;

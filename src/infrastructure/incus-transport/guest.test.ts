@@ -1,3 +1,4 @@
+import { logger } from "../../logger";
 import { afterAll, expect, spyOn, test } from "bun:test";
 import { createHash, X509Certificate } from "node:crypto";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
@@ -6,7 +7,7 @@ import { join } from "node:path";
 import { validateSandboxProviderMethodExchange, type JsonValue, type SandboxProtocolOperation } from "@ezcorp/extension-contract";
 import type { AddressInfo } from "node:net";
 import { createServer } from "node:tls";
-import type { IncusTransportRequest } from "../../../extensions/incus-sandbox/transport";
+import { IncusTransportError, type IncusTransportRequest } from "../../../extensions/incus-sandbox/transport";
 import { guestHelperSha256, GUEST_HELPER_VERSION } from "../incus-guest/protocol";
 import { HostIncusGuestTransport } from "./guest";
 import { resourceName, type Session } from "./lifecycle";
@@ -37,11 +38,13 @@ const token = "a".repeat(64);
 const envelope = (metadata: unknown, status = 200) => Response.json({ type: status === 202 ? "async" : "sync", metadata, status_code: status }, { status });
 const instance = { name: sandboxName, status: "Running", profiles: ["ezharness"], config: { "user.ezharness.managed_by": "ezharness-incus-sandbox", "user.ezharness.connection_id": "connection-a", "user.ezharness.sandbox_id": sandboxId, "volatile.base_image": "c".repeat(64) } };
 function execResponse() { return envelope({ id: opId, resources: { instances: [`/1.0/instances/${sandboxName}`] }, metadata: { fds: { "0": token, "1": token, "2": token, control: token } } }, 202); }
-function fixture(output: unknown = { version: GUEST_HELPER_VERSION, ok: true, file: { path: "src/app.ts", kind: "file", revision: "rev", sizeBytes: 1, executable: false } }) {
+function fixture(output: unknown = { version: GUEST_HELPER_VERSION, ok: true, file: { path: "src/app.ts", kind: "file", revision: "rev", sizeBytes: 1, executable: false } }, fault?: string, failure = new Error("secret-canary private transport failure")) {
   const routes: string[] = [];
   let requestBytes: Buffer | undefined;
   const http = async (url: string, init: RequestInit) => {
     routes.push(`${init.method} ${new URL(url).pathname}`);
+    if ((fault === "instance" && init.method === "GET" && !url.includes("/wait"))
+      || (fault === "exec" && init.method === "POST") || (fault === "wait" && url.includes("/wait"))) throw failure;
     if (new URL(url).pathname.endsWith("/exec")) {
       const body = JSON.parse(String(init.body)) as Record<string, unknown>;
       expect(body.command).toEqual(["/usr/local/libexec/ezharness-helper"]);
@@ -56,10 +59,17 @@ function fixture(output: unknown = { version: GUEST_HELPER_VERSION, ok: true, fi
   const websocket = async (_session: Session, id: string, secret: string): Promise<PinnedWebSocket> => {
     expect(id).toBe(opId);
     expect(secret).toBe(token);
+    if (fault === "channels") throw failure;
     const index = channel++ % 4;
-    return { send(data) { requestBytes = data; }, finish() {}, readAll: async () => index === 1 ? Buffer.from(JSON.stringify(output)) : Buffer.alloc(0), close() {} };
+    return { send(data) { requestBytes = data; }, finish() {}, readAll: async () => {
+      if (fault === "output" && index === 1) throw failure;
+      return index === 1 ? Buffer.from(JSON.stringify(output)) : Buffer.alloc(0);
+    }, close() {} };
   };
-  const transport = new HostIncusGuestTransport({ resolveForHost: async () => connection }, scope, http as never, websocket);
+  const transport = new HostIncusGuestTransport({ resolveForHost: async () => {
+    if (fault === "session") throw failure;
+    return connection;
+  } }, scope, http as never, websocket);
   return { transport, routes, request: () => requestBytes };
 }
 
@@ -323,4 +333,37 @@ test("malformed process start response after exec acceptance remains unknown", a
     .catch((error: unknown) => error) as { kind: string; effect: string; operationId: string };
   expect(failure).toMatchObject({ kind: "unsupported", effect: "unknown" });
   expect(failure.operationId).toMatch(/^ezh-guest-/);
+});
+
+test("every guest transport failure logs only finite action and phase, never private errors", async () => {
+  const records: Array<{ message: string; fields?: Record<string, unknown> }> = [];
+  const originalChild = logger.child.bind(logger);
+  const logging = spyOn(logger, "child").mockImplementation(subsystem => ({ ...originalChild(subsystem),
+    warn: (message, fields) => { records.push({ message, fields }); } }));
+  try {
+    for (const phase of ["session", "instance", "exec", "channels", "output", "wait", "decode"] as const) {
+      const { transport } = fixture(phase === "decode" ? { version: "secret-canary version", stderr: "secret-canary stdio" } : undefined, phase);
+      const failure = await transport.request(command).catch(error => error);
+      expect(failure).toBeInstanceOf(Error);
+      expect(records.at(-1)).toEqual({ message: "Guest helper request failed", fields: {
+        action: "helper.file.stat", phase, errorKind: "failed", sandboxId } });
+      expect(JSON.stringify(records)).not.toContain("secret-canary");
+    }
+  } finally { logging.mockRestore(); }
+});
+
+test("readOutput deadline retains its error semantics and emits its exact safe output phase once", async () => {
+  const records: Record<string, unknown>[] = [];
+  const originalChild = logger.child.bind(logger);
+  const logging = spyOn(logger, "child").mockImplementation(subsystem => ({ ...originalChild(subsystem),
+    warn: (_message, fields) => { records.push(fields!); } }));
+  try {
+    const { transport, routes } = fixture(undefined, "output", new IncusTransportError("deadline", "secret-canary helper stderr"));
+    const failure = await transport.request({ ...command, action: "helper.process.readOutput",
+      payload: { processId: "process-a", bootId: "boot-a", cursor: { sandboxId, processId: "process-a", bootId: "boot-a", offsetBytes: 0 }, maxBytes: 65536 } }).catch(error => error);
+    expect(failure).toMatchObject({ kind: "deadline", effect: "unknown" });
+    expect(records).toEqual([{ action: "helper.process.readOutput", phase: "output", errorKind: "deadline", sandboxId }]);
+    expect(routes.filter(route => route.startsWith("POST"))).toHaveLength(1);
+    expect(JSON.stringify(records)).not.toContain("secret-canary");
+  } finally { logging.mockRestore(); }
 });

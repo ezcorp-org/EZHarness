@@ -1,5 +1,5 @@
 import { IncusLiveWitnessError } from "./incus-host-live-witness";
-import { IncusCpuLoadProofError } from "./incus-live-limit-probe";
+import { IncusLimitLoadFailure, IncusCpuLoadProofError } from "./incus-live-limit-probe";
 import { expect, test } from "bun:test";
 import { INCUS_PRESETS } from "../../extensions/incus-sandbox/manifest";
 import { IncusQualificationOperationUnsettledError } from "./incus-qualification";
@@ -416,4 +416,49 @@ test("running primary guest failure retains safe method/code and confirmed clean
   expect(failure).toMatchObject({ message: "Incus qualification preparation failed", stage: "fixtures",
     cleanup: "confirmed", causeCode: "guest_processes_start_outcome_unknown" });
   expect(original.destroyed).toHaveLength(1);
+});
+
+test("load failure keeps the exact public guest code and resource while omitting its private cause", async () => {
+  for (const resource of ["memory", "cpu", "pids", "disk"] as const) {
+    const cause = new IncusLiveWitnessError("secret-canary stderr credentials", "processes.readOutput", "DEADLINE_EXCEEDED");
+    const original = witness({ exerciseLimits: async () => { throw new IncusLimitLoadFailure(resource, cause); } });
+    const durable: DurableIncusLiveWitness = { ...original.value,
+      findFixture: async () => { throw new Error("unexpected lookup"); },
+      beginRestart: async () => { throw new Error("unexpected restart"); },
+      claimRestart: async () => { throw new Error("unexpected claim"); } };
+    let failure: unknown;
+    try { await beginDurableIncusLiveCases({ witness: durable }, scope, preset,
+      { runId: `load-diagnostic-${resource}`, nonce: "fresh-nonce", deadlineMs: Date.now() + 60_000 }); }
+    catch (error) { failure = error; }
+    expect(failure).toMatchObject({ stage: "limit_loads", cleanup: "confirmed",
+      causeCode: "guest_processes_readOutput_deadline_exceeded", limitResource: resource });
+    expect(JSON.stringify(failure)).not.toContain("secret-canary");
+    expect(original.destroyed).toHaveLength(2);
+  }
+  expect(incusPreparationCauseCode(Object.assign(new Error("secret-canary"), { resource: "memory", cause: new IncusLiveWitnessError("private", "processes.readOutput", "DEADLINE_EXCEEDED") }))).toBe("unclassified");
+});
+
+test("resource tagging cannot hide an unsettled operation or dispatch cleanup for it", async () => {
+  const preserved = new IncusQualificationOperationUnsettledError("preserved-operation", "OUTCOME_UNKNOWN", new Error("private-canary"));
+  const original = witness({ exerciseLimits: async () => { throw new IncusLimitLoadFailure("memory", preserved); } });
+  const durable: DurableIncusLiveWitness = { ...original.value,
+    findFixture: async () => { throw new Error("unexpected lookup"); },
+    beginRestart: async () => { throw new Error("unexpected restart"); },
+    claimRestart: async () => { throw new Error("unexpected claim"); } };
+  let failure: unknown;
+  try { await beginDurableIncusLiveCases({ witness: durable }, scope, preset,
+    { runId: "load-preserved", nonce: "fresh-nonce", deadlineMs: Date.now() + 60_000 }); }
+  catch (error) { failure = error; }
+  expect(failure).toBe(preserved);
+  expect(original.destroyed).toEqual([]);
+});
+
+test("nondurable runner also preserves a resource-wrapped unknown without cleanup", async () => {
+  const preserved = new IncusQualificationOperationUnsettledError("preserved-operation", "OUTCOME_UNKNOWN", new Error("private-canary"));
+  const original = witness({ exerciseLimits: async () => { throw new IncusLimitLoadFailure("memory", preserved); } });
+  let failure: unknown;
+  try { await createIncusLiveCaseRunner({ witness: original.value })(scope, preset); }
+  catch (error) { failure = error; }
+  expect(failure).toBe(preserved);
+  expect(original.destroyed).toEqual([]);
 });
