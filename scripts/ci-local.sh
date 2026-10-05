@@ -41,6 +41,8 @@ FAST=0
 
 RESULTS=()
 FAILED=0
+# An interrupted step may never return to run_step to set FAILED.
+COMPLETED=0
 
 run_step() {
   local name="$1"
@@ -108,7 +110,7 @@ if [ "$FAST" = "0" ]; then
     exit 1
   }
   cleanup_browser_coverage() {
-    if [ "$FAILED" = "1" ]; then
+    if [ "$FAILED" = "1" ] || [ "$COMPLETED" != "1" ]; then
       echo "ci-local: retained browser coverage receipts after failed run: $BROWSER_COVERAGE_OUTPUT" >&2
     else
       rm -rf "$BROWSER_COVERAGE_OUTPUT"
@@ -140,4 +142,5 @@ if [ "$FAILED" = "1" ]; then
 else
   echo "ci-local: all executed gates PASSED."
 fi
+COMPLETED=1
 exit "$FAILED"

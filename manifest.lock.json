@@ -68,8 +68,8 @@
       "directory": "docs/extensions/examples/excel",
       "entrypoint": "extension.ts",
       "files": 10,
-      "bytes": 108775,
-      "sourceDigest": "776696b7d064ff216d9999cc480d581a943c72694408cbef12fbc95e54cdbc03"
+      "bytes": 109002,
+      "sourceDigest": "eff9541a50ba891ec72c58ae9d9f66116c3a5493eb51df91c972a76fe005470b"
     },
     "extension-author": {
       "directory": "docs/extensions/examples/extension-author",
@@ -341,8 +341,8 @@
       "directory": "extensions/local-sandbox",
       "entrypoint": "extension.ts",
       "files": 6,
-      "bytes": 11883,
-      "sourceDigest": "6ad9851c80aea725fb7b774bc42aa5d85d6b2f1388080c28ca2a08957d7b5698"
+      "bytes": 12195,
+      "sourceDigest": "ff102ad414c60ae12d03155e8afc00f479ceb98a87d02e9a408cab5e6b367694"
     },
     "memory-extractor": {
       "directory": "extensions/memory-extractor",
@@ -356,7 +356,7 @@
       "entrypoint": "extension.ts",
       "files": 53,
       "bytes": 401485,
-      "sourceDigest": "07a45a3c5f3929072b9827957ef2a2f35abf53100ff13eef79ba1f72fb1f7679"
+      "sourceDigest": "e8359c1ce89f9abdba0341b6ee0a0cba0dba6259d6695301c122b769b1809116"
     }
   }
 }

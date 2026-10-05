@@ -196,6 +196,7 @@ describe("local sandbox API", () => {
 	});
 
 	test("maps controller status without exposing host paths", async () => {
+		expect(statusDto({ ...sandboxStatus, resource: null, privateOwnerOnly: true, initializationState: "failed", operation: { id: "cancel", action: "destroy", state: "succeeded" } } as never)).toMatchObject({ state: "destroyed", privateOwnerOnly: true });
 		const response = await status(event("/api/projects/sandbox/sandbox", { params: { id: "sandbox" } }) as never);
 		expect(await response.json()).toMatchObject({ projectId: "sandbox", state: "stopped", provider: { label: "podman" } });
 	});

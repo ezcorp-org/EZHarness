@@ -42,6 +42,13 @@ The deny-list (`web/src/routes/api/settings/deny-list.ts`) is three regexes — 
 
 ### The Settings UI (sub-routed)
 
+The personal **GitHub** page manages the signed-in user's connection through
+session-only endpoints. Shared-App device authorization shows a short code to
+approve on GitHub. The self-hosted backend polls GitHub directly, binds the attempt
+to the same local user and session, and handles expiry, cancellation, and backoff.
+Credentials use separate encrypted connection records; they do not enter the
+instance settings store or the public Worker. See [Personal GitHub](personal-github.md).
+
 The old `/settings` mega-page was split into sub-routes (`web/src/routes/(app)/settings/`):
 
 - `models`, `search`, `personalization`, `briefing`, `developer`, `admin`, `admin/audit` are the live pages. `models`, `personalization`, `briefing`, `developer` are member-visible; `search`, `admin`, `admin/audit` are admin-only. The nav also links *out* to the canonical `/admin/dashboard` (System) and `/admin/moderation` (Moderation) pages — additive links, not new routes.

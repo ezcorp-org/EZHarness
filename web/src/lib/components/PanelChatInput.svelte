@@ -7,6 +7,7 @@
 	import { toDisplay, displayTokenText, applyDisplayEdit, displayPosToWire, wirePosToDisplay } from "$lib/mention-display";
 	import { searchMentions } from "$lib/api";
 	import { store } from "$lib/stores.svelte";
+	import { setComposerDisplay } from "$lib/chat-input-logic";
 
 	let {
 		placeholder = "Send a message...",
@@ -44,12 +45,7 @@
 		const { display, spans } = toDisplay(newWire);
 		displayValue = display;
 		const dCursor = wirePosToDisplay(spans, wireCursor);
-		requestAnimationFrame(() => {
-			if (textarea) {
-				textarea.selectionStart = textarea.selectionEnd = dCursor;
-				textarea.focus();
-			}
-		});
+		setComposerDisplay(textarea, display, dCursor);
 	}
 
 	/** Current caret as a WIRE offset (textarea reports display space). */

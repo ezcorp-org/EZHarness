@@ -80,7 +80,12 @@ export interface FactoryStartupConfig {
    * with no model, or a model with no provider, is a half-configured pin and is
    * refused at parse rather than resolved at the first guest call.
    */
-  readonly modelProvider?: { readonly provider: string; readonly model: string };
+  readonly modelProvider?: {
+    readonly provider: string;
+    readonly model: string;
+    /** The only credential kind the pin may run on; C10's pin names "oauth" (the ChatGPT-plan login). */
+    readonly credentialKind?: "oauth" | "apikey";
+  };
   readonly gateway: { readonly hostname: string; readonly port: number; readonly tls: FactoryStartupTlsMaterial };
   readonly privateService: {
     readonly hostname: string;
@@ -397,6 +402,7 @@ export const FACTORY_STARTUP_FIELDS: readonly FieldSpec[] = Object.freeze([
   { field: "readinessRetry.windowMs", kind: "interval", optional: true },
   { field: "modelProvider.provider", kind: "identity", optional: true },
   { field: "modelProvider.model", kind: "identity", optional: true },
+  { field: "modelProvider.credentialKind", kind: "identity", optional: true },
   { field: "gateway.hostname", kind: "identity" },
   { field: "gateway.port", kind: "port" },
   ...tls("gateway"),
@@ -691,6 +697,9 @@ const checkDeclaredFields: StartupCheck = (value, { missing, invalid }) => {
 const checkModelPin: StartupCheck = (value, { invalid }) => {
   const pinned = ["modelProvider.provider", "modelProvider.model"].filter((field) => read(value, field).present);
   if (pinned.length === 1) invalid.push(pinned[0] === "modelProvider.provider" ? "modelProvider.model" : "modelProvider.provider");
+  // A required credential kind is one of the two kinds a provider holds, and it belongs to a pin.
+  const kind = read(value, "modelProvider.credentialKind");
+  if (kind.present && ((kind.value !== "oauth" && kind.value !== "apikey") || pinned.length === 0)) invalid.push("modelProvider.credentialKind");
 };
 
 // A host launch transport is every part or none. A base URL with no client

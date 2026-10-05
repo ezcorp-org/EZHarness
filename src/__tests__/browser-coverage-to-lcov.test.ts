@@ -111,7 +111,8 @@ test("final browser manifests must enumerate every scripted Svelte route", () =>
 		routes,
 		files: [...BROWSER_CANONICAL_SOURCES],
 	});
-	expect(routes).toHaveLength(65);
+	// 64 at the merge base 31052930d, plus one route from each side: the wave's and main's settings/github page.
+	expect(routes).toHaveLength(66);
   expect(routes).toContain("web/src/routes/(app)/project/[id]/chat/[convId]/+page.svelte");
   expect(() => assertCompleteRouteInventory(routes.slice(1))).toThrow("browser coverage route inventory is incomplete");
   expect(() => assertCompleteRouteInventory([...routes, "web/src/routes/removed/+page.svelte"])).toThrow("extra=");
@@ -134,6 +135,7 @@ test("every scripted route has an enforced per-file floor", async () => {
     "web/src/routes/(app)/extensions/[id]/preview/+page.svelte",
     "web/src/routes/(app)/extensions/import-source/+page.svelte",
     "web/src/routes/(app)/extensions/project-proposals/[id]/+page.svelte",
+    "web/src/routes/(app)/settings/github/+page.svelte",
   ]);
 
   for (const route of scriptedRouteFiles()) {

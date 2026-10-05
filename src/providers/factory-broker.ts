@@ -26,11 +26,18 @@ export const FACTORY_PROVIDER_READINESS_SCHEMA_VERSION = "factory.provider-readi
 export type FactoryProviderReadinessFailure =
   | "provider_not_configured"
   | "model_not_available"
-  | "model_pin_mismatch";
+  | "model_pin_mismatch"
+  | "credential_kind_required";
 
 export interface FactoryProviderPin {
   readonly provider: string;
   readonly model: string;
+  /**
+   * The only credential kind this pin may run on. C10 names "oauth" (the ChatGPT-plan login, W10c):
+   * the api-key catalog serves the same model since pi-ai 0.87.1, so without this a stored key would
+   * carry the pin to the public endpoint and its bill. Absent means any configured kind.
+   */
+  readonly credentialKind?: ProviderCredential["type"];
 }
 
 export interface FactoryProviderReadiness {
@@ -40,6 +47,8 @@ export interface FactoryProviderReadiness {
   readonly ready: boolean;
   /** How the deployment authenticates, never the value. `null` when nothing resolved. */
   readonly credentialKind: ProviderCredential["type"] | null;
+  /** The kind the pin requires, when it names one; a resolved credential of another kind is refused. */
+  readonly requiredCredentialKind?: ProviderCredential["type"];
   /** Named reasons, in a fixed order, so a readiness record is comparable across runs. */
   readonly failures: readonly FactoryProviderReadinessFailure[];
   readonly checkedAtMs: number;
@@ -76,6 +85,26 @@ export function isServableResolution(resolution: PinnedModelResolution): boolean
   return resolution.source !== "stand-in";
 }
 
+/** One credential read for a pin: the credential, or the named reason it may not be sent. */
+export type FactoryPinCredential =
+  | { readonly credential: ProviderCredential; readonly failure?: undefined }
+  | { readonly credential: ProviderCredential | null; readonly failure: "provider_not_configured" | "credential_kind_required" };
+
+/**
+ * Resolves the deployment's credential for a pin and refuses it by name when it is absent or of a
+ * kind the pin does not allow. Readiness and the call both read through here, and the call sends
+ * only the credential this returned, so a key stored between the two reads is refused, not sent.
+ */
+export async function resolveCredentialForPin(
+  pin: FactoryProviderPin,
+  resolve: (provider: string) => Promise<ProviderCredential | null> = tryGetCredential,
+): Promise<FactoryPinCredential> {
+  const credential = await resolve(pin.provider);
+  if (credential === null) return { credential, failure: "provider_not_configured" };
+  if (pin.credentialKind !== undefined && credential.type !== pin.credentialKind) return { credential, failure: "credential_kind_required" };
+  return { credential };
+}
+
 /**
  * Whether this deployment can actually run the pinned model, resolved by reference.
  *
@@ -88,20 +117,20 @@ export async function factoryProviderReadiness(
 ): Promise<FactoryProviderReadiness> {
   const now = options.now ?? Date.now;
   const available = options.isAvailableModel ?? isFactoryServableModel;
-  const resolve = options.resolveCredential ?? tryGetCredential;
   const failures: FactoryProviderReadinessFailure[] = [];
-  const credential = await resolve(pin.provider);
+  const { credential, failure } = await resolveCredentialForPin(pin, options.resolveCredential);
   // A model the catalog serves can still be one this credential cannot run: a ChatGPT-plan login
   // runs only subscription-eligible ids. That is the same named failure, not a call left to 401.
   const servable = await available(pin.provider, pin.model) && (credential === null || credentialRunsPin(pin, credential.type));
   if (!servable) failures.push("model_not_available");
-  if (credential === null) failures.push("provider_not_configured");
+  if (failure !== undefined) failures.push(failure);
   return {
     schemaVersion: FACTORY_PROVIDER_READINESS_SCHEMA_VERSION,
     provider: pin.provider,
     model: pin.model,
     ready: failures.length === 0,
     credentialKind: credential?.type ?? null,
+    ...(pin.credentialKind === undefined ? {} : { requiredCredentialKind: pin.credentialKind }),
     failures,
     checkedAtMs: now(),
   };
@@ -153,6 +182,7 @@ export function factoryProviderReadinessRecord(readiness: FactoryProviderReadine
     model: readiness.model,
     ready: readiness.ready,
     credentialKind: readiness.credentialKind,
+    ...(readiness.requiredCredentialKind === undefined ? {} : { requiredCredentialKind: readiness.requiredCredentialKind }),
     failures: [...readiness.failures],
     checkedAt: new Date(readiness.checkedAtMs).toISOString(),
   };
@@ -173,7 +203,6 @@ export interface FactoryProviderBrokerOptions extends FactoryProviderReadinessOp
  * and the acceptance record would name a model that never ran.
  */
 export function createFactoryProviderBroker(options: FactoryProviderBrokerOptions): FactoryBroker {
-  const resolveCredential = options.resolveCredential ?? tryGetCredential;
   // The same resolution a pinned conversation gets, so a registered local model
   // is called at its registered endpoint rather than at a default one.
   const resolveModel = options.resolveModel ?? (async (provider: string, model: string) => (await resolvePinnedModel(provider, model)).piModel as Model<Api>);
@@ -185,10 +214,11 @@ export function createFactoryProviderBroker(options: FactoryProviderBrokerOption
       }
       const readiness = await factoryProviderReadiness(options.pin, options);
       if (!readiness.ready) throw new FactoryProviderReadinessError(readiness);
-      const credential = await resolveCredential(options.pin.provider);
-      // `readiness` already resolved one; a credential that vanished in between is a failure, not
-      // a reason to proceed without authentication.
-      if (credential === null) throw new FactoryProviderReadinessError({ ...readiness, ready: false, credentialKind: null, failures: ["provider_not_configured"] });
+      // `readiness` already resolved one. The credential sent is a second read through the same
+      // check: one that vanished, or one of a kind the pin refuses, is a failure in between, never
+      // a reason to send without authentication or on another bill.
+      const { credential, failure } = await resolveCredentialForPin(options.pin, options.resolveCredential);
+      if (failure !== undefined) throw new FactoryProviderReadinessError({ ...readiness, ready: false, credentialKind: credential?.type ?? null, failures: [failure] });
       // The credential decides the wire: an OAuth login is sent to the subscription endpoint, the
       // same swap every other model call in the application makes (providers/llm.ts).
       const model = resolveModelForCredential(await resolveModel(options.pin.provider, options.pin.model), options.pin.provider, credential.type);

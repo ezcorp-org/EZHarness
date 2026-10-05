@@ -96,3 +96,26 @@ test("disposed workspaces keep history accessible but cannot issue lifecycle com
 	expect(view.getByRole("link", { name: "Open chat" })).toHaveAttribute("href", "/project/sandbox");
 	expect(fetch).toHaveBeenCalledTimes(1);
 });
+
+test("pending owner-only sandbox cannot start chat or run before repository import", async () => {
+	const fetch = vi.fn((url: string) => {
+		if (url === "/api/projects/private/sandbox") return Promise.resolve(response({ state: "pending", privateOwnerOnly: true, initializationState: "pending" }));
+		if (url === "/api/github/connection") return Promise.resolve(response({ status: "disconnected", configured: true }));
+		if (url === "/api/github/repositories") return Promise.resolve(response({ repositories: [] }));
+		throw new Error(`Unexpected URL ${url}`);
+	});
+	vi.stubGlobal("fetch", fetch);
+	const view = render(ProjectSandboxPanel, { projectId: "private", sandbox: true });
+	await waitFor(() => expect(view.getByText("Choose a GitHub repository to finish this private sandbox.")).toBeVisible());
+	expect(view.getByRole("button", { name: "Start" })).toBeDisabled();
+	expect(view.getByRole("button", { name: "Stop" })).toBeDisabled();
+	expect(view.queryByRole("link", { name: "Open chat" })).not.toBeInTheDocument();
+	await waitFor(() => expect(view.getByRole("link", { name: "Connect GitHub" })).toHaveAttribute("href", "/settings/github"));
+	expect(fetch.mock.calls.some(([url]) => url === "/api/github/repositories")).toBe(false);
+});
+
+test("ready owner-only sandbox reopens its one owning conversation", async () => {
+	vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({ state: "running", privateOwnerOnly: true, initializationState: "ready", privateConversationId: "conv-owned" })));
+	const view = render(ProjectSandboxPanel, { projectId: "private", sandbox: true });
+	await waitFor(() => expect(view.getByRole("link", { name: "Open chat" })).toHaveAttribute("href", "/project/private/chat/conv-owned"));
+});

@@ -120,27 +120,17 @@ test("does NOT borrow a TEMPLATED sibling baseUrl (google-vertex {location})", (
 });
 
 // W10c (C10 revision 2026-10-03, amended 16:00Z): the factory pin gpt-6-luna is served by a
-// ChatGPT-plan OAuth login. pi-ai 0.85.1 does not ship the id in any catalog, so it enters through
-// LOCAL_OAUTH_OVERRIDES, for the openai-codex OAuth provider only.
-test("gpt-6-luna enters the registry for the openai OAuth login, at the subscription endpoint", () => {
+// ChatGPT-plan OAuth login. Since pi-ai 0.87.1 the openai-codex catalog ships the id, so the
+// registry resolves the catalog entry itself and LOCAL_OAUTH_OVERRIDES carries none.
+test("gpt-6-luna enters the registry for the openai OAuth login as the openai-codex catalog entry", () => {
+  const catalog = getModels("openai-codex").find((m) => m.id === "gpt-6-luna");
+  if (!catalog) throw new Error("pi-ai's openai-codex catalog no longer ships gpt-6-luna");
+  expect(catalog).toMatchObject({ api: "openai-codex-responses", provider: "openai-codex", baseUrl: "https://chatgpt.com/backend-api", reasoning: true, input: ["text", "image"], contextWindow: 272_000, maxTokens: 128_000 });
   expect(getOAuthModelIds("openai")?.has("gpt-6-luna")).toBe(true);
-  expect(resolveOAuthModel("openai", "gpt-6-luna")).toEqual({
-    id: "gpt-6-luna",
-    name: "GPT-6 Luna",
-    api: "openai-codex-responses",
-    provider: "openai-codex",
-    baseUrl: "https://chatgpt.com/backend-api",
-    reasoning: true,
-    input: ["text", "image"],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 272_000,
-    maxTokens: 128_000,
-  });
+  expect(resolveOAuthModel("openai", "gpt-6-luna")).toEqual(catalog);
 });
 
-test("gpt-6-luna never enters the api-key catalog or another provider's OAuth list", () => {
-  expect(getModels("openai").some((m) => m.id === "gpt-6-luna")).toBe(false);
-  expect(getModels("openai-codex").some((m) => m.id === "gpt-6-luna")).toBe(false);
+test("gpt-6-luna never enters another provider's OAuth list", () => {
   expect(getOAuthModelIds("google")?.has("gpt-6-luna")).toBe(false);
   expect(resolveOAuthModel("google", "gpt-6-luna")).toBeNull();
   expect(resolveOAuthModel("anthropic", "gpt-6-luna")).toBeNull();

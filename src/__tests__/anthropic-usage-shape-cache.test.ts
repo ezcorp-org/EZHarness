@@ -15,6 +15,7 @@
  */
 import { test, expect, describe } from "bun:test";
 import { getModel, streamAnthropic } from "@earendil-works/pi-ai/compat";
+import { normalizeContext } from "@earendil-works/pi-ai";
 import { computeTurnCacheStats } from "../runtime/usage/cache-stats";
 
 /** Encode Anthropic message-stream frames as a raw SSE body. */
@@ -80,7 +81,7 @@ const model = getModel("anthropic", "claude-sonnet-4-5");
 async function runStream(messageStartUsage: Record<string, unknown>) {
   const stream = streamAnthropic(
     model,
-    { messages: [{ role: "user", content: "hi", timestamp: Date.now() }] },
+    normalizeContext({ messages: [{ role: "user", content: "hi", timestamp: Date.now() }] }),
     { client: fakeClient(sseBody(anthropicFrames(messageStartUsage))) as never },
   );
   return stream.result();

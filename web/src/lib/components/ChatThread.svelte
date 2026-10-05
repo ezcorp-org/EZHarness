@@ -236,6 +236,8 @@
 		 *  so the page's <ChatHeader> can read isStreaming / activeLeafId
 		 *  / context-usage without re-deriving them. */
 		header?: import("svelte").Snippet<[ChatThreadChrome]>;
+		/** Durable run actions rendered after the visible conversation. */
+		message_footer?: import("svelte").Snippet<[ChatThreadChrome]>;
 		/** Footer/side-panel slot — receives the same chrome state so the
 		 *  page can render DiffSummaryPanel / ObservabilityPanel /
 		 *  AgentDetailPanel against the thread's live derived values. */
@@ -338,6 +340,7 @@
 		onopenobservability,
 		convListRefresh,
 		header,
+		message_footer,
 		chrome_panels,
 		seedMessages,
 		seedLeafId,
@@ -487,6 +490,9 @@
 	let loadGeneration = $state(0);
 	let resumedRun = $state(false);
 	let userScrolledUp = $state(false);
+	function syncJumpVisibility(el: HTMLElement) {
+		userScrolledUp = bottomSlack(el) > 2;
+	}
 	// Synchronous follow-the-bottom intent for the stick-to-bottom gate.
 	// Tracked from real scroll events (see the persist `onScroll` below) and
 	// set directly on send / jump / open-to-bottom. Distinct from
@@ -1670,9 +1676,13 @@
 		}
 
 		if (container && sentinel) {
+			const el = container;
 			observer = new IntersectionObserver(
-				([entry]) => {
-					userScrolledUp = !entry!.isIntersecting;
+				() => {
+					// A queued entry can describe the layout before the stick
+					// observer re-pinned the thread. Read the current scroll
+					// position so the jump button matches what the user sees.
+					syncJumpVisibility(el);
 				},
 				{ root: container, threshold: 0.1 },
 			);
@@ -1703,7 +1713,6 @@
 			// observer because the button was not inside the observed wrapper.
 			// If you add a real-height child to the container, observe it here.
 			if (typeof ResizeObserver !== "undefined") {
-				const el = container;
 				let rafPending = false;
 				stickObserver = new ResizeObserver(() => {
 					if (
@@ -1755,6 +1764,9 @@
 		};
 	});
 
+	// Track programmatic scrolls before their delayed scroll events fire.
+	let previousScrollTop = 0;
+
 	// Persist scroll position per-conv.
 	$effect(() => {
 		if (!container) return;
@@ -1763,7 +1775,7 @@
 		// `scrollTop` as of the previous scroll event — the term that tells a
 		// viewport move (user intent) apart from the thread growing under a
 		// stationary viewport. See nextFollowIntent() / issue #140.
-		let previousScrollTop = el.scrollTop;
+		previousScrollTop = el.scrollTop;
 		const onScroll = () => {
 			// Synchronous follow-intent. Every real scroll (and the
 			// programmatic pin, which lands at scrollHeight) re-decides
@@ -1780,6 +1792,7 @@
 				stuck,
 			});
 			previousScrollTop = scrollTop;
+			syncJumpVisibility(el);
 			const anchor = computeAnchor(el);
 			const partial: Parameters<typeof updateCachedScrollState>[1] = {
 				scrollTop: el.scrollTop,
@@ -1869,6 +1882,9 @@
 		stuck = true;
 		userScrolledUp = false;
 		sentinel.scrollIntoView({ behavior: "instant" as ScrollBehavior });
+		// A resume render can briefly shrink the thread before adding the
+		// streaming bubble. Its scroll event may arrive after that growth.
+		previousScrollTop = container?.scrollTop ?? previousScrollTop;
 	});
 
 	let stopAnchorWatch: (() => void) | null = null;
@@ -2847,6 +2863,9 @@
 				</div>
 			{/if}
 
+			{#if message_footer}
+				{@render message_footer(chromeState)}
+			{/if}
 			<div bind:this={sentinel} class="h-1"></div>
 		</div>
 

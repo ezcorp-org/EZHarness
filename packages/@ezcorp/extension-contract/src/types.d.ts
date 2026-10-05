@@ -14,10 +14,12 @@ export interface ProviderHostContract { major: 4; minor: number }
 export interface SandboxLifecycleMethodGroup { name: "sandbox.lifecycle.v1"; methods: { create: string; inspect: string; start: string; stop: string; destroy: string } }
 export interface SandboxProcessMethodGroup { name: "sandbox.process.v1"; methods: { start: string; inspect: string; readOutput: string; cancel: string } }
 export interface SandboxFilesMethodGroup { name: "sandbox.files.v1"; methods: { stat: string; list: string; read: string; write: string; mkdir: string; remove: string; chmod: string } }
+export interface SandboxTransferMethodGroup { name: "sandbox.transfer.v1"; methods: { beginExport: string; readExport: string; endExport: string } }
 export type SandboxProviderMethodGroup =
   | SandboxLifecycleMethodGroup
   | SandboxProcessMethodGroup
-  | SandboxFilesMethodGroup;
+  | SandboxFilesMethodGroup
+  | SandboxTransferMethodGroup;
 export interface StaticSecretMethodGroup { name: "secret.static.v1"; methods: { resolve: string } }
 export type SecretProviderMethodGroup = StaticSecretMethodGroup;
 export interface SandboxProviderContribution {
@@ -91,6 +93,12 @@ export interface SandboxFileRemoveInput { call: ProviderCall; resourceId: string
 export type SandboxFileRemoveResult = { receipt: ProviderSucceededReceipt; removedRevision: string } | ProviderUnsuccessfulResult;
 export interface SandboxFileChmodInput { call: ProviderCall; resourceId: string; path: string; expectedRevision?: string; mode: number }
 export type SandboxFileChmodResult = { receipt: ProviderSucceededReceipt; entry: SandboxFileStat } | ProviderUnsuccessfulResult;
+export interface SandboxBeginExportInput { call: ProviderCall; resourceId: string }
+export type SandboxBeginExportResult = { receipt: ProviderSucceededReceipt; snapshotId: string; byteLength: number; sha256: string } | ProviderUnsuccessfulResult;
+export interface SandboxReadExportInput { call: ProviderCall; resourceId: string; snapshotId: string; offsetBytes: number; lengthBytes: number }
+export type SandboxReadExportResult = { receipt: ProviderSucceededReceipt; snapshotId: string; offsetBytes: number; nextOffsetBytes: number; eof: boolean; data: string } | ProviderUnsuccessfulResult;
+export interface SandboxEndExportInput { call: ProviderCall; resourceId: string; snapshotId: string }
+export type SandboxEndExportResult = { receipt: ProviderSucceededReceipt } | ProviderUnsuccessfulResult;
 export type ProviderMethodWire =
   | { group: "sandbox.lifecycle.v1"; operation: "create"; input: SandboxCreateInput; result: SandboxCreateResult }
   | { group: "sandbox.lifecycle.v1"; operation: "inspect"; input: SandboxInspectInput; result: SandboxInspectResult }
@@ -107,7 +115,10 @@ export type ProviderMethodWire =
   | { group: "sandbox.files.v1"; operation: "write"; input: SandboxFileWriteInput; result: SandboxFileWriteResult }
   | { group: "sandbox.files.v1"; operation: "mkdir"; input: SandboxFileMkdirInput; result: SandboxFileMkdirResult }
   | { group: "sandbox.files.v1"; operation: "remove"; input: SandboxFileRemoveInput; result: SandboxFileRemoveResult }
-  | { group: "sandbox.files.v1"; operation: "chmod"; input: SandboxFileChmodInput; result: SandboxFileChmodResult };
+  | { group: "sandbox.files.v1"; operation: "chmod"; input: SandboxFileChmodInput; result: SandboxFileChmodResult }
+  | { group: "sandbox.transfer.v1"; operation: "beginExport"; input: SandboxBeginExportInput; result: SandboxBeginExportResult }
+  | { group: "sandbox.transfer.v1"; operation: "readExport"; input: SandboxReadExportInput; result: SandboxReadExportResult }
+  | { group: "sandbox.transfer.v1"; operation: "endExport"; input: SandboxEndExportInput; result: SandboxEndExportResult };
 export interface ToolDefinitionV4 extends ToolDefinition {
   outputSchema: ValueSchema;
   mcpOutputSchema?: ValueSchema;

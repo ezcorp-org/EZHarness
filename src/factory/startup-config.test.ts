@@ -212,6 +212,19 @@ describe("the model provider pin", () => {
       }
     }
   });
+
+  test("keeps a required credential kind, and refuses an unknown kind or a kind with no pin", () => {
+    const oauthOnly = { provider: "openai", model: "gpt-6-luna", credentialKind: "oauth" as const };
+    expect(parseFactoryStartupConfig({ ...valid(), modelProvider: oauthOnly }).modelProvider).toEqual(oauthOnly);
+    for (const modelProvider of [{ ...oauthOnly, credentialKind: "token" }, { credentialKind: "oauth" }]) {
+      try {
+        parseFactoryStartupConfig({ ...valid(), modelProvider });
+        throw new Error("a bad credential kind was accepted");
+      } catch (error) {
+        expect((error as { invalid?: readonly string[] }).invalid).toContain("modelProvider.credentialKind");
+      }
+    }
+  });
 });
 
 describe("the host launch transport and the host stop keys", () => {
