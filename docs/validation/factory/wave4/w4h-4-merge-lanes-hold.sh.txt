@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# W4H-4 lanes hold (integrator-3, 2026-10-05): the device test and both C11 lanes at the merge commit 20c3f0641, under the heavy lock
+# (gated-flock) AND the host GPU lock, load1 < 10, after the main hold's extra legs fell back (load1 12.58 at 02:36Z).
+# Run: gated-flock.sh w4h-4-lanes <D>/lanes/hold-gate.log timeout 3600 bash lanes-hold.sh   (GATED_FLOCK_EXIT_FILE=<D>/lanes/heavy.exit)
+set -u
+D=/tmp/factory-platform-evidence/w00/w4h-merge/w4h-4/lanes
+. /tmp/factory-platform-evidence/w00/heavy-lib.sh
+[ "$(git rev-parse HEAD)" = 20c3f06413f267ecf3647a9332672b70f3d4269e ] && [ -z "$(git status --porcelain)" ] || { echo "REFUSED: not at the clean merge commit 20c3f0641" >> "$S"; exit 3; }
+LOAD1=$(cut -d' ' -f1 /proc/loadavg)
+awk "BEGIN{exit !($LOAD1 < 10)}" || { echo "--- RELEASE load1 $LOAD1 >= 10: exit 75, re-queue" >> "$S"; exit 75; }
+podman image exists localhost/ezcorp-factory-python-data@sha256:f9cc747722e79b54e59fafd32d29da39f5352ffca3a835d31fcac982bc9d9e8c || { echo "STOP: pinned data image absent" >> "$S"; st=1; heavy_done; }
+exec 9> /run/user/1001/ezcorp-factory-local-gpu.lock; flock -w 600 9 || { echo "--- RELEASE GPU lock not free in 600 s: exit 75, re-queue" >> "$S"; exit 75; }
+echo "GPU lock held, load1 $LOAD1, data image present $(date -u +%FT%TZ)" >> "$S"
+leg device-test bun test --timeout 300000 ./packages/@ezcorp/extension-runner/tests/podman-devices.integration.test.ts
+leg lane-factory-isolation bash scripts/run-factory-lane-tests.sh factory-isolation
+leg lane-factory-deployment-operations bash scripts/run-factory-lane-tests.sh factory-deployment-operations
+flock -u 9; exec 9>&-
+heavy_done

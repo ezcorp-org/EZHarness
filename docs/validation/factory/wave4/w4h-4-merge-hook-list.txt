@@ -1,0 +1,5 @@
+packages/@ezcorp/extension-runner/tests/podman-devices.integration.test.ts
+scripts/check-factory-lanes.test.ts
+src/__tests__/ci-test-set-drift.test.ts
+src/__tests__/combined-runner-legs.test.ts
+src/__tests__/factory-ci-registration.test.ts

@@ -1,0 +1,140 @@
+VERDICT (validator-6) — W4H-4 at 5bdbecd3c (wp/w4h-4, owner w4h-4), base integ/w00 52d8ba079: ACCEPT
+
+This replaces my REJECT at 32b7a3f99 (kept unchanged as verdict-validator-6-w4h4.reject-32b7a3f99.txt, sha256 9c3bce963a212a53).
+Records: w4g-validation/w4h4/hold-5bdbecd3c/ (the head) and w4h4/merge-readers-5bdbecd3c/ (the trial merge). Runs from
+hold-w4h4b.sh and w4h4-merge-readers.sh. Snapshots in /tmp/v5-snaps, outside the evidence dir, removed with snap_rm after each run.
+Shared config (config-check.py --check-only): exit 0 at every start and end ("888c78b9e94ea660 = accepted baseline").
+
+THE FIX (one commit over 32b7a3f99, archy noreply as author and committer; identity 6/6 over 52d8ba079):
+  `git diff --name-only 32b7a3f99 5bdbecd3c`:
+    scripts/check-factory-lanes.test.ts
+    scripts/lib/lane-bun.sh
+    scripts/lib/test-file-sets.sh
+    tasks/factory/w4h-4-GATES.md
+  - scripts/lib/lane-bun.sh pinned_bun_binary(): takes the bun whose `--version` equals .bun-version, from EZCORP_PINNED_BUN_DIR, then
+    ~/.bun/bin, then PATH. If no bun matches, it names the pin and returns 1.
+  - scripts/lib/test-file-sets.sh: runs the manifest lookup ONCE when it is sourced, with that pinned bun. If the lookup fails or gives
+    an empty list, it prints "test-file-sets: the lane manifest ... gave no list; stopping before any test set is built" and does
+    `return 1 2>/dev/null || exit 1`. passfail_files and coverage_host_files read the stored list.
+  - Every production caller stops on that return: test.sh, test-coverage.sh, test-web.sh, web-utility-coverage.sh,
+    security-coverage.sh and factory-orchestrator-coverage.sh run `set -e` before they source the file. scripts/lib/hook-lib.sh uses
+    `. "$sets" || return 1`. This matches the lead's fix direction (pinned resolution, abort by name at source, no test runs).
+
+READER SET (lead 2026-10-05), each file alone, pinned bun, lcov on, nonzero count required:
+  - At the trial merge of 5bdbecd3c into integ/w00 6ac2458c7 (merge-tree, no conflict, commit 5eab0949c with no ref): integrator-3's
+    32 files (reader-set-32.txt f592cfdaa366b6f8) united with my grep. Result: 32 files, 379 pass, 0 fail, 0 void, 0 missing.
+    db-migration-postgres has 11 skips (no database URL in this leg); 15 cases ran, so it is not void.
+  - At the head alone: 29 files, 0 fail, 0 void. Three files of the 32 do not exist on this branch; they came to integ later
+    (factory-storage-action-registration, setup-factory-python-base, uv-toolchain-registration). That is why the merge leg above exists.
+  - src/__tests__/coverage-leg-lcov-guard.test.ts: 48 pass, 0 fail at the head and at the merge. The file is unchanged since 32b7a3f99.
+    RED OF RECORD at 32b7a3f99: 47 pass, 1 fail ("the real wrapper prints the pooled failure before a clean retry"), and 48/0 with the
+    base selection files (w4h4/lcov-guard-check/).
+  - The 8 selection readers at the head: check-factory-lanes 44, workflows-sdk-runfor-shape 10, ci-test-set-drift 17,
+    combined-runner-legs 8, coverage-leg-lcov-guard 48, factory-ci-registration 3, macos-local-dev 11, shard-plan 18. All 0 fail.
+
+MUTANTS at the head (each restored after; dirty=0 at the end):
+  - Lookup back on PATH's bun (the pinned resolution removed): RED in 3 tests. "a fake bun of another version first on PATH cannot
+    answer the lookup"; "a failed lookup stops the sourcing shell by name, before any set function runs"; and coverage-leg-lcov-guard
+    "the real wrapper prints the pooled failure before a clean retry", the original regression. So the pinned resolution is what
+    makes a PATH-faked bun harmless.
+  - The abort removed (a failed lookup continues): RED in 2 tests. "a failed lookup stops the sourcing shell by name, before any set
+    function runs" and "the coverage wrapper exits with the named error and runs no test when the lookup fails".
+
+HOSTED SELECTION (unchanged result): at the head P+C have 4040 lines and name the device test 0 times and the journey 0 times; with
+  test-file-sets.sh and check-factory-lanes.ts at 52d8ba079 they have 4044 lines and name each twice.
+
+CARRIED from 32b7a3f99 (the diff touches no file the lanes or the device test execute: run-factory-lane-tests.sh,
+  check-factory-lanes.ts, ci.yml and podman-devices.integration.test.ts are not in the list above): items (a) to (f) of the
+  record below stand. These are the lane runs under the heavy and GPU locks (isolation 5 files 30/0, deployment-operations 11/0),
+  the device test 7/0 and its renderD199 precondition mutants, the container limits, and the list-7 decision.
+
+STANDARD LEGS at the head: typecheck, lint, check-factory-boundaries, check-boundaries exit 0; lane gate "7 lanes" exit 0; manifest
+  --bound-tests and --lane-tests/--lane-images for both jobs exit 0; hook-mapped unit suites with lcov 72 pass, 0 fail; SDK 246/0;
+  new-file gate against 52d8ba079 PASSED (no new source file); patch gate PASSED (1 file); CRAP: no touched function over 30; vs
+  origin/main neither gate output names a file of this change; gate-integrity base leg PASSED, origin/main leg equals the 8 expected
+  paths; guard set 36 files 468 pass, 2 skip (BPF), 0 fail; prune scan (w00/prune-scan.sh a4a59601cec26963) "clean (0 hit(s))".
+
+DEPLOYMENT PREREQUISITE (not a finding): the self-hosted runners labelled factory-gpu and factory-real do not exist yet. Until the user
+  creates them, the two bound tests run on no hosted runner, by design.
+
+THIRD CASE (lead 2026-10-05): a fake bun that REPORTS 1.4.2 first on PATH (it answers --version with 1.4.2 and any other call with
+  "FAKE-BUN-ANSWERED"). Tree: git archive of 5bdbecd3c; record w4h4/fakepin-5bdbecd3c/fakepin.log (script w4h4-fakepin.sh).
+  - A, the lead's case: the real 1.4.2 is in ~/.bun/bin. The resolver picks ~/.bun/bin/bun, and the lookup list equals the real list
+    (the device test and the journey). PASS.
+  - C: EZCORP_PINNED_BUN_DIR names the real 1.4.2. The resolver picks it over the fake, and the list is correct. PASS.
+  - B, a limit check: there is no ~/.bun/bin and no EZCORP_PINNED_BUN_DIR. The resolver picks the fake, and the lookup accepts
+    "FAKE-BUN-ANSWERED" as the list. The version check cannot detect a fake that lies about its version, and the lookup does not
+    check that each listed path is a real test file. This is NOT a blocker. A fake must lie on purpose, and no test in the repository
+    does that: the lcov-guard fake does not answer 1.4.2 and the test passes 48/0. The bad list also fails in the open: the bound
+    tests go back into the hosted sets and fail loudly there. They do not disappear. Optional hardening for later: refuse a list line
+    that is not an existing *.test.ts file.
+  On this host ~/.bun/bin/bun is 1.3.14, so the resolver skips it, as designed.
+
+LANES AND DEVICE TEST, rerun or carry: CARRY. scripts/run-factory-lane-tests.sh sources neither changed library. It calls
+  `bun scripts/check-factory-lanes.ts --lane-tests` and `--lane-images` directly, then `bun test`. Its only mention of
+  test-file-sets.sh is a comment (line 6). check-factory-lanes.ts, ci.yml and podman-devices.integration.test.ts are not in the diff.
+  The lane-bun.sh change only adds a function, pinned_bun_binary; the old lane_bun_pin is unchanged. The owner's own rerun at
+  5bdbecd3c under the GPU lock (device 7/0, isolation 30/0, deployment-operations 11/0) agrees with my carried results.
+
+NOTE FOR MY OWN SCRIPT (no effect on this verdict): my head reader leg dropped absent files with no message. The merge leg names
+  every absent file and found none. Lesson 32 records it.
+
+----- record of the REJECT at 32b7a3f99 and the withdrawn ACCEPT, items (a) to (g), for reference -----
+
+DEPLOYMENT PREREQUISITE (not a finding): the hosted lanes for the two bound tests need the self-hosted runners labelled factory-gpu and
+factory-real, which the user has not created yet. Until they exist, those two tests run on no hosted runner (by design: no hosted
+runner has their preconditions).
+
+5 commits, all archy noreply as author and committer: 8ee0a5c72 (manifest and both selections), 170c7dd18 (journey binding split out),
+e613a833f (journey bound to factory-deployment-operations with the image-pin precondition), c5e527b1d (the device test's named
+precondition), 32b7a3f99 (gates doc only over c5e527b1d). Files: ci.yml, check-factory-lanes.ts and its test,
+scripts/lib/test-file-sets.sh, scripts/run-factory-lane-tests.sh (new), scripts/lib/combined-runner-legs.ts,
+podman-devices.integration.test.ts, ci-test-set-drift.test.ts, factory-ci-registration.test.ts, the gates doc.
+Where: snapshots (validator-5 v5_snapshot) in /tmp/v5-snaps, outside the evidence dir, removed with snap_rm. Records:
+w4g-validation/w4h4/hold-32b7a3f99/ and mutants-32b7a3f99/. Shared config (config-check.py --check-only): exit 0 at every start and end
+("888c78b9e94ea660 = accepted baseline").
+
+(a) MANIFEST (FACTORY_LANES in scripts/check-factory-lanes.ts, read by both lane jobs and the hosted sets):
+  `--bound-tests` = packages/@ezcorp/extension-runner/tests/podman-devices.integration.test.ts and
+  src/factory/reference-data/journey.integration.test.ts. The device test is bound to factory-isolation (ci.yml runs-on
+  [self-hosted, factory-gpu]); the journey to factory-deployment-operations (runs-on [self-hosted, factory-real]) with boundImagePins
+  src/factory/reference-data/image/pinned.json (`--lane-images` = localhost/ezcorp-factory-python-data@sha256:f9cc7477…). Both jobs run
+  `bash scripts/run-factory-lane-tests.sh <job>`. Each bound test has a precondition that fails loudly, never a skip:
+  - device test: the case "precondition: this host exposes the factory-gpu lane's device profile" and a requireHostDevices() check
+    before the two cases that hand host devices to a guest, both "Precondition failed: this host lacks <devices>. podman-devices.
+    integration runs only in the factory-gpu lane …" (proved below);
+  - journey: run-factory-lane-tests.sh checks `podman image exists` for every pinned image before any test and exits 3 with
+    "Precondition failed: lane <job> needs the pinned image <image> on this runner, and it is absent." (code review).
+  Lane gate (`bun scripts/check-factory-lanes.ts`) exit 0.
+  HOSTED SELECTION (scripts/lib/test-file-sets.sh, P = passfail_files, C = coverage_host_files, in my snapshot): at the head P+C have 4040
+  lines and name the device test 0 times and the journey 0 times; with test-file-sets.sh and check-factory-lanes.ts at 52d8ba079 they
+  have 4044 lines and name each twice (P and C). The owner's runner-shaped selection logs agree (shard 3 selected the device test,
+  shard 1 the journey at the base; none at the head). lane_bound_test_files fails closed (non-zero with a message) when the manifest
+  gives no list.
+(b) LANE RUNS, mine, at 32b7a3f99 under the heavy lock (gated-flock, GATE_TRIES=1) and the host's GPU lock
+  ($XDG_RUNTIME_DIR/ezcorp-factory-local-gpu.lock), load1 2.6-3.6: factory-isolation 5 files, 30 pass, 0 fail;
+  factory-deployment-operations 1 file (the journey, after the image-pin precondition passed), 11 pass, 0 fail.
+(c) DEVICE TEST: 7 pass, 0 fail on this host (it has /dev/kfd, renderD128, renderD129). Precondition mutants (one host device replaced by
+  /dev/dri/renderD199, a name the runner accepts and that this host lacks):
+  - WITH the named precondition: RED by assertion, 3 cases, each "Precondition failed" (6 lines): the precondition case, "a v4 start
+    that names no devices still receives the host configuration", "a factory start receives exactly the devices its grant names and
+    nothing else".
+  - WITHOUT it (the throw disabled): the v4 start fails in the runtime with `RunnerError: Error: stat /dev/dri/renderD199: no such file or
+    directory` — the hosted failure shape — and only the precondition case's own assertion still names the gap.
+  - A first mutant try with "/dev/kfd-v6-absent" is void: the runner refuses that name in beforeAll (invalid_device) before any case runs.
+  No test or runner path passes a device beyond what a start names: the CPU factory start sees none; the factory start receives exactly
+  its grant (renderD128); the runner-shaped container ran with no --device and no --privileged (owner's container).
+(d) CONTAINER REPRODUCTION: the owner's runner-shaped container cannot reach the device step on three variants (crun setgroups; crun
+  ping_group_range read-only; mount proc not permitted with unmask=/proc/sys); the gates doc states the limit plainly and names the
+  hosted log ("RunnerError: Error: stat /dev/kfd: no such file or directory", run 37138524741, shard 3) as the red of record. Accepted as
+  ruled; my renderD199 mutant above reproduces that failure shape on this host.
+(e) DISCLOSED: repro-test.sh first exited with the container's last echo (rc 0 beside a failed test); fixed to exit with the highest test
+  exit (gates doc, "Note").
+(f) LIST-7 DECISION recorded in the gates doc: neither biome-ignores-worktrees.test.ts nor applied-controls.integration.test.ts is bound
+  (the hosted runner has both preconditions; the shard container's shape — node, then the factory-python-base pull — is a leftover item).
+(g) STANDARD LEGS: typecheck, lint, check-factory-boundaries, check-boundaries 0; hook-mapped unit suites (check-factory-lanes,
+  ci-test-set-drift, combined-runner-legs, factory-ci-registration), each nonzero, with lcov: 69 pass, 0 fail;
+  scripts/check-factory-lanes.ts LF 301 LH 301; SDK 246/0; new-file and patch gates against 52d8ba079 PASSED; CRAP: no touched function
+  over 30; vs origin/main neither gate output names a file of this change; gate-integrity base leg clean, origin/main leg equals the 8
+  paths; guard set 36 files 468 pass, 2 skip (BPF), 0 fail; prune scan (w00/prune-scan.sh a4a59601cec26963) "clean (0 hit(s))";
+  identity 5/5.
