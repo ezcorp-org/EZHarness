@@ -213,6 +213,17 @@ The fix must retain guest authorization and dispatch deduplication while
 restricting the native lifecycle observer to lifecycle operations. Regression
 tests and the next live run are still required before calling this fixed.
 
+The regression reproduced this exact denial before transport. Fix `46990613e`
+restricts observation reservation to create, power and delete, while preserving
+the broader guest mutation checks. All 28 action tests and nine broker tests
+passed, with independent review and a parent rerun. The fixed app passed build,
+verification, smoke and guarded installation. Its manifest is
+`9620e3dad6fa022dfa576b2d38429826d59dbebb702697f3ebafb9ac217cf35f`.
+Independent receipts 83–86 confirm the installed source, unchanged approved
+provider and connection, prior completed cleanup and empty guest inventory.
+This is source-level fix evidence; a fresh full live qualification remains
+required.
+
 The local native-work fixture passed its independent checkout, failing-test,
 repair and retained-commit tests. The Incus transport suite passed 44 tests,
 including the accepted delete-protection failure case. These are offline

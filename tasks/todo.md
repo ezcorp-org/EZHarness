@@ -2765,3 +2765,57 @@ settlement journal for guest mutations under host contract minor 1. The debug
 worker owns a regression-first fix in the broker and its action tests. Keep
 the broad guest mutation dispatch/authorization checks; narrow only the native
 lifecycle observation path. No connection or image change is indicated.
+
+Fix `46990613e` reproduced the permission denial before transport, then passed
+28 action tests (191 assertions), nine broker tests, typecheck, lint and
+independent review. The parent reran all 28 action tests successfully. The
+production diff is eight lines; lifecycle journal checks remain enforced.
+The guarded fixed-app update passed build, verification, smoke and restart.
+Private receipts 82–86 prove installed manifest
+`9620e3dad6fa022dfa576b2d38429826d59dbebb702697f3ebafb9ac217cf35f`,
+unchanged provider/connection, historical cleanup status and empty inventory.
+Fresh full qualification is still required to verify the fix on the server.
+
+### Preserved START from fixed-app qualification
+
+- [x] Preserve fresh attempt 89 and inspect the exact guest without replay.
+- [x] Read the current journal from a guarded stopped copy; restart the same app.
+- [ ] Reproduce the start failure, including a possible reconciliation/receipt race.
+- [x] Design and independently review synthetic-intent fenced cleanup support.
+- [ ] Implement and test only the supported recovery extension required by the design.
+- [ ] Prepare an exact current-target recovery packet and verify its authority boundary.
+- [ ] Recover and clean the preserved target through the approved supported path.
+- [ ] Resume qualification and the normal user feature workflow with fresh IDs.
+
+Attempt 89 preserved START `c7b5f35d-aa75-421f-aa6b-0741840c8c39` UNKNOWN.
+Guest `ezh-e527e87eb409d89f6e70d58c8ea4a49b` is stopped, with generation 2
+running-intent tags. The host binding remains generation 1, desired RUNNING,
+observed STOPPED. Receipt 102 confirms a synthetic accepted handle, no native
+handle history, and successful prior CREATE. No retry or cleanup was sent.
+The current fenced cleanup verifier requires a native UUID and cannot accept
+this synthetic intent. Two separate Sol worktrees investigate the source race
+and design the smallest safe recovery extension; independent review must
+confirm the invariants before implementation. The sole live operator remains
+idle for mutations. The full fixed-app run did not reach guest process checks.
+
+All fd84 source gates now passed through ordered recovery: mandatory browser
+lanes, 28,329 coverage tests, 1,800 file thresholds, 93 new-file checks and
+160-file patch coverage. The original exit 1 remains recorded. This evidence
+does not claim full gates for the later diagnostic and broker fixes.
+
+The actual broker/controller interleaving reproduced a second defect:
+reconciliation treats an active DISPATCHING call as a restarted call, changes
+it to UNKNOWN, and makes the next accepted receipt fail its journal check.
+This reproduces the saved shape but does not prove the historical live cause.
+The reviewed fix uses shared active-dispatch ownership across controllers on
+one database, released after outcome persistence; no-owner restart behavior
+must remain unchanged. The debug worker owns controller changes and tests.
+
+The reviewed cleanup design adds only START-specific signed v2 intent proof.
+It preserves native v1, derives the exact stable handle from the original
+request, requires two unchanged stopped-instance observations and strict empty
+operation-list responses under the existing fence, and journals separate
+DESTROY without changing the original UNKNOWN or releasing reservations early.
+It must not claim native absence or no effect. The source worker owns recovery
+code and tests; the live operator prepares fresh target pins locally. Existing
+permission rules may be reused, but old target-specific files may not.
