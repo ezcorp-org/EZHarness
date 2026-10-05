@@ -88,8 +88,10 @@ print(json.dumps(receipt))
                        "artifacts": [{"path": str(artifact), "sha256": flow.hashlib.sha256(artifact.read_bytes()).hexdigest()}]}
             output.write(json.dumps(receipt).encode())
             return 0
-        with patch.object(flow, "supervise", scripted_receipt):
+        # This test checks sequencing; the dedicated durability test uses real fsync.
+        with patch.object(flow, "supervise", scripted_receipt), patch.object(flow.os, "fsync") as sync:
             result = flow.run(self.config(cycles=10), self.base / "run")
+        self.assertGreater(sync.call_count, 0)
         self.assertEqual(result["state"], "SUCCEEDED")
         self.assertEqual(len(result["steps"]), sum(len(flow.phases_for(self.config(cycles=10), cycle)) for cycle in range(1, 11)))
         self.assertEqual(len({step["requestId"] for step in result["steps"]}), len(result["steps"]))
@@ -264,16 +266,22 @@ print(json.dumps(receipt))
         def synced(path):
             events.append(("sync", path))
             original(path)
+        original_fsync = flow.os.fsync
+        def persisted(descriptor):
+            original_fsync(descriptor)
+            events.append(("persisted", None))
         def failed_hook(*_args):
             events.append(("hook", None))
             raise OSError("fixture stop")
         root = self.base / "sync"
-        with patch.object(flow, "sync_directory", synced), patch.object(flow, "supervise", failed_hook):
+        with patch.object(flow, "sync_directory", synced), patch.object(flow.os, "fsync", persisted), patch.object(flow, "supervise", failed_hook):
             with self.assertRaises(OSError):
                 flow.run(self.config(), root)
         hook_index = events.index(("hook", None))
         self.assertEqual(events[0], ("sync", root.parent))
         self.assertGreaterEqual(events[:hook_index].count(("sync", root)), 3)
+        # Root, journal, request, and admitted journal are persisted before dispatch.
+        self.assertEqual(events[:hook_index].count(("persisted", None)), 7)
 
     def test_actual_grandchild_is_killed_on_timeout_and_normal_exit(self):
         launcher = self.base / "children.py"
