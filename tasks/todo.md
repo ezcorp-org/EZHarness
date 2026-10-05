@@ -5783,7 +5783,7 @@ with 32 CPUs needs 16. The supervisor test hid a second defect: it never attache
 - [x] Regression pair with no new test: the unchanged suite with UV_THREADPOOL_SIZE=2, red at base, 10 of 10 green at the fix.
 - [x] Runner-shaped container (4 CPUs): red at run 1 at 52d8ba079; 20 of 20 green with the runner diff. Host: 20 of 20 green at the fix.
 - [x] At the merged fix (87e1e197c): E2E 2 of 2, the unchanged suite 10 of 10 (gates G4).
-- [ ] E2E at this branch head on 6ac2458c7 (gates G4b; W4H-9 changed the runner service).
+- [x] E2E at this branch head 2e529f1bb on 6ac2458c7: 2 of 2 runs, 3 passed (gates G4b; W4H-9 changed the runner service).
 
 Review: W4H-7 changes no product or test file. The write path was already serialised (host row lock through withLock, FOR UPDATE and a
 revision check). The two red lanes are the worker-channel stall that W4H-6 fixes, so W4H-7 merges after W4H-6 and carries only its

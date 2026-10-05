@@ -55,7 +55,13 @@ integ/w00, so the merged code subsumes it. The ref stays only to keep the receip
   RED at 52d8ba079: red at run 1 (`E/pool2-red-base/`). GREEN at 40875d887: 10 of 10 (`E/pool2-green-fix-v2/`).
 - [x] G4 (W4H-6 merged, integ/w00 87e1e197c): E2E 2 of 2 runs, 3 passed each (`E/e2e-merged-87e1/`, sha256 d83ae4a8e7cde6a9,
   0857f496f9b2cc32); the unchanged isolated suite 10 of 10 (`E/host-merged-87e1/`, summary sha256 43215a1861c928c2).
-- [ ] G4b (this branch's head on 6ac2458c7): 87e1e197c..6ac2458c7 changes packages/@ezcorp/extension-runner/src/service.ts (W4H-9), which
-  the real-auth stack uses, so the E2E spec runs again at the head (`E/e2e-head/`). The isolated suite uses PodmanRunner in-process, not
-  service.ts; its runner, SDK and task-state files are unchanged since 87e1e197c.
-- [ ] G5 (scope): this branch changes only this file, tasks/todo.md and tasks/lessons.md. Hook count per commit is in the report.
+- [x] G4b (this branch's head 2e529f1bb on 6ac2458c7): 87e1e197c..6ac2458c7 changes packages/@ezcorp/extension-runner/src/service.ts
+  (W4H-9), which the real-auth stack uses, so the E2E spec ran again at the head: exit 0, 2 of 2 runs, 3 passed each
+  (`E/e2e-head/`, run-1.log sha256 ee9d089ce1565145, run-2.log a796da9661c13b3f, summary 4b414d82dca50d64). The isolated suite uses
+  PodmanRunner in-process, not service.ts; its runner, SDK and task-state files are unchanged since 87e1e197c.
+- [x] G5 (scope): this branch changes only this file, tasks/todo.md and tasks/lessons.md. The hook mapped 0 suites on each commit.
+
+Regression pins (no new test, coordinator ruling): the existing task-panel-durability.spec.ts:107 and task-state-isolated suite are this
+lane's pins (red at 52d8ba079, green on the merged fix), with W4H-6's channel-pool test as the unit pin of the cause.
+
+Correction: an interim report gave the task_add save as index.ts:752; the line is index.ts:748 (as above).
