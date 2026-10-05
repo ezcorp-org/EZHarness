@@ -1,3 +1,4 @@
+import { IncusLiveWitnessError } from "./incus-host-live-witness";
 import { IncusCpuLoadProofError } from "./incus-live-limit-probe";
 import { expect, test } from "bun:test";
 import { INCUS_PRESETS } from "../../extensions/incus-sandbox/manifest";
@@ -6,6 +7,8 @@ import { GUEST_HELPER_SHA256 } from "./incus-guest/protocol";
 import {
   beginDurableIncusLiveCases,
   incusPreparationCauseCode,
+  incusGuestFailureCauseCode,
+  INCUS_WITNESS_GUEST_OPERATIONS,
   INCUS_PREPARATION_CAUSE_CODES,
   createIncusLiveCaseRunner,
   resumeDurableIncusLiveCases,
@@ -370,4 +373,47 @@ test("durable CPU proof failure preserves bounded numeric evidence through clean
     { runId: "cpu-diagnostic-run", nonce: "fresh-nonce", deadlineMs: Date.now() + 60_000 }))
     .rejects.toMatchObject({ stage: "limit_loads", cleanup: "confirmed", causeCode: "cpu_load_did_not_prove_containment", cpuLoad });
   expect(original.destroyed).toHaveLength(2);
+});
+
+
+test("guest diagnostic accepts finite method/code pairs and omits unknown private values", () => {
+  for (const operation of INCUS_WITNESS_GUEST_OPERATIONS) {
+    for (const code of ["INVALID_ARGUMENT", "NOT_FOUND", "ALREADY_EXISTS", "REVISION_CONFLICT",
+      "UNSUPPORTED_CAPABILITY", "DEADLINE_EXCEEDED", "UNAVAILABLE", "PERMISSION_DENIED",
+      "RESOURCE_EXHAUSTED", "OUTCOME_UNKNOWN", "INTERNAL"]) {
+      const expected = `guest_${operation.replace(".", "_")}_${code.toLowerCase()}`;
+      expect(incusGuestFailureCauseCode(operation, code)).toBe(expected);
+      expect(INCUS_PREPARATION_CAUSE_CODES.has(expected)).toBe(true);
+      expect(incusPreparationCauseCode(new IncusLiveWitnessError("guest action failed", operation, code))).toBe(expected);
+    }
+  }
+  for (const [operation, code] of [["private-method", "UNAVAILABLE"], ["processes.start", "private-code"],
+    [null, "UNAVAILABLE"], ["processes.start", { secret: "private" }]]) {
+    const failure = new IncusLiveWitnessError("guest action failed", operation, code);
+    expect(failure.code).toBe("guest_action_failed");
+    expect(incusPreparationCauseCode(failure)).toBe("guest_action_failed");
+    expect(JSON.stringify(failure)).not.toContain("private");
+  }
+});
+
+test("running primary guest failure retains safe method/code and confirmed cleanup", async () => {
+  const original = witness();
+  const inspect = original.value.inspectFixture;
+  original.value.inspectFixture = async handle => {
+    if (original.states.get(handle.sandboxId) === "running") {
+      throw new IncusLiveWitnessError("guest action failed", "processes.start", "OUTCOME_UNKNOWN");
+    }
+    return inspect(handle);
+  };
+  const durable: DurableIncusLiveWitness = { ...original.value,
+    findFixture: async () => { throw new Error("unexpected lookup"); },
+    beginRestart: async () => { throw new Error("unexpected restart"); },
+    claimRestart: async () => { throw new Error("unexpected claim"); } };
+  let failure: unknown;
+  try { await beginDurableIncusLiveCases({ witness: durable }, scope, preset,
+    { runId: "guest-diagnostic-run", nonce: "fresh-nonce", deadlineMs: Date.now() + 60_000 }); }
+  catch (error) { failure = error; }
+  expect(failure).toMatchObject({ message: "Incus qualification preparation failed", stage: "fixtures",
+    cleanup: "confirmed", causeCode: "guest_processes_start_outcome_unknown" });
+  expect(original.destroyed).toHaveLength(1);
 });

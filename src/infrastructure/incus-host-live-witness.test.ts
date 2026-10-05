@@ -515,6 +515,7 @@ test("fixture guest file and process calls use the exact running release and con
     effectiveSettingsDigest: fixture.effectiveSettingsDigest };
   const calls: Array<{ operation: string; input: Record<string, unknown> }> = [];
   let outputPages = 0;
+  let guestFailure: { operation: string; code: string } | null = null;
   const candidate = new IncusHostLiveWitness({ db,
     qualifications: { authorizeFixture: async () => selected } as unknown as IncusQualificationStore,
     fixtures: {} as IncusQualificationFixtureService,
@@ -524,6 +525,9 @@ test("fixture guest file and process calls use the exact running release and con
       configuration: { kind: "incus", guestUser: "sandbox" } }) as ProviderConnectionCredentials,
     invokeGuest: async (_installation, _binding, operation, input) => {
       calls.push({ operation, input });
+      if (guestFailure?.operation === operation) return { ok: false, error: { code: guestFailure.code,
+        message: "private credential and guest payload", retryable: false,
+        ...(guestFailure.code === "OUTCOME_UNKNOWN" ? { operationId: "private-operation-id" } : {}) } };
       if (operation === "files.writeAtomic") return { ok: true, path: input.path, revision: "r1", sizeBytes: 2 };
       if (operation === "files.stat") return { ok: true, file: { path: input.path, kind: "file",
         revision: "r1", sizeBytes: 2, executable: false } };
@@ -552,6 +556,18 @@ test("fixture guest file and process calls use the exact running release and con
     "processes.start", "processes.readOutput", "processes.inspect", "processes.readOutput", "processes.inspect"]);
   expect(calls.every(call => call.input.sandboxId === handle.sandboxId && call.input.connectionId === scope.connectionId))
     .toBe(true);
+  for (const operation of ["processes.start", "processes.readOutput", "processes.inspect"]) {
+    outputPages = 0;
+    guestFailure = { operation, code: operation === "processes.start" ? "OUTCOME_UNKNOWN" : "UNAVAILABLE" };
+    let failure: unknown;
+    try { await candidate.run(handle, ["sh", "-c", "id -un; pwd; cat /proc/sys/kernel/random/boot_id"], 30_000); }
+    catch (error) { failure = error; }
+    expect(failure).toBeInstanceOf(IncusLiveWitnessError);
+    expect(failure).toMatchObject({ message: "Incus live witness unavailable: guest action failed",
+      code: `guest_${operation.replace(".", "_")}_${guestFailure.code.toLowerCase()}` });
+    expect(JSON.stringify(failure)).not.toContain("private");
+  }
+  guestFailure = null;
   binding.observedState = "STOPPED";
   await expect(candidate.readFile(handle, "marker")).rejects.toThrow("not running");
 });

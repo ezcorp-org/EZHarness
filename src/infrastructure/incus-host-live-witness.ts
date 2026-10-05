@@ -11,7 +11,7 @@ import { getReleaseRuntime, ReleaseProcess, resolveActiveRelease,
 import type { IncusSetupRecipe } from "../../scripts/incus/model";
 import { IncusQualificationOperationUnsettledError, IncusQualificationFixtureService, IncusQualificationStore, type IncusImageReceipt,
   type IncusQualificationScope } from "./incus-qualification";
-import type { HostIncusLiveWitness, LiveFixtureHandle, LiveFixtureInspection } from "./incus-live-cases";
+import { incusGuestFailureCauseCode, INCUS_WITNESS_GUEST_OPERATIONS, type HostIncusLiveWitness, type LiveFixtureHandle, type LiveFixtureInspection } from "./incus-live-cases";
 import { observeIncusResourceEnforcement, type IncusNetworkTarget } from "./incus-live-resource-probes";
 import { exerciseIncusLimits } from "./incus-live-limit-probe";
 import { IncusLiveNetworkProbe } from "./incus-live-network-probe";
@@ -30,9 +30,7 @@ const MAX_FILE_BYTES = 64 * 1024;
 const POLL_MS = 100;
 const CONTROL_DENIALS = ["unsupported", "missingControl", "drift", "unqualified"] as const;
 type ControlDenial = (typeof CONTROL_DENIALS)[number];
-const guestOperations = new Set<SandboxProtocolOperation>([
-  "files.stat", "files.readRange", "files.writeAtomic", "processes.start", "processes.inspect", "processes.readOutput",
-]);
+const guestOperations = new Set<SandboxProtocolOperation>(INCUS_WITNESS_GUEST_OPERATIONS);
 
 /** This checks operator wiring before allocation. Only the full live run can publish SP evidence. */
 export async function incusHostLiveWitnessReady(deps: {
@@ -65,9 +63,11 @@ export async function incusHostLiveWitnessReady(deps: {
 }
 
 export class IncusLiveWitnessError extends Error {
-  constructor(reason: string) {
+  readonly code?: string;
+  constructor(reason: string, operation?: unknown, providerCode?: unknown) {
     super(`Incus live witness unavailable: ${reason}`);
     this.name = "IncusLiveWitnessError";
+    if (operation !== undefined) this.code = incusGuestFailureCauseCode(operation, providerCode);
   }
 }
 
@@ -75,10 +75,13 @@ function deny(reason: string): never {
   throw new IncusLiveWitnessError(reason);
 }
 
-function reply(value: unknown): Record<string, unknown> {
+function reply(value: unknown, operation: SandboxProtocolOperation): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) deny("invalid guest reply");
   const result = value as Record<string, unknown>;
-  if (result.ok !== true) deny("guest action failed");
+  if (result.ok !== true) {
+    const error = result.error as Record<string, unknown> | undefined;
+    throw new IncusLiveWitnessError("guest action failed", operation, error?.code);
+  }
   return result;
 }
 
@@ -299,7 +302,7 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
       input.idempotencyKey = identity;
     }
     const result = await this.invokeGuest(fixture.installationId, fixture.bindingId, operation, input);
-    return reply(validateSandboxProviderMethodExchange(operation, input, result).result);
+    return reply(validateSandboxProviderMethodExchange(operation, input, result).result, operation);
   }
 
   private async assertDurableState(handle: LiveFixtureHandle, scope: IncusQualificationScope,

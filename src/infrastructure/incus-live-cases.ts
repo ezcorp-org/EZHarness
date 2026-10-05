@@ -2,8 +2,10 @@ import { IncusCpuLoadProofError, incusCpuLoadDiagnostic, type IncusCpuLoadDiagno
 import { randomUUID } from "node:crypto";
 import {
   sandboxPresetDigest,
+  sandboxProviderMethodSchemas,
   type SandboxCompatibilityObservation,
   type SandboxPreset,
+  type SandboxProtocolOperation,
 } from "@ezcorp/extension-contract";
 import { GUEST_HELPER_SHA256 } from "./incus-guest/protocol";
 import { IncusQualificationOperationUnsettledError, type IncusLiveCaseEvidence, type IncusQualificationScope } from "./incus-qualification";
@@ -281,13 +283,29 @@ for (const resource of ["memory", "cpu", "pids", "disk"]) {
   preparationAssertions.set(`Incus live qualification failed: controlled ${resource} load escaped its sandbox or affected a neighbor`, `${resource}_containment_or_neighbor_assertion_failed`);
 }
 const preparationProviderCodes = new Set(["SCOPE_INVALID", "PERMISSION_DENIED", "TIMEOUT", "INVALID_INPUT", "REVISION_CONFLICT", "NOT_FOUND", "INTERNAL", "UNAVAILABLE"]);
-export const INCUS_PREPARATION_CAUSE_CODES: ReadonlySet<string> = new Set(["unclassified", ...preparationAssertions.values(), ...preparationProviderCodes]);
+export const INCUS_WITNESS_GUEST_OPERATIONS = [
+  "files.stat", "files.readRange", "files.writeAtomic", "processes.start", "processes.inspect", "processes.readOutput",
+] as const satisfies readonly SandboxProtocolOperation[];
+// Read the finite canonical enum; do not maintain a second provider-code list.
+const guestErrorDefinitions = sandboxProviderMethodSchemas("processes.start", 1).outputSchema.$defs as
+  Record<string, { enum: readonly string[] }>;
+const guestProviderCodes = guestErrorDefinitions.SandboxProviderErrorCode!.enum;
+const guestFailureCodes = new Map<string, string>(INCUS_WITNESS_GUEST_OPERATIONS.flatMap(operation =>
+  guestProviderCodes.map(code => [`${operation}:${code}`, `guest_${operation.replace(".", "_")}_${code.toLowerCase()}`])));
+const guestFailureCauseCodes = new Set(guestFailureCodes.values());
+/** Only finite method/code pairs can cross the diagnostic boundary. */
+export function incusGuestFailureCauseCode(operation: unknown, code: unknown): string {
+  return typeof operation === "string" && typeof code === "string"
+    ? guestFailureCodes.get(`${operation}:${code}`) ?? "guest_action_failed" : "guest_action_failed";
+}
+export const INCUS_PREPARATION_CAUSE_CODES: ReadonlySet<string> = new Set(["unclassified", ...preparationAssertions.values(), ...preparationProviderCodes, ...guestFailureCodes.values()]);
 export function incusPreparationCauseCode(error: unknown): string {
   if (!(error instanceof Error)) return "unclassified";
+  const diagnosticCode = (error as Error & { code?: unknown }).code;
+  if (typeof diagnosticCode === "string" && guestFailureCauseCodes.has(diagnosticCode)) return diagnosticCode;
   const assertion = preparationAssertions.get(error.message);
   if (assertion) return assertion;
-  const code = (error as Error & { code?: unknown }).code;
-  return typeof code === "string" && preparationProviderCodes.has(code) ? code : "unclassified";
+  return typeof diagnosticCode === "string" && preparationProviderCodes.has(diagnosticCode) ? diagnosticCode : "unclassified";
 }
 /** Safe diagnostic fields only. The original provider exception is not projected. */
 export class IncusQualificationPreparationError extends Error {
