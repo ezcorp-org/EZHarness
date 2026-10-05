@@ -234,3 +234,91 @@ this UI change; a live browser walkthrough remains part of final qualification.
 
 This qualification can run before merge. Required pull-request review, exact
 provider activation approval and live release evidence remain separate gates.
+
+## Current preserved START and combined candidate
+
+The next qualification attempt, `incus-final-014-fixed-20261005-1`, stopped
+with START `c7b5f35d-aa75-421f-aa6b-0741840c8c39` in `OUTCOME_UNKNOWN`.
+Its exact guest remains stopped. A guarded stopped database copy records the
+accepted synthetic intent handle and successful prior CREATE. Backend tags
+show generation 2 and a running intent; the host binding remains generation 1,
+desired RUNNING and observed STOPPED. Empty backend operation lists do not
+prove that the attempted START had no effect. The attempt has not been replayed.
+
+The broker/controller integration test reproduced a race with that saved shape:
+reconciliation changes an actively dispatching operation to UNKNOWN, then
+rejects its next accepted receipt. Fix `5ec0f9a0b` shares dispatch ownership
+between controllers on the same database until the result is saved. Restart
+recovery for calls with no active owner remains intact. This reproduces a
+defect; it does not establish the historical cause of the live attempt.
+The integrated controller and action suites passed 49 tests and 317 assertions.
+
+Fix `5080f3792` adds a strict START-only fenced cleanup path for this synthetic
+handle. It derives the handle from the original request, binds the signed
+evidence to the exact scope and generation, and requires two unchanged stopped
+instance observations plus an empty backend operation list under a verified
+fence. It journals a separate DESTROY and preserves the original UNKNOWN.
+Native-handle cleanup remains unchanged. The parent rerun passed 104 recovery
+and observer tests with 332 assertions; the worker also passed 92 Python tests.
+Independent review passed both fixes.
+
+The combined candidate at `5080f3792dbbedcdae17b81368ed9ee83ba41b80` passed
+build, bundle verification, 106 smoke checks and source comparison of 11,066
+files with zero mismatches. Its manifest SHA-256 is
+`f935dbb456db40581cf1642f1f6bd2049e28062f605298ea395dff0195191748`.
+The full repository gate is still running in a separate clean worktree.
+Its backend pool passed 27,576 tests; its web unit pool passed 3,638 tests.
+The large browser mock lane returned 1,436 passes and five failures. The traces
+show HTTP 200 documents followed by `ERR_NETWORK_CHANGED` on required scripts.
+All five failures correlate with host Docker interface changes within two
+seconds. The 13 selected cases passed both normally and in a private network
+namespace, without source edits or retries. The full isolated-network mock
+rerun passed 1,441 tests. The evidence rerun exposed an unmocked GitHub avatar;
+fix `d3282a479` reproduced that failure offline, then passed all 25 related
+tests with the image mocked and decoding asserted. Original failures remain
+recorded; changed source receipts have not been mixed with the old run.
+
+The exact-508 full command completed with exit 1 for browser evidence only.
+Coverage tests passed 28,382 tests across 1,743 shards; all 1,800 file thresholds,
+93 new-file checks and 160-file patch checks passed. The final combined source
+still needs fresh browser evidence and the required full gate.
+
+The guarded combined app update and private recovery-config rotation passed.
+Receipts 107–114 record preflight, stopped historical readback, swap, rotation
+and startup. Readbacks 115–119 confirm source `5080f3792`, the exact candidate
+manifest, unchanged provider artifact, successful management/status responses
+and the same stopped target. No server recovery request has been sent.
+
+The server's historical root recovery key is absent. Its working operator
+session uses the same user slice that recovery must freeze. The reviewed
+[temporary recovery plan](2026-10-05-c7-temporary-recovery-access-review.md)
+awaits approval; current sudo access
+alone does not prove that restoration can run under the fence. The exact
+stopped target still requires cleanup with fresh fence evidence. Full live
+qualification, normal user workflow and ten consecutive lifecycle receipts
+remain required.
+
+## Fresh qualification after the startup fix
+
+Run `incus-final-014-combined-20261005-1` created and started two new guests
+while preserving c7. Receipt 127 confirms both new guests RUNNING and c7
+STOPPED. Request 126 then returned `qualification_preparation_failed`, stage
+`limit_loads`, cause `guest_processes_readOutput_deadline_exceeded`.
+This is not a qualification pass.
+
+Known-safe cleanup used the supported API once. Receipts 132–136 confirm the
+new primary DESTROY succeeded, canonical state ABSENT, inventory containing
+only the original stopped c7 guest, and exact new probe cleanup. Independent
+review confirmed these results. Exact reservation fields are not directly
+shown in these receipts and remain a stopped-copy accounting check.
+
+Test `87716696b` proves actual stdout can be read over TLS/WebSockets while the
+real helper's child waits on a release file. The parent rerun passed 10 tests
+and 98 assertions. Local bounded-container memory and PID pressure tests also
+completed their reads; they did not reproduce the live Incus timeout. They
+are diagnostic evidence, not substitutes for live qualification.
+
+The next change reports only the finite load resource and transport failure
+phase. Deadlines, retries, assertions, provider code and configuration remain
+unchanged by that diagnostic design. Another live attempt must preserve that
+evidence rather than repeat the same opaque failure.

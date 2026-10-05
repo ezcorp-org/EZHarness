@@ -2780,9 +2780,9 @@ Fresh full qualification is still required to verify the fix on the server.
 
 - [x] Preserve fresh attempt 89 and inspect the exact guest without replay.
 - [x] Read the current journal from a guarded stopped copy; restart the same app.
-- [ ] Reproduce the start failure, including a possible reconciliation/receipt race.
+- [x] Reproduce the reconciliation/receipt race; do not infer the historical live cause.
 - [x] Design and independently review synthetic-intent fenced cleanup support.
-- [ ] Implement and test only the supported recovery extension required by the design.
+- [x] Implement and test only the supported recovery extension required by the design.
 - [ ] Prepare an exact current-target recovery packet and verify its authority boundary.
 - [ ] Recover and clean the preserved target through the approved supported path.
 - [ ] Resume qualification and the normal user feature workflow with fresh IDs.
@@ -2819,3 +2819,87 @@ DESTROY without changing the original UNKNOWN or releasing reservations early.
 It must not claim native absence or no effect. The source worker owns recovery
 code and tests; the live operator prepares fresh target pins locally. Existing
 permission rules may be reused, but old target-specific files may not.
+
+### Combined candidate 5080f3792 verification
+
+- [x] Review and integrate the controller ownership fix, preserving restart recovery.
+- [x] Review and integrate START-only v2 cleanup, preserving native v1 and original UNKNOWN.
+- [x] Rerun integrated recovery and observer tests: 104 passed, 332 assertions.
+- [x] Build and verify the exact combined candidate; smoke passed (106 checks).
+- [x] Compare source archive bytes: 11,066 files, zero mismatches.
+- [x] Finish and independently review the combined stopped-window update and config rotation.
+- [x] Apply the guarded combined update and start the app (receipts 107–114).
+- [ ] Apply the reviewed update; clean the exact stopped target with fresh fence evidence.
+- [ ] Pass the full repository gate on the exact combined source.
+- [ ] Pass real qualification, normal user workflow, and ten consecutive lifecycles.
+
+Candidate manifest is
+`f935dbb456db40581cf1642f1f6bd2049e28062f605298ea395dff0195191748`
+(15,884,884 bytes). The installed app now uses source `5080f3792`; the separate
+server recovery has not run. The full gate runs from a separate clean worktree at
+`5080f3792dbbedcdae17b81368ed9ee83ba41b80`; planning edits stay out of that tree.
+Private admission tests passed 24 tests and 27 assertions. They check saved
+admission consistency; signature and expiry checks remain upstream. No live
+cleanup, new qualification, or user-flow result is claimed by these tests.
+
+The browser mock lane returned 1,436 passes and five failures. Traces confirm
+HTTP 200 documents followed by `ERR_NETWORK_CHANGED` on required script files.
+All five failures correlate with host Docker interface changes within two
+seconds. The 13 selected cases passed both normally and in a private network
+namespace with no source edits or retries. Rerun the full failed lane using
+the existing collector in that namespace, then use the strict merger with
+the genuine passed lane artifacts from the same source. Preserve the original
+failed run. The backend and web unit pools passed; the full gate is not green.
+
+The historical root recovery key is absent from the actual server. The current
+personal dev route has passwordless sudo, but the required fence freezes that
+user slice. A timed thaw is necessary but does not supply an independent
+recovery channel. Prepare and review a temporary, source-restricted root key
+with a closed forced-command dispatcher and automatic removal; obtain approval
+for this new access before installation. No recovery server write has occurred.
+
+Fresh qualification `incus-final-014-combined-20261005-1` passed independent
+plan review. Its peak is two new guests plus the preserved c7 guest, within
+capacity. Read-only receipt 127 confirmed both new guests RUNNING and c7 still
+STOPPED before the later failure. This proves new CREATE/START progress,
+not completion of the guest workload or cleanup gates.
+
+The authoritative isolated-network mock lane passed all 1,441 tests. The
+evidence lane is being rerun for a sixth failure with the same verified
+network-change cause. The original failed runs remain intact.
+
+Request 126 stopped with `qualification_preparation_failed`, stage
+`limit_loads`, cause `guest_processes_readOutput_deadline_exceeded`.
+The exact new primary was stopped, then deleted once through the supported
+API. Receipts 132–136 confirm its DESTROY succeeded and canonical ABSENT,
+inventory contains only c7, the exact new probe fixtures were removed, and c7
+remains UNKNOWN/STOPPED. Preserve the failed attempt; do not requalify until
+the resource-load timeout has a supported diagnosis and fix or explanation.
+
+The offline evidence rerun exposed a separate fixture defect: an unmocked
+GitHub avatar URL. A focused offline run reproduced the failure. The proposed
+test-only fix supplies that exact image and keeps visibility assertions while
+also checking decoded image width. Do not merge old source receipts with a
+new test commit. The final combined source must get fresh required evidence.
+
+### Resource-load timeout diagnosis
+
+- [x] Verify exact cleanup of the failed run; preserve c7 and the failed receipt.
+- [x] Add a real TLS/helper regression that reads actual stdout while the child
+  waits on a release file. Parent rerun: 10 passed, 98 assertions (`87716696b`).
+- [x] Exercise memory and PID pressure in an owned bounded local container;
+  reads completed. This did not reproduce the Incus timeout.
+- [x] Fix the separate GitHub avatar fixture with offline RED/25-test GREEN
+  evidence (`d3282a479`).
+- [x] Review the narrow diagnostic design before edits.
+- [ ] Add a finite load-resource field and safe transport-phase failure log.
+- [ ] Test each diagnostic branch and prove raw errors/output cannot leak.
+- [ ] Independently review, build and install one combined diagnostic candidate.
+- [ ] Run one fresh informative live qualification; preserve unknown effects.
+- [ ] Run final source gates with isolated mock browser networking.
+
+Do not increase deadlines or add retries to hide the failure. Do not infer
+Incus swap behavior from Docker defaults: Incus source handles the omitted
+option differently. Verify actual behavior before changing any resource policy.
+The exact temporary-access approval request remains pending; no key or timer
+has been installed.

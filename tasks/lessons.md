@@ -620,3 +620,7 @@
   tracks task files despite the general ignored-directory guidance. Keep each
   validation checkout clean before browser coverage attests its source HEAD;
   save uncommitted agent notes under `.cache` instead.
+- Source configuration is not proof of current server access. Verify the exact
+  live SSH key, address, user and command before claiming a recovery route works.
+  Check that the route remains usable while its target user slice is frozen;
+  passwordless sudo alone does not provide an independent recovery path.
