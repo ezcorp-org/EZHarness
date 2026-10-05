@@ -1,0 +1,73 @@
+{
+  "sequenceId": "REPLACE-WITH-REVIEWED-SEQUENCE",
+  "sourceCommit": "REPLACE-WITH-EXACT-SOURCE",
+  "bundleSha256": "REPLACE-WITH-EXACT-BUNDLE-HASH",
+  "cycles": 10,
+  "timeoutSeconds": 600,
+  "hooks": {
+    "preflight": [
+      "/REPLACE-WITH-REVIEWED-HOOK",
+      "preflight"
+    ],
+    "denied_credentials": [
+      "/REPLACE-WITH-REVIEWED-HOOK",
+      "denied_credentials"
+    ],
+    "create": [
+      "/REPLACE-WITH-REVIEWED-HOOK",
+      "create"
+    ],
+    "checkout": [
+      "/REPLACE-WITH-REVIEWED-HOOK",
+      "checkout"
+    ],
+    "native_work": [
+      "/REPLACE-WITH-REVIEWED-HOOK",
+      "native_work"
+    ],
+    "compose_test": [
+      "/REPLACE-WITH-REVIEWED-HOOK",
+      "compose_test"
+    ],
+    "retain": [
+      "/REPLACE-WITH-REVIEWED-HOOK",
+      "retain"
+    ],
+    "stopped_refusal": [
+      "/REPLACE-WITH-REVIEWED-HOOK",
+      "stopped_refusal"
+    ],
+    "resume": [
+      "/REPLACE-WITH-REVIEWED-HOOK",
+      "resume"
+    ],
+    "restart": [
+      "/REPLACE-WITH-REVIEWED-HOOK",
+      "restart"
+    ],
+    "work_after_restart": [
+      "/REPLACE-WITH-REVIEWED-HOOK",
+      "work_after_restart"
+    ],
+    "stop": [
+      "/REPLACE-WITH-REVIEWED-HOOK",
+      "stop"
+    ],
+    "cleanup_fault": [
+      "/REPLACE-WITH-REVIEWED-HOOK",
+      "cleanup_fault"
+    ],
+    "recover_cleanup": [
+      "/REPLACE-WITH-REVIEWED-HOOK",
+      "recover_cleanup"
+    ],
+    "independent_absence": [
+      "/REPLACE-WITH-REVIEWED-HOOK",
+      "independent_absence"
+    ],
+    "accounting": [
+      "/REPLACE-WITH-REVIEWED-HOOK",
+      "accounting"
+    ]
+  }
+}
